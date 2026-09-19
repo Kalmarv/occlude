@@ -39,6 +39,15 @@ function rowsOf(indices: Iterable<number>): readonly number[] {
   return Object.freeze(Array.from(new Set(indices)).sort((p, q) => p - q));
 }
 
+/** Two selections of one state holding exactly the same rows: the test
+ * `pairs` uses to decide that a pair is unordered. */
+function sameMembers(a: readonly number[], b: readonly number[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 function sameSource(a: { source: Material }, b: { source: Material }, what: string): void {
   if (a.source !== b.source) throw new Error(`selection.${what}: the two selections come from different states — combine extracted material instead`);
 }
@@ -64,7 +73,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   readonly source: Material;
   /** The classification that made this group; undefined otherwise. */
   readonly key: K;
-  private readonly rows: readonly number[] | null;
+  private readonly memberRows: readonly number[] | null;
   private readonly set: Set<number> | null;
   /** The lazily built full row list lives in a box, so the selection itself is frozen. */
   private readonly cache: { indices: readonly number[] | null } = { indices: null };
@@ -72,32 +81,32 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   /** @internal Use `material.points` and `filter`. `rows` null means every row. */
   constructor(source: Material, rows: Iterable<number> | null, key?: K) {
     this.source = source;
-    this.rows = rows === null ? null : rowsOf(rows);
-    this.set = this.rows === null ? null : new Set(this.rows);
+    this.memberRows = rows === null ? null : rowsOf(rows);
+    this.set = this.memberRows === null ? null : new Set(this.memberRows);
     this.key = key as K;
     Object.freeze(this);
   }
 
   /** Selected rows of the source, ascending. Not identities across states. */
   get indices(): readonly number[] {
-    if (this.rows !== null) return this.rows;
+    if (this.memberRows !== null) return this.memberRows;
     return (this.cache.indices ??= Object.freeze(fullRows(this.source.n)));
   }
 
   get length(): number {
-    return this.rows === null ? this.source.n : this.rows.length;
+    return this.memberRows === null ? this.source.n : this.memberRows.length;
   }
 
   /** The member at position `i` of this collection (a view of the source). */
   at(i: number): Vertex {
-    const row = this.rows === null ? i : this.rows[i];
+    const row = this.memberRows === null ? i : this.memberRows[i];
     if (!Number.isInteger(i) || i < 0 || row === undefined || row >= this.source.n) throw new Error(`points.at: no member ${i} (${this.length} members)`);
     return this.source.vertex(row);
   }
 
   *[Symbol.iterator](): Iterator<Vertex> {
     const n = this.length;
-    for (let i = 0; i < n; i++) yield this.source.vertex(this.rows === null ? i : this.rows[i]);
+    for (let i = 0; i < n; i++) yield this.source.vertex(this.memberRows === null ? i : this.memberRows[i]);
   }
 
   map<T>(fn: (p: Vertex, i: number) => T): T[] {
@@ -170,7 +179,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     const rows = index(p);
     // The index covers the whole state. A selection of part of it answers
     // with its own members only.
-    return new PointSelection(this.source, this.rows === null ? rows : rows.filter((r) => this.set!.has(r)));
+    return new PointSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.set!.has(r)));
   }
 
   has(view: Vertex): boolean {
@@ -225,6 +234,52 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     const out: number[] = [];
     for (let i = 0; i < this.source.n; i++) if (!(this.set === null || this.set.has(i))) out.push(i);
     return new PointSelection(this.source, out);
+  }
+
+  /** The selection holding those SOURCE rows — never positions within
+   * this selection. The door for a relation the sketch worked out for
+   * itself: hand back the rows it decided on. */
+  rows(indices: Iterable<number>): PointSelection {
+    const out: number[] = [];
+    for (const i of indices) {
+      if (!Number.isInteger(i) || i < 0 || i >= this.source.n) {
+        throw new Error(`points.rows: no vertex ${i} in this state (${this.source.n} rows)`);
+      }
+      out.push(i);
+    }
+    return new PointSelection(this.source, out);
+  }
+
+  /**
+   * Every pair (a member of this, a member of `other`) the predicate
+   * accepts, as views. A point is never paired with itself. `radius`
+   * takes the candidates from the spatial index instead of the whole of
+   * `other`; without it this is the full product, which is what it
+   * sounds like and costs what it sounds like.
+   *
+   * When the two selections hold the same rows, a pair is unordered and
+   * appears once: the predicate sees `(a, b)` with `a` before `b` by row,
+   * and never `(b, a)`.
+   */
+  pairs(
+    other: PointSelection<unknown>,
+    predicate: (a: Vertex, b: Vertex) => boolean,
+    opts: { radius?: number } = {},
+  ): [Vertex, Vertex][] {
+    sameSource(this, other, 'pairs');
+    const m = this.source;
+    const mirror = sameMembers(this.indices, other.indices);
+    const out: [Vertex, Vertex][] = [];
+    for (const i of this.indices) {
+      const a = m.vertex(i);
+      const candidates = opts.radius === undefined ? other.indices : other.near(a, { radius: opts.radius }).indices;
+      for (const j of candidates) {
+        if (i === j || (mirror && j < i)) continue;
+        const b = m.vertex(j);
+        if (predicate(a, b)) out.push([a, b]);
+      }
+    }
+    return out;
   }
 
   /** The positions this selection holds: itself. A point consumer asks
@@ -352,7 +407,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
 export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   readonly source: Material;
   readonly key: K;
-  private readonly rows: readonly number[] | null;
+  private readonly memberRows: readonly number[] | null;
   private readonly set: Set<number> | null;
   /** The lazily built full row list lives in a box, so the selection itself is frozen. */
   private readonly cache: { indices: readonly number[] | null } = { indices: null };
@@ -360,31 +415,31 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   /** @internal Use `material.edges` and `filter`. `rows` null means every row. */
   constructor(source: Material, rows: Iterable<number> | null, key?: K) {
     this.source = source;
-    this.rows = rows === null ? null : rowsOf(rows);
-    this.set = this.rows === null ? null : new Set(this.rows);
+    this.memberRows = rows === null ? null : rowsOf(rows);
+    this.set = this.memberRows === null ? null : new Set(this.memberRows);
     this.key = key as K;
     Object.freeze(this);
   }
 
   /** Selected edge rows of the source, ascending. */
   get indices(): readonly number[] {
-    if (this.rows !== null) return this.rows;
+    if (this.memberRows !== null) return this.memberRows;
     return (this.cache.indices ??= Object.freeze(fullRows(this.source.edgeCount)));
   }
 
   get length(): number {
-    return this.rows === null ? this.source.edgeCount : this.rows.length;
+    return this.memberRows === null ? this.source.edgeCount : this.memberRows.length;
   }
 
   at(i: number): Edge {
-    const row = this.rows === null ? i : this.rows[i];
+    const row = this.memberRows === null ? i : this.memberRows[i];
     if (!Number.isInteger(i) || i < 0 || row === undefined || row >= this.source.edgeCount) throw new Error(`edges.at: no member ${i} (${this.length} members)`);
     return this.source.edge(row);
   }
 
   *[Symbol.iterator](): Iterator<Edge> {
     const n = this.length;
-    for (let i = 0; i < n; i++) yield this.source.edge(this.rows === null ? i : this.rows[i]);
+    for (let i = 0; i < n; i++) yield this.source.edge(this.memberRows === null ? i : this.memberRows[i]);
   }
 
   map<T>(fn: (e: Edge, i: number) => T): T[] {
@@ -451,6 +506,55 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     return new EdgeSelection(state, rows, this.key);
   }
 
+
+  /** The selection holding those SOURCE edge rows — never positions
+   * within this selection. */
+  rows(indices: Iterable<number>): EdgeSelection {
+    const out: number[] = [];
+    for (const e of indices) {
+      if (!Number.isInteger(e) || e < 0 || e >= this.source.edgeCount) {
+        throw new Error(`edges.rows: no edge ${e} in this state (${this.source.edgeCount} edges)`);
+      }
+      out.push(e);
+    }
+    return new EdgeSelection(this.source, out);
+  }
+
+  /**
+   * Every pair (a member of this, a member of `other`) the predicate
+   * accepts, as views. An edge is never paired with itself. `radius`
+   * takes the candidates from a spatial index over edge MIDDLES — an edge
+   * is near another edge by its middle — instead of the whole of `other`;
+   * without it this is the full product.
+   *
+   * When the two selections hold the same rows, a pair is unordered and
+   * appears once.
+   */
+  pairs(
+    other: EdgeSelection<unknown>,
+    predicate: (a: Edge, b: Edge) => boolean,
+    opts: { radius?: number } = {},
+  ): [Edge, Edge][] {
+    sameSource(this, other, 'pairs');
+    const m = this.source;
+    const mirror = sameMembers(this.indices, other.indices);
+    const radius = opts.radius;
+    const mids = radius === undefined ? null : midpoints(m);
+    const theirs = radius === undefined ? null : new Set(other.indices);
+    const out: [Edge, Edge][] = [];
+    for (const e of this.indices) {
+      const a = m.edge(e);
+      const candidates = mids === null
+        ? other.indices
+        : mids.points.near(mids.points.at(e), { radius: radius! }).indices.filter((f) => theirs!.has(f));
+      for (const f of candidates) {
+        if (e === f || (mirror && f < e)) continue;
+        const b = m.edge(f);
+        if (predicate(a, b)) out.push([a, b]);
+      }
+    }
+    return out;
+  }
 
   /** The endpoints of the selected edges — each once, source order. */
   get endpointRows(): readonly number[] {
@@ -604,6 +708,25 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     for (let i = 0; i < degree.length; i++) if (degree[i] > best) best = degree[i];
     return best;
   }
+}
+
+/** The edge middles of `m` as a material of their own, row for row, built
+ * once and kept on the state: `edges.pairs` with a radius asks the point
+ * index about them. */
+function midpoints(m: Material): Material {
+  const box = m.midBox;
+  if (box.material !== null) return box.material;
+  const n = m.edgeCount;
+  const x = new Float64Array(n);
+  const y = new Float64Array(n);
+  for (let e = 0; e < n; e++) {
+    const a = m.edgeList[2 * e];
+    const b = m.edgeList[2 * e + 1];
+    x[e] = (m.x[a] + m.x[b]) / 2;
+    y[e] = (m.y[a] + m.y[b]) / 2;
+  }
+  box.material = new Material(x, y, {}, new Uint32Array(0));
+  return box.material;
 }
 
 /** Copy the given point rows and edge rows of `m` into a fresh material:

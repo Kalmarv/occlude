@@ -33,9 +33,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name.
 
-A shape is not geometry until the toolkit lowers it. Every word on `t` takes a shape; the plain import takes geometry. `t.distanceTo(circle(...))` works and `distanceTo(circle(...))` does not, because a shape needs the paper, the units and its own transform before it has points.
+A shape is not geometry until the toolkit lowers it. Every word on `t` takes a shape. The plain import takes geometry. `t.distanceTo(circle(...))` works and `distanceTo(circle(...))` does not, because a shape needs the paper, the units and its own transform before it has points.
 
-A shape enters the point world through one of two doors only: `t.material(shape)` keeps the boundary's own vertices, and `t.sample(shape, { count })` redistributes along it by arc length. `connect.*`, `voronoi` and `t.quadtree` take points, so give them the material one of those doors made.
+A shape enters the point world through two doors only. `t.material(shape)` keeps the boundary's own vertices. `t.sample(shape, { count })` redistributes along it by arc length. `connect.*`, `voronoi` and `t.quadtree` take points, so give them the material one of those doors made.
 
 | value | answers |
 | --- | --- |
@@ -52,9 +52,9 @@ Every vertex and every edge has an `id` for as long as it exists. An id is opaqu
 
 New geometry mints new ids. A step that moves or sets keeps them. A split retires the edge it cut and gives both halves ids of their own, so `edgeOf(parentId)` finds nothing afterwards.
 
-This is what lets a selection outlive the state it was made in. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
+A selection can then outlive the state that made it. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
 
-Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state; an id and a row are both numbers, so the two have different names and neither guesses.
+Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state. An id and a row are both numbers. The two have different names, and neither guesses.
 
 ## material()
 

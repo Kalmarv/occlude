@@ -1087,6 +1087,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'PointSelection.rows', module: 'occlude', receiver: null,
+      import: null, call: '{self}.rows', returns: 'points',
+      self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
+      page: '/docs/reference/selections', group: 'Selections',
+      params: [
+        { name: 'indices', control: 'text', raw: true, optional: false },
+      ],
+    },
+    {
       word: 'PointSelection.subtract', module: 'occlude', receiver: null,
       import: null, call: '{self}.subtract', returns: 'points',
       self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },

@@ -40,7 +40,7 @@ import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
-import { Execution, type ExecutionInputs, type PaperSpec, type SketchOptions, type Winding } from './execution.js';
+import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type SketchOptions, type Winding } from './execution.js';
 import type { PenDef } from './pens.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
@@ -1354,7 +1354,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
     noiseField: (amount: number, wavelength = 25): VectorFieldFn => noiseFieldOf(noise, amount, wavelength),
     rnd,
-    pick: <T,>(arr: readonly T[]): T => exec.pick(arr),
+    pick: <T,>(items: Pickable<T>): T => exec.pick(items),
     chance: (p: number): boolean => exec.chance(p),
     prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
     noise,

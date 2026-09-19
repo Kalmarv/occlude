@@ -325,6 +325,11 @@ export class Material {
   /** @internal Spatial indexes for `points.near`, one per radius. The
    * state is frozen, so the cache lives in a box like the adjacency does. */
   readonly nearBox: { byRadius: Map<number, (p: XY) => number[]> } = { byRadius: new Map() };
+  /** @internal The edge midpoints as a material of their own, built the
+   * first time `edges.pairs` asks for a radius and kept: an edge is near
+   * another edge by its middle, and the one spatial index the library has
+   * is over points. */
+  readonly midBox: { material: Material | null } = { material: null };
   private readonly facesBox: { faces: Faces | null };
   /** One id per vertex row, and one per edge row. Outside `attrs` on
    * purpose: a column would be interpolated at every split (a mean of two

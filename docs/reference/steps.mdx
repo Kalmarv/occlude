@@ -232,11 +232,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## Your own interaction
 
-A force of your own is a function, not a word of the library: sum what you
+A force of your own is a function, not a word of the library. Sum what you
 want over the points within a radius. `cur.points.near(p, { radius })` is
 the neighbourhood, from an index built once for the state, and a vertex is
-never its own neighbour. `sumBy` adds the vectors up. To leave out the
-points `p` is joined to, subtract them: `.subtract(p.adjacent)`.
+never its own neighbour. `sumBy` adds the vectors up. To skip the points at
+the other end of `p`'s edges, subtract them: `.subtract(p.adjacent)`.
 
 ```ts live
 import { sketch, circle, strokes, force, sub, unit, mul, sumBy, distance } from 'occlude';

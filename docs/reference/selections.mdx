@@ -201,3 +201,49 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return [strokes(web, { pen: 'pigma-005-black' }), probes.points.map((p) => { const hit = q.nearest(p, { within: 10 }); return hit ? line(p.x, p.y, hit.position[0], hit.position[1], { pen: 'stabilo-88-blue' }) : circle(p.x, p.y, 1); })];
 });
 ```
+
+## rows()
+
+<include>/_sig/PointSelection.rows.mdx</include>
+<include>/_sig/EdgeSelection.rows.mdx</include>
+
+The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error.
+
+## pairs()
+
+<include>/_sig/PointSelection.pairs.mdx</include>
+<include>/_sig/EdgeSelection.pairs.mdx</include>
+
+Every pair of members the predicate accepts, as views: `[a, b]` two at a time. A member is never paired with itself. `radius` takes the candidates from the spatial index. Write that form. Edges are near each other by their MIDDLES. Without a radius this is the full product. The library permits it, and it costs what it sounds like.
+
+When the two selections hold the same rows, each pair appears once, in no order. The predicate sees `(a, b)` with `a` before `b` by row. It never sees `(b, a)`. Two different selections give the ordered product instead.
+
+`t.pick(pairs)` takes one pair at a time, because `t.pick` takes anything with `length` and `at`.
+
+```ts live
+import { sketch, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const cloud = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
+  // The relation this drawing is about: two points close enough to see each
+  // other, and level enough to be a rung. The sketch states it; `pairs`
+  // finds it.
+  const rungs = cloud.points.pairs(cloud.points, (a, b) => Math.abs(a.y - b.y) < 5, { radius: 20 });
+  return [
+    cloud.points.map((p) => circle(p.x, p.y, 1.1)),
+    rungs.map(([a, b]) => line(a.x, a.y, b.x, b.y, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+:::note
+**A pair in a step.** A pair is two rows. A batch is a set of edits to rows. Two pairs can then ask contradicting things of one row. The batch rules decide. They are the same rules as for any other edit:
+
+| Two pairs ask | What happens |
+|---|---|
+| to move the same row | the last write wins, as two `next.move` calls do |
+| to set the same column of one row | the last write wins |
+| to connect the same two rows | one edge; a second `connect` of a pair that exists is ignored |
+| to split one edge at different parameters | both splits happen, in edge then parameter order |
+| to remove a row that another pair moves or connects | the batch throws and publishes nothing |
+:::

@@ -123,11 +123,15 @@ export interface InspectionPayload {
   iteration: number;
 }
 
+/** Anything a draw can land in: an array, or a collection that answers
+ * `length` and `at` — a selection, or the pairs a relation gave back. */
+export type Pickable<T> = { readonly length: number; at(i: number): T | undefined };
+
 export interface RandomStream {
   rnd(): number;
   rnd(n: number): number;
   rnd(a: number, b: number): number;
-  pick<T>(arr: readonly T[]): T;
+  pick<T>(items: Pickable<T>): T;
   chance(p: number): boolean;
   prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined;
   noise(x: number, y?: number, z?: number): number;
@@ -469,10 +473,10 @@ export class Execution {
     return v;
   }
 
-  pick<T>(arr: readonly T[]): T {
-    const i = Math.floor(this.unitDraw(this.rng) * arr.length);
+  pick<T>(items: Pickable<T>): T {
+    const i = Math.floor(this.unitDraw(this.rng) * items.length);
     this.madeOf(i);
-    return arr[i];
+    return items.at(i) as T;
   }
 
   chance(p: number): boolean {
@@ -510,7 +514,7 @@ export class Execution {
     };
     return {
       rnd: rnd as RandomStream['rnd'],
-      pick: <T>(arr: readonly T[]): T => { const i = Math.floor(this.unitDraw(rng) * arr.length); this.madeOf(i); return arr[i]; },
+      pick: <T>(items: Pickable<T>): T => { const i = Math.floor(this.unitDraw(rng) * items.length); this.madeOf(i); return items.at(i) as T; },
       chance: chanceOf,
       prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
       noise: (x, y = 0, z = 0) => rng.noise(x, y, z),
