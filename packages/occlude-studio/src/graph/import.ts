@@ -730,6 +730,47 @@ class Reader {
    * the same program: arguments are read left to right, and the lift keeps
    * that order, so the seeded stream draws in the order it drew before.
    */
+  /** The graph's word for an operator. A wire cannot carry `+`, so the
+   * graph has a word for it, and the importer has to build the word. */
+  private static readonly OPERATORS: Partial<Record<ts.SyntaxKind, string>> = {
+    [ts.SyntaxKind.PlusToken]: 'math.add',
+    [ts.SyntaxKind.MinusToken]: 'math.subtract',
+    [ts.SyntaxKind.AsteriskToken]: 'math.multiply',
+    [ts.SyntaxKind.SlashToken]: 'math.divide',
+    [ts.SyntaxKind.PercentToken]: 'math.remainder',
+    [ts.SyntaxKind.AsteriskAsteriskToken]: 'math.power',
+  };
+
+  /**
+   * Arithmetic as nodes: `1 + p.y / 40` is `math.add(1, math.divide(y, 40))`.
+   *
+   * The templates carry their own parentheses, so a nest reads back as it
+   * was written. An operand the graph cannot hold — a string, a call it
+   * refuses — gives up the whole expression, and it stays the code it was.
+   */
+  private liftBinary(expr: ts.Expression): GraphNode | undefined {
+    if (!ts.isBinaryExpression(expr)) return undefined;
+    const wordName = Reader.OPERATORS[expr.operatorToken.kind];
+    if (!wordName) return undefined;
+    const word = this.byWord.get(wordName);
+    if (!word) return undefined;
+    const mark = this.nodes.length;
+    const id = this.uniqueId(wordName.split('.').pop() ?? 'math');
+    const inputs: Record<string, GraphInput> = {};
+    const sides: [string, ts.Expression][] = [['a', expr.left], ['b', expr.right]];
+    for (const [key, side] of sides) {
+      const input = this.argument(side, false);
+      if (input === undefined) {
+        this.rollback(mark);
+        this.taken.delete(id);
+        return undefined;
+      }
+      inputs[key] = input;
+    }
+    const node: GraphNode = { id, kind: 'builtin', word: word.word, x: 0, y: 0, inputs };
+    return this.fits(word, inputs) ? this.add(node) : (this.rollback(mark), this.taken.delete(id), undefined);
+  }
+
   private liftCall(call: ts.CallExpression): GraphNode | undefined {
     const mark = this.nodes.length;
     // Resolving can itself lift — the receiver of a method is a node too —
@@ -1313,6 +1354,11 @@ class Reader {
       const lifted = this.liftCall(arg);
       if (lifted) return { from: [lifted.id, 'out'] };
     }
+    if (ts.isBinaryExpression(arg)) {
+      const lifted = this.liftBinary(arg);
+      if (lifted) return { from: [lifted.id, 'out'] };
+    }
+    if (ts.isParenthesizedExpression(arg)) return this.argument(arg.expression, restLike);
     // A list written where it is used: `view([...boxes, ...roads], …)` is
     // the list node, wired in, exactly as a named one would be.
     if (ts.isArrayLiteralExpression(arg) && arg.elements.length > 0 && !restLike) {
