@@ -64,7 +64,7 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 
 ## Images on a surface
 
-`t.image(name).surface({ channel, origin, wrap, area, uv })` samples an image over the surface through its chart, and returns a tone field like `light`. Combine fields in plain JavaScript: `(s) => sun(s) * ivy(s)` multiplies a light by an image. The marks are plotted lines, never a raster.
+`t.image(name).surface({ channel, origin, wrap, area, uv })` samples an image over the surface through its chart, and returns a tone field like `light`. Combine fields in plain JavaScript: `(s) => sun(s) * ivy(s)` multiplies a light by an image. The marks are lines for the plotter, never a raster.
 
 ```ts live
 import { sketchAsync, pen, mm } from 'occlude';

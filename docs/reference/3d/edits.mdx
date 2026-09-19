@@ -3,7 +3,7 @@ title: Edits
 description: "Subdivide, displace, step, attributes, grids, extrusion, topology and forces on a mesh."
 ---
 
-A mesh is an immutable value. Every edit returns a new mesh and keeps the old one. The rows keep their identity across edits, so a selection from one revision can be made again on the next.
+A mesh is an immutable value. Every edit returns a new mesh and keeps the old one. The rows keep their identity across edits. A selection from one revision applies again on the next.
 
 ## subdivide()
 
@@ -127,7 +127,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## Forces
 
-These are the 3D forces, from `occlude/3d`. They are not the material forces of [Steps](/docs/reference/steps): a 3D force takes world geometry, not rows. Inside a `steps` rule, a force is a field of the point that returns a displacement. `force.attract(target, { strength })` pulls toward a world point. `force.plane({ origin, normal, side })` pushes a point back to one side of a plane; `side` is `'above'` or `'below'`. `force.project(query)` pulls onto a surface. `force.sum` adds them.
+These are the 3D forces, from `occlude/3d`. They are not the material forces of [Steps](/docs/reference/steps): a 3D force takes world geometry, not rows. Inside a `steps` rule, a force is a field of the point that returns a displacement. `force.attract(target, { strength })` pulls toward a world point. `force.plane({ origin, normal, side })` pushes a point back to one side of a plane. `side` is `'above'` or `'below'`. `force.project(query)` pulls onto a surface. `force.sum` adds them.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
