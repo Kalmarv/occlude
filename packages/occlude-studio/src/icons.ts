@@ -41,6 +41,8 @@ const PATHS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   view: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+  fold: '<path d="M7 10l5 5 5-5"/>',
+  unfold: '<path d="M9 7l5 5-5 5"/>',
   grid: '<path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
   alignLeft: '<path d="M4 3v18"/><rect x="7" y="5.5" width="12" height="4.5" rx="1"/><rect x="7" y="14" width="7" height="4.5" rx="1"/>',
   alignMiddleX: '<path d="M12 3v18"/><rect x="5" y="5.5" width="14" height="4.5" rx="1"/><rect x="8.5" y="14" width="7" height="4.5" rx="1"/>',

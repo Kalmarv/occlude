@@ -596,6 +596,14 @@ const paintHooks: NodePaintHooks = {
     dirty = true;
     showDirty();
   },
+  fold: (node, on) => {
+    if (on) node.collapsed = true;
+    else delete node.collapsed;
+    canvas.refresh(node.id);
+    // A folded viewer draws nothing, so opening one has a picture to make.
+    if (node.kind === 'viewer' && !on) schedule();
+    touch();
+  },
   remove: (node) => void removeNode(node.id),
   select: (node) => select(node.id),
   fitViewer: (node) => views.get(node.id)?.preview?.fit(),
@@ -742,7 +750,9 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
   if (context.type === 'translated' || context.type === 'zoomed') {
     rememberView();
     paintGrid();
+    paintMap();
   }
+  if (context.type === 'nodetranslated' || context.type === 'noderesized') paintMap();
   if (context.type === 'nodepicked') {
     const id = context.data.id;
     const at = (other: string): { x: number; y: number } => {
@@ -800,6 +810,7 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
 canvasHost.addEventListener('dblclick', (event) => {
   const target = event.target as HTMLElement | null;
   if (target?.closest('.graph-node')) return;
+  if (target && onChrome(target)) return;
   paletteSearch.focus();
   paletteSearch.select();
 });
@@ -807,8 +818,16 @@ canvasHost.addEventListener('dblclick', (event) => {
 // A press on the empty canvas clears the selection.
 canvasHost.addEventListener('pointerdown', (event) => {
   const target = event.target as HTMLElement | null;
-  if (target && !target.closest('.graph-node')) clearSelection();
+  if (target && !target.closest('.graph-node') && !onChrome(target)) clearSelection();
 });
+
+/** The page's own controls that sit on the canvas rather than beside it. A
+ * press on one is a press on a control: it clears nothing and draws no box.
+ * Without this the align strip cleared the selection it was about to act
+ * on — `pointerdown` lands before `click`. */
+function onChrome(target: Element): boolean {
+  return target.closest('.graph-arrange, .graph-map') !== null;
+}
 
 /**
  * Shift and drag on the empty canvas draws a box, and every node it touches
@@ -823,6 +842,7 @@ canvasHost.addEventListener('pointerdown', (event) => {
   if (!event.shiftKey || event.button !== 0) return;
   const target = event.target as HTMLElement | null;
   if (target?.closest('.graph-node')) return;
+  if (target && onChrome(target)) return;
   event.stopPropagation();
   event.preventDefault();
   const host = canvasHost.getBoundingClientRect();
@@ -949,6 +969,124 @@ for (const [name, label, run] of [
 }
 canvasHost.append(arrange);
 
+/**
+ * The minimap. It shows itself only when the graph does not fit in the
+ * viewport, because a map of what you can already see is furniture. The
+ * picture is the document's own boxes — the same sizes align and the layout
+ * use — with the viewport drawn over them, and a press anywhere on it takes
+ * the view there.
+ */
+const mapBox = el('div', 'graph-map');
+const mapCanvas = document.createElement('canvas');
+mapBox.append(mapCanvas);
+mapBox.hidden = true;
+canvasHost.append(mapBox);
+
+const MAP_W = 168;
+const MAP_H = 118;
+
+/** Every node's box in area units, and what the canvas can see of them. */
+function mapShapes(): { boxes: { id: string; x: number; y: number; w: number; h: number }[]; view: { x: number; y: number; w: number; h: number } } {
+  const zoom = canvas.area.area.transform.k || 1;
+  const boxes = graph.nodes.map((node) => {
+    const rect = views.get(node.id)?.body?.getBoundingClientRect();
+    const box = rect && rect.width > 0 && rect.height > 0
+      ? { width: rect.width / zoom, height: rect.height / zoom }
+      : estimateBox(node, catalogue);
+    return { id: node.id, x: node.x, y: node.y, w: box.width, h: box.height };
+  });
+  const { x, y, k } = canvas.area.area.transform;
+  const view = { x: -x / k, y: -y / k, w: canvasHost.clientWidth / k, h: canvasHost.clientHeight / k };
+  return { boxes, view };
+}
+
+let mapPending = false;
+
+function paintMap(): void {
+  if (mapPending) return;
+  mapPending = true;
+  requestAnimationFrame(() => {
+    mapPending = false;
+    drawMap();
+  });
+}
+
+function drawMap(): void {
+  const { boxes, view } = mapShapes();
+  if (boxes.length === 0) { mapBox.hidden = true; return; }
+  const world = {
+    left: Math.min(...boxes.map((b) => b.x)),
+    right: Math.max(...boxes.map((b) => b.x + b.w)),
+    top: Math.min(...boxes.map((b) => b.y)),
+    bottom: Math.max(...boxes.map((b) => b.y + b.h)),
+  };
+  // Everything in sight: no map.
+  const inside = world.left >= view.x && world.right <= view.x + view.w
+    && world.top >= view.y && world.bottom <= view.y + view.h;
+  mapBox.hidden = inside;
+  if (inside) return;
+
+  const left = Math.min(world.left, view.x);
+  const top = Math.min(world.top, view.y);
+  const width = Math.max(world.right, view.x + view.w) - left;
+  const height = Math.max(world.bottom, view.y + view.h) - top;
+  const scale = Math.min(MAP_W / width, MAP_H / height);
+  const dpr = window.devicePixelRatio || 1;
+  mapCanvas.width = Math.round(MAP_W * dpr);
+  mapCanvas.height = Math.round(MAP_H * dpr);
+  mapCanvas.style.width = `${MAP_W}px`;
+  mapCanvas.style.height = `${MAP_H}px`;
+  const ink = mapCanvas.getContext('2d');
+  if (!ink) return;
+  ink.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ink.clearRect(0, 0, MAP_W, MAP_H);
+  // Centred, so a tall graph is not stuck against one edge.
+  const offX = (MAP_W - width * scale) / 2;
+  const offY = (MAP_H - height * scale) / 2;
+  const at = (x: number, y: number): [number, number] => [offX + (x - left) * scale, offY + (y - top) * scale];
+  const style = getComputedStyle(canvasHost);
+  const edge = style.getPropertyValue('--edge-strong') || 'rgba(255,255,255,0.2)';
+  const accent = style.getPropertyValue('--accent') || '#5ac8a0';
+  for (const box of boxes) {
+    const [x, y] = at(box.x, box.y);
+    ink.fillStyle = selection.has(box.id) ? accent : edge;
+    ink.fillRect(x, y, Math.max(1.5, box.w * scale), Math.max(1.5, box.h * scale));
+  }
+  const [vx, vy] = at(view.x, view.y);
+  ink.strokeStyle = accent;
+  ink.lineWidth = 1;
+  ink.strokeRect(vx + 0.5, vy + 0.5, view.w * scale, view.h * scale);
+  mapCanvas.dataset.scale = String(scale);
+  mapCanvas.dataset.left = String(left - offX / scale);
+  mapCanvas.dataset.top = String(top - offY / scale);
+}
+
+/** A press on the map takes the view there, and a drag keeps taking it. */
+function mapTo(event: PointerEvent): void {
+  const scale = Number(mapCanvas.dataset.scale);
+  if (!Number.isFinite(scale) || scale <= 0) return;
+  const rect = mapCanvas.getBoundingClientRect();
+  const wantX = Number(mapCanvas.dataset.left) + (event.clientX - rect.left) / scale;
+  const wantY = Number(mapCanvas.dataset.top) + (event.clientY - rect.top) / scale;
+  const k = canvas.area.area.transform.k || 1;
+  canvas.lookAt({ k, x: canvasHost.clientWidth / 2 - wantX * k, y: canvasHost.clientHeight / 2 - wantY * k });
+}
+
+mapBox.addEventListener('pointerdown', (event) => {
+  event.stopPropagation();
+  event.preventDefault();
+  mapBox.setPointerCapture(event.pointerId);
+  mapTo(event);
+});
+mapBox.addEventListener('pointermove', (event) => {
+  if (!mapBox.hasPointerCapture(event.pointerId)) return;
+  mapTo(event);
+});
+mapBox.addEventListener('pointerup', (event) => {
+  if (mapBox.hasPointerCapture(event.pointerId)) mapBox.releasePointerCapture(event.pointerId);
+});
+mapBox.addEventListener('wheel', (event) => event.stopPropagation());
+
 /** Where the pointer last was over the canvas, in client pixels: paste puts
  * what it makes under the hand, the way the palette's drop does. */
 let pointerAt: { x: number; y: number } | null = null;
@@ -1036,6 +1174,7 @@ function freshId(besides?: Map<string, string>): string {
 
 function paintSelection(): void {
   arrange.hidden = selection.size < 2;
+  paintMap();
   for (const id of canvas.area.nodeViews.keys()) {
     canvas.area.nodeViews.get(id)?.element.classList.toggle('graph-sel', selection.has(id));
   }
@@ -1280,6 +1419,7 @@ function schedule(): void {
 }
 
 function touch(): void {
+  paintMap();
   dirty = true;
   showDirty();
   saveDraft();
@@ -1303,7 +1443,9 @@ async function renderAll(): Promise<void> {
     await renderMain(compiled, mine);
     if (mine !== generation) return;
   }
-  for (const node of graph.nodes.filter((n) => n.kind === 'viewer')) {
+  // A folded viewer has no canvas, and a picture nobody can see is a render
+  // nobody asked for.
+  for (const node of graph.nodes.filter((n) => n.kind === 'viewer' && !n.collapsed)) {
     if (mine !== generation) return;
     await renderViewer(node, mine);
   }
@@ -1857,6 +1999,12 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     canvas.fit();
   }
+  // Blender's key: fold the selection down to titles and sockets.
+  if (event.key.toLowerCase() === 'h' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (selection.size === 0) return;
+    event.preventDefault();
+    void foldSelection();
+  }
   // Duplicate the selection where it stands, a little aside.
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
     event.preventDefault();
@@ -1929,6 +2077,21 @@ async function implant(source: GraphNode[], dx: number, dy: number): Promise<Gra
   for (const copy of made) canvas.raise(copy.id);
   touch();
   return made;
+}
+
+/** Fold the picked nodes, or open them all again when every one is already
+ * folded. One key, and the answer is never half of each. */
+async function foldSelection(): Promise<void> {
+  const chosen = graph.nodes.filter((node) => selection.has(node.id));
+  if (chosen.length === 0) return;
+  const on = !chosen.every((node) => node.collapsed === true);
+  for (const node of chosen) {
+    if (on) node.collapsed = true;
+    else delete node.collapsed;
+    canvas.refresh(node.id);
+  }
+  if (!on && chosen.some((node) => node.kind === 'viewer')) schedule();
+  touch();
 }
 
 /** The selection again, a little down and to the right. */
@@ -2009,6 +2172,8 @@ window.addEventListener('beforeunload', (event) => {
 
 window.addEventListener('resize', () => {
   for (const view of views.values()) view.preview?.fit();
+  // A smaller window is a smaller viewport: what fitted a moment ago may not.
+  paintMap();
 });
 
 // ---- boot ----

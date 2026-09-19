@@ -347,6 +347,9 @@ export interface GraphNode {
   kind: NodeKind;
   x: number;
   y: number;
+  /** Folded: the node shows its title and its sockets and nothing else.
+   * It is how this graph is laid out, so it belongs to the document. */
+  collapsed?: boolean;
   /** The size the artist dragged the node to, in area units. Absent means
    * the body sizes itself to its content, as every node did before. */
   width?: number;
@@ -435,6 +438,7 @@ function parseNode(raw: unknown): GraphNode {
   const inputs: Record<string, GraphInput> = {};
   for (const [key, value] of Object.entries(rawInputs)) inputs[key] = parseInput(id, key, value);
   const node: GraphNode = { id, kind, x, y, inputs };
+  if (r.collapsed === true) node.collapsed = true;
   if (typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0) node.width = r.width;
   if (typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0) node.height = r.height;
   if (kind === 'builtin') {
@@ -544,6 +548,7 @@ export function nodeToRaw(n: GraphNode): Record<string, unknown> {
   if (n.word !== undefined) out.word = n.word;
   out.x = n.x;
   out.y = n.y;
+  if (n.collapsed) out.collapsed = true;
   if (n.width !== undefined) out.width = n.width;
   if (n.height !== undefined) out.height = n.height;
   out.inputs = n.inputs;

@@ -3757,8 +3757,57 @@ wa-dialog.wa-dialog-wide {
   box-shadow: var(--shadow-2);
 }
 
+/* `display: flex` beats the browser's own `[hidden]` rule, so the strip says
+   it again. */
+.graph-arrange[hidden],
+.graph-map[hidden] {
+  display: none;
+}
+
 .graph-arrange .icon-btn {
   width: 26px;
   height: 26px;
   padding: 0;
+}
+
+/* A folded node is its title and its sockets. Every wire still lands, so a
+   row keeps its dot and its name; what took the room is gone. An optional
+   record shows only the options a wire actually feeds. */
+.graph-node-body.graph-folded {
+  width: auto;
+  min-width: 128px;
+}
+
+.graph-folded .graph-row {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.graph-folded .graph-row-type,
+.graph-folded .graph-lit,
+.graph-folded .graph-text,
+.graph-folded .graph-check,
+.graph-folded details.graph-opts > summary {
+  display: none;
+}
+
+.graph-folded details.graph-opts .graph-row:not(.graph-row-wired) {
+  display: none;
+}
+
+/* The minimap: the whole graph, small, in the corner the rail is not in. It
+   shows itself only when the graph does not fit in the viewport. */
+.graph-map {
+  position: absolute;
+  z-index: 60;
+  right: 10px;
+  bottom: 10px;
+  padding: 4px;
+  line-height: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
 }

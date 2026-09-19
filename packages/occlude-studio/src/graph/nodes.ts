@@ -113,6 +113,8 @@ export interface NodePaintHooks {
   fitViewer(node: GraphNode): void;
   /** Show this viewer's picture at full size. */
   showViewer(node: GraphNode): void;
+  /** Fold a node down to its title and sockets, or open it again. */
+  fold(node: GraphNode, on: boolean): void;
   remove(node: GraphNode): void;
   select(node: GraphNode): void;
 }
@@ -511,7 +513,19 @@ function builtinRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks):
 }
 
 /** A code node: declared inputs, the body, declared outputs. */
-function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { editor: Editor; note: HTMLElement } {
+/** What a code node declares it returns, as sockets. */
+function codeOutRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  for (const [key, type] of Object.entries(node.outputs ?? {})) {
+    const line = nodeRow('graph-row graph-row-out');
+    line.dataset.row = key;
+    line.append(el('span', 'graph-row-type', takesLabel(takesOf(type))));
+    line.append(el('span', 'graph-row-name', key));
+    line.append(socketDot('output', key, takesOf(type).socket, hooks));
+    host.append(line);
+  }
+}
+
+function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { editor?: Editor; note?: HTMLElement } {
   for (const [key, input] of Object.entries(node.inputs)) {
     const type = input.type ?? 'drawing';
     const line = nodeRow();
@@ -521,6 +535,12 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { 
     line.append(el('span', 'graph-row-type', takesLabel(takesOf(type))));
     if (type === 'Number') line.append(literalBox(node, key, hooks));
     host.append(line);
+  }
+  // Folded, the body is not built at all: a hidden editor is a Monaco
+  // instance the artist pays for and cannot see.
+  if (node.collapsed) {
+    codeOutRows(host, node, hooks);
+    return {};
   }
   const code = el('div', 'graph-code');
   host.append(code);
@@ -660,14 +680,7 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { 
   };
   syncUi();
 
-  for (const [key, type] of Object.entries(node.outputs ?? {})) {
-    const line = nodeRow('graph-row graph-row-out');
-    line.dataset.row = key;
-    line.append(el('span', 'graph-row-type', takesLabel(takesOf(type))));
-    line.append(el('span', 'graph-row-name', key));
-    line.append(socketDot('output', key, takesOf(type).socket, hooks));
-    host.append(line);
-  }
+  codeOutRows(host, node, hooks);
   return { editor, note };
 }
 
@@ -680,6 +693,9 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
   line.append(socketDot('input', 'in', 'Geometry', hooks));
   line.append(el('span', 'graph-row-name', 'in'));
   host.append(line);
+  // Folded, a viewer keeps its socket and drops its picture: there is
+  // nothing to draw on, and `renderAll` skips it for the same reason.
+  if (node.collapsed) return {};
   if (show === 'number') {
     // Not a picture: a number, and what the run made of it.
     const value = el('div', 'graph-value', '—');
@@ -880,7 +896,7 @@ function outputRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
 export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): NodePaint {
   const cleanups: (() => void)[] = [];
   const paint: NodePaint = { dispose: () => { for (const off of cleanups) off(); } };
-  host.className = 'graph-node-body';
+  host.className = node.collapsed ? 'graph-node-body graph-folded' : 'graph-node-body';
   host.dataset.node = node.id;
   host.dataset.kind = node.kind;
   host.replaceChildren();
@@ -889,9 +905,17 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   const head = el('div', 'graph-node-head');
   head.append(el('span', 'graph-node-title', nodeTitle(node)));
   head.append(el('span', 'graph-node-id', node.id));
+  // Folded, a node is its title and its sockets: every wire still lands, and
+  // the body that was in the way is out of the way.
+  const fold = iconButton(
+    node.collapsed ? 'unfold' : 'fold',
+    node.collapsed ? 'Open this node' : 'Fold this node to its title and sockets',
+    () => hooks.fold(node, node.collapsed !== true),
+  );
+  noDrag(fold);
   const del = iconButton('close', 'Remove this node', () => hooks.remove(node));
   noDrag(del);
-  head.append(del);
+  head.append(fold, del);
   host.append(head);
 
   if (node.kind === 'builtin') builtinRows(host, node, hooks);
@@ -899,7 +923,8 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
     const code = codeRows(host, node, hooks);
     paint.editor = code.editor;
     paint.note = code.note;
-    cleanups.push(() => code.editor.dispose());
+    const editor = code.editor;
+    if (editor) cleanups.push(() => editor.dispose());
   } else if (node.kind === 'value') valueRows(host, node, hooks);
   else if (node.kind === 'list') listRows(host, node, hooks);
   else if (node.kind === 'zone') zoneRows(host, node, hooks);
@@ -912,14 +937,15 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   else outputRows(host, node, hooks);
 
   // A remembered size is the node's own; without one it sizes to its
-  // content, as every node did before.
-  if (node.width !== undefined) host.style.width = `${node.width}px`;
-  if (node.height !== undefined) host.style.height = `${node.height}px`;
+  // content, as every node did before. A folded node is its own size, and
+  // takes the remembered one back when it opens.
+  if (node.width !== undefined && !node.collapsed) host.style.width = `${node.width}px`;
+  if (node.height !== undefined && !node.collapsed) host.style.height = `${node.height}px`;
 
   // Only a node with room inside it is sized by hand: a built-in and the
   // output node are exactly their rows, and a handle on them would sit on
   // the output socket and take its presses.
-  if (node.kind !== 'code' && node.kind !== 'viewer') {
+  if (node.kind !== 'code' && node.kind !== 'viewer' || node.collapsed) {
     markWired(host, hooks.wired(node));
     return paint;
   }
