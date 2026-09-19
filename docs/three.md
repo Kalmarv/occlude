@@ -690,10 +690,10 @@ edge selections have `.points`, `.edges` (themselves), `.faces()`, plus
 operations preserve these capabilities. Row fields retain attributes across
 every relation.
 
-`.adjacent()` collects one-hop neighbors; subtract the starting selection when
-only its outside neighbors are wanted. Edge selections are the exception: two
-edges are neighbors through a shared END, and `edges.adjacent()` leaves the
-members out, which is the meaning 2D gives the word. `.connected()` expands through the whole
+`.adjacent()` collects one-hop neighbors and LEAVES THE MEMBERS OUT, so it is
+the ring around a selection; `sel.union(sel.adjacent())` is the selection grown
+by that ring. Every kind says it the same way, and so does 2D. Two edges are
+neighbors through a shared END, as two faces are through a shared edge. `.connected()` expands through the whole
 source domain and includes its starting rows. `.components()` instead partitions
 the selected induced graph. Faces connect through shared edges, not merely a
 shared vertex or equal coordinates. `.boundaryEdges()` selects edges incident to

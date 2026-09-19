@@ -57,7 +57,11 @@ export class PointSelection3 implements Iterable<PointMeasure3> {
   groupBy<K>(fn: (point: PointMeasure3, index: number) => K): { key: K; selection: PointSelection3 }[] {
     return groupRows(this.indices,i => i,(row,i) => fn(this.captured.points[row],i)).map(g => ({ key: g.key, selection: new PointSelection3(this.source,g.rows,this.captured) }));
   }
-  adjacent(): PointSelection3 { return new PointSelection3(this.source, this.indices.flatMap(i => this.captured.points[i].neighbors), this.captured); }
+  /** Neighbouring points, MEMBERS EXCLUDED: one hop out. */
+  adjacent(): PointSelection3 {
+    const held = new Set(this.indices);
+    return new PointSelection3(this.source, this.indices.flatMap(i => this.captured.points[i].neighbors).filter(i => !held.has(i)), this.captured);
+  }
   union(other: PointSelection3): PointSelection3 {
     if (other.source !== this.source || other.captured !== this.captured) throw new Error('point selections belong to different captures; derive them from one selection');
     return new PointSelection3(this.source,[...this.indices,...other.indices],this.captured);

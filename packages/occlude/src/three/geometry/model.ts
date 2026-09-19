@@ -53,7 +53,8 @@ export class FaceSelection3 implements Iterable<FaceMeasure3> {
   filter(fn:(f:FaceMeasure3)=>boolean){return new FaceSelection3(this.source,this.indices.filter(i=>fn(this.measures[i])));}
   map<T>(fn:(f:FaceMeasure3)=>T):T[]{return this.indices.map(i=>fn(this.measures[i]));}
   groupBy<K>(fn:(f:FaceMeasure3)=>K){return groupRows(this.indices,i=>i,i=>fn(this.measures[i])).map(g=>({key:g.key,selection:new FaceSelection3(this.source,g.rows)}));}
-  adjacent(){return new FaceSelection3(this.source,this.indices.flatMap(i=>this.measures[i].adjacent));}
+  /** Neighbouring faces, MEMBERS EXCLUDED: one hop out. */
+  adjacent(){const held=new Set(this.indices);return new FaceSelection3(this.source,this.indices.flatMap(i=>this.measures[i].adjacent).filter(i=>!held.has(i)));}
 }
 export function cloneSurface3(surface:Surface3):Surface3 {return assembleSurface3(surface.points,surface.faces,surface.triangles,surface);}
 

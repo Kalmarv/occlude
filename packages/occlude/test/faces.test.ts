@@ -428,9 +428,14 @@ describe('faces: centroid, adjacency and an edge\'s faces', () => {
     expect(ends.adjacent().length).toBe(1);
     expect(ends.adjacent().has(byX[1])).toBe(true);
     const pair = cells.filter((f) => f.centroid[0] < 20);           // two selected neighbours
-    expect(pair.adjacent().length).toBe(3);                            // one hop collects the selected one too
-    expect(pair.adjacent().subtract(pair).length).toBe(1);             // the ring outside
-    expect(cells.adjacent().length).toBe(3);
+    // One hop OUT: two selected faces sharing a wall are each other's
+    // inside, not each other's neighbour, so only the ring outside is here.
+    expect(pair.adjacent().length).toBe(1);
+    expect(pair.adjacent().has(byX[2])).toBe(true);
+    // …and `subtract` is now redundant, which is the point of the rule.
+    expect(pair.adjacent().subtract(pair).indices).toEqual(pair.adjacent().indices);
+    // The selection GROWN by a ring is the union, and says so.
+    expect(pair.union(pair.adjacent()).length).toBe(3);
     // a corner touch is not adjacency
     const corner = append(sq(0, 0, 10), sq(10, 10, 10)).planarize().faces();
     expect(corner.length).toBe(2);

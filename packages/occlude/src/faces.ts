@@ -1053,18 +1053,18 @@ export class Faces {
     return ownedBy(face, this);
   }
 
-  /** @internal Rows of the faces across a wall from any of `selected`:
-   * the other side of every wall with a selected face on one side, when
-   * that side is a face. One hop, like the 3D `adjacent()`: a selected
-   * neighbour is collected too; subtract the selection for outside only. */
+  /** @internal Rows of the faces across a wall from any of `selected`,
+   * the members THEMSELVES EXCLUDED: one hop out, the meaning `adjacent`
+   * has everywhere. Two selected faces sharing a wall name each other's
+   * outside, not each other. */
   adjacentRows(selected: Set<number>): number[] {
     const out = new Set<number>();
     for (let e = 0; e < this.faceOf.length / 2; e++) {
       const l = this.faceOf[2 * e];
       const r = this.faceOf[2 * e + 1];
       if (l === r) continue;
-      if (selected.has(l) && r >= 0) out.add(r);
-      if (selected.has(r) && l >= 0) out.add(l);
+      if (selected.has(l) && r >= 0 && !selected.has(r)) out.add(r);
+      if (selected.has(r) && l >= 0 && !selected.has(l)) out.add(l);
     }
     return [...out].sort((p, q) => p - q);
   }
@@ -1092,11 +1092,6 @@ export class Faces {
    * walls between two faces and edges inside a face are not boundary. */
   boundaryEdges(): EdgeSelection {
     return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => (l >= 0) !== (r >= 0)));
-  }
-
-  /** Faces across a wall from any face: every face that has a neighbour. */
-  adjacent(): FaceSelection {
-    return this.filter(() => true).adjacent();
   }
 
   /** Measure every face: geometric area and centroid, and with `field` its
@@ -1238,9 +1233,10 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
     return this.edges.points;
   }
 
-  /** The faces across the walls of any selected face, one hop: a selected
-   * neighbour is collected too, so subtract the selection when only the
-   * outside neighbours are wanted (the 3D rule). */
+  /** The faces across the walls of any selected face, one hop out, the
+   * members excluded. Two selected faces sharing a wall are each other's
+   * inside, not each other's neighbour; `sel.union(sel.adjacent())` is the
+   * selection grown by a ring, and says so. */
   adjacent(): FaceSelection {
     return new FaceSelection(this.source, this.source.adjacentRows(this.set));
   }

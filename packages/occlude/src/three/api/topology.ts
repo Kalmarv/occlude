@@ -76,7 +76,10 @@ export class MeshPoints<P extends Attributes3,E extends EdgeAttributes,F extends
   get edges():MeshEdges<P,E,F,C>{return new MeshEdges(this.context,this.indices.flatMap(i=>this.context.topology.pointEdges[i]));}
   get faces():MeshFaces<P,E,F,C>{return new MeshFaces(this.context,this.indices.flatMap(i=>this.context.topology.pointFaces[i]));}
   corners():MeshCorners<P,E,F,C>{return new MeshCorners(this.context,this.indices.flatMap(i=>this.context.topology.pointCorners[i]));}
-  adjacent():this{return this.derive(this.indices.flatMap(i=>this.context.topology.pointNeighbors[i]));}
+  /** The points an edge joins to a member, MEMBERS EXCLUDED — one hop out,
+   * the meaning `adjacent` has in 2D and for every other kind here. The
+   * selection grown by a ring is `sel.union(sel.adjacent())`. */
+  adjacent():this{const held=new Set(this.indices);return this.derive(this.indices.flatMap(i=>this.context.topology.pointNeighbors[i]).filter(i=>!held.has(i)));}
   connected():this{return this.derive(topologyConnected(this.indices,this.context.topology.pointNeighbors));}
   components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.pointNeighbors).map(ids=>this.derive(ids)));}
 }
@@ -107,7 +110,8 @@ export class MeshFaces<P extends Attributes3,E extends EdgeAttributes,F extends 
   get edges():MeshEdges<P,E,F,C>{return new MeshEdges(this.context,this.indices.flatMap(i=>this.context.topology.faceEdges[i]));}
   corners():MeshCorners<P,E,F,C>{return new MeshCorners(this.context,this.indices.flatMap(i=>this.context.topology.faceCorners[i]));}
   boundaryEdges():MeshEdges<P,E,F,C>{const selected=new Set(this.indices);return this.edges.filter(e=>e.faces.indices.filter(i=>selected.has(i)).length===1);}
-  adjacent():this{return this.derive(this.indices.flatMap(i=>this.context.topology.faceNeighbors[i]));}
+  /** The faces across a wall from a member, MEMBERS EXCLUDED. */
+  adjacent():this{const held=new Set(this.indices);return this.derive(this.indices.flatMap(i=>this.context.topology.faceNeighbors[i]).filter(i=>!held.has(i)));}
   connected():this{return this.derive(topologyConnected(this.indices,this.context.topology.faceNeighbors));}
   components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.faceNeighbors).map(ids=>this.derive(ids)));}
 }

@@ -32,7 +32,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-`area` and `perimeter` together say how round a face is: a disc scores 1 and a ragged sliver scores near 0. `bounds` is the box the face sits in, so a wide cell can be hatched across and a tall one down. `index` is the face's row in the collection, which is all a drawing needs to give every third cell another pen.
+`area` and `perimeter` together say how round a face is: a disc scores 1 and a ragged sliver scores near 0. `bounds` is the box the face sits in. A wide cell takes a hatch across it, and a tall one takes a hatch down it. `index` is the face's row in the collection. That is all a drawing needs to give every third cell another pen.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -142,7 +142,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/FaceSelection.adjacent.mdx</include>
 
-The faces on the other side of the walls of the selected faces, one step out. A selected face can be in the result too, when it is the neighbour of another selected face. Use `sel.adjacent().subtract(sel)` to get only the faces outside the selection.
+The faces on the other side of the walls of the selected faces, one step out, the selected faces excluded. Two selected faces that share a wall are each other's inside, not each other's neighbour. `sel.union(sel.adjacent())` is the selection grown by a ring, and says so.
 
 ```ts live
 import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
@@ -150,7 +150,7 @@ import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
   const seed = t.within(cells, rect(40, 40, 20, 20), { faces: 'centroid' });
-  const ring = seed.adjacent().subtract(seed);
+  const ring = seed.adjacent();
   return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) }))];
 });
 ```
