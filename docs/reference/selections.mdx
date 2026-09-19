@@ -50,12 +50,12 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## e.mid · e.adjacent
+## e.center · e.adjacent
 
-<include>/_sig/Edge.mid.mdx</include>
+<include>/_sig/Edge.center.mdx</include>
 <include>/_sig/Edge.adjacent.mdx</include>
 
-A vertex answers `x` and `y`, and a face answers `area`, `perimeter`, `centroid` and `bounds`. An edge answers these. `mid` is the middle of the wall, as a fresh pair. A segment has no area, so this is a midpoint and not a centroid. It is where a motif gets stamped, and it is how one wall says where it is.
+A vertex answers `x` and `y`, and a face answers `area`, `perimeter`, `centroid` and `bounds`. An edge answers these. `center` is the middle of the wall, as a fresh pair. A segment has no area, so this is a midpoint and not a centroid. It is where a motif gets stamped, and it is how one wall says where it is.
 
 `e.adjacent` is the edges that share a vertex with this one, this edge excluded. It is what `p.adjacent` is for a vertex, in the edge's own world. It names a neighbour once, even when the two edges share both ends. It is a selection, so it filters, draws and composes.
 
@@ -70,8 +70,8 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
     strokes(web.edges.subtract(touching).subtract(web.edges.rows([wall.index])), { pen: 'pigma-005-black' }),
     strokes(touching, { pen: 'stabilo-88-blue' }),
     strokes(web.edges.rows([wall.index]), { pen: 'pigma-05-black' }),
-    [...touching].map((e) => circle(e.mid[0], e.mid[1], 1.2, { pen: 'stabilo-88-blue' })),
-    circle(wall.mid[0], wall.mid[1], 2.2),
+    [...touching].map((e) => circle(e.center[0], e.center[1], 1.2, { pen: 'stabilo-88-blue' })),
+    circle(wall.center[0], wall.center[1], 2.2),
   ];
 });
 ```

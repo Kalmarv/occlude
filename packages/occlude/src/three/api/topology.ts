@@ -44,7 +44,7 @@ function context<P extends Attributes3,E extends EdgeAttributes,F extends Attrib
   },()=>{new MeshPoints(result);});
   const edges=lazy(()=>{
     const p=points();
-    return Object.freeze(surface.edges.map((e,index)=>relations<MeshEdgeRow<E,P,F,C>>({...e.attributes,id:e.id,index,vertices:e.vertices,a:p[e.vertices[0]],b:p[e.vertices[1]],length:Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position)),mid:mul3(add3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position),0.5),attributes:e.attributes,provenance:e.provenance},{
+    return Object.freeze(surface.edges.map((e,index)=>relations<MeshEdgeRow<E,P,F,C>>({...e.attributes,id:e.id,index,vertices:e.vertices,a:p[e.vertices[0]],b:p[e.vertices[1]],length:Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position)),center:mul3(add3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position),0.5),attributes:e.attributes,provenance:e.provenance},{
       points:()=>new MeshPoints(result,e.vertices),faces:()=>new MeshFaces(result,e.faces),
     })));
   },()=>{new MeshEdges(result);});
@@ -87,7 +87,17 @@ export class MeshEdges<P extends Attributes3,E extends EdgeAttributes,F extends 
   private get context():Context<P,E,F,C>{return selectionContexts.get(this)!;}
   protected derive(indices:readonly number[],key:unknown=this.key):this{return new MeshEdges(this.context,indices,key) as this;}
   get points():MeshPoints<P,E,F,C>{return new MeshPoints(this.context,this.indices.flatMap(i=>this.context.mesh.surface.edges[i].vertices));}
+  get edges():this{return this;}
   faces():MeshFaces<P,E,F,C>{return new MeshFaces(this.context,this.indices.flatMap(i=>this.context.mesh.surface.edges[i].faces));}
+  /** Every edge that meets a member at a vertex, members excluded — the
+   * same three words a point selection and a face selection say, and the
+   * same meaning 2D gives them. */
+  adjacent():this{
+    const held=new Set(this.indices);
+    return this.derive(this.indices.flatMap(i=>this.context.topology.edgeNeighbors[i]).filter(i=>!held.has(i)));
+  }
+  connected():this{return this.derive(topologyConnected(this.indices,this.context.topology.edgeNeighbors));}
+  components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.edgeNeighbors).map(ids=>this.derive(ids)));}
 }
 export class MeshFaces<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> extends Collection<MeshFaceRow<F,P,E,C>,Mesh<P,E,F,C>> {
   constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){super(ctx.mesh.surface,'face',ctx.faces,ids=>extractFaces(ctx.mesh,ids),indices,key);selectionContexts.set(this,ctx);}

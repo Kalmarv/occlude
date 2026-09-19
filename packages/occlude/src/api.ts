@@ -402,7 +402,7 @@ export interface WithinFaces {
  * clip, so an edge is kept whole or not at all — the face contract, on a
  * wall. `'contained'` (the default) keeps an edge with neither end strictly
  * outside and no crossing of the boundary, so a wall running ALONG the
- * boundary belongs to it. `'midpoint'` keeps an edge whose `mid` is inside,
+ * boundary belongs to it. `'midpoint'` keeps an edge whose `center` is inside,
  * so a wall the boundary cuts is kept whole and its ink may reach past the
  * edge by up to half that wall. To cut at the boundary instead, hand
  * `within` the MATERIAL: a material is cut, a selection is filtered. */
@@ -458,7 +458,7 @@ export function withinAny(
   if (x instanceof EdgeSelection) {
     if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — an edge is kept whole or not at all");
     // The midpoint: one question, one point, and the wall goes with it.
-    if (opts.edges === 'midpoint') return x.filter((e) => inside(e.mid[0], e.mid[1]) > 0);
+    if (opts.edges === 'midpoint') return x.filter((e) => inside(e.center[0], e.center[1]) > 0);
     // Contained, which is the face rule on a wall: neither end strictly
     // outside, and no crossing of a REAL boundary. `>= 0` keeps a wall that
     // runs along the boundary, exactly as a cell sharing the frame's edge

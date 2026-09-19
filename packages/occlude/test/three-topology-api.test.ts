@@ -70,3 +70,38 @@ describe('owned mesh topology relationships',()=>{
     expect(topology3(surface).pointNeighbors[3]).toEqual([1]);
   });
 });
+
+describe('3D edge selections say the three relations words', () => {
+  it('adjacent() is every edge meeting a member at a vertex, members excluded', () => {
+    const m = plane(2, 2).subdivide(1);
+    const one = m.edges.filter((e) => e.index === 0);
+    const out = one.adjacent();
+    expect(out.indices).not.toContain(0);
+    // Every one of them shares an end with edge 0.
+    const ends = new Set(m.surface.edges[0].vertices);
+    for (const i of out.indices) expect(m.surface.edges[i].vertices.some((v) => ends.has(v))).toBe(true);
+  });
+
+  it('connected() reaches the whole piece, and a whole mesh is one', () => {
+    const m = plane(2, 2).subdivide(1);
+    expect(m.edges.filter((e) => e.index === 0).connected().length).toBe(m.edges.length);
+  });
+
+  it('components() splits a selection into its pieces', () => {
+    const m = plane(2, 2).subdivide(2);
+    // Two edges that share no vertex are two pieces.
+    const a = m.edges.at(0)!;
+    const ends: readonly number[] = a.vertices;
+    const apart = m.edges.filter((e) => e.index === a.index || (e.index > a.index && !e.vertices.some((v) => ends.includes(v))));
+    const pieces = apart.components();
+    expect(pieces.length).toBeGreaterThan(1);
+    // Together the pieces hold exactly the members, once each.
+    expect(pieces.flatMap((p) => [...p.indices]).sort((x, y) => x - y)).toEqual([...apart.indices]);
+  });
+
+  it('edges.edges is itself, as it is in 2D', () => {
+    const m = plane(2, 2).subdivide(1);
+    const sel = m.edges.filter((e) => e.index < 3);
+    expect(sel.edges).toBe(sel);
+  });
+});

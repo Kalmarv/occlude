@@ -13,23 +13,23 @@ import { tension } from '../src/forces.js';
 
 const chain = () => curve([[0, 0], [20, 0], [40, 0], [60, 0]], { closed: false });
 
-describe('e.mid', () => {
+describe('e.center', () => {
   it('is the middle of the wall, as a fresh pair', () => {
     const m = chain();
-    expect(m.edges.at(0).mid).toEqual([10, 0]);
-    expect(m.edges.at(2).mid).toEqual([50, 0]);
+    expect(m.edges.at(0).center).toEqual([10, 0]);
+    expect(m.edges.at(2).center).toEqual([50, 0]);
   });
 
   it('is a new pair every time, so nothing downstream can write through it', () => {
     const m = chain();
-    const one = m.edges.at(0).mid;
+    const one = m.edges.at(0).center;
     one[0] = 999;
-    expect(m.edges.at(0).mid).toEqual([10, 0]);
+    expect(m.edges.at(0).center).toEqual([10, 0]);
   });
 
   it('composes: a mark at the middle of every wall', () => {
     const m = chain();
-    expect([...m.edges].map((e) => e.mid[0])).toEqual([10, 30, 50]);
+    expect([...m.edges].map((e) => e.center[0])).toEqual([10, 30, 50]);
   });
 });
 

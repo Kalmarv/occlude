@@ -51,12 +51,12 @@ function checkedCreaseAngle(value:number|undefined):number|undefined {
 }
 export type PointRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;x:number;y:number;z:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly [number,number];a:PointRow<P>; b:PointRow<P>;length:number;
-  /** The middle of the edge. A face answers `center`; an edge answers this,
-   * the same word 2D's `Edge` answers. */
-  mid:Vec3;attributes:Readonly<A>;provenance?:Provenance3}>;
+  /** The middle of the edge — the same word a face answers, the same word
+   * `EdgeMeasure3` answers, and the same word 2D's `Edge` answers. */
+  center:Vec3;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;center:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type CornerRow<A extends Attributes3={}> = Readonly<A&{id:string;index:number;localIndex:number;attributes:Readonly<A>;provenance?:Provenance3}>;
-const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','mid','area','a','b','length','source','sample','points','edges','faces','adjacent','corners','face','point','localIndex']);
+const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','area','a','b','length','source','sample','points','edges','faces','adjacent','corners','face','point','localIndex']);
 export function attributeName(name:string):void {if(!name||reserved.has(name)||name==='__proto__'||name==='constructor'||name==='prototype')throw new Error(`reserved or empty geometry attribute name: ${name}`);}
 export function attributeValue(value:Attribute3):Attribute3 {
   if(typeof value==='string'||typeof value==='boolean')return value;

@@ -290,7 +290,7 @@ export class OrderedEditor {
         check();
         return Object.freeze({ ...e.attrs });
       },
-      get mid(): [number, number] {
+      get center(): [number, number] {
         check();
         return [(a.x + b.x) / 2, (a.y + b.y) / 2];
       },

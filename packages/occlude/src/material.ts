@@ -114,8 +114,11 @@ export interface Edge {
    * and a Face answers `centroid`; this is the wall's own place, which is
    * where a motif gets stamped and how one wall says how far it is from
    * another. Not a centroid — a segment has no area to weight.
+   *
+   * `center`, not `mid`, because 3D's `EdgeMeasure3` already spells it that way
+   * and one thing gets one name in both worlds.
    */
-  readonly mid: Vec;
+  readonly center: Vec;
   /** The edges that share a vertex with this one, this edge excluded —
    * what `p.adjacent` is for a vertex, in the edge's own world. */
   readonly adjacent: EdgeSelection;
@@ -524,7 +527,7 @@ export class Material {
     Object.defineProperty(edgeProto, 'faces', { get(this: Edge) { return owner.faces().facesOf(this); }, enumerable: false });
     Object.defineProperty(edgeProto, 'id', { get(this: Edge) { return owner.edgeIds[this.index] as EdgeId; }, enumerable: false });
     Object.defineProperty(edgeProto, 'root', { get(this: Edge) { return owner.edgeRoots[this.index] as EdgeId; }, enumerable: false });
-    Object.defineProperty(edgeProto, 'mid', { get(this: Edge) { return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec; }, enumerable: false });
+    Object.defineProperty(edgeProto, 'center', { get(this: Edge) { return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec; }, enumerable: false });
     Object.defineProperty(edgeProto, 'adjacent', {
       get(this: Edge) {
         // Every edge at either end, minus this one. A ring of two would
@@ -2608,7 +2611,7 @@ export interface SegmentRun<K = number | string> extends IsoContour {
  * The classifier gets the EDGE, in its stored orientation — `e.a` and
  * `e.b` as it was connected, whatever direction the drawing walk takes.
  * That is the whole edge: its own columns (`e.attrs.level`, which is what
- * `isolines` writes), its `length`, its `mid`, its `root`. It used to get
+ * `isolines` writes), its `length`, its `center`, its `root`. It used to get
  * the two vertex views alone, so an edge column — the one thing that
  * already belongs to an edge, and survives a split — could not classify a
  * run without rebuilding the edge row from the pair by hand.

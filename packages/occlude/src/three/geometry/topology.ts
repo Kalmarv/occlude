@@ -12,6 +12,11 @@ export interface SurfaceTopology3 {
   readonly pointNeighbors:readonly (readonly number[])[];
   readonly faceEdges:readonly (readonly number[])[];
   readonly faceNeighbors:readonly (readonly number[])[];
+  /** The edges that share a VERTEX with each edge, itself excluded — what
+   * `pointNeighbors` is for a point, and what 2D's `e.adjacent` answers.
+   * Faces are neighbours through a shared edge; edges are neighbours
+   * through a shared end. */
+  readonly edgeNeighbors:readonly (readonly number[])[];
 }
 const immutable=new WeakSet<Surface3>();
 export function sealTopology3(surface:Surface3):void{revision(surface);immutable.add(surface);}
@@ -79,7 +84,11 @@ export function topology3(surface:Surface3):SurfaceTopology3 {
     const [a,b]=edge.vertices;pointEdges[a].add(i);pointEdges[b].add(i);pointNeighbors[a].add(b);pointNeighbors[b].add(a);
     for(const face of edge.faces){faceEdges[face].add(i);for(const other of edge.faces)if(face!==other)faceNeighbors[face].add(other);}
   });
-  const result=Object.freeze({pointCorners:frozen(pointCorners),faceCorners:frozen(faceCorners),pointEdges:frozen(pointEdges),pointFaces:frozen(pointFaces),pointNeighbors:frozen(pointNeighbors),faceEdges:frozen(faceEdges),faceNeighbors:frozen(faceNeighbors)});
+  // An edge meets another at either end. Built from `pointEdges`, which the
+  // same pass has just finished, so no second walk over the edge list.
+  const edgeNeighbors=surface.edges.map(()=>new Set<number>());
+  pointEdges.forEach(at=>{for(const i of at)for(const j of at)if(i!==j)edgeNeighbors[i].add(j);});
+  const result=Object.freeze({pointCorners:frozen(pointCorners),faceCorners:frozen(faceCorners),pointEdges:frozen(pointEdges),pointFaces:frozen(pointFaces),pointNeighbors:frozen(pointNeighbors),faceEdges:frozen(faceEdges),faceNeighbors:frozen(faceNeighbors),edgeNeighbors:frozen(edgeNeighbors)});
   adjacency.set(key,result);return result;
 }
 /** Components of the induced selection, in deterministic source order. */

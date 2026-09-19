@@ -133,7 +133,9 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## Topology
 
-A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A row also knows its own place. A point answers `x`, `y` and `z`. A face answers `center` and `area`. An edge answers `length` and `mid`, and 2D says `mid` for the same thing. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. A face selection also has `.boundaryEdges()`. Faces are neighbours through a shared edge, not a shared corner. Here the cap is one selection, and the ring is its one-hop neighbours with the cap removed.
+A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A row also knows its own place. A point answers `x`, `y` and `z`. A face answers `center` and `area`. An edge answers `length` and `center`, and 2D says `center` for the same thing. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. An edge selection says the same three words. Two edges are neighbours through a shared END, as two faces are through a shared edge. A face selection also has `.boundaryEdges()`. Faces are neighbours through a shared edge, not a shared corner.
+
+`edges.adjacent()` leaves the members out. That is what 2D means by the word. `points.adjacent()` and `faces.adjacent()` collect them, so subtract the starting selection when you want the ring alone. Here the cap is one selection, and the ring is its one-hop neighbours with the cap removed.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
