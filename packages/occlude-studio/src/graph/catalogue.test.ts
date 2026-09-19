@@ -49,7 +49,9 @@ describe('the catalogue', () => {
 
   it('gives every word a module, a call and a group', () => {
     for (const w of CATALOGUE.words) {
-      expect(w.call, w.word).toMatch(/^(\{self\}|[A-Za-z_$][A-Za-z0-9_$]*)(\.[A-Za-z_$][A-Za-z0-9_$]*)?$/);
+      // A call is a name, a receiver and a name, or a toolkit namespace and
+      // a name (`t.force.boundary`): the toolkit is the one two-dot owner.
+      expect(w.call, w.word).toMatch(/^(\{self\}|[A-Za-z_$][A-Za-z0-9_$]*)(\.[A-Za-z_$][A-Za-z0-9_$]*){0,2}$/);
       // A page is a link, not a licence: a word the reference does not
       // document is still a node, and it carries no link.
       if (w.page !== '') expect(w.page, w.word).toMatch(/^\/docs\/reference\//);

@@ -612,6 +612,14 @@ function isToolkitAlias(word: string, receiver: string | null): boolean {
 const TOOLKIT_FORMS = new Set(['distanceTo', 'neighbours']);
 
 /**
+ * Toolkit namespaces the toolkit changes rather than re-exports: every
+ * member of `t.force` lowers a shape before it calls the pure kernel, so
+ * the two are different words. A namespace absent here is the module's own
+ * under a second name, and the palette carries the module's.
+ */
+const TOOLKIT_NAMESPACES = new Set(['force']);
+
+/**
  * A word joins the palette when its types map, whether or not a reference
  * page documents it. The page is a link, not a licence: 144 words that map
  * cleanly — every easing, the unit words, a material's own accessors — were
@@ -788,9 +796,12 @@ function walkToolkit(): void {
       const returns = valueOf(propType);
       if (!returns) {
         // A namespace on the toolkit — `t.force.boundary(shape, …)` — is a
-        // family of words, not a value. Each member is its own word, named
-        // with its prefix as the module namespaces are.
-        const members = checker.getPropertiesOfType(propType).filter((m) => !m.getName().startsWith('_'));
+        // family of words, not a value. Only the ones the toolkit CHANGES
+        // are walked: `t.ease` is the module's easings under a second name,
+        // and the palette carries the module's one.
+        const members = TOOLKIT_NAMESPACES.has(name)
+          ? checker.getPropertiesOfType(propType).filter((m) => !m.getName().startsWith('_'))
+          : [];
         const callable = members.filter((m) => {
           const at = m.valueDeclaration ?? m.declarations?.[0] ?? propDecl;
           return checker.getTypeOfSymbolAtLocation(m, at).getCallSignatures().length > 0;
