@@ -722,7 +722,7 @@ impl Prepared {
                         // inside the region (edge dots drop), occludable, never
                         // routed through tap resolution.
                         for &p in &fill.dots {
-                            if !region.inside(p) || region.on_boundary(p, 1e-9) {
+                            if !region.inside(p) || region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) {
                                 continue;
                             }
                             if point_visible(p, &shape_clips, &ctx, &mut bufs.query) {
@@ -2026,7 +2026,15 @@ fn judge_runs(so: &mut ShapeOut, from: usize, threshold: f64, closed: bool, pen:
 
 fn point_visible(p: Vec2, clips: &[(&Region, bool)], ctx: &ClipCtx, query_buf: &mut Vec<u32>) -> bool {
     for (clip, keep_inside) in clips {
-        if clip.inside(p) != *keep_inside {
+        // The same classification the occluder loop below makes, and the
+        // one clip.rs documents: a point ON the boundary is OUTSIDE the
+        // region. Without the epsilon this was a bare winding test at the
+        // boundary, so a tap the 0.005 mm input grid lands exactly on a
+        // clip's edge was kept or dropped by whichever side the arithmetic
+        // fell on. Two tolerances for one question, and one of them was
+        // not a tolerance at all.
+        let inside = !clip.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) && clip.inside(p);
+        if inside != *keep_inside {
             return false;
         }
     }

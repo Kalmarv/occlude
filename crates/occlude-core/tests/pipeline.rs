@@ -759,3 +759,71 @@ fn gcode_arc_direction_follows_the_written_coordinates() {
     assert!(g.contains("G1 X50.000 Y40.000"), "{g}");
     assert!(!g.contains("Y60.000"), "{g}");
 }
+
+/// A tap sitting exactly ON a clip's boundary classifies as OUTSIDE it —
+/// the rule `clip.rs` documents, and the one the occluder loop in
+/// `point_visible` already followed.
+///
+/// The clip loop ran a bare winding test with no tolerance, and a winding
+/// test at the boundary is half-open: for this rect it calls the LEFT and
+/// BOTTOM edges inside and the RIGHT and TOP edges outside. So two taps in
+/// the same geometric situation on opposite sides of one clip were kept or
+/// dropped for no reason an artist could see. The 0.005 mm input grid makes
+/// it reachable, because it lands taps on exactly the round coordinates an
+/// axis-aligned clip is drawn at.
+#[test]
+fn a_tap_on_a_clip_boundary_is_outside_it_on_every_side() {
+    let edges = [v(-5., 0.), v(5., 0.), v(0., -5.), v(0., 5.)];
+    let supply = |_: &occlude_core::pipeline::FillJob| SuppliedFill {
+        chains: Vec::new(),
+        dots: vec![v(0., 0.), v(-5., 0.), v(5., 0.), v(0., -5.), v(0., 5.)],
+    };
+    let mut shape = filled_shape(circle_contour(0., 0., 10.), FillKind::Pending);
+    shape.clips = vec![0];
+    let mut inp = input(vec![shape]);
+    inp.clips = vec![ClipDef {
+        contours: rect_contour(-5., -5., 10., 10.),
+        winding: WindingRule::NonZero,
+        convex: true,
+        invert: false,
+    }];
+    let kept: Vec<_> = render_with(inp, supply)
+        .frags
+        .iter()
+        .filter(|f| f.dot)
+        .map(|f| f.geom.start())
+        .collect();
+    // Only the tap strictly inside survives — the same answer on all four
+    // sides, which is the whole point.
+    assert_eq!(kept, vec![v(0., 0.)], "every edge tap must be outside");
+    for e in edges {
+        assert!(!kept.contains(&e), "tap on {e:?} was kept");
+    }
+}
+
+/// The same four taps, with the clip inverted: keeping the OUTSIDE keeps
+/// every one of them, because on-boundary is outside either way.
+#[test]
+fn an_inverted_clip_keeps_every_tap_on_its_boundary() {
+    let supply = |_: &occlude_core::pipeline::FillJob| SuppliedFill {
+        chains: Vec::new(),
+        dots: vec![v(0., 0.), v(-5., 0.), v(5., 0.), v(0., -5.), v(0., 5.)],
+    };
+    let mut shape = filled_shape(circle_contour(0., 0., 10.), FillKind::Pending);
+    shape.clips = vec![0];
+    let mut inp = input(vec![shape]);
+    inp.clips = vec![ClipDef {
+        contours: rect_contour(-5., -5., 10., 10.),
+        winding: WindingRule::NonZero,
+        convex: true,
+        invert: true,
+    }];
+    let kept: Vec<_> = render_with(inp, supply)
+        .frags
+        .iter()
+        .filter(|f| f.dot)
+        .map(|f| f.geom.start())
+        .collect();
+    assert_eq!(kept.len(), 4, "kept {kept:?}");
+    assert!(!kept.contains(&v(0., 0.)), "the tap strictly inside must go");
+}
