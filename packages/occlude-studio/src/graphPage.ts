@@ -33,14 +33,15 @@ import { CATALOGUE } from './graph/catalogue.js';
 import { createCanvas, type AreaExtra, type GraphCanvas, type GraphScheme, type GraphWire, type ReteNode } from './graph/canvas.js';
 import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type NodePaint, type NodePaintHooks, type ViewerShow } from './graph/nodes.js';
 import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.js';
+import { collapse, expand, groupInputs, groupOutputs, type Group } from './graph/groups.js';
 import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch, layoutBlock } from './graph/import.js';
 import { loadSketchByName, takeLive } from './sketchApi.js';
 import {
-  PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
+  PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, isUsableName, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type Takes, type ValueType,
 } from './graph/model.js';
-import { deleteGraph, graphHref, listGraphs, loadGraphText, saveGraphText } from './graph/store.js';
+import { deleteGraph, graphHref, listGraphs, listGroups, loadGraphText, loadGroupText, saveGraphText, saveGroupText } from './graph/store.js';
 
 mountShell('graph');
 
@@ -279,6 +280,11 @@ interface NodeView {
   /** The viewer is showing the model, and this holds its camera. */
   camera?: NodeCamera3;
 }
+
+/** The groups the host holds, by name. A group is a word the artist made:
+ * the catalogue carries what its sockets are, and this carries the graph the
+ * compiler inlines. */
+const groupCache = new Map<string, Group>();
 
 const views = new Map<string, NodeView>();
 /** A viewer's last picture, keyed by its compiled sub-graph: a change
@@ -631,6 +637,7 @@ const paintHooks: NodePaintHooks = {
     if (node.kind === 'viewer' && !on) schedule();
     touch();
   },
+  openGroup: (node) => void openGroup(node.word ?? ''),
   hasModel: (node) => (viewerModels.get(node.id)?.construction.length ?? 0) > 0,
   setModel: (node, on) => {
     if (on) node.view3 = true;
@@ -716,11 +723,28 @@ function reteNode(node: GraphNode): ReteNode {
     rete.addOutput('out', new ClassicPreset.Output(port('Geometry'), 'out'));
   } else if (node.kind === 'paper') {
     for (const key of Object.keys(PAPER_OUTPUTS)) rete.addOutput(key, new ClassicPreset.Output(port('Number'), key));
+  } else if (node.kind === 'group') {
+    // A group's sockets are the group's, read the same way the wire rule and
+    // the body read them.
+    for (const [key, takes] of Object.entries(inputTakes(node, catalogue))) {
+      if (takes) rete.addInput(key, new ClassicPreset.Input(port(takes.socket), key));
+    }
+    for (const [key, type] of Object.entries(node.outputs ?? {})) {
+      rete.addOutput(key, new ClassicPreset.Output(port(takesOf(type).socket), key));
+    }
+  } else if (node.kind === 'input') {
+    for (const [key, type] of Object.entries(node.outputs ?? {})) {
+      rete.addOutput(key, new ClassicPreset.Output(port(takesOf(type).socket), key));
+    }
   } else if (node.kind === 'zone') {
     for (const [key, takes] of Object.entries(inputTakes(node, catalogue))) {
       if (takes) rete.addInput(key, new ClassicPreset.Input(port(takes.socket), key));
     }
     rete.addOutput('out', new ClassicPreset.Output(port('Geometry'), 'out'));
+  } else if (node.kind === 'output') {
+    for (const [key, takes] of Object.entries(inputTakes(node, catalogue))) {
+      if (takes) rete.addInput(key, new ClassicPreset.Input(port(takes.socket), key));
+    }
   } else {
     rete.addInput('in', new ClassicPreset.Input(port('Geometry'), 'in'));
   }
@@ -1424,6 +1448,20 @@ function addBuiltin(word: CatalogueWord, at?: { x: number; y: number }): void {
   void place(node, at);
 }
 
+/** A group from the palette: it carries what its boundary declares, so a
+ * document whose group has since been deleted still shows its shape. */
+function addGroup(name: string, at?: { x: number; y: number }): void {
+  const group = groupCache.get(name);
+  if (!group) {
+    status(`no group named ${name}`, 'err');
+    return;
+  }
+  void place({
+    id: freshId(), kind: 'group', word: name, x: 0, y: 0,
+    inputs: {}, outputs: groupOutputs(group, catalogue),
+  }, at);
+}
+
 function addNode(kind: 'code' | 'viewer' | 'output' | 'value' | 'list' | 'paper', at?: { x: number; y: number }): void {
   const id = freshId();
   const node: GraphNode = kind === 'code'
@@ -1502,10 +1540,17 @@ async function autoLayout(): Promise<void> {
 
 // ---- compile and render ----
 
+/** The document as the compiler sees it: every group inlined. The page
+ * paints and saves the document — group nodes intact — and compiles this. */
+function flat(source: Graph = graph): Graph {
+  if (!source.nodes.some((node) => node.kind === 'group')) return source;
+  return expand(source, { get: (name) => groupCache.get(name) });
+}
+
 function compileNow(): CompiledSketch | null {
   markErrors(null);
   try {
-    return compileGraph(graph, catalogue);
+    return compileGraph(flat(), catalogue);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
@@ -1692,7 +1737,7 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
 
   /** The viewer's own sketch. `wrapped` decides whether the value is asked
    * to be ink; `try` asks once each way. */
-  const sketchFor = (wrapped: boolean): CompiledSketch => compileFor(graph, catalogue, node.id, 'in', {
+  const sketchFor = (wrapped: boolean): CompiledSketch => compileFor(flat(), catalogue, node.id, 'in', {
     // A chosen frame shows that kept state instead — the ternary keeps a
     // material with no history from throwing, which is the library's own
     // best-effort rule. The frame count is not in the document (the material
@@ -1883,6 +1928,25 @@ function buildPalette(): void {
     (want) => want.side === 'output' && accepts(want.type, { socket: 'Geometry', kinds: ['shape', 'drawing'] })));
   paletteList.append(nodes);
 
+  if (groupCache.size > 0) {
+    const mine = el('div', 'graph-palette-group');
+    mine.append(el('div', 'graph-palette-title', 'Groups'));
+    for (const [name, group] of groupCache) {
+      const outs = groupOutputs(group, catalogue);
+      const returns = Object.values(outs)[0] ?? 'drawing';
+      mine.append(paletteItem(
+        name,
+        returns,
+        (at) => addGroup(name, at),
+        `${name} — a sub-graph you made`,
+        (want) => (want.side === 'input'
+          ? Object.values(outs).some((type) => accepts(type, want.takes))
+          : Object.values(groupInputs(group)).some((takes) => accepts(want.type, takes))),
+      ));
+    }
+    paletteList.append(mine);
+  }
+
   const groups = new Map<string, HTMLElement>();
   for (const word of catalogue.words) {
     let group = groups.get(word.group);
@@ -1979,6 +2043,40 @@ paletteSearch.addEventListener('keydown', (event) => {
 
 // ---- storage ----
 
+/**
+ * The group a Save writes back, when the page is showing the inside of one
+ * rather than a graph. A group's document holds an `input` node, which no
+ * compiled graph may hold, so the two cannot be confused — and Save says so
+ * rather than writing a graph nothing can compile.
+ */
+let editingGroup: string | null = null;
+
+/** Read every saved group, and tell the catalogue what each one offers. */
+async function loadGroups(): Promise<void> {
+  const known = new Map<string, Group>();
+  try {
+    for (const info of await listGroups()) {
+      try {
+        known.set(info.name, JSON.parse(await loadGroupText(info.name)) as Group);
+      } catch (error) {
+        notify(`group '${info.name}': ${error instanceof Error ? error.message : String(error)}`, 'warning');
+      }
+    }
+  } catch (error) {
+    notify(`groups: ${error instanceof Error ? error.message : String(error)}`, 'danger');
+    return;
+  }
+  groupCache.clear();
+  for (const [name, group] of known) groupCache.set(name, group);
+  catalogue = {
+    ...catalogue,
+    groups: Object.fromEntries([...groupCache].map(([name, group]) => [name, {
+      inputs: groupInputs(group),
+      outputs: groupOutputs(group, catalogue),
+    }])),
+  };
+}
+
 async function refreshList(): Promise<void> {
   try {
     const list = await listGraphs();
@@ -2009,6 +2107,95 @@ openSelect.onchange = () => {
   });
 };
 
+/**
+ * Show the inside of a group as its own document. It is a graph like any
+ * other except for its boundary: an `input` node is a source, and Save
+ * writes it back to the group library rather than to the graph store.
+ */
+async function openGroup(name: string): Promise<boolean> {
+  const group = groupCache.get(name);
+  if (!group) {
+    notify(`no group named '${name}'`, 'warning');
+    return false;
+  }
+  if (dirty && !(await confirmDialog({ title: `Open the group '${name}'?`, body: 'The open graph has unsaved changes.', confirm: 'Open' }))) return false;
+  generation += 1;
+  try {
+    graph = parseGraph(JSON.parse(JSON.stringify(group.graph)));
+    graph.name = name;
+    editingGroup = name;
+    nameInput.value = name;
+    mainSource = null;
+    fitted = null;
+    viewerResults.clear();
+    viewerFrames.clear();
+    viewerModels.clear();
+    await buildCanvas();
+    seedInput.value = typeof graph.config.seed === 'number' ? String(graph.config.seed) : '';
+    startHistory();
+    dirty = false;
+    showDirty();
+    clearSelection();
+    // The inside of a group has no output of its own to draw: what it makes
+    // is the group's result, and a render of it would be a render of nothing.
+    // The picture on the page belongs to the graph that was open before.
+    preview.setStale(true);
+    status(`the group '${name}' — Save writes it back`);
+    return true;
+  } catch (error) {
+    notify(`open group '${name}': ${error instanceof Error ? error.message : String(error)}`, 'danger');
+    return false;
+  }
+}
+
+/**
+ * The selection becomes a group: one node in its place, and a document of
+ * its own in the library. Every wire that entered the selection is an input
+ * of the group and every wire that left it an output — `collapse` works that
+ * out, and the ink must not change, which is what makes it worth doing.
+ */
+async function collapseSelection(): Promise<void> {
+  if (selection.size === 0) {
+    status('pick the nodes to group first', 'err');
+    return;
+  }
+  const name = await promptDialog({ title: 'Group', body: 'The nodes you picked become one node, and a graph of their own.', label: 'Name', placeholder: 'a name for this group', confirm: 'Group' });
+  if (name === null) return;
+  const clean = name.trim();
+  // A group's name is part of the name of every node inside it once it is
+  // inlined, so it is an identifier and not a title.
+  if (!isUsableName(clean) || clean.length > 64) {
+    notify('a group name is letters, digits and _ — not starting with a digit (max 64)', 'warning');
+    return;
+  }
+  if (groupCache.has(clean) && !(await confirmDialog({ title: `Replace '${clean}'?`, body: 'A group of that name is already saved.', confirm: 'Replace' }))) return;
+  let made;
+  try {
+    made = collapse(graph, [...selection], clean, catalogue);
+  } catch (error) {
+    notify(`group: ${error instanceof Error ? error.message : String(error)}`, 'danger');
+    return;
+  }
+  try {
+    await saveGroupText(clean, JSON.stringify(made.group));
+  } catch (error) {
+    notify(`group: ${error instanceof Error ? error.message : String(error)}`, 'danger');
+    return;
+  }
+  await loadGroups();
+  buildPalette();
+  graph = made.graph;
+  generation += 1;
+  mainSource = null;
+  viewerResults.clear();
+  viewerModels.clear();
+  await buildCanvas();
+  selection = new Set([made.node.id]);
+  paintSelection();
+  touch();
+  notify(`grouped ${made.group.graph.nodes.length - 2} nodes as '${clean}'`, 'success');
+}
+
 async function open(name: string): Promise<boolean> {
   if (dirty && !(await confirmDialog({ title: `Open '${name}'?`, body: 'The open graph has unsaved changes.', confirm: 'Open' }))) return false;
   // The document is about to change: a reply in flight belongs to the graph
@@ -2018,6 +2205,7 @@ async function open(name: string): Promise<boolean> {
     const text = await loadGraphText(name);
     const next = parseGraph(JSON.parse(text));
     graph = next;
+    editingGroup = null;
     nameInput.value = next.name;
     mainSource = null;
     fitted = null;
@@ -2045,6 +2233,27 @@ async function save(): Promise<void> {
     return;
   }
   graph.name = name;
+  // A document with a boundary in it is the inside of a group. It is saved as
+  // one, because as a graph it is a thing the compiler must refuse.
+  if (graph.nodes.some((node) => node.kind === 'input')) {
+    if (editingGroup === null) {
+      notify('this graph holds a group boundary — it can only be saved as a group', 'warning');
+      return;
+    }
+    try {
+      await saveGroupText(name, JSON.stringify({ version: 1, name, graph } satisfies Group));
+      editingGroup = name;
+      await loadGroups();
+      buildPalette();
+      dirty = false;
+      showDirty();
+      dropDraft();
+      notify(`saved the group '${name}'`, 'success');
+    } catch (error) {
+      notify(`save: ${error instanceof Error ? error.message : String(error)}`, 'danger');
+    }
+    return;
+  }
   try {
     await saveGraphText(name, graphToJson(graph));
     history.replaceState(null, '', graphHref(name));
@@ -2163,7 +2372,7 @@ async function remove(): Promise<void> {
 function openAsSketch(): void {
   let compiled: CompiledSketch;
   try {
-    compiled = compileGraph(graph, catalogue);
+    compiled = compileGraph(flat(), catalogue);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
@@ -2225,6 +2434,11 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Home') {
     event.preventDefault();
     canvas.fit();
+  }
+  // Blender's key for it: the selection becomes a group.
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'g') {
+    event.preventDefault();
+    void collapseSelection();
   }
   // Blender's key: fold the selection down to titles and sockets.
   if (event.key.toLowerCase() === 'h' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -2411,7 +2625,6 @@ window.addEventListener('resize', () => {
 async function boot(): Promise<void> {
   setSnap(snapping);
   paintGrid();
-  buildPalette();
   pens = await loadPens();
   papers = await loadPapers();
   settings = loadSettings();
@@ -2426,6 +2639,10 @@ async function boot(): Promise<void> {
       { module: '@user/papers', names: papers.map((paper) => ({ name: moduleName(paper.name), spec: moduleName(paper.name) })) },
     ],
   };
+  // The groups are words too: read them before the palette is built, and the
+  // catalogue answers for them from the first paint.
+  await loadGroups();
+  buildPalette();
   preview.setPaperColor(settings.paperColor);
   const params = new URLSearchParams(location.search);
   // "Open in Graph" on the studio page hands the editor's own buffer over,

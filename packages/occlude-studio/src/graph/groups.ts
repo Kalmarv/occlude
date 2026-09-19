@@ -14,7 +14,7 @@
  */
 
 import {
-  inputTakes, outputType, topoOrder,
+  inputTakes, isUsableName, outputType, topoOrder,
   type Catalogue, type Graph, type GraphNode, type Takes, type ValueType,
 } from './model.js';
 
@@ -30,6 +30,10 @@ export interface GroupLibrary {
   /** The group of that name, or undefined. */
   get(name: string): Group | undefined;
 }
+
+/** What a group's own boundary and result are called inside it. */
+export const BOUNDARY_ID = 'boundary';
+export const RESULT_ID = 'result';
 
 const isBoundary = (node: GraphNode): boolean => node.kind === 'input';
 const isResult = (node: GraphNode): boolean => node.kind === 'output';
@@ -161,14 +165,27 @@ export interface Collapsed {
  * output — the boundary the brief asks for.
  */
 export function collapse(graph: Graph, ids: readonly string[], name: string, catalogue: Catalogue): Collapsed {
+  // The group's name becomes part of the id of every node inside it once it
+  // is inlined, so it has to be a name a sketch can bind. A group called
+  // "ring bits" compiles to `ring bits_n2`, which is not a program.
+  if (!isUsableName(name)) throw new Error(`graph: ${JSON.stringify(name)} is not a name a group can have (letters, digits and _, not starting with a digit, not a reserved word)`);
   const selected = new Set(ids);
   for (const id of ids) if (!graph.nodes.some((n) => n.id === id)) throw new Error(`graph: no node ${id}`);
   if (selected.size === 0) throw new Error('graph: a group needs at least one node');
   const inside = graph.nodes.filter((n) => selected.has(n.id));
   const rest = graph.nodes.filter((n) => !selected.has(n.id));
 
-  const boundary: GraphNode = { id: 'in', kind: 'input', x: 0, y: 0, inputs: {}, outputs: {} };
-  const result: GraphNode = { id: 'out', kind: 'output', x: 0, y: 0, inputs: {} };
+  // `in` and `out` read well and are both reserved words: a document with a
+  // node called `in` is one `parseGraph` refuses, so the group could be
+  // expanded but never opened. The ids a group's own graph uses are names a
+  // sketch could bind, like every other node's.
+  // The two ends stand either side of what they bound, so the group opens as
+  // a picture and not as a pile at the origin.
+  const left = Math.min(...inside.map((n) => n.x));
+  const right = Math.max(...inside.map((n) => n.x));
+  const middle = inside.reduce((sum, n) => sum + n.y, 0) / inside.length;
+  const boundary: GraphNode = { id: BOUNDARY_ID, kind: 'input', x: left - 280, y: Math.round(middle), inputs: {}, outputs: {} };
+  const result: GraphNode = { id: RESULT_ID, kind: 'output', x: right + 300, y: Math.round(middle), inputs: {} };
   const taken = new Set(inside.map((n) => n.id));
   const unique = (preferred: string): string => {
     let id = preferred;
@@ -204,7 +221,7 @@ export function collapse(graph: Graph, ids: readonly string[], name: string, cat
       const socket = named(innerNames, key);
       boundary.outputs![socket] = takes.socket === 'Geometry' && takes.kinds ? takes.kinds[0] : takes.socket;
       groupNode.inputs[socket] = input;
-      return { ...input, from: ['in', socket] };
+      return { ...input, from: [BOUNDARY_ID, socket] };
     });
   }
 

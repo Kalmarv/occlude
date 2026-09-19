@@ -109,6 +109,8 @@ export interface NodePaintHooks {
   pens(): string[];
   /** Remember a node's size in the document. */
   setSize(node: GraphNode, width: number, height: number): void;
+  /** Open this group as its own document. */
+  openGroup(node: GraphNode): void;
   /** Fit this viewer's picture to its canvas again. */
   fitViewer(node: GraphNode): void;
   /** This viewer's last render built a 3D scene, so it can show the model. */
@@ -207,6 +209,8 @@ function socketDot(side: 'input' | 'output', key: string, socketClass: string, h
 }
 
 function nodeTitle(node: GraphNode): string {
+  if (node.kind === 'group') return node.word ?? 'group';
+  if (node.kind === 'input') return 'in';
   if (node.kind === 'builtin') return node.word ?? 'built-in';
   if (node.kind === 'code') return 'code';
   if (node.kind === 'viewer') return 'viewer';
@@ -933,12 +937,65 @@ function paperRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): v
 
 /** An output node: what the sketch returns. */
 function outputRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
-  const line = nodeRow();
-  line.dataset.row = 'in';
-  line.append(socketDot('input', 'in', 'Geometry', hooks));
-  line.append(el('span', 'graph-row-name', 'in'));
-  line.append(el('span', 'graph-row-type', 'shape | drawing'));
-  host.append(line);
+  // One row per thing this node is the end of: a sketch returns one drawing,
+  // a group's result hands back one value per output it offers.
+  const takes = hooks.takesOf(node);
+  for (const [key, take] of Object.entries(takes)) {
+    const line = nodeRow();
+    line.dataset.row = key;
+    line.append(socketDot('input', key, take?.socket ?? 'Geometry', hooks));
+    line.append(el('span', 'graph-row-name', key));
+    line.append(el('span', 'graph-row-type', take && !take.any ? takesLabel(take) : 'anything'));
+    host.append(line);
+  }
+}
+
+/**
+ * A group node: the name of the sub-graph it stands for, the sockets its
+ * boundary declares, and a way in. The body is deliberately plain — what is
+ * inside is a document of its own, and a preview of it here would be a
+ * second, smaller canvas nobody asked for.
+ */
+function groupRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  const head = host.querySelector<HTMLElement>('.graph-node-head');
+  if (head) {
+    const open = iconButton('open', 'Open this group as its own graph', () => hooks.openGroup(node));
+    noDrag(open);
+    head.querySelector('.graph-node-id')?.after(open);
+  }
+  const takes = hooks.takesOf(node);
+  for (const [key, take] of Object.entries(takes)) {
+    const line = nodeRow();
+    line.dataset.row = key;
+    line.append(socketDot('input', key, take?.socket ?? 'Geometry', hooks));
+    line.append(el('span', 'graph-row-name', key));
+    if (take) line.append(el('span', 'graph-row-type', takesLabel(take)));
+    host.append(line);
+  }
+  for (const [key, type] of Object.entries(node.outputs ?? {})) {
+    const line = nodeRow('graph-row graph-row-out');
+    line.dataset.row = key;
+    line.append(el('span', 'graph-row-type', takesLabel(takesOf(type))));
+    line.append(el('span', 'graph-row-name', key));
+    line.append(socketDot('output', key, takesOf(type).socket, hooks));
+    host.append(line);
+  }
+}
+
+/**
+ * A group's boundary, seen from inside: it takes nothing and offers the
+ * group's own inputs. It is the one node kind that is a source by
+ * declaration rather than by what it computes.
+ */
+function boundaryRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  for (const [key, type] of Object.entries(node.outputs ?? {})) {
+    const line = nodeRow('graph-row graph-row-out');
+    line.dataset.row = key;
+    line.append(el('span', 'graph-row-type', takesLabel(takesOf(type))));
+    line.append(el('span', 'graph-row-name', key));
+    line.append(socketDot('output', key, takesOf(type).socket, hooks));
+    host.append(line);
+  }
 }
 
 /** Build (or rebuild) one node's body. */
@@ -981,6 +1038,8 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   else if (node.kind === 'list') listRows(host, node, hooks);
   else if (node.kind === 'zone') zoneRows(host, node, hooks);
   else if (node.kind === 'paper') paperRows(host, node, hooks);
+  else if (node.kind === 'group') groupRows(host, node, hooks);
+  else if (node.kind === 'input') boundaryRows(host, node, hooks);
   else if (node.kind === 'viewer') {
     const shown = viewerRows(host, node, hooks);
     paint.canvas = shown.canvas;

@@ -175,6 +175,17 @@ export interface Catalogue {
    * sketch". A class is in `importable` already; these are the aliases and
    * interfaces, which carry no value. */
   importableTypes?: { module: string; names: string[] }[];
+  /** The groups the host has, by name: a saved sub-graph is a word the
+   * artist made, and its sockets are read here for the same reason a
+   * built-in's are read from `words` — so the wire rule, the node body and
+   * the compiler ask one question and get one answer. */
+  groups?: Record<string, GroupWord>;
+}
+
+/** What a group node offers, from the group it names. */
+export interface GroupWord {
+  inputs: Record<string, Takes>;
+  outputs: Record<string, ValueType>;
 }
 
 const lookups = new WeakMap<Catalogue, Map<string, CatalogueWord>>();
@@ -395,7 +406,7 @@ const RESERVED = new Set([
 ]);
 
 /** A name a compiled sketch may bind. */
-function isUsableName(name: string): boolean {
+export function isUsableName(name: string): boolean {
   return IDENT.test(name) && !RESERVED.has(name);
 }
 
@@ -649,7 +660,22 @@ export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string
     }));
   }
   // The output node takes what a sketch may return: shapes and drawings.
-  if (node.kind === 'output') return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
+  // Inside a group the same node is the group's *result*, and it takes one
+  // thing per output the group offers — whatever kind that is, since a group
+  // may hand back a material or a number as readily as ink.
+  if (node.kind === 'output') {
+    const keys = Object.keys(node.inputs).filter((key) => key !== 'in');
+    if (keys.length === 0) return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
+    return Object.fromEntries(keys.map((key) => [key, { socket: 'Geometry' as const, any: true }]));
+  }
+  // A group takes what its boundary declares. A group the host does not hold
+  // still shows the sockets something is wired to, so opening a graph whose
+  // group is missing shows the shape of the problem rather than a bare box.
+  if (node.kind === 'group') {
+    const word = catalogue.groups?.[node.word ?? ''];
+    if (word) return word.inputs;
+    return Object.fromEntries(Object.keys(node.inputs).map((key) => [key, { socket: 'Geometry' as const, any: true }]));
+  }
   // A zone takes what its recipe names, and one socket for every name its
   // body reaches for from outside — those cross the boundary under their own
   // names, and the boundary node declares what each one is.
@@ -693,5 +719,8 @@ export function outputType(node: GraphNode, name: string, catalogue: Catalogue):
   }
   if (node.kind === 'paper') return PAPER_OUTPUTS[name] === undefined ? undefined : 'Number';
   if (node.kind === 'code' || node.kind === 'value' || node.kind === 'list' || node.kind === 'zone') return node.outputs?.[name];
+  // A group's result, from the group; a boundary declares its own.
+  if (node.kind === 'group') return catalogue.groups?.[node.word ?? '']?.outputs[name] ?? node.outputs?.[name];
+  if (node.kind === 'input') return node.outputs?.[name];
   return undefined;
 }

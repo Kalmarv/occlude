@@ -15,7 +15,7 @@ import { DEFAULT_PENS, initOcclude, liveExampleToJs, renderAsync, type RenderRes
 import { CATALOGUE } from './catalogue.js';
 import { compileGraph } from './compile.js';
 import { collapse, expand, groupInputs, groupOutputs, type Group, type GroupLibrary } from './groups.js';
-import { parseGraph, topoOrder, type Graph } from './model.js';
+import { graphToJson, parseGraph, topoOrder, type Graph } from './model.js';
 
 const read = (path: string): string => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
 const bloom = (): Graph => parseGraph(JSON.parse(read('./fixtures/bloom.json')));
@@ -82,6 +82,27 @@ it('gives the group node the boundary the group declares', () => {
   // that reads it directly, the circle's own shape.
   expect(Object.keys(groupOutputs(group, CATALOGUE)).sort()).toEqual(['n1', 'n2']);
   expect(made.node.outputs).toEqual({ n2: 'material', n1: 'shape' });
+});
+
+it('makes a group that is a document the page can open', () => {
+  // A group is edited as a graph of its own, so `parseGraph` has to accept
+  // it: `in` and `out` are reserved words, and a node cannot be called one.
+  const made = collapse(bloom(), ['n5'], 'grow', CATALOGUE);
+  const again = parseGraph(JSON.parse(graphToJson(made.group.graph)));
+  expect(again.nodes.some((node) => node.kind === 'input')).toBe(true);
+  expect(again.nodes.some((node) => node.kind === 'output')).toBe(true);
+  // And the outer graph it left behind is a document too.
+  expect(() => parseGraph(JSON.parse(graphToJson(made.graph)))).not.toThrow();
+});
+
+it('refuses a name a sketch could not bind', () => {
+  const graph = bloom();
+  // The name becomes part of every inlined node's id: "ring bits_n2" is not
+  // a program, and the compiler's message would say so about the wrong thing.
+  expect(() => collapse(graph, ['n5'], 'ring bits', CATALOGUE)).toThrow(/is not a name a group can have/);
+  expect(() => collapse(graph, ['n5'], '2rings', CATALOGUE)).toThrow(/is not a name a group can have/);
+  expect(() => collapse(graph, ['n5'], 'return', CATALOGUE)).toThrow(/is not a name a group can have/);
+  expect(collapse(graph, ['n5'], 'ring_bits', CATALOGUE).group.name).toBe('ring_bits');
 });
 
 it('refuses a group that contains itself', () => {
