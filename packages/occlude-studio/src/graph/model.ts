@@ -19,7 +19,7 @@ export type GeometryKind = (typeof GEOMETRY_KINDS)[number];
 
 /** The socket classes: what a connection carries, at the granularity the
  * artist wires. */
-export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image', 'Force'] as const;
+export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image', 'Force', 'Boolean'] as const;
 export type SocketClass = (typeof SOCKET_CLASSES)[number];
 
 /** A value a code node declares, an input takes or a word returns. */
@@ -292,9 +292,14 @@ export const ZONES: Record<ZoneKind, {
    * does not move.
    */
   row?: number;
-  /** Whether each run answers with a value. A step rule does not: it moves
-   * the next state, and the zone's own answer is what the word returns. */
-  answers?: false;
+  /**
+   * What each run answers. A step rule answers `false` — nothing: it moves
+   * the next state, and the zone's own answer is what the word returns. A
+   * named type is what the run hands back, which is what the body's result
+   * socket takes: a `filter` run answers yes or no, a field run a number.
+   * Absent means ink, which is what a `map` run usually is.
+   */
+  answers?: false | ValueType;
   /** What the zone itself is, when it is not a drawing. A field is a field. */
   returns?: ValueType;
   /** The call the compiler writes, given the inputs and the body. */
@@ -325,6 +330,7 @@ ${body}
   field: {
     takes: [],
     binds: [{ name: 'x', type: 'Number' }, { name: 'y', type: 'Number' }],
+    answers: 'Number',
     returns: 'Field',
     call: (_args, params, body) => `(${params}) => {
 ${body}
@@ -336,6 +342,7 @@ ${body}
     takes: [{ name: 'rows', takes: { socket: 'Geometry', any: true } }],
     binds: [{ name: 'row', type: 'Geometry' }],
     row: 0,
+    answers: 'Boolean',
     call: (args, params, body) => `${args['rows'] ?? '[]'}.filter((${params}) => {
 ${body}
 })`,
@@ -711,6 +718,12 @@ export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string
   // may hand back a material or a number as readily as ink.
   if (node.kind === 'output') {
     const keys = Object.keys(node.inputs).filter((key) => key !== 'in');
+    // A result that says what it carries is taken at its word: inside a
+    // `filter` the answer is yes or no, and inside a field it is a number.
+    const declared = node.inputs['in']?.type;
+    if (keys.length === 0 && declared !== undefined) {
+      return { in: { socket: socketOf(declared), kinds: kindOf(declared) ? [kindOf(declared)!] : undefined } };
+    }
     if (keys.length === 0) return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
     return Object.fromEntries(keys.map((key) => [key, { socket: 'Geometry' as const, any: true }]));
   }

@@ -89,7 +89,7 @@ for (const page of PAGES) for (const word of page.words) if (!pageOfWord.has(wor
 
 // ---- the type → socket map ----
 
-const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image', 'Force'] as const;
+const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image', 'Force', 'Boolean'] as const;
 type SocketClass = (typeof SOCKET_CLASSES)[number];
 const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'surface', 'drawing'] as const;
 type GeometryKind = (typeof GEOMETRY_KINDS)[number];
@@ -883,7 +883,7 @@ function walkToolkit(): void {
  * (`add` is the vector one), and each writes its expression rather than a
  * call to something that does not exist.
  */
-const MATH: { word: string; inputs: string[]; template: string; hint: string }[] = [
+const MATH: { word: string; inputs: string[]; template: string; hint: string; takes?: SocketClass; returns?: SocketClass }[] = [
   { word: 'math.add', inputs: ['a', 'b'], template: '({a} + {b})', hint: 'a plus b' },
   { word: 'math.subtract', inputs: ['a', 'b'], template: '({a} - {b})', hint: 'a less b' },
   { word: 'math.multiply', inputs: ['a', 'b'], template: '({a} * {b})', hint: 'a times b' },
@@ -904,14 +904,27 @@ const MATH: { word: string; inputs: string[]; template: string; hint: string }[]
   { word: 'math.cos', inputs: ['a'], template: 'Math.cos({a})', hint: 'the cosine, in radians' },
   { word: 'math.tan', inputs: ['a'], template: 'Math.tan({a})', hint: 'the tangent, in radians' },
   { word: 'math.log', inputs: ['a'], template: 'Math.log({a})', hint: 'the natural logarithm' },
+  // Yes or no. A wire cannot carry `>` any more than it can carry `+`, and
+  // what decides which rows are drawn is the one place the graph has to say
+  // plainly what it means — so a comparison answers a Boolean, not a number
+  // that happens to be 1 or 0.
+  { word: 'math.greater', inputs: ['a', 'b'], template: '({a} > {b})', hint: 'a is more than b', returns: 'Boolean' },
+  { word: 'math.less', inputs: ['a', 'b'], template: '({a} < {b})', hint: 'a is less than b', returns: 'Boolean' },
+  { word: 'math.atLeast', inputs: ['a', 'b'], template: '({a} >= {b})', hint: 'a is b or more', returns: 'Boolean' },
+  { word: 'math.atMost', inputs: ['a', 'b'], template: '({a} <= {b})', hint: 'a is b or less', returns: 'Boolean' },
+  { word: 'math.equals', inputs: ['a', 'b'], template: '({a} === {b})', hint: 'a is exactly b', returns: 'Boolean' },
+  { word: 'math.differs', inputs: ['a', 'b'], template: '({a} !== {b})', hint: 'a is not b', returns: 'Boolean' },
+  { word: 'math.both', inputs: ['a', 'b'], template: '({a} && {b})', hint: 'both are so', takes: 'Boolean', returns: 'Boolean' },
+  { word: 'math.either', inputs: ['a', 'b'], template: '({a} || {b})', hint: 'one of them is so', takes: 'Boolean', returns: 'Boolean' },
+  { word: 'math.not', inputs: ['a'], template: '(!{a})', hint: 'the other way about', takes: 'Boolean', returns: 'Boolean' },
 ];
 
 function addMath(): void {
   for (const one of MATH) {
     words.push({
       word: one.word, module: 'occlude', receiver: null, import: null, call: one.word,
-      template: one.template, returns: 'Number', page: '', group: 'Math',
-      params: one.inputs.map((name) => ({ name, socket: 'Number' as SocketClass, optional: false })),
+      template: one.template, returns: one.returns ?? 'Number', page: '', group: 'Math',
+      params: one.inputs.map((name) => ({ name, socket: one.takes ?? 'Number', optional: false })),
     });
   }
   // `math.pi` is a value, not a call.

@@ -2444,6 +2444,33 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'math.atLeast', module: 'occlude', receiver: null, template: '({a} >= {b})',
+      import: null, call: 'math.atLeast', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.atMost', module: 'occlude', receiver: null, template: '({a} <= {b})',
+      import: null, call: 'math.atMost', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.both', module: 'occlude', receiver: null, template: '({a} && {b})',
+      import: null, call: 'math.both', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Boolean' }, optional: false },
+        { name: 'b', takes: { socket: 'Boolean' }, optional: false },
+      ],
+    },
+    {
       word: 'math.ceil', module: 'occlude', receiver: null, template: 'Math.ceil({a})',
       import: null, call: 'math.ceil', returns: 'Number',
       page: '', group: 'Math',
@@ -2460,8 +2487,35 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'math.differs', module: 'occlude', receiver: null, template: '({a} !== {b})',
+      import: null, call: 'math.differs', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 'math.divide', module: 'occlude', receiver: null, template: '({a} / {b})',
       import: null, call: 'math.divide', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.either', module: 'occlude', receiver: null, template: '({a} || {b})',
+      import: null, call: 'math.either', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Boolean' }, optional: false },
+        { name: 'b', takes: { socket: 'Boolean' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.equals', module: 'occlude', receiver: null, template: '({a} === {b})',
+      import: null, call: 'math.equals', returns: 'Boolean',
       page: '', group: 'Math',
       params: [
         { name: 'a', takes: { socket: 'Number' }, optional: false },
@@ -2477,8 +2531,26 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'math.greater', module: 'occlude', receiver: null, template: '({a} > {b})',
+      import: null, call: 'math.greater', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 'math.hypot', module: 'occlude', receiver: null, template: 'Math.hypot({a}, {b})',
       import: null, call: 'math.hypot', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.less', module: 'occlude', receiver: null, template: '({a} < {b})',
+      import: null, call: 'math.less', returns: 'Boolean',
       page: '', group: 'Math',
       params: [
         { name: 'a', takes: { socket: 'Number' }, optional: false },
@@ -2518,6 +2590,14 @@ export const CATALOGUE: Catalogue = {
       params: [
         { name: 'a', takes: { socket: 'Number' }, optional: false },
         { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.not', module: 'occlude', receiver: null, template: '(!{a})',
+      import: null, call: 'math.not', returns: 'Boolean',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Boolean' }, optional: false },
       ],
     },
     {

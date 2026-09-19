@@ -68,6 +68,7 @@ const SOCKET_COLORS: Record<string, string> = {
   Pen: 'var(--accent-edge)',
   Image: 'var(--warn)',
   Force: 'var(--accent-edge)',
+  Boolean: 'var(--toolpath)',
 };
 
 /** What a viewer's own picture wraps: a material is not ink. */

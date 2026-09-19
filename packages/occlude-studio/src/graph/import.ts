@@ -641,9 +641,9 @@ class Reader {
     // What a sketch returns is very often one word's call: `return
     // stroke(grown.contour)`, `(p) => circle(p.x, p.y, 2)`. That is the
     // word, wired to the output, and not a code node that holds it.
-    if (before.length === 0 && ts.isCallExpression(expr)) {
+    if (before.length === 0 && (ts.isCallExpression(expr) || ts.isBinaryExpression(expr))) {
       const mark = this.nodes.length;
-      const lifted = this.liftCall(expr);
+      const lifted = ts.isCallExpression(expr) ? this.liftCall(expr) : this.liftBinary(expr);
       if (lifted) {
         this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: [lifted.id, 'out'] } } });
         return;
@@ -739,6 +739,14 @@ class Reader {
     [ts.SyntaxKind.SlashToken]: 'math.divide',
     [ts.SyntaxKind.PercentToken]: 'math.remainder',
     [ts.SyntaxKind.AsteriskAsteriskToken]: 'math.power',
+    [ts.SyntaxKind.GreaterThanToken]: 'math.greater',
+    [ts.SyntaxKind.LessThanToken]: 'math.less',
+    [ts.SyntaxKind.GreaterThanEqualsToken]: 'math.atLeast',
+    [ts.SyntaxKind.LessThanEqualsToken]: 'math.atMost',
+    [ts.SyntaxKind.EqualsEqualsEqualsToken]: 'math.equals',
+    [ts.SyntaxKind.ExclamationEqualsEqualsToken]: 'math.differs',
+    [ts.SyntaxKind.AmpersandAmpersandToken]: 'math.both',
+    [ts.SyntaxKind.BarBarToken]: 'math.either',
   };
 
   /**
@@ -1154,6 +1162,12 @@ class Reader {
     // code node it always was, and the compiler writes that back as the
     // callback the sketch wrote.
     const inside = this.insideOf(callback, boundary, edge, recipe.answers !== false) ?? whole;
+    // What a run answers is what the body's result takes: a `filter` run
+    // answers yes or no, a field run a number.
+    if (typeof recipe.answers === 'string') {
+      const result = inside.nodes.find((n) => n.kind === 'output');
+      if (result?.inputs['in']) result.inputs['in'] = { ...result.inputs['in'], type: recipe.answers };
+    }
     return { id, kind: 'zone', zone: kind, x: 0, y: 0, inputs, outputs: { out: recipe.returns ?? 'Geometry' }, binds, graph: inside };
   }
 

@@ -50,6 +50,7 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   // The point is `any` because the socket cannot say whether this force
   // wants a vertex or a bare position, and both are forces.
   Force: { type: '((p: any, k?: number) => [number, number])' },
+  Boolean: { type: 'boolean' },
   // Geometry with no kind is "the graph does not know": `any`, not
   // `unknown`, because a squiggle the graph invented on a body that runs is
   // worse than no check. A node whose type the artist declares is checked.
@@ -72,6 +73,7 @@ const SOCKET_CLASS_LABEL: Record<string, string> = {
   Pen: 'pen',
   Image: 'picture',
   Force: 'force',
+  Boolean: 'yes or no',
 };
 
 /** The socket a value type travels on, and the geometry kinds it names. */
