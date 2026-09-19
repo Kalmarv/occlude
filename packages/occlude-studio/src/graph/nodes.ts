@@ -545,6 +545,17 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { 
   const code = el('div', 'graph-code');
   host.append(code);
   noDrag(code);
+  // One rule for keys: they go to the editor while the caret is in it, and
+  // `Escape` is how the artist leaves. Monaco stops the key itself while one
+  // of its own widgets is open (a suggestion list closes first), so this sees
+  // only the presses it did not want, and the canvas has its keys back.
+  code.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    hooks.select(node);
+    host.focus();
+  });
   const editor = createEditor(code, node.body ?? '', { uri: `file:///graph-${node.id}.ts`, inline: true });
   // A body the artist cannot read is a body they cannot edit: the editor is
   // as tall as its text, up to the point where scrolling is the honest
@@ -897,6 +908,9 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   const cleanups: (() => void)[] = [];
   const paint: NodePaint = { dispose: () => { for (const off of cleanups) off(); } };
   host.className = node.collapsed ? 'graph-node-body graph-folded' : 'graph-node-body';
+  // Focusable, but not in the tab order: it is where focus lands when the
+  // artist leaves a code body, and it must not sit between two fields.
+  host.tabIndex = -1;
   host.dataset.node = node.id;
   host.dataset.kind = node.kind;
   host.replaceChildren();

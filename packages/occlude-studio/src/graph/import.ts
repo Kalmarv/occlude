@@ -83,7 +83,58 @@ export function importSketch(source: string, catalogue: Catalogue, refusals?: Im
   const file = ts.createSourceFile('sketch.ts', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
   const graph = new Reader(file, catalogue, refusals).read();
   layout(graph, catalogue);
+  // A sketch this page wrote carries where its nodes stood. The layout runs
+  // first either way, so a node the block does not name — one the artist
+  // added to the sketch by hand — still lands somewhere sensible.
+  applyLayout(graph, source);
   return graph;
+}
+
+/** The block `openAsSketch` leaves at the foot of a compiled graph. A node's
+ * id is its `const` name in the source, so the block needs no other key. */
+const LAYOUT_MARK = 'occlude-graph layout v1';
+
+interface Placed { x: number; y: number; w?: number; h?: number; folded?: true }
+
+/** Where the nodes of this graph stood when it was written out as a sketch,
+ * as a comment the compiler ignores. */
+export function layoutBlock(graph: Graph): string {
+  const places: Record<string, Placed> = {};
+  for (const node of graph.nodes) {
+    const place: Placed = { x: Math.round(node.x), y: Math.round(node.y) };
+    if (node.width !== undefined) place.w = node.width;
+    if (node.height !== undefined) place.h = node.height;
+    if (node.collapsed) place.folded = true;
+    places[node.id] = place;
+  }
+  return `/* ${LAYOUT_MARK}\n${JSON.stringify(places)}\n*/\n`;
+}
+
+/** Read that block back, and put the nodes it names where it says. */
+export function applyLayout(graph: Graph, source: string): boolean {
+  const at = source.lastIndexOf(`/* ${LAYOUT_MARK}`);
+  if (at < 0) return false;
+  const end = source.indexOf('*/', at);
+  if (end < 0) return false;
+  const body = source.slice(at + LAYOUT_MARK.length + 3, end).trim();
+  let places: Record<string, Placed>;
+  try {
+    places = JSON.parse(body) as Record<string, Placed>;
+  } catch {
+    return false;
+  }
+  let landed = 0;
+  for (const node of graph.nodes) {
+    const place = places[node.id];
+    if (!place || typeof place.x !== 'number' || typeof place.y !== 'number') continue;
+    node.x = place.x;
+    node.y = place.y;
+    if (typeof place.w === 'number') node.width = place.w;
+    if (typeof place.h === 'number') node.height = place.h;
+    if (place.folded) node.collapsed = true;
+    landed++;
+  }
+  return landed > 0;
 }
 
 class Reader {

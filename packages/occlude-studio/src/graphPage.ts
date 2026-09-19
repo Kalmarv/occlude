@@ -32,7 +32,7 @@ import { createCanvas, type AreaExtra, type GraphCanvas, type GraphScheme, type 
 import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type NodePaint, type NodePaintHooks, type ViewerShow } from './graph/nodes.js';
 import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.js';
 import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
-import { importSketch } from './graph/import.js';
+import { importSketch, layoutBlock } from './graph/import.js';
 import { loadSketchByName, takeLive } from './sketchApi.js';
 import {
   PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
@@ -2112,7 +2112,10 @@ function openAsSketch(): void {
     markErrors(message);
     return;
   }
-  localStorage.setItem('occlude.sketch', compiled.source);
+  // The sketch carries where the nodes stood, so opening it back as a graph
+  // lands them where the artist left them. The compiler never writes this:
+  // its source is the ink's, and the ink oracle compares it.
+  localStorage.setItem('occlude.sketch', `${compiled.source}\n${layoutBlock(graph)}`);
   localStorage.setItem('occlude.sketchName', '');
   localStorage.setItem('occlude.openSettings', JSON.stringify({
     paper: settings.paper,
@@ -2120,6 +2123,10 @@ function openAsSketch(): void {
     landscape: settings.landscape,
     defaultMarginPct: settings.defaultMarginPct,
   }));
+  // The page is leaving on purpose, with the work handed to the studio: the
+  // unsaved-work guard must not stop the artist from doing what they asked
+  // for. The draft is written either way, so nothing is lost.
+  leaving = true;
   location.href = '/';
 }
 
@@ -2326,8 +2333,11 @@ async function pasteClipping(): Promise<void> {
 
 // Leaving with work that is not saved asks first. The draft is written
 // either way, so an answer of "leave" still loses nothing.
+/** This page is navigating because the artist asked it to. */
+let leaving = false;
+
 window.addEventListener('beforeunload', (event) => {
-  if (!dirty) return;
+  if (!dirty || leaving) return;
   event.preventDefault();
   event.returnValue = '';
 });

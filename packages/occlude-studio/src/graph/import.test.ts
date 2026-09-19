@@ -24,7 +24,7 @@ import { DOC_PAGES } from '../../../occlude/src/docsExamples.js';
 
 import { CATALOGUE } from './catalogue.js';
 import { compileGraph } from './compile.js';
-import { importSketch } from './import.js';
+import { applyLayout, importSketch, layoutBlock } from './import.js';
 import { graphToJson, parseGraph, type Catalogue } from './model.js';
 
 const read = (path: string): string => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
@@ -322,6 +322,41 @@ export default sketch({}, (t) => {
       .toThrow('returns nothing');
     expect(() => importSketch(`const a = 1;\n`, CATALOGUE))
       .toThrow('no default export');
+  });
+
+  it('lands the nodes where the sketch says they stood', () => {
+    const source = `import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const ring = circle(50, 50, 18);
+  const dots = t.sample(ring, { count: 48 });
+  return dots;
+});
+`;
+    const graph = importSketch(source, CATALOGUE);
+    const moved = graph.nodes[0]!;
+    moved.x = 1234;
+    moved.y = 567;
+    moved.width = 260;
+    moved.collapsed = true;
+    const again = importSketch(`${source}\n${layoutBlock(graph)}`, CATALOGUE);
+    const back = again.nodes.find((node) => node.id === moved.id);
+    expect(back).toMatchObject({ x: 1234, y: 567, width: 260, collapsed: true });
+    // Every other node keeps the layout's own answer, and no two nodes stack.
+    expect(new Set(again.nodes.map((node) => `${node.x},${node.y}`)).size).toBe(again.nodes.length);
+  });
+
+  it('leaves a sketch with no block where the layout put it', () => {
+    const source = `import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const ring = circle(50, 50, 18);
+  return ring;
+});
+`;
+    const graph = importSketch(source, CATALOGUE);
+    expect(applyLayout(graph, source)).toBe(false);
+    expect(applyLayout(graph, `${source}\n/* occlude-graph layout v1\nnot json\n*/\n`)).toBe(false);
   });
 
   it('renders the ink of the hand-written bloom', async () => {
