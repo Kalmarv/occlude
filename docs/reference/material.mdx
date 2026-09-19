@@ -176,10 +176,17 @@ what the code does, not what it should do.
 | `oscillate` | kept, and an edge column arrives as a POINT column | dropped | edge policies dropped |
 | `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
 
-The third row matches its geometry. A thickened outline has two vertices for
-each vertex of the source. An envelope's vertices are crossings of a family,
-and come from no vertex at all. An interlace cuts a chain where it passes
-under. None of these has one source row to read a value from.
+The third row matches its geometry. An envelope's vertices are crossings of a
+family, and come from no vertex at all. An interlace cuts a chain where it
+passes under. Neither has one source row to read a value from.
+
+`thicken` is different: it CAN trace an output vertex back, and
+`{ point: (event) => … }` is how you ask it to. The event carries every
+source candidate for that vertex. Each candidate's columns are already read
+by the column's own transfer policy, and what you return becomes the row.
+Most output vertices have one candidate. The few with several are the outer
+corners and the junctions. There the candidates disagree, so the decision is
+yours and there is no default.
 
 The second row is a trap. `oscillate` walks the chains as stations. A station
 carries an edge's sampled value as an ordinary point value. So an edge

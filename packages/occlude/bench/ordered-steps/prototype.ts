@@ -296,6 +296,9 @@ export class OrderedEditor {
       get id(): never {
         throw new Error('ordered-steps prototype: identity is not modelled');
       },
+      get root(): never {
+        throw new Error('ordered-steps prototype: identity is not modelled');
+      },
     });
     // Always expose live endpoints, even when connect received frozen prev views.
     a = this.ps[ai].view;

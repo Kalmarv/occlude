@@ -97,6 +97,17 @@ export interface Edge {
   /** This edge, for as long as it exists. A split retires it and gives its
    * children ids of their own. */
   readonly id: EdgeId;
+  /**
+   * The oldest edge this one descends from — the WALL it is part of.
+   *
+   * A split retires the parent and mints two children, so `id` tells you
+   * this edge and `root` tells you which wall it belongs to. That is the
+   * difference between "the edge I marked" and "the wall I marked", and it
+   * is the one that survives a subdivision: mark the long walls, split
+   * everything, and the pieces still answer with the root they came from.
+   * An edge that has never been split is its own root.
+   */
+  readonly root: EdgeId;
   /** This edge's attribute row: `edge.attrs.rest`. */
   attrs: Record<string, number>;
   /** The faces on this edge's two sides, from the material's `faces()`:
@@ -497,6 +508,7 @@ export class Material {
     const edgeProto = Object.create(viewProto(this, 'edge')) as object;
     Object.defineProperty(edgeProto, 'faces', { get(this: Edge) { return owner.faces().facesOf(this); }, enumerable: false });
     Object.defineProperty(edgeProto, 'id', { get(this: Edge) { return owner.edgeIds[this.index] as EdgeId; }, enumerable: false });
+    Object.defineProperty(edgeProto, 'root', { get(this: Edge) { return owner.edgeRoots[this.index] as EdgeId; }, enumerable: false });
     this.edgeProto = Object.freeze(edgeProto);
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
@@ -2344,7 +2356,38 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
     else col.fill(edgeFill[k], a.edgeCount);
     edgeAttrs[k] = col;
   }
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers } });
+  // Appending changes no row: every point and edge of both sides is the one
+  // it was, so it keeps the id it had. Minting fresh ones here would retire
+  // identities nothing retired, and a selection held across the append —
+  // which is the reason to hold one — would find nothing.
+  const pointIds = new Float64Array(a.n + b.n);
+  pointIds.set(a.pointIds);
+  pointIds.set(b.pointIds, a.n);
+  const edgeIds = new Float64Array(a.edgeCount + b.edgeCount);
+  edgeIds.set(a.edgeIds);
+  edgeIds.set(b.edgeIds, a.edgeCount);
+  const edgeRoots = new Float64Array(a.edgeCount + b.edgeCount);
+  edgeRoots.set(a.edgeRoots);
+  edgeRoots.set(b.edgeRoots, a.edgeCount);
+  // Two materials of the same evolution share ids; two unrelated ones may
+  // collide by chance. A collision would make `cur.point(id)` ambiguous, so
+  // the second side is re-minted whole rather than half — and the first side,
+  // which the artist is usually appending TO, keeps what it had.
+  const seen = new Set<number>(a.pointIds);
+  if ([...b.pointIds].some((id) => seen.has(id))) pointIds.set(mintIds(b.n), a.n);
+  const seenEdges = new Set<number>(a.edgeIds);
+  if ([...b.edgeIds].some((id) => seenEdges.has(id))) {
+    const fresh = mintIds(b.edgeCount);
+    edgeIds.set(fresh, a.edgeCount);
+    edgeRoots.set(fresh, a.edgeCount);
+  }
+  // Face columns are keyed by wall lineage, and appending changes no wall.
+  // A name on both sides with different values cannot be reconciled, so it
+  // is refused rather than silently taking one.
+  for (const k of Object.keys(a.faceAttrs)) {
+    if (k in b.faceAttrs) throw new Error(`append: both materials carry the face column '${k}' — rename one before joining them`);
+  }
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs } });
 }
 
 // ---- interpretation ---------------------------------------------------------------

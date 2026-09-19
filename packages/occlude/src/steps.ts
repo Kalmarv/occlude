@@ -13,7 +13,7 @@
 
 import { vx, vy, type XY } from './vec.js';
 import { ownerOf, pairKey, viewKind } from './views.js';
-import { mintIds, RESERVED_FACE_FIELDS, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot } from './material.js';
+import { mintIds, RESERVED_FACE_FIELDS, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot, type PointId, type EdgeId } from './material.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, type Face, type FaceSelection } from './faces.js';
 
@@ -300,20 +300,39 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   };
   // A selection from an EARLIER state of the same evolution is re-bound by
   // identity rather than refused: the rows are that state's numbering, but
-  // the points are the same points. Members that are gone are skipped. A
-  // selection of a material with no shared identity re-binds to nothing,
-  // and the verb then does nothing — which is what "skip what is gone"
-  // means when everything is gone.
+  // the points are the same points. Members that are gone are skipped.
+  //
+  // A selection that shares NOTHING with this state used to be a quiet
+  // mistake: nothing resolved, the verb did nothing, and the step published
+  // a state where the edit simply had not happened. One vertex of another
+  // material has always thrown (`rowOf`, above); a selection of them said
+  // nothing at all. It says the same thing now, and in the same words — the
+  // situation, not a guess at its cause, because a selection of another
+  // material and a selection whose every member has been removed look
+  // alike from here. One shared vertex is enough to tell this is the same
+  // evolution, so skipping what is gone goes on working.
+  const strangerTo = (source: Material): boolean => {
+    for (const id of source.pointIds) if (cur.rowOfPoint(id as PointId) >= 0) return false;
+    for (const id of source.edgeIds) if (cur.rowOfEdge(id as EdgeId) >= 0) return false;
+    return source.n > 0 || source.edgeCount > 0;
+  };
   const pointRows = (selection: PointSelection | Vertex, what: string): readonly number[] => {
     // One vertex is a collection of one. `t.pick(cur.points)` gives a
     // vertex, and having to write `.rows([p.index])` to hand it back would
     // be the library asking for ceremony it can do itself.
     if (isVertexView(selection)) return [rowOf(selection, what)];
     if (!(selection instanceof PointSelection)) throw new Error(`steps: ${what} needs a point selection — use prev.points.filter(...)`);
-    return selection.source === cur ? selection.indices : selection.in(cur).indices;
+    if (selection.source === cur) return selection.indices;
+    if (selection.length > 0 && strangerTo(selection.source)) {
+      throw new Error(`steps: ${what} names ${selection.length} vertices and this state has none of them — the selection is of another material, or everything it named is gone`);
+    }
+    return selection.in(cur).indices;
   };
   const edgeRows = (selection: EdgeSelection, what: string): readonly number[] => {
     if (!(selection instanceof EdgeSelection)) throw new Error(`steps: ${what} needs an edge selection — use prev.edges.filter(...)`);
+    if (selection.source !== cur && selection.length > 0 && strangerTo(selection.source)) {
+      throw new Error(`steps: ${what} names ${selection.length} edges and this state has none of them — the selection is of another material, or everything it named is gone`);
+    }
     return selection.source === cur ? selection.indices : selection.in(cur).indices;
   };
   const writePoint = (index: number, attrs: Record<string, number>) => {

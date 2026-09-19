@@ -32,7 +32,7 @@
  * global paper, exactly as `thicken` refuses it.
  */
 
-import { Material, material as makeMaterial, type Station, type TransferPolicy } from './material.js';
+import { Material, material as makeMaterial, type Station, type TransferPolicy, type EdgeTransfer } from './material.js';
 import { valueAt } from './guard.js';
 
 /** A number in the source material's coordinates, or a field read at the sample. */
@@ -77,31 +77,49 @@ function amountAt(v: OscillateAmount, x: number, y: number): number {
  * colour by — useful there, but station bookkeeping is not part of the
  * drawing, and carrying it would surprise the next operation (planarize
  * asks for a resolver for a `heading` two crossing chains disagree on). */
-function chainsMaterial(stations: readonly Station[]): Material {
+function chainsMaterial(stations: readonly Station[], source: Material): Material {
   if (!stations.length) return makeMaterial([]);
   const pointNames = new Set(stations.flatMap((q) => Object.keys(q.attrs)));
   const edgeNames = new Set(stations.flatMap((q) => Object.keys(q.edgeAttrs)));
+  // A swing makes the chain LONGER than the chain it came from, so a column
+  // that conserves a quantity over the parts of an edge has no length to
+  // conserve it over. Refuse it by name rather than carry a number that is
+  // no longer what it says.
   for (const name of edgeNames) {
-    if (pointNames.has(name)) throw new Error(`oscillate: '${name}' is both a point and an edge column on the source — rename one before swinging it`);
+    if (source.edgeTransfers[name] === 'distribute') {
+      throw new Error(`oscillate: edge column '${name}' is 'distribute', and a swing changes the length it would be shared over — copy it, or drop it before swinging`);
+    }
   }
   const cols: Record<string, Float64Array> = {};
-  for (const name of [...pointNames, ...edgeNames]) cols[name] = new Float64Array(stations.length).fill(NaN);
+  for (const name of pointNames) cols[name] = new Float64Array(stations.length).fill(NaN);
   const policies: Record<string, TransferPolicy> = {};
   const edges: number[] = [];
+  // An edge column stays an EDGE column. A span takes the value of the
+  // source edge it begins on, which is what `'copy'` means for a part of an
+  // edge. Promoting it to the point domain — which is what a station's own
+  // flattening does — silently changed what the column was about.
+  const edgeValues: Record<string, number[]> = {};
+  for (const name of edgeNames) edgeValues[name] = [];
   let runStart = 0;
+  const span = (from: number) => {
+    for (const name of edgeNames) edgeValues[name].push(stations[from].edgeAttrs[name] ?? NaN);
+  };
   stations.forEach((q, k) => {
     for (const name of Object.keys(q.attrs)) {
       cols[name][k] = q.attrs[name];
       const policy = q.transfers?.[name] ?? 'interpolate';
       if (policy !== 'interpolate') policies[name] = policy;
     }
-    for (const name of Object.keys(q.edgeAttrs)) cols[name][k] = q.edgeAttrs[name];
-    if (k > 0 && stations[k - 1].chain === q.chain) edges.push(k - 1, k);
+    if (k > 0 && stations[k - 1].chain === q.chain) { edges.push(k - 1, k); span(k - 1); }
     else if (k > 0) runStart = k;
     const last = k === stations.length - 1 || stations[k + 1].chain !== q.chain;
-    if (last && q.closed && k > runStart + 1) edges.push(k, runStart);
+    if (last && q.closed && k > runStart + 1) { edges.push(k, runStart); span(k); }
   });
-  return new Material(Float64Array.from(stations, (q) => q.x), Float64Array.from(stations, (q) => q.y), cols, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: {}, transfers: policies });
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const name of edgeNames) edgeAttrs[name] = Float64Array.from(edgeValues[name]);
+  const edgePolicies: Record<string, EdgeTransfer> = {};
+  for (const name of edgeNames) if (source.edgeTransfers[name]) edgePolicies[name] = source.edgeTransfers[name]!;
+  return new Material(Float64Array.from(stations, (q) => q.x), Float64Array.from(stations, (q) => q.y), cols, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs, transfers: policies, edgeTransfers: edgePolicies });
 }
 
 /** Stations of one chain, in walk order. */
@@ -148,7 +166,7 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
   }
   // Nowhere to swing at all — an empty material, or a wavelength no station
   // can read: the chains come through straight.
-  if (!Number.isFinite(shortest)) return chainsMaterial(source.along());
+  if (!Number.isFinite(shortest)) return chainsMaterial(source.along(), source);
   const out: Station[] = [];
   for (const fine of byChain(source.along({ spacing: shortest / steps }))) {
     if (fine.length < 2) continue;
@@ -189,5 +207,5 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
       out.push({ ...st, x: st.x + st.normal[0] * swing, y: st.y + st.normal[1] * swing });
     }
   }
-  return chainsMaterial(out);
+  return chainsMaterial(out, source);
 }
