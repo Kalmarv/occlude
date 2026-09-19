@@ -23,6 +23,8 @@ import { confirmDialog, notify, promptDialog, showPanel } from './wa.js';
 import { transpileToCjs } from './editor.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
+import type { ConstructionInfo3 } from './three/construction.js';
+import { NodeCamera3 } from './graph/camera3.js';
 import type { RunConfig } from './runner.js';
 import { loadPapers, loadPens, loadSettings, sheetOf } from './store.js';
 import { mountShell } from './shell.js';
@@ -274,12 +276,18 @@ interface NodeView {
   body: HTMLElement;
   off?: () => void;
   preview?: Preview;
+  /** The viewer is showing the model, and this holds its camera. */
+  camera?: NodeCamera3;
 }
 
 const views = new Map<string, NodeView>();
 /** A viewer's last picture, keyed by its compiled sub-graph: a change
  * upstream of nothing must not re-render it. */
 const viewerResults = new Map<string, { hash: string; result: RenderResult }>();
+/** The 3D scene a viewer's last render built, and the execution that holds
+ * it. The worker keeps one execution at a time, so this is what a camera
+ * asks for and what tells it to ask for the sketch again. */
+const viewerModels = new Map<string, { executionId: number; construction: ConstructionInfo3[] }>();
 /** How many kept states each viewer's material has, from its own render. */
 const viewerFrames = new Map<string, number>();
 
@@ -536,6 +544,7 @@ function paint(id: string, host: HTMLElement): void {
     previous.paint.dispose();
     previous.off?.();
     previous.preview?.dispose();
+    previous.camera?.dispose();
   }
   const paint = paintNode(host, node, paintHooks);
   const view: NodeView = { paint, body: host };
@@ -547,6 +556,24 @@ function paint(id: string, host: HTMLElement): void {
         view.paint.note.classList.toggle('on', message !== null);
       }
     });
+  }
+  if (paint.canvas3) {
+    // The model: its own canvas, its own camera, and a way to build the
+    // scene again when the worker has moved on to another viewer.
+    const camera = new NodeCamera3(
+      paint.canvas3,
+      client,
+      async () => {
+        viewerResults.delete(id);
+        await renderViewer(node, generation);
+        return viewerModels.get(id) ?? null;
+      },
+      (message) => status(`${id}: ${message}`, 'err'),
+    );
+    view.camera = camera;
+    const known = viewerModels.get(id);
+    if (known) camera.offer(known.executionId, known.construction[0]);
+    else schedule();
   }
   if (paint.canvas) {
     const viewer = new Preview(paint.canvas);
@@ -604,9 +631,23 @@ const paintHooks: NodePaintHooks = {
     if (node.kind === 'viewer' && !on) schedule();
     touch();
   },
+  hasModel: (node) => (viewerModels.get(node.id)?.construction.length ?? 0) > 0,
+  setModel: (node, on) => {
+    if (on) node.view3 = true;
+    else delete node.view3;
+    canvas.refresh(node.id);
+    // Going back to the drawing needs the picture the 2D canvas never got.
+    if (!on) schedule();
+    touch();
+  },
   remove: (node) => void removeNode(node.id),
   select: (node) => select(node.id),
-  fitViewer: (node) => views.get(node.id)?.preview?.fit(),
+  fitViewer: (node) => {
+    const view = views.get(node.id);
+    // One word, two pictures: framing the model is what Home does there.
+    if (view?.camera) view.camera.fit();
+    else view?.preview?.fit();
+  },
   showViewer: (node) => showViewer(node),
 };
 
@@ -1681,7 +1722,9 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
   // nodes shown another way are another render.
   const hash = `${compiled.nodes.map((n) => n.hash).join('|')}|${show}|f${frame}`;
   const cached = viewerResults.get(node.id);
-  if (cached?.hash === hash) {
+  // A camera with a scene in hand needs no new run; without one it does, and
+  // the cache would have said there was nothing to do.
+  if (cached?.hash === hash && (!view?.camera || viewerModels.has(node.id))) {
     view?.preview?.setStale(false);
     setBad(node.id, false);
     return;
@@ -1694,6 +1737,7 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
     if (reply) {
       viewerResults.set(node.id, { hash, result: reply.result });
       setBad(node.id, false);
+      showModel(node, reply);
       showReply(node, reply, show);
     }
   } catch (error) {
@@ -1706,6 +1750,7 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
         if (!bare || mine !== generation) return;
         viewerResults.set(node.id, { hash, result: bare.result });
         setBad(node.id, false);
+        showModel(node, bare);
         showReply(node, bare, show);
         return;
       } catch {
@@ -1750,6 +1795,19 @@ function showReply(node: GraphNode, reply: { result: RenderResult; probes: Recor
     live.setResult(reply.result);
     live.fit();
   }
+}
+
+/** A render arrived: remember the scene it built, hand it to the camera that
+ * is showing it, and let a viewer that has just grown one say so. */
+function showModel(node: GraphNode, reply: { executionId: number; construction: ConstructionInfo3[] }): void {
+  const had = (viewerModels.get(node.id)?.construction.length ?? 0) > 0;
+  viewerModels.set(node.id, { executionId: reply.executionId, construction: reply.construction });
+  const has = reply.construction.length > 0;
+  const view = views.get(node.id);
+  if (view?.camera) view.camera.offer(reply.executionId, reply.construction[0]);
+  // The switch appears (or goes) with the scene, and only then: a repaint
+  // per render would throw away the editor state of every node.
+  else if (has !== had && !node.collapsed) canvas.refresh(node.id);
 }
 
 // ---- the palette ----

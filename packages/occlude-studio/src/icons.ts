@@ -43,6 +43,7 @@ const PATHS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
   fold: '<path d="M7 10l5 5 5-5"/>',
   unfold: '<path d="M9 7l5 5-5 5"/>',
+  cube: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/>',
   grid: '<path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
   alignLeft: '<path d="M4 3v18"/><rect x="7" y="5.5" width="12" height="4.5" rx="1"/><rect x="7" y="14" width="7" height="4.5" rx="1"/>',
   alignMiddleX: '<path d="M12 3v18"/><rect x="5" y="5.5" width="14" height="4.5" rx="1"/><rect x="8.5" y="14" width="7" height="4.5" rx="1"/>',

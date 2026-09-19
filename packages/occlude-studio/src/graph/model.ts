@@ -347,6 +347,10 @@ export interface GraphNode {
   kind: NodeKind;
   x: number;
   y: number;
+  /** A viewer showing the model the sketch built rather than the drawing it
+   * made of it. Like `collapsed`, it is how this graph is being looked at,
+   * so it belongs to the document. */
+  view3?: boolean;
   /** Folded: the node shows its title and its sockets and nothing else.
    * It is how this graph is laid out, so it belongs to the document. */
   collapsed?: boolean;
@@ -439,6 +443,7 @@ function parseNode(raw: unknown): GraphNode {
   for (const [key, value] of Object.entries(rawInputs)) inputs[key] = parseInput(id, key, value);
   const node: GraphNode = { id, kind, x, y, inputs };
   if (r.collapsed === true) node.collapsed = true;
+  if (r.view3 === true) node.view3 = true;
   if (typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0) node.width = r.width;
   if (typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0) node.height = r.height;
   if (kind === 'builtin') {
@@ -549,6 +554,7 @@ export function nodeToRaw(n: GraphNode): Record<string, unknown> {
   out.x = n.x;
   out.y = n.y;
   if (n.collapsed) out.collapsed = true;
+  if (n.view3) out.view3 = true;
   if (n.width !== undefined) out.width = n.width;
   if (n.height !== undefined) out.height = n.height;
   out.inputs = n.inputs;

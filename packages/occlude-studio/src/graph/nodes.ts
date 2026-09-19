@@ -111,6 +111,10 @@ export interface NodePaintHooks {
   setSize(node: GraphNode, width: number, height: number): void;
   /** Fit this viewer's picture to its canvas again. */
   fitViewer(node: GraphNode): void;
+  /** This viewer's last render built a 3D scene, so it can show the model. */
+  hasModel(node: GraphNode): boolean;
+  /** Show the model rather than the drawing, or go back. */
+  setModel(node: GraphNode, on: boolean): void;
   /** Show this viewer's picture at full size. */
   showViewer(node: GraphNode): void;
   /** Fold a node down to its title and sockets, or open it again. */
@@ -137,6 +141,10 @@ export type ViewerShow = 'number' | 'ink' | 'strokes' | 'try';
 export interface NodePaint {
   /** The viewer's canvas, when the node has one. */
   canvas?: HTMLCanvasElement;
+  /** The viewer's canvas when it is showing the model: a different owner
+   * draws it, and two owners of one canvas is how a picture ends up half
+   * drawn. */
+  canvas3?: HTMLCanvasElement;
   /** Where a viewer on a number writes what it read. */
   value?: HTMLElement;
   /** The code node's editor, when the node has one. */
@@ -697,7 +705,34 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { 
 
 /** A viewer: the input, its own picture, and the word `strokes` when the
  * picture needs it. */
-function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { canvas?: HTMLCanvasElement; value?: HTMLElement } {
+/** The picture's own controls, in the title row where every node keeps its
+ * chrome. A viewer whose render built a 3D scene also carries the switch
+ * between the drawing and the model. */
+function viewerButtons(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks, model: boolean): void {
+  const head = host.querySelector<HTMLElement>('.graph-node-head');
+  if (!head) return;
+  const made: HTMLElement[] = [];
+  const fit = iconButton('frame', model ? 'Frame the model (Home)' : 'Fit the picture', () => hooks.fitViewer(node));
+  noDrag(fit);
+  made.push(fit);
+  if (!model) {
+    const open = iconButton('view', 'Open this picture at full size', () => hooks.showViewer(node));
+    noDrag(open);
+    made.push(open);
+  }
+  if (model || hooks.hasModel(node)) {
+    const swap = iconButton(
+      model ? 'edit' : 'cube',
+      model ? 'Back to the drawing' : 'Show the model this sketch built — drag to orbit',
+      () => hooks.setModel(node, !model),
+    );
+    noDrag(swap);
+    made.push(swap);
+  }
+  head.querySelector('.graph-node-id')?.after(...made);
+}
+
+function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { canvas?: HTMLCanvasElement; canvas3?: HTMLCanvasElement; value?: HTMLElement } {
   const show = hooks.viewerShow(node);
   const line = nodeRow();
   line.dataset.row = 'in';
@@ -707,6 +742,19 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
   // Folded, a viewer keeps its socket and drops its picture: there is
   // nothing to draw on, and `renderAll` skips it for the same reason.
   if (node.collapsed) return {};
+  // The model the sketch built, not the drawing it made of it. Its own
+  // canvas, its own camera, and the frame slider stands down: a kept state is
+  // a material's word, and this is the scene.
+  if (node.view3) {
+    viewerButtons(host, node, hooks, true);
+    const model = document.createElement('canvas');
+    model.className = 'graph-viewer graph-viewer-model';
+    model.tabIndex = 0;
+    model.title = 'Drag to orbit, shift to pan, ctrl to zoom; 1/3/7 front/right/top, Home frames it';
+    noDrag(model);
+    host.append(model);
+    return { canvas3: model };
+  }
   if (show === 'number') {
     // Not a picture: a number, and what the run made of it.
     const value = el('div', 'graph-value', '—');
@@ -754,17 +802,7 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
     }
     host.append(frame);
   }
-  // The picture's own two controls sit in the title row, where every node
-  // keeps its chrome: fit it to the canvas again, and open it big enough to
-  // look at.
-  const head = host.querySelector<HTMLElement>('.graph-node-head');
-  if (head) {
-    const fit = iconButton('frame', 'Fit the picture', () => hooks.fitViewer(node));
-    const open = iconButton('view', 'Open this picture at full size', () => hooks.showViewer(node));
-    noDrag(fit);
-    noDrag(open);
-    head.querySelector('.graph-node-id')?.after(fit, open);
-  }
+  viewerButtons(host, node, hooks, false);
   const canvas = document.createElement('canvas');
   canvas.className = 'graph-viewer';
   noDrag(canvas);
@@ -946,6 +984,7 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   else if (node.kind === 'viewer') {
     const shown = viewerRows(host, node, hooks);
     paint.canvas = shown.canvas;
+    paint.canvas3 = shown.canvas3;
     paint.value = shown.value;
   }
   else outputRows(host, node, hooks);

@@ -3821,3 +3821,19 @@ wa-dialog.wa-dialog-wide {
 .graph-palette.graph-asking .graph-search::placeholder {
   color: var(--accent);
 }
+
+/* The model is not on paper: it is a view of the scene, and it takes the
+   canvas's own ground so the drawing and the model do not look alike. */
+.graph-viewer-model {
+  background: var(--bg);
+  cursor: grab;
+}
+
+.graph-viewer-model:active {
+  cursor: grabbing;
+}
+
+.graph-viewer-model:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
