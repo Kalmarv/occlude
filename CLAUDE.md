@@ -85,6 +85,27 @@ rasters are implementation numbers. They are not tenants.
   transform — is a toolkit function. `station.place(...)` is right;
   `.along()` or `.length` on `circle()` is not: `t.material(circle(…))`
   first.
+- **A shape is not geometry until the toolkit lowers it.** A shape needs
+  the paper, the units and its own transform before it has points, so
+  `t.distanceTo(circle(…))` works and `distanceTo(circle(…))` does not.
+  The two doors are `t.material` and `t.sample`; a pure kernel never
+  lowers a shape, and a consumer handed one refuses by name and says
+  which door to use.
+- **Identity is minted, kept and retired.** Every vertex and edge carries
+  an `id` — minted once, never reused, outside `attrs` so nothing
+  interpolates it. A split retires the parent and mints two children,
+  each keeping the parent's lineage root, which is how a face keeps its
+  columns across a subdivided wall. A view or a selection from an earlier
+  state is resolved by id, never by row: `sel.in(state)`, `cur.point(id)`,
+  and the step verbs take stale references and skip what is gone.
+- **Relations speak the mesh's words.** `p.adjacent` and `p.edges` for
+  one vertex; `sel.adjacent()`, `sel.connected()`, `sel.components()` for
+  a whole selection, the same three on points and on edges in 2D and 3D;
+  `points.near` for distance, which is a different question from
+  topology; `rows` to hand back rows the sketch worked out; `pairs` for a
+  relation between two selections. One meaning each, named: `sel.edges`
+  is the edges among the members and `sel.edges.adjacent()` the edges
+  touching them.
 - **Drawing stays explicit.** `strokes`, `stroke`, `polygon` and `dots`
   interpret geometry as ink — along a contour, over an area, and as a tap
   at every point. A Material never draws itself, and no value carries a
