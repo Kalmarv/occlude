@@ -824,6 +824,55 @@ export class Material {
 
   // ---- derived material ----
 
+  /**
+   * Replace a column by the mean of itself and its neighbours, `steps`
+   * times. The 2D half of `mesh.smooth`, with the same name, the same
+   * option and the same rule.
+   *
+   * A tone column read off an image is speckled, and speckle in a density
+   * column is banding on paper. `force.relax` smooths POSITIONS; this
+   * smooths a value, and moves nothing.
+   *
+   * It finds the domain from the name: a point column averages over the
+   * points an edge joins to it, an edge column over the edges that share a
+   * vertex with it. A row with no neighbours is the mean of itself, so it
+   * keeps what it had — a loose vertex does not become NaN.
+   *
+   * Every pass reads the state the last pass finished, so the result does
+   * not depend on row order.
+   */
+  smooth(name: string, opts: { steps?: number } = {}): Material {
+    const steps = opts.steps ?? 1;
+    if (!Number.isInteger(steps) || steps < 0) throw new Error(`smooth: { steps } must be a whole number of passes, at least 0 (got ${String(opts.steps)})`);
+    const onPoints = Object.hasOwn(this.attrs, name);
+    const onEdges = Object.hasOwn(this.edgeAttrs, name);
+    if (!onPoints && !onEdges) throw new Error(`smooth: no point or edge column '${name}' to smooth`);
+    if (steps === 0) return material(this);
+    const src = material(this);
+    let cur = Float64Array.from(onPoints ? src.attrs[name] : src.edgeAttrs[name]);
+    // The neighbourhood, once: a point's joined points, or an edge's
+    // edges through either end.
+    const rows = cur.length;
+    const nb: readonly number[][] = onPoints
+      ? Array.from({ length: rows }, (_, i) => [...src.adjacentRows(i)])
+      : Array.from({ length: rows }, (_, e) => {
+          const out = new Set<number>();
+          for (const end of [src.edgeList[2 * e], src.edgeList[2 * e + 1]]) for (const f of src.incidentEdgeRows(end)) out.add(f);
+          out.delete(e);
+          return [...out];
+        });
+    for (let k = 0; k < steps; k++) {
+      const next = new Float64Array(rows);
+      for (let i = 0; i < rows; i++) {
+        let sum = cur[i];
+        for (const j of nb[i]) sum += cur[j];
+        next[i] = sum / (nb[i].length + 1);
+      }
+      cur = next;
+    }
+    return onPoints ? src.attribute(name, (p) => cur[p.index]) : src.edgeAttribute(name, (e) => cur[e.index]);
+  }
+
   /** A new material with a column set: a constant, or one value per vertex. */
   attribute(name: string, value: number | ((p: Vertex) => number), opts: { transfer?: TransferPolicy } = {}): Material {
     return this.attributes({ [name]: value }, opts.transfer ? { transfer: { [name]: opts.transfer } } : {});
@@ -1232,6 +1281,150 @@ export class Material {
     const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
     const edgeRoots = Float64Array.from(esrc, (v, k) => (v >= 0 ? this.edgeRoots[v] : eroot[k] >= 0 ? this.edgeRoots[eroot[k]] : edgeIds[k]));
     return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { ...base, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs });
+  }
+
+  /**
+   * Cut a length off each open chain's two ends, by arc length.
+   *
+   * Gaps where strokes meet, a taper that starts short of the corner, a
+   * chain that grows out from its middle: all of them are this, and all of
+   * them were written by hand. Lengths are the material's own coordinates,
+   * as `oscillate` and `thicken` take them — an unresolved `mm(1)` is
+   * refused rather than read against global paper.
+   *
+   * A CLOSED chain has no ends and comes through whole. That is not a
+   * silence: `trim` is about ends, and a ring has none. Open it first if
+   * you want a gap in it.
+   *
+   * A chain with nothing left after the cut draws nothing, the way every
+   * degenerate input here does. So does an isolated vertex, which is not a
+   * chain. Junctions are an error, as they are for `along` and `resample`.
+   *
+   * The vertices between the two cuts are the SAME vertices: same ids,
+   * same positions, same columns. Each new end is a fresh vertex, with its
+   * columns read by the transfer policies, and the edge it sits on is a
+   * child of the edge it was cut from — same lineage root, as a split's
+   * children are.
+   */
+  trim(opts: { start?: number; end?: number }): Material {
+    const head = opts?.start ?? 0;
+    const tail = opts?.end ?? 0;
+    for (const [name, v] of [['start', head], ['end', tail]] as const) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`trim: { ${name} } must be a finite length in the material's own coordinates (mm(1) and the other lengths need the sketch frame, as for thicken)`);
+      if (v < 0) throw new Error(`trim: { ${name} } must not be negative — a cut removes length, it does not add any`);
+    }
+    for (let i = 0; i < this.n; i++) {
+      if (this.adj[i].length > 2) throw new Error(`trim: vertex ${i} is a junction — chains only`);
+    }
+    if (head === 0 && tail === 0) return material(this);
+    const names = this.attrNames;
+    const enames = this.edgeAttrNames;
+    const transfer: Record<string, Transfer> = { ...this.transfers };
+    const ox: number[] = [];
+    const oy: number[] = [];
+    const oattrs: Record<string, number[]> = {};
+    for (const name of names) oattrs[name] = [];
+    const eattrs: Record<string, number[]> = {};
+    for (const name of enames) eattrs[name] = [];
+    const edges: number[] = [];
+    const osrc: number[] = [];
+    const esrc: number[] = [];
+    // The source edge each new edge is a piece of, whose LINEAGE it keeps
+    // even when its own id is retired. An edge that survives whole names
+    // itself here, so one expression gives both.
+    const eroot: number[] = [];
+    const storedRow = new Map<number, number>();
+    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
+    // A vertex this call does not touch, verbatim; a cut end, blended.
+    const keep = (v: number) => {
+      ox.push(this.x[v]);
+      oy.push(this.y[v]);
+      osrc.push(v);
+      for (const name of names) oattrs[name].push(this.attrs[name][v]);
+    };
+    const cut = (a: number, b: number, t: number) => {
+      ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
+      oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+      osrc.push(-1);
+      for (const name of names) {
+        const rule = transfer[name] ?? 'interpolate';
+        const va = this.attrs[name][a];
+        const vb = this.attrs[name][b];
+        if (rule === 'interpolate') oattrs[name].push(va + (vb - va) * t);
+        else if (rule === 'nearest') oattrs[name].push(t <= 0.5 ? va : vb);
+        else if (typeof rule === 'number') oattrs[name].push(rule);
+        else oattrs[name].push(rule(this.vertex(a), this.vertex(b), t));
+      }
+    };
+    const join = (from: number, to: number, sourceEdge: number, whole: boolean) => {
+      edges.push(from, to);
+      esrc.push(whole ? sourceEdge : -1);
+      eroot.push(sourceEdge);
+      for (const name of enames) eattrs[name].push(this.edgeAttrs[name][sourceEdge]);
+    };
+    for (const c of this.curves()) {
+      const idx = c.indices;
+      // A ring has no ends: it comes through as it is.
+      if (c.closed) {
+        const first = ox.length;
+        for (const v of idx) keep(v);
+        for (let s = 0; s < idx.length; s++) {
+          join(first + s, first + ((s + 1) % idx.length), storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!, true);
+        }
+        continue;
+      }
+      const pts = idx.map((i) => [this.x[i], this.y[i]] as [number, number]);
+      const cum = chainLengths(pts, false);
+      const total = cum[cum.length - 1];
+      const from = head;
+      const to = total - tail;
+      // Nothing survives the cut: this chain draws nothing.
+      if (!(to > from)) continue;
+      // The segment a distance falls on, and how far along it.
+      const at = (d: number): [number, number] => {
+        let s = 0;
+        while (s < cum.length - 2 && cum[s + 1] <= d) s++;
+        const span = cum[s + 1] - cum[s];
+        return [s, span > 0 ? (d - cum[s]) / span : 0];
+      };
+      // What survives, as stops along the chain in order: the head cut, every
+      // source vertex the cut did not remove, and the tail cut. A source
+      // vertex that the cut lands exactly on IS the end, and is not doubled.
+      const stops: { d: number; row: number }[] = [];
+      for (let v = 0; v < idx.length; v++) if (cum[v] >= from && cum[v] <= to) stops.push({ d: cum[v], row: v });
+      if (stops.length === 0 || stops[0].d > from) stops.unshift({ d: from, row: -1 });
+      if (stops[stops.length - 1].d < to) stops.push({ d: to, row: -1 });
+      const first = ox.length;
+      for (const stop of stops) {
+        if (stop.row >= 0) {
+          keep(idx[stop.row]);
+          continue;
+        }
+        const [seg, t] = at(stop.d);
+        cut(idx[seg], idx[seg + 1], t);
+      }
+      // Consecutive stops always lie within ONE source segment, because
+      // every source vertex between the cuts is a stop. The segment under
+      // the middle is therefore the segment they are both on.
+      for (let k = 0; k + 1 < stops.length; k++) {
+        const [seg] = at((stops[k].d + stops[k + 1].d) / 2);
+        // The edge survives whole, and keeps its id, only when both ends are
+        // the source vertices it already joined.
+        const whole = stops[k].row >= 0 && stops[k + 1].row === stops[k].row + 1;
+        join(first + k, first + k + 1, storedRow.get(pairKey(idx[seg], idx[seg + 1]))!, whole);
+      }
+    }
+    const attrs: Record<string, Float64Array> = {};
+    for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
+    const edgeAttrs: Record<string, Float64Array> = {};
+    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+    const freshPoints = mintIds(osrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
+    const freshEdges = mintIds(esrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
+    let fp = 0;
+    let fe = 0;
+    const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
+    const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots: Float64Array.from(eroot, (e) => this.edgeRoots[e]) }, faceAttrs: this.faceAttrs });
   }
 
   /**

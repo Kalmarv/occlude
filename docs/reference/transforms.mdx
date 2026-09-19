@@ -28,6 +28,31 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## m.trim()
+
+<include>/_sig/Material.trim.mdx</include>
+
+Cuts a length off each open chain's two ends, by arc length. This makes gaps where strokes meet. It makes a taper that starts short of a corner, and a hatch that stops before the boundary. Lengths are the material's own coordinates, as `oscillate` and `thicken` take them.
+
+A closed chain has no ends and comes through whole. A chain with nothing left after the cut draws nothing. Junctions are an error, as they are for `along` and `resample`.
+
+The vertices between the two cuts are the same vertices, with the same ids. Each new end is a fresh vertex, and the transfer policies give it its columns. The edge it sits on keeps the lineage of the edge the cut divided.
+
+```ts live
+import { sketch, strokes, circle, line, append } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const b = t.bounds();
+  const disc = circle(0.5 * b.w, 0.5 * b.h, 0.44 * b.h);
+  const rules = append(...t.times(40, (k, u) => t.material(line(0, (0.02 + 0.96 * u) * b.h, b.w, (0.02 + 0.96 * u) * b.h))));
+  const inside = t.within(rules, disc);
+  return [
+    strokes(inside.trim({ start: 0.022 * b.h, end: 0.022 * b.h })),
+    strokes(t.material(disc), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
 ## m.oscillate()
 
 <include>/_sig/Material.oscillate.mdx</include>
