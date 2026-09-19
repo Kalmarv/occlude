@@ -26,6 +26,7 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
+import { whereRows, type PointSelection, type EdgeSelection } from './relation.js';
 
 export type SnapField = (x: number, y: number) => number;
 
@@ -34,6 +35,10 @@ export interface SnapOpts {
   radius: number;
   /** Offsets tried inside that disc, besides staying put (default 48). */
   samples?: number;
+  /** Only these points look for a better place; the rest stay where they
+   * are. An edge selection is read as its endpoints. Absent is the whole
+   * material. */
+  where?: PointSelection | EdgeSelection;
 }
 
 /** The golden angle, which is what spaces a spiral evenly over a disc without
@@ -65,7 +70,10 @@ export function snap(m: Material, field: SnapField, opts: SnapOpts): Material {
   }
   const x = Float64Array.from(src.x);
   const y = Float64Array.from(src.y);
+  const moves = whereRows(src, opts.where, 'points', 'snap');
   for (let i = 0; i < src.n; i++) {
+    // Not in the eligible region: it keeps the place it has.
+    if (moves && !moves.has(i)) continue;
     let bestX = src.x[i];
     let bestY = src.y[i];
     let best = field(bestX, bestY);

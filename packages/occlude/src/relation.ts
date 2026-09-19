@@ -788,3 +788,38 @@ export function meanBy<T>(items: Iterable<T>, fn: (item: T, index: number) => nu
   return count === 0 ? 0 : total / count;
 }
 
+/**
+ * The rows a `where` names, in the domain the verb consumes.
+ *
+ * `where` says which part of the material an operation is eligible to
+ * touch. It is not a promise that every row it names is changed: the
+ * operation's own rule still applies on top, and for a chain rebuild that
+ * rule keeps the ends of each run.
+ *
+ * A selection is read through the protocol, so it may be given in either
+ * domain and the verb reads the one it consumes. A point selection asked
+ * for edges gives THE EDGES AMONG ITS MEMBERS — the same thing
+ * `strokes(sel)` draws and `sel.extract()` keeps, and the reason
+ * `sel.edges.adjacent()` exists for when the wider span is what is wanted.
+ * An edge selection asked for points gives its endpoints.
+ *
+ * `undefined` is the whole material, which is what every verb did before
+ * there was a way to say otherwise.
+ */
+export function whereRows(
+  m: Material,
+  where: PointSelection | EdgeSelection | undefined,
+  domain: 'points' | 'edges',
+  who: string,
+): ReadonlySet<number> | null {
+  if (where === undefined) return null;
+  const isPoints = where instanceof PointSelection;
+  if (!isPoints && !(where instanceof EdgeSelection)) {
+    throw new Error(`${who}: { where } must be a point selection or an edge selection`);
+  }
+  if (where.source !== m) {
+    throw new Error(`${who}: { where } is a selection of another material — it names rows of a state this is not`);
+  }
+  if (domain === 'points') return new Set(isPoints ? where.indices : where.points.indices);
+  return new Set(isPoints ? where.edges.indices : where.indices);
+}

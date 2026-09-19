@@ -22,6 +22,9 @@ const prose = (md) => md
   .replace(/^\s*<include>.*<\/include>\s*$/gm, '')
   .replace(/<[^>]+>/g, '')
   .replace(/^\|.*$/gm, '')
+  // A directive marker is not prose, and it is not a full stop either: left
+  // in, it glues the last sentence of a note to the first one after it.
+  .replace(/^:::.*$/gm, '')
   .replace(/^#.*$/gm, '')
   .replace(/`[^`]*`/g, 'CODE')
   .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
@@ -31,7 +34,7 @@ const patterns = process.argv.slice(2).length ? process.argv.slice(2) : ['docs/r
 let total = 0;
 for (const pattern of patterns) {
   for (const file of globSync(pattern, { cwd: root }).sort()) {
-    const sentences = prose(readFileSync(resolve(root, file), 'utf8')).split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    const sentences = prose(readFileSync(resolve(root, file), 'utf8')).split(/(?<=[.!?])\s+|\n\s*\n/).map((s) => s.trim()).filter(Boolean);
     const flagged = [];
     for (const s of sentences) {
       const why = [];

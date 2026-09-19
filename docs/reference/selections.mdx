@@ -248,3 +248,41 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 | to split one edge at different parameters | both splits happen, in edge then parameter order |
 | to remove a row that another pair moves or connects | the batch throws and publishes nothing |
 :::
+
+## where
+
+Several material methods take `where`: the part of the material the
+operation may touch.
+
+```ts
+m.warp({ from, to, where: m.points.filter((p) => p.y > 30) })
+```
+
+It names the ELIGIBLE region. It does not promise that every row it names
+changes. The operation's own rule still applies on top of it.
+
+The protocol reads a selection, so you may give either domain and the
+method takes the one it uses. A method that moves points takes points.
+Give such a method an edge selection and it takes the endpoints.
+
+A point selection, taken as edges, gives **the edges among its members**.
+Those are the edges `strokes(sel)` draws and `sel.extract()` keeps. For
+the wider span, the edges touching the members, say
+`sel.edges.adjacent()`. The word means one thing everywhere.
+
+Absent is the whole material. That is what every method did before there
+was a way to say otherwise. A method refuses a selection of another
+material, by name.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const ring = t.sample(circle(100, 50, 34), { count: 80 });
+  // Only the right-hand half is snapped onto the field's ridges. The left
+  // half keeps the circle it was, and the two are still one chain.
+  const right = ring.points.filter((p) => p.x > 100);
+  const rough = ring.snap((x, y) => Math.sin(x / 7) + Math.sin(y / 7), { radius: 3.5, where: right });
+  return [strokes(rough, { pen: 'pigma-05-black' }), strokes(ring, { pen: 'pigma-005-black' })];
+});
+```

@@ -13,6 +13,8 @@ Each transform is a method on the material: `m.warp({ from, to })`. It reads the
 
 Moves every point by a cage. `from` and `to` are two loops with the same number of corners. Each point becomes a weighted blend of the `from` corners. The same weights then rebuild it from the `to` corners. Only positions move. Structure, columns and row order stay. A straight edge with two vertices stays straight, so resample first when a line must bend.
 
+`where` bends only part of the material and leaves the rest where it is. The edge between a bent point and a still one simply stretches. The result is still one material. That is the point of the option. Filter a selection and extract it, and the joining edge is gone with the rest. See [where](/docs/reference/selections#where).
+
 ```ts live
 import { sketch, strokes, line, append } from 'occlude';
 

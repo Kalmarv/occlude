@@ -29,6 +29,7 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
+import { whereRows, type PointSelection, type EdgeSelection } from './relation.js';
 
 export type Corner = readonly [number, number];
 
@@ -37,6 +38,10 @@ export interface WarpOpts {
   from: readonly Corner[] | Material;
   /** The same cage, moved. Same number of corners, in the same order. */
   to: readonly Corner[] | Material;
+  /** Only these points bend; the rest stay where they are, and the edges
+   * between a bent point and a still one simply stretch. An edge selection
+   * is read as its endpoints. Absent is the whole material. */
+  where?: PointSelection | EdgeSelection;
 }
 
 function corners(v: readonly Corner[] | Material, what: string): [number, number][] {
@@ -61,12 +66,19 @@ export function warp(m: Material, opts: WarpOpts): Material {
   if (a.length < 3) return src;
   const n = a.length;
 
+  const bends = whereRows(src, opts.where, 'points', 'warp');
   const x = new Float64Array(src.n);
   const y = new Float64Array(src.n);
   const w = new Float64Array(n);
   for (let i = 0; i < src.n; i++) {
     const px = src.x[i];
     const py = src.y[i];
+    // Not in the eligible region: it stays exactly where it is.
+    if (bends && !bends.has(i)) {
+      x[i] = px;
+      y[i] = py;
+      continue;
+    }
     let total = 0;
     let onCorner = -1;
     // Half-angle tangents of the wedge each cage edge subtends at this point.
