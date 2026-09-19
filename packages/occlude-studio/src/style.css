@@ -3822,6 +3822,15 @@ wa-dialog.wa-dialog-wide {
   color: var(--accent);
 }
 
+/* A viewer whose picture is not this graph's yet — a render in flight, or
+   one that failed — says so the way the main preview does. The delay means a
+   render that lands quickly never flickers, and a viewer that has not drawn
+   at all reads as "coming" rather than as blank paper. */
+.graph-viewer.stale {
+  opacity: 0.5;
+  transition: opacity 0.3s ease 0.5s;
+}
+
 /* The model is not on paper: it is a view of the scene, and it takes the
    canvas's own ground so the drawing and the model do not look alike. */
 .graph-viewer-model {

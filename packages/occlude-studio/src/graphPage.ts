@@ -590,6 +590,10 @@ function paint(id: string, host: HTMLElement): void {
     if (cached) {
       viewer.setResult(cached.result);
       viewer.fit();
+    } else {
+      // Nothing drawn yet: the picture is coming, and blank paper says the
+      // opposite. It brightens the moment the first result lands.
+      viewer.setStale(true);
     }
   }
   views.set(id, view);
