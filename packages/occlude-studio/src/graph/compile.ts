@@ -203,19 +203,13 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
     if (word.receiver === null && word.import) reserved.add(word.call);
     else if (word.receiver && word.receiver !== 't') reserved.add(word.receiver);
   }
-  for (const node of graph.nodes) {
-    if (node.kind === 'code') {
-      for (const name of usedImports(node.body!, catalogue, Object.keys(node.inputs))) reserved.add(name.name);
-    }
-    // A zone's inside is compiled in the same scope: its own ids are consts
-    // beside these, and its bodies reach for the same imports.
-    if (node.kind === 'zone' && node.graph) {
-      for (const inner of node.graph.nodes) {
-        if (inner.kind === 'code') {
-          for (const name of usedImports(inner.body!, catalogue, Object.keys(inner.inputs))) reserved.add(name.name);
-        }
-      }
-    }
+  // A zone's inside is compiled in the same scope: its own ids are consts
+  // beside these, and its bodies reach for the same imports. A body may
+  // hold a zone of its own (`bands.map((sel) => sel.map(…))`), so this
+  // goes all the way down.
+  for (const node of bodiesOf(graph)) {
+    if (node.kind !== 'code') continue;
+    for (const name of usedImports(node.body!, catalogue, Object.keys(node.inputs))) reserved.add(name.name);
   }
   for (const node of graph.nodes) {
     for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) for (const name of usedImports(inp.value.__raw, catalogue)) reserved.add(name.name);
@@ -358,6 +352,17 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
   // have written, with the zone's own inputs read before it.
   if (node.kind === 'zone') return zoneSource(node, graph, catalogue, boundary);
   return node.kind === 'code' ? codeSource(node, graph, catalogue, boundary) : '';
+}
+
+/** Every node of a graph and of every body inside it, all the way down: a
+ * zone's body may hold a zone of its own. */
+function bodiesOf(graph: Graph): GraphNode[] {
+  const out: GraphNode[] = [];
+  for (const node of graph.nodes) {
+    out.push(node);
+    if (node.graph) out.push(...bodiesOf(node.graph));
+  }
+  return out;
 }
 
 /**
@@ -546,9 +551,10 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
       extra.push(...usedImports(node.body!, catalogue, Object.keys(node.inputs)));
       types.push(...usedTypes(node.body!, catalogue));
     }
-    // A zone's inside is part of this sketch: its words are imported here.
-    if (node.kind === 'zone' && node.graph) {
-      for (const inner of node.graph.nodes) {
+    // A zone's inside is part of this sketch: its words are imported here,
+    // and a body that holds a zone of its own is read the same way down.
+    if (node.graph) {
+      for (const inner of bodiesOf(node.graph)) {
         if (inner.kind === 'builtin') {
           const word = wordOf(catalogue, inner.word!);
           if (word) words.push(word);

@@ -624,6 +624,20 @@ class Reader {
       this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: wired } } });
       return;
     }
+    // What a sketch returns is very often the rows of something, drawn:
+    // `return pts.points.map((p) => circle(p.x, p.y, 2))`. That is a body
+    // that runs many times, which is a zone wherever it stands — the
+    // declaration read it as one, and the return should read it as one too.
+    if (before.length === 0) {
+      const zoneId = this.uniqueId('over');
+      const zone = this.zoneNode(expr, zoneId);
+      if (zone) {
+        this.add(zone);
+        this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: [zone.id, 'out'] } } });
+        return;
+      }
+      this.taken.delete(zoneId);
+    }
     // What a sketch returns is very often a list of the things it drew.
     if (before.length === 0 && ts.isArrayLiteralExpression(expr)) {
       const listId = this.uniqueId('ink');
@@ -1094,10 +1108,13 @@ class Reader {
     answers: boolean,
   ): Graph | undefined {
     const body = callback.body;
-    if (!ts.isBlock(body)) return undefined;
-    const statements = [...body.statements];
+    // `(p) => circle(p.x, p.y, 2)` is a body of one statement written
+    // without the ceremony: the expression IS the return.
+    const statements = ts.isBlock(body) ? [...body.statements] : [];
     const last = statements[statements.length - 1];
-    const returned = last && ts.isReturnStatement(last) ? last.expression : undefined;
+    const returned = ts.isBlock(body)
+      ? (last && ts.isReturnStatement(last) ? last.expression : undefined)
+      : body;
     if (answers && !returned) return undefined;
     const inner = new Reader(this.file, this.catalogue, this.refusals);
     inner.readImports();
@@ -1132,7 +1149,7 @@ class Reader {
     // work with — and it costs the compiler's own fast path, which writes
     // the body back as the sketch wrote it.
     const own = inner.nodes.filter((n) => n.kind !== 'input' && n.kind !== 'output');
-    if (own.length < 2 || !own.some((n) => n.kind !== 'code')) {
+    if (own.length < 1 || !own.some((n) => n.kind !== 'code')) {
       if (this.refusals) this.refusals.length = before;
       return undefined;
     }
