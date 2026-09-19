@@ -193,9 +193,15 @@ describe('a shape is not geometry until the toolkit lowers it', () => {
       // The toolkit lowers the shape; each of these would refuse it bare.
       expect(typeof t.distanceTo(area)).toBe('function');
       expect(typeof t.force.boundary(area, { radius: 3 })).toBe('function');
-      expect(typeof t.force.separation(area, { radius: 3 })).toBe('function');
-      expect(typeof t.force.attract(area, { radius: 3 })).toBe('function');
-      expect(typeof t.neighbours(area, { radius: 3 })).toBe('function');
+      // A point consumer refuses a shape instead: how many points a shape
+      // has would be a flattening tolerance's decision, not the sketch's.
+      expect(() => t.force.separation(area, { radius: 3 })).toThrow(/not a set of points/);
+      expect(() => t.force.attract(area, { radius: 3 })).toThrow(/t\.sample\(shape, \{ count \}\)/);
+      expect(() => t.neighbours(area, { radius: 3 })).toThrow(/not a set of points/);
+      // Given points, they work: the door is explicit.
+      const points = t.material(area);
+      expect(typeof t.force.separation(points, { radius: 3 })).toBe('function');
+      expect(typeof t.neighbours(points, { radius: 3 })).toBe('function');
       return [];
     }));
     expect(drawn).toBe(0);

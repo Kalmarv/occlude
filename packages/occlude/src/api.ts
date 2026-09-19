@@ -311,6 +311,27 @@ function lowerShape(run: Execution, input: Geometry | AreaInput | ShapeValue, wh
 }
 
 /**
+ * Points a word may draw a neighbourhood from — and a shape is NOT one.
+ *
+ * Lowering a shape here would make the answer depend on a flattening
+ * tolerance nobody chose: how strongly a circle pushes its neighbours away
+ * would be set by how finely it happened to be flattened, and
+ * `excludeConnected` would change meaning, because a lowered outline has
+ * edges where a list of points has none. So the refusal names the door:
+ * `t.material(shape)` keeps the boundary's own vertices and
+ * `t.sample(shape, { count })` places the number you ask for. Either choice
+ * is the sketch's to make, in the open.
+ */
+function pointSources(sources: Sources | ShapeValue, who: string): Sources {
+  if (!isShapeValue(sources)) return sources as Sources;
+  throw new Error(
+    `${who}: a shape is not a set of points — how many it has would be decided by a flattening ` +
+      `tolerance, not by you. Use t.material(shape) for the boundary's own vertices, or ` +
+      `t.sample(shape, { count }) for a number you choose.`,
+  );
+}
+
+/**
  * An area from its boundaries — the engine's Region concept as a value.
  * One loop or several (`[x, y][]`), contour records, a face (its contours
  * are the outer boundary and the holes), a chain material
@@ -1368,16 +1389,21 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
      */
     force: {
       ...force,
+      /**
+       * A boundary force from an area, taking a shape: an area's resolution
+       * is what a flattening tolerance is for, so lowering one here means
+       * what it means everywhere else.
+       */
       boundary: (area: Geometry | AreaInput | ShapeValue, opts: { radius: number; strength?: number }) =>
         force.boundary(lowerShape(exec, area, 'force.boundary') as AreaInput, opts),
       separation: (sources: Sources | ShapeValue, opts: { radius: number; excludeConnected?: boolean }) =>
-        force.separation(lowerShape(exec, sources as never, 'force.separation') as Sources, opts),
+        force.separation(pointSources(sources, 'force.separation'), opts),
       attract: (sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }) =>
-        force.attract(lowerShape(exec, sources as never, 'force.attract') as Sources, opts),
+        force.attract(pointSources(sources, 'force.attract'), opts),
     },
-    /** The neighbourhood query, taking a shape as well as a material. */
+    /** The neighbourhood query. A shape is not a point source: see below. */
     neighbours: (m: Material | ShapeValue, opts: { radius: number; stats?: NeighbourStats }) =>
-      neighbours(isShapeValue(m) ? materialFromShape(m) : m, opts),
+      neighbours(pointSources(m, 'neighbours') as Material, opts),
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */
