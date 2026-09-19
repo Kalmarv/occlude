@@ -102,6 +102,9 @@ export interface CatalogueParam {
   choices?: string[];
   optional: boolean;
   options?: CatalogueOption[];
+  /** A rest parameter: the word takes as many of these as it is given, so
+   * the socket is a row of places like a list's, not one socket. */
+  variadic?: boolean;
 }
 
 /** One input of a built-in word: a plain parameter, one option, or the
@@ -119,6 +122,8 @@ export interface CatalogueInput {
   control?: ControlKind;
   choices?: string[];
   optional: boolean;
+  /** A rest parameter: this input is the first of a row of places. */
+  variadic?: boolean;
   /** True for the receiver of a value method: `m.steps` takes a material. */
   self?: boolean;
 }
@@ -212,7 +217,7 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
   for (const p of word.params) {
     if (!p.options) {
       seen.add(p.name);
-      out.push({ name: p.name, param: p.name, takes: p.takes, control: p.control, choices: p.choices, raw: p.raw, optional: p.optional });
+      out.push({ name: p.name, param: p.name, takes: p.takes, control: p.control, choices: p.choices, raw: p.raw, optional: p.optional, variadic: p.variadic });
       continue;
     }
     for (const o of p.options) {

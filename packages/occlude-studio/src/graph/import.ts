@@ -807,7 +807,11 @@ class Reader {
     // spread into that socket, which is the same call. The leading
     // parameters are read first, because the source reads them first and the
     // seeded stream draws in the order it is read.
-    const rest = word.params.findIndex((param) => param.name === 'args');
+    // The catalogue says which parameter is the rest one; before it did,
+    // this read the name the generator gives a rest TUPLE (`args`), and a
+    // rest parameter with a name of its own — `force.sum(...forces)` — was
+    // refused for having more arguments than parameters.
+    const rest = word.params.findIndex((param) => param.variadic);
     if (args.length > word.params.length && rest >= 0 && rest === word.params.length - 1) {
       for (let i = 0; i < rest; i++) {
         const param = word.params[i]!;
@@ -817,7 +821,7 @@ class Reader {
       }
       const gathered = this.gather(args.slice(rest), id);
       if (!gathered) return no('an argument is not a value the graph holds');
-      inputs['args'] = { from: [gathered.id, 'out'], spread: true };
+      inputs[word.params[rest]!.name] = { from: [gathered.id, 'out'], spread: true };
       const node: GraphNode = { id, kind: 'builtin', word: word.word, x: 0, y: 0, inputs };
       return this.fits(word, inputs) ? { node, word } : no('an argument does not fit its socket');
     }

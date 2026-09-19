@@ -75,7 +75,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'region', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -86,7 +86,7 @@ export const CATALOGUE: Catalogue = {
         { name: 'len', takes: { socket: 'Number' }, optional: false },
         { name: 'gap', takes: { socket: 'Number' }, optional: false },
         { name: 'offset', takes: { socket: 'Number' }, optional: true },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -95,7 +95,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'p', takes: { socket: 'Field' }, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -104,7 +104,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'field', takes: { socket: 'VectorField' }, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -159,7 +159,7 @@ export const CATALOGUE: Catalogue = {
           { name: 'pen', takes: { socket: 'Pen' }, optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
         ] },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -239,7 +239,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'mods', control: 'text', raw: true, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -327,7 +327,7 @@ export const CATALOGUE: Catalogue = {
       params: [
         { name: 'amount', takes: { socket: 'Field' }, optional: false },
         { name: 'detail', takes: { socket: 'Number' }, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -336,7 +336,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'passes', takes: { socket: 'Number' }, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -391,7 +391,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'amount', takes: { socket: 'Field' }, optional: false },
-        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -465,7 +465,7 @@ export const CATALOGUE: Catalogue = {
       import: 'sdf', call: 'sdf.intersect', returns: 'Field',
       page: '/docs/reference/fields', group: 'Fields',
       params: [
-        { name: 'fields', takes: { socket: 'Field' }, optional: true },
+        { name: 'fields', takes: { socket: 'Field' }, optional: true, variadic: true },
       ],
     },
     {
@@ -486,7 +486,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/fields', group: 'Fields',
       params: [
         { name: 'a', takes: { socket: 'Field' }, optional: false },
-        { name: 'holes', takes: { socket: 'Field' }, optional: true },
+        { name: 'holes', takes: { socket: 'Field' }, optional: true, variadic: true },
       ],
     },
     {
@@ -494,7 +494,7 @@ export const CATALOGUE: Catalogue = {
       import: 'sdf', call: 'sdf.union', returns: 'Field',
       page: '/docs/reference/fields', group: 'Fields',
       params: [
-        { name: 'fields', takes: { socket: 'Field' }, optional: true },
+        { name: 'fields', takes: { socket: 'Field' }, optional: true, variadic: true },
       ],
     },
     {
@@ -704,7 +704,7 @@ export const CATALOGUE: Catalogue = {
       import: 'sum', call: 'sum', returns: 'Vector',
       page: '/docs/reference/math', group: 'Math',
       params: [
-        { name: 'vs', takes: { socket: 'Vector' }, optional: true },
+        { name: 'vs', takes: { socket: 'Vector' }, optional: true, variadic: true },
       ],
     },
     {
@@ -720,7 +720,7 @@ export const CATALOGUE: Catalogue = {
       import: 'append', call: 'append', returns: 'material',
       page: '/docs/reference/material', group: 'Material',
       params: [
-        { name: 'args', takes: { socket: 'Geometry', kinds: ['material'] }, optional: true },
+        { name: 'args', takes: { socket: 'Geometry', kinds: ['material'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -837,7 +837,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.material', returns: 'material',
       page: '/docs/reference/material', group: 'Material',
       params: [
-        { name: 'args', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: true },
+        { name: 'args', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: true, variadic: true },
       ],
     },
     {
@@ -1201,7 +1201,7 @@ export const CATALOGUE: Catalogue = {
       import: 'force', call: 'force.sum', returns: 'Force',
       page: '/docs/reference/steps', group: 'Steps and forces',
       params: [
-        { name: 'forces', takes: { socket: 'Force' }, optional: true },
+        { name: 'forces', takes: { socket: 'Force' }, optional: true, variadic: true },
       ],
     },
     {
@@ -2751,7 +2751,7 @@ export const CATALOGUE: Catalogue = {
       import: 'sumForces', call: 'sumForces', returns: 'Force',
       page: '', group: 'Other',
       params: [
-        { name: 'forces', takes: { socket: 'Force' }, optional: true },
+        { name: 'forces', takes: { socket: 'Force' }, optional: true, variadic: true },
       ],
     },
     {
@@ -2862,7 +2862,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.force.sum', returns: 'Force',
       page: '', group: 'Other',
       params: [
-        { name: 'forces', takes: { socket: 'Force' }, optional: true },
+        { name: 'forces', takes: { socket: 'Force' }, optional: true, variadic: true },
       ],
     },
     {

@@ -406,6 +406,9 @@ interface Param extends Partial<Takes>, Partial<Control> {
   name: string;
   optional: boolean;
   options?: Option[];
+  /** A rest parameter: the word takes as many as it is given, so the node
+   * shows a row of places rather than one socket. */
+  variadic?: boolean;
 }
 
 interface Word {
@@ -507,7 +510,11 @@ function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param
     }
     const { input, problem } = inputOf(type, `parameter ${param.getName()}`, !optional, param.getName());
     if (input && !problem) {
-      params.push({ name: param.getName(), optional, ...input });
+      // A rest parameter takes as many as it is given, and only a socket can
+      // carry several: a row of text boxes would be a list the compiler
+      // could not read back.
+      const variadic = decl.dotDotDotToken !== undefined && input.socket !== undefined ? true : undefined;
+      params.push({ name: param.getName(), optional, ...input, ...(variadic ? { variadic } : {}) });
       continue;
     }
     // A parameter no socket and no control can say is still the artist's to
@@ -1044,7 +1051,7 @@ for (const w of words) {
       for (const o of p.options) lines.push(`          { name: ${q(o.name)}, ${inputFields(o)}, optional: ${o.optional} },`);
       lines.push('        ] },');
     } else {
-      lines.push(`        { name: ${q(p.name)}, ${inputFields(p)}, optional: ${p.optional} },`);
+      lines.push(`        { name: ${q(p.name)}, ${inputFields(p)}, optional: ${p.optional}${p.variadic ? ', variadic: true' : ''} },`);
     }
   }
   lines.push('      ],');
