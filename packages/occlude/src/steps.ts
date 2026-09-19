@@ -13,8 +13,9 @@
 
 import { vx, vy, type XY } from './vec.js';
 import { ownerOf, pairKey, viewKind } from './views.js';
-import { mintIds, type Material, type Vertex, type Edge, type TransferPolicy, type EdgeTransfer, type Snapshot } from './material.js';
+import { mintIds, RESERVED_FACE_FIELDS, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot } from './material.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
+import { Faces, type Face, type FaceSelection } from './faces.js';
 
 /** What `stepOnce` needs from the material cluster, handed over by the
  * caller: the state constructor and the two selection classes it must
@@ -30,10 +31,32 @@ export interface StepKit {
       transfers?: Record<string, TransferPolicy>;
       edgeTransfers?: Record<string, EdgeTransfer>;
       ids?: { points?: Float64Array; edges?: Float64Array; edgeRoots?: Float64Array };
+      faceAttrs?: Record<string, FaceColumn>;
     },
   ) => Material;
   PointSelection: typeof PointSelection;
   EdgeSelection: typeof EdgeSelection;
+}
+
+/**
+ * The face columns a step hands on: what the state already carried, with
+ * this step's writes on top. A column written for the first time starts
+ * from the writes alone, with `'nearest'` and no fallback — the same
+ * defaults the declaring door gives.
+ */
+function withWrites(
+  carried: Readonly<Record<string, FaceColumn>>,
+  writes: ReadonlyMap<string, Map<string, number>>,
+): Record<string, FaceColumn> {
+  if (writes.size === 0) return { ...carried };
+  const out: Record<string, FaceColumn> = { ...carried };
+  for (const [name, values] of writes) {
+    const was = carried[name];
+    const merged = new Map(was?.values ?? []);
+    for (const [key, value] of values) merged.set(key, value);
+    out[name] = { values: merged, transfer: was?.transfer ?? 'nearest', fallback: was?.fallback };
+  }
+  return out;
 }
 
 /** A child edge's inherited columns: a `'copy'` column carries the parent's
@@ -154,6 +177,16 @@ export interface Next {
   /** Write attributes of one edge or a selection of this pass's input edges. */
   setEdge(edge: EdgeRef, attrs: Record<string, number>): void;
   setEdges(edges: EdgeSelection, attrs: Record<string, number> | ((e: Edge) => Record<string, number>)): void;
+  /**
+   * Write face columns for a selection of this state's faces.
+   *
+   * A face is not a row, so this touches no row array and takes part in no
+   * compaction: it records a value against the walls the face is made of,
+   * and the state that comes out of the step carries it. Reading the faces
+   * is what makes a step pay for them, so a loop that never asks never
+   * builds them.
+   */
+  setFaces(faces: Faces | FaceSelection, attrs: Record<string, number> | ((f: Face) => Record<string, number>)): void;
   /** Add a point. Every declared point column must be given. */
   addPoint(position: XY, attributes: Record<string, number>): Handle;
   /** Connect input points or handles created in this pass. */
@@ -301,6 +334,9 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     splits.set(row, list);
   };
 
+  /** Face columns written in this step, by column name and face key. */
+  const pendingFaces = new Map<string, Map<string, number>>();
+
   const next: Next = {
     move(target: Ref | PointSelection, by: XY | ((p: Vertex) => XY)) {
       const rows = target instanceof PointSelection ? pointRows(target, 'move') : [rowOf(target, 'move')];
@@ -318,6 +354,25 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     },
     setEdge(edge, attrs) {
       const row = edgeRow(edge, 'setEdge'); writeEdge(row, attrs); touchedEdge.add(row);
+    },
+    setFaces(faces, attrs) {
+      const cells = faces instanceof Faces ? faces : faces.source;
+      if (cells.source !== cur) {
+        throw new Error('steps: setFaces: those faces are of another state — read cur.faces() in this pass');
+      }
+      const keys = cells.keys();
+      const chosen = faces instanceof Faces ? [...Array(cells.length).keys()] : [...faces].map((f) => f.index);
+      for (const index of chosen) {
+        const view = cells.at(index);
+        const written = typeof attrs === 'function' ? attrs(view) : attrs;
+        for (const [name, value] of Object.entries(written)) {
+          if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`steps: setFaces: '${name}' is a reserved face field`);
+          if (!Number.isFinite(value)) throw new Error(`steps: setFaces: '${name}' is not a finite number`);
+          const column = pendingFaces.get(name) ?? new Map<string, number>();
+          column.set(keys[index], value);
+          pendingFaces.set(name, column);
+        }
+      }
     },
     setEdges(selection, attrs) {
       for (const row of edgeRows(selection, 'setEdges')) {
@@ -461,7 +516,7 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   // ---- the moved state: split transfer callbacks read it ----
   // The same rows, moved: the split callbacks read this state and must see
   // the identities they will be asked about.
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds), edgeRoots: Float64Array.from(cur.edgeRoots) } });
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds), edgeRoots: Float64Array.from(cur.edgeRoots) }, faceAttrs: cur.faceAttrs });
 
   const movedEdges = moved.edges;
 
@@ -670,5 +725,5 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) } });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: withWrites(cur.faceAttrs, pendingFaces) });
 }

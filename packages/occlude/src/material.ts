@@ -214,6 +214,37 @@ export type TransferPolicy = 'interpolate' | 'nearest';
 export type EdgeTransfer = 'copy' | 'distribute';
 
 /**
+ * How a FACE column carries over when the boundary changes.
+ *
+ * A face is not a row: it appears and disappears as walls are built and
+ * cut, and interpolating between two faces means nothing. So the policies
+ * are `'nearest'` (the default) — the new face takes the value of the old
+ * face it shares the most walls with — and `'drop'`, which lets a column
+ * stop at a boundary change rather than follow it.
+ */
+export type FaceTransfer = 'nearest' | 'drop';
+
+/** A face column: its values by face key, its policy, and the value a face
+ * that shares no wall with any old face starts from. */
+export interface FaceColumn {
+  values: ReadonlyMap<string, number>;
+  transfer: FaceTransfer;
+  fallback?: number;
+}
+
+/**
+ * The names a face view already owns. A face column reads flat —
+ * `face.height`, like a vertex's `p.height` — so a column may not be
+ * called one of these. The edge view had to nest its columns
+ * (`edge.attrs.rest`) precisely because it ran out of top level; a face
+ * has room, and a reserved list is what keeps it honest.
+ */
+export const RESERVED_FACE_FIELDS: readonly string[] = [
+  'index', 'area', 'perimeter', 'bounds', 'centroid',
+  'edges', 'points', 'boundaryEdges', 'adjacent', 'contours',
+];
+
+/**
  * The identity of one vertex or one edge, for as long as it exists.
  *
  * An id is opaque: the type refuses arithmetic on it, it is equal only to
@@ -310,6 +341,9 @@ export class Material {
    * nothing is its own root.
    */
   readonly edgeRoots: Float64Array;
+  /** Face columns, by name. A face is not a row, so these are keyed by
+   * what a face IS — the walls it is made of — and not by an index. */
+  readonly faceAttrs: Readonly<Record<string, FaceColumn>>;
   /** id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -349,6 +383,8 @@ export class Material {
        * mints. `edgeRoots` says which older edge each edge descends from;
        * absent means each edge is its own root. */
       ids?: { points?: Float64Array; edges?: Float64Array; edgeRoots?: Float64Array };
+      /** Face columns, carried from the state these rows came from. */
+      faceAttrs?: Record<string, FaceColumn>;
     } = {},
   ) {
     const {
@@ -358,6 +394,7 @@ export class Material {
       transfers = {},
       edgeTransfers = {},
       ids,
+      faceAttrs = {},
     } = carry;
     if (x.length !== y.length) throw new Error('material: x and y columns differ in length');
     for (const [name, col] of Object.entries(edgeAttrs)) {
@@ -408,6 +445,10 @@ export class Material {
       throw new Error(`material: ${ids.edgeRoots.length} edge roots for ${edgeCount} edges`);
     }
     this.edgeRoots = ids?.edgeRoots ?? Float64Array.from(this.edgeIds);
+    for (const name of Object.keys(faceAttrs)) {
+      if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`material: '${name}' is a reserved face field`);
+    }
+    this.faceAttrs = faceAttrs;
     this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
@@ -435,6 +476,7 @@ export class Material {
     this.edgeProto = Object.freeze(edgeProto);
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
+    Object.freeze(this.faceAttrs);
     Object.freeze(this.transfers);
     Object.freeze(this.edgeTransfers);
     Object.freeze(this.history);
@@ -748,7 +790,62 @@ export class Material {
       else transfers[name] = policy;
     }
     // Setting a column changes no row, so every identity carries.
-    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) } });
+    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+  }
+
+  /**
+   * A new material with a FACE column set: a constant, or one value per
+   * face from its view (`f => f.area`).
+   *
+   * A face is not a row — it is whatever the walls enclose — so the values
+   * are keyed by the face's walls rather than by an index, and they follow
+   * the material through anything that leaves those walls alone. When a
+   * boundary does change, a new face takes the value of the old face it
+   * shares the most walls with (`'nearest'`, the default), or the column
+   * stops there (`'drop'`). A face that shares no wall with any old face
+   * starts from `fallback`, and a column with no fallback is an error
+   * where the face appeared, not where it is read.
+   */
+  faceAttribute(name: string, value: number | ((f: Face) => number), opts: { transfer?: FaceTransfer; fallback?: number } = {}): Material {
+    return this.faceAttributes({ [name]: value }, opts);
+  }
+
+  /** Several face columns at once; every initializer reads THIS state's
+   * faces, so one face's new value cannot be read by another's. */
+  faceAttributes(
+    values: Record<string, number | ((f: Face) => number)>,
+    opts: { transfer?: FaceTransfer; fallback?: number } = {},
+  ): Material {
+    const cells = this.faces();
+    const keys = cells.keys();
+    const next: Record<string, FaceColumn> = { ...this.faceAttrs };
+    for (const [name, value] of Object.entries(values)) {
+      if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`faceAttributes: '${name}' is a reserved face field`);
+      const map = new Map<string, number>();
+      for (let i = 0; i < cells.length; i++) {
+        const v = typeof value === 'function' ? value(cells.at(i)) : value;
+        if (!Number.isFinite(v)) throw new Error(`faceAttributes: '${name}' for face ${i} is not a finite number`);
+        map.set(keys[i], v);
+      }
+      next[name] = {
+        values: map,
+        transfer: opts.transfer ?? this.faceAttrs[name]?.transfer ?? 'nearest',
+        fallback: opts.fallback ?? this.faceAttrs[name]?.fallback,
+      };
+    }
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), {
+      iteration: this.iteration,
+      edgeAttrs: copyAttrs(this.edgeAttrs),
+      transfers: { ...this.transfers },
+      edgeTransfers: { ...this.edgeTransfers },
+      ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) },
+      faceAttrs: next,
+    });
+  }
+
+  /** The face columns this material declares. */
+  get faceAttrNames(): string[] {
+    return Object.keys(this.faceAttrs);
   }
 
   /** A new material with an EDGE column set: a constant, or one value per
@@ -781,7 +878,7 @@ export class Material {
       if (policy === 'copy') delete edgeTransfers[name];
       else edgeTransfers[name] = policy;
     }
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) } });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
   }
 
   /** A new material with these edges added (undirected; an existing pair
@@ -1150,7 +1247,7 @@ export class Material {
     const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) } });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -1159,7 +1256,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) } })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs })
       : cur;
   }
 }

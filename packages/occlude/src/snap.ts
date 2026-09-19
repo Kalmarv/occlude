@@ -83,5 +83,5 @@ export function snap(m: Material, field: SnapField, opts: SnapOpts): Material {
     y[i] = bestY;
   }
   // Same structure, same columns, same policies — only the positions move.
-  return new Material(x, y, Object.fromEntries(Object.entries(src.attrs).map(([name, col]) => [name, Float64Array.from(col)])), Uint32Array.from(src.edgeList), { iteration: src.iteration, history: src.history, edgeAttrs: Object.fromEntries(Object.entries(src.edgeAttrs).map(([name, col]) => [name, Float64Array.from(col)])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, ids: { points: Float64Array.from(src.pointIds), edges: Float64Array.from(src.edgeIds), edgeRoots: Float64Array.from(src.edgeRoots) } });
+  return new Material(x, y, Object.fromEntries(Object.entries(src.attrs).map(([name, col]) => [name, Float64Array.from(col)])), Uint32Array.from(src.edgeList), { iteration: src.iteration, history: src.history, edgeAttrs: Object.fromEntries(Object.entries(src.edgeAttrs).map(([name, col]) => [name, Float64Array.from(col)])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, ids: { points: Float64Array.from(src.pointIds), edges: Float64Array.from(src.edgeIds), edgeRoots: Float64Array.from(src.edgeRoots) }, faceAttrs: src.faceAttrs });
 }
