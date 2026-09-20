@@ -286,10 +286,14 @@ describe('2D steps shorthand and toolkit noise',()=>{
   it('t.noise takes a point row or triple with wavelength and amount',()=>{
     let seen:number[]=[];
     compileSketch(sketch({seed:7},t=>{
-      seen=[t.noise(10,20,0),t.noise({x:10,y:20}),t.noise([10,20]),t.noise([20,40,0],{wavelength:2}),t.noise({x:10,y:20},{amount:3})];
+      // Two coordinates read the plane; a third — even 0 — reads the solid,
+      // so a walk through z is continuous and never jumps onto the plane.
+      seen=[t.noise(10,20),t.noise({x:10,y:20}),t.noise([10,20]),t.noise([20,40],{wavelength:2}),t.noise({x:10,y:20},{amount:3}),
+        t.noise(10,20,0),t.noise({x:10,y:20,z:0}),t.noise([20,40,0],{wavelength:2})];
       expect(t.noise([0,0],{wavelength:0})).toBe(0);
       return null;
     }));
     expect(seen[1]).toBe(seen[0]);expect(seen[2]).toBe(seen[0]);expect(seen[3]).toBe(seen[0]);expect(seen[4]).toBeCloseTo(3*seen[0]);
+    expect(seen[6]).toBe(seen[5]);expect(seen[7]).toBe(seen[5]);expect(seen[5]).not.toBe(seen[0]);
   });
 });

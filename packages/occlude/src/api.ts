@@ -1501,21 +1501,23 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
   /** The seeded stream: `rnd()`, `rnd(n)`, `rnd(a, b)`. */
   const rnd: Execution['rnd'] = (a?: number, b?: number) => (b !== undefined ? exec.rnd(a as number, b) : a !== undefined ? exec.rnd(a) : exec.rnd());
-  /** Seeded 3D noise in [-1, 1]: `noise(x, y?, z?)`, or a point row or
+  /** Seeded simplex noise in [-1, 1]: `noise(x, y?, z?)`, or a point row or
    * triple with `{ wavelength, amount }` so a field reads
-   * `p => t.noise(p, { wavelength: 40, amount: 3 })`. */
+   * `p => t.noise(p, { wavelength: 40, amount: 3 })`. Two coordinates read
+   * a plane, three read a solid that changes at one rate in every axis; a
+   * 2D row reads the plane and a 3D row the solid. */
   function noise(x: number, y?: number, z?: number): number;
   function noise(point: NoisePoint, options?: NoiseOptions): number;
   function noise(a: number | NoisePoint, b?: number | NoiseOptions, c?: number): number {
-    if (typeof a === 'number') return exec.noise(a, (b as number | undefined) ?? 0, c ?? 0);
+    if (typeof a === 'number') return exec.noise(a, (b as number | undefined) ?? 0, c);
     const row = a as { readonly x: number; readonly y: number; readonly z?: number };
-    const [x, y, z] = Array.isArray(a) ? [a[0], a[1], a[2] ?? 0] : [row.x, row.y, row.z ?? 0];
+    const [x, y, z] = Array.isArray(a) ? [a[0], a[1], a[2]] : [row.x, row.y, row.z];
     const options = (b as NoiseOptions | undefined) ?? {};
     const wavelength = options.wavelength ?? 1, amount = options.amount ?? 1;
     // No wavelength to walk, or no amount to give: no noise here. The field
     // stays flat where it cannot be read.
     if (!(wavelength > 0) || !Number.isFinite(amount)) return 0;
-    return amount * exec.noise(x / wavelength, y / wavelength, z / wavelength);
+    return amount * exec.noise(x / wavelength, y / wavelength, z === undefined ? undefined : z / wavelength);
   }
   const b0 = exec.bounds();
   const within = ((x: never, area: AreaInput | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;

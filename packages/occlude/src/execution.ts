@@ -523,7 +523,7 @@ export class Execution {
     return elseFn?.();
   }
 
-  noise(x: number, y = 0, z = 0): number {
+  noise(x: number, y = 0, z?: number): number {
     return this.rng.noise(x, y, z);
   }
 
@@ -556,7 +556,7 @@ export class Execution {
       pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
       prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
-      noise: (x, y = 0, z = 0) => rng.noise(x, y, z),
+      noise: (x, y = 0, z?: number) => rng.noise(x, y, z),
     };
   }
 

@@ -48,7 +48,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => t.times(3, (k) => {
 
 <include>/_sig/Toolkit.noise.1.mdx</include>
 
-Seeded smooth noise from −1 to 1. Sample it at large steps for terrain and at small steps for texture. Within a seed, the same coordinates always give the same value.
+Seeded smooth noise from −1 to 1. Sample it at large steps for terrain and at small steps for texture. Within a seed, the same coordinates always give the same value. Two coordinates read a plane. Three coordinates read a solid. The solid changes at one rate along every axis, so it wraps a sphere with no seam. A third coordinate of 0 is a point in the solid, not the plane, so a walk through z does not jump.
 
 ```ts live
 import { sketch, stroke } from 'occlude';

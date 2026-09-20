@@ -58,7 +58,11 @@ export class Rng {
     this.seed32 = a;
     this.next = sfc32(a, b, c, d);
     for (let i = 0; i < 12; i++) this.next();
-    this.noise2 = makeSimplex2(this);
+    // One seeded permutation feeds both noise fields, drawn here so the
+    // stream position after construction is what it always was.
+    const perm = seededPermutation(this);
+    this.noise2 = makeSimplex2(perm);
+    this.noise3 = makeSimplex3(perm);
   }
 
   float(): number {
@@ -72,19 +76,22 @@ export class Rng {
   }
 
   private noise2: (x: number, y: number) => number;
+  private noise3: (x: number, y: number, z: number) => number;
 
-  noise(x: number, y = 0, z = 0): number {
-    // 3D folded onto seeded 2D slices — good enough texture noise for
-    // sketches, exactly reproducible.
-    if (z === 0) return this.noise2(x, y);
-    return (
-      (this.noise2(x + 31.7 * z, y - 17.3 * z) + this.noise2(x - 13.1 * z, y + 23.9 * z)) / 2
-    );
+  /** Seeded simplex noise in about [-1, 1]. Two coordinates read a plane;
+   * three read a solid, and the solid changes at the same rate along every
+   * axis — no slice, no favoured direction — so it wraps a sphere with no
+   * seam. `z` given as 0 is a point in the solid, not the plane, so a walk
+   * through z is continuous. */
+  noise(x: number, y = 0, z?: number): number {
+    if (z === undefined) return this.noise2(x, y);
+    return this.noise3(x, y, z);
   }
 }
 
-/** Seeded 2D simplex noise (Gustavson's reference gradients). */
-function makeSimplex2(rng: Rng): (x: number, y: number) => number {
+/** The 256-entry permutation the simplex corners hash through, shuffled
+ * from the seeded stream, doubled so a corner index never wraps. */
+function seededPermutation(rng: Rng): Uint8Array {
   const perm = new Uint8Array(512);
   const p = new Uint8Array(256);
   for (let i = 0; i < 256; i++) p[i] = i;
@@ -93,7 +100,11 @@ function makeSimplex2(rng: Rng): (x: number, y: number) => number {
     [p[i], p[j]] = [p[j], p[i]];
   }
   for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  return perm;
+}
 
+/** Seeded 2D simplex noise (Gustavson's reference gradients). */
+function makeSimplex2(perm: Uint8Array): (x: number, y: number) => number {
   // Gradients as two flat arrays; the corner kernel is a plain function.
   // No per-sample allocation (the old closure, tuple, and gradient pair
   // were three), identical arithmetic in identical order.
@@ -130,6 +141,69 @@ function makeSimplex2(rng: Rng): (x: number, y: number) => number {
     n += corner(x2, y2, perm[ii + 1 + perm[jj + 1]]);
     // Scale to roughly [-1, 1].
     return 70 * n;
+  };
+}
+
+/**
+ * Seeded 3D simplex noise (Gustavson's reference: twelve edge gradients of
+ * a cube, skew 1/3, unskew 1/6, kernel radius² 0.6, scale 32). The solid
+ * field the toolkit's three-argument `noise` reads. Isotropic: nothing
+ * here treats one axis differently from another.
+ */
+function makeSimplex3(perm: Uint8Array): (x: number, y: number, z: number) => number {
+  const GX = new Float64Array([1, -1, 1, -1, 1, -1, 1, -1, 0, 0, 0, 0]);
+  const GY = new Float64Array([1, 1, -1, -1, 0, 0, 0, 0, 1, -1, 1, -1]);
+  const GZ = new Float64Array([0, 0, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1]);
+  const F3 = 1 / 3;
+  const G3 = 1 / 6;
+  const corner = (x: number, y: number, z: number, gi: number): number => {
+    let t0 = 0.6 - x * x - y * y - z * z;
+    if (t0 < 0) return 0;
+    t0 *= t0;
+    const g = gi % 12;
+    return t0 * t0 * (GX[g] * x + GY[g] * y + GZ[g] * z);
+  };
+
+  return (xin: number, yin: number, zin: number): number => {
+    const s = (xin + yin + zin) * F3;
+    const i = Math.floor(xin + s);
+    const j = Math.floor(yin + s);
+    const k = Math.floor(zin + s);
+    const t = (i + j + k) * G3;
+    const x0 = xin - (i - t);
+    const y0 = yin - (j - t);
+    const z0 = zin - (k - t);
+    // Which of the six tetrahedra of the skewed cube holds the point: the
+    // order of the three coordinates, read as two corner offsets.
+    let i1: number, j1: number, k1: number, i2: number, j2: number, k2: number;
+    if (x0 >= y0) {
+      if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+      else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1; }
+      else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1; }
+    } else {
+      if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1; }
+      else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1; }
+      else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+    }
+    const x1 = x0 - i1 + G3;
+    const y1 = y0 - j1 + G3;
+    const z1 = z0 - k1 + G3;
+    const x2 = x0 - i2 + 2 * G3;
+    const y2 = y0 - j2 + 2 * G3;
+    const z2 = z0 - k2 + 2 * G3;
+    const x3 = x0 - 1 + 3 * G3;
+    const y3 = y0 - 1 + 3 * G3;
+    const z3 = z0 - 1 + 3 * G3;
+    const ii = i & 255;
+    const jj = j & 255;
+    const kk = k & 255;
+    let n = 0;
+    n += corner(x0, y0, z0, perm[ii + perm[jj + perm[kk]]]);
+    n += corner(x1, y1, z1, perm[ii + i1 + perm[jj + j1 + perm[kk + k1]]]);
+    n += corner(x2, y2, z2, perm[ii + i2 + perm[jj + j2 + perm[kk + k2]]]);
+    n += corner(x3, y3, z3, perm[ii + 1 + perm[jj + 1 + perm[kk + 1]]]);
+    // Scale to roughly [-1, 1].
+    return 32 * n;
   };
 }
 
