@@ -14,8 +14,9 @@
 //!    (exact nib-distance queries, no rasterising). One rule replaces the
 //!    old drop heuristics: covered ink is redundant, uncovered ink is owed.
 //! 2. Merge consecutive visible spans of the same origin primitive.
-//! 3. Drop coincident duplicate fragments from different shapes (seams drawn
-//!    twice because "on boundary = outside" keeps both).
+//! 3. Drop coincident duplicate fragments from different shapes in the same
+//!    pen (seams drawn twice because "on boundary = outside" keeps both).
+//!    Coincident ink in a DIFFERENT pen is deliberate overdraw and is kept.
 
 use crate::bbox::BBox;
 use crate::fragment::{Frag, Span};
@@ -96,8 +97,12 @@ pub fn spans_to_fragments(
 }
 
 /// Rule 3: drop later fragments whose geometry coincides with an earlier one
-/// (within `threshold`, unordered endpoints). Snapped input makes true shared
-/// edges exactly coincident, so quantised endpoint hashing finds them.
+/// in the SAME pen (within `threshold`, unordered endpoints). Snapped input
+/// makes true shared edges exactly coincident, so quantised endpoint hashing
+/// finds them. A different pen is intent, never a duplicate seam: a contour
+/// re-drawn in red, or index lines laid over fine ones in a wider pen, is a
+/// deliberate overdraw and every one of its fragments survives, whatever the
+/// drawing order.
 pub fn dedupe_seams(frags: Vec<Frag>, threshold: f64) -> Vec<Frag> {
     let q = threshold.max(1e-9);
     let key_of = |f: &Frag| -> (i64, i64, i64, i64) {
@@ -135,8 +140,7 @@ pub fn dedupe_seams(frags: Vec<Frag>, threshold: f64) -> Vec<Frag> {
                 loop {
                     let g = &frags[j];
                     let tolerance = if g.run.is_some() || f.run.is_some() { 1e-9 } else { threshold };
-                    let matching_pen = (g.run.is_none() && f.run.is_none()) || g.pen == f.pen;
-                    if g.shape != f.shape && matching_pen && coincident(&g.geom, &f.geom, tolerance) {
+                    if g.shape != f.shape && g.pen == f.pen && coincident(&g.geom, &f.geom, tolerance) {
                         dup = true;
                         break;
                     }

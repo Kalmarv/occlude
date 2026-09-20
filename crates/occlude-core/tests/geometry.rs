@@ -569,6 +569,41 @@ fn coincident_seam_deduped() {
 }
 
 #[test]
+fn different_pen_overdraw_survives() {
+    // A different pen is intent, never a duplicate seam: a contour re-drawn
+    // in red, or index lines laid over fine ones in a wider pen, must reach
+    // the paper. Same pen, same geometry is still one seam.
+    let g = || Primitive::Line(line(0., 0., 10., 0.));
+    let rev = || Primitive::Line(line(10., 0., 0., 0.));
+
+    let out = dedupe_seams(
+        vec![
+            Frag::whole(0, g(), 0, 0),
+            Frag::whole(1, rev(), 1, 1), // same wall, wider pen
+        ],
+        0.05,
+    );
+    assert_eq!(out.len(), 2, "different pens both draw: {out:?}");
+    assert_eq!(out[0].pen, 0);
+    assert_eq!(out[1].pen, 1);
+
+    // Order is free: the wide pen first keeps both as well.
+    let out = dedupe_seams(
+        vec![Frag::whole(0, g(), 1, 0), Frag::whole(1, rev(), 0, 1)],
+        0.05,
+    );
+    assert_eq!(out.len(), 2, "overdraw survives either order: {out:?}");
+
+    // Same pen: one seam, the earlier shape.
+    let out = dedupe_seams(
+        vec![Frag::whole(0, g(), 2, 0), Frag::whole(1, rev(), 2, 1)],
+        0.05,
+    );
+    assert_eq!(out.len(), 1, "same pen still dedupes: {out:?}");
+    assert_eq!(out[0].shape, 0, "earlier shape wins");
+}
+
+#[test]
 fn rotated_stadium_inside_matches_sdf() {
     // Regression: rotated rounded-rects (stadium: r = h/2) misclassified
     // points because snapped arc/line seam endpoints disagreed by more than
