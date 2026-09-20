@@ -1,0 +1,405 @@
+---
+title: Calls
+description: Every call of one day, and nothing else — no house, no pole, no exchange.
+---
+
+Every call of one day. Each call is two threads. One leaves each person's house, runs up the wire, along the road, and into the board.
+
+Nothing else is on the paper. There is no house, no pole and no exchange, so the bare parts are not countryside. They are people who said nothing that day.
+
+The three boards are opaque circles that draw nothing at all. Everything went through them, and none of it was about them.
+
+A sheet like this can prove one relation honestly: a call that had to leave one board and cross to another. The trunks ride straight on their own poles, beside roads that wander. An empty field sits in the middle, fenced on three sides by traffic with somewhere to be. It is the trunk between the works and the valley, and in thirty-one years nobody used it once.
+
+Uses: `polygon` with `opaque`, `stroke`, `strokes`, `t.noise`, `t.rnd`, `t.chance`, `mm`, `t.bounds`.
+
+```ts live
+// ONE DAY OF TRAFFIC, AND NOT ONE HOUSE.
+//
+// Nothing here is a thing. No house is drawn, no pole, no exchange. What is
+// drawn is every call of one day, and a call is a pair of threads: one from
+// each of the two people, run up the wires to the board. Two people who
+// spoke once are two hairs. A house that talked all morning sends a ribbon.
+// A house that rang nobody and was rung by nobody is not on this paper at
+// all, so the bare parts are not fields. They are people who said nothing.
+//
+// The threads do not go as the crow flies, because the crow is not the
+// telephone. They go along the wire, the wire goes down the road, and the
+// road wanders, so the traffic gathers into avenues and every thread keeps
+// its own place across the width of one. Where three lanes come onto one
+// span the span goes black. That is the whole drawing: the weight is the
+// tally. The trunk between two boards is strung on its own poles and goes
+// straight, so you can tell the conversation from the road it rides beside.
+//
+// The three exchanges are holes. Opaque, drawing nothing. Every thread runs
+// into one and stops. Who was put through to whom happened inside there, and
+// nobody could see it but me — so the one relation this sheet can prove is
+// the one that had to leave a board and cross to another.
+//
+// The works and the valley had a trunk between them too. In thirty-one years
+// it was never once used. It is the empty field in the middle of this paper,
+// fenced on its three sides by traffic that had somewhere to be, and it is
+// the only thing here that I drew by refusing to draw it.
+import { sketch, stroke, circle, mm } from 'occlude';
+const FINE = 'pigma-005-black';
+const TRUNK = 'pigma-01-black';
+export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
+    const b = t.bounds();
+    const U = Math.min(b.w, b.h);
+    const MM = t.len(mm(1));
+    const clamp = (v, a, c) => (v < a ? a : v > c ? c : v);
+    const lerp = (a, c, u) => [a[0] + (c[0] - a[0]) * u, a[1] + (c[1] - a[1]) * u];
+    const dist = (a, c) => Math.hypot(a[0] - c[0], a[1] - c[1]);
+    const perp = (a, c) => {
+        const d = Math.max(1e-6, dist(a, c));
+        return [-(c[1] - a[1]) / d, (c[0] - a[0]) / d];
+    };
+    // ---- the boards ---------------------------------------------------------
+    // Town, works, valley. The valley is the small one: it takes the low road
+    // east along the bottom, which is why the low road talks to the valley and
+    // not to the works, though the works is nearer as the crow flies. The crow
+    // is not the telephone.
+    const EX = [
+        { p: [0.345 * b.w, 0.300 * b.h], r: 0.070 * U },
+        { p: [0.800 * b.w, 0.585 * b.h], r: 0.052 * U },
+        { p: [0.182 * b.w, 0.782 * b.h], r: 0.044 * U },
+    ];
+    const at = (fx, fy) => [fx * b.w, fy * b.h];
+    const ROADS = [
+        // the town: a knot of streets, not a blot
+        { pts: [at(0.345, 0.300)], w: 0.50, s: 0.070, ex: 0 },
+        { pts: [at(0.190, 0.185), at(0.500, 0.415)], w: 0.94, s: 0.024, ex: 0 },
+        { pts: [at(0.205, 0.430), at(0.495, 0.180)], w: 0.90, s: 0.024, ex: 0 },
+        { pts: [at(0.335, 0.130), at(0.360, 0.480)], w: 0.84, s: 0.022, ex: 0 },
+        { pts: [at(0.235, 0.120), at(0.175, 0.400)], w: 0.52, s: 0.020, ex: 0 },
+        { pts: [at(0.450, 0.120), at(0.520, 0.330)], w: 0.50, s: 0.020, ex: 0 },
+        // the main road, two lanes of poles that braid
+        { pts: [at(0.378, 0.330), at(0.545, 0.440), at(0.700, 0.510), at(0.790, 0.585)], w: 0.62, s: 0.020, ex: 0 },
+        { pts: [at(0.368, 0.372), at(0.540, 0.490), at(0.702, 0.552), at(0.782, 0.618)], w: 0.54, s: 0.020, ex: 1 },
+        // out of town, west and north
+        { pts: [at(0.290, 0.290), at(0.140, 0.240), at(0.048, 0.330)], w: 0.48, s: 0.022, ex: 0 },
+        { pts: [at(0.360, 0.250), at(0.445, 0.150), at(0.510, 0.052)], w: 0.46, s: 0.022, ex: 0 },
+        { pts: [at(0.055, 0.180)], w: 0.24, s: 0.026, ex: 0 },
+        // the works
+        { pts: [at(0.800, 0.585)], w: 0.52, s: 0.052, ex: 1 },
+        { pts: [at(0.690, 0.495), at(0.930, 0.650)], w: 0.62, s: 0.024, ex: 1 },
+        { pts: [at(0.730, 0.672), at(0.862, 0.512)], w: 0.50, s: 0.022, ex: 1 },
+        { pts: [at(0.800, 0.585), at(0.870, 0.335), at(0.895, 0.075)], w: 0.48, s: 0.024, ex: 1 },
+        { pts: [at(0.935, 0.200)], w: 0.26, s: 0.026, ex: 1 },
+        { pts: [at(0.615, 0.115)], w: 0.22, s: 0.024, ex: 0 },
+        { pts: [at(0.935, 0.880)], w: 0.22, s: 0.024, ex: 1 },
+        // the works' south lane, which closes the empty field on its right side
+        { pts: [at(0.845, 0.640), at(0.885, 0.760), at(0.860, 0.885)], w: 0.44, s: 0.022, ex: 1 },
+        // the valley: the dale up to the town, and the low road east
+        { pts: [at(0.182, 0.782), at(0.275, 0.625), at(0.335, 0.475)], w: 0.44, s: 0.021, ex: 2 },
+        { pts: [at(0.215, 0.790), at(0.320, 0.650), at(0.372, 0.505)], w: 0.38, s: 0.019, ex: 2 },
+        { pts: [at(0.182, 0.782), at(0.340, 0.866), at(0.510, 0.884), at(0.675, 0.915)], w: 0.52, s: 0.024, ex: 2 },
+        { pts: [at(0.182, 0.782), at(0.095, 0.836), at(0.052, 0.930)], w: 0.36, s: 0.020, ex: 2 },
+        { pts: [at(0.400, 0.875), at(0.430, 0.960)], w: 0.30, s: 0.018, ex: 2 },
+    ];
+    const toRoad = (x, y, r) => {
+        if (r.pts.length === 1)
+            return Math.hypot(x - r.pts[0][0], y - r.pts[0][1]);
+        let best = Infinity;
+        for (let k = 0; k < r.pts.length - 1; k++) {
+            const [ax, ay] = r.pts[k], [cx, cy] = r.pts[k + 1];
+            const vx = cx - ax, vy = cy - ay;
+            const uu = clamp(((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy), 0, 1);
+            best = Math.min(best, Math.hypot(x - (ax + vx * uu), y - (ay + vy * uu)));
+        }
+        return best;
+    };
+    const nearestRoad = (x, y) => {
+        let bestV = 0, bestEx = 0, tot = 0;
+        for (const r of ROADS) {
+            const v = r.w * Math.exp(-((toRoad(x, y, r) / (r.s * U)) ** 2) / 2);
+            tot += v;
+            if (v > bestV) {
+                bestV = v;
+                bestEx = r.ex;
+            }
+        }
+        return { tot, ex: bestEx };
+    };
+    const density = (x, y) => {
+        const { tot } = nearestRoad(x, y);
+        let v = tot * (0.42 + 0.58 * (0.5 + 0.5 * t.noise(x / (0.10 * U) + 5, y / (0.10 * U) - 2)));
+        const edge = Math.min(x, b.w - x) / (0.05 * b.w);
+        const edgeY = Math.min(y, b.h - y) / (0.05 * b.h);
+        v *= clamp(edge, 0, 1) * clamp(edgeY, 0, 1);
+        return clamp(v, 0, 1);
+    };
+    const houses = t.scatter(density, { spacing: 0.0205 * U }).points.map((p) => ({
+        at: [p.x, p.y],
+        ex: nearestRoad(p.x, p.y).ex,
+        talk: 0.06 + 0.94 * (0.5 + 0.5 * t.noise(p.x / (0.075 * U) + 91, p.y / (0.075 * U) - 43)) ** 2.6,
+    }));
+    // ---- the wire -----------------------------------------------------------
+    // One tree of poles for each board, grown out from the board by the cheapest
+    // next span. The wire is not drawn. It is only the road the traffic takes.
+    const N = houses.length + EX.length;
+    const pos = [...EX.map((e) => e.p), ...houses.map((h) => h.at)];
+    const parent = new Int32Array(N).fill(-1);
+    const kids = Array.from({ length: N }, () => []);
+    EX.forEach((_, ex) => {
+        // Sorted by how far out they are, each house takes the nearest pole that
+        // is already on the wire. Nothing ever doubles back, so a span runs
+        // toward the board and the traffic on it runs straight.
+        const members = [];
+        houses.forEach((h, i) => { if (h.ex === ex)
+            members.push(EX.length + i); });
+        members.sort((a, c) => dist(pos[a], pos[ex]) - dist(pos[c], pos[ex]));
+        const on = [ex];
+        for (const m of members) {
+            let pick = ex, cost = Infinity;
+            for (const o of on) {
+                const d = dist(pos[m], pos[o]) + 0.22 * dist(pos[o], pos[ex]);
+                if (d < cost) {
+                    cost = d;
+                    pick = o;
+                }
+            }
+            parent[m] = pick;
+            kids[pick].push(m);
+            on.push(m);
+        }
+    });
+    // children left to right, so no two threads have to cross
+    const baseAngle = (u) => {
+        const p = parent[u];
+        return p < 0 ? -Math.PI / 2 : Math.atan2(pos[u][1] - pos[p][1], pos[u][0] - pos[p][0]);
+    };
+    for (let u = 0; u < N; u++) {
+        const a0 = baseAngle(u);
+        kids[u].sort((c1, c2) => {
+            const w = (c) => {
+                let d = Math.atan2(pos[c][1] - pos[u][1], pos[c][0] - pos[u][0]) - a0;
+                while (d > Math.PI)
+                    d -= 2 * Math.PI;
+                while (d < -Math.PI)
+                    d += 2 * Math.PI;
+                return d;
+            };
+            return w(c1) - w(c2);
+        });
+    }
+    // ---- the day's calls ----------------------------------------------------
+    const s = t.stream('day');
+    const cum = [];
+    let sum = 0;
+    for (const h of houses) {
+        sum += h.talk;
+        cum.push(sum);
+    }
+    const someone = () => {
+        const r = s.rnd(sum);
+        let lo = 0, hi = cum.length - 1;
+        while (lo < hi) {
+            const m = (lo + hi) >> 1;
+            if (cum[m] < r)
+                lo = m + 1;
+            else
+                hi = m;
+        }
+        return lo;
+    };
+    const legsAt = Array.from({ length: N }, () => []);
+    const cables = [];
+    const newLeg = (i) => {
+        const l = {
+            node: EX.length + i, lane: 0, jit: s.rnd(-0.38, 0.38),
+            cut: s.chance(0.045),
+            lost: s.chance(0.035),
+        };
+        legsAt[l.node].push(l);
+        return l;
+    };
+    for (let n = 0; n < 380; n++) {
+        const i = someone();
+        const a = houses[i];
+        const trunk = s.chance(a.ex === 0 ? 0.11 : a.ex === 1 ? 0.17 : 0.55);
+        const reach = 0.05 * U * Math.exp(s.rnd(0, 1.5));
+        let j = -1;
+        for (let k = 0; k < 40; k++) {
+            const c = someone();
+            if (c === i)
+                continue;
+            const o = houses[c];
+            if (trunk) {
+                if (o.ex !== a.ex) {
+                    j = c;
+                    break;
+                }
+            }
+            else if (o.ex === a.ex && s.chance(Math.exp(-((dist(a.at, o.at) / reach) ** 1.5)))) {
+                j = c;
+                break;
+            }
+        }
+        if (j < 0)
+            continue;
+        newLeg(i);
+        newLeg(j);
+        // The works and the valley never spoke to each other. If the day throws
+        // that pair, the call did not happen.
+        if (trunk) {
+            const pair = [a.ex, houses[j].ex].sort().join('');
+            if (pair === '12')
+                continue;
+            cables.push({ a: a.ex, c: houses[j].ex, lane: 0 });
+        }
+    }
+    // ---- packing the threads into the spans ---------------------------------
+    const load = new Int32Array(N);
+    const tally = (u) => {
+        let v = legsAt[u].length;
+        for (const c of kids[u])
+            v += tally(c);
+        load[u] = v;
+        return v;
+    };
+    EX.forEach((_, ex) => tally(ex));
+    const start = new Int32Array(N);
+    const layout = (u, s0) => {
+        start[u] = s0;
+        let c = s0;
+        const ks = kids[u];
+        const mid = ks.length >> 1;
+        const order = [...ks.slice(0, mid), null, ...ks.slice(mid)];
+        for (const item of order) {
+            if (item === null) {
+                for (const l of legsAt[u])
+                    l.lane = c++;
+            }
+            else {
+                layout(item, c);
+                c += load[item];
+            }
+        }
+    };
+    EX.forEach((_, ex) => layout(ex, 0));
+    // How wide a span is, by how much it carries. It stops widening: past about
+    // fifty calls a span is black and getting blacker says nothing more.
+    const width = (n) => Math.min(15 * MM, 0.82 * MM * n ** 0.78);
+    const spline = (wp, per = 7) => {
+        if (wp.length < 3)
+            return wp;
+        const q = [wp[0], ...wp, wp[wp.length - 1]];
+        const out = [];
+        for (let i = 1; i < q.length - 2; i++) {
+            const [p0, p1, p2, p3] = [q[i - 1], q[i], q[i + 1], q[i + 2]];
+            for (let k = 0; k < per; k++) {
+                const u = k / per, u2 = u * u, u3 = u2 * u;
+                out.push([
+                    0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * u3),
+                    0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * u3),
+                ]);
+            }
+        }
+        out.push(wp[wp.length - 1]);
+        return out;
+    };
+    const ink = [];
+    // Drawing one thread. Its place across a span is its lane, and the lane
+    // holds from the house all the way in, so the traffic off one lane of poles
+    // stays together and slides in beside the traffic off the next. The normal
+    // is taken across two spans, not one, or a bundle creases at every pole and
+    // the crease is a lie — nothing happened there. A little wander on each
+    // thread keeps a heavy span a cable and not a printed tape.
+    const wander = (n) => Math.min(1.5 * MM, Math.max(0.10 * MM, 0.34 * width(n)));
+    const thread = (u, lane, phase) => {
+        const path = [];
+        let v = u;
+        while (parent[v] >= 0) {
+            path.push(v);
+            v = parent[v];
+        }
+        path.push(v);
+        if (path.length < 2)
+            return [];
+        const nrm = path.map((_, k) => {
+            const a = pos[path[Math.max(0, k - 1)]];
+            const c = pos[path[Math.min(path.length - 1, k + 1)]];
+            return perp(a, c);
+        });
+        for (let k = 1; k < nrm.length; k++) {
+            if (nrm[k][0] * nrm[k - 1][0] + nrm[k][1] * nrm[k - 1][1] < 0)
+                nrm[k] = [-nrm[k][0], -nrm[k][1]];
+        }
+        const out = [];
+        let cl = 0;
+        for (let k = 0; k < path.length; k++) {
+            const node = path[k];
+            if (k > 0)
+                cl += dist(pos[path[k - 1]], pos[node]);
+            const root = parent[node] < 0;
+            // at the board every thread arrives at the same place, and what happens
+            // to it there is not on this paper
+            const leave = Math.min(1, cl / (6.5 * MM));
+            const off = root ? 0
+                : leave * (width(load[node]) * ((lane - start[node] + 0.5) / Math.max(1, load[node]) - 0.5)
+                    + wander(load[node]) * t.noise(cl / (8.5 * MM) + phase, phase * 2.7));
+            out.push([pos[node][0] + nrm[k][0] * off, pos[node][1] + nrm[k][1] * off]);
+        }
+        return out;
+    };
+    for (let u = EX.length; u < N; u++) {
+        for (const leg of legsAt[u]) {
+            const wp = thread(u, leg.lane + leg.jit, s.rnd(100));
+            if (wp.length < 2)
+                continue;
+            let pts = spline(wp);
+            // A call placed and not answered gets as far as it got.
+            if (leg.lost)
+                pts = pts.slice(0, Math.max(2, Math.floor(pts.length * s.rnd(0.35, 0.8))));
+            if (leg.cut && pts.length > 14) {
+                const c0 = Math.floor(pts.length * s.rnd(0.25, 0.45));
+                const c1 = c0 + Math.max(3, Math.floor(pts.length * 0.07));
+                ink.push(stroke(pts.slice(0, c0), { pen: FINE }));
+                if (pts.length - c1 > 2)
+                    ink.push(stroke(pts.slice(c1), { pen: FINE }));
+            }
+            else {
+                ink.push(stroke(pts, { pen: FINE }));
+            }
+        }
+    }
+    // The cables. The only relation on this sheet you are allowed to see: it
+    // had to leave one board and reach another, so it is out in the open.
+    const byPair = new Map();
+    for (const c of cables) {
+        const k = [c.a, c.c].sort().join('');
+        if (!byPair.has(k))
+            byPair.set(k, []);
+        byPair.get(k).push(c);
+    }
+    for (const [k, list] of byPair) {
+        const [ia, ic] = k.split('').map(Number);
+        const A = EX[ia], C = EX[ic];
+        const n = perp(A.p, C.p);
+        const span = dist(A.p, C.p);
+        const w = Math.min(0.098 * U, 0.55 * MM * list.length);
+        const sag = (n[1] >= 0 ? -1 : 1) * Math.min(0.028 * U, 0.05 * span);
+        list.forEach((_, i) => {
+            const lane = (i + 0.5) / list.length - 0.5;
+            const ph = s.rnd(100);
+            const pts = [];
+            const steps = 46;
+            for (let q = 0; q <= steps; q++) {
+                const uu = q / steps;
+                const at = lerp(A.p, C.p, uu);
+                const belly = Math.sin(Math.PI * uu) ** 0.7;
+                const r = A.r + (C.r - A.r) * uu;
+                const d = lane * (r * 0.85 + (w - r * 0.85) * belly)
+                    + sag * belly
+                    + 0.9 * MM * belly * t.noise(uu * 5 + ph, ph * 2.3);
+                pts.push([at[0] + n[0] * d, at[1] + n[1] * d]);
+            }
+            ink.push(stroke(pts, { pen: TRUNK }));
+        });
+    }
+    // The boards. Opaque, and they draw nothing.
+    ink.push(EX.map((e) => circle(e.p[0], e.p[1], e.r, { opaque: true, stroke: false })));
+    return ink;
+});
+```

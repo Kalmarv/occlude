@@ -1,0 +1,199 @@
+---
+title: Corridor
+description: A corridor floor and the bottom of forty doors, lit by fixtures outside the picture.
+---
+
+The eye is low, behind a trolley, and the lens is long. The vanishing point sits off the top of the sheet. The drawing holds the floor and the bottom of the doors, and nothing above them.
+
+Every light comes from a fixture outside the picture. The ceiling panels sit above the horizon, so the sheet carries only the ladder of pools they drop. The rungs close up as they go. After a point you cannot count them.
+
+One tube is out, and that is the long dark stretch. One room is awake, and it is the only irregular thing here.
+
+There is no linework at all. The whole sheet is three polygons. A function of position sets the pitch of their fills. The tone has a rate, and not an edge.
+
+Uses: `polygon` with a hatch `fill` whose spacing comes from a function, `mm`, `t.bounds`. The sketch writes its own perspective.
+
+```ts live
+// Night round.
+//
+// You never see a whole door. From behind a trolley the eye sits low and
+// forward, so the corridor is floor, and the bottom of forty doors, and the
+// pools the ceiling panels drop. The panels are above the horizon and off the
+// top of the sheet, so every light in this drawing comes from a source that is
+// not in it. One tube is out, and one room is awake.
+//
+// One pinhole at (CX, VPY), above the top edge. A floor point (lateral X,
+// depth d) and a wall point (height h, depth d) come from the same projection,
+// so the page is exactly three shapes: two wall wedges and the floor between.
+// The lens is long, because a long view telescopes — forty doors land in the
+// top third and stop being countable.
+//
+// Everything else is tone, and tone is one function of where you are in the
+// building. Each shape carries a fill that rules lines at a pitch it reads
+// from that function, so the light has no edges, only a rate.
+import { sketch, polygon, modify, wobble, mm } from 'occlude';
+export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
+    const b = t.bounds();
+    // --- the pinhole -------------------------------------------------------
+    const CX = 0.585 * b.w; // the vanishing point is never where you are
+    const VPY = -0.045 * b.h; // vanishing point, above the sheet
+    const E = 1.55; // eye height, metres
+    const W = 0.78; // half corridor width, metres
+    const F = 2.48 * b.h; // focal length, drawable units — a long lens
+    const M = 3; // overscan past the sheet, drawable units
+    const xL = -M;
+    const xR = b.w + M;
+    const yT = -M;
+    const yB = b.h + M;
+    const yOf = (d) => VPY + (F * E) / d;
+    const baseX = (s, y) => CX + s * (W / E) * (y - VPY); // wall foot
+    // where each wall foot leaves the sheet — the two are not the same
+    const yFoot = (s) => VPY + ((s < 0 ? CX - xL : xR - CX) * E) / W;
+    const ease = (a, c, x) => {
+        const k = Math.max(0, Math.min(1, (x - a) / (c - a)));
+        return k * k * (3 - 2 * k);
+    };
+    // near = 1, far = 0. Everything tonal rides on this.
+    const near = (d) => Math.max(0, Math.min(1, (yOf(d) - VPY) / (yB - VPY)));
+    const shade = (d) => 0.105 + 0.65 * near(d) ** 0.65;
+    // --- the ceiling panels you cannot see ---------------------------------
+    const PITCH = 2.2;
+    const D0 = 2.7;
+    const DEAD = new Set([2]); // one tube is out, and the round is longer there
+    const glow = (d) => {
+        const i = Math.round((d - D0) / PITCH);
+        const q = Math.abs(d - (D0 + i * PITCH)) / (PITCH / 2);
+        const on = DEAD.has(i) ? 0 : 1 - ease(0.28, 0.9, q);
+        // Past the depth where one period is thinner than the pen, the rhythm
+        // stops being a rhythm and becomes an average. That is the telescoping.
+        const period = (F * E * PITCH) / (d * (d + PITCH));
+        const res = ease(0.34, 2.4, period);
+        return on * res + 0.18 * (1 - res);
+    };
+    // --- forty doors, in two rhythms that will not agree -------------------
+    const RUN = [
+        { s: -1, d0: 2.0, pitch: 2.6, on: new Set([2, 8]) },
+        { s: 1, d0: 3.25, pitch: 3.4, on: new Set([4]) },
+    ];
+    const DOOR_W = 0.92;
+    const doorAt = (s, d) => {
+        const r = RUN.find((q) => q.s === s);
+        const j = Math.floor((d - r.d0) / r.pitch);
+        if (j < 0 || (d - r.d0) % r.pitch > DOOR_W)
+            return null;
+        return { j, lit: r.on.has(j) };
+    };
+    const litDoors = RUN.flatMap((r) => [...r.on].map((j) => ({ s: r.s, d1: r.d0 + j * r.pitch, d2: r.d0 + j * r.pitch + DOOR_W })));
+    // --- tone of the floor, in metres of building --------------------------
+    const floorTone = (ux, uy) => {
+        const d = (F * E) / Math.max(uy - VPY, 0.4);
+        const X = ((ux - CX) * d) / F;
+        const sh = shade(d);
+        // The base pitch reads depth alone, so every row crosses the corridor
+        // unbroken. Only the light under a door breaks one, and a broken row is
+        // then a thing, not an artefact.
+        const u = near(d);
+        // Far off, a pool and a gap are seen at a grazing angle and their
+        // difference closes. Near the trolley you stand in your own shadow.
+        let s = (0.62 + 2.7 * glow(d) * (0.35 + 0.65 * u)) * sh;
+        s *= 1 - 0.55 * ease(0.55, 1.0, u);
+        // what a lit room lets out under its door
+        for (const dr of litDoors) {
+            const half = (dr.d2 - dr.d1) / 2;
+            const mid = (dr.d1 + dr.d2) / 2;
+            const along = 1 - ease(half * 0.45, half + 0.95, Math.abs(d - mid));
+            const across = 1 - ease(0.015, 0.38, W - X * dr.s); // out from THAT wall
+            s *= 1 + 2.6 * along * across;
+        }
+        return Math.min(s, 3.4);
+    };
+    // --- tone of a wall, in metres of building -----------------------------
+    const wallTone = (s) => (ux, uy) => {
+        const d = (F * W) / Math.max(s * (ux - CX), 0.4);
+        const h = E - ((uy - VPY) * d) / F;
+        const sh = shade(d);
+        const dr = doorAt(s, d);
+        if (dr && dr.lit && h < 0.05 && h > -0.01)
+            return 3.2 * Math.max(sh, 0.6);
+        if (h < 0.06)
+            return 0.32 * sh; // skirting
+        if (h > 0.8 && h < 0.885)
+            return Math.max(0.5, 1.0 * sh); // the crash rail
+        if (dr)
+            return 1.5 * sh; // a door, paler than the wall
+        return 0.52 * sh;
+    };
+    // --- one ruler, two directions -----------------------------------------
+    // The pitch is read per sample, so a row turns on where the tone asks for
+    // it and stops where it does not. That is the whole tonal engine.
+    const BASE = 0.14; // mm, the quantum of the ruling — 24 steps of grey
+    const ruler = (u0, axis, tone) => (region, ctx) => {
+        const sc = ctx.len(1); // mm per drawable unit
+        const ox = region.bbox.x - u0[0] * sc;
+        const oy = region.bbox.y - u0[1] * sc;
+        const { x, y, w, h } = region.bbox;
+        const out = [];
+        const along = axis === 'h' ? w : h;
+        const across = axis === 'h' ? h : w;
+        const step = 0.4;
+        for (let i = 0, n = Math.ceil(across / BASE); i <= n; i++) {
+            const c = (axis === 'h' ? y : x) + i * BASE;
+            let run = null;
+            for (let p = 0; p <= along + step; p += step) {
+                const a = (axis === 'h' ? x : y) + Math.min(p, along);
+                const ux = ((axis === 'h' ? a : c) - ox) / sc;
+                const uy = ((axis === 'h' ? c : a) - oy) / sc;
+                const k = p > along ? 1e9 : Math.max(1, Math.min(24, Math.round(tone(ux, uy) / BASE)));
+                if (i % k === 0) {
+                    if (run === null)
+                        run = a;
+                }
+                else if (run !== null) {
+                    const e = a - step;
+                    if (e - run > 0.9) {
+                        out.push(axis === 'h'
+                            ? { type: 'line', x1: run, y1: c, x2: e, y2: c }
+                            : { type: 'line', x1: c, y1: run, x2: c, y2: e });
+                    }
+                    run = null;
+                }
+            }
+        }
+        return out;
+    };
+    // --- three shapes: the floor, and the two walls beside it --------------
+    const floorLoop = [
+        [xL, yB],
+        [xR, yB],
+        [xR, yFoot(1)],
+        [baseX(1, yT), yT],
+        [baseX(-1, yT), yT],
+        [xL, yFoot(-1)],
+    ];
+    const wallLoop = (s) => s < 0
+        ? [
+            [xL, yT],
+            [baseX(-1, yT), yT],
+            [xL, yFoot(-1)],
+        ]
+        : [
+            [xR, yT],
+            [baseX(1, yT), yT],
+            [xR, yFoot(1)],
+        ];
+    const bboxOf = (loop) => [
+        Math.min(...loop.map((p) => p[0])),
+        Math.min(...loop.map((p) => p[1])),
+    ];
+    const floor = polygon(floorLoop, {
+        stroke: false,
+        opaque: true,
+        fill: ruler(bboxOf(floorLoop), 'h', floorTone),
+    });
+    const walls = [-1, 1].map((s) => {
+        const loop = wallLoop(s);
+        return polygon(loop, { stroke: false, opaque: true, fill: ruler(bboxOf(loop), 'v', wallTone(s)) });
+    });
+    return modify([wobble({ amount: mm(0.06), wavelength: mm(26) })], floor, walls);
+});
+```
