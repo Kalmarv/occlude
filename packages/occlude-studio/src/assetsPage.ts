@@ -116,7 +116,7 @@ async function uploadFiles(files: Iterable<File>): Promise<void> {
 document.getElementById('btn-upload')!.onclick = () => {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.svg,.obj,.png,.jpg,.jpeg,.webp,.gif';
+  input.accept = '.svg,.obj,.jhf,.png,.jpg,.jpeg,.webp,.gif';
   input.multiple = true;
   input.onchange = () => void uploadFiles(input.files ?? []);
   input.click();

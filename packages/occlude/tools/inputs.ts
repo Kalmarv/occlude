@@ -1,5 +1,6 @@
 import * as three from '../src/three/api/index.js';
 import * as threeAdvanced from '../src/three/api/advanced.js';
+import * as fonts from '../src/fonts/index.js';
 /**
  * The run's inputs for the node tools: the paper choice, the pen library
  * (the studio's `sketches/pens.json`, or the package's own for the docs),
@@ -81,9 +82,10 @@ export function requireFor(pens: readonly PenDef[], papers: readonly PaperDef[])
   return (name) => {
     if (name === 'occlude') return occlude;
     if (name === 'occlude/3d') return three;
+    if (name === 'occlude/fonts') return fonts;
     if (name === 'occlude/3d/advanced') return threeAdvanced;
     const mod = modules[name as keyof typeof modules];
     if (mod) return mod;
-    throw new Error(`sketches can import from 'occlude', 'occlude/3d', 'occlude/3d/advanced', '@user/pens' and '@user/papers' (tried '${name}')`);
+    throw new Error(`sketches can import from 'occlude', 'occlude/3d', 'occlude/3d/advanced', 'occlude/fonts', '@user/pens' and '@user/papers' (tried '${name}')`);
   };
 }

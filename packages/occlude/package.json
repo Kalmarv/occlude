@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*",
     "./3d": "./src/three/api/index.ts",
+    "./fonts": "./src/fonts/index.ts",
     "./3d/advanced": "./src/three/api/advanced.ts"
   },
   "scripts": {

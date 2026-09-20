@@ -3,6 +3,12 @@
  * few polylines, drawn with the pen's own line — no outlines to fill.
  * Digits are seven-segment style; letters are simple stroke forms.
  * Glyphs live in a 0.6×1 box (y down); height scales everything.
+ *
+ * This is the caption word: capitals, digits and a little punctuation, at
+ * a fixed advance, returned as ink you can stamp anywhere. Typography is
+ * `t.text(...)` — real faces from `occlude/fonts` or `strokeFont()`, with
+ * lowercase, kerning, tracking, leading and setting along a chain, and a
+ * Material rather than ink at the end of it.
  */
 
 import type { ShapeOpts, Tree } from './api.js';
@@ -104,6 +110,10 @@ export function labelWidth(str: string, h: number): number {
  * top-left at (x, y) and cap height h — a few open paths per glyph, so it
  * plots with the pen's own line weight. Unknown characters advance as
  * spaces. Width is roughly 0.75·h per character.
+ *
+ * This is the caption, not the typography: for a real face, lowercase,
+ * kerning, leading and text on a curve, `t.text(str, { font, size })` is
+ * the door, and it hands back a Material rather than ink.
  */
 export function label(str: string, x: number, y: number, h: number, opts: LabelOpts = {}): Tree {
   const { unit = 'user', align = 'left', ...shapeOpts } = opts;

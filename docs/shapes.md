@@ -132,6 +132,31 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 ]);
 ```
 
+### text
+
+`t.text(str, opts)` sets a string as material, one chain per stroke of each letter. `size` is the cap height, the letter height a plotter artist measures. `font` names the face: `occlude/fonts` carries five Hershey faces and Relief SingleLine, and `strokeFont(source)` reads a face of your own from an SVG font or a Hershey `.jhf` file. `align` anchors the line, `tracking` letterspaces it, and `\n` starts a new line one `leading` lower. `along` sets the line on a chain, and each glyph keeps its baseline on the tangent under it. Every point carries a `glyph` column with the index of its character in the string, so a sketch can pick one letter out of a word. A material never draws itself, so `strokes(...)` makes the ink.
+
+A stroke letter has no outline to fill, and it can still hide what lies beneath. `thicken` grows the strokes into an area, and `mask` makes that area opaque. The title below stands in a clean halo in the hatch, and a moved cage bends the whole line.
+
+```ts live
+import { sketch, strokes, polygon, circle, fill, mask, mm } from 'occlude';
+import { relief } from 'occlude/fonts';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const title = t
+    .text('OCCLUDE', { font: relief, size: 17, align: 'center', at: [100, 59] })
+    .warp({
+      from: [[20, 30], [180, 30], [180, 70], [20, 70]],
+      to: [[22, 36], [180, 24], [178, 76], [20, 64]],
+    });
+  return [
+    circle(100, 50, 40, { fill: fill('hatch', { angle: 30, spacing: mm(1.1) }) }),
+    mask(polygon(title.thicken({ radius: 1.4 }))),
+    strokes(title),
+  ];
+});
+```
+
 ## Groups, clipping and masking
 
 ### group
@@ -374,6 +399,29 @@ export default sketch({ aspect: [2, 1], seed: 18 }, (t) =>
       : rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, 2),
   ),
 );
+```
+
+### hexes and triangles
+
+`t.hexes({ spacing, orientation?, gap? })` and `t.triangles({ size, gap? })` cover the drawable with cells that are not rectangles. A grid hands out cell records, and these two hand out one material. The cells are its faces, and a wall that two cells share is ONE edge. `strokes` draws that wall once, and `sel.adjacent()` answers on the cells. Each face carries the cell's two indices. For a hexagon `i` and `j` are axial coordinates. For a triangle they are the row and the place along it, where an even `i` points up. `gap` shrinks every cell about its own centre, so a gapped cell touches nothing and shares nothing.
+
+The drawable edge cuts the outermost cells, so the material's outline is the drawable itself. Here a tone field sets the hatch spacing of every cell, and the hatch angle follows the row.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const b = t.bounds();
+  const cells = t.hexes({ spacing: mm(13) });
+  const tone = (x, y) => 1 - Math.min(1, Math.hypot(x - b.cx, (y - b.cy) * 1.6) / (0.52 * b.w));
+  return [
+    cells.faces().faces.map((f) => {
+      const v = tone(f.centroid[0], f.centroid[1]);
+      return v > 0.04 && polygon(f, { fill: fill('hatch', { angle: 30 + 60 * f.j, spacing: mm(0.35 + 1.9 * (1 - v)) }) });
+    }),
+    strokes(cells),
+  ];
+});
 ```
 
 ### bounds

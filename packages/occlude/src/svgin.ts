@@ -32,11 +32,11 @@ export interface SvgShapesOptions extends ShapeOpts {
 
 /** One drawn piece of a chain, document units: a line to a point, or a
  * Bézier with its control points. A chain is a start point plus segments. */
-type Seg =
+export type Seg =
   | { op: 'line'; x: number; y: number }
   | { op: 'quad'; cx: number; cy: number; x: number; y: number }
   | { op: 'cubic'; c0x: number; c0y: number; c1x: number; c1y: number; x: number; y: number };
-interface Chain { x: number; y: number; segs: Seg[] }
+export interface Chain { x: number; y: number; segs: Seg[] }
 interface SvgLayer {
   name: string;
   chains: Chain[];
@@ -58,8 +58,11 @@ function parsePoints(points: string): number[] {
 }
 
 /** Path data: M/L/H/V/Z lines, C/S cubics, Q/T quadratics, absolute and
- * relative; Z closes with a line. Elliptical arcs (A) are rejected. */
-function parsePathData(d: string): Chain[] {
+ * relative; Z closes with a line. Elliptical arcs (A) are rejected. The
+ * one path-data reader in the library: `strokeFont()` reads an SVG font's
+ * glyphs with it, so a font and a drawing enter through the same door and
+ * a Bézier stays a Bézier in both. */
+export function parsePathData(d: string): Chain[] {
   const chains: Chain[] = [];
   let cur: Chain | null = null;
   let x = 0;

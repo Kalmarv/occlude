@@ -1,5 +1,5 @@
 /**
- * Server-side asset store (uploaded SVGs, OBJ models and images), shared by the Vite
+ * Server-side asset store (uploaded SVGs, OBJ models, .jhf fonts and images), shared by the Vite
  * middleware and the production server. Files persist under ./assets —
  * shared by every browser/device that reaches this server, like sketches.
  *
@@ -24,6 +24,7 @@ const MIME = {
   '.gif': 'image/gif',
   '.txt': 'text/plain',
   '.obj': 'text/plain',
+  '.jhf': 'text/plain',
   '.json': 'application/json',
 };
 

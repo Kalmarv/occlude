@@ -71,6 +71,8 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(4, (k) => ngon(16 + k *
 
 A builder for one path. Call `moveTo`, `lineTo`, `quadTo`, `bezierTo`, `arcTo` and `close`, then `build(opts?)` to get a shape. The builder stays usable after `build`, so one path can become several shapes.
 
+`arcTo(x, y, r, opts?)` draws an arc of radius `r` to the point. The sign of `r` picks the side of the chord the centre sits on, and that picks the direction of the turn. `{ large: true }` picks the other arc about that same centre, the long way round. A radius under half the chord has no such circle, and the arc is then the semicircle on the chord. Below, both arcs of every circle through a pair of points, for two pairs at once. The short way is black. The long way is blue.
+
 ```ts live
 import { sketch, path } from 'occlude';
 
@@ -78,6 +80,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const p = path().moveTo(10, 70).bezierTo(30, 10, 70, 90, 90, 30);
   return [p.build(), p.lineTo(90, 90).lineTo(10, 90).close().build({ stroke: 'stabilo-88-blue' })];
 });
+```
+
+```ts live
+import { sketch, path } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(8, (k, u) => {
+  const r = 14.4 + u * u * 10.4;
+  const pencil = (ax, ay, bx, by, side) => [
+    path().moveTo(ax, ay).arcTo(bx, by, side * r).build({ pen: 'pigma-05-black' }),
+    path().moveTo(ax, ay).arcTo(bx, by, side * r, { large: true }).build({ pen: 'stabilo-88-blue' }),
+  ];
+  return [-1, 1].map((side) => [pencil(50, 36, 50, 64, side), pencil(36, 50, 64, 50, side)]);
+}));
 ```
 
 ## polygon
@@ -110,6 +125,41 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const w = labelWidth('OCCLUDE', 14);
   return [rect(50 - w / 2 - 3, 40 - 3, w + 6, 14 + 6, { pen: 'stabilo-88-blue' }), label('OCCLUDE', 50, 40, 14, { align: 'center' }), label('CAP HEIGHT 7', 50, 70, 7, { align: 'center' })];
 });
+```
+
+## strokeFont()
+
+<include>/_sig/strokeFont.mdx</include>
+
+A stroke font from the text of a font file. Two formats read the same way, and the content picks between them: an SVG 1.1 font, or a Hershey `.jhf` file. The result is a plain record. `font.glyph(ch)` answers `curves()` in em units with y up. `font.advance(ch)` is the pen step. `font.kern(a, b)` is what to add between a pair. A source in neither format refuses by name. The bundled faces in `occlude/fonts` come through this same door, and each one also exports its source text.
+
+```ts live
+import { sketch, strokes, strokeFont, curve, times } from 'occlude';
+import { SCRIPTS_JHF } from 'occlude/fonts';
+
+const script = strokeFont(SCRIPTS_JHF);
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const spine = curve(times(120, (k, u) => [6 + u * 188, 54 + 30 * Math.sin(u * Math.PI * 1.8)]), { closed: false });
+  return strokes(t.text('every hand is a curve', { font: script, size: 15, along: spine }));
+});
+```
+
+## t.text()
+
+<include>/_sig/Toolkit.text.mdx</include>
+
+A string as one material of glyph chains. `size` is the cap height. `font` defaults to the built-in Hershey roman simplex. `at` puts the start of the first baseline somewhere, and the ordinary transforms move the result after that. `align` is `'left'`, `'center'` or `'right'`. `tracking` adds a length to every advance, and `leading` is the distance between the baselines that `\n` breaks. `along` takes a chain and places each glyph by arc length on it. A character the face has no glyph for advances a space and draws nothing. Every point carries a `glyph` column: the index of its character in the string.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+import { hersheyDuplex } from 'occlude/fonts';
+
+export default sketch({ aspect: [2, 1] }, (t) =>
+  strokes(t.text('A plotter draws a letter\nthe way a hand does:\none stroke at a time,\nand no stroke twice.', {
+    font: hersheyDuplex, size: 9, align: 'center', leading: 18, at: [100, 28],
+  })),
+);
 ```
 
 ## group
