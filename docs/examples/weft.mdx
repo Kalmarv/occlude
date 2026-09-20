@@ -1,0 +1,47 @@
+---
+title: Weft
+description: A cloth on three nails, hatched along its own weave, dark where it gathers.
+---
+
+Three nails hold a lattice. Everything else falls. Each thread carries a rest length of its own. A noise field gives it, read at the thread's own middle. `smooth` then gathers the slack into broad bands. Tension pulls a thread only by the part of its length beyond the rest. The cloth hangs unevenly, and it folds where the slack collects.
+
+The drawing is not the threads. It is the cells between them.
+
+`faces()` reads the hung lattice as cells. `measure` gives each cell an orientation, and its hatch follows that. The tone lies along the weave wherever the weave has turned. `area` against the rest area of a cell is its strain. A cell that gathered is small and takes a tight hatch. A cell pulled open takes a loose one. The folds are the dark parts.
+
+The darkest hatch stays at 0.4 mm, twice the nib. Below that the fill lands as solid black and a fold stops reading as a fold.
+
+Uses: `material` with `withEdges`, `edgeAttribute` reading `e.center`, and `m.smooth` on an EDGE column. Then `steps` with `next.move` over a selection, and `force.tension` with a rest for each edge. Then `faces()`, `Face.area`, `measure` for orientation, `polygon` with a hatch fill, and `map`.
+
+```ts live
+import { sketch, polygon, fill, mm, map, material, force, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const b = t.bounds();
+  const cols = 30, rows = 16;
+  const gap = (0.84 * b.w) / (cols - 1);
+  const x0 = 0.08 * b.w, y0 = 0.075 * b.h;
+  const pts = [], edges = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    pts.push([x0 + c * gap, y0 + r * gap]);
+    const i = r * cols + c;
+    if (c > 0) edges.push([i - 1, i]);
+    if (r > 0) edges.push([i - cols, i]);
+  }
+  const nails = new Set([0, (cols / 2) | 0, cols - 1]);
+  const net = material(pts).withEdges(edges)
+    .edgeAttribute('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
+    .smooth('rest', { steps: 14 });
+  const hung = net.steps(300, (cur, next) => {
+    const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
+    next.move(cur.points.filter((p) => !nails.has(p.index)), (p) => mul(pull(p), 0.1));
+  });
+  const cells = hung.faces();
+  const m = cells.measure();
+  return cells.map((f) => {
+    const strain = Math.max(0.72, Math.min(1.55, f.area / (gap * gap)));
+    const r = m.forFace(f);
+    return polygon(f, { stroke: false, fill: fill('hatch', { angle: (r.orientation * 180) / Math.PI, spacing: mm(map(strain, 0.72, 1.55, 0.4, 1.45)) }) });
+  });
+});
+```

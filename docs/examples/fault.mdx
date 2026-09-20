@@ -1,0 +1,40 @@
+---
+title: Fault
+description: A crack that spreads from wall to wall along the weakest ground, and the stress it leaves.
+---
+
+A voronoi plate. Every wall carries a strength, read from a noise field at the wall's own middle.
+
+The crack starts at one wall and spreads. Each step takes the walls that TOUCH the crack and are weaker than that step's limit. The limit rises as it goes. The fracture runs along weak ground first, and crosses stronger walls only later. `crack.adjacent()` is the whole of that rule: the walls touching the members, with the members left out.
+
+A fracture has junctions, and `trim` works on chains. A single material refuses it. `curves()` walks the selection into chains that END at its own junctions, and each of those trims. Every junction opens into a small gap, and the break reads as a break.
+
+The cells shade by their distance from it. A cell a crack runs through is dark. `adjacent()` gives the ring around those, and one more `adjacent()` gives the ring around that. Each ring is a ring and nothing more, because `adjacent()` leaves its members out.
+
+Uses: `t.voronoi`, `t.relax`, and `edgeAttribute` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `subtract` and `has`. Then `edges.curves()`, `connect.chain`, `m.trim`, `faces()`, and `polygon` with a hatch fill.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, map, material, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const b = t.bounds();
+  const web = t.voronoi(t.relax(t.scatter({ spacing: 0.055 * b.h }), { iterations: 3 }))
+    .edgeAttribute('strength', (e) => 0.5 + 0.5 * t.noise(e.center[0] / 26, e.center[1] / 26));
+  let crack = web.edges.near([0.3 * b.w, 0.32 * b.h], { radius: 0.03 * b.h });
+  for (let k = 0; k < 58; k++) {
+    const limit = map(k, 0, 57, 0.08, 0.5);
+    crack = crack.union(crack.adjacent().filter((e) => e.attrs.strength < limit));
+  }
+  const cells = web.faces();
+  const split = cells.filter((f) => [...f.edges].some((e) => crack.has(e)));
+  const near = split.adjacent();
+  const far = near.adjacent().subtract(split);
+  const tone = (f) => (split.has(f) ? 0.72 : near.has(f) ? 1.15 : far.has(f) ? 1.9 : 3.4);
+  const pieces = crack.curves().map((c) => connect.chain(material(c.pts)).trim({ start: 0.004 * b.h, end: 0.004 * b.h }));
+  return [
+    cells.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 50, spacing: mm(tone(f)) }) })),
+    strokes(web.edges.subtract(crack), { pen: 'pigma-005-black' }),
+    pieces.map((p) => strokes(p, { pen: 'pigma-05-black' })),
+  ];
+});
+```

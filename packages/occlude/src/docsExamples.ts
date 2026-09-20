@@ -91,6 +91,8 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'examples-slack', title: 'Example: slack', file: 'examples/slack.mdx', live: true, group: 'topics' },
   { slug: 'examples-survey', title: 'Example: survey', file: 'examples/survey.mdx', live: true, group: 'topics' },
   { slug: 'examples-datum', title: 'Example: datum', file: 'examples/datum.mdx', live: true, group: 'topics' },
+  { slug: 'examples-weft', title: 'Example: weft', file: 'examples/weft.mdx', live: true, group: 'topics' },
+  { slug: 'examples-fault', title: 'Example: fault', file: 'examples/fault.mdx', live: true, group: 'topics' },
   { slug: 'workshop-01', title: '1. Put marks on paper', file: 'workshop-01-marks.md', live: true, group: 'workshop' },
   { slug: 'workshop-02', title: '2. Turn a shape into something editable', file: 'workshop-02-material.md', live: true, group: 'workshop' },
   { slug: 'workshop-03', title: '3. Give geometry information', file: 'workshop-03-attributes.md', live: true, group: 'workshop' },
