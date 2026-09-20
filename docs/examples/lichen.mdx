@@ -1,0 +1,166 @@
+---
+title: Lichen
+description: One stone, six colonies of the same organism at six ages.
+---
+
+Six lichens on a stone. They are the same organism at six ages. Two are spore-specks with a new footing. Two are young rosettes. One is an old crust that has begun to die in its middle.
+
+The sketch places nothing by hand. Each colony is a few thrown discs blended into one body and crinkled at its margin. Whatever settled first cuts back whatever came after, so the lines where two colonies meet are the real subject.
+
+A lichen lives at its margin, so the zone lines crowd there. Behind the margin the crust cracks into plates, and the plates darken as they weather. In the middle the plates have gone, and the pitted rock comes back through the holes.
+
+Uses: `sdf` with `blend`, `t.isolines`, `t.voronoi`, `faces()`, `t.within`, `t.scatter`, `t.chance`, `union`, `subtract`, `polygon` with `opaque` and hatch `fill`, `strokes`.
+
+```ts live
+// Lichen on a north face.
+//
+// Six colonies on one stone: the same organism at six ages. Nothing here
+// is placed. A colony is a handful of thrown discs blended into one body,
+// crinkled at its margin, then cut back by everything that settled before
+// it. The margin is where it is alive, so that is where the zone lines
+// crowd. Inside, the crust has cracked into plates, and the oldest one
+// has begun to let go in the middle, where the pitted rock comes back
+// through.
+import { sketch, strokes, polygon, circle, sdf, fill, mm, pen, } from 'occlude';
+export default sketch({
+    aspect: [1, 1],
+    seed: 7,
+    margin: 7,
+    pens: {
+        hair: pen({ width: mm(0.2), color: '#20242a' }),
+        ink: pen({ width: mm(0.3), color: '#12151a' }),
+    },
+}, (t) => {
+    const U = (v) => t.len(mm(v));
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    // ---- the stone -------------------------------------------------
+    // Grit, not lines: the rock is granular, so it stays behind the
+    // colonies instead of arguing with them. The grains gather where the
+    // face is weathered, and they settle down it, so the top of the
+    // stone is nearly bare and the foot of it is coarse. Drawn first,
+    // and every colony hides the part of it that it covers.
+    const grit = (x, y) => clamp01(1.7 *
+        (0.42 + 0.5 * t.noise(x / 31 + 71, y / 37 - 71) + 0.22 * t.noise(x / 11 - 20, y / 13 + 40) - 0.52)) * clamp01(0.12 + 1.15 * (y / 100));
+    const stone = t
+        .throw(grit, { count: 6200 })
+        .points.map((p) => circle(p.x, p.y, U(0.05 + 0.3 * t.rnd() * grit(p.x, p.y)), { pen: 'hair' }));
+    // ---- the colonies ----------------------------------------------
+    const spec = [
+        { c: [37, 61], r: 33, lobes: 9, age: 1.0 },
+        { c: [79, 21], r: 17, lobes: 6, age: 0.66 },
+        { c: [16, 15], r: 10, lobes: 5, age: 0.44 },
+        { c: [88, 76], r: 8, lobes: 4, age: 0.33 },
+        { c: [58, 95], r: 4.2, lobes: 3, age: 0.12 },
+        { c: [10, 88], r: 2.8, lobes: 2, age: 0.06 },
+        { c: [79, 64], r: 3.6, lobes: 3, age: 0.1 },
+        { c: [89, 44], r: 2.4, lobes: 2, age: 0.05 },
+    ];
+    let taken = null;
+    const under = [];
+    const drawn = [];
+    spec.forEach((s, i) => {
+        const [cx, cy] = s.c;
+        const seeds = t.throw(circle(cx, cy, s.r * 0.62), { count: s.lobes }).points;
+        const blob = seeds
+            .map((p) => sdf.circle(p.x, p.y, s.r * 0.46))
+            .reduce((acc, f) => sdf.blend(acc, f, s.r * 0.3));
+        // The margin is never smooth. Two octaves of crinkle, scaled to the
+        // colony so a small one is not shredded.
+        const amp = Math.min(U(2.0), s.r * 0.09);
+        const k1 = 1 / Math.max(2.0, s.r * 0.22);
+        const off = 137 * i;
+        const crinkled = (x, y) => blob(x, y) +
+            amp * t.noise(x * k1 + off, y * k1 - off) +
+            amp * 0.45 * t.noise(x * k1 * 3.1 + off, y * k1 * 3.1 + off);
+        // Old age: the middle lets go.
+        const decay = s.age > 0.85
+            ? t
+                .throw(circle(cx, cy, s.r * 0.46), { count: 7 })
+                .points.map((p) => sdf.circle(p.x, p.y, U(1.4) + t.rnd(U(4.6))))
+                .reduce((acc, f) => sdf.blend(acc, f, U(3.5)))
+            : null;
+        const eaten = decay
+            ? sdf.subtract(crinkled, (x, y) => decay(x, y) + amp * 0.8 * t.noise(x * k1 * 3.4 + 9, y * k1 * 3.4 - 9))
+            : crinkled;
+        // The pit under the dead middle. The crust covers all of it but the
+        // holes, so this is what comes back through them.
+        if (decay) {
+            under.push(polygon(t.isolines(decay, U(1.5), { step: mm(0.5) }), {
+                stroke: false,
+                fill: fill('crosshatch', { angles: [24, 114], spacing: mm(0.55) }),
+                fillPen: 'hair',
+            }));
+        }
+        // Room. Whatever settled first keeps its ground; this one stops a
+        // hair short of it.
+        const room = taken;
+        const body = room
+            ? sdf.subtract(eaten, (x, y) => room(x, y) + U(1.2))
+            : eaten;
+        taken = room ? sdf.union(room, body) : body;
+        const outline = t.isolines(body, 0, { step: mm(0.3) });
+        const band = Math.min(U(5.5), s.r * 0.33);
+        // The growing rim: a few zone lines, crowded at the margin and
+        // opening inward. The rim is not equally wide all the way round —
+        // it advances further where the face is wet — so the lines read
+        // levels of the body divided by that width.
+        const widen = (x, y) => 0.55 + 0.95 * clamp01(0.5 + 0.6 * t.noise(x / 17 - off, y / 17 + off));
+        const zoneField = (x, y) => body(x, y) / widen(x, y);
+        const zones = [0.1, 0.27, 0.53, 1.0].map((u) => band * u);
+        const rim = strokes(t.isolines(zoneField, zones, { step: mm(0.3) }), { pen: 'hair' });
+        const parts = [
+            polygon(outline, { opaque: true, stroke: false }),
+            rim,
+        ];
+        // Areolae: the crust cracks into plates. A young colony has none.
+        if (s.age > 0.35) {
+            const inner = t.isolines(zoneField, band, { step: mm(0.4) });
+            // The plates hold one scale across the crust. What changes with
+            // age is how dark they weather, not how big they are.
+            const tone = (x, y) => {
+                const d = zoneField(x, y);
+                if (!(d > band))
+                    return 0;
+                return clamp01(0.88 + 0.16 * t.noise(x / 6 + off, y / 6 - off));
+            };
+            const sites = t.scatter(tone, { spacing: mm(1.4) });
+            if (sites.points.length > 3) {
+                const cells = t.voronoi(sites);
+                parts.push(strokes(t.within(cells, inner), { pen: 'hair' }));
+                // Plates darken in patches, not evenly: the crust weathers
+                // where it weathers.
+                const patch = (x, y) => clamp01(0.5 + 0.85 * t.noise(x / 11 - off, y / 11 + off));
+                const plates = t
+                    .within(cells.faces(), inner, { faces: 'contained' })
+                    .filter((f) => {
+                    const [fx, fy] = f.centroid;
+                    const depth = clamp01((zoneField(fx, fy) - band) / (s.r * 0.35));
+                    return (zoneField(fx, fy) > band + U(1) &&
+                        t.chance((0.06 + 0.95 * patch(fx, fy)) * (0.4 + 0.6 * s.age) * (0.25 + 0.95 * depth)));
+                });
+                parts.push(plates.map((f) => polygon(f, {
+                    stroke: false,
+                    fill: fill('hatch', { angle: t.rnd(180), spacing: mm(0.5) }),
+                    fillPen: 'hair',
+                })));
+                // Apothecia: the fruiting cups, on a colony old enough to
+                // fruit, in patches of their own.
+                if (s.age > 0.55) {
+                    const fertile = (x, y) => tone(x, y) > 0 ? clamp01(t.noise(x / 8 - off, y / 8 + off) * 1.7 - 0.35) : 0;
+                    const cups = t.throw(fertile, {
+                        count: Math.round(90 * s.age * (s.r / 30)),
+                        within: inner,
+                    }).points;
+                    parts.push(cups.map((p) => [
+                        circle(p.x, p.y, U(0.36), { fill: fill('solid'), stroke: false, pen: 'ink' }),
+                        circle(p.x, p.y, U(0.8), { pen: 'hair' }),
+                    ]));
+                }
+            }
+        }
+        parts.push(strokes(outline, { pen: 'ink' }));
+        drawn.push(parts);
+    });
+    return [stone, under, drawn];
+});
+```

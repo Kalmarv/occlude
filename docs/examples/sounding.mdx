@@ -1,0 +1,303 @@
+---
+title: Sounding
+description: One sheet of a coastal survey, where every mark answers to the same two fields.
+---
+
+A height field and a depth field. Every mark on the sheet reads one or the other, so the lines and the numbers agree with each other.
+
+The land is opaque, and its tone is slope alone. The contours crowd and go black where the ground is steep. The highest station reads 199 metres, so no 200 metre contour exists anywhere on the sheet. The isobaths and the soundings come from the one depth field. It holds a drowned trough down the sound, a shelf to the north-west, and deep water to the south-east.
+
+The beacon takes a sight line to the eastern station. The line crosses the water, and the high ground swallows the rest of it. Only occlusion draws that mark.
+
+Uses: `t.isolines` on two fields, `distanceTo`, `t.scatter`, `t.within`, `along`, `extract`, `trim`, `union`, `subtract`, `polygon` with `opaque`, `sdf`, `label` and `labelWidth`, `dash`, `group`.
+
+```ts live
+// KELDA SOUND — one sheet of a survey that was never made.
+//
+// The drawing is a claim, and every mark in it is checkable. The coast is
+// where the zero contour runs. The tone on the land is slope and nothing
+// else. The isobaths and the soundings read one depth field, so the numbers
+// agree with the lines: a drowned trough down the sound, a shelf to the
+// north-west, deep water to the south-east. The grid registers the whole
+// sheet. Blank paper is an honest answer, and the open sea gets little.
+
+import {
+  sketch, strokes, polygon, rect, line, circle, ngon, label, labelWidth, group,
+  fill, mm, dash, sdf, distanceTo,
+} from 'occlude';
+
+export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
+  // ---- the sheet -------------------------------------------------------
+  const face = { x: 15, y: 14, w: 70, h: 80 };
+  const fx1 = face.x + face.w;
+  const fy1 = face.y + face.h;
+  const outer = { x: 12, y: 11, w: 76, h: 86 };
+  const faceRect = rect(face.x, face.y, face.w, face.h);
+
+  const FINE = 'pigma-005-black';
+  const MID = 'pigma-01-black';
+  const HEAVY = 'pigma-05-black';
+  const WATER = 'stabilo-88-blue';
+
+  const at = (text, x, y, h, opts = {}) => label(text, x, y - 0.5 * h, h, { align: 'center', ...opts });
+  const near = (list, x, y, gap) => list.some((p) => Math.hypot(p.x - x, p.y - y) < gap);
+
+  // ---- the ground ------------------------------------------------------
+  const STEP = 0.10;           // one contour interval
+  const METRES = 200;          // 0.10 of field = 20 m of height
+  const cx = face.x + face.w * 0.5;
+  const cy = face.y + face.h * 0.47;
+
+  const relief = (x, y) =>
+    0.66 * t.noise(x / 30, y / 30) +
+    0.28 * t.noise(x / 13, y / 13) +
+    0.06 * t.noise(x / 5.4, y / 5.4);
+
+  // The sound: two reaches, the upper one narrower than the lower.
+  const reach = [[28, 95], [50, 56], [84, 24]];
+  const channel = sdf.union(
+    sdf.segment(reach[0][0], reach[0][1], reach[1][0], reach[1][1], 7.0),
+    sdf.segment(reach[1][0], reach[1][1], reach[2][0], reach[2][1], 4.4),
+  );
+  const smoothstep = (v) => { const s = Math.min(1, Math.max(0, v)); return s * s * (3 - 2 * s); };
+  const inSound = (x, y) => smoothstep((channel(x, y) + 3) / 10);
+
+  const ground = (x, y) => {
+    const r = Math.hypot((x - cx) / (face.w * 0.54), (y - cy) / (face.h * 0.50));
+    const base = relief(x, y) * 0.98 + 0.60 - 1.28 * r * r - 1.45 * inSound(x, y);
+    // The shore is worked at a finer scale than the hill behind it.
+    return base + 0.075 * t.noise(x / 3.2, y / 3.2) * Math.exp(-(base * base) / 0.03);
+  };
+  const gb = t.within(ground, faceRect);
+  const coast = t.isolines(gb, 0);
+  const levels = t.range(1, 18).map((k) => k * STEP);
+  const contours = t.isolines(gb, levels);
+  const isIndex = (e) => Math.round(e.attrs.level / STEP) % 5 === 0;
+  const indexLines = contours.edges.filter(isIndex);
+  const minorLines = contours.edges.filter((e) => !isIndex(e));
+
+  // ---- the water -------------------------------------------------------
+  // The bed is not an echo of the coast. It is a drowned valley down the
+  // sound, a shelf off the north-west, and deep water to the south-east.
+  const off = distanceTo(coast);
+  const depth = (x, y) =>
+    -off(x, y) * 0.55
+    + 9.5 * inSound(x, y)
+    + 0.22 * ((x - cx) * 0.95 + (y - cy) * 0.40)
+    + 1.3 * t.noise(x / 21, y / 21) + 0.55 * t.noise(x / 8, y / 8);
+  const FATHOM = 2.4;          // depth field to metres
+  const isobaths = t.isolines(t.within(depth, faceRect), [5, 12, 21]);
+
+  // ---- what the survey found -------------------------------------------
+  // Summits: a point higher than the ground all round it, at two radii.
+  const summits = [];
+  for (let y = face.y + 7; y < fy1 - 7; y += 2.5) {
+    for (let x = face.x + 7; x < fx1 - 7; x += 2.5) {
+      const h = ground(x, y);
+      if (h < 0.42) continue;
+      let top = true;
+      for (let a = 0; a < 8 && top; a++) {
+        const th = (a / 8) * Math.PI * 2;
+        for (const rr of [3, 6.5]) {
+          if (ground(x + Math.cos(th) * rr, y + Math.sin(th) * rr) > h) top = false;
+        }
+      }
+      if (top) summits.push({ x, y, h });
+    }
+  }
+  const spread = (list, gap, most) => {
+    const kept = [];
+    for (const p of list) {
+      if (kept.length >= most) break;
+      if (!near(kept, p.x, p.y, gap)) kept.push(p);
+    }
+    return kept;
+  };
+  const spots = spread(summits.slice().sort((p, q) => q.h - p.h), 20, 3)
+    .map((p) => ({ ...p, text: `${Math.round(p.h * METRES)}` }));
+  // A beacon stands on a rock in the open water south-west of the island,
+  // and every station on the island was observed from it. The rays go down before the land does,
+  // so a ray crosses the water, disappears behind the high ground, and
+  // comes out again in the sound.
+  const beacon = { x: 25.5, y: 85 };
+  const seen = (a) => {
+    let wet2 = 0;
+    for (let i = 1; i < 80; i++) {
+      const u = i / 80;
+      if (ground(beacon.x + (a.x - beacon.x) * u, beacon.y + (a.y - beacon.y) * u) < 0) wet2++;
+    }
+    return (wet2 / 80) * Math.hypot(a.x - beacon.x, a.y - beacon.y);
+  };
+  const sight = spots.filter((a) => seen(a) > 8).map((a) => line(beacon.x, beacon.y, a.x, a.y,
+    { pen: FINE, modifiers: [dash(mm(4.6), mm(1.5))] }));
+  const beaconMark = [
+    circle(beacon.x, beacon.y, 1.5, { pen: HEAVY }),
+    circle(beacon.x, beacon.y, 0.35, { pen: HEAVY }),
+    label('BEACON', beacon.x + 2.9, beacon.y - 1.1, 2.2),
+  ];
+
+  // The name of the water, set along the reach it names.
+  const NAME = 'KELDA SOUND';
+  const SEA_H = 2.2;
+  const NAME_H = 2.6;
+  const legs = [0, 1].map((i) => {
+    const [ax, ay] = reach[i], [bx, by] = reach[i + 1];
+    return { ax, ay, dx: bx - ax, dy: by - ay, len: Math.hypot(bx - ax, by - ay) };
+  });
+  const along = (s) => {
+    const leg = s < legs[0].len ? legs[0] : legs[1];
+    const u = (s < legs[0].len ? s : s - legs[0].len) / leg.len;
+    let ang = (Math.atan2(leg.dy, leg.dx) * 180) / Math.PI;
+    if (ang > 90) ang -= 180; else if (ang < -90) ang += 180;
+    return { x: leg.ax + leg.dx * u, y: leg.ay + leg.dy * u, ang };
+  };
+  const nameSet = [...NAME].map((ch, i) => ({ ch, ...along(15 + i * 3.7) }));
+
+  // The north mark stands in the water, where it costs the survey nothing.
+  const northAt = { x: 21.5, y: 27 };
+  const north = [
+    line(northAt.x, northAt.y + 4.5, northAt.x, northAt.y - 4, { pen: MID }),
+    line(northAt.x, northAt.y - 4, northAt.x - 1.3, northAt.y - 1.1, { pen: MID }),
+    line(northAt.x, northAt.y - 4, northAt.x + 1.3, northAt.y - 1.1, { pen: MID }),
+    at('N', northAt.x, northAt.y - 7.4, 2.8),
+  ];
+
+  // Soundings: the shoal ground speaks for itself, in skerries.
+  const busy = [...nameSet, beacon, { x: beacon.x + 7, y: beacon.y },
+    { x: northAt.x, y: northAt.y }, { x: northAt.x, y: northAt.y - 7 }];
+  const wet = [...t.scatter({ spacing: 5.5 }).points]
+    .filter((p) => p.x > face.x + 5.5 && p.x < fx1 - 5.5 && p.y > face.y + 5 && p.y < fy1 - 5)
+    .filter((p) => !near(busy, p.x, p.y, 6))
+    .map((p) => ({ x: p.x, y: p.y, d: depth(p.x, p.y) }));
+  const soundings = spread(wet.filter((p) => p.d > 3.2 && -off(p.x, p.y) > 3.5), 10.5, 13)
+    .map((p) => ({ ...p, text: `${Math.round(p.d * FATHOM)}` }));
+
+  // Contour labels: index lines only, the high ones first, each placed
+  // where it stands farthest from every mark already on the sheet.
+  const SPOT_H = 2.7;
+  const CONT_H = 2.3;
+  const taken = [...spots];
+  const contourLabels = [];
+  const byLevel = indexLines.groupBy((e) => e.attrs.level).slice().sort((a, c) => c.key - a.key);
+  for (const sel of byLevel) {
+    if (sel.key > 1.05) continue;                 // the 100 m and 200 m lines
+    const walls = [...sel].filter((e) => e.length > 0.35);
+    if (walls.length < 8) continue;
+    for (let n = 0; n < 2; n++) {
+      let best = null;
+      for (const e of walls) {
+        const [x, y] = e.center;
+        const clear = Math.min(...taken.map((q) => Math.hypot(q.x - x, q.y - y)));
+        if (!best || clear > best.clear) best = { e, x, y, clear };
+      }
+      if (!best || best.clear < 10) break;
+      const e = best.e;
+      let ang = (Math.atan2(e.b.y - e.a.y, e.b.x - e.a.x) * 180) / Math.PI;
+      if (ang > 90) ang -= 180; else if (ang < -90) ang += 180;
+      contourLabels.push({ x: best.x, y: best.y, ang, text: `${Math.round(sel.key * METRES)}` });
+      taken.push({ x: best.x, y: best.y });
+    }
+  }
+
+  // ---- clear paper around every number ---------------------------------
+  const box = (text, x, y, h, ang) => {
+    const w = labelWidth(text, h);
+    return rect(x - w / 2 - 0.45 * h, y - 0.95 * h, w + 0.9 * h, 1.9 * h,
+      ang ? { rotate: ang, origin: [x, y] } : {});
+  };
+  const spotTextY = (s) => s.y + 3.1 + 0.5 * SPOT_H;
+  const landBoxes = [
+    ...contourLabels.map((l) => box(l.text, l.x, l.y, CONT_H, l.ang)),
+    ...spots.map((s) => box(s.text, s.x, spotTextY(s), SPOT_H)),
+  ];
+  const seaBoxes = [
+    ...soundings.map((s) => box(s.text, s.x, s.y, SEA_H)),
+    ...nameSet.map((n) => box(n.ch, n.x, n.y, NAME_H, n.ang)),
+    rect(northAt.x - 2.4, northAt.y - 9.2, 4.8, 14.4),
+    rect(beacon.x - 2.2, beacon.y - 2.2, 16.4, 4.4),
+  ];
+
+  const cutBy = (sel, boxes) => {
+    const blocked = boxes.map((r) => t.within(sel, r)).reduce((a, c) => a.union(c));
+    return sel.subtract(blocked).extract().trim({ start: 0.45, end: 0.45 });
+  };
+  const minorOpen = cutBy(minorLines, landBoxes);
+  const indexOpen = cutBy(indexLines, landBoxes);
+  const seaOpen = cutBy(isobaths.edges, seaBoxes);
+
+  // ---- the grid --------------------------------------------------------
+  const G = 10;
+  const eastings = t.range(0, 7).map((k) => ({ v: 18.4 + k * G, n: 61 + k }));
+  const northings = t.range(0, 8).map((k) => ({ v: 18.6 + k * G, n: 35 - k }));
+  const cross = (x, y, arm, pen) => [
+    line(x - arm, y, x + arm, y, { pen }), line(x, y - arm, x, y + arm, { pen }),
+  ];
+  const grid = eastings.map((e) => northings.map((n) => cross(e.v, n.v, 1.1, FINE)));
+  const ticks = [
+    eastings.map((e) => [
+      line(e.v, outer.y, e.v, face.y, { pen: MID }),
+      line(e.v, fy1, e.v, outer.y + outer.h, { pen: MID }),
+    ]),
+    northings.map((n) => [
+      line(outer.x, n.v, face.x, n.v, { pen: MID }),
+      line(fx1, n.v, outer.x + outer.w, n.v, { pen: MID }),
+    ]),
+  ];
+  const gridNumbers = [
+    eastings.map((e) => at(`${e.n}`, e.v, outer.y - 2.4, 2.2)),
+    northings.map((n) => label(`${n.n}`, outer.x - 1.4, n.v - 1.1, 2.2, { align: 'right' })),
+  ];
+
+  // ---- title block -----------------------------------------------------
+  const solid = fill('hatch', { angle: 0, spacing: mm(0.16) });
+  const barSeg = 6.0, barX = fx1 - barSeg * 4, barY = 106.2, barH = 2.1;
+  const scaleBar = [
+    t.range(0, 4).map((k) => rect(barX + k * barSeg, barY, barSeg, barH,
+      k % 2 === 0 ? { fill: solid, stroke: false } : { pen: FINE })),
+    rect(barX, barY, barSeg * 4, barH, { pen: FINE }),
+    [['0', 0], ['1', 2], ['2 KM', 4]].map(([s, k]) =>
+      label(s, barX + k * barSeg, barY - 4.2, 2.2, { align: k === 4 ? 'right' : 'center' })),
+  ];
+  const titleBlock = [
+    label('KELDA SOUND', face.x, 101.5, 4.6),
+    label('SHEET 63 NE    SURVEY OF 2026', face.x, 110.5, 2.2),
+    scaleBar,
+    label('1:25 000', fx1, 111.5, 2.2, { align: 'right' }),
+    label('CONTOUR INTERVAL 20 METRES', fx1, 116.5, 2.2, { align: 'right' }),
+    label('SOUNDINGS IN METRES', fx1, 120.3, 2.2, { align: 'right' }),
+  ];
+
+  // ---- corner registration --------------------------------------------
+  const reg = [[6, 5.5], [94, 5.5], [6, 121], [94, 121]]
+    .map(([x, y]) => cross(x, y, 2.2, FINE));
+
+  return [
+    // Sea furniture goes down first: the land is opaque and takes it back.
+    grid,
+    strokes(seaOpen, { pen: WATER, modifiers: [dash(mm(1.7), mm(1.0))] }),
+    soundings.map((s) => at(s.text, s.x, s.y, SEA_H, { pen: WATER })),
+    nameSet.map((n) => group({ rotate: n.ang, origin: [n.x, n.y] },
+      at(n.ch, n.x, n.y, NAME_H, { pen: WATER }))),
+    north,
+    sight, beaconMark,
+
+    polygon(coast, { opaque: true, stroke: false }),
+    strokes(coast, { pen: HEAVY }),
+
+    strokes(minorOpen, { pen: FINE }),
+    strokes(indexOpen, { pen: MID }),
+
+    contourLabels.map((l) => group({ rotate: l.ang, origin: [l.x, l.y] },
+      at(l.text, l.x, l.y, CONT_H))),
+    spots.map((s) => [
+      ngon(s.x, s.y, 3, 2.2, -90, { pen: HEAVY }),
+      circle(s.x, s.y, 0.35, { pen: HEAVY }),
+      at(s.text, s.x, spotTextY(s), SPOT_H),
+    ]),
+
+    rect(face.x, face.y, face.w, face.h, { pen: MID }),
+    rect(outer.x, outer.y, outer.w, outer.h, { pen: FINE }),
+    ticks, gridNumbers, titleBlock, reg,
+  ];
+});
+```

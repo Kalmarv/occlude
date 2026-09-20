@@ -1,0 +1,387 @@
+---
+title: Train
+description: Four arbors laid out by their own arithmetic, with the tolerances printed.
+---
+
+A going train of four wheels. Every centre distance is the sum of the two pitch radii that meet there. The tooth counts decide the composition, and the eye does not.
+
+Each wheel carries an index error. The error is a random walk with its drift removed. An error that does not close around a wheel is a mistake, not an error. The title block prints the tolerances.
+
+The tone is the gear ratio. The rim hatch tightens down the train, so the fastest wheel is the darkest thing on the sheet. The blue layout runs under the metal and survives in the wheel crossings and through the three portholes in the bridge. You check the geometry by looking through the mechanism.
+
+Uses: `polygon` with `opaque` and hatch `fill`, `pen()` in the sketch config, `label` and `labelWidth`, `line`, `stroke`, `t.noise`.
+
+```ts live
+// TRAIN — a going train of four arbors, laid out on its own arithmetic.
+//
+// Nothing here is drawn where it looked good. Every centre distance is the
+// sum of the two pitch radii that meet there, and every pitch radius is
+// module times teeth over two. The teeth carry an index error that is a
+// random walk with the drift taken out, because an error that does not
+// close is not an error, it is a mistake.
+import { sketch, polygon, stroke, line, label, labelWidth, fill, pen, mm } from 'occlude';
+const TAU = Math.PI * 2;
+const MODULE = 1.05; // drawable units per tooth of diameter
+const ADD = 0.86; // addendum, in modules
+const DED = 1.05; // dedendum, in modules
+export default sketch({
+    aspect: [1, 1], seed: 7, margin: 7,
+    pens: {
+        part: pen({ width: mm(0.33), color: '#17181c' }),
+        fine: pen({ width: mm(0.16), color: '#17181c' }),
+        layout: pen({ width: mm(0.2), color: '#2f5fae' }),
+    },
+}, (t) => {
+    // ---------------------------------------------------------------- errors
+    // A random walk in index, minus its own drift, so tooth N meets tooth 0.
+    const indexError = (N, key, amp) => {
+        const walk = [0];
+        for (let k = 1; k <= N; k++)
+            walk.push(walk[k - 1] + t.noise(k * 0.41, key * 13.7) * amp);
+        return walk.slice(0, N).map((v, k) => v - (k / N) * walk[N]);
+    };
+    const runout = (N, key, amp) => {
+        const ph = t.noise(key * 5.3, 91) * Math.PI;
+        return Array.from({ length: N }, (_, k) => amp * Math.cos((k / N) * TAU - ph));
+    };
+    const gear = (cx, cy, N, key, err = 0.1, run = 0.05) => {
+        const R = (MODULE * N) / 2;
+        return {
+            cx, cy, R, N,
+            rTip: R + ADD * MODULE, rRoot: R - DED * MODULE,
+            err: indexError(N, key, (err * TAU) / N),
+            run: runout(N, key, run * MODULE),
+        };
+    };
+    // --------------------------------------------------------------- outlines
+    const arcPts = (g, r, a0, a1, n) => Array.from({ length: n + 1 }, (_, i) => {
+        const a = a0 + ((a1 - a0) * i) / n;
+        return [g.cx + Math.cos(a) * r, g.cy + Math.sin(a) * r];
+    });
+    const ring = (cx, cy, r, n = 72) => Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * TAU;
+        return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    });
+    // A wheel tooth: narrow, pointed, wide spaces. A pinion leaf: fat.
+    const teethLoop = (g, rootFrac, tipFrac) => {
+        const half = Math.PI / g.N;
+        const out = [];
+        for (let k = 0; k < g.N; k++) {
+            const th = (k / g.N) * TAU + g.err[k];
+            const tip = g.rTip + g.run[k];
+            const aR = half * rootFrac, aT = half * tipFrac, aM = half * (rootFrac + tipFrac) * 0.5;
+            const P = (a, r) => [g.cx + Math.cos(a) * r, g.cy + Math.sin(a) * r];
+            out.push(P(th - aR, g.rRoot));
+            out.push(P(th - aM, g.R - 0.12 * MODULE));
+            out.push(P(th - aT, tip));
+            out.push(P(th, tip + 0.02 * MODULE));
+            out.push(P(th + aT, tip));
+            out.push(P(th + aM, g.R - 0.12 * MODULE));
+            out.push(P(th + aR, g.rRoot));
+            out.push(P(th + half, g.rRoot - 0.06 * MODULE));
+        }
+        return out;
+    };
+    // Club-tooth escape wheel: a long impulse face, then a radial drop.
+    const escapeLoop = (g) => {
+        const half = Math.PI / g.N;
+        const out = [];
+        for (let k = 0; k < g.N; k++) {
+            const th = (k / g.N) * TAU + g.err[k];
+            const tip = g.rTip + g.run[k];
+            const P = (a, r) => [g.cx + Math.cos(a) * r, g.cy + Math.sin(a) * r];
+            out.push(P(th - half * 0.95, g.rRoot));
+            out.push(P(th - half * 0.35, g.R - 0.5 * MODULE));
+            out.push(P(th + half * 0.35, g.R + 0.15 * MODULE));
+            out.push(P(th + half * 0.82, tip)); // heel of the club
+            out.push(P(th + half * 1.02, tip)); // locking corner
+            out.push(P(th + half * 1.04, g.rRoot)); // the drop, cut on the radius
+        }
+        return out;
+    };
+    // Crossings: C openings between hub and rim, spokes tapered toward the rim.
+    const crossings = (g, C, hubR, rimIn, w0, w1, turn) => {
+        const steps = 7;
+        return Array.from({ length: C }, (_, c) => {
+            const halfAt = (r) => {
+                const u = (r - hubR) / Math.max(1e-6, rimIn - hubR);
+                return Math.min(0.9, (w0 + (w1 - w0) * u) / (2 * r));
+            };
+            const a0 = turn + (c / C) * TAU, a1 = turn + ((c + 1) / C) * TAU;
+            const loop = [];
+            for (let i = 0; i <= steps; i++) { // outward along one spoke flank
+                const r = hubR + ((rimIn - hubR) * i) / steps;
+                const a = a0 + halfAt(r);
+                loop.push([g.cx + Math.cos(a) * r, g.cy + Math.sin(a) * r]);
+            }
+            loop.push(...arcPts(g, rimIn, a1 - halfAt(rimIn), a0 + halfAt(rimIn), 9).reverse().slice(1));
+            for (let i = steps; i >= 0; i--) { // back down the other flank
+                const r = hubR + ((rimIn - hubR) * i) / steps;
+                const a = a1 - halfAt(r);
+                loop.push([g.cx + Math.cos(a) * r, g.cy + Math.sin(a) * r]);
+            }
+            loop.push(...arcPts(g, hubR, a0 + halfAt(hubR), a1 - halfAt(hubR), 7).reverse().slice(1));
+            return loop;
+        });
+    };
+    // ---------------------------------------------------------------- the train
+    // Centre distances are not chosen. They are R(driver) + r(driven).
+    const A1 = { x: 33.0, y: 62.0, N: 54 };
+    const d = (Nw, np) => (MODULE * (Nw + np)) / 2;
+    const step = (from, deg, len) => ({
+        x: from.x + Math.cos((deg * Math.PI) / 180) * len,
+        y: from.y + Math.sin((deg * Math.PI) / 180) * len,
+    });
+    const A2 = step(A1, -71, d(54, 10));
+    const A3 = step(A2, -1.5, d(42, 9));
+    const A4 = step(A3, 60, d(36, 8));
+    const w1 = gear(A1.x, A1.y, 54, 1, 0.10, 0.06);
+    const p2 = gear(A2.x, A2.y, 10, 2, 0.05, 0.02);
+    const w2 = gear(A2.x, A2.y, 42, 3, 0.11, 0.05);
+    const p3 = gear(A3.x, A3.y, 9, 4, 0.05, 0.02);
+    const w3 = gear(A3.x, A3.y, 36, 5, 0.09, 0.04);
+    const p4 = gear(A4.x, A4.y, 8, 6, 0.05, 0.02);
+    const w4 = gear(A4.x, A4.y, 30, 7, 0.07, 0.03);
+    const arbors = [A1, A2, A3, A4];
+    // --------------------------------------------------------------- furniture
+    const L = 'layout';
+    // Chain line: long, gap, dot, gap. Drafting, drawn out by hand.
+    const chain = (x1, y1, x2, y2, unit = 2.6) => {
+        const len = Math.hypot(x2 - x1, y2 - y1);
+        const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+        const pat = [unit * 1.9, unit * 0.45, unit * 0.12, unit * 0.45];
+        const out = [];
+        let s = 0, i = 0;
+        while (s < len) {
+            const e = Math.min(len, s + pat[i % 4]);
+            if (i % 2 === 0)
+                out.push(line(x1 + ux * s, y1 + uy * s, x1 + ux * e, y1 + uy * e, { pen: L }));
+            s = e;
+            i++;
+        }
+        return out;
+    };
+    const chainRing = (cx, cy, r) => {
+        const n = Math.max(24, Math.round(r * 2.4));
+        const out = [];
+        for (let i = 0; i < n; i++) {
+            if (i % 5 === 3)
+                continue; // the gap
+            if (i % 5 === 4 && i % 10 !== 4)
+                continue; // the dot's neighbour
+            const a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU;
+            out.push(line(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r, cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, { pen: L }));
+        }
+        return out;
+    };
+    const centreMark = (cx, cy, r) => [
+        chain(cx - r, cy, cx + r, cy, r * 0.32),
+        chain(cx, cy - r, cx, cy + r, r * 0.32),
+    ];
+    const arrow = (x, y, deg, s = 1.5) => {
+        const a = (deg * Math.PI) / 180;
+        const p = [
+            [x, y],
+            [x + Math.cos(a + 0.16) * s * 2.6, y + Math.sin(a + 0.16) * s * 2.6],
+            [x + Math.cos(a - 0.16) * s * 2.6, y + Math.sin(a - 0.16) * s * 2.6],
+        ];
+        return polygon(p, { fill: fill('solid'), stroke: false, pen: L });
+    };
+    const dim = (a, b, off, text) => {
+        const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+        const nx = -dy / len, ny = dx / len;
+        const A = [a[0] + nx * off, a[1] + ny * off];
+        const B = [b[0] + nx * off, b[1] + ny * off];
+        let deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        const flip = deg > 90 || deg < -90;
+        const h = 2.5, tw = labelWidth(text, h);
+        const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+        return [
+            off !== 0 && line(a[0] + nx * off * 0.12, a[1] + ny * off * 0.12, A[0] + nx * 1.6, A[1] + ny * 1.6, { pen: L }),
+            off !== 0 && line(b[0] + nx * off * 0.12, b[1] + ny * off * 0.12, B[0] + nx * 1.6, B[1] + ny * 1.6, { pen: L }),
+            line(A[0], A[1], mx - (dx / len) * (tw / 2 + 1.2), my - (dy / len) * (tw / 2 + 1.2), { pen: L }),
+            line(mx + (dx / len) * (tw / 2 + 1.2), my + (dy / len) * (tw / 2 + 1.2), B[0], B[1], { pen: L }),
+            arrow(A[0], A[1], deg), arrow(B[0], B[1], deg + 180),
+            label(text, mx, my - h * 0.52, h, { align: 'center', pen: L, rotate: flip ? deg + 180 : deg, origin: [mx, my] }),
+        ];
+    };
+    const balloon = (cx, cy, to, txt) => {
+        const a = Math.atan2(cy - to[1], cx - to[0]);
+        return [
+            line(to[0], to[1], cx - Math.cos(a) * 3.2, cy - Math.sin(a) * 3.2, { pen: L }),
+            polygon(ring(to[0], to[1], 0.55, 8), { fill: fill('solid'), stroke: false, pen: L }),
+            polygon(ring(cx, cy, 3.2, 40), { opaque: true, pen: L }),
+            label(txt, cx, cy - 1.15, 2.4, { align: 'center', pen: L }),
+        ];
+    };
+    // ------------------------------------------------------------------ layers
+    const out = [];
+    // 1 — Layout. Drawn first, so the wheels bury it and it survives only in
+    //     the crossings and outside the metal. That is where you check it.
+    out.push(chain(A1.x - Math.cos((-71 * Math.PI) / 180) * 26, A1.y - Math.sin((-71 * Math.PI) / 180) * 26, A2.x, A2.y, 3.4));
+    out.push(chain(A2.x, A2.y, A3.x, A3.y, 3.4));
+    out.push(chain(A3.x, A3.y, A4.x + Math.cos((60 * Math.PI) / 180) * 20, A4.y + Math.sin((60 * Math.PI) / 180) * 20, 3.4));
+    for (const g of [w1, w2, w3, w4, p2, p3, p4])
+        out.push(chainRing(g.cx, g.cy, g.R));
+    const radials = (g, every, from) => {
+        const o = [];
+        for (let k = 0; k < g.N; k += every) {
+            const a = (k / g.N) * TAU + g.err[k];
+            o.push(line(g.cx + Math.cos(a) * from, g.cy + Math.sin(a) * from, g.cx + Math.cos(a) * g.rRoot, g.cy + Math.sin(a) * g.rRoot, { pen: L }));
+        }
+        return o;
+    };
+    out.push(radials(w1, 3, 6.0));
+    out.push(radials(w2, 3, 5.0));
+    out.push(radials(w3, 3, 4.4));
+    out.push(radials(w4, 3, 3.8));
+    for (const a of arbors)
+        out.push(centreMark(a.x, a.y, 7));
+    // 2 — The metal. Each arbor sits on the one before it. Hatch angle changes
+    //     part to part, the way section hatching must; spacing tightens down
+    //     the train, so the tone of a wheel is the speed it turns at.
+    const hatched = (spacing, angle) => fill('hatch', { angle, spacing: mm(spacing) });
+    const wheel = (g, o) => {
+        const body = o.loop ?? teethLoop(g, o.root, o.tip);
+        const rimIn = g.rRoot - o.band;
+        const holes = crossings(g, o.C, o.hub, rimIn, o.w0, o.w1, o.turn);
+        return [
+            // The rim: the band that carries the teeth. It takes the tighter hatch.
+            polygon([body, ring(g.cx, g.cy, rimIn, 108)], {
+                winding: 'evenodd', opaque: true,
+                fill: hatched(o.rim, o.angle), fillPen: 'fine', pen: 'part',
+            }),
+            // The web, crossed out. Lighter, so the rim reads as the heavy part.
+            polygon([ring(g.cx, g.cy, rimIn, 108), ring(g.cx, g.cy, o.hub, 48), ...holes], {
+                winding: 'evenodd', opaque: true,
+                fill: hatched(o.web, o.angle), fillPen: 'fine', pen: 'part',
+            }),
+        ];
+    };
+    const pinion = (g) => [
+        polygon([teethLoop(g, 0.62, 0.40), ring(g.cx, g.cy, g.rRoot * 0.42, 24)], { winding: 'evenodd', opaque: true, fill: fill('solid'), fillPen: 'fine', pen: 'part' }),
+    ];
+    const collet = (cx, cy, r, bore) => polygon([ring(cx, cy, r, 48), ring(cx, cy, bore, 28)], {
+        winding: 'evenodd', fill: fill('solid'), stroke: 'part', fillPen: 'fine',
+    });
+    // The pinion of an arbor sits above its wheel; the wheel below meshes it.
+    out.push(wheel(w1, { rim: 1.05, web: 3.4, angle: 135, C: 6, hub: 6.4, band: 3.4, w0: 3.4, w1: 2.0, turn: 0.31, root: 0.42, tip: 0.19 }));
+    out.push(collet(A1.x, A1.y, 4.2, 1.5));
+    out.push(wheel(w2, { rim: 0.95, web: 2.3, angle: 15, C: 5, hub: 5.2, band: 2.9, w0: 2.9, w1: 1.7, turn: 0.9, root: 0.42, tip: 0.19 }));
+    out.push(pinion(p2));
+    out.push(wheel(w3, { rim: 0.70, web: 1.6, angle: 105, C: 5, hub: 4.6, band: 2.6, w0: 2.6, w1: 1.5, turn: 2.1, root: 0.42, tip: 0.19 }));
+    out.push(pinion(p3));
+    out.push(wheel(w4, { rim: 0.55, web: 1.0, angle: 60, C: 5, hub: 4.0, band: 2.3, w0: 2.3, w1: 1.35, turn: 0.45, root: 0.42, tip: 0.19, loop: escapeLoop(w4) }));
+    out.push(pinion(p4));
+    out.push(collet(A4.x, A4.y, 2.5, 0.9));
+    // 3 — The bridge. Convex hull of three bosses, offset inward once for the
+    //     chamfer, holed where it has to be. It hides what is under it.
+    const hullOf = (pts) => {
+        const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+        const half = (src) => {
+            const h = [];
+            for (const q of src) {
+                while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], q) <= 0)
+                    h.pop();
+                h.push(q);
+            }
+            return h;
+        };
+        const lo = half(p), hi = half([...p].reverse());
+        return [...lo.slice(0, -1), ...hi.slice(0, -1)];
+    };
+    const inset = (poly, dist) => {
+        const n = poly.length, ls = [];
+        for (let i = 0; i < n; i++) {
+            const a = poly[i], b = poly[(i + 1) % n];
+            const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy);
+            const nx = -dy / m, ny = dx / m; // hull is CCW in screen space
+            ls.push([nx, ny, nx * a[0] + ny * a[1] + dist]);
+        }
+        const res = [];
+        for (let i = 0; i < n; i++) {
+            const [a1, b1, c1] = ls[(i + n - 1) % n], [a2, b2, c2] = ls[i];
+            const det = a1 * b2 - a2 * b1;
+            if (Math.abs(det) < 1e-9) {
+                res.push(poly[i]);
+                continue;
+            }
+            res.push([(c1 * b2 - c2 * b1) / det, (a1 * c2 - a2 * c1) / det]);
+        }
+        return res;
+    };
+    const foot = [57.5, 7.0];
+    const bosses = [
+        ...ring(A2.x, A2.y, 8.6, 30), ...ring(A3.x, A3.y, 8.2, 30), ...ring(foot[0], foot[1], 5.4, 26),
+    ];
+    const bridge = hullOf(bosses);
+    const jewel2 = ring(A2.x, A2.y, 2.0, 28), jewel3 = ring(A3.x, A3.y, 1.9, 28);
+    const screw = ring(foot[0], foot[1], 1.5, 24);
+    const lighten = [0.24, 0.5, 0.76].map((u) => {
+        const cx = A2.x + (A3.x - A2.x) * u, cy = A2.y + (A3.y - A2.y) * u - 5.8;
+        return ring(cx, cy, 3.1, 28);
+    });
+    out.push(polygon([bridge, jewel2, jewel3, screw, ...lighten], {
+        winding: 'evenodd', opaque: true,
+        fill: hatched(0.72, 45), fillPen: 'fine', pen: 'part',
+    }));
+    out.push(stroke([...inset(bridge, 1.25), inset(bridge, 1.25)[0]], { pen: 'fine' }));
+    out.push(polygon([ring(A2.x, A2.y, 3.6, 40), jewel2], { winding: 'evenodd', pen: 'part' }));
+    out.push(polygon([ring(A3.x, A3.y, 3.5, 40), jewel3], { winding: 'evenodd', pen: 'part' }));
+    out.push(polygon([ring(foot[0], foot[1], 3.1, 32), screw], { winding: 'evenodd', pen: 'part' }));
+    out.push(line(foot[0] - 2.4, foot[1] - 2.4, foot[0] + 2.4, foot[1] + 2.4, { pen: 'part' })); // slot
+    // 4 — Dimensions and balloons, over everything, because they are read last.
+    const cd = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+    const dimH = (x1, x2, y, from) => {
+        const txt = (x2 - x1).toFixed(2);
+        return [
+            line(x1, from, x1, y + 1.8, { pen: L }), line(x2, from, x2, y + 1.8, { pen: L }),
+            dim([x1, y], [x2, y], 0, txt),
+        ];
+    };
+    // The two overalls are read off the metal, not typed in.
+    out.push(dimH(A1.x - w1.rTip, A4.x + w4.rTip, 95.6, 92.4));
+    out.push(balloon(7.5, 89.5, [A1.x - w1.R * 0.76, A1.y + w1.R * 0.62], '1'));
+    out.push(balloon(9.5, 25.0, [A2.x - w2.R * 0.90, A2.y - w2.R * 0.32], '2'));
+    out.push(balloon(95.5, 9.0, [A3.x + w3.R * 0.56, A3.y - w3.R * 0.62], '3'));
+    out.push(balloon(70.0, 62.0, [A4.x - w4.R * 0.35, A4.y + w4.R * 0.62], '4'));
+    // 5 — Title block. The numbers in it are the ones the drawing was built from.
+    const ratio = (54 / 10) * (42 / 9) * (36 / 8);
+    const rows = [
+        ['TRAIN', '54/10 42/9 36/8 30'],
+        ['MODULE', `${MODULE.toFixed(2)} U`],
+        ['RATIO', `1 : ${ratio.toFixed(1)}`],
+        ['CENTRES', `${cd(A1, A2).toFixed(2)}  ${cd(A2, A3).toFixed(2)}  ${cd(A3, A4).toFixed(2)}`],
+        ['ESCAPE', 'CLUB TOOTH, 30'],
+        ['INDEX ERR', '0.07-0.11 P'],
+        ['RUNOUT', '0.02-0.06 M'],
+        ['SEED', '7'],
+    ];
+    const bx = 62.0, by = 68.6, bw = 37.4, rh = 2.95, h = 1.75;
+    out.push(polygon([[bx, by], [bx + bw, by], [bx + bw, by + rh * rows.length], [bx, by + rh * rows.length]], { opaque: true, pen: 'part' }));
+    rows.forEach((r, i) => {
+        const y = by + i * rh;
+        if (i > 0)
+            out.push(line(bx, y, bx + bw, y, { pen: 'fine' }));
+        out.push(label(r[0], bx + 1.1, y + (rh - h) / 2 + 0.15, h, { pen: 'fine' }));
+        out.push(label(r[1], bx + bw - 1.1, y + (rh - h) / 2 + 0.15, h, { align: 'right', pen: 'fine' }));
+    });
+    out.push(line(bx + 11.4, by, bx + 11.4, by + rh * rows.length, { pen: 'fine' }));
+    // 6 — Frame and registration. Ticks every ten units; corners crossed.
+    out.push(polygon([[0.6, 0.6], [99.4, 0.6], [99.4, 99.4], [0.6, 99.4]], { pen: 'fine' }));
+    for (let k = 10; k < 100; k += 10) {
+        const big = k % 50 === 0 ? 2.6 : 1.4;
+        out.push(line(k, 0.6, k, 0.6 + big, { pen: 'fine' }));
+        out.push(line(k, 99.4, k, 99.4 - big, { pen: 'fine' }));
+        out.push(line(0.6, k, 0.6 + big, k, { pen: 'fine' }));
+        out.push(line(99.4, k, 99.4 - big, k, { pen: 'fine' }));
+    }
+    for (const [cx, cy] of [[0.6, 0.6], [99.4, 0.6], [0.6, 99.4], [99.4, 99.4]]) {
+        out.push(line(cx - 2.2, cy, cx + 2.2, cy, { pen: L }));
+        out.push(line(cx, cy - 2.2, cx, cy + 2.2, { pen: L }));
+        out.push(polygon(ring(cx, cy, 1.5, 24), { pen: L }));
+    }
+    return out;
+});
+```

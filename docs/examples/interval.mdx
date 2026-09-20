@@ -1,0 +1,50 @@
+---
+title: Interval
+description: Thirty-four marks, and the body that stops them is never drawn.
+---
+
+One column of rule at one interval, entering over the top edge of the sheet. A body stops it. The body has no outline, no texture and no ink.
+
+Seven rules shorten as they reach the body. Then the sheet is quiet for a long way. One rule comes after the body, at the same length and in the same pen. It crosses the paper without interruption.
+
+The drawing is the interval between those two facts. The largest interval in it is the one you cannot see.
+
+Uses: `line`, `mask`, `polygon`, `t.bounds`. Nothing else.
+
+```ts live
+import { sketch, line, mask, polygon, mm } from 'occlude';
+// Held breath.
+//
+// A column of rule comes in over the top edge of the sheet at one
+// interval and is stopped by a body that is never drawn. The body has
+// no outline, no texture and no colour. The only evidence of it is the
+// handful of rules that shorten as they reach it, and the silence that
+// takes two thirds of the sheet below.
+//
+// One rule is drawn after the body, so the body does not have it. It is
+// the same length and the same pen as the rest, and it has crossed the
+// sheet. Everything here is the same mark. Only the intervals differ,
+// and the largest interval is the one you cannot see.
+export default sketch({ aspect: [1, 1], seed: 3, margin: 0 }, (t) => {
+    const b = t.bounds();
+    const x0 = 0.22 * b.w;
+    const x1 = 0.41 * b.w;
+    const step = t.len(mm(1.4));
+    const rules = [];
+    for (let y = -0.03 * b.h; y <= 0.48 * b.h; y += step)
+        rules.push(line(x0, y, x1, y));
+    const slope = Math.tan((22 * Math.PI) / 180);
+    const cut = (x) => 0.33 * b.h + slope * (x - x0);
+    const body = [
+        [-0.2 * b.w, cut(-0.2 * b.w)],
+        [1.2 * b.w, cut(1.2 * b.w)],
+        [1.2 * b.w, 1.2 * b.h],
+        [-0.2 * b.w, 1.2 * b.h],
+    ];
+    return [
+        rules,
+        mask(polygon(body)),
+        line(0.52 * b.w, 0.84 * b.h, 0.52 * b.w + (x1 - x0), 0.84 * b.h),
+    ];
+});
+```

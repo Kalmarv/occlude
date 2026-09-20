@@ -1,0 +1,193 @@
+---
+title: Squall
+description: Ridges going away in rain, drawn by where the ink stops.
+---
+
+A wall of ridges going away from the viewer. Every band is opaque, so each near hill eats the one behind it.
+
+Under every crest the line spacing opens downhill until nothing remains. The mist in the valleys is not drawn: it is the place where the drawing stops. The light on the right is not a sun. It is where the land can no longer hold a line.
+
+One shoulder stands out of the haze near the middle and loses its right flank to that light. A squall falls on the far left, and the ridge in front of it cuts off its foot. The sheet runs from solid black at the bottom to bare paper at the horizon. It spends the whole middle getting there.
+
+Uses: `t.streamlines`, `t.within`, `t.scatter`, `t.times`, `t.noise`, `polygon` with `opaque`, `stroke`, `strokes`, `line`.
+
+```ts live
+// FAR WEATHER — light is the paper, and everything else is going.
+//
+// Six ridges stand between the eye and the end of its sight. Each one is
+// opaque, so the near one eats the far one, and a crest is the only edge
+// this drawing will admit to — and even a crest gives up where the light
+// gets to it. Under every crest the ink opens downhill until it is gone:
+// that is the mist in the valley, and it is drawn by not drawing. There is
+// no sun in the picture. There is only the place the land stops being able
+// to hold a line. A shower stands on the far left, on ground too distant
+// to be anybody's, and the near hills take the bottom of it away.
+import { sketch, strokes, stroke, polygon, line, mm } from 'occlude';
+export default sketch({ aspect: [3, 2], seed: 11 }, (t) => {
+    const W = t.width;
+    const H = t.height;
+    const FINE = 'pigma-005-black';
+    const MID = 'pigma-01-black';
+    const HEAVY = 'pigma-05-black';
+    // ---- the light -------------------------------------------------------
+    // Never drawn. It only takes things away: it opens the tone of every
+    // ridge it falls on and breaks the crest lines it crosses.
+    const sunX = 122;
+    const sunY = 26;
+    const glow = (x, y, reach) => {
+        const d = Math.hypot((x - sunX) * 0.78, y - sunY);
+        return Math.max(0, 1 - d / reach) ** 1.5;
+    };
+    // ---- the ridges ------------------------------------------------------
+    // `tone` is the line gap at the crest and `fall` how fast that gap opens
+    // downhill into paper: a band must die before the next crest or the
+    // drawing is stripes. `tilt` drops the far land away toward the light.
+    const ridges = [
+        { base: 31, amp: 2.4, scale: 74, tilt: -4.5, phase: 1.7, tone: 3.0, fall: 1.10, lift: 5.5, glowR: 62, reach: 6, edge: 0.34, pen: FINE, peak: null },
+        { base: 41, amp: 3.4, scale: 58, tilt: -3.5, phase: 12.4, tone: 2.1, fall: 0.80, lift: 4.6, glowR: 58, reach: 8, edge: 0.52, pen: FINE, peak: null },
+        { base: 53, amp: 4.8, scale: 46, tilt: -1.5, phase: 27.1, tone: 1.45, fall: 0.52, lift: 3.8, glowR: 54, reach: 10, edge: 0.68, pen: FINE, peak: null },
+        // The one event in the drawing: a shoulder that stands up out of the
+        // haze, hides the ridges behind it, and loses its right flank to the
+        // light. Everything else is ground for it to happen against.
+        { base: 67, amp: 6.2, scale: 40, tilt: 1.5, phase: 41.8, tone: 1.00, fall: 0.30, lift: 2.8, glowR: 50, reach: 13, edge: 0.82, pen: FINE, peak: { x: 86, h: 32, left: 30, right: 15 } },
+        { base: 81, amp: 5.5, scale: 54, tilt: 3.0, phase: 58.3, tone: 0.88, fall: 0.22, lift: 1.7, glowR: 42, reach: 11, edge: 0.93, pen: MID, peak: { x: 133, h: 9, left: 24, right: 16 } },
+        { base: 93, amp: 9.0, scale: 70, tilt: 5.0, phase: 91.2, tone: 0.42, fall: 0.012, lift: 0.5, glowR: 34, reach: 20, edge: 1.0, pen: HEAVY, peak: null },
+    ];
+    // The envelope is what keeps a ridge from being a row of identical bumps:
+    // long stretches of it lie almost flat, and somewhere it stands up.
+    const crestOf = (r) => (x) => {
+        const env = 0.35 + 0.8 * (0.5 + 0.5 * t.noise(x / 88 + r.phase, r.phase * 0.17 + 7.3));
+        const p = r.peak;
+        const rise = p ? p.h * Math.exp(-(((x - p.x) / (x < p.x ? p.left : p.right)) ** 2)) : 0;
+        return (r.base -
+            rise +
+            r.tilt * (x / W - 0.5) * 2 +
+            r.amp * env * t.noise(x / r.scale + r.phase, r.phase * 0.31) +
+            r.amp * 0.3 * env * t.noise(x / (r.scale * 0.35) + r.phase, r.phase * 0.31 + 3.7) +
+            0.075 * rise * t.noise(x / 5.5 + r.phase, r.phase * 0.31 + 11.2));
+    };
+    const areaOf = (crest) => polygon([
+        ...t.times(200, (i, u) => {
+            const x = -4 + u * (W + 8);
+            return [x, crest(x)];
+        }),
+        [W + 4, H + 4],
+        [-4, H + 4],
+    ], { opaque: true, stroke: false });
+    // A crest that runs unbroken from edge to edge is a border, not a ridge.
+    // This one exists only where the weather lets it: it thins toward the
+    // light and drops out in the haze, and what is left are runs of line.
+    const crestRuns = (r, crest) => {
+        const runs = [];
+        let run = [];
+        for (let i = 0; i <= 320; i++) {
+            const x = -2 + (i / 320) * (W + 4);
+            const here = r.edge * (1 - glow(x, crest(x), r.glowR)) * (0.55 + 0.45 * t.noise(x / 11 + r.phase, 5.5));
+            if (here > 0.34)
+                run.push([x, crest(x)]);
+            else {
+                if (run.length > 3)
+                    runs.push(run);
+                run = [];
+            }
+        }
+        if (run.length > 3)
+            runs.push(run);
+        return runs.map((pts) => stroke(pts, { pen: r.pen }));
+    };
+    // Each hillside lies down in its own weather. One shared drift made the
+    // whole sheet a single piece of grain, and a ridge you cannot see is not
+    // a ridge — so every band gets its own phase, and the far ones lie flat.
+    const driftOf = (phase, calm) => (x, y) => [
+        1,
+        calm * (0.32 * t.noise(x / 62 + phase, y / 40) + 0.05 * t.noise(x / 24 + phase, y / 16)),
+    ];
+    // A hillside's lines belong to the hill. Just under the crest they run
+    // parallel to it, and the further they get from it the flatter they lie,
+    // until they are only weather lying across a valley. The decay is what
+    // turns a ridge into mist without a single new mark.
+    const hillFlow = (r, crest) => (x, y) => {
+        const c = crest(x);
+        const slope = (crest(x + 0.6) - crest(x - 0.6)) / 1.2;
+        const hold = Math.exp(-Math.max(0, y - c) / r.reach);
+        return [
+            1,
+            slope * hold +
+                0.22 * (1 - hold) * t.noise(x / 50 + r.phase, y / 34) +
+                0.07 * t.noise(x / 16 + r.phase, y / 11),
+        ];
+    };
+    // ---- the sky ---------------------------------------------------------
+    // A ceiling of weather at the very top, gone by a third of the way down.
+    // Everything between it and the first crest is paper, which is the only
+    // way a far ridge can be seen at all.
+    const skyArea = polygon([
+        [-4, -4],
+        [W + 4, -4],
+        [W + 4, 34],
+        [-4, 34],
+    ], { stroke: false });
+    const sky = t.within(t.streamlines(t.within(driftOf(1.7, 1.9), skyArea), {
+        spacing: (x, y) => mm(2.0 + 26 * (y / 26) ** 1.7 + 22 * glow(x, y, 40)),
+        minSpacing: mm(1.8),
+    }), skyArea);
+    // ---- the shower ------------------------------------------------------
+    // Rain is not on this page. It is over there, standing on the fourth
+    // ridge, which cuts the bottom off it. Each drop is its own short stroke:
+    // a rain of long lines is a broken window.
+    // Weather has no edges, so neither does this: every boundary of the
+    // shower wanders, and the fall of it is heavier in some places than
+    // others, the way a squall is.
+    const wet = (x, y) => {
+        const trail = 56 + 9 * t.noise(y / 13 + 3.1, 2.4);
+        const ceiling = 9 + 7 * t.noise(x / 17 + 8.2, 6.6);
+        const side = Math.min(1, Math.max(0, (trail - x) / 30)) * Math.min(1, Math.max(0, (x + 13) / 17));
+        const top = Math.min(1, Math.max(0, (y - ceiling) / 13));
+        const bottom = Math.min(1, Math.max(0, (92 - y) / 16));
+        const body = 0.55 + 0.8 * (0.5 + 0.5 * t.noise(x / 21 + 5.5, y / 27));
+        return Math.min(1, (side * top * bottom) ** 1.25 * body);
+    };
+    const drops = t.scatter((x, y) => 0.02 + 0.98 * wet(x, y), { spacing: 1.85 });
+    const rain = [...drops.points].map((p) => {
+        const len = 1.1 + 3.6 * wet(p.x, p.y);
+        return line(p.x, p.y, p.x - len * 0.42, p.y + len, { pen: FINE });
+    });
+    // ---- the ground ------------------------------------------------------
+    // Far to near. Each band's silhouette takes the last one away, then lays
+    // its own tone: crowded at the crest, opening downhill into paper, and
+    // opening faster wherever the light is on it.
+    const land = ridges.map((r, k) => {
+        const crest = crestOf(r);
+        const area = areaOf(crest);
+        // The light comes from the right, so a flank that turns away from it
+        // closes up and a flank that turns into it opens. The shading fades out
+        // with depth below the crest, the same way the crest's shape does.
+        const spacing = (x, y) => {
+            const c = crest(x);
+            const hold = Math.exp(-Math.max(0, y - c) / r.reach);
+            const turn = Math.max(-1, Math.min(1, (crest(x + 0.6) - crest(x - 0.6)) / 1.44));
+            return mm(r.tone * (1 + 0.45 * turn * hold) +
+                r.fall * Math.max(0, y - c) +
+                r.lift * glow(x, y, r.glowR) +
+                r.tone * 0.5 * Math.max(0, t.noise(x / 28 + r.phase, y / 20)));
+        };
+        const seeds = [];
+        for (let x = -2; x <= W + 2; x += 2.5) {
+            const c = crest(x);
+            for (const d of [0.35, 1.1, 2.4, 4.5, 8, 14, 22, 32]) {
+                if (c + d < H + 1)
+                    seeds.push([x, c + d]);
+            }
+        }
+        const tone = t.within(t.streamlines(t.within(hillFlow(r, crest), area), {
+            spacing,
+            minSpacing: mm(k === 5 ? 0.36 : 0.46),
+            seeds,
+        }), area);
+        return [area, strokes(tone, { pen: r.pen }), crestRuns(r, crest)];
+    });
+    // The shower falls between the far ridges and the near ones: after the
+    // third band is laid, before the fourth comes forward to hide it.
+    return [strokes(sky, { pen: FINE }), land.slice(0, 3), rain, land.slice(3)];
+});
+```

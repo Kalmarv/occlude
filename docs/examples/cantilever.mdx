@@ -1,0 +1,79 @@
+---
+title: Cantilever
+description: Three values, and every overhang is an occlusion event.
+---
+
+A cantilevered stack in axonometric. It rises off the bottom edge into a field of black grain. One solid mass stands in front of it and eats its lower right corner.
+
+The sheet carries three values: bare paper, ruled grain, and solid black. There is nothing between them. Every overhang hides the slab under it. The picture is a stack of things hiding things.
+
+The white lid of the near mass and the single slot of light across it are the only soft notes. The drawing reads at arm's length before it reads at reading distance.
+
+Uses: `polygon` with `opaque` and a hatch `fill`, `mm`. The geometry is an axonometric projection written in the sketch.
+
+```ts live
+import { sketch, polygon, fill, mm } from 'occlude';
+// Depth axis: one unit of depth goes this far up and to the right.
+const DX = 0.55;
+const DY = -0.34;
+export default sketch({ aspect: [3, 4], seed: 3 }, (t) => {
+    const W = t.width;
+    const H = t.height;
+    const SKY = 46;
+    const slab = (s) => {
+        const ox = s.z * DX, oy = s.z * DY;
+        const P = (px, py) => [px + ox, py + oy];
+        const back = ([px, py]) => [px + s.d * DX, py + s.d * DY];
+        const fl = P(s.x, s.y), fr = P(s.x + s.w, s.y);
+        const tr = P(s.x + s.w, s.y - s.h), tl = P(s.x, s.y - s.h);
+        return { front: [fl, fr, tr, tl], top: [tl, tr, back(tr), back(tl)], side: [fr, back(fr), back(tr), tr] };
+    };
+    const face = (loop, spacing, angle = 90) => spacing === null
+        ? polygon(loop, { opaque: true, pen: 'pigma-05-black' })
+        : polygon(loop, {
+            fill: fill('hatch', { angle, spacing: mm(spacing) }),
+            pen: 'pigma-005-black',
+            stroke: 'pigma-05-black',
+        });
+    const put = (s, out) => {
+        const f = slab(s);
+        out.push(face(f.side, s.side));
+        out.push(face(f.top, s.top));
+        out.push(face(f.front, s.front));
+    };
+    const cut = (loop) => polygon(loop, { opaque: true, stroke: false });
+    // The stack. Bottom slab first; each sits on the one below and steps in or out.
+    const stack = [
+        { x: 0, y: 140, w: 52, h: 22, z: 0, d: 16, front: 0.45, side: 0.3, top: 1.6 },
+        { x: 10, y: 118, w: 32, h: 19, z: 6, d: 13, front: 0.85, side: 0.3, top: null, slots: [0.3, 0.66] },
+        { x: 2, y: 99, w: 48, h: 9, z: 1, d: 18, front: 0.32, side: 0.3, top: null },
+        { x: 16, y: 90, w: 26, h: 24, z: 8, d: 12, front: 1.1, side: 0.3, top: null, slots: [0.24, 0.58] },
+        { x: -2, y: 66, w: 52, h: 11, z: 0, d: 20, front: 0.55, side: 0.3, top: null },
+        { x: 18, y: 55, w: 24, h: 23, z: 6, d: 14, front: 1.5, side: 0.3, top: null, slots: [0.3, 0.66] },
+        { x: 8, y: 32, w: 36, h: 10, z: 1, d: 14, front: 1.2, side: 0.3, top: null },
+    ];
+    const grain = fill('hatch', { angle: 90, spacing: mm(0.42) });
+    const panel = fill('hatch', { angle: 90, spacing: mm(0.75) });
+    const out = [];
+    // Far: the sky is a black field the tower punches up into.
+    out.push(polygon([[0, 0], [W, 0], [W, 84], [70, 84], [70, SKY], [0, SKY]], { fill: grain, stroke: false, pen: 'pigma-005-black' }));
+    for (const s of stack) {
+        put(s, out);
+        if (!s.slots)
+            continue;
+        const ox = s.z * DX, oy = s.z * DY;
+        for (const fr of s.slots) {
+            const yy = s.y - s.h + fr * s.h + oy;
+            out.push(cut([[s.x + 3 + ox, yy], [s.x + s.w - 3 + ox, yy], [s.x + s.w - 3 + ox, yy + 2], [s.x + 3 + ox, yy + 2]]));
+        }
+    }
+    // Near: one solid mass, standing in front, that eats the right of the tower.
+    const mono = { x: 42, y: H + 19, w: 66, h: 72, z: 0, d: 26, front: 0, side: 0, top: null };
+    const mf = slab(mono);
+    out.push(polygon(mf.top, { opaque: true, pen: 'pigma-05-black' }));
+    out.push(polygon(mf.front, { fill: fill('solid'), stroke: 'pigma-05-black', pen: 'pigma-005-black' }));
+    out.push(polygon([[78, 82], [93, 82], [93, H], [78, H]], { fill: panel, stroke: false, pen: 'pigma-005-black' }));
+    out.push(cut([[47, 87], [104, 87], [104, 90], [47, 90]]));
+    return out;
+});
+```

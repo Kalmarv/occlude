@@ -1,0 +1,304 @@
+---
+title: Attempts
+description: One straight-sided shape, attempted forty-four times, and never drawn.
+---
+
+Forty-four attempts at the same straight-sided shape. Every attempt is a tremoring line, and no attempt lands on the one before it.
+
+The shape itself is never drawn. It is the paper left inside the pile of attempts. Its corners and its sides are the only straight edges on the sheet.
+
+The ruled ground is calm at the top. The attempts eat into it as they go down. What the hand meant to make is legible only as the hole it failed to make.
+
+Uses: `stroke`, `mask`, `rect`, `t.noise`, `t.rnd`, `t.chance`, `mm`.
+
+```ts live
+// THE THING I MEANT — forty-four attempts at one straight-sided shape.
+//
+// The shape is never drawn. It is cut out of the ruled ground as an
+// absence: exact corners, exact sides, the only straight edges on the
+// sheet, and none of them made by me. Everything in ink is what my hand
+// did instead. The hand overshoots — it almost always falls outside the
+// line it wanted — so a clean white margin survives all down the inside,
+// and that margin is the size of the failure. You can measure it.
+//
+// At the two corners, where a line has to stop being one thing and start
+// being another, the hand stalls, doubles back, and leaves a clot. Going
+// down, it gets worse: the sides fray into the floor. The ruled ground is
+// the same failure at a smaller size — I could not hold the gap either,
+// and where the gap closes the paper goes grey with the effort.
+//
+// One mark leaves the top edge, walks out into the middle of the thing it
+// was supposed to be drawing the outside of, and stops. That one is the
+// whole drawing.
+//
+// Nothing here is erased. A correction only adds.
+import { sketch, stroke, mask, rect, mm } from 'occlude';
+export default sketch({ aspect: [3, 4], seed: 17 }, (t) => {
+    const W = t.width;
+    const H = t.height;
+    const U = (v) => t.len(v); // millimetres → drawable units
+    const FINE = 'pigma-005-black';
+    const MID = 'pigma-01-black';
+    const HEAVY = 'pigma-05-black';
+    // ---- the intention ---------------------------------------------------
+    // Exact. Never drawn. It runs off the bottom of the sheet, so it is a
+    // standing thing and not a frame.
+    const RX = 22;
+    const RW = 50;
+    const RY = 37;
+    const YB = H + 7;
+    const HV = YB - RY;
+    const L = 2 * HV + RW; // up the left, across the top, down the right
+    const CORNERS = [HV, HV + RW];
+    // Distance from the intended edge, outside the shape only.
+    const away = (x, y) => {
+        const dx = Math.max(RX - x, x - (RX + RW), 0);
+        const dy = Math.max(RY - y, y - YB, 0);
+        return Math.hypot(dx, dy);
+    };
+    // ---- walking the path ------------------------------------------------
+    const at = (s) => {
+        let x, y, nx, ny;
+        if (s < HV) {
+            x = RX;
+            y = YB - s;
+            nx = -1;
+            ny = 0;
+        }
+        else if (s < HV + RW) {
+            x = RX + (s - HV);
+            y = RY;
+            nx = 0;
+            ny = -1;
+        }
+        else {
+            x = RX + RW;
+            y = RY + (s - HV - RW);
+            nx = 1;
+            ny = 0;
+        }
+        const corner = Math.min(Math.abs(s - CORNERS[0]), Math.abs(s - CORNERS[1]));
+        return { x, y, nx, ny, corner };
+    };
+    // A line held a fixed distance outside this path has to go round the
+    // outside of a corner, not cut it. Without this the hand appears to
+    // teleport, and a teleport is not a tremor.
+    const offAt = (s, off) => {
+        const a = at(s);
+        const plain = (u) => {
+            const b = at(u);
+            return [b.x + b.nx * off, b.y + b.ny * off];
+        };
+        const w = Math.abs(off);
+        const cs = Math.abs(s - CORNERS[0]) < Math.abs(s - CORNERS[1]) ? CORNERS[0] : CORNERS[1];
+        const d = s - cs;
+        if (w < 1e-6 || Math.abs(d) >= w)
+            return [a.x + a.nx * off, a.y + a.ny * off];
+        const c = at(cs);
+        const b = at(cs - 0.01), f = at(cs + 0.01);
+        if (off > 0) {
+            // outside of a convex corner: go round it on an arc
+            const th1 = Math.atan2(b.ny, b.nx);
+            let dth = Math.atan2(f.ny, f.nx) - th1;
+            while (dth > Math.PI)
+                dth -= Math.PI * 2;
+            while (dth < -Math.PI)
+                dth += Math.PI * 2;
+            const th = th1 + dth * ((d / w + 1) / 2);
+            return [c.x + Math.cos(th) * w, c.y + Math.sin(th) * w];
+        }
+        // inside of it: the two offset lines meet at one point, so go to that
+        // point and come back out again
+        const miter = [c.x + off * (b.nx + f.nx), c.y + off * (b.ny + f.ny)];
+        const v = Math.abs(d) / w;
+        const end = plain(d < 0 ? cs - w : cs + w);
+        return [miter[0] + (end[0] - miter[0]) * v, miter[1] + (end[1] - miter[1]) * v];
+    };
+    // A corner is the hardest thing there is. So is the bottom of a long
+    // side, by which time the arm has stopped being reliable.
+    // ...and the right side of anything, which is where the arm is furthest
+    // from the body and has least to say about what happens next.
+    const hard = (s) => {
+        const a = at(s);
+        const low = Math.max(0, (a.y - RY) / (YB - RY));
+        const side = a.nx > 0 ? 1.65 : 1;
+        return (1 + 1.6 * Math.exp(-a.corner / 5.5)) * (1.35 + 0.95 * Math.pow(low, 1.4)) * side;
+    };
+    // ---- registration ----------------------------------------------------
+    // Between one attempt and the next the hand loses the paper. Early on it
+    // hauls itself back; later the pull gives out, the attempts stop orbiting
+    // the shape and start orbiting each other, and they get shorter, because
+    // by then I was not finishing them.
+    const N = 44;
+    const regs = [];
+    let dx = 0, dy = 0, rot = 0;
+    for (let k = 0; k < N; k++) {
+        const u = k / (N - 1);
+        const step = 0.55 + 3.6 * Math.pow(u, 1.4);
+        const pull = 0.36 - 0.30 * u;
+        dx += t.rnd(-1, 1) * step - dx * pull;
+        dy += t.rnd(-1, 1) * step - dy * pull;
+        rot += t.rnd(-1, 1) * step * 0.005 - rot * pull;
+        // the hand is outside the line it wanted four times in five
+        const out = t.chance(0.8) ? 1 : -1;
+        regs.push({ dx, dy, rot, u, out });
+    }
+    const place = (x, y, r) => {
+        const ox = x - RX - RW / 2, oy = y - RY - HV / 2;
+        const c = Math.cos(r.rot), si = Math.sin(r.rot);
+        return [RX + RW / 2 + ox * c - oy * si + r.dx, RY + HV / 2 + ox * si + oy * c + r.dy];
+    };
+    const mark = (k, s) => {
+        const r = regs[k];
+        const a = at(s);
+        const d = hard(s);
+        const slow = t.noise(s * 0.05, k * 4.1);
+        const fast = t.noise(s * 0.5, k * 4.1 + 71);
+        const amp = U(mm(1.35)) * (0.45 + 2.1 * r.u) * d;
+        const bias = r.out * (U(mm(0.45)) + U(mm(2.4)) * r.u) * d * 0.7;
+        const off = bias + slow * amp + fast * amp * 0.38;
+        const q = offAt(s, off);
+        return place(q[0], q[1], r);
+    };
+    // ---- the attempts ----------------------------------------------------
+    // A nervous hand does not go all the way round. It goes a little way,
+    // lifts, and puts the pen down somewhere that is not where it lifted
+    // from — often short of it, which is how a mark gets drawn twice and
+    // how the tone builds.
+    const attempts = [];
+    for (let k = 0; k < N; k++) {
+        const r = regs[k];
+        const span = L * (1 - 0.5 * r.u) * t.rnd(0.75, 1.0);
+        // Late attempts start near the beginning and stop early: by then I was
+        // only redoing the part I could still see, and the far side was left.
+        let s = t.rnd(0, Math.max(1, L - span)) * (1 - 0.72 * r.u);
+        const end = s + span;
+        let guard = 0;
+        while (s < end && guard++ < 500) {
+            const d = hard(s);
+            const run = t.rnd(3.5, 17) / d;
+            const pts = [];
+            for (let q = 0; q <= run; q += 0.6)
+                pts.push(mark(k, Math.min(s + q, L)));
+            pts.push(mark(k, Math.min(s + run, L)));
+            if (pts.length > 1)
+                attempts.push(stroke(pts, { pen: FINE }));
+            s += run;
+            if (t.chance(0.24 + 0.22 * r.u))
+                s -= t.rnd(0.8, 6.0); // put it down short
+            else
+                s += t.rnd(0.4, 4.0) * (0.35 + r.u); // or leave a hole
+        }
+    }
+    // ---- the stalls ------------------------------------------------------
+    // A corner is a decision. These are the marks made while not making it.
+    const stalls = [];
+    for (let k = 0; k < N; k++) {
+        const r = regs[k];
+        for (const cs of CORNERS) {
+            if (!t.chance(0.44 + 0.34 * r.u))
+                continue;
+            const n = 1 + Math.floor(t.rnd(0, 4));
+            for (let i = 0; i < n; i++) {
+                const a = at(cs);
+                const ang = t.rnd(0, Math.PI * 2);
+                const len = t.rnd(1.6, 5.0) * (0.5 + r.u);
+                const bx = a.x + a.nx * t.rnd(0, 3.5) + t.rnd(-2.2, 2.2);
+                const by = a.y + a.ny * t.rnd(0, 3.5) + t.rnd(-2.2, 2.2);
+                const seg = [];
+                for (let q = 0; q <= 1.0001; q += 0.16) {
+                    const jx = t.noise(q * 5 + k * 3, i * 9 + cs) * U(mm(0.75));
+                    const jy = t.noise(q * 5 + k * 3 + 40, i * 9 + cs) * U(mm(0.75));
+                    seg.push(place(bx + Math.cos(ang) * len * q + jx, by + Math.sin(ang) * len * q + jy, r));
+                }
+                stalls.push(stroke(seg, { pen: FINE }));
+            }
+        }
+    }
+    // ---- the corrections -------------------------------------------------
+    // Heavier, slower, committed — and wrong. These are the ones I meant,
+    // and two of them walk straight through the middle of the thing.
+    const fixes = [];
+    for (let i = 0; i < 10; i++) {
+        // Mostly well clear on the outside; twice straight through the middle,
+        // and those two go down a side, where being wrong is most obvious.
+        const sgn = i < 2 ? -1 : 1;
+        const s0 = sgn < 0
+            ? (i === 0 ? t.rnd(HV * 0.25, HV * 0.8) : t.rnd(HV + RW + 6, L - 40))
+            : t.rnd(0, L * 0.9);
+        const span = Math.min(L - s0, t.rnd(16, 40));
+        const a0 = sgn * U(mm(2.4 + t.rnd(0, 4.5))) * (sgn < 0 ? t.rnd(1.6, 4.5) : 1);
+        const a1 = a0 + sgn * U(mm(1.5 + t.rnd(0, 6)));
+        const pts = [];
+        for (let q = 0; q <= span; q += 0.5) {
+            const v = q / span;
+            // A committed mark is still made by this hand.
+            const w = t.noise((s0 + q) * 0.09, i * 13) * U(mm(0.9)) +
+                t.noise((s0 + q) * 0.55, i * 13 + 44) * U(mm(0.35));
+            const off = a0 + (a1 - a0) * v + w;
+            pts.push(offAt(s0 + q, off));
+        }
+        fixes.push(stroke(pts, { pen: i % 4 === 0 ? MID : HEAVY }));
+    }
+    // ---- the ones that lost it -------------------------------------------
+    // The hand leaves the edge and goes out into the middle of the thing it
+    // was supposed to be drawing the outside of. These are the worst marks
+    // on the sheet and the only ones in the white.
+    const lost = [];
+    for (let i = 0; i < 5; i++) {
+        // The first one is the mark this drawing is about: it leaves the top
+        // edge, walks out into the empty middle, and stops there.
+        const top = i === 0;
+        const s0 = top ? HV + RW * t.rnd(0.42, 0.68) : t.rnd(HV * 0.1, L * 0.9);
+        const a = at(s0);
+        let x = a.x, y = a.y;
+        let ang = Math.atan2(-a.ny, -a.nx) + t.rnd(-0.22, 0.22) * (top ? 1 : 3.6);
+        const len = top ? t.rnd(28, 40) : t.rnd(8, 24);
+        const pts = [];
+        for (let q = 0; q < len; q += 0.6) {
+            ang += (t.noise(q * 0.08, i * 17) * 0.13 + t.rnd(-1, 1) * 0.045) * (top ? 0.3 : 1);
+            x += Math.cos(ang) * 0.6;
+            y += Math.sin(ang) * 0.6;
+            // the same tremor that is in everything else
+            const jx = t.noise(q * 0.9, i * 31) * U(mm(0.55));
+            const jy = t.noise(q * 0.9 + 17, i * 31) * U(mm(0.55));
+            pts.push([x + jx, y + jy]);
+        }
+        lost.push(stroke(pts, { pen: i === 0 ? MID : FINE }));
+    }
+    // ---- the ground ------------------------------------------------------
+    // Ruled lines: the one thing a hand is asked to do and cannot, which is
+    // hold a gap. Open and calm at the top, closing and knotting downward,
+    // and worst of all against the edge of the shape.
+    const nerve = (x, y) => Math.min(1, 1.15 * Math.exp(-away(x, y) / 9) + 0.5 * Math.pow(y / H, 3.0));
+    const ground = [];
+    const base = U(mm(1.5));
+    for (let y0 = 4; y0 < H - 2;) {
+        const x0 = 2.5 + t.rnd(0, 6.5);
+        const x1 = W - 2.5 - t.rnd(0, 6.5);
+        const pts = [];
+        for (let x = x0; x <= x1; x += 0.7) {
+            const n = nerve(x, y0);
+            const amp = U(mm(0.16)) + n * U(mm(1.05));
+            // A long sag the whole ruling shares, so the sheet breathes together,
+            // and a tremor each line keeps to itself, which is what closes the gap.
+            const sag = t.noise(x * 0.013, y0 * 0.42) * U(mm(0.5));
+            const d = sag +
+                t.noise(x * 0.05, y0 * 1.7) * amp +
+                t.noise(x * 0.32, y0 * 1.7 + 63) * amp * 0.4;
+            pts.push([x, y0 + d]);
+        }
+        if (pts.length > 1)
+            ground.push(stroke(pts, { pen: FINE }));
+        y0 += base * (1.72 - 0.95 * (y0 / H));
+    }
+    return [
+        ground,
+        mask(rect(RX, RY, RW, YB - RY)),
+        attempts,
+        stalls,
+        fixes,
+        lost,
+    ];
+});
+```

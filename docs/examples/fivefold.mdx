@@ -1,0 +1,219 @@
+---
+title: Fivefold
+description: A tiling that will never repeat, read as tone.
+---
+
+Ten Robinson triangles inflated by the golden ratio into a Penrose tiling. The fivefold rotation is exact, and the tiling never repeats.
+
+Each rhomb takes a hatch at its own angle, so the tiling becomes tone. The eye reads it as a surface before it reads it as a pattern.
+
+The white arms are de Bruijn's ribbons. The walk starts at the five rhombs that meet in the centre and leaves them unhatched. A construction that lives in the tiling's arithmetic becomes the first thing you see.
+
+Uses: `polygon` with a hatch `fill`, `clip`, `circle`, `line`, `t.bounds`. The sketch writes its own inflation and ribbon walk.
+
+```ts live
+// THE FIVEFOLD OFFICE
+//
+// Ten acute Robinson triangles around a point, subdivided by the golden
+// ratio until the wheel is a Penrose rhombus tiling: exact fivefold
+// rotation, and never a repeat.
+//
+// Every tile is crossed by two of de Bruijn's five families of ribbons.
+// The ribbons are not drawn. They are the tiles that were left open, and
+// they are found by walking out of the rhombs that meet at the centre,
+// through every pair of parallel edges, to the rim. Everything else is
+// ruled parallel to one of its own edges. The ruling is anchored to the
+// paper, so the lines run on across every tile that agrees.
+//
+// Its density is not its own. Each small tile is ruled at the spacing
+// of the big tile it descends from, three inflations up, so the tone
+// carries the same tiling at a size you cannot see the edges of.
+//
+// Under all of it the two star polygons on ten points, {10/3} and
+// {10/4}, are drawn whole. The ruled tiles are opaque and hide almost
+// all of them. What is left is the heavy fragments in the ribbons — the
+// figure is there, and the drawing only lets you have it in pieces. The
+// small star at the heart is the same construction at the one place
+// where nothing covers it.
+import { sketch, polygon, line, circle, fill, mm, clip } from 'occlude';
+const PHI = (1 + Math.sqrt(5)) / 2;
+const lerp = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
+const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+function subdivide(tris) {
+    const out = [];
+    for (const { c, a: A, b: B, d: C, tag } of tris) {
+        if (c === 0) {
+            const P = lerp(A, B, 1 / PHI);
+            out.push({ c: 0, a: C, b: P, d: B, tag }, { c: 1, a: P, b: C, d: A, tag });
+        }
+        else {
+            const Q = lerp(B, A, 1 / PHI);
+            const R = lerp(B, C, 1 / PHI);
+            out.push({ c: 1, a: R, b: C, d: A, tag }, { c: 1, a: Q, b: R, d: B, tag }, { c: 0, a: R, b: Q, d: A, tag });
+        }
+    }
+    return out;
+}
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+    const b = t.bounds();
+    const cx = b.w / 2;
+    const cy = b.h / 2;
+    const R = b.w * 0.48;
+    const RC = R * 0.9;
+    const GEN = 5;
+    // the generation whose tiles become the large tones
+    const MARK = 3;
+    let tris = [];
+    for (let i = 0; i < 10; i++) {
+        let B = [cx + R * Math.cos(((2 * i - 1) * Math.PI) / 10), cy + R * Math.sin(((2 * i - 1) * Math.PI) / 10)];
+        let C = [cx + R * Math.cos(((2 * i + 1) * Math.PI) / 10), cy + R * Math.sin(((2 * i + 1) * Math.PI) / 10)];
+        if (i % 2 === 0)
+            [B, C] = [C, B];
+        tris.push({ c: 0, a: [cx, cy], b: B, d: C });
+    }
+    for (let g = 0; g < GEN; g++) {
+        tris = subdivide(tris);
+        // every tile remembers the big tile it came out of
+        if (g === MARK - 1)
+            tris = tris.map((tr, k) => ({ ...tr, tag: { c: tr.c, k } }));
+    }
+    const side = R / Math.pow(PHI, GEN);
+    const grain = side * 0.02;
+    const key = (p, q) => `${Math.round((p[0] + q[0]) / 2 / grain)}:${Math.round((p[1] + q[1]) / 2 / grain)}`;
+    // pair the half tiles across their odd edge — the rhomb's own diagonal
+    const halves = new Map();
+    for (const { a: A, b: B, d: C, tag } of tris) {
+        const es = [[A, B], [B, C], [C, A]];
+        const ap = [C, A, B];
+        const L = es.map(([p, q]) => dist(p, q));
+        let odd = 0;
+        let best = -1;
+        for (let i = 0; i < 3; i++) {
+            const s = Math.abs(L[i] - L[(i + 1) % 3]) + Math.abs(L[i] - L[(i + 2) % 3]);
+            if (s > best) {
+                best = s;
+                odd = i;
+            }
+        }
+        const k = key(es[odd][0], es[odd][1]);
+        const rec = halves.get(k) ?? { edge: es[odd], apex: [] };
+        rec.apex.push(ap[odd]);
+        rec.tag = rec.tag ?? tag;
+        halves.set(k, rec);
+    }
+    const dirOf = (p, q) => ((((Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI) % 180) + 180) % 180;
+    // every edge lies in one of five directions, 36 degrees apart
+    const OFF = dirOf(tris[0].a, tris[0].b) % 36;
+    const famOf = (a) => ((Math.round((a - OFF) / 36) % 5) + 5) % 5;
+    const rhombs = [];
+    for (const { edge, apex, tag } of halves.values()) {
+        if (apex.length !== 2)
+            continue;
+        const [u, v] = edge;
+        const loop = [u, apex[0], v, apex[1]];
+        const mx = (u[0] + v[0]) / 2;
+        const my = (u[1] + v[1]) / 2;
+        const ang = [dirOf(u, apex[0]), dirOf(apex[0], v)];
+        rhombs.push({ loop, mx, my, r: Math.hypot(mx - cx, my - cy), fam: ang.map(famOf), ang, big: tag ? tag.k : -1 });
+    }
+    // each big tile takes one tone, from where its own centre falls.
+    // the tone steps, so the masses have the shape of the big tiles.
+    const acc = new Map();
+    for (const rh of rhombs) {
+        const a = acc.get(rh.big) ?? { s: 0, n: 0 };
+        a.s += rh.r;
+        a.n += 1;
+        acc.set(rh.big, a);
+    }
+    const STEPS = [2.7, 1.95, 1.35, 0.88, 0.58];
+    const toneOf = new Map();
+    for (const [k, a] of acc) {
+        const u = Math.min(0.999, a.s / a.n / RC);
+        toneOf.set(k, STEPS[Math.floor(u * STEPS.length)]);
+    }
+    // adjacency: every tile edge, and the one or two tiles that own it
+    const owners = new Map();
+    rhombs.forEach((rh, i) => {
+        for (let e = 0; e < 4; e++) {
+            const k = key(rh.loop[e], rh.loop[(e + 1) % 4]);
+            owners.set(k, [...(owners.get(k) ?? []), i]);
+        }
+    });
+    // the ribbons: cross a tile through its two parallel edges of one
+    // family, and keep going until the tiling runs out
+    const onRibbon = new Set();
+    const stack = [];
+    rhombs.forEach((rh, i) => { if (rh.r < side * 0.95)
+        for (const f of rh.fam)
+            stack.push([i, f]); });
+    const done = new Set();
+    while (stack.length) {
+        const [i, f] = stack.pop();
+        if (done.has(`${i}/${f}`))
+            continue;
+        done.add(`${i}/${f}`);
+        onRibbon.add(i);
+        const rh = rhombs[i];
+        for (let e = 0; e < 4; e++) {
+            const p = rh.loop[e];
+            const q = rh.loop[(e + 1) % 4];
+            if (famOf(dirOf(p, q)) !== f)
+                continue;
+            for (const j of owners.get(key(p, q)) ?? [])
+                if (j !== i)
+                    stack.push([j, f]);
+        }
+    }
+    // one ruling per tile: the tile edge nearest the tangent of its circle
+    const pick = (rh) => {
+        const tan = ((((Math.atan2(rh.my - cy, rh.mx - cx) * 180) / Math.PI + 90) % 180) + 180) % 180;
+        const gap = (a) => { const d = Math.abs(a - tan) % 180; return Math.min(d, 180 - d); };
+        return gap(rh.ang[0]) < gap(rh.ang[1]) ? rh.ang[0] : rh.ang[1];
+    };
+    // the hidden ground: the two star polygons on ten points, {10/3} and
+    // {10/4}, drawn whole and then almost entirely hidden
+    const hidden = [];
+    for (const skip of [3, 4]) {
+        for (let i = 0; i < 10; i++) {
+            const a = ((2 * i - 1) * Math.PI) / 10;
+            const c = ((2 * (i + skip) - 1) * Math.PI) / 10;
+            hidden.push(line(cx + Math.cos(a) * RC * 0.985, cy + Math.sin(a) * RC * 0.985, cx + Math.cos(c) * RC * 0.985, cy + Math.sin(c) * RC * 0.985, { pen: 'pigma-05-black' }));
+        }
+    }
+    const ruled = [];
+    const edges = [];
+    const seen = new Set();
+    rhombs.forEach((rh, i) => {
+        if (onRibbon.has(i)) {
+            for (let e = 0; e < 4; e++) {
+                const p = rh.loop[e];
+                const q = rh.loop[(e + 1) % 4];
+                const k = key(p, q);
+                if (seen.has(k))
+                    continue;
+                seen.add(k);
+                edges.push(line(p[0], p[1], q[0], q[1], { pen: 'pigma-005-black' }));
+            }
+            return;
+        }
+        ruled.push(polygon([rh.loop], {
+            fill: fill('hatch', { angle: pick(rh), spacing: mm(toneOf.get(rh.big) ?? 1.2) }),
+            stroke: false,
+            pen: 'pigma-005-black',
+        }));
+    });
+    // the small star at the heart: the same construction as the hidden
+    // ones, and the only one that nothing happens to cover
+    const heart = [];
+    for (let i = 0; i < 10; i++) {
+        const a = ((2 * i - 1) * Math.PI) / 10;
+        const c = ((2 * (i + 3) - 1) * Math.PI) / 10;
+        const rr = side * 1.58;
+        heart.push(line(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, cx + Math.cos(c) * rr, cy + Math.sin(c) * rr, { pen: 'pigma-05-black' }));
+    }
+    return [
+        clip(circle(cx, cy, RC), hidden, heart, ruled, edges),
+        circle(cx, cy, RC, { pen: 'pigma-05-black' }),
+    ];
+});
+```
