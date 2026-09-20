@@ -7,6 +7,8 @@ export type {Collection} from './collection.js';
 export type {SubdivisionOptions} from './subdivide.js';
 export type {Vec3} from '../math.js';
 export {sphere,cylinder,cone,torus} from './primitives.js';
+export {obj} from './obj.js';
+export type {ObjOptions} from './obj.js';
 export type {SphereOptions,RadialOptions,TorusOptions} from './primitives.js';
 export {instanceOnPoints} from './instances.js';
 export type {Instances,InstanceRow,InstanceTransform,InstanceTransformInput,InstanceOnPointsOptions,RealizeOptions} from './instances.js';

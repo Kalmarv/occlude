@@ -22,7 +22,7 @@ export function assetsFromDisk(source: string, dir: string = assetsDir): AssetTa
   for (const name of scanAssetNames(source)) {
     const path = base + name;
     const ext = extname(name).toLowerCase();
-    if (ext === '.svg' || ext === '.txt' || ext === '.json') {
+    if (ext === '.svg' || ext === '.obj' || ext === '.txt' || ext === '.json') {
       entries.push([name, { text: readFileSync(path, 'utf8') }]);
     } else if (ext === '.png') {
       const png = PNG.sync.read(readFileSync(path));

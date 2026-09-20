@@ -4,7 +4,7 @@ Ordinary sketches import their 3D vocabulary from `occlude/3d`: `plane`, `box`, 
 
 ## Procedural mesh values
 
-Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. Each returns the same immutable mesh value with `.points`, `.edges` and `.faces` collections.
+Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. `obj(text)` reads a Wavefront OBJ file from a modeller into the same value, stood upright from the file's Y-up frame. Each returns the same immutable mesh value with `.points`, `.edges` and `.faces` collections.
 
 `subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
 

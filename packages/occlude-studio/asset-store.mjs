@@ -1,5 +1,5 @@
 /**
- * Server-side asset store (uploaded SVGs and images), shared by the Vite
+ * Server-side asset store (uploaded SVGs, OBJ models and images), shared by the Vite
  * middleware and the production server. Files persist under ./assets —
  * shared by every browser/device that reaches this server, like sketches.
  *
@@ -23,6 +23,7 @@ const MIME = {
   '.webp': 'image/webp',
   '.gif': 'image/gif',
   '.txt': 'text/plain',
+  '.obj': 'text/plain',
   '.json': 'application/json',
 };
 

@@ -28,6 +28,10 @@ export default sketch({ aspect: [2, 1] }, () => [
 const church = svg(t.asset('church.svg'), { width: b.w, bridge: mm(0.7) });
 ```
 
+## OBJ models
+
+`obj(text, { up?, objects? })` from `occlude/3d` turns a Wavefront OBJ file into a mesh: viewed, occluded and hatched like a box. Upload the file on the Assets page and read it with `t.asset('name.obj')`. The signature and a live example are on the [3D primitives](/docs/reference/3d/primitives#obj) page.
+
 ## Sampling an image
 
 `image('name.png', { x, y, width })` never draws. Placement maps the pixels into drawable coordinates so that samples can drive marks. Each sampler takes a position and an optional `area`, a half-size in drawable units to average over; point samples are bilinear and area samples use summed-area tables, so any area costs the same. Average over the mark's own footprint whenever a mark covers more paper than a pixel.

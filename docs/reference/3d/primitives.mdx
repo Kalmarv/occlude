@@ -71,6 +71,42 @@ import { torus, view, perspective } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view(torus(1.2, 0.4, { segments: 36, tubeSegments: 14 }), { camera: perspective({ eye: [3, 4, 2.4], fovDegrees: 40 }), stroke: 'ink', creaseAngle: 180 }));
 ```
 
+## obj()
+
+<include>/_sig/3d.obj.mdx</include>
+
+A mesh from the text of a Wavefront OBJ file: a model from Blender or any other modeller, occluded, hatched and plotted like a box. Only `v` and `f` lines are read. Normals, texture coordinates, materials and smoothing groups are read past. Polygons keep their vertex count. OBJ files are Y-up and occlude is Z-up, so the model is stood upright. `up: 'z'` keeps a file's coordinates as they are. `objects` keeps only the named `o` objects, and each face carries its `object` and `group` name as an attribute. A file's mistake is refused by line: an index past the last vertex, a face that visits a vertex twice, two faces that wind the same way along a shared edge. In a sketch, `t.asset('name.obj')` gives the text of an uploaded file.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { obj, view, perspective } from 'occlude/3d';
+
+// A gabled house, Y up, as a modeller writes it. Faces wind counter-clockwise seen from outside.
+const HOUSE = `o house
+v -1 0 -0.8
+v  1 0 -0.8
+v  1 0  0.8
+v -1 0  0.8
+v -1 1 -0.8
+v  1 1 -0.8
+v  1 1  0.8
+v -1 1  0.8
+v -1 1.6 0
+v  1 1.6 0
+f 1 2 3 4
+f 1 5 6 2
+f 4 3 7 8
+f 1 4 8 9 5
+f 2 6 10 7 3
+f 5 9 10 6
+f 8 7 10 9`;
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const house = obj(HOUSE);
+  return view([house, house.scale(0.55).translate([1.9, -0.4, 0])], { camera: perspective({ eye: [4.6, 6.2, 3.6], target: [0.5, -0.2, 0.7], fovDegrees: 36 }), stroke: 'ink' });
+});
+```
+
 ## translate() · rotate() · scale()
 
 A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. Translate then rotate turns the bar where it stands. Rotate then translate turns it first. The blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
