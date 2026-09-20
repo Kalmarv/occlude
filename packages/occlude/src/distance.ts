@@ -23,6 +23,15 @@ import type { PointsLike } from './material.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
+/** `√(a² + b²)`, spelled out. Not `Math.hypot`: V8's hypot scales by the
+ * larger operand and sums with Kahan compensation, which costs about 2.5×
+ * this and differs from it only in the last bit. Every distance this
+ * module evaluates per sample goes through here, and the fused programs
+ * spell the same three operations in the same order, so both walks agree
+ * bit for bit. (Deliberate ink change, 2026-09-20: the docs baseline was
+ * re-saved with this.) */
+const hyp = (a: number, b: number): number => Math.sqrt(a * a + b * b);
+
 interface Seg {
   ax: number;
   ay: number;
@@ -170,7 +179,7 @@ export function distanceTo(boundary: AreaInput): DistanceField {
             const dy = BY[i] - ay;
             const len2 = dx * dx + dy * dy;
             const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
-            const d = Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+            const d = hyp(x - (ax + dx * t), y - (ay + dy * t));
             if (d < best) best = d;
           }
           if (k === 0) break;
@@ -300,7 +309,7 @@ export function distanceToPoints(sites: PointsLike): DistanceField {
           const cell = r * cols + c;
           for (let m = start[cell], me = start[cell + 1]; m < me; m++) {
             const i = items[m];
-            const d = Math.hypot(x - sx[i], y - sy[i]);
+            const d = hyp(x - sx[i], y - sy[i]);
             if (d < best) best = d;
           }
           if (k === 0) break;
@@ -499,14 +508,16 @@ const compileNode = (root: SdfNode): DistanceField | null => {
         body.push(`const ${v} = ${K(n.v)};`);
         break;
       case 'circle':
-        body.push(`const ${v} = ${K(n.r)} - Math.hypot(x - ${K(n.cx)}, y - ${K(n.cy)});`);
+        body.push(`const ${v}a = x - ${K(n.cx)}, ${v}b = y - ${K(n.cy)};`);
+        body.push(`const ${v} = ${K(n.r)} - Math.sqrt(${v}a * ${v}a + ${v}b * ${v}b);`);
         break;
       case 'box': {
         const dx = `${v}a`;
         const dy = `${v}b`;
         body.push(`const ${dx} = Math.abs(x - ${K(n.cx)}) - ${K(n.hw)};`);
         body.push(`const ${dy} = Math.abs(y - ${K(n.cy)}) - ${K(n.hh)};`);
-        body.push(`const ${v} = -(Math.hypot(Math.max(${dx}, 0), Math.max(${dy}, 0)) + Math.min(Math.max(${dx}, ${dy}), 0));`);
+        body.push(`const ${v}p = Math.max(${dx}, 0), ${v}q = Math.max(${dy}, 0);`);
+        body.push(`const ${v} = -(Math.sqrt(${v}p * ${v}p + ${v}q * ${v}q) + Math.min(Math.max(${dx}, ${dy}), 0));`);
         break;
       }
       case 'segment': {
@@ -514,7 +525,8 @@ const compileNode = (root: SdfNode): DistanceField | null => {
         body.push(n.len2 > 0
           ? `const ${tt} = Math.max(0, Math.min(1, ((x - ${K(n.ax)}) * ${K(n.dx)} + (y - ${K(n.ay)}) * ${K(n.dy)}) / ${K(n.len2)}));`
           : `const ${tt} = 0;`);
-        body.push(`const ${v} = ${K(n.r)} - Math.hypot(x - (${K(n.ax)} + ${K(n.dx)} * ${tt}), y - (${K(n.ay)} + ${K(n.dy)} * ${tt}));`);
+        body.push(`const ${v}a = x - (${K(n.ax)} + ${K(n.dx)} * ${tt}), ${v}b = y - (${K(n.ay)} + ${K(n.dy)} * ${tt});`);
+        body.push(`const ${v} = ${K(n.r)} - Math.sqrt(${v}a * ${v}a + ${v}b * ${v}b);`);
         break;
       }
       case 'union': {
@@ -543,7 +555,7 @@ const compileNode = (root: SdfNode): DistanceField | null => {
         const nk = K(n.nk);
         body.push(`let ${v};`);
         body.push(`if (!Number.isFinite(${a}) || !Number.isFinite(${b})) ${v} = Math.max(${a}, ${b});`);
-        body.push(`else ${v} = Math.min(${nk}, Math.max(${a}, ${b})) + Math.hypot(Math.max(${rk} + ${a}, 0), Math.max(${rk} + ${b}, 0));`);
+        body.push(`else { const ${v}p = Math.max(${rk} + ${a}, 0), ${v}q = Math.max(${rk} + ${b}, 0); ${v} = Math.min(${nk}, Math.max(${a}, ${b})) + Math.sqrt(${v}p * ${v}p + ${v}q * ${v}q); }`);
         break;
       }
     }
@@ -683,7 +695,7 @@ NODE.set(everywhere, { fused: false, kind: 'const', v: Infinity });
 /** A disc of radius `r` about `cx, cy` — spelled like `circle(x, y, r)`.
  * Exact. */
 const circleField = (cx: number, cy: number, r: number): DistanceField => {
-  const f: DistanceField = (x, y) => r - Math.hypot(x - cx, y - cy);
+  const f: DistanceField = (x, y) => r - hyp(x - cx, y - cy);
   NODE.set(f, { fused: false, kind: 'circle', cx, cy, r });
   // The disc's own formula IS `peak − dist(p, box)` for the degenerate box
   // at its centre, so the bound is the value: `tight`. Nothing to bound
@@ -708,7 +720,7 @@ const boxField = (cx: number, cy: number, w: number, h: number): DistanceField =
     const dy = Math.abs(y - cy) - hh;
     // Outside: distance to the nearest corner or edge. Inside: the nearest
     // edge, which is the larger (least negative) of the two.
-    const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+    const outside = hyp(Math.max(dx, 0), Math.max(dy, 0));
     return -(outside + Math.min(Math.max(dx, dy), 0));
   };
   NODE.set(f, { fused: false, kind: 'box', cx, cy, hw, hh });
@@ -736,7 +748,7 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
   const len2 = dx * dx + dy * dy;
   const f: DistanceField = (x, y) => {
     const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
-    return r - Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+    return r - hyp(x - (ax + dx * t), y - (ay + dy * t));
   };
   NODE.set(f, { fused: false, kind: 'segment', ax, ay, dx, dy, len2, r });
   if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(r)) return f;
@@ -912,7 +924,7 @@ function blendField(a: DistanceField | readonly DistanceField[], b: DistanceFiel
     // on the locus equidistant from both is true out to infinity, so the
     // whole shape grows by k/4 and never stops. This form is exactly the
     // union wherever the joint is further than k away.
-    return Math.min(nk, Math.max(u, v)) + Math.hypot(Math.max(k + u, 0), Math.max(k + v, 0));
+    return Math.min(nk, Math.max(u, v)) + hyp(Math.max(k + u, 0), Math.max(k + v, 0));
   };
   const sa = supportOf(fa);
   const sb = supportOf(fb);
@@ -923,7 +935,7 @@ function blendField(a: DistanceField | readonly DistanceField[], b: DistanceFiel
   // be written with directly. The skip below therefore does not return
   // "the other value": it evaluates the SAME expression with the same
   // arguments, one of them the +0 the clamp would have produced — the
-  // same bits, `Math.hypot` and all.
+  // same bits, `hyp` and all.
   //
   // Two conditions, both needed. A side is under the fillet when the
   // sample is at least `peak + k` from its box, since `f ≤ peak − dist`;
@@ -965,7 +977,7 @@ function blendField(a: DistanceField | readonly DistanceField[], b: DistanceFiel
         // test cannot settle: there the bound's own value decides it, at
         // the price of the square root the fast test avoided.
         if (Number.isFinite(v) && (v >= nk || v >= above(aPeak, d2))) {
-          return Math.min(nk, v) + Math.hypot(0, Math.max(k + v, 0));
+          return Math.min(nk, v) + hyp(0, Math.max(k + v, 0));
         }
         return join(fa(x, y), v);
       }
@@ -976,7 +988,7 @@ function blendField(a: DistanceField | readonly DistanceField[], b: DistanceFiel
       const dy = y < by0 ? by0 - y : y > by1 ? y - by1 : 0;
       const d2 = dx * dx + dy * dy;
       if (d2 >= bLim2 && d2 !== Infinity && (u >= nk || u >= above(bPeak, d2))) {
-        return Math.min(nk, u) + Math.hypot(Math.max(k + u, 0), 0);
+        return Math.min(nk, u) + hyp(Math.max(k + u, 0), 0);
       }
     }
     return join(u, fb(x, y));

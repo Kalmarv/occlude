@@ -5,6 +5,11 @@ import {finite3,type Vec3} from '../math.js';
  * sign is why `union` is a maximum and not a minimum: the union is inside
  * wherever EITHER field is inside, and inside is the larger value. */
 export type DistanceField3=(x:number,y:number,z:number)=>number;
+/** `√(a²+b²)` and `√(a²+b²+c²)` spelled out — the 2D `sdf` does the same
+ * (src/distance.ts `hyp`): V8's `Math.hypot` scales and compensates, at
+ * ~2.5× the cost and a last-bit difference. Deliberate ink change 2026-09-20. */
+const hyp2=(a:number,b:number):number=>Math.sqrt(a*a+b*b);
+const hyp3=(a:number,b:number,c:number):number=>Math.sqrt(a*a+b*b+c*c);
 
 /**
  * Solids as distance fields, and the algebra over them — the 2D `sdf` in
@@ -41,7 +46,7 @@ const triple=(v:Vec3|number,what:string):Vec3=>{
 /** A ball of radius `r` about `center`. Exact. */
 const sphereField=(r:number,center:Vec3=[0,0,0]):DistanceField3=>{
   const [cx,cy,cz]=triple(center,'sphere');
-  return (x,y,z)=>r-Math.hypot(x-cx,y-cy,z-cz);
+  return (x,y,z)=>r-hyp3(x-cx,y-cy,z-cz);
 };
 
 /**
@@ -60,7 +65,7 @@ const boxField=(size:Vec3|number,center:Vec3=[0,0,0]):DistanceField3=>{
     const dx=Math.abs(x-cx)-hx,dy=Math.abs(y-cy)-hy,dz=Math.abs(z-cz)-hz;
     // Outside: the distance to the nearest face, edge or corner. Inside: the
     // nearest face, which is the largest (least negative) of the three.
-    const outside=Math.hypot(Math.max(dx,0),Math.max(dy,0),Math.max(dz,0));
+    const outside=hyp3(Math.max(dx,0),Math.max(dy,0),Math.max(dz,0));
     return -(outside+Math.min(Math.max(dx,dy,dz),0));
   };
 };
@@ -77,14 +82,14 @@ const capsuleField=(a:Vec3,b:Vec3,r:number):DistanceField3=>{
   const dx=bx-ax,dy=by-ay,dz=bz-az,len2=dx*dx+dy*dy+dz*dz;
   return (x,y,z)=>{
     const t=len2>0?Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy+(z-az)*dz)/len2)):0;
-    return r-Math.hypot(x-(ax+dx*t),y-(ay+dy*t),z-(az+dz*t));
+    return r-hyp3(x-(ax+dx*t),y-(ay+dy*t),z-(az+dz*t));
   };
 };
 
 /** A ring of tube radius `minor` about a circle of radius `major`, centred at
  * the origin, standing on the Z axis like `torus()`. Exact. */
 const torusField=(major:number,minor:number):DistanceField3=>
-  (x,y,z)=>minor-Math.hypot(Math.hypot(x,y)-major,z);
+  (x,y,z)=>minor-hyp2(hyp2(x,y)-major,z);
 
 /**
  * The half space on the far side of a plane: `normal` points OUT of the solid,
@@ -137,7 +142,7 @@ const blendField=(a:DistanceField3,b:DistanceField3,radius:number):DistanceField
     // An empty field is -Infinity by design. Blending with one gives the
     // other, rather than NaN everywhere.
     if(!Number.isFinite(u)||!Number.isFinite(v))return Math.max(u,v);
-    return Math.min(-k,Math.max(u,v))+Math.hypot(Math.max(k+u,0),Math.max(k+v,0));
+    return Math.min(-k,Math.max(u,v))+hyp2(Math.max(k+u,0),Math.max(k+v,0));
   };
 };
 
