@@ -1,0 +1,91 @@
+---
+title: Synth
+description: Random expressions, to find a field by looking instead of by deriving.
+---
+
+`synth` writes random mathematical expressions. You generate variants, you look at them, and you keep the one you want. It is a tool to explore with, not a part of the drawing.
+
+The expression is the product. Every result carries `.source`. This is the expression as text. Paste that text into the sketch and remove the `synth` call. The sketch then has no link to `synth`, and the drawing cannot change when the generator changes.
+
+`synth` does not scale or limit its result. The shape of the variation is the point. Use `.stats` to see the range you hold.
+
+## t.synth()
+
+<include>/_sig/Toolkit.synth.mdx</include>
+
+Give the variable names. You get a function of those variables, plus `.source` and `.stats`. The seed comes from the sketch's own stream. A new sketch seed gives a new expression. The same sketch seed always gives the same one.
+
+Divide the input coordinates before you sample. The drawable is 100 units wide. `sin` or `cos` of a number that large gives noise, not shape.
+
+This sketch found `x * Math.sin(y)`, and drew it as contour lines.
+
+```ts live
+import { sketch, strokes, range } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const e = t.synth(['x', 'y'], { bounds: { x: 0, y: 0, w: 7, h: 7 } });
+  const f = (x, y) => e(x / 14, y / 14);
+  const s = e.stats;
+  return strokes(t.isolines(f, range(s.lo, s.hi, (s.hi - s.lo) / 16)));
+});
+```
+
+`.stats` reports `lo` and `hi` as the 2nd and 98th percentile, not as the minimum and maximum. One outlier cannot move them. The example above reads `lo` and `hi` to space its contour levels. You do not know the range of a new expression in advance.
+
+## t.synth.warp()
+
+Two expressions over the same variables make a displacement. `warp` returns a function of `(x, y)` that gives a pair, so `deform` accepts it directly. `.source` is a pair of strings.
+
+These are plain circles. The warp gives them the rings.
+
+```ts live
+import { sketch, circle, deform, range } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
+  const w = t.synth.warp(['x', 'y'], { bounds: { x: 0, y: 0, w: 6, h: 6 } });
+  const push = (x, y) => { const d = w(x / 16, y / 16); return [d[0] * 1.2, d[1] * 1.2]; };
+  return deform({ field: push, detail: 1 }, range(8, 92, 7).map((r) => circle(50, 50, r / 2 + 4)));
+});
+```
+
+## synth() · probeExpression()
+
+<include>/_sig/synth.mdx</include>
+<include>/_sig/probeExpression.mdx</include>
+
+`t.synth` reads the sketch for two values. The plain `synth` does not read the sketch, so you must give both: a `seed`, and `bounds` to probe over. Use it outside the sketch function when you want one expression that never changes.
+
+`probeExpression` measures any function, including one you wrote. It returns the same `SynthStats`. The stats give you the range, and they show a spike.
+
+```ts live
+import { sketch, strokes, synth, probeExpression, range } from 'occlude';
+
+const area = { x: 0, y: 0, w: 7, h: 7 };
+const found = synth(['x', 'y'], { seed: 'basin-6', bounds: area });
+
+export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+  const f = (x, y) => found(x / 14, y / 14);
+  const s = probeExpression(f, ['x', 'y'], { x: 0, y: 0, w: 100, h: 100 });
+  return strokes(t.isolines(f, range(s.lo, s.hi, (s.hi - s.lo) / 18)));
+});
+```
+
+That seed gives `Math.tanh(Math.min(Math.sin(y), Math.cos(x)))`. Note that the sketch probes the scaled field `f`, not the raw expression, because `f` is what the drawing samples.
+
+## What synth rejects
+
+`synth` probes each candidate and keeps only the ones it can use. It drops an expression for three reasons. The samples are not finite. The result is flat. One spike sits far outside the other values. A pole draws a few lines that run to the edge. The generator removes it before you see it.
+
+After 200 tries with no result, `synth` throws. Raise `tries` or `depth`, or make `bounds` wider.
+
+`synth` protects every division. It writes a generated `a / b` with an inline guard. `.source` then stays correct on its own, and never calls back into `synth`.
+
+## Options
+
+| name | what it does |
+| --- | --- |
+| `seed` | Fixes the expression. `t.synth` draws one from the sketch stream. |
+| `depth` | Height of the expression tree. Default 3. |
+| `nodes` | Limit on total terms. The tree ends in variables once it is reached. |
+| `bounds` | The area to probe over. `t.synth` uses the drawable. |
+| `tries` | How many candidates to test before it throws. Default 200. |

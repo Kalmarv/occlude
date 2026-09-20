@@ -44,6 +44,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'reference-material', title: 'Reference: Material', file: 'reference/material.mdx', live: true, group: 'topics' },
   { slug: 'reference-math', title: 'Reference: Math', file: 'reference/math.mdx', live: true, group: 'topics' },
   { slug: 'reference-random', title: 'Reference: Random', file: 'reference/random.mdx', live: true, group: 'topics' },
+  { slug: 'reference-synth', title: 'Reference: Synth', file: 'reference/synth.mdx', live: true, group: 'topics' },
   { slug: 'reference-sketch', title: 'Reference: Sketch', file: 'reference/sketch.mdx', live: true, group: 'topics' },
   // The graph page carries screenshots, not a runnable example: there is
   // no ink to hash, and the canvas is the thing to look at.
