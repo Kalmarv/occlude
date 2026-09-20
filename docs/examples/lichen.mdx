@@ -148,7 +148,7 @@ export default sketch({
                         count: Math.round(90 * s.age * (s.r / 30)),
                         within: inner,
                     }).points;
-                    parts.push(cups.map((p) => [
+                    parts.push(...cups.map((p) => [
                         circle(p.x, p.y, U(0.36), { fill: fill('solid'), stroke: false, pen: 'ink' }),
                         circle(p.x, p.y, U(0.8), { pen: 'hair' }),
                     ]));
