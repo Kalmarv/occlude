@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { circle, distanceTo, sdf, initOcclude, polygon, render, sketch, type SketchDef } from '../src/index.js';
 import { isolinesOf } from '../src/isolines.js';
-import { __sdfDirect } from '../src/distance.js';
+import { __sdfDirect, __sdfFused } from '../src/distance.js';
 
 /** The pure contourer, over a fixed 100mm square: isolines needs the paper,
  * so the toolkit owns `t.isolines` and a test states the frame itself. */
@@ -237,6 +237,33 @@ describe('the algebra skips only what cannot change the answer', () => {
     expect(calls).toBe(zeroCalls + 2);
   });
 
+  it('gives a pure DAG — one blob under two branches — the same bits fused and walked', () => {
+    sameBits(() => {
+      const blob = sdf.blend([0, 1, 2, 3].map((j) => sdf.circle(40 + 5 * j, 46 + 4 * j, 11 - j)), 5);
+      // `blob` is reached twice under one root, so the fused body must give
+      // it ONE local: the program stays linear in the nodes, exactly as the
+      // memo keeps the walk linear.
+      const left = sdf.blend(blob, sdf.circle(72, 30, 9), 6);
+      const right = sdf.subtract(sdf.union(blob, sdf.box(68, 70, 26, 18)), sdf.circle(50, 50, 4));
+      return sdf.blend(left, right, 3);
+    });
+  });
+
+  it('writes a pure tree out as one function, and leaves a tree with a lambda in it alone', () => {
+    const pure = sdf.blend([sdf.circle(40, 50, 14), sdf.circle(60, 50, 14), sdf.box(50, 70, 20, 12)], 5);
+    expect(__sdfFused(pure)).toBe(false);
+    expect(pure(50, 50)).toBeGreaterThan(0);
+    expect(__sdfFused(pure)).toBe(true);
+    // A sketch lambda anywhere below and the tree stays a tree.
+    const mixed = sdf.union(sdf.circle(40, 50, 14), (x, y) => 4 - Math.hypot(x - 70, y - 50));
+    mixed(50, 50);
+    expect(__sdfFused(mixed)).toBe(false);
+    // and the fused answer is the walked answer
+    __sdfDirect(true);
+    const walked = sdf.blend([sdf.circle(40, 50, 14), sdf.circle(60, 50, 14), sdf.box(50, 70, 20, 12)], 5);
+    expect(Object.is(pure(37, 64), walked(37, 64))).toBe(true);
+  });
+
   it('keeps a NaN and a -Infinity branch as the plain walk reads them', () => {
     const disc = sdf.circle(50, 50, 10);
     const gone = (): number => NaN;
@@ -248,5 +275,62 @@ describe('the algebra skips only what cannot change the answer', () => {
     // far outside every box, where the bounds are at their loosest
     expect(sdf.union(disc, sdf.circle(20, 20, 5))(1e9, 1e9)).toBe(sdf.circle(50, 50, 10)(1e9, 1e9));
     expect(Number.isFinite(sdf.blend(disc, sdf.circle(20, 20, 5), 4)(1e6, -1e6))).toBe(true);
+  });
+});
+
+/**
+ * A whole list of fields is the same fold a sketch used to spell with
+ * `reduce`, so it has to be the same NUMBERS, not merely the same shape.
+ */
+describe('the combinators take a list', () => {
+  /** Both spellings over a 200×200 grid of the 100mm square, bit for bit. */
+  const sameGrid = (a: (x: number, y: number) => number, b: (x: number, y: number) => number): void => {
+    const pa = new Float64Array(200 * 200);
+    const pb = new Float64Array(200 * 200);
+    for (let j = 0; j < 200; j++) {
+      for (let i = 0; i < 200; i++) {
+        const x = (i * 100) / 199;
+        const y = (j * 100) / 199;
+        pa[j * 200 + i] = a(x, y);
+        pb[j * 200 + i] = b(x, y);
+      }
+    }
+    expect(new Uint8Array(pa.buffer)).toEqual(new Uint8Array(pb.buffer));
+    expect(pa.some((v) => Number.isFinite(v) && v > 0)).toBe(true);
+  };
+
+  const nine = (): ReturnType<typeof sdf.circle>[] => {
+    const cs = [];
+    for (let i = 0; i < 9; i++) {
+      const a = i * 2.399963;
+      cs.push(sdf.circle(50 + 26 * Math.cos(a), 50 + 26 * Math.sin(a), 9 + (i % 4)));
+    }
+    return cs;
+  };
+
+  it('blends a list exactly as the fold spelled it', () => {
+    sameGrid(sdf.blend(nine(), 7), nine().reduce((acc, f) => sdf.blend(acc, f, 7)));
+    // the identities the fold would give
+    expect(sdf.blend([], 7)(50, 50)).toBe(-Infinity);
+    const one = sdf.circle(50, 50, 10);
+    expect(sdf.blend([one], 7)).toBe(one);
+  });
+
+  it('unions, intersects and subtracts a list exactly as the spread spelled it', () => {
+    sameGrid(sdf.union(nine()), sdf.union(...nine()));
+    sameGrid(sdf.intersect([sdf.union(nine()), sdf.box(50, 50, 60, 40)]), sdf.intersect(sdf.union(...nine()), sdf.box(50, 50, 60, 40)));
+    sameGrid(sdf.subtract(sdf.box(50, 50, 70, 70), nine()), sdf.subtract(sdf.box(50, 50, 70, 70), ...nine()));
+    expect(sdf.union([])(50, 50)).toBe(-Infinity);
+    expect(sdf.intersect([])(50, 50)).toBe(Infinity);
+    expect(sdf.subtract(sdf.circle(50, 50, 10), [])(50, 50)).toBeCloseTo(10, 10);
+  });
+
+  it('refuses a list AND loose fields by name, because that is a mistake and not a mode', () => {
+    const a = sdf.circle(40, 50, 12);
+    const b = sdf.circle(60, 50, 12);
+    expect(() => (sdf.union as (...xs: unknown[]) => unknown)([a, b], a)).toThrow(/sdf\.union: pass one array/);
+    expect(() => (sdf.intersect as (...xs: unknown[]) => unknown)(a, [b])).toThrow(/sdf\.intersect: pass one array/);
+    expect(() => (sdf.subtract as (...xs: unknown[]) => unknown)(a, [b], b)).toThrow(/sdf\.subtract: pass one array/);
+    expect(() => (sdf.blend as (...xs: unknown[]) => unknown)([a, b], b, 5)).toThrow(/sdf\.blend: pass one array/);
   });
 });

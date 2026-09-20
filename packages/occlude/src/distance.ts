@@ -419,6 +419,145 @@ const boxBound = (x0: number, y0: number, x1: number, y1: number, peak: number):
   };
 };
 
+// ---- fusing: a pure subtree, written out as one function ---------------
+//
+// A field whose WHOLE subtree is this module's own arithmetic — the three
+// leaves and the combinators over them, with no sketch lambda anywhere
+// below — is a PURE TREE. A sample of it costs a call, a memo test and a
+// bound test per node, and none of that is the arithmetic the sample is
+// for. So the first time such a field is asked for a point it writes
+// itself out as ONE JavaScript function with no calls in it but `Math.*`,
+// and answers out of that function ever after.
+//
+// THE SAME RULE THE BOUNDS KEEP: the generated body performs exactly the
+// operations the walk performs, in the same order, on the same operands.
+// Every constant is READ from a captured `Float64Array` and never printed
+// into the source, so no double makes a round trip through text. Sharing
+// is by node identity: a field used twice under one root gets ONE local,
+// which keeps the fused body linear in the nodes exactly as the memo keeps
+// the walk linear.
+//
+// A node is reached here only by its own first sample, so an inner node of
+// a fused tree is never called and never compiles; a node the sketch
+// samples itself writes its own program, which may repeat a sibling's.
+// If `new Function` is refused — a page whose policy forbids it — the walk
+// of closures stands and nothing else in the module knows the difference.
+
+/** What the compiler needs to write one node out, and whether it has been
+ * written. A child is named by its own function: that is how the compiler
+ * recognises a node it has already emitted, and how it refuses a subtree
+ * that has a sketch lambda in it. */
+type SdfNode = { fused: boolean } & (
+  | { kind: 'const'; v: number }
+  | { kind: 'circle'; cx: number; cy: number; r: number }
+  | { kind: 'box'; cx: number; cy: number; hw: number; hh: number }
+  | { kind: 'segment'; ax: number; ay: number; dx: number; dy: number; len2: number; r: number }
+  | { kind: 'union'; kids: readonly DistanceField[] }
+  | { kind: 'intersect'; kids: readonly DistanceField[] }
+  | { kind: 'subtract'; base: DistanceField; holes: readonly DistanceField[] }
+  | { kind: 'blend'; a: DistanceField; b: DistanceField; rk: number; nk: number }
+);
+
+/** The map IS the purity test. A combinator records its node only when
+ * every child already has one, so `NODE.has(f)` answers "this whole
+ * subtree is ours" in one lookup, settled when the field is built rather
+ * than walked when it is sampled. */
+const NODE = new WeakMap<DistanceField, SdfNode>();
+const allPure = (fs: readonly DistanceField[]): boolean => fs.every((f) => NODE.has(f));
+
+/** Test-only: has this field compiled itself yet? Not exported from the
+ * package — a sketch has no business knowing, and the answer is only ever
+ * "the same numbers, sooner". */
+export function __sdfFused(f: DistanceField): boolean {
+  return NODE.get(f)?.fused === true;
+}
+
+/** The pure tree under `root` as one straight-line function of `(x, y)`,
+ * or `null` if it cannot be written (no `new Function`). Constants ride in
+ * on `C`. */
+const compileNode = (root: SdfNode): DistanceField | null => {
+  const consts: number[] = [];
+  const body: string[] = [];
+  const local = new Map<DistanceField, string>();
+  let next = 0;
+  /** A constant, by the slot it is read from. Template literals evaluate
+   * left to right, so the slots line up with the text that names them. */
+  const K = (v: number): string => `C[${consts.push(v) - 1}]`;
+  const child = (f: DistanceField): string => {
+    const had = local.get(f);
+    if (had !== undefined) return had;
+    const n = NODE.get(f);
+    if (n === undefined) throw new Error('sdf: not a pure subtree');
+    const name = emit(n);
+    local.set(f, name);
+    return name;
+  };
+  function emit(n: SdfNode): string {
+    const v = `v${next++}`;
+    switch (n.kind) {
+      case 'const':
+        body.push(`const ${v} = ${K(n.v)};`);
+        break;
+      case 'circle':
+        body.push(`const ${v} = ${K(n.r)} - Math.hypot(x - ${K(n.cx)}, y - ${K(n.cy)});`);
+        break;
+      case 'box': {
+        const dx = `${v}a`;
+        const dy = `${v}b`;
+        body.push(`const ${dx} = Math.abs(x - ${K(n.cx)}) - ${K(n.hw)};`);
+        body.push(`const ${dy} = Math.abs(y - ${K(n.cy)}) - ${K(n.hh)};`);
+        body.push(`const ${v} = -(Math.hypot(Math.max(${dx}, 0), Math.max(${dy}, 0)) + Math.min(Math.max(${dx}, ${dy}), 0));`);
+        break;
+      }
+      case 'segment': {
+        const tt = `${v}t`;
+        body.push(n.len2 > 0
+          ? `const ${tt} = Math.max(0, Math.min(1, ((x - ${K(n.ax)}) * ${K(n.dx)} + (y - ${K(n.ay)}) * ${K(n.dy)}) / ${K(n.len2)}));`
+          : `const ${tt} = 0;`);
+        body.push(`const ${v} = ${K(n.r)} - Math.hypot(x - (${K(n.ax)} + ${K(n.dx)} * ${tt}), y - (${K(n.ay)} + ${K(n.dy)} * ${tt}));`);
+        break;
+      }
+      case 'union': {
+        const ks = n.kids.map(child);
+        body.push(`let ${v} = -Infinity;`);
+        for (const c of ks) body.push(`${v} = Math.max(${v}, ${c});`);
+        break;
+      }
+      case 'intersect': {
+        const ks = n.kids.map(child);
+        body.push(`let ${v} = Infinity;`);
+        for (const c of ks) body.push(`${v} = Math.min(${v}, ${c});`);
+        break;
+      }
+      case 'subtract': {
+        const b = child(n.base);
+        const hs = n.holes.map(child);
+        body.push(`let ${v} = ${b};`);
+        for (const c of hs) body.push(`${v} = Math.min(${v}, -${c});`);
+        break;
+      }
+      case 'blend': {
+        const a = child(n.a);
+        const b = child(n.b);
+        const rk = K(n.rk);
+        const nk = K(n.nk);
+        body.push(`let ${v};`);
+        body.push(`if (!Number.isFinite(${a}) || !Number.isFinite(${b})) ${v} = Math.max(${a}, ${b});`);
+        body.push(`else ${v} = Math.min(${nk}, Math.max(${a}, ${b})) + Math.hypot(Math.max(${rk} + ${a}, 0), Math.max(${rk} + ${b}, 0));`);
+        break;
+      }
+    }
+    return v;
+  }
+  try {
+    const out = emit(root);
+    const make = new Function('C', `"use strict"; return function (x, y) {\n${body.join('\n')}\nreturn ${out};\n};`) as (c: Float64Array) => DistanceField;
+    return make(Float64Array.from(consts));
+  } catch {
+    return null;
+  }
+};
+
 /**
  * One slot of memory in front of a combinator: the same point asked twice
  * in a row answers with the bits it answered the first time. A field IS a
@@ -441,7 +580,7 @@ const boxBound = (x0: number, y0: number, x1: number, y1: number, peak: number):
  * answer twice. Such a thing is not a field, and nothing in the library
  * makes one; every `sdf.*` leaf is arithmetic on the point alone.
  */
-const memo1 = (sample: DistanceField): DistanceField => {
+const memo1 = (sample: DistanceField, node?: SdfNode): DistanceField => {
   if (direct) return sample;
   // The slot is a Float64Array and not three closure variables on purpose:
   // a double written to a closure variable is boxed on the heap, and this
@@ -450,16 +589,40 @@ const memo1 = (sample: DistanceField): DistanceField => {
   const slot = new Float64Array(3);
   slot[0] = NaN;
   slot[1] = NaN;
+  // The walk, until the first sample swaps in the fused program. It is
+  // swapped here rather than behind another closure so that a fused field
+  // costs one call and one slot test, not two calls.
+  let ask = sample;
+  let toWrite = node !== undefined;
   return (x, y) => {
     if (x === slot[0] && y === slot[1] && (x !== 0 || 1 / x === 1 / slot[0]) && (y !== 0 || 1 / y === 1 / slot[1])) {
       return slot[2];
     }
-    const v = sample(x, y);
+    if (toWrite) {
+      toWrite = false;
+      const prog = compileNode(node as SdfNode);
+      if (prog !== null) {
+        ask = prog;
+        (node as SdfNode).fused = true;
+      }
+    }
+    const v = ask(x, y);
     slot[0] = x;
     slot[1] = y;
     slot[2] = v;
     return v;
   };
+};
+
+/** What a combinator hands back: the walk behind one slot of memory, the
+ * fused program in its place once the first sample has written it, and —
+ * when the whole subtree is ours — the node recorded under the function,
+ * which is what lets a PARENT fuse straight through this one. */
+const combined = (sample: DistanceField, node: SdfNode | undefined): DistanceField => {
+  if (direct || node === undefined) return memo1(sample);
+  const out = memo1(sample, node);
+  NODE.set(out, node);
+  return out;
 };
 
 /** The children's supports, or undefined the moment one child has none:
@@ -491,17 +654,37 @@ const spanOf = (ss: readonly Support[]): { x0: number; y0: number; x1: number; y
  * already returns a field that is nowhere inside for an empty boundary,
  * "so isolines over an empty field yields no contours rather than
  * throwing" — a computed list that came out empty must behave the same. */
-const many = (fields: readonly DistanceField[], what: string): DistanceField[] => fields.map((f) => asField(f, what));
+const many = (fields: readonly unknown[], what: string): DistanceField[] => fields.map((f) => asField(f as DistanceField, what));
+
+/**
+ * ONE array of fields, or the fields themselves — never both.
+ *
+ * A chain of these reads better as the list it is (`union(discs)`) than as
+ * a spread or a fold, and the list is the same fold in the same order, so
+ * it is the same bits. Two spellings of one meaning is the price. A MIX of
+ * them (`union([a, b], c)`) is not a third spelling, it is a mistake, and
+ * it is refused here by name rather than quietly read as one of the two.
+ */
+const oneList = (args: readonly unknown[], what: string): readonly unknown[] => {
+  if (!args.some((a) => Array.isArray(a))) return args;
+  if (args.length !== 1) throw new Error(`sdf.${what}: pass one array of fields, or the fields themselves — not both`);
+  return args[0] as readonly unknown[];
+};
 
 /** Nowhere inside — the identity of a union, and an empty drawing. */
 const nowhere: DistanceField = () => -Infinity;
 /** Everywhere inside — the identity of an intersection. */
 const everywhere: DistanceField = () => Infinity;
+// Both identities are this module's own arithmetic, so a parent may fuse
+// through one. They are private singletons; nothing else can be handed in.
+NODE.set(nowhere, { fused: false, kind: 'const', v: -Infinity });
+NODE.set(everywhere, { fused: false, kind: 'const', v: Infinity });
 
 /** A disc of radius `r` about `cx, cy` — spelled like `circle(x, y, r)`.
  * Exact. */
 const circleField = (cx: number, cy: number, r: number): DistanceField => {
   const f: DistanceField = (x, y) => r - Math.hypot(x - cx, y - cy);
+  NODE.set(f, { fused: false, kind: 'circle', cx, cy, r });
   // The disc's own formula IS `peak − dist(p, box)` for the degenerate box
   // at its centre, so the bound is the value: `tight`. Nothing to bound
   // when a parameter is not a number the arithmetic can hold.
@@ -528,6 +711,7 @@ const boxField = (cx: number, cy: number, w: number, h: number): DistanceField =
     const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
     return -(outside + Math.min(Math.max(dx, dy), 0));
   };
+  NODE.set(f, { fused: false, kind: 'box', cx, cy, hw, hh });
   if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(hw) || !Number.isFinite(hh)) return f;
   // Deepest inside the box is half its short side; outside it is exactly
   // minus the distance to the box, so `peak − dist` holds on both sides.
@@ -554,6 +738,7 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
     const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
     return r - Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
   };
+  NODE.set(f, { fused: false, kind: 'segment', ax, ay, dx, dy, len2, r });
   if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(r)) return f;
   // A point is at least as far from the segment as from its bounding box,
   // so `r − dist(p, box)` is a ceiling on `r − dist(p, segment)`.
@@ -563,7 +748,9 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
 };
 
 /**
- * Inside wherever any of them is inside — a maximum.
+ * Inside wherever any of them is inside — a maximum. Takes one array of
+ * fields as well as the fields themselves: `union(discs)` is `union(...discs)`,
+ * the same fold over the same list, so it is the same bits.
  *
  * SKIP: child `i` is left unevaluated when `hi_i(p) < best`, the largest
  * value a sibling has already returned. Its value is at most `hi_i`, so
@@ -574,14 +761,16 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
  * first child is never skipped and a NaN from any child still poisons the
  * maximum exactly as `Math.max` does.
  */
-const unionField = (...fields: DistanceField[]): DistanceField => {
-  const fs = many(fields, 'union');
+function unionField(fields: readonly DistanceField[]): DistanceField;
+function unionField(...fields: DistanceField[]): DistanceField;
+function unionField(...args: Array<DistanceField | readonly DistanceField[]>): DistanceField {
+  const fs = many(oneList(args, 'union'), 'union');
   if (fs.length === 0) return nowhere;
   if (fs.length === 1) return fs[0];
   const n = fs.length;
   const sup = direct ? [] : fs.map((f) => SUPPORT.get(f));
   const plain = sup.every((s) => s === undefined);
-  const out = memo1(plain
+  const out = combined(plain
     ? (x, y) => {
       let best = -Infinity;
       for (const f of fs) best = Math.max(best, f(x, y));
@@ -600,7 +789,7 @@ const unionField = (...fields: DistanceField[]): DistanceField => {
         best = Math.max(best, s.tight ? hi : fs[i](x, y));
       }
       return best;
-    });
+    }, allPure(fs) ? { fused: false, kind: 'union', kids: fs } : undefined);
   const ss = allSupport(fs);
   if (ss === undefined) return out;
   // Every child is under one box, and none of them reaches higher than the
@@ -608,10 +797,11 @@ const unionField = (...fields: DistanceField[]): DistanceField => {
   // because the joint box is the closest of them all.
   const { x0, y0, x1, y1, peak } = spanOf(ss);
   return tagged(out, { x0, y0, x1, y1, peak, hi: boxBound(x0, y0, x1, y1, peak), tight: false });
-};
+}
 
 /**
- * Inside only where all of them are inside — a minimum.
+ * Inside only where all of them are inside — a minimum. One array of
+ * fields or the fields themselves, like `union`.
  *
  * NO SKIP. A support bound is a CEILING, and a minimum is decided from
  * below: knowing a child cannot exceed some value never proves it is not
@@ -620,23 +810,26 @@ const unionField = (...fields: DistanceField[]): DistanceField => {
  * bound upward for its parents — the intersection is at most any one of
  * its children.
  */
-const intersectField = (...fields: DistanceField[]): DistanceField => {
-  const fs = many(fields, 'intersect');
+function intersectField(fields: readonly DistanceField[]): DistanceField;
+function intersectField(...fields: DistanceField[]): DistanceField;
+function intersectField(...args: Array<DistanceField | readonly DistanceField[]>): DistanceField {
+  const fs = many(oneList(args, 'intersect'), 'intersect');
   if (fs.length === 0) return everywhere;
   if (fs.length === 1) return fs[0];
-  const out = memo1((x, y) => {
+  const out = combined((x, y) => {
     let best = Infinity;
     for (const f of fs) best = Math.min(best, f(x, y));
     return best;
-  });
+  }, allPure(fs) ? { fused: false, kind: 'intersect', kids: fs } : undefined);
   const ss = allSupport(fs);
   if (ss === undefined) return out;
   const s = ss[0];
   return tagged(out, { x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, peak: s.peak, hi: s.hi, tight: false });
-};
+}
 
 /**
- * `a` with every later field cut out of it.
+ * `a` with every later field cut out of it. The holes are one array or a
+ * list of arguments, like `union`.
  *
  * SKIP: hole `i` is left unevaluated when `hi_i(p) < -best`, where `best`
  * is the value the base and the earlier holes have already settled on. The
@@ -644,14 +837,16 @@ const intersectField = (...fields: DistanceField[]): DistanceField => {
  * `Math.min(best, -f_i)` is `best` — the same bits. Strict again: a hole
  * that could tie is evaluated, and a NaN anywhere still wins the minimum.
  */
-const subtractField = (a: DistanceField, ...holes: DistanceField[]): DistanceField => {
+function subtractField(a: DistanceField, holes: readonly DistanceField[]): DistanceField;
+function subtractField(a: DistanceField, ...holes: DistanceField[]): DistanceField;
+function subtractField(a: DistanceField, ...args: Array<DistanceField | readonly DistanceField[]>): DistanceField {
   const base = asField(a, 'subtract');
-  const fs = many(holes, 'subtract');
+  const fs = many(oneList(args, 'subtract'), 'subtract');
   if (fs.length === 0) return base;
   const n = fs.length;
   const sup = direct ? [] : fs.map((f) => SUPPORT.get(f));
   const plain = sup.every((s) => s === undefined);
-  const out = memo1(plain
+  const out = combined(plain
     ? (x, y) => {
       let best = base(x, y);
       for (const f of fs) best = Math.min(best, -f(x, y));
@@ -670,23 +865,41 @@ const subtractField = (a: DistanceField, ...holes: DistanceField[]): DistanceFie
         best = Math.min(best, -(s.tight ? hi : fs[i](x, y)));
       }
       return best;
-    });
+    }, NODE.has(base) && allPure(fs) ? { fused: false, kind: 'subtract', base, holes: fs } : undefined);
   const sb = supportOf(base);
   if (sb === undefined || allSupport(fs) === undefined) return out;
   // Cutting only removes material: the result is at most the base.
   return tagged(out, { x0: sb.x0, y0: sb.y0, x1: sb.x1, y1: sb.y1, peak: sb.peak, hi: sb.hi, tight: false });
-};
+}
 
 /**
  * A union with a fillet of `radius` where the two meet. Away from the
  * joint it is exactly the union. Within `radius` of it the corner becomes
  * an arc, so the blended shape is a little larger there than the union —
  * a fillet adds material, and this one adds it only where it belongs.
+ *
+ * A whole list of fields blends at one radius: `blend(discs, r)` is the
+ * left fold of the pair form over the list, which is what a sketch used to
+ * spell with `reduce`. It is the same fold in the same order, so it is the
+ * same bits. An empty list is nowhere — the union's identity — and one
+ * field is itself. The radius stays last, so the list form is NOT variadic:
+ * `blend(a, b, c, r)` would read as a mode chosen by counting arguments.
  */
-const blendField = (a: DistanceField, b: DistanceField, radius: number): DistanceField => {
-  const fa = asField(a, 'blend');
-  const fb = asField(b, 'blend');
-  const k = Math.abs(radius);
+function blendField(fields: readonly DistanceField[], radius: number): DistanceField;
+function blendField(a: DistanceField, b: DistanceField, radius: number): DistanceField;
+function blendField(a: DistanceField | readonly DistanceField[], b: DistanceField | number, radius?: number): DistanceField {
+  if (Array.isArray(a)) {
+    if (radius !== undefined) throw new Error('sdf.blend: pass one array of fields and the radius, or two fields and the radius — not both');
+    const fs = many(a as readonly DistanceField[], 'blend');
+    const r = b as number;
+    if (fs.length === 0) return nowhere;
+    let acc = fs[0];
+    for (let i = 1; i < fs.length; i++) acc = blendField(acc, fs[i], r);
+    return acc;
+  }
+  const fa = asField(a as DistanceField, 'blend');
+  const fb = asField(b as DistanceField, 'blend');
+  const k = Math.abs(radius as number);
   if (!(k > 0) || !Number.isFinite(k)) return unionField(fa, fb);
   const nk = -k;
   const join = (u: number, v: number): number => {
@@ -739,7 +952,7 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
     const d = Math.sqrt(d2);
     return peak - d + ((Math.abs(peak) + d) * 1e-12 + 1e-12);
   };
-  const out = memo1((x, y) => {
+  const out = combined((x, y) => {
     if (sa !== undefined) {
       const dx = x < ax0 ? ax0 - x : x > ax1 ? x - ax1 : 0;
       const dy = y < ay0 ? ay0 - y : y > ay1 ? y - ay1 : 0;
@@ -767,7 +980,7 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
       }
     }
     return join(u, fb(x, y));
-  });
+  }, NODE.has(fa) && NODE.has(fb) ? { fused: false, kind: 'blend', a: fa, b: fb, rk: k, nk } : undefined);
   if (sa === undefined || sb === undefined) return out;
   // A fillet adds material, so the union's ceiling is not enough. Where
   // the formula is the union it is `max(u, v) ≤ P − d`; where it is not,
@@ -777,7 +990,7 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
   const { x0, y0, x1, y1, peak: P } = spanOf([sa, sb]);
   const peak = Math.max(P, 1.5 * Math.max(P, 0) + k);
   return tagged(out, { x0, y0, x1, y1, peak, hi: boxBound(x0, y0, x1, y1, peak), tight: false });
-};
+}
 
 /**
  * Shapes as distance fields, and the algebra over them. Pure: no seed and

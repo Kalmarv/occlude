@@ -199,6 +199,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, and feeds the next operation. Below, a disc and a box join. Two smaller discs cut holes in them. A larger disc then crops the result. The part that survives is inside both.
 
+Each of the three takes one array of fields, or the fields themselves. A list you computed goes straight in. `sdf.union(discs)` is `sdf.union(...discs)`, and `sdf.subtract(plate, holes)` cuts every hole in the array. A mix of the two spellings is a mistake, and the library refuses it by name.
+
 ```ts live
 import { sketch, polygon, strokes, sdf, fill, mm } from 'occlude';
 
@@ -219,13 +221,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 `blend` is a union with a fillet of `radius` where the two shapes meet. Two discs that only come close become one body, and the join is a curve neither shape describes. Away from the joint it is exactly the union. Within `radius` of the joint the corner becomes an arc, so the shape is a little larger there.
 
+A whole list blends at one radius. `sdf.blend(parts, radius)` blends the first two fields, then that body with the third, and so on. An empty list is nowhere, and one field is itself. The radius stays last, so the list form is not variadic. `sdf.blend(a, b, c, r)` would make the meaning depend on the number of arguments.
+
 ```ts live
 import { sketch, polygon, sdf, fill, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const r = ui(9, { min: 0, max: 18 });
   const parts = t.grid({ cols: 3, rows: 3 }).map((c) => sdf.circle(c.cx, c.cy, 15.5));
-  const body = parts.reduce((acc, f) => sdf.blend(acc, f, r));
+  const body = sdf.blend(parts, r);
   return polygon(t.isolines(body, 0), { fill: fill('hatch', { angle: 20, spacing: mm(1.3) }) });
 });
 ```

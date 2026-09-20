@@ -61,9 +61,7 @@ export default sketch({
     spec.forEach((s, i) => {
         const [cx, cy] = s.c;
         const seeds = t.throw(circle(cx, cy, s.r * 0.62), { count: s.lobes }).points;
-        const blob = seeds
-            .map((p) => sdf.circle(p.x, p.y, s.r * 0.46))
-            .reduce((acc, f) => sdf.blend(acc, f, s.r * 0.3));
+        const blob = sdf.blend(seeds.map((p) => sdf.circle(p.x, p.y, s.r * 0.46)), s.r * 0.3);
         // The margin is never smooth. Two octaves of crinkle, scaled to the
         // colony so a small one is not shredded.
         const amp = Math.min(U(2.0), s.r * 0.09);
@@ -74,10 +72,9 @@ export default sketch({
             amp * 0.45 * t.noise(x * k1 * 3.1 + off, y * k1 * 3.1 + off);
         // Old age: the middle lets go.
         const decay = s.age > 0.85
-            ? t
+            ? sdf.blend(t
                 .throw(circle(cx, cy, s.r * 0.46), { count: 7 })
-                .points.map((p) => sdf.circle(p.x, p.y, U(1.4) + t.rnd(U(4.6))))
-                .reduce((acc, f) => sdf.blend(acc, f, U(3.5)))
+                .points.map((p) => sdf.circle(p.x, p.y, U(1.4) + t.rnd(U(4.6)))), U(3.5))
             : null;
         const eaten = decay
             ? sdf.subtract(crinkled, (x, y) => decay(x, y) + amp * 0.8 * t.noise(x * k1 * 3.4 + 9, y * k1 * 3.4 - 9))

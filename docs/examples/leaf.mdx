@@ -101,9 +101,8 @@ export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
     const lx0 = px + inset, lx1 = px + ps - inset;
     const ly0 = py + inset, ly1 = py + ps - inset;
     const letter = sdf.union(sdf.union(sdf.segment(lx0, ly0, lx0, ly1, th), sdf.segment(lx1, ly0, lx1, ly1, th)), sdf.segment(lx0, ly0, lx1, ly1, th * 0.95));
-    const flakes = t.throw(rect(px, py, ps, ps), { count: 3 }).points
-        .map((p) => sdf.circle(p.x, p.y, 0.25 + t.rnd(1.15)))
-        .reduce((a, f) => sdf.blend(a, f, 1.2));
+    const flakes = sdf.blend(t.throw(rect(px, py, ps, ps), { count: 3 }).points
+        .map((p) => sdf.circle(p.x, p.y, 0.25 + t.rnd(1.15))), 1.2);
     const panel = sdf.subtract(sdf.intersect((x, y) => sdf.box(px + ps / 2, py + ps / 2, ps, ps)(x, y) - 0.5 * (0.5 + 0.5 * t.noise(x / 2.2, y / 2.4)), sheet), sdf.union(letter, flakes));
     const versal = polygon(t.isolines(panel, 0, { step: 0.22, close: true }), {
         pen: INK,
