@@ -23,6 +23,27 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => t.times(40, () => {
 }));
 ```
 
+## t.gaussian()
+
+<include>/_sig/Toolkit.gaussian.mdx</include>
+
+A normal draw. Most of them land within one `sd` of `mean`, a few land far out, and no bound holds them at all. `t.rnd(a, b)` gives a range with hard walls. `t.gaussian` gives a typical size with no wall, and that is the shape of most natural jitter. The defaults are the standard normal, mean 0 and spread 1. Every stream has it too, so `t.stream('grass').gaussian(0, 4)` draws from its own run of values.
+
+Three tufts. The lean of each blade and its length are both normal draws. Most blades stand near the middle of the tuft, at the middle height. The few that run far out are what a bell curve looks like in ink.
+
+```ts live
+import { sketch, stroke, add, mul, fromAngle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => t.times(3, (k) => {
+  const root = [24 + k * 26, 92 - k * 3];
+  return t.times(220, () => {
+    const foot = add(root, [t.gaussian(0, 2.4), 0]);
+    const blade = mul(fromAngle(-Math.PI / 2 + t.gaussian(0, 0.2)), 3 + Math.abs(t.gaussian(0, 18)));
+    return stroke([foot, add(foot, blade)], { pen: k === 1 ? 'stabilo-88-green' : 'pigma-005-black' });
+  });
+}));
+```
+
 ## t.noise()
 
 <include>/_sig/Toolkit.noise.1.mdx</include>

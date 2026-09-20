@@ -281,3 +281,147 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   return out;
 });
 ```
+
+## Colour as data
+
+<!-- anchor: colour-as-data (img.field channels, img.palette, img.regions) -->
+
+A picture is more than tone. `img.field` reads its colour as well. `'r'`,
+`'g'` and `'b'` come out as the file stores them. `'c'`, `'m'`, `'y'` and
+`'k'` come out as a printer wants them. The four printing channels have the
+grey taken out. `k` is the tone all three inks share. Each of the other three
+then carries only the ink that remains. So a grey area asks for black alone,
+and four pens print the picture.
+
+`img.palette(n)` fits `n` colours to the pixels, with a weighted k-means in
+Lab space. The fit reads the picture and never the sketch's seed, so one file
+gives one palette in every sketch. Name the colours yourself, as hex strings
+or as pens. The fit then drops out, and each pixel takes the nearest colour
+you named. Every entry is plain data. `share` says how much of the picture
+the colour holds. `field()` is its membership as an ordinary scalar field,
+and `area(level)` turns that field into contours. A stipple, a hatch and an
+outline all read the same entry. The toolkit needs no new word for any of
+them.
+
+`img.regions({ count, tolerance })` answers the other question. It cuts the
+picture into flat colour areas and orders them lightest first. A patch
+smaller than `tolerance` joins what surrounds it, so a separation reads as
+areas and not as confetti. Draw the list in order with `opaque: true` and
+each dark area hides the lighter ones under it. `count: 2` is a monochrome
+trace, and a region answers `contours()`, so `polygon(region, …)` takes it as
+it is.
+
+How much paper one pen actually covers is a measured number, and occlude does
+not hold that number yet. A palette entry counts pixels, not ink.
+
+```ts live
+import { sketch, dots, pen, mm } from 'occlude';
+
+// A four-pen separation. The palette is fitted to the photograph, and each
+// band is stippled in a pen of its own colour. The membership field is
+// sharpened first, so a dot lands only where that colour clearly wins, and
+// the four separations meet without overprinting each other.
+export default sketch({ aspect: [1, 1], seed: 4, pens: {
+  cream: pen({ width: mm(0.45), color: '#D5CFC4' }),
+  tan: pen({ width: mm(0.45), color: '#AA9071' }),
+  umber: pen({ width: mm(0.45), color: '#6A5C4D' }),
+  soot: pen({ width: mm(0.45), color: '#2B2723' }),
+} }, (t) => {
+  const img = t.image('ivy.png', { x: 2, y: 2, width: 96 });
+  const inks = ['cream', 'tan', 'umber', 'soot'];
+  const tone = (hex) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+  const bands = img.palette(4).sort((a, b) => tone(b.color) - tone(a.color));
+  return bands.map((e, i) => {
+    const near = e.field({ area: 0.35 });
+    return dots(t.scatter((x, y) => Math.max(0, near(x, y) * 2 - 1), { spacing: mm(0.5) }), { pen: inks[i] });
+  });
+});
+```
+
+## Tone as fold density
+
+A space-filling line folds to fill an area. It never crosses itself, and one
+pen-down stroke covers the whole picture. `t.spacefill(area, { spacing, field })`
+draws that line, and the `field` is tone, 0 to 1. A dark cell divides again
+and the folds crowd together. A light cell stays large and the paper shows
+through. A cell with no tone at all lifts the pen. `spacing` is the finest
+cell, so pick it for the nib. A 0.4 mm cell under a 0.2 mm nib reads as solid
+black. `maxSpacing` is the coarsest cell. The palest fur then still folds,
+and it does not lay one long chord across the sheet.
+
+Shape the tone before `spacefill` reads it. Below, the alpha channel cuts the
+background away and `norm` stretches the fur. The white muzzle stays blank
+paper and the nose fills in solid. Every vertex carries the `level` it
+stopped at, so `m.points` can send the deepest folds to a second pen.
+
+```ts live
+import { sketch, strokes, circle, mm, norm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  const dark = img.field('dark', { area: 0.9 });
+  const tone = (x, y) => (img.a(x, y, 0.3) < 0.5 ? 0 : Math.max(0, norm(dark(x, y), 0.15, 0.88)) ** 2.2);
+  const fold = t.spacefill(circle(50, 50, 44), { spacing: mm(0.4), maxSpacing: mm(2.4), field: tone });
+  return strokes(fold, { pen: 'pigma-005-black' });
+});
+```
+
+## Ink as a budget
+
+<!-- anchor: ink-as-a-budget (t.residual, r.spend, r.total) -->
+
+A field says how dark the paper must be. A word then puts marks on that
+paper. Until now nothing measured what those marks paid for, so a second
+pass could not know what the first one had already covered.
+`t.residual(field, { spacing, area })` keeps that account. It holds the
+target tone on a grid of cells. `r.spend(marks, { width })` takes the nib
+footprint of the marks you drew off the grid, and answers with the tone it
+took. `r.total()` is what the drawing still owes, so a loop can stop when
+the debt is small.
+
+A residual is also a field, so `t.scatter(r)`, `t.isolines(r, …)` and a
+decimate amount read it like any other. `spend` changes it in place, because
+a ledger must hold what the last stroke paid. `r.snapshot()` gives a frozen
+copy.
+
+The drawing below is one continuous line. It starts at the cell with the
+deepest debt. At each step it looks at twelve short chords, and it takes the
+chord with the most tone left along it. It pays for that chord at the width
+of the nib, so the next step sees fresh paper only where no line has been.
+The line stops when the debt falls under a tenth of where it started. The
+tone it works against is the photograph's own, with the edges of the picture
+added on top.
+
+```ts live
+import { sketch, strokes, curve, mm, norm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const img = t.image('ivy.png', { x: 12, y: 3, width: 76 });
+  const dark = img.field('dark', { area: 0.2 });
+  const tone = (x, y) => img.a(x, y, 0.3) < 0.5 ? 0
+    : Math.min(1, Math.max(0, norm(dark(x, y), 0.08, 0.95)) ** 1.5 + img.edge(x, y, 0.2));
+  const r = t.residual(tone, { spacing: mm(0.7) });
+  const stop = r.total() * 0.09;
+  // Start where the debt is deepest.
+  const first = t.grid({ cols: 48, rows: 48 }).reduce((a, c) => (r(c.cx, c.cy) > r(a.cx, a.cy) ? c : a));
+  let at = [first.cx, first.cy];
+  const pts = [at];
+  for (let k = 0; k < 12000 && r.total() > stop; k++) {
+    let best = null;
+    let most = 0;
+    for (let c = 0; c < 12; c++) {
+      const a = t.rnd(Math.PI * 2);
+      const len = t.rnd(1.2, 5);
+      const end = [at[0] + Math.cos(a) * len, at[1] + Math.sin(a) * len];
+      let sum = 0;
+      for (let s = 1; s <= 5; s++) sum += r(at[0] + (end[0] - at[0]) * s / 5, at[1] + (end[1] - at[1]) * s / 5);
+      if (sum > most) { most = sum; best = end; }
+    }
+    if (!best) break;
+    r.spend([at, best], { width: mm(0.35) });
+    pts.push(best);
+    at = best;
+  }
+  return strokes(curve(pts, { closed: false }), { pen: 'pigma-005-black' });
+});
+```

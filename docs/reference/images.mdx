@@ -48,7 +48,20 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## img.field()
 
-`img.field(channel?, { area? })` is a channel as a scalar field: `'lum'` (the default), `'dark'` for 1 − lum, `'a'`, or `'edge'`. The rest of the toolkit reads fields. The image goes behind `t.isolines`, `t.scatter`, `t.streamlines` or a modifier amount with no wrapper. Outside the placed rectangle the field is 0.
+<include>/_sig/ImageSampler.field.mdx</include>
+
+`img.field(channel?, { area? })` is a channel as a scalar field. The rest of the toolkit reads fields. The image goes behind `t.isolines`, `t.scatter`, `t.streamlines` or a modifier amount with no wrapper. Outside the placed rectangle the field is 0.
+
+| Channel | Value |
+|---|---|
+| `'lum'` | luminance, 0 to 1. The default |
+| `'dark'` | `1 − lum` |
+| `'a'` | alpha |
+| `'edge'` | the magnitude of the luminance gradient |
+| `'r'`, `'g'`, `'b'` | the colour channels as the file stores them |
+| `'c'`, `'m'`, `'y'`, `'k'` | the four printing inks, with the grey taken out |
+
+`k` is the tone all three inks share. Each of `c`, `m` and `y` then carries only the ink that remains. So a grey area asks for black alone, and four pens print the picture.
 
 ```ts live
 import { sketch, circle, mm } from 'occlude';
@@ -70,5 +83,55 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   const lines = t.streamlines(img.flow({ radius: 3 }), { spacing: (x, y) => mm(0.8 + img.lum(x, y, 1) * 3) });
   return strokes(lines);
+});
+```
+
+## img.palette()
+
+<include>/_sig/ImageSampler.palette.mdx</include>
+
+The colours a picture holds, most of the paper first. Give a count and occlude fits that many colours to the pixels, with a weighted k-means in Lab space. The fit reads the picture and never the sketch's seed, so one file gives one palette in every sketch. Give colours of your own, as hex strings or as pens. The fit then drops out, and each pixel takes the nearest colour you named.
+
+An entry holds `color`, `share`, `field(opts?)` and `area(level?)`. `color` comes back as lower case `#rrggbb`, so `pens[entry.color]` is a stable lookup. `share` is the fraction of the picture that colour holds. `field()` is membership as an ordinary scalar field. The value is 1 at the colour itself, 0.5 halfway to the next nearest, and 0 where another colour wins. `area(level)` marches that field into contours, closed along the edge of the picture. A picture with fewer distinct colours than you asked for gives fewer entries.
+
+```ts live
+import { sketch, polygon, pen, mm } from 'occlude';
+
+// Three colours fitted to the photograph, and the boundary of each one's
+// territory drawn in a pen of that colour. The entries are plain data, so
+// the sketch sorts them light to dark before it hands out the pens.
+export default sketch({ aspect: [1, 1], pens: {
+  pale: pen({ width: mm(0.25), color: '#C8B49A' }),
+  mid: pen({ width: mm(0.25), color: '#8A7157' }),
+  dark: pen({ width: mm(0.25), color: '#2B2723' }),
+} }, (t) => {
+  const img = t.image('ivy.png', { x: 7.5, y: 2, width: 85 });
+  const inks = ['pale', 'mid', 'dark'];
+  const tone = (hex) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+  const bands = img.palette(3).sort((a, b) => tone(b.color) - tone(a.color));
+  return bands.map((e, i) => polygon(e.area(0.55), { pen: inks[i] }));
+});
+```
+
+## img.regions()
+
+<include>/_sig/ImageSampler.regions.mdx</include>
+
+The picture as a stack of flat colour areas, lightest first. It is `img.palette(count)` and then a sweep for connected patches. A patch smaller than `tolerance` of the picture joins what surrounds it, so a separation reads as areas and not as confetti. Draw the list in order with `opaque: true` and each dark area hides the lighter ones under it. `count: 2` is a monochrome trace, and `area` is the fraction of the picture a region covers. A region answers `contours()`, so `polygon(region, …)` draws it and `t.within(material, region)` cuts to it.
+
+```ts live
+import { sketch, polygon, fill, pen, mm } from 'occlude';
+
+// A three-tone separation. Each region is opaque, so the darker ones hide
+// the lighter ones they sit on, and each pen hatches at its own angle.
+export default sketch({ aspect: [1, 1], pens: {
+  pale: pen({ width: mm(0.3), color: '#C8B49A' }),
+  mid: pen({ width: mm(0.3), color: '#8A7157' }),
+  dark: pen({ width: mm(0.3), color: '#2B2723' }),
+} }, (t) => {
+  const img = t.image('ivy.png', { x: 7.5, y: 2, width: 85 });
+  const inks = ['pale', 'mid', 'dark'];
+  return img.regions({ count: 3 }).map((r, i) =>
+    polygon(r, { opaque: true, pen: inks[i], fill: fill('hatch', { angle: 25 + i * 55, spacing: mm(1.1) }) }));
 });
 ```

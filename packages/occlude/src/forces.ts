@@ -32,8 +32,14 @@ export interface NeighbourStats {
  * query; a foreign point is not), in grid order — the sketch decides what
  * to do with them. Connectivity is a different concept and is NOT
  * excluded here. Rows are valid for this state.
+ *
+ * `opts.radius` is the grid's cell as well as the default reach. A query
+ * may ask for a LARGER reach of its own, and then it walks as many rings of
+ * cells as that reach needs — one grid still answers a radius that changes
+ * from point to point, which is what a per-vertex `force.separation` asks
+ * of it.
  */
-export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats }): (p: XY) => number[] {
+export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats }): (p: XY, reach?: number) => number[] {
   const radius = opts.radius;
   const cell = radius;
   const stats = opts.stats;
@@ -61,16 +67,19 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
     if (bucket) bucket.push(i);
     else grid.set(k, [i]);
   }
-  return (p: XY): number[] => {
+  return (p: XY, reach?: number): number[] => {
     const px = vx(p);
     const py = vy(p);
     const self = ownerOf(p as Vertex) === m ? (p as Vertex).index : -1;
     const out: number[] = [];
     const cx = Math.floor(px / cell);
     const cy = Math.floor(py / cell);
+    // The rings a reach of its own needs; the fixed radius needs one.
+    const r2 = reach === undefined ? radius * radius : reach * reach;
+    const rings = reach === undefined || !(reach > cell) ? 1 : Math.ceil(reach / cell);
     if (stats) stats.queries++;
-    for (let gx = cx - 1; gx <= cx + 1; gx++) {
-      for (let gy = cy - 1; gy <= cy + 1; gy++) {
+    for (let gx = cx - rings; gx <= cx + rings; gx++) {
+      for (let gy = cy - rings; gy <= cy + rings; gy++) {
         const k = key(gx, gy);
         if (k < 0) continue;
         const bucket = grid.get(k);
@@ -80,7 +89,7 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
           if (j === self) continue;
           const dx = px - m.x[j];
           const dy = py - m.y[j];
-          if (dx * dx + dy * dy < radius * radius) out.push(j);
+          if (dx * dx + dy * dy < r2) out.push(j);
         }
       }
     }
@@ -173,10 +182,52 @@ export function tension(m: Material, opts: { rest: number | ((e: Edge) => number
  * samples, another material. `excludeConnected: true` skips p's connected
  * neighbours when the sources are p's own material (tension owns that
  * spacing); off by default, so say it.
+ *
+ * `radius` may instead be a function of the VERTEX, and then each point
+ * carries its own — `(p) => p.attrs.r` is discs of different sizes. The
+ * radius of a PAIR is the sum of the two, which is what "these two must
+ * not overlap" means for two discs, and the push peaks at that sum and
+ * fades to zero there. One grid still answers: it is built at the largest
+ * radius among the sources, and a query walks as many rings as its own
+ * reach needs.
  */
-export function separation(sources: Sources, opts: { radius: number; excludeConnected?: boolean }): (p: Vertex) => Vec {
+export function separation(sources: Sources, opts: { radius: number | ((p: Vertex) => number); excludeConnected?: boolean }): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
-  return radial(material(sourcePoints(sources)), radius, excludeConnected, radius, -1);
+  const m = material(sourcePoints(sources));
+  if (typeof radius === 'number') return radial(m, radius, excludeConnected, radius, -1);
+  if (typeof radius !== 'function') throw new Error(`force.separation: { radius } must be a distance, or a function of the vertex — got ${String(radius)}`);
+  // Each source's own radius, read once against the frozen state, as every
+  // force here prepares against it. A radius the function does not answer
+  // with a finite number is no radius: that source pushes nothing.
+  const own = new Float64Array(m.n);
+  let widest = 0;
+  for (let i = 0; i < m.n; i++) {
+    own[i] = Math.max(0, valueAt(radius(m.vertex(i)), 0));
+    if (own[i] > widest) widest = own[i];
+  }
+  const near = neighbours(m, { radius: widest > 0 ? widest : 1 });
+  return (p) => {
+    const rp = Math.max(0, valueAt(radius(p), 0));
+    const row = ownerOf(p) === m ? p.index : -1;
+    const adj = excludeConnected && row >= 0 ? m.adjacentRows(row) : null;
+    let x = 0;
+    let y = 0;
+    // Everything that could touch p is within p's radius plus the widest
+    // one in the material; the pair's own sum then decides.
+    for (const j of near(p, rp + widest)) {
+      if (adj && adj.includes(j)) continue;
+      const r = rp + own[j];
+      if (!(r > 0)) continue;
+      const dx = p.x - m.x[j];
+      const dy = p.y - m.y[j];
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= 0 || d >= r) continue;
+      const s = (1 - d / r) * r;
+      x += (dx / d) * s;
+      y += (dy / d) * s;
+    }
+    return [x, y];
+  };
 }
 
 /** The fixed-law radial recipes (`separation`, `attract`) on the raw

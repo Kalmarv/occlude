@@ -38,18 +38,30 @@ import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
-import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
+import { grid as gridCells, hexes as hexCells, triangles as triangleCells, type GridCell, type GridOptions, type HexOptions, type TriangleOptions } from './layout.js';
+import { placements as symmetryPlacements, cellStep as symmetryCellStep, type PlaneGroup } from './symmetry.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
-import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type SketchOptions, type Winding } from './execution.js';
+import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type SketchOptions, type TransformOp, type Winding } from './execution.js';
 import type { PenDef } from './pens.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
   scatterPoints, throwPoints, relaxMaterial, settleMaterial, withinRegion,
   type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts, type ThrowOpts,
 } from './points.js';
-import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
+import { levelContours, type IsoContour, type IsoLevels, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
+import { travelTimeOf, type TravelFrom, type TravelOpts } from './travel.js';
+
+/** `t.travelTime` options: the kernel's, with a shape allowed as the
+ * ground, because the toolkit has the frame to lower one. */
+export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
+  /** The ground the front may cross (default: the whole drawable).
+   * Everything outside it is wall. */
+  within?: AreaInput | ShapeValue;
+}
+import { latticeOf, type Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
+import { residualOf, type Residual, type ResidualOpts } from './residual.js';
 import { unitMm } from './record.js';
 import { areaLoops, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
@@ -60,6 +72,9 @@ import { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
+import { spacefill, type SpacefillOpts } from './spacefill.js';
+import { textOf, type TextOpts } from './strokeFont.js';
+import { hersheySimplex } from './fonts/hersheySimplex.js';
 import { distanceTo, type DistanceField } from './distance.js';
 import { force, sourcePoints, type Sources } from './forces.js';
 import {
@@ -616,9 +631,16 @@ export class PathValue {
     this.cmds.push({ op: 'quad', cx, cy, x, y });
     return this;
   }
-  /** Minor arc to (x, y); the sign of r picks the side of the chord. */
-  arcTo(x: L, y: L, r: L): this {
-    this.cmds.push({ op: 'arc', x, y, r });
+  /**
+   * Arc to (x, y) of radius `r`. The sign of `r` picks the side of the
+   * chord the centre sits on, which is what chooses the direction of the
+   * turn; `large` picks WHICH OF THE TWO arcs about that centre is drawn —
+   * the minor one by default, the long way round with `{ large: true }`.
+   * Under a radius of half the chord there is no such circle, and the arc
+   * is the semicircle on that chord.
+   */
+  arcTo(x: L, y: L, r: L, opts: { large?: boolean } = {}): this {
+    this.cmds.push({ op: 'arc', x, y, r, large: opts.large });
     return this;
   }
   close(): this {
@@ -1109,6 +1131,36 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return quadtree(points, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h }, opts);
   }
 
+  /** One line that folds until it fills an area, as material: a chain of
+   * cell centres, one vertex per cell, each carrying the `level` it stopped
+   * at, with an elbow at every level change so no step runs diagonally.
+   * `spacing` is the finest cell. A `field` of tone, 0 to 1, makes the
+   * folds crowd where the picture is dark and open out where it is light,
+   * and lifts the pen where it reads 0. `maxSpacing` caps how far they open
+   * out. `rule` is the recursion table — `hilbertRule` by default,
+   * `peanoRule` and `meanderRule` beside it, and a table of your own if you
+   * want another fold. Draw it with `strokes`. */
+  function spacefillTk(area: AreaInput | ShapeValue, opts: SpacefillOpts): Material {
+    return spacefill({ len: (l: L) => exec.len(l) }, numericAreaLoops(exec, area, 'spacefill'), opts);
+  }
+
+  /**
+   * A string as material: every glyph of the face drawn as the chains it
+   * is made of, all in one material, ready for `strokes(...)`. `size` is
+   * the CAP HEIGHT — the letter height a plotter artist measures — and
+   * `at` puts the start of the first baseline somewhere; the sketch can
+   * also move the result with the ordinary words. `\n` breaks lines at
+   * `leading`, `tracking` letterspaces, `align` anchors, and `along` sets
+   * the line on a chain instead of a straight baseline. `font` defaults to
+   * the built-in Hershey roman simplex; `occlude/fonts` holds the other
+   * faces, and `strokeFont(t.asset('my-face.svg'))` reads your own. Every
+   * point carries a `glyph` column: the index into `str` of the character
+   * it belongs to. A material never draws itself.
+   */
+  function text(str: string, opts: TextOpts): Material {
+    return textOf({ len: (l: L) => exec.len(l), font: hersheySimplex }, str, opts);
+  }
+
   function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: AreaInput | ShapeValue } = {}): Material {
     const b = exec.bounds();
     if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
@@ -1157,6 +1209,48 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: level ? { level } : {}, transfers: {}, edgeTransfers: level ? { level: 'copy' } : {} });
   }
 
+  /**
+   * A grid of named channels over an area, and a rule you step it with:
+   * the substrate for reaction-diffusion, trails, erosion — anything whose
+   * next state is a local rule over its current one. `spacing` is the cell
+   * size, `area` defaults to the drawable, `channels` defaults to `['a']`,
+   * and `init` fills each cell from its centre. `lat.field(channel)` hands
+   * it back as an ordinary field, absent outside the area, so `isolines`,
+   * `scatter` and the fills read it like any other. `lat.steps(n, rule)`
+   * and `lat.add(points, amount)` return a NEW lattice.
+   */
+  function lattice(opts: LatticeOpts, init?: LatticeInit): Lattice {
+    const b = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+    const o: LatticeOpts = opts?.area === undefined ? opts : { ...opts, area: numericAreaLoops(exec, opts.area, 'lattice') };
+    return latticeOf(env, o, init);
+  }
+
+  /**
+   * Ink as a budget: `field` is the tone the drawing owes, 0 to 1, and the
+   * residual holds what is still owed on a grid of cells. `spacing` is the
+   * cell size (default the grid step `t.isolines` uses), and `area` bounds
+   * what owes anything — outside it nothing is owed.
+   *
+   * A residual IS a field: `r(x, y)` is the remaining tone there, so
+   * `t.scatter(r)`, `t.isolines(r, …)` and a decimate amount read it like
+   * any other. `r.spend(marks, { width })` subtracts the nib footprint of
+   * what was drawn and answers with the darkness taken, in cell areas;
+   * `r.total()` is the debt that is left, for the loop's stopping test.
+   *
+   * `spend` mutates, and it is the one value in the library that does: a
+   * ledger has to remember what the last stroke paid, and copying a raster
+   * per stroke would make a long loop quadratic. `r.snapshot()` is the
+   * frozen copy. The seed still decides everything: the ledger is a pure
+   * function of the sequence of spends.
+   */
+  function residual(field: FieldFn2, opts: ResidualOpts = {}): Residual {
+    const b = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+    const o: ResidualOpts = opts?.area === undefined ? opts : { ...opts, area: numericAreaLoops(exec, opts.area, 'residual') };
+    return residualOf(env, field, o);
+  }
+
   /** Contours of `{ field ≥ at }` via marching squares over the drawable, as
    * one material: each contour a chain (a ring when closed), separate
    * contours separate, every edge carrying its `level`. Draw with
@@ -1165,13 +1259,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * e.attrs.level)`, or step it like any material.
    * Open at the drawable edge by default; `{ close: true }` closes regions
    * along it. An `at` array marches every level over one shared field
-   * sampling, in the order given. */
-  function isolines(field: FieldFn2, at: number | number[], opts: IsoOpts = {}): Material {
+   * sampling, in the order given; `{ count }` spreads that many levels
+   * evenly inside the field's own sampled range, and `{ spacing }` takes
+   * every multiple of it (shifted by `offset`) inside that range. */
+  function isolines(field: FieldFn2, at: IsoLevels, opts: IsoOpts = {}): Material {
     const b = exec.bounds();
     const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    const levels = Array.isArray(at) ? at : [at];
-    const perLevel = isolinesOf(env, field, levels, opts);
-    return contourMaterial(levels.map((level, k) => ({ contours: perLevel[k], level })), true);
+    return contourMaterial(levelContours(env, field, at, opts), true);
   }
 
   /** The crest lines of a scalar field over the drawable, as one material:
@@ -1230,6 +1324,27 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const b = exec.bounds();
     const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
     return contourMaterial([{ contours: streamlinesOf(env, field, opts) }], false);
+  }
+
+  /** How long the front takes to reach each point of the drawable, starting
+   * from `from` — an area, a set of points, or a shape — as a plain field.
+   * The point atom decides an array: `[{ x, y }, …]` is a set of separate
+   * seeds and `[[x, y], …]` is one loop, an area.
+   * `distanceTo` measures the straight line and walks through walls; this
+   * measures the walk. `speed` is a number or a field (default 1), and a
+   * speed of zero or less is a WALL the front goes around; `within` is the
+   * ground it may cross, the drawable by default. Arrival rings are
+   * `t.isolines(T, …)`; unreachable ground is `+Infinity`, so contours stop
+   * at a barrier instead of crossing it. With speed 1 and nothing in the
+   * way it is unsigned distance. Deterministic, no seed. */
+  function travelTime(from: TravelFrom | ShapeValue, opts: TravelTimeOpts = {}): FieldFn {
+    const b = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+    const within = opts.within === undefined
+      ? undefined
+      : (lowerShape(exec, opts.within, 'travelTime') as AreaInput);
+    const seeds = lowerShape(exec, from as Geometry | AreaInput | ShapeValue, 'travelTime') as TravelFrom;
+    return travelTimeOf(env, seeds, { ...opts, within });
   }
 
   /**
@@ -1429,6 +1544,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
     noiseField: (amount: number, wavelength = 25): VectorFieldFn => noiseFieldOf(noise, amount, wavelength),
     rnd,
+    /** A normal draw from the seeded stream: most within one `sd` of
+     * `mean`, a few far out, and no bound at all — the jitter that has a
+     * typical size rather than a range. `t.rnd(a, b)` is the flat one. */
+    gaussian: (mean = 0, sd = 1): number => exec.gaussian(mean, sd),
     pick: <T,>(items: Pickable<T>): T => exec.pick(items),
     chance: (p: number): boolean => exec.chance(p),
     prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
@@ -1445,13 +1564,37 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     cy: b0.cy,
     /** Cell rectangles covering the whole drawable. */
     grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
+    /** Hexagonal cells covering the drawable as one material: `m.faces()`
+     * are the cells, a shared wall is ONE edge, and each face carries its
+     * axial `i` and `j`. `gap` shrinks each cell about its centre, and a
+     * gapped cell shares nothing. */
+    hexes: (opts: HexOptions): Material => hexCells({ bounds: exec.bounds(), len: (l: L) => exec.len(l) }, opts),
+    /** Triangular cells covering the drawable as one material, read exactly
+     * as `hexes`: each face carries its row `j` and its index `i` along that
+     * row, where an even `i` points up. */
+    triangles: (opts: TriangleOptions): Material => triangleCells({ bounds: exec.bounds(), len: (l: L) => exec.len(l) }, opts),
+    /** The placements of one of the seventeen wallpaper groups, enough of
+     * them to cover the drawable: hand each to `group(placement, motif)`
+     * and the motif repeats under the group. `cell` is `[w, h]` for a
+     * rectangular lattice and one length for a hexagonal one. */
+    symmetry: (group: PlaneGroup, opts: { cell: number | readonly [number, number] }): TransformOp[] => {
+      const b = exec.bounds();
+      const [ax, by] = symmetryCellStep(group, opts.cell);
+      if (!(ax > 0) || !(by > 0)) return [];
+      // One ring past the drawable on every side: a mirrored or turned copy
+      // of the first cell lands in the one before it.
+      return symmetryPlacements(group, opts.cell, -1, Math.ceil(b.w / ax) + 2, -1, Math.ceil(b.h / by) + 2);
+    },
     noisyLine: (x1: L, y1: L, x2: L, y2: L, o?: Parameters<typeof noisyLineValue>[5], shapeOpts?: ShapeOpts): ShapeValue => noisyLineValue(noise, x1, y1, x2, y2, o, shapeOpts),
     svg: svgValue,
-    scatter, throw: throwTk, isolines, ridges, streamlines,
+    scatter, throw: throwTk, isolines, ridges, streamlines, travelTime,
+    lattice,
+    residual,
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
+    sample, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
+    text,
     /**
      * The distance field of an area, taking a shape as well as resolved
      * geometry: inside the sketch the frame is in hand, so the toolkit

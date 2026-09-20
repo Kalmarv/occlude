@@ -163,7 +163,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### isolines
 
-`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.attrs.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.attrs.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
+`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.attrs.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.attrs.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -237,6 +237,39 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
+### travelTime
+
+`t.travelTime(from, { speed?, within?, spacing? })` answers a different question about distance. `distanceTo` measures the straight line, and it measures straight through a wall. This measures the walk. The front leaves `from` at time zero and moves at `speed`, a number or a field. A speed of zero or less is a wall, so the front goes around it. `within` names the ground the front may cross, and the drawable is the default. `t.isolines` over the result draws arrival rings, and the rings bend through a gap in the wall. Unreachable ground reads `+Infinity`, so a ring stops at a barrier and draws nothing behind it. With speed 1 on open ground the two words agree, because arrival time is distance.
+
+```ts live
+import { sketch, strokes, rect } from 'occlude';
+
+// Arrival times from a lamp in the yard. The walls are a speed of zero, so
+// the front walks around them and bends in through the one open door.
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const W = t.width;
+  const H = t.height;
+  const th = H * 0.04;
+  const x0 = W * 0.12;
+  const x1 = W * 0.52;
+  const y0 = H * 0.14;
+  const y1 = H * 0.86;
+  const bars = [
+    [x0, y0, x1, y0 + th],
+    [x0, y1 - th, x1, y1],
+    [x0, y0 + th, x0 + th, y1 - th],
+    [x1 - th, y0 + th, x1, H * 0.4],
+    [x1 - th, H * 0.6, x1, y1 - th],
+  ];
+  const solid = (x, y) => bars.some((b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
+  const arrival = t.travelTime([[W * 0.78, H * 0.5]], { speed: (x, y) => (solid(x, y) ? 0 : 1), spacing: 0.5 });
+  return [
+    strokes(t.isolines(arrival, { spacing: W / 22 })),
+    bars.map((b) => rect(b[0], b[1], b[2] - b[0], b[3] - b[1], { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
 ## Flow lines
 
 `t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` traces evenly spaced streamlines of a vector field over the drawable, after Jobard and Lefer, and returns them as one material of open chains: `strokes(m)` draws them, and a chain can carry attributes or be stepped like any material. Lines stop at the drawable edge, at a `within()` bound, and half a spacing from ink already laid, so they never cross or bunch. `spacing` is a length (default 1 mm) or a field of lengths, which turns density into tone; `minSpacing` (default 0.3 mm) is its floor. The result is a pure function of the fields, with no seed involved. Long continuous lines with few pen lifts are the cheapest ink a plotter draws.
@@ -263,6 +296,35 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   return [
     form,
     strokes(t.streamlines(around, { spacing: (x, y) => 0.7 + Math.abs(d(x, y)) * 0.12 })),
+  ];
+});
+```
+
+### Lines with no front
+
+Some directions have no arrow. The grain of a plank, the long way across a brick and the fall of a slope are lines, not flows. `axisField(fn)` marks such a field as an **axis**: `[dx, dy]` and `[-dx, -dy]` say the same thing. `t.streamlines` reads the mark. A line keeps the sign it started with, so it crosses a place where the formula changes sign. An oriented field stops or turns back there instead. `across(field)` gives the family at a right angle to the first. An axis field gives an axis field, and a vector field gives a turned vector field. Two families in two pens are a weave. The drawing below is a street plan: the streets run out of the plaza, and the blocks square off at the paper's edge.
+
+```ts live
+import { sketch, strokes, axisField, across, mm } from 'occlude';
+
+// One axis field, radial at the plaza and square at the edges, traced
+// twice. An axis has no front, so the blend is done on the DOUBLED angle —
+// the way two directions average when [dx, dy] and [-dx, -dy] mean the
+// same street.
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const plaza = [46, 54];
+  const axes = axisField((x, y) => {
+    const r = Math.hypot(x - plaza[0], y - plaza[1]);
+    const w = Math.min(1, (r / 42) ** 2);             // square off with distance
+    const a = Math.atan2(y - plaza[1], x - plaza[0]); // radial near the plaza
+    const cx = (1 - w) * Math.cos(2 * a) + w * Math.cos(2 * 0.35);
+    const cy = (1 - w) * Math.sin(2 * a) + w * Math.sin(2 * 0.35);
+    const th = Math.atan2(cy, cx) / 2;
+    return [Math.cos(th), Math.sin(th)];
+  });
+  return [
+    strokes(t.streamlines(axes, { spacing: mm(4.5) }), { pen: 'pigma-01-black' }),
+    strokes(t.streamlines(across(axes), { spacing: mm(4.5) }), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -514,5 +576,38 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
     ],
     { camera: perspective({ eye: [0.2, -6.4, 2.5], target: [0, 0.15, -0.15], fovDegrees: 32 }), stroke: 'ink' },
   );
+});
+```
+
+## A lattice you can step
+
+A field answers from a formula. A lattice remembers.
+
+`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of cells over an area and fills each one from its centre. `lat.steps(n, rule)` applies a local rule `n` times and returns a new lattice. The rule reads the frozen state with `cur.at`, `cur.laplacian` and `cur.neighbours`, and writes the next one with `next.set`, `next.add`, `next.diffuse` and `next.decay`. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
+
+Two numbers to keep in mind. `cur.laplacian` counts in cells, not in drawing units. A `diffuse` rate above 0.25 is unstable, and the values run away.
+
+The drawing below is a Gray-Scott reaction inside a disc. One channel feeds the other, the two spread at different rates, and that difference is the whole pattern. No word in the library knows the name of that reaction. The rule lives in the sketch, and the lattice only holds the numbers.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+// `a` is the substrate and `b` eats it. Feed replaces `a`, kill removes `b`,
+// and `a` spreads twice as fast as `b`. 5000 steps of four lines of rule.
+export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
+  const disc = circle(50, 50, 44);
+  const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
+  const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
+    Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
+  const grown = seeded.steps(5000, (cur, next) => {
+    for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
+      if (!cur.inside(i, j)) continue;
+      const a = cur.at('a', i, j), b = cur.at('b', i, j);
+      const abb = a * b * b;
+      next.set('a', i, j, a + Du * cur.laplacian('a', i, j) - abb + feed * (1 - a));
+      next.set('b', i, j, b + Dv * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
+    }
+  });
+  return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 })), disc];
 });
 ```

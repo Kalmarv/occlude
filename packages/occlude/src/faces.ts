@@ -34,7 +34,8 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge, type FaceColumn } from './material.js';
+import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge, type FaceColumn, type PointsLike } from './material.js';
+import type { XY } from './vec.js';
 import { groupRows, EdgeSelection, PointSelection } from './relation.js';
 import { contourMoment, measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
@@ -139,7 +140,7 @@ function classify(s: Seg, u: Seg, out: Event[]): void {
     const q = ((u.bx - s.ax) * dx + (u.by - s.ay) * dy) / l2;
     const lo = Math.min(p, q);
     const hi = Math.max(p, q);
-    if (hi > 0 && lo < 1) throw new Error(`planarize: edges ${s.row} and ${u.row} overlap along a positive length — collinear overlaps are not supported; repair the input`);
+    if (hi > 0 && lo < 1) throw new Error(`planarize: edges ${s.row} and ${u.row} overlap along a positive length — collinear overlaps are not supported; repair the input — m.merge() resolves overlaps and duplicates`);
     return;
   }
   const paramOn = (seg: Seg, x: number, y: number) => {
@@ -183,7 +184,7 @@ function checkSharedOverlap(s: Seg, u: Seg, shared: number): void {
   const vx = s.a === shared ? s.ax : s.bx;
   const vy = s.a === shared ? s.ay : s.by;
   if (orient2d(vx, vy, sx, sy, ux, uy) === 0 && (sx - vx) * (ux - vx) + (sy - vy) * (uy - vy) > 0) {
-    throw new Error(`planarize: edges ${s.row} and ${u.row} overlap along a positive length from vertex ${shared} — collinear overlaps are not supported; repair the input`);
+    throw new Error(`planarize: edges ${s.row} and ${u.row} overlap along a positive length from vertex ${shared} — collinear overlaps are not supported; repair the input — m.merge() resolves overlaps and duplicates`);
   }
 }
 
@@ -291,7 +292,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     if (a === b) throw new Error(`planarize: edge ${e} joins two coincident endpoints — a zero-length edge after merging`);
     const key = a < b ? `${a},${b}` : `${b},${a}`;
     const dup = seenPair.get(key);
-    if (dup !== undefined) throw new Error(`planarize: edges ${dup} and ${e} are the same segment — duplicate edges are overlaps and are not supported`);
+    if (dup !== undefined) throw new Error(`planarize: edges ${dup} and ${e} are the same segment — duplicate edges are overlaps and are not supported — m.merge() resolves overlaps and duplicates`);
     seenPair.set(key, e);
     segs.push({ a, b, ax: m.x[a], ay: m.y[a], bx: m.x[b], by: m.y[b], row: e });
   }
@@ -702,6 +703,67 @@ function pointInWalk(m: Material, walk: number[], tail: (h: number) => number, p
   return inside;
 }
 
+/** The positions `containing` asks about: one point, or a cloud of them.
+ * A pair or a record is ONE place; a material, a point selection or an
+ * array of either spelling is many. */
+function queryPoints(where: XY | PointsLike, who: string): [number, number][] {
+  if (Array.isArray(where) && typeof where[0] === 'number') return [[where[0], where[1] as number]];
+  const one = where as { x?: unknown; y?: unknown };
+  if (typeof one?.x === 'number' && typeof one?.y === 'number') return [[one.x, one.y]];
+  const many = where as { x?: ArrayLike<number>; y?: ArrayLike<number>; n?: number };
+  if (typeof many?.n === 'number' && many.x !== undefined && many.y !== undefined) {
+    const out: [number, number][] = [];
+    for (let i = 0; i < many.n; i++) out.push([many.x[i], many.y[i]]);
+    return out;
+  }
+  if (where !== null && where !== undefined && typeof (where as Iterable<XY>)[Symbol.iterator] === 'function') {
+    const out: [number, number][] = [];
+    for (const p of where as Iterable<XY>) {
+      const pair = p as { x?: unknown; y?: unknown };
+      if (Array.isArray(p)) out.push([p[0] as number, p[1] as number]);
+      else if (typeof pair?.x === 'number' && typeof pair?.y === 'number') out.push([pair.x, pair.y]);
+      else throw new Error(`${who}: a point is [x, y] or { x, y }`);
+    }
+    return out;
+  }
+  throw new Error(`${who}: expected a point ([x, y] or { x, y }) or points — a material, a point selection, or an array of them`);
+}
+
+/**
+ * The bounded face that holds (x, y), or −1.
+ *
+ * Even-odd over the face's OWN contours, so a face with a hole does not
+ * hold what sits in the hole; the hole's own face does. A point on a wall
+ * belongs to neither side — the wall is where the faces stop — and a point
+ * outside every face belongs to none.
+ */
+function faceHolding(list: readonly Face[], x: number, y: number): number {
+  for (const f of list) {
+    const b = f.bounds;
+    if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) continue;
+    const eps = EVENT_TOL * Math.max(b.w, b.h, 1);
+    let inside = false;
+    let onWall = false;
+    for (const c of f.contours()) {
+      const pts = c.pts;
+      for (let i = 0; i < pts.length && !onWall; i++) {
+        const [ax, ay] = pts[i];
+        const [bx, by] = pts[(i + 1) % pts.length];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
+        if (Math.hypot(x - (ax + dx * t), y - (ay + dy * t)) <= eps) onWall = true;
+        else if (ay > y !== by > y && x < ax + ((y - ay) / (by - ay)) * dx) inside = !inside;
+      }
+      if (onWall) break;
+    }
+    if (onWall) return -1;
+    if (inside) return f.index;
+  }
+  return -1;
+}
+
 /** The bounded faces of one planar state, with selections over them. */
 export class Faces {
   readonly source: Material;
@@ -1100,6 +1162,25 @@ export class Faces {
     return measureFaces(this, this.faces, field, opts);
   }
 
+  /**
+   * The faces the given places fall in: one point, or a cloud of them.
+   *
+   * A place inside a face selects it; a place ON a wall selects nothing,
+   * because a wall is where two faces stop rather than somewhere either
+   * one holds; a place outside every face selects nothing. Several places
+   * in the same face still name it once — a selection is a set. A face
+   * with a hole does not hold what sits in the hole: the hole's own face
+   * does.
+   */
+  containing(where: XY | PointsLike): FaceSelection {
+    const rows: number[] = [];
+    for (const [x, y] of queryPoints(where, 'faces.containing')) {
+      const f = faceHolding(this.faces, x, y);
+      if (f >= 0) rows.push(f);
+    }
+    return new FaceSelection(this, rows);
+  }
+
   /** The faces `fn` picks — membership decided now and fixed. */
   filter(fn: (f: Face, index: number) => boolean): FaceSelection {
     const rows: number[] = [];
@@ -1218,6 +1299,19 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
 
   groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
     return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this.source, rows, key));
+  }
+
+  /** The MEMBERS the given places fall in — the collection's `containing`
+   * narrowed to this selection. A place in a face outside the selection
+   * picks nothing. */
+  containing(where: XY | PointsLike): FaceSelection<K> {
+    const mine = this.set;
+    const rows: number[] = [];
+    for (const [x, y] of queryPoints(where, 'faces.containing')) {
+      const f = faceHolding(this.source.faces, x, y);
+      if (f >= 0 && mine.has(f)) rows.push(f);
+    }
+    return new FaceSelection(this.source, rows, this.key);
   }
 
   /** Every source edge incident to a selected face, once, including

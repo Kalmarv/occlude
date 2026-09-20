@@ -54,8 +54,9 @@ function sameSource(a: { source: Material }, b: { source: Material }, what: stri
 
 import { groupRows } from './groupRows.js';
 import { neighbours } from './forces.js';
-import type { XY } from './vec.js';
+import { vx, vy, type XY } from './vec.js';
 import { edges as buildEdgeQuery, type EdgeQuery } from './query.js';
+import { orient2d } from 'robust-predicates';
 export { groupRows } from './groupRows.js';
 
 /** The rows a collection over `count` source rows holds: null is all of them. */
@@ -577,6 +578,57 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     // The grid covers the whole state. A selection of part of it answers
     // with its own members only.
     return new EdgeSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.set!.has(r)));
+  }
+
+  /**
+   * The edges of this selection the straight segment `a` → `b` CROSSES:
+   * the segment passes from one side of the edge to the other, and the
+   * edge passes from one side of the segment to the other.
+   *
+   * Both sides are strict, and the test is exact (`orient2d`, Shewchuk's
+   * adaptive predicate — no tolerance, no snapping). So contact at an end
+   * is not a crossing: a segment that stops ON an edge, or starts at one,
+   * or brushes an edge's endpoint, has not passed through it. Neither is a
+   * segment lying ALONG an edge, which changes no side. The question is
+   * "would this move go through a wall", which is what a growth rule asks
+   * before it extrudes, and a move up to a wall does not.
+   *
+   * One grid, the same one `near` reads: the candidates are the edges
+   * within half the segment's length of its middle, which is every edge
+   * that could reach it.
+   */
+  crossing(a: XY, b: XY): EdgeSelection {
+    const m = this.source;
+    const ax = vx(a);
+    const ay = vy(a);
+    const bx = vx(b);
+    const by = vy(b);
+    // A segment of no length, or one with no position: nothing to cross.
+    if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) return new EdgeSelection(m, []);
+    const half = Math.hypot(bx - ax, by - ay) / 2;
+    if (!(half > 0)) return new EdgeSelection(m, []);
+    // A crossing point lies strictly inside the segment, so the edge it is
+    // on is nearer the middle than half the length. The slack is for the
+    // rounding in that distance, never for the judgement itself.
+    const rows = edgeQuery(m).within([(ax + bx) / 2, (ay + by) / 2], half * (1 + 1e-9) + 1e-12);
+    const out: number[] = [];
+    for (const e of rows) {
+      if (this.set !== null && !this.set.has(e)) continue;
+      const p = m.edgeList[2 * e];
+      const q = m.edgeList[2 * e + 1];
+      const px = m.x[p];
+      const py = m.y[p];
+      const qx = m.x[q];
+      const qy = m.y[q];
+      const s0 = orient2d(ax, ay, bx, by, px, py);
+      const s1 = orient2d(ax, ay, bx, by, qx, qy);
+      if (!((s0 > 0 && s1 < 0) || (s0 < 0 && s1 > 0))) continue;
+      const t0 = orient2d(px, py, qx, qy, ax, ay);
+      const t1 = orient2d(px, py, qx, qy, bx, by);
+      if (!((t0 > 0 && t1 < 0) || (t0 < 0 && t1 > 0))) continue;
+      out.push(e);
+    }
+    return new EdgeSelection(m, out);
   }
 
   /** The endpoints of the selected edges — each once, source order. */

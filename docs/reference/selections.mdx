@@ -220,6 +220,38 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 `near` builds one index for each radius and keeps it on the state. A whole pass of queries at one radius pays for one grid. A selection of part of a state answers with its own members only.
 :::
 
+## edges.crossing()
+
+<include>/_sig/EdgeSelection.crossing.mdx</include>
+
+The edges that a straight move from `a` to `b` goes through. The segment must pass from one side of the edge to the other. The edge must do the same across the segment. This is the question a growth rule asks before it puts down a new wall.
+
+Both sides are strict, and the test is exact. Contact at an end is not a crossing. A move that stops on an edge has not gone through it. Nor has a move that starts at one or touches an edge's endpoint. A move that lies along an edge changes no side, so it is not a crossing either. `query.edges(...).firstHit(from, to)` answers a different question: it names the first edge on the way and the place it meets.
+
+The candidates come from the same grid that `near` keeps on the state. A rule can ask this for every tip at every step. A selection of part of a state answers with its own members only.
+
+Below, every tip follows a noise field. A tip takes its next step only into clear paper, so the lines run beside each other and stop where they meet. The blue rings are the seeds.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const b = t.bounds();
+  const seeds = t.scatter({ spacing: 8 });
+  const tangle = seeds.steps(160, (cur, next) => {
+    for (const p of cur.points) {
+      if (p.edges.length > 1) continue;
+      const a = t.noise(p.x * 0.02, p.y * 0.02) * Math.PI * 2;
+      const to = [p.x + Math.cos(a) * 1.8, p.y + Math.sin(a) * 1.8];
+      if (to[0] < 2 || to[1] < 2 || to[0] > b.w - 2 || to[1] > b.h - 2) continue;
+      if (cur.edges.crossing(p, to).indices.length > 0) continue;
+      next.extrude(p, () => ({ position: to }), { inherit: true });
+    }
+  });
+  return [strokes(tangle), seeds.points.map((p) => circle(p.x, p.y, 0.5, { pen: 'stabilo-88-blue' }))];
+});
+```
+
 ## adjacent() · connected() · components()
 
 <include>/_sig/PointSelection.adjacent.mdx</include>

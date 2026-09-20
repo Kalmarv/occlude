@@ -224,8 +224,10 @@ never be separated, so without a depth the splitting would not stop.
 What comes back is the subdivision as ordinary Material — the outer rectangle,
 plus the cross that split each cell that split. Not four walls per cell:
 adjacent cells of different sizes would then lay one long edge over two short
-ones, and a collinear overlap is the one thing `planarize` cannot resolve.
-Crosses meet their neighbours end-on or at a T, which planarize turns into a
+ones, and a collinear overlap is the one thing `planarize` refuses. That is
+`m.merge()`'s job: it cuts an overlap into spans and keeps each span once, so
+the lattice needs no repair. Crosses meet their neighbours end-on or at a T,
+which planarize turns into a
 shared vertex, so `planarize().faces()` gives the cells and `strokes()` draws
 the lattice. Points outside `bounds` take no part in it.
 

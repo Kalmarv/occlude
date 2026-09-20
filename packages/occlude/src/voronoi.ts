@@ -29,9 +29,11 @@
  */
 
 import { Delaunay } from 'd3-delaunay';
+import { orient2d } from 'robust-predicates';
 import { Material, attachVoronoi, material, type PointsLike } from './material.js';
 import { PointSelection } from './relation.js';
 import type { Bounds } from './points.js';
+import type { IsoContour } from './isolines.js';
 
 /** Sites for a construction: a material (every row) or a point selection
  * of one (the selected rows, correspondence to that source). */
@@ -313,6 +315,116 @@ export function voronoiWalls(sitesIn: Sites, bounds: Bounds): VoronoiWalls {
     for (let k = 0; k < boundary.length; k++) edge(boundary[k].id, boundary[(k + 1) % boundary.length].id, 'boundary');
   }
   return { vx, vy, edges, kinds, del };
+}
+
+/** Circumradius of a triangle, Infinity when the three are collinear. */
+function circumradius(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
+  const a = Math.hypot(bx - cx, by - cy);
+  const b = Math.hypot(ax - cx, ay - cy);
+  const c = Math.hypot(ax - bx, ay - by);
+  const twiceArea = Math.abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+  return twiceArea > 0 ? (a * b * c) / (2 * twiceArea) : Infinity;
+}
+
+/**
+ * The outline of a point cloud, as closed contours an area consumer reads.
+ *
+ * `alpha` is the reciprocal of the largest circle the outline may bite out
+ * of the cloud: a triangle of the Delaunay belongs to the shape when its
+ * circumradius is under `1 / alpha`, and the outline is the walls of what
+ * is left. `alpha: 0` allows any circle, so nothing is bitten out and the
+ * result is the convex hull — one contour. Raise it and the boundary
+ * follows the cloud's own concavities; raise it far enough and the cloud
+ * falls into separate clumps, which is why the result is a LIST of
+ * contours and not one loop. Nested contours are holes, read even-odd the
+ * way `polygon` reads them.
+ *
+ * Pure: a function of the points alone, no seed and no paper. Fewer than
+ * three points, or every point on one line, has no area to outline and
+ * gives no contours.
+ */
+export function hull(points: PointsLike, opts: { alpha?: number } = {}): IsoContour[] {
+  const alpha = opts.alpha ?? 0;
+  if (!(alpha >= 0)) throw new Error(`hull: alpha must be zero or more, got ${String(opts.alpha)}`);
+  const { source, rows } = sitesOf(points instanceof PointSelection ? points : material(points));
+  // Coincident points are one place, and a place with no area — fewer than
+  // three of them, or all of them on one line — has no outline. Decided
+  // exactly: d3 would jitter a collinear set into a sliver triangle.
+  const seen = new Set<string>();
+  const unique = rows.filter((r) => {
+    const k = `${source.x[r]},${source.y[r]}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const n = unique.length;
+  if (n < 3) return [];
+  const px = unique.map((r) => source.x[r]);
+  const py = unique.map((r) => source.y[r]);
+  if (px.every((_, i) => orient2d(px[0], py[0], px[1], py[1], px[i], py[i]) === 0)) return [];
+  const coords = new Float64Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    coords[2 * i] = px[i];
+    coords[2 * i + 1] = py[i];
+  }
+  const del = new Delaunay(coords) as unknown as Delaunay<[number, number]>;
+  const tri = del.triangles;
+  const half = del.halfedges;
+  if (tri.length === 0) return []; // collinear or coincident: no area
+  // The largest circle the outline may bite out. alpha 0 allows any, so
+  // every triangle is kept and the boundary is the convex hull.
+  const maxR = alpha > 0 ? 1 / alpha : Infinity;
+  const kept = new Uint8Array(tri.length / 3);
+  for (let t = 0; t < kept.length; t++) {
+    const a = tri[3 * t];
+    const b = tri[3 * t + 1];
+    const c = tri[3 * t + 2];
+    const r = circumradius(px[a], py[a], px[b], py[b], px[c], py[c]);
+    kept[t] = alpha > 0 ? (r < maxR ? 1 : 0) : 1;
+  }
+  // Boundary half-edges: a wall of a kept triangle whose twin is missing or
+  // dropped. Triangles are consistently oriented, so these chain head to
+  // tail into closed loops.
+  const next = (e: number): number => (e % 3 === 2 ? e - 2 : e + 1);
+  const outgoing = new Map<number, number[]>();
+  let walls = 0;
+  for (let e = 0; e < tri.length; e++) {
+    if (!kept[Math.floor(e / 3)]) continue;
+    const twin = half[e];
+    if (twin >= 0 && kept[Math.floor(twin / 3)]) continue;
+    const from = tri[e];
+    const to = tri[next(e)];
+    const held = outgoing.get(from);
+    if (held) held.push(to);
+    else outgoing.set(from, [to]);
+    walls++;
+  }
+  const out: IsoContour[] = [];
+  // A vertex may be a pinch between two clumps, so each outgoing wall is
+  // consumed once rather than each vertex visited once.
+  while (walls > 0) {
+    let seed = -1;
+    for (const [from, tos] of outgoing) {
+      if (tos.length > 0) {
+        seed = from;
+        break;
+      }
+    }
+    if (seed < 0) break;
+    const pts: [number, number][] = [];
+    let at = seed;
+    for (;;) {
+      const tos = outgoing.get(at);
+      if (!tos || tos.length === 0) break;
+      const to = tos.pop()!;
+      walls--;
+      pts.push([px[at], py[at]]);
+      at = to;
+      if (at === seed) break;
+    }
+    if (pts.length >= 3) out.push({ pts, closed: true });
+  }
+  return out;
 }
 
 /** Voronoi cells of any point set clipped to `bounds`, as material with

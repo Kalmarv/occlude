@@ -14,6 +14,11 @@
  * scale, because the pen didn't change. Wrap a custom vector lambda in
  * `vectorField(fn)` so the verbs know to turn its arrows.
  *
+ * A direction with no front or back — the grain of a plank, a principal
+ * curvature — is an AXIS field: `axisField(fn)` marks one, `across(f)` is
+ * the perpendicular family of either kind, and a tracer that reads the mark
+ * keeps one sign along a line the formula flips signs under.
+ *
  * `within(f, shape)` bounds a field's domain: outside, the field is ABSENT
  * (non-finite), and the convention holds — generators make nothing,
  * modifiers touch nothing. Nested bounds are a conjunction. Absence is any
@@ -39,6 +44,10 @@ export interface FieldBound {
 
 interface FieldMeta {
   kind: 'scalar' | 'vector';
+  /** A vector field whose SIGN carries no meaning — an axis, not an arrow.
+   * It answers exactly as a vector field does; the mark is what tells a
+   * tracer it may walk the other way along the same line. */
+  axis?: true;
   /** The same field with every `within()` stripped — what the engine
    * rasterises (the bound is exact vector geometry, never a NaN hole in a
    * grid). Absent when the field has no bound. */
@@ -74,6 +83,63 @@ const numbersOnly: LenResolver = (l) => {
 export function vectorField(fn: VectorFieldFn): VectorFieldFn {
   FIELD_META.set(fn, { kind: 'vector' });
   return fn;
+}
+
+/** A direction field whose sign carries no meaning: `[1, 0]` and `[-1, 0]`
+ * are the same axis. It answers as a vector field does, so every verb and
+ * every consumer reads it the same way. */
+export type AxisFieldFn = VectorFieldFn;
+
+/**
+ * Mark a direction field as UNORIENTED: an axis, not an arrow. The grain of
+ * a plank, the long way across a brick, a principal curvature — each has a
+ * direction with no front or back, and `[dx, dy]` and `[-dx, -dy]` say the
+ * same thing. `t.streamlines` reads the mark and keeps its sign along the
+ * line, so a field whose formula changes sign in the middle of the paper
+ * still traces one unbroken line across it. `across(axes)` is the
+ * perpendicular family, and the two woven together are a street plan.
+ */
+export function axisField(fn: AxisFieldFn): AxisFieldFn {
+  // Marking a field that already has one (`axisField(grad(f))`) adds the
+  // mark and keeps what it knows — its bounds and its unbounded twin.
+  const m = metaOf(fn);
+  if (m?.unbounded && m.unbounded !== fn) axisField(m.unbounded as AxisFieldFn);
+  FIELD_META.set(fn, { ...m, kind: 'vector', axis: true });
+  return fn;
+}
+
+/** Is this field unoriented — a direction a tracer may walk either way? */
+export function isAxisField(fn: AnyField): boolean {
+  return metaOf(fn)?.axis === true;
+}
+
+/**
+ * The perpendicular family: every direction turned 90°. An axis field's
+ * perpendicular is an axis field and a vector field's is a vector field, by
+ * what the value answers — there is no mode flag. Trace a field and
+ * `across` it in two pens and the marks cross at a right angle everywhere,
+ * which is the woven look; `across(grad(f))` is `curl(f)` by another road.
+ */
+export function across(field: VectorFieldFn): VectorFieldFn {
+  const sample = (x: number, y: number): [number, number] => {
+    const v = field(x, y) as unknown;
+    if (typeof v === 'number') {
+      throw new Error('across(field): a scalar field has no direction — use grad(f) or curl(f), or mark the function with vectorField/axisField');
+    }
+    if (!Array.isArray(v)) return [NaN, NaN];
+    const [dx, dy] = v as [number, number];
+    return [-dy, dx];
+  };
+  const out: VectorFieldFn = (x, y) => sample(x, y);
+  const sm = metaOf(field);
+  const meta: FieldMeta = { kind: 'vector' };
+  if (sm?.axis) meta.axis = true;
+  if (sm?.bounds && sm.bounds.length > 0) {
+    meta.bounds = sm.bounds;
+    meta.unbounded = across((sm.unbounded ?? field) as VectorFieldFn);
+  }
+  FIELD_META.set(out, meta);
+  return out;
 }
 
 /** A vector field derived from a scalar one keeps the scalar's `within()`
@@ -154,6 +220,8 @@ function wrap<F extends AnyField>(
   const out = ((x: number, y: number) => sample(x, y)) as Prepared<F>;
   const sm = metaOf(src);
   const meta: FieldMeta = { kind: sm?.kind ?? 'scalar' };
+  // A verb moves an axis field's lines; it does not give them a front.
+  if (sm?.axis) meta.axis = true;
   if (sm?.bounds && sm.bounds.length > 0 && xf && again) {
     meta.bounds = sm.bounds.map((b) => ({
       shape: b.shape,
@@ -383,6 +451,7 @@ export function within<F extends AnyField>(field: F, shape: ShapeValue, env: Bou
   const inner = fieldMeta(field);
   FIELD_META.set(out, {
     kind: vec ? 'vector' : 'scalar',
+    ...(isAxisField(field) ? { axis: true as const } : {}),
     unbounded: inner.unbounded,
     bounds: [...inner.bounds, { shape, toBound: () => IDENTITY }],
   });

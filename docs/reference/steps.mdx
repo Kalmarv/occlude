@@ -209,6 +209,26 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+`separation` also takes a radius for each vertex: `{ radius: (p) => p.r }` gives every point its own. The radius of a pair is then the sum of the two. That sum is the distance two discs need to stay clear of each other. The push peaks at that sum and fades to zero there. One grid still serves. It takes its cell from the widest radius among the sources, and each query reaches as far as its own point asks. Here the discs come from a noise field, and the run ends with none of them over another.
+
+```ts live
+import { sketch, circle, rect, force, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const b = t.bounds();
+  const page = t.material(rect(8, 8, b.w - 16, b.h - 16));
+  const seeds = t.scatter({ spacing: 7.5 }).attribute('r', (p) => 1.5 + 6.5 * t.noise(p.x / 40, p.y / 40) ** 2);
+  const packed = seeds.steps(220, (cur, next) => {
+    const push = force.sum(
+      force.separation(cur, { radius: (p) => p.r }),
+      force.boundary(page, { radius: 9 }),
+    );
+    next.move(cur.points, (p) => mul(push(p), 0.25));
+  });
+  return packed.points.map((p) => circle(p.x, p.y, p.r, { pen: p.r > 4.5 ? 'stabilo-88-blue' : 'pigma-005-black' }));
+});
+```
+
 Eight words, and a rule usually sums a few of them. Here a ring grows: `tension` holds the chain together, `separation` keeps it off itself, `relax` smooths it, and `drift` wanders it. A second pass splits an edge that has stretched too far, and writes the iteration onto it first. A split copies an edge column to both children. Each piece of wall keeps the step that last divided it. The drawing then finds the youngest growth.
 
 ```ts live

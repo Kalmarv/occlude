@@ -216,7 +216,7 @@ Replaces a column by the mean of itself and its neighbours, `steps` times. It fi
 
 A tone that comes off an image carries speckle, and speckle in a density column gives banding on paper. `force.relax` smooths positions. This smooths a value and moves nothing, so every id and every position survives. A row with no neighbours is the mean of itself and keeps what it had.
 
-Below, the mark size is the column. The left cloud takes its tone straight from a noisy field. `t.noise` runs from -1 to 1, so the tone is centred and scaled to keep every mark a positive size. The right cloud is the same tone after six passes: the noise's own shape stays, and the speckle goes.
+Below, the mark size is the column. The left cloud takes its tone straight from a noisy field. `t.noise` runs from -1 to 1. The sketch centres and scales the tone, so every mark keeps a positive size. The right cloud is the same tone after six passes: the noise's own shape stays, and the speckle goes.
 
 ```ts live
 import { sketch, circle, group, rect, connect } from 'occlude';
@@ -280,6 +280,38 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## merge()
+
+<include>/_sig/Material.merge.mdx</include>
+
+Resolves coincident ink. Two rectangles snapped edge to edge draw the shared wall twice, and `planarize` refuses a doubled wall. `merge` makes one vertex of every vertex at one position, and it keeps a duplicated edge once. Two collinear edges that overlap become the spans they cover, and each span holds the ink once. `tolerance` is a length in material units, and the default 0 asks for exact coincidence. An edge that nothing touches keeps its id. A span keeps the lineage of its source edge, so a face column still finds its wall.
+
+The screen below is four columns of panes. Each pane is a rectangle of its own, so every inner wall arrives twice. A tall wall also lies along two short ones. One `merge` call resolves both. `planarize` then reads the faces, and each face takes its own hatch angle. The small panes carry the close hatch, so the screen reads as tone.
+
+```ts live
+import { sketch, strokes, polygon, fill, rect, append, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
+  const cols = [[0.06, 0.32], [0.32, 0.6], [0.6, 0.78], [0.78, 0.94]];
+  const rows = [4, 3, 5, 3];
+  const top = 0.08 * b.h;
+  const tall = 0.84 * b.h;
+  const panes = cols.flatMap(([x0, x1], c) => t.times(rows[c], (k) =>
+    t.material(rect(x0 * b.w, top + (k / rows[c]) * tall, (x1 - x0) * b.w, tall / rows[c]))));
+  const screen = append(...panes).merge();
+  const cells = screen.planarize().faces();
+  const biggest = Math.max(...cells.map((f) => f.area));
+  return [
+    cells.map((f, i) => polygon(f, {
+      stroke: false,
+      fill: fill('hatch', { angle: 18 + i * 31, spacing: mm(0.5 + (2.6 * f.area) / biggest) }),
+    })),
+    strokes(screen),
+  ];
+});
+```
+
 ## resample()
 
 <include>/_sig/Material.resample.mdx</include>
@@ -315,6 +347,36 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const rough = curve([[8, 75], [28, 22], [50, 68], [72, 20], [92, 60]], { closed: false });
   const even = rough.resample({ spacing: 6 });
   return [strokes(rough, { pen: 'pigma-005-black' }), even.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## spline()
+
+<include>/_sig/Material.spline.mdx</include>
+
+Draws a curve through the vertices of each chain and returns it as material. The `smooth` modifier rounds a corner off, and the line passes inside it. `spline` keeps the corner vertex and bends the line between the corners, so the positions you picked are still on the drawing.
+
+`tension` scales the tangent at each vertex. 0 is the polyline it started from. 0.5, the default, is the ordinary curve. 1 swings wide and overshoots. `steps` is the number of samples for each source segment, 8 by default. Closure comes from the chain: a ring has no corner at its seam. An open chain takes the tangent at each end from its end segment. A chain of fewer than three vertices has no curve, so it comes through as it is. Chains only: a junction is an error.
+
+The source vertices keep their ids, their positions and their columns. Each new vertex between them is new, and its columns come from the transfer policies. The call retires every source edge, and its children keep its lineage, so a face column still finds its cells.
+
+Below, seven picked positions make each crest. The blue rings are the seven of the nearest hill. The line passes through every one of them.
+
+```ts live
+import { sketch, strokes, polygon, fill, curve, circle, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
+  return t.times(6, (k, u) => {
+    const base = (0.26 + 0.62 * u) * b.h;
+    const picked = t.times(7, (i, v) => [v * b.w, base - t.rnd(0.04, 0.2) * b.h * (0.3 + 0.7 * u)]);
+    const crest = curve(picked, { closed: false }).spline({ tension: 0.6 });
+    return [
+      polygon([...crest.pts, [b.w, b.h], [0, b.h]], { stroke: false, fill: fill('hatch', { angle: 70 - k * 22, spacing: mm(2.6 - 0.35 * k) }) }),
+      strokes(crest),
+      k === 5 && picked.map((p) => circle(p[0], p[1], 1.1, { pen: 'stabilo-88-blue' })),
+    ];
+  });
 });
 ```
 

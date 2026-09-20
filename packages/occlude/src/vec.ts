@@ -70,6 +70,48 @@ export function perp(v: XY): Vec {
   return [-vy(v), vx(v)];
 }
 
+/** `v` turned by `angle` RADIANS about the origin, from +x toward +y (which
+ * is visually clockwise, since y grows downward — the same turn `perp` makes
+ * a quarter of). Radians, like `angleOf` and `fromAngle` beside it. To turn
+ * a point about somewhere else, take the difference first:
+ * `add(c, turn(sub(p, c), angle))`.
+ *
+ * It is `turn` and not `rotate` on purpose. `rotate(field, deg)` already
+ * turns a FIELD, by degrees, and one word that reads its argument to pick
+ * which of two things it does — in two different units — is a mode switch
+ * wearing a name. Two jobs, two words. */
+export function turn(v: XY, angle: number): Vec {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const x = vx(v);
+  const y = vy(v);
+  return [x * c - y * s, x * s + y * c];
+}
+
+/** The point `t` of the way from `a` to `b`: `a` at 0, `b` at 1. `t` is not
+ * clamped, so 1.5 carries on past `b` and −1 goes back the other way. */
+export function lerp(a: XY, b: XY, t: number): Vec {
+  return [vx(a) + (vx(b) - vx(a)) * t, vy(a) + (vy(b) - vy(a)) * t];
+}
+
+/** `v` bounced off a surface with this `normal`: `v − 2(v·n)n`. The normal
+ * is read as a DIRECTION and normalised here, so a boundary's raw normal
+ * goes straight in whatever its length. A zero normal is no surface, and
+ * `v` comes back unchanged. */
+export function reflect(v: XY, normal: XY): Vec {
+  const [nx, ny] = unit(normal);
+  const k = 2 * (vx(v) * nx + vy(v) * ny);
+  return [vx(v) - k * nx, vy(v) - k * ny];
+}
+
+/** The SIGNED angle from `a` to `b` in radians, in (−π, π]: the turn that
+ * takes the direction of `a` onto the direction of `b`, positive toward +y
+ * the way `cross` is positive. Lengths do not matter; a zero vector gives 0.
+ * `Math.abs` of it is the unsigned angle between the two. */
+export function angleBetween(a: XY, b: XY): number {
+  return Math.atan2(cross(a, b), dot(a, b));
+}
+
 /** Dot product `a · b`: zero when the two are perpendicular or either is the zero vector. */
 export function dot(a: XY, b: XY): number {
   return vx(a) * vx(b) + vy(a) * vy(b);

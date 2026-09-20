@@ -77,7 +77,7 @@ function amountAt(v: OscillateAmount, x: number, y: number): number {
  * colour by — useful there, but station bookkeeping is not part of the
  * drawing, and carrying it would surprise the next operation (planarize
  * asks for a resolver for a `heading` two crossing chains disagree on). */
-function chainsMaterial(stations: readonly Station[], source: Material): Material {
+export function chainsMaterial(stations: readonly Station[], source: Material, who = 'oscillate'): Material {
   if (!stations.length) return makeMaterial([]);
   const pointNames = new Set(stations.flatMap((q) => Object.keys(q.attrs)));
   const edgeNames = new Set(stations.flatMap((q) => Object.keys(q.edgeAttrs)));
@@ -87,7 +87,7 @@ function chainsMaterial(stations: readonly Station[], source: Material): Materia
   // no longer what it says.
   for (const name of edgeNames) {
     if (source.edgeTransfers[name] === 'distribute') {
-      throw new Error(`oscillate: edge column '${name}' is 'distribute', and a swing changes the length it would be shared over — copy it, or drop it before swinging`);
+      throw new Error(`${who}: edge column '${name}' is 'distribute', and ${who} changes the length it would be shared over — copy it, or drop it first`);
     }
   }
   const cols: Record<string, Float64Array> = {};
@@ -123,7 +123,7 @@ function chainsMaterial(stations: readonly Station[], source: Material): Materia
 }
 
 /** Stations of one chain, in walk order. */
-function byChain(stations: readonly Station[]): Station[][] {
+export function byChain(stations: readonly Station[]): Station[][] {
   const out: Station[][] = [];
   let current: Station[] | null = null;
   let chain = -1;

@@ -92,6 +92,45 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
+### turn() · lerp() · reflect() · angleBetween()
+
+<include>/_sig/turn.mdx</include>
+<include>/_sig/lerp.mdx</include>
+<include>/_sig/reflect.mdx</include>
+<include>/_sig/angleBetween.mdx</include>
+
+`turn` turns a vector by any angle about the origin, and `perp` is the quarter turn of it. The angle is in radians, the units `angleOf` and `fromAngle` use. To turn a point about somewhere else, take the difference first: `add(c, turn(sub(p, c), angle))`. The field verb [`rotate`](/docs/reference/fields) is a separate word for a separate job, and it reads degrees. `lerp` walks from one point to another, `a` at 0 and `b` at 1, and it keeps going past either end. `reflect` bounces a vector off a surface with a given normal. The normal is a direction, so its length does not matter, and a zero normal leaves the vector alone. `angleBetween` is the signed turn from one direction to the other, in radians. It ignores both lengths.
+
+A ball on a round table. Each hit turns it with `reflect` about the inward normal. A circle turns a ball by the same angle at every hit of one run. How far that turn went picks the pen, so the three runs read apart.
+
+```ts live
+import { sketch, stroke, circle, add, sub, mul, unit, turn, reflect, lerp, angleBetween } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const c = [50, 50];
+  const R = 43;
+  return [circle(50, 50, R, { pen: 'pigma-005-black' }), t.times(3, (k) => {
+    let p = lerp(c, add(c, turn([0, -R], k * 1.9)), 0.98);
+    let v = turn(unit(sub(c, p)), 0.62 + k * 0.17);
+    let bend = 0;
+    const out = [];
+    let run = [p];
+    for (let i = 0; i < 260; i++) {
+      const next = add(p, mul(v, 3.5));
+      if (Math.hypot(next[0] - c[0], next[1] - c[1]) > R) {
+        const away = reflect(v, unit(sub(c, next)));
+        out.push(stroke(run, { pen: bend > 1.7 ? 'stabilo-88-blue' : 'pigma-05-black' }));
+        bend = Math.abs(angleBetween(v, away));
+        v = away;
+        run = [p];
+      } else run.push(next);
+      p = next;
+    }
+    return out;
+  })];
+});
+```
+
 ### sum() · sumBy()
 
 <include>/_sig/sum.mdx</include>

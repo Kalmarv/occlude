@@ -394,7 +394,7 @@ function lowerPath(cmds: PathCmd[], rz: Resolver): Prim[][] {
       case 'arc': {
         const [x, y] = rz.pos(cmd.x, cmd.y);
         const r = rz.len(cmd.r);
-        const arc = arcThrough(cx, cy, x, y, r);
+        const arc = arcThrough(cx, cy, x, y, r, cmd.large === true);
         current.push(arc);
         cx = x;
         cy = y;
@@ -416,11 +416,12 @@ function lowerPath(cmds: PathCmd[], rz: Resolver): Prim[][] {
 }
 
 /**
- * Minor arc from (x0,y0) to (x1,y1) with radius |r|. The sign of r picks the
+ * Arc from (x0,y0) to (x1,y1) with radius |r|. The sign of r picks the
  * side of the chord the centre sits on. |r| below half the chord is clamped
- * to a semicircle.
+ * to a semicircle. The minor arc unless `large`, which takes the long way
+ * round the same centre — so it turns the other way and sweeps 2π less.
  */
-function arcThrough(x0: number, y0: number, x1: number, y1: number, r: number): Prim {
+function arcThrough(x0: number, y0: number, x1: number, y1: number, r: number, large = false): Prim {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const d = Math.hypot(dx, dy);
@@ -440,6 +441,9 @@ function arcThrough(x0: number, y0: number, x1: number, y1: number, r: number): 
   // Minor arc: wrap into (-π, π].
   while (sweep <= -Math.PI) sweep += 2 * Math.PI;
   while (sweep > Math.PI) sweep -= 2 * Math.PI;
+  // The other arc about the same centre: the rest of the circle, walked
+  // the other way round.
+  if (large && sweep !== 0) sweep -= Math.sign(sweep) * 2 * Math.PI;
   return { t: 'arc', cx, cy, r: ar, start, sweep };
 }
 

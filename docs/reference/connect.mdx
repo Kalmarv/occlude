@@ -82,6 +82,40 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 });
 ```
 
+## connect.turns()
+
+<include>/_sig/connect.turns.mdx</include>
+
+One run through headed places, turning no tighter than `radius`. The word joins each pair of consecutive stations with the shortest Dubins path. That is the shortest route for something with a minimum turning radius and no reverse gear. The run leaves each station along its heading and reaches the next one along its heading. `connect.tour` joins places. This joins directions, and that is what stitches loose pieces of a flow into one line the pen draws without a lift.
+
+The input is stations, as `m.along()` returns. A plain point has no heading, and the word refuses it by name. The result is a chain material. Arcs come back cut fine enough to read as curves, and straights come back as straights. `closed` joins the last station back to the first. A pair with no route at that radius gets no edge, and the run breaks there into two chains.
+
+Flow fragments, sewn into one run. The blue lines are the streamlines. The black line visits them in turn, and each hook between two of them is a turn the pen can make.
+
+```ts live
+import { sketch, strokes, connect, curl, distance, rect, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const field = curl((x, y) => t.noise(x / 30, y / 30));
+  // Cut back from the edge, so the hooks have room to turn inside the frame.
+  const flow = t.within(t.streamlines(field, { spacing: mm(13) }), rect(6, 6, 88, 88));
+  const stations = flow.along({ spacing: 9 });
+  const piece = (c) => stations.filter((q) => q.chain === c);
+  // Visit the fragments nearest first, so each join is a short hook.
+  const left = [...new Set(stations.map((q) => q.chain))];
+  const order = [];
+  for (let at = left.shift(); at !== undefined; at = left.shift()) {
+    order.push(at);
+    const end = piece(at).at(-1);
+    left.sort((a, b) => distance(piece(a)[0], end) - distance(piece(b)[0], end));
+  }
+  return [
+    strokes(flow, { pen: 'stabilo-88-blue' }),
+    strokes(connect.turns(order.flatMap(piece), { radius: 2.5 })),
+  ];
+});
+```
+
 ## connect.tree()
 
 <include>/_sig/connect.tree.mdx</include>

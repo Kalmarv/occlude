@@ -16,6 +16,13 @@
  * `img.lum(cx, cy, 2.5)` and costs four lookups.
  */
 
+import {
+  colourBins, colourPoint, fitPalette, hexOfRgb, nearest, rgbOfHex, tally,
+  type ColourBins, type ColourPoint, type ColourSpace,
+} from './colour.js';
+import { finishContours, type IsoContour, sampleGrid } from './isolines.js';
+import { chainSegments, marchSegments, type SampledGrid } from './marching.js';
+
 export interface AssetPixels {
   width: number;
   height: number;
@@ -28,6 +35,9 @@ export interface AssetEntry {
   pixels?: AssetPixels;
   /** Lazy summed-area tables, keyed by channel. */
   sat?: Map<string, Float64Array>;
+  /** Lazy colour histogram per working space — a pure memo of the pixels,
+   * like `sat`, so every palette a sketch asks for bins the image once. */
+  bins?: Map<ColourSpace, ColourBins>;
 }
 
 /** The assets a run captured, by name — an execution input, never a
@@ -166,9 +176,47 @@ export interface ImageSampler {
   /** A channel as a scalar field over the sheet, `(x, y) => number`, so an
    * image drives anything a field drives: `t.isolines(img.field('lum'), …)`,
    * `t.scatter(img.field('dark'), …)`, `t.streamlines(curl(img.field('lum')))`,
-   * a modifier's amount. `dark` is `1 − lum`; `area` averages as the
-   * samplers do. Outside the placed rect the field is 0. */
+   * a modifier's amount. `dark` is `1 − lum` inside the picture and 0 outside it; `area` averages as the
+   * samplers do. Outside the placed rect the field is 0.
+   *
+   * `r`, `g` and `b` are the colour channels as they are stored. `c`, `m`,
+   * `y` and `k` are the printer's four, with the grey taken out: `k` is how
+   * much of the tone all three inks share, and each of the other three is
+   * what is left of its own ink once that grey is removed. So a pen per
+   * channel prints the picture, and a grey area asks for black alone. */
   field(channel?: ImageChannel, opts?: { area?: number }): (x: number, y: number) => number;
+  /**
+   * The colours the picture is actually made of, most of the paper first.
+   *
+   * Given a count, it fits that many colours to the pixels — a weighted
+   * k-means in Lab, seeded from the picture itself and not from the sketch's
+   * seed, so a file gives the same palette wherever it is read. Given
+   * colours of your own — hex strings, or pens — it fits nothing and assigns
+   * every pixel to the nearest of them. A picture with fewer distinct
+   * colours than were asked for gives fewer entries.
+   *
+   * Each entry is data: `share` is how much of the picture it holds,
+   * `field()` is its membership as an ordinary scalar field (1 at the colour
+   * itself, 0.5 halfway to the next nearest, 0 where another colour wins),
+   * and `area(level)` is that field's contours. So `t.scatter(e.field())`
+   * stipples one separation and `polygon(e.area())` outlines it.
+   *
+   * Transparent pixels hold no share and belong to no colour.
+   */
+  palette(colors: PaletteSource, opts?: { space?: ColourSpace }): PaletteEntry[];
+  /**
+   * The picture as a stack of flat colour areas, lightest first, so drawing
+   * them in order lets the dark ones hide the light ones underneath.
+   *
+   * It is `palette(count)` followed by a sweep for connected patches: a
+   * patch smaller than `tolerance` of the picture is absorbed into whatever
+   * surrounds it, so a separation is areas and not confetti. `count: 2` is
+   * a monochrome trace.
+   *
+   * Each region answers `contours()`, so `polygon(region, …)` takes it
+   * directly, and `area` is the fraction of the picture it covers.
+   */
+  regions(opts?: RegionOpts): ImageRegion[];
   /** The same pixels as a field over surface chart coordinates, for 3D tone,
    * density or attributes: `tone: img.surface({ channel: 'dark' })`. Chart
    * (0,0) is the image's bottom-left by default (v up); `wrap` clamps or
@@ -186,7 +234,52 @@ export interface SurfaceImageOptions {
   uv?: string;
 }
 
-export type ImageChannel = 'lum' | 'dark' | 'a' | 'edge';
+export type ImageChannel = 'lum' | 'dark' | 'a' | 'edge' | 'r' | 'g' | 'b' | 'c' | 'm' | 'y' | 'k';
+
+/** What `img.palette` takes: how many colours to fit, or which colours to
+ * use — hex strings, or anything with a `color`, such as a pen. */
+export type PaletteSource = number | readonly string[] | readonly { color: string }[];
+
+/** One colour of a picture's palette. */
+export interface PaletteEntry {
+  /** The colour, as lower-case `#rrggbb`. A colour you named yourself comes
+   * back in that spelling, so `pens[entry.color]` is a stable lookup. */
+  readonly color: string;
+  /** The fraction of the picture's opaque pixels nearest this colour, 0–1. */
+  readonly share: number;
+  /** Membership as a scalar field: 1 at this colour, 0.5 halfway to the
+   * next nearest, below 0.5 where another colour is nearer, 0 outside the
+   * placed rect and wherever the picture is transparent. `area` averages
+   * the pixels first, as every other image field does. */
+  field(opts?: { area?: number }): (x: number, y: number) => number;
+  /** The contours of `field()` at `level` — 0.5, the default, is exactly
+   * where this colour stops being the nearest one. Closed along the edge of
+   * the picture, so the result fills. */
+  area(level?: number): IsoContour[];
+}
+
+export interface RegionOpts {
+  /** How many colours to separate into. Default 4; `2` is a monochrome
+   * trace. */
+  count?: number;
+  /** A connected patch smaller than this fraction of the picture is
+   * absorbed into what surrounds it. Default 0.002. */
+  tolerance?: number;
+}
+
+/** One flat colour area of a picture. It answers `contours()`, so every
+ * area consumer — `polygon`, `t.within`, `t.hatch` — takes it as it is. */
+export interface ImageRegion {
+  /** The region's colour, as lower-case `#rrggbb`. */
+  readonly color: string;
+  /** The fraction of the placed rectangle this region covers, 0–1. A
+   * transparent part of the picture belongs to no region, so the regions
+   * add up to the part the picture actually covers. */
+  readonly area: number;
+  /** Its closed boundary, outer contours and holes together, for even-odd
+   * filling. A call, not a property: it builds a new collection. */
+  contours(): IsoContour[];
+}
 import { imageValue3, prefilterPixels3, registerToneRecipe3, type ImageRecipe3 } from './three/surface/tone.js';
 
 /**
@@ -238,6 +331,11 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
     return (t[y1 * W1 + x1] - t[y1 * W1 + x0] - t[y0 * W1 + x1] + t[y0 * W1 + x0]) / n;
   };
 
+  const placed = (x: number, y: number): boolean => {
+    const ux = x - ox;
+    const uy = y - oy;
+    return ux >= 0 && uy >= 0 && ux <= width && uy <= height;
+  };
   const sample = (code: number, x: number, y: number, area?: number): number => {
     const ux = x - ox;
     const uy = y - oy;
@@ -258,6 +356,86 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
     const gy = sample(LUM, x, y + eps, area) - sample(LUM, x, y - eps, area);
     return Math.hypot(gx, gy) / 2;
   };
+
+  const inside = (x: number, y: number): boolean => {
+    const ux = x - ox;
+    const uy = y - oy;
+    return ux >= 0 && uy >= 0 && ux <= width && uy <= height;
+  };
+
+  // The printer's four, with the grey removed: k is the tone all three inks
+  // share and comes out of each of them, so the four sum to the tone that is
+  // actually printed and a grey area asks for black alone. Outside the placed
+  // rect every channel is 0 like every other field — which has to be said
+  // here, because "no colour at all" reads as full black before the removal.
+  const inkValue = (which: number, x: number, y: number, area?: number): number => {
+    if (!inside(x, y)) return 0;
+    const c0 = 1 - sample(0, x, y, area);
+    const m0 = 1 - sample(1, x, y, area);
+    const y0 = 1 - sample(2, x, y, area);
+    const k = Math.min(c0, m0, y0);
+    if (which === 3) return k;
+    if (k >= 1) return 0;
+    const v = ((which === 0 ? c0 : which === 1 ? m0 : y0) - k) / (1 - k);
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+  };
+
+  // One working raster for every area question the sampler answers — the
+  // palette's contours and the regions' labels alike. It is the image's own
+  // pixels, thinned so the long side is at most CONTOUR_CELLS: a contour
+  // traced at photographic resolution is a quarter of a million vertices of
+  // staircase, far below the nib, and the plot is the same drawing without
+  // them.
+  const CONTOUR_CELLS = 384;
+  const thin = Math.min(1, CONTOUR_CELLS / Math.max(px.width, px.height));
+  const bandCols = Math.max(2, Math.round(px.width * thin));
+  const bandRows = Math.max(2, Math.round(px.height * thin));
+  const bandW = width / bandCols;
+  const bandH = height / bandRows;
+  // The lattice sits on the cell centres, so the closing ring the marching
+  // adds falls exactly on the edge of the picture.
+  const lattice = { x: ox + bandW / 2, y: oy + bandH / 2, w: width - bandW, h: height - bandH };
+  const march = (grid: SampledGrid, level: number): IsoContour[] =>
+    finishContours(chainSegments(marchSegments(grid, level, true)), lattice, true);
+
+  const binsFor = (space: ColourSpace): ColourBins => {
+    e.bins ??= new Map();
+    let b = e.bins.get(space);
+    if (!b) {
+      b = colourBins(px.data, space);
+      e.bins.set(space, b);
+    }
+    return b;
+  };
+
+  /** Membership of centre `i`: 1 at that colour, 0.5 where the next nearest
+   * is equally close, 0 where the picture is transparent or absent. The
+   * ratio is scale free, so it reads the same in Lab and in RGB. */
+  const membership = (
+    space: ColourSpace,
+    centres: readonly ColourPoint[],
+    i: number,
+    area?: number,
+  ) => (x: number, y: number): number => {
+    if (!inside(x, y)) return 0;
+    const a = sample(3, x, y, area);
+    if (a <= 0) return 0;
+    const p = colourPoint(space, sample(0, x, y, area) * 255, sample(1, x, y, area) * 255, sample(2, x, y, area) * 255);
+    if (centres.length < 2) return a;
+    let mine = Infinity;
+    let other = Infinity;
+    for (let c = 0; c < centres.length; c++) {
+      const dx = p[0] - centres[c][0];
+      const dy = p[1] - centres[c][1];
+      const dz = p[2] - centres[c][2];
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (c === i) mine = d;
+      else if (d < other) other = d;
+    }
+    const sum = mine + other;
+    return sum > 0 ? (other / sum) * a : a;
+  };
+
   return {
     width,
     height,
@@ -492,13 +670,204 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
       const area = opts.area;
       switch (channel) {
         case 'lum': return (x, y) => sample(LUM, x, y, area);
-        case 'dark': return (x, y) => 1 - sample(LUM, x, y, area);
+        // Outside the placed picture there is no tone to invert: dark reads 0
+        // there, as every other channel does, so a scatter over the sheet does
+        // not frame the picture in solid ink.
+        case 'dark': return (x, y) => (placed(x, y) ? 1 - sample(LUM, x, y, area) : 0);
         case 'a': return (x, y) => sample(3, x, y, area);
         case 'edge': return (x, y) => edge(x, y, area);
-        default: throw new Error(`image.field: unknown channel '${String(channel)}' — lum, dark, a or edge`);
+        case 'r': return (x, y) => sample(0, x, y, area);
+        case 'g': return (x, y) => sample(1, x, y, area);
+        case 'b': return (x, y) => sample(2, x, y, area);
+        case 'c': return (x, y) => inkValue(0, x, y, area);
+        case 'm': return (x, y) => inkValue(1, x, y, area);
+        case 'y': return (x, y) => inkValue(2, x, y, area);
+        case 'k': return (x, y) => inkValue(3, x, y, area);
+        default: throw new Error(`image.field: unknown channel '${String(channel)}' — lum, dark, a, edge, r, g, b, c, m, y or k`);
       }
     },
+    palette(colors, opts = {}) {
+      const space = opts.space ?? 'lab';
+      if (space !== 'lab' && space !== 'rgb') {
+        throw new Error(`image.palette: space is 'lab' or 'rgb', not '${String(space)}'`);
+      }
+      const bins = binsFor(space);
+      let centres: ColourPoint[];
+      let colours: string[];
+      if (typeof colors === 'number') {
+        if (!Number.isInteger(colors) || colors < 0) {
+          throw new Error(`image.palette: the count must be a non-negative whole number, got ${String(colors)}`);
+        }
+        const fitted = fitPalette(bins, colors);
+        centres = fitted.map((c) => c.centre);
+        colours = fitted.map((c) => hexOfRgb(c.r, c.g, c.b));
+      } else if (Array.isArray(colors)) {
+        // A colour the artist named stays in the palette even when nothing
+        // in the picture is near it: it is a pen they mean to use, and a
+        // share of zero says so more usefully than a missing entry.
+        colours = (colors as readonly (string | { color: string })[]).map((c, i) => {
+          const hex = typeof c === 'string' ? c : c && typeof c === 'object' && typeof c.color === 'string' ? c.color : undefined;
+          if (hex === undefined) throw new Error(`image.palette: entry ${i} is neither a colour nor a pen (nothing with a 'color')`);
+          return hexOfRgb(...rgbOfHex(hex, 'image.palette'));
+        });
+        centres = colours.map((hex) => colourPoint(space, ...rgbOfHex(hex, 'image.palette')));
+      } else {
+        throw new Error(`image.palette: expected a count of colours, hex strings or pens, got ${String(colors)}`);
+      }
+      const counts = tally(bins, centres);
+      const order = centres.map((_, i) => i);
+      // Descending share, and by the palette's own order where two colours
+      // hold the same amount — nothing here may depend on the run seed.
+      order.sort((a, b) => counts[b].weight - counts[a].weight || a - b);
+      return order.map((i) => ({
+        color: colours[i],
+        share: bins.total > 0 ? counts[i].weight / bins.total : 0,
+        field: (o: { area?: number } = {}) => membership(space, centres, i, o.area),
+        area: (level = 0.5) =>
+          Number.isFinite(level)
+            ? march(sampleGrid(membership(space, centres, i), lattice, bandCols, bandRows), level)
+            : [],
+      }));
+    },
+    regions(opts = {}) {
+      const count = opts.count ?? 4;
+      if (!Number.isInteger(count) || count < 0) {
+        throw new Error(`image.regions: count must be a non-negative whole number, got ${String(opts.count)}`);
+      }
+      const tolerance = opts.tolerance ?? 0.002;
+      if (!(typeof tolerance === 'number') || !Number.isFinite(tolerance) || tolerance < 0) {
+        throw new Error(`image.regions: tolerance is a fraction of the picture, got ${String(opts.tolerance)}`);
+      }
+      const bins = binsFor('lab');
+      const fitted = fitPalette(bins, count);
+      if (fitted.length === 0) return [];
+      const centres = fitted.map((c) => c.centre);
+
+      // Label the working raster: every cell takes the average of the pixels
+      // it covers and the colour nearest to that. A cell the picture does not
+      // cover belongs to nothing — NONE, not to whichever colour happens to
+      // be nearest to transparent black.
+      const NONE = -1;
+      const labels = new Int32Array(bandCols * bandRows).fill(NONE);
+      const lum = new Float64Array(bandCols * bandRows);
+      const half = Math.max(bandW, bandH) / 2;
+      for (let j = 0; j < bandRows; j++) {
+        const cy = oy + (j + 0.5) * bandH;
+        for (let i = 0; i < bandCols; i++) {
+          const cx = ox + (i + 0.5) * bandW;
+          if (sample(3, cx, cy, half) < 0.5) continue;
+          const r = sample(0, cx, cy, half) * 255;
+          const g = sample(1, cx, cy, half) * 255;
+          const b = sample(2, cx, cy, half) * 255;
+          const k = j * bandCols + i;
+          labels[k] = nearest(centres, ...colourPoint('lab', r, g, b));
+          lum[k] = sample(LUM, cx, cy, half);
+        }
+      }
+      despeckle(labels, bandCols, bandRows, Math.max(0, tolerance) * bandCols * bandRows);
+
+      const covered = new Float64Array(fitted.length);
+      const toneSum = new Float64Array(fitted.length);
+      for (let k = 0; k < labels.length; k++) {
+        const c = labels[k];
+        if (c === NONE) continue;
+        covered[c]++;
+        toneSum[c] += lum[k];
+      }
+      const cells = bandCols * bandRows;
+      const kept = fitted.map((_, c) => c).filter((c) => covered[c] > 0);
+      // Lightest first, so drawing them in order lets the dark ones hide the
+      // light ones — the stack a separation is.
+      kept.sort((a, b) => toneSum[b] / covered[b] - toneSum[a] / covered[a] || a - b);
+      return kept.map((c) => ({
+        color: hexOfRgb(fitted[c].r, fitted[c].g, fitted[c].b),
+        area: covered[c] / cells,
+        contours: () => march(maskGrid(labels, bandCols, bandRows, c, lattice), 0.5),
+      }));
+    },
   };
+}
+
+/** A 0/1 lattice of the cells holding one label, ready to march. Built from
+ * the labels directly rather than through a field of coordinates: the
+ * marching asks for exactly the cell centres, and going out to sketch space
+ * and back would be a rounding away from saying so. */
+function maskGrid(
+  labels: Int32Array,
+  cols: number,
+  rows: number,
+  label: number,
+  b: { x: number; y: number; w: number; h: number },
+): SampledGrid {
+  const pw = cols + 2;
+  const vals = new Float64Array(pw * (rows + 2));
+  for (let j = 0; j < rows; j++) {
+    const row = (j + 1) * pw + 1;
+    for (let i = 0; i < cols; i++) vals[row + i] = labels[j * cols + i] === label ? 1 : 0;
+  }
+  return { vals, absent: new Uint8Array(pw * (rows + 2)), pw, gw: cols, gh: rows, b, sx: b.w / (cols - 1), sy: b.h / (rows - 1) };
+}
+
+/**
+ * Absorb every connected patch smaller than `minCells` into whatever
+ * surrounds it, in place.
+ *
+ * A photograph quantized to four colours is four areas and a blizzard of
+ * single cells along every boundary, and a plotter draws the blizzard at
+ * full price. The patches are taken smallest first, so a speck inside a
+ * speck is gone before the speck that holds it is judged, and each one goes
+ * to the label that holds most of its border — the region it is actually
+ * inside, not merely the first neighbour met.
+ */
+function despeckle(labels: Int32Array, cols: number, rows: number, minCells: number): void {
+  if (!(minCells > 1)) return;
+  const n = cols * rows;
+  const comp = new Int32Array(n).fill(-1);
+  const members: number[][] = [];
+  const queue = new Int32Array(n);
+  for (let start = 0; start < n; start++) {
+    if (comp[start] !== -1 || labels[start] < 0) continue;
+    const id = members.length;
+    const label = labels[start];
+    const mine: number[] = [];
+    comp[start] = id;
+    queue[0] = start;
+    for (let head = 0, tail = 1; head < tail; head++) {
+      const k = queue[head];
+      mine.push(k);
+      const i = k % cols;
+      const j = (k - i) / cols;
+      if (i > 0 && comp[k - 1] === -1 && labels[k - 1] === label) { comp[k - 1] = id; queue[tail++] = k - 1; }
+      if (i + 1 < cols && comp[k + 1] === -1 && labels[k + 1] === label) { comp[k + 1] = id; queue[tail++] = k + 1; }
+      if (j > 0 && comp[k - cols] === -1 && labels[k - cols] === label) { comp[k - cols] = id; queue[tail++] = k - cols; }
+      if (j + 1 < rows && comp[k + cols] === -1 && labels[k + cols] === label) { comp[k + cols] = id; queue[tail++] = k + cols; }
+    }
+    members.push(mine);
+  }
+  const small = members.map((_m, id) => id).filter((id) => members[id].length < minCells);
+  small.sort((a, b) => members[a].length - members[b].length || members[a][0] - members[b][0]);
+  for (const id of small) {
+    const mine = members[id];
+    const own = labels[mine[0]];
+    const border = new Map<number, number>();
+    for (const k of mine) {
+      const i = k % cols;
+      const j = (k - i) / cols;
+      for (const nb of [i > 0 ? k - 1 : -1, i + 1 < cols ? k + 1 : -1, j > 0 ? k - cols : -1, j + 1 < rows ? k + cols : -1]) {
+        if (nb < 0) continue;
+        const l = labels[nb];
+        if (l < 0 || l === own) continue;
+        border.set(l, (border.get(l) ?? 0) + 1);
+      }
+    }
+    let best = -1;
+    let most = 0;
+    for (const [l, c] of border) if (c > most || (c === most && l < best)) { most = c; best = l; }
+    // A patch with no neighbour of another colour is the whole of its
+    // region, not a speck in one, and is left exactly as it is.
+    if (best < 0) continue;
+    for (const k of mine) labels[k] = best;
+  }
 }
 
 /** Asset names referenced by string literals in sketch source — the host

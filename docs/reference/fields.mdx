@@ -91,7 +91,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value or a list of them. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels (see [Selections](/docs/reference/selections)).
+The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value, a list of them, or a count or a spacing. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels (see [Selections](/docs/reference/selections)).
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -99,6 +99,21 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const ground = (x, y) => t.noise(x / 28, y / 28);
   return t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges.groupBy((e) => e.attrs.level).map((sel) => strokes(sel, { pen: sel.key > 0 ? 'stabilo-88-blue' : undefined }));
+});
+```
+
+### Levels
+
+`at` takes one value, a list of values, `{ count }` or `{ spacing }`. It is the spelling the [3D `isolines`](/docs/reference/3d/surface) takes, and both read it the same way. A count spreads that many levels evenly inside the range the field covers. A spacing takes every multiple of one step inside that range. `min` and `max` pin the range for a count. `offset` shifts the multiples for a spacing. The range comes from the same samples the contours come from. A count of 0, a spacing of 0 and a flat field all draw nothing.
+
+A map carries a heavier line every fifth contour. Two calls make one. The first takes the base spacing. The second takes five times the spacing in a wider pen. A different pen always draws, so the order of the two calls is free.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
+  const ground = (x, y) => t.noise(x / 46, y / 46) + t.noise(x / 17, y / 17) * 0.3 - (y - 50) / 220;
+  return [strokes(t.isolines(ground, { spacing: 0.06 }), { pen: 'pigma-005-black' }), strokes(t.isolines(ground, { spacing: 0.3 }), { pen: 'pigma-05-black' })];
 });
 ```
 
@@ -114,6 +129,48 @@ import { sketch, strokes, ngon, distanceTo } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const d = distanceTo(t.material(ngon(50, 50, 5, 34)));
   return strokes(t.isolines(d, [-6, -3, 0, 3, 6, 9, 12]));
+});
+```
+
+## distanceToPoints()
+
+<include>/_sig/distanceToPoints.mdx</include>
+
+The distance to the nearest of a cloud of sites, with the sign `distanceTo` uses. The value is zero at a site and negative everywhere else, so no part of the field lies inside. `t.isolines(d, -3)` is the ring three units out from every site. Two rings that reach each other join, and the join runs along the wall between those two sites. The sites are points, so no lowering happens. A `t.scatter` result, a material's `points`, or a plain array of pairs all go straight in. Pure: the field reads no seed and no paper.
+
+Dried mud. Close levels near the merge depth make plates, and the gaps left between the plates are the cracks.
+
+```ts live
+import { sketch, strokes, distanceToPoints } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
+  const sites = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
+  const d = distanceToPoints(sites);
+  return [
+    strokes(t.isolines(d, [-6.9]), { pen: 'pigma-05-black' }),
+    strokes(t.isolines(d, [-6.4, -5.6]), { pen: 'pigma-005-black' }),
+  ];
+});
+```
+
+## t.travelTime()
+
+<include>/_sig/Toolkit.travelTime.mdx</include>
+
+<AutoTypeTable path="../occlude/src/travel.ts" name="TravelOpts" />
+
+The time a front needs to reach each point of the drawable. The front starts at `from` at time zero. `from` is an area, a set of points, or a shape. An array of `{ x, y }` records is a set of separate seeds, and an array of `[x, y]` pairs is one loop. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `distanceTo`.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+// One seed, no walls, but the ground is slow where the noise is low. The
+// rings still leave the seed together; they bunch up over the slow ground
+// and stretch where the going is easy.
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const going = (x, y) => 0.2 + 0.8 * (0.5 + 0.5 * t.noise(x / 24, y / 24));
+  const arrival = t.travelTime([[t.cx, t.cy]], { speed: going, spacing: 0.5 });
+  return strokes(t.isolines(arrival, { spacing: t.width / 16 }));
 });
 ```
 
@@ -199,6 +256,41 @@ import { sketch, strokes, curl, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => strokes(t.streamlines(curl((x, y) => t.noise(x / 35, y / 35)), { spacing: mm(2.5) })));
 ```
 
+`maxLength` is the longest run each way from a seed. It is a length, or a field of lengths read at the seed, so one seed grows one mark of that length. A seed whose length is zero, absent, or below a nib width draws nothing, because the pen would leave a dot there. Length is then a second tone beside spacing. The marks of an engraving run long in the dark. They shorten through the mid tones, and they end as dots in the light.
+
+```ts live
+import { sketch, strokes, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  const dark = img.field('dark', { area: 1 });
+  const ink = (x, y) => img.a(x, y) * dark(x, y);
+  return strokes(t.streamlines(img.flow({ radius: 3 }), {
+    spacing: (x, y) => mm(0.9 + 2.4 * (1 - ink(x, y))),
+    maxLength: (x, y) => mm(img.a(x, y) * (0.45 + 34 * ink(x, y) ** 3)),
+  }));
+});
+```
+
+## axisField() · across()
+
+<include>/_sig/axisField.mdx</include>
+<include>/_sig/across.mdx</include>
+
+`axisField(fn)` marks a direction field as unoriented. The sign carries no meaning: `[dx, dy]` and `[-dx, -dy]` are the same axis. `t.streamlines` keeps the sign it started with along a line, so the line crosses a place where the formula changes sign. An oriented field stops there instead. The verbs `rotate`, `translate`, `scale` and `t.within` keep the mark. `across(field)` is the family at a right angle. An axis field gives an axis field, and a vector field gives a turned vector field. The example reads the slope of a noise landscape as an axis. One hatch crosses each hill and each hollow without a break, and `across` weaves the second family over it.
+
+```ts live
+import { sketch, strokes, axisField, across, grad, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const slope = axisField(grad((x, y) => t.noise(x / 46, y / 46), 1));
+  return [
+    strokes(t.streamlines(slope, { spacing: mm(3) }), { pen: 'pigma-01-black' }),
+    strokes(t.streamlines(across(slope), { spacing: mm(6) }), { pen: 'stabilo-88-green' }),
+  ];
+});
+```
+
 ## t.ridges()
 
 <include>/_sig/Toolkit.ridges.mdx</include>
@@ -214,5 +306,124 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const ground = (x, y) => t.noise(x / 22, y / 22);
   const crests = t.ridges(ground);
   return [strokes(t.isolines(ground, [-0.3, 0, 0.3]), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).edges)];
+});
+```
+
+## t.lattice()
+
+<include>/_sig/Toolkit.lattice.mdx</include>
+
+A lattice is a grid of named channels over an area, and a rule steps it. `spacing` sets the cell size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each cell from its centre, and it reads the seed like any other sketch code. Cell `(i, j)` has its centre at `bounds.x + (i + 0.5) * spacing`.
+
+`lat.steps(n, rule)` returns a new lattice. The rule is `(cur, next, k) => …`, the shape `m.steps` already uses. `cur.at(channel, i, j)` reads one cell, `cur.laplacian(channel, i, j)` is the five-point stencil in cells, and `cur.neighbours(i, j)` lists the cells beside one. `cur.inside(i, j)` asks if a cell belongs to the area at all. `next.set` and `next.add` write single cells. `next.diffuse(channel, rate)` and `next.decay(channel, rate)` work on the whole channel at once. A `diffuse` rate above 0.25 runs away.
+
+`lat.add(points, amount, channel?)` deposits into the cell each point falls in and returns a new lattice. `lat.field(channel)` reads a channel back as a field, absent outside the area. `lat.values`, `lat.cols`, `lat.rows`, `lat.sample(channel, i, j)` and `lat.cell(x, y)` give the raw numbers. Every operation returns a new value, and the lattice it came from still reads what it read before.
+
+The drawing below is a physarum trail map. Each agent carries a `heading` column, smells the lattice ahead of it, and turns toward the strongest trail. Each tick deposits the agents, spreads the trail a little and forgets a fifth of it.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const W = t.width, H = t.height, SENSE = 5, EYE = 0.79, TURN = 0.79;
+  let agents = t.scatter({ spacing: 1.3 }).attribute('heading', () => t.rnd(Math.PI * 2));
+  let trail = t.lattice({ spacing: 1 });
+  for (let k = 0; k < 60; k++) {
+    const smell = trail.field();
+    agents = agents.steps(1, (cur, next) => {
+      for (const p of cur.points) {
+        // A sensor past the paper edge reads NaN, and NaN is no smell at all.
+        const eye = (off) => smell(p.x + Math.cos(p.heading + off) * SENSE, p.y + Math.sin(p.heading + off) * SENSE) || 0;
+        const l = eye(-EYE), c = eye(0), r = eye(EYE);
+        const turn = c >= l && c >= r ? 0 : l < c || r < c ? (l > r ? -TURN : TURN) : t.chance(0.5) ? -TURN : TURN;
+        const h = p.heading + turn;
+        next.set(p, { heading: h });
+        next.move(p, [(p.x + Math.cos(h) + W) % W - p.x, (p.y + Math.sin(h) + H) % H - p.y]);
+      }
+    });
+    trail = trail.add(agents, 1).steps(1, (cur, next) => { next.diffuse('a', 0.22); next.decay('a', 0.2); });
+  }
+  return strokes(t.isolines(trail.field(), [0.9, 1.8, 3.2, 5.3, 8, 11.7], { step: 0.5 }));
+});
+```
+
+## t.residual()
+
+<include>/_sig/Toolkit.residual.mdx</include>
+
+A residual is the tone a drawing owes, held on a grid of cells. `field` is
+the target darkness, 0 to 1. `spacing` is the cell size, and it defaults to
+the grid step `t.isolines` uses. `area` says what owes anything, and outside
+it the residual is 0.
+
+The value is a field. `r(x, y)` is what is still owed there, interpolated
+between cell centres and 0 outside the area. `r.spend(marks, { width })`
+subtracts the nib footprint of the marks and answers with the tone it took.
+`marks` is a material, a point selection, a contour record, or a plain
+`[x, y]` polyline. The residual strokes a chain at `width`, and it puts a dot
+of that diameter on a point that no chain touches. The answer is in cell
+areas: one cell paid from 1 down to 0 counts as 1. A cell never goes below 0,
+so a mark on paper that owes nothing takes nothing. `r.total()` is the debt
+that remains. `r.peek(x, y)` is the same as a call.
+
+`spend` changes the residual in place. It is the one value in the library
+that changes. A ledger must hold what the last stroke paid, and a copy for
+each stroke makes a long loop quadratic. `r.snapshot()` is the door back out.
+It gives a frozen copy as a plain field, and later spends do not touch it.
+The seed still decides the drawing, because the ledger is a function of the
+order of the spends.
+
+The drawing below is two pens against one debt. The broad pen stipples first,
+and it pays for what its nib covers. The fine pen then scatters against the
+debt that remains, so it fills only the tone that the first pen missed.
+
+```ts live
+import { sketch, dots, pen, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3, pens: {
+  broad: pen({ width: mm(3), color: '#B4ADA3' }),
+  fine: pen({ width: mm(0.4), color: '#23252B' }),
+} }, (t) => {
+  const tone = (x, y) => Math.max(0, Math.min(1, 1.2 - Math.hypot(x - 50, y - 50) / 40));
+  const r = t.residual(tone, { spacing: mm(3) });
+  const broad = t.scatter(r, { spacing: mm(5) });
+  r.spend(broad, { width: mm(3) });
+  const fine = t.scatter(r, { spacing: mm(0.9) });
+  return [dots(broad, { pen: 'broad' }), dots(fine, { pen: 'fine' })];
+});
+```
+
+## t.spacefill()
+
+<include>/_sig/Toolkit.spacefill.mdx</include>
+
+<AutoTypeTable path="../occlude/src/spacefill.ts" name="SpacefillOpts" />
+
+One line that folds until the folds fill an area. The line visits every cell
+of a subdivided square once. Neighbours in the walk touch, so the whole fill
+is one pen-down stroke. `spacing` is the finest cell. A `field` of tone, 0 to
+1, divides a cell again while the tone there asks for a finer cell. Tone 1
+reaches `spacing`, tone 0.5 stops one level short,
+and tone 0 lifts the pen. `maxSpacing` caps the coarsest cell, so pale tone
+still folds in place of one long chord across the sheet. The line turns an
+elbow at every level change, and so it has no diagonal in it. Each vertex
+carries the `level` it stopped at, so
+`m.points.filter((p) => p.level > 5)` picks the fine folds out for another
+pen. `area` takes a shape, a face, loops, or a contour material. A cell
+outside the area drops out and the line starts again at the next cell inside.
+
+`rule` is the fold itself, as data. A rule says how a cell divides, the order
+the children come in, and the turn each child takes. `hilbertRule` is the
+default. `peanoRule` and `meanderRule` divide in threes, and each one gives
+the fill a different grain. Copy a table, change a turn, and the whole
+drawing folds another way. A table that misses a cell, or leaves a child the
+next one cannot reach, throws by name.
+
+```ts live
+import { sketch, strokes, rect, peanoRule, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const tone = (x, y) => (t.noise(x / 26, y / 26) + 1) / 2;
+  return strokes(t.spacefill(rect(6, 6, 88, 88), { spacing: mm(1.6), field: tone, rule: peanoRule }));
 });
 ```

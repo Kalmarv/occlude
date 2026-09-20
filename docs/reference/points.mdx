@@ -134,3 +134,25 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   return [strokes(cells), big.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })), sites.points.map((p) => circle(p.x, p.y, 0.8, { pen: 'stabilo-88-blue' }))];
 });
 ```
+
+## hull()
+
+<include>/_sig/hull.mdx</include>
+
+The outline of a point cloud, as closed contours an area consumer reads. `alpha` sets the largest circle the outline may bite out of the cloud. At `alpha: 0` no circle is too large, nothing is bitten out, and the answer is the convex hull. Raise it and the outline follows the cloud's own hollows. Raise it further and the cloud falls into clumps, each clump with its own contour. Nested contours are holes, read even-odd the way `polygon` reads them. Fewer than three points, or every point on one line, gives no contour at all. Pure: no seed and no paper.
+
+Three canopies over one wood. The thin black line is the convex hull of every leaf, and the green lines are the same leaves at `alpha: 1 / 5`.
+
+```ts live
+import { sketch, strokes, hull, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const leaves = [[22, 30], [78, 26], [50, 72]].flatMap(([cx, cy]) =>
+    t.times(90, () => [cx + t.gaussian(0, 8.5), cy + t.gaussian(0, 8.5)]));
+  return [
+    strokes(hull(leaves), { pen: 'pigma-005-black' }),
+    strokes(hull(leaves, { alpha: 1 / 5 }), { pen: 'stabilo-88-green' }),
+    leaves.map(([x, y]) => circle(x, y, 0.45, { pen: 'pigma-005-black' })),
+  ];
+});
+```

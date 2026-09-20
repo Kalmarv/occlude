@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude, render, sketch } from '../src/index.js';
-import { isolinesOf, type IsoContour, type IsoEnv } from '../src/isolines.js';
-import type { Material, RenderOptions, SketchDef } from '../src/index.js';
+import { initOcclude, render, sketch, strokes } from '../src/index.js';
+import { isolinesOf, levelContours, type IsoContour, type IsoEnv } from '../src/isolines.js';
+import type { FieldFn, Material, RenderOptions, SketchDef } from '../src/index.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -124,6 +124,97 @@ describe('isolines: marching squares core', () => {
     const out = isolinesOf(env, field, 0, { step: 1 });
     expect(out).toHaveLength(1);
     expect(out[0].pts.every(([x]) => Math.abs(x - 50) < 1e-6)).toBe(true);
+  });
+});
+
+describe('isolines: levels', () => {
+  /** A plane that runs 0..100 across the drawable: its sampled range is the
+   * drawable's own span, so a count or a spacing has an arithmetic answer. */
+  const ramp = (x: number): number => x;
+  const levelsOf = (at: Parameters<typeof levelContours>[2], field: FieldFn = ramp, opts = { step: 1 }) =>
+    levelContours(env, field, at, opts).map((g) => g.level);
+
+  it('{ count } spreads levels evenly inside the sampled range', () => {
+    expect(levelsOf({ count: 3 })).toEqual([25, 50, 75]);
+    expect(levelsOf({ count: 1 })).toEqual([50]);
+    // min/max pin the range the count divides.
+    expect(levelsOf({ count: 3, min: 0, max: 40 })).toEqual([10, 20, 30]);
+    expect(levelsOf({ count: 1, max: 0 })).toEqual([]); // an empty range
+  });
+
+  it('{ spacing } takes every multiple inside the range, offset and all', () => {
+    expect(levelsOf({ spacing: 20 })).toEqual([0, 20, 40, 60, 80, 100]);
+    expect(levelsOf({ spacing: 20, offset: 5 })).toEqual([5, 25, 45, 65, 85]);
+    expect(levelsOf({ spacing: 150 })).toEqual([0]);
+  });
+
+  it('the range is the range the field actually has, absence aside', () => {
+    // Only the left third is sampled at all; the rest is a NaN hole.
+    const third = (x: number): number => (x > 33 ? Number.NaN : x);
+    const found = levelsOf({ count: 2 }, third);
+    expect(found).toHaveLength(2);
+    expect(found[0]).toBeGreaterThan(0);
+    expect(found[1]).toBeLessThan(34);
+    // A flat field has no range to divide and no multiples to find.
+    expect(levelsOf({ count: 4 }, () => 7)).toEqual([]);
+    expect(levelsOf({ spacing: 1 }, () => Number.NaN)).toEqual([]);
+  });
+
+  it('degenerate specs draw nothing; a fractional count is a mistake', () => {
+    expect(levelsOf({ spacing: 0 })).toEqual([]);
+    expect(levelsOf({ spacing: -5 })).toEqual([]);
+    expect(levelsOf({ spacing: Number.NaN })).toEqual([]);
+    expect(levelsOf({ count: 0 })).toEqual([]);
+    expect(() => levelsOf({ count: 2.5 })).toThrow(/positive integer/);
+    // The step guard still wins over the field, and a spec has no levels
+    // without one: a list keeps its places, a spec has none to keep.
+    expect(levelContours(env, ramp, { count: 3 }, { step: 0 })).toEqual([]);
+    expect(levelContours(env, ramp, [1, 2], { step: 0 })).toEqual([
+      { level: 1, contours: [] },
+      { level: 2, contours: [] },
+    ]);
+  });
+
+  it('a resolved spec marches exactly as the same list would', () => {
+    const field = (x: number, y: number): number => 40 - Math.hypot(x - 50, y - 50);
+    const spec = levelContours(env, field, { count: 3 }, { step: 1 });
+    const list = levelContours(env, field, spec.map((g) => g.level), { step: 1 });
+    expect(JSON.stringify(spec)).toBe(JSON.stringify(list));
+    // And the nameless door returns the same contours, one array per level.
+    expect(isolinesOf(env, field, { count: 3 }, { step: 1 })).toEqual(
+      spec.map((g) => g.contours),
+    );
+  });
+
+  it('the toolkit carries the resolved level on every edge', () => {
+    let keys: number[] = [];
+    let index: number[] = [];
+    let listed: number[] = [];
+    sq(
+      sketch({ seed: 4 }, (t) => {
+        const ground = (x: number, y: number): number => t.noise(x / 28, y / 28);
+        const m = t.isolines(ground, { spacing: 0.1 });
+        keys = m.edges.groupBy((e) => e.attrs.level as number).map((sel) => sel.key as number);
+        index = t
+          .isolines(ground, { spacing: 0.5 })
+          .edges.groupBy((e) => e.attrs.level as number)
+          .map((sel) => sel.key as number);
+        listed = t
+          .isolines(ground, [-0.2, 0, 0.2])
+          .edges.groupBy((e) => e.attrs.level as number)
+          .map((sel) => sel.key as number);
+        return [strokes(m)];
+      }),
+    );
+    // A list still names its own levels, in the order it gave them.
+    expect(listed).toEqual([-0.2, 0, 0.2]);
+    expect(keys.length).toBeGreaterThan(3);
+    for (const k of keys) expect(Math.abs(k / 0.1 - Math.round(k / 0.1))).toBeLessThan(1e-9);
+    // The index lines are a subset of the lines they index.
+    expect(index.length).toBeGreaterThan(0);
+    for (const k of index) {
+      expect(keys.some((v) => Math.abs(v - k) < 1e-9)).toBe(true);
+    }
   });
 });
 

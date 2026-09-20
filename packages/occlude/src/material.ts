@@ -42,9 +42,11 @@ import { trails as makeTrails, type TrailsOpts } from './trails.js';
 import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
 import { warp as warpKernel, type WarpOpts } from './warp.js';
 import { oscillate as oscillateKernel, type OscillateOpts } from './oscillate.js';
+import { coil as coilKernel, type CoilOpts } from './coil.js';
 import { envelope as envelopeKernel } from './envelope.js';
 import { interlace as interlaceKernel, type InterlaceOpts } from './interlace.js';
 import { snap as snapKernel, type SnapField, type SnapOpts } from './snap.js';
+import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
 import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
@@ -723,6 +725,14 @@ export class Material {
     return planarize(this, opts);
   }
 
+  /** Independent material in which coincident ink is one piece of ink:
+   * vertices within `tolerance` are one vertex, a duplicate edge is one
+   * edge, and collinear edges that overlap become the spans they cover,
+   * each kept once. The word that resolves what `planarize` refuses. */
+  merge(opts: MergeOpts = {}): Material {
+    return mergeKernel(this, opts);
+  }
+
   /** The bounded regions this (already planar) material encloses. */
   /** The bounded faces of this state (see faces.ts). A frozen state has one
    * face collection: repeated calls return the same object, so a face view
@@ -1284,6 +1294,181 @@ export class Material {
   }
 
   /**
+   * A curve THROUGH this material's vertices: a Catmull-Rom spline,
+   * sampled into ordinary Material.
+   *
+   * The `smooth` modifier rounds a corner off — the drawn line passes
+   * INSIDE it. This one keeps every corner vertex and bends the line
+   * between them, so a chain of picked positions stays a chain through
+   * those positions. Closure is read from the chain: a ring's seam is a
+   * segment like any other, so the curve comes back on itself with no
+   * corner.
+   *
+   * `tension` scales the tangent at each vertex: 0 is the polyline it
+   * started from, 0.5 (the default) is the ordinary Catmull-Rom curve, and
+   * 1 swings wide and overshoots. `steps` is the samples per source
+   * segment (default 8) — the source segment becomes that many edges. An
+   * open chain takes its end tangents from its end segments. A chain of
+   * fewer than three vertices has no curve to describe and comes through
+   * as it is. Junctions are an error, as they are for `along` and
+   * `resample`.
+   *
+   * The source vertices are the same vertices: same ids, same positions,
+   * same columns. Each new vertex between them is minted, with its columns
+   * read by the transfer policies. Every source edge is retired and its
+   * children keep its lineage root, as a split's children do, so a face
+   * column still finds its cells. An edge column that is `'distribute'` is
+   * shared out over the children by their share of the new arc length.
+   */
+  spline(opts: { tension?: number; steps?: number } = {}): Material {
+    const tension = opts.tension ?? 0.5;
+    if (!Number.isFinite(tension) || tension < 0 || tension > 1) {
+      throw new Error(`spline: { tension } must be a number from 0 to 1 (got ${String(opts.tension)})`);
+    }
+    const steps = opts.steps ?? 8;
+    if (!Number.isInteger(steps) || steps < 1) {
+      throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
+    }
+    for (let i = 0; i < this.n; i++) {
+      if (this.adj[i].length > 2) throw new Error(`spline: vertex ${i} is a junction — chains only`);
+    }
+    const names = this.attrNames;
+    const enames = this.edgeAttrNames;
+    const transfer: Record<string, Transfer> = { ...this.transfers };
+    const ox: number[] = [];
+    const oy: number[] = [];
+    const oattrs: Record<string, number[]> = {};
+    for (const name of names) oattrs[name] = [];
+    const edges: number[] = [];
+    const eattrs: Record<string, number[]> = {};
+    for (const name of enames) eattrs[name] = [];
+    // Where each output row came from: a source row, or -1 for a row this
+    // call made. The same bookkeeping `resample` keeps under `where`.
+    const osrc: number[] = [];
+    const esrc: number[] = [];
+    const eroot: number[] = [];
+    const storedRow = new Map<number, number>();
+    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
+    const rowOf = new Map<number, number>();
+    // A source vertex, verbatim — not through `transfer`, which says what a
+    // value does at a NEW vertex. A vertex two segments share is one row.
+    const rowFor = (v: number): number => {
+      const had = rowOf.get(v);
+      if (had !== undefined) return had;
+      ox.push(this.x[v]);
+      oy.push(this.y[v]);
+      osrc.push(v);
+      for (const name of names) oattrs[name].push(this.attrs[name][v]);
+      rowOf.set(v, ox.length - 1);
+      return ox.length - 1;
+    };
+    /** A new vertex at (x, y), its columns read between a and b at t. */
+    const place = (x: number, y: number, a: number, b: number, t: number): number => {
+      ox.push(x);
+      oy.push(y);
+      osrc.push(-1);
+      for (const name of names) {
+        const rule = transfer[name] ?? 'interpolate';
+        const va = this.attrs[name][a];
+        const vb = this.attrs[name][b];
+        let v: number;
+        if (rule === 'interpolate') v = va + (vb - va) * t;
+        else if (rule === 'nearest') v = t <= 0.5 ? va : vb; // ties to the start vertex
+        else if (typeof rule === 'number') v = rule;
+        else v = rule(this.vertex(a), this.vertex(b), t);
+        oattrs[name].push(v);
+      }
+      return ox.length - 1;
+    };
+    /** One source edge through as it is: same row, same lineage. */
+    const keep = (a: number, b: number, row: number) => {
+      edges.push(rowFor(a), rowFor(b));
+      esrc.push(row);
+      eroot.push(row);
+      for (const name of enames) eattrs[name].push(this.edgeAttrs[name][row]);
+    };
+    // Isolated vertices are not chains: they come through unchanged.
+    for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) rowFor(i);
+    for (const c of this.curves()) {
+      const idx = c.indices;
+      const k = idx.length;
+      const segs = c.closed ? k : k - 1;
+      const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s % k], idx[(s + 1) % k]))!;
+      // Two vertices describe a straight line and nothing else: no curve to
+      // draw, so the chain is the chain it was.
+      if (k < 3) {
+        for (let s = 0; s < segs; s++) keep(idx[s % k], idx[(s + 1) % k], rowOfSeg(s));
+        continue;
+      }
+      // The vertex before the segment and the one after it set the tangents.
+      // An open chain has none at its ends, so the end segment is its own
+      // neighbour and the curve leaves along it.
+      const at = (j: number): number => (c.closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
+      for (let s = 0; s < segs; s++) {
+        const row = rowOfSeg(s);
+        const p0 = at(s - 1);
+        const p1 = at(s);
+        const p2 = at(s + 1);
+        const p3 = at(s + 2);
+        const m0x = tension * (this.x[p2] - this.x[p0]);
+        const m0y = tension * (this.y[p2] - this.y[p0]);
+        const m1x = tension * (this.x[p3] - this.x[p1]);
+        const m1y = tension * (this.y[p3] - this.y[p1]);
+        const rows: number[] = [rowFor(p1)];
+        for (let i = 1; i < steps; i++) {
+          const u = i / steps;
+          const u2 = u * u;
+          const u3 = u2 * u;
+          const h00 = 2 * u3 - 3 * u2 + 1;
+          const h10 = u3 - 2 * u2 + u;
+          const h01 = -2 * u3 + 3 * u2;
+          const h11 = u3 - u2;
+          rows.push(place(
+            h00 * this.x[p1] + h10 * m0x + h01 * this.x[p2] + h11 * m1x,
+            h00 * this.y[p1] + h10 * m0y + h01 * this.y[p2] + h11 * m1y,
+            p1, p2, u,
+          ));
+        }
+        rows.push(rowFor(p2));
+        // A 'distribute' column is shared over the children by their share
+        // of the arc the segment now takes, so the quantity the source edge
+        // carried is still what its children carry between them.
+        const spans: number[] = [];
+        let total = 0;
+        for (let i = 1; i < rows.length; i++) {
+          const d = Math.hypot(ox[rows[i]] - ox[rows[i - 1]], oy[rows[i]] - oy[rows[i - 1]]);
+          spans.push(d);
+          total += d;
+        }
+        for (let i = 1; i < rows.length; i++) {
+          edges.push(rows[i - 1], rows[i]);
+          esrc.push(-1);
+          eroot.push(row);
+          for (const name of enames) {
+            const value = this.edgeAttrs[name][row];
+            eattrs[name].push(this.edgeTransfers[name] === 'distribute' ? (total > 0 ? value * (spans[i - 1] / total) : value / spans.length) : value);
+          }
+        }
+      }
+    }
+    const attrs: Record<string, Float64Array> = {};
+    for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
+    const edgeAttrs: Record<string, Float64Array> = {};
+    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+    const freshPoints = mintIds(osrc.reduce((n, v) => n + (v < 0 ? 1 : 0), 0));
+    const freshEdges = mintIds(esrc.reduce((n, v) => n + (v < 0 ? 1 : 0), 0));
+    let fp = 0;
+    let fe = 0;
+    const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
+    const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
+    const edgeRoots = Float64Array.from(esrc, (v, i) => (v >= 0 ? this.edgeRoots[v] : this.edgeRoots[eroot[i]]));
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
+      iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
+      ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs,
+    });
+  }
+
+  /**
    * Cut a length off each open chain's two ends, by arc length.
    *
    * Gaps where strokes meet, a taper that starts short of the corner, a
@@ -1587,6 +1772,13 @@ export class Material {
    * own units. See `OscillateOpts`. */
   oscillate(opts: OscillateOpts): Material {
     return oscillateKernel(this, opts);
+  }
+
+  /** Wind this material's chains into a coil, at a radius and a pitch read
+   * in its own units. A swing crosses the chain; a loop goes round it. See
+   * `CoilOpts`. */
+  coil(opts: CoilOpts): Material {
+    return coilKernel(this, opts);
   }
 
   /** The outline this material's chains sweep: their envelope. */
@@ -2127,6 +2319,150 @@ function chainEdges(n: number, closed: boolean): [number, number][] {
   return out;
 }
 
+// ---- turns ----------------------------------------------------------------------
+//
+// Dubins' theorem: the shortest path between two headed places, for
+// something that cannot turn tighter than `radius` and never reverses, is
+// always one of six words — LSL, RSR, LSR, RSL, RLR, LRL, where L and R are
+// arcs at the radius and S is a straight. So the shortest path is found by
+// writing all six down and taking the shortest that exists. The classical
+// closed forms below are Shkel & Lumelsky's, in the normalised frame where
+// the two places are `d = distance / radius` apart along +x: `alpha` and
+// `beta` are the two headings measured from that line, and a word's three
+// lengths come back in radians of turn (the straight in radii).
+//
+// L turns the heading UP (increasing angle, +x toward +y), R turns it down.
+// With y growing downward that reads clockwise on paper — the letters are
+// the theorem's, not the drawing's.
+
+const TAU = 2 * Math.PI;
+const mod2pi = (a: number): number => ((a % TAU) + TAU) % TAU;
+
+type Turn = 'L' | 'S' | 'R';
+interface DubinsWord {
+  word: readonly [Turn, Turn, Turn];
+  /** Segment lengths: radians for an arc, radii for the straight. */
+  parts: readonly [number, number, number];
+}
+
+/** Every one of the six words that exists for this pair, unordered. */
+function dubinsWords(alpha: number, beta: number, d: number): DubinsWord[] {
+  const sa = Math.sin(alpha);
+  const ca = Math.cos(alpha);
+  const sb = Math.sin(beta);
+  const cb = Math.cos(beta);
+  const cab = Math.cos(alpha - beta);
+  const out: DubinsWord[] = [];
+  const add = (word: readonly [Turn, Turn, Turn], t: number, p: number, q: number): void => {
+    if (Number.isFinite(t) && Number.isFinite(p) && Number.isFinite(q)) out.push({ word, parts: [t, p, q] });
+  };
+  const lsl = 2 + d * d - 2 * cab + 2 * d * (sa - sb);
+  if (lsl >= 0) {
+    const tmp = Math.atan2(cb - ca, d + sa - sb);
+    add(['L', 'S', 'L'], mod2pi(-alpha + tmp), Math.sqrt(lsl), mod2pi(beta - tmp));
+  }
+  const rsr = 2 + d * d - 2 * cab + 2 * d * (sb - sa);
+  if (rsr >= 0) {
+    const tmp = Math.atan2(ca - cb, d - sa + sb);
+    add(['R', 'S', 'R'], mod2pi(alpha - tmp), Math.sqrt(rsr), mod2pi(-beta + tmp));
+  }
+  const lsr = -2 + d * d + 2 * cab + 2 * d * (sa + sb);
+  if (lsr >= 0) {
+    const p = Math.sqrt(lsr);
+    const tmp = Math.atan2(-ca - cb, d + sa + sb) - Math.atan2(-2, p);
+    add(['L', 'S', 'R'], mod2pi(-alpha + tmp), p, mod2pi(-mod2pi(beta) + tmp));
+  }
+  const rsl = d * d - 2 + 2 * cab - 2 * d * (sa + sb);
+  if (rsl >= 0) {
+    const p = Math.sqrt(rsl);
+    const tmp = Math.atan2(ca + cb, d - sa - sb) - Math.atan2(2, p);
+    add(['R', 'S', 'L'], mod2pi(alpha - tmp), p, mod2pi(beta - tmp));
+  }
+  const rlr = (6 - d * d + 2 * cab + 2 * d * (sa - sb)) / 8;
+  if (Math.abs(rlr) <= 1) {
+    const p = mod2pi(TAU - Math.acos(rlr));
+    const t = mod2pi(alpha - Math.atan2(ca - cb, d - sa + sb) + mod2pi(p / 2));
+    add(['R', 'L', 'R'], t, p, mod2pi(alpha - beta - t + mod2pi(p)));
+  }
+  const lrl = (6 - d * d + 2 * cab + 2 * d * (sb - sa)) / 8;
+  if (Math.abs(lrl) <= 1) {
+    const p = mod2pi(TAU - Math.acos(lrl));
+    const t = mod2pi(-alpha - Math.atan2(ca - cb, d + sa - sb) + p / 2);
+    add(['L', 'R', 'L'], t, p, mod2pi(mod2pi(beta) - alpha - t + mod2pi(p)));
+  }
+  return out;
+}
+
+/** One segment walked from a state, exactly (no integration drift). */
+function walkTurn(x: number, y: number, th: number, letter: Turn, len: number, r: number): [number, number, number] {
+  if (letter === 'S') return [x + len * Math.cos(th), y + len * Math.sin(th), th];
+  const side = letter === 'L' ? 1 : -1;
+  const cx = x - side * r * Math.sin(th);
+  const cy = y + side * r * Math.cos(th);
+  const th2 = th + (side * len) / r;
+  return [cx + side * r * Math.sin(th2), cy - side * r * Math.cos(th2), th2];
+}
+
+/**
+ * The shortest Dubins path from one headed place to another, as points
+ * INCLUDING both ends, or null when no word of the six exists.
+ *
+ * An arc is cut so no step turns more than an eighth of a radian — a
+ * sagitta of two thousandths of the radius, under any nib — and a straight
+ * is two points, because a straight needs no more.
+ */
+function turnPoints(
+  from: readonly [number, number, number],
+  to: readonly [number, number, number],
+  r: number,
+): [number, number][] | null {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const d = Math.hypot(dx, dy) / r;
+  const th = Math.atan2(dy, dx);
+  const alpha = mod2pi(from[2] - th);
+  const beta = mod2pi(to[2] - th);
+  let best: DubinsWord | null = null;
+  let bestLen = Infinity;
+  for (const w of dubinsWords(alpha, beta, d)) {
+    const total = w.parts[0] + w.parts[1] + w.parts[2];
+    if (total < bestLen) {
+      bestLen = total;
+      best = w;
+    }
+  }
+  if (!best) return null;
+  const pts: [number, number][] = [[from[0], from[1]]];
+  let state: [number, number, number] = [from[0], from[1], from[2]];
+  for (let k = 0; k < 3; k++) {
+    const letter = best.word[k];
+    // Arc lengths come back in radians of turn, the straight in radii.
+    const len = best.parts[k] * r;
+    if (!(len > 0)) continue;
+    const steps = letter === 'S' ? 1 : Math.max(1, Math.ceil(8 * best.parts[k]));
+    for (let i = 1; i <= steps; i++) {
+      const at = walkTurn(state[0], state[1], state[2], letter, (len * i) / steps, r);
+      pts.push([at[0], at[1]]);
+      if (i === steps) state = at;
+    }
+  }
+  return pts;
+}
+
+/** Stations, or a refusal that names what is missing. */
+function headedStations(stations: readonly Station[] | PointsLike, who: string): readonly Station[] {
+  if (!Array.isArray(stations)) {
+    throw new Error(`${who}: expected the stations m.along() returns — a material or a point cloud has no heading to turn from`);
+  }
+  stations.forEach((q: unknown, i: number) => {
+    const s = q as { x?: unknown; y?: unknown; heading?: unknown };
+    if (typeof s?.x !== 'number' || typeof s?.y !== 'number' || typeof s?.heading !== 'number') {
+      throw new Error(`${who}: entry ${i} is a plain point with no heading to turn from — take stations off the chain with m.along({ spacing }) and pass those`);
+    }
+  });
+  return stations as readonly Station[];
+}
+
 /** Common connection patterns; each returns a new material. None infers a
  * route: chain and ring use the supplied row order. */
 export const connect = {
@@ -2581,6 +2917,73 @@ export const connect = {
     for (let i = 0; i < Math.min(ma.n, mb.n); i++) pairs.push([i, ma.n + i]);
     return joined.withEdges(pairs, edgeAttributes);
   },
+  /**
+   * One run through headed places, turning no tighter than `radius`.
+   *
+   * Each consecutive pair is joined by its shortest Dubins path — the
+   * shortest route for something that holds a minimum turning radius and
+   * never reverses — so the run leaves each station along its heading and
+   * arrives at the next one along ITS heading. That is what makes it
+   * different from `connect.tour`, which joins places; this joins
+   * DIRECTIONS, and is how loose fragments of a flow become one continuous
+   * line the pen can draw without lifting.
+   *
+   * The input is stations, as `m.along()` returns: a plain point has no
+   * heading and is refused by name. The result is a chain material sampled
+   * at its own resolution — arcs cut fine enough that the turn reads as a
+   * curve, straights left as straights — so `strokes(m.curves())` draws it
+   * and `m.resample` re-spaces it.
+   *
+   * `closed` joins the last station back to the first. A pair with no
+   * admissible path at that radius (too tight a turn into too near a
+   * place) gets no edge at all: the run breaks there into two chains,
+   * rather than cutting a corner it could not drive.
+   */
+  turns(stations: readonly Station[] | PointsLike, opts: { radius: number; closed?: boolean }): Material {
+    const r = opts?.radius;
+    if (!(typeof r === 'number' && r > 0 && Number.isFinite(r))) {
+      throw new Error(`connect.turns: { radius } must be a positive turning radius, got ${String(r)}`);
+    }
+    const list = headedStations(stations, 'connect.turns');
+    const closed = opts.closed === true;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const edges: [number, number][] = [];
+    const place = (p: readonly [number, number]): number => {
+      xs.push(p[0]);
+      ys.push(p[1]);
+      return xs.length - 1;
+    };
+    const at = (q: Station): [number, number, number] => [q.x, q.y, q.heading];
+    const last = closed ? list.length : list.length - 1;
+    let prevRow = -1;
+    let firstRow = -1;
+    for (let k = 0; k < last; k++) {
+      const a = list[k];
+      const b = list[(k + 1) % list.length];
+      const pts = turnPoints(at(a), at(b), r);
+      if (!pts) {
+        prevRow = -1;
+        continue;
+      }
+      // The pair's first point IS this station: it is a new row only when
+      // the previous pair did not already leave one there.
+      let from = prevRow;
+      if (from < 0) from = place(pts[0]);
+      if (k === 0) firstRow = from;
+      const wraps = closed && k === last - 1 && firstRow >= 0;
+      for (let i = 1; i < pts.length; i++) {
+        const to = wraps && i === pts.length - 1 ? firstRow : place(pts[i]);
+        edges.push([from, to]);
+        from = to;
+      }
+      prevRow = from;
+    }
+    // One place and nothing to turn toward is still that place.
+    if (xs.length === 0) for (const q of list) place([q.x, q.y]);
+    return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges.flat()));
+  },
+
   /** Delaunay triangulation edges over the vertices. */
   /** Delaunay edges over the rows, by index. Coincident rows: the FIRST
    * row at a position takes part in the triangulation and its edges; later

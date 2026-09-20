@@ -18,6 +18,8 @@
  */
 
 import { numericLoops, type AreaInput } from './boundary.js';
+import { vx as pointX, vy as pointY, type XY } from './vec.js';
+import type { PointsLike } from './material.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -192,6 +194,121 @@ export function distanceTo(boundary: AreaInput): DistanceField {
       inside = crossings % 2 === 1;
     }
     return inside ? best : -best;
+  };
+}
+
+/** Site coordinates, read from whatever says where its points are: a
+ * material answers with its own columns, anything iterable is walked point
+ * by point (a point selection yields its vertex views, an array its pairs
+ * or records). Non-finite positions are dropped, not drawn to. */
+function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: Float64Array } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const v = sites as unknown as { x?: ArrayLike<number>; y?: ArrayLike<number>; n?: number };
+  if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
+    for (let i = 0; i < v.n; i++) {
+      xs.push(v.x[i]);
+      ys.push(v.y[i]);
+    }
+  } else if (v !== null && v !== undefined && typeof (v as Iterable<XY>)[Symbol.iterator] === 'function') {
+    for (const p of sites as Iterable<XY>) {
+      xs.push(pointX(p));
+      ys.push(pointY(p));
+    }
+  } else {
+    throw new Error(`${who}: expected points — an array of [x, y] or { x, y }, a point selection, or a material`);
+  }
+  const keep: number[] = [];
+  for (let i = 0; i < xs.length; i++) if (Number.isFinite(xs[i]) && Number.isFinite(ys[i])) keep.push(i);
+  return { sx: Float64Array.from(keep, (i) => xs[i]), sy: Float64Array.from(keep, (i) => ys[i]) };
+}
+
+/**
+ * Distance to the NEAREST of a cloud of sites, as a field of the same sign
+ * convention as `distanceTo`: zero at a site and negative everywhere else,
+ * so nowhere is inside. It is −F1 of the Worley family, which is what makes
+ * it read as a field: `t.isolines(distanceToPoints(sites), -3)` is the ring
+ * three units out from every site, and where two rings would meet they
+ * merge into the cracked-mud cell wall between the sites.
+ *
+ * Pure and deterministic, like `distanceTo`: no seed and no paper. A shape
+ * is not points, so there is no lowering to do; `t.scatter(...)`,
+ * `m.points` and a plain array of pairs all go straight in. With no usable
+ * site the field is −Infinity everywhere, so isolines over it yield no
+ * contours rather than throwing.
+ *
+ * Queries run against a uniform grid built once per call and widened ring
+ * by ring, with the exact bound that stops the walk — the same search
+ * `distanceTo` makes over its segments.
+ */
+export function distanceToPoints(sites: PointsLike): DistanceField {
+  const { sx, sy } = sitePositions(sites, 'distanceToPoints');
+  const n = sx.length;
+  if (n === 0) return () => -Infinity;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (sx[i] < minX) minX = sx[i];
+    if (sx[i] > maxX) maxX = sx[i];
+    if (sy[i] < minY) minY = sy[i];
+    if (sy[i] > maxY) maxY = sy[i];
+  }
+  const w = Math.max(maxX - minX, 1e-9);
+  const h = Math.max(maxY - minY, 1e-9);
+  const target = Math.min(256, Math.max(1, Math.ceil(Math.sqrt(n / 2))));
+  const cols = target;
+  const rows = target;
+  const cw = w / cols;
+  const ch = h / rows;
+  const clampCol = (x: number): number => Math.min(cols - 1, Math.max(0, Math.floor((x - minX) / cw)));
+  const clampRow = (y: number): number => Math.min(rows - 1, Math.max(0, Math.floor((y - minY) / ch)));
+  // CSR buckets: one cell per site, so no stamping is needed on the walk.
+  const start = new Int32Array(cols * rows + 1);
+  for (let i = 0; i < n; i++) start[clampRow(sy[i]) * cols + clampCol(sx[i]) + 1]++;
+  for (let b = 0; b < cols * rows; b++) start[b + 1] += start[b];
+  const fill = start.slice(0, cols * rows);
+  const items = new Int32Array(n);
+  for (let i = 0; i < n; i++) items[fill[clampRow(sy[i]) * cols + clampCol(sx[i])]++] = i;
+
+  const minCell = Math.min(cw, ch);
+  const maxRing = Math.max(cols, rows);
+  return (x: number, y: number): number => {
+    const c0 = clampCol(x);
+    const r0 = clampRow(y);
+    const cellX0 = minX + c0 * cw;
+    const cellY0 = minY + r0 * ch;
+    // How far the query sits outside its clamped cell (0 when on the grid):
+    // ring k's cells are ≥ (k−1)·minCell − offGrid away, a valid stop bound.
+    const offGrid = Math.hypot(
+      Math.max(0, cellX0 - x, x - (cellX0 + cw)),
+      Math.max(0, cellY0 - y, y - (cellY0 + ch)),
+    );
+    let best = Infinity;
+    for (let k = 0; k <= maxRing; k++) {
+      if (best <= (k - 1) * minCell - offGrid) break;
+      for (let dr = -k; dr <= k; dr++) {
+        const r = r0 + dr;
+        if (r < 0 || r >= rows) continue;
+        const onRim = Math.abs(dr) === k;
+        const step = onRim || k === 0 ? 1 : 2 * k;
+        for (let dc = -k; dc <= k; dc += step) {
+          const c = c0 + dc;
+          if (c < 0 || c >= cols) continue;
+          const cell = r * cols + c;
+          for (let m = start[cell], me = start[cell + 1]; m < me; m++) {
+            const i = items[m];
+            const d = Math.hypot(x - sx[i], y - sy[i]);
+            if (d < best) best = d;
+          }
+          if (k === 0) break;
+        }
+      }
+    }
+    // Exactly zero at a site, and never a negative zero.
+    return best === 0 ? 0 : -best;
   };
 }
 

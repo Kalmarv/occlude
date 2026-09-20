@@ -111,6 +111,47 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## t.hexes() · t.triangles()
+
+<include>/_sig/Toolkit.hexes.mdx</include>
+<include>/_sig/Toolkit.triangles.mdx</include>
+
+<AutoTypeTable path="../occlude/src/layout.ts" name="HexOptions" />
+<AutoTypeTable path="../occlude/src/layout.ts" name="TriangleOptions" />
+
+Cells that are not rectangles, as ONE material. `grid` answers with records, and these two answer with geometry. `m.faces()` are the cells, and the wall two cells share is one edge. `strokes(m)` draws each wall once, and `sel.adjacent()` answers on the cells. The lattice starts at the drawable's origin, and the drawable edge cuts the outermost cells.
+
+`hexes` takes the centre-to-centre `spacing` of neighbouring cells. `orientation` is `'pointy'` (a vertex at the top of each cell, the default) or `'flat'` (an edge there). Each face carries its axial `i` and `j`.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.hexes({ spacing: mm(15), orientation: 'flat', gap: mm(1.6) });
+  return cells.faces().faces.map((f) =>
+    (f.i + f.j) % 2 === 0
+      ? polygon(f, { fill: fill('hatch', { angle: 90, spacing: mm(0.8) }) })
+      : strokes(f.boundaryEdges.extract()),
+  );
+});
+```
+
+`triangles` takes the `size` of one side. Each face carries its row `j` and its place `i` along that row. An even `i` points up, and an odd one points down. `gap` shrinks every cell about its own centre, in both words. A gapped cell touches nothing, so it shares nothing. A spacing of zero, or a gap that eats the cell, draws nothing.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.triangles({ size: mm(20) });
+  const mod = (n, k) => ((n % k) + k) % k;
+  return [
+    cells.faces().faces.map((f) => mod(f.i + 2 * f.j, 3) === 1
+      && polygon(f, { fill: fill('hatch', { angle: 30 + 60 * mod(f.i, 2), spacing: mm(1.1) }) })),
+    strokes(cells),
+  ];
+});
+```
+
 ## t.times() · t.range()
 
 <include>/_sig/Toolkit.times.mdx</include>

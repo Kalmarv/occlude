@@ -146,6 +146,10 @@ export interface RandomStream {
   rnd(): number;
   rnd(n: number): number;
   rnd(a: number, b: number): number;
+  /** A normal draw: most of them within one `sd` of `mean`, a few far out,
+   * and no bound at all — the shape of a jitter that has a typical size
+   * rather than a range. Defaults are the standard normal. */
+  gaussian(mean?: number, sd?: number): number;
   pick<T>(items: Pickable<T>): T;
   chance(p: number): boolean;
   prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined;
@@ -488,6 +492,22 @@ export class Execution {
     return v;
   }
 
+  /** One standard normal from two unit draws (Box–Muller). The first is
+   * taken on (0, 1] so the logarithm always has something to bite on. Two
+   * draws in, ONE value out: the sine twin is not kept, so a gaussian is
+   * always the same two addresses and an override of either still lands. */
+  private normalDraw(rng: Rng): number {
+    const u = 1 - this.unitDraw(rng);
+    const v = this.unitDraw(rng);
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  gaussian(mean = 0, sd = 1): number {
+    const v = mean + sd * this.normalDraw(this.rng);
+    this.madeOf(v);
+    return v;
+  }
+
   pick<T>(items: Pickable<T>): T {
     return pickFrom(items, this.unitDraw(this.rng), (i) => this.madeOf(i));
   }
@@ -525,8 +545,14 @@ export class Execution {
       this.madeOf(v);
       return v;
     };
+    const gaussianOf = (mean = 0, sd = 1): number => {
+      const v = mean + sd * this.normalDraw(rng);
+      this.madeOf(v);
+      return v;
+    };
     return {
       rnd: rnd as RandomStream['rnd'],
+      gaussian: gaussianOf,
       pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
       prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),

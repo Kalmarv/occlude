@@ -43,8 +43,12 @@ export { svg } from './svgin.js';
 export {
   scanAssetNames, assetTable,
   type ImageSampler, type ImagePlacement, type AssetPixels, type ImageChannel, type AssetTable,
+  type PaletteEntry, type PaletteSource, type ImageRegion, type RegionOpts,
 } from './imageAsset.js';
+export type { ColourSpace } from './colour.js';
 export { label, labelWidth } from './font.js';
+export { strokeFont } from './strokeFont.js';
+export type { Font, Glyph, TextOpts } from './strokeFont.js';
 export { liveExampleToJs, DOC_PAGES, parseLiveMeta, docsPaper } from './docsExamples.js';
 export type { LiveMeta } from './docsExamples.js';
 export { synth, probe as probeExpression } from './synth.js';
@@ -58,7 +62,7 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 export {
   material, curve, append, connect, Material, segmentRuns, extent, banding,
 } from './material.js';
-export { add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy } from './vec.js';
+export { add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy, turn, lerp, reflect, angleBetween } from './vec.js';
 export { ownedBy } from './views.js';
 export { force, sumForces } from './forces.js';
 export { query } from './query.js';
@@ -70,12 +74,17 @@ export { stationsMaterial, isStations } from './material.js';
 // so only their options types are exported.
 export type { ThickenOpts } from './thicken.js';
 export type { QuadtreeOpts } from './quadtree.js';
+// The fold tables are plain data: read one, edit it, or write your own.
+export { hilbertRule, peanoRule, meanderRule } from './spacefill.js';
+export type { SpacefillOpts, SpacefillRule, SpacefillTurn } from './spacefill.js';
 export type { TrailsOpts } from './trails.js';
 export type { WarpOpts, Corner } from './warp.js';
 export type { RidgeOpts, RidgeContour } from './ridges.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
 export type { SnapOpts, SnapField } from './snap.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
+export type { CoilOpts } from './coil.js';
+export type { MergeOpts } from './merge.js';
 export { PointSelection, EdgeSelection, meanBy } from './relation.js';
 export { planarize, faces, Faces, FaceSelection } from './faces.js';
 export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
@@ -90,6 +99,11 @@ export type { Vec, XY } from './vec.js';
 // Units.
 export { w, h, s, long, mm, inch, degrees, radians, Len } from './units.js';
 export type { L } from './units.js';
+
+// The seventeen wallpaper groups as placements. Pure: a lattice and a cell,
+// no paper and no seed. `t.symmetry` is the same list, sized to the drawable.
+export { symmetry, PLANE_GROUPS } from './symmetry.js';
+export type { PlaneGroup, SymmetryOptions } from './symmetry.js';
 
 // Pure helpers. Randomness (rnd/noise/stream/…) and layout (bounds/grid)
 // come through the toolkit — they belong to a sketch run, not the module.
@@ -133,21 +147,35 @@ export type { ShaderValue, StrokeCtx, StrokeInk, StrokeProgram } from './shader.
 // Point-distribution duals: pure, so they take arbitrary point arrays.
 export type { ScatterOpts, ThrowOpts, RelaxOpts, SettleOpts, SettleParent, Bounds } from './points.js';
 // Voronoi cells as material, with the cell ↔ site correspondence on the result.
-export { voronoi, type Sites } from './voronoi.js';
+export { voronoi, hull, type Sites } from './voronoi.js';
 export type { VoronoiLinks } from './material.js';
 export { FaceMeasurements } from './measure.js';
 export type { FaceMeasure, MeasureOpts } from './measure.js';
-export type { IsoContour, IsoOpts } from './isolines.js';
+export type { IsoContour, IsoOpts, IsoLevels } from './isolines.js';
+// A grid of values you can step: the stateful counterpart of a field. The
+// door is `t.lattice` — it reads the drawable and the seeded init.
+export type { Lattice, LatticeOpts, LatticeInit, LatticeRule, LatticeState, LatticeNext, LatticeValues } from './lattice.js';
+// Ink as a budget: the tone a drawing still owes, paid down by the marks it
+// makes. The door is `t.residual` — it reads the drawable and the nib.
+export type { Residual, ResidualOpts, SpendMarks, SpendOpts } from './residual.js';
 // Loops → signed distance field (positive inside): pure, composes with
 // isolines (offsetting is a recipe), scatter, decimate, deform.
-export { distanceTo, sdf } from './distance.js';
+export { distanceTo, distanceToPoints, sdf } from './distance.js';
 export type { DistanceField } from './distance.js';
+// Seeds → arrival times (fast marching): the distance a walk actually
+// takes, with walls and a slow ground. `t.travelTime` is the word.
+export type { TravelFrom, TravelOpts } from './travel.js';
+export type { TravelTimeOpts } from './api.js';
 // The geometry protocol: what a value can say about itself, and the one
 // area contract of polygon, distanceTo, force.boundary and t.within.
 export { areaLoops, isGeometry, numericLoops } from './boundary.js';
 export type { AreaInput, Geometry } from './boundary.js';
 // Fields as citizens: explicit transforms, domain bounds, vector marking.
 export { rotate, translate, scale, within, vectorField, grad, curl } from './field.js';
+// Unoriented direction fields: an axis has no front, and `across` is the
+// perpendicular family of either kind.
+export { axisField, across } from './field.js';
+export type { AxisFieldFn } from './field.js';
 export type { Prepared } from './field.js';
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
