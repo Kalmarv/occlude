@@ -60,7 +60,15 @@ const server = http.createServer((req, res) => {
     // build that existed when the process started.
     res.setHeader('content-type', 'application/json');
     res.setHeader('cache-control', 'no-store');
-    res.end(JSON.stringify({ build: String(statSync(join(dist, 'index.html')).mtimeMs) }));
+    // A rebuild empties dist before it refills it; a poll that lands in
+    // that window gets a 503 (the tab's guard reads it as "no answer"), not
+    // an uncaught throw that takes the server down mid-build.
+    try {
+      res.end(JSON.stringify({ build: String(statSync(join(dist, 'index.html')).mtimeMs) }));
+    } catch {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ build: null, rebuilding: true }));
+    }
     return;
   }
   if (url.pathname === '/api/transpile' && req.method === 'POST') {
