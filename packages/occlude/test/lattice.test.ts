@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { curve, initOcclude, material, type Lattice, type LatticeRule } from '../src/index.js';
+import { circle, curve, initOcclude, material, type Lattice, type LatticeRule } from '../src/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -202,6 +202,64 @@ describe('a Gray-Scott recipe, written in the sketch', () => {
   it('is the same run twice, value for value', () => {
     expect(Array.from(seeded(4).values.b)).toEqual(Array.from(seeded(4).values.b));
     expect(Array.from(seeded(5).values.b)).not.toEqual(Array.from(seeded(4).values.b));
+  });
+});
+
+describe('the coral fence, value for value', () => {
+  /** The docs' Gray-Scott fence (docs/fields.md, "A lattice you can step")
+   * at 300 steps instead of 5000: same seed, same disc, same spacing, same
+   * four lines of rule. It is here as a fixture, not as a behaviour — the
+   * digests below are the bits `steps` produced on 2026-09-20, and any
+   * change to `lattice.ts` that moves one of them moves the ink of every
+   * lattice drawing in the library. Stepping may get faster; it may not get
+   * different. */
+  const FENCE = {
+    cols: 88,
+    rows: 88,
+    n: 7744,
+    a: 'a89f0bcb',
+    b: '5ae8d1f4',
+    // [index, a, b] at four cells in and around the pattern.
+    spots: [
+      [3916, 0.9357668161392212, 0.0022696638479828835],
+      [3922, 0.606889545917511, 0.1655500829219818],
+      [4444, 0.513632595539093, 0.23602043092250824],
+      [3388, 0.6823880672454834, 0.11589141190052032],
+    ] as const,
+  };
+
+  /** FNV-1a over the buffer's bytes — a byte-identical check that fits in
+   * a test file. Two Float32Arrays share a digest only if every bit agrees,
+   * NaN payloads and signed zeroes included. */
+  const digest = (buf: Float32Array): string => {
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  };
+
+  it('steps the docs recipe to the same bits it did before', () => {
+    const t = toolkit({ seed: 12 });
+    const disc = circle(50, 50, 44);
+    const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
+    const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
+      Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
+    const grown = seeded.steps(300, (cur, next) => {
+      for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
+        if (!cur.inside(i, j)) continue;
+        const a = cur.at('a', i, j), b = cur.at('b', i, j);
+        const abb = a * b * b;
+        next.set('a', i, j, a + Du * cur.laplacian('a', i, j) - abb + feed * (1 - a));
+        next.set('b', i, j, b + Dv * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
+      }
+    });
+    expect([grown.cols, grown.rows, grown.n]).toEqual([FENCE.cols, FENCE.rows, FENCE.n]);
+    for (const [idx, a, b] of FENCE.spots) {
+      expect(grown.values.a[idx]).toBe(a);
+      expect(grown.values.b[idx]).toBe(b);
+    }
+    expect(digest(grown.values.a)).toBe(FENCE.a);
+    expect(digest(grown.values.b)).toBe(FENCE.b);
   });
 });
 

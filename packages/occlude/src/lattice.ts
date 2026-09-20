@@ -128,7 +128,6 @@ export class Lattice {
 
   /** @internal */ readonly buffers: readonly Float32Array[];
   /** @internal */ readonly mask: Uint8Array;
-  private readonly index: Map<string, number>;
   private cached: LatticeValues | null = null;
 
   /** @internal Built by `latticeOf`; a sketch's door is `t.lattice`. */
@@ -148,7 +147,6 @@ export class Lattice {
     this.channels = channels;
     this.buffers = buffers;
     this.mask = mask;
-    this.index = new Map(channels.map((c, k) => [c, k]));
   }
 
   /** Cells in the grid — `cols × rows`, 0 for an empty lattice. */
@@ -166,15 +164,12 @@ export class Lattice {
     return this.cached;
   }
 
-  /** @internal The channel's slot, by name. */
+  /** @internal The channel's slot, by name; the first channel by default. */
   private slot(channel: string | undefined, who: string): number {
-    const name = channel ?? this.channels[0];
-    const k = this.index.get(name);
-    if (k === undefined) {
-      const known = this.channels.map((c) => `'${c}'`).join(', ');
-      throw new Error(`${who}: no channel '${String(name)}' — this lattice has ${known}`);
-    }
-    return k;
+    const names = this.channels;
+    const name = channel ?? names[0];
+    for (let k = 0; k < names.length; k++) if (names[k] === name) return k;
+    return noChannel(names, name, who);
   }
 
   /** The cell a position falls in. The indices may lie outside the grid —
@@ -254,14 +249,19 @@ export class Lattice {
     let cur: Float32Array[] = this.buffers.map((b) => Float32Array.from(b));
     let next: Float32Array[] = this.buffers.map(() => new Float32Array(cells));
     const scratch = new Float32Array(cells);
-    const index = this.index;
-    const slot = (channel: string, who: string): number => {
-      const k = index.get(channel);
-      if (k === undefined) {
-        const known = this.channels.map((c) => `'${c}'`).join(', ');
-        throw new Error(`${who}: no channel '${String(channel)}' — this lattice has ${known}`);
-      }
-      return k;
+    const names = this.channels;
+
+    // A channel's slot, by name. This runs once per `cur.at`, per
+    // `cur.laplacian` and per `next.set` — of the order of 10^8 times in a
+    // reaction-diffusion run — so the lookup itself has to be nearly free.
+    // A lattice holds a handful of named channels, so the honest structure
+    // is the list of names and a pointer compare each: a rule's `'a'` is
+    // the same interned string on every call, and two compares beat a hash.
+    // The throw lives in `noChannel` so this body stays small enough to
+    // inline into the accessors.
+    const slot = (channel: string): number => {
+      for (let k = 0; k < chans; k++) if (names[k] === channel) return k;
+      return noChannel(names, channel, 'lattice.steps');
     };
 
     // The two views the rule sees, built once and re-pointed each step:
@@ -271,17 +271,20 @@ export class Lattice {
       rows,
       spacing,
       bounds: this.bounds,
-      inside: (i, j) => i >= 0 && j >= 0 && i < cols && j < rows && mask[j * cols + i] === 1,
-      at: (channel, i, j) => {
+      inside(i, j) { return i >= 0 && j >= 0 && i < cols && j < rows && mask[j * cols + i] === 1; },
+      at(channel, i, j) {
         if (i < 0 || j < 0 || i >= cols || j >= rows) return 0;
         const idx = j * cols + i;
-        return mask[idx] ? cur[slot(channel, 'lattice.steps')][idx] : 0;
+        return mask[idx] ? cur[slot(channel)][idx] : 0;
       },
-      laplacian: (channel, i, j) => {
+      // The five-point stencil, in the order the sum was always taken —
+      // west, east, south, north — because float addition is not
+      // associative and the ink depends on the order.
+      laplacian(channel, i, j) {
         if (i < 0 || j < 0 || i >= cols || j >= rows) return 0;
         const idx = j * cols + i;
         if (!mask[idx]) return 0;
-        const a = cur[slot(channel, 'lattice.steps')];
+        const a = cur[slot(channel)];
         const c = a[idx];
         let sum = 0;
         if (i > 0 && mask[idx - 1]) sum += a[idx - 1] - c;
@@ -290,31 +293,35 @@ export class Lattice {
         if (j + 1 < rows && mask[idx + cols]) sum += a[idx + cols] - c;
         return sum;
       },
-      neighbours: (i, j) => {
+      neighbours(i, j) {
         const out: [number, number][] = [];
         if (i < 0 || j < 0 || i >= cols || j >= rows) return out;
-        if (i > 0 && mask[j * cols + i - 1]) out.push([i - 1, j]);
-        if (i + 1 < cols && mask[j * cols + i + 1]) out.push([i + 1, j]);
-        if (j > 0 && mask[(j - 1) * cols + i]) out.push([i, j - 1]);
-        if (j + 1 < rows && mask[(j + 1) * cols + i]) out.push([i, j + 1]);
+        const idx = j * cols + i;
+        if (i > 0 && mask[idx - 1]) out.push([i - 1, j]);
+        if (i + 1 < cols && mask[idx + 1]) out.push([i + 1, j]);
+        if (j > 0 && mask[idx - cols]) out.push([i, j - 1]);
+        if (j + 1 < rows && mask[idx + cols]) out.push([i, j + 1]);
         return out;
       },
     };
 
-    const writable = (i: number, j: number): number =>
-      i < 0 || j < 0 || i >= cols || j >= rows ? -1 : mask[j * cols + i] ? j * cols + i : -1;
+    const writable = (i: number, j: number): number => {
+      if (i < 0 || j < 0 || i >= cols || j >= rows) return -1;
+      const idx = j * cols + i;
+      return mask[idx] ? idx : -1;
+    };
 
     const edits: LatticeNext = {
-      set: (channel, i, j, value) => {
+      set(channel, i, j, value) {
         const idx = writable(i, j);
-        if (idx >= 0) next[slot(channel, 'lattice.steps')][idx] = value;
+        if (idx >= 0) next[slot(channel)][idx] = value;
       },
-      add: (channel, i, j, value) => {
+      add(channel, i, j, value) {
         const idx = writable(i, j);
-        if (idx >= 0) next[slot(channel, 'lattice.steps')][idx] += value;
+        if (idx >= 0) next[slot(channel)][idx] += value;
       },
-      diffuse: (channel, rate) => {
-        const a = next[slot(channel, 'lattice.steps')];
+      diffuse(channel, rate) {
+        const a = next[slot(channel)];
         for (let j = 0; j < rows; j++) {
           const row = j * cols;
           for (let i = 0; i < cols; i++) {
@@ -331,8 +338,8 @@ export class Lattice {
         }
         a.set(scratch);
       },
-      decay: (channel, rate) => {
-        const a = next[slot(channel, 'lattice.steps')];
+      decay(channel, rate) {
+        const a = next[slot(channel)];
         const keep = 1 - rate;
         for (let idx = 0; idx < cells; idx++) if (mask[idx]) a[idx] *= keep;
       },
@@ -381,6 +388,13 @@ export class Lattice {
     for (let p = 0; p < m.n; p++) drop(m.x[p], m.y[p]);
     return out;
   }
+}
+
+/** A channel this lattice does not have, refused by name. It is its own
+ * function so the lookups that call it stay small enough to inline. */
+function noChannel(channels: readonly string[], name: string | undefined, who: string): never {
+  const known = channels.map((c) => `'${c}'`).join(', ');
+  throw new Error(`${who}: no channel '${String(name)}' — this lattice has ${known}`);
 }
 
 /** One position rather than a collection of them: `[x, y]` or `{ x, y }`.

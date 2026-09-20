@@ -3,9 +3,9 @@ import { PhaseClock3, type PhaseTimings3 } from '../timing.js';
 import { intervalTolerance3 } from './precision.js';
 import { toPaper3, type CameraFrame3 } from '../camera.js';
 import type { Feature3, FeatureSnapshot3 } from '../features/snapshot.js';
-import { projectedBounds3, depthCutoff3, intersects } from './index.js';
+import { projectedBounds3, depthCutoff3 } from './index.js';
 import { rasterFilter3, type RasterFilter3 } from './raster.js';
-import { hiddenInterval3, unionIntervals3, visibleIntervals3, type Interval3 } from './interval.js';
+import { hiddenInterval3, hiddenIntervalOf3, prepareSegment3, unionIntervals3, visibleIntervals3, type Interval3 } from './interval.js';
 import type { GpuIntervals3, VisibilityPair3 } from '../../compute/webgpu/interval.js';
 
 export interface ClassifiedFeature3 { readonly feature: Feature3; readonly hidden: readonly Interval3[]; readonly visible: readonly Interval3[] }
@@ -20,19 +20,34 @@ export function* candidatePairs3(snapshot: FeatureSnapshot3, filter?: RasterFilt
  * feature (a tighter superset of the true overlaps), else the index. Both
  * keep the depth cutoff and exclude the feature's own supporting triangles. */
 export function* featureCandidates3(snapshot: FeatureSnapshot3, i: number, filter?: RasterFilter3): Generator<{ feature: number; occluder: number; pair: VisibilityPair3 }> {
+  const feature = snapshot.features[i], out: number[] = [];
+  collectFeatureCandidates3(snapshot, i, filter, out);
+  for (const j of out) yield { feature: i, occluder: j, pair: { a: feature.a, b: feature.b, volume: snapshot.occluders[j].volume, basis: feature.basis } };
+}
+/** `featureCandidates3` without the pair records: the occluder indices, in the
+ * same order, appended to a caller-owned array. Every pair carries the same
+ * two endpoints and the same basis — the feature's own — so a consumer that
+ * reads them straight off the feature needs no record per candidate. */
+export function collectFeatureCandidates3(snapshot: FeatureSnapshot3, i: number, filter: RasterFilter3 | undefined, out: number[]): void {
+  out.length = 0;
   const feature = snapshot.features[i], cutoff = depthCutoff3(Math.min(feature.a[2], feature.b[2]));
   const bounds = projectedBounds3([toPaper3(snapshot.frame, feature.a), toPaper3(snapshot.frame, feature.b)]);
-  const walked = filter?.candidates(i);
-  // The cell walk over-approximates a diagonal segment by whole cells; the
-  // enveloped bounds test the index path always applied rejects most of that
-  // excess before any exact arithmetic (73% of the pairs on a dense torus).
-  const source = walked ? walked.filter((j) => { const o = snapshot.occluders[j]; return o.bounds && intersects(bounds, o.bounds) && nearestDepth(o) >= cutoff; }) : snapshot.index.query(bounds, cutoff);
-  for (const j of source) {
-    const occluder = snapshot.occluders[j];
-    if (!feature.support.includes(occluder.id)) yield { feature: i, occluder: j, pair: { a: feature.a, b: feature.b, volume: occluder.volume, basis: feature.basis } };
+  const support = feature.support, occluders = snapshot.occluders;
+  if (filter) {
+    // The cell walk over-approximates a diagonal segment by whole cells; the
+    // enveloped bounds test the index path always applied rejects most of that
+    // excess before any exact arithmetic (73% of the pairs on a dense torus).
+    // Both tests read the per-view arrays the snapshot derived once: the same
+    // bounds and the same maximum camera z the occluder record carries.
+    const b = snapshot.occluderBounds, near = snapshot.occluderNearest;
+    const x0 = bounds[0], y0 = bounds[1], x1 = bounds[2], y1 = bounds[3];
+    if (filter.candidatesInto(i, out, (j) => {
+      const o = j * 4;
+      return x0 <= b[o + 2] && x1 >= b[o] && y0 <= b[o + 3] && y1 >= b[o + 1] && near[j] >= cutoff && !support.includes(occluders[j].id);
+    })) return;
   }
+  for (const j of snapshot.index.query(bounds, cutoff)) if (!support.includes(occluders[j].id)) out.push(j);
 }
-const nearestDepth = (o: FeatureSnapshot3['occluders'][number]): number => Math.max(o.triangle[0][2], o.triangle[1][2], o.triangle[2][2]);
 /** Which f32 intervals of one feature need exact re-evaluation: any two from
  * different pairs whose endpoints come within the tolerance. Two occluders
  * that are edge-adjacent triangles of one object are watertight across their
@@ -69,12 +84,22 @@ export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3, options: Class
   const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []); let candidates = 0, proven = 0;
   const filter = options.raster === false ? undefined : rasterFilter3(snapshot);
   yield;
+  // One scratch list for the whole scene. Every pair of one feature names the
+  // same endpoints and the same basis, so the occluder index is the only thing
+  // that varies and a record per pair would be the same feature written out
+  // 1.6 million times.
+  const walked: number[] = [];
+  let checkpoint = 1024;
   for (let i = 0; i < snapshot.features.length; i++) {
     if (filter?.provenHidden(i)) { hidden[i].push([0, 1]); proven++; continue; }
-    for (const { feature, pair } of featureCandidates3(snapshot, i, filter)) {
-      candidates++; const interval = hiddenInterval3(pair.a, pair.b, pair.volume, pair.basis); if (interval) hidden[feature].push(interval);
-      if ((candidates & 1023) === 0) yield;
+    const feature = snapshot.features[i], occluders = snapshot.occluders, into = hidden[i];
+    collectFeatureCandidates3(snapshot, i, filter, walked);
+    if (!walked.length) continue;
+    const segment = prepareSegment3(feature.a, feature.b, feature.basis);
+    for (let k = 0; k < walked.length; k++) {
+      candidates++; const interval = hiddenIntervalOf3(segment, occluders[walked[k]].volume); if (interval) into.push(interval);
     }
+    if (candidates >= checkpoint) { checkpoint = candidates + 1024; yield; }
   }
   void proven;
   // Phase timings belong to the runner that drove the job.

@@ -74,14 +74,42 @@ export class FeatureSelection3 implements Iterable<ClassifiedFeature3> {
 }
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 const distance=(a:Point,b:Point)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
-const intersect=(a:readonly Interval3[],b:readonly Interval3[])=>unionIntervals3(a.flatMap(x=>b.flatMap(y=>{const lo=Math.max(x[0],y[0]),hi=Math.min(x[1],y[1]);return lo<hi?[[lo,hi] as Interval3]:[]})));
+/** Same pairs in the same order the nested `flatMap` produced, one array. */
+function intersect(a:readonly Interval3[],b:readonly Interval3[]):readonly Interval3[] {
+  const out:Interval3[]=[];
+  for(const x of a)for(const y of b){const lo=Math.max(x[0],y[0]),hi=Math.min(x[1],y[1]);if(lo<hi)out.push([lo,hi]);}
+  return unionIntervals3(out);
+}
 function subtract(ranges: readonly Interval3[], claimed: readonly Interval3[]): Interval3[] {
-  let out=[...ranges];
-  for(const [lo,hi] of claimed)out=out.flatMap(([a,b])=>hi<=a||lo>=b?[[a,b]]:[...(a<lo?[[a,lo] as Interval3]:[]),...(hi<b?[[hi,b] as Interval3]:[])]);
+  let out:Interval3[]=[...ranges];
+  for(const [lo,hi] of claimed) {
+    const next:Interval3[]=[];
+    for(const [a,b] of out) {
+      if(hi<=a||lo>=b){next.push([a,b]);continue;}
+      if(a<lo)next.push([a,lo]);
+      if(hi<b)next.push([hi,b]);
+    }
+    out=next;
+  }
   return out;
 }
-interface Run { key:string; set:LineSet3; visibility:Visibility3; part:StrokePart3; ends:[string|null,string|null]; breaks:[StrokeBreak3,StrokeBreak3] }
-const reversed=(p:StrokePart3):StrokePart3=>({...p,a:p.b,b:p.a,range:[p.range[1],p.range[0]]});
+/** A run's key is a JSON rendering of its identity: it orders runs as the
+ * last tiebreak and spells the stroke ID, so its text is ink and stays
+ * exactly what it was. `curve` is the run's surface-curve source, resolved
+ * once here instead of per comparison: the sort and the junction linking
+ * below ask on the order of a million times, and the answer is a property
+ * of the feature. */
+type CurveSource3=NonNullable<ReturnType<typeof curveSourceOf>>;
+interface Run {
+  readonly key:string;
+  readonly curve:CurveSource3|undefined;
+  readonly set:LineSet3;
+  readonly visibility:Visibility3;
+  readonly part:StrokePart3;
+  readonly ends:[string|null,string|null];
+  readonly breaks:[StrokeBreak3,StrokeBreak3];
+}
+const reversed=(p:StrokePart3):StrokePart3=>Object.freeze({...p,a:p.b,b:p.a,range:Object.freeze([p.range[1],p.range[0]]) as Interval3});
 
 /** Select → resolve interval ownership → chain → corner split → length filter.
  * Junctions use source IDs, never projected crossings. No hidden gap is joined.
@@ -91,7 +119,10 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
   const tolerance=options.endpointTolerance??1e-8, corner=options.cornerDegrees??180,minLength=options.minLength??0;
   if(![tolerance,corner,minLength].every(Number.isFinite)||tolerance<0||corner<0||corner>180||minLength<0)throw new Error('invalid stroke construction tolerances');
   if(new Set(sets.map(s=>s.id)).size!==sets.length||sets.some(s=>!s.id||!s.stroke||!Number.isFinite(s.priority??0)))throw new Error('line sets need unique IDs, named pens and finite priorities');
-  const runs:Run[]=[],referenceRuns:Run[]=[],claimed=new Map<string,Interval3[]>();
+  const runs:Run[]=[],referenceRuns:Run[]=[];
+  // Interval ownership per feature, one map per visibility: the pair
+  // (feature ID, visibility) that used to be a JSON key, with no string.
+  const claimedBy={visible:new Map<string,Interval3[]>(),hidden:new Map<string,Interval3[]>()};
   for(const set of [...sets].sort((a,b)=>(b.priority??0)-(a.priority??0)||compare(a.id,b.id))) {
     const visibility=set.visibility??'visible';
     const selection=set.select instanceof FeatureSelection3?set.select:undefined;
@@ -103,39 +134,51 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
     for(const f of referenceMemo.get(source)?.has(referenceKey(set,options))?[]:source.referenceFeatures??source.features.map(r=>r.feature)){
       const curve=curveSource(source,f);
       if(curve?!selectedChains.has(curve.key):!include(f))continue;
-      const ra=toPaper3(frame,f.a),rb=toPaper3(frame,f.b),rl=distance(ra,rb);
-      if(rl>0||curve)referenceRuns.push({key:JSON.stringify([set.id,f.id,0,1]),set,visibility,part:{feature:f,range:f.range,a:ra,b:rb,length:rl},ends:[f.range[0]===0?f.endpoints[0]:null,f.range[1]===1?f.endpoints[1]:null],breaks:[f.range[0]===0?'source':'clipping',f.range[1]===1?'source':'clipping']});
+      const ra=Object.freeze(toPaper3(frame,f.a)) as Point,rb=Object.freeze(toPaper3(frame,f.b)) as Point,rl=distance(ra,rb);
+      if(rl>0||curve)referenceRuns.push({key:JSON.stringify([set.id,f.id,0,1]),curve,set,visibility,part:Object.freeze({feature:f,range:f.range,a:ra,b:rb,length:rl}),ends:[f.range[0]===0?f.endpoints[0]:null,f.range[1]===1?f.endpoints[1]:null],breaks:[f.range[0]===0?'source':'clipping',f.range[1]===1?'source':'clipping']});
     }
     for(const record of source.features) {
       const f=record.feature;if(!include(f))continue;
       const requested=set.ranges?.(f)??[[0,1]];
       if(requested.some(r=>r.length!==2||!r.every(Number.isFinite)||r[0]<0||r[1]>1||r[0]>r[1]))throw new Error('line set ranges must be ordered within [0,1]');
       if(requested.length===0)continue; // a per-pen set names few of the scene's features
-      const key=JSON.stringify([f.id,visibility]), occupied=claimed.get(key)??[];
+      const featureCurve=curveSource(source,f);
+      const claimed=claimedBy[visibility], occupied=claimed.get(f.id)??[];
       const selected=intersect(record[visibility],requested),ranges=set.overdraw?selected:subtract(selected,occupied);
-      if(!set.overdraw)claimed.set(key,unionIntervals3([...occupied,...ranges]));
+      if(!set.overdraw)claimed.set(f.id,unionIntervals3([...occupied,...ranges]));
       for(const [lo,hi] of ranges) {
-        const a=toPaper3(frame,lerp3(f.a,f.b,lo)),b=toPaper3(frame,lerp3(f.a,f.b,hi)),length=distance(a,b);
+        const a=Object.freeze(toPaper3(frame,lerp3(f.a,f.b,lo))) as Point,b=Object.freeze(toPaper3(frame,lerp3(f.a,f.b,hi))) as Point,length=distance(a,b);
         if(length===0)continue;
-        const range:Interval3=[f.range[0]+lo*(f.range[1]-f.range[0]),f.range[0]+hi*(f.range[1]-f.range[0])];
+        const range=Object.freeze([f.range[0]+lo*(f.range[1]-f.range[0]),f.range[0]+hi*(f.range[1]-f.range[0])]) as Interval3;
         const boundary=(t:number,side:0|1):StrokeBreak3=>t===side?(f.range[side]===side?'source':'clipping'):record[visibility].some(r=>r[side]===t)?'occlusion':'style';
-        runs.push({key:JSON.stringify([set.id,f.id,lo,hi]),set,visibility,part:{feature:f,range,a,b,length},ends:[lo===0&&f.range[0]===0?f.endpoints[0]:null,hi===1&&f.range[1]===1?f.endpoints[1]:null],breaks:[boundary(lo,0),boundary(hi,1)]});
+        runs.push({key:JSON.stringify([set.id,f.id,lo,hi]),curve:featureCurve,set,visibility,part:Object.freeze({feature:f,range,a,b,length}),ends:[lo===0&&f.range[0]===0?f.endpoints[0]:null,hi===1&&f.range[1]===1?f.endpoints[1]:null],breaks:[boundary(lo,0),boundary(hi,1)]});
       }
     }
   }
-  const lookup=new Map<string,ReferenceEntry>();
-  for(const set of sets)for(const [key,entry] of referenceLookup(source,set,referenceRuns.filter(r=>r.set===set),options))lookup.set(key,entry);
-  const key=(r:Run)=>JSON.stringify([r.set.id,r.part.feature.id]);
-  const output=chainRuns(source,runs,options,(a,b)=>lookup.get(key(a))!.reference===lookup.get(key(b))!.reference);
+  // Set IDs are unique (checked above), so the flat (set ID, feature ID) key
+  // becomes a lookup nested by set: the same entry, no key string per part.
+  const lookup=new Map<string,ReadonlyMap<string,ReferenceEntry>>();
+  for(const set of sets)lookup.set(set.id,referenceLookup(source,set,referenceRuns.filter(r=>r.set===set),options));
+  const entryOf=(setId:string,featureId:string)=>lookup.get(setId)!.get(featureId)!;
+  const output=chainRuns(source,runs,options,(a,b)=>entryOf(a.set.id,a.part.feature.id).reference===entryOf(b.set.id,b.part.feature.id).reference);
   return Object.freeze(output.map(run=>{
-    const rows=run.parts.map(part=>{
-      const entry=lookup.get(JSON.stringify([run.set,part.feature.id]))!;
+    const byFeature=lookup.get(run.set)!;
+    const ranges:Interval3[]=[];let reference!:StrokeReference3;
+    for(let i=0;i<run.parts.length;i++) {
+      const part=run.parts[i],entry=byFeature.get(part.feature.id)!;
       const a=entry.a,b=entry.b,dx=b[0]-a[0],dy=b[1]-a[1],d=dx*dx+dy*dy;
       const coordinate=(p:Point)=>entry.index+Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/d));
       const x=coordinate(part.a),y=coordinate(part.b);
-      return {reference:entry.reference,range:[Math.min(x,y),Math.max(x,y)] as Interval3};
+      if(i===0)reference=entry.reference;
+      ranges.push([Math.min(x,y),Math.max(x,y)]);
+    }
+    // `id` stays lazy across the copy: spreading `run` would spell it.
+    return Object.freeze({
+      get id():string{return run.id;},
+      source:run.source,set:run.set,stroke:run.stroke,visibility:run.visibility,
+      parts:run.parts,points:run.points,arclength:run.arclength,length:run.length,closed:run.closed,breaks:run.breaks,
+      reference,sourceRanges:Object.freeze(unionSourceRanges3(ranges).map(r=>Object.freeze(r))),
     });
-    return Object.freeze({...run,reference:rows[0].reference,sourceRanges:Object.freeze(unionSourceRanges3(rows.map(r=>r.range)).map(r=>Object.freeze(r)))});
   }));
 }
 
@@ -152,13 +195,15 @@ function referenceLookup(source:ClassifiedScene3,set:LineSet3,referenceRuns:Run[
   const memoKey=referenceKey(set,options),shared=memoKey!=='';
   if(shared){const hit=referenceMemo.get(source)?.get(memoKey);if(hit)return hit;}
   const references=[
-    ...chainRuns(source,referenceRuns.filter(r=>!curveSource(source,r.part.feature)),{...options,minLength:0}),
-    ...chainRuns(source,referenceRuns.filter(r=>curveSource(source,r.part.feature)),{endpointTolerance:options.endpointTolerance,cornerDegrees:180,minLength:0,chain:true}),
+    ...chainRuns(source,referenceRuns.filter(r=>!r.curve),{...options,minLength:0}),
+    ...chainRuns(source,referenceRuns.filter(r=>r.curve),{endpointTolerance:options.endpointTolerance,cornerDegrees:180,minLength:0,chain:true}),
   ];
+  // Every run here belongs to `set`, so the set half of the old composite key
+  // is constant and the map is keyed by feature ID alone.
   const lookup=new Map<string,ReferenceEntry>();
   for(const r of references) {
     const {reference,indices}=sourceReference(source,r);
-    r.parts.forEach((part,i)=>{const index=indices[i];lookup.set(JSON.stringify([r.set,part.feature.id]),{reference,a:reference.points[index],b:reference.points[index+1],index});});
+    r.parts.forEach((part,i)=>{const index=indices[i];lookup.set(part.feature.id,{reference,a:reference.points[index],b:reference.points[index+1],index});});
   }
   if(shared){let byKey=referenceMemo.get(source);if(!byKey){byKey=new Map();referenceMemo.set(source,byKey);}byKey.set(memoKey,lookup);}
   return lookup;
@@ -195,31 +240,48 @@ function sourceReference(source:ClassifiedScene3,run:BuiltStroke3):{reference:St
     if(straight)points[points.length-1]=run.parts[i].b;else points.push(run.parts[i].b);
     indices.push(points.length-2);previous=current;
   }
-  const arclength=[0];for(let i=1;i<points.length;i++)arclength.push(arclength.at(-1)!+distance(points[i-1],points[i]));
-  const reference=Object.freeze({id:JSON.stringify(['surface-curve',first.key]),points:Object.freeze(points),arclength:Object.freeze(arclength),length:arclength.at(-1)!});
+  const arclength=[0];let total=0;
+  for(let i=1;i<points.length;i++)arclength.push(total+=distance(points[i-1],points[i]));
+  const reference=Object.freeze({id:JSON.stringify(['surface-curve',first.key]),points:Object.freeze(points),arclength:Object.freeze(arclength),length:total});
   return {reference,indices};
 }
 function chainRuns(source:ClassifiedScene3,runs:Run[],options:ConstructOptions,compatible:(a:Run,b:Run)=>boolean=()=>true):readonly BuiltStroke3[] {
   const tolerance=options.endpointTolerance??1e-8,corner=options.cornerDegrees??180,minLength=options.minLength??0;
   runs.sort((a,b)=>{
-    const x=curveSource(source,a.part.feature),y=curveSource(source,b.part.feature);
+    const x=a.curve,y=b.curve;
     if(!x||!y)return x?1:y?-1:compare(a.key,b.key);
     const position=(r:Run,c:NonNullable<typeof x>)=>c.segment.range[0]+r.part.range[0]*(c.segment.range[1]-c.segment.range[0]);
     return compare(a.set.id,b.set.id)||compare(a.visibility,b.visibility)||compare(x.key,y.key)||position(a,x)-position(b,y)||compare(a.key,b.key);
   });
+  // Junction identity is (line set, visibility, source endpoint ID). The set
+  // and the visibility are interned to a number once, so the key is one
+  // concatenation instead of a JSON rendering per run end; the interned part
+  // holds no NUL, so the split is unambiguous and the grouping — and the
+  // insertion order the linking below walks — is exactly the old one.
+  const laneIds=new Map<string,number>();
   const junctions=new Map<string,{row:number;end:0|1}[]>();
-  runs.forEach((r,row)=>r.ends.forEach((endpoint,end)=>{if(endpoint===null)return;const key=JSON.stringify([r.set.id,r.visibility,endpoint]);const entries=junctions.get(key)??[];entries.push({row,end:end as 0|1});junctions.set(key,entries);}));
-  const links=new Map<string,{row:number;end:0|1}>();
+  for(let row=0;row<runs.length;row++) {
+    const r=runs[row];
+    let lane=laneIds.get(r.set.id);if(lane===undefined){lane=laneIds.size;laneIds.set(r.set.id,lane);}
+    const prefix=`${lane}${r.visibility==='visible'?'v':'h'}\u0000`;
+    for(let end=0;end<2;end++) {
+      const endpoint=r.ends[end];if(endpoint===null)continue;
+      const key=prefix+endpoint,entries=junctions.get(key);
+      if(entries)entries.push({row,end:end as 0|1});else junctions.set(key,[{row,end:end as 0|1}]);
+    }
+  }
+  // One slot per run end: the target of a link, encoded row*2+end, or -1.
+  const links=new Int32Array(runs.length*2).fill(-1);
   const link=(x:{row:number;end:0|1},y:{row:number;end:0|1})=>{
     const a=runs[x.row],b=runs[y.row];
-    const ca=curveSource(source,a.part.feature),cb=curveSource(source,b.part.feature);
+    const ca=a.curve,cb=b.curve;
     if(ca?.key!==cb?.key||!compatible(a,b)){a.breaks[x.end]='junction';b.breaks[y.end]='junction';return;}
     const p=x.end?a.part.b:a.part.a,q=y.end?b.part.b:b.part.a;
     if(distance(p,q)>tolerance)return;
     const pa=x.end?a.part.a:a.part.b,pb=y.end?b.part.a:b.part.b;
     const cosine=((p[0]-pa[0])*(pb[0]-q[0])+(p[1]-pa[1])*(pb[1]-q[1]))/(a.part.length*b.part.length);
     if(Math.acos(Math.max(-1,Math.min(1,cosine)))*180/Math.PI>corner){a.breaks[x.end]='corner';b.breaks[y.end]='corner';return;}
-    links.set(`${x.row}:${x.end}`,y);links.set(`${y.row}:${y.end}`,x);
+    links[x.row*2+x.end]=y.row*2+y.end;links[y.row*2+y.end]=x.row*2+x.end;
   };
   for(const entries of options.chain===false?[]:junctions.values()) {
     if(entries.length===2){link(entries[0],entries[1]);continue;}
@@ -234,20 +296,38 @@ function chainRuns(source:ClassifiedScene3,runs:Run[],options:ConstructOptions,c
       else for(const e of group)runs[e.row].breaks[e.end]='junction';
     }
   }
-  const used=new Set<number>(),out:BuiltStroke3[]=[];
+  const used=new Uint8Array(runs.length),out:BuiltStroke3[]=[];
+  /** Endpoint pairs are built fresh and never mutated, so a frozen one is
+   * already the defensive copy the public value used to make. */
+  const frozenPair=<T extends readonly number[]>(v:T):T=>(Object.isFrozen(v)?v:Object.freeze([...v]) as unknown as T);
   const walk=(start:number,entry:0|1)=>{
     const parts:StrokePart3[]=[],keys:string[]=[],first=runs[start];let row=start,end=entry,last=first,exit:0|1=entry,closed=false;
-    while(!used.has(row)) {
-      used.add(row);last=runs[row];keys.push(last.key);parts.push(end===0?last.part:reversed(last.part));exit=end===0?1:0;
-      const next=links.get(`${row}:${exit}`);if(!next)break;
-      if(next.row===start){closed=true;break;}row=next.row;end=next.end;
+    while(!used[row]) {
+      used[row]=1;last=runs[row];keys.push(last.key);parts.push(end===0?last.part:reversed(last.part));exit=end===0?1:0;
+      const next=links[row*2+exit];if(next<0)break;
+      const nextRow=next>>1;
+      if(nextRow===start){closed=true;break;}row=nextRow;end=(next&1) as 0|1;
     }
-    const arclength=[0];for(const p of parts)arclength.push(arclength.at(-1)!+p.length);
-    const length=arclength.at(-1)!;if(length<minLength)return;
-    out.push(Object.freeze({id:JSON.stringify(keys),source,set:first.set.id,stroke:first.set.stroke,visibility:first.visibility,parts:Object.freeze(parts.map(p=>Object.freeze({...p,range:Object.freeze([...p.range]) as Interval3,a:Object.freeze([...p.a]) as Point,b:Object.freeze([...p.b]) as Point}))),points:Object.freeze([parts[0].a,...parts.map(p=>p.b)].map(p=>Object.freeze([...p]) as Point)),arclength:Object.freeze(arclength),length,closed,breaks:Object.freeze([first.breaks[entry],last.breaks[exit]]) as readonly [StrokeBreak3,StrokeBreak3]}));
+    const arclength=[0];let total=0;
+    for(const p of parts)arclength.push(total+=p.length);
+    if(total<minLength)return;
+    const shaped=parts.map(p=>Object.freeze({...p,range:frozenPair(p.range),a:frozenPair(p.a),b:frozenPair(p.b)}));
+    const points:Point[]=[shaped[0].a];for(const p of shaped)points.push(p.b);
+    // The stroke ID is the JSON list of its runs' keys. It is ink when the
+    // chain has no surface-curve source (it becomes the reference ID and
+    // feeds `strokeSeed`), so its text is unchanged — it is just not spelled
+    // until something asks. A literal getter keeps it an own, enumerable,
+    // first property, so a spread of the stroke still carries it.
+    let idText:string|undefined;
+    out.push(Object.freeze({
+      get id():string{return idText??=JSON.stringify(keys);},
+      source,set:first.set.id,stroke:first.set.stroke,visibility:first.visibility,
+      parts:Object.freeze(shaped),points:Object.freeze(points),arclength:Object.freeze(arclength),
+      length:total,closed,breaks:Object.freeze([first.breaks[entry],last.breaks[exit]]) as readonly [StrokeBreak3,StrokeBreak3],
+    }));
   };
   // Start open chains at deterministic source ends before consuming loops.
-  runs.forEach((_,i)=>{if(used.has(i))return;if(!links.has(`${i}:0`))walk(i,0);else if(!links.has(`${i}:1`))walk(i,1);});
-  runs.forEach((_,i)=>{if(!used.has(i))walk(i,0);});
+  for(let i=0;i<runs.length;i++){if(used[i])continue;if(links[i*2]<0)walk(i,0);else if(links[i*2+1]<0)walk(i,1);}
+  for(let i=0;i<runs.length;i++)if(!used[i])walk(i,0);
   return Object.freeze(out);
 }

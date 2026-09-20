@@ -31,7 +31,22 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
   readonly rows:readonly ProjectedCurve[];readonly key:unknown;
   constructor(readonly source:ClassifiedScene3,readonly visibility:'visible'|'hidden',rows?:readonly ProjectedCurve[],key?:unknown){
     this.key=key;
-    this.rows=Object.freeze(rows?[...rows]:source.features.flatMap(({feature,...ranges},index)=>ranges[visibility].map((range,i)=>Object.freeze({id:JSON.stringify([feature.id,visibility,i]),index,feature,...(feature.instance?{instance:feature.instance}:{}),kinds:kinds(feature.flags),range,a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),attributes:feature.attributes,faceAttributes:feature.faceAttributes,support:feature.support}))));
+    // A row's ID is identity, never content, and most rows are never asked
+    // for theirs. A literal getter keeps it own, enumerable and first — a
+    // spread of a row still carries the same text — and spells it on demand
+    // instead of building one JSON key per classified interval. The record
+    // is read by field rather than rest-destructured, which saved an object
+    // per feature as well.
+    this.rows=Object.freeze(rows?[...rows]:source.features.flatMap((record,index)=>{
+      const feature=record.feature;
+      return record[visibility].map((range,i)=>Object.freeze({
+        get id():string{return JSON.stringify([feature.id,visibility,i]);},
+        index,feature,...(feature.instance?{instance:feature.instance}:{}),kinds:kinds(feature.flags),range,
+        a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),
+        b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),
+        attributes:feature.attributes,faceAttributes:feature.faceAttributes,support:feature.support,
+      }));
+    }));
     Object.freeze(this);
   }
   get length():number{return this.rows.length;}

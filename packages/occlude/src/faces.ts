@@ -111,7 +111,7 @@ function boxPairs(segs: Seg[], visit: (i: number, j: number) => void): void {
 // `===` calls them one position, as the string key did.
 const hashBuf = new Float64Array(2);
 const hashBits = new Int32Array(hashBuf.buffer);
-function positionHash(x: number, y: number): number {
+export function positionHash(x: number, y: number): number {
   hashBuf[0] = x === 0 ? 0 : x;
   hashBuf[1] = y === 0 ? 0 : y;
   let h = Math.imul(hashBits[0], 0x9e3779b1) ^ Math.imul(hashBits[1], 0x85ebca6b)
@@ -125,6 +125,31 @@ type Event =
   | { kind: 'cross'; i: number; ti: number; j: number; tj: number; x: number; y: number }
   | { kind: 'contact'; vertex: number; edge: number; t: number };
 
+/**
+ * Do two EXACTLY collinear segments share a positive length?
+ *
+ * Exact, and the caller must have proven collinearity first (`orient2d` of
+ * both of the second segment's ends against the first is zero). Collinear
+ * points are ordered by x, or by y when the line is vertical — that
+ * ordering is the line's own, so the four comparisons below are the answer,
+ * with nothing rounded. The normalised parameter this replaces divides by
+ * the segment length, which rounds a one-ulp overlap into a touch: merge
+ * then leaves the overlap in place and planarize splits two spans that
+ * share a sliver of ink. Coordinates rather than records, as `orient2d`
+ * takes them, so the two kernels' own segment shapes stay out of it.
+ */
+export function overlapSpan(
+  sax: number, say: number, sbx: number, sby: number,
+  uax: number, uay: number, ubx: number, uby: number,
+): boolean {
+  const byY = sax === sbx; // vertical line: x cannot order it
+  const slo = byY ? Math.min(say, sby) : Math.min(sax, sbx);
+  const shi = byY ? Math.max(say, sby) : Math.max(sax, sbx);
+  const ulo = byY ? Math.min(uay, uby) : Math.min(uax, ubx);
+  const uhi = byY ? Math.max(uay, uby) : Math.max(uax, ubx);
+  return Math.min(shi, uhi) > Math.max(slo, ulo);
+}
+
 /** Exact classification of one pair of segments that share no vertex. */
 function classify(s: Seg, u: Seg, out: Event[]): void {
   const o1 = orient2d(s.ax, s.ay, s.bx, s.by, u.ax, u.ay);
@@ -132,15 +157,14 @@ function classify(s: Seg, u: Seg, out: Event[]): void {
   const o3 = orient2d(u.ax, u.ay, u.bx, u.by, s.ax, s.ay);
   const o4 = orient2d(u.ax, u.ay, u.bx, u.by, s.bx, s.by);
   if (o1 === 0 && o2 === 0) {
-    // collinear: any positive-length overlap is rejected; point contact means coincident endpoints (merged earlier)
-    const dx = s.bx - s.ax;
-    const dy = s.by - s.ay;
-    const l2 = dx * dx + dy * dy;
-    const p = ((u.ax - s.ax) * dx + (u.ay - s.ay) * dy) / l2;
-    const q = ((u.bx - s.ax) * dx + (u.by - s.ay) * dy) / l2;
-    const lo = Math.min(p, q);
-    const hi = Math.max(p, q);
-    if (hi > 0 && lo < 1) throw new Error(`planarize: edges ${s.row} and ${u.row} overlap along a positive length — collinear overlaps are not supported; repair the input — m.merge() resolves overlaps and duplicates`);
+    // Collinear: any positive-length overlap is rejected; point contact
+    // means coincident endpoints (merged earlier). The two spans are
+    // compared along the coordinate the line actually runs on — x, or y
+    // when the line is vertical, which `o1 === o2 === 0` makes exact — so
+    // the comparison is the f64 one and nothing rounds. A normalised
+    // parameter cannot do this: it turns a one-ulp overlap into a touch,
+    // and planarize then splits two spans that share a sliver of ink.
+    if (overlapSpan(s.ax, s.ay, s.bx, s.by, u.ax, u.ay, u.bx, u.by)) throw new Error(`planarize: edges ${s.row} and ${u.row} overlap along a positive length — collinear overlaps are not supported; repair the input — m.merge() resolves overlaps and duplicates`);
     return;
   }
   const paramOn = (seg: Seg, x: number, y: number) => {
@@ -169,9 +193,26 @@ function classify(s: Seg, u: Seg, out: Event[]): void {
     return;
   }
   if ((o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0)) {
-    const ti = o3 / (o3 - o4);
-    const tj = o1 / (o1 - o2);
-    out.push({ kind: 'cross', i: s.row, ti, j: u.row, tj, x: s.ax + (s.bx - s.ax) * ti, y: s.ay + (s.by - s.ay) * ti });
+    const t = o3 / (o3 - o4);
+    // The position comes from whichever segment holds that coordinate
+    // CONSTANT: a crossing with a segment whose x never changes is at that
+    // x, exactly, and no parameter rounds it away. Two segments cannot both
+    // be constant in the same coordinate — they would be parallel and never
+    // cross — so the choice is unambiguous, and where neither is constant it
+    // is the interpolation along `s` it always was. This matters at a
+    // lattice: two nearly-coincident horizontals (a hand-built grid after
+    // unit resolution) cross one vertical at points whose interpolated
+    // coordinates round to the SAME f64, which the consolidator then has to
+    // refuse as ambiguous. Read off the constant coordinate and the two
+    // points stay as distinct as the input is.
+    const x = s.ax === s.bx ? s.ax : u.ax === u.bx ? u.ax : s.ax + (s.bx - s.ax) * t;
+    const y = s.ay === s.by ? s.ay : u.ay === u.by ? u.ay : s.ay + (s.by - s.ay) * t;
+    // One source of truth: the parameter on each edge is measured FROM the
+    // position, so the order of the stops along an edge is the order of the
+    // points along it. A parameter computed on its own can disagree with the
+    // point it names by an ulp, and then a chain of cuts doubles back on
+    // itself and the split edges overlap.
+    out.push({ kind: 'cross', i: s.row, ti: paramOn(s, x, y), j: u.row, tj: paramOn(u, x, y), x, y });
   }
 }
 
@@ -267,30 +308,43 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     participates[m.edgeList[2 * e]] = 1;
     participates[m.edgeList[2 * e + 1]] = 1;
   }
-  const byPos = new Map<string, number[]>();
+  // Exact coincidence, hashed rather than spelled out: `positionHash` keys
+  // the bit patterns (0 and −0 together, as `===` has them), and the
+  // coordinates themselves decide inside the bucket. A bucket holds one
+  // position in practice; a hash collision only costs the compare.
+  const mergedRows = new Map<number, number[]>(); // representative → every row merged into it
+  const byPos = new Map<number, number | number[]>();
   for (let i = 0; i < n; i++) {
     if (!participates[i]) continue;
-    const k = `${m.x[i]},${m.y[i]}`;
-    const list = byPos.get(k) ?? [];
-    list.push(i);
-    byPos.set(k, list);
-  }
-  const mergedRows = new Map<number, number[]>(); // representative → every row merged into it
-  for (const rows of byPos.values()) {
-    if (rows.length < 2) continue;
-    const r = rows[0];
-    for (const i of rows) rep[i] = r;
-    mergedRows.set(r, rows);
+    const x = m.x[i];
+    const y = m.y[i];
+    const h = positionHash(x, y);
+    const slot = byPos.get(h);
+    if (slot === undefined) { byPos.set(h, i); continue; }
+    let r = -1;
+    if (typeof slot === 'number') {
+      if (m.x[slot] === x && m.y[slot] === y) r = slot;
+      else byPos.set(h, [slot, i]);
+    } else {
+      for (const other of slot) if (m.x[other] === x && m.y[other] === y) { r = other; break; }
+      if (r < 0) slot.push(i);
+    }
+    if (r < 0) continue;
+    rep[i] = r;
+    const rows = mergedRows.get(r);
+    if (rows) rows.push(i); else mergedRows.set(r, [r, i]);
   }
 
   // ---- segments on representatives; duplicate pairs are overlaps ----
   const segs: Seg[] = [];
-  const seenPair = new Map<string, number>();
+  // The unordered pair packs into one exact integer while n² < 2^53 — the
+  // same key `checkPlanar` uses, and no string per edge.
+  const seenPair = new Map<number, number>();
   for (let e = 0; e < E; e++) {
     const a = rep[m.edgeList[2 * e]];
     const b = rep[m.edgeList[2 * e + 1]];
     if (a === b) throw new Error(`planarize: edge ${e} joins two coincident endpoints — a zero-length edge after merging`);
-    const key = a < b ? `${a},${b}` : `${b},${a}`;
+    const key = a < b ? a * n + b : b * n + a;
     const dup = seenPair.get(key);
     if (dup !== undefined) throw new Error(`planarize: edges ${dup} and ${e} are the same segment — duplicate edges are overlaps and are not supported — m.merge() resolves overlaps and duplicates`);
     seenPair.set(key, e);
@@ -306,17 +360,20 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     if (shared >= 0) checkSharedOverlap(s, u, shared);
     else classify(s, u, events);
   });
-  const crossOf = new Map<string, number>(); // "i,j" (i < j) → event
-  const contactOf = new Map<string, number>(); // "vertex,edge" → event
+  // Both lookups are a pair of rows packed into one exact integer, the same
+  // arithmetic key the duplicate check above uses: E and n are row counts,
+  // so the product stays far inside 2^53.
+  const crossKey = (i: number, j: number) => (i < j ? i * E + j : j * E + i);
+  const crossOf = new Map<number, number>(); // edge pair → event
+  const contactOf = new Map<number, number>(); // vertex · E + edge → event
   const contactsAt = new Map<number, number[]>(); // vertex → its contact events
   for (let k = 0; k < events.length; k++) {
     const ev = events[k];
-    if (ev.kind === 'cross') crossOf.set(`${ev.i},${ev.j}`, k);
+    if (ev.kind === 'cross') crossOf.set(crossKey(ev.i, ev.j), k);
     else {
-      contactOf.set(`${ev.vertex},${ev.edge}`, k);
-      const list = contactsAt.get(ev.vertex) ?? [];
-      list.push(k);
-      contactsAt.set(ev.vertex, list);
+      contactOf.set(ev.vertex * E + ev.edge, k);
+      const list = contactsAt.get(ev.vertex);
+      if (list) list.push(k); else contactsAt.set(ev.vertex, [k]);
     }
   }
   const paramOf = (k: number, edge: number): number => {
@@ -358,14 +415,14 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
       const b = otherEdge(p, edge);
       const c = otherEdge(q, edge);
       if (b === c) return false;
-      const bc = crossOf.get(b < c ? `${b},${c}` : `${c},${b}`);
+      const bc = crossOf.get(crossKey(b, c));
       if (bc === undefined) return false;
       return near(paramOf(bc, b), paramOf(p, b)) && near(paramOf(bc, c), paramOf(q, c));
     }
     const contact = (ep.kind === 'contact' ? ep : eq) as Extract<Event, { kind: 'contact' }>;
     const cross = ep.kind === 'contact' ? q : p;
     const b = otherEdge(cross, edge);
-    const onB = contactOf.get(`${contact.vertex},${b}`);
+    const onB = contactOf.get(contact.vertex * E + b);
     return onB !== undefined && near(paramOf(onB, b), paramOf(cross, b));
   };
   for (let e = 0; e < E; e++) {
@@ -440,22 +497,30 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   const roots = Array.from(new Set(parent.map((_, g) => find(g)))).filter((g) => !groupVertex.has(g));
   roots.sort((a, b) => groupKey.get(a)![0] - groupKey.get(b)![0] || groupKey.get(a)![1] - groupKey.get(b)![1]);
   const groupRow = new Map<number, number>();
-  for (const g of roots) {
-    const mentions = groupEdges.get(g)!.slice().sort((p, q) => p.edge - q.edge || p.t - q.t);
-    const seen = new Set<number>();
-    const candidates: EventCandidate[] = [];
-    for (const { edge, t } of mentions) {
-      if (seen.has(edge)) continue;
-      seen.add(edge);
-      candidates.push({ edge, t, attrs: interpolateAttrs(m, segs[edge].a, segs[edge].b, t) });
+  // One block of ids for the crossings, in the order the loop would have
+  // asked for them one at a time — the same numbers, without an array per
+  // vertex. A material with no columns asks no candidate anything: the
+  // candidates exist for the resolver, and there is nothing to resolve.
+  const crossingIds = mintIds(roots.length);
+  for (let r = 0; r < roots.length; r++) {
+    const g = roots[r];
+    let attrs: Record<string, number> = {};
+    if (names.length) {
+      const mentions = groupEdges.get(g)!.slice().sort((p, q) => p.edge - q.edge || p.t - q.t);
+      const seen = new Set<number>();
+      const candidates: EventCandidate[] = [];
+      for (const { edge, t } of mentions) {
+        if (seen.has(edge)) continue;
+        seen.add(edge);
+        candidates.push({ edge, t, attrs: interpolateAttrs(m, segs[edge].a, segs[edge].b, t) });
+      }
+      attrs = reconcile(m, { position: groupPos.get(g)!, candidates }, opts.point, 'the crossing');
     }
     const pos = groupPos.get(g)!;
-    const event: PlanarEvent = { position: pos, candidates };
-    const attrs = names.length ? reconcile(m, event, opts.point, 'the crossing') : {};
     groupRow.set(g, ox.length);
     ox.push(pos[0]);
     oy.push(pos[1]);
-    oids.push(mintIds(1)[0]);
+    oids.push(crossingIds[r]);
     for (const name of names) oattrs[name].push(attrs[name]);
   }
   const rowOfGroup = (g: number): number => {
@@ -467,6 +532,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   // ---- child edges in parent, parameter order ----
   const edges: number[] = [];
   const eids: number[] = [];
+  const minted: number[] = []; // rows of `eids` waiting for a fresh id
   const eroots: number[] = [];
   const eattrs: Record<string, number[]> = {};
   for (const name of enames) eattrs[name] = [];
@@ -474,7 +540,20 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     const s = segs[e];
     const stops: { t: number; row: number }[] = [{ t: 0, row: rowMap[s.a] }];
     let lastGroup = -1;
-    for (const c of cutsByEdge[e].sort((p, q) => p.t - q.t)) {
+    // A tie in the parameter is broken by where the stops actually are.
+    // Two crossings one ulp apart round to the SAME parameter, and a stable
+    // sort then keeps the order they were discovered in — which cuts the
+    // edge into pieces that double back and share a sliver of ink. The
+    // edge is straight, so the coordinate it travels furthest in orders its
+    // stops exactly, with no arithmetic to round.
+    const alongY = Math.abs(s.by - s.ay) > Math.abs(s.bx - s.ax);
+    const sign = (alongY ? s.by > s.ay : s.bx > s.ax) ? 1 : -1;
+    // Read only on a tie, which is why it is computed there and not for
+    // every cut.
+    const along = (c: Cut) => { const row = rowOfGroup(find(c.event)); return sign * (alongY ? oy[row] : ox[row]); };
+    const cuts = cutsByEdge[e];
+    cuts.sort((p, q) => p.t - q.t || along(p) - along(q));
+    for (const c of cuts) {
       const g = find(c.event);
       if (g === lastGroup) continue;
       lastGroup = g;
@@ -488,26 +567,35 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
         throw new Error(`planarize: two distinct events on edge ${e} (parameters ${stops[k - 1].t} and ${stops[k].t}) land on the same coordinates but are not provably one point — numerically ambiguous input; move the lines apart or make them meet exactly`);
       }
     }
-    const parentView = m.edge(e);
+    // Nothing to carry and nobody asking: the whole per-child record —
+    // interval, resolver call, inherited columns — is for the columns, and
+    // a material without any skips it.
+    const carries = enames.length > 0 || opts.edges !== undefined;
+    const parentView = carries ? m.edge(e) : undefined!;
     const parentAttrs: Record<string, number> = {};
     for (const name of enames) parentAttrs[name] = m.edgeAttrs[name][e];
     for (let k = 0; k + 1 < stops.length; k++) {
+      edges.push(stops[k].row, stops[k + 1].row);
+      // A piece of a wall is a new edge, and still that wall: a fresh id,
+      // the parent's root. An edge no crossing touched comes through this
+      // loop as its own single child, so it keeps its id too. The fresh
+      // ones are minted in one block below, in this order.
+      if (stops.length === 2) eids.push(m.edgeIds[e]);
+      else { minted.push(eids.length); eids.push(0); }
+      eroots.push(m.edgeRoots[e]);
+      if (!carries) continue;
       const child: ChildInterval = { from: stops[k].t, to: stops[k + 1].t, fraction: stops[k + 1].t - stops[k].t };
       const extra = opts.edges ? opts.edges(parentView, child) : {};
       for (const name in extra) {
         if (!enames.includes(name)) throw new Error(`planarize: no edge attribute '${name}' — declare it with edgeAttribute()`);
         if (!Number.isFinite(extra[name])) throw new Error(`planarize: '${name}' for a child edge is not a finite number`);
       }
-      edges.push(stops[k].row, stops[k + 1].row);
-      // A piece of a wall is a new edge, and still that wall: a fresh id,
-      // the parent's root. An edge no crossing touched comes through this
-      // loop as its own single child, so it keeps its id too.
-      eids.push(stops.length === 2 ? m.edgeIds[e] : mintIds(1)[0]);
-      eroots.push(m.edgeRoots[e]);
       const inherited = inheritEdge(m, parentAttrs, child.fraction);
       for (const name of enames) eattrs[name].push(name in extra ? extra[name] : inherited[name]);
     }
   }
+  const childIds = mintIds(minted.length);
+  for (let i = 0; i < minted.length; i++) eids[minted[i]] = childIds[i];
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
@@ -786,34 +874,68 @@ export class Faces {
     // half-edge h = 2e (a → b) or 2e+1 (b → a); tailOf(h) is where it starts
     const tailOf = (h: number): number => (h & 1 ? m.edgeList[2 * (h >> 1) + 1] : m.edgeList[2 * (h >> 1)]);
     const headOf = (h: number): number => tailOf(h ^ 1);
-    // outgoing half-edges per vertex, sorted by angle
-    const outgoing: number[][] = Array.from({ length: n }, () => []);
-    for (let h = 0; h < H; h++) outgoing[tailOf(h)].push(h);
-    const angle = (h: number) => Math.atan2(m.y[headOf(h)] - m.y[tailOf(h)], m.x[headOf(h)] - m.x[tailOf(h)]);
+    // Outgoing half-edges per vertex, sorted by angle — one run of rows per
+    // vertex inside one array, rather than an array per vertex. Each run is
+    // filled in half-edge order and sorted in place, which is the order the
+    // per-vertex lists had.
+    const start = new Int32Array(n + 1);
+    for (let h = 0; h < H; h++) start[tailOf(h) + 1]++;
+    for (let v = 0; v < n; v++) start[v + 1] += start[v];
+    const outgoing = new Int32Array(H);
+    const cursor = Int32Array.from(start.subarray(0, n));
+    for (let h = 0; h < H; h++) outgoing[cursor[tailOf(h)]++] = h;
+    // The angle of a half-edge is fixed, and a comparison sort asks for it
+    // O(log k) times per half-edge: work it out once. Same number, same
+    // order.
+    const angle = new Float64Array(H);
+    for (let h = 0; h < H; h++) {
+      const tail = tailOf(h);
+      const head = headOf(h);
+      angle[h] = Math.atan2(m.y[head] - m.y[tail], m.x[head] - m.x[tail]);
+    }
     const pos = new Int32Array(H);
+    // A vertex has a handful of edges, so the run is put in order where it
+    // lies — no view object per vertex, and no comparator call. The order is
+    // total (angle, then half-edge), so it is the one order a sort could
+    // have produced. A vertex with many edges gets a real sort.
     for (let v = 0; v < n; v++) {
-      const list = outgoing[v];
-      list.sort((p, q) => angle(p) - angle(q) || p - q);
-      for (let k = 0; k < list.length; k++) pos[list[k]] = k;
+      const from = start[v];
+      const to = start[v + 1];
+      if (to - from > 32) {
+        outgoing.subarray(from, to).sort((p, q) => angle[p] - angle[q] || p - q);
+      } else {
+        for (let k = from + 1; k < to; k++) {
+          const h = outgoing[k];
+          const a = angle[h];
+          let j = k - 1;
+          while (j >= from && (angle[outgoing[j]] > a || (angle[outgoing[j]] === a && outgoing[j] > h))) {
+            outgoing[j + 1] = outgoing[j];
+            j--;
+          }
+          outgoing[j + 1] = h;
+        }
+      }
+      for (let k = from; k < to; k++) pos[outgoing[k]] = k - from;
     }
     const next = new Int32Array(H);
     for (let h = 0; h < H; h++) {
       const twin = h ^ 1;
-      const list = outgoing[tailOf(twin)];
-      next[h] = list[(pos[twin] - 1 + list.length) % list.length];
+      const v = tailOf(twin);
+      const from = start[v];
+      const len = start[v + 1] - from;
+      next[h] = outgoing[from + ((pos[twin] - 1 + len) % len)];
     }
     // components over vertices
     const comp = new Int32Array(n).fill(-1);
     let comps = 0;
-    const adjRows = outgoing;
     for (let v = 0; v < n; v++) {
-      if (comp[v] !== -1 || adjRows[v].length === 0) continue;
+      if (comp[v] !== -1 || start[v + 1] === start[v]) continue;
       const stack = [v];
       comp[v] = comps;
       while (stack.length) {
         const u = stack.pop()!;
-        for (const h of adjRows[u]) {
-          const w = headOf(h);
+        for (let k = start[u]; k < start[u + 1]; k++) {
+          const w = headOf(outgoing[k]);
           if (comp[w] === -1) {
             comp[w] = comps;
             stack.push(w);

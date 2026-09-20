@@ -9,6 +9,7 @@
  * the site shows). Run before committing doc changes:
  *
  *   pnpm --filter occlude docs:check
+ *   pnpm --filter occlude docs:check --times   # per-fence ms, slowest ten
  *
  * Uses the same import/export transform the docs page applies in-browser,
  * so a fence that passes here runs there.
@@ -50,6 +51,11 @@ if (fences.length === 0) {
 
 let failed = 0;
 let outside = 0;
+// `--times` adds each fence's own render time to its line and lists the ten
+// slowest at the end — what a perf pass needs from a run the checker already
+// makes. It measures, it never changes what is checked.
+const times = process.argv.includes('--times');
+const timed: { ms: number; page: string; n: number; head: string }[] = [];
 for (const [i, { src, meta, page }] of fences.entries()) {
   // First line of the example names it in failures.
   const head = src.split('\n').find((l) => l.trim() && !l.startsWith('import')) ?? `#${i}`;
@@ -67,7 +73,10 @@ for (const [i, { src, meta, page }] of fences.entries()) {
       : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
     const sheet = docsPaper(meta);
+    const t0 = performance.now();
     const out = await renderAsync(def, { paper: sheet, coarsen: 1, marginPct: meta.margin ?? 5, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
+    const ms = performance.now() - t0;
+    if (times) timed.push({ ms, page, n: i + 1, head });
     if (out.stats.fragments === 0) throw new Error('rendered zero visible strokes');
     // How much of the ink lies outside the drawable? (on paper but off the
     // frame is allowed; a drawing that mostly misses its frame is reported)
@@ -84,13 +93,20 @@ for (const [i, { src, meta, page }] of fences.entries()) {
     let bx0 = Infinity; let by0 = Infinity; let bx1 = -Infinity; let by1 = -Infinity;
     for (const frag of out.frags) for (const s of [0, 0.5, 1]) { const [px, py] = occlude.evalPrim(frag.geom, s); bx0 = Math.min(bx0, px); by0 = Math.min(by0, py); bx1 = Math.max(bx1, px); by1 = Math.max(by1, py); }
     const cover = ((Math.min(bx1, x1) - Math.max(bx0, x0)) * (Math.min(by1, y1) - Math.max(by0, y0))) / ((x1 - x0) * (y1 - y0));
-    if (share > 0.02) { outside++; console.log(`off #${i + 1} ${page}: ${(share * 100).toFixed(0)}% of the ink lies outside the drawable  ${head.slice(0, 50)}`); }
-    else if (cover < 0.4) { outside++; console.log(`small #${i + 1} ${page}: the ink covers ${(cover * 100).toFixed(0)}% of the drawable  ${head.slice(0, 50)}`); }
-    else console.log(`ok  #${i + 1} ${page} (${out.stats.fragments} frags, ${(cover * 100).toFixed(0)}% of the drawable)  ${head.slice(0, 60)}`);
+    if (share > 0.02) { outside++; console.log(`off #${i + 1} ${page}: ${(share * 100).toFixed(0)}% of the ink lies outside the drawable${times ? ` (${ms.toFixed(0)} ms)` : ''}  ${head.slice(0, 50)}`); }
+    else if (cover < 0.4) { outside++; console.log(`small #${i + 1} ${page}: the ink covers ${(cover * 100).toFixed(0)}% of the drawable${times ? ` (${ms.toFixed(0)} ms)` : ''}  ${head.slice(0, 50)}`); }
+    else console.log(`ok  #${i + 1} ${page} (${out.stats.fragments} frags, ${(cover * 100).toFixed(0)}% of the drawable)${times ? ` ${ms.toFixed(0)} ms` : ''}  ${head.slice(0, 60)}`);
   } catch (e) {
     failed += 1;
     console.error(`FAIL #${i + 1}: ${e instanceof Error ? e.message : e}\n     ${head.slice(0, 70)}`);
   }
 }
 console.log(`${fences.length - failed}/${fences.length} examples pass${outside ? `, ${outside} framed badly (off or small)` : ''}`);
+if (times && timed.length) {
+  const total = timed.reduce((s, t) => s + t.ms, 0);
+  console.log(`\nrendered ${timed.length} fences in ${(total / 1000).toFixed(1)} s — the slowest ten:`);
+  for (const t of [...timed].sort((a, b) => b.ms - a.ms).slice(0, 10)) {
+    console.log(`${t.ms.toFixed(0).padStart(7)} ms  #${t.n} ${t.page}  ${t.head.slice(0, 58)}`);
+  }
+}
 process.exit(failed === 0 ? 0 : 1);

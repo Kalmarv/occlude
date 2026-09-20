@@ -11,10 +11,13 @@ export function sourceStrokeShapes3(runs:readonly Stroke3[], point:(p:readonly [
   if(options.pass!==undefined && (typeof options.pass!=='string'||!options.pass))throw new Error('3D stroke pass must be a nonempty string');
   const groups=new Map<Stroke3['reference'],Map<string,{run:Stroke3;ranges:[number,number][]}>>();
   for(const run of runs) {
-    const pens=groups.get(run.reference)??new Map();
-    const entry=pens.get(run.stroke)??{run,ranges:[]};
-    entry.ranges.push(...run.sourceRanges.map(r=>[...r] as [number,number]));
-    pens.set(run.stroke,entry);groups.set(run.reference,pens);
+    let pens=groups.get(run.reference);
+    if(!pens){pens=new Map();groups.set(run.reference,pens);}
+    let entry=pens.get(run.stroke);
+    if(!entry){entry={run,ranges:[]};pens.set(run.stroke,entry);}
+    // One pair per range, appended in order: the same list the map+spread
+    // built, without the intermediate array or an apply-sized argument list.
+    for(const r of run.sourceRanges)entry.ranges.push([r[0],r[1]]);
   }
   // Every pen drawing on a reference chain shares the same user-frame polyline.
   const polylines=new Map<Stroke3['reference'],[L,L][]>();

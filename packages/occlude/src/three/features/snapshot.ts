@@ -66,6 +66,13 @@ export interface FeatureSnapshot3 {
   readonly curveGraphs?:readonly SurfaceCurveGraph3[];
   readonly triangles: readonly Triangle3[];
   readonly occluders: readonly Occluder3[];
+  /** Every occluder's projected bounds packed `[x0, y0, x1, y1, ...]`, and its
+   * nearest (largest) camera z, derived once per view. Both are the same
+   * numbers `occluders[j].bounds` and the triangle's own coordinates carry;
+   * the candidate walk reads millions of them and one flat array per view
+   * costs less than re-deriving a maximum per feature. */
+  readonly occluderBounds: Float64Array;
+  readonly occluderNearest: Float64Array;
   readonly index: ProjectedIndex3;
 }
 const key = (...parts: (string | number)[]) => JSON.stringify(parts);
@@ -245,5 +252,17 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     const basis=Object.freeze(positions.map((point,i)=>Object.freeze([Object.freeze({point,world:world[i],weight:1})]))) as SegmentBasis3;
     add({ id: key(wire.id, i), objectId: wire.id, sourceId: `segment:${i}`, flags: FeatureKind3.wire, creaseAngle: 0, a: positions[0], b: positions[1], basis, endpoints: [key(wire.id, i), key(wire.id, i + 1)], support: [], attributes: attributes(wire.attributes), faceAttributes: [] });
   }
-  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), index: new ProjectedIndex3(occluders.map(t => t.bounds), occluders.map(t => Math.max(t.triangle[0][2], t.triangle[1][2], t.triangle[2][2]))) });
+  const occluderBounds = new Float64Array(occluders.length * 4), occluderNearest = new Float64Array(occluders.length);
+  occluders.forEach((o, i) => {
+    occluderBounds[i * 4] = o.bounds[0]; occluderBounds[i * 4 + 1] = o.bounds[1]; occluderBounds[i * 4 + 2] = o.bounds[2]; occluderBounds[i * 4 + 3] = o.bounds[3];
+    occluderNearest[i] = Math.max(o.triangle[0][2], o.triangle[1][2], o.triangle[2][2]);
+  });
+  // The tree is the fallback route: the raster's cell walk answers all but the
+  // features that leave the sheet, and on a dense mesh that is a percent or
+  // two of them. Sorting a hundred thousand triangles at every split to serve
+  // those is work the view usually does not need, so the tree is built the
+  // first time something asks for it and kept from then on.
+  let index: ProjectedIndex3 | undefined;
+  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), occluderBounds, occluderNearest,
+    get index() { return index ??= new ProjectedIndex3(occluders.map(t => t.bounds), Array.from(occluderNearest)); } });
 }

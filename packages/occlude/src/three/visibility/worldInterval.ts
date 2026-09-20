@@ -89,19 +89,44 @@ function planes(volume:WorldOcclusion3):Shadow3|null {
   planeCache.set(volume,shadow);return shadow;
 }
 const compare=(a:Ratio,b:Ratio)=>a[0]*b[1]-b[0]*a[1];
-export function hiddenWorldInterval3(volume:WorldOcclusion3,basis:SegmentBasis3):Interval3|null {
+/** One feature's two exact endpoints, built once and met by every candidate
+ * occluder of that feature. The pair test reads nothing else about the
+ * feature, so the lookup that finds them belongs outside the candidate loop. */
+export interface WorldSegment3 { readonly a:SourcePoint3; readonly b:SourcePoint3 }
+/** The exact endpoints of a basis that carries world terms. */
+export function worldSegment3(basis:SegmentBasis3):WorldSegment3 {
+  return {a:sourcePoint(basis[0]),b:sourcePoint(basis[1])};
+}
+/** Whether every term of both ends names a world position, which is what the
+ * exact test needs; a basis that does not is answered in camera space. */
+export const hasWorldTerms3=(basis:SegmentBasis3):boolean=>basis.every(terms=>terms.every(term=>term.world!==undefined));
+// Six constraints at most (three sides, the surface plane, near and far); one
+// scratch row of the ones an exact value is owed, rewritten by each pair.
+const owed=new Int8Array(8);
+export const hiddenWorldInterval3=(volume:WorldOcclusion3,basis:SegmentBasis3):Interval3|null=>hiddenWorldIntervalOf3(volume,worldSegment3(basis));
+export function hiddenWorldIntervalOf3(volume:WorldOcclusion3,segment:WorldSegment3):Interval3|null {
   const shadow=planes(volume);if(!shadow)return null;
   const {constraints,filtered}=shadow;
-  const a=sourcePoint(basis[0]),b=sourcePoint(basis[1]),a3=a.p[3],b3=b.p[3];
-  let lo:Ratio=[0n,1n],hi:Ratio=[1n,1n];
-  for(let i=0;i<constraints.length;i++){
-    // Both endpoints outside this halfspace is a rejection, and both strictly
-    // inside moves neither bound, so a certified f64 sign settles the pair
-    // without the exact value. Only a crossing needs the root, and the filter
-    // abstains (0) whenever f64 cannot prove the sign, including at zero.
+  const a=segment.a,b=segment.b,a3=a.p[3],b3=b.p[3],n=constraints.length;
+  // Both endpoints outside this halfspace is a rejection, and both strictly
+  // inside moves neither bound, so a certified f64 sign settles the pair
+  // without the exact value. Only a crossing needs the root, and the filter
+  // abstains (0) whenever f64 cannot prove the sign, including at zero.
+  //
+  // The roots wait until every halfspace has had its cheap say: a later
+  // rejection discards the whole pair, and the bigint value of an earlier
+  // crossing would never have been read. The roots that are then taken are
+  // taken in constraint order, so the bounds meet in the order they always did.
+  let count=0;
+  for(let i=0;i<n;i++){
     const sa=filteredDotSign(filtered[i],a.f),sb=filteredDotSign(filtered[i],b.f);
     if(sa<0&&sb<0)return null;
     if(sa>0&&sb>0)continue;
+    owed[count++]=i;
+  }
+  let lo:Ratio=[0n,1n],hi:Ratio=[1n,1n];
+  for(let k=0;k<count;k++){
+    const i=owed[k];
     // Cross-multiply positive homogeneous denominators, so endpoints have
     // the same scale. Exact root ordering prevents invented tiny cuts/gaps.
     const va=dot(constraints[i],a.p)*b3,vb=dot(constraints[i],b.p)*a3;

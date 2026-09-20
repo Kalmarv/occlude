@@ -331,11 +331,160 @@ export function distanceToPoints(sites: PointsLike): DistanceField {
  * approximate near the cut. Contour any of them at zero and the boundary
  * is exact. `blend` is exact wherever the joint is further than its radius
  * away, and rounds the corner within that distance.
+ *
+ * A field is a function of a point, and the algebra takes that literally:
+ * it declines to walk a branch whose own reach proves it cannot change the
+ * answer, and it answers a point it was just asked out of the last number
+ * it worked out. Both give back the bits the full walk gives back, which
+ * is what lets a sketch cut every new shape out of everything already
+ * placed without paying for that history twice.
  */
 
 const asField = (f: DistanceField, what: string): DistanceField => {
   if (typeof f !== 'function') throw new Error(`sdf.${what}: expected a distance field, a function of (x, y)`);
   return f;
+};
+
+// ---- support: what a field can still be worth, and where ---------------
+//
+// THE RULE THAT KEEPS LAW 3 AND LAW 5: a skip is allowed only when the
+// value returned is bit-identical to the unskipped evaluation. Nothing
+// below rounds, blends or approximates anything; it only declines to
+// compute a number that provably cannot reach the result.
+//
+// A leaf knows where it lives. `circle(cx, cy, r)` is `r − |p − c|`, so
+// outside a box grown by M its value is at most `r − M`: one subtraction
+// says a whole subtree is irrelevant. Every field built by `sdf.*` out of
+// such leaves carries that knowledge, hidden in a WeakMap the way
+// `field.ts` hides a field's transform and domain bound — never a property
+// on the function, which is a plain `(x, y) => number` and stays one.
+
+/**
+ * What a bounded field promises. `box` and `peak` are the composable part:
+ * in exact arithmetic `f(p) ≤ peak − dist(p, box)` at every finite `p`, so
+ * a parent can grow one box around its children and keep a valid ceiling.
+ * `hi(x, y)` is the pointwise part: `f(x, y) ≤ hi(x, y)` in FLOATING POINT,
+ * which is why `boxBound` widens by more than any rounding of the few
+ * operations it makes — a bound may only ever be too loose.
+ *
+ * Two invariants every producer below maintains, and every skip leans on:
+ *  - a bounded field is built ONLY from bounded children, so its whole
+ *    subtree is this module's own arithmetic over finite leaves: it is a
+ *    pure function of the point and it is FINITE at every finite point;
+ *  - `hi` is finite only at a finite point (a box distance is otherwise
+ *    infinite or NaN), which is how a skip knows the value it is not
+ *    computing is finite.
+ */
+interface Support {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  peak: number;
+  hi: DistanceField;
+  /** `hi` IS the field — the same closure, so a caller may keep its answer
+   * as the value. True only where the bound is the field's own formula. */
+  tight: boolean;
+}
+
+const SUPPORT = new WeakMap<DistanceField, Support>();
+
+/** Test-only: walk every branch, bound nothing, memoise nothing — the plain
+ * tree of closures this module used to be. A test proves the fast path
+ * returns the same bits by rendering both. Not exported from the package. */
+let direct = false;
+export function __sdfDirect(on: boolean): void {
+  direct = on;
+}
+
+const supportOf = (f: DistanceField): Support | undefined => (direct ? undefined : SUPPORT.get(f));
+
+const tagged = (f: DistanceField, s: Support): DistanceField => {
+  SUPPORT.set(f, s);
+  return f;
+};
+
+/** `peak − dist(p, box)`, widened. The widening is what makes the bound
+ * safe under rounding: `Math.sqrt` and the subtraction are each good to an
+ * ulp or so of the magnitudes involved, and this adds about 4500 of them,
+ * so the returned number is never smaller than the exact bound. At a
+ * non-finite point it is NaN, and NaN fails every skip test below. */
+const boxBound = (x0: number, y0: number, x1: number, y1: number, peak: number): DistanceField => {
+  const ap = Math.abs(peak);
+  return (x, y) => {
+    const dx = Math.max(x0 - x, x - x1, 0);
+    const dy = Math.max(y0 - y, y - y1, 0);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    return peak - d + ((ap + d) * 1e-12 + 1e-12);
+  };
+};
+
+/**
+ * One slot of memory in front of a combinator: the same point asked twice
+ * in a row answers with the bits it answered the first time. A field IS a
+ * function of a point — that is what `DistanceField` means and what this
+ * module documents — so the second answer was going to be those bits
+ * anyway.
+ *
+ * It is not a micro-optimisation. A sketch that cuts each new shape out of
+ * everything already placed (`taken = union(taken, subtract(next, taken))`)
+ * builds a DAG, and walking it as a tree costs 2^n: the same node is asked
+ * for the same point once per path that reaches it. The memo makes the walk
+ * linear in the nodes again.
+ *
+ * ±0 is kept apart from +0 on purpose: `1 / x` only runs when `x` is a
+ * zero, so the strictness is free.
+ *
+ * This is the one line here that rests on the CONTRACT rather than on the
+ * arithmetic: a "field" that answers the same point with a different number
+ * each time — one that draws from the seed per call — would see its first
+ * answer twice. Such a thing is not a field, and nothing in the library
+ * makes one; every `sdf.*` leaf is arithmetic on the point alone.
+ */
+const memo1 = (sample: DistanceField): DistanceField => {
+  if (direct) return sample;
+  // The slot is a Float64Array and not three closure variables on purpose:
+  // a double written to a closure variable is boxed on the heap, and this
+  // one is written once per sample per node. Measured on a 50-deep blend
+  // chain, the boxed spelling costs more than the walk it saves.
+  const slot = new Float64Array(3);
+  slot[0] = NaN;
+  slot[1] = NaN;
+  return (x, y) => {
+    if (x === slot[0] && y === slot[1] && (x !== 0 || 1 / x === 1 / slot[0]) && (y !== 0 || 1 / y === 1 / slot[1])) {
+      return slot[2];
+    }
+    const v = sample(x, y);
+    slot[0] = x;
+    slot[1] = y;
+    slot[2] = v;
+    return v;
+  };
+};
+
+/** The children's supports, or undefined the moment one child has none:
+ * a field is bounded only when its WHOLE subtree is (see `Support`). */
+const allSupport = (fs: readonly DistanceField[]): Support[] | undefined => {
+  const out: Support[] = [];
+  for (const f of fs) {
+    const s = supportOf(f);
+    if (s === undefined) return undefined;
+    out.push(s);
+  }
+  return out;
+};
+
+/** The box around every child's box, and the highest ceiling among them. */
+const spanOf = (ss: readonly Support[]): { x0: number; y0: number; x1: number; y1: number; peak: number } => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, peak = -Infinity;
+  for (const s of ss) {
+    if (s.x0 < x0) x0 = s.x0;
+    if (s.y0 < y0) y0 = s.y0;
+    if (s.x1 > x1) x1 = s.x1;
+    if (s.y1 > y1) y1 = s.y1;
+    if (s.peak > peak) peak = s.peak;
+  }
+  return { x0, y0, x1, y1, peak };
 };
 
 /** Nothing to combine is not a mistake: it is the identity. `distanceTo`
@@ -351,8 +500,14 @@ const everywhere: DistanceField = () => Infinity;
 
 /** A disc of radius `r` about `cx, cy` — spelled like `circle(x, y, r)`.
  * Exact. */
-const circleField = (cx: number, cy: number, r: number): DistanceField =>
-  (x, y) => r - Math.hypot(x - cx, y - cy);
+const circleField = (cx: number, cy: number, r: number): DistanceField => {
+  const f: DistanceField = (x, y) => r - Math.hypot(x - cx, y - cy);
+  // The disc's own formula IS `peak − dist(p, box)` for the degenerate box
+  // at its centre, so the bound is the value: `tight`. Nothing to bound
+  // when a parameter is not a number the arithmetic can hold.
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) return f;
+  return tagged(f, { x0: cx, y0: cy, x1: cx, y1: cy, peak: r, hi: f, tight: true });
+};
 
 /**
  * An axis-aligned box, `w` by `h`, CENTRED on `cx, cy`. Exact inside and
@@ -365,7 +520,7 @@ const circleField = (cx: number, cy: number, r: number): DistanceField =>
 const boxField = (cx: number, cy: number, w: number, h: number): DistanceField => {
   const hw = Math.abs(w) / 2;
   const hh = Math.abs(h) / 2;
-  return (x, y) => {
+  const f: DistanceField = (x, y) => {
     const dx = Math.abs(x - cx) - hw;
     const dy = Math.abs(y - cy) - hh;
     // Outside: distance to the nearest corner or edge. Inside: the nearest
@@ -373,6 +528,12 @@ const boxField = (cx: number, cy: number, w: number, h: number): DistanceField =
     const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
     return -(outside + Math.min(Math.max(dx, dy), 0));
   };
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(hw) || !Number.isFinite(hh)) return f;
+  // Deepest inside the box is half its short side; outside it is exactly
+  // minus the distance to the box, so `peak − dist` holds on both sides.
+  const x0 = cx - hw, y0 = cy - hh, x1 = cx + hw, y1 = cy + hh;
+  const peak = Math.min(hw, hh);
+  return tagged(f, { x0, y0, x1, y1, peak, hi: boxBound(x0, y0, x1, y1, peak), tight: false });
 };
 
 /**
@@ -389,46 +550,131 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
   const dx = x1 - ax;
   const dy = y1 - ay;
   const len2 = dx * dx + dy * dy;
-  return (x, y) => {
+  const f: DistanceField = (x, y) => {
     const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
     return r - Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
   };
+  if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(r)) return f;
+  // A point is at least as far from the segment as from its bounding box,
+  // so `r − dist(p, box)` is a ceiling on `r − dist(p, segment)`.
+  const bx0 = Math.min(x0, x1), by0 = Math.min(y0, y1);
+  const bx1 = Math.max(x0, x1), by1 = Math.max(y0, y1);
+  return tagged(f, { x0: bx0, y0: by0, x1: bx1, y1: by1, peak: r, hi: boxBound(bx0, by0, bx1, by1, r), tight: false });
 };
 
-/** Inside wherever any of them is inside. */
+/**
+ * Inside wherever any of them is inside — a maximum.
+ *
+ * SKIP: child `i` is left unevaluated when `hi_i(p) < best`, the largest
+ * value a sibling has already returned. Its value is at most `hi_i`, so
+ * `Math.max(best, value)` is `best` — the same bits, not a near-enough
+ * number. The comparison is strict, so a child that could TIE the running
+ * best is still evaluated, which is what keeps a `-0` answer a `-0`.
+ * Children keep their written order, and `best` starts at -Infinity, so the
+ * first child is never skipped and a NaN from any child still poisons the
+ * maximum exactly as `Math.max` does.
+ */
 const unionField = (...fields: DistanceField[]): DistanceField => {
   const fs = many(fields, 'union');
   if (fs.length === 0) return nowhere;
   if (fs.length === 1) return fs[0];
-  return (x, y) => {
-    let best = -Infinity;
-    for (const f of fs) best = Math.max(best, f(x, y));
-    return best;
-  };
+  const n = fs.length;
+  const sup = direct ? [] : fs.map((f) => SUPPORT.get(f));
+  const plain = sup.every((s) => s === undefined);
+  const out = memo1(plain
+    ? (x, y) => {
+      let best = -Infinity;
+      for (const f of fs) best = Math.max(best, f(x, y));
+      return best;
+    }
+    : (x, y) => {
+      let best = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const s = sup[i];
+        if (s === undefined) {
+          best = Math.max(best, fs[i](x, y));
+          continue;
+        }
+        const hi = s.hi(x, y);
+        if (hi < best) continue;
+        best = Math.max(best, s.tight ? hi : fs[i](x, y));
+      }
+      return best;
+    });
+  const ss = allSupport(fs);
+  if (ss === undefined) return out;
+  // Every child is under one box, and none of them reaches higher than the
+  // highest ceiling: `max_i (peak_i − dist(p, box_i)) ≤ peak − dist(p, box)`
+  // because the joint box is the closest of them all.
+  const { x0, y0, x1, y1, peak } = spanOf(ss);
+  return tagged(out, { x0, y0, x1, y1, peak, hi: boxBound(x0, y0, x1, y1, peak), tight: false });
 };
 
-/** Inside only where all of them are inside. */
+/**
+ * Inside only where all of them are inside — a minimum.
+ *
+ * NO SKIP. A support bound is a CEILING, and a minimum is decided from
+ * below: knowing a child cannot exceed some value never proves it is not
+ * the smallest. Skipping here would need a floor, which a field that may
+ * dive arbitrarily deep inside a shape does not have. It still carries a
+ * bound upward for its parents — the intersection is at most any one of
+ * its children.
+ */
 const intersectField = (...fields: DistanceField[]): DistanceField => {
   const fs = many(fields, 'intersect');
   if (fs.length === 0) return everywhere;
   if (fs.length === 1) return fs[0];
-  return (x, y) => {
+  const out = memo1((x, y) => {
     let best = Infinity;
     for (const f of fs) best = Math.min(best, f(x, y));
     return best;
-  };
+  });
+  const ss = allSupport(fs);
+  if (ss === undefined) return out;
+  const s = ss[0];
+  return tagged(out, { x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, peak: s.peak, hi: s.hi, tight: false });
 };
 
-/** `a` with every later field cut out of it. */
+/**
+ * `a` with every later field cut out of it.
+ *
+ * SKIP: hole `i` is left unevaluated when `hi_i(p) < -best`, where `best`
+ * is the value the base and the earlier holes have already settled on. The
+ * hole contributes `-f_i`, and `f_i ≤ hi_i < -best` gives `-f_i > best`, so
+ * `Math.min(best, -f_i)` is `best` — the same bits. Strict again: a hole
+ * that could tie is evaluated, and a NaN anywhere still wins the minimum.
+ */
 const subtractField = (a: DistanceField, ...holes: DistanceField[]): DistanceField => {
   const base = asField(a, 'subtract');
   const fs = many(holes, 'subtract');
   if (fs.length === 0) return base;
-  return (x, y) => {
-    let best = base(x, y);
-    for (const f of fs) best = Math.min(best, -f(x, y));
-    return best;
-  };
+  const n = fs.length;
+  const sup = direct ? [] : fs.map((f) => SUPPORT.get(f));
+  const plain = sup.every((s) => s === undefined);
+  const out = memo1(plain
+    ? (x, y) => {
+      let best = base(x, y);
+      for (const f of fs) best = Math.min(best, -f(x, y));
+      return best;
+    }
+    : (x, y) => {
+      let best = base(x, y);
+      for (let i = 0; i < n; i++) {
+        const s = sup[i];
+        if (s === undefined) {
+          best = Math.min(best, -fs[i](x, y));
+          continue;
+        }
+        const hi = s.hi(x, y);
+        if (hi < -best) continue;
+        best = Math.min(best, -(s.tight ? hi : fs[i](x, y)));
+      }
+      return best;
+    });
+  const sb = supportOf(base);
+  if (sb === undefined || allSupport(fs) === undefined) return out;
+  // Cutting only removes material: the result is at most the base.
+  return tagged(out, { x0: sb.x0, y0: sb.y0, x1: sb.x1, y1: sb.y1, peak: sb.peak, hi: sb.hi, tight: false });
 };
 
 /**
@@ -442,9 +688,8 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
   const fb = asField(b, 'blend');
   const k = Math.abs(radius);
   if (!(k > 0) || !Number.isFinite(k)) return unionField(fa, fb);
-  return (x, y) => {
-    const u = fa(x, y);
-    const v = fb(x, y);
+  const nk = -k;
+  const join = (u: number, v: number): number => {
     // An empty field is -Infinity by design. Blending with one gives the
     // other, rather than NaN everywhere.
     if (!Number.isFinite(u) || !Number.isFinite(v)) return Math.max(u, v);
@@ -454,8 +699,84 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
     // on the locus equidistant from both is true out to infinity, so the
     // whole shape grows by k/4 and never stops. This form is exactly the
     // union wherever the joint is further than k away.
-    return Math.min(-k, Math.max(u, v)) + Math.hypot(Math.max(k + u, 0), Math.max(k + v, 0));
+    return Math.min(nk, Math.max(u, v)) + Math.hypot(Math.max(k + u, 0), Math.max(k + v, 0));
   };
+  const sa = supportOf(fa);
+  const sb = supportOf(fb);
+  // SKIP: one side may be dropped only where the formula has ALREADY
+  // collapsed onto the other. Both `Math.max(·, 0)` terms above clamp to
+  // exactly +0 once a value is at or below -k, so a side proved to be
+  // there contributes nothing but a zero the other side's expression can
+  // be written with directly. The skip below therefore does not return
+  // "the other value": it evaluates the SAME expression with the same
+  // arguments, one of them the +0 the clamp would have produced — the
+  // same bits, `Math.hypot` and all.
+  //
+  // Two conditions, both needed. A side is under the fillet when the
+  // sample is at least `peak + k` from its box, since `f ≤ peak − dist`;
+  // that is a comparison of SQUARED distances against a limit worked out
+  // once here, so the test costs no square root and no call. The limit is
+  // widened by far more than the rounding of the four operations that
+  // reach it, and a wider limit can only refuse a skip. The kept side must
+  // then be at or above -k, or the dropped side could be the larger of the
+  // two and `Math.max` would answer with it. A non-finite sample makes the
+  // squared distance infinite or NaN, and both fail the test, which is how
+  // a skip knows the value it is not computing is finite.
+  const loosen = (v: number): number => v * (1 + 1e-12) + 1e-12;
+  const limit2 = (s: Support | undefined): number => {
+    if (s === undefined) return NaN;
+    const lim = loosen(s.peak + k);
+    return lim > 0 ? lim * lim : 0;
+  };
+  const ax0 = sa?.x0 ?? 0, ay0 = sa?.y0 ?? 0, ax1 = sa?.x1 ?? 0, ay1 = sa?.y1 ?? 0;
+  const bx0 = sb?.x0 ?? 0, by0 = sb?.y0 ?? 0, bx1 = sb?.x1 ?? 0, by1 = sb?.y1 ?? 0;
+  const aPeak = sa?.peak ?? 0, bPeak = sb?.peak ?? 0;
+  const aLim2 = limit2(sa);
+  const bLim2 = limit2(sb);
+  /** `peak − √d2`, widened the way `boxBound` widens it — from a squared
+   * distance the test has already worked out. */
+  const above = (peak: number, d2: number): number => {
+    const d = Math.sqrt(d2);
+    return peak - d + ((Math.abs(peak) + d) * 1e-12 + 1e-12);
+  };
+  const out = memo1((x, y) => {
+    if (sa !== undefined) {
+      const dx = x < ax0 ? ax0 - x : x > ax1 ? x - ax1 : 0;
+      const dy = y < ay0 ? ay0 - y : y > ay1 ? y - ay1 : 0;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= aLim2 && d2 !== Infinity) {
+        const v = fb(x, y);
+        // The kept side is the larger when it is at or above -k. Further
+        // out than that BOTH sides are under the fillet, and which of them
+        // `Math.max` would have answered with is the one question the box
+        // test cannot settle: there the bound's own value decides it, at
+        // the price of the square root the fast test avoided.
+        if (Number.isFinite(v) && (v >= nk || v >= above(aPeak, d2))) {
+          return Math.min(nk, v) + Math.hypot(0, Math.max(k + v, 0));
+        }
+        return join(fa(x, y), v);
+      }
+    }
+    const u = fa(x, y);
+    if (sb !== undefined && Number.isFinite(u)) {
+      const dx = x < bx0 ? bx0 - x : x > bx1 ? x - bx1 : 0;
+      const dy = y < by0 ? by0 - y : y > by1 ? y - by1 : 0;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= bLim2 && d2 !== Infinity && (u >= nk || u >= above(bPeak, d2))) {
+        return Math.min(nk, u) + Math.hypot(Math.max(k + u, 0), 0);
+      }
+    }
+    return join(u, fb(x, y));
+  });
+  if (sa === undefined || sb === undefined) return out;
+  // A fillet adds material, so the union's ceiling is not enough. Where
+  // the formula is the union it is `max(u, v) ≤ P − d`; where it is not,
+  // both clamps are under `k + m` with `m = max(u, v) ≥ -k`, so the whole
+  // is at most `-k + √2·(k + m)`, and `1.5·max(P, 0) + k` covers that for
+  // every `d ≥ 0` with room to spare.
+  const { x0, y0, x1, y1, peak: P } = spanOf([sa, sb]);
+  const peak = Math.max(P, 1.5 * Math.max(P, 0) + k);
+  return tagged(out, { x0, y0, x1, y1, peak, hi: boxBound(x0, y0, x1, y1, peak), tight: false });
 };
 
 /**

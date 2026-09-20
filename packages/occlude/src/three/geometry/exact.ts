@@ -30,10 +30,9 @@ export function gcd(a:bigint,b:bigint):bigint{a=abs(a);b=abs(b);while(b){const n
 export function reduce(p:H):H {
   // Coordinates built from binary64 inputs mostly share a power of two:
   // shift it out first (cheap), then run Euclid on the smaller odd parts.
-  const bits=abs(p[0])|abs(p[1])|abs(p[2])|abs(p[3]);
-  if(bits===0n)return p;
-  const shift=BigInt(trailingZeros(bits));
-  const q:H=shift?[p[0]>>shift,p[1]>>shift,p[2]>>shift,p[3]>>shift]:p;
+  const shift=commonShift(p);
+  if(shift<0)return p;
+  const q:H=shift?[p[0]>>BigInt(shift),p[1]>>BigInt(shift),p[2]>>BigInt(shift),p[3]>>BigInt(shift)]:p;
   let divisor=abs(q[0]);
   for(let i=1;i<4&&divisor!==1n;i++)divisor=gcd(divisor,q[i]);
   return divisor>1n?[q[0]/divisor,q[1]/divisor,q[2]/divisor,q[3]/divisor]:q;
@@ -78,20 +77,42 @@ export function filteredDotSign(a:Filtered4,b:Filtered4):number {
   if(!(bound<Infinity))return 0;
   return value>bound?1:value<-bound?-1:0;
 }
-/** Trailing zero count of a positive bigint, by 32-bit windows. */
+/** Trailing zero count of a nonzero bigint, by 64-bit windows. Two's
+ * complement keeps the low bits of a negative number, so a sign costs
+ * nothing: -n ends in the same zeros n does. */
 function trailingZeros(n:bigint):number {
-  let count=0;
-  while((n&0xffffffffn)===0n){n>>=32n;count+=32;}
-  const word=Number(n&0xffffffffn);
-  return count+31-Math.clz32(word&-word);
+  for(let count=0;;count+=64){
+    const low=BigInt.asUintN(64,n);
+    if(low!==0n){
+      const half=Number(BigInt.asUintN(32,low));
+      if(half!==0)return count+31-Math.clz32(half&-half);
+      const high=Number(low>>32n);
+      return count+63-Math.clz32(high&-high);
+    }
+    n>>=64n;
+  }
+}
+/** The smallest trailing zero count among nonzero coefficients — the exponent
+ * of the common power of two — or -1 when every coefficient is zero. Read one
+ * coefficient at a time: an odd one settles it without touching the rest, and
+ * the alternative (or them together, then count) builds three whole numbers
+ * of several hundred bits to throw away. */
+function commonShift(p:H):number {
+  let shift=-1;
+  for(let i=0;i<4;i++){
+    const v=p[i];
+    if(v===0n)continue;
+    const zeros=trailingZeros(v);
+    if(zeros===0)return 0;
+    if(shift<0||zeros<shift)shift=zeros;
+  }
+  return shift;
 }
 /** Divide out the common power of two only. Every coefficient is divisible by
  * it, so the arithmetic shift is exact division. See `atScale`. */
 export function reduceScale(p:H):H {
-  const bits=abs(p[0])|abs(p[1])|abs(p[2])|abs(p[3]);
-  if(bits===0n)return p;
-  const shift=BigInt(trailingZeros(bits));
-  return shift?[p[0]>>shift,p[1]>>shift,p[2]>>shift,p[3]>>shift]:p;
+  const shift=commonShift(p);
+  return shift>0?[p[0]>>BigInt(shift),p[1]>>BigInt(shift),p[2]>>BigInt(shift),p[3]>>BigInt(shift)]:p;
 }
 export const point=(v:Vec3):H=>homogeneous([...v.map(dyadic),[1n,0]]);
 export const dot=(a:H,b:H)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];

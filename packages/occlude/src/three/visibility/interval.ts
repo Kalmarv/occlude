@@ -1,5 +1,5 @@
 import type {EncodedPoint3} from '../geometry/exact.js';
-import {hiddenWorldInterval3,type WorldOcclusion3} from './worldInterval.js';
+import {hiddenWorldIntervalOf3,hasWorldTerms3,worldSegment3,type WorldOcclusion3,type WorldSegment3} from './worldInterval.js';
 import { orient2d, orient3d } from 'robust-predicates';
 import { cross3, dot3, mul3, sub3, type Triangle3, type Vec3 } from '../math.js';
 /** Source interpolation is kept symbolic until the halfspace evaluation, so
@@ -42,14 +42,27 @@ export function occlusionVolume3(triangle: Triangle3, perspective: boolean): Occ
   return Object.freeze({ planes: Object.freeze(planes.map(p => Object.freeze(p))), triangle: Object.freeze(triangle.map(p => Object.freeze([...p]))) as unknown as Triangle3, perspective });
 }
 
-/** f64 reference. Exact support is excluded by provenance before this call;
- * coplanar distinct geometry does not obscure ink on the same plane. */
-// One feature's basis meets every candidate triangle; whether it carries
-// world terms is a property of the basis, remembered once.
-const worldBases=new WeakMap<SegmentBasis3,boolean>();
-function hasWorldTerms(basis:SegmentBasis3):boolean{let v=worldBases.get(basis);if(v===undefined){v=basis.every(terms=>terms.every(term=>term.world!==undefined));worldBases.set(basis,v);}return v;}
+/** One segment resolved for the exact test: the two camera-space ends, the
+ * basis, and the exact world endpoints when the basis carries them. Every
+ * candidate occluder of one feature meets the same segment, so the classifier
+ * prepares it once and the per-pair door builds one on the spot. */
+export interface PreparedSegment3 { readonly a: Vec3; readonly b: Vec3; readonly basis?: SegmentBasis3; readonly world: WorldSegment3 | null }
+const prepared=new WeakMap<SegmentBasis3,WorldSegment3|null>();
+export function prepareSegment3(a: Vec3, b: Vec3, basis?: SegmentBasis3): PreparedSegment3 {
+  if (!basis) return { a, b, world: null };
+  let world = prepared.get(basis);
+  if (world === undefined) { world = hasWorldTerms3(basis) ? worldSegment3(basis) : null; prepared.set(basis, world); }
+  return { a, b, basis, world };
+}
 export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3, basis?: SegmentBasis3): Interval3 | null {
-  if(volume.world&&basis&&hasWorldTerms(basis))return hiddenWorldInterval3(volume.world,basis);
+  return hiddenIntervalOf3(prepareSegment3(a, b, basis), volume);
+}
+/** The exact world test when both sides carry world geometry, else the f64
+ * reference. Exact support is excluded by provenance before this call;
+ * coplanar distinct geometry does not obscure ink on the same plane. */
+export function hiddenIntervalOf3(segment: PreparedSegment3, volume: OcclusionVolume3): Interval3 | null {
+  const a = segment.a, b = segment.b, basis = segment.basis;
+  if(volume.world&&segment.world)return hiddenWorldIntervalOf3(volume.world,segment.world);
   let lo = 0, hi = 1;
   for (let i = 0; i < volume.planes.length; i++) {
     const p = volume.planes[i];

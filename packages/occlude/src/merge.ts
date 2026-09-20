@@ -35,6 +35,7 @@
 
 import { orient2d } from 'robust-predicates';
 import { Material, mintIds, inheritEdge } from './material.js';
+import { overlapSpan, positionHash } from './faces.js';
 
 export interface MergeOpts {
   /** Two vertices closer than this are one vertex; two edges within this of
@@ -130,11 +131,24 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
   const verts = new Union(n);
   if (tol > 0) pairsWithin(m.x, m.y, n, tol, (i, j) => verts.join(i, j));
   else {
-    const byPos = new Map<string, number>();
+    // Exact coincidence by hash and compare, not by a string per vertex:
+    // `positionHash` reads the bit patterns (0 and −0 together, as `===`
+    // has them) and the coordinates decide inside the bucket.
+    const byPos = new Map<number, number | number[]>();
     for (let i = 0; i < n; i++) {
-      const k = `${m.x[i] === 0 ? 0 : m.x[i]},${m.y[i] === 0 ? 0 : m.y[i]}`;
-      const first = byPos.get(k);
-      if (first === undefined) byPos.set(k, i); else verts.join(first, i);
+      const x = m.x[i];
+      const y = m.y[i];
+      const h = positionHash(x, y);
+      const slot = byPos.get(h);
+      if (slot === undefined) { byPos.set(h, i); continue; }
+      if (typeof slot === 'number') {
+        if (m.x[slot] === x && m.y[slot] === y) verts.join(slot, i);
+        else byPos.set(h, [slot, i]);
+        continue;
+      }
+      let first = -1;
+      for (const other of slot) if (m.x[other] === x && m.y[other] === y) { first = other; break; }
+      if (first < 0) slot.push(i); else verts.join(first, i);
     }
   }
   const rep = new Int32Array(n);
@@ -142,23 +156,32 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
 
   // ---- 2. edges onto survivors; zero-length and exact duplicates go ----
   const segs: Seg[] = [];
-  const seenPair = new Map<string, number>();
+  // The unordered pair packs into one exact integer while n² < 2^53.
+  const seenPair = new Set<number>();
   for (let e = 0; e < E; e++) {
     const a = rep[m.edgeList[2 * e]];
     const b = rep[m.edgeList[2 * e + 1]];
     if (a === b) continue; // both ends are one vertex now: it was a duplicate of a point
-    const key = a < b ? `${a},${b}` : `${b},${a}`;
+    const key = a < b ? a * n + b : b * n + a;
     if (seenPair.has(key)) continue; // the same two vertices, either way round
-    seenPair.set(key, e);
+    seenPair.add(key);
     segs.push({ row: e, a, b, ax: m.x[a], ay: m.y[a], bx: m.x[b], by: m.y[b] });
   }
 
   // ---- 3. collinear overlapping edges become line groups ----
   const groups = new Union(segs.length);
   const overlaps = (s: Seg, u: Seg): boolean => {
-    const collinear = tol > 0
-      ? lineDistance(s, u.ax, u.ay) <= tol && lineDistance(s, u.bx, u.by) <= tol
-      : orient2d(s.ax, s.ay, s.bx, s.by, u.ax, u.ay) === 0 && orient2d(s.ax, s.ay, s.bx, s.by, u.bx, u.by) === 0;
+    if (tol === 0) {
+      // Exact coincidence only, so the answer is exact too: collinear by
+      // `orient2d`, and a shared length decided by comparing the ends along
+      // the line's own axis (`overlapSpan`). The parameter arithmetic below
+      // is for a tolerance, and it rounds a one-ulp overlap into a touch —
+      // which leaves planarize an overlap it must reject.
+      if (orient2d(s.ax, s.ay, s.bx, s.by, u.ax, u.ay) !== 0) return false;
+      if (orient2d(s.ax, s.ay, s.bx, s.by, u.bx, u.by) !== 0) return false;
+      return overlapSpan(s.ax, s.ay, s.bx, s.by, u.ax, u.ay, u.bx, u.by);
+    }
+    const collinear = lineDistance(s, u.ax, u.ay) <= tol && lineDistance(s, u.bx, u.by) <= tol;
     if (!collinear) return false;
     const dx = s.bx - s.ax;
     const dy = s.by - s.ay;

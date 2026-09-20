@@ -18,6 +18,7 @@
     "build": "tsc -p tsconfig.json",
     "qa": "tsx tools/qa-sweep.ts",
     "bench": "tsx bench/all.mts",
+    "perf": "tsx tools/bench.ts",
     "calibrate": "tsx tools/calibrate.ts",
     "frags": "tsx tools/frags.ts",
     "render-hash": "tsx tools/render-hash.ts",

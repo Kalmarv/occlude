@@ -38,6 +38,13 @@ export interface RasterFilter3 {
   /** Candidate occluder indices for a feature, from the cell walk; `null`
    * when the feature leaves the raster (fall back to the index). */
   candidates(feature: number): readonly number[] | null;
+  /** `candidates`, appended to a caller-owned array instead of a new one, in
+   * the same first-seen order; false where `candidates` returns null. The
+   * classifier walks every feature and keeps nothing, so it reuses one array.
+   * `accept` keeps a candidate the caller wants: it is asked once per distinct
+   * occluder, so a caller that would filter the result afterwards can filter
+   * it here instead and never store what it drops. */
+  candidatesInto(feature: number, out: number[], accept?: (occluder: number) => boolean): boolean;
   readonly stats: { pixels: number; coveredPixels: number; cells: number; buildMs: number; triangles: number; skippedLarge: number };
 }
 
@@ -58,7 +65,14 @@ export function rasterFilter3(snapshot: FeatureSnapshot3, resolution = RESOLUTIO
   const coverFar = new Float64Array(w * h).fill(Infinity);
   const cellScale = cellCount / Math.max(r.width, r.height), cellPerPixel = cellScale / scale;
   const cw = Math.ceil(r.width * cellScale) + 1, ch = Math.ceil(r.height * cellScale) + 1;
-  const cells: number[][] = Array.from({ length: cw * ch }, () => []);
+  // The cell index is filled twice — count, then place — so it is one flat
+  // Int32Array instead of `cw * ch` growable arrays. A triangle's cells are
+  // the rectangle its projected bounds touch, so the first pass keeps that
+  // rectangle per triangle and the second pass replays it in the same
+  // triangle order: a cell's members stay ascending, and a feature's walk
+  // meets them in the order the array-of-arrays produced.
+  const cellRect = new Int32Array(snapshot.occluders.length * 4).fill(-1);
+  const cellStart = new Int32Array(cw * ch + 1);
   let coveredPixels = 0, skippedLarge = 0;
   const t0 = performance.now();
   const depth = (p: Vec3): number => -p[2];
@@ -73,7 +87,10 @@ export function rasterFilter3(snapshot: FeatureSnapshot3, resolution = RESOLUTIO
     // Cells: every cell the projected bounds touch (clamped to the sheet).
     const cx0 = Math.max(0, Math.floor(minX * cellPerPixel)), cx1 = Math.min(cw - 1, Math.floor(maxX * cellPerPixel));
     const cy0 = Math.max(0, Math.floor(minY * cellPerPixel)), cy1 = Math.min(ch - 1, Math.floor(maxY * cellPerPixel));
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) cells[cy * cw + cx].push(j);
+    if (cx1 >= cx0 && cy1 >= cy0) {
+      cellRect[j * 4] = cx0; cellRect[j * 4 + 1] = cx1; cellRect[j * 4 + 2] = cy0; cellRect[j * 4 + 3] = cy1;
+      for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) cellStart[cy * cw + cx + 1]++;
+    }
     // Fully covered pixels. Each edge is a linear function e(x, y) = a x + b y + c,
     // scaled to unit normal, positive on the inside once oriented; a pixel is
     // covered when the SMALLEST corner value of every edge exceeds the shrink.
@@ -105,6 +122,13 @@ export function rasterFilter3(snapshot: FeatureSnapshot3, resolution = RESOLUTIO
         }
       }
     }
+  }
+  for (let c = 0; c < cw * ch; c++) cellStart[c + 1] += cellStart[c];
+  const cellItems = new Int32Array(cellStart[cw * ch]), cursor = cellStart.slice(0, cw * ch);
+  for (let j = 0; j < snapshot.occluders.length; j++) {
+    const cx0 = cellRect[j * 4]; if (cx0 < 0) continue;
+    const cx1 = cellRect[j * 4 + 1], cy0 = cellRect[j * 4 + 2], cy1 = cellRect[j * 4 + 3];
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) cellItems[cursor[cy * cw + cx]++] = j;
   }
   /** Cells or pixels a segment touches, conservatively: every square the
    * segment's path, widened by half a unit, enters. False if it leaves the grid. */
@@ -138,6 +162,26 @@ export function rasterFilter3(snapshot: FeatureSnapshot3, resolution = RESOLUTIO
     return [px(toPaper3(frame, f.a)), px(toPaper3(frame, f.b))];
   };
   const stats = { pixels: w * h, coveredPixels, cells: cw * ch, buildMs: performance.now() - t0, triangles: snapshot.occluders.length, skippedLarge };
+  const seenStamp = new Int32Array(snapshot.occluders.length); let stamp = 0;
+  const gather = (c: number, mark: number, out: number[], accept?: (j: number) => boolean): true => {
+    for (let k = cellStart[c], end = cellStart[c + 1]; k < end; k++) {
+      const j = cellItems[k];
+      if (seenStamp[j] === mark) continue;
+      seenStamp[j] = mark;
+      if (!accept || accept(j)) out.push(j);
+    }
+    return true;
+  };
+  const candidatesInto = (i: number, out: number[], accept?: (j: number) => boolean): boolean => {
+    const ends = featurePx(i);
+    if (!ends) return false;
+    const a: [number, number] = [ends[0][0] * cellPerPixel, ends[0][1] * cellPerPixel], b: [number, number] = [ends[1][0] * cellPerPixel, ends[1][1] * cellPerPixel];
+    // One stamp per call instead of a Set: an occluder is appended the first
+    // time a walked cell names it, which is the order the Set kept.
+    const mark = ++stamp, base = out.length;
+    if (!walk(a, b, cw, ch, (c) => gather(c, mark, out, accept))) { out.length = base; return false; }
+    return true;
+  };
   return {
     provenHidden(i) {
       const f = snapshot.features[i], ends = featurePx(i);
@@ -146,13 +190,10 @@ export function rasterFilter3(snapshot: FeatureSnapshot3, resolution = RESOLUTIO
       return walk(ends[0], ends[1], w, h, (p) => coverFar[p] < limit);
     },
     candidates(i) {
-      const ends = featurePx(i);
-      if (!ends) return null;
-      const a: [number, number] = [ends[0][0] * cellPerPixel, ends[0][1] * cellPerPixel], b: [number, number] = [ends[1][0] * cellPerPixel, ends[1][1] * cellPerPixel];
-      const seen = new Set<number>();
-      if (!walk(a, b, cw, ch, (c) => { for (const j of cells[c]) seen.add(j); return true; })) return null;
-      return [...seen];
+      const out: number[] = [];
+      return candidatesInto(i, out) ? out : null;
     },
+    candidatesInto,
     stats,
   };
 }
