@@ -1,4 +1,4 @@
-import { cameraFrame3, toCamera3, type Camera3, type CameraFrame3 } from 'occlude/src/three/camera.js';
+import { cameraFrame3, cameraShift3, toCamera3, type Camera3, type CameraFrame3 } from 'occlude/src/three/camera.js';
 import { transformSurface3 } from 'occlude/src/three/geometry/model.js';
 import { SurfaceQueries3 } from 'occlude/src/three/queries/surface.js';
 import type { LineArtScene3 } from 'occlude/src/three/scene.js';
@@ -45,7 +45,9 @@ export class ConstructionScene3 {
     if (![x,y].every(Number.isFinite)) throw new Error('invalid construction pick');
     const frame = cameraFrame3(camera, { x: 0, y: 0, width, height });
     const scale = camera.kind === 'orthographic' ? camera.span/2 : Math.tan(camera.fovDegrees*Math.PI/360);
-    const offset = add3(mul3(frame.right,(2*x-1)*width/height*scale),mul3(frame.up,(1-2*y)*scale));
+    // An oblique frame sits off the optical axis, so the pixel's own ray does too.
+    const s = cameraShift3(camera);
+    const offset = add3(mul3(frame.right,(2*x-1-s[0])*width/height*scale),mul3(frame.up,(1-2*y-s[1])*scale));
     const ray = { origin: camera.kind === 'orthographic' ? add3(camera.eye,offset) : camera.eye, direction: camera.kind === 'orthographic' ? mul3(frame.back,-1) : add3(mul3(frame.back,-1),offset), near: camera.near, far: camera.far };
     let best: (ConstructionPick3 & { distance: number }) | null = null;
     for (const object of this.objects) {

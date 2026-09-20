@@ -2,10 +2,11 @@ import type {SurfaceLocation3} from '../geometry/location.js';
 import type {Surface3} from '../geometry/surface.js';
 import {surfaceLocation3,captureSurfacePlacement3} from '../geometry/location.js';
 import {estimateCurvature3,curvatureAt3,type CurvatureOptions3} from '../geometry/curvature.js';
-import {rotateVector3} from '../rotation.js';
+import {rotateVector3,rotation3,vector3,type RotationInput,type Vector3} from '../rotation.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
 import {clampSetting,sampleValue} from '../degenerate.js';
-import {lightRecipe3,lightTone3,registerToneRecipe3} from './tone.js';
+import {lightRecipe3,lightTone3,imageValue3,registerToneRecipe3,toneRecipe3} from './tone.js';
+import {falloff} from '../api/vec.js';
 
 /** A direction over the surface. The tracer projects the result onto the
  * actual tangent plane; `null` means "no direction here" (stop or fall back).
@@ -35,6 +36,78 @@ export function toneField(input:ToneInput):ToneField {
 export function light(options:Parameters<typeof lightRecipe3>[0]):ToneField {
   const recipe=lightRecipe3(options);
   return registerToneRecipe3((s:SurfaceLocation3)=>lightTone3(recipe.space==='model'?s.modelNormal:s.normal,recipe),recipe);
+}
+export interface LampFalloff {
+  /** Distance at which the lamp gives nothing. */
+  readonly radius:number;
+  /** Shape of the fade between the lamp and its radius; linear by default. */
+  readonly ease?:(t:number)=>number;
+}
+export interface LampOptions {
+  readonly position:Vector3;
+  /** Light on a surface turned away from the lamp, 0..1 (0.15 by default). */
+  readonly ambient?:number;
+  /** Distance fade. Without it the lamp reaches everywhere. */
+  readonly falloff?:LampFalloff;
+}
+/** A lamp at a place, as a tone field: the `light` formula with a direction
+ * that changes over the surface, times a distance fade. A face turned toward
+ * the lamp is 0 (light, no hatch) and one turned away reaches 1 - ambient, so
+ * two objects either side of a lamp turn away from each other.
+ *
+ * Evaluated on the CPU: its direction is per point, so it is not one of the
+ * batched recipes `light` and surface images are. */
+export function lamp(options:LampOptions):ToneField {
+  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('lamp requires its options');
+  const position=vector3(options.position);
+  const ambient=clampSetting(options.ambient,0,1,0.15,'lamp ambient');
+  const reach=options.falloff;
+  if(reach!==undefined&&(!reach||typeof reach!=='object'||Array.isArray(reach)))throw new Error('lamp falloff requires { radius, ease? }');
+  if(reach?.ease!==undefined&&typeof reach.ease!=='function')throw new Error('lamp falloff ease must be a function');
+  return (s:SurfaceLocation3)=>{
+    const to=sub3(position,s.position),distance=Math.hypot(...to);
+    // A lamp sitting exactly on the surface lights that point fully: there is
+    // no direction left to measure an angle against.
+    const cosine=distance>0?Math.max(0,dot3(s.normal,mul3(to,1/distance))):1;
+    const fade=reach?falloff(s.position,{center:position,radius:reach.radius,ease:reach.ease}):1;
+    const illumination=ambient+(1-ambient)*cosine*sampleValue(fade,0);
+    return Math.min(1,Math.max(0,1-illumination));
+  };
+}
+/** What an environment is read with: a direction, or the sampler
+ * `t.image(name).surface(...)` gives, which is read by the same directions
+ * mapped to its chart. */
+export type EnvironmentSampler=((direction:Vec3)=>number)|ToneField;
+export interface EnvironmentOptions {
+  /** Turn the surroundings: the sampler is read through the inverse, so
+   * rotating the environment moves what each face sees. */
+  readonly orientation?:RotationInput;
+}
+/** The light a surface sees from the world around it, by the direction its
+ * normal points. The sampler gives the light arriving from a direction and the
+ * tone is its complement, so a bright sky above makes up-facing surfaces pale
+ * and leaves the undersides dark.
+ *
+ * An image sampler is read equirectangularly: u is the longitude around Z from
+ * +X, v the latitude, 0 at -Z and 1 at +Z. Any other function is called with
+ * the unit direction itself. Evaluated on the CPU. */
+export function environment(sampler:(direction:Vec3)=>number,options?:EnvironmentOptions):ToneField;
+export function environment(sampler:ToneField,options?:EnvironmentOptions):ToneField;
+export function environment(sampler:EnvironmentSampler,options:EnvironmentOptions={}):ToneField {
+  if(typeof sampler!=='function')throw new Error('environment requires an image surface sampler or a function of a direction');
+  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('environment requires its options');
+  const turn=options.orientation===undefined?undefined:rotation3(options.orientation).inverse();
+  const recipe=toneRecipe3(sampler);
+  const image=recipe?.kind==='image'?recipe:undefined;
+  return (s:SurfaceLocation3)=>{
+    const normal=s.normal,length=Math.hypot(...normal);
+    if(!(length>0))return 1;
+    const raw=mul3(normal,1/length),direction=turn?turn.apply(raw):raw;
+    const value=image
+      ? imageValue3([((Math.atan2(direction[1],direction[0])/(2*Math.PI))%1+1)%1,.5+Math.asin(Math.max(-1,Math.min(1,direction[2])))/Math.PI],image)
+      : (sampler as (d:Vec3)=>number)(direction);
+    return 1-Math.min(1,Math.max(0,sampleValue(value,0)));
+  };
 }
 // Keyed by the captured placement object, whose identity changes with its
 // transform revision (captureSurfacePlacement3), never by its string id: an

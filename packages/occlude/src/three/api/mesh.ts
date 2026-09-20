@@ -5,10 +5,12 @@ import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCor
 import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
 import {captureSurface3,ownSurface3,cloneSurface3,editAttributes3,transformSurface3,measureFaces3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
-import {clampSetting,emptySize,sampleValue} from '../degenerate.js';
+import {clampSetting,emptyCount,emptySize,sampleValue} from '../degenerate.js';
 import {Collection} from './collection.js';
 import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
+import {dualSurface3,type DualOptions} from '../geometry/dual.js';
+import {booleanSurface3} from '../geometry/boolean.js';
 /** One connected component of an extrusion selection, measured on the frozen input. */
 export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
   readonly index:number;readonly faces:MeshFaces<P,E,F,C>;
@@ -38,10 +40,21 @@ export interface GeometryOptions {
   readonly stroke?:string;
   /** The pen for this object's hatch when the recipe names none (2D `fillPen`). */
   readonly fillPen?:string;
+  /** Draw this object's suggestive contours, the lines where the surface is
+   * about to turn away. `false` (the default) draws none; `{}` takes the
+   * default threshold, and a larger `threshold` keeps fewer of them. */
+  readonly suggestive?:SuggestiveInput;
 }
+/** Off, or on with the reading's own threshold. */
+export type SuggestiveInput={readonly threshold?:number}|false;
 /** How an object is drawn by the default drawing: its pen, its hatch pen, its
  * crease threshold. `style` sets only the fields named and keeps the rest. */
-export interface Style3 {readonly stroke?:string;readonly fillPen?:string;readonly creaseAngle?:number}
+export interface Style3 {readonly stroke?:string;readonly fillPen?:string;readonly creaseAngle?:number;readonly suggestive?:SuggestiveInput}
+function checkedSuggestive(value:SuggestiveInput|undefined):SuggestiveInput|undefined {
+  if(value===undefined||value===false)return value;
+  if(typeof value!=='object'||Array.isArray(value))throw new Error('suggestive must be false or { threshold }');
+  return Object.freeze({...value});
+}
 function checkedStroke(value:string|undefined):string|undefined {
   if(value!==undefined&&(typeof value!=='string'||!value))throw new Error('stroke must be a nonempty pen name');
   return value;
@@ -287,6 +300,8 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   readonly origin:Vec3;readonly orientation:Rotation;
   readonly history:readonly CurveSnapshot<P,E>[];
   readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>;readonly provenance?:Provenance3}[];
+  /** Own pen for the default drawing, or undefined for the view's. */
+  readonly stroke?:string;
   constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly CurveSnapshot<P,E>[]}={}) {
     checkOptions(options);validateAttributes(surface);
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
@@ -294,7 +309,7 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
     const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
     const mapping=new Map(used.map((v,i)=>[v,i]));
     const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
-    this.surface=captureSurface3(source);this.key=checkedKey(options.key);
+    this.surface=captureSurface3(source);this.key=checkedKey(options.key);this.stroke=checkedStroke(options.stroke);
     this.iteration=options.iteration??0;this.history=Object.freeze([...(options.history??[])]);
     this.segments=this.surface.edges as unknown as typeof this.segments;Object.freeze(this);
   }
@@ -408,9 +423,11 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   readonly stroke?:string;
   /** Own pen for hatch recipes that name none. */
   readonly fillPen?:string;
+  /** Own suggestive-contour reading, or undefined for the view's. */
+  readonly suggestive?:SuggestiveInput;
   constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);this.fillPen=checkedStroke(options.fillPen);
+    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);this.fillPen=checkedStroke(options.fillPen);this.suggestive=checkedSuggestive(options.suggestive);
     this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
   }
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
@@ -494,6 +511,33 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
     return new Mesh<P,E,F,C>(extrudeRegion3(this.surface,components,key),{...this,history:[]});
   }
   subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F,C>{return new Mesh<P,Partial<E>,F,C>(subdivideSurface(this.surface,levels,options,this.transfers,this.cornerTransfers),{...this,history:[]});}
+  /** Everything in either solid. Both meshes must be closed; an open shell
+   * refuses by name. The seam is exact: every triangle the other solid crosses
+   * is cut along the true intersection curve, and the faces along it answer
+   * `cut`. An uncut face of this mesh keeps its identity and its columns; a
+   * face of the other mesh keeps its columns under a minted id. */
+  unite(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('unite',this.surface,(other as Mesh).surface)),{...this,history:[],transfers:{},cornerTransfers:{}});}
+  /** This solid with the other bitten out of it. The other mesh's kept faces
+   * are turned inside out, so the bite's wall faces into the hollow. */
+  subtract(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('subtract',this.surface,(other as Mesh).surface)),{...this,history:[],transfers:{},cornerTransfers:{}});}
+  /** Only what lies in both solids. Two solids that never meet have nothing in
+   * common, which is an empty mesh: nothing to draw, not a fault. */
+  common(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('common',this.surface,(other as Mesh).surface)),{...this,history:[],transfers:{},cornerTransfers:{}});}
+  /** The dual: one point per face, at its middle, and one face per vertex,
+   * walking the faces around it. A cube duals to an octahedron, a geodesic
+   * polyhedron to its Goldberg — `geodesic(1, { frequency: [3, 1] }).dual({
+   * project: 1 })` is twelve pentagons and the rest hexagons on the sphere.
+   * `project` pushes every dual point out to that radius from the origin.
+   *
+   * Numeric face columns become point columns and point columns become face
+   * columns, keyed `dual:<id>` either way. A vertex on a boundary has no ring
+   * of faces to walk and gets no face, so an open mesh loses its rim; a mesh
+   * with no faces duals to nothing. A projected dual face is not exactly
+   * planar, and is drawn as the triangles its own average plane gives. */
+  dual(options:DualOptions={}):Mesh<F,{},P,{}>{
+    if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
+    return new Mesh<F,{},P,{}>(ownSurface3(dualSurface3(this.surface,options)),{...this,history:[],transfers:{},cornerTransfers:{}});
+  }
   /** Move every point by a vector, or by a scalar along its vertex normal (`along` chooses another direction). */
   displace(field:Field<MeshPointRow<P,E,F,C>,Vec3|number>,options:DisplaceOptions={}):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points],options),{...this,history:[]});}
   translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
@@ -630,6 +674,80 @@ export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{
   const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
   return new Mesh(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
+}
+export interface ParametricOptions extends GeometryOptions {
+  /** Samples across u and down v. A closed direction needs at least three. */
+  readonly cols:number;readonly rows:number;
+  /** Weld the last ring of samples to the first, so the seam is one set of
+   * shared vertices and the surface closes around that direction. */
+  readonly closeU?:boolean;readonly closeV?:boolean;
+}
+/** A formula as a quad grid, carrying the unit square as its chart exactly as
+ * `plane` does, so `hatch({uv})`, `isolines` and `mapSurface` read it.
+ *
+ * `point(u, v)` is read over the unit square: u runs 0..1 across `cols`
+ * samples and v runs 0..1 down `rows`. A closed direction spaces its samples
+ * at i / count and welds the seam, the way `torus` does, so a formula torus is
+ * as manifold as `torus()`. A ring of samples that all land on one place — a
+ * pole — becomes one shared vertex, and its quads become triangles.
+ *
+ * Winding: each quad is wound (u, v), (u+, v), (u+, v+), (u, v+), so the face
+ * normal is ∂p/∂u × ∂p/∂v. A formula whose cross product points out of the
+ * solid draws as an outward surface; swap u and v to turn it inside out.
+ *
+ * Too few samples, or a point the formula could not answer, is an empty mesh. */
+export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Mesh<{},{},{},SurfaceUV>{
+  checkOptions(options);
+  if(typeof point!=='function')throw new Error('parametric requires a point formula (u, v) => [x, y, z]');
+  for(const [name,value] of [['closeU',options.closeU],['closeV',options.closeV]] as const)if(value!==undefined&&typeof value!=='boolean')throw new Error(`parametric ${name} must be boolean`);
+  const closeU=options.closeU===true,closeV=options.closeV===true;
+  const cols=options.cols,rows=options.rows;
+  if(emptyCount(cols,closeU?3:2,'parametric cols')||emptyCount(rows,closeV?3:2,'parametric rows'))return emptyMesh(options);
+  const uSpan=closeU?cols:cols-1,vSpan=closeV?rows:rows-1;
+  if(cols*rows>500000||uSpan*vSpan>250000)throw new Error('parametric exceeds budget (500000 points / 250000 faces)');
+  const sampled:Vec3[]=[];
+  for(let i=0;i<cols;i++)for(let j=0;j<rows;j++){
+    const p=point(i/uSpan,j/vSpan);
+    // A formula that cannot answer somewhere draws nothing, the same
+    // nothing-to-draw a zero-sized primitive gives.
+    if(!Array.isArray(p)||p.length!==3||!p.every(Number.isFinite))return emptyMesh(options);
+    sampled.push([p[0],p[1],p[2]]);
+  }
+  // A ring of coincident samples is one vertex. Union-find, so a pole that is
+  // both a degenerate row and a degenerate column still ends up as one.
+  const parent=sampled.map((_,k)=>k);
+  const find=(k:number):number=>{while(parent[k]!==k){parent[k]=parent[parent[k]];k=parent[k];}return k;};
+  const join=(a:number,b:number):void=>{const x=find(a),y=find(b);if(x!==y)parent[Math.max(x,y)]=Math.min(x,y);};
+  let extent=0;for(const p of sampled)for(const n of p)extent=Math.max(extent,Math.abs(n));
+  const tolerance=Math.max(1,extent)*1e-9;
+  const coincident=(indices:readonly number[]):boolean=>indices.every(k=>indices.every(l=>Math.hypot(...sub3(sampled[k],sampled[l]))<=tolerance));
+  for(let j=0;j<rows;j++){const ring=Array.from({length:cols},(_,i)=>i*rows+j);if(coincident(ring))for(const k of ring)join(ring[0],k);}
+  for(let i=0;i<cols;i++){const ring=Array.from({length:rows},(_,j)=>i*rows+j);if(coincident(ring))for(const k of ring)join(ring[0],k);}
+  const index=new Map<number,number>(),positions:Vec3[]=[],members=new Map<number,number[]>();
+  for(let k=0;k<sampled.length;k++){
+    const root=find(k);let at=index.get(root);
+    if(at===undefined){at=positions.length;index.set(root,at);positions.push(sampled[k]);members.set(at,[]);}
+    members.get(at)!.push(k);
+  }
+  // A welded ring takes the middle of its samples, so a pole a formula only
+  // reaches to rounding sits exactly where the ring says it does.
+  for(const [at,group] of members)if(group.length>1)positions[at]=mul3(group.reduce((sum,k)=>add3(sum,sampled[k]),[0,0,0] as Vec3),1/group.length);
+  const at=(i:number,j:number):number=>index.get(find((i%cols)*rows+(j%rows)))!;
+  const faces:number[][]=[],charts:(readonly [number,number])[][]=[];
+  for(let i=0;i<uSpan;i++)for(let j=0;j<vSpan;j++){
+    const corners=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]] as const;
+    const kept:number[]=[],uv:(readonly [number,number])[]=[];
+    for(const [ci,cj] of corners){
+      const vertex=at(ci,cj);
+      if(kept.length&&kept.at(-1)===vertex)continue;
+      kept.push(vertex);uv.push([ci/uSpan,cj/vSpan]);
+    }
+    if(kept.length>2&&kept[0]===kept.at(-1)){kept.pop();uv.pop();}
+    if(kept.length<3)continue;
+    faces.push(kept);charts.push(uv);
+  }
+  if(!faces.length)return emptyMesh(options);
+  return new Mesh(ownSurface3(chartSurface3(surface3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'}))),options);
 }
 /** Each outward-wound face has its own unit-square chart; vertices stay shared. */
 export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{

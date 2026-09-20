@@ -56,3 +56,49 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
   return view(sweep(circle(0.22, { segments: 10 }), path), { camera: orthographic({ eye: [5, 6, 3], span: 4.5 }), stroke: 'ink', creaseAngle: 180 });
 });
 ```
+
+## t.streamlines3()
+
+<include>/_sig/Toolkit.streamlines3.mdx</include>
+
+Evenly spaced streamlines of a 3D vector field, as open curves. A view occludes them like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
+
+Each seed runs both ways with an RK4 step, until the field has no direction there, until the line reaches `maxLength`, or until it comes within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }`, which throws that many points into a closed mesh. `within` cuts every line to the runs inside a closed mesh, and interpolates the crossing point.
+
+`curl3` and `grad3` read a field by central differences. The curl of any field has no divergence, so streamlines of `curl3` neither crowd nor thin out. Below, the flow is the ABC field, cut to a ball, and a box in front hides what is behind it.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { sphere, box, view, orthographic } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.32), color: '#18202A' }), flow: pen({ width: mm(0.16), color: '#2A6F8A' }) } }, async (t) => {
+  const A = Math.sqrt(3), B = Math.SQRT2, C = 1, k = 0.85;
+  const ball = sphere(1.7, { segments: 32, rings: 16 });
+  const lines = t.streamlines3(([x, y, z]) => [A * Math.sin(k * z) + C * Math.cos(k * y), B * Math.sin(k * x) + A * Math.cos(k * z), C * Math.sin(k * y) + B * Math.cos(k * x)],
+    { seeds: { count: 90, within: ball }, spacing: 0.17, step: 0.045, maxLength: 6, within: ball, stroke: 'flow' });
+  const wall = box([0.9, 0.9, 0.9]).translate([1.35, 1.45, 0.15]);
+  return view([...lines, wall], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), stroke: 'ink' });
+});
+```
+
+## curl3() · grad3()
+
+<include>/_sig/3d.curl3.mdx</include>
+<include>/_sig/3d.grad3.mdx</include>
+
+`grad3(scalar)` is the direction a scalar field rises fastest, as long as its rise. `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `step`, which is 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
+
+One hill, read two ways. The red lines climb the gradient of the hill. The blue lines follow the curl of the same hill, held upright as a potential, so they close into rings around the climb. The curl of a gradient is zero, which is why the two families never agree.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { sphere, curl3, grad3, view, orthographic } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1], seed: 7, pens: { climb: pen({ width: mm(0.18), color: '#A84932' }), loop: pen({ width: mm(0.18), color: '#2A6F8A' }) } }, async (t) => {
+  const hill = (p) => Math.sin(1.3 * p[0]) * Math.cos(1.3 * p[1]) - 0.35 * p[2];
+  const ball = sphere(1.7, { segments: 24, rings: 12 });
+  const climb = t.streamlines3(grad3(hill), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, stroke: 'climb', key: 'climb' });
+  const loop = t.streamlines3(curl3((p) => [0, 0, hill(p)]), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, stroke: 'loop', key: 'loop' });
+  return view([...climb, ...loop], { camera: orthographic({ eye: [4, -6, 4], span: 4.4 }) });
+});
+```

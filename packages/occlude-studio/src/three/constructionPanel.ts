@@ -65,7 +65,7 @@ export class ConstructionPanel3 {
       finally { this.commitButton.disabled = false; }
     };
     this.projection.setAttribute('aria-label','Projection');
-    for(const [value,text] of [['orthographic','Orthographic'],['perspective','Perspective']]){
+    for(const [value,text] of [['orthographic','Orthographic'],['perspective','Perspective'],['oblique','Oblique']]){
       const option=document.createElement('option');option.value=value;option.textContent=text;this.projection.append(option);
     }
     this.projection.onchange=()=>{ if(!this.camera)return; try{this.camera=switchProjection3(this.camera,this.projection.value as Camera3['kind']);this.syncControls();this.schedule();}catch(error){this.note.textContent=String(error);this.syncControls();} };
@@ -73,7 +73,7 @@ export class ConstructionPanel3 {
     this.scale.onchange=()=>{
       if(!this.camera)return;
       const value=this.scale.valueAsNumber;
-      if(!Number.isFinite(value)||value<=0||(this.camera.kind==='perspective'&&value>=180)){this.note.textContent='Enter a positive span, or a vertical FOV between 0 and 180 degrees.';this.syncControls();return;}
+      if(!Number.isFinite(value)||value<=0||(this.camera.kind!=='orthographic'&&value>=180)){this.note.textContent='Enter a positive span, or a vertical FOV between 0 and 180 degrees.';this.syncControls();return;}
       this.camera=this.camera.kind==='orthographic'?{...this.camera,span:value}:{...this.camera,fovDegrees:value};this.schedule();
     };
     this.scaleLabel.append(this.scale);
@@ -111,12 +111,12 @@ export class ConstructionPanel3 {
   private syncControls(): void {
     if(!this.camera)return;
     this.projection.value=this.camera.kind;
-    const perspective=this.camera.kind==='perspective';
+    const perspective=this.camera.kind!=='orthographic';
     this.scaleLabel.replaceChildren(perspective?'FOV ° ':'Span ',this.scale);
     this.scale.setAttribute('aria-label',perspective?'Vertical FOV (degrees)':'Orthographic span');
     this.scale.title=perspective?'Vertical field of view in degrees':'Vertical span in scene units';
     this.scale.min='0';if(perspective)this.scale.max='180';else this.scale.removeAttribute('max');
-    this.scale.value=String(Number((this.camera.kind==='perspective'?this.camera.fovDegrees:this.camera.span).toPrecision(8)));
+    this.scale.value=String(Number((this.camera.kind==='orthographic'?this.camera.span:this.camera.fovDegrees).toPrecision(8)));
   }
   /** The scene's viewport rectangle on the canvas, in CSS px, following the
    * preview's pan and zoom; the whole sheet when the scene has no viewport. */
@@ -218,7 +218,7 @@ export function cameraSource(camera: Camera3): string {
   const n = (v: number) => String(Number(v.toPrecision(6)));
   const vec = (v: readonly number[]) => `[${v.map(n).join(', ')}]`;
   const up = camera.up && !(camera.up[0] === 0 && camera.up[1] === 0 && camera.up[2] === 1) ? `, up: ${vec(camera.up)}` : '';
-  return camera.kind === 'orthographic'
-    ? `orthographic({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, span: ${n(camera.span)} })`
-    : `perspective({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, fovDegrees: ${n(camera.fovDegrees)} })`;
+  if (camera.kind === 'orthographic') return `orthographic({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, span: ${n(camera.span)} })`;
+  if (camera.kind === 'oblique') return `oblique({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, shift: ${vec(camera.shift)}, fovDegrees: ${n(camera.fovDegrees)} })`;
+  return `perspective({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, fovDegrees: ${n(camera.fovDegrees)} })`;
 }

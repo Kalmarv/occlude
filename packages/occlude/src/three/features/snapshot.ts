@@ -9,8 +9,9 @@ import { transformSurface3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
+import { suggestiveSegments3, type SuggestiveEnd3, type SuggestiveOptions3 } from './suggestive.js';
 
-export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64, intersection:128, mapped:256, trace:512, isoline:1024 } as const;
+export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64, intersection:128, mapped:256, trace:512, isoline:1024, suggestive:2048 } as const;
 export interface InstanceSource3 {readonly id:string;readonly pointId:string;readonly pointIndex:number;readonly prototypeKey?:string}
 export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly instance?:InstanceSource3; readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3;
   /** The object's own crease threshold in degrees; the view's applies when unset. */
@@ -18,7 +19,9 @@ export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly in
   /** The object's own pen for the default drawing. */
   readonly stroke?: string;
   /** The object's own pen for hatch recipes that name none. */
-  readonly fillPen?: string }
+  readonly fillPen?: string;
+  /** Draw this object's suggestive contours in this view; absent draws none. */
+  readonly suggestive?: SuggestiveOptions3 }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
   /** Source placement identity, independent of per-view object naming. */
@@ -75,7 +78,7 @@ const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
  * triangle-facing transition is a silhouette and retains face parentage. */
 export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}, curves:readonly SurfaceCurveObject3[]=[], sheet?:PaperFrame3): FeatureSnapshot3 {
   const features: Feature3[] = [], referenceFeatures:Feature3[]=[], curveGraphs:SurfaceCurveGraph3[]=[], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
-  const worldView=Object.freeze({perspective:frame.camera.kind==='perspective',eye:frame.camera.eye,target:frame.camera.target,back:frame.back,near:frame.camera.near,far:frame.camera.far});
+  const worldView=Object.freeze({perspective:frame.camera.kind!=='orthographic',eye:frame.camera.eye,target:frame.camera.target,back:frame.back,near:frame.camera.near,far:frame.camera.far});
   const ids = [...objects, ...wires, ...curves].map(v => v.id);
   if (new Set(ids).size !== ids.length || ids.some(id => !id)) throw new Error('scene object IDs must be nonempty and unique');
   const add = (feature: Omit<Feature3, 'range'>, referenceOnly=false) => {
@@ -153,7 +156,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const world = Object.freeze(t.vertices.map(v => worldPositions[v])) as unknown as Triangle3;
       const worldVolume=Object.freeze({triangle:world,view:worldView});
       worldNormals.push(unit3(cross3(sub3(world[1], world[0]), sub3(world[2], world[0]))));
-      facing.push(frame.camera.kind === 'perspective' ? dot3(n, mul3(triangle[0], -1)) : n[2]);
+      facing.push(frame.camera.kind === 'orthographic' ? n[2] : dot3(n, mul3(triangle[0], -1)));
       const id = key(object.id, surface.faces[t.face].id, ...t.vertices.map(v => surface.points[v].id)); triangleIds.push(id);
       for (let j = 0; j < 3; j++) {
         const a = t.vertices[j], b = t.vertices[(j + 1) % 3], k = edgeKey(a, b), edge = triangleEdges.get(k);
@@ -163,7 +166,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         const owned = Object.freeze(clipped.map(p => Object.freeze([...p]))) as unknown as Triangle3;
         triangles.push(owned);
         if (object.occluder === false) continue;
-        const volume = occlusionVolume3(clipped, frame.camera.kind === 'perspective');
+        const volume = occlusionVolume3(clipped, frame.camera.kind !== 'orthographic');
         if (volume) { objectOccluders.push({ occluder: occluders.length, triangle: i }); occluders.push({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))), neighbors: [] }); }
       }
     });
@@ -198,6 +201,25 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     for(const edge of surface.edges){
       if(edge.faces.length)continue;
       add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],basis:edgeBasis(edge.vertices),endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
+    }
+    // Suggestive contours are a reading of this view, not of the model: they
+    // are traced here beside the silhouettes and classified with them.
+    if(object.suggestive){
+      const crossing=(end:SuggestiveEnd3)=>{
+        const [u,v]=end.vertices;
+        return {
+          point:lerp3(positions[u],positions[v],end.t),
+          terms:Object.freeze([Object.freeze({point:positions[u],world:worldPositions[u],weight:1-end.t}),Object.freeze({point:positions[v],world:worldPositions[v],weight:end.t})]),
+          // The crossing parameter names the node: the neighbouring triangle
+          // computes the same one on this edge, so the two pieces chain.
+          id:key(object.id,'suggestive',surface.points[u].id,surface.points[v].id,end.t),
+        };
+      };
+      for(const segment of suggestiveSegments3(surface,frame,object.suggestive)){
+        const [a,b]=segment.ends.map(crossing),triangle=surface.triangles[segment.triangle];
+        const sourceId=key('suggestive',triangleIds[segment.triangle]);
+        add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,sourceId),objectId:object.id,sourceId,flags:FeatureKind3.suggestive,creaseAngle:0,a:a.point,b:b.point,basis:Object.freeze([a.terms,b.terms]) as SegmentBasis3,endpoints:[a.id,b.id],support:[triangleIds[segment.triangle]],attributes:attributes({...object.attributes}),faceAttributes:[faceAttrs[triangle.face]]});
+      }
     }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
     if(hatch)validateSurfaceCurves3(hatch,object.surface);

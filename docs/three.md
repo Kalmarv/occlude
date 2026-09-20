@@ -42,6 +42,8 @@ Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupB
 
 An optional `view` callback replaces default ink emission. `lines.visible` and `lines.hidden` contain classified intervals, with readable `.kinds` sets, original features, support and captured attributes. `strokes` accepts these collections directly and retains the full source reference through filtering, physical-paper conversion, clipping and supported post modifiers. It does not flatten them into anonymous contours. `stroke:`, group pen defaults and ordinary clips/masks keep their usual meanings.
 
+The `suggestive` kind is the one kind a view must be asked for. Suggestive contours are the lines where the surface almost turns away from the eye. The reading is from DeCarlo, Finkelstein, Rusinkiewicz and Santella (2003). They state a fold that a silhouette alone cannot. `sphere(1.2, { suggestive: {} })`, `style(mesh, { suggestive: { threshold: 30 } })` or `suggestive` on the view turns them on; the default, `false`, draws none, and an object's own value wins over the view's. A larger `threshold` keeps fewer lines. The lines belong to one view, so they move with the camera, and they are classified with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them. See [suggestive](/docs/reference/3d/view#suggestive) for the picture.
+
 ```ts live
 import { sketch, pen, mm, strokes, dash, clip, rect } from 'occlude';
 import { box, view, perspective } from 'occlude/3d';

@@ -3,7 +3,7 @@ const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 import { resolveLen, type L, type UnitCtx } from '../../units.js';
 import { measureFaces3, snapshotSurface3, type FaceMeasure3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
-import { clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
+import { cameraShift3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
 import { add3, mul3, type Triangle3, type Vec3 } from '../math.js';
 import { intersectPlane3, type Plane3 } from './plane.js';
 import { freezeCurves3, type SurfaceCurvePoint3, type SurfaceCurveSegment3, type SurfaceCurves3 } from './surface.js';
@@ -53,7 +53,9 @@ const edgeKey=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`;
  * plane (orthographic). Intersecting source triangles gives exact perspective
  * weights without screen-linear interpolation of world positions. */
 function rulingPlane(frame:CameraFrame3,nx:number,ny:number,offset:number,id:string,attributes:Attributes3):Plane3 {
-  const cx=frame.paper.x+frame.paper.width/2,cy=frame.paper.y+frame.paper.height/2;
+  // The principal point, not the middle of the paper: an oblique frame moves it.
+  const o=cameraShift3(frame.camera);
+  const cx=frame.paper.x+frame.paper.width*(1+o[0])/2,cy=frame.paper.y+frame.paper.height*(1-o[1])/2;
   const base=add3(mul3(frame.right,nx),mul3(frame.up,-ny));
   if(frame.camera.kind==='orthographic') {
     const c=(nx*cx+ny*cy-offset)*frame.camera.span/frame.paper.height;
@@ -80,7 +82,9 @@ function sheetBand(frame:CameraFrame3,nx:number,ny:number):readonly [number,numb
 function sheetRange(frame:CameraFrame3,a:Vec3,b:Vec3):readonly [number,number]|null {
   const r=frame.paper,c=frame.camera,overscan=sheetOverscan(frame),aspect=r.width/r.height;
   const ca=toCamera3(frame,a),cb=toCamera3(frame,b);
-  const x=[-1-2*overscan/r.width,1+2*overscan/r.width],y=[-1-2*overscan/r.height,1+2*overscan/r.height];
+  // Bounds on the unshifted projection, so an oblique frame moves the window.
+  const o=cameraShift3(c);
+  const x=[-1-2*overscan/r.width-o[0],1+2*overscan/r.width-o[0]],y=[-1-2*overscan/r.height-o[1],1+2*overscan/r.height-o[1]];
   // f(p) >= 0 inside, for each side; perspective scales by depth d = -z.
   const sides:((p:Vec3)=>number)[]=c.kind==='orthographic'
     ?[p=>x[1]*c.span*aspect-2*p[0],p=>2*p[0]-x[0]*c.span*aspect,p=>y[1]*c.span-2*p[1],p=>2*p[1]-y[0]*c.span]

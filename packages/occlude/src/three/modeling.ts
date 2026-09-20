@@ -12,6 +12,9 @@ import {captureSurfaceMapping,surfaceMappingJob,type SurfaceMappingOptions,type 
 import type {Material} from '../material.js';
 import type {Mesh} from './api/mesh.js';
 import {captureHatch,hatchTraceJob,evaluateHatchTone,hatchAssembleJob,type HatchInput,type HatchOptions,type HatchStats} from './api/hatch.js';
+import {bindToPaper3} from './api/paper.js';
+import {streamlines3 as streamlines3Curves,type Streamlines3Options} from './api/flow.js';
+import type {VectorField3} from './api/vec.js';
 
 /** Coarse progress of one modeling operation inside a sketch, for hosts that
  * show what a long `await` is doing. Counts are work units, not time. */
@@ -42,6 +45,16 @@ export function bindModeling3(exec: Execution, scope?: { signal?: AbortSignal; c
     scope.signal?.throwIfAborted();
   };
   return {
+    /** Where a view puts a world point on the paper: a point in, a drawable
+     * `[x, y]` pair out; points in, a material of the projected points, for
+     * labels and leader lines. Reads the view's own resolved camera. */
+    toPaper:bindToPaper3(exec),
+    /** Evenly spaced streamlines of a 3D vector field, as curves a view
+     * occludes. Seeds given as a count are thrown into their mesh with the
+     * sketch's seeded stream, keyed by the options' `key`. */
+    streamlines3(field:VectorField3,options:Streamlines3Options){
+      return streamlines3Curves(field,options,{rnd:exec.stream('__streamlines3:'+(options?.key??'default')).rnd});
+    },
     intersections(...args:IntersectionArguments) {
       check();const timing=new PhaseClock3(),captured=timing.measure('captureMs',()=>captureIntersections(...args));
       return (async()=>{

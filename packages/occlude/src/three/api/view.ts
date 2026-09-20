@@ -8,7 +8,7 @@ import {lineArt3} from '../scene.js';
 import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
 import {section3} from '../curves/section.js';
-import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type PointRow,type EdgeAttributes} from './mesh.js';
+import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type PointRow,type EdgeAttributes,type SuggestiveInput} from './mesh.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {SurfaceCurves} from './supported.js';
 import type {SurfaceCurveObject3} from '../curves/network.js';
@@ -22,6 +22,17 @@ export function orthographic(options:CameraOptions&{readonly span?:number}):Extr
 export function perspective(options:CameraOptions&{readonly fovDegrees?:number}):Extract<Camera3,{kind:'perspective'}>{
   const target=options.target??[0,0,0];
   return cameraFrame3({...options,kind:'perspective',target,fovDegrees:options.fovDegrees??45,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target)))},{x:0,y:0,width:1,height:1}).camera as Extract<Camera3,{kind:'perspective'}>;
+}
+/** A perspective camera whose frame is moved off the optical axis. `shift` is
+ * a fraction of the frame, right and up: `[0, 0.4]` raises the frame by four
+ * tenths of its height, so what is drawn moves down the page by the same
+ * amount. The eye and the direction of view do not move, so a level camera
+ * keeps world verticals parallel while the frame covers what a tilt would
+ * otherwise have to reach — the architect's two-point view. `shift: [0, 0]`
+ * is `perspective`. */
+export function oblique(options:CameraOptions&{readonly shift:readonly [number,number];readonly fovDegrees?:number}):Extract<Camera3,{kind:'oblique'}>{
+  const target=options.target??[0,0,0];
+  return cameraFrame3({...options,kind:'oblique',target,shift:options.shift,fovDegrees:options.fovDegrees??45,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target)))},{x:0,y:0,width:1,height:1}).camera as Extract<Camera3,{kind:'oblique'}>;
 }
 export interface ViewHatch<F extends Attributes3=Attributes3> {
   readonly key?:string;
@@ -41,6 +52,9 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
   /** Artistic threshold in degrees; default 30. Silhouettes remain visible. */
   /** Default crease threshold in degrees (30) for objects without their own. */
   readonly creaseAngle?:number;
+  /** Suggestive contours for objects without their own reading: `false` (the
+   * default) draws none, `{}` or `{ threshold }` draws them. */
+  readonly suggestive?:SuggestiveInput;
   readonly hatch?:ViewHatch<F>|readonly ViewHatch<F>[];
   readonly sections?:readonly ViewSection[];
 }
@@ -65,6 +79,11 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
     if(keys.some(k=>typeof k!=='string'||!k)||new Set(keys).size!==keys.length)throw new Error(`view ${kind} keys must be nonempty and unique`);
   }
   const meshes=flattenGeometry(geometry);
+  // An object's own suggestive reading wins over the view's; `false` in either
+  // place, which is the default, draws none.
+  const suggestiveOf=(mesh:{readonly suggestive?:SuggestiveInput}):{suggestive:{readonly threshold?:number}}|undefined=>{
+    const value=mesh.suggestive??settings.suggestive;return value?{suggestive:value}:undefined;
+  };
   const objects:SurfaceObject3[]=[],supported:SurfaceCurveObject3[]=[];
   const geometryKeys=new Set<string>(),seen=new Set<ViewGeometry>();
   meshes.forEach((value:ViewGeometry,index:number)=>{
@@ -81,7 +100,8 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
       const attributes=value.stroke?{attributes:{stroke:value.stroke}}:{};
       supported.push(value.recipe?{id,recipe:value.recipe,...attributes}:{id,network:value.network,...attributes});return;
     }
-    if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false});return;}
+    // A curve's own pen is its own, the same way a mesh's is.
+    if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false,...(value.stroke!==undefined?{stroke:value.stroke}:{})});return;}
     const mesh=value instanceof Instances?value.prototype:value;
     const faces=mesh.faces;
     // Eligibility belongs to the prototype; the hatch lattice is resolved on
@@ -97,8 +117,8 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
     }):undefined;
     const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),...(mesh.fillPen!==undefined?{fillPen:mesh.fillPen}:{}),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
-    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),...(mesh.fillPen!==undefined?{fillPen:mesh.fillPen}:{})});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),...(mesh.fillPen!==undefined?{fillPen:mesh.fillPen}:{}),...suggestiveOf(mesh),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
+    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),...(mesh.fillPen!==undefined?{fillPen:mesh.fillPen}:{}),...suggestiveOf(mesh)});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
@@ -111,7 +131,7 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
     // The pen of an ordinary line: the curve value's own (generated marks), else
     // the object's own, else the view's.
     const penOf=(c:{kinds:ReadonlySet<string>;attributes:Attributes3;feature:{stroke?:string}})=>typeof c.attributes.stroke==='string'&&generated(c)?c.attributes.stroke:c.feature.stroke??settings.stroke;
-    const ordinary=lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)));
+    const ordinary=lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||c.kinds.has('suggestive')||(c.kinds.has('crease')&&c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)));
     // The view's pen leads, then the others by name: the order strokes are emitted is the order they are planned.
     const pens=[settings.stroke,...[...new Set([...ordinary].map(penOf))].filter(p=>p!==settings.stroke).sort()];
     return [

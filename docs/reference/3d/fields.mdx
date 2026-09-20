@@ -23,6 +23,35 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 });
 ```
 
+## lamp() · environment()
+
+<include>/_sig/3d.lamp.mdx</include>
+<include>/_sig/3d.environment.mdx</include>
+
+`lamp` is a light at a place. Its tone follows the angle between the normal and the direction to the lamp, times a distance fade. `falloff: { radius, ease? }` sets that fade, which is 1 at the lamp and 0 at the radius. Without it the lamp reaches everywhere. A face turned toward the lamp is 0, which is no hatch, and a face turned away reaches `1 - ambient`.
+
+`environment` is the light a surface sees from the world around it, read by the direction of its normal. The sampler gives the light that arrives from a direction, and the tone is the complement, so a bright sky above keeps up-facing surfaces pale. An image sampler from `t.image(name).surface(...)` is read equirectangularly: `u` is the longitude around Z from +X, and `v` is the latitude, 0 at -Z and 1 at +Z. Any other function is called with the unit direction. `orientation` turns the surroundings.
+
+Both fields are ordinary functions, and both run on the CPU. Combine them in plain JavaScript: the product of two tones is the two lights together.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { sphere, cylinder, lamp, environment, view, orthographic } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.14), color: '#56626A' }) } }, async (t) => {
+  const ball = sphere(1, { segments: 32, rings: 16, creaseAngle: 180 });
+  const post = cylinder(0.55, 2.2, { segments: 32, creaseAngle: 180 }).translate([2.3, 0.2, 0]);
+  const bulb = lamp({ position: [1.2, -2.4, 1.5], ambient: 0.12, falloff: { radius: 7 } });
+  const sky = environment((d) => 0.1 + 0.16 * Math.max(0, d[2]));
+  // Tone fields are ordinary functions: the lamp and the sky multiply, and the
+  // power sharpens the turn from light to dark.
+  const tone = (s) => Math.pow(bulb(s) * sky(s), 1.5);
+  const marks = [];
+  for (const object of [ball, post]) marks.push(await t.hatch(object, { spacing: 0.06, direction: (s) => s.tangentU, tone, stroke: 'shade' }));
+  return view([ball, post, ...marks], { camera: orthographic({ eye: [3, -7, 3], target: [1.15, 0, 0], span: 4.7 }), stroke: 'ink' });
+});
+```
+
 ## gradient() · across()
 
 <include>/_sig/3d.gradient.mdx</include>

@@ -73,24 +73,34 @@ export function switchProjection3(camera: Camera3, kind: Camera3['kind']): Camer
   if(camera.kind===kind)return camera;
   const delta=sub3(camera.eye,camera.target),oldDistance=Math.hypot(...delta);
   if(kind==='orthographic'){
-    const {fovDegrees,...base}=camera as Extract<Camera3,{kind:'perspective'}>;
+    const {fovDegrees,shift,...base}=camera as Extract<Camera3,{kind:'oblique'}>;
     return {...base,kind,span:2*oldDistance*Math.tan(fovDegrees*Math.PI/360)};
+  }
+  // Between the two projective cameras only the frame moves, so the eye, the
+  // field of view and the clipping distances are kept as they are.
+  if(camera.kind!=='orthographic'){
+    const {shift,...base}=camera as Extract<Camera3,{kind:'oblique'}>;
+    return kind==='oblique'?{...base,kind,shift:shift??[0,0]}:{...base,kind:'perspective'};
   }
   const {span,...base}=camera as Extract<Camera3,{kind:'orthographic'}>;
   const distance=Math.max(span/(2*Math.tan(Math.PI/8)),oldDistance);
-  const shift=distance-oldDistance;
-  const result:Camera3={...base,kind:'perspective',fovDegrees:Math.atan(span/(2*distance))*360/Math.PI,
-    eye:add3(camera.target,mul3(delta,distance/oldDistance)),near:camera.near+shift,far:camera.far+shift};
+  const step=distance-oldDistance;
+  const moved={...base,fovDegrees:Math.atan(span/(2*distance))*360/Math.PI,
+    eye:add3(camera.target,mul3(delta,distance/oldDistance)),near:camera.near+step,far:camera.far+step};
+  const result:Camera3=kind==='oblique'?{...moved,kind,shift:[0,0]}:{...moved,kind:'perspective'};
   cameraFrame3(result,{x:0,y:0,width:1,height:1});
   return result;
 }
 
-/** The same camera, field for field: kind, eye, target, up and span or field of view. */
+/** The same camera, field for field: kind, eye, target, up, span or field of
+ * view, and an oblique camera's frame shift. */
 export function sameCamera3(a: Camera3 | undefined, b: Camera3 | undefined): boolean {
   if (!a || !b || a.kind !== b.kind) return false;
   const same3 = (p: Vec3 | undefined, q: Vec3 | undefined) => p === q || (!!p && !!q && p.every((v, i) => v === q[i]));
   if (!same3(a.eye, b.eye) || !same3(a.target, b.target) || !same3(a.up ?? [0,0,1], b.up ?? [0,0,1])) return false;
-  return a.kind === 'orthographic' ? a.span === (b as typeof a).span : a.fovDegrees === (b as typeof a).fovDegrees;
+  if (a.kind === 'orthographic') return a.span === (b as typeof a).span;
+  if (a.fovDegrees !== (b as typeof a).fovDegrees) return false;
+  return a.kind !== 'oblique' || a.shift.every((v, i) => v === (b as typeof a).shift[i]);
 }
 /** The explored (orbited, uncommitted) camera of each scene survives a
  * rerender while the sketch's own camera for that scene is unchanged, so

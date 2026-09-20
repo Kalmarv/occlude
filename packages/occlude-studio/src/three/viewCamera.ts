@@ -33,7 +33,7 @@ export async function viewCameraEdit(source: string): Promise<(cameras: Readonly
       if (spec.type !== 'ImportSpecifier') continue;
       const imported = name(node(spec, 'imported')), local = name(node(spec, 'local'));
       if (imported === 'view') viewName = local;
-      if ((imported === 'orthographic' || imported === 'perspective') && local) factories.set(imported, local);
+      if ((imported === 'orthographic' || imported === 'perspective' || imported === 'oblique') && local) factories.set(imported, local);
     }
   }
   const views: { key?: string; camera?: Node; options: Node }[] = [];
@@ -53,9 +53,9 @@ export async function viewCameraEdit(source: string): Promise<(cameras: Readonly
     for (const [key, camera] of Object.entries(cameras)) {
       const target = key.startsWith('@') ? unkeyed[Number(key.slice(1)) - 1] : views.find(v => v.key === key);
       if (!target) { leftover[key] = camera; continue; }
-      const factory = camera.kind === 'orthographic' ? 'orthographic' : 'perspective';
+      const factory = camera.kind;
       const local = factories.get(factory) ?? factory; if (!factories.has(factory)) needed.add(factory);
-      const text = cameraSource(camera).replace(/^(orthographic|perspective)\(/, `${local}(`);
+      const text = cameraSource(camera).replace(/^(orthographic|perspective|oblique)\(/, `${local}(`);
       if (target.camera) edits.push({ range: target.camera.range, text });
       else { const props = nodes(target.options, 'properties'), last = props.at(-1); const at = last ? last.range[1] : target.options.range[0] + 1; edits.push({ range: [at, at], text: last ? `, camera: ${text}` : ` camera: ${text} ` }); }
     }

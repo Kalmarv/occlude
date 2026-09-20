@@ -44,6 +44,27 @@ import { sphere, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([sphere(1.2, { segments: 32, rings: 16 }), sphere(0.5, { segments: 16, rings: 8 }).translate([1.6, 0.8, -0.4])], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), stroke: 'ink', creaseAngle: 180 }));
 ```
 
+## geodesic()
+
+<include>/_sig/3d.geodesic.mdx</include>
+
+A geodesic polyhedron: the mesh of a dome. Every triangle of the base solid carries a triangular lattice, and every point moves out to `radius`. It has triangles only, no poles and no seam, so its faces are nearly equal everywhere. `sphere()` is a grid of latitude and longitude, and its quads crowd at the poles.
+
+`frequency` is the pair `[m, n]`: how many lattice steps along, then how many turned 60 degrees. A plain number `m` is the pair `[m, 0]`. `[m, 0]` is class I, the straight division, and `[2, 0]`, `[4, 0]` and `[8, 0]` are the shape that is usually called an icosphere. `[m, m]` is class II, which puts a point at the middle of every base edge. Any other pair is class III, whose triangles cross the base edges and give the lattice a hand. `[n, m]` is the mirror of `[m, n]`.
+
+`base` is `'icosahedron'` (the default), `'octahedron'` or `'tetrahedron'`. The face count is `m² + mn + n²` per base face. `project: false` keeps the flat solid, with its faces divided the same way. `.dual()` gives the Goldberg polyhedron.
+
+```ts live
+import { sketch, pen, mm, group } from 'occlude';
+import { geodesic, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
+  const domes = [[3, 0], [2, 2], [3, 1]];
+  return domes.map(([m, n], i) => group({ scale: 1 / 3, origin: [0, 0], translate: [i * 33.3, 33.3] },
+    view(geodesic(1, { frequency: [m, n], creaseAngle: 0 }), { camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), stroke: 'ink' })));
+});
+```
+
 ## cylinder() · cone()
 
 <include>/_sig/3d.cylinder.mdx</include>
@@ -69,6 +90,32 @@ import { sketch, pen, mm } from 'occlude';
 import { torus, view, perspective } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view(torus(1.2, 0.4, { segments: 36, tubeSegments: 14 }), { camera: perspective({ eye: [3, 4, 2.4], fovDegrees: 40 }), stroke: 'ink', creaseAngle: 180 }));
+```
+
+## parametric()
+
+<include>/_sig/3d.parametric.mdx</include>
+
+A formula as a quad grid. `point(u, v)` is read over the unit square: `u` runs from 0 to 1 across `cols` samples, and `v` runs from 0 to 1 down `rows`. The mesh carries the unit square as its chart, exactly as `plane` does, so `t.hatch({ uv })`, `isolines` and `t.mapSurface` read it.
+
+`closeU` and `closeV` weld the seam, so a torus from a formula is as closed as `torus()`. A ring of samples that all land on one place is a pole, and it becomes one shared point. Each quad is wound `(u, v)`, `(u+, v)`, `(u+, v+)`, `(u, v+)`, so the face normal is ∂p/∂u × ∂p/∂v. Swap `u` and `v` to turn the surface inside out.
+
+The shell below is a spiral tube that grows as it turns, hatched along `u` with the chart direction `s.tangentU`.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { parametric, view, orthographic, light } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
+  const shell = parametric((u, v) => {
+    const a = 2 * Math.PI * 2.6 * u, r = 0.12 * Math.exp(0.18 * a), tube = 0.5 * r, b = 2 * Math.PI * v;
+    const radial = r + tube * Math.cos(b);
+    return [radial * Math.cos(a), radial * Math.sin(a), 0.5 * r + tube * Math.sin(b)];
+  }, { cols: 84, rows: 18, closeV: true, creaseAngle: 180 });
+  const sun = light({ direction: [-1, -2, 2], ambient: 0.12, ramp: 'smooth' });
+  const marks = await t.hatch(shell, { spacing: 0.085, direction: (s) => s.tangentU, tone: sun, stroke: 'shade' });
+  return view([shell, marks], { camera: orthographic({ eye: [3, -6, 5], target: [-0.7, 0, 0.4], span: 7.2 }), stroke: 'ink' });
+});
 ```
 
 ## obj()
@@ -141,5 +188,62 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
   const arrows = t.times(8, (k) => { const a = (k / 8) * Math.PI * 2; const dir = [Math.cos(a), Math.sin(a), 0.6]; return cone(0.25, 1, { segments: 10 }).rotate(alignAxis('z', dir)).translate([Math.cos(a) * 1.5, Math.sin(a) * 1.5, 0]); });
   const tilted = cone(0.4, 1.4, { segments: 12 }).rotate(axisAngle('x', 40));
   return view([...arrows, tilted], { camera: orthographic({ eye: [4, 6, 5], span: 6 }), stroke: 'ink', creaseAngle: 180 });
+});
+```
+
+## sdf3
+
+<include>/_sig/3d.sdf3.sphere.mdx</include>
+<include>/_sig/3d.sdf3.box.mdx</include>
+<include>/_sig/3d.sdf3.capsule.mdx</include>
+<include>/_sig/3d.sdf3.torus.mdx</include>
+<include>/_sig/3d.sdf3.plane.mdx</include>
+<include>/_sig/3d.sdf3.union.mdx</include>
+<include>/_sig/3d.sdf3.intersect.mdx</include>
+<include>/_sig/3d.sdf3.subtract.mdx</include>
+<include>/_sig/3d.sdf3.blend.mdx</include>
+<include>/_sig/3d.sdf3.translate.mdx</include>
+<include>/_sig/3d.sdf3.repeat.mdx</include>
+
+A solid can be the field that measures it. `sdf3` is the 2D [`sdf`](/docs/reference/fields) algebra in space. Each word returns a function of `(x, y, z)`. The value is how far inside the point lies, and it is negative outside. That sign is why `union` is a **maximum**: the union is inside wherever one field is inside, and inside is the larger value. `intersect` is the minimum. `subtract` cuts each later field out of the first. `blend` is a union with a fillet of `radius` at the joint. `translate` moves a field, and `repeat` folds space, so one solid fills a lattice.
+
+The five primitives are exact. `plane` takes the normal that points out of the solid. `sdf3` reads no seed and no paper, so you import it, and you can write your own field as a plain function. `isosurface` turns any of them into a mesh.
+
+Below, `repeat` puts one ball on a lattice, `union` threads a rod through the row, and a plane cuts a flat foot under each bead.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { sdf3, isosurface, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.28), color: '#18202A' }) } }, () => {
+  const beads = sdf3.repeat(sdf3.sphere(0.38), [1, 0, 0]);
+  const rod = sdf3.capsule([-1.3, 0, 0], [1.3, 0, 0], 0.13);
+  const standing = sdf3.intersect(sdf3.union(beads, rod), sdf3.plane([0, 0, -1], 0.2));
+  const solid = isosurface(standing, { bounds: [[-1.55, -0.6, -0.3], [1.55, 0.6, 0.45]], resolution: 60 });
+  return view(solid, { camera: orthographic({ eye: [3.5, -6, 1.8], span: 3.1 }), stroke: 'ink', creaseAngle: 40 });
+});
+```
+
+## isosurface()
+
+<include>/_sig/3d.isosurface.mdx</include>
+
+The surface of a field, as a mesh. `isosurface` divides `bounds` into cells at `resolution`, and it puts a vertex on each cell edge that the surface crosses. The cells share their vertices, so the mesh is closed, and the faces wind outward. `resolution` is the number of cells along the longest side of the box, and a triple gives the three counts. `level` takes the surface at a value other than zero. `smooth` runs Laplacian passes over the result, which rounds the steps of a coarse grid.
+
+Give the box room around the solid. A solid that touches the wall of the box is cut there, and the mesh is open along the cut. An empty box, a resolution below one cell, and a field that is nowhere inside each draw nothing.
+
+Below, two spheres blend into one body, a box takes the top off the right one, and `light` shades the result. The straight marks on the flat top show the cut, and the curved marks show the ball.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { sdf3, isosurface, light, gradient, view, orthographic } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
+  const pair = sdf3.blend(sdf3.sphere(0.85, [-0.8, 0, 0]), sdf3.sphere(0.85, [0.8, 0, 0]), 0.45);
+  const bitten = sdf3.subtract(pair, sdf3.box([2, 2, 2], [1.0, 0, 1.05]));
+  const solid = isosurface(bitten, { bounds: [[-2, -1.3, -1.3], [2, 1.3, 1.3]], resolution: 44, smooth: 1 });
+  const sun = light({ direction: [-1, -2, 1], ambient: 0.1, ramp: 'smooth' });
+  const marks = await t.hatch(solid, { spacing: 0.09, direction: gradient((s) => s.position[0]), tone: sun, stroke: 'shade' });
+  return view([solid, marks], { camera: orthographic({ eye: [4, -6, 3], span: 4.2 }), stroke: 'ink', creaseAngle: 60 });
 });
 ```

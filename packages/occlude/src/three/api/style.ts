@@ -19,7 +19,7 @@ export function style<T extends Styleable|readonly (Styleable|readonly Styleable
 function styleOne(value:unknown,s:Style3):Styleable {
   if(value instanceof Mesh||value instanceof Instances)return value.style(s);
   if(value instanceof SurfaceCurves){
-    if(s.fillPen!==undefined||s.creaseAngle!==undefined)throw new Error('curves take only a stroke: fillPen and creaseAngle belong to meshes');
+    if(s.fillPen!==undefined||s.creaseAngle!==undefined||s.suggestive!==undefined)throw new Error('curves take only a stroke: fillPen, creaseAngle and suggestive belong to meshes');
     return value.style(s);
   }
   throw new Error('style takes meshes, instances, supported curves, or a list of them');

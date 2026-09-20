@@ -62,6 +62,18 @@ export async function resolveTree3(exec: Execution, tree: Tree, options: { signa
 }
 
 
+/** The camera frame a view is actually drawn with: its own viewport or the
+ * execution's drawable, and the camera the studio has committed for it if
+ * there is one. Projection and classification read the same frame, so a point
+ * put on the paper lands where that view's lines do. */
+export function viewFrame3(exec: Execution, scene: LineArtScene3) {
+  if (!isLineArt3(scene)) throw new Error('a view frame requires a captured lineArt3 scene');
+  const f = exec.frame;
+  const viewport = scene.viewport ?? { x: f.offsetX, y: f.offsetY, width: f.inner.innerW, height: f.inner.innerH };
+  const key = exec.cameraKey3(scene);
+  return cameraFrame3(Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera, viewport);
+}
+
 export async function classifyForRun3(exec: Execution, scene: LineArtScene3, options: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean; onStage?: StageListener3 }) {
   if (!isLineArt3(scene)) throw new Error('classify3 expects a captured lineArt3 scene');
   options.signal?.throwIfAborted();
@@ -71,11 +83,8 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
   if (pending) return pending;
   const job = (async () => {
     const timing=new PhaseClock3();
-    const f = exec.frame;
-    const viewport = scene.viewport ?? { x: f.offsetX, y: f.offsetY, width: f.inner.innerW, height: f.inner.innerH };
-    const key = exec.cameraKey3(scene);
-    const camera = Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera;
-    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner,scene.curves,{x:0,y:0,width:exec.paper.w,height:exec.paper.h}));
+    const f = exec.frame, key = exec.cameraKey3(scene);
+    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, viewFrame3(exec, scene),f.inner,scene.curves,{x:0,y:0,width:exec.paper.w,height:exec.paper.h}));
     if (options.onStage && !options.signal?.aborted) options.onStage({ stage: 'source', scene: key, paper: { w: exec.paper.w, h: exec.paper.h }, ...draftSegments(snapshot.frame, snapshot.features.map(feature => ({ feature, ranges: [[0, 1]] as const }))) });
     // Visibility is classified on the CPU everywhere: the exact classifier
     // beats the GPU interval classifier 1.4-3.8x on every measured workload

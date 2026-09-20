@@ -38,7 +38,7 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
   [Symbol.iterator]():IterableIterator<ProjectedCurve>{return this.rows[Symbol.iterator]();}
   map<T>(fn:(row:ProjectedCurve,index:number)=>T):T[]{return this.rows.map(fn);}
   filter(fn:(row:ProjectedCurve,index:number)=>boolean):ProjectedCurves{return new ProjectedCurves(this.source,this.visibility,this.rows.filter(fn),this.key);}
-  /** Lines of any of these kinds (boundary, silhouette, crease, wire, section, hatch, intersection, mapped, trace, isoline). */
+  /** Lines of any of these kinds (boundary, silhouette, crease, wire, section, hatch, intersection, mapped, trace, isoline, suggestive). */
   kind(...names:readonly FeatureKind[]):ProjectedCurves{return this.filter(row=>names.some(name=>row.kinds.has(name)));}
   /** Lines of none of these kinds. */
   except(...names:readonly FeatureKind[]):ProjectedCurves{return this.filter(row=>!names.some(name=>row.kinds.has(name)));}

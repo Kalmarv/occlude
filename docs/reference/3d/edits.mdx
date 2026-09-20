@@ -22,6 +22,28 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 });
 ```
 
+## dual()
+
+<include>/_sig/3d.Mesh.dual.mdx</include>
+
+The dual of a mesh: one point per face, at its middle, and one face per point, which walks the faces around it. A cube duals to an octahedron, and a geodesic polyhedron duals to its Goldberg polyhedron, twelve pentagons and the rest hexagons. `project` moves every dual point out to that radius from the origin.
+
+Numeric face columns become point columns, and point columns become face columns. Both keep the name of their source, as `dual:<id>`. A point on a boundary has no ring of faces to walk, so it gets no face: an open mesh loses its rim. A projected dual face is not exactly flat, and it draws as the triangles its own average plane gives.
+
+```ts live
+import { sketch, pen, mm, group } from 'occlude';
+import { geodesic, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const dome = geodesic(1, { frequency: [3, 0], creaseAngle: 0 });
+  const camera = orthographic({ eye: [4, 7, 5], span: 2.4 });
+  return [
+    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(dome, { camera, stroke: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(dome.dual({ project: 1 }), { camera, stroke: 'ink' })),
+  ];
+});
+```
+
 ## displace()
 
 <include>/_sig/3d.Mesh.displace.mdx</include>
@@ -128,6 +150,39 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
   const middle = sheet.faces.filter((f) => Math.hypot(f.center[0], f.center[1]) < 1.2);
   const raised = sheet.extrude(middle, { distance: 0.7 });
   return view(raised, { camera: orthographic({ eye: [5, 7, 5], span: 6 }), stroke: 'ink', creaseAngle: 20 });
+});
+```
+
+## unite() · subtract() · common()
+
+<include>/_sig/3d.Mesh.unite.mdx</include>
+<include>/_sig/3d.Mesh.subtract.mdx</include>
+<include>/_sig/3d.Mesh.common.mdx</include>
+
+`a.unite(b)` is everything in one solid or the other. `a.subtract(b)` is `a` with `b` cut out of it. `a.common(b)` is only what lies in both. Mesh to mesh is a method, because both sides are meshes.
+
+Both meshes must be closed. An open shell refuses by name, and says how many boundary edges it has. The seam is exact: the engine finds where the triangles of one solid cross the triangles of the other in exact arithmetic, cuts each triangle it crosses along that curve, and keeps the parts the operation asks for.
+
+A face that the seam did not reach keeps its identity and its columns. A face that the seam crossed becomes its pieces, and each piece keeps the columns of the face it came from. So a column you put on one solid is still there to select by. Every face of the result answers `cut`, which is `true` for a face along a seam. It accumulates down a chain: a face an earlier operation cut is cut still, so one pen draws every seam the chain made. A new point on the seam takes its point columns from the first solid's triangle it was cut on.
+
+Two solids that never meet are still an answer. `unite` gives both, `subtract` gives the first alone, and `common` gives an empty mesh. If the result is not a closed manifold surface, the operation refuses by name: two boxes that touch along one edge have no union a pen can draw.
+
+Here a shaft is cut to length with `common`, united onto a box, and a ball is subtracted from the near corner. The box keeps its own edges in black. Every seam the three operations made draws in red.
+
+```ts live
+import { sketch, pen, mm, strokes } from 'occlude';
+import { box, sphere, cylinder, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), seam: pen({ width: mm(0.3), color: '#A84932' }) } }, () => {
+  const shaft = cylinder(0.5, 4, { segments: 20 }).common(box([3, 3, 2.9]));
+  const block = box(2.2).unite(shaft);
+  const solid = block.subtract(sphere(1, { segments: 20, rings: 10 }).translate([1.1, 1.1, 0.4]));
+  const fold = (c) => c.kinds.has('silhouette') || c.feature.creaseAngle >= 18;
+  const onCut = (c) => c.faceAttributes.length === 2 && c.faceAttributes.every((a) => a.cut === true);
+  return view(solid, { camera: orthographic({ eye: [7, 5, 4.5], span: 4.6 }), creaseAngle: 18 }, (lines) => [
+    strokes(lines.visible.filter((c) => fold(c) && !onCut(c)), { stroke: 'ink' }),
+    strokes(lines.visible.filter((c) => fold(c) && onCut(c)), { stroke: 'seam' }),
+  ]);
 });
 ```
 
