@@ -9,8 +9,7 @@ import { paperToUser } from '../record.js';
 import { cameraFrame3, toPaper3 } from './camera.js';
 import type { Feature3 } from './features/snapshot.js';
 import { featureSnapshot3 } from './features/snapshot.js';
-import { classifySceneCpuJob3 } from './visibility/scene.js';
-import { runGeometryJobAsync3 } from './geometry/job.js';
+import { classifyScene3 } from './visibility/scene.js';
 import { constructStrokes3, type Stroke3 } from './strokes/construct.js';
 import { isLineArt3, type LineArtScene3, type SceneCompute3 } from './scene.js';
 import { isDrawing3 } from './drawing.js';
@@ -91,9 +90,9 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
     // (docs/notes.md, "Why the CPU is the only classifier"), because the
     // GPU path hands most pairs back for exact refinement anyway. `compute3`
     // keeps the GPU for modeling (surface evaluation, tone) and the viewport.
-    const job = await runGeometryJobAsync3(classifySceneCpuJob3(snapshot), options.signal);
-    timing.merge(job.timings);
-    const result = job.value;
+    // It is the CPUs, plural: a scene past the fan-out line classifies its
+    // features on every core, which is the same answer on more threads.
+    const result = await classifyScene3(snapshot, { signal: options.signal });
     if (options.onStage && !options.signal?.aborted) options.onStage({ stage: 'classified', scene: key, paper: { w: exec.paper.w, h: exec.paper.h }, ...draftSegments(result.frame, result.features.map(row => ({ feature: row.feature, ranges: row.visible }))) });
     timing.merge(result.stats.timings);
     const classified=Object.freeze({...result,stats:Object.freeze({...result.stats,timings:timing.finish()})});

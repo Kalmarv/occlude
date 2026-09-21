@@ -9,7 +9,7 @@ export default sketch(
   async (t) => {
     const pbase = geodesic(1, { frequency: [20, 20] }).dual();
     const water = pbase.scale(0.99);
-    const terrainDisplace = (p) => {
+    const terrainDisplace = (p: { x: number; y: number; z: number }) => {
       const noise = t.noise(p.x * 2, p.y * 2, p.z * 2);
       const noise2 = t.noise(p.x * 4, p.y * 4, p.z * 4);
       const noise3 = t.noise(p.x * 10, p.y * 10, p.z * 10);
