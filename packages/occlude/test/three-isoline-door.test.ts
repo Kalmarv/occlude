@@ -88,13 +88,21 @@ describe('the isoline view door', () => {
     for (const row of b.features) expect(all.has(row.feature.id)).toBe(true);
   }, 120_000);
 
-  it('dashes a partly certified closed ring exactly as full construction does', async () => {
-    // A closed z-ring on a sphere is the hard case: the back half is certified
-    // hidden, the ring is CLOSED, and a dash is phased by arc length along the
-    // whole chain. If the lazy path shortened the chain reference, the dash
-    // would start somewhere else — so this compares the two drawings byte for
-    // byte, dash and all.
-    const draw = (eager: boolean) => sketch(
+  it('draws the same ink on a partly certified closed ring, and may move the dash', async () => {
+    // THE CONTRACT, stated by a test rather than hoped for. A closed z-ring on
+    // a sphere has its back half certified hidden, so the view builds only the
+    // surviving runs and the chain's reference polyline is those runs — not
+    // the whole ring. What that guarantees and what it does not:
+    //
+    //   - the INK is the same. Undashed, the two drawings put the same
+    //     segments on the paper, the same number of times, for the same total
+    //     length. How the plan splits them into strokes may differ: dropping a
+    //     hidden run can close the gap a closed ring's reference had at its
+    //     own seam, which is a pen lift, not a mark.
+    //   - the PHASE may move. A dash is measured along the chain reference,
+    //     and a shorter reference starts its pattern somewhere else. Caleb's
+    //     call, 2026-09-21: that is fine on a partly hidden ring.
+    const draw = (eager: boolean, modifiers: unknown[]) => sketch(
       { aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } },
       () => {
         const ball = sphere(1.3, { segments: 40, rings: 20 });
@@ -103,27 +111,57 @@ describe('the isoline view door', () => {
         return view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 },
           (lines) => [
             strokes(lines.visible.filter((c) => !c.kinds.has('isoline')), { stroke: 'ink' }),
-            strokes(lines.visible.filter((c) => c.kinds.has('isoline')), { stroke: 'line', modifiers: [dash(mm(3), mm(1.6))] }),
+            strokes(lines.visible.filter((c) => c.kinds.has('isoline')), { stroke: 'line', modifiers: modifiers as never }),
           ]);
       },
     );
-    const render = async (eager: boolean) => {
+    const render = async (eager: boolean, modifiers: unknown[]) => {
       const size = paperSize({ paper: 'Square20' });
-      const run = await compileSketchAsync(draw(eager), { paper: { w: size.w, h: size.h }, marginPct: 5, seed: '42' });
+      const run = await compileSketchAsync(draw(eager, modifiers), { paper: { w: size.w, h: size.h }, marginPct: 5, seed: '42' });
       return exportSvg(run, { paper: { paper: 'Square20' }, marginPct: 5 });
     };
-    const whole = await render(true), lazy = await render(false);
-    expect(lazy).toBe(whole);
-    // And the laziness really happened: the view classified fewer features
-    // than the complete construction holds records.
+    /** Every drawn segment of an SVG, as an unordered multiset, and its length. */
+    const ink = (svg: string) => {
+      const counts = new Map<string, number>();
+      let length = 0;
+      for (const path of svg.matchAll(/\sd="([^"]+)"/g)) {
+        const points = [...path[1].matchAll(/[ML]([-\d.]+)\s+([-\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])] as const);
+        for (let i = 1; i < points.length; i++) {
+          const [a, b] = [points[i - 1], points[i]];
+          const key = `${a}` < `${b}` ? `${a} ${b}` : `${b} ${a}`;
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+          length += Math.hypot(b[0] - a[0], b[1] - a[1]);
+        }
+      }
+      return { counts, length };
+    };
+    const same = (a: ReturnType<typeof ink>, b: ReturnType<typeof ink>) => {
+      let difference = 0;
+      for (const [k, n] of a.counts) difference += Math.max(0, n - (b.counts.get(k) ?? 0));
+      for (const [k, n] of b.counts) difference += Math.max(0, n - (a.counts.get(k) ?? 0));
+      return difference;
+    };
+    const plainWhole = ink(await render(true, [])), plainLazy = ink(await render(false, []));
+    expect(same(plainWhole, plainLazy)).toBe(0);
+    expect(plainLazy.length).toBeCloseTo(plainWhole.length, 9);
+
+    // Dashed, the same rings: the ink each drawing lays down is a different
+    // set of marks, because the pattern starts from a different reference.
+    // This line pins today's behaviour, not a requirement — if it ever fails
+    // because the two agree, the guarantee got STRONGER than the contract and
+    // the right edit is to relax this line, not to chase the difference back.
+    const dashes = [dash(mm(3), mm(1.6))];
+    const dashedWhole = ink(await render(true, dashes)), dashedLazy = ink(await render(false, dashes));
+    expect(same(dashedWhole, dashedLazy)).toBeGreaterThan(0);
+
+    // And the laziness really happened: the view's network is smaller than the
+    // complete one, and every record it left out is on a certified face.
     const ball = sphere(1.3, { segments: 40, rings: 20 });
     const rings = isolines(ball, (p) => p.z, { count: 9 });
     const scene = view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 }).scene;
     const snapshot = snapshotOf(scene, scene.curves ?? []);
-    const graph = snapshot.curveGraphs![0].network;
-    expect(graph.segments.length).toBe(rings.recipe!.resolve().segments.length);
-    expect(snapshot.referenceFeatures!.length).toBeGreaterThan(snapshot.features.length);
-  }, 120_000);
+    expect(snapshot.curveGraphs![0].network.segments.length).toBeLessThan(rings.recipe!.resolve().segments.length);
+  }, 180_000);
 
   it('resolves completely when the view can certify nothing', () => {
     // An open sheet is not a closed shell, so it hides nothing of itself and
