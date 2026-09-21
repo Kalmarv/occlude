@@ -128,18 +128,32 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
     // A direction pointing into a vertex (a pole, a sink of a gradient field)
     // makes consecutive zero-length exits across the fan: the trace has
     // converged and stops instead of spending its step budget in place.
-    if(advance<=step*1e-12){if(++stalled>=3){stop='degenerate';break;}}else stalled=0;
+    // A step that did not move (a zero exit because the point already sits
+    // on the edge it leaves through, or a budget met to the bit) adds no node:
+    // a duplicate here became a zero-length segment the curve network
+    // refuses. The crossing still happens below, re-expressing the node the
+    // trace already has on the neighbour.
     let next=add3(weights,mul3(db,advance)) as Vec3;
     const crossing=advance===tExit&&advance<step&&advance<remaining||advance===tExit&&tExit<=step&&tExit<=remaining;
     if(crossing){const w=[...next];w[exit]=0;next=normalize(w as unknown as Vec3);}else next=normalize(next);
     length+=advance;steps++;
-    const node:TraceNode3={triangle,weights:next,position:position(env,triangle,next),normal:n,distance:length};
-    const from=nodes[nodes.length-1].position;
-    nodes.push(node);supports.push(triangle);previous=u;
+    const last=nodes[nodes.length-1],at=position(env,triangle,next);
+    // A step that lands on the point the trace already has — a zero exit
+    // because the point sits on the edge it leaves through, a budget met to
+    // the bit, or a fan of ever-smaller crossings converging on a vertex (a
+    // pole of tangentU) — adds no node. The network refuses a zero-length
+    // segment, and two nodes at one position are exactly that. The crossing
+    // still happens below, re-expressing the node on the neighbour.
+    const moved=advance>step*1e-12&&!(at[0]===last.position[0]&&at[1]===last.position[1]&&at[2]===last.position[2]);
+    if(!moved){if(++stalled>=3){stop='degenerate';break;}}else stalled=0;
+    const node:TraceNode3=moved?{triangle,weights:next,position:at,normal:n,distance:length}:{...last,weights:next};
+    const from=last.position;
+    if(moved){nodes.push(node);supports.push(triangle);}
+    previous=u;
     // Returning to the start: the closest approach of this segment to the
     // start position within loopDistance closes the loop. Inside the start
     // triangle the trace snaps onto its first node exactly.
-    if(steps>2&&length>2*options.loopDistance&&options.loopDistance>0){
+    if(moved&&steps>2&&length>2*options.loopDistance&&options.loopDistance>0){
       const seg=sub3(node.position,from),ss=dot3(seg,seg),t=ss>0?Math.min(1,Math.max(0,dot3(sub3(startPosition,from),seg)/ss)):0;
       const closest=add3(from,mul3(seg,t));
       if(Math.hypot(...sub3(closest,startPosition))<=options.loopDistance){

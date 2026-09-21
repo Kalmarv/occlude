@@ -160,7 +160,17 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
     identity(segment.id,segmentIds,'segment');if(!kinds.includes(segment.kind))throw new Error('unsupported surface curve kind');
     const a=nodeIndex.get(segment.a),b=nodeIndex.get(segment.b);
     if(a===undefined||b===undefined)throw new Error('curve segment refers to a missing graph node');
-    if(exact[a].every((n,i)=>n===exact[b][i]))throw new Error('isolated contacts belong to point data, not zero-length curve segments');
+    if(exact[a].every((n,i)=>n===exact[b][i])){
+      // A traced chain (hatch, streamline) can land two consecutive nodes on
+      // one exact point without their float positions agreeing: the exact
+      // weights come from the projected coordinates, and two positions an
+      // ulp apart along the dropped axis are one point here. That is a
+      // zero-length piece of a chain, not a contact: it draws nothing and is
+      // dropped. Every other kind means it — an isolated contact is point
+      // data — and is refused.
+      if(segment.kind==='trace')continue;
+      throw new Error(`isolated contacts belong to point data, not zero-length curve segments (segment ${segment.id} kind ${segment.kind}: nodes ${segment.a} and ${segment.b} are one exact point ${JSON.stringify(drafts[a].position)}; supports ${JSON.stringify(segment.supports.map(s=>[s.source,s.triangle]))}; range ${JSON.stringify(segment.range??null)})`);
+    }
     const range=segment.range??[0,1],chainId=segment.chainId??segment.id;
     if(!chainId||range.length!==2||!range.every(Number.isFinite)||range[0]<0||range[1]>1||range[0]>range[1])throw new Error('curve source ranges must not decrease within [0,1]');
     if(!segment.supports.length)throw new Error('a surface curve segment requires actual triangle support');
