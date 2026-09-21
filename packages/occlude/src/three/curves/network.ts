@@ -156,6 +156,7 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
     if((++work&127)===0)yield;
   }
   const segmentRows:SupportedCurveSegment3[]=[];
+  const aliases=new Map<number,number[]>();
   for(const segment of input.segments){
     identity(segment.id,segmentIds,'segment');if(!kinds.includes(segment.kind))throw new Error('unsupported surface curve kind');
     const a=nodeIndex.get(segment.a),b=nodeIndex.get(segment.b);
@@ -168,7 +169,13 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
       // zero-length piece of a chain, not a contact: it draws nothing and is
       // dropped. Every other kind means it — an isolated contact is point
       // data — and is refused.
-      if(segment.kind==='trace')continue;
+      if(segment.kind==='trace'){
+        // The two nodes are one point: every later segment that names the
+        // second now reaches the first, and the second shares the first's
+        // supports so it is not left an isolated contact without support.
+        nodeIndex.set(segment.b,a);nodeSupports[b]=nodeSupports[a];(aliases.get(a)??aliases.set(a,[]).get(a)!).push(b);
+        continue;
+      }
       throw new Error(`isolated contacts belong to point data, not zero-length curve segments (segment ${segment.id} kind ${segment.kind}: nodes ${segment.a} and ${segment.b} are one exact point ${JSON.stringify(drafts[a].position)}; supports ${JSON.stringify(segment.supports.map(s=>[s.source,s.triangle]))}; range ${JSON.stringify(segment.range??null)})`);
     }
     const range=segment.range??[0,1],chainId=segment.chainId??segment.id;
@@ -184,7 +191,19 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
       // previous segment; take the producer's when given; compute exactly last.
       const known=(node:number,given:readonly bigint[]|undefined):ExactWeights3|null=>{
         const have=nodeSupports[node].get(key);if(have)return have.weights;
-        const w=(given&&verifiedTriangleWeights(triangle,given,exact[node]))||triangleWeights(triangle,exact[node]);
+        let w=(given&&verifiedTriangleWeights(triangle,given,exact[node]))||triangleWeights(triangle,exact[node]);
+        // A traced node (hatch, streamline) names itself by barycentric
+        // weights on the triangle it was walked in; its float position is a
+        // rounding of that point and can fall an ulp outside the triangle,
+        // which the exact projection rightly refuses. When the producer gave
+        // the weights and nothing else has yet pinned this node, the node IS
+        // the point the weights name: take that exact point as its position.
+        // A node another support already fixed keeps its point.
+        if(!w&&given&&segment.kind==='trace'&&nodeSupports[node].size===0){
+          const p=canonicalPoint(weightedPoint(triangle,given)),encodedPoint=encodePoint(p);account(encodedPoint);
+          for(const j of [node,...(aliases.get(node)??[])]){exact[j]=p;drafts[j]={...drafts[j],position:pointNumber(p),exact:encodedPoint};}
+          w=verifiedTriangleWeights(triangle,given,p)||triangleWeights(triangle,p);
+        }
         if(!w)return null;const encoded=encodeWeights(w);account(encoded);return encoded;
       };
       const encodedA=known(a,s.a),encodedB=known(b,s.b);
