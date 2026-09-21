@@ -10,6 +10,14 @@
  *
  *   pnpm --filter occlude docs:check
  *   pnpm --filter occlude docs:check --times   # per-fence ms, slowest ten
+ *   pnpm --filter occlude docs:check --space hyperbolic   # the whole corpus
+ *                                                        # in a curved space
+ *
+ * `--space <kind>` injects `space` into every fence's own config before the
+ * run, so the corpus becomes the coverage test for a geometry: a word that
+ * has not been taught the space draws through the projection and measures
+ * flat, and it must not throw. It is an EXPERIMENT — the hashes are never
+ * saved with it, and `docs:hashes` knows nothing about it.
  *
  * Uses the same import/export transform the docs page applies in-browser,
  * so a fence that passes here runs there.
@@ -55,6 +63,9 @@ let outside = 0;
 // slowest at the end — what a perf pass needs from a run the checker already
 // makes. It measures, it never changes what is checked.
 const times = process.argv.includes('--times');
+const spaceArg = process.argv[process.argv.indexOf('--space') + 1];
+const injectSpace = process.argv.includes('--space') && spaceArg && !spaceArg.startsWith('--') ? spaceArg : undefined;
+if (injectSpace) console.log(`running the corpus with space: '${injectSpace}'`);
 const timed: { ms: number; page: string; n: number; head: string }[] = [];
 for (const [i, { src, meta, page }] of fences.entries()) {
   // First line of the example names it in failures.
@@ -72,9 +83,12 @@ for (const [i, { src, meta, page }] of fences.entries()) {
       ? module.exports.default
       : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
+    // The fence's own config, under the space this run asks for. The
+    // definition is a plain record, so a copy of it is one too.
+    const run = injectSpace ? { ...def, config: { ...def.config, space: injectSpace } } as typeof def : def;
     const sheet = docsPaper(meta);
     const t0 = performance.now();
-    const out = await renderAsync(def, { paper: sheet, coarsen: 1, marginPct: meta.margin ?? 5, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
+    const out = await renderAsync(run, { paper: sheet, coarsen: 1, marginPct: meta.margin ?? 5, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
     const ms = performance.now() - t0;
     if (times) timed.push({ ms, page, n: i + 1, head });
     if (out.stats.fragments === 0) throw new Error('rendered zero visible strokes');

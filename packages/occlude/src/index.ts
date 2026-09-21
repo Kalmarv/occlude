@@ -171,6 +171,12 @@ export type { Mobius, Complex, GeodesicOpts, CircleOpts, TilingOpts, Equidistant
 // ball, where a hyperbolic line is a chord and a hyperbolic plane is flat —
 // so a honeycomb cell is an ordinary mesh the 3D words already draw.
 export type { Lorentz, HyperbolicCell, SpaceGeodesicOpts, HoneycombOpts, SpaceCameraOpts } from './hyperbolicSpace.js';
+// The sketch's geometry as a frame setting: `space` says what a length is
+// worth and `projection` which chart the sheet draws it in. The
+// constructors are pure data words — the run resolves them against the
+// drawable, and `t.space` is the record every word reads.
+export { space } from './space.js';
+export type { Space, SpaceKind, SpaceSpec, SpaceOption, Projection } from './space.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelFrom, TravelOpts } from './travel.js';

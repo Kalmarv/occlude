@@ -23,6 +23,7 @@ import { distanceTo } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
+import type { Space } from './space.js';
 import type { L } from './units.js';
 
 export type FieldFn2 = (x: number, y: number) => number;
@@ -41,6 +42,9 @@ export interface PointsEnv {
   bounds: Bounds;
   /** Resolve a length (mm()/w()/…) to user units. */
   len(l: L): number;
+  /** The run's geometry — frame data, handed in with the rest of it.
+   * Absent or Euclidean is the flat plane and the literal old kernel. */
+  space?: Space;
 }
 
 export interface ScatterOpts {
@@ -426,11 +430,37 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   const { bounds } = region ?? env;
   const rMin = spacingU; // full-demand radius
   const rMax = spacingU * 6; // demand below (1/6)² is treated as empty
-  const rOf = (x: number, y: number): number => {
-    const v = f(x, y);
-    if (!(v > 1 / 36)) return Infinity;
-    return rMin / Math.sqrt(Math.min(1, v));
-  };
+  // A bare `spacing` is a length IN THE SPACE, so every radius here is a
+  // space length, the candidate step is walked with `exp` and the rejection
+  // test is the space's own distance. The chart length the same demand
+  // covers is `rMin / sqrt(demand · density)` — shorter toward the horizon,
+  // which is how the points crowd there — but the chart is used only to
+  // BUCKET: a chart step is never longer than the space step it stands for,
+  // so a cell search at a space radius always holds every neighbour that
+  // can matter, and the reach expression below stays as it is.
+  //
+  // WHERE THE DRAWING STOPS. A curved space holds unbounded area inside a
+  // bounded chart, so "evenly spaced" is unboundedly many points and the
+  // flood needs a place to end. It is the same place the demand already
+  // ends: `scatter` reads a demand down to (1/6)², six times the spacing,
+  // and here it reads one up to 6², a sixth of it. The drawing therefore
+  // runs out to where the chart shrinks a step six-fold — `|z| = 0.913` of
+  // the hyperbolic horizon — and past the horizon, where `density` is NaN,
+  // there is no place at all.
+  const space = env.space !== undefined && env.space.kind !== 'euclidean' ? env.space : null;
+  const rOf = space
+    ? (x: number, y: number): number => {
+      const v = f(x, y);
+      if (!(v > 1 / 36)) return Infinity;
+      const d = space.density([x, y]);
+      if (!(d > 0) || !(d < 36)) return Infinity;
+      return rMin / Math.sqrt(Math.min(1, v));
+    }
+    : (x: number, y: number): number => {
+      const v = f(x, y);
+      if (!(v > 1 / 36)) return Infinity;
+      return rMin / Math.sqrt(Math.min(1, v));
+    };
   // Neighbour grid at the minimum radius.
   const cell = rMin / Math.SQRT2;
   const cols = Math.max(1, Math.ceil(bounds.w / cell));
@@ -469,6 +499,10 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
         for (let k = head[nj * cols + ni]; k >= 0; k = nextOf[k]) {
           const need = (r + radii[k]) / 2;
           if (!Number.isFinite(need)) continue;
+          if (space) {
+            if (space.distance([px[k], py[k]], [x, y]) < need) return false;
+            continue;
+          }
           const dx = px[k] - x;
           const dy = py[k] - y;
           if (dx * dx + dy * dy < need * need) return false;
@@ -518,8 +552,12 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
       for (let k = 0; k < K; k++) {
         const a = env.rnd() * Math.PI * 2;
         const rr = rb * (1 + env.rnd());
-        const x = bx + Math.cos(a) * rr;
-        const y = by + Math.sin(a) * rr;
+        // In a curved space the step is `rr` OF THE SPACE from the parent,
+        // which is what `exp` walks; flat, it is the chart offset it always
+        // was.
+        const step = space ? space.exp([bx, by], [Math.cos(a) * rr, Math.sin(a) * rr]) : null;
+        const x = step ? step[0] : bx + Math.cos(a) * rr;
+        const y = step ? step[1] : by + Math.sin(a) * rr;
         if (x < bounds.x || y < bounds.y || x > bounds.x + bounds.w || y > bounds.y + bounds.h) {
           continue;
         }
@@ -556,6 +594,10 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
         const ni = ci + di;
         if (ni < 0 || ni >= cols) continue;
         for (let k = head[nj * cols + ni]; k >= 0; k = nextOf[k]) {
+          if (space) {
+            if (space.distance([px[k], py[k]], [x, y]) <= dist) return true;
+            continue;
+          }
           const dx = px[k] - x;
           const dy = py[k] - y;
           if (dx * dx + dy * dy <= d2) return true;

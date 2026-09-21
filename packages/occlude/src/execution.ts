@@ -32,6 +32,7 @@ import { Len, resolveLen, type L } from './units.js';
 import type { Shape } from './shapes.js';
 import type { DrawRequest, PlanOptions } from './plan.js';
 import { makeFrame, type Frame } from './record.js';
+import { euclideanSpace, resolveSpace, type Projection, type Space, type SpaceOption } from './space.js';
 import type { AssetPixels, AssetTable } from './imageAsset.js';
 import type { AnyFill, FillTable } from './fills.js';
 
@@ -57,6 +58,15 @@ export interface SketchOptions {
   yUp?: boolean;
   /** Default rect anchoring: 'corner' (default) or 'center' (p5 rectMode). */
   rectMode?: 'corner' | 'center';
+  /** The geometry the sketch draws in: `'euclidean'` (the default, and what
+   * every sketch without this key runs), `'hyperbolic'`, or the same with
+   * its horizon — `space.hyperbolic({ radius: 90 })`. A bare spacing is
+   * then a length IN THE SPACE; `mm(…)` stays a length on the paper. */
+  space?: SpaceOption;
+  /** The chart the sheet is drawn in: `'poincare'` (the default) or
+   * `'klein'`, where geodesics are straight. Needs a non-Euclidean
+   * `space`. */
+  projection?: Projection;
 }
 
 export interface ClipRecord {
@@ -218,6 +228,10 @@ export class Execution {
   origin: 'topLeft' | 'center' = 'topLeft';
   yUp = false;
   rectMode: 'corner' | 'center' = 'corner';
+  /** The geometry this run measures and draws in, resolved once in `begin`
+   * beside the paper and the pens. Euclidean unless the sketch says
+   * otherwise, and then every word runs the code it always ran. */
+  space: Space = euclideanSpace();
   marginPct = 0;
   /** Every pen a name in this run may resolve to: the captured library
    * under the sketch's declared pens (a declared name shadows). */
@@ -346,6 +360,13 @@ export class Execution {
     this.seedUsed = typeof raw === 'number' ? raw : parsed.seed;
     this.overrides = parsed.overrides;
     this.rng = new Rng(this.seedUsed);
+    // The space reads the drawable (its centre and its default horizon) and
+    // the paper (a radius given in mm), so it resolves after both are fixed
+    // — and before the frame, which carries it to both lowering doors.
+    this.space = resolveSpace(cfg.space, cfg.projection, {
+      ...this.bounds(),
+      len: (l) => this.len(l),
+    });
     this.frame = makeFrame(this, this.paper.w, this.paper.h, false);
   }
 

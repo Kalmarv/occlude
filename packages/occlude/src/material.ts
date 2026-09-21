@@ -24,6 +24,7 @@
  */
 
 import { PointSelection, EdgeSelection, whereRows } from './relation.js';
+import type { Space } from './space.js';
 import { degrees } from './units.js';
 // Type-only: a placement returns a tree value (the shape `group()` makes).
 // `import type` is erased, so material never depends on api at runtime.
@@ -1077,9 +1078,13 @@ export class Material {
    * way a split's children take their parent's — so a face column survives
    * a partial resample.
    */
-  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: PointSelection | EdgeSelection }): Material {
+  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: PointSelection | EdgeSelection; space?: Space }): Material {
     // Too small to place samples (a mid-edit zero spacing): nothing to build.
     if (!checkSampling('resample', opts)) return material([]);
+    // A material is a data-world value and has no frame, so the space comes
+    // in with the options, the way `spacing` does: `t.sample(m, …)` hands
+    // the run's own, and a bare `m.resample` from a pure context is flat.
+    const curved = opts.space !== undefined && opts.space.kind !== 'euclidean' ? opts.space : null;
     for (let i = 0; i < this.n; i++) {
       if (this.adj[i].length > 2) throw new Error(`resample: vertex ${i} is a junction — chains only`);
     }
@@ -1105,8 +1110,14 @@ export class Material {
     const storedRow = new Map<number, number>();
     for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
     const place = (a: number, b: number, t: number, src = -1) => {
-      ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
-      oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+      if (curved) {
+        const g = curved.geodesic([this.x[a], this.y[a]], [this.x[b], this.y[b]], t);
+        ox.push(g[0]);
+        oy.push(g[1]);
+      } else {
+        ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
+        oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+      }
       osrc.push(src);
       for (const name of names) {
         const rule = transfer[name] ?? 'interpolate';
@@ -1125,7 +1136,7 @@ export class Material {
     // `where`, a run of eligible edges is one.
     const piece = (rows: readonly number[], closed: boolean) => {
       const pts = rows.map((i) => [this.x[i], this.y[i]] as [number, number]);
-      const cum = chainLengths(pts, closed);
+      const cum = chainLengths(pts, closed, opts.space);
       const total = cum[cum.length - 1];
       const rowOfSeg = (s: number) => storedRow.get(pairKey(rows[s], rows[(s + 1) % rows.length]))!;
       // Samples come in increasing arc length, so the segment under a
@@ -1491,9 +1502,11 @@ export class Material {
    * child of the edge it was cut from — same lineage root, as a split's
    * children are.
    */
-  trim(opts: { start?: number; end?: number }): Material {
+  trim(opts: { start?: number; end?: number; space?: Space }): Material {
     const head = opts?.start ?? 0;
     const tail = opts?.end ?? 0;
+    // Frame data through the options door, exactly as `resample` takes it.
+    const curved = opts?.space !== undefined && opts.space.kind !== 'euclidean' ? opts.space : null;
     for (const [name, v] of [['start', head], ['end', tail]] as const) {
       if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`trim: { ${name} } must be a finite length in the material's own coordinates (mm(1) and the other lengths need the sketch frame, as for thicken)`);
       if (v < 0) throw new Error(`trim: { ${name} } must not be negative — a cut removes length, it does not add any`);
@@ -1528,8 +1541,14 @@ export class Material {
       for (const name of names) oattrs[name].push(this.attrs[name][v]);
     };
     const cut = (a: number, b: number, t: number) => {
-      ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
-      oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+      if (curved) {
+        const g = curved.geodesic([this.x[a], this.y[a]], [this.x[b], this.y[b]], t);
+        ox.push(g[0]);
+        oy.push(g[1]);
+      } else {
+        ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
+        oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+      }
       osrc.push(-1);
       for (const name of names) {
         const rule = transfer[name] ?? 'interpolate';
@@ -1559,7 +1578,7 @@ export class Material {
         continue;
       }
       const pts = idx.map((i) => [this.x[i], this.y[i]] as [number, number]);
-      const cum = chainLengths(pts, false);
+      const cum = chainLengths(pts, false, opts?.space);
       const total = cum[cum.length - 1];
       const from = head;
       const to = total - tail;
@@ -1626,8 +1645,10 @@ export class Material {
    * error. Columns come across by their transfer policies (see `Station`),
    * `transfer` overriding point columns per call as in `resample`.
    */
-  along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> } = {}): Station[] {
+  along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; space?: Space } = {}): Station[] {
     const atVertices = opts.spacing === undefined && opts.count === undefined;
+    // Frame data through the options door, exactly as `resample` takes it.
+    const curved = opts.space !== undefined && opts.space.kind !== 'euclidean' ? opts.space : null;
     if (!atVertices && !checkSampling('along', opts)) return [];
     for (let i = 0; i < this.n; i++) {
       if (this.adj[i].length > 2) throw new Error(`along: vertex ${i} is a junction — chains only`);
@@ -1647,7 +1668,7 @@ export class Material {
       const samples = atVertices
         ? idx.map((_, k) => (k < segs ? { seg: k, t: 0 } : { seg: segs - 1, t: 1 }))
         : alongChain(pts, c.closed, opts);
-      const cum = chainLengths(pts, c.closed);
+      const cum = chainLengths(pts, c.closed, opts.space);
       const total = cum[segs];
       const rowOfSeg = (sg: number) => storedRow.get(pairKey(idx[sg], idx[(sg + 1) % idx.length]))!;
       const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
@@ -1729,9 +1750,10 @@ export class Material {
           }
         }
         const sAt = at(k);
+        const at2 = curved ? curved.geodesic(pts[seg], pts[(seg + 1) % idx.length], t) : null;
         const st: Station = Object.assign(Object.create(STATION_PROTO), {
-          x: pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
-          y: pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
+          x: at2 ? at2[0] : pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
+          y: at2 ? at2[1] : pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
           tangent,
           normal: perp(tangent) as [number, number],
           heading: Math.atan2(tangent[1], tangent[0]),
@@ -1913,12 +1935,12 @@ export function checkSampling(who: string, opts: { count?: number; spacing?: num
 export function alongChain(
   pts: readonly (readonly [number, number])[],
   closed: boolean,
-  opts: { count?: number; spacing?: number },
+  opts: { count?: number; spacing?: number; space?: Space },
 ): { seg: number; t: number }[] {
   const n = pts.length;
   const segs = closed ? n : n - 1;
   if (n === 0) return [];
-  const cum = chainLengths(pts, closed);
+  const cum = chainLengths(pts, closed, opts.space);
   const total = cum[segs];
   if (!(total > 0)) return [{ seg: 0, t: 0 }];
   let count: number;
@@ -1980,15 +2002,18 @@ export function pointGrid(x: Float64Array, y: Float64Array, cellsAcross: number)
 
 /** Cumulative arc length along a chain: `cum[s]` is the distance to the
  * start of segment `s`, the last entry the total (closed chains include
- * the seam segment). */
-function chainLengths(pts: readonly (readonly [number, number])[], closed: boolean): number[] {
+ * the seam segment). With a curved `space`, each step is measured by the
+ * space's own metric; without one the expression is the literal Euclidean
+ * hypotenuse every sketch has always summed. */
+function chainLengths(pts: readonly (readonly [number, number])[], closed: boolean, space?: Space): number[] {
   const n = pts.length;
   const segs = closed ? n : n - 1;
   const cum = [0];
+  const curved = space !== undefined && space.kind !== 'euclidean' ? space : null;
   for (let s = 0; s < segs; s++) {
     const a = pts[s];
     const b = pts[(s + 1) % n];
-    cum.push(cum[s] + Math.hypot(b[0] - a[0], b[1] - a[1]));
+    cum.push(cum[s] + (curved ? curved.distance(a, b) : Math.hypot(b[0] - a[0], b[1] - a[1])));
   }
   return cum;
 }

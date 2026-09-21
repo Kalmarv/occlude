@@ -33,6 +33,7 @@ import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
+import type { Space } from './space.js';
 import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
@@ -1062,6 +1063,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       rnd: () => st.rnd(),
       bounds: { x: 0, y: 0, w: b.w, h: b.h },
       len: (l) => exec.len(l),
+      space: exec.space,
     };
   }
 
@@ -1424,7 +1426,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       // a shape's spacing is.
       const opts=options as {count?:number;spacing?:L};
       const spacing=opts.spacing===undefined?undefined:resolveLen(opts.spacing,exec.frame.inner)/unitMm(exec.frame);
-      return shape.resample(spacing===undefined?{count:opts.count}:{spacing});
+      // The space is frame data and a material has no frame, so the toolkit
+      // hands the run's own in with the spacing.
+      return shape.resample(spacing===undefined?{count:opts.count,space:exec.space}:{spacing,space:exec.space});
     }
     if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
@@ -1437,14 +1441,24 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
     // Each outline keeps its OWN closure: a path may hold a ring and a chain.
+    // A bare `spacing` is a length in the space, so the arc length between
+    // two samples is the space's own and a sample between two vertices sits
+    // on the geodesic. Euclidean: the literal `Math.hypot` sum of
+    // `chainLengths` and the literal lerp below.
+    const curved = exec.space.kind !== 'euclidean' ? exec.space : null;
     for (const { pts: poly, closed } of shapeContours(exec, shape, opts.tolerance)) {
-      const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU });
+      const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU, space: exec.space });
       const first = pts.length;
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         const [x0, y0] = poly[seg];
         const [x1, y1] = poly[(seg + 1) % poly.length];
-        pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+        if (curved) {
+          const g = curved.geodesic([x0, y0], [x1, y1], t);
+          pts.push([g[0], g[1]]);
+        } else {
+          pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+        }
         if (k > 0) edges.push([first + k - 1, first + k]);
       }
       if (closed && samples.length > 2) edges.push([first + samples.length - 1, first]);
@@ -1564,6 +1578,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     height: b0.h,
     cx: b0.cx,
     cy: b0.cy,
+    /**
+     * The geometry this run draws in, as data: its `kind`, its
+     * `projection`, its `curvature` and `radius`, and the metric itself —
+     * `distance`, `geodesic`, `circle`, `density`, `exp`, `log`,
+     * `project`. Euclidean unless the sketch's config names a `space`.
+     * Read-only: the space is a frame setting, fixed for the run.
+     */
+    get space(): Space {
+      return exec.space;
+    },
     /** Cell rectangles covering the whole drawable. */
     grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
     /** Hexagonal cells covering the drawable as one material: `m.faces()`

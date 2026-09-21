@@ -8,10 +8,11 @@
  */
 
 import { geomClosed } from './shapes.js';
-import { apply, conformalScale, det, IDENTITY, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
+import { apply, conformalScale, det, IDENTITY, invert, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
 import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { Execution, TransformOp } from './execution.js';
+import type { Space } from './space.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
 export interface Frame {
@@ -26,12 +27,24 @@ export interface Frame {
   /** Paper size, mm. */
   paperW: number;
   paperH: number;
+  /**
+   * The run's geometry. Absent — which is what a Euclidean run leaves —
+   * is the flat plane and the literal lowering every sketch has always
+   * run.
+   *
+   * It is attached NON-ENUMERABLY, because a frame is transport: the
+   * studio's render worker posts `scene.frame` to the main thread, and a
+   * record of closures cannot be structured-cloned; tests compare two runs'
+   * frames with a deep equality that reads functions by reference. Neither
+   * sees this field, and `frame.space` reads it as any other.
+   */
+  readonly space?: Space;
 }
 
 /** What the frame needs of a run — the paper-independent part. An
  * `Execution` satisfies it, and so does a plain literal, which is what lets
  * the frame math be exercised on its own. */
-export type FrameInput = Pick<Execution, 'marginPct' | 'aspect' | 'origin' | 'yUp' | 'rectMode'>;
+export type FrameInput = Pick<Execution, 'marginPct' | 'aspect' | 'origin' | 'yUp' | 'rectMode'> & { space?: Space };
 
 /** Compute the drawable frame for a paper choice. */
 export function makeFrame(
@@ -51,7 +64,7 @@ export function makeFrame(
     innerW = aw * s;
     innerH = ah * s;
   }
-  return {
+  const frame: Frame = {
     inner: { innerW, innerH },
     offsetX: m + (availW - innerW) / 2,
     offsetY: m + (availH - innerH) / 2,
@@ -61,6 +74,20 @@ export function makeFrame(
     paperW,
     paperH,
   };
+  // A flat run's frame is the object it has always been, key for key. Only
+  // a curved one carries the space, and then out of sight of transport (see
+  // `Frame.space`).
+  if (state.space !== undefined && state.space.kind !== 'euclidean') {
+    Object.defineProperty(frame, 'space', { value: state.space, enumerable: false });
+  }
+  return frame;
+}
+
+/** The run's geometry when it is not the flat plane, else null: the one
+ * test both lowering doors branch on. */
+function curvedSpace(frame: Frame): Space | null {
+  const s = frame.space;
+  return s !== undefined && s.kind !== 'euclidean' ? s : null;
 }
 
 class Resolver {
@@ -478,6 +505,116 @@ export function unitMm(frame: Frame): number {
   return Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
 }
 
+/** How finely a curved space is flattened and geodesic-subdivided, in mm:
+ * the tolerance `lowerToUserContours` has always used for a curve, and a
+ * quarter of the thinnest nib the library ships. */
+const SPACE_TOL = 0.05;
+/** A geodesic that will not sit inside `tol` after this many bisections is
+ * one the sheet cannot show anyway (it runs at the horizon). */
+const SPACE_DEPTH = 12;
+
+/**
+ * The circle of a curved space: its centre and radius are the shape's,
+ * the radius read as a length IN THE SPACE, sampled finely enough that the
+ * chart curve holds `tol`. In drawable mm, closed on its own start.
+ */
+function spaceCircle(a: Extract<Prim, { t: 'arc' }>, space: Space, unit: number, tol: number): [number, number][] {
+  const c: [number, number] = [a.cx / unit, a.cy / unit];
+  const r = a.r / unit;
+  // The chart radius the space actually gives it — a hyperbolic circle is a
+  // chart circle, but not about the chart point its centre names.
+  const near = space.exp(c, [r, 0]);
+  const far = space.exp(c, [-r, 0]);
+  const rho = (Math.hypot(near[0] - far[0], near[1] - far[1]) / 2) * unit;
+  const dtheta = rho > tol ? 2 * Math.acos(1 - tol / rho) : Math.PI / 2;
+  const n = Math.max(8, Math.min(4096, Math.ceil((2 * Math.PI) / dtheta)));
+  const loop = space.circle(c, r, n);
+  if (loop.length < 3) return [];
+  const out = loop.map(([x, y]) => [x * unit, y * unit] as [number, number]);
+  out.push([out[0][0], out[0][1]]);
+  return out;
+}
+
+/**
+ * A shape's contours in the CHART, under a curved space (design §4).
+ *
+ * Every primitive is flattened at `tol`; every straight segment between two
+ * consecutive points is read as a GEODESIC and bisected until its projected
+ * chord holds the projected geodesic within `tol` (skipped where the
+ * projection draws geodesics straight, as Klein does); and a `circle` shape
+ * is the space's own circle instead of a pair of arcs.
+ *
+ * The points come back in drawable millimetres and in the chart, because
+ * the chart is where a sketch computes: `t.material`, `t.sample`, `within`
+ * and `polygon` read exactly this. The PROJECTION is the ink door's last
+ * step, so a drawing is projected once and a material is never projected
+ * twice.
+ *
+ * Both doors enter here: `lowerShape` for ink and `lowerToUserContours` for
+ * the sketch-time doors.
+ */
+function chartContours(
+  geom: ShapeGeom,
+  raw: Prim[][],
+  toDrawable: Mat,
+  frame: Frame,
+  space: Space,
+  tol: number,
+  bend = true,
+): [number, number][][] {
+  const unit = unitMm(frame);
+  const sheet = (z: readonly [number, number]): [number, number] => {
+    const q = space.project(z);
+    return [q[0] * unit, q[1] * unit];
+  };
+  return raw.map((contour) => {
+    const prims = contour.flatMap((p) => transformPrim(p, toDrawable));
+    if (
+      geom.kind === 'circle' && prims.length === 2 && prims[0].t === 'arc' && prims[1].t === 'arc'
+      && prims[0].cx === prims[1].cx && prims[0].cy === prims[1].cy && prims[0].r === prims[1].r
+    ) {
+      const loop = spaceCircle(prims[0], space, unit, tol);
+      if (loop.length > 0) return loop;
+    }
+    const flat: [number, number][] = [];
+    for (const q of prims) {
+      const fp = flattenPrim(q, tol);
+      for (let i = flat.length > 0 ? 1 : 0; i < fp.length; i++) flat.push(fp[i]);
+    }
+    // A piece the sketch could not place — a NaN radius from a field that
+    // says "not a place", most often — draws nothing, and nothing throws.
+    for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+    if (flat.length === 0 || space.straight || !bend) return flat;
+    const chart = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
+    const out: [number, number][] = [chart[0]];
+    const bisect = (
+      a: [number, number], b: [number, number],
+      pa: [number, number], pb: [number, number], depth: number,
+    ): void => {
+      const g = space.geodesic(a, b, 0.5);
+      const m: [number, number] = [g[0], g[1]];
+      const pm = sheet(m);
+      // How far the projected chord runs from the projected geodesic: the
+      // distance from the geodesic's middle to the chord itself, not to the
+      // chord's middle — a projection need not carry the one to the other.
+      const dx = pb[0] - pa[0];
+      const dy = pb[1] - pa[1];
+      const len = Math.hypot(dx, dy);
+      const dev = len > 0
+        ? Math.abs(dx * (pm[1] - pa[1]) - dy * (pm[0] - pa[0])) / len
+        : Math.hypot(pm[0] - pa[0], pm[1] - pa[1]);
+      if (!(dev > tol) || depth >= SPACE_DEPTH) {
+        out.push(b);
+        return;
+      }
+      bisect(a, m, pa, pm, depth + 1);
+      bisect(m, b, pm, pb, depth + 1);
+    };
+    for (let i = 1; i < chart.length; i++) bisect(chart[i - 1], chart[i], sheet(chart[i - 1]), sheet(chart[i]), 0);
+    return out.map(([x, y]) => [x * unit, y * unit] as [number, number]);
+  });
+}
+
 /**
  * The frame-less half of `lowerShape`, for sketch-time consumers: a
  * declarative shape value's geometry plus its OWN transform opts, lowered by
@@ -509,6 +646,24 @@ export function lowerToUserContours(
   const rz = new Resolver(frame);
   const m = composeChain([opts], rz);
   const wholeClosed = geomClosed(geom);
+  const space = curvedSpace(frame);
+  if (space) {
+    // The chart lives in DRAWABLE space, so the origin/yUp convention comes
+    // in and goes back out again around it; this door answers in user mm,
+    // as it always has.
+    const userFrame = userFrameMatrix(frame);
+    const back = invert(userFrame);
+    return chartContours(geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol).map((pts) => {
+      const user = pts.map(([x, y]) => apply(back, x, y));
+      let closed = wholeClosed;
+      if (geom.kind === 'path') {
+        const a = user[0];
+        const z = user[user.length - 1];
+        closed = user.length > 2 && !!a && !!z && Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9;
+      }
+      return { pts: user, closed };
+    });
+  }
   return lowerGeom(geom, rz).map((contour) => {
     const pts: [number, number][] = [];
     for (const p of contour) {
@@ -540,9 +695,36 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   // in user coordinates, so its rotations pivot around the user's origin.
   const chain = mul(userToPaperMatrix(frame), composeChain(shape.transform, rz));
   const raw = lowerGeom(shape.geom, rz);
-  const contours = raw.map((contour) =>
-    contour.flatMap((p) => transformPrim(p, chain)).map(snapPrim),
-  );
+  const space = curvedSpace(frame);
+  const toDrawable = space ? mul(userFrameMatrix(frame), composeChain(shape.transform, rz)) : IDENTITY;
+  // A shape that names ranges along its own polyline keeps its own
+  // vertices: inserting geodesic samples would renumber the segments those
+  // ranges address. Its chords come from the 3D projector already fine, so
+  // it is projected and not bent.
+  const bend = shape.strokeRanges === undefined;
+  const contours = space
+    // Flatten and geodesic-subdivide in the chart, project, then offset into
+    // paper and snap — the same four steps the sketch-time door takes, with
+    // the projection that only ink needs.
+    ? chartContours(shape.geom, raw, toDrawable, frame, space, SPACE_TOL, bend)
+      .map((pts) => {
+        const unit = unitMm(frame);
+        const out: Prim[] = [];
+        let prev: [number, number] | null = null;
+        for (const [x, y] of pts) {
+          const q = space.project([x / unit, y / unit]);
+          const here: [number, number] = [q[0] * unit + frame.offsetX, q[1] * unit + frame.offsetY];
+          // One segment in, one segment out — the flat door never drops a
+          // degenerate primitive either, and a shape's segment count is a
+          // protocol its stroke ranges read.
+          if (prev) out.push(snapPrim({ t: 'line', x0: prev[0], y0: prev[1], x1: here[0], y1: here[1] }));
+          prev = here;
+        }
+        return out;
+      })
+    : raw.map((contour) =>
+      contour.flatMap((p) => transformPrim(p, chain)).map(snapPrim),
+    );
   const convex = isConvexGeom(shape.geom);
   // C: the intrinsic bbox centre (pre-transform) — the one anchor every
   // shape kind has, and a fixed point of the shape under G.
@@ -556,7 +738,19 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     }
   }
   const centre = Number.isFinite(x0) ? translate((x0 + x1) / 2, (y0 + y1) / 2) : IDENTITY;
-  return { shape, contours, convex, anchor: mul(chain, centre) };
+  const anchor = mul(chain, centre);
+  // The anchor is where a fill's own frame sits, and `dots` reads its
+  // ORIGIN as the place of the tap. Under a curved space the drawing moved,
+  // so the origin moves with it: the shape's centre through the space,
+  // with the anchor's axes left as the transform chain set them.
+  if (space && Number.isFinite(x0)) {
+    const unit = unitMm(frame);
+    const [dx, dy] = apply(toDrawable, (x0 + x1) / 2, (y0 + y1) / 2);
+    const q = space.project([dx / unit, dy / unit]);
+    anchor.e = q[0] * unit + frame.offsetX;
+    anchor.f = q[1] * unit + frame.offsetY;
+  }
+  return { shape, contours, convex, anchor };
 }
 
 function isConvexGeom(geom: ShapeGeom): boolean {
