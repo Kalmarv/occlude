@@ -79,9 +79,13 @@ describe('isolines',()=>{
   });
   it('enforces budgets and validates inputs',()=>{
     const sheet=plane(2).subdivide(3).attributes({h:p=>p.x});
-    expect(()=>isolines(sheet,'h',{levels:[.1],maxSegments:1})).toThrow('segment budget');
-    expect(()=>isolines(sheet,'h',{levels:[.1],maxNodes:1})).toThrow('node budget');
-    expect(()=>isolines(sheet,'h',{levels:[.1],budget:{maxNodes:1}})).toThrow();
+    // The mesh, the options and the field are read at the call, so a mistake
+    // in them is reported there. A capacity is a fact about the network, and
+    // the network is built when something asks for it — the same place
+    // `intersections` reports its own budgets.
+    expect(()=>isolines(sheet,'h',{levels:[.1],maxSegments:1}).network).toThrow('segment budget');
+    expect(()=>isolines(sheet,'h',{levels:[.1],maxNodes:1}).network).toThrow('node budget');
+    expect(()=>isolines(sheet,'h',{levels:[.1],budget:{maxNodes:1}}).network).toThrow();
     expect(()=>isolines({} as never,'h',{levels:[0]})).toThrow('mesh');
   });
   it('renders through view as ordinary supported curves',async()=>{

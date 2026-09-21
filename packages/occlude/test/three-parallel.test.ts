@@ -32,10 +32,13 @@ const boxField = () => {
   }
   return view(boxes, { camera: orthographic({ eye: [9, -13, 8], span: 17 }), stroke: 'ink', creaseAngle: 20 });
 };
-/** The globe bench fixture with the frequency dropped to [5, 5], and a plain
- * ripple where the sketch reads seeded noise. */
+/** The globe bench fixture with the frequency dropped to [6, 6], and a plain
+ * ripple where the sketch reads seeded noise. The frequency is what puts this
+ * scene on the far side of the fan-out crossover: the view resolves the
+ * isolines lazily now, so the same shells carry fewer features than they did
+ * and [5, 5] fell just under the line. */
 const globe = () => {
-  const base = geodesic(1, { frequency: [5, 5] }).dual();
+  const base = geodesic(1, { frequency: [6, 6] }).dual();
   const water = base.scale(0.99);
   const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04).style({ creaseAngle: 180 });
   const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });

@@ -10,6 +10,8 @@ export interface SphereOptions extends GeometryOptions {readonly segments?:numbe
 export interface RadialOptions extends GeometryOptions {readonly segments?:number;readonly caps?:boolean}
 export interface TorusOptions extends GeometryOptions {readonly segments?:number;readonly tubeSegments?:number}
 const TAU=2*Math.PI;
+/** Where the radial generators put their centre. */
+const ORIGIN=Object.freeze([0,0,0]) as unknown as Vec3;
 /** The golden ratio: the icosahedron's own number. */
 const PHI=(1+Math.sqrt(5))/2;
 /** The three triangular Platonic solids, wound outward, at unit circumradius
@@ -57,7 +59,7 @@ export function sphere(radius=1,options:SphereOptions={}):Mesh<{},{},{},SurfaceU
       : band===r-1 ? [[u,(r-1)/r],[next,(r-1)/r],[(u+next)/2,1]]
       : [[u,band/r],[next,band/r],[next,(band+1)/r],[u,(band+1)/r]];
     return {uv:uv[c],chart:'sphere'};
-  })),options);
+  })),{...options,radialCentre:ORIGIN});
 }
 
 export type GeodesicBase='icosahedron'|'octahedron'|'tetrahedron';
@@ -158,8 +160,10 @@ export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},{},Surf
     const unwrapped=corners.map(value=>{if(value===null)return null;let out=value;while(out-anchor>.5)out-=1;while(anchor-out>.5)out+=1;return out;});
     const known=unwrapped.filter(value=>value!==null);
     const resolved=unwrapped.map(value=>value??(known.length?known.reduce((sum,n)=>sum+n,0)/known.length:0));
+    // A projected geodesic is star-shaped about the origin it was pushed out
+    // from; the flat solid is not built that way and claims nothing.
     return {uv:[resolved[c],latitude(sphere[v])],chart:'geodesic'};
-  })),options);
+  })),project?{...options,radialCentre:ORIGIN}:options);
 }
 
 /** Centered on Z, with shared cap/side rims. */

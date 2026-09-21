@@ -48,6 +48,7 @@
 import { orient3d } from 'robust-predicates';
 import { cross, difference, dot3 as dotExact, point, type H, type V } from '../geometry/exact.js';
 import type { FeatureSnapshot3, OccluderMesh3 } from '../features/snapshot.js';
+import { containmentCertificate3, type ContainmentStats3 } from './containment.js';
 import type { Vec3 } from '../math.js';
 
 /** Certified counts, and one count per verdict: why each occluder mesh did or
@@ -61,6 +62,9 @@ export interface FacingStats3 {
   readonly features: number;
   readonly certifiedFeatures: number;
   readonly reasons: Readonly<Record<string, number>>;
+  /** What the containment pass added on top, when two radial shells about one
+   * recorded centre gave it something to prove. */
+  readonly containment?: ContainmentStats3;
 }
 /** One byte per feature of the snapshot: 1 where the whole feature is proved
  * hidden by its own shell. */
@@ -384,11 +388,18 @@ export function facingCertificate3(snapshot: FeatureSnapshot3): FacingCertificat
 
   const reasons: Record<string, number> = {};
   const flags = new Map<string, boolean>();
+  // The shells a camera outside a complete closed solid saw: what containment
+  // is allowed to occlude with.
+  const outside = new Set<OccluderMesh3>();
   let certifiedMeshes = 0, triangleCount = 0, certifiedTriangles = 0;
   for (const mesh of meshes) {
     triangleCount += mesh.triangles.length;
-    const shell = shellCertificate3(mesh, view);
+    // The snapshot may already have proved this shell for a curve recipe; the
+    // proof is a function of the mesh and the camera alone, so it is the same
+    // answer and it is not paid for twice.
+    const shell = snapshot.shellCertificate?.(mesh) ?? shellCertificate3(mesh, view);
     reasons[shell.verdict] = (reasons[shell.verdict] ?? 0) + 1;
+    if (shell.verdict === 'camera outside') outside.add(mesh);
     if (!shell.certified.length) continue;
     certifiedMeshes++;
     for (let t = 0; t < mesh.triangles.length; t++) {
@@ -412,6 +423,10 @@ export function facingCertificate3(snapshot: FeatureSnapshot3): FacingCertificat
     for (const id of support) if (flags.get(id) !== true) { ok = false; break; }
     if (ok) { certified[i] = 1; certifiedFeatures++; }
   }
+  // What one shell's own facing cannot reach, another shell's solid may: the
+  // containment pass runs on what is left, and writes into the same array.
+  const contained = containmentCertificate3(snapshot, mesh => outside.has(mesh), certified);
+  certifiedFeatures += contained.added;
   return {
     certified,
     stats: Object.freeze({
@@ -420,6 +435,7 @@ export function facingCertificate3(snapshot: FeatureSnapshot3): FacingCertificat
       triangles: triangleCount, certifiedTriangles,
       features: features.length, certifiedFeatures,
       reasons: Object.freeze({ ...reasons }),
+      ...(contained.stats.shellPairs || contained.stats.radialMeshes ? { containment: contained.stats } : {}),
     }),
   };
 }

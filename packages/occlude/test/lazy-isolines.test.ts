@@ -63,10 +63,36 @@ describe('lazy isolines: certified records keep their topology and skip their co
     // for everything that survives.
     expect(lazy.stats.chains).toBe(full.stats.chains);
     expect(lazy.stats.crossings).toBe(full.stats.crossings);
-    expect(lazy.stats.nodes).toBeLessThan(full.stats.nodes);
+    // A chain with a survivor is built WHOLE: its certified records are
+    // reference geometry, so their nodes exist and the chain's arc length is
+    // the one full construction measured. Every chain here crosses the band,
+    // so no node is saved — the saving is in what the classifier is handed.
+    expect(lazy.stats.nodes).toBe(full.stats.nodes);
+    expect(lazy.stats.lazy!.mixedChains).toBeGreaterThan(0);
+    expect(lazy.stats.lazy!.hiddenChains).toBe(0);
+    expect(lazy.stats.lazy!.referenceRecords).toBe(gone.length);
+    // The dropped records are reachable as the reference network, in the full
+    // order, so a chain's phase is unchanged.
+    expect(lazy.network.reference!.segments.map((r) => r.id)).toEqual(full.network.segments.map((r) => r.id));
     // Every dropped record sits on a certified triangle.
     const byId = new Map(full.network.segments.map((s) => [s.id, s]));
     for (const id of gone) expect(band(byId.get(id)!.supports[0].triangle)).toBe(true);
+  });
+
+  it('a chain with no survivor is built nowhere, reference and all', () => {
+    // A band across one level alone: that chain is wholly certified, so it
+    // emits nothing — no consumer can ask a chain that draws nothing for its
+    // arc length — and its nodes are never built.
+    const band = (t: number) => Math.abs(centroid(sheet, t)[0] - 0.1) < 0.3;
+    const lazy = isolines3(sheet.surface, values, levels, { hidden: (_l, t) => band(t) });
+    expect(lazy.stats.lazy!.hiddenChains).toBeGreaterThan(0);
+    expect(lazy.stats.lazy!.mixedChains).toBe(0);
+    expect(lazy.stats.nodes).toBeLessThan(full.stats.nodes);
+    const kept = new Set(lazy.network.reference?.segments.map((r) => r.id) ?? lazy.network.segments.map((r) => r.id));
+    for (const row of full.network.segments) {
+      if (kept.has(row.id)) continue;
+      expect(band(row.supports[0].triangle)).toBe(true);
+    }
   });
 
   it('a chain that enters the band and returns keeps both visible runs and their phase', () => {

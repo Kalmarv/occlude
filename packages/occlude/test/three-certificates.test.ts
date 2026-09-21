@@ -29,6 +29,7 @@ const mesh = (
 ): OccluderMesh3 => ({
   objectId: 'shell',
   positions: positions.map((p) => Object.freeze([...p]) as Vec3),
+  pointIds: positions.map((_, i) => `p${i}`),
   triangles,
   triangleIds: triangles.map((_, i) => `t${i}`),
   complete,

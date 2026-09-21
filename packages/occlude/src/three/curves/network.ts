@@ -287,10 +287,19 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
     id:s.id,kind:s.kind,a:s.a.id,b:s.b.id,supports:s.triangles.map(triangle=>({source:0,triangle,a:weightsOn(s.a,triangle),b:weightsOn(s.b,triangle)})),attributes:s.attributes,...(s.chainId!==undefined?{chainId:s.chainId}:{}),...(s.range!==undefined?{range:s.range}:{}),
   }))});
 }
+/** What a camera-aware recipe may read about the view that is resolving it.
+ * Today that is the certificate pre-pass's verdicts: one byte per triangle of
+ * a source binding's surface, 1 where the closed triangle — its edges and
+ * vertices included — is proved hidden before any curve is built. `undefined`
+ * means that binding certifies nothing, which is the pairwise answer.
+ *
+ * A recipe handed no view resolves eagerly and completely: the artist's value
+ * is whole, and only a view's own classification is lazy. */
+export interface SurfaceCurveView3 {hiddenTriangles(binding:SurfaceBinding3):Uint8Array|undefined}
 /** One named graph in a scene; its source bindings identify supporting objects. */
 /** Curves described, not yet computed: a view resolves them once it knows
  * which of `bindings` it draws, so seams among culled objects are never made. */
-export interface SurfaceCurveRecipe3 {readonly bindings:readonly SurfaceBinding3[];resolve(keep?:(binding:SurfaceBinding3)=>boolean):SurfaceCurveNetwork3}
+export interface SurfaceCurveRecipe3 {readonly bindings:readonly SurfaceBinding3[];resolve(keep?:(binding:SurfaceBinding3)=>boolean,view?:SurfaceCurveView3):SurfaceCurveNetwork3}
 /** Curves with their network in hand, as the snapshot holds them. */
 export interface SurfaceCurveGraph3 {readonly id:string;readonly network:SurfaceCurveNetwork3;readonly attributes?:Attributes3}
 export type SurfaceCurveObject3 = {readonly id:string;readonly attributes?:Attributes3}&({readonly network:SurfaceCurveNetwork3;readonly recipe?:undefined}|{readonly recipe:SurfaceCurveRecipe3;readonly network?:undefined});

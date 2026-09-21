@@ -1,11 +1,12 @@
-import {objectSurfaceBinding3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3,type SurfaceCurveGraph3} from '../curves/network.js';
+import {objectSurfaceBinding3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3,type SurfaceCurveGraph3,type SurfaceCurveView3} from '../curves/network.js';
+import {shellCertificate3,type CertificateView3,type ShellCertificate3} from '../visibility/facing.js';
 import { realizeHatch3, validateHatch3, type HatchSource3 } from '../curves/hatch.js';
 import type { UnitCtx } from '../../units.js';
 import { validateSurfaceCurves3, type SurfaceCurves3, type SurfaceCurveSegment3 } from '../curves/surface.js';
 import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, outsideView3, toCamera3, toPaper3, type CameraFrame3, type PaperFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
-import { transformSurface3 } from '../geometry/model.js';
+import { transformSurface3, transformPosition3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
@@ -21,7 +22,14 @@ export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly in
   /** The object's own pen for hatch recipes that name none. */
   readonly fillPen?: string;
   /** Draw this object's suggestive contours in this view; absent draws none. */
-  readonly suggestive?: SuggestiveOptions3 }
+  readonly suggestive?: SuggestiveOptions3;
+  /** The centre this object's geometry was generated radially about, in the
+   * object's own model coordinates — minted by the radial generators and
+   * carried by the operations that keep a star-shaped solid star-shaped.
+   * Provenance only: every certificate that reads it re-proves radiality from
+   * the triangles themselves, so a wrong centre costs a failed proof and never
+   * grants one. */
+  readonly radialCentre?: Vec3 }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
   /** Source placement identity, independent of per-view object naming. */
@@ -70,9 +78,14 @@ export interface Occluder3 { readonly id: string; readonly triangle: Triangle3; 
 export interface OccluderMesh3 {
   readonly objectId: string;
   readonly positions: readonly Vec3[];
+  /** The surface's own point ids, in the same order as `positions`: what a
+   * feature's `endpoints` name a mesh vertex by. */
+  readonly pointIds: readonly string[];
   readonly triangles: readonly (readonly [number, number, number])[];
   readonly triangleIds: readonly string[];
   readonly complete: boolean;
+  /** The object's recorded radial centre, in world coordinates. */
+  readonly radialCentre?: Vec3;
 }
 export interface FeatureSnapshot3 {
   readonly frame: CameraFrame3;
@@ -93,6 +106,11 @@ export interface FeatureSnapshot3 {
   readonly occluderBounds: Float64Array;
   readonly occluderNearest: Float64Array;
   readonly index: ProjectedIndex3;
+  /** One occluder mesh's self-occlusion certificate under this view, computed
+   * at most once. The snapshot runs it on the meshes a curve recipe asks
+   * about, before the recipe resolves; the classifier's pre-pass then reads
+   * the same answers instead of proving them twice. */
+  readonly shellCertificate?: (mesh: OccluderMesh3) => ShellCertificate3;
 }
 const key = (...parts: (string | number)[]) => JSON.stringify(parts);
 const attributes = (a: Attributes3 = {}): Readonly<Attributes3> => Object.freeze(Object.fromEntries(Object.entries(a).map(([k, v]) => [k, Array.isArray(v) ? Object.freeze([...v]) : v])));
@@ -131,7 +149,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     });
     referenceFeatures.push(captured);if(!referenceOnly)features.push(captured);
   };
-  type BindingCapture={object:SurfaceObject3;triangleIds:readonly string[];faceAttrs:readonly Readonly<Attributes3>[]};
+  type BindingCapture={object:SurfaceObject3;triangleIds:readonly string[];faceAttrs:readonly Readonly<Attributes3>[];mesh?:OccluderMesh3};
   const captures=new Map<SurfaceBinding3,BindingCapture[]>();
   const emitNetwork=(entry:SurfaceCurveGraph3,bindings:readonly BindingCapture[],legacy?:{object:SurfaceObject3;segments:readonly SurfaceCurveSegment3[];positions:readonly Vec3[];worldPositions:readonly Vec3[]})=>{
     const network=entry.network.reference??entry.network,selected=new Set(entry.network.segments.map(s=>s.id));
@@ -206,8 +224,15 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       for (const edge of triangleEdges.values()) if (edge.triangles.length === 2) { const [a, b] = edge.triangles; neighborIds[a].push(triangleIds[b]); neighborIds[b].push(triangleIds[a]); }
       for (const row of objectOccluders) { const occluder = occluders[row.occluder]; occluders[row.occluder] = Object.freeze({ ...occluder, neighbors: Object.freeze([...neighborIds[row.triangle]]) }); }
     }
-    if (object.occluder !== false) occluderMeshes.push(Object.freeze({ objectId: object.id, positions: worldPositions, triangles: surface.triangles.map(t => t.vertices), triangleIds, complete }));
-    const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs};
+    let occluderMesh: OccluderMesh3 | undefined;
+    if (object.occluder !== false) {
+      // The recorded centre is the object's own; the mesh the certificate
+      // reads is in world coordinates, so the centre moves with it.
+      const centre = object.radialCentre && (object.transform ? transformPosition3(object.radialCentre, object.transform) : object.radialCentre);
+      occluderMesh = Object.freeze({ objectId: object.id, positions: worldPositions, pointIds: surface.points.map(p => p.id), triangles: surface.triangles.map(t => t.vertices), triangleIds, complete, ...(centre ? { radialCentre: Object.freeze([...centre]) as Vec3 } : {}) });
+      occluderMeshes.push(occluderMesh);
+    }
+    const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs,mesh:occluderMesh};
     const matching=captures.get(binding)??[];matching.push(capture);captures.set(binding,matching);
     if (object.lineSource === false) continue;
     for (const [k, edge] of triangleEdges) {
@@ -260,9 +285,31 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       emitNetwork({id:object.id,network,attributes:object.attributes},[capture],{object,segments:source.segments,positions,worldPositions});
     }
   }
+  // The certificate pre-pass. Every occluding object of this view has reached
+  // the classifier by now, so a curve recipe can be told what its own shell
+  // already hides before it builds a single crossing. The proof runs at most
+  // once per mesh and the classifier's own pre-pass reads the same answers.
+  const shells=new Map<OccluderMesh3,ShellCertificate3>();
+  const certificateView:CertificateView3={perspective:frame.camera.kind!=='orthographic',eye:frame.camera.eye,target:frame.camera.target};
+  const shellCertificate=(mesh:OccluderMesh3):ShellCertificate3=>{
+    let value=shells.get(mesh);
+    if(!value){value=shellCertificate3(mesh,certificateView);shells.set(mesh,value);}
+    return value;
+  };
+  const curveView:SurfaceCurveView3={
+    hiddenTriangles(binding:SurfaceBinding3):Uint8Array|undefined{
+      const matches=captures.get(binding);
+      // One placement, one answer. Two placements of one prototype are two
+      // different shells and this view has no single verdict for them.
+      if(matches?.length!==1||!matches[0].mesh)return undefined;
+      const certified=shellCertificate(matches[0].mesh).certified;
+      return certified.length?certified:undefined;
+    },
+  };
   for(const entry of curves){
-    // A description resolves now, among the objects this view kept.
-    const network=entry.network??entry.recipe.resolve(binding=>captures.has(binding));
+    // A description resolves now, among the objects this view kept, with what
+    // this view has already proved hidden.
+    const network=entry.network??entry.recipe.resolve(binding=>captures.has(binding),curveView);
     validateSurfaceCurveNetwork3(network);
     const bindings=network.sources.map(source=>{
       const matches=captures.get(source.binding)??[];
@@ -288,6 +335,6 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   // those is work the view usually does not need, so the tree is built the
   // first time something asks for it and kept from then on.
   let index: ProjectedIndex3 | undefined;
-  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), occluderMeshes: Object.freeze(occluderMeshes), occluderBounds, occluderNearest,
+  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), occluderMeshes: Object.freeze(occluderMeshes), occluderBounds, occluderNearest, shellCertificate,
     get index() { return index ??= new ProjectedIndex3(occluders.map(t => t.bounds), Array.from(occluderNearest)); } });
 }

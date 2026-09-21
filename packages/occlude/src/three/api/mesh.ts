@@ -3,7 +3,7 @@ import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInp
 import {inheritTopology3} from '../geometry/topology.js';
 import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCornerRow,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
 import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
-import {captureSurface3,ownSurface3,cloneSurface3,editAttributes3,transformSurface3,measureFaces3} from '../geometry/model.js';
+import {captureSurface3,ownSurface3,cloneSurface3,editAttributes3,transformSurface3,transformPosition3,measureFaces3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
 import {clampSetting,emptyCount,emptySize,sampleValue} from '../degenerate.js';
 import {Collection} from './collection.js';
@@ -109,6 +109,25 @@ function validateAttributes(surface:Surface3):void {
 }
 function pointsOnly(surface:Surface3,indices:readonly number[]):Surface3{return ownSurface3(assembleSurface3(indices.map(i=>surface.points[i]),[],[]));}
 const transformed=(surface:Surface3,options:Parameters<typeof transformSurface3>[1]):Surface3=>ownSurface3(transformSurface3(surface,options));
+/** Recorded radial centres: the point a generator built a star-shaped shell
+ * about, in the value's own coordinates. Provenance, not a claim — every
+ * certificate that reads one re-proves radiality from the triangles, so a
+ * stale centre costs a failed proof and can never grant one.
+ *
+ * It lives beside the values rather than on them because `{...this}` carries
+ * an object's own properties into everything derived from it, and provenance
+ * must be DROPPED by default: only the operations that keep a star-shaped
+ * solid star-shaped pass it on, and each says so in its own line. */
+const radialCentres=new WeakMap<object,Vec3>();
+function recordRadial(value:object,centre:Vec3|undefined):void {
+  if(!centre)return;finite3(centre);
+  radialCentres.set(value,Object.freeze([centre[0],centre[1],centre[2]]) as unknown as Vec3);
+}
+/** The image of a recorded centre under the same affine edit the points took. */
+const movedCentre=(centre:Vec3|undefined,options:Parameters<typeof transformSurface3>[1]):Vec3|undefined=>
+  centre&&transformPosition3(centre,options);
+/** The private provenance channel of the geometry constructors. */
+export interface RadialProvenance {readonly radialCentre?:Vec3}
 function setPoints<R extends PointRow<any>>(surface:Surface3,name:string,field:Field<R,Attribute3>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
   attributeName(name);
   return editAttributes3(surface,{points:rows.map(row=>({[name]:attributeValue(evaluate(field,row))}))});
@@ -425,15 +444,22 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   readonly fillPen?:string;
   /** Own suggestive-contour reading, or undefined for the view's. */
   readonly suggestive?:SuggestiveInput;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
+  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);this.fillPen=checkedStroke(options.fillPen);this.suggestive=checkedSuggestive(options.suggestive);
-    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
+    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});recordRadial(this,options.radialCentre);Object.freeze(this);
   }
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
   get edges():MeshEdges<P,E,F,C>{return meshEdges(this);}
   get corners():MeshCorners<P,E,F,C>{return meshCorners(this);}
   get faces():MeshFaces<P,E,F,C>{return meshFaces(this);}
+  /** The centre this mesh's geometry was generated radially about, when a
+   * generator minted one and every edit since kept a star-shaped solid star
+   * shaped: `geodesic`, `sphere` and their `dual`s mint it; `translate`,
+   * `rotate` and `scale` move it with the points; `displace`, `style` and
+   * `withKey` keep it; everything else drops it. Nothing trusts it — the
+   * certificates that read it prove radiality from the triangles. */
+  get radialCentre():Vec3|undefined{return radialCentres.get(this);}
   /** Replace an attribute by the mean of itself and its neighbours, `steps`
    * times: points over edges, faces over shared edges, corners over the
    * corners of their point and face. Numbers and numeric vectors only. */
@@ -536,22 +562,23 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * planar, and is drawn as the triangles its own average plane gives. */
   dual(options:DualOptions={}):Mesh<F,{},P,{}>{
     if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
-    return new Mesh<F,{},P,{}>(ownSurface3(dualSurface3(this.surface,options)),{...this,history:[],transfers:{},cornerTransfers:{}});
+    // The dual of a shell star-shaped about a point is star-shaped about it.
+    return new Mesh<F,{},P,{}>(ownSurface3(dualSurface3(this.surface,options)),{...this,history:[],transfers:{},cornerTransfers:{},radialCentre:this.radialCentre});
   }
   /** Move every point by a vector, or by a scalar along its vertex normal (`along` chooses another direction). */
-  displace(field:Field<MeshPointRow<P,E,F,C>,Vec3|number>,options:DisplaceOptions={}):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points],options),{...this,history:[]});}
-  translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
+  displace(field:Field<MeshPointRow<P,E,F,C>,Vec3|number>,options:DisplaceOptions={}):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points],options),{...this,history:[],radialCentre:this.radialCentre});}
+  translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset),radialCentre:movedCentre(this.radialCentre,{translate:offset})});}
   /** Turn about the object's origin: Euler degrees or a rotation value
    * (optionally with an explicit pivot), or an axis and degrees with
    * `{ about, local }`. */
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):Mesh<P,E,F,C>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
-  withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved,radialCentre:movedCentre(this.radialCentre,{rotate:r.rotate,origin:r.origin})});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved,radialCentre:r.empty?undefined:movedCentre(this.radialCentre,{scale:r.scale,origin:r.origin})});}
+  withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key,radialCentre:this.radialCentre});}
   /** The same mesh drawn differently: `style({ stroke, fillPen, creaseAngle })`
    * sets the fields named and keeps the others. */
-  style(style:Style3):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,...style});}
+  style(style:Style3):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,...style,radialCentre:this.radialCentre});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     if(stepRule(rule)){
