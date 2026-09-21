@@ -1,6 +1,6 @@
 /**
- * `tiling(p, q)` — the regular tiling with `p`-gons meeting `q` at a
- * vertex, in whichever geometry that symbol belongs to.
+ * The regular tiling `{p, q}` — `p`-gons meeting `q` at a vertex — in
+ * whichever geometry that symbol belongs to.
  *
  * The symbol picks the geometry and there is nothing to set: `(p − 2)(q −
  * 2)` below 4 is the sphere, exactly 4 the plane, above 4 the hyperbolic
@@ -9,28 +9,31 @@
  * three. Only `p` or `q` below 3 is a mistake.
  *
  * The answer is DATA: the fundamental polygon as points in that geometry's
- * model chart, and one point map per copy of it, the identity first. A
- * sketch draws its motif once inside the cell and hands every placement to
- * `m.map`, or to `group(…)` after lifting the chart onto the sheet. The
- * maps are the same shape in all three geometries, so the sketch around
- * them does not change when the symbol does.
+ * MODEL chart, and one point map per copy of it, the identity first. This
+ * module is pure and knows nothing of the sheet; `t.tiling` is the door a
+ * sketch uses, and it carries the model chart onto the drawable.
  *
- * The model chart is the one the geometry is written in: the unit disk for
- * the hyperbolic case, as `hyperbolic.*` uses, which is also where
- * `hyperbolic.polygon` and `hyperbolic.tiling` answer; the unit sphere's
- * stereographic chart for the spherical case, the cell about the pole; and
- * the plane with an edge of length 1 for the Euclidean case, the cell about
- * the origin.
+ * The model chart is the one the geometry is written in: the unit Poincaré
+ * disk for the hyperbolic case, the unit sphere's stereographic chart for
+ * the spherical case — the cell about the pole — and the plane with a cell
+ * of circumradius `1/(2·sin(π/p))`, an edge of length 1, about the origin.
  */
 
-import { polygon as diskPolygon, tiling as diskTiling, apply as diskApply } from './hyperbolic.js';
-import type { TilingOpts } from './hyperbolic.js';
-import { chartOfSphere, sphereOfChart, type Sphere } from './space.js';
+import { apply as diskApply, compose as diskCompose, reflection as diskReflection, rotation as diskRotation, type Mobius } from './hyperbolic.js';
+import { chartOfSphere, sphereOfChart, type Sphere, type SpaceKind } from './space.js';
 import { tileGroup, type TileOps } from './tilegroup.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
-/** Which geometry a Schläfli symbol demands. */
-export type TilingGeometry = 'euclidean' | 'hyperbolic' | 'spherical';
+export interface TilingOpts {
+  /** Generations of neighbours to reflect out to. Depth 0 is the
+   * fundamental polygon alone; depth 1 adds its `p` edge neighbours. */
+  depth?: number;
+}
+
+/** Which geometry a Schläfli symbol demands — the same three words the
+ * sketch's own `space` is named by, so `t.tiling(p, q).space` and
+ * `t.space.kind` are comparable. */
+export type TilingGeometry = SpaceKind;
 
 /** One regular tiling: its geometry, its cell, and where the copies go. */
 export interface Tiling {
@@ -60,6 +63,20 @@ export function tilingGeometry(p: number, q: number): TilingGeometry {
   const k = (p - 2) * (q - 2);
   return k < 4 ? 'spherical' : k === 4 ? 'euclidean' : 'hyperbolic';
 }
+
+// ---- the disk -------------------------------------------------------------
+
+/** The disk's answer to `TileOps`: an isometry is a Möbius record, and a
+ * reflection in an edge is the reflection in the geodesic through its two
+ * ends. The whole plane is inside the disk, so where a copy puts the
+ * origin names it outright. */
+const DISK: TileOps<Mobius> = {
+  identity: diskRotation(0),
+  compose: diskCompose,
+  apply: diskApply,
+  reflection: diskReflection,
+  seat: (m) => diskApply(m, [0, 0]),
+};
 
 // ---- the plane ------------------------------------------------------------
 
@@ -185,7 +202,7 @@ function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
 const CLOSURE = 16;
 
 /**
- * The `{p, q}` tiling in its own geometry.
+ * The `{p, q}` tiling in its own geometry, in that geometry's model chart.
  *
  * `depth` is generations of reflection across the cell's edges, 3 by
  * default: depth 1 is the cell and its `p` edge neighbours. A spherical
@@ -196,25 +213,16 @@ export function tiling(p: number, q: number, opts: TilingOpts = {}): Tiling {
   if (!Number.isInteger(p) || !Number.isInteger(q) || p < 3 || q < 3) {
     throw new Error(`tiling: p and q are whole numbers of 3 or more (got ${p}, ${q})`);
   }
-  const geometry = tilingGeometry(p, q);
-  if (geometry === 'hyperbolic') {
-    // The disk keeps its own word: `hyperbolic.tiling` answers with the
-    // isometry RECORDS, which compose and invert, and this is those same
-    // records read as point maps.
-    const records = diskTiling(p, q, opts);
-    return {
-      space: geometry,
-      cell: diskPolygon(p, q),
-      placements: records.map((m) => (pt: XY) => diskApply(m, pt)),
-    };
-  }
-  const cell = cellOf(geometry, p, q);
-  const depth = geometry === 'spherical'
+  const space = tilingGeometry(p, q);
+  const cell = cellOf(space, p, q);
+  const depth = space === 'spherical'
     ? CLOSURE
     : opts.depth === undefined ? 3 : Math.floor(opts.depth);
-  if (!Number.isFinite(depth) || depth < 0) return { space: geometry, cell, placements: [] };
-  const placements = geometry === 'spherical'
+  if (!Number.isFinite(depth) || depth < 0) return { space, cell, placements: [] };
+  const placements = space === 'spherical'
     ? tileGroup('tiling', SPHERE, cell, depth).map((m) => (pt: XY) => SPHERE.apply(m, pt))
-    : tileGroup('tiling', PLANE, cell, depth).map((m) => (pt: XY) => PLANE.apply(m, pt));
-  return { space: geometry, cell, placements };
+    : space === 'euclidean'
+      ? tileGroup('tiling', PLANE, cell, depth).map((m) => (pt: XY) => PLANE.apply(m, pt))
+      : tileGroup('tiling', DISK, cell, depth).map((m) => (pt: XY) => DISK.apply(m, pt));
+  return { space, cell, placements };
 }

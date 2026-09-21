@@ -2,7 +2,7 @@
  * `space` and `projection` on the sketch frame.
  *
  * Two things are checked here: that the hyperbolic space IS the hyperbolic
- * plane (its metric agrees with `hyperbolic.distance` after the chart
+ * plane (its metric agrees with the unit disk's after the chart
  * scaling, `exp` and `log` invert, a midpoint is equidistant, a circle is
  * at its stated radius), and that a sketch WITHOUT a `space` key lowers to
  * exactly the numbers it always lowered to.
@@ -10,7 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
-import { compileSketch, circle, hyperbolic, line, rect, sketch, space, type SketchConfig, type ShapeValue, type Toolkit, type Execution, bindToolkit, Execution as Run } from '../src/index.js';
+import { compileSketch, circle, line, rect, sketch, space, type SketchConfig, type ShapeValue, type Toolkit, type Execution, bindToolkit, Execution as Run } from '../src/index.js';
+import { hyperbolicSpaceOf } from '../src/space.js';
 import { lowerShape } from '../src/record.js';
 
 /** A toolkit on a 100 × 100 drawable, with the config's own space. */
@@ -41,14 +42,16 @@ describe('the hyperbolic space is the hyperbolic plane', () => {
     expect(s.straight).toBe(false);
   });
 
-  it('measures what `hyperbolic.distance` measures, scaled by radius/2', () => {
+  it('measures what the unit disk measures, scaled by radius/2', () => {
     for (const [a, b] of [
       [[50, 50], [60, 50]],
       [[20, 30], [85, 75]],
       [[50, 50], [50, 110]],
       [[12, 12], [13, 90]],
     ] as [number, number][][]) {
-      const want = (80 / 2) * hyperbolic.distance(model(a), model(b));
+      // The unit disk's own metric, `ds = 2|dz|/(1 − |z|²)`, is twice the
+      // metric of the space whose chart IS that disk.
+      const want = (80 / 2) * 2 * hyperbolicSpaceOf([0, 0], 1, 'poincare').distance(model(a), model(b));
       expect(s.distance(a, b)).toBeCloseTo(want, 10);
     }
   });

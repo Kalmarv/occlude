@@ -33,7 +33,9 @@ import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
-import type { Space } from './space.js';
+import { modelChart, spaceAreaField, spaceCircleField, type Space, type SpaceContour } from './space.js';
+import { tiling as tilingKernel, type Tiling, type TilingOpts } from './tiling.js';
+import { vx, vy, type Vec, type XY } from './vec.js';
 import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
@@ -63,7 +65,7 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
 }
 import { latticeOf, type Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
 import { residualOf, type Residual, type ResidualOpts } from './residual.js';
-import { unitMm } from './record.js';
+import { unitMm, userPointMm } from './record.js';
 import { areaLoops, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
@@ -1147,6 +1149,84 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
+   * The regular `{p, q}` tiling on the drawable: its cell and one point
+   * map per copy of it, the identity first.
+   *
+   * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
+   * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
+   * frame decides where it lands. This is why the word is on the toolkit:
+   * a tiling is written in its geometry's own model chart, and the chart
+   * has to be put somewhere before it is drawable.
+   *
+   * WHERE IT LANDS. When the sketch's `space` IS the tiling's geometry,
+   * the model chart is the sketch's own — the disk of the space's radius,
+   * or the sphere it pictures — so every placement is an isometry of the
+   * space the sketch draws in, and the cell is one cell of it. When it is
+   * not — a `{7, 3}` on a flat sheet — the model chart is FITTED to the
+   * drawable instead: its unit circle becomes the largest circle the
+   * drawable holds, and the answer is the Circle Limit picture, drawn as a
+   * picture. The flat plane fixes no unit of length, so a Euclidean symbol
+   * always takes that fit; a scaled plane tiling is a plane tiling, so its
+   * placements are isometries of the sheet either way.
+   */
+  function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
+    const t = tilingKernel(p, q, opts);
+    const own = exec.space.kind === t.space ? modelChart(exec.space) : null;
+    const b = exec.bounds();
+    const cx = own ? own.center[0] : b.cx;
+    const cy = own ? own.center[1] : b.cy;
+    const k = own ? own.scale : Math.min(b.w, b.h) / 2;
+    const up = (z: XY): Vec => [cx + k * vx(z), cy + k * vy(z)];
+    const down = (p2: XY): Vec => [(vx(p2) - cx) / k, (vy(p2) - cy) / k];
+    return {
+      space: t.space,
+      cell: t.cell.map(up),
+      placements: t.placements.map((f) => (pt: XY) => up(f(down(pt)))),
+    };
+  }
+
+  /**
+   * The distance field of an area IN THE SKETCH'S SPACE: the metric the
+   * frame names, not the sheet's.
+   *
+   * A `circle` shape is the space's own circle, so the field is the signed
+   * distance to it — exact, one metric reading a sample. Everything else
+   * is read as an area whose edges are GEODESICS, and the value is the
+   * distance to the nearest of them, positive inside. Past the hyperbolic
+   * horizon there is no place, and the answer is NaN, which every field
+   * consumer already reads as absent.
+   */
+  function spaceDistanceTo(space: Space, area: Geometry | AreaInput | ShapeValue): DistanceField {
+    const disc = spaceDisc(area);
+    if (disc) return spaceCircleField(space, disc.c, disc.r);
+    // A shape says whether each of its outlines closes; anything else is
+    // an area, and an area's boundaries are loops.
+    const contours: SpaceContour[] = isShapeValue(area)
+      ? shapeContours(exec, area as ShapeValue, undefined).map((c) => ({ pts: c.pts, closed: c.closed }))
+      : numericAreaLoops(exec, area, 'distanceTo').map((pts) => ({ pts, closed: true }));
+    return spaceAreaField(space, contours);
+  }
+
+  /** A `circle` shape with no transform of its own, as the space reads it:
+   * a centre and a radius in the space, which is what the shape means
+   * under a `space` and what the ink door draws. A circle carrying its own
+   * translate or scale falls through to the contour route, which draws the
+   * same curve to within the flattening tolerance. */
+  function spaceDisc(area: Geometry | AreaInput | ShapeValue): { c: Vec; r: number } | null {
+    if (!isShapeValue(area)) return null;
+    const shape = area as ShapeValue;
+    const g = shape.geom;
+    const o = shape.opts;
+    if (g.kind !== 'circle') return null;
+    if (o.translate !== undefined || o.rotate !== undefined || o.scale !== undefined || o.origin !== undefined) return null;
+    const unit = unitMm(exec.frame);
+    const [x, y] = userPointMm(g.x, g.y, exec.frame);
+    const r = exec.len(g.r);
+    if (!(r > 0)) return null;
+    return { c: [x / unit, y / unit], r };
+  }
+
+  /**
    * A string as material: every glyph of the face drawn as the chains it
    * is made of, all in one material, ready for `strokes(...)`. `size` is
    * the CAP HEIGHT — the letter height a plotter artist measures — and
@@ -1611,6 +1691,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       // of the first cell lands in the one before it.
       return symmetryPlacements(group, opts.cell, -1, Math.ceil(b.w / ax) + 2, -1, Math.ceil(b.h / by) + 2);
     },
+    tiling: tilingTk,
     noisyLine: (x1: L, y1: L, x2: L, y2: L, o?: Parameters<typeof noisyLineValue>[5], shapeOpts?: ShapeOpts): ShapeValue => noisyLineValue(noise, x1, y1, x2, y2, o, shapeOpts),
     svg: svgValue,
     scatter, throw: throwTk, isolines, ridges, streamlines, travelTime,
@@ -1626,7 +1707,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
      * geometry: inside the sketch the frame is in hand, so the toolkit
      * lowers the shape and the pure `distanceTo` never has to.
      */
-    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField => distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput),
+    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField =>
+      (exec.space.kind === 'euclidean'
+        ? distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput)
+        : spaceDistanceTo(exec.space, area)),
     /**
      * The forces, each taking a shape where it takes an area or points. The
      * pure `force.*` is the same kernel with the frame left out.

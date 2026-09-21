@@ -30,8 +30,8 @@
  * this chart: that module measures with `ds = 2|dz|/(1 − |z|²)`, so a
  * length here is `radius/2` times a length there. The two hot readings,
  * `distance` and `density`, are spelled out rather than routed through the
- * complex helpers, the same way `hyperbolic.field.*` spells them out: they
- * are read once per candidate point and once per raster cell.
+ * complex helpers: they are read once per candidate point and once per
+ * raster cell.
  *
  * The chart is where a sketch computes. `t.material`, `t.sample`,
  * `t.within` and `t.scatter` all answer in chart coordinates; the
@@ -39,7 +39,7 @@
  * exactly once.
  */
 
-import { apply as hApply, circle as hCircle, inverse as hInverse, translation as hTranslation } from './hyperbolic.js';
+import { apply as hApply, circle as hCircle, halfplane as hHalfplane, inverse as hInverse, translation as hTranslation } from './hyperbolic.js';
 import type { L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
@@ -562,4 +562,167 @@ export function resolveSpace(
     throw new Error(`space: hyperbolic radius must be a positive length in drawable units, got ${radius}`);
   }
   return hyperbolicSpaceOf([frame.cx, frame.cy], radius, chosen as 'poincare' | 'klein');
+}
+
+// ---- the model chart ------------------------------------------------------
+
+/**
+ * The similarity that carries a geometry's MODEL chart onto the drawable:
+ * a point `z` of the model is the chart point `center + scale·z`.
+ *
+ * The hyperbolic model is the unit Poincaré disk, and the space's own
+ * horizon is where `|z| = 1`, so the scale is the radius. The spherical
+ * model is the unit sphere's stereographic chart, and `|z| = 1` is the
+ * equator, which sits at twice the radius from the point of contact. The
+ * flat plane fixes no unit of length at all, so it answers null and the
+ * caller picks a fit.
+ */
+export function modelChart(space: Space): { center: Vec; scale: number } | null {
+  if (space.kind === 'hyperbolic') return { center: space.center, scale: space.radius };
+  if (space.kind === 'spherical') return { center: space.center, scale: 2 * space.radius };
+  return null;
+}
+
+// ---- the metric as a distance field ---------------------------------------
+
+/** Where the space has a place at all: the chart holds points the geometry
+ * does not — everything at or past the hyperbolic horizon. `density` is
+ * the reading that already says so, with NaN, and every field consumer
+ * reads a non-finite sample as absent. */
+const placeOf = (space: Space): ((x: number, y: number) => boolean) => {
+  if (space.kind !== 'hyperbolic') return () => true;
+  return (x, y) => {
+    const d = space.density([x, y]);
+    return Number.isFinite(d) && d > 0;
+  };
+};
+
+/**
+ * The signed distance to the space's circle of radius `r` about `center`:
+ * POSITIVE INSIDE, like `sdf.circle`, and measured by the metric.
+ *
+ * Its zero set is exactly the loop `circle(cx, cy, r)` draws in this
+ * space, and its other level sets are the circles about the same centre —
+ * so `t.isolines` over it draws rings evenly spaced in the space's own
+ * metric rather than on the sheet.
+ */
+export function spaceCircleField(space: Space, center: XY, r: number): (x: number, y: number) => number {
+  const c: Vec = [vx(center), vy(center)];
+  const place = placeOf(space);
+  return (x, y) => (place(x, y) ? r - space.distance(c, [x, y]) : NaN);
+}
+
+/**
+ * The signed distance to one edge of an area, read as a GEODESIC of the
+ * space and extended to the whole geodesic: positive on the LEFT of
+ * `a → b`. Null where the two points name no geodesic.
+ */
+function edgeField(space: Space, a: readonly [number, number], b: readonly [number, number]): ((x: number, y: number) => number) | null {
+  if (space.kind === 'hyperbolic') {
+    const R = space.radius;
+    const [cx, cy] = space.center;
+    const za: Vec = [(a[0] - cx) / R, (a[1] - cy) / R];
+    const zb: Vec = [(b[0] - cx) / R, (b[1] - cy) / R];
+    if (!(za[0] * za[0] + za[1] * za[1] < 1) || !(zb[0] * zb[0] + zb[1] * zb[1] < 1)) return null;
+    if (Math.hypot(za[0] - zb[0], za[1] - zb[1]) < 1e-15) return null;
+    const f = hHalfplane(za, zb);
+    // The unit disk measures with `ds = 2|dz|/(1 − |z|²)` and this chart
+    // with `ds = |dp|/(1 − |z|²)`, so a length here is `R/2` times one
+    // there — the same scaling every other member of this space applies.
+    const k = R / 2;
+    return (x, y) => k * f((x - cx) / R, (y - cy) / R);
+  }
+  if (space.kind === 'spherical') {
+    const R = space.radius;
+    const [cx, cy] = space.center;
+    const na = sphereOfChart([(a[0] - cx) / (2 * R), (a[1] - cy) / (2 * R)]);
+    const nb = sphereOfChart([(b[0] - cx) / (2 * R), (b[1] - cy) / (2 * R)]);
+    // The great circle through the two points is the plane they span with
+    // the centre; its unit normal is their cross product, and the signed
+    // angle a point makes with that plane is the distance to it. The
+    // chart keeps orientation, so `a × b` points to the LEFT of `a → b`.
+    const m: Sphere = [
+      na[1] * nb[2] - na[2] * nb[1],
+      na[2] * nb[0] - na[0] * nb[2],
+      na[0] * nb[1] - na[1] * nb[0],
+    ];
+    const len = Math.hypot(m[0], m[1], m[2]);
+    // The same point twice, or two opposite ones: no one great circle.
+    if (!(len > 1e-12)) return null;
+    const mx = m[0] / len;
+    const my = m[1] / len;
+    const mz = m[2] / len;
+    return (x, y) => {
+      const n = sphereOfChart([(x - cx) / (2 * R), (y - cy) / (2 * R)]);
+      return R * Math.asin(Math.max(-1, Math.min(1, n[0] * mx + n[1] * my + n[2] * mz)));
+    };
+  }
+  return null;
+}
+
+/** The chart's signed area of a loop: its sign is the loop's winding, and
+ * both charts here keep orientation, so it is the space's winding too. */
+function chartArea(loop: readonly (readonly [number, number])[]): number {
+  let sum = 0;
+  for (let i = 0; i < loop.length; i++) {
+    const p = loop[i];
+    const q = loop[(i + 1) % loop.length];
+    sum += p[0] * q[1] - q[0] * p[1];
+  }
+  return sum / 2;
+}
+
+/** One boundary of an area, with its own closure — what every area
+ * consumer already reads off its input. */
+export interface SpaceContour {
+  pts: readonly (readonly [number, number])[];
+  closed: boolean;
+}
+
+/**
+ * The signed distance to an area whose edges are GEODESICS of the space:
+ * the smallest of its edges' half-plane distances, positive inside.
+ *
+ * Every edge is read as the whole geodesic it lies on, and the value at a
+ * point is therefore its distance to the nearest edge — exact for a convex
+ * cell, which is what a tiling's cell and a polygon of geodesics are. The
+ * closed loops are oriented by the widest of them, so a hole keeps the
+ * opposite sign and reads as a hole. An OPEN contour has no inside: its
+ * edges are its segments and nothing wraps, so a two-point line answers
+ * the signed distance to its geodesic, positive on the left, and
+ * `t.isolines` over it draws that geodesic's equidistant curves.
+ *
+ * Outside the space — past the hyperbolic horizon — the answer is NaN, and
+ * a field consumer reads that as "no place": `t.isolines` truncates a
+ * contour open there and `t.scatter` places nothing.
+ */
+export function spaceAreaField(space: Space, contours: readonly SpaceContour[]): (x: number, y: number) => number {
+  let widest = 0;
+  for (const c of contours) {
+    if (!c.closed) continue;
+    const a = chartArea(c.pts);
+    if (Math.abs(a) > Math.abs(widest)) widest = a;
+  }
+  const sign = widest < 0 ? -1 : 1;
+  const edges: ((x: number, y: number) => number)[] = [];
+  for (const c of contours) {
+    const n = c.closed ? c.pts.length : c.pts.length - 1;
+    for (let i = 0; i < n; i++) {
+      // A loop written with its first point repeated at the end closes
+      // itself twice; the zero-length edge names no geodesic and drops.
+      const f = edgeField(space, c.pts[i], c.pts[(i + 1) % c.pts.length]);
+      if (f) edges.push(f);
+    }
+  }
+  const n = edges.length;
+  const place = placeOf(space);
+  return (x, y) => {
+    if (!place(x, y)) return NaN;
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = sign * edges[i](x, y);
+      if (v < best) best = v;
+    }
+    return best;
+  };
 }

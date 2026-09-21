@@ -162,26 +162,19 @@ export type { Residual, ResidualOpts, SpendMarks, SpendOpts } from './residual.j
 // isolines (offsetting is a recipe), scatter, decimate, deform.
 export { distanceTo, distanceToPoints, sdf } from './distance.js';
 export type { DistanceField } from './distance.js';
-// The hyperbolic plane in the Poincaré disk: transforms as data, geodesics,
-// circles and {p, q} tilings as placements. Pure — model coordinates only,
-// no seed and no paper — so it is a namespace import, as `sdf` is.
-export { hyperbolic } from './hyperbolic.js';
-export type { Mobius, Complex, GeodesicOpts, CircleOpts, TilingOpts, EquidistantOpts } from './hyperbolic.js';
-// `hyperbolic.space`: the same plan one dimension up, in the Beltrami–Klein
-// ball, where a hyperbolic line is a chord and a hyperbolic plane is flat —
-// so a honeycomb cell is an ordinary mesh the 3D words already draw.
-export type { Lorentz, HyperbolicCell, SpaceGeodesicOpts, HoneycombOpts, SpaceCameraOpts } from './hyperbolicSpace.js';
 // The sketch's geometry as a frame setting: `space` says what a length is
 // worth and `projection` which chart the sheet draws it in. The
 // constructors are pure data words — the run resolves them against the
-// drawable, and `t.space` is the record every word reads.
+// drawable, and `t.space` is the record every word reads. The isometries
+// of the disk and of the Klein ball are what those words are MADE of, and
+// stay internal (hyperbolic.ts, hyperbolicSpace.ts).
 export { space } from './space.js';
 export type { Space, SpaceKind, SpaceSpec, SpaceOption, Projection } from './space.js';
-// One word for the regular tilings of all three geometries: the Schläfli
-// symbol picks the sphere, the plane or the disk, and the answer is the
-// cell and its placements as point maps, the same shape in each.
-export { tiling, tilingGeometry } from './tiling.js';
-export type { Tiling, TilingGeometry } from './tiling.js';
+// `t.tiling(p, q)` is one word for the regular tilings of all three
+// geometries: the Schläfli symbol picks the sphere, the plane or the disk,
+// and the answer is the cell and its placements as point maps on the
+// drawable, the same shape in each.
+export type { Tiling, TilingGeometry, TilingOpts } from './tiling.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelFrom, TravelOpts } from './travel.js';

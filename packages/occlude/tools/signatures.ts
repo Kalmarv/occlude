@@ -126,11 +126,11 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 }
 
 const OWNERS = ['ImageSampler', 'Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
-const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf', 'hyperbolic'];
-/** A namespace that holds one of its own: `hyperbolic.field` is a family
- * of fields, and its words are its members, keyed `hyperbolic.field.disc`.
- * Without this the parent would print the whole object type on one line. */
-const SUBNAMESPACES = ['hyperbolic.field', 'hyperbolic.space'];
+const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
+/** A namespace that holds one of its own: its words are its members, keyed
+ * `parent.child.word`. Without this the parent would print the whole
+ * object type on one line. */
+const SUBNAMESPACES: string[] = [];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);

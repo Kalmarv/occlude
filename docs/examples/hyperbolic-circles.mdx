@@ -1,47 +1,49 @@
 ---
 title: Circles
-description: Eight circles about one point, drawn Euclidean and drawn hyperbolic.
+description: Eight circles about one point, stepped by the metric and stepped by the chart.
 ---
 
-Eight circles about one point, at eight equal steps of radius, drawn twice. The faint family is Euclidean. The ink family is hyperbolic. The two start together: the innermost pair is the same ring, so the sheet gives the hyperbolic unit its size.
+Eight circles about one point, at eight equal steps, drawn twice. The sketch draws in the hyperbolic plane, so `circle` is the circle of that plane. The ink family steps by the metric. The faint family steps by the same amount in the chart, and it is drawn as a chain of small steps to keep it there.
 
-After that they part. The Euclidean rings stay concentric and keep their step, and the disk cannot hold them. The outer ones leave through the rim, and the clip cuts them there.
+The two start together: the innermost pair is the same ring, so the sheet gives the hyperbolic unit its size.
 
-Every hyperbolic ring is a round circle too. Its Euclidean centre is not the point it belongs to, and that drift grows with the radius. The ink rings crowd against the rim and never touch it. The circumference of a hyperbolic circle grows with the exponential of its radius. The disk holds all of it inside a finite picture.
+After that they part. The chart rings stay concentric and keep their step, and the disk cannot hold them. The outer ones leave through the rim, and the clip cuts them there.
 
-The small dot marks the one point both families are about. The eighth ink ring is eight units from it, in the same metric as the first.
+Every ring of the metric is a round circle too. Its middle on the sheet is not the point it belongs to, and that drift grows with the radius. The ink rings crowd against the rim and never touch it. The circumference of a hyperbolic circle grows with the exponential of its radius. The disk holds all of it inside a finite picture.
 
-Uses: `hyperbolic.circle`, `stroke`, `clip`, `circle`, `t.times`, `t.bounds`.
+The small dot marks the one point both families are about. The eighth ink ring is eight steps from it, in the metric of the plane.
+
+Uses: `space.hyperbolic`, `t.space`, `circle`, `stroke`, `clip`, `t.times`, `pen`, `mm`.
 
 ```ts live
-// CIRCLES, EUCLIDEAN AND HYPERBOLIC
+// CIRCLES, BY THE METRIC AND BY THE CHART
 //
-// Eight circles about one point, at eight equal steps of radius, drawn
-// two ways. The faint ones are Euclidean: they stay concentric, keep
-// their step, and leave through the rim. The ink ones are hyperbolic:
-// each is still a round circle, but its centre drifts toward the rim
-// and the spacing collapses, because a hyperbolic circle's
-// circumference grows exponentially with its radius and the disk has
-// to hold all of it.
-import { sketch, stroke, clip, circle, pen, mm, hyperbolic } from 'occlude';
+// Eight circles about one point, at eight equal steps, drawn two ways.
+// The ink ones are the circles of the hyperbolic plane: each is still a
+// round circle on the sheet, but its middle drifts toward the rim and
+// the spacing collapses, because a hyperbolic circle's circumference
+// grows exponentially with its radius and the disk has to hold all of
+// it. The faint ones step by the same amount in the chart: they stay
+// concentric, keep their step, and leave through the rim.
+import { sketch, stroke, clip, circle, pen, mm, space } from 'occlude';
 
 export default sketch(
-  { aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
+  { aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 46 }), pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
   (t) => {
-    const b = t.bounds();
-    const R = Math.min(b.w, b.h) * 0.46, cx = b.cx, cy = b.cy;
-    const S = (p) => [cx + R * p[0], cy - R * p[1]];
-    const c = [0.3, 0.18];
-    const rim = stroke(t.times(181, (_, u) => S([Math.cos(u * Math.PI * 2), Math.sin(u * Math.PI * 2)])), { pen: 'ink' });
-    const steps = t.times(8, (k) => 0.35 * (k + 1));
-    const hyper = steps.map((r) => { const ring = hyperbolic.circle(c, r, { count: 96 }).map(S); return stroke([...ring, ring[0]], { pen: 'ink' }); });
-    // The Euclidean circles take the innermost hyperbolic circle's size as
-    // their unit, so the two families start together and then part.
-    const first = hyperbolic.circle(c, steps[0], { count: 8 });
-    const unit = Math.hypot(first[0][0] - c[0], first[0][1] - c[1]);
-    const euclid = steps.map((_, k) => stroke(t.times(97, (_, u) => S([c[0] + unit * (k + 1) * Math.cos(u * Math.PI * 2), c[1] + unit * (k + 1) * Math.sin(u * Math.PI * 2)])), { pen: 'faint' }));
-    const dot = stroke(t.times(25, (_, u) => S([c[0] + 0.01 * Math.cos(u * Math.PI * 2), c[1] + 0.01 * Math.sin(u * Math.PI * 2)])), { pen: 'ink' });
-    return [rim, clip(circle(cx, cy, R), euclid), hyper, dot];
+    const c = t.space.center;
+    const R = t.space.radius;
+    const at = [c[0] + 0.3 * R, c[1] - 0.18 * R];
+    const step = 8;
+    const rim = circle(c[0], c[1], 400, { pen: 'ink' });
+    const hyper = t.times(8, (k) => circle(at[0], at[1], (k + 1) * step, { pen: 'ink' }));
+    // The chart circles take the innermost ring's own size as their unit,
+    // so the two families start together and then part. A ring of small
+    // steps holds the chart: one step in one go would bend.
+    const first = t.space.circle(at, step, 8);
+    const unit = Math.hypot(first[0][0] - at[0], first[0][1] - at[1]);
+    const chartRing = (r) => stroke(t.times(289, (_, u) => [at[0] + r * Math.cos(u * Math.PI * 2), at[1] + r * Math.sin(u * Math.PI * 2)]), { pen: 'faint' });
+    const euclid = t.times(8, (k) => chartRing(unit * (k + 1)));
+    return [rim, clip(circle(c[0], c[1], 400), euclid), hyper, chartRing(0.4)];
   },
 );
 ```

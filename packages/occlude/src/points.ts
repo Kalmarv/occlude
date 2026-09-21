@@ -223,6 +223,38 @@ export function withinRegion(
 }
 
 /**
+ * How much longer a length of the SPACE can be in the chart, over one box:
+ * `1/sqrt(density)` at its thinnest, and never below 1.
+ *
+ * `density` is the area of the space one unit of chart area holds, so
+ * `sqrt(density)` is the linear factor and a chart step of `dp` is worth
+ * `sqrt(density)·dp`. A bucket grid is laid out in the chart while every
+ * radius here is a length of the space, so a search has to be widened by
+ * this factor or it will not reach the neighbour it was meant to find.
+ *
+ * Both curved spaces are radial about their own centre — the hyperbolic
+ * density rises with the distance from it, the spherical one falls — so
+ * the smallest density over a box is at one of its corners or at the point
+ * of it nearest that centre. Reading those five places is exact for both,
+ * and the answer is 1 in the flat plane and in the hyperbolic disk, where
+ * the density never drops below 1 at all.
+ */
+function chartStretch(space: Space, bounds: Bounds): number {
+  const x1 = bounds.x + bounds.w;
+  const y1 = bounds.y + bounds.h;
+  const near: [number, number] = [
+    Math.min(x1, Math.max(bounds.x, space.center[0])),
+    Math.min(y1, Math.max(bounds.y, space.center[1])),
+  ];
+  let low = Infinity;
+  for (const p of [near, [bounds.x, bounds.y], [x1, bounds.y], [bounds.x, y1], [x1, y1]] as [number, number][]) {
+    const d = space.density(p);
+    if (Number.isFinite(d) && d > 0 && d < low) low = d;
+  }
+  return low >= 1 || !Number.isFinite(low) ? 1 : 1 / Math.sqrt(low);
+}
+
+/**
  * Lloyd relaxation: each point moves to the density-weighted centroid of
  * its nearest-site cell within the bounds, `iterations` times. Count,
  * rows, edges and every declared column are kept; a point whose cell holds
@@ -432,12 +464,18 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   const rMax = spacingU * 6; // demand below (1/6)² is treated as empty
   // A bare `spacing` is a length IN THE SPACE, so every radius here is a
   // space length, the candidate step is walked with `exp` and the rejection
-  // test is the space's own distance. The chart length the same demand
-  // covers is `rMin / sqrt(demand · density)` — shorter toward the horizon,
-  // which is how the points crowd there — but the chart is used only to
-  // BUCKET: a chart step is never longer than the space step it stands for,
-  // so a cell search at a space radius always holds every neighbour that
-  // can matter, and the reach expression below stays as it is.
+  // test is the space's own distance. The chart is used only to BUCKET,
+  // and that is where the two lengths have to be reconciled: a chart step
+  // of `dp` is worth `sqrt(density)·dp` in the space, so a space distance
+  // of `r` can be as long as `r / sqrt(density)` in the chart. Where the
+  // density is at least 1 — the flat plane, and the hyperbolic disk, whose
+  // chart SHRINKS the plane — that is never longer than `r` and a cell
+  // search at the space radius already holds every neighbour that can
+  // matter. On a sphere it is not: the chart STRETCHES, density runs below
+  // 1, and a search sized in space units would come up short and let two
+  // points land closer than the spacing asked for. `stretch` is the widest
+  // that gap gets over the bounds, and it is exactly 1 in the two cases
+  // above, so those searches are the numbers they always were.
   //
   // WHERE THE DRAWING STOPS. A curved space holds unbounded area inside a
   // bounded chart, so "evenly spaced" is unboundedly many points and the
@@ -461,6 +499,7 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
       if (!(v > 1 / 36)) return Infinity;
       return rMin / Math.sqrt(Math.min(1, v));
     };
+  const stretch = space ? chartStretch(space, bounds) : 1;
   // Neighbour grid at the minimum radius.
   const cell = rMin / Math.SQRT2;
   const cols = Math.max(1, Math.ceil(bounds.w / cell));
@@ -482,12 +521,12 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   // Candidate reach is sized by the largest radius placed so far: no
   // already-placed neighbour can exceed it, so (r + rMaxSeen) / 2 bounds the
   // distance that can matter. A pure any-overlap predicate over a superset.
-  const reachMax = Math.ceil(rMax / cell) + 1;
+  const reachMax = Math.ceil((rMax * stretch) / cell) + 1;
   let rMaxSeen = 0;
   const col = (x: number): number => Math.min(cols - 1, Math.max(0, Math.floor((x - bounds.x) / cell)));
   const row = (y: number): number => Math.min(rows - 1, Math.max(0, Math.floor((y - bounds.y) / cell)));
   const fits = (x: number, y: number, r: number): boolean => {
-    const reach = Math.min(reachMax, Math.ceil((r + rMaxSeen) / 2 / cell) + 1);
+    const reach = Math.min(reachMax, Math.ceil((((r + rMaxSeen) / 2) * stretch) / cell) + 1);
     const ci = col(x);
     const cj = row(y);
     for (let dj = -reach; dj <= reach; dj++) {
@@ -585,7 +624,7 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   const anyWithin = (x: number, y: number, dist: number): boolean => {
     const ci = col(x);
     const cj = row(y);
-    const span = Math.ceil(dist / cell) + 1;
+    const span = Math.ceil((dist * stretch) / cell) + 1;
     const d2 = dist * dist;
     for (let dj = -span; dj <= span; dj++) {
       const nj = cj + dj;

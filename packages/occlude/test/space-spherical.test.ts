@@ -267,3 +267,38 @@ describe('lowering through the spherical space', () => {
     expect(Math.max(...m.pts.map((p) => p[0]))).toBeGreaterThan(50 + 2 * R);
   });
 });
+
+describe('t.scatter on the sphere', () => {
+  /** The closest two points come, measured by the METRIC — which is what
+   * `spacing` asks about. */
+  const closest = (pts: readonly (readonly number[])[], distance: (a: [number, number], b: [number, number]) => number): number => {
+    let best = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        best = Math.min(best, distance([pts[i][0], pts[i][1]], [pts[j][0], pts[j][1]]));
+      }
+    }
+    return best;
+  };
+
+  it('keeps the spacing it was asked for, out where the chart stretches', () => {
+    // THE BUG THIS CATCHES. The bucket grid is laid out in the CHART while
+    // every radius in the flood is a length of the SPACE. On a sphere the
+    // chart is longer than the metric — its density runs below 1 — so a
+    // cell search sized in space units comes up short away from the point
+    // of contact, misses a neighbour, and lets two points land closer than
+    // the spacing. The fix widens the search by `1/sqrt(min density)`,
+    // which is exactly 1 in the flat plane and in the hyperbolic disk.
+    const t = tk({ space: space.spherical({ radius: 14 }), seed: 3 });
+    const m = t.scatter({ spacing: 6 });
+    expect(m.n).toBeGreaterThan(30);
+    expect(closest(m.pts, (a, b) => t.space.distance(a, b))).toBeGreaterThanOrEqual(6 - 1e-9);
+  });
+
+  it('still keeps it in the flat plane and in the disk', () => {
+    const flat = tk({ seed: 3 });
+    expect(closest(flat.scatter({ spacing: 6 }).pts, (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]))).toBeGreaterThanOrEqual(6 - 1e-9);
+    const disk = tk({ space: space.hyperbolic({ radius: 60 }), seed: 3 });
+    expect(closest(disk.scatter({ spacing: 6 }).pts, (a, b) => disk.space.distance(a, b))).toBeGreaterThanOrEqual(6 - 1e-9);
+  });
+});

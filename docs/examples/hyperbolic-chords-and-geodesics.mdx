@@ -1,44 +1,49 @@
 ---
 title: Chords and geodesics
-description: Seven points joined two ways, by the Euclidean chord and by the hyperbolic line.
+description: Seven points in the hyperbolic plane, every pair joined two ways.
 ---
 
-Seven points inside the disk, every pair joined twice. The faint pen draws the Euclidean chord, the straight segment of the sheet. The ink pen draws the hyperbolic geodesic, the straight line of the plane the disk pictures.
+Seven points, every pair joined twice. The sketch sets `space` to the hyperbolic plane, so one step from one point to another is a step of that plane. The ink pen draws that one step. The engine bends it onto the geodesic, the straight line of the plane.
+
+The faint pen walks the same pair in forty small steps, each one placed along the chord of the chart. A step that short holds the chord to well under the width of the nib. The path as a whole is the chord of the sheet, and the sheet is not the plane.
 
 A geodesic is an arc of the circle that cuts the rim at a right angle. Near the middle of the disk the arc and the chord almost agree, and the two pens run together. Away from the middle they part, and the geodesic always bows toward the centre.
 
 The rim is infinitely far off. A path that keeps clear of it is shorter than a path near it. The bow is that saving. The further a pair sits from the centre, the more the ink line gains by pulling inward.
 
-Twenty-one pairs, and no other rule. The shape in the middle is the difference between the two geometries, at the one place where both can draw.
+Twenty-one pairs, and no other rule. The shape between the two pens is the difference between the two geometries.
 
-Uses: `hyperbolic.geodesic`, `stroke`, `t.times`, `t.rnd`, `t.bounds`, `pen`, `mm`.
+Uses: `space.hyperbolic`, `t.space`, `stroke`, `circle`, `t.times`, `t.rnd`, `pen`, `mm`.
 
 ```ts live
 // CHORDS AND GEODESICS
 //
-// Seven points in the disk, every pair joined twice: the Euclidean
-// chord in a faint pen, the hyperbolic geodesic in ink. Near the middle
-// the two agree. Near the rim the geodesic bows inward, because the rim
-// is infinitely far and a line saves length by keeping clear of it.
-import { sketch, stroke, pen, mm, hyperbolic } from 'occlude';
+// Seven points in the hyperbolic plane, every pair joined twice. The
+// sketch draws in hyperbolic space, so one step from a to b is a step of
+// that plane: the engine bends it onto the geodesic, in ink. The faint
+// pen walks the same pair in forty small steps along the chord of the
+// chart. Near the middle the two agree. Near the rim the geodesic bows
+// inward, because the rim is infinitely far and a line saves length by
+// keeping clear of it.
+import { sketch, stroke, circle, pen, mm, space } from 'occlude';
 
 export default sketch(
-  { aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
+  { aspect: [1, 1], seed: 3, space: space.hyperbolic({ radius: 46 }), pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
   (t) => {
-    const b = t.bounds();
-    const R = Math.min(b.w, b.h) * 0.46, cx = b.cx, cy = b.cy;
-    const S = (p) => [cx + R * p[0], cy - R * p[1]];
+    const c = t.space.center;
+    const R = t.space.radius;
     const pts = t.times(7, (k) => {
       const a = (k / 7) * Math.PI * 2 + t.rnd(-0.25, 0.25), r = 0.55 + t.rnd(0.4);
-      return [r * Math.cos(a), r * Math.sin(a)];
+      return [c[0] + R * r * Math.cos(a), c[1] - R * r * Math.sin(a)];
     });
-    const rim = stroke(t.times(181, (_, u) => S([Math.cos(u * Math.PI * 2), Math.sin(u * Math.PI * 2)])), { pen: 'ink' });
-    const chords = [], arcs = [];
+    // The rim is the horizon: a circle of the space, drawn far enough out
+    // that the chart has nowhere left to put it.
+    const out = [circle(c[0], c[1], 400, { pen: 'ink' })];
     for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
-      chords.push(stroke([S(pts[i]), S(pts[j])], { pen: 'faint' }));
-      arcs.push(stroke(hyperbolic.geodesic(pts[i], pts[j], { count: 48 }).map(S), { pen: 'ink' }));
+      out.push(stroke(t.times(41, (_, u) => [pts[i][0] + (pts[j][0] - pts[i][0]) * u, pts[i][1] + (pts[j][1] - pts[i][1]) * u]), { pen: 'faint' }));
+      out.push(stroke([pts[i], pts[j]], { pen: 'ink' }));
     }
-    return [rim, chords, arcs];
+    return out;
   },
 );
 ```

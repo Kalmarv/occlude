@@ -45,7 +45,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'reference-fills', title: 'Reference: Fills', file: 'reference/fills.mdx', live: true, group: 'topics' },
   { slug: 'reference-connect', title: 'Reference: Connect', file: 'reference/connect.mdx', live: true, group: 'topics' },
   { slug: 'reference-transforms', title: 'Reference: Transforms', file: 'reference/transforms.mdx', live: true, group: 'topics' },
-  { slug: 'reference-hyperbolic', title: 'Reference: Hyperbolic', file: 'reference/hyperbolic.mdx', live: true, group: 'topics' },
+  { slug: 'reference-geometry', title: 'Reference: Geometry', file: 'reference/geometry.mdx', live: true, group: 'topics' },
   { slug: 'reference-material', title: 'Reference: Material', file: 'reference/material.mdx', live: true, group: 'topics' },
   { slug: 'reference-math', title: 'Reference: Math', file: 'reference/math.mdx', live: true, group: 'topics' },
   { slug: 'reference-random', title: 'Reference: Random', file: 'reference/random.mdx', live: true, group: 'topics' },

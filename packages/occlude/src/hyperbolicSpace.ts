@@ -1,8 +1,13 @@
 /**
- * Hyperbolic SPACE, in the Beltrami–Klein ball: `hyperbolic.space`.
+ * Hyperbolic SPACE, in the Beltrami–Klein ball — an INTERNAL module.
  *
- * The disk words draw the hyperbolic PLANE in the Poincaré model, where a
- * straight line is an arc. Space is a different job, and it wants a
+ * Nothing here is part of the public surface. `occlude/3d` exports the
+ * three words a sketch writes — `honeycomb`, `observer` and `geodesic3` —
+ * and they hand out POINT MAPS and meshes; the Lorentz record below is
+ * what those words are made of.
+ *
+ * The disk module draws the hyperbolic PLANE in the Poincaré model, where
+ * a straight line is an arc. Space is a different job, and it wants a
  * different model. In the Beltrami–Klein ball — the unit ball of `[x, y,
  * z]`, whose rim is infinitely far away — a hyperbolic straight line is an
  * ordinary chord and a hyperbolic plane is an ordinary flat plane. So a
@@ -641,30 +646,3 @@ export function camera(eye: Vec3, target: Vec3, opts: SpaceCameraOpts = {}): Lor
   ];
   return compose(record(turn, false), home);
 }
-
-/**
- * Hyperbolic space in the Beltrami–Klein ball: isometries as 4×4 data,
- * straight segments, the regular cells of the four compact honeycombs,
- * their placements, and the observer's own transform.
- *
- * A straight line is a chord here and a plane is flat, so a hyperbolic
- * polyhedron is an ordinary mesh and the 3D words draw it with no special
- * case. Lengths are the exception: Klein coordinates are not hyperbolic
- * lengths, so a spacing measured in the ball is a Klein spacing, and
- * `distance` is the only word here that answers in hyperbolic length.
- */
-export const space = {
-  lorentz,
-  boost,
-  rotation,
-  reflection,
-  apply,
-  map,
-  compose,
-  inverse,
-  distance,
-  geodesic,
-  polyhedron,
-  honeycomb,
-  camera,
-};

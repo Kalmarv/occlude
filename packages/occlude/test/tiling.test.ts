@@ -1,23 +1,26 @@
 /**
- * `tiling(p, q)` — one word for the regular tilings of the sphere, the
- * plane and the hyperbolic disk.
+ * `t.tiling(p, q)` — one word for the regular tilings of the sphere, the
+ * plane and the hyperbolic disk, on the drawable.
  *
- * What is checked: the Schläfli test picks the right geometry; the
- * spherical tilings come back whole, with the face counts of the five
- * Platonic solids; the identity is always first and no two placements put
- * the cell in the same place; the cell really is the `{p, q}` cell (its
- * vertices sit at the circumradius the geometry's own relation gives, and
- * `q` of them meet at a vertex); and the hyperbolic case is the SAME
- * ANSWER `hyperbolic.tiling` gives, to the bit, because both run the one
- * flood.
+ * Two layers are checked. The kernel (`src/tiling.ts`, internal) answers
+ * in each geometry's own MODEL chart: the Schläfli test picks the
+ * geometry, the spherical tilings come back whole with the face counts of
+ * the five Platonic solids, the identity is always first, no two
+ * placements put the cell in the same place, and the cell really is the
+ * `{p, q}` cell. The toolkit word puts that chart on the drawable: when
+ * the sketch's `space` IS the tiling's geometry the placements are
+ * isometries of that space, and when it is not the model chart is fitted
+ * to the drawable and drawn as a picture.
  */
 
 import { describe, expect, it } from 'vitest';
-import { hyperbolic, tiling, tilingGeometry } from '../src/index.js';
+import { toolkit } from './helpers/run.js';
+import { space } from '../src/index.js';
+import { tiling, tilingGeometry, type Tiling } from '../src/tiling.js';
 import { sphereOfChart } from '../src/space.js';
 
 /** Where a tiling puts the centre of each copy of its cell. */
-const seats = (t: ReturnType<typeof tiling>): [number, number][] =>
+const seats = (t: Tiling): [number, number][] =>
   t.placements.map((f) => {
     const p = f([0, 0]);
     return [p[0], p[1]];
@@ -32,12 +35,13 @@ describe('the symbol picks the geometry', () => {
   });
 
   it('refuses only p or q below 3, by name', () => {
-    expect(() => tiling(2, 9)).toThrow(/whole numbers of 3 or more/);
-    expect(() => tiling(9, 1)).toThrow(/whole numbers of 3 or more/);
-    expect(() => tiling(3.5, 7)).toThrow(/whole numbers of 3 or more/);
+    const t = toolkit({ aspect: [1, 1] });
+    expect(() => t.tiling(2, 5)).toThrow(/whole numbers of 3 or more/);
+    expect(() => t.tiling(9, 1)).toThrow(/whole numbers of 3 or more/);
+    expect(() => t.tiling(3.5, 7)).toThrow(/whole numbers of 3 or more/);
     // Every symbol from 3 up draws something, in one geometry or another.
     for (const [p, q] of [[3, 3], [4, 4], [3, 6], [6, 3], [7, 3], [3, 7]]) {
-      expect(tiling(p, q, { depth: 1 }).placements.length).toBeGreaterThan(1);
+      expect(t.tiling(p, q, { depth: 1 }).placements.length).toBeGreaterThan(1);
     }
   });
 });
@@ -108,7 +112,7 @@ describe('the Euclidean tilings are the three of the plane', () => {
     }
   });
 
-  it('gives the cell an edge of length 1, one vertex on the positive x axis', () => {
+  it('gives the model cell an edge of length 1, one vertex on the positive x axis', () => {
     for (const [p, q] of [[4, 4], [3, 6], [6, 3]]) {
       const t = tiling(p, q);
       expect(t.cell.length).toBe(p);
@@ -146,36 +150,112 @@ describe('the Euclidean tilings are the three of the plane', () => {
   });
 });
 
-describe('the hyperbolic case is `hyperbolic.tiling`', () => {
-  it('answers the same placements, point for point', () => {
-    for (const [p, q, depth] of [[7, 3, 3], [5, 4, 2], [3, 7, 3]]) {
-      const generic = tiling(p, q, { depth });
-      const disk = hyperbolic.tiling(p, q, { depth });
-      expect(generic.space).toBe('hyperbolic');
-      expect(generic.placements.length).toBe(disk.length);
-      expect(generic.cell).toEqual(hyperbolic.polygon(p, q));
-      for (const probe of [[0, 0], [0.11, 0.07], [-0.4, 0.33]] as [number, number][]) {
-        for (let i = 0; i < disk.length; i++) {
-          expect(generic.placements[i](probe)).toEqual(hyperbolic.apply(disk[i], probe));
-        }
+describe('the hyperbolic tilings are the disk\'s', () => {
+  it('keeps the counts the disk has always answered with', () => {
+    expect(tiling(7, 3, { depth: 3 }).placements.length).toBe(85);
+    expect(tiling(7, 3, { depth: 2 }).placements.length).toBe(29);
+    expect(tiling(7, 3, { depth: 1 }).placements.length).toBe(8);
+    expect(tiling(7, 3, { depth: 4 }).placements.length).toBe(232);
+    expect(tiling(5, 4, { depth: 3 }).placements.length).toBe(61);
+  });
+
+  it('is regular, and its corners carry the {p, q} angle', () => {
+    const t = tiling(7, 3);
+    expect(t.cell.length).toBe(7);
+    const R = Math.hypot(t.cell[0][0], t.cell[0][1]);
+    for (const v of t.cell) expect(Math.hypot(v[0], v[1])).toBeCloseTo(R, 12);
+    // `cosh R_h = cot(π/p)·cot(π/q)`, and `tanh(R_h/2)` is the chart radius.
+    const want = Math.tanh(Math.acosh(1 / (Math.tan(Math.PI / 7) * Math.tan(Math.PI / 3))) / 2);
+    expect(R).toBeCloseTo(want, 12);
+    // Every copy stays inside the disk, which is the whole plane.
+    for (const [x, y] of seats(tiling(7, 3, { depth: 3 }))) expect(Math.hypot(x, y)).toBeLessThan(1);
+  });
+});
+
+describe('t.tiling puts the chart on the drawable', () => {
+  /** The largest circle the 100 × 100 drawable holds. */
+  const FIT = 50;
+
+  it('fits the model chart to the drawable when the geometry is not the sketch\'s', () => {
+    const t = toolkit({ aspect: [1, 1] });
+    const flat = t.tiling(7, 3, { depth: 2 });
+    expect(flat.space).toBe('hyperbolic');
+    const model = tiling(7, 3, { depth: 2 });
+    for (let i = 0; i < model.cell.length; i++) {
+      expect(flat.cell[i][0]).toBeCloseTo(50 + FIT * model.cell[i][0], 9);
+      expect(flat.cell[i][1]).toBeCloseTo(50 + FIT * model.cell[i][1], 9);
+    }
+    // The identity is still first, and it is the identity on the drawable.
+    expect(flat.placements[0]([37, 61])[0]).toBeCloseTo(37, 9);
+    expect(flat.placements[0]([37, 61])[1]).toBeCloseTo(61, 9);
+    // The whole picture lands inside the drawable's inscribed circle: the
+    // model's rim is that circle.
+    for (const f of flat.placements) {
+      for (const v of model.cell) {
+        const p = f([50 + FIT * v[0], 50 + FIT * v[1]]);
+        expect(Math.hypot(p[0] - 50, p[1] - 50)).toBeLessThan(FIT + 1e-9);
       }
     }
   });
 
-  it('keeps the counts the disk has always answered with', () => {
-    expect(hyperbolic.tiling(7, 3, { depth: 3 }).length).toBe(85);
-    expect(hyperbolic.tiling(7, 3, { depth: 2 }).length).toBe(29);
-    expect(hyperbolic.tiling(5, 4, { depth: 3 }).length).toBe(61);
-    expect(tiling(7, 3, { depth: 3 }).placements.length).toBe(85);
+  it('is the sketch\'s own disk when the sketch is hyperbolic', () => {
+    const t = toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 40 }) });
+    const tl = t.tiling(7, 3, { depth: 2 });
+    // The cell sits at the space's own radius, not the fitted one.
+    const model = tiling(7, 3);
+    expect(Math.hypot(tl.cell[0][0] - 50, tl.cell[0][1] - 50)).toBeCloseTo(40 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
+    // Every placement is an ISOMETRY of the space the sketch draws in.
+    const probe: [number, number][] = [[50, 50], [62, 47], [41, 58], [55, 63]];
+    for (const f of tl.placements) {
+      for (let i = 0; i + 1 < probe.length; i++) {
+        expect(t.space.distance(f(probe[i]), f(probe[i + 1]))).toBeCloseTo(t.space.distance(probe[i], probe[i + 1]), 7);
+      }
+    }
   });
 
-  it('keeps the disk words the disk\'s own, and names the generic one', () => {
-    // `hyperbolic.polygon` and `hyperbolic.tiling` answer in the disk's
-    // coordinates and with the disk's isometries, which a Euclidean or a
-    // spherical symbol has none of.
-    expect(() => hyperbolic.polygon(4, 4)).toThrow(/not a hyperbolic tiling/);
-    expect(() => hyperbolic.polygon(4, 4)).toThrow(/tiling\(4, 4\)/);
-    expect(() => hyperbolic.tiling(3, 4, { depth: 1 })).toThrow(/the sphere/);
-    expect(() => hyperbolic.tiling(4, 4, { depth: 1 })).toThrow(/the Euclidean plane/);
+  it('is the sketch\'s own sphere when the sketch is spherical', () => {
+    const t = toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
+    const tl = t.tiling(3, 5);
+    expect(tl.space).toBe('spherical');
+    expect(tl.placements.length).toBe(20);
+    // The equator sits at twice the radius from the centre, and that is
+    // where the model chart's unit circle lands.
+    const model = tiling(3, 5);
+    expect(Math.hypot(tl.cell[0][0] - 50, tl.cell[0][1] - 50)).toBeCloseTo(60 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
+    const probe: [number, number][] = [[50, 50], [62, 47], [41, 58]];
+    // ONE copy of the cell lands opposite the point the chart is taken
+    // from. That place has no chart point, so the copy is the outside of
+    // the picture: its coordinates run out past every other copy's and
+    // carry almost no precision left. Every other copy is an isometry of
+    // the sketch's own sphere, exactly.
+    const out = tl.placements.map((f) => Math.hypot(f(probe[0])[0] - 50, f(probe[0])[1] - 50));
+    const furthest = Math.max(...out);
+    expect(furthest).toBeGreaterThan(5 * t.space.radius);
+    for (let k = 0; k < tl.placements.length; k++) {
+      if (out[k] === furthest) continue;
+      const f = tl.placements[k];
+      for (let i = 0; i + 1 < probe.length; i++) {
+        expect(t.space.distance(f(probe[i]), f(probe[i + 1]))).toBeCloseTo(t.space.distance(probe[i], probe[i + 1]), 7);
+      }
+    }
+  });
+
+  it('keeps a Euclidean symbol an isometry of the sheet, whatever the fit', () => {
+    for (const cfg of [{}, { space: space.hyperbolic({ radius: 60 }) }]) {
+      const t = toolkit({ aspect: [1, 1], ...cfg });
+      const tl = t.tiling(4, 4, { depth: 1 });
+      expect(tl.space).toBe('euclidean');
+      // A scaled plane tiling is a plane tiling: every copy is rigid on
+      // the sheet, whether the sketch's space is flat or not.
+      for (const f of tl.placements) {
+        for (let i = 0; i < tl.cell.length; i++) {
+          const a = tl.cell[i];
+          const b = tl.cell[(i + 1) % tl.cell.length];
+          expect(Math.hypot(...f(b).map((v, k) => v - f(a)[k]))).toBeCloseTo(Math.hypot(b[0] - a[0], b[1] - a[1]), 9);
+        }
+      }
+      // The model's unit length is half the short side of the drawable.
+      expect(Math.hypot(tl.cell[1][0] - tl.cell[0][0], tl.cell[1][1] - tl.cell[0][1])).toBeCloseTo(FIT, 9);
+    }
   });
 });

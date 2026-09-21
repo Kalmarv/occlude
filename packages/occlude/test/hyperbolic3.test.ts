@@ -1,10 +1,21 @@
+/**
+ * Hyperbolic SPACE in the Beltrami–Klein ball.
+ *
+ * The Lorentz record and its makers are INTERNAL — `hyperbolicSpace.ts` —
+ * and this file is the proof that the maths they carry did not change with
+ * the consolidation. The three words a sketch actually writes are the
+ * interim 3D ones, `honeycomb`, `observer` and `geodesic3`, and they have
+ * a describe of their own at the end.
+ */
+
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { mesh, polyline, view, perspective } from 'occlude/3d';
-import { compileSketchAsync, evalPrim, hyperbolic, initOcclude, mm, pen, render, sketchAsync, strokes, type Lorentz } from '../src/index.js';
-
-const { space } = hyperbolic;
-const { lorentz, boost, rotation, reflection, apply, compose, inverse, distance, geodesic, polyhedron, honeycomb, camera } = space;
+import { mesh, polyline, view, perspective, honeycomb as honeycomb3, observer, geodesic3 } from 'occlude/3d';
+import { compileSketchAsync, evalPrim, initOcclude, mm, pen, render, sketchAsync, strokes } from '../src/index.js';
+import {
+  lorentz, boost, rotation, reflection, apply, compose, inverse, distance, geodesic, polyhedron, honeycomb, camera,
+  type Lorentz,
+} from '../src/hyperbolicSpace.js';
 
 beforeAll(async () => initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 
@@ -255,12 +266,12 @@ describe('camera', () => {
 describe('a honeycomb on paper', () => {
   it('renders a depth-1 {4, 3, 5} through the 3D view, inside its drawable', async () => {
     const definition = sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25) }) } }, async () => {
-      const cell = polyhedron(4, 3, 5);
+      const { cell, placements } = honeycomb3(4, 3, 5, { depth: 1 });
       const edges = cell.faces.flatMap((f) => f.map((a, i) => [a, f[(i + 1) % f.length]]).filter(([a, b]) => a < b));
-      const cam = camera([0.05, -0.08, 0.1], [0.8, 0, 0]);
-      const wires = honeycomb(4, 3, 5, { depth: 1 }).flatMap((placement) => {
-        const seen = cell.points.map((p) => apply(compose(cam, placement), p as Vec3));
-        return edges.map(([a, b]) => polyline(geodesic(seen[a], seen[b], { count: 8 }) as [number, number, number][]));
+      const eye = observer([0.05, -0.08, 0.1], [0.8, 0, 0]);
+      const wires = placements.flatMap((place) => {
+        const seen = cell.points.map((p) => eye(place(p as Vec3)));
+        return edges.map(([a, b]) => polyline(geodesic3(seen[a], seen[b], { count: 8 }) as [number, number, number][]));
       });
       return view(wires, { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.01 }), stroke: 'ink' }, (lines) => {
         const r = lines.visible.source.frame.paper;
@@ -277,5 +288,56 @@ describe('a honeycomb on paper', () => {
       return x < x0 - 0.5 || x > x0 + out.frame.inner.innerW + 0.5 || y < y0 - 0.5 || y > y0 + out.frame.inner.innerH + 0.5;
     }).length;
     expect(off).toBe(0);
+  });
+});
+
+describe('the interim 3D words', () => {
+  it('hands the cell and its placements as point maps, the identity first', () => {
+    const { cell, placements } = honeycomb3(4, 3, 5, { depth: 2 });
+    // The counts the records have always answered with.
+    expect(placements.length).toBe(37);
+    expect(honeycomb3(4, 3, 5, { depth: 0 }).placements.length).toBe(1);
+    expect(honeycomb3(4, 3, 5, { depth: 1 }).placements.length).toBe(7);
+    expect(honeycomb3(5, 3, 4, { depth: 1 }).placements.length).toBe(13);
+    expect(honeycomb3(3, 5, 3, { depth: 1 }).placements.length).toBe(21);
+    expect(() => honeycomb3(4, 3, 4)).toThrow('EUCLIDEAN');
+    // The cell is the same mesh `polyhedron` builds, and the first
+    // placement leaves it where it is.
+    expect(cell.points).toEqual(polyhedron(4, 3, 5).points);
+    expect(cell.faces).toEqual(polyhedron(4, 3, 5).faces);
+    for (const p of cell.points) expect(away(placements[0](p as Vec3), p as Vec3)).toBeLessThan(1e-12);
+    // Every placement is an isometry: it keeps every hyperbolic length.
+    const probe = ballPoints(8, 3, 0.4);
+    for (const place of placements.slice(0, 8)) {
+      for (let i = 0; i + 1 < probe.length; i += 2) {
+        expect(distance(place(probe[i]), place(probe[i + 1]))).toBeCloseTo(distance(probe[i], probe[i + 1]), 9);
+      }
+    }
+  });
+
+  it('puts the observer at the centre of the ball, looking down +Y', () => {
+    const eye: Vec3 = [0.2, -0.1, 0.05];
+    const target: Vec3 = [0.5, 0.4, 0.1];
+    const look = observer(eye, target);
+    expect(Math.hypot(...look(eye))).toBeLessThan(1e-12);
+    const aim = look(target);
+    expect(aim[1]).toBeGreaterThan(0);
+    expect(Math.hypot(aim[0], aim[2])).toBeLessThan(1e-12);
+    expect(distance(eye, target)).toBeCloseTo(distance([0, 0, 0], aim), 12);
+    // The world's up lands on +Z, and `up` along the line of sight names
+    // no frame.
+    expect(observer([0, 0, 0], [0.6, 0, 0])([0, 0, 0.4])[2]).toBeGreaterThan(0.39);
+    expect(() => observer([0, 0, 0], [0, 0, 0.5])).toThrow('line of sight');
+  });
+
+  it('samples a chord by hyperbolic length, ends exact', () => {
+    const a: Vec3 = [-0.2, 0.1, 0];
+    const b: Vec3 = [0.85, -0.3, 0.2];
+    const pts = geodesic3(a, b, { count: 8 });
+    expect(pts.length).toBe(9);
+    expect(away(pts[0], a)).toBeLessThan(1e-12);
+    expect(away(pts[8], b)).toBeLessThan(1e-12);
+    const step = distance(a, b) / 8;
+    for (let k = 0; k < 8; k++) expect(distance(pts[k], pts[k + 1])).toBeCloseTo(step, 9);
   });
 });
