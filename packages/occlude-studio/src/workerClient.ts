@@ -84,9 +84,9 @@ export interface RenderDraft {
   progress?: { operation: string; done: number; total?: number; detail?: string };
 }
 
-/** Give geometry-heavy sketches up to a minute before the worker watchdog
+/** Give geometry-heavy sketches up to five minutes before the worker watchdog
  * terminates a render. This includes sketch execution and construction. */
-const RENDER_TIMEOUT_MS = 60_000;
+const RENDER_TIMEOUT_MS = 300_000;
 /** A newer request arriving while a render has already run this long
  * pre-empts it: the worker is respawned and the new request runs at once.
  * That is what makes ctrl+z a cancel — undo the change, the previous code
