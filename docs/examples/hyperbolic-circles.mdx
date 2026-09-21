@@ -1,0 +1,47 @@
+---
+title: Circles
+description: Eight circles about one point, drawn Euclidean and drawn hyperbolic.
+---
+
+Eight circles about one point, at eight equal steps of radius, drawn twice. The faint family is Euclidean. The ink family is hyperbolic. The two start together: the innermost pair is the same ring, so the sheet gives the hyperbolic unit its size.
+
+After that they part. The Euclidean rings stay concentric and keep their step, and the disk cannot hold them. The outer ones leave through the rim, and the clip cuts them there.
+
+Every hyperbolic ring is a round circle too. Its Euclidean centre is not the point it belongs to, and that drift grows with the radius. The ink rings crowd against the rim and never touch it. The circumference of a hyperbolic circle grows with the exponential of its radius. The disk holds all of it inside a finite picture.
+
+The small dot marks the one point both families are about. The eighth ink ring is eight units from it, in the same metric as the first.
+
+Uses: `hyperbolic.circle`, `stroke`, `clip`, `circle`, `t.times`, `t.bounds`.
+
+```ts live
+// CIRCLES, EUCLIDEAN AND HYPERBOLIC
+//
+// Eight circles about one point, at eight equal steps of radius, drawn
+// two ways. The faint ones are Euclidean: they stay concentric, keep
+// their step, and leave through the rim. The ink ones are hyperbolic:
+// each is still a round circle, but its centre drifts toward the rim
+// and the spacing collapses, because a hyperbolic circle's
+// circumference grows exponentially with its radius and the disk has
+// to hold all of it.
+import { sketch, stroke, clip, circle, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch(
+  { aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
+  (t) => {
+    const b = t.bounds();
+    const R = Math.min(b.w, b.h) * 0.46, cx = b.cx, cy = b.cy;
+    const S = (p) => [cx + R * p[0], cy - R * p[1]];
+    const c = [0.3, 0.18];
+    const rim = stroke(t.times(181, (_, u) => S([Math.cos(u * Math.PI * 2), Math.sin(u * Math.PI * 2)])), { pen: 'ink' });
+    const steps = t.times(8, (k) => 0.35 * (k + 1));
+    const hyper = steps.map((r) => { const ring = hyperbolic.circle(c, r, { count: 96 }).map(S); return stroke([...ring, ring[0]], { pen: 'ink' }); });
+    // The Euclidean circles take the innermost hyperbolic circle's size as
+    // their unit, so the two families start together and then part.
+    const first = hyperbolic.circle(c, steps[0], { count: 8 });
+    const unit = Math.hypot(first[0][0] - c[0], first[0][1] - c[1]);
+    const euclid = steps.map((_, k) => stroke(t.times(97, (_, u) => S([c[0] + unit * (k + 1) * Math.cos(u * Math.PI * 2), c[1] + unit * (k + 1) * Math.sin(u * Math.PI * 2)])), { pen: 'faint' }));
+    const dot = stroke(t.times(25, (_, u) => S([c[0] + 0.01 * Math.cos(u * Math.PI * 2), c[1] + 0.01 * Math.sin(u * Math.PI * 2)])), { pen: 'ink' });
+    return [rim, clip(circle(cx, cy, R), euclid), hyper, dot];
+  },
+);
+```

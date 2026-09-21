@@ -1,0 +1,368 @@
+---
+title: Hyperbolic
+description: The Poincaré disk and the Klein ball as places to draw.
+---
+
+The hyperbolic plane and hyperbolic space, as places to draw. The plane words work in the Poincaré disk: the unit disk about the origin. The space words work in the Beltrami-Klein ball: the unit ball of `[x, y, z]`. The rim of each model lies infinitely far off, so a cell near the rim comes out small.
+
+Every word here takes model coordinates. Nothing here reads the seed or the paper, and the whole namespace stays a module import, as `sdf` does. The sketch puts the disk or the ball on the sheet with the transforms it already has.
+
+Outside the closed disk every field answers NaN. A field consumer reads a non-finite sample as absent, and the disk edge becomes the drawing's edge with no special case.
+
+## transforms
+
+<include>/_sig/hyperbolic.mobius.mdx</include>
+<include>/_sig/hyperbolic.translation.mdx</include>
+<include>/_sig/hyperbolic.rotation.mdx</include>
+<include>/_sig/hyperbolic.reflection.mdx</include>
+<include>/_sig/hyperbolic.apply.mdx</include>
+<include>/_sig/hyperbolic.map.mdx</include>
+<include>/_sig/hyperbolic.compose.mdx</include>
+<include>/_sig/hyperbolic.inverse.mdx</include>
+
+A point of the disk is a complex number. Every isometry of the disk reads `z ↦ (a·z + b)/(c·z + d)`, on `z` or on its conjugate. So a transform is data: four complex numbers as `[re, im]` pairs, and a `mirror` flag. `apply`, `compose` and `inverse` are the verbs over that record. `compose(m1, m2)` does `m2` first.
+
+`translation(dx, dy)` slides the origin to a point inside the disk. `rotation(degrees)` turns about the origin. `reflection(a, b)` folds the disk over the geodesic through two points, and sets `mirror`. `mobius` takes the four coefficients as they stand and normalises them.
+
+`map(g)` is the point map of one record. A material takes the same record through [m.map()](/docs/reference/transforms#mmap), and the signature of that method stays on the transforms page.
+
+## lines, circles and tilings
+
+<include>/_sig/hyperbolic.distance.mdx</include>
+<include>/_sig/hyperbolic.geodesic.mdx</include>
+<include>/_sig/hyperbolic.circle.mdx</include>
+<include>/_sig/hyperbolic.polygon.mdx</include>
+<include>/_sig/hyperbolic.tiling.mdx</include>
+
+<AutoTypeTable path="../occlude/src/hyperbolic.ts" name="TilingOpts" />
+
+`distance(a, b)` measures in the plane the disk pictures, not on the sheet.
+
+A geodesic is a straight line of that plane. `geodesic(a, b)` answers the points along one: an arc of the circle that cuts the rim at right angles, or a diameter. A hyperbolic circle is a Euclidean circle too, but not about the same point. `circle(center, r)` answers the loop, and the further out the centre sits, the further the two centres drift apart.
+
+`polygon(p, q)` is the fundamental polygon of the `{p, q}` tiling, centred on the origin with one vertex on the positive x axis. `(p − 2)(q − 2)` must be more than 4, and a Euclidean or spherical pair refuses by name. `tiling(p, q, { depth })` answers the placements. Each copy of that polygon gets one transform, and the identity comes first. It folds the polygon over its own edges, out to `depth` generations. A `{7, 3}` tiling counts 8 copies at depth 1, then 29, 85, 232 and 617.
+
+Draw the motif once, inside the fundamental polygon, and hand every record to `map`. The copies at odd generations come out mirrored, because a fold turns the disk over. Below, they take the second pen.
+
+```ts live
+import { sketch, strokes, circle, append, connect, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 1, pens: {
+  even: pen({ width: mm(0.25), color: '#23252B' }),
+  odd: pen({ width: mm(0.25), color: '#2457D6' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 1;
+  const onSheet = (p) => [b.cx + p.x * R, b.cy + p.y * R];
+  const corners = hyperbolic.polygon(7, 3);
+  // An edge is symmetric about the middle sample of its geodesic, so that
+  // sample is the metric middle of the edge.
+  const mid = (i) => hyperbolic.geodesic(corners[i], corners[(i + 1) % 7], { count: 2 })[1];
+  const motif = append(
+    ...t.times(7, (i) => connect.chain(hyperbolic.geodesic(mid(i), mid((i + 1) % 7), { count: 6 }))),
+    connect.ring(hyperbolic.circle([0, 0], 0.34, { count: 18 })),
+  );
+  return [
+    circle(b.cx, b.cy, R, { pen: 'even' }),
+    ...hyperbolic.tiling(7, 3, { depth: 4 }).map((g) =>
+      strokes(motif.map(hyperbolic.map(g)).map(onSheet), { pen: g.mirror ? 'odd' : 'even' })),
+  ];
+});
+```
+
+The second drawing takes the two curves apart. A fan of geodesics leaves one point, and every ray runs the same hyperbolic length. The ray ends land on one hyperbolic circle, in blue. Three more circles nest about a second point, and their Euclidean centres drift outward. A fold in the black arc carries that nest to the orange one.
+
+```ts live
+import { sketch, strokes, circle, append, connect, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2, pens: {
+  rim: pen({ width: mm(0.45), color: '#23252B' }),
+  ray: pen({ width: mm(0.25), color: '#23252B' }),
+  ring: pen({ width: mm(0.3), color: '#2457D6' }),
+  echo: pen({ width: mm(0.3), color: '#B4552B' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 2;
+  // The same slide as translation(0.12, -0.06), written as its four
+  // coefficients. Nothing in the disk marks the centre, so the whole
+  // picture takes that slide and sits off the middle.
+  const off = hyperbolic.mobius([1, 0], [0.12, -0.06], [0.12, 0.06], [1, 0]);
+  const sheet = (m) => m.map(hyperbolic.map(off)).map((p) => [b.cx + p.x * R, b.cy + p.y * R]);
+
+  const hub = [-0.45, -0.2];
+  const nest = [0.42, 0.34];
+  const at = hyperbolic.translation(hub[0], hub[1]);
+  // Which way is the nest, seen from the hub? Bring it home and read the
+  // angle there: that is what the inverse is for.
+  const home = hyperbolic.apply(hyperbolic.inverse(at), nest);
+  const bearing = (Math.atan2(home[1], home[0]) * 180) / Math.PI;
+  const reach = hyperbolic.distance(hub, nest);
+  const rho = Math.tanh(reach / 2);
+  const fan = t.times(15, (k) => {
+    const turn = hyperbolic.compose(at, hyperbolic.rotation(bearing + (k - 7) * 11));
+    return connect.chain(hyperbolic.geodesic(hub, hyperbolic.apply(turn, [rho, 0])));
+  });
+  const rings = [0.4, 0.8, 1.2].map((r) => connect.ring(hyperbolic.circle(nest, r, { count: 120 })));
+  const reachRing = connect.ring(hyperbolic.circle(hub, reach, { count: 160 }));
+  const mirror = hyperbolic.reflection([0.18, -0.86], [0.93, 0.15]);
+  const line = connect.chain(hyperbolic.geodesic([0.18, -0.86], [0.93, 0.15], { count: 60 }));
+
+  return [
+    circle(b.cx, b.cy, R, { pen: 'rim' }),
+    strokes(sheet(append(...fan)), { pen: 'ray' }),
+    strokes(sheet(append(reachRing, ...rings)), { pen: 'ring' }),
+    strokes(sheet(line), { pen: 'rim' }),
+    strokes(sheet(append(...rings).map(hyperbolic.map(mirror))), { pen: 'echo' }),
+  ];
+});
+```
+
+A hatch, a scatter or an isoline over mapped material counts its spacing on the sheet, not in the disk. The metric itself arrives as fields, below.
+
+## the metric as fields
+
+<include>/_sig/hyperbolic.field.disc.mdx</include>
+<include>/_sig/hyperbolic.field.halfplane.mdx</include>
+<include>/_sig/hyperbolic.field.points.mdx</include>
+<include>/_sig/hyperbolic.field.cell.mdx</include>
+<include>/_sig/hyperbolic.density.mdx</include>
+<include>/_sig/hyperbolic.equidistants.mdx</include>
+
+<AutoTypeTable path="../occlude/src/hyperbolic.ts" name="EquidistantOpts" />
+
+The metric reaches the spacing words as data. `hyperbolic.field.*` and `hyperbolic.density` answer plain fields, and a plain field is what `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra already read. There is no `hyperbolic.hatch` and no `hyperbolic.scatter`.
+
+`field.disc(center, r)` is the signed hyperbolic distance to a hyperbolic circle, positive inside, like `sdf.circle`. Its zero set is `circle(center, r)`, and its other level sets are the hyperbolic circles about the same centre. `field.halfplane(a, b)` measures to the geodesic through two points, and it is positive on the left of `a → b`. Its level sets are that geodesic's equidistant curves. `field.points(set)` gives the unsigned distance to the nearest point of a set. `field.cell(p, q)` is the smallest of the `p` half-planes of the fundamental polygon. It is positive inside the cell and zero on its edges.
+
+Every field takes model coordinates. A sketch on the sheet wraps the field in its own map from the sheet to the disk. The toolkit has no paper-aware variant, because a field consumer takes any function of two numbers.
+
+Outside the disk every field answers NaN. A field consumer reads a non-finite sample as absent: `t.isolines` truncates a contour open at it, and `t.scatter` places nothing. The rim becomes the drawing's edge with no special case.
+
+`field.cell(7, 3)` contoured at a few hyperbolic steps is a hyperbolic hatch of the cell. Each contour is the set of points one fixed hyperbolic distance in from the boundary. The contours crowd the way the metric crowds, not the way the sheet does. One `t.isolines` call gives the insets once, and every placement of `tiling(7, 3)` carries them with `m.map`.
+
+```ts live
+import { sketch, strokes, circle, append, connect, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 1, pens: {
+  edge: pen({ width: mm(0.3), color: '#23252B' }),
+  inset: pen({ width: mm(0.2), color: '#2457D6' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 1;
+  const toDisk = (p) => [(p.x - b.cx) / R, (p.y - b.cy) / R];
+  const toSheet = (p) => [b.cx + p[0] * R, b.cy + p[1] * R];
+  // The cell's own field, read on the sheet: the sketch wraps it, and
+  // t.isolines never learns that the disk is there.
+  const cell = hyperbolic.field.cell(7, 3);
+  const insets = t.isolines((x, y) => cell((x - b.cx) / R, (y - b.cy) / R), [0.12, 0.26, 0.4], { step: mm(0.4) }).map(toDisk);
+  const verts = hyperbolic.polygon(7, 3);
+  const edges = append(...t.times(7, (i) =>
+    connect.chain(hyperbolic.geodesic(verts[i], verts[(i + 1) % 7], { count: 16 }))));
+  return [
+    circle(b.cx, b.cy, R, { pen: 'edge' }),
+    ...hyperbolic.tiling(7, 3, { depth: 3 }).map((g) => {
+      const place = (p) => toSheet(hyperbolic.apply(g, p));
+      return [
+        strokes(edges.map(place), { pen: 'edge' }),
+        strokes(insets.map(place), { pen: 'inset' }),
+      ];
+    }),
+  ];
+});
+```
+
+`density()` is the area element of the disk against the sheet, `(2 / (1 − |z|²))²`. It is 4 at the origin, and it grows without bound toward the rim. `t.scatter(density, { spacing })` spreads points evenly in the hyperbolic metric. Equal hyperbolic areas take smaller and smaller Euclidean areas near the rim, so the dots crowd there.
+
+`t.scatter` reads a demand between 1/36 and 1. The sketch divides the area element by its value at the outermost radius it draws. The cap of 36 holds the sheet's spacing ratio at six to one. That is the disk out to `|z| = 0.913`.
+
+`equidistants(a, b, { spacing, count })` is the one generator here. It gives the hypercycles of a geodesic as polylines, `count` of them on each side. A hypercycle is an arc of a circle through the geodesic's two ideal endpoints. The piece it hands back runs alongside the segment `a → b`. The ideal endpoints sit on the rim, and the rim is not a place the disk holds. Below, the blue line is the zero contour of `field.halfplane`, and the grey arcs are its hypercycles. They converge toward the two ideal endpoints, and the dots stay even against them.
+
+```ts live
+import { sketch, strokes, circle, dots, append, connect, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5, pens: {
+  rim: pen({ width: mm(0.4), color: '#23252B' }),
+  line: pen({ width: mm(0.25), color: '#2457D6' }),
+  arc: pen({ width: mm(0.18), color: '#9AA3B2' }),
+  dot: pen({ width: mm(0.5), color: '#23252B' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 1;
+  const toSheet = (p) => [b.cx + p[0] * R, b.cy + p[1] * R];
+  // t.scatter reads a demand between 1/36 and 1, so the area element is
+  // divided by its value at the outermost radius drawn.
+  const area = hyperbolic.density();
+  const edge = 0.913;
+  const peak = area(edge, 0);
+  const demand = (x, y) => {
+    const mx = (x - b.cx) / R;
+    const my = (y - b.cy) / R;
+    return mx * mx + my * my < edge * edge ? area(mx, my) / peak : NaN;
+  };
+  const marks = t.scatter(demand, { spacing: mm(1.7) });
+  // One geodesic, near enough the whole way across, and its hypercycles.
+  const a = [-0.956, -0.256];
+  const c = [0.956, 0.256];
+  const side = hyperbolic.field.halfplane(a, c);
+  const arcs = hyperbolic.equidistants(a, c, { spacing: 0.9, count: 4, samples: 140 });
+  return [
+    circle(b.cx, b.cy, R, { pen: 'rim' }),
+    strokes(append(...arcs.map((g) => connect.chain(g.map(toSheet)))), { pen: 'arc' }),
+    strokes(t.isolines((x, y) => side((x - b.cx) / R, (y - b.cy) / R), 0, { step: mm(0.4) }), { pen: 'line' }),
+    dots(marks, { pen: 'dot' }),
+  ];
+});
+```
+
+The `sdf` algebra reads a hyperbolic field like any other. Two `field.disc`s through `sdf.blend` give hyperbolic circles that merge. The blue rings are the levels inside, at 0.9, 0.6, 0.3 and 0. The orange rings are the levels outside. Far from the joint `blend` is exactly the union, so the outer rings keep the two corners where the discs cross. `field.points` of the same two centres is that plain union. The grey pair below is its edge, and it leaves the blue level 0 only at the two notches the fillet fills.
+
+```ts live
+import { sketch, strokes, circle, sdf, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3, pens: {
+  rim: pen({ width: mm(0.4), color: '#23252B' }),
+  sharp: pen({ width: mm(0.18), color: '#9AA3B2' }),
+  inside: pen({ width: mm(0.25), color: '#2457D6' }),
+  outside: pen({ width: mm(0.2), color: '#B4552B' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 1;
+  const seeds = [[-0.34, -0.1], [0.36, 0.14]];
+  const reach = 1.1;
+  // Two hyperbolic discs, filleted where they meet. The sdf algebra never
+  // learns that these two leaves measure in another metric.
+  const pair = sdf.blend(hyperbolic.field.disc(seeds[0], reach), hyperbolic.field.disc(seeds[1], reach), 0.4);
+  // The same two discs without the fillet: the nearest of the set, which
+  // is the plain union and keeps its two corners.
+  const nearest = hyperbolic.field.points(seeds);
+  const onSheet = (f) => (x, y) => f((x - b.cx) / R, (y - b.cy) / R);
+  return [
+    circle(b.cx, b.cy, R, { pen: 'rim' }),
+    strokes(t.isolines(onSheet((x, y) => reach - nearest(x, y)), 0, { step: mm(0.4) }), { pen: 'sharp' }),
+    strokes(t.isolines(onSheet(pair), [0.9, 0.6, 0.3, 0], { step: mm(0.4) }), { pen: 'inside' }),
+    strokes(t.isolines(onSheet(pair), [-0.4, -0.9, -1.5, -2.2, -3.1], { step: mm(0.4) }), { pen: 'outside' }),
+  ];
+});
+```
+
+## space
+
+<include>/_sig/hyperbolic.space.boost.mdx</include>
+<include>/_sig/hyperbolic.space.rotation.mdx</include>
+<include>/_sig/hyperbolic.space.apply.mdx</include>
+<include>/_sig/hyperbolic.space.map.mdx</include>
+<include>/_sig/hyperbolic.space.compose.mdx</include>
+<include>/_sig/hyperbolic.space.inverse.mdx</include>
+<include>/_sig/hyperbolic.space.distance.mdx</include>
+<include>/_sig/hyperbolic.space.geodesic.mdx</include>
+<include>/_sig/hyperbolic.space.polyhedron.mdx</include>
+<include>/_sig/hyperbolic.space.honeycomb.mdx</include>
+<include>/_sig/hyperbolic.space.camera.mdx</include>
+
+`hyperbolic.space` carries the disk words above one dimension up, in the Beltrami-Klein ball. In this model a hyperbolic straight line is an ordinary chord. A hyperbolic plane is an ordinary flat plane. So a hyperbolic polyhedron is an ordinary mesh: `mesh(cell.points, cell.faces)` takes one, and the same `view` draws it.
+
+The price is length. Klein coordinates are not hyperbolic lengths, and they shrink toward the rim. A hatch spacing or an isoline step over this geometry counts Klein units. `space.distance` is the one word here that answers in hyperbolic length, and `space.geodesic` spaces its samples by that length.
+
+A transform is data, as it is in the disk: a 4×4 matrix of sixteen numbers, row-major, and a `mirror` flag. The matrix acts on `[x, y, z, t]`, where every isometry of hyperbolic space is a Lorentz matrix. `space.boost(dx, dy, dz)` moves the centre of the ball to a point of it. `space.rotation(axis, degrees)` turns about the centre. `space.reflection(plane)` takes three points and reflects in the hyperbolic plane through them. `space.lorentz(matrix)` is the door for a matrix worked out somewhere else. It checks the matrix and reads `mirror` from the determinant. `apply`, `map`, `compose` and `inverse` read a record the same way the disk words do.
+
+`space.polyhedron(p, q, r)` builds the regular cell of the `{p, q, r}` honeycomb, centred on the centre of the ball. It is the regular polyhedron `{p, q}` with a dihedral angle of `2π/r`, so `r` cells meet around every edge. Four `{p, q, r}` have a compact cell in hyperbolic space: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5, 3, 5}`. Every other one refuses by name, and it names the geometry it belongs to. `{4, 3, 4}` is Euclidean and `{3, 3, 5}` is spherical.
+
+The cell keeps the Euclidean symmetry of `{p, q}` about the centre, so only its size is hyperbolic. Its circumradius `R` comes from the Gram matrix `G` of the Coxeter simplex of `{p, q, r}`:
+
+```
+cosh R = cos(π/p)·cos(π/q)·cos(π/r) / √((1 − cos²(π/q) − cos²(π/r))(1 − cos²(π/p) − cos²(π/q)))
+```
+
+The vertices sit at Klein radius `tanh R`. The sign of `det G` is the geometry: positive for the sphere, zero for Euclidean space, negative for hyperbolic space.
+
+`space.honeycomb(p, q, r, { depth })` answers one placement for each copy of the cell, the identity first. It reflects the cell in its own walls, then reflects the copies in theirs, out to `depth` generations. Depth 1 gives the cell and its face neighbours. The sketch builds the cell once and maps its points through every placement.
+
+`space.camera(eye, target)` is the observer. It moves `eye` to the centre of the ball and points `target` along `+Y`, with `up` along `+Z`. The Klein model is true to angle at its centre. The picture the observer takes there has the angles of hyperbolic space itself. The sketch maps the scene through the record and then takes `perspective({ eye: [0, 0, 0], target: [0, 1, 0] })`. A placement is a transform too, so `compose(cam, placement)` is one matrix for both, and no mesh moves after the sketch builds it.
+
+A honeycomb fills space. From inside a cell, solid walls would hide every other cell, so the two drawings below take each cell as its edges. `polyline` makes a wire, and a wire hides nothing. Stand outside the ball, and `mesh(cell.points, cell.faces)` gives solid cells for the hidden-line engine to work on.
+
+Below, the observer stands in one cube of the `{4, 3, 5}` honeycomb and looks at a wall. A boost after the camera steps the observer back. `space.distance` keeps the cells within a hyperbolic radius of the eye, and `space.inverse` finds where the eye ends up. Five cubes meet around every edge, and the right angles of a Euclidean cube become 72 degrees. A view this wide reaches past its own frame, so the callback keeps the lines the frame holds.
+
+```ts live
+import { sketchAsync, strokes, pen, mm, hyperbolic } from 'occlude';
+import { polyline, view, perspective } from 'occlude/3d';
+
+const space = hyperbolic.space;
+
+export default sketchAsync({ aspect: [1, 1], pens: {
+  ink: pen({ width: mm(0.22), color: '#18202A' }),
+} }, async () => {
+  const cell = space.polyhedron(4, 3, 5);
+  // Every edge of the cell once: a closed cell runs each edge both ways.
+  const edges = cell.faces.flatMap((f) => f.map((a, i) => [a, f[(i + 1) % f.length]]).filter(([a, b]) => a < b));
+  // A little off the centre of one cube, looking at a wall. The boost
+  // after the camera steps the observer back along the line of sight.
+  const cam = space.compose(space.boost(0, 0.35, 0), space.camera([0.05, -0.08, 0.1], [0.8, 0, 0]));
+  const eye = space.apply(space.inverse(cam), [0, 0, 0]);
+  const name = (p) => p.map((v) => Math.round(v * 1e6)).join(',');
+  const drawn = new Set();
+  const wires = [];
+  for (const place of space.honeycomb(4, 3, 5, { depth: 4 })) {
+    // Depth counts reflections; a hyperbolic radius is the honest cut.
+    if (space.distance(eye, space.apply(place, [0, 0, 0])) > 3) continue;
+    const here = cell.points.map(space.map(place));
+    const seen = cell.points.map(space.map(space.compose(cam, place)));
+    for (const [a, b] of edges) {
+      const id = [name(here[a]), name(here[b])].sort().join('|');
+      if (drawn.has(id)) continue;
+      drawn.add(id);
+      wires.push(polyline(space.geodesic(seen[a], seen[b], { count: 24 })));
+    }
+  }
+  return view(wires, { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.01 }), stroke: 'ink' }, (lines) => {
+    const r = lines.visible.source.frame.paper;
+    const held = (p) => p[0] >= r.x && p[0] <= r.x + r.width && p[1] >= r.y && p[1] <= r.y + r.height;
+    return strokes(lines.visible.filter((c) => held(c.a) && held(c.b)), { stroke: 'ink' });
+  });
+});
+```
+
+The `{5, 3, 4}` honeycomb fills space with right-angled dodecahedra, four around every edge. The observer stands a little toward one corner of a cell and looks at the wall across from it. A turn about the line of sight rolls the picture. The heavier pen draws the cell the observer stands in, so the eye finds the room. Its far wall is the big rounded pentagon, and its other edges run out to the corners of the frame.
+
+```ts live
+import { sketchAsync, strokes, pen, mm, hyperbolic } from 'occlude';
+import { polyline, view, perspective } from 'occlude/3d';
+
+const space = hyperbolic.space;
+
+export default sketchAsync({ aspect: [1, 1], pens: {
+  ink: pen({ width: mm(0.18), color: '#46505C' }),
+  room: pen({ width: mm(0.38), color: '#18202A' }),
+} }, async () => {
+  const cell = space.polyhedron(5, 3, 4);
+  const edges = cell.faces.flatMap((f) => f.map((a, i) => [a, f[(i + 1) % f.length]]).filter(([a, b]) => a < b));
+  const middle = (f) => [0, 1, 2].map((k) => f.reduce((s, i) => s + cell.points[i][k], 0) / f.length);
+  const corner = cell.points[0];
+  const toward = (p) => p[0] * corner[0] + p[1] * corner[1] + p[2] * corner[2];
+  const wall = cell.faces.map(middle).reduce((a, b) => (toward(a) < toward(b) ? a : b));
+  const cam = space.compose(space.rotation('y', 15), space.camera(corner.map((v) => v * 0.15), wall));
+  const name = (p) => p.map((v) => Math.round(v * 1e6)).join(',');
+  const drawn = new Set();
+  const wires = [];
+  // The identity comes first, so the room the observer stands in is the
+  // first cell drawn, and it takes the heavier pen.
+  space.honeycomb(5, 3, 4, { depth: 2 }).forEach((place, k) => {
+    const here = cell.points.map(space.map(place));
+    const seen = cell.points.map(space.map(space.compose(cam, place)));
+    for (const [a, b] of edges) {
+      const id = [name(here[a]), name(here[b])].sort().join('|');
+      if (drawn.has(id)) continue;
+      drawn.add(id);
+      wires.push(polyline(space.geodesic(seen[a], seen[b], { count: 24 }), k === 0 ? { stroke: 'room' } : {}));
+    }
+  });
+  return view(wires, { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 }), stroke: 'ink' }, (lines) => {
+    const r = lines.visible.source.frame.paper;
+    const held = (c) => [c.a, c.b].every((p) => p[0] >= r.x && p[0] <= r.x + r.width && p[1] >= r.y && p[1] <= r.y + r.height);
+    return [
+      strokes(lines.visible.filter((c) => held(c) && c.feature.stroke !== 'room'), { stroke: 'ink' }),
+      strokes(lines.visible.filter((c) => held(c) && c.feature.stroke === 'room'), { stroke: 'room' }),
+    ];
+  });
+});
+```

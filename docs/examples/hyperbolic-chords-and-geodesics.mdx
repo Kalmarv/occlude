@@ -1,0 +1,44 @@
+---
+title: Chords and geodesics
+description: Seven points joined two ways, by the Euclidean chord and by the hyperbolic line.
+---
+
+Seven points inside the disk, every pair joined twice. The faint pen draws the Euclidean chord, the straight segment of the sheet. The ink pen draws the hyperbolic geodesic, the straight line of the plane the disk pictures.
+
+A geodesic is an arc of the circle that cuts the rim at a right angle. Near the middle of the disk the arc and the chord almost agree, and the two pens run together. Away from the middle they part, and the geodesic always bows toward the centre.
+
+The rim is infinitely far off. A path that keeps clear of it is shorter than a path near it. The bow is that saving. The further a pair sits from the centre, the more the ink line gains by pulling inward.
+
+Twenty-one pairs, and no other rule. The shape in the middle is the difference between the two geometries, at the one place where both can draw.
+
+Uses: `hyperbolic.geodesic`, `stroke`, `t.times`, `t.rnd`, `t.bounds`, `pen`, `mm`.
+
+```ts live
+// CHORDS AND GEODESICS
+//
+// Seven points in the disk, every pair joined twice: the Euclidean
+// chord in a faint pen, the hyperbolic geodesic in ink. Near the middle
+// the two agree. Near the rim the geodesic bows inward, because the rim
+// is infinitely far and a line saves length by keeping clear of it.
+import { sketch, stroke, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch(
+  { aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
+  (t) => {
+    const b = t.bounds();
+    const R = Math.min(b.w, b.h) * 0.46, cx = b.cx, cy = b.cy;
+    const S = (p) => [cx + R * p[0], cy - R * p[1]];
+    const pts = t.times(7, (k) => {
+      const a = (k / 7) * Math.PI * 2 + t.rnd(-0.25, 0.25), r = 0.55 + t.rnd(0.4);
+      return [r * Math.cos(a), r * Math.sin(a)];
+    });
+    const rim = stroke(t.times(181, (_, u) => S([Math.cos(u * Math.PI * 2), Math.sin(u * Math.PI * 2)])), { pen: 'ink' });
+    const chords = [], arcs = [];
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      chords.push(stroke([S(pts[i]), S(pts[j])], { pen: 'faint' }));
+      arcs.push(stroke(hyperbolic.geodesic(pts[i], pts[j], { count: 48 }).map(S), { pen: 'ink' }));
+    }
+    return [rim, chords, arcs];
+  },
+);
+```
