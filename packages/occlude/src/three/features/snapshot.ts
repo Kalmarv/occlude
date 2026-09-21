@@ -57,6 +57,23 @@ export interface Feature3 {
  * such occluders are watertight across their shared edge, so hidden intervals
  * abutting there need no exact re-evaluation. */
 export interface Occluder3 { readonly id: string; readonly triangle: Triangle3; readonly bounds: Bounds3; readonly volume: OcclusionVolume3; readonly neighbors: readonly string[] }
+/** One occluding object's rendered mesh, as a certificate pre-pass reads it:
+ * world positions after the object's own transform, the triangles as vertex
+ * indices in the surface's own winding, and the occluder id each triangle
+ * carries — which is what a feature's `support` names. Nothing here is derived
+ * for the certificate: these are the same arrays the occluders were built from.
+ *
+ * `complete` says every triangle of the mesh reached the classifier whole: one
+ * occluder record apiece, no near/far clipping and no degenerate volume. A
+ * certificate that names a blocker needs that blocker to exist as a record, so
+ * an incomplete mesh certifies nothing. */
+export interface OccluderMesh3 {
+  readonly objectId: string;
+  readonly positions: readonly Vec3[];
+  readonly triangles: readonly (readonly [number, number, number])[];
+  readonly triangleIds: readonly string[];
+  readonly complete: boolean;
+}
 export interface FeatureSnapshot3 {
   readonly frame: CameraFrame3;
   readonly features: readonly Feature3[];
@@ -66,6 +83,8 @@ export interface FeatureSnapshot3 {
   readonly curveGraphs?:readonly SurfaceCurveGraph3[];
   readonly triangles: readonly Triangle3[];
   readonly occluders: readonly Occluder3[];
+  /** One entry per object that occludes and stayed in the view. */
+  readonly occluderMeshes: readonly OccluderMesh3[];
   /** Every occluder's projected bounds packed `[x0, y0, x1, y1, ...]`, and its
    * nearest (largest) camera z, derived once per view. Both are the same
    * numbers `occluders[j].bounds` and the triangle's own coordinates carry;
@@ -84,7 +103,7 @@ const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
  * Planar triangulation diagonals are not candidates. A folded face's actual
  * triangle-facing transition is a silhouette and retains face parentage. */
 export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}, curves:readonly SurfaceCurveObject3[]=[], sheet?:PaperFrame3): FeatureSnapshot3 {
-  const features: Feature3[] = [], referenceFeatures:Feature3[]=[], curveGraphs:SurfaceCurveGraph3[]=[], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
+  const features: Feature3[] = [], referenceFeatures:Feature3[]=[], curveGraphs:SurfaceCurveGraph3[]=[], triangles: Triangle3[] = [], occluders: Occluder3[] = [], occluderMeshes: OccluderMesh3[] = [];
   const worldView=Object.freeze({perspective:frame.camera.kind!=='orthographic',eye:frame.camera.eye,target:frame.camera.target,back:frame.back,near:frame.camera.near,far:frame.camera.far});
   const ids = [...objects, ...wires, ...curves].map(v => v.id);
   if (new Set(ids).size !== ids.length || ids.some(id => !id)) throw new Error('scene object IDs must be nonempty and unique');
@@ -157,6 +176,9 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     const triangleEdges = new Map<string, { vertices: readonly [number, number]; triangles: number[] }>();
     const worldNormals: Vec3[] = [], facing: number[] = [], triangleIds: string[] = [];
     const objectOccluders: { occluder: number; triangle: number }[] = [];
+    // Every triangle of an occluding object must reach the classifier whole
+    // for a self-occlusion certificate to name a blocker it holds.
+    let complete = object.occluder !== false;
     surface.triangles.forEach((t, i) => {
       const triangle = t.vertices.map(v => positions[v]) as unknown as Triangle3;
       const n = unit3(cross3(sub3(triangle[1], triangle[0]), sub3(triangle[2], triangle[0])));
@@ -169,19 +191,22 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         const a = t.vertices[j], b = t.vertices[(j + 1) % 3], k = edgeKey(a, b), edge = triangleEdges.get(k);
         if (edge) edge.triangles.push(i); else triangleEdges.set(k, { vertices: [a, b], triangles: [i] });
       }
+      let pieces = 0;
       for (const clipped of clipTriangle3(triangle, frame.camera.near, frame.camera.far)) {
         const owned = Object.freeze(clipped.map(p => Object.freeze([...p]))) as unknown as Triangle3;
         triangles.push(owned);
         if (object.occluder === false) continue;
         const volume = occlusionVolume3(clipped, frame.camera.kind !== 'orthographic');
-        if (volume) { objectOccluders.push({ occluder: occluders.length, triangle: i }); occluders.push({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))), neighbors: [] }); }
+        if (volume) { pieces++; objectOccluders.push({ occluder: occluders.length, triangle: i }); occluders.push({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))), neighbors: [] }); }
       }
+      if (pieces !== 1) complete = false;
     });
     {
       const neighborIds = surface.triangles.map(() => [] as string[]);
       for (const edge of triangleEdges.values()) if (edge.triangles.length === 2) { const [a, b] = edge.triangles; neighborIds[a].push(triangleIds[b]); neighborIds[b].push(triangleIds[a]); }
       for (const row of objectOccluders) { const occluder = occluders[row.occluder]; occluders[row.occluder] = Object.freeze({ ...occluder, neighbors: Object.freeze([...neighborIds[row.triangle]]) }); }
     }
+    if (object.occluder !== false) occluderMeshes.push(Object.freeze({ objectId: object.id, positions: worldPositions, triangles: surface.triangles.map(t => t.vertices), triangleIds, complete }));
     const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs};
     const matching=captures.get(binding)??[];matching.push(capture);captures.set(binding,matching);
     if (object.lineSource === false) continue;
@@ -263,6 +288,6 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   // those is work the view usually does not need, so the tree is built the
   // first time something asks for it and kept from then on.
   let index: ProjectedIndex3 | undefined;
-  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), occluderBounds, occluderNearest,
+  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), occluderMeshes: Object.freeze(occluderMeshes), occluderBounds, occluderNearest,
     get index() { return index ??= new ProjectedIndex3(occluders.map(t => t.bounds), Array.from(occluderNearest)); } });
 }

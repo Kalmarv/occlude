@@ -10,10 +10,11 @@ import type { WorldOcclusion3 } from './worldInterval.js';
 import type { EncodedPoint3 } from '../geometry/exact.js';
 import type { Triangle3, Vec3 } from '../math.js';
 import { classifyWithPool3, poolWorkerCount3 } from './pool.js';
+import { facingCertificate3, type FacingCertificate3, type FacingStats3 } from './facing.js';
 import type { GpuIntervals3, VisibilityPair3 } from '../../compute/webgpu/interval.js';
 
 export interface ClassifiedFeature3 { readonly feature: Feature3; readonly hidden: readonly Interval3[]; readonly visible: readonly Interval3[] }
-export interface ClassifiedScene3 { readonly curveGraphs?:FeatureSnapshot3['curveGraphs']; readonly referenceFeatures?:readonly Feature3[]; readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; paperToleranceMm?: number; parameterTolerance?: number; wallMs: number; timings?: PhaseTimings3 } }
+export interface ClassifiedScene3 { readonly curveGraphs?:FeatureSnapshot3['curveGraphs']; readonly referenceFeatures?:readonly Feature3[]; readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; paperToleranceMm?: number; parameterTolerance?: number; wallMs: number; timings?: PhaseTimings3; certificates?: FacingStats3 } }
 
 /** Everything the exact classifier reads of a captured snapshot: the camera
  * frame, each feature's two endpoints, its basis and the ids of its own
@@ -99,11 +100,28 @@ const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: Classi
  * candidate pairs), so a worker can cancel it and keep its message loop alive;
  * same result as `classifySceneCpu3`. */
 /** `raster: false` bypasses the certified raster filter (the exact classifier
- * alone), for oracles and for diagnosing a suspected filter fault. */
-export interface ClassifyOptions3 { readonly raster?: boolean }
-export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3, options: ClassifyOptions3 = {}): Generator<void, ClassifiedScene3> {
+ * alone), for oracles and for diagnosing a suspected filter fault.
+ *
+ * `certificates: false` does the same for the self-occlusion certificate:
+ * every feature goes through the pairwise path. It exists so a test can put
+ * the two answers side by side, and `raster: false` implies it — an oracle
+ * asks for the exact classifier alone. `OCCLUDE_CERTIFICATES=0` says the same
+ * to a whole process. Neither is a drawing mode: the certificate is proved
+ * before it is used, so a picture is the same either way. */
+export interface ClassifyOptions3 { readonly raster?: boolean; readonly certificates?: boolean }
+/** The certificate this run may use, or null when it was asked for the
+ * pairwise path alone. Computed once per scene, on the thread that holds the
+ * snapshot, before any feature is handed anywhere. */
+export function sceneCertificate3(snapshot: FeatureSnapshot3, options: ClassifyOptions3 = {}): FacingCertificate3 | null {
+  if (options.raster === false || options.certificates === false) return null;
+  if (options.certificates === undefined
+    && (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.OCCLUDE_CERTIFICATES === '0') return null;
+  return facingCertificate3(snapshot);
+}
+export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3, options: ClassifyOptions3 = {}, certificate?: FacingCertificate3 | null): Generator<void, ClassifiedScene3> {
   const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []); let candidates = 0;
   const filter = options.raster === false ? undefined : rasterFilter3(snapshot);
+  const proved = (certificate === undefined ? sceneCertificate3(snapshot, options) : certificate) ?? undefined;
   yield;
   // One scratch list for the whole scene. Every pair of one feature names the
   // same endpoints and the same basis, so the occluder index is the only thing
@@ -112,11 +130,11 @@ export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3, options: Class
   const walked: number[] = [];
   let checkpoint = 1024;
   for (let i = 0; i < snapshot.features.length; i++) {
-    candidates += classifyFeature3(snapshot, filter, i, walked, hidden[i]);
+    candidates += classifyFeature3(snapshot, filter, i, walked, hidden[i], proved?.certified);
     if (candidates >= checkpoint) { checkpoint = candidates + 1024; yield; }
   }
   // Phase timings belong to the runner that drove the job.
-  return finish(snapshot, hidden, { candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start });
+  return finish(snapshot, hidden, { candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start, ...(proved ? { certificates: proved.stats } : {}) });
 }
 /** One feature's hidden intervals, appended to `into`; the count of candidate
  * pairs tested is returned. This reads nothing but `(source, filter, i)` and
@@ -124,7 +142,11 @@ export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3, options: Class
  * computed — which is the whole licence for classifying a range of features in
  * another thread and assembling the rows by index. `walked` is scratch the
  * caller owns and this rewrites. */
-export function classifyFeature3(source: ClassifySource3, filter: RasterFilter3 | undefined, i: number, walked: number[], into: Interval3[]): number {
+export function classifyFeature3(source: ClassifySource3, filter: RasterFilter3 | undefined, i: number, walked: number[], into: Interval3[], certified?: Uint8Array): number {
+  // A certified feature is hidden over its whole length, written exactly as
+  // the raster's own proof writes one: one closed interval, the same
+  // normalisation, the same `finish`.
+  if (certified?.[i]) { into.push([0, 1]); return 0; }
   if (filter?.provenHidden(i)) { into.push([0, 1]); return 0; }
   const feature = source.features[i], occluders = source.occluders;
   collectFeatureCandidates3(source, i, filter, walked);
@@ -252,6 +274,10 @@ export interface ClassifyPayload3 {
   readonly occluderWorld: Int32Array;
   readonly occluderBounds: Float64Array;
   readonly occluderNearest: Float64Array;
+  /** 1 where the pre-pass proved the whole feature hidden by its own shell,
+   * or null when this run holds no certificate. One byte per feature: the
+   * proof itself stays on the main thread, and only its verdict crosses. */
+  readonly certified: Uint8Array | null;
 }
 
 /** Payload memory. Where the platform offers shared memory the arrays are
@@ -268,6 +294,7 @@ const f64 = (length: number): Float64Array => sharedMemory ? new Float64Array(ne
 const i32 = (length: number): Int32Array => sharedMemory ? new Int32Array(new SharedArrayBuffer(length * 4)) : new Int32Array(length);
 const u8 = (length: number): Uint8Array => sharedMemory ? new Uint8Array(new SharedArrayBuffer(length)) : new Uint8Array(length);
 const copyF64 = (from: Float64Array): Float64Array => { const out = f64(from.length); out.set(from); return out; };
+const copyU8 = (from: Uint8Array): Uint8Array => { const out = u8(from.length); out.set(from); return out; };
 const fill = <T extends Float64Array | Int32Array>(into: T, from: readonly number[]): T => { into.set(from); return into; };
 
 const sameTriangle = (a: Triangle3, b: Triangle3): boolean =>
@@ -280,7 +307,7 @@ const sameTriangle = (a: Triangle3, b: Triangle3): boolean =>
  * volume whose triangle is not the occluder's own. `featureSnapshot3` produces
  * neither; a caller that meets one runs the serial loop, which is the same
  * answer. */
-export function classifyPayload3(source: ClassifySource3): ClassifyPayload3 | null {
+export function classifyPayload3(source: ClassifySource3, certified?: Uint8Array): ClassifyPayload3 | null {
   const features = source.features, occluders = source.occluders, f = features.length, n = occluders.length;
   let view: WorldOcclusion3['view'] | null = null, planeCount = 0, termCount = 0;
   for (let j = 0; j < n; j++) {
@@ -362,6 +389,7 @@ export function classifyPayload3(source: ClassifySource3): ClassifyPayload3 | nu
     occluderId, occluderTriangle, occluderFlags, planeStart, planes,
     worldVertex: fill(f64(worldVertices.length), worldVertices), occluderWorld,
     occluderBounds: copyF64(source.occluderBounds), occluderNearest: copyF64(source.occluderNearest),
+    certified: certified ? copyU8(certified) : null,
   };
 }
 
@@ -496,13 +524,19 @@ export interface ClassifySceneOptions3 extends ClassifyOptions3 {
  * by index, and hands them to the same `finish`. */
 export async function classifyScene3(snapshot: FeatureSnapshot3, options: ClassifySceneOptions3 = {}): Promise<ClassifiedScene3> {
   const timing = new PhaseClock3();
-  const parallel = await classifyParallel3(snapshot, options, timing);
+  // The pre-pass runs here, once, on this thread: it reads the snapshot's own
+  // meshes, which the wire form does not carry, and its answer does not depend
+  // on which thread a feature is classified on. Its own cost is reported by
+  // `stats.certificates.ms`; `setupMs` stays what it says it is, the payload
+  // build that only a fanned-out run pays.
+  const certificate = sceneCertificate3(snapshot, options);
+  const parallel = await classifyParallel3(snapshot, options, timing, certificate);
   if (parallel) return parallel;
-  const job = await runGeometryJobAsync3(classifySceneCpuJob3(snapshot, options), options.signal);
+  const job = await runGeometryJobAsync3(classifySceneCpuJob3(snapshot, options, certificate), options.signal);
   timing.merge(job.timings);
   return Object.freeze({ ...job.value, stats: Object.freeze({ ...job.value.stats, timings: timing.finish() }) });
 }
-async function classifyParallel3(snapshot: FeatureSnapshot3, options: ClassifySceneOptions3, timing: PhaseClock3): Promise<ClassifiedScene3 | null> {
+async function classifyParallel3(snapshot: FeatureSnapshot3, options: ClassifySceneOptions3, timing: PhaseClock3, certificate: FacingCertificate3 | null): Promise<ClassifiedScene3 | null> {
   // `raster: false` is the oracle's request for the exact classifier alone;
   // it is a diagnosis, not a drawing, and stays on one thread.
   if (options.raster === false) return null;
@@ -513,10 +547,10 @@ async function classifyParallel3(snapshot: FeatureSnapshot3, options: ClassifySc
   // which includes every render the tools and the studio drive.
   if (options.workers === undefined && features * snapshot.occluders.length < PARALLEL_WORK_3) return null;
   const start = performance.now();
-  const payload = timing.measure('setupMs', () => classifyPayload3(snapshot));
+  const payload = timing.measure('setupMs', () => classifyPayload3(snapshot, certificate?.certified));
   if (!payload) return null;
   const run = await timing.wait('queueMs', () => classifyWithPool3(payload, features, { signal: options.signal, workers: options.workers }));
   if (!run) return null;
-  const result = timing.measure('finalizeMs', () => finish(snapshot, run.hidden, { candidates: run.candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start }));
+  const result = timing.measure('finalizeMs', () => finish(snapshot, run.hidden, { candidates: run.candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start, ...(certificate ? { certificates: certificate.stats } : {}) }));
   return Object.freeze({ ...result, stats: Object.freeze({ ...result.stats, timings: timing.finish() }) });
 }

@@ -19,6 +19,9 @@ type Message3 = SceneMessage3 | ChunkMessage3;
 let post: (message: unknown, transfer: ArrayBuffer[]) => void = () => {};
 let source: ClassifySource3 | null = null;
 let filter: RasterFilter3 | undefined;
+/** The self-occlusion pre-pass's verdict, proved once on the main thread and
+ * carried as one byte per feature; nothing here recomputes it. */
+let certified: Uint8Array | undefined;
 let epoch = -1;
 const walked: number[] = [];
 
@@ -30,6 +33,7 @@ function handle(message: Message3): void {
     epoch = message.epoch;
     source = classifySource3(message.scene);
     filter = classifyFilter3(source);
+    certified = message.scene.certified ?? undefined;
     return;
   }
   if (message.epoch !== epoch || !source) return;
@@ -38,7 +42,7 @@ function handle(message: Message3): void {
   try {
     for (let i = message.from; i < message.to; i++) {
       const before = rows.length;
-      candidates += classifyFeature3(source, filter, i, walked, rows);
+      candidates += classifyFeature3(source, filter, i, walked, rows, certified);
       counts[i - message.from] = rows.length - before;
     }
   } catch (error) {
