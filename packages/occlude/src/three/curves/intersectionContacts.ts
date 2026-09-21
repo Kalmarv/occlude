@@ -4,6 +4,7 @@ import {triangulationJob3,type SurfaceTriangulation3} from '../geometry/triangul
 import {runGeometryJob3,runGeometryJobAsync3} from '../geometry/job.js';
 import {bindingTriangle3,validateSurfaceBinding3,type SurfaceBinding3} from './network.js';
 import {canonicalPlane3,triangleContact3,type TriangleContact3} from './contact.js';
+import {separatedTriangles3} from './contactFilter.js';
 export interface IntersectionContactBudget3 {
  readonly maxInputTriangles?:number;readonly maxInputPoints?:number;
  readonly maxCandidates?:number;readonly maxContacts?:number;readonly maxContactPoints?:number;
@@ -12,24 +13,30 @@ export interface IntersectionContactBudget3 {
 export interface PreparedIntersectionSource3 {
  readonly binding:SurfaceBinding3;readonly topology:SurfaceTriangulation3;
  readonly bounds:readonly WorldBounds3[];readonly planes:readonly H[];readonly index:WorldIndex3;
+ /** The same world vertices the bounds were taken from, nine doubles per
+  * triangle, for the certified rejection stage in `contactFilter.ts`. */
+ readonly corners:Float64Array;
 }
 export interface IntersectionContactRecord3 {readonly a:number;readonly b:number;readonly contact:TriangleContact3}
 export interface IntersectionContacts3 {
  readonly sources:readonly [PreparedIntersectionSource3,PreparedIntersectionSource3];
  readonly contacts:readonly IntersectionContactRecord3[];
- readonly stats:{readonly inputTriangles:number;readonly candidates:number;readonly contacts:number;readonly points:number;readonly exactBytes:number;readonly sourceCacheHits:number;readonly pointContacts:number;readonly segmentContacts:number;readonly areaContacts:number};
+ readonly stats:{readonly inputTriangles:number;readonly candidates:number;readonly contacts:number;readonly points:number;readonly exactBytes:number;readonly sourceCacheHits:number;readonly rejected:number;readonly pointContacts:number;readonly segmentContacts:number;readonly areaContacts:number};
 }
 const cache=new WeakMap<SurfaceBinding3,PreparedIntersectionSource3>();
 function* prepare(binding:SurfaceBinding3):Generator<void,PreparedIntersectionSource3>{
  const previous=cache.get(binding);if(previous)return previous;
- const topology=yield*triangulationJob3(binding.source),bounds:WorldBounds3[]=[],planes:H[]=[];
+ const topology=yield*triangulationJob3(binding.source),bounds:WorldBounds3[]=[],planes:H[]=[],corners=new Float64Array(9*binding.source.triangles.length);
  for(let i=0;i<binding.source.triangles.length;i++){
   const triangle=bindingTriangle3(binding,i);planes.push(canonicalPlane3(plane(...triangle)));
-  bounds.push(worldBounds3(triangle.map(pointNumber)));
+  // `pointNumber` of a vertex is the binary64 coordinate it was built from,
+  // so these are the stored doubles the bounds already read.
+  const numbers=triangle.map(pointNumber);bounds.push(worldBounds3(numbers));
+  for(let k=0;k<3;k++)for(let c=0;c<3;c++)corners[9*i+3*k+c]=numbers[k][c];
   if((i&127)===127)yield;
  }
  const index=yield*WorldIndex3.build(bounds);
- const result=Object.freeze({binding,topology,bounds:Object.freeze(bounds),planes:Object.freeze(planes),index});cache.set(binding,result);return result;
+ const result=Object.freeze({binding,topology,bounds:Object.freeze(bounds),planes:Object.freeze(planes),index,corners});cache.set(binding,result);return result;
 }
 /** Broad phase streams only overlapping triangle bounds into exact contacts.
  * Budget intermediate contact coordinates before publishing each record. */
@@ -41,11 +48,15 @@ export function* intersectionContactsJob3(a:SurfaceBinding3,b:SurfaceBinding3,op
  if(inputTriangles>maxInputTriangles||a.source.points.length+b.source.points.length>maxInputPoints)throw new Error('intersection input exceeds triangle/point budget');
  for(const binding of [a,b])if(binding.source.faces.length>binding.source.triangles.length)throw new Error('surface faces require fixed triangulation');
  const sourceCacheHits=Number(cache.has(a))+Number(cache.has(b)),left=yield*prepare(a),right=yield*prepare(b),contacts:IntersectionContactRecord3[]=[];
- let candidates=0,points=0,exactBytes=0,pointContacts=0,segmentContacts=0,areaContacts=0;
+ let candidates=0,rejected=0,points=0,exactBytes=0,pointContacts=0,segmentContacts=0,areaContacts=0;
  for(let i=0;i<left.bounds.length;i++){
   for(const j of right.index.query(left.bounds[i])){
    if(++candidates>maxCandidates)throw new Error('intersection exceeds candidate budget');
-   const contact=triangleContact3(bindingTriangle3(a,i),bindingTriangle3(b,j));
+   // A pair the certificate separates is a proven non-contact: the exact
+   // routine would build nothing for it, so it builds nothing here either.
+   let contact:TriangleContact3|null=null;
+   if(separatedTriangles3(left.corners,9*i,right.corners,9*j))rejected++;
+   else contact=triangleContact3(bindingTriangle3(a,i),bindingTriangle3(b,j));
    if(contact){
     if(contacts.length>=maxContacts||points+contact.points.length>maxContactPoints)throw new Error('intersection exceeds contact/point budget');
     for(const p of [...contact.points,...(contact.kind==='area'?[contact.plane]:[])])for(const n of p){if(n.toString(2).length>maxCoordinateBits)throw new Error('intersection exceeds coordinate bit budget');exactBytes+=n.toString().length*2;}
@@ -57,7 +68,7 @@ export function* intersectionContactsJob3(a:SurfaceBinding3,b:SurfaceBinding3,op
   }
   if((i&127)===127)yield;
  }
- return Object.freeze({sources:Object.freeze([left,right]) as readonly [PreparedIntersectionSource3,PreparedIntersectionSource3],contacts:Object.freeze(contacts),stats:Object.freeze({inputTriangles,candidates,contacts:contacts.length,points,exactBytes,sourceCacheHits,pointContacts,segmentContacts,areaContacts})});
+ return Object.freeze({sources:Object.freeze([left,right]) as readonly [PreparedIntersectionSource3,PreparedIntersectionSource3],contacts:Object.freeze(contacts),stats:Object.freeze({inputTriangles,candidates,contacts:contacts.length,points,exactBytes,sourceCacheHits,rejected,pointContacts,segmentContacts,areaContacts})});
 }
 export function intersectionContacts3(a:SurfaceBinding3,b:SurfaceBinding3,options:IntersectionContactBudget3={}){return runGeometryJob3(intersectionContactsJob3(a,b,options));}
 export function intersectionContactsAsync3(a:SurfaceBinding3,b:SurfaceBinding3,options:IntersectionContactBudget3={},signal?:AbortSignal){return runGeometryJobAsync3(intersectionContactsJob3(a,b,structuredClone(options)),signal);}
