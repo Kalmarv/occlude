@@ -188,7 +188,7 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
         if(!w)return null;const encoded=encodeWeights(w);account(encoded);return encoded;
       };
       const encodedA=known(a,s.a),encodedB=known(b,s.b);
-      if(!encodedA||!encodedB)throw new Error('curve segment is not incident to its declared supporting triangle');
+      if(!encodedA||!encodedB)throw new Error(`curve segment is not incident to its declared supporting triangle (segment ${segment.id} kind ${segment.kind}; node ${encodedA?segment.b:segment.a} at ${JSON.stringify(drafts[encodedA?b:a].position)} is off triangle ${s.triangle} of source ${s.source}; producer weights ${JSON.stringify((encodedA?s.b:s.a)?.map(String)??null)})`);
       const {a:_a,b:_b,...support}=s;
       nodeSupports[a].set(key,Object.freeze({...support,weights:encodedA}));nodeSupports[b].set(key,Object.freeze({...support,weights:encodedB}));
       supportRows.push(Object.freeze({...support,a:encodedA,b:encodedB}));

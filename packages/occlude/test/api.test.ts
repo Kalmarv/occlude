@@ -1366,4 +1366,11 @@ describe('docs example transform', () => {
     expect(liveExampleToJs("import pens from '@user/pens';")).toBe("const pens = require('@user/pens').default;");
     expect(liveExampleToJs("import { sketch } from 'occlude';\nexport default sketch({}, () => [])")).not.toMatch(/\bimport\b/);
   });
+  it('drops a type-only import, which has nothing to require', () => {
+    expect(liveExampleToJs("import { sketch } from 'occlude';\nimport type { Vec3 } from 'occlude/3d';\nexport default sketch({}, () => []);"))
+      .toBe("const { sketch } = require('occlude');\nmodule.exports.default = sketch({}, () => []);");
+    // A default type import, and one spread over several lines.
+    expect(liveExampleToJs("import type Pens from '@user/pens';\nimport { sketch } from 'occlude';")).toBe("const { sketch } = require('occlude');");
+    expect(liveExampleToJs("import type {\n  MeshPointRow,\n  Vec3,\n} from 'occlude/3d';\nimport { sketch } from 'occlude';")).toBe("const { sketch } = require('occlude');");
+  });
 });

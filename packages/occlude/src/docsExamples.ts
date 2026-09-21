@@ -11,6 +11,10 @@ export function liveExampleToJs(src: string): string {
   // import '@user/pens' or '@user/papers', and the runner's `require`
   // is what decides which names exist (and says so when one does not).
   return src
+    // A type-only import has nothing to require: the studio transpiles the
+    // types away before it gets here, and a sketch written for the studio
+    // must run unchanged in the node tools, so the line is dropped.
+    .replace(/^[ \t]*import\s+type\s+[^'"]*from\s*['"][^'"]+['"];?[ \t]*\r?\n?/gm, '')
     .replace(
       /import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"];?/g,
       // `circle as disc` is ordinary ESM, not a type annotation, but in a

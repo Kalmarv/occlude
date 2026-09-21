@@ -21,6 +21,7 @@
     "perf": "tsx tools/bench.ts",
     "calibrate": "tsx tools/calibrate.ts",
     "frags": "tsx tools/frags.ts",
+    "freeze": "tsx tools/freeze.ts",
     "render-hash": "tsx tools/render-hash.ts",
     "growth-diag": "tsx tools/growth-diag.ts",
     "plotstats": "tsx tools/plotstats.ts",
