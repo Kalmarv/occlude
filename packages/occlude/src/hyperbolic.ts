@@ -14,10 +14,14 @@
  * `compose` and `inverse` read. The geometry is the noun — `geodesic`,
  * `circle`, `polygon`, `tiling` — and the verbs are generic.
  *
- * The metric does not yet reach the library's spacing words: a hatch or a
- * scatter over mapped material is spaced on the SHEET, not in the disk.
+ * The metric reaches the spacing words as DATA. `field.*` and `density`
+ * answer plain `(x, y) => number` fields in model coordinates, so
+ * `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra read the
+ * hyperbolic metric with no word of their own here. There is no
+ * `hyperbolic.hatch` and no `hyperbolic.scatter`.
  */
 
+import type { DistanceField } from './distance.js';
 import { finiteCount } from './guard.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
@@ -61,6 +65,18 @@ export interface TilingOpts {
   /** Generations of neighbours to reflect out to. Depth 0 is the
    * fundamental polygon alone; depth 1 adds its `p` edge neighbours. */
   depth?: number;
+}
+
+export interface EquidistantOpts {
+  /** The hyperbolic step from one curve to the next, and from the
+   * geodesic to the first of them. Default 0.5. */
+  spacing?: number;
+  /** How many curves on each side of the geodesic. Default 3, so the
+   * family has six curves. */
+  count?: number;
+  /** Pieces along each curve; each has `samples + 1` points. The default
+   * 64 holds a curve within about 0.005 model units of the true arc. */
+  samples?: number;
 }
 
 // ---- complex arithmetic (module-private) ---------------------------------
@@ -431,10 +447,261 @@ export function tiling(p: number, q: number, opts: TilingOpts = {}): Mobius[] {
   return out;
 }
 
+// ---- the metric as fields -------------------------------------------------
+
+/**
+ * Inside the OPEN disk, which is the whole of the hyperbolic plane. The
+ * rim and everything past it is not a place, so every field here answers
+ * NaN there, and every field consumer already reads a non-finite sample as
+ * absent: `t.isolines` truncates a contour open at it and `t.scatter`
+ * places nothing. That is how the rim becomes the drawing's edge with no
+ * special case anywhere.
+ */
+const inDisk = (x: number, y: number): boolean => x * x + y * y < 1;
+
+/** The frame that carries the geodesic `a → b` onto the real diameter,
+ * with `a` at the origin and `b` on the positive real axis. Every
+ * measurement against a line is easiest there, and a disk isometry does
+ * not change a hyperbolic distance. */
+function alongFrame(who: string, a: Complex, b: Complex): Mobius {
+  if (cAbs(cSub(a, b)) < 1e-15) throw new Error(`${who}: the two points are the same — a geodesic needs two distinct points`);
+  const home = inverse(translation(a[0], a[1]));
+  const aim = apply(home, b);
+  return compose(rotation((-Math.atan2(aim[1], aim[0]) * 180) / Math.PI), home);
+}
+
+/**
+ * The signed hyperbolic distance field of the disc of hyperbolic radius
+ * `r` about `center`: POSITIVE INSIDE, like `sdf.circle`.
+ *
+ * Its zero set is `circle(center, r)` and its other level sets are the
+ * hyperbolic circles about the same centre, so `t.isolines` over it draws
+ * rings that are evenly spaced in the disk's own metric rather than on the
+ * sheet. It carries no support tag: a hyperbolic distance is not a
+ * Euclidean one, and a bound the `sdf` algebra could skip on would have to
+ * be a Euclidean box. The algebra treats it as an opaque leaf and is
+ * exact.
+ */
+function discField(center: XY, r: number): DistanceField {
+  const [cx, cy] = asComplex(center);
+  return (x, y) => {
+    if (!inDisk(x, y)) return NaN;
+    // `distance`, spelled out: `2·artanh|(c − z)/(1 − conj(c)·z)|`, with
+    // `conj(c)·z = (cx·x + cy·y) + i(cx·y − cy·x)`.
+    const dx = x - cx;
+    const dy = y - cy;
+    const ex = 1 - cx * x - cy * y;
+    const ey = cy * x - cx * y;
+    return r - 2 * Math.atanh(Math.sqrt((dx * dx + dy * dy) / (ex * ex + ey * ey)));
+  };
+}
+
+/**
+ * The signed hyperbolic distance to the geodesic through `a` and `b`,
+ * positive on the LEFT of `a → b`.
+ *
+ * The level sets are that geodesic's equidistant curves — its hypercycles
+ * — so `t.isolines` over it draws the family `equidistants` generates, and
+ * `sdf.intersect` of several of these is a hyperbolic convex polygon.
+ *
+ * The formula. Carry the geodesic onto the real diameter with the frame
+ * `alongFrame` builds. There the distance from `w` to the diameter is
+ * `asinh(2·Im w / (1 − |w|²))`: the nearest point of the diameter to
+ * `w = i·h` is the origin, whose distance is `2·artanh(h)`, and with
+ * `t = artanh h` the double-angle rule gives
+ * `sinh(2t) = 2·sinh(t)·cosh(t) = 2h/(1 − h²)`, which is the formula at
+ * `Re w = 0`. Every other point of the disk reaches that position under a
+ * slide along the diameter, and a slide changes neither side of the
+ * equality. The sign follows `Im w`, and `+y` is the left of `+x`.
+ */
+function halfplaneField(a: XY, b: XY): DistanceField {
+  const m = alongFrame('hyperbolic.field.halfplane', asComplex(a), asComplex(b));
+  // The frame is a slide and a turn, never a fold, so `mirror` is false
+  // and the eight coefficients are all the sample needs. Spelled out
+  // because a field is read once per grid cell per half-plane.
+  const [a0, a1] = m.a;
+  const [b0, b1] = m.b;
+  const [c0, c1] = m.c;
+  const [d0, d1] = m.d;
+  return (x, y) => {
+    if (!inDisk(x, y)) return NaN;
+    const nr = a0 * x - a1 * y + b0;
+    const ni = a0 * y + a1 * x + b1;
+    const dr = c0 * x - c1 * y + d0;
+    const di = c0 * y + c1 * x + d1;
+    const q = dr * dr + di * di;
+    const wx = (nr * dr + ni * di) / q;
+    const wy = (ni * dr - nr * di) / q;
+    return Math.asinh((2 * wy) / (1 - wx * wx - wy * wy));
+  };
+}
+
+/**
+ * The UNSIGNED hyperbolic distance to the nearest of a set of points.
+ *
+ * Zero at every point of the set and growing outward, so `t.isolines` over
+ * it draws hyperbolic circles that meet where the cells of the set do — a
+ * hyperbolic distance map. An empty set has no nearest point and answers
+ * Infinity, which reads as absent and draws nothing.
+ *
+ * The walk is the whole set for every sample, so it costs `O(n)` a sample:
+ * fine for the few dozen points a motif holds, and the place to look first
+ * if a set of thousands feels slow.
+ */
+function pointsField(points: Iterable<XY>): DistanceField {
+  const px: number[] = [];
+  const py: number[] = [];
+  for (const p of points) {
+    px.push(vx(p));
+    py.push(vy(p));
+  }
+  const n = px.length;
+  return (x, y) => {
+    if (!inDisk(x, y)) return NaN;
+    // The distance grows with `|p − z|/|1 − conj(p)·z|`, so the nearest
+    // point is the smallest of those and one `artanh` answers for the set.
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      const cx = px[i];
+      const cy = py[i];
+      const dx = x - cx;
+      const dy = y - cy;
+      const ex = 1 - cx * x - cy * y;
+      const ey = cy * x - cx * y;
+      const t = (dx * dx + dy * dy) / (ex * ex + ey * ey);
+      if (t < best) best = t;
+    }
+    return n === 0 ? Infinity : 2 * Math.atanh(Math.sqrt(best));
+  };
+}
+
+/**
+ * The signed distance field of the fundamental `{p, q}` polygon: positive
+ * inside, zero on its edges, negative out.
+ *
+ * It is the intersection — the minimum — of the `p` half-planes of its
+ * edges, each one `halfplane(v_i, v_{i+1})` and each oriented inward,
+ * because `polygon` hands its vertices back counter-clockwise and the left
+ * of an edge is the inside. The value at a point is therefore its
+ * hyperbolic distance to the nearest edge.
+ *
+ * `t.isolines` over it at hyperbolic steps IS a hyperbolic hatch of the
+ * cell: every contour is the set of points one fixed hyperbolic distance
+ * in from the boundary, so the insets crowd the way the metric does and
+ * not the way the sheet does. The deepest level the cell holds is its
+ * inradius, `arccosh(cos(π/q)/sin(π/p))`.
+ */
+function cellField(p: number, q: number): DistanceField {
+  checkPQ('hyperbolic.field.cell', p, q);
+  const verts = polygon(p, q);
+  const sides = verts.map((v, i) => halfplaneField(v, verts[(i + 1) % p]));
+  const n = sides.length;
+  return (x, y) => {
+    if (!inDisk(x, y)) return NaN;
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = sides[i](x, y);
+      if (v < best) best = v;
+    }
+    return best;
+  };
+}
+
+/**
+ * How much hyperbolic area one unit of sheet area holds: `(2/(1 − |z|²))²`,
+ * as a field.
+ *
+ * It is 4 at the origin and grows without bound toward the rim, because
+ * the disk is a picture that shrinks the plane more and more the further
+ * out it draws it. Hand it to `t.scatter` and the points come out evenly
+ * spread in the HYPERBOLIC metric: the spacing word asks for a demand, the
+ * demand asks for `1/r²` points a unit area, and `(2/(1 − |z|²))²` is
+ * exactly the factor between the two areas. On the sheet that reads as
+ * crowding toward the rim.
+ *
+ * `t.scatter` reads a demand between `1/36` and 1, so a sketch divides
+ * this by the value at the outermost radius it draws. That fixes the
+ * closest spacing at `spacing`, and the 36 caps the sheet's spacing ratio
+ * at six to one — the disk out to `|z| = 0.913`.
+ */
+export function density(): DistanceField {
+  return (x, y) => {
+    const q = 1 - x * x - y * y;
+    if (!(q > 0)) return NaN;
+    const lambda = 2 / q;
+    return lambda * lambda;
+  };
+}
+
+/**
+ * The hypercycles of the geodesic `a → b`: the curves at a fixed
+ * hyperbolic distance from it, `count` of them on each side at `spacing`
+ * apart, as polylines ordered from the right of `a → b` to the left.
+ *
+ * A hypercycle is not a straight line of the plane — only the geodesic
+ * itself runs straight — and in the disk it is an arc of a circle through
+ * the geodesic's two ideal endpoints. The piece this generates is the one
+ * ALONGSIDE the segment `a → b`, sampled the way `geodesic` samples that
+ * segment: the ideal endpoints are infinitely far off and are not points
+ * the disk holds, so a curve that ran to them could not answer at its own
+ * ends. Each sample is the point `spacing·k` to the side of the sample at
+ * the same place along `a → b`, which is exact rather than fitted, and
+ * `field.halfplane(a, b)` reads back the stated distance at every one.
+ *
+ * This is the one generator here. Everything else is a field, because a
+ * field is what the library's own words already eat.
+ */
+export function equidistants(a: XY, b: XY, opts: EquidistantOpts = {}): Vec[][] {
+  const A = asComplex(a);
+  const B = asComplex(b);
+  if (cAbs(cSub(A, B)) < 1e-15) return [];
+  const spacing = opts.spacing === undefined ? 0.5 : opts.spacing;
+  const count = opts.count === undefined ? 3 : Math.floor(finiteCount('equidistants', opts.count));
+  const samples = opts.samples === undefined ? 64 : finiteCount('equidistants', opts.samples);
+  if (!(spacing > 0) || !Number.isFinite(spacing) || count < 1 || samples < 1) return [];
+  const frame = alongFrame('hyperbolic.equidistants', A, B);
+  const home = inverse(frame);
+  // In the frame the segment runs from the origin along the real axis, and
+  // its hyperbolic length is `2·artanh` of where `b` lands.
+  const length = 2 * Math.atanh(cAbs(apply(frame, B)));
+  const out: Vec[][] = [];
+  for (let k = -count; k <= count; k++) {
+    if (k === 0) continue;
+    // A point `d` to the LEFT of the real axis at the origin is
+    // `i·tanh(d/2)`; sliding it along the axis keeps its distance, because
+    // the slide is an isometry that leaves the axis where it is.
+    const h = Math.tanh((k * spacing) / 2);
+    const curve: Vec[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const at = translation(Math.tanh((length * (i / samples)) / 2), 0);
+      curve.push(apply(home, apply(at, [0, h])));
+    }
+    out.push(curve);
+  }
+  return out;
+}
+
+/**
+ * The hyperbolic metric as fields, in model coordinates: what `t.isolines`,
+ * `t.scatter`, `t.within` and the `sdf` algebra read.
+ *
+ * Each one is a plain `(x, y) => number`, positive inside where the sign
+ * means anything, and NaN outside the disk. A sketch that draws on the
+ * sheet wraps the field in the map from the sheet to the disk itself —
+ * there is no paper-aware variant, because a field consumer takes any
+ * function of two numbers.
+ */
+export const field = {
+  disc: discField,
+  halfplane: halfplaneField,
+  points: pointsField,
+  cell: cellField,
+};
+
 /**
  * The hyperbolic plane in the Poincaré disk: its transforms as data, its
- * lines, its circles and its tilings. Pure — no seed and no paper — so it
- * is a module import, as `sdf` is.
+ * lines, its circles, its tilings, and its metric as fields. Pure — no
+ * seed and no paper — so it is a module import, as `sdf` is.
  *
  * Everything is in model coordinates, the unit disk about the origin. The
  * sketch puts the disk where it wants it.
@@ -453,4 +720,7 @@ export const hyperbolic = {
   circle,
   polygon,
   tiling,
+  field,
+  density,
+  equidistants,
 };

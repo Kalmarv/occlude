@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { hyperbolic, type Mobius } from '../src/index.js';
+import { hyperbolic, initOcclude, render, sketch, strokes, type Material, type Mobius } from '../src/index.js';
 
 const { mobius, translation, rotation, reflection, apply, compose, inverse, distance, geodesic, circle, polygon, tiling } = hyperbolic;
 
@@ -249,5 +251,243 @@ describe('tiling', () => {
 
   it('refuses a pair that is not hyperbolic', () => {
     expect(() => tiling(6, 3, { depth: 1 })).toThrow(/not a hyperbolic tiling/);
+  });
+});
+
+// ---- the metric as fields -------------------------------------------------
+
+const { field, density, equidistants } = hyperbolic;
+
+/** The nearest point of a densely sampled geodesic, in hyperbolic distance
+ * — the slow, obvious answer `field.halfplane` has a formula for. */
+const bruteToGeodesic = (a: [number, number], b: [number, number], p: [number, number]): number => {
+  let best = Infinity;
+  for (const s of geodesic(a, b, { count: 20000 })) best = Math.min(best, distance(p, s));
+  return best;
+};
+
+describe('field.disc', () => {
+  it('is zero on the hyperbolic circle of the same centre and radius', () => {
+    for (const [c, r] of [[[0, 0], 0.9], [[0.2, -0.1], 0.8], [[-0.6, 0.35], 1.7]] as [[number, number], number][]) {
+      const f = field.disc(c, r);
+      for (const p of circle(c, r, { count: 240 })) expect(f(p[0], p[1])).toBeCloseTo(0, 9);
+    }
+  });
+
+  it('is the radius at the centre and falls away from it', () => {
+    const f = field.disc([0.2, -0.1], 0.8);
+    expect(f(0.2, -0.1)).toBeCloseTo(0.8, 12);
+    expect(f(0.9, 0.3)).toBeLessThan(0);
+    // The value is the radius less the hyperbolic distance, everywhere.
+    for (const p of diskPoints(200, 11, 0.95)) {
+      expect(f(p[0], p[1])).toBeCloseTo(0.8 - distance([0.2, -0.1], p), 12);
+    }
+  });
+
+  it('moves with the disc under a transform', () => {
+    const m = compose(translation(0.3, 0.2), rotation(41));
+    const f = field.disc([0.2, -0.1], 0.8);
+    const g = field.disc(apply(m, [0.2, -0.1]), 0.8);
+    for (const p of diskPoints(300, 13, 0.95)) {
+      const q = apply(m, p);
+      expect(g(q[0], q[1])).toBeCloseTo(f(p[0], p[1]), 9);
+    }
+  });
+
+  it('is NaN outside the disk, and on the rim', () => {
+    const f = field.disc([0, 0], 0.5);
+    for (const [x, y] of [[1, 0], [0, -1], [1.4, 0.2], [-3, 5]]) expect(f(x, y)).toBeNaN();
+  });
+});
+
+describe('field.halfplane', () => {
+  const a: [number, number] = [-0.5, -0.3];
+  const b: [number, number] = [0.6, 0.4];
+
+  it('is zero along the geodesic through its two points', () => {
+    const f = field.halfplane(a, b);
+    for (const p of geodesic(a, b, { count: 400 })) expect(f(p[0], p[1])).toBeCloseTo(0, 9);
+  });
+
+  it('is positive to the left of a → b and negative to the right', () => {
+    const f = field.halfplane(a, b);
+    const g = field.halfplane(b, a);
+    for (const p of diskPoints(300, 17, 0.95)) {
+      const v = f(p[0], p[1]);
+      expect(g(p[0], p[1])).toBeCloseTo(-v, 9);
+      // The left of a → b is where the mid-point's own left-hand normal
+      // points; a turn of a quarter circle names it.
+      const mid = geodesic(a, b, { count: 2 })[1];
+      const side = (p[0] - mid[0]) * (b[1] - a[1]) - (p[1] - mid[1]) * (b[0] - a[0]);
+      if (Math.abs(v) > 0.4) expect(Math.sign(v)).toBe(-Math.sign(side));
+    }
+  });
+
+  it('is the distance to the nearest point of the geodesic', () => {
+    const f = field.halfplane(a, b);
+    // Points whose nearest geodesic point is well inside the sampled
+    // segment, so the dense walk measures the same thing the formula does.
+    for (const p of diskPoints(24, 19, 0.5)) {
+      expect(Math.abs(f(p[0], p[1]))).toBeCloseTo(bruteToGeodesic(a, b, p), 6);
+    }
+  });
+
+  it('is NaN outside the disk and refuses one point twice', () => {
+    expect(field.halfplane(a, b)(1.2, 0)).toBeNaN();
+    expect(() => field.halfplane(a, a)).toThrow(/the same/);
+  });
+});
+
+describe('field.points', () => {
+  it('is the hyperbolic distance to the nearest of the set', () => {
+    const set = diskPoints(12, 23, 0.8);
+    const f = field.points(set);
+    for (const p of diskPoints(300, 29, 0.95)) {
+      const best = Math.min(...set.map((s) => distance(s, p)));
+      expect(f(p[0], p[1])).toBeCloseTo(best, 9);
+    }
+    for (const s of set) expect(f(s[0], s[1])).toBeCloseTo(0, 9);
+  });
+
+  it('answers Infinity for an empty set, and NaN outside the disk', () => {
+    expect(field.points([])(0, 0)).toBe(Infinity);
+    expect(field.points([[0, 0]])(1, 0)).toBeNaN();
+  });
+});
+
+describe('field.cell', () => {
+  it('is the inradius at the origin and zero at every edge mid-point', () => {
+    const f = field.cell(7, 3);
+    // `arccosh(cos(π/q)/sin(π/p))` is the inradius of the {p, q} polygon.
+    expect(f(0, 0)).toBeCloseTo(Math.acosh(Math.cos(Math.PI / 3) / Math.sin(Math.PI / 7)), 12);
+    const verts = polygon(7, 3);
+    for (let i = 0; i < 7; i++) {
+      const mid = geodesic(verts[i], verts[(i + 1) % 7], { count: 2 })[1];
+      expect(f(mid[0], mid[1])).toBeCloseTo(0, 9);
+      expect(f(verts[i][0], verts[i][1])).toBeCloseTo(0, 9);
+    }
+  });
+
+  it('is negative at a vertex folded over an edge it does not touch', () => {
+    const f = field.cell(7, 3);
+    const verts = polygon(7, 3);
+    for (let i = 0; i < 7; i++) {
+      const fold = reflection(verts[i], verts[(i + 1) % 7]);
+      for (const j of [i + 2, i + 3, i + 4, i + 5]) {
+        const img = apply(fold, verts[j % 7]);
+        expect(f(img[0], img[1])).toBeLessThan(0);
+      }
+    }
+  });
+
+  it('is NaN outside the disk and refuses a pair that is not hyperbolic', () => {
+    expect(field.cell(7, 3)(1.5, 0)).toBeNaN();
+    expect(() => field.cell(6, 3)).toThrow(/not a hyperbolic tiling/);
+  });
+});
+
+describe('density', () => {
+  it('is 4 at the origin and grows without bound toward the rim', () => {
+    const d = density();
+    expect(d(0, 0)).toBe(4);
+    let last = 4;
+    for (const r of [0.5, 0.9, 0.99, 0.9999]) {
+      const v = d(r, 0);
+      expect(v).toBeGreaterThan(last);
+      last = v;
+    }
+    expect(last).toBeGreaterThan(1e8);
+    for (const [x, y] of [[1, 0], [0, 1], [2, 2]]) expect(d(x, y)).toBeNaN();
+  });
+
+  it('integrates to the hyperbolic area of a hyperbolic disc', () => {
+    // `4π sinh²(r/2)` is the area of a hyperbolic disc of radius r. The
+    // quadrature is a midpoint rule over the Euclidean square the disc
+    // sits in, with the density weighting each cell.
+    const d = density();
+    for (const [center, r] of [[[0, 0], 0.7], [[0.35, -0.2], 0.9]] as [[number, number], number][]) {
+      const inside = field.disc(center, r);
+      const loop = circle(center, r, { count: 720 });
+      const x0 = Math.min(...loop.map((p) => p[0]));
+      const x1 = Math.max(...loop.map((p) => p[0]));
+      const y0 = Math.min(...loop.map((p) => p[1]));
+      const y1 = Math.max(...loop.map((p) => p[1]));
+      const n = 1200;
+      const dx = (x1 - x0) / n;
+      const dy = (y1 - y0) / n;
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        const x = x0 + (i + 0.5) * dx;
+        for (let j = 0; j < n; j++) {
+          const y = y0 + (j + 0.5) * dy;
+          if (inside(x, y) > 0) sum += d(x, y);
+        }
+      }
+      const area = sum * dx * dy;
+      const want = 4 * Math.PI * Math.sinh(r / 2) ** 2;
+      expect(Math.abs(area - want) / want).toBeLessThan(0.01);
+    }
+  });
+});
+
+describe('equidistants', () => {
+  const a: [number, number] = [-0.55, -0.3];
+  const b: [number, number] = [0.62, 0.4];
+
+  it('puts every sample at the stated hyperbolic distance from the geodesic', () => {
+    const f = field.halfplane(a, b);
+    const spacing = 0.4;
+    const count = 3;
+    const curves = equidistants(a, b, { spacing, count, samples: 40 });
+    expect(curves).toHaveLength(2 * count);
+    const levels = [-3, -2, -1, 1, 2, 3].map((k) => k * spacing);
+    curves.forEach((curve, i) => {
+      expect(curve).toHaveLength(41);
+      for (const p of curve) {
+        expect(abs(p)).toBeLessThan(1);
+        expect(f(p[0], p[1])).toBeCloseTo(levels[i], 6);
+      }
+    });
+  });
+
+  it('runs alongside the segment, square off one end and the other', () => {
+    const [curve] = equidistants(a, b, { spacing: 0.3, count: 1, samples: 8 });
+    // The first sample sits square off `a`, the last square off `b`: each
+    // is the stated distance from its own end and no further.
+    expect(distance(curve[0], a)).toBeCloseTo(0.3, 9);
+    expect(distance(curve[curve.length - 1], b)).toBeCloseTo(0.3, 9);
+  });
+
+  it('draws nothing for degenerate input', () => {
+    expect(equidistants(a, a)).toEqual([]);
+    expect(equidistants(a, b, { spacing: 0 })).toEqual([]);
+    expect(equidistants(a, b, { count: 0 })).toEqual([]);
+    expect(equidistants(a, b, { samples: 0 })).toEqual([]);
+  });
+});
+
+describe('the fields in a sketch', () => {
+  it('contours field.cell inside the disk with t.isolines', async () => {
+    const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
+    await initOcclude(readFileSync(wasmPath));
+    let got: Material | null = null;
+    let disk = { cx: 0, cy: 0, r: 0 };
+    const def = sketch({ aspect: [1, 1] }, (t) => {
+      const bx = t.bounds();
+      const R = Math.min(bx.w, bx.h) / 2 - 1;
+      disk = { cx: bx.cx, cy: bx.cy, r: R };
+      const cell = hyperbolic.field.cell(7, 3);
+      got = t.isolines((x, y) => cell((x - bx.cx) / R, (y - bx.cy) / R), [0.2, 0.4]);
+      return strokes(got);
+    });
+    render(def, { paper: 'Square20' });
+    const curves = (got as unknown as Material).curves();
+    expect(curves.length).toBeGreaterThan(0);
+    for (const c of curves) {
+      // The cell sits well inside the disk, so every contour closes, and
+      // every point of it is inside the drawn rim.
+      expect(c.closed).toBe(true);
+      for (const [x, y] of c.pts) expect(Math.hypot(x - disk.cx, y - disk.cy)).toBeLessThan(disk.r);
+    }
   });
 });

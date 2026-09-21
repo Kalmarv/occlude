@@ -166,7 +166,7 @@ export type { DistanceField } from './distance.js';
 // circles and {p, q} tilings as placements. Pure — model coordinates only,
 // no seed and no paper — so it is a namespace import, as `sdf` is.
 export { hyperbolic } from './hyperbolic.js';
-export type { Mobius, Complex, GeodesicOpts, CircleOpts, TilingOpts } from './hyperbolic.js';
+export type { Mobius, Complex, GeodesicOpts, CircleOpts, TilingOpts, EquidistantOpts } from './hyperbolic.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelFrom, TravelOpts } from './travel.js';

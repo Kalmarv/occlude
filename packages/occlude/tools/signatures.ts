@@ -127,6 +127,10 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 
 const OWNERS = ['ImageSampler', 'Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
 const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf', 'hyperbolic'];
+/** A namespace that holds one of its own: `hyperbolic.field` is a family
+ * of fields, and its words are its members, keyed `hyperbolic.field.disc`.
+ * Without this the parent would print the whole object type on one line. */
+const SUBNAMESPACES = ['hyperbolic.field'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);
@@ -162,7 +166,15 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
   }
   if (NAMESPACES.includes(name) && decl) {
     const t = checker.getTypeOfSymbolAtLocation(sym, decl);
-    for (const m of checker.getPropertiesOfType(t)) member(name, m, t);
+    for (const m of checker.getPropertiesOfType(t)) {
+      const key = `${name}.${m.getName()}`;
+      if (SUBNAMESPACES.includes(key)) {
+        const sub = checker.getTypeOfSymbolAtLocation(m, m.valueDeclaration ?? decl);
+        for (const g of checker.getPropertiesOfType(sub)) member(key, g, sub);
+        continue;
+      }
+      member(name, m, t);
+    }
     continue;
   }
   if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) {
