@@ -22,7 +22,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
-import { findSourceMap } from 'node:module';
+import { findSourceMap, stripTypeScriptTypes } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as core from 'occlude-core';
@@ -289,7 +289,7 @@ for (const c of chosen) {
   rows.push(row);
   try {
     const { src, paper, marginPct, assetDir } = c.load();
-    const js = liveExampleToJs(src);
+    const js = liveExampleToJs(stripTypeScriptTypes(src, { mode: 'strip' }));
     const runs = c.runs ?? runsWanted;
     for (let i = 0; i < runs; i++) {
       const module = { exports: {} as Record<string, unknown> };
