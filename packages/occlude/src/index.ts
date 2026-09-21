@@ -167,6 +167,10 @@ export type { DistanceField } from './distance.js';
 // no seed and no paper — so it is a namespace import, as `sdf` is.
 export { hyperbolic } from './hyperbolic.js';
 export type { Mobius, Complex, GeodesicOpts, CircleOpts, TilingOpts, EquidistantOpts } from './hyperbolic.js';
+// `hyperbolic.space`: the same plan one dimension up, in the Beltrami–Klein
+// ball, where a hyperbolic line is a chord and a hyperbolic plane is flat —
+// so a honeycomb cell is an ordinary mesh the 3D words already draw.
+export type { Lorentz, HyperbolicCell, SpaceGeodesicOpts, HoneycombOpts, SpaceCameraOpts } from './hyperbolicSpace.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelFrom, TravelOpts } from './travel.js';

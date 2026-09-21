@@ -23,6 +23,7 @@
 
 import type { DistanceField } from './distance.js';
 import { finiteCount } from './guard.js';
+import { space } from './hyperbolicSpace.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
 /** A complex number as `[re, im]` — which is also how a point of the disk
@@ -723,4 +724,5 @@ export const hyperbolic = {
   field,
   density,
   equidistants,
+  space,
 };
