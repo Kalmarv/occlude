@@ -51,13 +51,17 @@ export function bitLength(n:bigint):number {
  * magnitude, which bounds the other vector's contribution to that slack. */
 export interface Filtered4 { readonly v:Float64Array; readonly max:number; readonly slack:number }
 const FILTER_BITS=400;
+/** A magnitude below this converts whole: `magnitude < 2^FILTER_BITS` is the
+ * same test as `bitLength(magnitude) <= FILTER_BITS`, and one comparison
+ * spares the bit length its digit string on the common path. */
+const FILTER_LIMIT=1n<<BigInt(FILTER_BITS);
 export function filtered4(p:H):Filtered4 {
   let magnitude=0n;
   for(let i=0;i<4;i++){const a=abs(p[i]);if(a>magnitude)magnitude=a;}
   const v=new Float64Array(4);
   if(magnitude===0n)return {v,max:0,slack:0};
-  const excess=bitLength(magnitude)-FILTER_BITS,slack=excess>0?1:0;
-  if(slack){const shift=BigInt(excess);for(let i=0;i<4;i++)v[i]=Number(p[i]>>shift);}
+  const slack=magnitude<FILTER_LIMIT?0:1;
+  if(slack){const shift=BigInt(bitLength(magnitude)-FILTER_BITS);for(let i=0;i<4;i++)v[i]=Number(p[i]>>shift);}
   else for(let i=0;i<4;i++)v[i]=Number(p[i]);
   let max=0;
   for(let i=0;i<4;i++){const a=Math.abs(v[i]);if(a>max)max=a;}
@@ -109,7 +113,7 @@ function commonShift(p:H):number {
   return shift;
 }
 /** Divide out the common power of two only. Every coefficient is divisible by
- * it, so the arithmetic shift is exact division. See `atScale`. */
+ * it, so the arithmetic shift is exact division. See `at`. */
 export function reduceScale(p:H):H {
   const shift=commonShift(p);
   return shift>0?[p[0]>>BigInt(shift),p[1]>>BigInt(shift),p[2]>>BigInt(shift),p[3]>>BigInt(shift)]:p;
@@ -120,16 +124,32 @@ export const dot3=(a:readonly bigint[],b:readonly bigint[])=>a[0]*b[0]+a[1]*b[1]
 export const cross=(a:V,b:V):V=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 export const difference=(a:H,b:H):V=>[a[0]*b[3]-b[0]*a[3],a[1]*b[3]-b[1]*a[3],a[2]*b[3]-b[2]*a[3]];
 const supporting=(normal:V,p:H):H=>[normal[0]*p[3],normal[1]*p[3],normal[2]*p[3],-dot3(normal,p)];
-export const at=(normal:V,p:H):H=>reduce(supporting(normal,p));
-export const plane=(a:H,b:H,c:H):H=>at(cross(difference(b,a),difference(c,a)),a);
-/** `at` and `plane` for a consumer that only reads signs and interval roots.
+/** The supporting plane, at whatever positive scale is cheapest to reach.
  * A homogeneous plane is projective: multiplying it by a positive constant
  * moves no sign, no root and no rounded coordinate, so the scale is free to
- * choose. Stripping the common power of two is a shift instead of a gcd and
- * recovers most of the compactness; what it leaves is not canonical, so a
- * plane that is compared or keyed wants `at`/`plane` instead. */
-export const atScale=(normal:V,p:H):H=>reduceScale(supporting(normal,p));
-export const planeScale=(a:H,b:H,c:H):H=>atScale(cross(difference(b,a),difference(c,a)),a);
+ * choose, and stripping the common power of two is a shift instead of a gcd.
+ *
+ * Every consumer of `at`/`plane` reads the VALUE — a sign, a zero test, a
+ * root, or a coefficient comparison — and none reads the representation:
+ *   - `triangleWeights` below: `n.slice(0,3).every(v=>v===0n)` (a positive
+ *     scale creates and destroys no zero), `dot(n,p)!==0n` (likewise), and
+ *     the drop axis `abs(n[k])>abs(n[drop])` (all four coefficients carry
+ *     the same positive factor, so every comparison between them stands).
+ *     The weights themselves come from `orientPoint`, which never sees `n`.
+ *   - `curves/contact.ts` `trianglePlane`: the same degeneracy test, then
+ *     `dot(pb,p)` signs and zero tests, `cross(pa,pb)` all-zero for
+ *     parallel, `dropAxis` (a coefficient comparison again), and
+ *     `exactCrossing3(A,B,da,db)=A*db-B*da`, where `da` and `db` come from
+ *     the SAME plane and so carry the same positive factor, which factors
+ *     out of the crossing and is removed again by its `canonicalPoint`.
+ *   - `curves/intersectionContacts.ts`: `canonicalPlane3(plane(...))`,
+ *     which reduces to the primitive vector itself — `reduce(k*v)` is
+ *     `reduce(v)` for any positive integer `k`, because `reduce` divides by
+ *     the full content.
+ * A consumer that needs the canonical plane asks `reduce` for it, the way
+ * `canonicalPlane3` does. */
+export const at=(normal:V,p:H):H=>reduceScale(supporting(normal,p));
+export const plane=(a:H,b:H,c:H):H=>at(cross(difference(b,a),difference(c,a)),a);
 export const times=(p:H,n:bigint):H=>[p[0]*n,p[1]*n,p[2]*n,p[3]*n];
 export const subtract=(a:H,b:H):H=>[a[0]-b[0],a[1]-b[1],a[2]-b[2],a[3]-b[3]];
 export const constant=(n:bigint):H=>[0n,0n,0n,n];
@@ -169,8 +189,10 @@ export function ratioNumber([numerator,denominator]:Ratio):number {
   if(exponent>=0?n<(d<<BigInt(exponent)):(n<<BigInt(-exponent))<d)exponent--;
   if(exponent>1023)return polarity*Infinity;
   const shift=Math.min(1074,52-exponent),scaled=shift>=0?n<<BigInt(shift):n,divisor=shift>=0?d:d<<BigInt(-shift);
-  let q=scaled/divisor;const remainder=scaled%divisor;
-  if(2n*remainder>divisor||(2n*remainder===divisor&&(q&1n)!==0n))q++;
+  // Both operands are positive, so `q` is the floor and the remainder is the
+  // difference — one multiplication instead of a second full division.
+  let q=scaled/divisor;const twiceRemainder=(scaled-q*divisor)<<1n;
+  if(twiceRemainder>divisor||(twiceRemainder===divisor&&(q&1n)!==0n))q++;
   return polarity*Number(q)*2**(-shift);
 }
 export function pointNumber(p:H):Vec3 {

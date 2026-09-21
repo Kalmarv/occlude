@@ -1,4 +1,4 @@
-import {dyadic,sum,product,homogeneous,abs,point,dot,dot3,cross,difference,atScale,planeScale,reduceScale,times,subtract,constant,sign,ratioNumber as toNumber,decodePoint,weightedPoint,integerWeights,filtered4,filteredDotSign,type Filtered4,type H,type V,type Ratio} from '../geometry/exact.js';
+import {dyadic,sum,product,homogeneous,abs,point,dot,dot3,cross,difference,at,plane,reduceScale,times,subtract,constant,sign,ratioNumber as toNumber,decodePoint,weightedPoint,integerWeights,filtered4,filteredDotSign,type Filtered4,type H,type V,type Ratio} from '../geometry/exact.js';
 import type {Triangle3,Vec3} from '../math.js';
 import type {AffinePoint3,SegmentBasis3,Interval3} from './interval.js';
 
@@ -60,14 +60,14 @@ function planes(volume:WorldOcclusion3):Shadow3|null {
   if(planeCache.has(volume))return planeCache.get(volume)!;
   const [a,b,c]=volume.triangle.map(exactVertex),vertices=[a,b,c];
   const {eye,back,direction,linear,scale,near,far}=exactView(volume.view);
-  const surface=planeScale(a,b,c);
+  const surface=plane(a,b,c);
   const side=volume.view.perspective?dot(surface,eye):dot3(surface,direction);
   if(side===0n){planeCache.set(volume,null);return null;}
   const depth=times(surface,-sign(side)); // strictly behind the source surface
   const result:H[]=[];
   for(let i=0;i<3;i++){
     const u=vertices[i],v=vertices[(i+1)%3],other=vertices[(i+2)%3];
-    const p=volume.view.perspective?planeScale(eye,u,v):atScale(cross(difference(v,u),direction),u);
+    const p=volume.view.perspective?plane(eye,u,v):at(cross(difference(v,u),direction),u);
     const interior=sign(dot(p,other));if(interior===0n){planeCache.set(volume,null);return null;}
     result.push(times(p,interior));
   }

@@ -33,7 +33,13 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
   // A corner the field could not answer skips the triangles that touch it.
 
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],nodeIds=new Map<string,string>(),positions=new Map<string,readonly [number,number,number]>();
-  const segments:{id:string;a:string;b:string;triangle:number;length:number;index:number;level:number}[]=[];
+  const segments:{id:string;a:string;b:string;wa:readonly bigint[];wb:readonly bigint[];triangle:number;length:number;index:number;level:number}[]=[];
+  // The two triangles that share an edge compute the same crossing: the same
+  // ordered vertex pair and, when their corner values agree there, the same
+  // binary64 parameter, so the weighted point is the same exact point built
+  // twice. Its canonicalization is the isolines' largest exact cost, so the
+  // point is built once and the second triangle is handed the same value.
+  const crossings=new Map<string,H>();
   const stats={crossings:0,segments:0,chains:0,nodes:0};
   const node=(li:number,slots:readonly number[],valuesKey:string,point:H):string=>{
     const k=JSON.stringify([li,slots,valuesKey,encodePoint(point)]);const previous=nodeIds.get(k);if(previous)return previous;
@@ -47,20 +53,26 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
       if(!f.every(Number.isFinite))continue;
       const above=f.map(v=>v>=level);
       if(above.every(Boolean)||!above.some(Boolean))continue;
-      const world=bindingTriangle3(binding,ti),ends:string[]=[];
+      const world=bindingTriangle3(binding,ti),ends:string[]=[],endWeights:(readonly bigint[])[]=[];
       for(let e=0;e<3;e++){
         const i=e,j=(e+1)%3;if(above[i]===above[j])continue;
         const [lo,hi]=above[j]?[i,j]:[j,i],s=(level-f[lo])/(f[hi]-f[lo]);
         stats.crossings++;
         const w=integerWeights([1-s,s]),weights=[0n,0n,0n];weights[lo]=w[0];weights[hi]=w[1];
-        const point=weightedPoint(world,weights);
+        // The key names the ordered world vertices and the parameter, which is
+        // everything the affine combination reads; `s` is a finite binary64 in
+        // (0, 1], so its decimal form names one double and no other.
+        const ck=`${t.vertices[lo]},${t.vertices[hi]},${s}`;
+        let point=crossings.get(ck);
+        if(!point){point=weightedPoint(world,weights);crossings.set(ck,point);}
         const vertex=s>=1?t.vertices[hi]:undefined;
         ends.push(vertex!==undefined?node(li,[vertex],String(f[hi]),point):node(li,[t.vertices[lo],t.vertices[hi]].sort((a,b)=>a-b),JSON.stringify(t.vertices[lo]<t.vertices[hi]?[f[lo],f[hi]]:[f[hi],f[lo]]),point));
+        endWeights.push(weights);
       }
       if(ends.length!==2||ends[0]===ends[1])continue;
       if(segments.length>=maxSegments)throw new Error('isolines exceed segment budget');
       const [pa,pb]=[positions.get(ends[0])!,positions.get(ends[1])!],length=Math.hypot(pa[0]-pb[0],pa[1]-pb[1],pa[2]-pb[2]);
-      segments.push({id:identity('isoline-segment',key,li,ti,ends),a:ends[0],b:ends[1],triangle:ti,length,index:li,level});
+      segments.push({id:identity('isoline-segment',key,li,ti,ends),a:ends[0],b:ends[1],wa:endWeights[0],wb:endWeights[1],triangle:ti,length,index:li,level});
     }
   });
   // Chain by shared nodes per level: open chains start at degree != 2 nodes,
@@ -85,7 +97,11 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
       let cursor=0,previous=0;stats.chains++;
       for(const c of chain){
         const s=segments[c.segment];const lo=Math.max(cursor/total,previous),hi=Math.max((cursor+s.length)/total,nextUp(lo));cursor+=s.length;
-        rows.push({id:s.id,kind:'isoline',a:c.forward?s.a:s.b,b:c.forward?s.b:s.a,chainId,range:[lo,Math.min(1,hi)>lo?Math.min(1,hi):hi],supports:[{source:0,triangle:s.triangle}],attributes:{level:s.level,levelIndex:s.index}});
+        // The producer already holds each end's integer weights on this
+        // triangle — the same affine combination that built the point — so the
+        // network verifies them with multiplications instead of solving the
+        // barycentric system again. `a`/`b` follow the chain's direction.
+        rows.push({id:s.id,kind:'isoline',a:c.forward?s.a:s.b,b:c.forward?s.b:s.a,chainId,range:[lo,Math.min(1,hi)>lo?Math.min(1,hi):hi],supports:[{source:0,triangle:s.triangle,a:c.forward?s.wa:s.wb,b:c.forward?s.wb:s.wa}],attributes:{level:s.level,levelIndex:s.index}});
         previous=hi;
       }
     };

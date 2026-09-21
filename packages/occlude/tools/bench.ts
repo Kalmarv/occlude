@@ -230,6 +230,11 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   { name: 'symmetry p6m', size: 'cell 26, 3 arcs', load: fence('reference/transforms.mdx', "t.symmetry('p6m'") },
   { name: 'streamlines maxLength', size: 'ivy.png, spacing 0.9-3.3 mm', load: fence('reference/fields.mdx', 'maxLength: (x, y) => mm(img.a(x, y)') },
   {
+    name: 'globe contours',
+    size: 'geodesic [20,20] dual ×2, displace, isolines count 20, intersections',
+    load: () => ({ src: readFileSync(fileURLToPath(new URL('../test/fixtures/globe-contours.ts', import.meta.url)), 'utf8'), paper: { paper: 'Square20' }, marginPct: 5 }),
+  },
+  {
     name: 'plan (church)',
     size: 'church.svg, A4, render + wasm_plan',
     plan: true,
