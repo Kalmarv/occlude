@@ -177,6 +177,11 @@ export type { Lorentz, HyperbolicCell, SpaceGeodesicOpts, HoneycombOpts, SpaceCa
 // drawable, and `t.space` is the record every word reads.
 export { space } from './space.js';
 export type { Space, SpaceKind, SpaceSpec, SpaceOption, Projection } from './space.js';
+// One word for the regular tilings of all three geometries: the Schläfli
+// symbol picks the sphere, the plane or the disk, and the answer is the
+// cell and its placements as point maps, the same shape in each.
+export { tiling, tilingGeometry } from './tiling.js';
+export type { Tiling, TilingGeometry } from './tiling.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelFrom, TravelOpts } from './travel.js';

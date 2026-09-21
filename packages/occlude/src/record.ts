@@ -530,9 +530,73 @@ function spaceCircle(a: Extract<Prim, { t: 'arc' }>, space: Space, unit: number,
   const n = Math.max(8, Math.min(4096, Math.ceil((2 * Math.PI) / dtheta)));
   const loop = space.circle(c, r, n);
   if (loop.length < 3) return [];
+  // A circle big enough to wrap around the far side of a sphere runs off
+  // the edge of the chart. There is no chart curve then, so the arcs the
+  // shape already holds stand in, and nothing throws.
+  for (const [x, y] of loop) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
   const out = loop.map(([x, y]) => [x * unit, y * unit] as [number, number]);
   out.push([out[0][0], out[0][1]]);
   return out;
+}
+
+/** How closely the far-side boundary is pinned when a stroke leaves the
+ * sheet: a halving each time, so the cut lands within a millionth of the
+ * segment it happened on. */
+const EDGE_STEPS = 20;
+
+/**
+ * The chart points of one contour, projected, and CUT where the sheet
+ * runs out.
+ *
+ * Every projection of the hyperbolic space covers the whole space, so this
+ * hands back one run and does nothing else. The gnomonic and orthographic
+ * charts of a sphere show ONE HEMISPHERE, and a point on the far side has
+ * no place on the sheet at all: 2D has no occlusion, so the far side is
+ * dropped, not hidden. The stroke ends where it crosses the equator —
+ * found by halving along the geodesic, not by clipping against a circle
+ * standing in for one — and picks up again where it comes back.
+ */
+function projectRuns(pts: readonly [number, number][], space: Space, unit: number): [number, number][][] {
+  const sheet = (p: readonly [number, number]): [number, number] => {
+    const q = space.project([p[0] / unit, p[1] / unit]);
+    return [q[0] * unit, q[1] * unit];
+  };
+  const on = (q: readonly [number, number]): boolean => Number.isFinite(q[0]) && Number.isFinite(q[1]);
+  /** The last point of `a → b` that is still on the sheet, `a` being on
+   * it and `b` not. */
+  const edge = (a: readonly [number, number], b: readonly [number, number]): [number, number] => {
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < EDGE_STEPS; i++) {
+      const mid = (lo + hi) / 2;
+      const g = space.geodesic([a[0] / unit, a[1] / unit], [b[0] / unit, b[1] / unit], mid);
+      const q: [number, number] = [g[0] * unit, g[1] * unit];
+      if (on(sheet(q))) lo = mid;
+      else hi = mid;
+    }
+    const g = space.geodesic([a[0] / unit, a[1] / unit], [b[0] / unit, b[1] / unit], lo);
+    return sheet([g[0] * unit, g[1] * unit]);
+  };
+  const runs: [number, number][][] = [];
+  let run: [number, number][] = [];
+  let prev: [number, number] | null = null;
+  let prevOn = false;
+  for (const p of pts) {
+    const q = sheet(p);
+    const here = on(q);
+    if (here) {
+      if (prev && !prevOn) run.push(edge(p, prev));
+      run.push(q);
+    } else if (prev && prevOn) {
+      run.push(edge(prev, p));
+      if (run.length > 1) runs.push(run);
+      run = [];
+    }
+    prev = p;
+    prevOn = here;
+  }
+  if (run.length > 1) runs.push(run);
+  return runs;
 }
 
 /**
@@ -603,7 +667,13 @@ function chartContours(
       const dev = len > 0
         ? Math.abs(dx * (pm[1] - pa[1]) - dy * (pm[0] - pa[0])) / len
         : Math.hypot(pm[0] - pa[0], pm[1] - pa[1]);
-      if (!(dev > tol) || depth >= SPACE_DEPTH) {
+      // A segment that has a place on the sheet at one end and none at the
+      // other crosses the edge of a hemisphere chart somewhere inside it.
+      // The deviation says nothing there (it is NaN), so the crossing is
+      // hunted down by halving instead, and the piece that does have a
+      // place gets bent like any other.
+      const together = Number.isFinite(pa[0]) === Number.isFinite(pm[0]) && Number.isFinite(pm[0]) === Number.isFinite(pb[0]);
+      if ((together && !(dev > tol)) || depth >= SPACE_DEPTH) {
         out.push(b);
         return;
       }
@@ -707,13 +777,15 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     // paper and snap — the same four steps the sketch-time door takes, with
     // the projection that only ink needs.
     ? chartContours(shape.geom, raw, toDrawable, frame, space, SPACE_TOL, bend)
-      .map((pts) => {
-        const unit = unitMm(frame);
+      // One contour in, one contour out wherever the whole of it has a
+      // place on the sheet — which is every projection of the hyperbolic
+      // space. A hemisphere chart can cut one contour into several, and
+      // then each piece is a contour of its own.
+      .flatMap((pts) => projectRuns(pts, space, unitMm(frame)).map((run) => {
         const out: Prim[] = [];
         let prev: [number, number] | null = null;
-        for (const [x, y] of pts) {
-          const q = space.project([x / unit, y / unit]);
-          const here: [number, number] = [q[0] * unit + frame.offsetX, q[1] * unit + frame.offsetY];
+        for (const [x, y] of run) {
+          const here: [number, number] = [x + frame.offsetX, y + frame.offsetY];
           // One segment in, one segment out — the flat door never drops a
           // degenerate primitive either, and a shape's segment count is a
           // protocol its stroke ranges read.
@@ -721,7 +793,7 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
           prev = here;
         }
         return out;
-      })
+      }))
     : raw.map((contour) =>
       contour.flatMap((p) => transformPrim(p, chain)).map(snapPrim),
     );
@@ -747,8 +819,13 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     const unit = unitMm(frame);
     const [dx, dy] = apply(toDrawable, (x0 + x1) / 2, (y0 + y1) / 2);
     const q = space.project([dx / unit, dy / unit]);
-    anchor.e = q[0] * unit + frame.offsetX;
-    anchor.f = q[1] * unit + frame.offsetY;
+    // A centre on the far side of a hemisphere chart has no place on the
+    // sheet; the transform chain's own origin stands, and the contours are
+    // gone anyway.
+    if (Number.isFinite(q[0]) && Number.isFinite(q[1])) {
+      anchor.e = q[0] * unit + frame.offsetX;
+      anchor.f = q[1] * unit + frame.offsetY;
+    }
   }
   return { shape, contours, convex, anchor };
 }

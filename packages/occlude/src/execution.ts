@@ -59,13 +59,16 @@ export interface SketchOptions {
   /** Default rect anchoring: 'corner' (default) or 'center' (p5 rectMode). */
   rectMode?: 'corner' | 'center';
   /** The geometry the sketch draws in: `'euclidean'` (the default, and what
-   * every sketch without this key runs), `'hyperbolic'`, or the same with
-   * its horizon — `space.hyperbolic({ radius: 90 })`. A bare spacing is
-   * then a length IN THE SPACE; `mm(…)` stays a length on the paper. */
+   * every sketch without this key runs), `'hyperbolic'`, `'spherical'`, or
+   * the same with its radius — `space.hyperbolic({ radius: 90 })`,
+   * `space.spherical({ radius: 30 })`. A bare spacing is then a length IN
+   * THE SPACE; `mm(…)` stays a length on the paper. */
   space?: SpaceOption;
-  /** The chart the sheet is drawn in: `'poincare'` (the default) or
-   * `'klein'`, where geodesics are straight. Needs a non-Euclidean
-   * `space`. */
+  /** The chart the sheet is drawn in. Hyperbolic space: `'poincare'` (the
+   * default) or `'klein'`, where geodesics are straight. Spherical space:
+   * `'stereographic'` (the default), `'gnomonic'`, where geodesics are
+   * straight, or `'orthographic'`; the last two show one hemisphere and
+   * drop the far side. Needs a non-Euclidean `space`. */
   projection?: Projection;
 }
 

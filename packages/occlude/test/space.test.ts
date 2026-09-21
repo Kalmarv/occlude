@@ -259,9 +259,13 @@ describe('the refusals name what is wrong', () => {
     expect(() => tk({ space: 'hyperbolic', projection: 'halfplane' })).toThrow(/lands in a later step/);
   });
 
-  it('says spherical space is not here yet', () => {
-    expect(() => tk({ space: 'spherical' })).toThrow(/lands in the next step/);
-    expect(() => space.spherical()).toThrow(/lands in the next step/);
+  it('names an unknown space, and knows the three there are', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => tk({ space: 'elliptic' as any })).toThrow(/unknown space 'elliptic'/);
+    for (const kind of ['euclidean', 'hyperbolic', 'spherical'] as const) {
+      expect(tk({ space: kind }).space.kind).toBe(kind);
+    }
+    expect(space.spherical().kind).toBe('spherical');
   });
 
   it('refuses a radius that is not a length', () => {

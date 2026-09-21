@@ -24,6 +24,7 @@
 import type { DistanceField } from './distance.js';
 import { finiteCount } from './guard.js';
 import { space } from './hyperbolicSpace.js';
+import { tileGroup, type TileOps } from './tilegroup.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
 /** A complex number as `[re, im]` — which is also how a point of the disk
@@ -346,13 +347,20 @@ export function circle(center: XY, r: number, opts: CircleOpts = {}): Vec[] {
 }
 
 /** `(p − 2)(q − 2) > 4` is what makes `{p, q}` hyperbolic: at 4 it is the
- * Euclidean plane, below it the sphere. */
+ * Euclidean plane, below it the sphere.
+ *
+ * `tiling(p, q)` — the word without a namespace — draws every symbol in
+ * whichever geometry it belongs to, and refuses nothing but `p` or `q`
+ * below 3. These two words are the disk's own: they answer in the disk's
+ * coordinates and with the disk's isometries, which a symbol from another
+ * geometry has none of. That is what they say. */
 function checkPQ(who: string, p: number, q: number): void {
   if (!Number.isInteger(p) || !Number.isInteger(q) || p < 3 || q < 3) {
     throw new Error(`${who}: p and q are whole numbers of 3 or more (got ${p}, ${q})`);
   }
   if ((p - 2) * (q - 2) <= 4) {
-    throw new Error(`${who}: {${p}, ${q}} is not a hyperbolic tiling — (p − 2)(q − 2) must be more than 4, and it is ${(p - 2) * (q - 2)}`);
+    const where = (p - 2) * (q - 2) === 4 ? 'the Euclidean plane' : 'the sphere';
+    throw new Error(`${who}: {${p}, ${q}} is not a hyperbolic tiling — it belongs to ${where}, and tiling(${p}, ${q}) draws it there`);
   }
 }
 
@@ -382,11 +390,6 @@ export function polygon(p: number, q: number): Vec[] {
   });
 }
 
-/** A tile is named by where it sends the origin; the grid is coarse enough
- * that two tiles never share a bucket and fine enough to stay cheap. */
-const BUCKET = 1e-6;
-const bucketKey = (x: number, y: number): string => `${Math.round(x / BUCKET)},${Math.round(y / BUCKET)}`;
-
 /**
  * The `{p, q}` tiling as PLACEMENTS: one transform per copy of the
  * fundamental polygon, the identity first.
@@ -406,47 +409,22 @@ export function tiling(p: number, q: number, opts: TilingOpts = {}): Mobius[] {
   checkPQ('tiling', p, q);
   const depth = opts.depth === undefined ? 3 : Math.floor(opts.depth);
   if (!Number.isFinite(depth) || depth < 0) return [];
-  const verts = polygon(p, q);
-  const mirrors = verts.map((v, i) => reflection(v, verts[(i + 1) % p]));
-  // The identity: `rotation(0)`, which is the transform that stays put.
-  const out: Mobius[] = [rotation(0)];
-  // Where each accepted transform puts the origin, bucketed: that point
-  // names the tile, and one tile takes one placement.
-  const seen = new Map<string, Vec[]>();
-  const place = (m: Mobius): boolean => {
-    const o = apply(m, [0, 0]);
-    if (!Number.isFinite(o[0]) || !Number.isFinite(o[1])) return false;
-    for (let i = -1; i <= 1; i++) {
-      for (let j = -1; j <= 1; j++) {
-        const near = seen.get(bucketKey(o[0] + i * BUCKET, o[1] + j * BUCKET));
-        if (near && near.some((c) => Math.hypot(c[0] - o[0], c[1] - o[1]) < TOL)) return false;
-      }
-    }
-    const key = bucketKey(o[0], o[1]);
-    const cell = seen.get(key);
-    if (cell) cell.push(o);
-    else seen.set(key, [o]);
-    return true;
-  };
-  place(out[0]);
-  let frontier = out.slice();
-  for (let g = 0; g < depth; g++) {
-    const next: Mobius[] = [];
-    for (const m of frontier) {
-      for (const r of mirrors) {
-        const candidate = compose(m, r);
-        if (!place(candidate)) continue;
-        next.push(candidate);
-        out.push(candidate);
-        // A depth nobody meant to ask for stops here, by name.
-        finiteCount('tiling', out.length);
-      }
-    }
-    if (next.length === 0) break;
-    frontier = next;
-  }
-  return out;
+  return tileGroup('tiling', DISK, polygon(p, q), depth);
 }
+
+/** The disk's answer to `TileOps`: an isometry is a Möbius record, and a
+ * reflection in an edge is the reflection in the geodesic through its two
+ * ends. The flood itself is `tileGroup`, shared with the plane and the
+ * sphere. */
+const DISK: TileOps<Mobius> = {
+  identity: rotation(0),
+  compose,
+  apply,
+  reflection,
+  // The disk holds the whole plane, so where a copy puts the origin names
+  // it outright.
+  seat: (m) => apply(m, [0, 0]),
+};
 
 // ---- the metric as fields -------------------------------------------------
 

@@ -17,6 +17,15 @@
  * centre is worth one drawable unit — and the curvature is `−4/radius²`.
  * A larger radius is flatter, and the Euclidean limit is radius → ∞.
  *
+ * The spherical space is the same sentence with the sign turned over: the
+ * drawable is the stereographic picture of a sphere of radius `radius`
+ * touching it at its centre, the model coordinate is `z = (p − c)/(2·radius)`
+ * — so `|z| = tan(θ/2)` for the angle `θ` from the point of contact — the
+ * metric is `ds = |dp|/(1 + |z|²)`, again one drawable unit a step at the
+ * centre, and the curvature is `+1/radius²`. The near hemisphere is
+ * `|z| < 1`, the whole sphere fits the chart but for the one point
+ * opposite the contact, and a larger radius is flatter here too.
+ *
  * The formulas are the Poincaré-disk formulas of `hyperbolic.ts` scaled to
  * this chart: that module measures with `ds = 2|dz|/(1 − |z|²)`, so a
  * length here is `radius/2` times a length there. The two hot readings,
@@ -38,14 +47,15 @@ export type SpaceKind = 'euclidean' | 'hyperbolic' | 'spherical';
 
 /** The chart the sheet is drawn in. `'poincare'` and `'klein'` belong to
  * hyperbolic space; `'stereographic'`, `'gnomonic'` and `'orthographic'`
- * to spherical space, which lands in the next step. */
+ * to spherical space. */
 export type Projection = 'poincare' | 'klein' | 'halfplane' | 'stereographic' | 'gnomonic' | 'orthographic';
 
 /** What a sketch declares: a kind by name, or the same with its radius. */
 export interface SpaceSpec {
   kind: SpaceKind;
-  /** The horizon, in drawable units (hyperbolic) or the sphere's radius
-   * (spherical). Default: 1.25 × the drawable's half-diagonal. */
+  /** The horizon, in drawable units (hyperbolic; default 1.25 × the
+   * drawable's half-diagonal) or the sphere's radius (spherical; default
+   * half the drawable's short side). */
   radius?: L;
 }
 
@@ -80,7 +90,10 @@ export interface Space {
   /** Area of the space per unit of chart area: 1 at the centre, NaN where
    * the chart holds no place. */
   density(p: XY): number;
-  /** Chart → sheet. */
+  /** Chart → sheet, or a non-finite pair where the chart point is not on
+   * the sheet at all — the far hemisphere under `'gnomonic'` and
+   * `'orthographic'`. The ink door reads that as "draw nothing here" and
+   * ends the stroke at the boundary. */
   project(p: XY): Vec;
   /** Are geodesics straight lines on the sheet? */
   straight: boolean;
@@ -107,9 +120,8 @@ export const space = {
   euclidean: (): SpaceSpec => ({ kind: 'euclidean' }),
   hyperbolic: (opts: { radius?: L } = {}): SpaceSpec =>
     opts.radius === undefined ? { kind: 'hyperbolic' } : { kind: 'hyperbolic', radius: opts.radius },
-  spherical: (_opts: { radius?: L } = {}): SpaceSpec => {
-    throw new Error("spherical space lands in the next step — this build holds space.euclidean() and space.hyperbolic({ radius })");
-  },
+  spherical: (opts: { radius?: L } = {}): SpaceSpec =>
+    opts.radius === undefined ? { kind: 'spherical' } : { kind: 'spherical', radius: opts.radius },
 };
 
 // ---- Euclidean ------------------------------------------------------------
@@ -280,6 +292,204 @@ export function hyperbolicSpaceOf(center: Vec, radius: number, projection: 'poin
   };
 }
 
+// ---- spherical ------------------------------------------------------------
+
+/** A point of the unit sphere. The chart's own point of contact is `+z`. */
+export type Sphere = readonly [number, number, number];
+
+/**
+ * The unit sphere's stereographic chart, from the point opposite `+z`:
+ * the chart origin stands for `+z` and `|z| = tan(θ/2)` for the angle from
+ * it. The spherical space and the spherical tiling both work in this one
+ * chart, so the pair of maps lives once.
+ */
+export function sphereOfChart(z: XY): Sphere {
+  const a = vx(z);
+  const b = vy(z);
+  const s = 1 + a * a + b * b;
+  return [(2 * a) / s, (2 * b) / s, 2 / s - 1];
+}
+
+/** `n ↦ z`. The point opposite the contact has no chart point, and the
+ * division says so by itself. */
+export function chartOfSphere(n: Sphere): Vec {
+  return [n[0] / (1 + n[2]), n[1] / (1 + n[2])];
+}
+
+/**
+ * The sphere on the drawable: radius `R`, touching the sheet at `c`, seen
+ * in the stereographic chart from the point opposite the contact.
+ *
+ * `z = (p − c)/(2R)` is the model coordinate, so `|z| = tan(θ/2)` for the
+ * angle `θ` from the contact point: the equator is `|z| = 1`, the near
+ * hemisphere everything inside it, and the far hemisphere everything
+ * outside — reaching the whole way out, because the one point opposite the
+ * contact is the one place the chart has no room for.
+ *
+ * The chart is CONFORMAL, which is what makes the rest short: a chart
+ * direction and the sphere direction it stands for make the same angle
+ * with every other, so the tangent frame `basis` below is orthonormal and
+ * turning a chart direction into a sphere direction, or back, is two dot
+ * products. `exp`, `log`, `geodesic` and `circle` are then the plain
+ * spherical formulas — turn about the centre, great-circle angle, slerp,
+ * small circle — carried through it.
+ */
+export function sphericalSpaceOf(center: Vec, radius: number, projection: 'stereographic' | 'gnomonic' | 'orthographic'): Space {
+  const [cx, cy] = center;
+  const R = radius;
+  const model = (p: XY): Vec => [(vx(p) - cx) / (2 * R), (vy(p) - cy) / (2 * R)];
+  const chart = (z: Vec): Vec => [cx + 2 * R * z[0], cy + 2 * R * z[1]];
+  const up = sphereOfChart;
+  const down = chartOfSphere;
+  /** The orthonormal tangent frame at `z` that the chart axes stand for:
+   * `d` in the chart is `d.x·e0 + d.y·e1` on the sphere, and back the same
+   * way. (Both are `∂n/∂z` over `|∂n/∂z| = 2/s`.) */
+  const basis = (z: Vec): [Sphere, Sphere] => {
+    const a = z[0];
+    const b = z[1];
+    const s = 1 + a * a + b * b;
+    return [
+      [(s - 2 * a * a) / s, (-2 * a * b) / s, (-2 * a) / s],
+      [(-2 * a * b) / s, (s - 2 * b * b) / s, (-2 * b) / s],
+    ];
+  };
+  const dot3 = (u: Sphere, v: Sphere): number => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const finite = (v: Vec): boolean => Number.isFinite(v[0]) && Number.isFinite(v[1]);
+  return {
+    kind: 'spherical',
+    projection,
+    curvature: 1 / (R * R),
+    radius: R,
+    center: [cx, cy],
+    /**
+     * The great-circle length. Written through the chord — `|n_a − n_b|/2
+     * = |z_a − z_b| / √((1 + |z_a|²)(1 + |z_b|²))` — so that a short step
+     * keeps every digit it has, which `acos` of a dot product would spend.
+     */
+    distance(a, b) {
+      const za = model(a);
+      const zb = model(b);
+      const qa = 1 + za[0] * za[0] + za[1] * za[1];
+      const qb = 1 + zb[0] * zb[0] + zb[1] * zb[1];
+      const half = Math.hypot(za[0] - zb[0], za[1] - zb[1]) / Math.sqrt(qa * qb);
+      return 2 * R * Math.asin(Math.min(1, half));
+    },
+    exp(p, v) {
+      const len = Math.hypot(vx(v), vy(v));
+      if (!(len > 0)) return [vx(p), vy(p)];
+      const z = model(p);
+      const n = up(z);
+      const [e0, e1] = basis(z);
+      const kx = vx(v) / len;
+      const ky = vy(v) / len;
+      // The tangent direction the chart direction stands for.
+      const u: Sphere = [e0[0] * kx + e1[0] * ky, e0[1] * kx + e1[1] * ky, e0[2] * kx + e1[2] * ky];
+      const ang = len / R;
+      const ca = Math.cos(ang);
+      const sa = Math.sin(ang);
+      const out = chart(down([n[0] * ca + u[0] * sa, n[1] * ca + u[1] * sa, n[2] * ca + u[2] * sa]));
+      return finite(out) ? out : [vx(p) + vx(v), vy(p) + vy(v)];
+    },
+    log(p, q) {
+      const za = model(p);
+      const zb = model(q);
+      const na = up(za);
+      const nb = up(zb);
+      const c = Math.max(-1, Math.min(1, dot3(na, nb)));
+      const ang = Math.acos(c);
+      // The component of `n_b` across `n_a` is the direction to walk. It
+      // vanishes when the two points are the same and when they are
+      // opposite, and opposite points have no one geodesic between them —
+      // the chart offset is the best effort, as it is past the horizon in
+      // the hyperbolic space.
+      const w: Sphere = [nb[0] - na[0] * c, nb[1] - na[1] * c, nb[2] - na[2] * c];
+      const wl = Math.hypot(w[0], w[1], w[2]);
+      if (!(wl > 1e-15)) return ang < 1 ? [0, 0] : [vx(q) - vx(p), vy(q) - vy(p)];
+      const u: Sphere = [w[0] / wl, w[1] / wl, w[2] / wl];
+      const [e0, e1] = basis(za);
+      const dx = dot3(u, e0);
+      const dy = dot3(u, e1);
+      const dl = Math.hypot(dx, dy);
+      if (!(dl > 0)) return [vx(q) - vx(p), vy(q) - vy(p)];
+      const s = R * ang;
+      return [(s * dx) / dl, (s * dy) / dl];
+    },
+    geodesic(a, b, t) {
+      // The ends are the points asked for, as everywhere else.
+      if (!(t > 0)) return [vx(a), vy(a)];
+      if (t >= 1) return [vx(b), vy(b)];
+      const chord: Vec = [vx(a) + (vx(b) - vx(a)) * t, vy(a) + (vy(b) - vy(a)) * t];
+      const na = up(model(a));
+      const nb = up(model(b));
+      const c = Math.max(-1, Math.min(1, dot3(na, nb)));
+      const ang = Math.acos(c);
+      const sa = Math.sin(ang);
+      // Same point, or opposite ones: no arc to walk either way.
+      if (!(sa > 1e-12)) return chord;
+      const k0 = Math.sin((1 - t) * ang) / sa;
+      const k1 = Math.sin(t * ang) / sa;
+      const out = chart(down([na[0] * k0 + nb[0] * k1, na[1] * k0 + nb[1] * k1, na[2] * k0 + nb[2] * k1]));
+      return finite(out) ? out : chord;
+    },
+    circle(c, r, count) {
+      if (!(r > 0) || !(count >= 3)) return [];
+      const z = model(c);
+      const n = up(z);
+      const [e0, e1] = basis(z);
+      const ang = r / R;
+      const ca = Math.cos(ang);
+      const sa = Math.sin(ang);
+      const k = Math.floor(count);
+      const out: Vec[] = [];
+      for (let i = 0; i < k; i++) {
+        const th = (2 * Math.PI * i) / k;
+        const ux = Math.cos(th);
+        const uy = Math.sin(th);
+        out.push(chart(down([
+          n[0] * ca + (e0[0] * ux + e1[0] * uy) * sa,
+          n[1] * ca + (e0[1] * ux + e1[1] * uy) * sa,
+          n[2] * ca + (e0[2] * ux + e1[2] * uy) * sa,
+        ])));
+      }
+      return out;
+    },
+    /** `(1/(1 + |z|²))²`: 1 at the point of contact and falling away from
+     * it, so a unit of chart area holds LESS of the sphere the further out
+     * it sits. The sphere's area is finite, so unlike the hyperbolic
+     * density this one never asks a flood where to stop. */
+    density(p) {
+      const z = model(p);
+      const q = 1 + z[0] * z[0] + z[1] * z[1];
+      return 1 / (q * q);
+    },
+    /**
+     * Stereographic is the chart itself. The other two show ONE
+     * HEMISPHERE: gnomonic is the sphere from its own centre, where every
+     * geodesic draws straight and the equator runs off to infinity;
+     * orthographic is the sphere from far away, the near hemisphere inside
+     * a circle of radius `R`. Both answer NaN on the far side, which is
+     * the ink door's word for "no place on the sheet".
+     */
+    project:
+      projection === 'stereographic'
+        ? (p) => [vx(p), vy(p)]
+        : projection === 'gnomonic'
+          ? (p) => {
+            const z = model(p);
+            const k = 1 - z[0] * z[0] - z[1] * z[1];
+            if (!(k > 0)) return [NaN, NaN];
+            return [cx + (vx(p) - cx) / k, cy + (vy(p) - cy) / k];
+          }
+          : (p) => {
+            const z = model(p);
+            const q = z[0] * z[0] + z[1] * z[1];
+            if (q > 1) return [NaN, NaN];
+            return [cx + (vx(p) - cx) / (1 + q), cy + (vy(p) - cy) / (1 + q)];
+          },
+    straight: projection === 'gnomonic',
+  };
+}
+
 // ---- resolution -----------------------------------------------------------
 
 const named = (list: readonly Projection[]): string => list.map((p) => `'${p}'`).join(', ');
@@ -306,13 +516,10 @@ export function resolveSpace(
 ): Space {
   const spec: SpaceSpec = option === undefined ? { kind: 'euclidean' } : typeof option === 'string' ? { kind: option } : option;
   if (!spec || typeof spec !== 'object' || typeof spec.kind !== 'string') {
-    throw new Error("space: expected 'euclidean', 'hyperbolic', or space.hyperbolic({ radius })");
+    throw new Error("space: expected 'euclidean', 'hyperbolic', 'spherical', or space.hyperbolic({ radius })");
   }
-  if (spec.kind === 'spherical') {
-    throw new Error("space: 'spherical' lands in the next step — this build holds 'euclidean' and 'hyperbolic'");
-  }
-  if (spec.kind !== 'euclidean' && spec.kind !== 'hyperbolic') {
-    throw new Error(`space: unknown space '${String(spec.kind)}' — 'euclidean' or 'hyperbolic'`);
+  if (spec.kind !== 'euclidean' && spec.kind !== 'hyperbolic' && spec.kind !== 'spherical') {
+    throw new Error(`space: unknown space '${String(spec.kind)}' — 'euclidean', 'hyperbolic' or 'spherical'`);
   }
   if (spec.kind === 'euclidean') {
     if (projection !== undefined) {
@@ -320,22 +527,32 @@ export function resolveSpace(
       throw new Error(
         family
           ? `projection: '${projection}' needs ${family} space — set space: '${family}' beside it`
-          : `projection: '${projection}' is not a projection — ${named(HYPERBOLIC_PROJECTIONS)} belong to hyperbolic space`,
+          : `projection: '${projection}' is not a projection — ${named(HYPERBOLIC_PROJECTIONS)} belong to hyperbolic space and ${named(SPHERICAL_PROJECTIONS)} to spherical`,
       );
     }
     return euclideanSpace();
   }
-  const chosen: Projection = projection ?? 'poincare';
-  if (chosen === 'halfplane') {
+  const list = spec.kind === 'hyperbolic' ? HYPERBOLIC_PROJECTIONS : SPHERICAL_PROJECTIONS;
+  const chosen: Projection = projection ?? list[0];
+  if (chosen === 'halfplane' && spec.kind === 'hyperbolic') {
     throw new Error(`projection: 'halfplane' lands in a later step — hyperbolic space draws through ${named(HYPERBOLIC_PROJECTIONS)}`);
   }
-  if (!HYPERBOLIC_PROJECTIONS.includes(chosen)) {
+  if (!list.includes(chosen)) {
     const family = familyOf(chosen);
     throw new Error(
       family
-        ? `projection: '${chosen}' belongs to ${family} space — hyperbolic space draws through ${named(HYPERBOLIC_PROJECTIONS)}`
-        : `projection: unknown projection '${chosen}' — hyperbolic space draws through ${named(HYPERBOLIC_PROJECTIONS)}`,
+        ? `projection: '${chosen}' belongs to ${family} space — ${spec.kind} space draws through ${named(list)}`
+        : `projection: unknown projection '${chosen}' — ${spec.kind} space draws through ${named(list)}`,
     );
+  }
+  if (spec.kind === 'spherical') {
+    // The default sphere touches the drawable at its centre and its near
+    // hemisphere fills the largest circle the drawable holds.
+    const r = spec.radius === undefined ? Math.min(frame.w, frame.h) / 2 : frame.len(spec.radius);
+    if (!(r > 0) || !Number.isFinite(r)) {
+      throw new Error(`space: spherical radius must be a positive length in drawable units, got ${r}`);
+    }
+    return sphericalSpaceOf([frame.cx, frame.cy], r, chosen as 'stereographic' | 'gnomonic' | 'orthographic');
   }
   // The default horizon puts the drawable's corners at |z| = 0.8, so the
   // whole sheet is a place and nothing sits at infinity.

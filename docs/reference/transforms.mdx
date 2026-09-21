@@ -216,3 +216,41 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   }));
 });
 ```
+
+## tiling()
+
+<include>/_sig/tiling.mdx</include>
+
+<AutoTypeTable path="../occlude/src/tiling.ts" name="Tiling" />
+
+The regular tiling with `p`-gons meeting `q` at a vertex, in whichever geometry that symbol belongs to. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
+
+The answer is data. `cell` is the fundamental polygon, `p` vertices in order, one of them on the positive x axis. `placements` is one point map for each copy of that cell, the identity first. Draw the motif once inside the cell and hand every placement to [m.map()](/docs/reference/transforms#mmap), or map the points yourself. The shape of the answer does not change with the geometry, so neither does the sketch around it.
+
+Each geometry answers in its own model chart. The hyperbolic case answers in the unit disk, the chart [hyperbolic](/docs/reference/hyperbolic) works in. The spherical case answers in the stereographic chart of the unit sphere, with the cell about the pole. The Euclidean case answers in the plane, with an edge of length 1 and the cell about the origin. The edges of the cell are geodesics. Joined up straight, they are the chords. That is a different picture, and the drawing below uses the chords.
+
+`depth` is generations of reflection across the edges of the cell. Depth 1 is the cell and its `p` edge neighbours. A spherical tiling is finite. It has 4, 6, 8, 12 or 20 cells and no more. It comes back whole, and `depth` does nothing. One spherical cell lands opposite the pole of the chart. The chart has no point there. That copy is the outside of the picture, and its centre comes back as a non-finite pair. The drawing below keeps the near half of the sphere only.
+
+```ts live
+import { sketch, stroke, clip, circle, tiling } from 'occlude';
+
+export default sketch({ aspect: [3, 1] }, (t) => {
+  // One motif in three geometries: a cell with a turned cell inside it.
+  // `reach` keeps the cells whose centre is near enough to the middle of
+  // the chart to draw: on the sphere that is the near half of it.
+  const panel = (p, q, depth, cx, scale, reach) => {
+    const { cell, placements } = tiling(p, q, { depth });
+    const inner = cell.map((v, i) => {
+      const w = cell[(i + 1) % cell.length];
+      return [((v[0] + w[0]) / 2) * 0.78, ((v[1] + w[1]) / 2) * 0.78];
+    });
+    const near = placements.filter((f) => Math.hypot(f([0, 0])[0], f([0, 0])[1]) <= reach);
+    return clip(circle(cx, 50, 46), near.flatMap((f) => [cell, inner].map((loop) =>
+      stroke([...loop, loop[0]].map((v) => {
+        const z = f(v);
+        return [cx + scale * z[0], 50 - scale * z[1]];
+      })))));
+  };
+  return [panel(3, 5, 0, 50, 40, 1), panel(4, 4, 3, 150, 15, 9), panel(7, 3, 3, 250, 45, 1)];
+});
+```
