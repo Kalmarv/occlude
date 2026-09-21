@@ -126,7 +126,7 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 }
 
 const OWNERS = ['ImageSampler', 'Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
-const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
+const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf', 'hyperbolic'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);

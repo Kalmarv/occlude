@@ -1756,6 +1756,36 @@ export class Material {
   // gives back a material. They were free functions for no reason but
   // history, and the kernel of each still lives in its own file.
 
+  /**
+   * Every vertex through a point map: `m.map(p => [p.x, -p.y])`.
+   *
+   * THE point-wise transform. It reads a vertex and answers where that
+   * vertex goes — a position, not a displacement, which is what separates
+   * it from `.steps(1, { move })`. Nothing else changes: the same rows in
+   * the same order, the same ids, the same point, edge and face columns.
+   * A projection, a Möbius transform of the disk, a fold about a line and
+   * a plain shift are all this one verb.
+   *
+   * Only the vertices move, so a straight edge between two of them stays
+   * straight. Resample first (`m.resample({ spacing })`) when the map
+   * bends what the two ends do not show.
+   */
+  map(fn: (p: Vertex) => XY): Material {
+    const nx = new Float64Array(this.n);
+    const ny = new Float64Array(this.n);
+    for (let i = 0; i < this.n; i++) {
+      const q = fn(this.vertex(i));
+      const x = vx(q);
+      const y = vy(q);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`map: vertex ${i} maps to [${x}, ${y}], which is not a point`);
+      nx[i] = x;
+      ny[i] = y;
+    }
+    // Moving a vertex retires nothing and joins nothing: every identity
+    // and every column carries.
+    return new Material(nx, ny, copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+  }
+
   /** Thickness around this material's chains: an outline at the radius each
    * vertex asks for. See `ThickenOpts`. */
   thicken(opts: ThickenOpts): Material {

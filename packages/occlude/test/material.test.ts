@@ -35,6 +35,34 @@ describe('curve values', () => {
   });
 });
 
+describe('m.map', () => {
+  const src = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: [1, 2, 3, 4] }).edgeAttribute('w', (e) => e.index);
+
+  it('moves every vertex and keeps rows, ids and columns', () => {
+    const m = src();
+    const moved = m.map((p) => [p.x + 3, p.y - 1]);
+    expect(moved.n).toBe(m.n);
+    expect(moved.edgeCount).toBe(m.edgeCount);
+    expect(moved.pts).toEqual(m.pts.map(([x, y]) => [x + 3, y - 1]));
+    expect([...moved.points].map((p) => p.id)).toEqual([...m.points].map((p) => p.id));
+    expect([...moved.edges].map((e) => e.id)).toEqual([...m.edges].map((e) => e.id));
+    expect([...moved.attrs.age]).toEqual([1, 2, 3, 4]);
+    expect([...moved.edgeAttrs.w]).toEqual([...m.edgeAttrs.w]);
+    expect(moved.closed).toBe(true);
+  });
+
+  it('is a position, not a displacement, and reads the vertex', () => {
+    const m = src();
+    // The whole material onto one point: a map says WHERE, not how far.
+    expect(m.map(() => [5, 5]).pts).toEqual([[5, 5], [5, 5], [5, 5], [5, 5]]);
+    expect(m.map((p) => [p.age, p.index]).pts).toEqual([[1, 0], [2, 1], [3, 2], [4, 3]]);
+  });
+
+  it('refuses a result that is not a point', () => {
+    expect(() => src().map(() => [NaN, 0])).toThrow(/not a point/);
+  });
+});
+
 describe('forces', () => {
   it('tension is zero within rest and pulls beyond it', () => {
     const c = square();

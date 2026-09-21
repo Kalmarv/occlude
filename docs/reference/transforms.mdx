@@ -192,3 +192,132 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return clip(rect(0, 0, b.w, b.h), t.symmetry('p6m', { cell: 26 }).map((p) => group(p, motif)));
 });
 ```
+
+## m.map()
+
+<include>/_sig/Material.map.mdx</include>
+
+Moves every vertex through a point map. The callback reads a vertex and answers where that vertex lands. It gives a position, not a displacement, and that is what marks it apart from `.steps(1, { move })`.
+
+Nothing else changes. The rows keep their order, their ids and their point, edge and face columns. A projection, a fold about a line, a plain shift and a transform of the hyperbolic disk are all this one verb.
+
+Only the vertices move, so a straight edge between two of them stays straight. Resample first (`m.resample({ spacing })`) when the map bends what the two ends cannot show. Below, one band of straight bars at 120 samples each goes round a whirlpool.
+
+```ts live
+import { sketch, strokes, line, append } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
+  const bars = append(...t.times(28, (k, u) => t.sample(line(0, u * 100, 100, u * 100), { count: 120 })));
+  return strokes(bars.map((p) => {
+    const a = (p.x / 100) * 5.6 + (p.y / 100) * 2.2 - 2.8;
+    const r = 5 + p.y * 0.4;
+    return [b.cx + r * Math.cos(a), b.cy + r * Math.sin(a)];
+  }));
+});
+```
+
+## hyperbolic
+
+<include>/_sig/hyperbolic.mobius.mdx</include>
+<include>/_sig/hyperbolic.translation.mdx</include>
+<include>/_sig/hyperbolic.rotation.mdx</include>
+<include>/_sig/hyperbolic.reflection.mdx</include>
+<include>/_sig/hyperbolic.apply.mdx</include>
+<include>/_sig/hyperbolic.map.mdx</include>
+<include>/_sig/hyperbolic.compose.mdx</include>
+<include>/_sig/hyperbolic.inverse.mdx</include>
+<include>/_sig/hyperbolic.distance.mdx</include>
+<include>/_sig/hyperbolic.geodesic.mdx</include>
+<include>/_sig/hyperbolic.circle.mdx</include>
+<include>/_sig/hyperbolic.polygon.mdx</include>
+<include>/_sig/hyperbolic.tiling.mdx</include>
+
+<AutoTypeTable path="../occlude/src/hyperbolic.ts" name="TilingOpts" />
+
+The hyperbolic plane, in the Poincaré disk. Every word here works in model coordinates: the unit disk about the origin. The rim at `|z| = 1` lies infinitely far off, so a cell near it comes out small. Nothing here reads the seed or the paper, and the whole namespace stays a module import, as `sdf` does. The sketch puts the disk on the sheet with the transforms it already has.
+
+A point of the disk is a complex number. Every isometry of the disk reads `z ↦ (a·z + b)/(c·z + d)`, on `z` or on its conjugate. So a transform is data: four complex numbers as `[re, im]` pairs, and a `mirror` flag. `apply`, `compose` and `inverse` are the verbs over that record. `compose(m1, m2)` does `m2` first.
+
+`translation(dx, dy)` slides the origin to a point inside the disk. `rotation(degrees)` turns about the origin. `reflection(a, b)` folds the disk over the geodesic through two points, and sets `mirror`. `mobius` takes the four coefficients as they stand and normalises them. `distance(a, b)` measures in the plane the disk pictures, not on the sheet.
+
+A geodesic is a straight line of that plane. `geodesic(a, b)` answers the points along one: an arc of the circle that cuts the rim at right angles, or a diameter. A hyperbolic circle is a Euclidean circle too, but not about the same point. `circle(center, r)` answers the loop, and the further out the centre sits, the further the two centres drift apart.
+
+`polygon(p, q)` is the fundamental polygon of the `{p, q}` tiling, centred on the origin with one vertex on the positive x axis. `(p − 2)(q − 2)` must be more than 4, and a Euclidean or spherical pair refuses by name. `tiling(p, q, { depth })` answers the placements. Each copy of that polygon gets one transform, and the identity comes first. It folds the polygon over its own edges, out to `depth` generations. A `{7, 3}` tiling counts 8 copies at depth 1, then 29, 85, 232 and 617.
+
+Draw the motif once, inside the fundamental polygon, and hand every record to `map`. The copies at odd generations come out mirrored, because a fold turns the disk over. Below, they take the second pen.
+
+```ts live
+import { sketch, strokes, circle, append, connect, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 1, pens: {
+  even: pen({ width: mm(0.25), color: '#23252B' }),
+  odd: pen({ width: mm(0.25), color: '#2457D6' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 1;
+  const onSheet = (p) => [b.cx + p.x * R, b.cy + p.y * R];
+  const corners = hyperbolic.polygon(7, 3);
+  // An edge is symmetric about the middle sample of its geodesic, so that
+  // sample is the metric middle of the edge.
+  const mid = (i) => hyperbolic.geodesic(corners[i], corners[(i + 1) % 7], { count: 2 })[1];
+  const motif = append(
+    ...t.times(7, (i) => connect.chain(hyperbolic.geodesic(mid(i), mid((i + 1) % 7), { count: 6 }))),
+    connect.ring(hyperbolic.circle([0, 0], 0.34, { count: 18 })),
+  );
+  return [
+    circle(b.cx, b.cy, R, { pen: 'even' }),
+    ...hyperbolic.tiling(7, 3, { depth: 4 }).map((g) =>
+      strokes(motif.map(hyperbolic.map(g)).map(onSheet), { pen: g.mirror ? 'odd' : 'even' })),
+  ];
+});
+```
+
+The second drawing takes the two curves apart. A fan of geodesics leaves one point, and every ray runs the same hyperbolic length. The ray ends land on one hyperbolic circle, in blue. Three more circles nest about a second point, and their Euclidean centres drift outward. A fold in the black arc carries that nest to the orange one.
+
+```ts live
+import { sketch, strokes, circle, append, connect, pen, mm, hyperbolic } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2, pens: {
+  rim: pen({ width: mm(0.45), color: '#23252B' }),
+  ray: pen({ width: mm(0.25), color: '#23252B' }),
+  ring: pen({ width: mm(0.3), color: '#2457D6' }),
+  echo: pen({ width: mm(0.3), color: '#B4552B' }),
+} }, (t) => {
+  const b = t.bounds();
+  const R = Math.min(b.w, b.h) / 2 - 2;
+  // The same slide as translation(0.12, -0.06), written as its four
+  // coefficients. Nothing in the disk marks the centre, so the whole
+  // picture takes that slide and sits off the middle.
+  const off = hyperbolic.mobius([1, 0], [0.12, -0.06], [0.12, 0.06], [1, 0]);
+  const sheet = (m) => m.map(hyperbolic.map(off)).map((p) => [b.cx + p.x * R, b.cy + p.y * R]);
+
+  const hub = [-0.45, -0.2];
+  const nest = [0.42, 0.34];
+  const at = hyperbolic.translation(hub[0], hub[1]);
+  // Which way is the nest, seen from the hub? Bring it home and read the
+  // angle there: that is what the inverse is for.
+  const home = hyperbolic.apply(hyperbolic.inverse(at), nest);
+  const bearing = (Math.atan2(home[1], home[0]) * 180) / Math.PI;
+  const reach = hyperbolic.distance(hub, nest);
+  const rho = Math.tanh(reach / 2);
+  const fan = t.times(15, (k) => {
+    const turn = hyperbolic.compose(at, hyperbolic.rotation(bearing + (k - 7) * 11));
+    return connect.chain(hyperbolic.geodesic(hub, hyperbolic.apply(turn, [rho, 0])));
+  });
+  const rings = [0.4, 0.8, 1.2].map((r) => connect.ring(hyperbolic.circle(nest, r, { count: 120 })));
+  const reachRing = connect.ring(hyperbolic.circle(hub, reach, { count: 160 }));
+  const mirror = hyperbolic.reflection([0.18, -0.86], [0.93, 0.15]);
+  const line = connect.chain(hyperbolic.geodesic([0.18, -0.86], [0.93, 0.15], { count: 60 }));
+
+  return [
+    circle(b.cx, b.cy, R, { pen: 'rim' }),
+    strokes(sheet(append(...fan)), { pen: 'ray' }),
+    strokes(sheet(append(reachRing, ...rings)), { pen: 'ring' }),
+    strokes(sheet(line), { pen: 'rim' }),
+    strokes(sheet(append(...rings).map(hyperbolic.map(mirror))), { pen: 'echo' }),
+  ];
+});
+```
+
+The metric does not yet reach the spacing words. A hatch, a scatter or an isoline over mapped material counts its spacing on the sheet, not in the disk.
