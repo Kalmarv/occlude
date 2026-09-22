@@ -11,6 +11,8 @@ A coordinate system is a chart. It renames points and changes no length. Hyperbo
 
 <include>/_sig/Toolkit.space.mdx</include>
 
+Every page keeps to one contract, and this is it in short. Lengths: a bare number is a length in the space, and `mm()` is a length on the paper ([sketch](/docs/reference/sketch)). Points: `[x, y]` is a vertex inside a loop, and `{ x, y }` is a point with columns ([material](/docs/reference/material)). Accessors: an area answers `contours()`, a chain answers `curves()`, and positions answer `points` ([selections](/docs/reference/selections)). Doors: a shape becomes geometry at `t.material` or at `t.sample`, and nowhere else ([shapes](/docs/reference/shapes)). Placement: the inner group deforms the motif, and the outer group places the result ([placement](#placement)). Projection: the chart applies once, at the ink door ([plotting](/docs/reference/plotting)). Metric: a few words read the space, and the table below names them ([transforms](/docs/reference/transforms)).
+
 `space` sets the geometry the sketch draws in. Leave it out and the sketch draws in the flat plane, exactly as it always did. Set `space: 'hyperbolic'` and the same numbers name places in the hyperbolic plane instead.
 
 A walker starts at one corner of a pentagon and walks five equal legs with a right turn between them. In the flat plane that walk never closes. In the hyperbolic plane it closes, and the walker comes back turned by a quarter turn. One cell reflects across its sides to make the tiling around it, with four pentagons at every corner. The rim is the horizon.
@@ -129,9 +131,28 @@ Spherical space has three charts. `'stereographic'` is the default. It keeps ang
 
 A bare length is a length **in the space**. A physical length is a length **on the paper**. `t.scatter({ spacing: 5 })` asks for five drawable units of the space between points, so the points crowd where the rows open out. `mm(0.4)` is 0.4 mm of ink wherever it lands, because the pen is flat. `w()`, `h()` and `s()` are percentages of the drawable, so they are paper lengths too.
 
-These words read the space in this build. `t.sample`, `m.resample`, `m.along` and `m.trim` measure arc length by the metric of the space. The toolkit hands them that space, and a bare `m.resample` call measures flat. `t.scatter` reads `spacing` as a length in the space and reads the density of the coordinates. `t.tiling` and `t.distanceTo` read it too, and they have sections of their own below. `t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates — the numbers the sketch can go on computing with — so a material of a shape draws exactly as the shape draws. The projection applies once, at the moment the engine draws the ink.
+These words read the space in this build. We read each one to write this table. It is what the code does, not what it should do.
 
-Every other word measures flat and draws through the placement. `t.hexes`, `t.isolines`, `t.noise`, `t.relax`, `t.settle` and `fill('hatch')` are the ones to know about. Pens, nib widths, dashes, the plan and the time estimate are never in the space, because paper is flat.
+| verb | reads the metric | in a curved sketch |
+|---|---|---|
+| `t.sample` | yes | spaces the samples by arc length of the space |
+| `m.resample` | with a space | the toolkit gives `t.sample` one, and a bare call measures flat |
+| `m.along` | with a space | stations sit by arc length of the space, flat without one |
+| `m.trim` | with a space | cuts each end by arc length of the space, flat without one |
+| `t.scatter` | yes | `spacing` is a length of the space, and the density follows the coordinates |
+| `t.tiling` | yes | the cell and the placements are the space's own, when the symbol and the sketch agree |
+| `t.distanceTo` | yes | distance by the metric, with every edge read as a geodesic |
+| `m.transform` | no | moves each vertex by an isometry of the space, and measures nothing |
+| `t.hexes` | no | a flat lattice of cells, drawn through the placement |
+| `t.isolines` | no | flat contours of the field |
+| `t.noise` | no | flat coordinates in, one number out |
+| `t.relax` | no | flat centroids over the density raster |
+| `t.settle` | no | flat centroids, and `spacing` sets a flat capacity |
+| `fill('hatch')` | no | flat rulings across the area |
+| `m.map` | no | puts each vertex where the callback says |
+| `m.warp` | no | a flat cage, corner for corner |
+
+`t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates, the numbers the sketch can go on computing with, so a material of a shape draws exactly as the shape draws. The projection applies once, at the moment the engine draws the ink. Every word marked "no" measures flat and draws through the placement. Pens, nib widths, dashes, the plan and the time estimate are never in the space, because paper is flat. The [transforms](/docs/reference/transforms) page writes each method's own units. This table says what the frame changes.
 
 The grid shows the coordinates the walker's numbers live in. The four drawings below are one program. Only the config differs. The first is flat: a nine by nine grid of cells, a circle in every other one, a sampled ring and a scatter.
 
@@ -203,7 +224,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.spherical({ radius
 
 The metric itself is on the record. `distance(a, b)` measures the geodesic between two points. `geodesic(a, b, t)` gives the point a fraction of the way along it. `exp(p, v)` steps from a point: `|v|` of the space, in the direction `v` names in the local frame. `log(p, q)` reads that step back. `circle(c, r, count)` is the circle of the space, which is the set of points one step `r` away in every direction. `density(p)` is the area of the space one unit of coordinate area holds: 1 on the base row, `cosh` of the distance to it in the disk, and `cos` of it on the sphere.
 
-`toChart(p)` is the map from a coordinate to the chart, and `fromChart(z)` reads it back. `project(p)` is the map from a coordinate to the sheet, and the ink door applies it once, last.
+`toChart(p)` takes sketch coordinates and answers the point of the model chart, in drawable units. `fromChart(z)` takes a point of that chart, in drawable units, and answers the sketch coordinates of it. `project(p)` takes sketch coordinates and answers the place on the sheet, through the projection the sketch chose. A point with no place on the sheet comes back non-finite, and the ink door reads that as nothing to draw. The ink door applies `project` once, last.
 
 Every one of these takes and answers SKETCH coordinates, in drawable units: the numbers a sketch writes. Nothing here hands back a chart point, and the flat plane fills every member with the formulas the spacing words always used.
 
@@ -229,6 +250,9 @@ A placing group and a deforming group are two different frames, so they never sh
 ## t.tiling()
 
 <include>/_sig/Toolkit.tiling.mdx</include>
+<include>/_sig/Tiling.cell.mdx</include>
+<include>/_sig/Tiling.placements.mdx</include>
+<include>/_sig/Tiling.seed.mdx</include>
 
 <AutoTypeTable path="../occlude/src/tiling.ts" name="TilingOpts" />
 
@@ -541,8 +565,12 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
 
 The same word in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls, 20 faces, no rim and no outside. The stereographic projection carries its own size here, so the front of the sphere fills the sheet. The sketch keeps the three generations nearest the front, hatches every other one, and puts a dot at the middle of each. The walls go down once each, because the material shares them.
 
+<include>/_sig/Station.toward.mdx</include>
+
+Each dot also carries a tick. `station.toward(q)` gives back a station at the same place, facing `q`: the direction of the geodesic that runs from here to there. A `q` in this very place keeps the heading the station has. On a sphere a `q` exactly opposite has no one direction, and the station refuses it by name. A station at the middle of a cell takes `toward` a neighbour's middle, and one `step` walks the geodesic. On a sphere that geodesic is a great circle. The tick leans the way the sphere runs, not the way the sheet does.
+
 ```ts live
-import { sketch, strokes, polygon, dots, fill, pen, mm, space } from 'occlude';
+import { sketch, strokes, polygon, dots, line, fill, pen, mm, space } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 4,
@@ -557,10 +585,21 @@ export default sketch({
   // a sphere that is how far round it sits. Three of them is the front.
   const near = tiles.faces().filter((f) => f.generation < 3);
   const walls = tiles.edges.filter((e) => e.faces.some((f) => f.generation < 3));
+  // A tick at the middle of a cell, turned toward the middle of a
+  // neighbour: `toward` reads the geodesic between the two, and `step`
+  // walks it. The centroid is a point, so it goes straight into `t.station`.
+  const tick = (f) => {
+    const wall = f.edges.find((e) => e.faces.length === 2);
+    const other = wall.faces.find((g) => g.index !== f.index);
+    const from = t.station(f.centroid).toward(other.centroid);
+    const to = from.step(3);
+    return line(from, to, { pen: 'tone' });
+  };
   return [
     near.filter((f) => f.generation % 2 === 0)
       .map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(1.2) }), fillPen: 'tone', stroke: false })),
     dots(near.map((f) => f.centroid), { pen: 'wall' }),
+    near.map(tick),
     strokes(walls, { pen: 'wall' }),
   ];
 });

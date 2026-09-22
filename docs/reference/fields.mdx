@@ -159,7 +159,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/travel.ts" name="TravelOpts" />
 
-The time a front needs to reach each point of the drawable. The front starts at `from` at time zero. `from` is an area, a set of points, or a shape. An array of `{ x, y }` records is a set of separate seeds, and an array of `[x, y]` pairs is one loop. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `distanceTo`.
+The time a front needs to reach each point of the drawable. The front starts at `from` at time zero. `from` is an area, a set of points, or a shape. An array of `{ x, y }` records is a set of separate seeds, and an array of `[x, y]` pairs is one loop. `t.travelTime({ fromPoints })` and `t.travelTime({ fromArea })` say the same two things outright. Under `fromPoints` every entry is a seed, whatever its spelling. Under `fromArea` the input is one area. Give one key or the other, and the call refuses both keys at once by name. That is the clear spelling, and the form above keeps its reading for the sketches that use it. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `distanceTo`.
 
 ```ts live
 import { sketch, strokes } from 'occlude';

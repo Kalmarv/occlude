@@ -30,7 +30,7 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
-  Material: 'm', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
+  Material: 'm', Tiling: 'tiles', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
   PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
   connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
@@ -126,7 +126,21 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
   void ownerType;
 }
 
-const OWNERS = ['ImageSampler', 'Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
+const OWNERS = ['ImageSampler', 'Material', 'Tiling', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
+
+/**
+ * A subclass owns only what it adds. `Tiling` is a `Material`, so every
+ * word it inherits is already written under `Material.*` on the material
+ * page; writing them again under `Tiling.*` would say the same line twice
+ * and invite a page to include the wrong one.
+ */
+function declaredHere(owner: string, sym: ts.Symbol): boolean {
+  const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+  const parent = decl?.parent;
+  if (!parent || !(ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent))) return true;
+  const from = parent.name?.text;
+  return from === undefined || from === owner || !OWNERS.includes(from);
+}
 const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
 /** A namespace that holds one of its own: its words are its members, keyed
  * `parent.child.word`. Without this the parent would print the whole
@@ -162,7 +176,7 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
   const decl = sym.valueDeclaration ?? sym.declarations?.[0];
   if (OWNERS.includes(name)) {
     const t = sym.flags & ts.SymbolFlags.Class ? checker.getDeclaredTypeOfSymbol(sym) : checker.getDeclaredTypeOfSymbol(sym);
-    for (const m of checker.getPropertiesOfType(t)) member(name, m, t);
+    for (const m of checker.getPropertiesOfType(t)) if (declaredHere(name, m)) member(name, m, t);
     continue;
   }
   if (NAMESPACES.includes(name) && decl) {

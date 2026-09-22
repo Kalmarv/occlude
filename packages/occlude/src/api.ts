@@ -63,11 +63,17 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
   /** The ground the front may cross (default: the whole drawable).
    * Everything outside it is wall. */
   within?: AreaInput | ShapeValue;
+  /** Seeds, one per entry, whatever the spelling: a pair IS a seed here,
+   * because the key says so. Give this or `fromArea`, not both. */
+  fromPoints?: PointSelection | readonly XY[];
+  /** One area to start from — its whole interior and boundary — read
+   * through the ordinary area door. Give this or `fromPoints`, not both. */
+  fromArea?: AreaInput | ShapeValue;
 }
 import { latticeOf, type Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
 import { residualOf, type Residual, type ResidualOpts } from './residual.js';
 import { unitMm, userPointMm } from './record.js';
-import { areaLoops, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
+import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationAt, stationsMaterial,
   withinMaterial, type PointsLike, type Station, type Transfer,
@@ -240,9 +246,18 @@ const isShapeValue = (v: unknown): v is ShapeValue =>
   typeof v === 'object' && v !== null && '__occludeShape' in v;
 
 // ---- pure shape constructors ----
+//
+// A shape that names points takes them either way. The FIRST argument
+// decides the form — `isPointArg` below — never the count of arguments,
+// so a station goes straight in and nothing is guessed.
 
-export function circle(x: L, y: L, r: L, opts?: ShapeOpts): ShapeValue {
-  return shape({ kind: 'circle', x, y, r }, opts);
+export function circle(x: L, y: L, r: L, opts?: ShapeOpts): ShapeValue;
+/** The same circle about a point: a pair or an `{ x, y }` record, so
+ * `circle(station, 3)` works. The radius is a length as everywhere. */
+export function circle(center: XY, r: L, opts?: ShapeOpts): ShapeValue;
+export function circle(a: L | XY, b: L, c?: L | ShapeOpts, d?: ShapeOpts): ShapeValue {
+  if (isPointArg(a)) return circle(vx(a), vy(a), b, c as ShapeOpts | undefined);
+  return shape({ kind: 'circle', x: a, y: b, r: c as L }, d);
 }
 
 export function ellipse(
@@ -264,8 +279,15 @@ export function rect(
   return shape({ kind: 'rect', x, y, w, h, radius: r, anchor: o?.mode }, o);
 }
 
-export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue {
-  return shape({ kind: 'line', x1, y1, x2, y2 }, opts);
+export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue;
+/** The same line from two points: pairs or `{ x, y }` records, so
+ * `line(start, tip)` works with two stations. */
+export function line(a: XY, b: XY, opts?: ShapeOpts): ShapeValue;
+export function line(a: L | XY, b: L | XY, c?: L | ShapeOpts, d?: L, e?: ShapeOpts): ShapeValue {
+  if (isPointArg(a)) {
+    return line(vx(a), vy(a), vx(b as XY), vy(b as XY), c as ShapeOpts | undefined);
+  }
+  return shape({ kind: 'line', x1: a, y1: b as L, x2: c as L, y2: d as L }, e);
 }
 
 /** A closed boundary as plain points. Open input gets its closing chord. */
@@ -335,6 +357,39 @@ function numericAreaLoops(run: Execution | null, input: AreaInput | ShapeValue, 
  * chain — the paper offset, the user origin, and any enclosing `group`.
  * Lowering it here instead would quietly drop the group's transform.
  */
+/**
+ * The NAMED travel-time form: one argument that is an options record, not
+ * a source. A record that answers the geometry protocol, a shape, a
+ * contour record and an array are all sources, so the only thing left is
+ * the options themselves — and a record that names none of the options is
+ * a source too, which is how `t.travelTime(from)` keeps its meaning.
+ */
+const isTravelSourceOpts = (v: unknown): v is TravelTimeOpts => {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  if (isShapeValue(v) || isGeometry(v) || 'pts' in v) return false;
+  return ['fromPoints', 'fromArea', 'speed', 'within', 'spacing'].some((k) => k in v);
+};
+
+/** `fromPoints` as one seed per entry: the key says every entry is a point,
+ * so a pair and a record mean the same thing here. */
+function seedRecords(from: PointSelection | readonly XY[]): { x: number; y: number }[] {
+  if (from === null || typeof from !== 'object' || typeof (from as Iterable<XY>)[Symbol.iterator] !== 'function') {
+    throw new Error('travelTime: fromPoints expects points — a point selection, or a list of [x, y] pairs or { x, y } records');
+  }
+  const out: { x: number; y: number }[] = [];
+  let i = 0;
+  for (const p of from as Iterable<XY>) {
+    const x = vx(p as XY);
+    const y = vy(p as XY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error(`travelTime: fromPoints entry ${i} is not a point ([x, y] or { x, y })`);
+    }
+    out.push({ x, y });
+    i++;
+  }
+  return out;
+}
+
 function lowerShape(run: Execution, input: Geometry | AreaInput | ShapeValue, who: string): Geometry | AreaInput {
   if (!isShapeValue(input)) return input as Geometry | AreaInput;
   return shapeContours(run, input, undefined).map((c) => ({ pts: c.pts, closed: c.closed }));
@@ -1454,13 +1509,37 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `t.isolines(T, …)`; unreachable ground is `+Infinity`, so contours stop
    * at a barrier instead of crossing it. With speed 1 and nothing in the
    * way it is unsigned distance. Deterministic, no seed. */
-  function travelTime(from: TravelFrom | ShapeValue, opts: TravelTimeOpts = {}): FieldFn {
-    const b = exec.bounds();
-    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+  function travelTime(from: TravelFrom | ShapeValue, opts?: TravelTimeOpts): FieldFn;
+  /** The same field, with the source NAMED instead of inferred:
+   * `{ fromPoints }` reads every entry as a separate seed whatever its
+   * spelling, and `{ fromArea }` reads its input as one area. Exactly one
+   * of the two. */
+  function travelTime(opts: TravelTimeOpts): FieldFn;
+  function travelTime(
+    a: TravelFrom | ShapeValue | TravelTimeOpts,
+    b?: TravelTimeOpts,
+  ): FieldFn {
+    const named = b === undefined && isTravelSourceOpts(a);
+    const opts = (named ? a : b ?? {}) as TravelTimeOpts;
+    const bounds = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }, len: (l: L) => exec.len(l) };
     const within = opts.within === undefined
       ? undefined
       : (lowerShape(exec, opts.within, 'travelTime') as AreaInput);
-    const seeds = lowerShape(exec, from as Geometry | AreaInput | ShapeValue, 'travelTime') as TravelFrom;
+    let seeds: TravelFrom;
+    if (named) {
+      const points = opts.fromPoints !== undefined;
+      const area = opts.fromArea !== undefined;
+      if (points === area) throw new Error('travelTime: give fromPoints or fromArea, not both');
+      // Each key says what its input IS, so neither reading is inferred: a
+      // pair under `fromPoints` is one seed, and points under `fromArea`
+      // are one loop, through the ordinary area door.
+      seeds = points
+        ? seedRecords(opts.fromPoints!)
+        : (numericAreaLoops(exec, opts.fromArea!, 'travelTime') as unknown as TravelFrom);
+    } else {
+      seeds = lowerShape(exec, a as Geometry | AreaInput | ShapeValue, 'travelTime') as TravelFrom;
+    }
     return travelTimeOf(env, seeds, { ...opts, within });
   }
 

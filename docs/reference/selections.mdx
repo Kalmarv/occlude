@@ -142,7 +142,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/PointSelection.extract.mdx</include>
 <include>/_sig/EdgeSelection.extract.mdx</include>
 
-A new material from the selection. From points: the selected points with every column and no edges. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection.
+A new material from the selection. From points: the selected points with every column and no edges. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection.
 
 ```ts live
 import { sketch, circle, strokes, group } from 'occlude';
@@ -380,9 +380,10 @@ method takes the one it uses. A method that moves points takes points.
 Give such a method an edge selection and it takes the endpoints.
 
 A point selection, taken as edges, gives **the edges among its members**.
-Those are the edges `strokes(sel)` draws and `sel.extract()` keeps. For
-the wider span, the edges touching the members, say
-`sel.edges.adjacent()`. The word means one thing everywhere.
+Those are the edges `strokes(sel)` draws and `sel.edges.extract()` keeps.
+`sel.extract()` on the points themselves keeps no edge at all, because a
+point selection is points. For the wider span, the edges touching the
+members, say `sel.edges.adjacent()`. The word means one thing everywhere.
 
 Absent is the whole material. That is what every method did before there
 was a way to say otherwise. A method refuses a selection of another

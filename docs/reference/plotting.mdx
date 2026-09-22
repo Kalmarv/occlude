@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 ```
 
 :::note
-The example hides ink twice, and the two holes do not look alike. The opaque circle occludes, and the strokes stop at its edge. The shader refuses to draw, and the strokes stop wherever it says. `decimate` and `wobble` are the same idea with the answer fixed in advance, and they run before occlusion. A shader runs after it, and never puts ink outside what the engine cleared.
+The example hides ink twice, and the two holes do not look alike. The opaque circle occludes, and the strokes stop at its edge. The shader refuses to draw, and the strokes stop wherever it says. `decimate` and `wobble` are the same idea with the answer fixed in advance. A shader runs last of all, and never puts ink outside what the engine cleared.
 :::
 
 :::note
@@ -64,6 +64,10 @@ A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them
 :::warning
 The route is already chosen when a shader runs. A `pen` answer costs a pen change the plan did not order around. Weight from `passes` is real ink on paper. The preview cannot show it, because the second pass covers the first exactly. Sixteen passes is the most a program can ask for.
 :::
+
+## Where a modifier runs
+
+A modifier runs on one side of the occlusion solve or the other. The side is the modifier's own, and not an option. `smooth`, `roughen` and `deform` run BEFORE the solve. They change the shape's own outline, so they change what the shape hides. `wobble`, `decimate` and `dash` run AFTER it, over the ink that survives. They tremble, thin and cut the drawing, and the scene stays as the engine solved it. Inside each side the stack runs in the order the sketch wrote it. The plan comes after all of them, and a shader after the plan. The [shapes](/docs/reference/shapes#wobble--decimate--dash) page holds each modifier's own options.
 
 ## Export
 

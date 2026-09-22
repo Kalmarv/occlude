@@ -880,7 +880,8 @@ export function meanBy<T>(items: Iterable<T>, fn: (item: T, index: number) => nu
  * A selection is read through the protocol, so it may be given in either
  * domain and the verb reads the one it consumes. A point selection asked
  * for edges gives THE EDGES AMONG ITS MEMBERS — the same thing
- * `strokes(sel)` draws and `sel.extract()` keeps, and the reason
+ * `strokes(sel)` draws and `sel.edges.extract()` keeps (`sel.extract()`
+ * itself keeps no edges: it is the points alone), and the reason
  * `sel.edges.adjacent()` exists for when the wider span is what is wanted.
  * An edge selection asked for points gives its endpoints.
  *

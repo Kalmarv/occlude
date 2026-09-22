@@ -3,7 +3,7 @@ title: Transforms
 description: Operations that take a material and return a changed material.
 ---
 
-Each transform is a method on the material: `m.warp({ from, to })`. It reads the material, in the material's own coordinates, and returns a new material. Most keep the columns. `thicken` returns a new boundary, and `envelope` adds one column. They read no seed and no paper, so the same input always gives the same output. `segmentRuns`, `banding` and `extent` stay imports.
+Each transform is a method on the material: `m.warp({ from, to })`. It reads the material, in the material's own coordinates, and returns a new material. The numbers on this page are flat numbers, and a curved sketch changes that for four words only. The [geometry](/docs/reference/geometry#space--projection) page holds the table of the words that read the metric. `m.resample`, `m.along` and `m.trim` measure by the metric when the caller hands them a space. `m.transform` moves points by an isometry of one. Most keep the columns. `thicken` returns a new boundary, and `envelope` adds one column. They read no seed and no paper, so the same input always gives the same output. `segmentRuns`, `banding` and `extent` stay imports.
 
 ## m.warp()
 
@@ -59,7 +59,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/oscillate.ts" name="OscillateOpts" />
 
-Swings each chain from side to side as it goes. `wavelength` is the distance along the chain for one cycle and `amplitude` how far it swings. Both are numbers or fields, so tone can drive them. The result keeps the source's columns.
+Swings each chain from side to side as it goes. `wavelength` is the distance along the chain for one cycle and `amplitude` how far it swings. Both are numbers or fields, so tone can drive them. The result keeps the source's point columns and its edge columns, and each new span reads the source edge it starts on. A swing makes the chain longer. An edge column with the `'distribute'` policy has no length left to share over, and `oscillate` refuses one by name. The [material](/docs/reference/material#what-keeps-a-column) page holds the whole table.
 
 ```ts live
 import { sketch, strokes, line } from 'occlude';

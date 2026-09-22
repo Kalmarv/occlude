@@ -240,7 +240,7 @@ what the code does, not what it should do.
 | operation | point columns | edge columns | transfer policies |
 |---|---|---|---|
 | `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, `withEdges`, `steps` | kept | kept | kept |
-| `oscillate` | kept, and an edge column arrives as a POINT column | dropped | edge policies dropped |
+| `oscillate` | kept | kept, and each new span reads the source edge it starts on | kept |
 | `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
 
 The third row matches its geometry. An envelope's vertices are crossings of a
@@ -255,11 +255,12 @@ Most output vertices have one candidate. The few with several are the outer
 corners and the junctions. There the candidates disagree, so the decision is
 yours and there is no default.
 
-The second row is a trap. `oscillate` walks the chains as stations. A station
-carries an edge's sampled value as an ordinary point value. So an edge
-quantity that `'distribute'` conserves, such as a rest length, comes out as a
-point value under the same name. Rename the column before you oscillate, or
-write it back afterwards.
+The second row carries one refusal. `oscillate` walks the chains as stations,
+and the swung chain is longer than the chain it came from. An edge column
+with the `'distribute'` policy shares a quantity over a length. That length
+is no longer the same length, so `oscillate` refuses such a column by name
+today. Copy it or drop it first. An edge column of any other policy comes
+through as an edge column, and the row says so.
 
 To keep a column through an operation in the third row, read it off the source
 first. Then set it again on the result.
@@ -420,6 +421,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.station.mdx</include>
 
 `t.station(x, y, heading)` starts a walk at any point of the sketch, and the heading is in radians. `station.step(distance)` gives back a new station at that distance along the heading. `station.turn(degrees)` turns the heading by the degrees given and gives back a new station. In the flat plane a step adds `distance · (cos h, sin h)` to the position and keeps the heading as it is. In a curved space a step walks the geodesic, and the direction on arrival is the new heading. A closed walk in a curved space brings the walker back rotated, and that rotation is the holonomy.
+
+`station.toward(q)` gives back a new station at the same place, facing `q`. That heading is the direction of the geodesic from here to there. A `q` in this very place keeps the heading the station has. On a sphere a `q` exactly opposite has no one direction, and the station refuses it by name. The signature and a drawing of it sit on the [geometry](/docs/reference/geometry#a-tiling-of-the-sphere) page, beside the tiling it ticks.
 
 ## curves()
 
