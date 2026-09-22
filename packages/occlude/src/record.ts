@@ -635,6 +635,54 @@ function shortWay(pts: [number, number][], period: number): void {
   }
 }
 
+/** How near a pole, in radians of the sphere, a point stands ON it: the
+ * poles a model point comes back at are one rounding away, and nothing
+ * that far off has an azimuth worth keeping. */
+const POLE_EPS = 1e-9;
+
+/**
+ * A polyline on a sphere, a point ON A POLE given the names of its
+ * neighbours.
+ *
+ * The sphere's y is the latitude times `ell` from the base geodesic, and at
+ * `±π/2` every x names the same point: the pole has no azimuth, so the x
+ * it carries is noise. A segment to it is the segment to its nearest name,
+ * which is the one with the previous point's x — a meridian, and a
+ * meridian is a geodesic — and a segment from it the one with the next
+ * point's x. So a pole point between two others becomes two points, one
+ * name each; the run between them lies on the pole row and its image is
+ * the pole itself. A pole point at an end of the run takes the one
+ * neighbour it has, and a run of pole points reads the nearest points off
+ * the pole on each side. Nothing else moves.
+ */
+function poleNames(pts: [number, number][], cy: number, ell: number): [number, number][] {
+  const onPole = (p: readonly [number, number]): number => {
+    const b = (p[1] - cy) / ell;
+    return Math.abs(Math.PI / 2 - Math.abs(b)) < POLE_EPS ? Math.sign(b) : 0;
+  };
+  if (!pts.some((p) => onPole(p) !== 0)) return pts;
+  const out: [number, number][] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const pole = onPole(pts[i]);
+    if (pole === 0) {
+      out.push(pts[i]);
+      continue;
+    }
+    const y = cy + (pole * ell * Math.PI) / 2;
+    let j = i + 1;
+    while (j < pts.length && onPole(pts[j]) !== 0) j++;
+    const before = out.length > 0 ? out[out.length - 1][0] : undefined;
+    const after = j < pts.length ? pts[j][0] : undefined;
+    const into = before ?? after ?? pts[i][0];
+    const from = after ?? into;
+    out.push([into, y]);
+    if (from !== into) out.push([from, y]);
+    // The run of pole points is one point with two names.
+    i = j - 1;
+  }
+  return out;
+}
+
 /**
  * The chart points of one contour, projected, and CUT where the sheet
  * runs out.
@@ -772,7 +820,7 @@ function placedContours(
     : (a: [number, number], b: [number, number]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   return raw.map((contour) => {
     const prims = contour.flatMap((p) => transformPrim(p, toDrawable));
-    const flat: [number, number][] = [];
+    let flat: [number, number][] = [];
     for (const q of prims) {
       const fp = flattenPrim(q, tol);
       for (let i = flat.length > 0 ? 1 : 0; i < fp.length; i++) flat.push(fp[i]);
@@ -782,8 +830,13 @@ function placedContours(
     for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
     // On a sphere x comes round, so one line has two names and the flat
     // segment between them would run the long way. The short way is the
-    // segment. A `line` already walks the geodesic, which knows this.
-    if (space.curvature > 0 && !geodesicEdge) shortWay(flat, 2 * Math.PI * space.radius * unit);
+    // segment. A pole has every x for a name, so a segment to it or from
+    // it takes its neighbour's and runs along the meridian. A `line`
+    // already walks the geodesic, which knows both.
+    if (space.curvature > 0 && !geodesicEdge) {
+      flat = poleNames(flat, space.center[1] * unit, space.radius * unit);
+      shortWay(flat, 2 * Math.PI * space.radius * unit);
+    }
     // A straight geodesic under a straight chart has nothing left to
     // sample — unless a placement stands between the sample and the sheet,
     // which is the one thing that can bend it again.

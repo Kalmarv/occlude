@@ -10,6 +10,13 @@
  * past it. Both doors see it: the material door hands back continuous
  * coordinates, and the ink stays where the short arc is.
  *
+ * The POLES are the other place a coordinate names badly: at `±π/2` of
+ * latitude every x names the one point, so the x a pole point carries is
+ * noise. A segment to a pole point takes the previous point's x and a
+ * segment from it the next point's, so both run along meridians — the
+ * geodesics through the pole — and the stretch between the two names is
+ * the pole itself.
+ *
  * A `line` is not touched — its edge is the geodesic, which already knew.
  * Flat and hyperbolic sketches are byte-identical, which the ink oracle
  * proves.
@@ -193,13 +200,11 @@ describe('strokes(t.tiling(3, 5)) whole', () => {
       // samples the coordinate segment between two wall samples, which
       // bows off the geodesic by less than the tiling's own tolerance; the
       // long way round would be many times longer. Two walls of this
-      // icosahedron run through a pole, where x names no place and a
-      // coordinate segment is not the short arc of anything: that is not
-      // the seam, and it keeps the behaviour it had.
+      // icosahedron run through a pole, and they pass through it on the
+      // meridians either side, as long as the wall too.
       const [door] = placed(t, sv);
       for (const d of steps(door.pts)) expect(Math.abs(d)).toBeLessThan(Math.PI * R);
-      const pole = own.some((p) => Math.abs(Math.abs(p[1] - 50) - (Math.PI / 2) * R) < 1e-6);
-      if (!pole) expect(Math.abs(length(t, door.pts) / length(t, own) - 1)).toBeLessThan(1e-3);
+      expect(Math.abs(length(t, door.pts) / length(t, own) - 1)).toBeLessThan(1e-3);
       // The ink door: every inked point, read back off the stereographic
       // sheet, lies within one sample spacing of the wall it belongs to.
       for (const run of inked(t, sv)) {
@@ -212,5 +217,72 @@ describe('strokes(t.tiling(3, 5)) whole', () => {
       }
     }
     expect(worst).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('a polyline through a pole of the sphere', () => {
+  const t = ball();
+  /** The two poles: every x names each of them. */
+  const TOP = 50 - (Math.PI / 2) * R;
+  const BOTTOM = 50 + (Math.PI / 2) * R;
+  /** The geodesic from `a` to `q`, sampled finely. */
+  const arc = (a: readonly [number, number], q: readonly [number, number]): [number, number][] =>
+    Array.from({ length: 2001 }, (_, k) => t.space.geodesic(a, q, k / 2000) as [number, number]);
+  /** How far `p` stands, in the space, from the nearest of `arcs`. */
+  const off = (p: readonly [number, number], arcs: readonly [number, number][][]): number =>
+    Math.min(...arcs.flatMap((pts) => pts.map((g) => t.space.distance(p, g))));
+
+  for (const [name, P, s] of [['top', TOP, 1], ['bottom', BOTTOM, -1]] as const) {
+    it(`turns a corner at the ${name} pole along the two meridians`, () => {
+      // Five units up the 20° meridian, a corner at the pole whose own x
+      // is noise, and five units down the −100° meridian.
+      const a: [number, number] = [X(20), P + 5 * s];
+      const b: [number, number] = [X(-100), P + 5 * s];
+      const [c] = placed(t, stroke([a, [X(-130), P], b]));
+      // Every point sits on one meridian or the other, by name.
+      for (const p of c.pts) {
+        expect(Math.min(Math.abs(p[0] - a[0]), Math.abs(p[0] - b[0]))).toBeLessThan(1e-9);
+      }
+      // The pole, under both names, and nothing swept round it: the run is
+      // the two legs, five and five.
+      expect(c.pts.filter((p) => Math.abs(p[1] - P) < 1e-9).map((p) => p[0])).toEqual([a[0], b[0]]);
+      expect(length(t, c.pts)).toBeCloseTo(10, 9);
+      // The ink, read back off the sheet, lies on the two meridian arcs to
+      // within the ink tolerance and the 0.005 mm snap; the loop round the
+      // pole it used to draw stood a third of a unit off.
+      const legs = [arc(a, [a[0], P]), arc(b, [b[0], P])];
+      const tol = 0.06 / unitMm(t.exec.frame);
+      for (const run of inked(t, stroke([a, [X(-130), P], b]))) {
+        for (const q of run) expect(off(t.space.fromChart(q), legs)).toBeLessThan(tol);
+      }
+    });
+  }
+
+  it('gives a pole point at either end of a run the one neighbour it has', () => {
+    const a: [number, number] = [X(20), TOP + 5];
+    const [from] = placed(t, stroke([[X(-130), TOP], a]));
+    for (const p of from.pts) expect(p[0]).toBeCloseTo(a[0], 9);
+    const [to] = placed(t, stroke([a, [X(77), TOP]]));
+    for (const p of to.pts) expect(p[0]).toBeCloseTo(a[0], 9);
+    expect(length(t, from.pts)).toBeCloseTo(5, 9);
+    expect(length(t, to.pts)).toBeCloseTo(5, 9);
+  });
+
+  it('reads a run of pole points as one point with two names', () => {
+    const a: [number, number] = [X(20), TOP + 5];
+    const b: [number, number] = [X(-100), TOP + 5];
+    const [c] = placed(t, stroke([a, [X(1), TOP], [X(2), TOP], [X(3), TOP], b]));
+    for (const p of c.pts) {
+      expect(Math.min(Math.abs(p[0] - a[0]), Math.abs(p[0] - b[0]))).toBeLessThan(1e-9);
+    }
+    expect(length(t, c.pts)).toBeCloseTo(10, 9);
+  });
+
+  it('leaves a line to the pole alone: its points are the geodesic\'s own', () => {
+    const a: [number, number] = [X(20), TOP + 5];
+    const q: [number, number] = [X(-130), TOP];
+    const [c] = placed(t, line(a, q));
+    const mid = t.space.geodesic(a, q, 0.5);
+    expect(c.pts.some((p) => Math.abs(p[0] - mid[0]) < 1e-12 && Math.abs(p[1] - mid[1]) < 1e-12)).toBe(true);
   });
 });
