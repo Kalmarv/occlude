@@ -10,6 +10,7 @@ import {Collection} from './collection.js';
 import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
 import {dualSurface3,type DualOptions} from '../geometry/dual.js';
+import {isPlacement3,type Placement3} from './placement3.js';
 import {booleanSurface3} from '../geometry/boolean.js';
 /** One connected component of an extrusion selection, measured on the frozen input. */
 export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
@@ -126,6 +127,20 @@ function recordRadial(value:object,centre:Vec3|undefined):void {
 /** The image of a recorded centre under the same affine edit the points took. */
 const movedCentre=(centre:Vec3|undefined,options:Parameters<typeof transformSurface3>[1]):Vec3|undefined=>
   centre&&transformPosition3(centre,options);
+/** Every point through a hyperbolic placement, every id and column kept.
+ * A Lorentz isometry moves the Klein ball projectively, so a straight
+ * segment stays straight and a flat face stays flat: the stored edges and
+ * triangles are still exact. A placement that turns space over turns every
+ * face over too, as a mirrored `scale` does, so a closed solid stays wound
+ * outward. */
+function placedSurface(surface:Surface3,placement:Placement3):Surface3 {
+  if(!isPlacement3(placement))throw new Error('transform takes a Placement3: an observer, or a placement of a honeycomb');
+  const points=surface.points.map(p=>({...p,position:placement.point(p.position)}));
+  if(placement.orientation>0)return ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
+  const faces=surface.faces.map(f=>({...f,vertices:[...f.vertices].reverse(),corners:f.corners&&[...f.corners].reverse()}));
+  const triangles=surface.triangles.map(t=>({...t,vertices:[t.vertices[0],t.vertices[2],t.vertices[1]] as [number,number,number]}));
+  return ownSurface3(assembleSurface3(points,faces,triangles,surface));
+}
 /** The private provenance channel of the geometry constructors. */
 export interface RadialProvenance {readonly radialCentre?:Vec3}
 function setPoints<R extends PointRow<any>>(surface:Surface3,name:string,field:Field<R,Attribute3>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
@@ -355,6 +370,10 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveGeometry<P,E>;
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
+  /** Every point through a hyperbolic placement (`observer`, a honeycomb's
+   * `placements`), every id and column kept. A two-point wire stays exact,
+   * because a Klein chord stays a chord. */
+  transform(placement:Placement3):CurveGeometry<P,E>{return this.changed(placedSurface(this.surface,placement),{origin:placement.point(this.origin)});}
   withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
   steps(count:number,rule:CurveRule<StepAttributes<P>,StepAttributes<E>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(CurveRule<StepAttributes<P>,StepAttributes<E>>|StepsOptions)[]):CurveGeometry<StepAttributes<P>,StepAttributes<E>>{
     if(stepRule<PointRow<StepAttributes<P>>,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as CurveRule<StepAttributes<P>,StepAttributes<E>>;
@@ -575,6 +594,11 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved,radialCentre:movedCentre(this.radialCentre,{rotate:r.rotate,origin:r.origin})});}
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved,radialCentre:r.empty?undefined:movedCentre(this.radialCentre,{scale:r.scale,origin:r.origin})});}
+  /** Every point through a hyperbolic placement (`observer`, a honeycomb's
+   * `placements`), every id and column kept. Flat faces stay flat, because a
+   * Lorentz isometry moves the Klein ball projectively; a placement that
+   * turns space over rewinds every face so a solid stays wound outward. */
+  transform(placement:Placement3):Mesh<P,E,F,C>{return new Mesh(placedSurface(this.surface,placement),{...this,history:[],origin:placement.point(this.origin)});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key,radialCentre:this.radialCentre});}
   /** The same mesh drawn differently: `style({ stroke, fillPen, creaseAngle })`
    * sets the fields named and keeps the others. */

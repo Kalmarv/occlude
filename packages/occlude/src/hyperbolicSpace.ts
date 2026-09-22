@@ -3,8 +3,8 @@
  *
  * Nothing here is part of the public surface. `occlude/3d` exports the
  * three words a sketch writes — `honeycomb`, `observer` and `geodesic3` —
- * and they hand out POINT MAPS and meshes; the Lorentz record below is
- * what those words are made of.
+ * and they hand out placements, complexes and points; the Lorentz record
+ * below is what those words are made of.
  *
  * The disk module draws the hyperbolic PLANE in the Poincaré model, where
  * a straight line is an arc. Space is a different job, and it wants a
@@ -289,14 +289,6 @@ export function apply(m: Lorentz, p: Vec3): Vec3 {
   return [w[0] / w[3], w[1] / w[3], w[2] / w[3]];
 }
 
-/** One transform as a point map, ready for any consumer of a
- * `(p: Vec3) => Vec3` — `mesh.displace` wants the DELTA, so a sketch that
- * moves a built mesh subtracts the row's own position. A cell that is not
- * built yet is cheaper: map its points before `t.mesh` sees them. */
-export function map(m: Lorentz): (p: Vec3) => Vec3 {
-  return (p) => apply(m, p);
-}
-
 /** `a` after `b`: the transform that does `b` first, as the matrix product
  * multiplies. */
 export function compose(a: Lorentz, b: Lorentz): Lorentz {
@@ -533,25 +525,31 @@ function faceNormals(cell: HyperbolicCell): Vec4[] {
 const BUCKET = 1e-6;
 const bucketKey = (p: Vec3, dx: number, dy: number, dz: number): string => `${Math.round(p[0] / BUCKET) + dx},${Math.round(p[1] / BUCKET) + dy},${Math.round(p[2] / BUCKET) + dz}`;
 
+/** One copy of the cell: the transform that places it, and the flood
+ * generation that found it — 0 for the cell itself, 1 for its face
+ * neighbours, and so on. */
+export interface CellCopy {
+  readonly transform: Lorentz;
+  readonly generation: number;
+}
+
 /**
- * The `{p, q, r}` honeycomb as PLACEMENTS: one transform per copy of the
- * fundamental cell, the identity first.
+ * The `{p, q, r}` honeycomb as COPIES of the cell: one transform per copy,
+ * the identity first, each with the generation that found it.
  *
  * The copies are found by reflecting the cell in its own face planes, then
  * reflecting the results in theirs, out to `depth` generations. Depth 1 is
  * the cell and its face neighbours. Two placements that put the cell in the
- * same place are one placement.
- *
- * The sketch builds the cell ONCE with `polyhedron`, maps its points
- * through each placement, and hands each set to `t.mesh`. The copies at odd
- * generations turn space over, because a reflection does.
+ * same place are one placement, and the first one found keeps it, so the
+ * list runs in generation order. The copies at odd generations turn space
+ * over, because a reflection does.
  */
-export function honeycomb(p: number, q: number, r: number, opts: HoneycombOpts = {}): Lorentz[] {
+export function copies(p: number, q: number, r: number, opts: HoneycombOpts = {}): CellCopy[] {
   checkPQR('honeycomb', p, q, r);
   const depth = opts.depth === undefined ? 2 : Math.floor(opts.depth);
   if (!Number.isFinite(depth) || depth < 0) return [];
   const mirrors = faceNormals(polyhedron(p, q, r)).map(reflect);
-  const out: Lorentz[] = [record(IDENTITY, false)];
+  const out: CellCopy[] = [{ transform: record(IDENTITY, false), generation: 0 }];
   const seen = new Map<string, Vec3[]>();
   const place = (m: Lorentz): boolean => {
     const o = apply(m, [0, 0, 0]);
@@ -570,16 +568,17 @@ export function honeycomb(p: number, q: number, r: number, opts: HoneycombOpts =
     else seen.set(key, [o]);
     return true;
   };
-  place(out[0]);
+  place(out[0].transform);
   let frontier = out.slice();
-  for (let g = 0; g < depth; g++) {
-    const next: Lorentz[] = [];
-    for (const m of frontier) {
+  for (let g = 1; g <= depth; g++) {
+    const next: CellCopy[] = [];
+    for (const { transform } of frontier) {
       for (const mirror of mirrors) {
-        const candidate = compose(m, mirror);
+        const candidate = compose(transform, mirror);
         if (!place(candidate)) continue;
-        next.push(candidate);
-        out.push(candidate);
+        const copy = { transform: candidate, generation: g };
+        next.push(copy);
+        out.push(copy);
         // A depth nobody meant to ask for stops here, by name.
         finiteCount('honeycomb', out.length);
       }
@@ -588,6 +587,116 @@ export function honeycomb(p: number, q: number, r: number, opts: HoneycombOpts =
     frontier = next;
   }
   return out;
+}
+
+/** The `{p, q, r}` honeycomb as bare transforms, the identity first: the
+ * `transform` of every `copies` entry. */
+export function honeycomb(p: number, q: number, r: number, opts: HoneycombOpts = {}): Lorentz[] {
+  return copies(p, q, r, opts).map((c) => c.transform);
+}
+
+/** A wall of the complex: a vertex loop, and the copy that first owns it. */
+export interface ComplexFace {
+  readonly vertices: readonly number[];
+  /** The index of the copy that first owns the wall — the lowest generation. */
+  readonly cell: number;
+  readonly generation: number;
+  /** The owning copy turns space over. */
+  readonly mirrored: boolean;
+}
+
+/** An edge of the complex, once, with the lowest copy that has it. */
+export interface ComplexEdge {
+  readonly vertices: readonly [number, number];
+  readonly cell: number;
+  readonly generation: number;
+}
+
+/** The honeycomb as a cell complex: shared vertices, each wall once, each
+ * edge once. */
+export interface HoneycombComplex {
+  readonly cell: HyperbolicCell;
+  readonly copies: readonly CellCopy[];
+  readonly points: readonly Vec3[];
+  readonly faces: readonly ComplexFace[];
+  readonly edges: readonly ComplexEdge[];
+}
+
+/** The hyperboloid is where two images of one vertex agree to 1e-9. */
+const VERTEX_BUCKET = 1e-9;
+
+/**
+ * The honeycomb as ONE complex: every corner of every copy is a vertex,
+ * every wall is a face and every edge is an edge, each of them once.
+ *
+ * Two corners are one vertex when their images agree on the HYPERBOLOID:
+ * the cell's corner is lifted once and carried FORWARD through the copy's
+ * matrix, and the lifted images are compared to 1e-9 in all four
+ * coordinates. Nothing rounds a Klein coordinate. The Klein position a
+ * vertex keeps is the image of the first corner that found it.
+ *
+ * A wall shared by two copies is one face, named by its vertex set. It
+ * keeps the winding, the copy and the generation of its first owner, and
+ * `mirrored` is that copy's hand. An edge takes the lowest copy, and the
+ * lowest generation, that has it among its walls.
+ *
+ * This is a 3-complex, not a surface: `r` walls meet at an edge inside the
+ * patch. It is not a mesh, and nothing here welds it into one.
+ */
+export function honeycombComplex(p: number, q: number, r: number, opts: HoneycombOpts = {}): HoneycombComplex {
+  const all = copies(p, q, r, opts);
+  const cell = polyhedron(p, q, r);
+  const lifted = cell.points.map((c) => lift('honeycomb', c));
+  const points: Vec3[] = [];
+  const buckets = new Map<string, { at: Vec4; index: number }[]>();
+  const keyOf = (v: Vec4, d: readonly number[]): string => v.map((x, i) => Math.round(x / VERTEX_BUCKET) + d[i]).join(',');
+  const steps: number[][] = [];
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (let d = -1; d <= 1; d++) steps.push([a, b, c, d]);
+  const vertex = (X: Vec4): number => {
+    for (const d of steps) {
+      const near = buckets.get(keyOf(X, d));
+      const hit = near?.find((n) => n.at.every((v, i) => Math.abs(v - X[i]) < VERTEX_BUCKET));
+      if (hit) return hit.index;
+    }
+    const index = points.length;
+    points.push([X[0] / X[3], X[1] / X[3], X[2] / X[3]]);
+    const key = keyOf(X, [0, 0, 0, 0]);
+    const list = buckets.get(key);
+    if (list) list.push({ at: X, index });
+    else buckets.set(key, [{ at: X, index }]);
+    return index;
+  };
+  const faces: ComplexFace[] = [];
+  const faceKeys = new Set<string>();
+  const edges: ComplexEdge[] = [];
+  const edgeAt = new Map<string, number>();
+  all.forEach(({ transform, generation }, k) => {
+    const corner = lifted.map((X) => vertex(mulV(transform.matrix, X)));
+    for (const f of cell.faces) {
+      const loop = f.map((j) => corner[j]);
+      for (let i = 0; i < loop.length; i++) {
+        const a = loop[i];
+        const b = loop[(i + 1) % loop.length];
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        // Copies run in generation order, so the first copy to reach an
+        // edge is its lowest copy and its lowest generation.
+        if (edgeAt.has(key)) continue;
+        edgeAt.set(key, edges.length);
+        edges.push(Object.freeze({ vertices: Object.freeze(a < b ? [a, b] : [b, a]) as readonly [number, number], cell: k, generation }));
+      }
+      const key = [...loop].sort((x, y) => x - y).join(',');
+      if (faceKeys.has(key)) continue;
+      faceKeys.add(key);
+      faces.push(Object.freeze({ vertices: Object.freeze(loop), cell: k, generation, mirrored: transform.mirror }));
+    }
+  });
+  return {
+    cell,
+    copies: Object.freeze(all),
+    points: Object.freeze(points.map((v) => Object.freeze(v) as Vec3)),
+    faces: Object.freeze(faces),
+    edges: Object.freeze(edges),
+  };
 }
 
 /**
@@ -601,15 +710,9 @@ export function honeycomb(p: number, q: number, r: number, opts: HoneycombOpts =
  * which is why the scene is moved to the observer and not the other way
  * round.
  *
- * The sketch maps the whole scene through the record and then takes a
- * plain camera at the centre:
- *
- *     const cam = hyperbolic.space.camera(eye, target);
- *     view(cells, { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100 }) })
- *
- * with every point of every cell already through `space.map(cam)`. A
- * placement is a transform too, so `compose(cam, placement)` is the one
- * matrix that does both, and no mesh has to be moved after it is built.
+ * The sketch moves the whole scene through the record and then takes a
+ * plain camera at the centre. A placement is a transform too, so
+ * `compose(cam, placement)` is the one matrix that does both.
  *
  * `up` is a direction at `eye`, not a point; it defaults to the world's
  * `[0, 0, 1]`. An `up` along the line of sight names no frame and refuses

@@ -32,6 +32,7 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 const RECEIVER: Record<string, string> = {
   Material: 'm', Tiling: 'tiles', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
   PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
+  '3d.CurveGeometry': 'curve', '3d.Honeycomb': 'h', '3d.Placement3': 'place',
   connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
 };
@@ -45,6 +46,7 @@ const PAGE: Record<string, string> = {
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
   Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry',
+  Placement3: 'geometry', Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',
   Mesh: '3d/primitives', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
@@ -146,6 +148,8 @@ const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
  * `parent.child.word`. Without this the parent would print the whole
  * object type on one line. */
 const SUBNAMESPACES: string[] = [];
+/** The 3D values whose members a page documents, keyed `3d.<Owner>.<word>`. */
+const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb', 'Placement3'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);
@@ -159,9 +163,9 @@ if (mod3) {
     if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, `3d.${name}`, decl);
-    if (name === 'Mesh') {
+    if (OWNERS3.includes(name)) {
       const t = checker.getDeclaredTypeOfSymbol(sym);
-      for (const m of checker.getPropertiesOfType(t)) member('3d.Mesh', m, t);
+      for (const m of checker.getPropertiesOfType(t)) member(`3d.${name}`, m, t);
     }
     // `sdf3` is a namespace of fields, as the 2D `sdf` is: its words are its members.
     if (name === 'sdf3' && decl) {
