@@ -13,6 +13,102 @@ A coordinate system is a chart. It renames points and changes no length. Hyperbo
 
 `space` sets the geometry the sketch draws in. Leave it out and the sketch draws in the flat plane, exactly as it always did. Set `space: 'hyperbolic'` and the same numbers name places in the hyperbolic plane instead.
 
+A walker starts at one corner of a pentagon and walks five equal legs with a right turn between them. In the flat plane that walk never closes. In the hyperbolic plane it closes, and the walker comes back turned by a quarter turn. One cell reflects across its sides to make the tiling around it, with four pentagons at every corner. The rim is the horizon.
+
+```ts live
+// THE WALK AND THE TILING
+//
+// Five legs of the first {5, 4} cell, each a `step` of the cell's own
+// side on the geodesic, with a `turn` between one leg and the next.
+// The turn is +90, positive as `rotate`: the cross product of
+// `t.space.log(cell[1], cell[0])` and `t.space.log(cell[1], cell[2])`
+// is negative, a corner that turns counter-clockwise, and +90 lands
+// every step on the next corner. The arrows are the walk's own words:
+// a shaft along the heading and two barbs turned back from the tip.
+import { sketch, line, circle, space } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
+  const { cell, placements } = t.tiling(5, 4, { depth: 5 });
+  const c = t.space.center;
+  // The tiling: every cell but the first, as rings of geodesics.
+  const ring = (pts, opts) => pts.map((v, i) => {
+    const w = pts[(i + 1) % pts.length];
+    return line(v[0], v[1], w[0], w[1], opts);
+  });
+  const around = placements.slice(1).map((f) => ring(cell.map(f)));
+  // The walk: the first cell, drawn by a walker and not by the tiling.
+  const side = t.space.distance(cell[0], cell[1]);
+  const v = t.space.log(cell[0], cell[1]);
+  let st = t.station(cell[0][0], cell[0][1], Math.atan2(v[1], v[0]));
+  const start = st;
+  const legs = [];
+  for (let i = 0; i < 5; i++) {
+    const from = st;
+    st = st.step(side);
+    legs.push(line(from.x, from.y, st.x, st.y, { pen: 'stabilo-88-blue' }));
+    if (i < 4) st = st.turn(90);
+  }
+  // An arrow at a station: the shaft along the heading, two barbs back
+  // from the tip. The walk's own words draw it.
+  const arrow = (s) => {
+    const tip = s.step(9);
+    return [
+      line(s.x, s.y, tip.x, tip.y, { pen: 'stabilo-88-blue' }),
+      ...[150, -150].map((a) => { const b = tip.turn(a).step(3); return line(tip.x, tip.y, b.x, b.y, { pen: 'stabilo-88-blue' }); }),
+    ];
+  };
+  return [circle(c[0], c[1], 300), around, legs, arrow(start), arrow(st)];
+});
+```
+
+Under `projection: 'klein'` the same program draws every side straight, because a side is a geodesic. The angles no longer look right, because Klein does not keep angles.
+
+```ts live
+// THE WALK AND THE TILING
+//
+// Five legs of the first {5, 4} cell, each a `step` of the cell's own
+// side on the geodesic, with a `turn` between one leg and the next.
+// The turn is +90, positive as `rotate`: the cross product of
+// `t.space.log(cell[1], cell[0])` and `t.space.log(cell[1], cell[2])`
+// is negative, a corner that turns counter-clockwise, and +90 lands
+// every step on the next corner. The arrows are the walk's own words:
+// a shaft along the heading and two barbs turned back from the tip.
+import { sketch, line, circle, space } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), projection: 'klein' }, (t) => {
+  const { cell, placements } = t.tiling(5, 4, { depth: 5 });
+  const c = t.space.center;
+  // The tiling: every cell but the first, as rings of geodesics.
+  const ring = (pts, opts) => pts.map((v, i) => {
+    const w = pts[(i + 1) % pts.length];
+    return line(v[0], v[1], w[0], w[1], opts);
+  });
+  const around = placements.slice(1).map((f) => ring(cell.map(f)));
+  // The walk: the first cell, drawn by a walker and not by the tiling.
+  const side = t.space.distance(cell[0], cell[1]);
+  const v = t.space.log(cell[0], cell[1]);
+  let st = t.station(cell[0][0], cell[0][1], Math.atan2(v[1], v[0]));
+  const start = st;
+  const legs = [];
+  for (let i = 0; i < 5; i++) {
+    const from = st;
+    st = st.step(side);
+    legs.push(line(from.x, from.y, st.x, st.y, { pen: 'stabilo-88-blue' }));
+    if (i < 4) st = st.turn(90);
+  }
+  // An arrow at a station: the shaft along the heading, two barbs back
+  // from the tip. The walk's own words draw it.
+  const arrow = (s) => {
+    const tip = s.step(9);
+    return [
+      line(s.x, s.y, tip.x, tip.y, { pen: 'stabilo-88-blue' }),
+      ...[150, -150].map((a) => { const b = tip.turn(a).step(3); return line(tip.x, tip.y, b.x, b.y, { pen: 'stabilo-88-blue' }); }),
+    ];
+  };
+  return [circle(c[0], c[1], 300), around, legs, arrow(start), arrow(st)];
+});
+```
+
 **A coordinate is a position by steps from the centre.** `(x, y)` means x along the base geodesic, which is the horizontal line through the centre of the drawable, and then y along the geodesic at right angles to it there. So a column of the sketch is a geodesic, a row is a curve at one fixed distance from the base, and every pair of numbers names a place. Nothing is out of bounds. A sketch keeps writing the numbers it always wrote.
 
 **A shape is its anchor plus offsets, and an offset is a step.** A grid is steps to each cell and then steps inside the cell. A rect is steps from its corner. A circle is `XY` and sin/cos, like anywhere else. One step is one drawable unit at the centre. Away from the centre a row opens out in the disk and closes in on the sphere, so the same offsets cover more of the space, or less of it. This is the one rule, and every word follows it.
@@ -37,7 +133,7 @@ These words read the space in this build. `t.sample`, `m.resample`, `m.along` an
 
 Every other word measures flat and draws through the placement. `t.hexes`, `t.isolines`, `t.noise`, `t.relax`, `t.settle` and `fill('hatch')` are the ones to know about. Pens, nib widths, dashes, the plan and the time estimate are never in the space, because paper is flat.
 
-The four drawings below are one program. Only the config differs. The first is flat: a nine by nine grid of cells, a circle in every other one, a sampled ring and a scatter.
+The grid shows the coordinates the walker's numbers live in. The four drawings below are one program. Only the config differs. The first is flat: a nine by nine grid of cells, a circle in every other one, a sampled ring and a scatter.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots } from 'occlude';
