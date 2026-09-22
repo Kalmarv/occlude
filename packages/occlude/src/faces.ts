@@ -852,6 +852,180 @@ function faceHolding(list: readonly Face[], x: number, y: number): number {
   return -1;
 }
 
+/**
+ * The faces READ OFF the drawn picture: the walks of the half-edge
+ * successor, the positive ones as faces, the negative ones as the outer
+ * boundaries of whatever contains them. The right answer wherever the
+ * sketch's coordinates are a faithful flat picture.
+ */
+function fromWalk(
+  m: Material,
+  start: Int32Array,
+  outgoing: Int32Array,
+  next: Int32Array,
+  tailOf: (h: number) => number,
+  headOf: (h: number) => number,
+): { walks: Walk[]; faceWalk: number[]; holesOf: number[][]; faceOf: Int32Array } {
+  const n = m.n;
+  const H = 2 * m.edgeCount;
+  // components over vertices
+  const comp = new Int32Array(n).fill(-1);
+  let comps = 0;
+  for (let v = 0; v < n; v++) {
+    if (comp[v] !== -1 || start[v + 1] === start[v]) continue;
+    const stack = [v];
+    comp[v] = comps;
+    while (stack.length) {
+      const u = stack.pop()!;
+      for (let k = start[u]; k < start[u + 1]; k++) {
+        const w = headOf(outgoing[k]);
+        if (comp[w] === -1) {
+          comp[w] = comps;
+          stack.push(w);
+        }
+      }
+    }
+    comps++;
+  }
+  // walks
+  const walkOf = new Int32Array(H).fill(-1);
+  const walks: Walk[] = [];
+  for (let h0 = 0; h0 < H; h0++) {
+    if (walkOf[h0] !== -1) continue;
+    const seq: number[] = [];
+    let h = h0;
+    do {
+      walkOf[h] = walks.length;
+      seq.push(h);
+      h = next[h];
+    } while (h !== h0);
+    // The signed area is summed over the walk's simple cycles, so a walk
+    // that only retraces (a tree, a spur) is exactly zero: summing the
+    // raw walk leaves a rounding residue that would make a face of it.
+    const cycles = splitWalk(seq, tailOf);
+    let area = 0;
+    for (const cycle of cycles) {
+      const x0 = m.x[tailOf(cycle[0])]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
+      const y0 = m.y[tailOf(cycle[0])];
+      for (const c of cycle) {
+        const a = tailOf(c);
+        const b = headOf(c);
+        area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
+      }
+    }
+    walks.push({ halfEdges: seq, cycles, area: area / 2, comp: comp[tailOf(h0)] });
+  }
+  // bounded faces: positive walks, in walk order (deterministic: lowest half-edge first)
+  const faceWalk: number[] = [];
+  const faceIndexOfWalk = new Int32Array(walks.length).fill(-1);
+  for (let w = 0; w < walks.length; w++) {
+    if (walks[w].area > 0) {
+      faceIndexOfWalk[w] = faceWalk.length;
+      faceWalk.push(w);
+    }
+  }
+  // holes: an outer boundary (negative walk) belongs to the smallest face of ANOTHER component containing it
+  const holesOf: number[][] = faceWalk.map(() => []);
+  const containerOfWalk = new Int32Array(walks.length).fill(-1);
+  for (let w = 0; w < walks.length; w++) {
+    if (walks[w].area >= 0) continue;
+    const v = tailOf(walks[w].halfEdges[0]);
+    let best = -1;
+    let bestArea = Infinity;
+    for (let f = 0; f < faceWalk.length; f++) {
+      const fw = walks[faceWalk[f]];
+      if (fw.comp === walks[w].comp || fw.area >= bestArea) continue;
+      if (pointInWalk(m, fw.halfEdges, tailOf, m.x[v], m.y[v])) {
+        best = f;
+        bestArea = fw.area;
+      }
+    }
+    containerOfWalk[w] = best;
+    if (best >= 0) holesOf[best].push(w);
+  }
+  const faceOf = new Int32Array(H).fill(-1);
+  for (let h = 0; h < H; h++) {
+    const w = walkOf[h];
+    faceOf[h] = walks[w].area > 0 ? faceIndexOfWalk[w] : walks[w].area < 0 ? containerOfWalk[w] : -1;
+  }
+  return { walks, faceWalk, holesOf, faceOf };
+}
+
+/**
+ * The faces named OUTRIGHT, as closed runs of vertex rows, for geometry
+ * that knows its own topology.
+ *
+ * The half-edge walk below reads the faces off the drawn picture: it sorts
+ * the edges at a vertex by angle and walks the smallest turn. That is the
+ * right answer wherever the sketch's coordinates are a faithful flat
+ * picture — the plane, the disk — and the wrong one on the sphere, whose
+ * coordinates wrap and which has no exterior at all. A tiling knows which
+ * corners go round which cell before anything is drawn, so it says so, and
+ * every other member of `Faces` — the views, the columns, adjacency,
+ * `boundaryEdges`, `contours()` — reads the same two arrays either way.
+ *
+ * Each cycle is a closed run of vertex ROWS, one wall after another with
+ * that wall's own interior samples in between, all the cycles turning the
+ * same way. A half-edge no cycle claims is OUTSIDE: that is the rim of a
+ * finite patch of the plane or the disk, and on a full sphere there is
+ * none.
+ */
+function fromCycles(
+  m: Material,
+  cycles: readonly (readonly number[])[],
+  next: Int32Array,
+  tailOf: (h: number) => number,
+  headOf: (h: number) => number,
+): { walks: Walk[]; faceWalk: number[]; holesOf: number[][]; faceOf: Int32Array } {
+  const H = 2 * m.edgeCount;
+  // The half-edge from one vertex row to another. Packed as one integer,
+  // exactly as `checkPlanar` packs its pair: n² is under 2^53 for every
+  // material that fits in memory.
+  const halfOf = new Map<number, number>();
+  for (let e = 0; e < m.edgeCount; e++) {
+    halfOf.set(m.edgeList[2 * e] * m.n + m.edgeList[2 * e + 1], 2 * e);
+    halfOf.set(m.edgeList[2 * e + 1] * m.n + m.edgeList[2 * e], 2 * e + 1);
+  }
+  const faceOf = new Int32Array(H).fill(-1);
+  const walks: Walk[] = [];
+  for (let f = 0; f < cycles.length; f++) {
+    const cycle = cycles[f];
+    if (cycle.length < 3) throw new Error(`faces: face ${f} is a run of ${cycle.length} vertices — a face is three or more`);
+    const seq: number[] = [];
+    for (let k = 0; k < cycle.length; k++) {
+      const a = cycle[k];
+      const b = cycle[(k + 1) % cycle.length];
+      const h = halfOf.get(a * m.n + b);
+      if (h === undefined) throw new Error(`faces: face ${f} runs from vertex ${a} to vertex ${b}, and no edge joins them`);
+      if (faceOf[h] >= 0) throw new Error(`faces: faces ${faceOf[h]} and ${f} both run from vertex ${a} to vertex ${b} — two faces share a wall the other way round`);
+      faceOf[h] = f;
+      seq.push(h);
+    }
+    for (let k = 0; k < seq.length; k++) next[seq[k]] = seq[(k + 1) % seq.length];
+    // The shoelace about a local origin, as the walk path takes it:
+    // absolute coordinates cancel to zero far from (0, 0).
+    const x0 = m.x[tailOf(seq[0])];
+    const y0 = m.y[tailOf(seq[0])];
+    let area = 0;
+    for (const h of seq) {
+      const a = tailOf(h);
+      const b = headOf(h);
+      area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
+    }
+    walks.push({ halfEdges: seq, cycles: [seq], area: area / 2, comp: 0 });
+  }
+  return { walks, faceWalk: walks.map((_, f) => f), holesOf: walks.map(() => []), faceOf };
+}
+
+/**
+ * One key per face: the lineage roots of its walls, deduplicated, sorted,
+ * joined. A wall cut in half is still one wall, which is what the root is
+ * for. The one place the shape of a face column's key is written.
+ */
+export function faceKeyOf(roots: Iterable<number>): string {
+  return [...new Set(roots)].sort((a, b) => a - b).join(',');
+}
+
 /** The bounded faces of one planar state, with selections over them. */
 export class Faces {
   readonly source: Material;
@@ -863,9 +1037,14 @@ export class Faces {
   /** One key per face, built the first time a face column is read. */
   private readonly keyBox: { keys: string[] | null };
 
-  /** @internal Use `material.faces()`. */
-  constructor(m: Material) {
-    checkPlanar(m);
+  /**
+   * @internal Use `material.faces()`, or `facesFromCycles` for geometry
+   * that names its own faces.
+   */
+  constructor(m: Material, given?: readonly (readonly number[])[]) {
+    // Faces named outright are the authority on their own topology, and the
+    // planarity check is a question about a drawn picture: skip it.
+    if (given === undefined) checkPlanar(m);
     this.source = m;
     this.iteration = m.iteration;
     const n = m.n;
@@ -925,86 +1104,11 @@ export class Faces {
       const len = start[v + 1] - from;
       next[h] = outgoing[from + ((pos[twin] - 1 + len) % len)];
     }
-    // components over vertices
-    const comp = new Int32Array(n).fill(-1);
-    let comps = 0;
-    for (let v = 0; v < n; v++) {
-      if (comp[v] !== -1 || start[v + 1] === start[v]) continue;
-      const stack = [v];
-      comp[v] = comps;
-      while (stack.length) {
-        const u = stack.pop()!;
-        for (let k = start[u]; k < start[u + 1]; k++) {
-          const w = headOf(outgoing[k]);
-          if (comp[w] === -1) {
-            comp[w] = comps;
-            stack.push(w);
-          }
-        }
-      }
-      comps++;
-    }
-    // walks
-    const walkOf = new Int32Array(H).fill(-1);
-    const walks: Walk[] = [];
-    for (let h0 = 0; h0 < H; h0++) {
-      if (walkOf[h0] !== -1) continue;
-      const seq: number[] = [];
-      let h = h0;
-      do {
-        walkOf[h] = walks.length;
-        seq.push(h);
-        h = next[h];
-      } while (h !== h0);
-      // The signed area is summed over the walk's simple cycles, so a walk
-      // that only retraces (a tree, a spur) is exactly zero: summing the
-      // raw walk leaves a rounding residue that would make a face of it.
-      const cycles = splitWalk(seq, tailOf);
-      let area = 0;
-      for (const cycle of cycles) {
-        const x0 = m.x[tailOf(cycle[0])]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
-        const y0 = m.y[tailOf(cycle[0])];
-        for (const c of cycle) {
-          const a = tailOf(c);
-          const b = headOf(c);
-          area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
-        }
-      }
-      walks.push({ halfEdges: seq, cycles, area: area / 2, comp: comp[tailOf(h0)] });
-    }
-    // bounded faces: positive walks, in walk order (deterministic: lowest half-edge first)
-    const faceWalk: number[] = [];
-    const faceIndexOfWalk = new Int32Array(walks.length).fill(-1);
-    for (let w = 0; w < walks.length; w++) {
-      if (walks[w].area > 0) {
-        faceIndexOfWalk[w] = faceWalk.length;
-        faceWalk.push(w);
-      }
-    }
-    // holes: an outer boundary (negative walk) belongs to the smallest face of ANOTHER component containing it
-    const holesOf: number[][] = faceWalk.map(() => []);
-    const containerOfWalk = new Int32Array(walks.length).fill(-1);
-    for (let w = 0; w < walks.length; w++) {
-      if (walks[w].area >= 0) continue;
-      const v = tailOf(walks[w].halfEdges[0]);
-      let best = -1;
-      let bestArea = Infinity;
-      for (let f = 0; f < faceWalk.length; f++) {
-        const fw = walks[faceWalk[f]];
-        if (fw.comp === walks[w].comp || fw.area >= bestArea) continue;
-        if (pointInWalk(m, fw.halfEdges, tailOf, m.x[v], m.y[v])) {
-          best = f;
-          bestArea = fw.area;
-        }
-      }
-      containerOfWalk[w] = best;
-      if (best >= 0) holesOf[best].push(w);
-    }
-    const faceOf = new Int32Array(H).fill(-1);
-    for (let h = 0; h < H; h++) {
-      const w = walkOf[h];
-      faceOf[h] = walks[w].area > 0 ? faceIndexOfWalk[w] : walks[w].area < 0 ? containerOfWalk[w] : -1;
-    }
+    // Faces named outright replace the walk, the containment and the
+    // outside; everything below this block reads only what both paths fill.
+    const { walks, faceWalk, holesOf, faceOf } = given !== undefined
+      ? fromCycles(m, given, next, tailOf, headOf)
+      : fromWalk(m, start, outgoing, next, tailOf, headOf);
     // views
     const edgeLength = (h: number) => Math.hypot(m.x[headOf(h)] - m.x[tailOf(h)], m.y[headOf(h)] - m.y[tailOf(h)]);
     const perimeterOf = (seq: number[]) => {
@@ -1171,7 +1275,7 @@ export class Faces {
     // A wall cut in half is still one wall: the key is the SET of walls, so
     // a root that appears twice counts once. Without this, subdividing a
     // boundary would change the key of a face nothing else touched.
-    const keys = walls.map((w) => [...new Set(w)].sort((a, b) => a - b).join(','));
+    const keys = walls.map(faceKeyOf);
     this.keyBox.keys = keys;
     return keys;
   }
@@ -1511,4 +1615,17 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
 /** Faces of a planar material — `material.faces()` as a function. */
 export function faces(m: Material): Faces {
   return new Faces(m);
+}
+
+/**
+ * The faces of a material that KNOWS its own topology, from explicit
+ * cycles: each a closed run of vertex rows around one face, all turning
+ * the same way, a wall's interior samples included in the run.
+ *
+ * The planarity check and the angular walk are skipped, because neither is
+ * a question about the picture the cycles already answer. A half-edge no
+ * cycle claims is outside; on a closed surface there is none.
+ */
+export function facesFromCycles(m: Material, cycles: readonly (readonly number[])[]): Faces {
+  return new Faces(m, cycles);
 }

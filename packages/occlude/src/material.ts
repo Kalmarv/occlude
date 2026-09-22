@@ -489,7 +489,10 @@ export class Material {
    * grid for every radius: unlike the point index, which is keyed by radius,
    * this one judges true segment distance per call. */
   readonly edgeQueryBox: { query: EdgeQuery | null } = { query: null };
-  private readonly facesBox: { faces: Faces | null };
+  /** @internal The face collection of this state, built the first time it
+   * is asked for. A box like the others, because the state is frozen — and
+   * the one seat a value that knows its own faces (a `Tiling`) fills. */
+  readonly facesBox: { faces: Faces | null };
   /** One id per vertex row, and one per edge row. Outside `attrs` on
    * purpose: a column would be interpolated at every split (a mean of two
    * ids is a forged id), would be demanded of every `addPoint` caller, and
@@ -668,7 +671,9 @@ export class Material {
     Object.freeze(this.transfers);
     Object.freeze(this.edgeTransfers);
     Object.freeze(this.history);
-    Object.freeze(this);
+    // A subclass — a `Tiling` — has its own members to set, so it freezes
+    // itself. Every material a sketch holds is frozen either way.
+    if (new.target === Material) Object.freeze(this);
   }
 
   // ---- access ----

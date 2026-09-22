@@ -184,9 +184,10 @@ export { space, spaceOf } from './space.js';
 export type { Space, SpaceKind, SpaceSpec, CurvatureSpec, SpaceOption, Projection, ProjectionSpec, ProjectionOption } from './space.js';
 // `t.tiling(p, q)` is one word for the regular tilings of all three
 // geometries: the Schläfli symbol picks the sphere, the plane or the disk,
-// and the answer is the cell and its placements as point maps on the
-// drawable, the same shape in each.
-export type { Tiling, TilingGeometry, TilingOpts } from './tiling.js';
+// and the answer is a material of shared walls that still carries the cell
+// and its placements, the same shape in each.
+export { Tiling } from './tiling.js';
+export type { TilingGeometry, TilingOpts } from './tiling.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelFrom, TravelOpts } from './travel.js';

@@ -230,48 +230,43 @@ A placing group and a deforming group are two different frames, so they never sh
 
 <include>/_sig/Toolkit.tiling.mdx</include>
 
-<AutoTypeTable path="../occlude/src/tiling.ts" name="Tiling" />
-
 <AutoTypeTable path="../occlude/src/tiling.ts" name="TilingOpts" />
 
 The regular tiling with `p`-gons meeting `q` at a vertex. The symbol picks the geometry, and there is nothing to set. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
 
-The answer is data. `cell` is the fundamental polygon, `p` vertices in order, in sketch coordinates. `placements` is one [placement](#placement) for each copy of that cell, the identity first. Draw the motif once inside the cell. Then give every placement to `group(placement, motif)` or to `m.transform(placement)`. To move a bare point, use `placement.point(v)`. The shape of the answer does not change with the geometry, so neither does the sketch around it.
+The answer is a [material](/docs/reference/material). Two cells that meet share the corners and the wall between them. A wall is one edge, and `strokes(tiles)` draws it once. A wall is a geodesic, and an edge of a material is straight, so each wall carries samples along its own curve. `tiles.faces()` gives the cells. Every other material word reads a tiling too. A point selection picks corners, `t.within` cuts it, and `polygon(face)` fills one cell.
 
-The edges of a cell are geodesics. A polyline through its corners is not, so draw them with `line`, which is the word that asks for a geodesic. The fence below does that.
+A tiling carries two more things. `cell` is the fundamental polygon, `p` corners in order, in sketch coordinates. `placements` is one [placement](#placement) for each copy of that cell, the identity first. Draw the motif once inside the cell. Then give every placement to `group(placement, motif)` or to `m.transform(placement)`. To move a bare point, use `placement.point(v)`. `tiles.seed` is the face of the first placement.
+
+Every face carries three columns. `generation` counts the reflections that first reached the copy, and the seed reads 0. `mirrored` is 1 for a copy that turns the plane over, and the placement itself says so. `placementIndex` names the copy in `placements`. A face column reads flat, so a sketch asks `face.mirrored`.
 
 `depth` is generations of reflection across the edges of the cell. Depth 1 is the cell and its `p` edge neighbours. A spherical tiling is finite. It has 4, 6, 8, 12 or 20 cells and no more. It comes back whole, and `depth` does nothing.
 
+`side` sets the wall length of a Euclidean tiling, in sketch units. Leave it out and the tiling takes the drawable, as it always did. A curved symbol has no such setting. Its side follows from its curvature, and `side` on one refuses by name and states that length.
+
 The word is on the toolkit, because a tiling needs the frame. Each geometry writes its tiling in its own model chart, and the chart has to land somewhere before a sketch can draw it. Where it lands follows one rule. When the `space` of the sketch is the geometry of the symbol, the model chart is the sketch's own. The placements are then isometries of the space the sketch draws in, and the cell is one cell of it. When the two do not agree, the model chart is fitted to the drawable: its unit circle becomes the largest circle the drawable holds. The answer is the Circle Limit picture, drawn as a picture on a flat sheet. The flat plane fixes no unit of length, so a Euclidean symbol always takes that fit. A scaled tiling of the plane is still a tiling of the plane.
 
-Below, a `{7, 3}` in a hyperbolic sketch. The cell and the motif inside it are the same size everywhere, in the metric of the space. Every placement is a fold, and a fold turns the plane over, so the copies at odd generations take the second pen. The rim is one more circle, drawn at a radius so far out that the chart has nowhere left to put it.
+Below, a `{7, 3}` in a hyperbolic sketch. The walls go down once, because the material shares them. Every copy at an odd generation is a fold of the one before it, and a fold turns the plane over. The blue hatch marks those cells, and `f.mirrored` picks them out without a measurement. The rim is one more circle, drawn at a radius so far out that the chart has nowhere left to put it.
 
 ```ts live
-import { sketch, line, circle, pen, mm, space } from 'occlude';
+import { sketch, strokes, polygon, fill, circle, pen, mm, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radius: 47 }), pens: {
-  even: pen({ width: mm(0.25), color: '#23252B' }),
-  odd: pen({ width: mm(0.25), color: '#2457D6' }),
+  wall: pen({ width: mm(0.25), color: '#23252B' }),
+  turned: pen({ width: mm(0.2), color: '#2457D6' }),
 } }, (t) => {
-  const { cell, placements } = t.tiling(7, 3, { depth: 4 });
+  // A tiling is a material: shared corners, shared walls, and cells with a
+  // generation and a hand to them.
+  const tiles = t.tiling(7, 3, { depth: 4 });
   const c = t.space.center;
-  // A ring of geodesics through a list of points: `line` is the word that
-  // asks for the shortest path, and the sides of a cell are geodesics.
-  const ring = (pts, ink) => pts.map((v, i) => {
-    const w = pts[(i + 1) % pts.length];
-    return line(v[0], v[1], w[0], w[1], { pen: ink });
-  });
-  // The motif, built once inside the cell: the middle of each side.
-  const motif = t.times(7, (i) => t.space.geodesic(cell[i], cell[(i + 1) % 7], 0.5));
-  // A copy at an odd generation is left-handed, and a placement says so
-  // itself: `orientation` is -1 for an odd number of reflections.
+  const hatch = fill('hatch', { angle: 30, spacing: mm(0.9) });
   return [
-    circle(c[0], c[1], 300, { pen: 'even' }),
-    placements.map((p) => {
-      const ink = p.orientation < 0 ? 'odd' : 'even';
-      const at = p.point(c);
-      return [ring(motif.map((v) => p.point(v)), ink), circle(at[0], at[1], 1.6, { pen: ink })];
-    }),
+    // The fills go down first. A fill is opaque, and it would hide a wall
+    // drawn under it.
+    tiles.faces().filter((f) => f.mirrored).map((f) => polygon(f, { fill: hatch, fillPen: 'turned', stroke: false })),
+    circle(c[0], c[1], 300, { pen: 'wall' }),
+    // Every wall once, whichever two cells share it.
+    strokes(tiles, { pen: 'wall' }),
   ];
 });
 ```
@@ -538,6 +533,35 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
     stops.map((s) => group(s.placement(), arrow)),
     sides(mirror, 'turned'),
     stops.map((s) => strokes(motif.transform(s.placement().then(mirror)), { pen: 'turned' })),
+  ];
+});
+```
+
+## a tiling of the sphere
+
+The same word in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls, 20 faces, no rim and no outside. The stereographic projection carries its own size here, so the front of the sphere fills the sheet. The sketch keeps the three generations nearest the front, hatches every other one, and puts a dot at the middle of each. The walls go down once each, because the material shares them.
+
+```ts live
+import { sketch, strokes, polygon, dots, fill, pen, mm, space } from 'occlude';
+
+export default sketch({
+  aspect: [1, 1], seed: 4,
+  space: space.spherical({ radius: 30 }), projection: { kind: 'stereographic', size: 38 },
+  pens: {
+    wall: pen({ width: mm(0.3), color: '#23252B' }),
+    tone: pen({ width: mm(0.18), color: '#B4552B' }),
+  },
+}, (t) => {
+  const tiles = t.tiling(3, 5);
+  // The generation of a cell is how many folds it took to reach it, and on
+  // a sphere that is how far round it sits. Three of them is the front.
+  const near = tiles.faces().filter((f) => f.generation < 3);
+  const walls = tiles.edges.filter((e) => e.faces.some((f) => f.generation < 3));
+  return [
+    near.filter((f) => f.generation % 2 === 0)
+      .map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(1.2) }), fillPen: 'tone', stroke: false })),
+    dots(near.map((f) => f.centroid), { pen: 'wall' }),
+    strokes(walls, { pen: 'wall' }),
   ];
 });
 ```

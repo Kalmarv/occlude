@@ -34,7 +34,7 @@ import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.j
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
 import { modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
+import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
 import { isPlacement, pictureDoor, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
@@ -1212,7 +1212,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const b = exec.bounds();
     const cx = own ? own.center[0] : b.cx;
     const cy = own ? own.center[1] : b.cy;
-    const k = own ? own.scale : Math.min(b.w, b.h) / 2;
+    // The model's unit of length on the drawable. A Euclidean symbol has
+    // none of its own, so `side` sets it; a curved one takes its unit from
+    // its curvature, and says what that unit comes to here.
+    const side = opts.side === undefined ? undefined : exec.len(opts.side);
+    if (side !== undefined && geometry !== 'euclidean') {
+      const fit = own ? own.scale : Math.min(b.w, b.h) / 2;
+      const at = (z: XY): Vec => (own ? exec.space.fromChart([cx + fit * vx(z), cy + fit * vy(z)]) : [cx + fit * vx(z), cy + fit * vy(z)]);
+      const model = cellOf(geometry, p, q);
+      const a = at(model[0]);
+      const c = at(model[1]);
+      const fixed = own ? exec.space.distance(a, c) : Math.hypot(c[0] - a[0], c[1] - a[1]);
+      throw new Error(`tiling: {${p}, ${q}} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
+    }
+    const k = own ? own.scale : side ?? Math.min(b.w, b.h) / 2;
     // A tiling is written in its geometry's model CHART. When that
     // geometry is the sketch's own, the chart is the sketch's own chart,
     // and the answer has to come back in the coordinates everything else

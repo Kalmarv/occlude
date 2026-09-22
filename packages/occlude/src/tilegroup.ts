@@ -51,9 +51,18 @@ const bucketKey = (x: number, y: number): string => `${Math.round(x / BUCKET)},$
 /** Two seats this close are the same tile. */
 const TOL = 1e-9;
 
+/** The flood's answer: one transform per copy of the cell, and the
+ * generation each copy was first reached in — 0 for the cell itself. The
+ * two arrays are the same length and the same order. */
+export interface TileFlood<T> {
+  tiles: T[];
+  /** The flood generation of each tile, by the same index. */
+  generation: number[];
+}
+
 /**
  * The tiling as PLACEMENTS: one transform per copy of `cell`, the identity
- * first.
+ * first, with the generation each was first reached in.
  *
  * The copies are found by reflecting the cell across its own edges, then
  * reflecting the results across theirs, out to `depth` generations — so
@@ -66,11 +75,12 @@ const TOL = 1e-9;
  * on its own and stops early, whatever `depth` says. Two transforms that
  * put the cell in the same place are one transform.
  */
-export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[], depth: number): T[] {
+export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[], depth: number): TileFlood<T> {
   const n = cell.length;
-  if (n < 3) return [];
+  if (n < 3) return { tiles: [], generation: [] };
   const mirrors = cell.map((v, i) => ops.reflection(v, cell[(i + 1) % n]));
   const out: T[] = [ops.identity];
+  const generation: number[] = [0];
   // Where each accepted transform puts the cell, bucketed: that seat names
   // the tile, and one tile takes one placement.
   const seen = new Map<string, (readonly number[])[]>();
@@ -99,6 +109,7 @@ export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[],
         if (!place(candidate)) continue;
         next.push(candidate);
         out.push(candidate);
+        generation.push(g + 1);
         // A depth nobody meant to ask for stops here, by name.
         finiteCount(who, out.length);
       }
@@ -106,5 +117,5 @@ export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[],
     if (next.length === 0) break;
     frontier = next;
   }
-  return out;
+  return { tiles: out, generation };
 }
