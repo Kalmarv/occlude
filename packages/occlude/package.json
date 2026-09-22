@@ -29,6 +29,8 @@
     "dump-scene": "tsx tools/dump-scene.ts",
     "renderhash": "tsx tools/renderhash.ts",
     "docs:hashes": "tsx tools/docs-hashes.ts",
+    "docs:affected": "tsx tools/docs-hashes.ts --check --affected",
+    "docs:map": "tsx tools/docs-hashes.ts --map",
     "docs:signatures": "tsx tools/signatures.ts",
     "docs:ste": "node tools/ste-lint.mjs",
     "docs:words": "tsx tools/docs-words.ts",
