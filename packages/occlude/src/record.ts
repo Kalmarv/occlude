@@ -505,39 +505,13 @@ export function unitMm(frame: Frame): number {
   return Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
 }
 
-/** How finely a curved space is flattened and geodesic-subdivided, in mm:
- * the tolerance `lowerToUserContours` has always used for a curve, and a
- * quarter of the thinnest nib the library ships. */
+/** How finely a curved space is sampled, in mm: the tolerance
+ * `lowerToUserContours` has always used for a curve, and a quarter of the
+ * thinnest nib the library ships. */
 const SPACE_TOL = 0.05;
-/** A geodesic that will not sit inside `tol` after this many bisections is
- * one the sheet cannot show anyway (it runs at the horizon). */
+/** An edge that will not sit inside `tol` after this many halvings is one
+ * the sheet cannot show anyway. */
 const SPACE_DEPTH = 12;
-
-/**
- * The circle of a curved space: its centre and radius are the shape's,
- * the radius read as a length IN THE SPACE, sampled finely enough that the
- * chart curve holds `tol`. In drawable mm, closed on its own start.
- */
-function spaceCircle(a: Extract<Prim, { t: 'arc' }>, space: Space, unit: number, tol: number): [number, number][] {
-  const c: [number, number] = [a.cx / unit, a.cy / unit];
-  const r = a.r / unit;
-  // The chart radius the space actually gives it — a hyperbolic circle is a
-  // chart circle, but not about the chart point its centre names.
-  const near = space.exp(c, [r, 0]);
-  const far = space.exp(c, [-r, 0]);
-  const rho = (Math.hypot(near[0] - far[0], near[1] - far[1]) / 2) * unit;
-  const dtheta = rho > tol ? 2 * Math.acos(1 - tol / rho) : Math.PI / 2;
-  const n = Math.max(8, Math.min(4096, Math.ceil((2 * Math.PI) / dtheta)));
-  const loop = space.circle(c, r, n);
-  if (loop.length < 3) return [];
-  // A circle big enough to wrap around the far side of a sphere runs off
-  // the edge of the chart. There is no chart curve then, so the arcs the
-  // shape already holds stand in, and nothing throws.
-  for (const [x, y] of loop) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
-  const out = loop.map(([x, y]) => [x * unit, y * unit] as [number, number]);
-  out.push([out[0][0], out[0][1]]);
-  return out;
-}
 
 /** How closely the far-side boundary is pinned when a stroke leaves the
  * sheet: a halving each time, so the cut lands within a millionth of the
@@ -553,8 +527,8 @@ const EDGE_STEPS = 20;
  * charts of a sphere show ONE HEMISPHERE, and a point on the far side has
  * no place on the sheet at all: 2D has no occlusion, so the far side is
  * dropped, not hidden. The stroke ends where it crosses the equator —
- * found by halving along the geodesic, not by clipping against a circle
- * standing in for one — and picks up again where it comes back.
+ * found by halving along the drawn edge itself, not by clipping against a
+ * circle standing in for one — and picks up again where it comes back.
  */
 function projectRuns(pts: readonly [number, number][], space: Space, unit: number): [number, number][][] {
   const sheet = (p: readonly [number, number]): [number, number] => {
@@ -563,19 +537,19 @@ function projectRuns(pts: readonly [number, number][], space: Space, unit: numbe
   };
   const on = (q: readonly [number, number]): boolean => Number.isFinite(q[0]) && Number.isFinite(q[1]);
   /** The last point of `a → b` that is still on the sheet, `a` being on
-   * it and `b` not. */
+   * it and `b` not. The two are neighbours in a sampling the placement
+   * already refined, so the edge between them is walked in the sketch's
+   * own coordinates — the drawn curve, not a geodesic standing in. */
   const edge = (a: readonly [number, number], b: readonly [number, number]): [number, number] => {
     let lo = 0;
     let hi = 1;
+    const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
     for (let i = 0; i < EDGE_STEPS; i++) {
       const mid = (lo + hi) / 2;
-      const g = space.geodesic([a[0] / unit, a[1] / unit], [b[0] / unit, b[1] / unit], mid);
-      const q: [number, number] = [g[0] * unit, g[1] * unit];
-      if (on(sheet(q))) lo = mid;
+      if (on(sheet(at(mid)))) lo = mid;
       else hi = mid;
     }
-    const g = space.geodesic([a[0] / unit, a[1] / unit], [b[0] / unit, b[1] / unit], lo);
-    return sheet([g[0] * unit, g[1] * unit]);
+    return sheet(at(lo));
   };
   const runs: [number, number][][] = [];
   let run: [number, number][] = [];
@@ -600,46 +574,61 @@ function projectRuns(pts: readonly [number, number][], space: Space, unit: numbe
 }
 
 /**
- * A shape's contours in the CHART, under a curved space (design §4).
+ * A shape's contours PLACED in a curved space (design §10): the anchor and
+ * its offsets, each offset a step from the anchor.
  *
- * Every primitive is flattened at `tol`; every straight segment between two
- * consecutive points is read as a GEODESIC and bisected until its projected
- * chord holds the projected geodesic within `tol` (skipped where the
- * projection draws geodesics straight, as Klein does); and a `circle` shape
- * is the space's own circle instead of a pair of arcs.
+ * A SKETCH COORDINATE IS A POSITION BY STEPS from the drawable's centre —
+ * x along the base geodesic, then y along the perpendicular geodesic there
+ * — so a shape's anchor, wherever the transform chain puts it, is placed
+ * by those steps, and every point of the shape is its own offset from that
+ * anchor taken as steps in the frame carried there. The arithmetic is one
+ * line, because the coordinates already say it: a point is placed where
+ * its own numbers name. Nothing is bent: an EDGE is the image of the flat
+ * edge under that placement, which is what `m.map` does to any map.
  *
- * The points come back in drawable millimetres and in the chart, because
- * the chart is where a sketch computes: `t.material`, `t.sample`, `within`
- * and `polygon` read exactly this. The PROJECTION is the ink door's last
- * step, so a drawing is projected once and a material is never projected
- * twice.
+ * Only two things then have to be worked out. The flat outline is sampled
+ * at `tol` as it always was, and each flat segment is HALVED again until
+ * the projected chord holds the projected image within `tol` — the same
+ * adaptive sampling a curve gets, in the flat parameter. And a `line`
+ * names the shortest path between its two ends, so it is the one word
+ * whose edge is the space's geodesic; every other straight run is the
+ * image of a straight run.
+ *
+ * The points come back in drawable millimetres and in SKETCH coordinates:
+ * they are the numbers a sketch can keep computing with, which is what
+ * `t.material`, `t.sample`, `within` and `polygon` hand back. The
+ * PROJECTION is the ink door's last step, so a drawing is projected once
+ * and a material is never projected at all.
  *
  * Both doors enter here: `lowerShape` for ink and `lowerToUserContours` for
  * the sketch-time doors.
  */
-function chartContours(
+function placedContours(
   geom: ShapeGeom,
   raw: Prim[][],
   toDrawable: Mat,
   frame: Frame,
   space: Space,
   tol: number,
-  bend = true,
+  refine = true,
 ): [number, number][][] {
   const unit = unitMm(frame);
-  const sheet = (z: readonly [number, number]): [number, number] => {
-    const q = space.project(z);
+  const sheet = (p: readonly [number, number]): [number, number] => {
+    const q = space.project(p);
     return [q[0] * unit, q[1] * unit];
   };
+  // The one word that asks for a geodesic asks for it by name, in every
+  // projection — and under one that draws a geodesic straight there is
+  // nothing left to sample.
+  const geodesicEdge = geom.kind === 'line';
+  const mid = geodesicEdge
+    ? (a: [number, number], b: [number, number]): [number, number] => {
+      const g = space.geodesic(a, b, 0.5);
+      return [g[0], g[1]];
+    }
+    : (a: [number, number], b: [number, number]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   return raw.map((contour) => {
     const prims = contour.flatMap((p) => transformPrim(p, toDrawable));
-    if (
-      geom.kind === 'circle' && prims.length === 2 && prims[0].t === 'arc' && prims[1].t === 'arc'
-      && prims[0].cx === prims[1].cx && prims[0].cy === prims[1].cy && prims[0].r === prims[1].r
-    ) {
-      const loop = spaceCircle(prims[0], space, unit, tol);
-      if (loop.length > 0) return loop;
-    }
     const flat: [number, number][] = [];
     for (const q of prims) {
       const fp = flattenPrim(q, tol);
@@ -648,18 +637,17 @@ function chartContours(
     // A piece the sketch could not place — a NaN radius from a field that
     // says "not a place", most often — draws nothing, and nothing throws.
     for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
-    if (flat.length === 0 || space.straight || !bend) return flat;
-    const chart = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
-    const out: [number, number][] = [chart[0]];
-    const bisect = (
+    if (flat.length === 0 || (geodesicEdge && space.straight) || !refine) return flat;
+    const pts = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
+    const out: [number, number][] = [pts[0]];
+    const halve = (
       a: [number, number], b: [number, number],
       pa: [number, number], pb: [number, number], depth: number,
     ): void => {
-      const g = space.geodesic(a, b, 0.5);
-      const m: [number, number] = [g[0], g[1]];
+      const m = mid(a, b);
       const pm = sheet(m);
-      // How far the projected chord runs from the projected geodesic: the
-      // distance from the geodesic's middle to the chord itself, not to the
+      // How far the projected chord runs from the projected image: the
+      // distance from the image's middle to the chord itself, not to the
       // chord's middle — a projection need not carry the one to the other.
       const dx = pb[0] - pa[0];
       const dy = pb[1] - pa[1];
@@ -671,16 +659,16 @@ function chartContours(
       // other crosses the edge of a hemisphere chart somewhere inside it.
       // The deviation says nothing there (it is NaN), so the crossing is
       // hunted down by halving instead, and the piece that does have a
-      // place gets bent like any other.
+      // place is sampled like any other.
       const together = Number.isFinite(pa[0]) === Number.isFinite(pm[0]) && Number.isFinite(pm[0]) === Number.isFinite(pb[0]);
       if ((together && !(dev > tol)) || depth >= SPACE_DEPTH) {
         out.push(b);
         return;
       }
-      bisect(a, m, pa, pm, depth + 1);
-      bisect(m, b, pm, pb, depth + 1);
+      halve(a, m, pa, pm, depth + 1);
+      halve(m, b, pm, pb, depth + 1);
     };
-    for (let i = 1; i < chart.length; i++) bisect(chart[i - 1], chart[i], sheet(chart[i - 1]), sheet(chart[i]), 0);
+    for (let i = 1; i < pts.length; i++) halve(pts[i - 1], pts[i], sheet(pts[i - 1]), sheet(pts[i]), 0);
     return out.map(([x, y]) => [x * unit, y * unit] as [number, number]);
   });
 }
@@ -718,12 +706,12 @@ export function lowerToUserContours(
   const wholeClosed = geomClosed(geom);
   const space = curvedSpace(frame);
   if (space) {
-    // The chart lives in DRAWABLE space, so the origin/yUp convention comes
-    // in and goes back out again around it; this door answers in user mm,
-    // as it always has.
+    // The placement lives in DRAWABLE space, so the origin/yUp convention
+    // comes in and goes back out again around it; this door answers in user
+    // mm, as it always has.
     const userFrame = userFrameMatrix(frame);
     const back = invert(userFrame);
-    return chartContours(geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol).map((pts) => {
+    return placedContours(geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol).map((pts) => {
       const user = pts.map(([x, y]) => apply(back, x, y));
       let closed = wholeClosed;
       if (geom.kind === 'path') {
@@ -768,15 +756,15 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   const space = curvedSpace(frame);
   const toDrawable = space ? mul(userFrameMatrix(frame), composeChain(shape.transform, rz)) : IDENTITY;
   // A shape that names ranges along its own polyline keeps its own
-  // vertices: inserting geodesic samples would renumber the segments those
-  // ranges address. Its chords come from the 3D projector already fine, so
-  // it is projected and not bent.
-  const bend = shape.strokeRanges === undefined;
+  // vertices: inserting samples would renumber the segments those ranges
+  // address. Its chords come from the 3D projector already fine, so it is
+  // placed and not refined.
+  const refine = shape.strokeRanges === undefined;
   const contours = space
-    // Flatten and geodesic-subdivide in the chart, project, then offset into
-    // paper and snap — the same four steps the sketch-time door takes, with
-    // the projection that only ink needs.
-    ? chartContours(shape.geom, raw, toDrawable, frame, space, SPACE_TOL, bend)
+    // Place, sample to tolerance, project, then offset into paper and snap
+    // — the same steps the sketch-time door takes, with the projection that
+    // only ink needs.
+    ? placedContours(shape.geom, raw, toDrawable, frame, space, SPACE_TOL, refine)
       // One contour in, one contour out wherever the whole of it has a
       // place on the sheet — which is every projection of the hyperbolic
       // space. A hemisphere chart can cut one contour into several, and

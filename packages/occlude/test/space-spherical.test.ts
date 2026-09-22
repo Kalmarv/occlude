@@ -1,13 +1,19 @@
 /**
  * `space: 'spherical'` and its three projections.
  *
- * The space is checked against the sphere itself — the metric against the
- * great-circle angle worked out from the inverse stereographic map, `exp`
- * and `log` against each other, a midpoint against both ends, a circle
- * against its stated radius — and then the lowering: a straight line comes
- * down as a great circle under `'stereographic'`, as a straight prim under
- * `'gnomonic'`, and a shape that runs over the equator loses the far half
- * under either hemisphere chart.
+ * The space is checked against the sphere itself — the Fermi map against
+ * the definition, the metric against the great-circle angle, `exp` and
+ * `log` against each other, a midpoint against both ends, a circle against
+ * its stated radius — and then the lowering: a `line` comes down as a
+ * great circle under `'stereographic'` and as a straight prim under
+ * `'gnomonic'`, a circle comes down as the sin/cos circle of the sketch's
+ * own coordinates, and a shape that runs over the equator loses the far
+ * half under either hemisphere chart.
+ *
+ * A sketch coordinate is a position by steps: `x` along the equator
+ * through the drawable's centre, then `y` along the meridian there. So the
+ * equator sits a QUARTER of the circumference out — `πR/2` — and not at
+ * `2R`, which is where the chart draws it.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -35,16 +41,22 @@ function inkContours(cfg: SketchConfig, shape: ShapeValue) {
 const R = 40;
 const C: [number, number] = [50, 50];
 
-/** The sphere point a drawable point stands for, worked out here from the
- * definition rather than from anything the space says. */
+/** The sphere point a SKETCH point stands for, worked out here from the
+ * definition rather than from anything the space says: the equator walked
+ * to `a`, then the meridian there walked to `b`. */
 function onSphere(p: readonly [number, number]): [number, number, number] {
-  const zx = (p[0] - C[0]) / (2 * R);
-  const zy = (p[1] - C[1]) / (2 * R);
-  const s = 1 + zx * zx + zy * zy;
-  return [(2 * zx) / s, (2 * zy) / s, 2 / s - 1];
+  const a = (p[0] - C[0]) / R;
+  const b = (p[1] - C[1]) / R;
+  return [Math.sin(a) * Math.cos(b), Math.sin(b), Math.cos(a) * Math.cos(b)];
 }
 
-/** The great-circle length between two drawable points, the same way. */
+/** The stereographic chart point of a sketch point, the same way. */
+function chartOf(p: readonly [number, number]): [number, number] {
+  const n = onSphere(p);
+  return [C[0] + (2 * R * n[0]) / (1 + n[2]), C[1] + (2 * R * n[1]) / (1 + n[2])];
+}
+
+/** The great-circle length between two sketch points, the same way. */
 function greatCircle(a: readonly [number, number], b: readonly [number, number]): number {
   const u = onSphere(a);
   const v = onSphere(b);
@@ -68,24 +80,42 @@ describe('the spherical space is the sphere', () => {
     expect(tk({ space: 'spherical' }).space.radius).toBeCloseTo(50, 12);
   });
 
-  it('measures the great-circle length, after the chart scaling', () => {
+  it('maps a coordinate onto the sphere by steps, and reads it back', () => {
+    for (const p of [[50, 50], [70, 62], [12, 90], [130, 20]] as [number, number][]) {
+      const q = s.toChart(p);
+      expect(q[0]).toBeCloseTo(chartOf(p)[0], 9);
+      expect(q[1]).toBeCloseTo(chartOf(p)[1], 9);
+      const back = s.fromChart(q);
+      expect(back[0]).toBeCloseTo(p[0], 9);
+      expect(back[1]).toBeCloseTo(p[1], 9);
+    }
+    // The centre of the drawable is the point of contact, and it is its
+    // own coordinate.
+    expect(s.toChart(C)).toEqual([50, 50]);
+  });
+
+  it('measures the great-circle length between two coordinates', () => {
     for (const [a, b] of [
       [[50, 50], [60, 50]],
       [[20, 30], [85, 75]],
-      [[50, 50], [50, 190]],
+      [[50, 50], [50, 90]],
       [[12, 12], [13, 90]],
     ] as [number, number][][]) {
       expect(s.distance(a, b)).toBeCloseTo(greatCircle(a, b), 10);
     }
-    // Half the sphere across is a quarter of its circumference.
-    expect(s.distance([50, 50], [50 + 2 * R, 50])).toBeCloseTo((Math.PI / 2) * R, 10);
+    // A quarter of the way round is a quarter of the circumference, and it
+    // is the equator: the coordinates count steps.
+    expect(s.distance(C, [50 + (Math.PI / 2) * R, 50])).toBeCloseTo((Math.PI / 2) * R, 10);
   });
 
-  it('is one drawable unit a step at the centre and shorter away from it', () => {
+  it('is one drawable unit a step down a meridian, and shorter along a row', () => {
+    // A column is a geodesic walked at unit speed, wherever it is.
+    for (const x of [50, 90, 12]) expect(s.distance([x, 20], [x, 70])).toBeCloseTo(50, 9);
     expect(s.distance([50, 50], [50.001, 50])).toBeCloseTo(0.001, 9);
-    // The same chart step out near the equator is worth LESS: a sphere's
-    // chart stretches, where the disk's crowds.
-    expect(s.distance([130, 50], [130.001, 50])).toBeLessThan(0.0006);
+    // A step ALONG a row away from the equator is worth less, by `cos` of
+    // the distance to it: the rows close in toward the poles.
+    const b = 30 / R;
+    expect(s.distance([50, 80], [50.001, 80])).toBeCloseTo(0.001 * Math.cos(b), 9);
   });
 
   it('inverts: exp of log is the point again, and |log| is the distance', () => {
@@ -93,7 +123,7 @@ describe('the spherical space is the sphere', () => {
       [[50, 50], [70, 62]],
       [[30, 80], [90, 20]],
       [[55, 51], [54, 52]],
-      [[12, 140], [150, 9]],
+      [[12, 90], [95, 9]],
     ] as [number, number][][]) {
       const v = s.log(p, q);
       expect(Math.hypot(v[0], v[1])).toBeCloseTo(s.distance(p, q), 9);
@@ -130,22 +160,26 @@ describe('the spherical space is the sphere', () => {
     expect(s.circle([50, 50], 0, 24)).toEqual([]);
   });
 
-  it('has a density of 1 at the centre and never more, so nothing runs away', () => {
-    expect(s.density([50, 50])).toBeCloseTo(1, 12);
-    // `1/(1 + |z|²)²` — a quarter at the equator, and falling from there.
-    expect(s.density([50 + 2 * R, 50])).toBeCloseTo(0.25, 12);
-    expect(s.density([300, 300])).toBeLessThan(0.01);
+  it('has a density of 1 on the equator and never more, falling to the poles', () => {
+    expect(s.density(C)).toBeCloseTo(1, 12);
+    // `|cos(y/R)|`: the row of coordinates at distance `y` from the
+    // equator is that much shorter than the numbers on it.
+    expect(s.density([50, 50 + 30])).toBeCloseTo(Math.cos(30 / R), 12);
+    // At the pole of the equator a whole row is one place.
+    expect(s.density([50, 50 + (Math.PI / 2) * R])).toBeCloseTo(0, 12);
     for (const p of [[50, 50], [90, 20], [200, 5], [-100, 400]] as [number, number][]) {
-      expect(s.density(p)).toBeGreaterThan(0);
+      expect(s.density(p)).toBeGreaterThanOrEqual(0);
       expect(s.density(p)).toBeLessThanOrEqual(1);
     }
   });
 });
 
 describe('the spherical projections', () => {
-  it('stereographic is the chart itself', () => {
+  it('stereographic is the chart of the coordinates', () => {
     const s = tk({ space: space.spherical({ radius: R }) }).space;
-    expect(s.project([70, 30])).toEqual([70, 30]);
+    const p: [number, number] = [70, 30];
+    expect(s.project(p)[0]).toBeCloseTo(chartOf(p)[0], 9);
+    expect(s.project(p)[1]).toBeCloseTo(chartOf(p)[1], 9);
     expect(s.straight).toBe(false);
   });
 
@@ -161,20 +195,23 @@ describe('the spherical projections', () => {
       const cross = (pb[0] - pa[0]) * (p[1] - pa[1]) - (pb[1] - pa[1]) * (p[0] - pa[0]);
       expect(Math.abs(cross) / Math.hypot(pb[0] - pa[0], pb[1] - pa[1])).toBeLessThan(1e-9);
     }
-    // The equator is |p − c| = 2R, and past it there is no sheet.
-    expect(Number.isFinite(s.project([50 + 2 * R + 1, 50])[0])).toBe(false);
-    expect(Number.isFinite(s.project([50 + 2 * R - 1, 50])[0])).toBe(true);
+    // The equator is a quarter of the circumference out, and past it there
+    // is no sheet.
+    const quarter = (Math.PI / 2) * R;
+    expect(Number.isFinite(s.project([50 + quarter + 1, 50])[0])).toBe(false);
+    expect(Number.isFinite(s.project([50 + quarter - 1, 50])[0])).toBe(true);
   });
 
   it('orthographic is the sphere from far away: the near half inside a circle of R', () => {
     const s = tk({ space: space.spherical({ radius: R }), projection: 'orthographic' }).space;
     expect(s.straight).toBe(false);
-    // A point at angle θ from the contact lands at R·sin θ.
-    const p: [number, number] = [50 + 2 * R * Math.tan(Math.PI / 8), 50];
-    expect(s.project(p)[0] - 50).toBeCloseTo(R * Math.sin(Math.PI / 4), 10);
+    // A point `R·θ` along the equator lands at `R·sin θ`.
+    const p: [number, number] = [50 + R * (Math.PI / 4), 50];
+    expect(s.project(p)[0] - 50).toBeCloseTo(R * Math.sin(Math.PI / 4), 9);
     // The equator itself is the rim; past it, nothing.
-    expect(s.project([50 + 2 * R, 50])[0] - 50).toBeCloseTo(R, 10);
-    expect(Number.isFinite(s.project([50 + 2 * R + 1, 50])[0])).toBe(false);
+    const quarter = (Math.PI / 2) * R;
+    expect(s.project([50 + quarter, 50])[0] - 50).toBeCloseTo(R, 9);
+    expect(Number.isFinite(s.project([50 + quarter + 1, 50])[0])).toBe(false);
   });
 
   it('refuses a projection from the other geometry, by name', () => {
@@ -185,7 +222,7 @@ describe('the spherical projections', () => {
 });
 
 describe('lowering through the spherical space', () => {
-  it('bends a line onto a great circle under stereographic', () => {
+  it('draws a line as a great circle under stereographic', () => {
     const t = tk({ space: space.spherical({ radius: R }) });
     const pts = t.material(line(16, 22, 88, 74)).pts;
     expect(pts.length).toBeGreaterThan(4);
@@ -203,7 +240,8 @@ describe('lowering through the spherical space', () => {
       const u = onSphere(p);
       expect(Math.abs((u[0] * n[0] + u[1] * n[1] + u[2] * n[2]) / len)).toBeLessThan(1e-9);
     }
-    // and it really bends: the middle sample is off the straight chord.
+    // and it really is a curve: the middle sample is off the straight
+    // coordinate chord.
     const mid = pts[Math.floor(pts.length / 2)];
     const off = Math.abs((pts[pts.length - 1][0] - pts[0][0]) * (mid[1] - pts[0][1])
       - (pts[pts.length - 1][1] - pts[0][1]) * (mid[0] - pts[0][0]))
@@ -211,22 +249,28 @@ describe('lowering through the spherical space', () => {
     expect(off).toBeGreaterThan(0.3);
   });
 
-  it('leaves a rect four straight edges under gnomonic', () => {
-    const contours = inkContours({ space: space.spherical({ radius: R }), projection: 'gnomonic' }, rect(22, 22, 50, 50));
+  it('leaves a line one straight prim under gnomonic', () => {
+    const contours = inkContours({ space: space.spherical({ radius: R }), projection: 'gnomonic' }, line(22, 22, 72, 62));
     expect(contours.length).toBe(1);
-    expect(contours[0].length).toBe(4);
-    expect(contours[0].every((p) => p.t === 'line')).toBe(true);
+    expect(contours[0].length).toBe(1);
+    expect(contours[0][0].t).toBe('line');
   });
 
-  it('draws a circle as the circle of the space, not a chart circle', () => {
+  it('draws a circle as the sin/cos circle of the coordinates', () => {
     const t = tk({ space: space.spherical({ radius: R }) });
-    const m = t.material(circle(75, 50, 20));
-    for (const p of m.pts) expect(t.space.distance([75, 50], p)).toBeCloseTo(20, 6);
+    const m = t.material(circle(50, 85, 20));
+    for (const p of m.pts) expect(Math.hypot(p[0] - 50, p[1] - 85)).toBeCloseTo(20, 6);
+    // Which is NOT the circle of the space away from the equator: a step
+    // along a row up there is worth less than a step down a column, so the
+    // loop is an oval in the metric.
+    const along = m.pts.map((p) => t.space.distance([50, 85], p));
+    expect(Math.max(...along)).toBeGreaterThan(Math.min(...along) * 1.2);
   });
 
   it('drops the far piece of a shape that runs over the equator', () => {
-    // A long line from the middle of the drawable out past |p − c| = 2R.
-    const far: [number, number] = [50 + 2 * R + 30, 50];
+    // A long line from the middle of the drawable out past the equator.
+    const quarter = (Math.PI / 2) * R;
+    const far: [number, number] = [50 + quarter + 20, 50];
     for (const projection of ['gnomonic', 'orthographic'] as const) {
       const t = tk({ space: space.spherical({ radius: R }), projection });
       const contours = inkContours(
@@ -248,8 +292,8 @@ describe('lowering through the spherical space', () => {
       // why a drawing under it stays well inside the near hemisphere.
       const unit = 2; // a 100 × 100 drawable on a 200 × 200 sheet
       const reach = Math.max(...pts.map(([x]) => x)) / unit;
-      if (projection === 'orthographic') expect(reach).toBeCloseTo(t.space.project([50 + 2 * R, 50])[0], 4);
-      else expect(reach).toBeGreaterThan(1e4);
+      if (projection === 'orthographic') expect(reach).toBeCloseTo(t.space.project([50 + quarter, 50])[0], 3);
+      else expect(reach).toBeGreaterThan(1e3);
     }
     // The whole of the far side draws nothing at all, and nothing throws.
     const none = inkContours(
@@ -259,12 +303,13 @@ describe('lowering through the spherical space', () => {
     expect(none.flat().length).toBe(0);
   });
 
-  it('keeps the whole chart at the sketch-time doors, whatever the projection', () => {
-    // `t.material` answers in the CHART, where the far side is a place
-    // like any other: only the ink door drops it.
+  it('keeps the far side at the sketch-time doors, whatever the projection', () => {
+    // `t.material` answers in SKETCH coordinates, where the far side is a
+    // place like any other: only the ink door drops it.
     const t = tk({ space: space.spherical({ radius: R }), projection: 'orthographic' });
-    const m = t.material(line(50, 50, 50 + 2 * R + 30, 50));
-    expect(Math.max(...m.pts.map((p) => p[0]))).toBeGreaterThan(50 + 2 * R);
+    const quarter = (Math.PI / 2) * R;
+    const m = t.material(line(50, 50, 50 + quarter + 20, 50));
+    expect(Math.max(...m.pts.map((p) => p[0]))).toBeCloseTo(50 + quarter + 20, 6);
   });
 });
 
@@ -281,14 +326,17 @@ describe('t.scatter on the sphere', () => {
     return best;
   };
 
-  it('keeps the spacing it was asked for, out where the chart stretches', () => {
-    // THE BUG THIS CATCHES. The bucket grid is laid out in the CHART while
-    // every radius in the flood is a length of the SPACE. On a sphere the
-    // chart is longer than the metric — its density runs below 1 — so a
-    // cell search sized in space units comes up short away from the point
-    // of contact, misses a neighbour, and lets two points land closer than
-    // the spacing. The fix widens the search by `1/sqrt(min density)`,
-    // which is exactly 1 in the flat plane and in the hyperbolic disk.
+  it('keeps the spacing it was asked for, out where the coordinates stretch', () => {
+    // THE BUG THIS CATCHES. The bucket grid is laid out in the sketch's
+    // own coordinates while every radius in the flood is a length of the
+    // SPACE. On a sphere the rows are shorter than the numbers on them —
+    // the density runs below 1 — so a cell search sized in space units
+    // comes up short away from the equator, misses a neighbour, and lets
+    // two points land closer than the spacing. The fix widens the search
+    // by `1/sqrt(min density)`, which is exactly 1 in the flat plane and
+    // in the hyperbolic disk. Here the drawable holds a POLE of the
+    // equator, where the widening has no bound and the whole grid is the
+    // search.
     const t = tk({ space: space.spherical({ radius: 14 }), seed: 3 });
     const m = t.scatter({ spacing: 6 });
     expect(m.n).toBeGreaterThan(30);

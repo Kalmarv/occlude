@@ -2,13 +2,13 @@
  * `t.distanceTo` under a `space`: the distance field of an area measured
  * by the METRIC the frame names, not by the sheet.
  *
- * A `circle` shape is the space's own circle, so the field is the signed
- * distance to it. Everything else is read as an area whose edges are
- * geodesics, and the value is the distance to the nearest of them,
- * positive inside. The proofs are the ones a distance field owes: zero on
- * the boundary, the right sign either side of it, the stated value at a
- * known point, invariance under the space's own isometries — which
- * `t.tiling` hands over as data — and NaN where the space has no place.
+ * The area is the one the ink door draws, and its edges are read as
+ * GEODESICS: the value is the distance to the nearest of them, positive
+ * inside. There is no word for a circle — a circle is a boundary like any
+ * other, and the field is zero on the loop it draws. The proofs are the
+ * ones a distance field owes: zero on the boundary, the right sign either
+ * side of it, the stated value at a known point, and invariance under the
+ * space's own isometries, which `t.tiling` hands over as data.
  *
  * A flat sketch is the old pure `distanceTo`, to the bit.
  */
@@ -20,48 +20,48 @@ import { circle, distanceTo, line, space } from '../src/index.js';
 const hyp = () => toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 45 }) });
 const sph = () => toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
 
-describe('a circle shape is the space\'s circle', () => {
-  it('is zero on the loop it draws, and the radius at the centre', () => {
+describe('a circle is a boundary like any other', () => {
+  it('is zero on the loop it draws, and positive inside it', () => {
     for (const t of [hyp(), sph()]) {
       const c: [number, number] = [56, 44];
       const r = 9;
       const f = t.distanceTo(circle(c[0], c[1], r));
-      expect(f(c[0], c[1])).toBeCloseTo(r, 9);
-      for (const p of t.space.circle(c, r, 16)) expect(f(p[0], p[1])).toBeCloseTo(0, 9);
-      // Positive inside, negative out, and the fall-off is the metric's.
-      const half = t.space.exp(c, [r / 2, 0]);
-      expect(f(half[0], half[1])).toBeCloseTo(r / 2, 9);
-      const out = t.space.exp(c, [0, -2 * r]);
-      expect(f(out[0], out[1])).toBeCloseTo(-r, 9);
+      // The loop the sketch draws is the sin/cos circle of the
+      // coordinates, and the field is zero along it to the tolerance the
+      // boundary was sampled at.
+      for (const p of t.material(circle(c[0], c[1], r)).pts) expect(Math.abs(f(p[0], p[1]))).toBeLessThan(0.02);
+      // Inside is positive and the deepest reading is at the middle;
+      // outside is negative.
+      expect(f(c[0], c[1])).toBeGreaterThan(0);
+      for (const p of t.material(circle(c[0], c[1], r * 0.5)).pts) expect(f(p[0], p[1])).toBeGreaterThan(0);
+      for (const p of t.material(circle(c[0], c[1], r * 1.5)).pts) expect(f(p[0], p[1])).toBeLessThan(0);
     }
   });
 
-  it('moves with the circle under an isometry of the space', () => {
+  it('falls off at the rate of the metric, not of the sheet', () => {
     for (const t of [hyp(), sph()]) {
-      const c: [number, number] = [50, 50];
-      const r = 7;
-      const f = t.distanceTo(circle(c[0], c[1], r));
-      // Every placement of a tiling of the sketch's own geometry is an
-      // isometry of it, so the field of the moved circle at the moved
-      // point reads what the field read before.
-      const moves = t.space.kind === 'hyperbolic' ? t.tiling(7, 3, { depth: 1 }).placements : t.tiling(3, 5).placements;
-      for (const move of moves.slice(1, 5)) {
-        const g = t.distanceTo(circle(move(c)[0], move(c)[1], r));
-        for (const p of [[50, 50], [58, 47], [44, 61]] as [number, number][]) {
-          const q = move(p);
-          expect(g(q[0], q[1])).toBeCloseTo(f(p[0], p[1]), 6);
-        }
-      }
+      const f = t.distanceTo(circle(50, 50, 12));
+      // The deepest reading is about the radius: the loop is the
+      // coordinate circle, which is within a hair of the circle of the
+      // space about the centre of the drawable.
+      const deep = f(50, 50);
+      expect(deep).toBeGreaterThan(11.4);
+      expect(deep).toBeLessThan(12.1);
+      // A step of 4 OF THE SPACE, in any direction, reads 4 less — the
+      // fall-off is the metric's, and the sheet has nothing to say.
+      for (const p of t.space.circle([50, 50], 4, 8)) expect(f(p[0], p[1])).toBeCloseTo(deep - 4, 0);
     }
   });
 
-  it('is NaN past the hyperbolic horizon, and everywhere on the sphere it is a number', () => {
+  it('is a number everywhere: every coordinate is a place', () => {
     const t = hyp();
     const f = t.distanceTo(circle(50, 50, 8));
-    // The horizon is 45 drawable units from the centre of the drawable.
-    expect(Number.isNaN(f(50 + 45, 50))).toBe(true);
-    expect(Number.isNaN(f(50 + 60, 50))).toBe(true);
-    expect(Number.isFinite(f(50 + 44, 50))).toBe(true);
+    // There is no horizon to fall off: a coordinate far outside the
+    // drawable still reads its own distance, and it grows with the step.
+    for (const p of [[50, 50], [95, 50], [50 + 300, 50], [50, -250]] as [number, number][]) {
+      expect(Number.isFinite(f(p[0], p[1]))).toBe(true);
+    }
+    expect(f(350, 50)).toBeLessThan(f(95, 50));
     const s = sph();
     const g = s.distanceTo(circle(50, 50, 8));
     for (const p of [[50, 50], [120, 120], [-90, 10]] as [number, number][]) expect(Number.isFinite(g(p[0], p[1]))).toBe(true);

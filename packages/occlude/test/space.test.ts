@@ -2,10 +2,15 @@
  * `space` and `projection` on the sketch frame.
  *
  * Two things are checked here: that the hyperbolic space IS the hyperbolic
- * plane (its metric agrees with the unit disk's after the chart
- * scaling, `exp` and `log` invert, a midpoint is equidistant, a circle is
- * at its stated radius), and that a sketch WITHOUT a `space` key lowers to
- * exactly the numbers it always lowered to.
+ * plane (its metric agrees with the unit disk's after the chart scaling,
+ * `exp` and `log` invert, a midpoint is equidistant, a circle is at its
+ * stated radius), and that a sketch WITHOUT a `space` key lowers to exactly
+ * the numbers it always lowered to.
+ *
+ * A sketch coordinate is a position by steps from the drawable's centre —
+ * `x` along the base geodesic, then `y` along the perpendicular geodesic
+ * there — so `(x, y)` names a place and never a chart point. The stepped
+ * placement itself is `space-steps.test.ts`.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -31,9 +36,14 @@ function inkContours(cfg: SketchConfig, shape: ShapeValue) {
 describe('the hyperbolic space is the hyperbolic plane', () => {
   const t = tk({ space: space.hyperbolic({ radius: 80 }) });
   const s = t.space;
-  const model = (p: readonly [number, number]): [number, number] => [(p[0] - 50) / 80, (p[1] - 50) / 80];
+  /** A point of the sketch as a point of the unit disk, which is the model
+   * the maths is written in everywhere else. */
+  const model = (p: readonly [number, number]): [number, number] => {
+    const z = s.toChart(p);
+    return [(z[0] - 50) / 80, (z[1] - 50) / 80];
+  };
 
-  it('names itself, its horizon and its curvature', () => {
+  it('names itself, its disk and its curvature', () => {
     expect(s.kind).toBe('hyperbolic');
     expect(s.projection).toBe('poincare');
     expect(s.radius).toBeCloseTo(80, 12);
@@ -50,16 +60,41 @@ describe('the hyperbolic space is the hyperbolic plane', () => {
       [[12, 12], [13, 90]],
     ] as [number, number][][]) {
       // The unit disk's own metric, `ds = 2|dz|/(1 − |z|²)`, is twice the
-      // metric of the space whose chart IS that disk.
-      const want = (80 / 2) * 2 * hyperbolicSpaceOf([0, 0], 1, 'poincare').distance(model(a), model(b));
+      // metric of the space whose chart IS that disk. That space reads its
+      // own coordinates, so the disk points go in through `fromChart`.
+      const unit = hyperbolicSpaceOf([0, 0], 1, 'poincare');
+      const want = (80 / 2) * 2 * unit.distance(unit.fromChart(model(a)), unit.fromChart(model(b)));
       expect(s.distance(a, b)).toBeCloseTo(want, 10);
     }
   });
 
-  it('is one drawable unit a step at the centre and longer toward the horizon', () => {
+  it('is a coordinate by steps: a column is arc length, a row is longer', () => {
+    // Every column is a geodesic walked at unit speed, wherever it is.
+    for (const x of [50, 92, 8]) expect(s.distance([x, 20], [x, 74])).toBeCloseTo(54, 9);
+    // The base row is a geodesic too, so it is arc length as well.
+    expect(s.distance([12, 50], [92, 50])).toBeCloseTo(80, 9);
     expect(s.distance([50, 50], [50.001, 50])).toBeCloseTo(0.001, 9);
-    // The same chart step, taken out near the horizon, is worth more.
-    expect(s.distance([110, 50], [110.001, 50])).toBeGreaterThan(0.0018);
+    // A step ALONG a row away from the base is worth MORE: the rows open
+    // out, by `cosh` of the distance to the base.
+    const b = 40 / (80 / 2);
+    expect(s.distance([50, 90], [50.001, 90])).toBeCloseTo(0.001 * Math.cosh(b), 9);
+    // Which makes the row itself longer than the geodesic that joins its
+    // ends, and never shorter.
+    expect(s.distance([20, 90], [80, 90])).toBeLessThan(60 * Math.cosh(b));
+    expect(s.distance([20, 90], [80, 90])).toBeGreaterThan(60);
+  });
+
+  it('maps a coordinate to the disk and reads it back', () => {
+    for (const p of [[50, 50], [70, 62], [10, 95], [100, 0], [-40, 160]] as [number, number][]) {
+      const z = s.toChart(p);
+      // Every coordinate is a place, and the disk is where it is DRAWN, so
+      // the chart point is always inside the rim.
+      expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeLessThan(80);
+      const back = s.fromChart(z);
+      expect(back[0]).toBeCloseTo(p[0], 8);
+      expect(back[1]).toBeCloseTo(p[1], 8);
+    }
+    expect(s.toChart([50, 50])).toEqual([50, 50]);
   });
 
   it('inverts: exp of log is the point again, and |log| is the distance', () => {
@@ -105,23 +140,31 @@ describe('the hyperbolic space is the hyperbolic plane', () => {
     expect(s.circle([50, 50], 0, 24)).toEqual([]);
   });
 
-  it('has a density of 1 at the centre, growing to the horizon, and NaN past it', () => {
+  it('has a density of 1 on the base row, growing away from it, never NaN', () => {
     expect(s.density([50, 50])).toBeCloseTo(1, 12);
-    expect(s.density([100, 50])).toBeGreaterThan(s.density([70, 50]));
-    expect(Number.isNaN(s.density([150, 50]))).toBe(true);
+    expect(s.density([300, 50])).toBeCloseTo(1, 12);
+    expect(s.density([50, 90])).toBeCloseTo(Math.cosh(40 / 40), 12);
+    expect(s.density([50, 150])).toBeGreaterThan(s.density([50, 90]));
+    // There is no horizon in the coordinates: every pair names a place.
+    for (const p of [[150, 50], [-400, 900]] as [number, number][]) {
+      expect(Number.isFinite(s.density(p))).toBe(true);
+    }
   });
 });
 
 describe('the projection', () => {
-  it('poincare is the chart itself and klein sends a geodesic to a chord', () => {
+  it('poincare is the chart of the coordinates and klein sends a geodesic to a chord', () => {
     const p = tk({ space: 'hyperbolic' });
-    expect(p.space.project([70, 30])).toEqual([70, 30]);
+    // Poincaré draws the chart itself, so the projection IS the coordinate
+    // map — and it is not the identity, because a coordinate is a place.
+    expect(p.space.project([70, 30])).toEqual([...p.space.toChart([70, 30])]);
     expect(p.space.straight).toBe(false);
 
     const k = tk({ space: space.hyperbolic({ radius: 80 }), projection: 'klein' });
     expect(k.space.straight).toBe(true);
     // `z ↦ 2z/(1 + |z|²)`, read back in drawable units.
-    const z = (70 - 50) / 80;
+    const c = k.space.toChart([70, 50]);
+    const z = (c[0] - 50) / 80;
     expect(k.space.project([70, 50])[0]).toBeCloseTo(50 + 80 * ((2 * z) / (1 + z * z)), 10);
     // The projected midpoint of a geodesic IS the midpoint of the projected
     // chord: that is what `straight` means.
@@ -132,24 +175,25 @@ describe('the projection', () => {
     const pa = k.space.project(a);
     const pb = k.space.project(b);
     for (const u of [0.15, 0.5, 0.82]) {
-      const p = k.space.project(k.space.geodesic(a, b, u));
-      const cross = (pb[0] - pa[0]) * (p[1] - pa[1]) - (pb[1] - pa[1]) * (p[0] - pa[0]);
+      const p2 = k.space.project(k.space.geodesic(a, b, u));
+      const cross = (pb[0] - pa[0]) * (p2[1] - pa[1]) - (pb[1] - pa[1]) * (p2[0] - pa[0]);
       expect(Math.abs(cross) / Math.hypot(pb[0] - pa[0], pb[1] - pa[1])).toBeLessThan(1e-9);
     }
   });
 });
 
 describe('lowering through the space', () => {
-  it("gives a rect geodesic edges under 'poincare'", () => {
+  it('draws a line as the geodesic between its two ends', () => {
     const t = tk({ space: space.hyperbolic({ radius: 80 }) });
-    // Four corners become many points: each edge is bent onto its geodesic.
-    expect(t.material(rect(12, 12, 70, 50)).n).toBeGreaterThan(20);
-    // One edge on its own, so there is nothing to disentangle: in MODEL
-    // coordinates a geodesic is an arc of the circle that meets the horizon
-    // at right angles, `|centre|² = r² + 1`.
+    // One edge on its own, so there is nothing to disentangle: in the
+    // MODEL a geodesic is an arc of the circle that meets the rim at right
+    // angles, `|centre|² = r² + 1`.
     const pts = t.material(line(16, 22, 88, 74)).pts;
     expect(pts.length).toBeGreaterThan(4);
-    const model = (p: readonly [number, number]): [number, number] => [(p[0] - 50) / 80, (p[1] - 50) / 80];
+    const model = (p: readonly [number, number]): [number, number] => {
+      const z = t.space.toChart(p);
+      return [(z[0] - 50) / 80, (z[1] - 50) / 80];
+    };
     const A = model(pts[0]);
     const B = model(pts[pts.length - 1]);
     // `2·centre·P = |P|² + 1` at both ends solves for the centre.
@@ -163,28 +207,33 @@ describe('lowering through the space', () => {
       const z = model(p);
       expect(Math.hypot(z[0] - cx, z[1] - cy)).toBeCloseTo(r, 9);
     }
-    // and it really bends: the middle point is off the straight chord.
-    const mid = pts[Math.floor(pts.length / 2)];
-    const a = pts[0];
-    const b = pts[pts.length - 1];
-    const off = Math.abs((b[0] - a[0]) * (mid[1] - a[1]) - (b[1] - a[1]) * (mid[0] - a[0])) / Math.hypot(b[0] - a[0], b[1] - a[1]);
-    expect(off).toBeGreaterThan(0.5);
+    // The ends are the points the sketch asked for, and no others.
+    expect(pts[0][0]).toBeCloseTo(16, 9);
+    expect(pts[pts.length - 1][1]).toBeCloseTo(74, 9);
   });
 
-  it("leaves a rect four straight edges under 'klein'", () => {
-    const contours = inkContours({ space: space.hyperbolic({ radius: 80 }), projection: 'klein' }, rect(12, 12, 70, 50));
+  it("leaves a line two points under 'klein', where a geodesic draws straight", () => {
+    const contours = inkContours({ space: space.hyperbolic({ radius: 80 }), projection: 'klein' }, line(12, 12, 82, 62));
     expect(contours.length).toBe(1);
-    expect(contours[0].length).toBe(4);
-    expect(contours[0].every((p) => p.t === 'line')).toBe(true);
+    expect(contours[0].length).toBe(1);
+    expect(contours[0][0].t).toBe('line');
+    // A rect is not a line: its rows are equidistants, and an equidistant
+    // is not straight in any chart.
+    const box = inkContours({ space: space.hyperbolic({ radius: 80 }), projection: 'klein' }, rect(12, 12, 70, 50));
+    expect(box[0].length).toBeGreaterThan(4);
   });
 
-  it('draws a circle as the circle of the space, not a chart circle', () => {
+  it('draws a circle as the sin/cos circle of the coordinates', () => {
     const t = tk({ space: space.hyperbolic({ radius: 80 }) });
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    // A circle away from the centre: its chart picture is still a circle,
-    // but not about the point its centre names.
-    const m = t.material(circle(75, 50, 20));
-    for (const p of m.pts) expect(t.space.distance([75, 50], p)).toBeCloseTo(20, 6);
+    // A circle away from the base row: `XY` and sin/cos, placed by the
+    // same steps as everything else.
+    const m = t.material(circle(50, 85, 20));
+    for (const p of m.pts) expect(Math.hypot(p[0] - 50, p[1] - 85)).toBeCloseTo(20, 6);
+    // Which is NOT the circle of the space up there: a step along a row is
+    // worth more than a step down a column, so the loop is an oval in the
+    // metric. `t.space.circle` is the word for the other one.
+    const along = m.pts.map((p) => t.space.distance([50, 85], p));
+    expect(Math.max(...along)).toBeGreaterThan(Math.min(...along) * 1.1);
   });
 
   it('keeps the flat lowering literally unchanged with no space key', () => {
@@ -212,42 +261,39 @@ describe('lowering through the space', () => {
 describe('the words that read the space', () => {
   it('spaces t.sample evenly in the metric, not on the sheet', () => {
     const t = tk({ space: space.hyperbolic({ radius: 80 }) });
-    const m = t.sample(line(12, 50, 92, 50), { count: 12 });
+    const m = t.sample(line(12, 96, 92, 4), { count: 12 });
     expect(m.n).toBe(12);
     const gaps: number[] = [];
     for (let i = 1; i < m.n; i++) gaps.push(t.space.distance(m.pts[i - 1], m.pts[i]));
     const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
     for (const g of gaps) expect(g).toBeCloseTo(mean, 4);
-    // On the SHEET they are not even at all: the far end is stretched.
+    // On the SHEET they are not even at all: the ends are crowded, because
+    // the chart has to hold the whole plane inside one disk.
     const flat: number[] = [];
-    for (let i = 1; i < m.n; i++) flat.push(Math.hypot(m.pts[i][0] - m.pts[i - 1][0], m.pts[i][1] - m.pts[i - 1][1]));
+    for (let i = 1; i < m.n; i++) {
+      const a = t.space.project(m.pts[i - 1]);
+      const b = t.space.project(m.pts[i]);
+      flat.push(Math.hypot(b[0] - a[0], b[1] - a[1]));
+    }
     expect(Math.max(...flat) / Math.min(...flat)).toBeGreaterThan(1.3);
   });
 
-  it('crowds t.scatter toward the horizon', () => {
+  it('crowds t.scatter where the rows open out', () => {
     const t = tk({ space: space.hyperbolic({ radius: 60 }), seed: 7 });
     const m = t.scatter({ spacing: 5 });
     expect(m.n).toBeGreaterThan(50);
-    // Two annuli about the drawable's centre, by chart area.
-    const count = (r0: number, r1: number): number =>
-      m.pts.filter((p) => {
-        const d = Math.hypot(p[0] - 50, p[1] - 50);
-        return d >= r0 && d < r1;
-      }).length;
-    const area = (r0: number, r1: number) => Math.PI * (r1 * r1 - r0 * r0);
-    const ratio = (count(30, 45) / area(30, 45)) / (count(0, 20) / area(0, 20));
-    expect(ratio).toBeGreaterThan(2);
+    // `spacing` is a length of the SPACE, and a row far from the base is
+    // longer than the numbers on it, so the same spacing takes fewer
+    // coordinates up there: the points crowd, read in coordinates.
+    const band = (y0: number, y1: number): number =>
+      m.pts.filter((p) => Math.abs(p[1] - 50) >= y0 && Math.abs(p[1] - 50) < y1).length / (2 * (y1 - y0) * 100);
+    expect(band(35, 50) / band(0, 15)).toBeGreaterThan(1.5);
     // Flat, the same call is even — the ratio is the yardstick, so the
-    // annuli's own edge effects cancel.
+    // bands' own edge effects cancel.
     const flat = tk({ seed: 7 }).scatter({ spacing: 5 });
-    const fCount = (r0: number, r1: number): number =>
-      flat.pts.filter((p) => {
-        const d = Math.hypot(p[0] - 50, p[1] - 50);
-        return d >= r0 && d < r1;
-      }).length;
-    const flatRatio = (fCount(30, 45) / area(30, 45)) / (fCount(0, 20) / area(0, 20));
-    expect(flatRatio).toBeLessThan(1.2);
-    expect(ratio).toBeGreaterThan(flatRatio * 1.8);
+    const fBand = (y0: number, y1: number): number =>
+      flat.pts.filter((p) => Math.abs(p[1] - 50) >= y0 && Math.abs(p[1] - 50) < y1).length / (2 * (y1 - y0) * 100);
+    expect(fBand(35, 50) / fBand(0, 15)).toBeLessThan(1.2);
   });
 });
 

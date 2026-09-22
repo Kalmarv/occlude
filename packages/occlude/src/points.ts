@@ -223,35 +223,39 @@ export function withinRegion(
 }
 
 /**
- * How much longer a length of the SPACE can be in the chart, over one box:
- * `1/sqrt(density)` at its thinnest, and never below 1.
+ * How much longer a length of the SPACE can be in the sketch's own
+ * coordinates, over one box: `1/sqrt(density)` at its thinnest, and never
+ * below 1.
  *
- * `density` is the area of the space one unit of chart area holds, so
- * `sqrt(density)` is the linear factor and a chart step of `dp` is worth
- * `sqrt(density)·dp`. A bucket grid is laid out in the chart while every
- * radius here is a length of the space, so a search has to be widened by
- * this factor or it will not reach the neighbour it was meant to find.
+ * `density` is the area of the space one unit of coordinate area holds, so
+ * `sqrt(density)` is the linear factor and a coordinate step of `dp` is
+ * worth `sqrt(density)·dp`. A bucket grid is laid out in coordinates while
+ * every radius here is a length of the space, so a search has to be
+ * widened by this factor or it will not reach the neighbour it was meant
+ * to find.
  *
- * Both curved spaces are radial about their own centre — the hyperbolic
- * density rises with the distance from it, the spherical one falls — so
- * the smallest density over a box is at one of its corners or at the point
- * of it nearest that centre. Reading those five places is exact for both,
- * and the answer is 1 in the flat plane and in the hyperbolic disk, where
- * the density never drops below 1 at all.
+ * The flat plane reads 1 everywhere and the disk never reads below it —
+ * `cosh` of the distance from the base row — so both answer 1 and their
+ * searches are the numbers they always were. The sphere reads `|cos|` of
+ * that distance, which is at most 1 and VANISHES at the poles of the base
+ * row, where a whole row of coordinates is one place. The reading depends
+ * on the row alone, so the smallest over a box is at one of its two rows
+ * unless a pole lies between them, and then it is nothing at all: no
+ * bucket search is wide enough, and the answer says so with Infinity,
+ * which the caller reads as "search the whole grid".
  */
 function chartStretch(space: Space, bounds: Bounds): number {
-  const x1 = bounds.x + bounds.w;
-  const y1 = bounds.y + bounds.h;
-  const near: [number, number] = [
-    Math.min(x1, Math.max(bounds.x, space.center[0])),
-    Math.min(y1, Math.max(bounds.y, space.center[1])),
-  ];
-  let low = Infinity;
-  for (const p of [near, [bounds.x, bounds.y], [x1, bounds.y], [bounds.x, y1], [x1, y1]] as [number, number][]) {
-    const d = space.density(p);
-    if (Number.isFinite(d) && d > 0 && d < low) low = d;
-  }
-  return low >= 1 || !Number.isFinite(low) ? 1 : 1 / Math.sqrt(low);
+  if (space.kind !== 'spherical') return 1;
+  const R = space.radius;
+  const cy = space.center[1];
+  const b0 = (bounds.y - cy) / R;
+  const b1 = (bounds.y + bounds.h - cy) / R;
+  // Some `π/2 + nπ` between the two rows is a pole of the base.
+  const holdsPole = Math.ceil((b0 - Math.PI / 2) / Math.PI) <= Math.floor((b1 - Math.PI / 2) / Math.PI);
+  if (holdsPole) return Infinity;
+  const low = Math.min(space.density([bounds.x, bounds.y]), space.density([bounds.x, bounds.y + bounds.h]));
+  if (!(low > 0)) return Infinity;
+  return low >= 1 ? 1 : 1 / Math.sqrt(low);
 }
 
 /**
@@ -477,14 +481,12 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   // that gap gets over the bounds, and it is exactly 1 in the two cases
   // above, so those searches are the numbers they always were.
   //
-  // WHERE THE DRAWING STOPS. A curved space holds unbounded area inside a
-  // bounded chart, so "evenly spaced" is unboundedly many points and the
-  // flood needs a place to end. It is the same place the demand already
-  // ends: `scatter` reads a demand down to (1/6)², six times the spacing,
-  // and here it reads one up to 6², a sixth of it. The drawing therefore
-  // runs out to where the chart shrinks a step six-fold — `|z| = 0.913` of
-  // the hyperbolic horizon — and past the horizon, where `density` is NaN,
-  // there is no place at all.
+  // WHERE THE DRAWING STOPS. The bounds are the drawable, in the sketch's
+  // own coordinates, and every one of them is a place — a curved space
+  // holds more area inside them than a flat one, not more coordinates. The
+  // demand reading still ends the flood where the space stretches past all
+  // reason: `scatter` reads a demand down to (1/6)², six times the
+  // spacing, and here it reads one up to 6², a sixth of it.
   const space = env.space !== undefined && env.space.kind !== 'euclidean' ? env.space : null;
   const rOf = space
     ? (x: number, y: number): number => {
@@ -521,7 +523,11 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   // Candidate reach is sized by the largest radius placed so far: no
   // already-placed neighbour can exceed it, so (r + rMaxSeen) / 2 bounds the
   // distance that can matter. A pure any-overlap predicate over a superset.
-  const reachMax = Math.ceil((rMax * stretch) / cell) + 1;
+  // The grid is the whole search there is, so no reach usefully runs past
+  // it — and a space whose coordinates fold, where the stretch is
+  // unbounded, asks for exactly that.
+  const reachAll = Math.max(cols, rows);
+  const reachMax = Math.min(reachAll, Math.ceil((rMax * stretch) / cell) + 1);
   let rMaxSeen = 0;
   const col = (x: number): number => Math.min(cols - 1, Math.max(0, Math.floor((x - bounds.x) / cell)));
   const row = (y: number): number => Math.min(rows - 1, Math.max(0, Math.floor((y - bounds.y) / cell)));
@@ -624,7 +630,7 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   const anyWithin = (x: number, y: number, dist: number): boolean => {
     const ci = col(x);
     const cj = row(y);
-    const span = Math.ceil((dist * stretch) / cell) + 1;
+    const span = Math.min(reachAll, Math.ceil((dist * stretch) / cell) + 1);
     const d2 = dist * dist;
     for (let dj = -span; dj <= span; dj++) {
       const nj = cj + dj;

@@ -11,30 +11,35 @@ A coordinate system is a chart. It renames points and changes no length. Hyperbo
 
 <include>/_sig/Toolkit.space.mdx</include>
 
-`space` sets the geometry the sketch draws in. Leave it out and the sketch draws in the flat plane, exactly as it always did. Set `space: 'hyperbolic'` and the drawable sits inside a Poincaré disk. The centre of the disk is the centre of the drawable. Its rim is the horizon, and the horizon lies infinitely far away. A step near the rim is worth more than a step at the centre. The same shape takes less room there.
+`space` sets the geometry the sketch draws in. Leave it out and the sketch draws in the flat plane, exactly as it always did. Set `space: 'hyperbolic'` and the same numbers name places in the hyperbolic plane instead.
 
-`projection` sets the chart that carries the space to the sheet. The default is `'poincare'`. It keeps angles and bends a straight line into an arc. `'klein'` draws a straight line straight and does not keep angles. A `projection` with no `space` is an error, and the message names the space it needs.
+**A coordinate is a position by steps from the centre.** `(x, y)` means x along the base geodesic, which is the horizontal line through the centre of the drawable, and then y along the geodesic at right angles to it there. So a column of the sketch is a geodesic, a row is a curve at one fixed distance from the base, and every pair of numbers names a place. Nothing is out of bounds. A sketch keeps writing the numbers it always wrote.
 
-`radius` is the knob: `space.hyperbolic({ radius: 50 })` puts the horizon 50 drawable units from the centre. A larger radius is flatter, and the flat plane is the limit as the radius grows. Without `radius` the horizon is 1.25 times the half-diagonal of the drawable, so the corners of the drawable lie inside it.
+**A shape is its anchor plus offsets, and an offset is a step.** A grid is steps to each cell and then steps inside the cell. A rect is steps from its corner. A circle is `XY` and sin/cos, like anywhere else. One step is one drawable unit at the centre. Away from the centre a row opens out in the disk and closes in on the sphere, so the same offsets cover more of the space, or less of it. This is the one rule, and every word follows it.
 
-Set `space: 'spherical'` and the drawable becomes the picture of a sphere. The sphere touches the sheet at the centre of the drawable. A step near the centre is worth more than a step away from it. The same shape takes more room out there. The sphere is the opposite of the disk, and the knob is the same one. `space.spherical({ radius: 30 })` gives the sphere a radius of 30 drawable units. A larger radius is flatter. Without `radius` the sphere takes half the short side of the drawable. The equator of the sphere is the circle at twice the radius from the centre. The near half of the sphere lies inside that circle.
+An edge is the image of the flat edge. The engine samples it until the sheet holds the curve. It does not bend an edge onto a geodesic, because a row of a grid is not a geodesic and must not draw as one. `line` is the word that asks for a geodesic. A line is the shortest path between two points, so `line(a, b)` draws the geodesic between them.
+
+`projection` sets the chart that carries the space to the sheet. The default is `'poincare'`. It keeps angles and draws a geodesic as an arc. `'klein'` draws every geodesic straight and does not keep angles. A `projection` with no `space` is an error, and the message names the space it needs.
+
+`radius` is the knob: `space.hyperbolic({ radius: 50 })` draws the plane inside a disk of radius 50 about the centre of the drawable. The rim of that disk is infinitely far away, so the whole plane fits inside it and the drawing pulls in toward it. A larger radius is flatter, and the flat plane is the limit as the radius grows. Without `radius` the disk is 1.25 times the half-diagonal of the drawable.
+
+Set `space: 'spherical'` and the same numbers name places on a sphere. The sphere touches the sheet at the centre of the drawable, and `radius` is its radius: `space.spherical({ radius: 42 })`. A row closes in toward the poles, and the equator of the base row lies a quarter of the way round, at `πR/2` from the centre. Walk further and the coordinates come back round the sphere.
 
 Spherical space has three charts. `'stereographic'` is the default. It keeps angles, and it shows the whole sphere: the one point opposite the centre is the outside of the picture. `'gnomonic'` draws every geodesic straight. `'orthographic'` shows the sphere from far away, inside a circle of one radius. The last two show one half of the sphere only. A point on the far half has no place on the sheet, so it draws nothing. Two dimensions have no occlusion. The engine drops the far half. It does not hide it behind the near half. A stroke that crosses the equator stops there, and it gets no new edge along the equator. Under `'gnomonic'` the equator lies infinitely far away, so keep such a drawing well inside the near half.
 
-A bare number is a length **in the space**. A physical length is a length **on the paper**. `t.scatter({ spacing: 5 })` asks for five drawable units of the space between points, so the points crowd toward the horizon. `mm(0.4)` is 0.4 mm of ink wherever it lands, because the pen is flat. `w()`, `h()` and `s()` are percentages of the drawable, so they are paper lengths too.
+A bare length is a length **in the space**. A physical length is a length **on the paper**. `t.scatter({ spacing: 5 })` asks for five drawable units of the space between points, so the points crowd where the rows open out. `mm(0.4)` is 0.4 mm of ink wherever it lands, because the pen is flat. `w()`, `h()` and `s()` are percentages of the drawable, so they are paper lengths too.
 
-These words read the space in this build. A `circle` shape is the circle of the space. Every edge of a lowered shape is a geodesic. `t.material`, `t.sample`, `t.within` and `polygon` answer in the chart. The chart is where a sketch computes. The projection applies once, at the moment the engine draws the ink. `t.sample`, `m.resample`, `m.along` and `m.trim` measure arc length by the metric of the space. The toolkit hands them that space. A bare `m.resample` call measures flat. `t.scatter` reads `spacing` as a length in the space, and it draws out to where the chart shrinks a step six-fold. `t.tiling` and `t.distanceTo` read it too, and they have sections of their own below.
+These words read the space in this build. `t.sample`, `m.resample`, `m.along` and `m.trim` measure arc length by the metric of the space. The toolkit hands them that space, and a bare `m.resample` call measures flat. `t.scatter` reads `spacing` as a length in the space and reads the density of the coordinates. `t.tiling` and `t.distanceTo` read it too, and they have sections of their own below. `t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates — the numbers the sketch can go on computing with — so a material of a shape draws exactly as the shape draws. The projection applies once, at the moment the engine draws the ink.
 
-Every other word draws through the projection and measures in the chart. `t.grid`, `t.hexes`, `t.isolines`, `t.noise`, `t.relax`, `t.settle` and `fill('hatch')` are the ones to know about. Pens, nib widths, dashes, the plan and the time estimate are never in the space, because paper is flat.
+Every other word measures flat and draws through the placement. `t.hexes`, `t.isolines`, `t.noise`, `t.relax`, `t.settle` and `fill('hatch')` are the ones to know about. Pens, nib widths, dashes, the plan and the time estimate are never in the space, because paper is flat.
 
-The four drawings below are one program. Only the config differs. The first is flat.
+The four drawings below are one program. Only the config differs. The first is flat: a nine by nine grid of cells, a circle in every other one, a sampled ring and a scatter.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => [
-  t.grid({ cols: 5, rows: 5, gap: 4 })
-    .filter((c) => Math.hypot(c.cx - 50, c.cy - 50) < 30)
+  t.grid({ cols: 9, rows: 9 })
     .map((c, k) => (k % 2 === 0
       ? rect(c.x, c.y, c.w, c.h)
       : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
@@ -43,14 +48,13 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => [
 ]);
 ```
 
-The second adds `space`. The squares bend onto their geodesics. The sampled ring keeps its spacing in the metric of the space. The scattered points, kept inside the disk, crowd toward the horizon.
+The second adds `space`. The grid is still a grid: every cell still shares its walls with its neighbours, because the cells are placed by the same steps. The rows curve, because a row is not a geodesic. The columns stay straight in the metric, and the cells at the top and the bottom open out. The whole plane draws inside the disk, so the picture pulls in from the corners of the sheet.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 50 }) }, (t) => [
-  t.grid({ cols: 5, rows: 5, gap: 4 })
-    .filter((c) => Math.hypot(c.cx - 50, c.cy - 50) < 30)
+  t.grid({ cols: 9, rows: 9 })
     .map((c, k) => (k % 2 === 0
       ? rect(c.x, c.y, c.w, c.h)
       : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
@@ -59,14 +63,13 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radiu
 ]);
 ```
 
-The third adds `projection: 'klein'`. It is the same space and the same geometry, drawn in a different chart: every geodesic is now a chord.
+The third adds `projection: 'klein'`. It is the same space and the same places, drawn in a different chart. Every column now draws straight, because a column is a geodesic and Klein draws a geodesic straight. The rows still curve.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 50 }), projection: 'klein' }, (t) => [
-  t.grid({ cols: 5, rows: 5, gap: 4 })
-    .filter((c) => Math.hypot(c.cx - 50, c.cy - 50) < 30)
+  t.grid({ cols: 9, rows: 9 })
     .map((c, k) => (k % 2 === 0
       ? rect(c.x, c.y, c.w, c.h)
       : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
@@ -75,14 +78,13 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radiu
 ]);
 ```
 
-The fourth is the same program again, on a sphere. The squares bow outward, because the curvature has the other sign. The ring keeps its spacing in the metric of the sphere. The scattered points spread out. They spread out more away from the centre. A unit of the sheet holds less of the sphere there.
+The fourth is the same program again, on a sphere. The rows bow the other way, because the curvature has the other sign, and the columns run together toward the poles. The chart of a sphere magnifies, so this picture runs a little past the drawable.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4, space: space.spherical({ radius: 42 }) }, (t) => [
-  t.grid({ cols: 5, rows: 5, gap: 4 })
-    .filter((c) => Math.hypot(c.cx - 50, c.cy - 50) < 30)
+  t.grid({ cols: 9, rows: 9 })
     .map((c, k) => (k % 2 === 0
       ? rect(c.x, c.y, c.w, c.h)
       : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
@@ -97,11 +99,13 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.spherical({ radius
 
 `t.space` is the geometry of the run, as data. It is read-only, because the space is a frame setting and it is fixed for the run.
 
-`kind` is `'euclidean'`, `'hyperbolic'` or `'spherical'`. `projection` is the chart, or `'none'` in the flat plane. `curvature` and `radius` are in drawable units. `center` is the chart point the space is centred on.
+`kind` is `'euclidean'`, `'hyperbolic'` or `'spherical'`. `projection` is the chart, or `'none'` in the flat plane. `curvature` and `radius` are in drawable units. `center` is the point the coordinates are measured from, which is the centre of the drawable.
 
-The metric itself is on the record. `distance(a, b)` measures the geodesic between two points. `geodesic(a, b, t)` gives the point a fraction of the way along it. `exp(p, v)` moves from a point, and `log(p, q)` reads the direction and the distance back. `circle(c, r, count)` is the circle of the space as chart points. `density(p)` is the area of the space one unit of chart area holds. It is 1 at the centre. It is NaN where the chart holds no place, which is the horizon of the disk and everything past it. `project(p)` is the chart-to-sheet map the ink door applies.
+The metric itself is on the record. `distance(a, b)` measures the geodesic between two points. `geodesic(a, b, t)` gives the point a fraction of the way along it. `exp(p, v)` steps from a point: `|v|` of the space, in the direction `v` names in the local frame. `log(p, q)` reads that step back. `circle(c, r, count)` is the circle of the space, which is the set of points one step `r` away in every direction. `density(p)` is the area of the space one unit of coordinate area holds: 1 on the base row, `cosh` of the distance to it in the disk, and `cos` of it on the sphere.
 
-Every one of these takes and answers chart points, in drawable units. The flat plane fills them with the formulas the spacing words always used.
+`toChart(p)` is the map from a coordinate to the chart, and `fromChart(z)` reads it back. `project(p)` is the map from a coordinate to the sheet, and the ink door applies it once, last.
+
+Every one of these takes and answers SKETCH coordinates, in drawable units: the numbers a sketch writes. Nothing here hands back a chart point, and the flat plane fills every member with the formulas the spacing words always used.
 
 ## t.tiling()
 
@@ -113,16 +117,18 @@ Every one of these takes and answers chart points, in drawable units. The flat p
 
 The regular tiling with `p`-gons meeting `q` at a vertex. The symbol picks the geometry, and there is nothing to set. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
 
-The answer is data. `cell` is the fundamental polygon, `p` vertices in order, in drawable coordinates. `placements` is one point map for each copy of that cell, the identity first. Draw the motif once inside the cell and hand every placement to [m.map()](/docs/reference/transforms#mmap), or map the points yourself. The shape of the answer does not change with the geometry, so neither does the sketch around it.
+The answer is data. `cell` is the fundamental polygon, `p` vertices in order, in sketch coordinates. `placements` is one point map for each copy of that cell, the identity first. Draw the motif once inside the cell and hand every placement to [m.map()](/docs/reference/transforms#mmap), or map the points yourself. The shape of the answer does not change with the geometry, so neither does the sketch around it.
+
+The edges of a cell are geodesics. A polyline through its corners is not, so draw them with `line`, which is the word that asks for a geodesic. The fence below does that.
 
 `depth` is generations of reflection across the edges of the cell. Depth 1 is the cell and its `p` edge neighbours. A spherical tiling is finite. It has 4, 6, 8, 12 or 20 cells and no more. It comes back whole, and `depth` does nothing.
 
 The word is on the toolkit, because a tiling needs the frame. Each geometry writes its tiling in its own model chart, and the chart has to land somewhere before a sketch can draw it. Where it lands follows one rule. When the `space` of the sketch is the geometry of the symbol, the model chart is the sketch's own. The placements are then isometries of the space the sketch draws in, and the cell is one cell of it. When the two do not agree, the model chart is fitted to the drawable: its unit circle becomes the largest circle the drawable holds. The answer is the Circle Limit picture, drawn as a picture on a flat sheet. The flat plane fixes no unit of length, so a Euclidean symbol always takes that fit. A scaled tiling of the plane is still a tiling of the plane.
 
-Below, a `{7, 3}` in a hyperbolic sketch. The cell and the motif inside it are the same size everywhere, in the metric of the space. Every placement is a fold, and a fold turns the plane over, so the copies at odd generations take the second pen. The rim is one more circle of the space, drawn at a radius far out toward the horizon.
+Below, a `{7, 3}` in a hyperbolic sketch. The cell and the motif inside it are the same size everywhere, in the metric of the space. Every placement is a fold, and a fold turns the plane over, so the copies at odd generations take the second pen. The rim is one more circle, drawn at a radius so far out that the chart has nowhere left to put it.
 
 ```ts live
-import { sketch, strokes, circle, connect, pen, mm, space } from 'occlude';
+import { sketch, line, circle, pen, mm, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radius: 47 }), pens: {
   even: pen({ width: mm(0.25), color: '#23252B' }),
@@ -130,9 +136,14 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
 } }, (t) => {
   const { cell, placements } = t.tiling(7, 3, { depth: 4 });
   const c = t.space.center;
-  // The motif, built once inside the cell: the middle of each edge,
-  // joined up. Every segment of it draws as a geodesic.
-  const motif = connect.ring(t.times(7, (i) => t.space.geodesic(cell[i], cell[(i + 1) % 7], 0.5)));
+  // A ring of geodesics through a list of points: `line` is the word that
+  // asks for the shortest path, and the sides of a cell are geodesics.
+  const ring = (pts, ink) => pts.map((v, i) => {
+    const w = pts[(i + 1) % pts.length];
+    return line(v[0], v[1], w[0], w[1], { pen: ink });
+  });
+  // The motif, built once inside the cell: the middle of each side.
+  const motif = t.times(7, (i) => t.space.geodesic(cell[i], cell[(i + 1) % 7], 0.5));
   // A copy at an odd generation is left-handed. The signed area of the
   // placed cell says which hand a copy has.
   const hand = (f) => {
@@ -143,7 +154,7 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
     circle(c[0], c[1], 300, { pen: 'even' }),
     placements.map((f) => {
       const ink = hand(f) < 0 ? 'odd' : 'even';
-      return [strokes(motif.map(f), { pen: ink }), circle(f(c)[0], f(c)[1], 1.6, { pen: ink })];
+      return [ring(motif.map(f), ink), circle(f(c)[0], f(c)[1], 1.6, { pen: ink })];
     }),
   ];
 });
@@ -178,16 +189,16 @@ export default sketch({ aspect: [3, 1] }, (t) => {
 
 `t.distanceTo` reads the space. In a flat sketch it is the straight-line distance it has always been. In a curved one it measures by the metric, and the field it hands back is the one `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra already eat.
 
-A `circle` shape is the circle of the space, so the field is the signed distance to it: the radius at the centre, zero on the loop, negative outside. Every other area is read as a polygon of geodesics. The value at a point is its distance to the nearest edge, positive inside. That is exact for a convex cell, and a tiling cell is one. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic. It is positive on the left of `a → b`, and `t.isolines` over it draws the equidistant curves of that geodesic.
+The area is the one the ink door draws, and its edges are read as geodesics. The value at a point is its distance to the nearest edge, positive inside. That is exact for a convex cell of geodesics, and a tiling cell is one; for any other boundary it is as close as the boundary's own sampling. A circle needs no word of its own: it is a boundary like the rest, and the field is zero along the loop the sketch draws. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic. It is positive on the left of `a → b`, and `t.isolines` over it draws the equidistant curves of that geodesic.
 
 The pure `sdf.*` words stay flat. A pure kernel never reads a frame. `t.distanceTo` is the door that does.
 
-Past the horizon of the disk there is no place, and the field answers NaN there. Every field consumer already reads a non-finite sample as absent: `t.isolines` truncates a contour open at it, and `t.scatter` places nothing. The rim becomes the edge of the drawing with no special case.
+Every coordinate is a place, so the field answers a number everywhere.
 
 Below, the cell of a `{7, 3}` contoured at a few steps of its own distance field. Each contour is the set of points one fixed distance in from the boundary. The contours crowd the way the metric crowds, not the way the sheet does. One `t.isolines` call gives the insets once, and every placement carries them.
 
 ```ts live
-import { sketch, strokes, circle, connect, pen, mm, space } from 'occlude';
+import { sketch, strokes, line, circle, pen, mm, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radius: 47 }), pens: {
   edge: pen({ width: mm(0.3), color: '#23252B' }),
@@ -200,11 +211,15 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
   // at the centre. The insets are three fractions of that.
   const deep = field(c[0], c[1]);
   const insets = t.isolines(field, [0.25, 0.5, 0.75].map((u) => deep * u), { step: mm(0.4) });
-  const edges = connect.ring(cell);
+  // The sides of the cell are geodesics, so they are drawn with `line`.
+  const ring = (pts) => pts.map((v, i) => {
+    const w = pts[(i + 1) % pts.length];
+    return line(v[0], v[1], w[0], w[1], { pen: 'edge' });
+  });
   return [
     circle(c[0], c[1], 300, { pen: 'edge' }),
     placements.map((f) => [
-      strokes(edges.map(f), { pen: 'edge' }),
+      ring(cell.map(f)),
       strokes(insets.map(f), { pen: 'inset' }),
     ]),
   ];

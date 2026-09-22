@@ -201,9 +201,12 @@ describe('t.tiling puts the chart on the drawable', () => {
   it('is the sketch\'s own disk when the sketch is hyperbolic', () => {
     const t = toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 40 }) });
     const tl = t.tiling(7, 3, { depth: 2 });
-    // The cell sits at the space's own radius, not the fitted one.
+    // The cell comes back in the sketch's own coordinates, so the chart
+    // is where its model radius is read: the space's own disk, not the
+    // fitted one.
     const model = tiling(7, 3);
-    expect(Math.hypot(tl.cell[0][0] - 50, tl.cell[0][1] - 50)).toBeCloseTo(40 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
+    const z = t.space.toChart(tl.cell[0]);
+    expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(40 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     // Every placement is an ISOMETRY of the space the sketch draws in.
     const probe: [number, number][] = [[50, 50], [62, 47], [41, 58], [55, 63]];
     for (const f of tl.placements) {
@@ -221,21 +224,24 @@ describe('t.tiling puts the chart on the drawable', () => {
     // The equator sits at twice the radius from the centre, and that is
     // where the model chart's unit circle lands.
     const model = tiling(3, 5);
-    expect(Math.hypot(tl.cell[0][0] - 50, tl.cell[0][1] - 50)).toBeCloseTo(60 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
+    const z = t.space.toChart(tl.cell[0]);
+    expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(60 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     const probe: [number, number][] = [[50, 50], [62, 47], [41, 58]];
     // ONE copy of the cell lands opposite the point the chart is taken
-    // from. That place has no chart point, so the copy is the outside of
-    // the picture: its coordinates run out past every other copy's and
-    // carry almost no precision left. Every other copy is an isometry of
+    // from. In the CHART that place is the outside of the picture, with no
+    // point of its own, so the copy comes back as a place — half a
+    // circumference out, where a coordinate is a number like any other —
+    // but with almost no precision left, because a placement is read
+    // through the chart at both ends. Every other copy is an isometry of
     // the sketch's own sphere, exactly.
-    const out = tl.placements.map((f) => Math.hypot(f(probe[0])[0] - 50, f(probe[0])[1] - 50));
-    const furthest = Math.max(...out);
-    expect(furthest).toBeGreaterThan(5 * t.space.radius);
+    const out = tl.placements.map((f) => t.space.distance([50, 50], f(probe[0])));
+    expect(Math.max(...out)).toBeLessThanOrEqual(Math.PI * t.space.radius + 1e-9);
     for (let k = 0; k < tl.placements.length; k++) {
-      if (out[k] === furthest) continue;
       const f = tl.placements[k];
+      for (const v of probe) expect(Number.isFinite(f(v)[0])).toBe(true);
+      if (out[k] > 0.9 * Math.PI * t.space.radius) continue;
       for (let i = 0; i + 1 < probe.length; i++) {
-        expect(t.space.distance(f(probe[i]), f(probe[i + 1]))).toBeCloseTo(t.space.distance(probe[i], probe[i + 1]), 7);
+        expect(t.space.distance(f(probe[i]), f(probe[i + 1]))).toBeCloseTo(t.space.distance(probe[i], probe[i + 1]), 6);
       }
     }
   });

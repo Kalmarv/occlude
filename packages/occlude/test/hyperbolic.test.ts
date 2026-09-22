@@ -10,8 +10,11 @@
  * measures to the geodesic.
  *
  * The metre stick is `hyperbolicSpaceOf([0, 0], 1)` — the space whose
- * chart IS the unit disk. It measures with `ds = |dz|/(1 − |z|²)`, half
+ * CHART is the unit disk. It measures with `ds = |dz|/(1 − |z|²)`, half
  * the disk's own `2|dz|/(1 − |z|²)`, so the disk's distance is twice it.
+ * A space speaks sketch coordinates and this module speaks the chart, so
+ * every reading goes in through `fromChart` and comes out through
+ * `toChart`.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -20,10 +23,15 @@ import { hyperbolicSpaceOf } from '../src/space.js';
 
 /** The unit disk's own hyperbolic distance. */
 const unit = hyperbolicSpaceOf([0, 0], 1, 'poincare');
-const hdist = (a: readonly [number, number], b: readonly [number, number]): number => 2 * unit.distance(a, b);
+/** A disk point as the space's own coordinates, and back again. */
+const inward = (p: readonly [number, number]): [number, number] => {
+  const q = unit.fromChart(p);
+  return [q[0], q[1]];
+};
+const hdist = (a: readonly [number, number], b: readonly [number, number]): number => 2 * unit.distance(inward(a), inward(b));
 /** The point a fraction `t` along the geodesic from `a` to `b`. */
 const along = (a: readonly [number, number], b: readonly [number, number], t: number): [number, number] => {
-  const p = unit.geodesic(a, b, t);
+  const p = unit.toChart(unit.geodesic(inward(a), inward(b), t));
   return [p[0], p[1]];
 };
 

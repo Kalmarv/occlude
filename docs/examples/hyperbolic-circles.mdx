@@ -1,49 +1,50 @@
 ---
 title: Circles
-description: Eight circles about one point, stepped by the metric and stepped by the chart.
+description: Eight rings about one point, drawn as steps of the space and as XY and sin/cos.
 ---
 
-Eight circles about one point, at eight equal steps, drawn twice. The sketch draws in the hyperbolic plane, so `circle` is the circle of that plane. The ink family steps by the metric. The faint family steps by the same amount in the chart, and it is drawn as a chain of small steps to keep it there.
+Eight rings about one point, at eight equal radii, drawn twice. The sketch draws in the hyperbolic plane, so a coordinate is a position by steps from the centre of the drawable.
 
-The two start together: the innermost pair is the same ring, so the sheet gives the hyperbolic unit its size.
+The ink family is the circle of the plane: every point one step `r` away from the middle point, in every direction. `t.space.circle` gives those points, and the sketch joins them up.
 
-After that they part. The chart rings stay concentric and keep their step, and the disk cannot hold them. The outer ones leave through the rim, and the clip cuts them there.
+The faint family is what `circle` draws: `XY` and sin/cos in the coordinates the sketch writes. It is a shape like any other, and a shape is its anchor plus offsets.
 
-Every ring of the metric is a round circle too. Its middle on the sheet is not the point it belongs to, and that drift grows with the radius. The ink rings crowd against the rim and never touch it. The circumference of a hyperbolic circle grows with the exponential of its radius. The disk holds all of it inside a finite picture.
+The two start together. A step at the centre of the drawable is one drawable unit, so near the middle the two families almost agree.
 
-The small dot marks the one point both families are about. The eighth ink ring is eight steps from it, in the metric of the plane.
+After that they part. A row of the coordinates opens out away from the base, and an offset along it is worth more than its number. So the faint rings hold more of the plane to the left and to the right than up and down, and they stretch that way. The ink rings stay round in the metric, and the disk draws each of them as a round circle that drifts toward the rim.
 
-Uses: `space.hyperbolic`, `t.space`, `circle`, `stroke`, `clip`, `t.times`, `pen`, `mm`.
+The small dot marks the one point both families are about. The rim is the horizon of the picture, drawn as one more ring at a radius so far out that the chart has nowhere left to put it.
+
+Uses: `space.hyperbolic`, `t.space`, `circle`, `stroke`, `t.times`, `pen`, `mm`.
 
 ```ts live
-// CIRCLES, BY THE METRIC AND BY THE CHART
+// CIRCLES, BY THE METRIC AND BY THE COORDINATES
 //
-// Eight circles about one point, at eight equal steps, drawn two ways.
-// The ink ones are the circles of the hyperbolic plane: each is still a
-// round circle on the sheet, but its middle drifts toward the rim and
-// the spacing collapses, because a hyperbolic circle's circumference
-// grows exponentially with its radius and the disk has to hold all of
-// it. The faint ones step by the same amount in the chart: they stay
-// concentric, keep their step, and leave through the rim.
-import { sketch, stroke, clip, circle, pen, mm, space } from 'occlude';
+// Eight rings about one point, at eight equal radii, drawn two ways. The
+// ink ones are the circles of the hyperbolic plane: every point one step
+// out. The faint ones are what `circle` draws — XY and sin/cos in the
+// sketch's own coordinates, placed by the same steps as everything else.
+// They start together at the middle and part as the rows open out.
+import { sketch, stroke, circle, pen, mm, space } from 'occlude';
 
 export default sketch(
   { aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 46 }), pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
   (t) => {
     const c = t.space.center;
-    const R = t.space.radius;
-    const at = [c[0] + 0.3 * R, c[1] - 0.18 * R];
-    const step = 8;
+    const at = [c[0] + 12, c[1] - 7];
+    const step = 6;
     const rim = circle(c[0], c[1], 400, { pen: 'ink' });
-    const hyper = t.times(8, (k) => circle(at[0], at[1], (k + 1) * step, { pen: 'ink' }));
-    // The chart circles take the innermost ring's own size as their unit,
-    // so the two families start together and then part. A ring of small
-    // steps holds the chart: one step in one go would bend.
-    const first = t.space.circle(at, step, 8);
-    const unit = Math.hypot(first[0][0] - at[0], first[0][1] - at[1]);
-    const chartRing = (r) => stroke(t.times(289, (_, u) => [at[0] + r * Math.cos(u * Math.PI * 2), at[1] + r * Math.sin(u * Math.PI * 2)]), { pen: 'faint' });
-    const euclid = t.times(8, (k) => chartRing(unit * (k + 1)));
-    return [rim, clip(circle(c[0], c[1], 400), euclid), hyper, chartRing(0.4)];
+    // The circle of the space: one step `r` in every direction, joined up.
+    const metric = (r) => {
+      const ring = t.space.circle(at, r, 240);
+      return stroke([...ring, ring[0]], { pen: 'ink' });
+    };
+    return [
+      rim,
+      t.times(8, (k) => circle(at[0], at[1], (k + 1) * step, { pen: 'faint' })),
+      t.times(8, (k) => metric((k + 1) * step)),
+      circle(at[0], at[1], 0.5, { pen: 'ink' }),
+    ];
   },
 );
 ```

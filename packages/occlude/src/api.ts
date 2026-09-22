@@ -33,7 +33,7 @@ import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
-import { modelChart, spaceAreaField, spaceCircleField, type Space, type SpaceContour } from './space.js';
+import { modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
 import { tiling as tilingKernel, type Tiling, type TilingOpts } from './tiling.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
@@ -1176,8 +1176,21 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const cx = own ? own.center[0] : b.cx;
     const cy = own ? own.center[1] : b.cy;
     const k = own ? own.scale : Math.min(b.w, b.h) / 2;
-    const up = (z: XY): Vec => [cx + k * vx(z), cy + k * vy(z)];
-    const down = (p2: XY): Vec => [(vx(p2) - cx) / k, (vy(p2) - cy) / k];
+    // A tiling is written in its geometry's model CHART. When that
+    // geometry is the sketch's own, the chart is the sketch's own chart,
+    // and the answer has to come back in the coordinates everything else
+    // speaks — so the model point goes through the chart and out the other
+    // side. When it is not, the chart is a picture fitted to the drawable
+    // and the fit is the whole of it.
+    const up = own
+      ? (z: XY): Vec => exec.space.fromChart([cx + k * vx(z), cy + k * vy(z)])
+      : (z: XY): Vec => [cx + k * vx(z), cy + k * vy(z)];
+    const down = own
+      ? (p2: XY): Vec => {
+        const q = exec.space.toChart(p2);
+        return [(q[0] - cx) / k, (q[1] - cy) / k];
+      }
+      : (p2: XY): Vec => [(vx(p2) - cx) / k, (vy(p2) - cy) / k];
     return {
       space: t.space,
       cell: t.cell.map(up),
@@ -1189,41 +1202,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * The distance field of an area IN THE SKETCH'S SPACE: the metric the
    * frame names, not the sheet's.
    *
-   * A `circle` shape is the space's own circle, so the field is the signed
-   * distance to it — exact, one metric reading a sample. Everything else
-   * is read as an area whose edges are GEODESICS, and the value is the
-   * distance to the nearest of them, positive inside. Past the hyperbolic
-   * horizon there is no place, and the answer is NaN, which every field
-   * consumer already reads as absent.
+   * The area is lowered the one way every area is lowered — the boundary
+   * the ink door draws, in sketch coordinates — and read as a polygon
+   * whose edges are GEODESICS: the value at a point is its distance to the
+   * nearest of them, positive inside. That is exact for a convex cell of
+   * geodesics, and as close as the boundary's own sampling for anything
+   * else, so a circle and a tiling cell need no word of their own.
    */
   function spaceDistanceTo(space: Space, area: Geometry | AreaInput | ShapeValue): DistanceField {
-    const disc = spaceDisc(area);
-    if (disc) return spaceCircleField(space, disc.c, disc.r);
     // A shape says whether each of its outlines closes; anything else is
     // an area, and an area's boundaries are loops.
     const contours: SpaceContour[] = isShapeValue(area)
       ? shapeContours(exec, area as ShapeValue, undefined).map((c) => ({ pts: c.pts, closed: c.closed }))
       : numericAreaLoops(exec, area, 'distanceTo').map((pts) => ({ pts, closed: true }));
     return spaceAreaField(space, contours);
-  }
-
-  /** A `circle` shape with no transform of its own, as the space reads it:
-   * a centre and a radius in the space, which is what the shape means
-   * under a `space` and what the ink door draws. A circle carrying its own
-   * translate or scale falls through to the contour route, which draws the
-   * same curve to within the flattening tolerance. */
-  function spaceDisc(area: Geometry | AreaInput | ShapeValue): { c: Vec; r: number } | null {
-    if (!isShapeValue(area)) return null;
-    const shape = area as ShapeValue;
-    const g = shape.geom;
-    const o = shape.opts;
-    if (g.kind !== 'circle') return null;
-    if (o.translate !== undefined || o.rotate !== undefined || o.scale !== undefined || o.origin !== undefined) return null;
-    const unit = unitMm(exec.frame);
-    const [x, y] = userPointMm(g.x, g.y, exec.frame);
-    const r = exec.len(g.r);
-    if (!(r > 0)) return null;
-    return { c: [x / unit, y / unit], r };
   }
 
   /**
