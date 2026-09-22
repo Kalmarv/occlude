@@ -431,3 +431,29 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   return strokes(t.spacefill(rect(6, 6, 88, 88), { spacing: mm(1.6), field: tone, rule: peanoRule }));
 });
 ```
+
+## complex · escape()
+
+`escape(step, opts)` makes a field out of an iteration. `step` is your own map `(z, c) => z'` over `[x, y]` pairs. `opts` takes `iterations`, `bailout` and `input`. The `complex` namespace has the arithmetic for those pairs: `add`, `sub`, `mul`, `div`, `exp`, `log`, `pow`, `sqrt` and `polar`. The answer is a field like any other, so `t.isolines`, `t.within` and `t.scatter` read it unchanged. The Mandelbrot recipe is two lines: `const step = (z, c) => complex.add(complex.mul(z, z), c)` and `const field = escape(step, { input: 'c', iterations: 40, bailout: 4 })`. The Julia recipe keeps the map and changes the call: `escape(step, { input: 'z', c: [-0.744, 0.148], iterations: 40, bailout: 4 })`. The field answers with the smooth iteration count, so contours flow over iteration boundaries. `field.potential` answers with `log|z| / degree^n`. A point that never escapes answers `NaN` in both, and every field consumer reads `NaN` as not a place.
+
+```ts live
+import { sketch, strokes, escape, complex, pen, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 21, pens: {
+  fine: pen({ width: mm(0.3), color: '#8A857C' }),
+  heavy: pen({ width: mm(1), color: '#23252B' }),
+} }, (t) => {
+  const step = (z, c) => complex.add(complex.mul(z, z), c);
+  // A big bailout, not the count's 4: the potential jumps a little at the
+  // escape step, and only a large radius makes the jump invisible. At 4
+  // it pinches beads into the outer rings; at 1e6 the rings come out clean.
+  const field = escape(step, { input: 'c', iterations: 40, bailout: 1e6 });
+  // The sheet as the c-plane: (74, 50) is c = −0.7, and 34 sheet units
+  // are one unit of c, so the whole set sits on the page.
+  const equip = (x, y) => field.potential((x - 74) / 34, (y - 50) / 34);
+  return [
+    strokes(t.isolines(equip, { spacing: 0.05 }), { pen: 'fine' }),
+    strokes(t.isolines(equip, { spacing: 0.25 }), { pen: 'heavy' }),
+  ];
+});
+```

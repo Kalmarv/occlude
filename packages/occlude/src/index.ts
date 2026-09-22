@@ -162,6 +162,12 @@ export type { Residual, ResidualOpts, SpendMarks, SpendOpts } from './residual.j
 // isolines (offsetting is a recipe), scatter, decimate, deform.
 export { distanceTo, distanceToPoints, sdf } from './distance.js';
 export type { DistanceField } from './distance.js';
+// Complex arithmetic over the pair spelling, and the escape-time field as
+// a field word: the artist's own map in, a smooth count (and its
+// potential) out.
+export { complex } from './complex.js';
+export { escape } from './escape.js';
+export type { EscapeOpts, EscapeField, EscapeStep } from './escape.js';
 // The sketch's geometry as a frame setting: `space` says what a length is
 // worth and `projection` which chart the sheet draws it in. The
 // constructors are pure data words — the run resolves them against the
