@@ -48,7 +48,7 @@
 
 import { halfplane as hHalfplane } from './hyperbolic.js';
 import type { Model, ModelDoor } from './placement.js';
-import type { L } from './units.js';
+import { mm, type L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
 export type SpaceKind = 'euclidean' | 'hyperbolic' | 'spherical';
@@ -318,6 +318,9 @@ const POSITIVE: Form = {
  *
  * `curvature` is never zero here: zero is the flat plane and it runs
  * `euclideanSpace`, which is the old code and not a limit of this one.
+ *
+ * `bow`, when the caller knows the paper, is the metric bow a stored
+ * chord may keep (`geodesicBowOf`), and the model door carries it.
  */
 export function curvedSpaceOf(
   center: XY,
@@ -325,6 +328,7 @@ export function curvedSpaceOf(
   ell: number,
   projection: Projection,
   size: number,
+  bow?: number,
 ): Space {
   const cx = vx(center);
   const cy = vy(center);
@@ -497,6 +501,7 @@ export function curvedSpaceOf(
       up,
       down,
       frameAt,
+      ...(bow === undefined ? {} : { bow }),
     },
   };
 }
@@ -554,6 +559,76 @@ export function sphereOfChart(z: XY): Sphere {
  * division says so by itself. */
 export function chartOfSphere(n: Sphere): Vec {
   return [n[0] / (1 + n[2]), n[1] / (1 + n[2])];
+}
+
+// ---- the bow of a stored chord --------------------------------------------
+
+/** The ink's tolerance on the sheet, in mm: the one `lowerToUserContours`
+ * has always used for a curve, and a quarter of the thinnest nib the
+ * library ships. A door's `bow` is judged against it. */
+export const INK_TOL = 0.05;
+
+/**
+ * How much of a door's tolerance a STORED chord of a geodesic may spend.
+ * The ink door draws the stored chord to its own tolerance on the sheet,
+ * wherever it lands; the chord's bow off the geodesic is the share the
+ * stored geometry adds on top, as much again: at worst twice the ink's
+ * 0.05 mm, a tenth of a millimetre — a third of the thinnest nib, and
+ * below a plotter's own repeatability.
+ */
+const GEODESIC_BOW_SHARE = 1;
+
+/**
+ * The most the chart magnifies anywhere on the drawable: sheet units per
+ * unit of the space's metric, at its worst over every point the drawable
+ * shows. A placement can carry a chord anywhere, so a bow judged in the
+ * metric has to hold where the chart is widest.
+ *
+ * With `ℓ` the curvature length, `M` the chart's `size` and `r` the
+ * farthest the drawable reaches from the centre (`reach`, its corner, in
+ * drawable units), the charts are one line each, and every one of them is
+ * widest at the centre or at the corner:
+ *
+ *   poincaré      r = M·tanh(s/2ℓ)       widest at the centre, M/2ℓ
+ *   klein         r = M·tanh(s/ℓ)        widest at the centre, M/ℓ
+ *   stereographic r = M·tan(s/2ℓ)        widest at the corner, (M² + r²)/2Mℓ
+ *   gnomonic      r = (M/2)·tan(s/ℓ)     widest at the corner, (M/2ℓ)(1 + (2r/M)²)
+ *   orthographic  r = (M/2)·sin(s/ℓ)     widest at the centre, M/2ℓ
+ *
+ * (the first two conformal, the last two widest along the radius). The
+ * flat plane is 1.
+ */
+export function chartStretch(chart: Pick<Space, 'curvature' | 'projection' | 'size'>, reach: number): number {
+  if (chart.curvature === 0) return 1;
+  const ell = 1 / Math.sqrt(Math.abs(chart.curvature));
+  const M = chart.size;
+  const r = reach;
+  switch (chart.projection) {
+    case 'klein': return M / ell;
+    case 'stereographic': return (M * M + r * r) / (2 * M * ell);
+    case 'gnomonic': return (M / (2 * ell)) * (1 + (2 * r / M) ** 2);
+    default: return M / (2 * ell);
+  }
+}
+
+/**
+ * The bow, in the space's own metric and in sketch units, a stored chord
+ * of a geodesic may keep: `tol` (mm on the sheet, the ink's 0.05 by
+ * default) where the drawable's chart is widest. `unitMm` is one drawable
+ * unit in mm and `reach` the drawable's half-diagonal in drawable units.
+ * A placement keeps every metric distance, so a chord within this of its
+ * geodesic stays within `tol` of it, on the sheet, wherever a placement
+ * puts it. The toolkit hands it to the space's door when it resolves the
+ * space; the `line` material door, a tiling's walls and `m.transform` are
+ * all sampled to it.
+ */
+export function geodesicBowOf(
+  chart: Pick<Space, 'curvature' | 'projection' | 'size'>,
+  unitMm: number,
+  reach: number,
+  tol = INK_TOL,
+): number {
+  return (GEODESIC_BOW_SHARE * tol) / (unitMm * chartStretch(chart, reach));
 }
 
 // ---- resolution -----------------------------------------------------------
@@ -719,7 +794,11 @@ export function resolveSpace(
   if (!(size > 0) || !Number.isFinite(size)) {
     throw new Error(`projection: size must be a positive length in drawable units, got ${size}`);
   }
-  return curvedSpaceOf([frame.cx, frame.cy], curvature, ell, chooseProjection(kind, chart.kind), size);
+  const projected = chooseProjection(kind, chart.kind);
+  // The paper is in hand here, so the door takes the bow a stored chord
+  // may keep: one drawable unit in mm, and the drawable's corner.
+  const bow = geodesicBowOf({ curvature, projection: projected, size }, 1 / frame.len(mm(1)), Math.hypot(frame.w, frame.h) / 2);
+  return curvedSpaceOf([frame.cx, frame.cy], curvature, ell, projected, size, bow);
 }
 
 // ---- the model chart ------------------------------------------------------

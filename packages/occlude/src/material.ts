@@ -25,7 +25,7 @@
 
 import { PointSelection, EdgeSelection, whereRows } from './relation.js';
 import { euclideanSpace, type Space } from './space.js';
-import { between, isPlacement, type Placement } from './placement.js';
+import { between, isPlacement, type Model, type Placement } from './placement.js';
 import { degrees, radians } from './units.js';
 // Type-only: a placement returns a tree value (the shape `group()` makes).
 // `import type` is erased, so material never depends on api at runtime.
@@ -450,8 +450,9 @@ export function mintIds(count: number): Float64Array {
 }
 
 /** How far, in sketch units, a moved edge's middle may stand from the
- * chord its moved ends draw before `m.transform` samples it: the tolerance
- * a tiling samples its walls to. */
+ * chord its moved ends draw before `m.transform` samples it, when the
+ * placement's door carries no metric `bow` — a space built with no
+ * paper. */
 const TRANSFORM_TOL = 0.05;
 /** Halvings of one edge before `m.transform` stops asking. */
 const TRANSFORM_DEPTH = 12;
@@ -1950,11 +1951,14 @@ export class Material {
    * segment onto a coordinate segment: in a curved space the moved chord
    * between two moved vertices is not the moved edge. So the image of an
    * edge is the image of its SOURCE curve, sampled where it lands: each
-   * edge is halved in its own parameter while the moved middle strays more
-   * than `TRANSFORM_TOL` sketch units from the chord the moved ends draw,
-   * down to `TRANSFORM_DEPTH` halvings. The chord is read as the ink reads
-   * it — a sphere's x the short way round, a pole point on its
-   * neighbour's meridian. The flat plane's isometries carry segments onto
+   * edge is halved in its own parameter while the moved chord bows more
+   * than the door's `bow` — the space distance between the chord's middle
+   * and the moved source curve's middle, in the metric no placement can
+   * change — down to `TRANSFORM_DEPTH` halvings. A door with no bow (a
+   * space built with no paper) judges instead how far the moved middle
+   * strays from the chord in sketch units, to `TRANSFORM_TOL`. The chord is
+   * read as the ink reads it — a sphere's x the short way round, a pole
+   * point on its neighbour's meridian. The flat plane's isometries carry segments onto
    * segments, so a flat placement moves the vertices and nothing more.
    *
    * IDENTITY. Every source vertex keeps its row and its id. An edge that
@@ -1987,19 +1991,46 @@ export class Material {
       onPole = (q) => Math.abs(Math.PI / 2 - Math.abs((q[1] - cy) / ell)) < TRANSFORM_POLE_EPS;
       named = (from, q) => [q[0] - period * Math.round((q[0] - from[0]) / period), q[1]];
     }
-    /** How far `m` stands from the chord `a → b`, all three named from `a`. */
-    const stray = (a: Vec, b: Vec, m: Vec): number => {
+    /** The chord `a → b` as the ink draws it: both ends named from `a`. */
+    const chord = (a: Vec, b: Vec): [Vec, Vec] => {
       let u = a;
       let v = named(a, b);
       if (onPole(u)) u = [v[0], u[1]];
       if (onPole(v)) v = [u[0], v[1]];
-      const w = named(u, m);
-      const dx = v[0] - u[0];
-      const dy = v[1] - u[1];
-      const len2 = dx * dx + dy * dy;
-      const s = len2 > 0 ? Math.max(0, Math.min(1, ((w[0] - u[0]) * dx + (w[1] - u[1]) * dy) / len2)) : 0;
-      return Math.hypot(w[0] - (u[0] + dx * s), w[1] - (u[1] + dy * s));
+      return [u, v];
     };
+    const bow = door.bow;
+    /** Does the moved curve, through `m`, stand off the chord `a → b`? */
+    let bends: (a: Vec, b: Vec, m: Vec) => boolean;
+    if (bow !== undefined) {
+      // In the metric: the space distance between the chord's middle and
+      // the curve's, in sketch units. The model's own product gives the
+      // chord length of the difference, and `2·as(|Δ|/2)` the arc, as
+      // the space's `distance` reads it; the curvature length is where
+      // the door puts one radian along the base row.
+      const sign = door.sign;
+      const as = sign > 0 ? (t: number): number => Math.asin(Math.min(1, t)) : Math.asinh;
+      const ell = door.down(sign > 0 ? [Math.sin(1), 0, Math.cos(1)] : [Math.sinh(1), 0, Math.cosh(1)])[0] - door.down([0, 0, 1])[0];
+      bends = (a, b, m) => {
+        const [u, v] = chord(a, b);
+        const n = door.up([(u[0] + v[0]) / 2, (u[1] + v[1]) / 2]);
+        const k = door.up(m);
+        const d: Model = [n[0] - k[0], n[1] - k[1], n[2] - k[2]];
+        const gap = 2 * as(Math.sqrt(Math.max(0, d[0] * d[0] + d[1] * d[1] + sign * d[2] * d[2])) / 2);
+        return ell * gap > bow;
+      };
+    } else {
+      // In sketch units: how far `m` stands from the chord itself.
+      bends = (a, b, m) => {
+        const [u, v] = chord(a, b);
+        const w = named(u, m);
+        const dx = v[0] - u[0];
+        const dy = v[1] - u[1];
+        const len2 = dx * dx + dy * dy;
+        const s = len2 > 0 ? Math.max(0, Math.min(1, ((w[0] - u[0]) * dx + (w[1] - u[1]) * dy) / len2)) : 0;
+        return Math.hypot(w[0] - (u[0] + dx * s), w[1] - (u[1] + dy * s)) > TRANSFORM_TOL;
+      };
+    }
     /** An edge's SOURCE curve, as the ink reads it: the flat segment
      * between the nearest names of its two ends, a pole end on the other
      * end's meridian. */
@@ -2030,7 +2061,7 @@ export class Material {
       const halve = (t0: number, t1: number, p0: Vec, p1: Vec, depth: number): void => {
         const tm = (t0 + t1) / 2;
         const pm = at(tm);
-        if (depth >= TRANSFORM_DEPTH || !Number.isFinite(pm[0]) || !Number.isFinite(pm[1]) || !(stray(p0, p1, pm) > TRANSFORM_TOL)) return;
+        if (depth >= TRANSFORM_DEPTH || !Number.isFinite(pm[0]) || !Number.isFinite(pm[1]) || !bends(p0, p1, pm)) return;
         halve(t0, tm, p0, pm, depth + 1);
         ts.push(tm);
         halve(tm, t1, pm, p1, depth + 1);

@@ -13,7 +13,7 @@ import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { Execution, TransformOp } from './execution.js';
 import type { Placement } from './placement.js';
-import { euclideanSpace, type Space } from './space.js';
+import { euclideanSpace, geodesicBowOf, INK_TOL, type Space } from './space.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
 export interface Frame {
@@ -619,58 +619,19 @@ const SPACE_TOL = 0.05;
 const SPACE_DEPTH = 12;
 
 /**
- * How much of a door's tolerance a STORED chord of a geodesic may spend.
- * The ink door draws the stored chord to its own tolerance on the sheet,
- * wherever it lands; the chord's bow off the geodesic is the share the
- * stored geometry adds on top, as much again: at worst twice the ink's
- * 0.05 mm, a tenth of a millimetre — a third of the thinnest nib, and
- * below a plotter's own repeatability.
- */
-const GEODESIC_BOW_SHARE = 1;
-
-/**
- * The most the chart magnifies anywhere on the drawable: sheet units per
- * unit of the space's metric, at its worst over every point the drawable
- * shows. A placement can carry a chord anywhere, so a bow judged in the
- * metric has to hold where the chart is widest.
- *
- * With `ℓ` the curvature length, `M` the chart's `size` and `r` the
- * farthest the drawable reaches from the centre (its corner), the charts
- * are one line each, and every one of them is widest at the centre or at
- * the corner:
- *
- *   poincaré      r = M·tanh(s/2ℓ)       widest at the centre, M/2ℓ
- *   klein         r = M·tanh(s/ℓ)        widest at the centre, M/ℓ
- *   stereographic r = M·tan(s/2ℓ)        widest at the corner, (M² + r²)/2Mℓ
- *   gnomonic      r = (M/2)·tan(s/ℓ)     widest at the corner, (M/2ℓ)(1 + (2r/M)²)
- *   orthographic  r = (M/2)·sin(s/ℓ)     widest at the centre, M/2ℓ
- *
- * (the first two conformal, the last two widest along the radius). The
- * flat plane is 1.
- */
-function chartStretch(space: Space, frame: Frame): number {
-  if (space.kind === 'euclidean') return 1;
-  const ell = 1 / Math.sqrt(Math.abs(space.curvature));
-  const M = space.size;
-  const r = Math.hypot(frame.inner.innerW, frame.inner.innerH) / 2 / unitMm(frame);
-  switch (space.projection) {
-    case 'klein': return M / ell;
-    case 'stereographic': return (M * M + r * r) / (2 * M * ell);
-    case 'gnomonic': return (M / (2 * ell)) * (1 + (2 * r / M) ** 2);
-    default: return M / (2 * ell);
-  }
-}
-
-/**
  * The bow, in the space's own metric, a stored chord of a geodesic may
  * keep: `tol` (mm on the sheet, the ink's 0.05 by default) where the
- * drawable's chart is widest. A placement keeps every metric distance, so
- * a chord within this of its geodesic stays within `tol` of it, on the
- * sheet, wherever a placement puts it. The `line`
- * material door and a tiling's walls are both sampled to it.
+ * drawable's chart is widest (`geodesicBowOf`). The run's own space
+ * carries it on its door, computed once when the toolkit resolved it, and
+ * that is the number read here; a space built with no paper carries none,
+ * and the frame supplies what the door could not. The `line` material
+ * door, a tiling's walls and `m.transform` are all sampled to it.
  */
 export function geodesicBow(space: Space, frame: Frame, tol = SPACE_TOL): number {
-  return (GEODESIC_BOW_SHARE * tol) / (unitMm(frame) * chartStretch(space, frame));
+  const bow = space.model.bow;
+  if (bow !== undefined) return bow * (tol / INK_TOL);
+  const reach = Math.hypot(frame.inner.innerW, frame.inner.innerH) / 2 / unitMm(frame);
+  return geodesicBowOf(space, unitMm(frame), reach, tol);
 }
 
 /** How closely the far-side boundary is pinned when a stroke leaves the
