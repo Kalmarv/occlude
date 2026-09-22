@@ -274,13 +274,23 @@ function chainMap(outer: readonly ChainStep[], frame: Frame): ((p: readonly [num
   };
 }
 
-/** Can the chain outside the innermost run bend a chord? A placement whose
- * door is the sketch's OWN model cannot — it is an isometry of the very
- * space the sampling was judged in. Two things can: an affine run outside
- * a placement, and a placement through another space's door (a
- * `spaceOf(…).model` the sketch built itself), which is no isometry of
- * the sheet it lands on. */
+/** Can the chain outside the innermost run bend a chord?
+ *
+ * In a curved sketch, yes, whatever it holds. An isometry carries a
+ * geodesic onto a geodesic but NOT a coordinate segment onto a coordinate
+ * segment, and an edge is the image of its coordinate segment — so a
+ * chord sampled to tolerance where it was written is not sampled to
+ * tolerance where it is drawn, and the chart magnifies differently there
+ * too. The image of an edge is the image of its source curve, sampled on
+ * the sheet after the move.
+ *
+ * In a flat sketch a placement of the plane's own is an isometry of the
+ * sheet, and the sheet is the drawing: a chord sampled to tolerance stays
+ * one, exactly. An affine run outside a placement and a placement through
+ * another space's door (a `spaceOf(…).model` the sketch built itself) can
+ * still bend it there. */
 function chainBends(outer: readonly ChainStep[], space: Space): boolean {
+  if (space.kind !== 'euclidean') return outer.length > 0;
   return outer.some((step) => (step.place ? step.place.door.id !== space.model.id : true));
 }
 
@@ -782,11 +792,10 @@ function placedContours(
    */
   through?: (p: readonly [number, number]) => [number, number],
   /**
-   * Does that rest BEND a chord? An isometry of the sketch's own space
-   * carries a chord sampled to tolerance onto a chord sampled to
-   * tolerance, so it asks for no resampling at all and the sample set is
-   * the one the material door already hands back. Anything else — an
-   * affine run outside a placement, another space's door — is
+   * Does that rest BEND a chord (see `chainBends`)? A flat sketch's own
+   * placement does not, so the sample set is the one the material door
+   * already hands back. Anything else — every placement in a curved
+   * sketch, an affine run outside a placement, another space's door — is
    * measured on the drawn image instead: the deviation below then reads
    * `project(through(p))`, in SHEET millimetres, against the `tol` the
    * caller already compares in (0.05 mm for ink, a quarter of the

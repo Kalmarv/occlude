@@ -191,12 +191,20 @@ describe('the drawing words read it', () => {
     expect(strokes(ball35).length).toBe(walls(ball35).length);
   });
 
-  it('moves through a placement and keeps every identity', () => {
+  it('moves through a placement, keeping every vertex and the lineage of every wall', () => {
     const tiles = heptagons();
     const place = tiles.placements[2];
     const moved = tiles.transform(place);
-    expect([...moved.pointIds]).toEqual([...tiles.pointIds]);
-    expect([...moved.edgeIds]).toEqual([...tiles.edgeIds]);
+    // Every source vertex keeps its row and its id; a wall piece the move
+    // had to sample is retired, and its children keep its lineage root,
+    // so the faces keyed by those roots keep their columns.
+    expect([...moved.pointIds.slice(0, tiles.n)]).toEqual([...tiles.pointIds]);
+    const roots = new Set(tiles.edgeRoots);
+    for (const r of moved.edgeRoots) expect(roots.has(r)).toBe(true);
+    const kept = new Set(moved.edgeIds);
+    for (let e = 0; e < tiles.edgeCount; e++) {
+      if (!kept.has(tiles.edgeIds[e])) expect([...moved.edgeRoots].filter((r) => r === tiles.edgeRoots[e]).length).toBeGreaterThan(1);
+    }
     for (const row of cornerRows(tiles)) {
       const want = place.point([tiles.x[row], tiles.y[row]]);
       expect(moved.x[row]).toBeCloseTo(want[0], 9);

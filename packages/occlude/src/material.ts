@@ -449,6 +449,16 @@ export function mintIds(count: number): Float64Array {
   return out;
 }
 
+/** How far, in sketch units, a moved edge's middle may stand from the
+ * chord its moved ends draw before `m.transform` samples it: the tolerance
+ * a tiling samples its walls to. */
+const TRANSFORM_TOL = 0.05;
+/** Halvings of one edge before `m.transform` stops asking. */
+const TRANSFORM_DEPTH = 12;
+/** How near a pole, in radians of the sphere, a moved point stands ON it,
+ * as the ink door reads one. */
+const TRANSFORM_POLE_EPS = 1e-9;
+
 export class Material {
   readonly n: number;
   readonly x: Float64Array;
@@ -1933,21 +1943,167 @@ export class Material {
   }
 
   /**
-   * Every vertex through an ISOMETRY of the space: the same material,
-   * moved. Every id, every column and every transfer policy is kept, so a
-   * selection taken before the move rebinds with `sel.in(moved)`, and
-   * stations from `along` on the result carry the material's space as
-   * before.
+   * This material through an ISOMETRY of the space: the same curves, moved.
    *
-   * Only the vertices move — a straight edge between two of them stays a
-   * straight edge, as `map` documents — so resample first when the motif's
-   * own chords are too long to show the bend.
+   * An edge is the image of the flat edge between its two coordinates, and
+   * an isometry carries a geodesic onto a geodesic but NOT a coordinate
+   * segment onto a coordinate segment: in a curved space the moved chord
+   * between two moved vertices is not the moved edge. So the image of an
+   * edge is the image of its SOURCE curve, sampled where it lands: each
+   * edge is halved in its own parameter while the moved middle strays more
+   * than `TRANSFORM_TOL` sketch units from the chord the moved ends draw,
+   * down to `TRANSFORM_DEPTH` halvings. The chord is read as the ink reads
+   * it — a sphere's x the short way round, a pole point on its
+   * neighbour's meridian. The flat plane's isometries carry segments onto
+   * segments, so a flat placement moves the vertices and nothing more.
+   *
+   * IDENTITY. Every source vertex keeps its row and its id. An edge that
+   * needs no sample keeps its row, id and root. An edge that does is
+   * RETIRED: its children replace it in place, each a new id with the
+   * parent's lineage root, and the samples between them are new vertices
+   * after the source rows. A point column is read at a sample by its
+   * transfer policy, an edge column is copied to each child — a
+   * `'distribute'` one shared by the child's share of the parameter — and
+   * face columns, keyed by lineage, carry. So `sel.in(moved)` rebinds every
+   * vertex and every unsplit edge, and a face keeps its columns.
    */
   transform(placement: Placement): Material {
     if (!isPlacement(placement)) {
       throw new Error('m.transform: expected a placement — station.placement(), one of a tiling\'s placements, or reflection(space.model, a, b)');
     }
-    return this.map((p) => placement.point([p.x, p.y]));
+    const door = placement.door;
+    if (door.sign === 0) return this.map((p) => placement.point([p.x, p.y]));
+    const move = (x: number, y: number): Vec => placement.point([x, y]);
+    // A sphere's coordinates name a point more than once: x comes round
+    // every `2π·ell`, and a pole has every x. The door says where both
+    // are — its model's `+z` is the centre and `+x` a quarter turn along
+    // the base row — so the chord can be named the way the ink names it.
+    let named = (_from: Vec, q: Vec): Vec => q;
+    let onPole = (_q: Vec): boolean => false;
+    if (door.sign > 0) {
+      const [cx, cy] = door.down([0, 0, 1]);
+      const ell = (door.down([1, 0, 0])[0] - cx) / (Math.PI / 2);
+      const period = 2 * Math.PI * ell;
+      onPole = (q) => Math.abs(Math.PI / 2 - Math.abs((q[1] - cy) / ell)) < TRANSFORM_POLE_EPS;
+      named = (from, q) => [q[0] - period * Math.round((q[0] - from[0]) / period), q[1]];
+    }
+    /** How far `m` stands from the chord `a → b`, all three named from `a`. */
+    const stray = (a: Vec, b: Vec, m: Vec): number => {
+      let u = a;
+      let v = named(a, b);
+      if (onPole(u)) u = [v[0], u[1]];
+      if (onPole(v)) v = [u[0], v[1]];
+      const w = named(u, m);
+      const dx = v[0] - u[0];
+      const dy = v[1] - u[1];
+      const len2 = dx * dx + dy * dy;
+      const s = len2 > 0 ? Math.max(0, Math.min(1, ((w[0] - u[0]) * dx + (w[1] - u[1]) * dy) / len2)) : 0;
+      return Math.hypot(w[0] - (u[0] + dx * s), w[1] - (u[1] + dy * s));
+    };
+    /** An edge's SOURCE curve, as the ink reads it: the flat segment
+     * between the nearest names of its two ends, a pole end on the other
+     * end's meridian. */
+    const source = (e: number): [Vec, Vec] => {
+      const a = this.edgeList[2 * e];
+      const b = this.edgeList[2 * e + 1];
+      let u: Vec = [this.x[a], this.y[a]];
+      let v = named(u, [this.x[b], this.y[b]]);
+      if (onPole(u)) u = [v[0], u[1]];
+      if (onPole(v)) v = [u[0], v[1]];
+      return [u, v];
+    };
+    const nx: number[] = [];
+    const ny: number[] = [];
+    for (let i = 0; i < this.n; i++) {
+      const q = move(this.x[i], this.y[i]);
+      if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) throw new Error(`m.transform: vertex ${i} moves to [${q[0]}, ${q[1]}], which is not a point`);
+      nx.push(q[0]);
+      ny.push(q[1]);
+    }
+    // The parameters inside each edge where the moved curve needs a sample.
+    const cuts: number[][] = [];
+    let split = false;
+    for (let e = 0; e < this.edgeCount; e++) {
+      const [p0, p1] = source(e);
+      const at = (t: number): Vec => move(p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t);
+      const ts: number[] = [];
+      const halve = (t0: number, t1: number, p0: Vec, p1: Vec, depth: number): void => {
+        const tm = (t0 + t1) / 2;
+        const pm = at(tm);
+        if (depth >= TRANSFORM_DEPTH || !Number.isFinite(pm[0]) || !Number.isFinite(pm[1]) || !(stray(p0, p1, pm) > TRANSFORM_TOL)) return;
+        halve(t0, tm, p0, pm, depth + 1);
+        ts.push(tm);
+        halve(tm, t1, pm, p1, depth + 1);
+      };
+      halve(0, 1, at(0), at(1), 0);
+      cuts.push(ts);
+      if (ts.length > 0) split = true;
+    }
+    if (!split) {
+      return new Material(Float64Array.from(nx), Float64Array.from(ny), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+    }
+    const names = this.attrNames;
+    const enames = this.edgeAttrNames;
+    const oattrs: Record<string, number[]> = {};
+    for (const name of names) oattrs[name] = Array.from(this.attrs[name]);
+    const eattrs: Record<string, number[]> = {};
+    for (const name of enames) eattrs[name] = [];
+    const pointIds = Array.from(this.pointIds);
+    const edges: number[] = [];
+    const edgeIds: number[] = [];
+    const edgeRoots: number[] = [];
+    const freshPoints = mintIds(cuts.reduce((k, ts) => k + ts.length, 0));
+    const freshEdges = mintIds(cuts.reduce((k, ts) => k + (ts.length > 0 ? ts.length + 1 : 0), 0));
+    let fp = 0;
+    let fe = 0;
+    const columnValue = (name: string, i: number, j: number, t: number): number => {
+      const va = this.attrs[name][i];
+      const vb = this.attrs[name][j];
+      return this.transfers[name] === 'nearest' ? (t <= 0.5 ? va : vb) : va + (vb - va) * t;
+    };
+    for (let e = 0; e < this.edgeCount; e++) {
+      const a = this.edgeList[2 * e];
+      const b = this.edgeList[2 * e + 1];
+      const ts = cuts[e];
+      if (ts.length === 0) {
+        edges.push(a, b);
+        edgeIds.push(this.edgeIds[e]);
+        edgeRoots.push(this.edgeRoots[e]);
+        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][e]);
+        continue;
+      }
+      const [p0, p1] = source(e);
+      const rows = [a];
+      for (const t of ts) {
+        const q = move(p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t);
+        rows.push(nx.length);
+        nx.push(q[0]);
+        ny.push(q[1]);
+        pointIds.push(freshPoints[fp++]);
+        for (const name of names) oattrs[name].push(columnValue(name, a, b, t));
+      }
+      rows.push(b);
+      const params = [0, ...ts, 1];
+      for (let k = 0; k + 1 < rows.length; k++) {
+        edges.push(rows[k], rows[k + 1]);
+        edgeIds.push(freshEdges[fe++]);
+        edgeRoots.push(this.edgeRoots[e]);
+        const share = params[k + 1] - params[k];
+        for (const name of enames) {
+          const v = this.edgeAttrs[name][e];
+          eattrs[name].push(this.edgeTransfers[name] === 'distribute' ? v * share : v);
+        }
+      }
+    }
+    const attrs: Record<string, Float64Array> = {};
+    for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
+    const edgeAttrs: Record<string, Float64Array> = {};
+    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+    return new Material(Float64Array.from(nx), Float64Array.from(ny), attrs, Uint32Array.from(edges), {
+      iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
+      ids: { points: Float64Array.from(pointIds), edges: Float64Array.from(edgeIds), edgeRoots: Float64Array.from(edgeRoots) },
+      faceAttrs: this.faceAttrs,
+    });
   }
 
   /** Thickness around this material's chains: an outline at the radius each

@@ -27,6 +27,7 @@ import { toolkit } from './helpers/run.js';
 import { line, rect, space, stroke, strokes, type Execution, type ShapeValue, type Toolkit } from '../src/index.js';
 import { lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
+import type { TransformOp } from '../src/execution.js';
 
 type Kit = Toolkit & { exec: Execution };
 
@@ -50,11 +51,18 @@ function placed(t: Kit, sv: ShapeValue, tol?: number): { pts: [number, number][]
   }));
 }
 
-/** A shape's ink, as one point list per inked contour, in drawable units. */
-function inked(t: Kit, sv: ShapeValue): [number, number][][] {
+/** A shape's ink, as one point list per inked contour, in drawable units:
+ * drawn plain, or inside the groups of `chain`, outermost first. */
+function inked(t: Kit, sv: ShapeValue, chain: TransformOp[] = []): [number, number][][] {
   const frame = t.exec.frame;
   const unit = unitMm(frame);
-  return lowerShape(new Shape(sv.geom, t.exec), frame).contours.map((contour) => {
+  let shape!: Shape;
+  const run = (i: number): void => {
+    if (i === chain.length) shape = new Shape(sv.geom, t.exec);
+    else t.exec.push(chain[i], () => run(i + 1));
+  };
+  run(0);
+  return lowerShape(shape, frame).contours.map((contour) => {
     const pts: [number, number][] = [];
     for (const prim of contour) {
       if (prim.t !== 'line') continue;
@@ -285,4 +293,59 @@ describe('a polyline through a pole of the sphere', () => {
     const mid = t.space.geodesic(a, q, 0.5);
     expect(c.pts.some((p) => Math.abs(p[0] - mid[0]) < 1e-12 && Math.abs(p[1] - mid[1]) < 1e-12)).toBe(true);
   });
+});
+
+describe('a tiling moved so a wall passes a pole', () => {
+  const t = ball();
+  const TOP = 50 - (Math.PI / 2) * R;
+  const pole: [number, number] = [50, TOP];
+  const tiles = t.tiling(3, 5);
+  /** A wall's middle, facing along it, and a place `d` from the pole
+   * facing along the parallel: the placement between them lays that wall
+   * past the pole at distance `d`. */
+  const pass = (d: number) => {
+    const [A, B] = tiles.cell;
+    const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
+    return t.station([57, TOP + d]).placement({ from });
+  };
+  /** The moved SOURCE curve near the pole: every edge's flat segment, read
+   * the short way round as the ink reads it, sampled finely, moved. */
+  const source = (P: ReturnType<typeof pass>): [number, number][] => {
+    const out: [number, number][] = [];
+    for (let e = 0; e < tiles.edgeCount; e++) {
+      const a = tiles.edgeList[2 * e];
+      const b = tiles.edgeList[2 * e + 1];
+      const pa = P.point([tiles.x[a], tiles.y[a]]);
+      const pb = P.point([tiles.x[b], tiles.y[b]]);
+      if (Math.min(t.space.distance(pa, pole), t.space.distance(pb, pole)) > 4) continue;
+      const x0 = tiles.x[a];
+      const y0 = tiles.y[a];
+      const dx = tiles.x[b] - x0 - 2 * Math.PI * R * Math.round((tiles.x[b] - x0) / (2 * Math.PI * R));
+      const dy = tiles.y[b] - y0;
+      for (let i = 0; i <= 200; i++) out.push(P.point([x0 + (dx * i) / 200, y0 + (dy * i) / 200]) as [number, number]);
+    }
+    return out;
+  };
+  /** Every inked point within three units of the pole, back off the sheet. */
+  const inkNearPole = (drawing: ShapeValue[], chain: TransformOp[] = []): [number, number][] =>
+    drawing.flatMap((sv) => inked(t, sv, chain)).flat().map((q) => t.space.fromChart(q) as [number, number])
+      .filter((p) => t.space.distance(p, pole) < 3);
+  const worst = (ink: [number, number][], cloud: [number, number][]): number =>
+    Math.max(0, ...ink.map((p) => Math.min(...cloud.map((c) => t.space.distance(p, c)))));
+
+  for (const d of [0, 0.1, 0.5, 2]) {
+    it(`draws the moved walls where they are, ${d} from the pole, through m.transform and through group`, () => {
+      const P = pass(d);
+      const cloud = source(P);
+      // Through the material: the moved edges are sampled where they land.
+      const moved = inkNearPole(strokes(tiles.transform(P)));
+      expect(moved.length).toBeGreaterThan(0);
+      expect(worst(moved, cloud)).toBeLessThan(0.06);
+      // Through the drawing: a placement is judged on the sheet after the
+      // move, like any other element of the chain.
+      const placed = inkNearPole(strokes(tiles), [{ placement: P }]);
+      expect(placed.length).toBeGreaterThan(0);
+      expect(worst(placed, cloud)).toBeLessThan(0.06);
+    });
+  }
 });

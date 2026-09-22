@@ -20,7 +20,7 @@ import {
   circle, line, rect, space, spaceOf, group, strokes,
   type Execution, type ShapeValue, type Toolkit,
 } from '../src/index.js';
-import { stationAt } from '../src/material.js';
+import { stationAt, type Material } from '../src/material.js';
 import { between, identity, isPlacement, reflection, type ModelDoor, type Placement } from '../src/placement.js';
 import { lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
@@ -175,6 +175,28 @@ function placedOutline(t: Kit, sv: ShapeValue, op: Parameters<typeof lowerToUser
   }));
 }
 
+/** A material's SOURCE curve — the flat segment of every edge — sampled
+ * finely and moved point by point: what a moved edge has to draw. */
+function movedSource(m: Material, P: Placement, k = 64): [number, number][] {
+  const out: [number, number][] = [];
+  for (let e = 0; e < m.edgeCount; e++) {
+    const a = m.edgeList[2 * e];
+    const b = m.edgeList[2 * e + 1];
+    for (let i = 0; i <= k; i++) {
+      const q = P.point([m.x[a] + ((m.x[b] - m.x[a]) * i) / k, m.y[a] + ((m.y[b] - m.y[a]) * i) / k]);
+      out.push([q[0], q[1]]);
+    }
+  }
+  return out;
+}
+
+/** How far `q` stands from the nearest of `cloud`, in sketch coordinates. */
+function offCloud(q: readonly number[], cloud: readonly (readonly number[])[]): number {
+  let best = Infinity;
+  for (const c of cloud) best = Math.min(best, Math.hypot(q[0] - c[0], q[1] - c[1]));
+  return best;
+}
+
 /** A shape under a whole transform CHAIN, lowered the way the ink door
  * lowers it, in sketch units. The chain is written outermost first, which
  * is how a drawing tree nests it. */
@@ -206,17 +228,23 @@ describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => 
   const t = make();
   const P = between(t.space.model, stationAt(50, 50, 0, t.space), stationAt(57, 46, 0.6, t.space));
 
-  it('lowers a shape to the very points the material door hands back', () => {
+  it('lowers a shape, and moves its material, onto the moved source curve', () => {
+    // An isometry carries a geodesic onto a geodesic but not a coordinate
+    // segment onto a coordinate segment, so each door samples its moved
+    // source where it lands: the ink door the shape itself, `m.transform`
+    // the material's own polyline. Each lies on its own moved source.
     for (const sv of [rect(38, 44, 19, 12), circle(56, 47, 14)]) {
-      const moved = t.material(sv).transform(P);
+      const source = t.material(sv);
+      const moved = source.transform(P);
+      // Every source vertex keeps its row and lands where the placement
+      // puts it.
+      for (let i = 0; i < source.n; i++) near(moved.pts[i], P.point(source.pts[i]), 9);
+      for (const q of moved.pts) expect(offCloud(q, movedSource(source, P))).toBeLessThan(0.06);
       const lowered = placedOutline(t, sv, { placement: P });
       expect(lowered.length).toBe(1);
       expect(lowered[0].closed).toBe(true);
-      // `t.material` drops the repeated seam vertex; the lowerer keeps it.
-      const want = moved.pts;
-      const got = lowered[0].pts;
-      expect(got.length).toBeGreaterThanOrEqual(want.length);
-      for (let i = 0; i < want.length; i++) near(got[i], want[i], 9);
+      const fine = movedSource(t.material(sv, { tolerance: 1e-4 }), P);
+      for (const q of lowered[0].pts) expect(offCloud(q, fine)).toBeLessThan(0.06);
     }
   });
 
@@ -255,6 +283,67 @@ describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => 
 
   it('refuses anything but a placement on m.transform, by name', () => {
     expect(() => t.material(circle(50, 50, 5)).transform(((p: number[]) => p) as never)).toThrow(/m\.transform/);
+  });
+});
+
+describe('m.transform samples the moved curve, and keeps what it can', () => {
+  it('moves a flat material vertex for vertex: a plane isometry keeps segments', () => {
+    const t = flat();
+    const m = t.material(rect(30, 30, 20, 10));
+    const P = between(t.space.model, stationAt(40, 35, 0, t.space), stationAt(58, 52, 0.7, t.space));
+    const moved = m.transform(P);
+    expect(moved.n).toBe(m.n);
+    expect([...moved.pointIds]).toEqual([...m.pointIds]);
+    expect([...moved.edgeIds]).toEqual([...m.edgeIds]);
+  });
+
+  for (const make of [disk, ball]) {
+    it(`retires an edge it samples and keeps the rest, in ${make === disk ? 'the disk' : 'the sphere'}`, () => {
+      const t = make();
+      // A long straight run, far from the centre, carried a long way: its
+      // coordinate segment does not stay one.
+      const m = t.material(rect(20, 22, 40, 6)).attribute('w', (p) => p.x);
+      const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(80, 90, 2, t.space));
+      const moved = m.transform(P);
+      expect(moved.n).toBeGreaterThan(m.n);
+      // Every source vertex keeps its row and its id; every sample after
+      // them is a new vertex.
+      expect([...moved.pointIds.slice(0, m.n)]).toEqual([...m.pointIds]);
+      const old = new Set(m.pointIds);
+      for (const id of moved.pointIds.slice(m.n)) expect(old.has(id)).toBe(false);
+      // An edge is kept whole or retired; a retired edge's children carry
+      // its lineage root, so every root is one the source had.
+      const kept = new Set(moved.edgeIds);
+      const roots = new Set(m.edgeRoots);
+      for (const r of moved.edgeRoots) expect(roots.has(r)).toBe(true);
+      let retired = 0;
+      for (let e = 0; e < m.edgeCount; e++) {
+        const children = [...moved.edgeRoots].filter((r) => r === m.edgeRoots[e]).length;
+        if (kept.has(m.edgeIds[e])) expect(children).toBe(1);
+        else { retired++; expect(children).toBeGreaterThan(1); }
+      }
+      expect(retired).toBeGreaterThan(0);
+      // A point column is read at a sample by its policy: interpolated
+      // along the source parameter, so it runs between its ends.
+      const w = moved.attrs.w;
+      for (let i = m.n; i < moved.n; i++) {
+        expect(w[i]).toBeGreaterThanOrEqual(Math.min(...m.attrs.w) - 1e-9);
+        expect(w[i]).toBeLessThanOrEqual(Math.max(...m.attrs.w) + 1e-9);
+      }
+      // A selection of vertices rebinds by id.
+      const sel = m.points.rows([0, 1, 2, 3]);
+      expect([...sel.in(moved).indices]).toEqual([0, 1, 2, 3]);
+    });
+  }
+
+  it('shares a distributed edge column over the children by their share', () => {
+    const t = disk();
+    const m = t.material(rect(20, 22, 40, 6)).edgeAttribute('len', () => 1, { transfer: 'distribute' });
+    const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(80, 90, 2, t.space));
+    const moved = m.transform(P);
+    expect(moved.edgeCount).toBeGreaterThan(m.edgeCount);
+    const sum = [...moved.edgeAttrs.len].reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(m.edgeCount, 9);
   });
 });
 
