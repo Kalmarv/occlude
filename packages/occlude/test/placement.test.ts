@@ -20,9 +20,9 @@ import {
   circle, line, rect, space, spaceOf, group, strokes,
   type Execution, type ShapeValue, type Toolkit,
 } from '../src/index.js';
-import { stationAt, type Material } from '../src/material.js';
+import { material, stationAt, type Material } from '../src/material.js';
 import { between, identity, isPlacement, reflection, type ModelDoor, type Placement } from '../src/placement.js';
-import { lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
+import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
 import type { Space } from '../src/space.js';
@@ -333,6 +333,67 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
       // A selection of vertices rebinds by id.
       const sel = m.points.rows([0, 1, 2, 3]);
       expect([...sel.in(moved).indices]).toEqual([0, 1, 2, 3]);
+    });
+  }
+
+  it('carries the bow a stored chord may keep on a curved door, and none on the plane', () => {
+    expect(flat().space.model.bow).toBeUndefined();
+    for (const make of [disk, ball]) {
+      const t = make();
+      expect(t.space.model.bow).toBeGreaterThan(0);
+      expect(t.space.model.bow).toBe(geodesicBow(t.space, t.exec.frame));
+    }
+    // A space built with no paper has no mm to judge a bow in.
+    expect(spaceOf({ curvature: -1 / 2500 }).model.bow).toBeUndefined();
+  });
+
+  for (const make of [disk, ball]) {
+    const where = make === disk ? 'the disk' : 'the sphere';
+    it(`keeps a meridian carried along the base row one piece, in ${where}: its bow is zero`, () => {
+      const t = make();
+      // A column is a geodesic, and a move along the base row carries a
+      // column onto a column: the moved chord IS the moved curve.
+      const m = material([[44, 36], [44, 64]], { edges: [[0, 1]] });
+      const P = between(t.space.model, stationAt(50, 50, 0, t.space), stationAt(61, 50, 0, t.space));
+      const moved = m.transform(P);
+      expect(moved.n).toBe(2);
+      expect(moved.edgeCount).toBe(1);
+      near([moved.x[0], moved.y[0]], [55, 36], 9);
+    });
+
+    it(`samples a bent edge only to the door's bow, in ${where}`, () => {
+      const t = make();
+      const bow = t.space.model.bow!;
+      const m = material([[36, 40], [64, 44]], { edges: [[0, 1]] });
+      const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(62, 70, 1.2, t.space));
+      const moved = m.transform(P);
+      expect(moved.edgeCount).toBeGreaterThan(1);
+      // The moved source curve, and the metric bow of the chord over a
+      // span of its parameter.
+      const src = (s: number): [number, number] => P.point([36 + 28 * s, 40 + 4 * s]) as [number, number];
+      const bowOver = (s0: number, s1: number): number => {
+        const a = src(s0);
+        const b = src(s1);
+        return t.space.distance([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], src((s0 + s1) / 2));
+      };
+      // Each stored vertex is the source at a dyadic parameter.
+      const along = (i: number): number => {
+        for (let k = 0; k <= 4096; k++) {
+          const q = src(k / 4096);
+          if (Math.hypot(q[0] - moved.x[i], q[1] - moved.y[i]) < 1e-9) return k / 4096;
+        }
+        return NaN;
+      };
+      const spans = Array.from({ length: moved.edgeCount }, (_, e) => [along(moved.edgeList[2 * e]), along(moved.edgeList[2 * e + 1])]);
+      for (const [s0, s1] of spans) {
+        // Every stored chord is within the bow of the moved curve.
+        expect(bowOver(s0, s1)).toBeLessThanOrEqual(bow);
+        // And none is finer than it had to be: the parent it was halved
+        // from — the aligned span twice as long — bowed over.
+        const h = s1 - s0;
+        const p0 = Math.floor(s0 / (2 * h)) * 2 * h;
+        expect(bowOver(p0, p0 + 2 * h)).toBeGreaterThan(bow);
+      }
     });
   }
 

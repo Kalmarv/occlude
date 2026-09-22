@@ -432,4 +432,22 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
       expect(worst).toBeLessThan(0.1);
     });
   }
+
+  // The same budget through the material: `m.transform` samples a moved
+  // edge to the bow its door carries, in the metric, so the moved chords
+  // are judged where no placement can change them.
+  for (const d of [0, 0.1, 0.5, 2]) {
+    it(`inks it moved by m.transform ${d} from the pole within 0.1 mm of its geodesics`, () => {
+      const [A, B] = tiles.cell;
+      const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
+      const P = t.station([57, TOP + d]).placement({ from });
+      const off = index(geodesics(P));
+      const ink = strokes(tiles.transform(P)).flatMap((sv) => inked(t, sv)).flat()
+        .filter((q) => q[0] >= 0 && q[0] <= 100 && q[1] >= 0 && q[1] <= 100);
+      expect(ink.length).toBeGreaterThan(100);
+      let worst = 0;
+      for (const q of ink) worst = Math.max(worst, off(q));
+      expect(worst).toBeLessThan(0.1);
+    });
+  }
 });

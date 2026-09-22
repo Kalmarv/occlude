@@ -64,6 +64,16 @@ export interface ModelDoor {
   down(n: Model): Vec;
   /** The orthonormal tangent frame at a sketch point, in the model. */
   frameAt(p: XY): [Model, Model];
+  /**
+   * The bow, in the space's metric and in sketch units, a stored chord of
+   * a geodesic may keep in this door's sketch (`geodesicBowOf`). A
+   * placement keeps every metric distance, so a moved chord judged to it
+   * stays within the ink's tolerance wherever it lands. The toolkit
+   * computes it when it resolves the sketch's space, with the paper in
+   * hand. Absent on the plane, whose moves are exact, and on a space
+   * built with no paper (`spaceOf`).
+   */
+  readonly bow?: number;
 }
 
 /**
