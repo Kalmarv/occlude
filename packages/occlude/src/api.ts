@@ -72,7 +72,7 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
 }
 import { latticeOf, type Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
 import { residualOf, type Residual, type ResidualOpts } from './residual.js';
-import { unitMm, userPointMm } from './record.js';
+import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationAt, stationsMaterial,
@@ -1280,7 +1280,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (!chart) {
       const b = exec.bounds();
       const k = side ?? Math.min(b.w, b.h) / 2;
-      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => [b.cx + k * vx(z), b.cy + k * vy(z)] });
+      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => [b.cx + k * vx(z), b.cy + k * vy(z)], bow: 0 });
     }
     // A curved symbol takes its unit from its curvature: the model chart
     // is the sketch's own chart, so the model point goes through it and
@@ -1293,7 +1293,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       const fixed = sp.distance(up(model[0]), up(model[1]));
       throw new Error(`tiling: {${p}, ${q}} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
     }
-    return tilingKernel(p, q, opts, { door: sp.model, up });
+    // A wall's stored chords are judged in the metric, where no placement
+    // can change them, to the bow the widest part of the chart allows.
+    return tilingKernel(p, q, opts, { door: sp.model, up, bow: geodesicBow(sp, exec.frame) * Math.sqrt(Math.abs(sp.curvature)) });
   }
 
   /**

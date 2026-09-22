@@ -24,8 +24,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { line, rect, space, stroke, strokes, type Execution, type ShapeValue, type Toolkit } from '../src/index.js';
-import { lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
+import { line, rect, space, stroke, strokes, type Execution, type Placement, type ShapeValue, type Toolkit } from '../src/index.js';
+import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
 
@@ -290,8 +290,12 @@ describe('a polyline through a pole of the sphere', () => {
     const a: [number, number] = [X(20), TOP + 5];
     const q: [number, number] = [X(-130), TOP];
     const [c] = placed(t, line(a, q));
-    const mid = t.space.geodesic(a, q, 0.5);
-    expect(c.pts.some((p) => Math.abs(p[0] - mid[0]) < 1e-12 && Math.abs(p[1] - mid[1]) < 1e-12)).toBe(true);
+    // Every point lies on the geodesic between the ends. Along a meridian
+    // the flat segment IS that geodesic, so it keeps no bow to sample.
+    const whole = t.space.distance(a, q);
+    for (const p of c.pts) expect(t.space.distance(a, p) + t.space.distance(p, q)).toBeCloseTo(whole, 9);
+    expect(t.space.distance(c.pts[0], a)).toBeLessThan(1e-9);
+    expect(t.space.distance(c.pts[c.pts.length - 1], q)).toBeLessThan(1e-9);
   });
 });
 
@@ -346,6 +350,86 @@ describe('a tiling moved so a wall passes a pole', () => {
       const placed = inkNearPole(strokes(tiles), [{ placement: P }]);
       expect(placed.length).toBeGreaterThan(0);
       expect(worst(placed, cloud)).toBeLessThan(0.06);
+    });
+  }
+});
+
+describe('a stored geodesic stays within its bow wherever it is carried', () => {
+  const t = ball();
+  const frame = t.exec.frame;
+  const unit = unitMm(frame);
+  /** Points of `truth`, bucketed a millimetre square on the sheet. */
+  const index = (truth: [number, number][]) => {
+    const grid = new Map<string, [number, number][]>();
+    for (const q of truth) {
+      if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) continue;
+      const key = `${Math.floor(q[0] * unit)},${Math.floor(q[1] * unit)}`;
+      (grid.get(key) ?? grid.set(key, []).get(key)!).push(q);
+    }
+    /** How far `p` stands from the truth, in sheet mm, looked up nearby. */
+    return (p: readonly [number, number]): number => {
+      const i = Math.floor(p[0] * unit);
+      const j = Math.floor(p[1] * unit);
+      let best = Infinity;
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          for (const q of grid.get(`${i + di},${j + dj}`) ?? []) best = Math.min(best, Math.hypot(q[0] - p[0], q[1] - p[1]) * unit);
+        }
+      }
+      return best;
+    };
+  };
+
+  it('stores a line through the material door within the bow of its geodesic', () => {
+    const bow = geodesicBow(t.space, frame);
+    const a: [number, number] = [X(10), Y - 30];
+    const b: [number, number] = [X(70), Y];
+    const [c] = placed(t, line(a, b));
+    expect(c.pts.length).toBeGreaterThan(2);
+    for (let k = 1; k < c.pts.length; k++) {
+      const u = c.pts[k - 1];
+      const v = c.pts[k];
+      const m: [number, number] = [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+      expect(t.space.distance(m, t.space.geodesic(u, v, 0.5))).toBeLessThanOrEqual(bow * (1 + 1e-6));
+    }
+  });
+
+  const tiles = t.tiling(3, 5);
+  /** Every wall of the tiling, carried by `P`, sampled finely along its
+   * true geodesic and projected. */
+  const geodesics = (P: { point: (p: [number, number]) => [number, number] | number[] }): [number, number][] => {
+    const out: [number, number][] = [];
+    for (const f of tiles.placements) {
+      const cell = tiles.cell.map((v) => f.point(v) as [number, number]);
+      for (let k = 0; k < cell.length; k++) {
+        const u = P.point(cell[k]) as [number, number];
+        const v = P.point(cell[(k + 1) % cell.length]) as [number, number];
+        for (let i = 0; i <= 4000; i++) out.push(t.space.project(t.space.geodesic(u, v, i / 4000)) as [number, number]);
+      }
+    }
+    return out;
+  };
+  const inkOn = (P: Placement | null): [number, number][] =>
+    strokes(tiles).flatMap((sv) => inked(t, sv, P ? [{ placement: P }] : [])).flat()
+      .filter((q) => q[0] >= 0 && q[0] <= 100 && q[1] >= 0 && q[1] <= 100);
+  const TOP = 50 - (Math.PI / 2) * R;
+
+  for (const d of [null, 0, 0.1, 0.5, 2]) {
+    it(d === null ? 'inks the unmoved icosahedron within 0.1 mm of its geodesics' : `inks it within 0.1 mm of its geodesics carried ${d} from the pole`, () => {
+      const P = d === null ? null : (() => {
+        const [A, B] = tiles.cell;
+        const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
+        return t.station([57, TOP + d]).placement({ from });
+      })();
+      const off = index(geodesics(P ?? { point: (p) => p }));
+      const ink = inkOn(P);
+      expect(ink.length).toBeGreaterThan(100);
+      // The budget is two tolerances: the stored chord may bow the ink's
+      // 0.05 mm where the chart is widest, and the ink draws the chord to
+      // 0.05 mm again.
+      let worst = 0;
+      for (const q of ink) worst = Math.max(worst, off(q));
+      expect(worst).toBeLessThan(0.1);
     });
   }
 });

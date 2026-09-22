@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { space, strokes, Material, Tiling } from '../src/index.js';
+import { geodesicBow } from '../src/record.js';
 
 /** The three cases, built once each. */
 const flat = () => toolkit({ aspect: [1, 1] });
@@ -120,6 +121,38 @@ describe('a tiling is a material of shared corners and shared walls', () => {
           expect(Math.hypot(tiles.x[row] - want[0], tiles.y[row] - want[1])).toBeLessThan(1e-9);
         });
       }
+    }
+  });
+});
+
+describe('a wall is stored within its bow in the metric', () => {
+  it('keeps every stored piece of every wall within the bow a placement cannot change', () => {
+    for (const [t, tiles] of [[disk(), heptagons()], [ball(), icosahedron()]] as const) {
+      const bow = geodesicBow(t.space, t.exec.frame);
+      const R = t.space.radius;
+      const cy = t.space.center[1];
+      const period = 2 * Math.PI * R;
+      const onPole = (p: readonly number[]): boolean => Math.abs(Math.PI / 2 - Math.abs((p[1] - cy) / R)) < 1e-9;
+      /** The flat middle of a piece, named as the ink names it. */
+      const middle = (u: [number, number], v: [number, number]): [number, number] => {
+        if (t.space.kind !== 'spherical') return [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+        let p = u;
+        let q: [number, number] = [v[0] - period * Math.round((v[0] - u[0]) / period), v[1]];
+        if (onPole(p)) p = [q[0], p[1]];
+        if (onPole(q)) q = [p[0], q[1]];
+        return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      };
+      let pieces = 0;
+      for (const wall of walls(tiles)) {
+        const rows = [wall.a, ...wall.through, wall.b];
+        for (let k = 1; k < rows.length; k++) {
+          const u: [number, number] = [tiles.x[rows[k - 1]], tiles.y[rows[k - 1]]];
+          const v: [number, number] = [tiles.x[rows[k]], tiles.y[rows[k]]];
+          expect(t.space.distance(middle(u, v), t.space.geodesic(u, v, 0.5))).toBeLessThanOrEqual(bow * (1 + 1e-6));
+          pieces++;
+        }
+      }
+      expect(pieces).toBeGreaterThan(walls(tiles).length);
     }
   });
 });

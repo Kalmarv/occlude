@@ -193,8 +193,16 @@ export function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
  * lands in, and how many pieces one wall is ever cut into. Implementation
  * numbers: a wall is a geodesic, an edge is straight, and this is how
  * closely the second stands in for the first. */
-const SAMPLE_TOL = 0.05;
-const SAMPLE_CAP = 64;
+/** Pieces a wall is halved into at most, whatever its bow reads. The
+ * worst wall on the docs sheet needs 32 (the `{3, 5}` of the geometry
+ * page, and a `{5, 4}` under Klein), and the pieces a bow asks for grow as
+ * the square root of the paper's scale: A0, the largest sheet the library
+ * ships, is about 4.7 times the docs sheet, so about 2.2 times the pieces,
+ * and the next doubling is 128. */
+const SAMPLE_CAP = 128;
+/** How near a pole, in radians of the sphere, a sample stands ON it, as
+ * the ink door reads one. */
+const POLE_EPS = 1e-9;
 
 /** Two corners are ONE vertex when their model points agree this closely,
  * bucketed this coarsely. The model is the honest key in all three
@@ -249,62 +257,56 @@ class Corners {
  * The interior points of the geodesic from `a` to `b`, in the coordinates
  * the tiling lands in.
  *
- * A wall is a geodesic and a material's edge is straight, so a curved wall
- * is carried as SAMPLES. They are taken in the MODEL, where one formula
- * serves all three geometries:
+ * A wall is a geodesic and a material's edge is the flat segment between
+ * two coordinates, so a curved wall is carried as SAMPLES. They are taken
+ * in the MODEL, where one formula serves all three geometries:
  *
  *     P(t) = (s((1 − t)·g)·A + s(t·g)·B) / s(g),
  *
  * with `g` the model gap, `s` the model's own sine — `sinh` below zero
  * curvature, `sin` above it — and a plain straight step on the plane,
- * whose geodesics are already straight wherever it is drawn. The kernel
- * holds a door and not a `Space`, so it stays pure: the toolkit hands it
- * the door of the space the sketch draws in.
+ * whose geodesics are already straight wherever it is drawn.
  *
- * The count doubles until the chord error is under `SAMPLE_TOL`, and stops
- * at `SAMPLE_CAP` pieces whatever it reads — a wall that runs off the edge
- * of a chart cannot be sampled to tolerance at all, and drawing it as well
- * as the chart allows is the honest answer.
+ * A piece is judged by its BOW IN THE METRIC: the model gap between the
+ * middle of the flat segment the ink will draw — named as the ink names
+ * it, a sphere's x the short way round and a pole end on the other end's
+ * meridian — and the geodesic's own middle. That is a distance a
+ * placement cannot change, so a wall sampled to `bow` (model units, the
+ * toolkit's `geodesicBow` over the curvature length) stays within it
+ * wherever the tiling is carried. The count doubles until every piece
+ * holds, and stops at `SAMPLE_CAP` pieces whatever it reads.
  */
-function samplesBetween(door: ModelDoor, a: Vec, b: Vec): Vec[] {
+function samplesBetween(door: ModelDoor, a: Vec, b: Vec, bow: number): Vec[] {
   if (door.sign === 0) return [];
   const negative = door.sign < 0;
   const sine = negative ? Math.sinh : Math.sin;
   const arc = negative ? Math.asinh : Math.asin;
   const A = door.up(a);
   const B = door.up(b);
-  // The gap through the CHORD, as the spaces measure it: every digit of a
-  // short step survives, where an `acosh` of a product spends them.
-  const d: Model = [A[0] - B[0], A[1] - B[1], A[2] - B[2]];
-  const square = d[0] * d[0] + d[1] * d[1] + door.sign * d[2] * d[2];
-  const g = 2 * arc(Math.sqrt(Math.max(0, square)) / 2);
+  /** The model's own gap between two model points, through the chord. */
+  const gapOf = (P: Model, Q: Model): number => {
+    const d: Model = [P[0] - Q[0], P[1] - Q[1], P[2] - Q[2]];
+    return 2 * arc(Math.sqrt(Math.max(0, d[0] * d[0] + d[1] * d[1] + door.sign * d[2] * d[2])) / 2);
+  };
+  const g = gapOf(A, B);
   const sg = sine(g);
   if (!(Math.abs(sg) > 1e-12)) return [];
-  const at = (t: number): Vec => {
+  const model = (t: number): Model => {
     const k0 = sine((1 - t) * g) / sg;
     const k1 = sine(t * g) / sg;
-    return door.down([A[0] * k0 + B[0] * k1, A[1] * k0 + B[1] * k1, A[2] * k0 + B[2] * k1]);
+    return [A[0] * k0 + B[0] * k1, A[1] * k0 + B[1] * k1, A[2] * k0 + B[2] * k1];
   };
+  const at = (t: number): Vec => door.down(model(t));
+  const middle = chordMiddle(door);
   let pieces = 1;
   let nodes: Vec[] = [[a[0], a[1]], [b[0], b[1]]];
   while (pieces < SAMPLE_CAP) {
     let worst = 0;
     for (let k = 0; k < pieces; k++) {
-      const mid = at((k + 0.5) / pieces);
-      // A wall with no place on the sheet in the middle of it is a wall the
-      // chart cannot draw: it stays a chord, and nothing throws.
-      if (!Number.isFinite(mid[0]) || !Number.isFinite(mid[1])) return [];
-      const u = nodes[k];
-      const v = nodes[k + 1];
-      const dx = v[0] - u[0];
-      const dy = v[1] - u[1];
-      const len = Math.hypot(dx, dy);
-      const off = len > 0
-        ? Math.abs(dx * (mid[1] - u[1]) - dy * (mid[0] - u[0])) / len
-        : Math.hypot(mid[0] - u[0], mid[1] - u[1]);
+      const off = gapOf(door.up(middle(nodes[k], nodes[k + 1])), model((k + 0.5) / pieces));
       if (off > worst) worst = off;
     }
-    if (!(worst > SAMPLE_TOL)) break;
+    if (!(worst > bow)) break;
     pieces *= 2;
     const grown: Vec[] = [[a[0], a[1]]];
     for (let k = 1; k < pieces; k++) grown.push(at(k / pieces));
@@ -313,6 +315,28 @@ function samplesBetween(door: ModelDoor, a: Vec, b: Vec): Vec[] {
     nodes = grown;
   }
   return nodes.slice(1, -1);
+}
+
+/**
+ * The middle of the flat segment between two sketch points, named the way
+ * the ink names it. A sphere's coordinates name a point more than once: x
+ * comes round every `2π·ell`, and a pole has every x. The door says where
+ * both are — its model's `+z` is the centre and `+x` a quarter turn along
+ * the base row. Elsewhere it is the plain average.
+ */
+function chordMiddle(door: ModelDoor): (u: Vec, v: Vec) => Vec {
+  if (!(door.sign > 0)) return (u, v) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+  const [cx, cy] = door.down([0, 0, 1]);
+  const ell = (door.down([1, 0, 0])[0] - cx) / (Math.PI / 2);
+  const period = 2 * Math.PI * ell;
+  const onPole = (p: Vec): boolean => Math.abs(Math.PI / 2 - Math.abs((p[1] - cy) / ell)) < POLE_EPS;
+  return (u, v) => {
+    let p: Vec = [u[0], u[1]];
+    let q: Vec = [v[0] - period * Math.round((v[0] - u[0]) / period), v[1]];
+    if (onPole(p)) p = [q[0], p[1]];
+    if (onPole(q)) q = [p[0], q[1]];
+    return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+  };
 }
 
 /** One wall: the two corners it joins, and the rows of its samples in the
@@ -338,7 +362,7 @@ interface Wall {
  * the same corner to the same corner, and a wall belongs to one face on
  * each side.
  */
-function meshOf(door: ModelDoor, cell: readonly Vec[], placements: readonly Placement[]): {
+function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: readonly Placement[]): {
   x: Float64Array;
   y: Float64Array;
   corner: Float64Array;
@@ -374,7 +398,7 @@ function meshOf(door: ModelDoor, cell: readonly Vec[], placements: readonly Plac
     const key = a < b ? `${a},${b}` : `${b},${a}`;
     const held = walls.get(key);
     if (held) return held;
-    const samples = samplesBetween(door, [xs[a], ys[a]], [xs[b], ys[b]]).map((v) => {
+    const samples = samplesBetween(door, [xs[a], ys[a]], [xs[b], ys[b]], bow).map((v) => {
       const row = xs.length;
       xs.push(v[0]);
       ys.push(v[1]);
@@ -475,6 +499,8 @@ const CLOSURE = 16;
  * sketch's space, which is this very geometry. The flood then runs in
  * those coordinates, so every placement that comes back is an isometry a
  * sketch can hand straight to `group`, `m.transform` or a station.
+ * `place.bow` is the bow a wall's stored chords may keep, in model units:
+ * the toolkit reads it off the frame, where the chart is widest.
  *
  * `depth` is generations of reflection across the cell's edges, 3 by
  * default: depth 1 is the cell and its `p` edge neighbours. A spherical
@@ -490,7 +516,7 @@ export function tiling(
   p: number,
   q: number,
   opts: TilingOpts,
-  place: { door: ModelDoor; up: (z: XY) => Vec },
+  place: { door: ModelDoor; up: (z: XY) => Vec; bow: number },
 ): Tiling {
   const space = tilingGeometry(p, q);
   const cell = cellOf(space, p, q).map(place.up);
@@ -500,7 +526,7 @@ export function tiling(
   const flood = !Number.isFinite(depth) || depth < 0
     ? { tiles: [], generation: [] }
     : tileGroup('tiling', tileOps(place.door), cell, depth);
-  const mesh = meshOf(place.door, cell, flood.tiles);
+  const mesh = meshOf(place.door, place.bow, cell, flood.tiles);
   // The ids are minted here, in the order the constructor would mint them,
   // because the face columns are keyed by the walls of each face and a
   // wall is named by its edge's id.

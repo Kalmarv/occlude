@@ -618,6 +618,61 @@ const SPACE_TOL = 0.05;
  * the sheet cannot show anyway. */
 const SPACE_DEPTH = 12;
 
+/**
+ * How much of a door's tolerance a STORED chord of a geodesic may spend.
+ * The ink door draws the stored chord to its own tolerance on the sheet,
+ * wherever it lands; the chord's bow off the geodesic is the share the
+ * stored geometry adds on top, as much again: at worst twice the ink's
+ * 0.05 mm, a tenth of a millimetre — a third of the thinnest nib, and
+ * below a plotter's own repeatability.
+ */
+const GEODESIC_BOW_SHARE = 1;
+
+/**
+ * The most the chart magnifies anywhere on the drawable: sheet units per
+ * unit of the space's metric, at its worst over every point the drawable
+ * shows. A placement can carry a chord anywhere, so a bow judged in the
+ * metric has to hold where the chart is widest.
+ *
+ * With `ℓ` the curvature length, `M` the chart's `size` and `r` the
+ * farthest the drawable reaches from the centre (its corner), the charts
+ * are one line each, and every one of them is widest at the centre or at
+ * the corner:
+ *
+ *   poincaré      r = M·tanh(s/2ℓ)       widest at the centre, M/2ℓ
+ *   klein         r = M·tanh(s/ℓ)        widest at the centre, M/ℓ
+ *   stereographic r = M·tan(s/2ℓ)        widest at the corner, (M² + r²)/2Mℓ
+ *   gnomonic      r = (M/2)·tan(s/ℓ)     widest at the corner, (M/2ℓ)(1 + (2r/M)²)
+ *   orthographic  r = (M/2)·sin(s/ℓ)     widest at the centre, M/2ℓ
+ *
+ * (the first two conformal, the last two widest along the radius). The
+ * flat plane is 1.
+ */
+function chartStretch(space: Space, frame: Frame): number {
+  if (space.kind === 'euclidean') return 1;
+  const ell = 1 / Math.sqrt(Math.abs(space.curvature));
+  const M = space.size;
+  const r = Math.hypot(frame.inner.innerW, frame.inner.innerH) / 2 / unitMm(frame);
+  switch (space.projection) {
+    case 'klein': return M / ell;
+    case 'stereographic': return (M * M + r * r) / (2 * M * ell);
+    case 'gnomonic': return (M / (2 * ell)) * (1 + (2 * r / M) ** 2);
+    default: return M / (2 * ell);
+  }
+}
+
+/**
+ * The bow, in the space's own metric, a stored chord of a geodesic may
+ * keep: `tol` (mm on the sheet, the ink's 0.05 by default) where the
+ * drawable's chart is widest. A placement keeps every metric distance, so
+ * a chord within this of its geodesic stays within `tol` of it, on the
+ * sheet, wherever a placement puts it. The `line`
+ * material door and a tiling's walls are both sampled to it.
+ */
+export function geodesicBow(space: Space, frame: Frame, tol = SPACE_TOL): number {
+  return (GEODESIC_BOW_SHARE * tol) / (unitMm(frame) * chartStretch(space, frame));
+}
+
 /** How closely the far-side boundary is pinned when a stroke leaves the
  * sheet: a halving each time, so the cut lands within a millionth of the
  * segment it happened on. */
@@ -691,6 +746,27 @@ function poleNames(pts: [number, number][], cy: number, ell: number): [number, n
     i = j - 1;
   }
   return out;
+}
+
+/**
+ * The middle of the flat segment between two sketch points, named the way
+ * the ink names the segment: on a sphere the far end the short way round,
+ * and a pole end on the other end's meridian. Elsewhere it is the plain
+ * average.
+ */
+function chordMiddle(space: Space): (a: readonly [number, number], b: readonly [number, number]) => [number, number] {
+  if (!(space.curvature > 0)) return (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const ell = space.radius;
+  const cy = space.center[1];
+  const period = 2 * Math.PI * ell;
+  const onPole = (p: readonly [number, number]): boolean => Math.abs(Math.PI / 2 - Math.abs((p[1] - cy) / ell)) < POLE_EPS;
+  return (a, b) => {
+    let u: [number, number] = [a[0], a[1]];
+    let v: [number, number] = [b[0] - period * Math.round((b[0] - a[0]) / period), b[1]];
+    if (onPole(u)) u = [v[0], u[1]];
+    if (onPole(v)) v = [u[0], v[1]];
+    return [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+  };
 }
 
 /**
@@ -803,6 +879,14 @@ function placedContours(
    * no complaint at the bottom.
    */
   bends = true,
+  /**
+   * The bow, in the space's metric, a stored chord of a geodesic may keep
+   * (`geodesicBow`). Given, and the edge a geodesic, each chord is judged
+   * by how far its own middle — named the way the ink names it — stands
+   * from the geodesic's middle, and not on the sheet here: the chord is
+   * STORED, and a placement may carry it anywhere.
+   */
+  bow?: number,
 ): [number, number][][] {
   const unit = unitMm(frame);
   /** The map the SAMPLING is judged through: the rest of the chain only
@@ -854,6 +938,20 @@ function placedContours(
     }
     const pts = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
     const out: [number, number][] = [pts[0]];
+    if (bow !== undefined && geodesicEdge && !through) {
+      const chordMid = chordMiddle(space);
+      const stored = (a: [number, number], b: [number, number], depth: number): void => {
+        const m = mid(a, b);
+        if (depth >= SPACE_DEPTH || !(space.distance(chordMid(a, b), m) > bow)) {
+          out.push(b);
+          return;
+        }
+        stored(a, m, depth + 1);
+        stored(m, b, depth + 1);
+      };
+      for (let i = 1; i < pts.length; i++) stored(pts[i - 1], pts[i], 0);
+      return out.map(placed);
+    }
     const halve = (
       a: [number, number], b: [number, number],
       pa: [number, number], pb: [number, number], depth: number,
@@ -929,9 +1027,12 @@ export function lowerToUserContours(
     // mm, as it always has.
     const userFrame = userFrameMatrix(frame);
     const back = invert(userFrame);
+    // A `line` is stored as chords of its geodesic, and a stored chord is
+    // judged in the metric, where no placement can change it.
+    const bow = geom.kind === 'line' && space !== FLAT ? geodesicBow(space, frame, tol) : undefined;
     return placedContours(
       geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol, true,
-      through ?? undefined, chainBends(outer, space),
+      through ?? undefined, chainBends(outer, space), bow,
     ).map((pts) => {
       const user = pts.map(([x, y]) => apply(back, x, y));
       let closed = wholeClosed;
