@@ -611,6 +611,28 @@ const SPACE_DEPTH = 12;
 const EDGE_STEPS = 20;
 
 /**
+ * A polyline on a sphere, its x coordinates made CONTINUOUS in place.
+ *
+ * The sphere's x is the azimuth times `ell`, so it comes round every
+ * `period` and tears where it does: the largest x and the smallest name one
+ * line. A segment between two sketch points is the segment between the
+ * NEAREST names of its ends, so each point takes the name within half a
+ * period of the point before it — already moved, so a run that crosses the
+ * tear goes on past it and does not jump back. A closed contour's closing
+ * segment is the last one in the list, and it obeys the same rule.
+ * Everything downstream reads x through `sin` and `cos`, which come round
+ * too, so a name outside the principal range is as good a place as one in
+ * it.
+ */
+function shortWay(pts: [number, number][], period: number): void {
+  const half = period / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const d = pts[i][0] - pts[i - 1][0];
+    if (Math.abs(d) > half) pts[i] = [pts[i][0] - period * Math.round(d / period), pts[i][1]];
+  }
+}
+
+/**
  * The chart points of one contour, projected, and CUT where the sheet
  * runs out.
  *
@@ -755,6 +777,10 @@ function placedContours(
     // A piece the sketch could not place — a NaN radius from a field that
     // says "not a place", most often — draws nothing, and nothing throws.
     for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+    // On a sphere x comes round, so one line has two names and the flat
+    // segment between them would run the long way. The short way is the
+    // segment. A `line` already walks the geodesic, which knows this.
+    if (space.curvature > 0 && !geodesicEdge) shortWay(flat, 2 * Math.PI * space.radius * unit);
     // A straight geodesic under a straight chart has nothing left to
     // sample — unless a placement stands between the sample and the sheet,
     // which is the one thing that can bend it again.
