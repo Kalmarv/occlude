@@ -162,6 +162,22 @@ from source, so the studio image exists only when every gate passed:
 | wasm | md5 in `check.mjs` | the bundled wasm is the crate's build, byte for byte |
 | smoke | `pnpm smoke` | a sketch with an arc, a cubic, a contour-filled disc, a hatched rect and a mask renders through the compiled wasm to a parseable SVG (`tools/smoke.ts`); the production server, started on a free port, answers every page, module, worker and the wasm asset the bundles resolve, and the served wasm is the crate's (`tools/smoke-server.mjs`) |
 
+**The affected oracle** is the ink gate's fast mode, for the edit loop:
+`docs:hashes -- --check --affected` (`pnpm --filter occlude docs:affected`)
+hashes only the fences that the working tree's diff against HEAD can
+reach, and prints `affected N of 619` with the hunk that reached each.
+It reads a coverage map, `node_modules/.cache/docs-coverage/<commit>.json`
+in the occlude package: the source lines each fence ran, recorded under V8
+block coverage in one full run (`docs:map`, or the first `--affected` run
+at a new commit, which runs the full check and records the map in the same
+pass). A changed page takes all its fences. A changed library line takes
+the fences that ran it. The engine, the dependencies, the tsconfigs, the
+baseline, the fence transform, `index.ts`, the README, the classifier
+worker entry, a fence asset, module-level code, or a new module takes
+everything. The oracle's own code keys the map, so a change to it finds
+no map. The mode never saves a baseline, and `check.mjs` still runs the
+full `--check`: the fast mode is for the loop, the full gate is for done.
+
 Beyond the gates, the oracles a toolpath-affecting change consults by
 hand: `plotstats church.ts --seed 42` (381.0 min, 16 515 travel mm at
 0b661f7) and `renderhash --check` over the reference sketches.
