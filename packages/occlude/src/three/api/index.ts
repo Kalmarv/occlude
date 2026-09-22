@@ -48,6 +48,8 @@ export {mapSurface} from './mapping.js';
 export type {SurfaceMappingOptions,SurfaceMappingStats,MappedAttributes,ChartFrame} from './mapping.js';
 export {trace,laneThreshold} from './hatch.js';
 export {v3,falloff,grad3,curl3} from './vec.js';
+/** The 3D twins of `distance` and `length` from `occlude`: triples or `{x, y, z}` rows. */
+export {distance,length} from './vec.js';
 export type {VectorField3} from './vec.js';
 export type {Seeds3,Streamlines3Options} from './flow.js';
 export {instanceOnFaces} from './instances.js';

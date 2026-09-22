@@ -3,7 +3,9 @@ title: Random
 description: The seed, and everything that reads it.
 ---
 
-All randomness comes from the sketch's seed: `seed` in the config, or `?seed=` in the studio's URL. The same source and the same seed give the same drawing. Nothing here uses `Math.random`.
+All randomness comes from the sketch's seed: `seed` in the config, or `?seed=` in the studio's URL. The same source and the same seed give the same drawing. `t.seed` is the number or string this run resolved to. Nothing here uses `Math.random`.
+
+<include>/_sig/Toolkit.seed.mdx</include>
 
 ## t.rnd() · t.rndInt() · t.pick() · t.chance()
 
@@ -75,13 +77,16 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 
 ## a die on every square
 
-`rndInt` counts things. Here each cell of a grid rolls a die and draws that many dots.
+`rndInt` counts things. Here each cell of a grid rolls a die and draws that many dots. `title` reads the seed back from `t.seed`, and the drawing does not use it.
 
 ```ts live
 import { sketch, dots, rect, mm, pen } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 9, pens: { ink: pen({ width: mm(1.6), color: '#23252B' }) } }, (t) => t.grid({ cols: 5, rows: 5, gap: 3 }).map((c) => [
-  rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, { pen: 'pigma-005-black' }),
-  dots(t.times(t.rndInt(1, 6), () => [t.rnd(c.x + 3, c.x + c.w - 3), t.rnd(c.y + 3, c.y + c.h - 3)]), { pen: 'ink' }),
-]));
+export default sketch({ aspect: [1, 1], seed: 9, pens: { ink: pen({ width: mm(1.6), color: '#23252B' }) } }, (t) => {
+  const title = `dice, seed ${t.seed}`;
+  return t.grid({ cols: 5, rows: 5, gap: 3 }).map((c) => [
+    rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, { pen: 'pigma-005-black' }),
+    dots(t.times(t.rndInt(1, 6), () => [t.rnd(c.x + 3, c.x + c.w - 3), t.rnd(c.y + 3, c.y + c.h - 3)]), { pen: 'ink' }),
+  ]);
+});
 ```

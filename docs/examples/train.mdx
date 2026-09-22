@@ -358,7 +358,7 @@ export default sketch({
         ['ESCAPE', `CLUB TOOTH, ${N.w4}`],
         ['INDEX ERR', '0.07-0.11 P'],
         ['RUNOUT', '0.02-0.06 M'],
-        ['TEETH', `${N.w1 + N.p2 + N.w2 + N.p3 + N.w3 + N.p4 + N.w4}`],
+        ['SEED', `${t.seed}`],
     ];
     const bx = 62.0, by = 68.6, bw = 37.4, rh = 2.95, h = 1.75;
     out.push(polygon([[bx, by], [bx + bw, by], [bx + bw, by + rh * rows.length], [bx, by + rh * rows.length]], { opaque: true, pen: 'part' }));

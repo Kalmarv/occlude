@@ -86,7 +86,7 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
 <include>/_sig/Face.points.mdx</include>
 <include>/_sig/Face.boundaryEdges.mdx</include>
 
-`face.edges` is every edge that belongs to this face: its walls, and any loose edge that runs into it from a wall. A line that touches nothing belongs to no face. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
+`face.edges` is every edge that belongs to this face: its walls, and any loose edge that runs into it from a wall. A line that touches nothing belongs to no face. To take the edges that lie inside a face by position, use `t.within(m.edges, face)`. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
 
 :::warning
 For a plain pile of shapes, `edges` and `boundaryEdges` are the same selection. They differ only when a loose line runs into a region. Use `boundaryEdges` when you want an outline.

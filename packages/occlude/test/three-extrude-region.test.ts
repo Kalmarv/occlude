@@ -128,7 +128,7 @@ describe('connected-region extrusion',()=>{
     const region=model.faces.filter(f=>f.center[0]<0);
     const out=model.extrude(region,[0,0,1]);
     const walls=out.surface.faces.filter(f=>f.provenance?.operation==='extrude');
-    expect(walls.every(f=>f.attributes.tone===0.7&&Object.keys(f.attributes).join()==='tone')).toBe(true);
+    expect(walls.every(f=>f.attributes.tone===0.7&&Object.keys(f.attributes).sort().join()==='chart,tone')).toBe(true);
     const generated=out.surface.edges.filter(e=>e.provenance?.operation==='extrude');
     expect(generated.length).toBeGreaterThan(0);
     expect(generated.every(e=>e.attributes.marked===1)).toBe(true);

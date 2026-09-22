@@ -67,9 +67,9 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const wall = web.edges.at(24);
   const touching = wall.adjacent;
   return [
-    strokes(web.edges.subtract(touching).subtract(web.edges.rows([wall.index])), { pen: 'pigma-005-black' }),
+    strokes(web.edges.subtract(touching).subtract(web.edges.rows(wall)), { pen: 'pigma-005-black' }),
     strokes(touching, { pen: 'stabilo-88-blue' }),
-    strokes(web.edges.rows([wall.index]), { pen: 'stabilo-88-green' }),
+    strokes(web.edges.rows(wall), { pen: 'stabilo-88-green' }),
     touching.map((e) => circle(e.center, 1.2, { pen: 'stabilo-88-blue' })),
     circle(wall.center, 2.2, { pen: 'stabilo-88-green' }),
   ];
@@ -142,7 +142,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/PointSelection.rows.mdx</include>
 <include>/_sig/EdgeSelection.rows.mdx</include>
 
-The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error.
+The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error. `rows` also takes the views themselves, one or a list, so `web.edges.rows(wall)` is the selection that holds the edge `wall`.
 
 Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
 
@@ -152,8 +152,8 @@ import { sketch, strokes, circle, connect } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 13 }));
   const ranked = [...web.edges].sort((a, b) => b.length - a.length);
-  const longest = web.edges.rows(ranked.slice(0, 14).map((e) => e.index));
-  const hubs = web.points.rows([...web.points].filter((p) => p.adjacent.length >= 7).map((p) => p.index));
+  const longest = web.edges.rows(ranked.slice(0, 14));
+  const hubs = web.points.rows([...web.points].filter((p) => p.adjacent.length >= 7));
   return [strokes(web.edges.subtract(longest), { pen: 'pigma-005-black' }), strokes(longest, { pen: 'stabilo-88-blue' }), hubs.map((p) => circle(p, 2.2))];
 });
 ```

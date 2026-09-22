@@ -3,6 +3,10 @@ import type {Vector3} from '../rotation.js';
 import {emptySize} from '../degenerate.js';
 import {vector3} from '../rotation.js';
 const v=(p:Vector3):Vec3=>vector3(p);
+/** How long a vector is: a triple or an `{x, y, z}` row, so a mesh point row measures directly. The 3D twin of `length` from `occlude`. */
+export const length=(v:Vector3):number=>Math.hypot(...vector3(v));
+/** How far apart two points are: triples or `{x, y, z}` rows. The 3D twin of `distance` from `occlude`. */
+export const distance=(a:Vector3,b:Vector3):number=>Math.hypot(...sub3(v(a),v(b)));
 /** Small vector vocabulary for fields and placements: triples or `{x, y, z}` rows in, fresh triples out. */
 export const v3={
   add:(a:Vector3,b:Vector3):Vec3=>add3(v(a),v(b)),
@@ -10,8 +14,8 @@ export const v3={
   scale:(a:Vector3,k:number):Vec3=>mul3(v(a),k),
   dot:(a:Vector3,b:Vector3):number=>dot3(v(a),v(b)),
   cross:(a:Vector3,b:Vector3):Vec3=>cross3(v(a),v(b)),
-  length:(a:Vector3):number=>Math.hypot(...v(a)),
-  distance:(a:Vector3,b:Vector3):number=>Math.hypot(...sub3(v(a),v(b))),
+  length,
+  distance,
   normalize:(a:Vector3):Vec3=>unit3(v(a)),
   lerp:(a:Vector3,b:Vector3,t:number):Vec3=>lerp3(v(a),v(b),t),
   mix:(a:Vector3,b:Vector3,t:number):Vec3=>lerp3(v(a),v(b),t),

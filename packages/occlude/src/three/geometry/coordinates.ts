@@ -5,13 +5,17 @@ import type {Vec3} from '../math.js';
 /** Ordinary corner columns; chart identity is categorical, UV is interpolated. */
 export type SurfaceUV = {readonly uv:readonly [number,number];readonly chart:string};
 
-/** Attach charts without changing geometric topology, fixed triangles or IDs. */
+/** Attach charts without changing geometric topology, fixed triangles or IDs.
+ * The face column `chart` is the chart the face was built with — its first
+ * corner's, which every generator gives all of the face's corners — so a
+ * face selects by chart without reading its corners. */
 export function chartSurface3(source:Surface3,field:(face:number,corner:number,vertex:number)=>SurfaceUV):Surface3 {
   const result=cloneSurface3(source);
   result.faces.forEach((face,f)=>face.corners!.forEach((corner,c)=>{
     const value=field(f,c,face.vertices[c]);
     if(value.uv.length!==2||!value.uv.every(Number.isFinite)||typeof value.chart!=='string'||!value.chart)throw new Error('surface chart requires finite UV pairs and a nonempty chart identity');
     Object.assign(corner.attributes,{uv:[...value.uv],chart:value.chart});
+    if(c===0)face.attributes.chart=value.chart;
   }));
   return result;
 }

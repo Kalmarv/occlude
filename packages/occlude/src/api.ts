@@ -1778,6 +1778,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
     noise,
     stream: (name: string) => exec.stream(name),
+    /** The seed this run resolved: the config's own, or the host's when
+     * the config says `'url'` or names none. Read-only: the run holds it. */
+    get seed(): number | string {
+      return exec.seedUsed;
+    },
     /** Drawable extent in bare units — the same numbers `bounds()` returns. */
     bounds: () => exec.bounds(),
     /** Resolve a length to bare units — for sketch-time math on physical

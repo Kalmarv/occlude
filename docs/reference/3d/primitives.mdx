@@ -191,6 +191,24 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 });
 ```
 
+## distance() · length()
+
+<include>/_sig/3d.distance.mdx</include>
+<include>/_sig/3d.length.mdx</include>
+
+`distance(a, b)` is how far apart two points are, and `length(v)` is how long a vector is. Both take triples or `{x, y, z}` rows, so a mesh point goes in as it is. Below, a sheet rises in two ripples: one around its middle, which `length` measures, and one around a drop, which `distance` measures.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, distance, length, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
+  const drop = [1.1, -0.7, 0];
+  const sheet = plane(4, 4).subdivide(5).displace((p) => [0, 0, 0.08 * Math.cos(7 * length(p)) + 0.08 * Math.cos(9 * distance(p, drop))]);
+  return view(sheet, { camera: orthographic({ eye: [4, 6, 5], span: 6.6 }), stroke: 'ink', creaseAngle: 0 });
+});
+```
+
 ## sdf3
 
 <include>/_sig/3d.sdf3.sphere.mdx</include>

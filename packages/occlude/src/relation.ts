@@ -39,6 +39,23 @@ function rowsOf(indices: Iterable<number>): readonly number[] {
   return Object.freeze(Array.from(new Set(indices)).sort((p, q) => p - q));
 }
 
+const viewName = (kind: 'vertex' | 'edge' | 'face'): string => (kind === 'edge' ? 'an edge view' : `a ${kind} view`);
+
+/** The source rows `rows` was handed. A view names its own row; a view of
+ * another state, or of the other kind, is refused by name. */
+function sourceRows<V extends { index: number }>(rows: number | V | Iterable<number | V>, source: Material, kind: 'vertex' | 'edge', what: string): number[] {
+  const one = (r: number | V): number => {
+    if (typeof r === 'number') return r;
+    const k = viewKind(r);
+    if (k !== kind) throw new Error(`${what}: expected a row index or ${viewName(kind)}, got ${k === undefined ? typeof r : viewName(k)}`);
+    if (!ownedBy(r as object, source)) throw new Error(`${what}: that ${kind} view belongs to another material`);
+    return r.index;
+  };
+  if (typeof rows === 'number' || viewKind(rows) !== undefined) return [one(rows as number | V)];
+  if (rows == null || typeof (rows as Iterable<unknown>)[Symbol.iterator] !== 'function') throw new Error(`${what}: expected a row index, a view, or a list of them`);
+  return Array.from(rows as Iterable<number | V>, one);
+}
+
 /** Two selections of one state holding exactly the same rows: the test
  * `pairs` uses to decide that a pair is unordered. */
 function sameMembers(a: readonly number[], b: readonly number[]): boolean {
@@ -240,10 +257,11 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
 
   /** The selection holding those SOURCE rows — never positions within
    * this selection. The door for a relation the sketch worked out for
-   * itself: hand back the rows it decided on. */
-  rows(indices: Iterable<number>): PointSelection {
+   * itself: hand back the rows it decided on, as row indices or as the
+   * vertex views themselves, one or a list. */
+  rows(rows: number | Vertex | Iterable<number | Vertex>): PointSelection {
     const out: number[] = [];
-    for (const i of indices) {
+    for (const i of sourceRows(rows, this.source, 'vertex', 'points.rows')) {
       if (!Number.isInteger(i) || i < 0 || i >= this.source.n) {
         throw new Error(`points.rows: no vertex ${i} in this state (${this.source.n} rows)`);
       }
@@ -511,10 +529,11 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
 
 
   /** The selection holding those SOURCE edge rows — never positions
-   * within this selection. */
-  rows(indices: Iterable<number>): EdgeSelection {
+   * within this selection: row indices or the edge views themselves, one
+   * or a list. */
+  rows(rows: number | Edge | Iterable<number | Edge>): EdgeSelection {
     const out: number[] = [];
-    for (const e of indices) {
+    for (const e of sourceRows(rows, this.source, 'edge', 'edges.rows')) {
       if (!Number.isInteger(e) || e < 0 || e >= this.source.edgeCount) {
         throw new Error(`edges.rows: no edge ${e} in this state (${this.source.edgeCount} edges)`);
       }

@@ -105,8 +105,10 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
           if(Object.hasOwn(attributes,'chart'))attributes.chart=`${operation}:side:${component.index}`;
           return {id:id('corner',surface.edges[e.edge].id,local),attributes,provenance:{operation:'extrude',parents:source?[source.id]:[]}};
         };
-        const faceId=id('side',surface.edges[e.edge].id);
-        add({id:faceId,vertices:[a,b,bTop,aTop],corners:[corner(a,0,[u0,0]),corner(b,1,[u1,0]),corner(b,2,[u1,1]),corner(a,3,[u0,1])],attributes:structuredClone(face.attributes),provenance:{operation:'extrude',parents:[face.id,surface.edges[e.edge].id]}},[[a,b,bTop],[a,bTop,aTop]]);
+        const faceId=id('side',surface.edges[e.edge].id),attributes:Attributes3=structuredClone(face.attributes);
+        // A wall is built with the side chart, so its face column names it too.
+        if(Object.hasOwn(attributes,'chart'))attributes.chart=`${operation}:side:${component.index}`;
+        add({id:faceId,vertices:[a,b,bTop,aTop],corners:[corner(a,0,[u0,0]),corner(b,1,[u1,0]),corner(b,2,[u1,1]),corner(a,3,[u0,1])],attributes,provenance:{operation:'extrude',parents:[face.id,surface.edges[e.edge].id]}},[[a,b,bTop],[a,bTop,aTop]]);
         parentEdge.set(key(aTop,bTop),e.edge);parentEdge.set(key(a,aTop),e.edge);
       });
     }

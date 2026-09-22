@@ -96,7 +96,7 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 
 ## Charts and corner attributes
 
-Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. `mapSurface`, `mesh.cornerAttribute(name, field)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` it was built with, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.cornerAttribute(name, field)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
