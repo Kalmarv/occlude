@@ -5,13 +5,14 @@ description: The seed, and everything that reads it.
 
 All randomness comes from the sketch's seed: `seed` in the config, or `?seed=` in the studio's URL. The same source and the same seed give the same drawing. Nothing here uses `Math.random`.
 
-## t.rnd() · t.pick() · t.chance()
+## t.rnd() · t.rndInt() · t.pick() · t.chance()
 
 <include>/_sig/Toolkit.rnd.mdx</include>
+<include>/_sig/Toolkit.rndInt.mdx</include>
 <include>/_sig/Toolkit.pick.mdx</include>
 <include>/_sig/Toolkit.chance.mdx</include>
 
-`rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
+`rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `rndInt(n)` gives a whole number from 0 to n minus 1. `rndInt(a, b)` gives a whole number from a to b, and both ends can come up. A die is `rndInt(1, 6)`. Each call is one draw from the stream. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
 
 ```ts live
 import { sketch, circle, rect } from 'occlude';
@@ -72,3 +73,19 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 });
 ```
 
+## a die on every square
+
+`rndInt` counts things. Here each cell of a grid rolls a die and draws that many dots.
+
+```ts live
+import { sketch, dots, mm, pen } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 9, pens: { ink: pen({ width: mm(0.8), color: '#23252B' }) } }, (t) => {
+  const cells = t.grid({ cols: 6, rows: 6, gap: 2 });
+  const points = cells.flatMap((c) => {
+    const n = t.rndInt(1, 6);
+    return t.times(n, () => [t.rnd(c.x + 2, c.x + c.w - 2), t.rnd(c.y + 2, c.y + c.h - 2)]);
+  });
+  return dots(points, { pen: 'ink' });
+});
+```

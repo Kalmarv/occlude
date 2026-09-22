@@ -1632,6 +1632,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
     noiseField: (amount: number, wavelength = 25): VectorFieldFn => noiseFieldOf(noise, amount, wavelength),
     rnd,
+    /** A whole number from the seeded stream, one draw: `rndInt(n)` is
+     * 0 … n−1, `rndInt(a, b)` is a … b with both ends in. */
+    rndInt: ((a: number, b?: number): number => (b === undefined ? exec.rndInt(a) : exec.rndInt(a, b))) as Execution['rndInt'],
     /** A normal draw from the seeded stream: most within one `sd` of
      * `mean`, a few far out, and no bound at all — the jitter that has a
      * typical size rather than a range. `t.rnd(a, b)` is the flat one. */

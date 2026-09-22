@@ -147,6 +147,20 @@ export type Pickable<T> = { readonly length: number; at(i: number): T | undefine
  * selection (whose own `at` would otherwise refuse and an array's would
  * quietly answer `undefined`).
  */
+/** One unit draw to a whole number: `n` values 0 … n−1, or a … b with both
+ * ends in. Non-whole bounds tighten inward; an empty range is its lower end
+ * (best effort: a degenerate ask draws something, it does not throw). */
+function intFrom(unit: number, a: number, b?: number): number {
+  if (b === undefined) {
+    const n = Math.floor(a);
+    return n >= 1 ? Math.min(Math.floor(unit * n), n - 1) : 0;
+  }
+  const lo = Math.ceil(Math.min(a, b));
+  const hi = Math.floor(Math.max(a, b));
+  if (hi < lo) return lo;
+  return lo + Math.min(Math.floor(unit * (hi - lo + 1)), hi - lo);
+}
+
 function pickFrom<T>(items: Pickable<T>, unit: number, record: (i: number) => void): T {
   const n = items.length;
   if (n === 0) throw new Error('pick: nothing to pick from (0 members)');
@@ -159,6 +173,12 @@ export interface RandomStream {
   rnd(): number;
   rnd(n: number): number;
   rnd(a: number, b: number): number;
+  /** A whole number from the stream, one draw: `rndInt(n)` is one of the n
+   * values 0 … n−1 (an index, as `pick` counts); `rndInt(a, b)` is a … b
+   * with BOTH ends included (a die is `rndInt(1, 6)`). Bounds that are not
+   * whole are tightened inward; an empty range answers its lower end. */
+  rndInt(n: number): number;
+  rndInt(a: number, b: number): number;
   /** A normal draw: most of them within one `sd` of `mean`, a few far out,
    * and no bound at all — the shape of a jitter that has a typical size
    * rather than a range. Defaults are the standard normal. */
@@ -516,6 +536,14 @@ export class Execution {
     return v;
   }
 
+  rndInt(n: number): number;
+  rndInt(a: number, b: number): number;
+  rndInt(a: number, b?: number): number {
+    const v = intFrom(this.unitDraw(this.rng), a, b);
+    this.madeOf(v);
+    return v;
+  }
+
   /** One standard normal from two unit draws (Box–Muller). The first is
    * taken on (0, 1] so the logarithm always has something to bite on. Two
    * draws in, ONE value out: the sine twin is not kept, so a gaussian is
@@ -569,6 +597,11 @@ export class Execution {
       this.madeOf(v);
       return v;
     };
+    const rndInt = (a: number, b?: number): number => {
+      const v = intFrom(this.unitDraw(rng), a, b);
+      this.madeOf(v);
+      return v;
+    };
     const gaussianOf = (mean = 0, sd = 1): number => {
       const v = mean + sd * this.normalDraw(rng);
       this.madeOf(v);
@@ -576,6 +609,7 @@ export class Execution {
     };
     return {
       rnd: rnd as RandomStream['rnd'],
+      rndInt: rndInt as RandomStream['rndInt'],
       gaussian: gaussianOf,
       pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
