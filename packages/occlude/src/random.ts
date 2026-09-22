@@ -146,9 +146,28 @@ function makeSimplex2(perm: Uint8Array): (x: number, y: number) => number {
 
 /**
  * Seeded 3D simplex noise (Gustavson's reference: twelve edge gradients of
- * a cube, skew 1/3, unskew 1/6, kernel radius² 0.6, scale 32). The solid
+ * a cube, skew 1/3, unskew 1/6, kernel radius² 0.5, scale 76). The solid
  * field the toolkit's three-argument `noise` reads. Isotropic: nothing
  * here treats one axis differently from another.
+ *
+ * Radius² is 0.5, not the reference 0.6: with 0.6 a corner still carries
+ * weight where the simplex partition exchanges it for its reflection, so
+ * the field steps across a face — up to 4/625 = 0.0064 of the range at a
+ * face and 22/1875 ≈ 0.0117 at a long simplex edge, both measured here and
+ * both without any global Lipschitz bound. At 0.5 every exchanged corner
+ * sits at squared distance ≥ 0.5, so it and its first three derivatives
+ * vanish at the seam: the field is C³ everywhere.
+ *
+ * Scale 76 is re-derived for that smaller kernel, not inherited. For a
+ * fixed point the four corners hash independently, so the largest sum any
+ * permutation can reach is max over the cell of Σ (0.5 − |q|²)₊⁴ · H(q),
+ * where H(q) = |q| along the two largest coordinates is the support
+ * function of the twelve edge gradients. That structural maximum is
+ * 0.0130071572, and a dense search (16 seeds, ~2e8 samples over the
+ * lattice, its vertices, face centres and edge midpoints) reaches the same
+ * figure — no seed exceeds it. 76 × 0.0130071572 = 0.98854, just under 1,
+ * the same headroom the old kernel had (32 × 0.0305848874 = 0.97872).
+ * The Lipschitz constant is |C|√2/4 = 19√2 ≈ 26.87.
  */
 function makeSimplex3(perm: Uint8Array): (x: number, y: number, z: number) => number {
   const GX = new Float64Array([1, -1, 1, -1, 1, -1, 1, -1, 0, 0, 0, 0]);
@@ -157,7 +176,7 @@ function makeSimplex3(perm: Uint8Array): (x: number, y: number, z: number) => nu
   const F3 = 1 / 3;
   const G3 = 1 / 6;
   const corner = (x: number, y: number, z: number, gi: number): number => {
-    let t0 = 0.6 - x * x - y * y - z * z;
+    let t0 = 0.5 - x * x - y * y - z * z;
     if (t0 < 0) return 0;
     t0 *= t0;
     const g = gi % 12;
@@ -202,8 +221,8 @@ function makeSimplex3(perm: Uint8Array): (x: number, y: number, z: number) => nu
     n += corner(x1, y1, z1, perm[ii + i1 + perm[jj + j1 + perm[kk + k1]]]);
     n += corner(x2, y2, z2, perm[ii + i2 + perm[jj + j2 + perm[kk + k2]]]);
     n += corner(x3, y3, z3, perm[ii + 1 + perm[jj + 1 + perm[kk + 1]]]);
-    // Scale to roughly [-1, 1].
-    return 32 * n;
+    // Scale to roughly [-1, 1]: the peak is 0.98854 (see above).
+    return 76 * n;
   };
 }
 
