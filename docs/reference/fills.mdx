@@ -35,9 +35,12 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 `align: 'paper'` (the default) anchors a hatch to the page. One ruling covers the sheet, and every shape samples it where it sits. Two shapes side by side share one ruling, so the marks line up across the join. `align: 'shape'` anchors the ruling to the shape's own centre and axes. Every shape carries the same marks, and the ruling turns with the shape.
 
 ```ts live
-import { sketch, rect, fill, mm } from 'occlude';
+import { sketch, rect, label, fill, mm } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => t.grid({ cols: 4, rows: 4, gap: 3 }).map((c) => rect(c.x, c.y, c.w, c.h, { rotate: c.i * 10, origin: [c.cx, c.cy], fill: fill('hatch', { angle: 0, spacing: mm(1.4), align: c.j < 2 ? 'paper' : 'shape' }) })));
+export default sketch({ aspect: [1, 1] }, (t) => [['paper', 20], ['shape', 62]].map(([align, y]) => [
+  label(align.toUpperCase(), 8, y - 10, 4),
+  t.times(4, (i) => rect(10 + i * 23, y, 16, 16, { rotate: i * 15, origin: [18 + i * 23, y + 8], fill: fill('hatch', { angle: 0, spacing: mm(1.4), align }) })),
+]));
 ```
 
 ## fillPen · stroke

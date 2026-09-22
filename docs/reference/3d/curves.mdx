@@ -63,7 +63,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 Evenly spaced streamlines of a 3D vector field, as open curves. A view occludes them like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
 
-Each seed runs both ways with an RK4 step, until the field has no direction there, until the line reaches `maxLength`, or until it comes within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }`, which throws that many points into a closed mesh. `within` cuts every line to the runs inside a closed mesh, and interpolates the crossing point.
+Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }` to throw that many points into a closed mesh. `within` cuts every line to the runs inside a closed mesh, and interpolates the crossing point.
 
 `curl3` and `grad3` read a field by central differences. The curl of any field has no divergence, so streamlines of `curl3` neither crowd nor thin out. Below, the flow is the ABC field, cut to a ball, and a box in front hides what is behind it.
 
@@ -86,9 +86,9 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 <include>/_sig/3d.curl3.mdx</include>
 <include>/_sig/3d.grad3.mdx</include>
 
-`grad3(scalar)` is the direction a scalar field rises fastest, as long as its rise. `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `step`, which is 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
+`grad3(scalar)` is the direction a scalar field rises fastest, as long as its rise. `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `step`, 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
 
-One hill, read two ways. The red lines climb the gradient of the hill. The blue lines follow the curl of the same hill, held upright as a potential, so they close into rings around the climb. The curl of a gradient is zero, which is why the two families never agree.
+One hill, read two ways. The red lines climb the gradient of the hill. The blue lines follow the curl of the same hill, held upright as a potential. They close into rings around the climb. The curl of a gradient is zero, so the two families never agree.
 
 ```ts live
 import { sketchAsync, pen, mm } from 'occlude';

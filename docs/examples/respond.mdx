@@ -26,7 +26,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const still = settled.points.filter((p) => p.stopped >= 0);
   return [
     strokes(t.voronoi(settled, { bounds: half })),
-    group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.5)), still.map((p) => circle(p.x, p.y, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
+    group({ translate: [100, 0] }, settled.points.map((p) => circle(p, 0.5)), still.map((p) => circle(p, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
   ];
 });
 ```

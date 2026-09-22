@@ -47,7 +47,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const rules = append(...t.times(40, (k, u) => t.material(line(0, (0.02 + 0.96 * u) * b.h, b.w, (0.02 + 0.96 * u) * b.h))));
   const inside = t.within(rules, disc);
   return [
-    strokes(inside.trim({ start: 0.022 * b.h, end: 0.022 * b.h })),
+    strokes(inside.trim({ start: 0.06 * b.h, end: 0.06 * b.h })),
     strokes(t.material(disc), { pen: 'stabilo-88-blue' }),
   ];
 });
@@ -75,24 +75,14 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(7, (k, u) => strokes(t.
 
 Winds each chain into a coil. `oscillate` swings from side to side and crosses the chain twice a turn. A coil never crosses it: the loop goes round, and the chain stays inside it. `radius` is how far the loop reaches, so the coil is twice that wide. `pitch` is the arc length of one turn. Both are numbers or fields, so tone can drive them. A closed chain winds a whole number of turns, and the seam does not step.
 
-Below, the spine is a tour of a stipple of the picture. `img.a` keeps every mark on the picture, and the tone falls to zero under a threshold, so the light stays bare paper. The coil then reads the same picture again: tight overlapping loops in the dark, open wavy loops through the mid tones. The whole drawing is one pen-down stroke.
+Below, one wave winds into a coil. The radius grows along the wave and the pitch shrinks. The loops run open at the left and overlap at the right.
 
 ```ts live
-import { sketch, strokes, connect, mm } from 'occlude';
+import { sketch, strokes, curve } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
-  const dark = img.field('dark', { area: 1.2 });
-  const ink = (x, y) => img.a(x, y) * dark(x, y);
-  const tone = (x, y) => Math.max(0, (ink(x, y) - 0.24) / 0.76) ** 1.5;
-  const seeds = t.scatter(tone, { spacing: mm(2) });
-  const settled = t.settle(seeds, { density: tone, spacing: mm(2), iterations: 12 });
-  const lit = settled.points.filter((p) => tone(p.x, p.y) > 0).extract();
-  return strokes(connect.tour(lit).coil({
-    radius: (x, y) => 0.15 + 1.35 * ink(x, y) ** 1.4,
-    pitch: (x, y) => 1 + 8 * (1 - ink(x, y)) ** 2.2,
-    steps: 12,
-  }));
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const wave = curve(t.times(60, (k, u) => [12 + u * 176, 50 + 22 * Math.sin(u * Math.PI * 2)]), { closed: false });
+  return strokes(wave.coil({ radius: (x) => 1 + 9 * (x / 200), pitch: (x) => 14 - 11 * (x / 200) }));
 });
 ```
 
@@ -105,10 +95,10 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 At every crossing of two edges that do not share a vertex, it decides the strand on top. Then it removes `gap` of the other strand around the crossing. `over(c)` reads one crossing. `c.x` and `c.y` are where it happens, and `c.chainA` and `c.chainB` are the two chain numbers. Return true to put chain A on top. The default alternates. The result is ordinary material.
 
 ```ts live
-import { sketch, strokes, circle, append } from 'occlude';
+import { sketch, strokes, circle, append, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const rings = append(...t.times(5, (k) => t.sample(circle(50 + Math.cos(k * 1.26) * 18, 50 + Math.sin(k * 1.26) * 18, 26), { count: 120 })));
+  const rings = append(...t.times(5, (k) => t.sample(circle(add([50, 50], mul(fromAngle(k * 1.26), 18)), 26), { count: 120 })));
   return strokes(rings.interlace({ gap: 3 }));
 });
 ```
@@ -123,8 +113,8 @@ The curve that a family of chains is tangent to: where each chain crosses the ne
 import { sketch, strokes, line, append } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const chords = append(...t.times(28, (k, u) => t.material(line(10 + u * 80, 90, 10, 90 - u * 80))));
-  return [strokes(chords, { pen: 'pigma-005-black' }), strokes(chords.envelope(), { pen: 'pigma-05-black' })];
+  const chords = append(...t.times(28, (k, u) => t.material(line(10 + u * 80, 90, 10, 10 + u * 80))));
+  return [strokes(chords, { pen: 'pigma-005-black' }), strokes(chords.envelope(), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -161,7 +151,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 60 }).attribute('h', (p) => p.y);
   const [lo, hi] = extent(ring.attrs.h);
   const band = banding({ min: lo, max: hi, count: 3 });
-  return segmentRuns(ring, (e) => band((e.a.h + e.b.h) / 2)).map((run) => stroke(run, { pen: run.key === 1 ? 'stabilo-88-blue' : undefined }));
+  const pens = ['pigma-05-black', 'stabilo-88-blue', 'stabilo-88-green'];
+  return segmentRuns(ring, (e) => band((e.a.h + e.b.h) / 2)).map((run) => stroke(run, { pen: pens[run.key] }));
 });
 ```
 
@@ -204,7 +195,7 @@ Nothing else changes. The rows keep their order, their ids and their point, edge
 Only the vertices move, so a straight edge between two of them stays straight. Resample first (`m.resample({ spacing })`) when the map bends what the two ends cannot show. Below, one band of straight bars at 120 samples each goes round a whirlpool.
 
 ```ts live
-import { sketch, strokes, line, append } from 'occlude';
+import { sketch, strokes, line, append, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const b = t.bounds();
@@ -212,7 +203,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return strokes(bars.map((p) => {
     const a = (p.x / 100) * 5.6 + (p.y / 100) * 2.2 - 2.8;
     const r = 5 + p.y * 0.4;
-    return [b.cx + r * Math.cos(a), b.cy + r * Math.sin(a)];
+    return add([b.cx, b.cy], mul(fromAngle(a), r));
   }));
 });
 ```

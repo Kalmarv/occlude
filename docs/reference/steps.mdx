@@ -29,18 +29,21 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 `steps(n, [a, b])` is ONE batch. Both passes read the same frozen state. A point that `a` moves is still where it was when `b` looks at it. `steps(n, a, b)` is two batches, and `b` reads what `a` committed.
 
-Reading is order-free. Editing is not, and the batch rules decide it. Moves add up, so two moves commute. A later `set` overwrites an earlier one. A later `connect` on a pair an earlier pass already made changes nothing, and its edge attributes go with it. New points keep the order the passes asked for them, and row order is visible in `p.index` and in plot order.
+Reading is order-free. Editing is not, and the batch rules decide it. Moves add up, so two moves commute. A later `set` overwrites an earlier one. A later `connect` on a pair an earlier pass already made changes nothing. New points keep the order the passes asked for them.
+
+Below, rule `a` moves a ring to the right, and rule `b` moves down every point right of x = 30. At the top, one batch: `b` sees the ring where it was, so only its right side drops. At the bottom, two passes: `b` sees the moved ring, so all of it drops. The fine rings are the start.
 
 ```ts live
-import { sketch, strokes, circle, mul, sub } from 'occlude';
+import { sketch, strokes, circle } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const ring = t.sample(circle(50, 50, 26), { count: 90 });
-  const grown = ring.steps(26, [
-    (cur, next) => next.move(cur.points, (p) => mul(sub(p, [50, 50]), 0.012)),
-    (cur, next) => next.splitEdges(cur.edges.filter((e) => e.length > 2.2)),
-  ]);
-  return strokes(grown.curves());
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const a = (cur, next) => next.move(cur.points, [30, 0]);
+  const b = (cur, next) => next.move(cur.points.filter((p) => p.x > 30), [0, 10]);
+  const ring = (y) => t.sample(circle(24, y, 14), { count: 48 });
+  return [
+    strokes(ring(26), { pen: 'pigma-005-black' }), strokes(ring(26).steps(1, [a, b])),
+    strokes(ring(68), { pen: 'pigma-005-black' }), strokes(ring(68).steps(1, a, b), { pen: 'stabilo-88-blue' }),
+  ];
 });
 ```
 
@@ -73,7 +76,7 @@ import { sketch, circle, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 30 }).attribute('age', 0);
   const aged = ring.steps(5, (cur, next) => next.set(cur.points.filter((p) => p.x > 50), (p) => ({ age: p.age + 1 })));
-  return [strokes(aged), aged.points.map((p) => circle(p.x, p.y, 0.5 + p.age * 0.5, { pen: 'stabilo-88-blue' }))];
+  return [strokes(aged), aged.points.map((p) => circle(p, 0.5 + p.age * 0.5, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -113,7 +116,7 @@ import { sketch, circle, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 8 });
   const finer = ring.steps(3, (cur, next) => next.splitEdges(cur.edges.filter((e) => e.length > 12)));
-  return [strokes(finer), finer.points.map((p) => circle(p.x, p.y, 1, { pen: 'stabilo-88-blue' }))];
+  return [strokes(finer), finer.points.map((p) => circle(p, 1, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -158,7 +161,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     for (const [p, q] of cur.points.pairs(cur.points, (a, b) => distance(a, b) < 16, { radius: 16 })) next.connect(p, q);
   });
   const trimmed = joined.steps(1, (cur, next) => next.disconnect(cur.edges.filter((e) => e.a.x < 50 && e.b.x < 50)));
-  return [strokes(trimmed), cloud.points.map((p) => circle(p.x, p.y, 0.8))];
+  return [strokes(trimmed), cloud.points.map((p) => circle(p, 0.8))];
 });
 ```
 
@@ -225,18 +228,18 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
     );
     next.move(cur.points, (p) => mul(push(p), 0.25));
   });
-  return packed.points.map((p) => circle(p.x, p.y, p.r, { pen: p.r > 4.5 ? 'stabilo-88-blue' : 'pigma-005-black' }));
+  return packed.points.map((p) => circle(p, p.r, { pen: p.r > 4.5 ? 'stabilo-88-blue' : 'pigma-005-black' }));
 });
 ```
 
 Eight words, and a rule usually sums a few of them. Here a ring grows: `tension` holds the chain together, `separation` keeps it off itself, `relax` smooths it, and `drift` wanders it. A second pass splits an edge that has stretched too far, and writes the iteration onto it first. A split copies an edge column to both children. Each piece of wall keeps the step that last divided it. The drawing then finds the youngest growth.
 
 ```ts live
-import { sketch, stroke, strokes, circle, force, mul } from 'occlude';
+import { sketch, strokes, circle, force, mul } from 'occlude';
 
-export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const wander = force.drift(t.noise, { amount: 0.24, frequency: 0.05 });
-  const grown = t.sample(circle(100, 50, 8), { count: 24 }).edgeAttribute('fresh', 0).steps(150, (cur, next, k) => {
+  const grown = t.sample(circle(50, 50, 8), { count: 24 }).edgeAttribute('fresh', 0).steps(150, (cur, next, k) => {
     const push = force.sum(
       force.tension(cur, { rest: 1.6 }),
       force.separation(cur, { radius: 4, excludeConnected: true }),
@@ -250,8 +253,8 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     for (const e of stretched) next.split(e);
   });
   return [
-    strokes(grown.edges.filter((e) => e.attrs.fresh < 110), { pen: 'pigma-005-black' }),
-    strokes(grown.edges.filter((e) => e.attrs.fresh >= 110), { pen: 'stabilo-88-blue' }),
+    strokes(grown.edges.filter((e) => e.attrs.fresh < 135), { pen: 'pigma-005-black' }),
+    strokes(grown.edges.filter((e) => e.attrs.fresh >= 135), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -274,7 +277,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const trail = (i) => flown.history.map((h) => [h.material.x[i], h.material.y[i]]);
   return [
     seeds.points.map((p) => stroke(trail(p.index))),
-    posts.map(([x, y]) => circle(x, y, 3, { pen: 'stabilo-88-blue' })),
+    posts.map((p) => circle(p, 3, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -318,6 +321,6 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     const keep = force.boundary([[6, 6], [94, 6], [94, 94], [6, 94]], { radius: 12, strength: 3 });
     next.move(cur.points, (p) => mul(force.sum(repel, keep)(p), 0.05));
   });
-  return [cloud.points.map((p) => circle(p.x, p.y, 0.6)), spread.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }))];
+  return [cloud.points.map((p) => circle(p, 0.6)), spread.points.map((p) => circle(p, 1.4, { pen: 'stabilo-88-blue' }))];
 });
 ```

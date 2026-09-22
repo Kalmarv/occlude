@@ -43,7 +43,7 @@ export default sketch({
         (0.42 + 0.5 * t.noise(x / 31 + 71, y / 37 - 71) + 0.22 * t.noise(x / 11 - 20, y / 13 + 40) - 0.52)) * clamp01(0.12 + 1.15 * (y / 100));
     const stone = t
         .throw(grit, { count: 6200 })
-        .points.map((p) => circle(p.x, p.y, U(0.05 + 0.3 * t.rnd() * grit(p.x, p.y)), { pen: 'hair' }));
+        .points.map((p) => circle(p, U(0.05 + 0.3 * t.rnd() * grit(p.x, p.y)), { pen: 'hair' }));
     // ---- the colonies ----------------------------------------------
     const spec = [
         { c: [37, 61], r: 33, lobes: 9, age: 1.0 },
@@ -149,8 +149,8 @@ export default sketch({
                         within: inner,
                     }).points;
                     parts.push(...cups.map((p) => [
-                        circle(p.x, p.y, U(0.36), { fill: fill('solid'), stroke: false, pen: 'ink' }),
-                        circle(p.x, p.y, U(0.8), { pen: 'hair' }),
+                        circle(p, U(0.36), { fill: fill('solid'), stroke: false, pen: 'ink' }),
+                        circle(p, U(0.8), { pen: 'hair' }),
                     ]));
                 }
             }

@@ -28,9 +28,9 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => t.times(40, () => {
 
 <include>/_sig/Toolkit.gaussian.mdx</include>
 
-A normal draw. Most of them land within one `sd` of `mean`, a few land far out, and no bound holds them at all. `t.rnd(a, b)` gives a range with hard walls. `t.gaussian` gives a typical size with no wall, and that is the shape of most natural jitter. The defaults are the standard normal, mean 0 and spread 1. Every stream has it too, so `t.stream('grass').gaussian(0, 4)` draws from its own run of values.
+A normal draw. Most values land within one `sd` of `mean`, a few land far out, and no bound holds them. `t.rnd(a, b)` has hard walls, and `t.gaussian` has a typical size with no wall. The defaults are mean 0 and spread 1. Every stream has it too: `t.stream('grass').gaussian(0, 4)`.
 
-Three tufts. The lean of each blade and its length are both normal draws. Most blades stand near the middle of the tuft, at the middle height. The few that run far out are what a bell curve looks like in ink.
+Three tufts. The lean and the length of each blade are normal draws.
 
 ```ts live
 import { sketch, stroke, add, mul, fromAngle } from 'occlude';
@@ -78,14 +78,10 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 `rndInt` counts things. Here each cell of a grid rolls a die and draws that many dots.
 
 ```ts live
-import { sketch, dots, mm, pen } from 'occlude';
+import { sketch, dots, rect, mm, pen } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 9, pens: { ink: pen({ width: mm(0.8), color: '#23252B' }) } }, (t) => {
-  const cells = t.grid({ cols: 6, rows: 6, gap: 2 });
-  const points = cells.flatMap((c) => {
-    const n = t.rndInt(1, 6);
-    return t.times(n, () => [t.rnd(c.x + 2, c.x + c.w - 2), t.rnd(c.y + 2, c.y + c.h - 2)]);
-  });
-  return dots(points, { pen: 'ink' });
-});
+export default sketch({ aspect: [1, 1], seed: 9, pens: { ink: pen({ width: mm(1.6), color: '#23252B' }) } }, (t) => t.grid({ cols: 5, rows: 5, gap: 3 }).map((c) => [
+  rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, { pen: 'pigma-005-black' }),
+  dots(t.times(t.rndInt(1, 6), () => [t.rnd(c.x + 3, c.x + c.w - 3), t.rnd(c.y + 3, c.y + c.h - 3)]), { pen: 'ink' }),
+]));
 ```

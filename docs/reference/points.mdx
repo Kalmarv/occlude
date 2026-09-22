@@ -15,11 +15,11 @@ A distribution is a material of loose points. `scatter` makes one from a density
 Poisson-disk points over the drawable, at `spacing` where the field is 1 and further apart where it is lower. Where the field is 0, there are no points. Each point carries a `density` column with the field's value. With no field, the points are even.
 
 ```ts live
-import { sketch, circle } from 'occlude';
+import { sketch, circle, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const tone = (x, y) => Math.max(0, 1 - Math.hypot(x - 50, y - 50) / 45);
-  return t.scatter(tone, { spacing: 3 }).points.map((p) => circle(p.x, p.y, 0.4 + p.density * 1.2));
+  const tone = (x, y) => Math.max(0, 1 - distance([x, y], [50, 50]) / 45);
+  return t.scatter(tone, { spacing: 3 }).points.map((p) => circle(p, 0.4 + p.density * 1.2));
 });
 ```
 
@@ -37,7 +37,7 @@ import { sketch, circle } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const dish = circle(50, 50, 42);
   const shade = (x) => Math.pow(x / 100, 2);
-  return [dish, t.throw(shade, { count: 900, within: dish }).points.map((p) => circle(p.x, p.y, 0.7))];
+  return [dish, t.throw(shade, { count: 900, within: dish }).points.map((p) => circle(p, 0.7))];
 });
 ```
 
@@ -59,7 +59,7 @@ import { sketch, circle } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
   const rough = t.scatter({ spacing: 8 });
   const even = t.relax(rough, { iterations: 6 });
-  return [rough.points.map((p) => circle(p.x, p.y, 0.6)), even.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }))];
+  return [rough.points.map((p) => circle(p, 0.6)), even.points.map((p) => circle(p, 1.4, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -77,7 +77,7 @@ import { sketch, circle } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const tone = (x, y) => Math.max(0, 1 - Math.hypot(x - 60, (y - 45) * 1.4) / 40);
   const settled = t.settle(t.scatter({ spacing: 5 }), { density: tone, spacing: 3, iterations: 12 });
-  return settled.points.map((p) => circle(p.x, p.y, 0.5 + p.demand * 0.6));
+  return settled.points.map((p) => circle(p, 0.5 + p.demand * 0.6));
 });
 ```
 
@@ -90,12 +90,12 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 Moves each point to the best of `samples` places tried inside the disc of `radius` around it, judged by the field. A point that is already at that place stays. Edges, columns and row order stay. To seek the least, negate the field.
 
 ```ts live
-import { sketch, circle } from 'occlude';
+import { sketch, circle, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
-  const ring = (x, y) => -Math.abs(Math.hypot(x - 50, y - 50) - 30);
+  const ring = (x, y) => -Math.abs(distance([x, y], [50, 50]) - 30);
   const snapped = t.scatter({ spacing: 7 }).snap(ring, { radius: 6 });
-  return [circle(50, 50, 30, { pen: 'stabilo-88-blue' }), snapped.points.map((p) => circle(p.x, p.y, 1))];
+  return [circle(50, 50, 30, { pen: 'stabilo-88-blue' }), snapped.points.map((p) => circle(p, 1))];
 });
 ```
 
@@ -108,13 +108,13 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 Divides the drawable into cells that split where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls. A wall meets a bigger cell's wall at a T, so run `planarize()` before `faces()` reads the cells.
 
 ```ts live
-import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';
+import { sketch, circle, strokes, polygon, fill, mm, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
-  const tone = (x, y) => Math.max(0, 1 - Math.hypot(x - 35, y - 60) / 40);
+  const tone = (x, y) => Math.max(0, 1 - distance([x, y], [35, 60]) / 40);
   const pts = t.scatter(tone, { spacing: 4 });
   const cells = t.quadtree(pts, { capacity: 4 }).planarize().faces();
-  return [strokes(cells.edges), cells.filter((f) => f.area < 20).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), pts.points.map((p) => circle(p.x, p.y, 0.5, { pen: 'stabilo-88-blue' }))];
+  return [strokes(cells.edges), cells.filter((f) => f.area < 20).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), pts.points.map((p) => circle(p, 0.5, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -131,7 +131,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const sites = t.scatter({ spacing: 14 });
   const cells = t.voronoi(sites);
   const big = cells.faces().filter((f) => f.area > 160);
-  return [strokes(cells), big.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })), sites.points.map((p) => circle(p.x, p.y, 0.8, { pen: 'stabilo-88-blue' }))];
+  return [strokes(cells), big.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })), sites.points.map((p) => circle(p, 0.8, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -152,7 +152,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   return [
     strokes(hull(leaves), { pen: 'pigma-005-black' }),
     strokes(hull(leaves, { alpha: 1 / 5 }), { pen: 'stabilo-88-green' }),
-    leaves.map(([x, y]) => circle(x, y, 0.45, { pen: 'pigma-005-black' })),
+    leaves.map((p) => circle(p, 0.45, { pen: 'pigma-005-black' })),
   ];
 });
 ```

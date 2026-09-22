@@ -7,11 +7,11 @@ The eye is low, behind a trolley, and the lens is long. The vanishing point sits
 
 Every light comes from a fixture outside the picture. The ceiling panels sit above the horizon, so the sheet carries only the ladder of pools they drop. The rungs close up as they go. After a point you cannot count them.
 
-One tube is out, and that is the long dark stretch. One room is awake, and it is the only irregular thing here.
+One tube is out, and that is the long dark stretch. A few rooms are awake, and they are the only irregular things here. The seed picks the dark tube, the lit rooms, the two door rhythms and the place where the corridor vanishes.
 
 There is no linework at all. The whole sheet is three polygons. A function of position sets the pitch of their fills. The tone has a rate, and not an edge.
 
-Uses: `polygon` with a hatch `fill` whose spacing comes from a function, `mm`, `t.bounds`. The sketch writes its own perspective.
+Uses: `polygon` with a hatch `fill` whose spacing comes from a function, `mm`, `t.bounds`, `t.rnd`, `t.rndInt`. The sketch writes its own perspective.
 
 ```ts live
 // Night round.
@@ -35,7 +35,7 @@ import { sketch, polygon, modify, wobble, mm } from 'occlude';
 export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
     const b = t.bounds();
     // --- the pinhole -------------------------------------------------------
-    const CX = 0.585 * b.w; // the vanishing point is never where you are
+    const CX = t.rnd(0.5, 0.67) * b.w; // the vanishing point is never where you are
     const VPY = -0.045 * b.h; // vanishing point, above the sheet
     const E = 1.55; // eye height, metres
     const W = 0.78; // half corridor width, metres
@@ -59,7 +59,7 @@ export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
     // --- the ceiling panels you cannot see ---------------------------------
     const PITCH = 2.2;
     const D0 = 2.7;
-    const DEAD = new Set([2]); // one tube is out, and the round is longer there
+    const DEAD = new Set([t.rndInt(1, 4)]); // one tube is out, and the round is longer there
     const glow = (d) => {
         const i = Math.round((d - D0) / PITCH);
         const q = Math.abs(d - (D0 + i * PITCH)) / (PITCH / 2);
@@ -72,8 +72,8 @@ export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
     };
     // --- forty doors, in two rhythms that will not agree -------------------
     const RUN = [
-        { s: -1, d0: 2.0, pitch: 2.6, on: new Set([2, 8]) },
-        { s: 1, d0: 3.25, pitch: 3.4, on: new Set([4]) },
+        { s: -1, d0: t.rnd(1.6, 2.4), pitch: t.rnd(2.3, 2.9), on: new Set([t.rndInt(1, 4), t.rndInt(6, 10)]) },
+        { s: 1, d0: t.rnd(2.8, 3.6), pitch: t.rnd(3.1, 3.7), on: new Set([t.rndInt(2, 7)]) },
     ];
     const DOOR_W = 0.92;
     const doorAt = (s, d) => {

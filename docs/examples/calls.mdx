@@ -40,7 +40,7 @@ Uses: `polygon` with `opaque`, `stroke`, `strokes`, `t.noise`, `t.rnd`, `t.chanc
 // it was never once used. It is the empty field in the middle of this paper,
 // fenced on its three sides by traffic that had somewhere to be, and it is
 // the only thing here that I drew by refusing to draw it.
-import { sketch, stroke, circle, mm } from 'occlude';
+import { sketch, stroke, circle, mm, distance } from 'occlude';
 const FINE = 'pigma-005-black';
 const TRUNK = 'pigma-01-black';
 export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
@@ -49,7 +49,7 @@ export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
     const MM = t.len(mm(1));
     const clamp = (v, a, c) => (v < a ? a : v > c ? c : v);
     const lerp = (a, c, u) => [a[0] + (c[0] - a[0]) * u, a[1] + (c[1] - a[1]) * u];
-    const dist = (a, c) => Math.hypot(a[0] - c[0], a[1] - c[1]);
+    const dist = distance;
     const perp = (a, c) => {
         const d = Math.max(1e-6, dist(a, c));
         return [-(c[1] - a[1]) / d, (c[0] - a[0]) / d];

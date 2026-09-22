@@ -31,7 +31,7 @@ export default sketch({ aspect: [3, 2], seed: 11 }, (t) => {
   return [
     strokes(adrift.edges, { pen: 'pigma-005-black' }),
     strokes(body.edges, { pen: 'pigma-05-black' }),
-    adrift.map((p) => circle(p.x, p.y, 0.9, { pen: 'stabilo-88-blue' })),
+    adrift.map((p) => circle(p, 0.9, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```

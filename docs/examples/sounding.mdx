@@ -23,7 +23,7 @@ Uses: `t.isolines` on two fields, `distanceTo`, `t.scatter`, `t.within`, `along`
 
 import {
   sketch, strokes, polygon, rect, line, circle, ngon, label, labelWidth, group,
-  fill, mm, dash, sdf, distanceTo,
+  fill, mm, dash, sdf, distanceTo, distance,
 } from 'occlude';
 
 export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
@@ -40,7 +40,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
   const WATER = 'stabilo-88-blue';
 
   const at = (text, x, y, h, opts = {}) => label(text, x, y - 0.5 * h, h, { align: 'center', ...opts });
-  const near = (list, x, y, gap) => list.some((p) => Math.hypot(p.x - x, p.y - y) < gap);
+  const near = (list, x, y, gap) => list.some((p) => distance(p, [x, y]) < gap);
 
   // ---- the ground ------------------------------------------------------
   const STEP = 0.10;           // one contour interval
@@ -126,13 +126,13 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
       const u = i / 80;
       if (ground(beacon.x + (a.x - beacon.x) * u, beacon.y + (a.y - beacon.y) * u) < 0) wet2++;
     }
-    return (wet2 / 80) * Math.hypot(a.x - beacon.x, a.y - beacon.y);
+    return (wet2 / 80) * distance(a, beacon);
   };
-  const sight = spots.filter((a) => seen(a) > 8).map((a) => line(beacon.x, beacon.y, a.x, a.y,
+  const sight = spots.filter((a) => seen(a) > 8).map((a) => line(beacon, a,
     { pen: FINE, modifiers: [dash(mm(4.6), mm(1.5))] }));
   const beaconMark = [
-    circle(beacon.x, beacon.y, 1.5, { pen: HEAVY }),
-    circle(beacon.x, beacon.y, 0.35, { pen: HEAVY }),
+    circle(beacon, 1.5, { pen: HEAVY }),
+    circle(beacon, 0.35, { pen: HEAVY }),
     label('BEACON', beacon.x + 2.9, beacon.y - 1.1, 2.2),
   ];
 
@@ -187,7 +187,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
       let best = null;
       for (const e of walls) {
         const [x, y] = e.center;
-        const clear = Math.min(...taken.map((q) => Math.hypot(q.x - x, q.y - y)));
+        const clear = Math.min(...taken.map((q) => distance(q, [x, y])));
         if (!best || clear > best.clear) best = { e, x, y, clear };
       }
       if (!best || best.clear < 10) break;
@@ -291,7 +291,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
       at(l.text, l.x, l.y, CONT_H))),
     spots.map((s) => [
       ngon(s.x, s.y, 3, 2.2, -90, { pen: HEAVY }),
-      circle(s.x, s.y, 0.35, { pen: HEAVY }),
+      circle(s, 0.35, { pen: HEAVY }),
       at(s.text, s.x, spotTextY(s), SPOT_H),
     ]),
 

@@ -39,11 +39,11 @@ Two expressions over the same variables make a displacement. `warp` returns a fu
 These are plain circles. The warp gives them the rings.
 
 ```ts live
-import { sketch, circle, deform, range } from 'occlude';
+import { sketch, circle, deform, range, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
   const w = t.synth.warp(['x', 'y'], { bounds: { x: 0, y: 0, w: 6, h: 6 } });
-  const push = (x, y) => { const d = w(x / 16, y / 16); return [d[0] * 1.2, d[1] * 1.2]; };
+  const push = (x, y) => mul(w(x / 16, y / 16), 1.2);
   return deform({ field: push, detail: 1 }, range(8, 92, 7).map((r) => circle(50, 50, r / 2 + 4)));
 });
 ```

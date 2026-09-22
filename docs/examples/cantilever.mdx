@@ -9,7 +9,7 @@ The sheet carries three values: bare paper, ruled grain, and solid black. There 
 
 The white lid of the near mass and the single slot of light across it are the only soft notes. The drawing reads at arm's length before it reads at reading distance.
 
-Uses: `polygon` with `opaque` and a hatch `fill`, `mm`. The geometry is an axonometric projection written in the sketch.
+Uses: `polygon` with `opaque` and a hatch `fill`, `mm`, `t.rnd`, `t.rndInt`, `t.pick`. The geometry is an axonometric projection written in the sketch. The seed builds the stack: how many slabs, how wide, how far each one steps out, and how dark its face is.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -42,16 +42,21 @@ export default sketch({ aspect: [3, 4], seed: 3 }, (t) => {
         out.push(face(f.front, s.front));
     };
     const cut = (loop) => polygon(loop, { opaque: true, stroke: false });
-    // The stack. Bottom slab first; each sits on the one below and steps in or out.
-    const stack = [
-        { x: 0, y: 140, w: 52, h: 22, z: 0, d: 16, front: 0.45, side: 0.3, top: 1.6 },
-        { x: 10, y: 118, w: 32, h: 19, z: 6, d: 13, front: 0.85, side: 0.3, top: null, slots: [0.3, 0.66] },
-        { x: 2, y: 99, w: 48, h: 9, z: 1, d: 18, front: 0.32, side: 0.3, top: null },
-        { x: 16, y: 90, w: 26, h: 24, z: 8, d: 12, front: 1.1, side: 0.3, top: null, slots: [0.24, 0.58] },
-        { x: -2, y: 66, w: 52, h: 11, z: 0, d: 20, front: 0.55, side: 0.3, top: null },
-        { x: 18, y: 55, w: 24, h: 23, z: 6, d: 14, front: 1.5, side: 0.3, top: null, slots: [0.3, 0.66] },
-        { x: 8, y: 32, w: 36, h: 10, z: 1, d: 14, front: 1.2, side: 0.3, top: null },
-    ];
+    // The stack. Bottom slab first; each sits on the one below and steps in
+    // or out. Wide thin slabs and narrow tall blocks take turns.
+    const stack = [];
+    for (let y = 140, k = 0; y > 44; k++) {
+        const wide = k % 2 === 0;
+        const w = wide ? t.rnd(36, 54) : t.rnd(22, 34);
+        const h = wide ? t.rnd(8, k === 0 ? 22 : 13) : t.rnd(18, 25);
+        stack.push({
+            x: t.rnd(-2, 56 - w), y, w, h,
+            z: wide ? t.rndInt(0, 2) : t.rndInt(5, 9), d: t.rnd(12, 20),
+            front: t.pick([0.32, 0.45, 0.55, 0.85, 1.1, 1.5]), side: 0.3, top: k === 0 ? 1.6 : null,
+            slots: wide ? undefined : [t.rnd(0.2, 0.32), t.rnd(0.56, 0.68)],
+        });
+        y -= h;
+    }
     const grain = fill('hatch', { angle: 90, spacing: mm(0.42) });
     const panel = fill('hatch', { angle: 90, spacing: mm(0.75) });
     const out = [];

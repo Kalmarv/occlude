@@ -32,8 +32,8 @@ import { box, view, orthographic, perspective } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const row = t.times(4, (k) => box(0.8).translate([k * 1.2 - 1.8, 0, 0]));
   return [
-    group({ scale: 0.5, origin: [0, 0] }, view(row, { camera: orthographic({ eye: [3, 8, 4], span: 6 }), stroke: 'ink' })),
-    group({ scale: 0.5, origin: [0, 0], translate: [50, 50] }, view(row, { camera: perspective({ eye: [2, 5, 2.5], fovDegrees: 50 }), stroke: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(row, { camera: orthographic({ eye: [3, 8, 4], span: 6 }), stroke: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(row, { camera: perspective({ eye: [2, 5, 2.5], fovDegrees: 50 }), stroke: 'ink' })),
   ];
 });
 ```
@@ -42,7 +42,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.oblique.mdx</include>
 
-A perspective camera with a `shift`. The shift moves the frame off the optical axis. It is a fraction of the frame, to the right and up: `shift: [0, 0.4]` lifts the frame by four tenths of its height, and the drawing moves down the page by the same amount. The eye and the direction of view stay where they are. A level camera therefore keeps the world verticals parallel, while the frame covers what a tilt must otherwise reach. This is the architect's two-point view. `shift: [0, 0]` gives the same lines as `perspective`.
+A perspective camera with a `shift`. The shift moves the frame off the optical axis. It is a fraction of the frame, to the right and up. `shift: [0, 0.4]` lifts the frame by four tenths of its height, and the drawing moves down by the same amount. The eye and the direction of view stay where they are. So a level camera keeps the world verticals parallel, and the frame still covers what a tilt would reach. This is the architect's two-point view. `shift: [0, 0]` gives the same lines as `perspective`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -145,12 +145,12 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 <include>/_sig/Toolkit.toPaper.1.mdx</include>
 <include>/_sig/Toolkit.toPaper.2.mdx</include>
 
-Where a view puts a world point on the paper. One point in gives one `[x, y]` pair in drawable units. Points in give a material of the projected points, so a label or a leader line can go where the drawing already put an object. The camera is the view's own, including a camera the studio has committed, so the pair lands exactly where that view's lines do.
+Where a view puts a world point on the paper. One point in gives one `[x, y]` pair in drawable units. Points in give a material of the projected points. A label or a leader line can then go where the drawing put an object. The camera is the view's own, and a camera the studio committed counts. The pair lands exactly where that view's lines do.
 
 A point behind the eye has no place on the paper. The pair is then two NaN values, and a material leaves that point out.
 
 ```ts live
-import { sketchAsync, pen, mm } from 'occlude';
+import { sketchAsync, pen, mm, circle, line, label, add, sub, mul, unit } from 'occlude';
 import { box, view, orthographic } from 'occlude/3d';
 
 export default sketchAsync({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.35), color: '#18202A' }), note: pen({ width: mm(0.18), color: '#A84932' }) } }, async (t) => {
@@ -158,14 +158,14 @@ export default sketchAsync({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.35),
   const drawing = view(cube, { camera: orthographic({ eye: [5, 7, 4], span: 7.2 }), stroke: 'ink' });
   const callouts = [[[-1, -1, 1], 'A'], [[1, -1, -1], 'B'], [[1, 1, -1], 'C']];
   return [drawing, callouts.map(([corner, name]) => {
-    const [x, y] = t.toPaper(drawing, corner);
+    const at = t.toPaper(drawing, corner);
     // The leader runs away from the middle of the sheet, so it never crosses
     // the object it points at.
-    const away = Math.hypot(x - t.cx, y - t.cy) || 1;
-    const dx = (14 * (x - t.cx)) / away, dy = (14 * (y - t.cy)) / away;
-    const top = y + dy + (dy < -6 ? -7 : dy > 6 ? 2 : -2.5);
-    return [t.circle(x, y, 1.2, { stroke: 'note' }), t.line(x + dx * 0.15, y + dy * 0.15, x + dx, y + dy, { stroke: 'note' }),
-      t.label(name, x + dx * 1.1, top, 5, { stroke: 'note', align: 'center' })];
+    const out = mul(unit(sub(at, [t.cx, t.cy])), 14);
+    const tip = add(at, out);
+    const top = tip[1] + (out[1] < -6 ? -7 : out[1] > 6 ? 2 : -2.5);
+    return [circle(at, 1.2, { pen: 'note' }), line(add(at, mul(out, 0.15)), tip, { pen: 'note' }),
+      label(name, at[0] + out[0] * 1.1, top, 5, { pen: 'note', align: 'center' })];
   })];
 });
 ```

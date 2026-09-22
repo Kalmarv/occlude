@@ -9,6 +9,39 @@ A planar material is one whose edges meet only at shared vertices. Its edges div
 On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls.
 :::
 
+## planarize
+
+<include>/_sig/Material.planarize.mdx</include>
+
+<AutoTypeTable path="../occlude/src/faces.ts" name="PlanarizeOpts" />
+
+Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Below, the blue rings are the two new vertices, where four edges meet.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const two = t.material(circle(38, 50, 30), circle(62, 50, 30));
+  const planar = two.planarize();
+  return [strokes(planar), planar.points.filter((p) => p.edges.length === 4).map((p) => circle(p, 2.5, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## faces
+
+<include>/_sig/Material.faces.mdx</include>
+
+The bounded regions of a planar material, as a collection. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. Each call returns the same collection, so a face from any call is valid everywhere. If the material has a crossing without a vertex, the call fails and the message tells you to planarize.
+
+```ts live
+import { sketch, circle, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  return cells.map((f, i) => polygon(f, { stroke: false, fill: fill('hatch', { angle: i * 60, spacing: mm(1.2) }) }));
+});
+```
+
 ## face
 
 <include>/_sig/Face.index.mdx</include>
@@ -27,7 +60,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
   return cells.map((f) => [
     strokes(t.isolines(distanceTo(f), 3)),
-    circle(f.centroid[0], f.centroid[1], 1.5, { pen: 'stabilo-88-blue' }),
+    circle(f.centroid, 1.5, { pen: 'stabilo-88-blue' }),
   ]);
 });
 ```
@@ -47,58 +80,27 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
 });
 ```
 
-## planarize
-
-<include>/_sig/Material.planarize.mdx</include>
-
-<AutoTypeTable path="../occlude/src/faces.ts" name="PlanarizeOpts" />
-
-Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values.
-
-```ts live
-import { sketch, circle, strokes } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const two = t.material(circle(38, 50, 30), circle(62, 50, 30));
-  const planar = two.planarize();
-  return [strokes(planar), planar.points.map((p) => circle(p.x, p.y, 1.2, { pen: 'stabilo-88-blue' }))];
-});
-```
-
-## faces
-
-<include>/_sig/Material.faces.mdx</include>
-
-The bounded regions of a planar material, as a collection. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. Each call returns the same collection, so a face from any call is valid everywhere. If the material has a crossing without a vertex, the call fails and the message tells you to planarize.
-
-```ts live
-import { sketch, circle, polygon, fill, mm } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
-  return cells.map((f, i) => polygon(f, { stroke: false, fill: fill('hatch', { angle: i * 60, spacing: mm(1.2) }) }));
-});
-```
-
 ## face.edges · face.points · face.boundaryEdges
 
 <include>/_sig/Face.edges.mdx</include>
 <include>/_sig/Face.points.mdx</include>
 <include>/_sig/Face.boundaryEdges.mdx</include>
 
-`face.edges` is every edge that belongs to this face: its walls, and any loose edge that lies inside it. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
+`face.edges` is every edge that belongs to this face: its walls, and any loose edge that runs into it from a wall. A line that touches nothing belongs to no face. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
 
 :::warning
-For a plain pile of shapes, `edges` and `boundaryEdges` are the same selection. They differ only when a loose line lies inside a region. Use `boundaryEdges` when you want an outline.
+For a plain pile of shapes, `edges` and `boundaryEdges` are the same selection. They differ only when a loose line runs into a region. Use `boundaryEdges` when you want an outline.
 :::
 
+Below, one cell with a loose line that runs in from its wall. `edges` (blue) holds the line. `boundaryEdges` (black, on top) holds the walls only.
+
 ```ts live
-import { sketch, circle, strokes } from 'occlude';
+import { sketch, rect, line, strokes, append } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
-  const lens = cells.filter((f) => Math.abs(f.centroid[0] - 50) < 1).at(0);
-  return [strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(lens.boundaryEdges, { pen: 'pigma-05-black' })];
+  const room = append(t.material(rect(15, 15, 70, 70)), t.material(line(15, 50, 60, 50))).planarize();
+  const cell = room.faces().at(0);
+  return [strokes(cell.edges, { pen: 'stabilo-88-blue' }), strokes(cell.boundaryEdges)];
 });
 ```
 
@@ -106,7 +108,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Face.adjacent.mdx</include>
 
-The faces on the other side of this face's walls. Two faces are neighbours when they share an edge. A shared corner is not enough.
+The faces on the other side of this face's walls. Two faces are neighbours when they share an edge. A shared corner is not enough. Below, the blue face has the most neighbours, and a hatch marks each of them.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
@@ -115,7 +117,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30), circle(50, 26, 18)).planarize().faces();
   const most = Math.max(...cells.map((f) => f.adjacent.length));
   const middle = cells.filter((f) => f.adjacent.length === most).at(0);
-  return [strokes(cells.edges), middle.adjacent.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
+  return [strokes(cells.edges), middle.adjacent.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })), strokes(middle.boundaryEdges, { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -142,7 +144,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/FaceSelection.adjacent.mdx</include>
 
-The faces on the other side of the walls of the selected faces, one step out, the selected faces excluded. Two selected faces that share a wall are each other's inside, not each other's neighbour. `sel.union(sel.adjacent())` is the selection grown by a ring, and says so.
+The faces on the other side of the walls of the selected faces, one step out, the selected faces excluded. Two selected faces that share a wall are each other's inside, not each other's neighbour. `sel.union(sel.adjacent())` is the selection grown by a ring, and says so. Below, the blue cells are the selection, and the hatch is its ring.
 
 ```ts live
 import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
@@ -151,7 +153,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
   const seed = t.within(cells, rect(40, 40, 20, 20), { faces: 'centroid' });
   const ring = seed.adjacent();
-  return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) }))];
+  return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), strokes(seed.boundaryEdges(), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -175,7 +177,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   return [
     strokes(tangle),
     faces(tangle).containing(marks).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 35, spacing: mm(1.2) }) })),
-    marks.map(([x, y]) => circle(x, y, 1.2, { pen: 'stabilo-88-blue' })),
+    marks.map((p) => circle(p, 1.2, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -189,13 +191,13 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results.
 
 ```ts live
-import { sketch, circle, strokes, line } from 'occlude';
+import { sketch, circle, strokes, line, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
-  const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 20, y - 20) / 70);
+  const light = (x, y) => Math.max(0, 1 - distance([x, y], [20, 20]) / 70);
   const m = cells.measure(light, { resolution: 120 });
-  return [strokes(cells.edges), [...m].map((r) => [circle(r.centroid[0], r.centroid[1], 1.2), circle(r.weightedCentroid[0], r.weightedCentroid[1], 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid[0], r.centroid[1], r.weightedCentroid[0], r.weightedCentroid[1], { pen: 'stabilo-88-blue' })])];
+  return [strokes(cells.edges), [...m].map((r) => [circle(r.centroid, 1.2), circle(r.weightedCentroid, 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid, r.weightedCentroid, { pen: 'stabilo-88-blue' })])];
 });
 ```
 
@@ -203,7 +205,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Edge.faces.mdx</include>
 
-The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar. `edge.faces` builds the face map itself. If the material is not planar, it fails with the same message as `faces()`.
+The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar, and `edge.faces` builds the face map itself. A material that is not planar fails with the same message as `faces()`. Below, the walls with two faces are blue.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -211,7 +213,7 @@ import { sketch, circle, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const m = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize();
   const walls = m.edges.filter((e) => e.faces.length === 2);
-  return [strokes(m, { pen: 'pigma-005-black' }), strokes(walls, { pen: 'pigma-05-black' })];
+  return [strokes(m), strokes(walls, { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -220,11 +222,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.faceAttribute.mdx</include>
 <include>/_sig/Material.faceAttributes.mdx</include>
 
-A value that belongs to what the walls enclose. A face is not a row. Walls come and go, and a face comes and goes with them. So a face column takes the face's own walls as its key. The column then follows the material through any edit that leaves those walls alone. It follows an edit that SPLITS a wall too. A child wall remembers the wall it came from, so a subdivided cell is the same cell.
+A value that belongs to what the walls enclose. A face is not a row, so a face column takes the face's own walls as its key. The column then follows the material through any edit that leaves those walls alone. It follows a SPLIT of a wall too, because a child wall remembers its parent.
 
-`transfer` says what a face does when its boundary really changes. `'nearest'` is the default: it takes the value of the old face it shares the most walls with. `'drop'` stops there. A face that shares no wall with any old face starts from `fallback`. A face column is sparse, and the type says so: read `f.height` and you may get `undefined`.
-
-`faceAttributes` gives several columns at once. Inside a step, `next.setFaces(faces, values)` writes the same column.
+`transfer` says what a face does when its boundary really changes. `'nearest'`, the default, takes the value of the old face it shares the most walls with. `'drop'` stops there. A face that shares no wall with an old face starts from `fallback`. A face column is sparse, so `f.height` may be `undefined`. `faceAttributes` gives several columns at once. Inside a step, `next.setFaces(faces, values)` writes the same column.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm } from 'occlude';

@@ -28,9 +28,9 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 <include>/_sig/3d.lamp.mdx</include>
 <include>/_sig/3d.environment.mdx</include>
 
-`lamp` is a light at a place. Its tone follows the angle between the normal and the direction to the lamp, times a distance fade. `falloff: { radius, ease? }` sets that fade, which is 1 at the lamp and 0 at the radius. Without it the lamp reaches everywhere. A face turned toward the lamp is 0, which is no hatch, and a face turned away reaches `1 - ambient`.
+`lamp` is a light at a place. Its tone follows the angle between the normal and the direction to the lamp, times a distance fade. `falloff: { radius, ease? }` sets that fade: 1 at the lamp and 0 at the radius. Without it the lamp reaches everywhere. A face turned toward the lamp is 0, no hatch, and a face turned away reaches `1 - ambient`.
 
-`environment` is the light a surface sees from the world around it, read by the direction of its normal. The sampler gives the light that arrives from a direction, and the tone is the complement, so a bright sky above keeps up-facing surfaces pale. An image sampler from `t.image(name).surface(...)` is read equirectangularly: `u` is the longitude around Z from +X, and `v` is the latitude, 0 at -Z and 1 at +Z. Any other function is called with the unit direction. `orientation` turns the surroundings.
+`environment` is the light a surface sees from the world around it, read by the direction of its normal. The sampler gives the light that comes from a direction, and the tone is its complement. A bright sky above keeps up-facing surfaces pale. An image sampler from `t.image(name).surface(...)` reads the picture as a map of the sky. `u` is the longitude around Z from +X, and `v` is the latitude, 0 at -Z and 1 at +Z. Any other function gets the unit direction. `orientation` turns the surroundings.
 
 Both fields are ordinary functions, and both run on the CPU. Combine them in plain JavaScript: the product of two tones is the two lights together.
 

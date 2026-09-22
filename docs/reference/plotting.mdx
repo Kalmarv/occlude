@@ -28,19 +28,19 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 A shader is a program that runs along every stroke in the plan. It reads the arc length in millimetres, the point there, and the stroke it walks. It answers with what the pen does: more `passes`, another `pen`, a `dash`, or no ink. Give it to `t.plan({ shader })`, and the stroke splits wherever the answer changes. A split lands on the nib grid.
 
 ```ts live
-import { sketch, shader, polygon, circle, mm } from 'occlude';
+import { sketch, shader, circle, mm, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const b = t.bounds();
   t.plan({
     shader: shader((s, p) => ({
-      keep: Math.hypot(p[0] - b.w * 0.62, p[1] - b.h * 0.62) > b.w * 0.18,
+      keep: distance(p, [b.w * 0.62, b.h * 0.62]) > b.w * 0.18,
       dash: p[1] < b.h * 0.5 ? [mm(3), mm(0.8)] : undefined,
     })),
   });
   return [
-    t.times(24, (i) => polygon(circle(b.w * 0.5, b.h * 0.5, 3 + i * 1.7))),
-    polygon(circle(b.w * 0.74, b.h * 0.28, b.w * 0.13), { opaque: true }),
+    t.times(24, (i) => circle(b.w * 0.5, b.h * 0.5, 3 + i * 1.7)),
+    circle(b.w * 0.74, b.h * 0.28, b.w * 0.13, { opaque: true }),
   ];
 });
 ```
@@ -68,6 +68,19 @@ The route is already chosen when a shader runs. A `pen` answer costs a pen chang
 ## Where a modifier runs
 
 A modifier runs on one side of the occlusion solve or the other. The side is the modifier's own, and not an option. `smooth`, `roughen` and `deform` run BEFORE the solve. They change the shape's own outline, so they change what the shape hides. `wobble`, `decimate` and `dash` run AFTER it, over the ink that survives. They tremble, thin and cut the drawing, and the scene stays as the engine solved it. Inside each side the stack runs in the order the sketch wrote it. The plan comes after all of them, and a shader after the plan. The [shapes](/docs/reference/shapes#wobble--decimate--dash) page holds each modifier's own options.
+
+Below, the same opaque disc over the same rules. On the left, `roughen` runs before the solve, so the rough edge is the edge that hides. On the right, `wobble` runs after it, so the cut stays a clean circle and the surviving ink trembles.
+
+```ts live
+import { sketch, circle, line, roughen, wobble, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => [
+  t.times(30, (k, u) => line(4, 6 + u * 88, 96, 6 + u * 88)),
+  circle(50, 50, 30, { opaque: true, modifiers: [roughen(mm(2.5))] }),
+  t.times(30, (k, u) => line(104, 6 + u * 88, 196, 6 + u * 88, { modifiers: [wobble(mm(1.2))] })),
+  circle(150, 50, 30, { opaque: true, modifiers: [wobble(mm(1.2))] }),
+]);
+```
 
 ## Export
 

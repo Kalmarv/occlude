@@ -50,13 +50,13 @@ A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, 
 `add` and `sub` are the arithmetic. `mul` scales a vector by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn.
 
 ```ts live
-import { sketch, stroke, circle, add, sub, unit, mul, perp } from 'occlude';
+import { sketch, stroke, circle, add, sub, unit, mul, perp, lerp } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const a = [12, 72], b = [88, 32];
   const n = mul(unit(perp(sub(b, a))), 22);
-  const mid = mul(add(a, b), 0.5);
-  return [stroke([a, b]), stroke([mid, add(mid, n)], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
+  const mid = lerp(a, b, 0.5);
+  return [stroke([a, b]), stroke([mid, add(mid, n)], { pen: 'stabilo-88-blue' }), circle(mid, 1.2)];
 });
 ```
 
@@ -81,12 +81,12 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const b = t.bounds();
   const stone = [0.42 * b.w, 0.5 * b.h];
   const axis = fromAngle(-0.4);
-  return t.grid({ cols: 52, rows: 26 }).map((c) => {
+  return t.grid({ cols: 30, rows: 15 }).map((c) => {
     const p = [c.cx, c.cy];
     const v = sub(p, stone);
     const d = distance(p, stone);
     const dir = fromAngle(angleOf(v) + Math.PI / 2);
-    const reach = limit(mul(dir, (2 + 8 * (1 + dot(axis, unit(v)))) * (1 - 1 / (1 + d / 14))), 11);
+    const reach = limit(mul(dir, (3 + 10 * (1 + dot(axis, unit(v)))) * (1 - 1 / (1 + d / 14))), 14);
     return stroke([sub(p, mul(reach, 0.5)), add(p, mul(reach, 0.5))], { pen: cross(axis, v) > 0 ? 'stabilo-88-blue' : undefined });
   });
 });
@@ -104,12 +104,12 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 A ball on a round table. Each hit turns it with `reflect` about the inward normal. A circle turns a ball by the same angle at every hit of one run. How far that turn went picks the pen, so the three runs read apart.
 
 ```ts live
-import { sketch, stroke, circle, add, sub, mul, unit, turn, reflect, lerp, angleBetween } from 'occlude';
+import { sketch, stroke, circle, add, sub, mul, unit, turn, reflect, lerp, angleBetween, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const c = [50, 50];
   const R = 43;
-  return [circle(50, 50, R, { pen: 'pigma-005-black' }), t.times(3, (k) => {
+  return [circle(c, R, { pen: 'pigma-005-black' }), t.times(3, (k) => {
     let p = lerp(c, add(c, turn([0, -R], k * 1.9)), 0.98);
     let v = turn(unit(sub(c, p)), 0.62 + k * 0.17);
     let bend = 0;
@@ -117,7 +117,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     let run = [p];
     for (let i = 0; i < 260; i++) {
       const next = add(p, mul(v, 3.5));
-      if (Math.hypot(next[0] - c[0], next[1] - c[1]) > R) {
+      if (distance(next, c) > R) {
         const away = reflect(v, unit(sub(c, next)));
         out.push(stroke(run, { pen: bend > 1.7 ? 'stabilo-88-blue' : 'pigma-05-black' }));
         bend = Math.abs(angleBetween(v, away));

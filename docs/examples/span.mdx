@@ -18,7 +18,7 @@ Uses: `t.scatter`, `connect.unimpeded`, `t.plan({ shader })` reading `ctx.length
 :::
 
 ```ts live
-import { sketch, strokes, polygon, circle, connect, shader, pen, mm } from 'occlude';
+import { sketch, strokes, polygon, circle, connect, shader, pen, mm, distance } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 21, margin: 6,
@@ -26,7 +26,7 @@ export default sketch({
 }, (t) => {
   const b = t.bounds();
   const points = t.scatter({ spacing: b.w * 0.062 }).points
-    .filter((p) => Math.hypot(p.x - b.w / 2, p.y - b.h / 2) < b.w * 0.46);
+    .filter((p) => distance(p, [b.w / 2, b.h / 2]) < b.w * 0.46);
   const net = connect.unimpeded(points.extract(), { room: 1.25 });
   t.plan({
     shader: shader((s, p, ctx) => {
@@ -38,7 +38,7 @@ export default sketch({
   });
   return [
     strokes(net.curves(), { pen: 'fine' }),
-    net.points.map((p) => polygon(circle(p.x, p.y, 0.7), { pen: 'ink' })),
+    net.points.map((p) => polygon(circle(p, 0.7), { pen: 'ink' })),
   ];
 });
 ```

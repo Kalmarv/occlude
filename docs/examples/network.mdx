@@ -34,6 +34,6 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
     }, { inherit: true });
     next.set(tips, { active: 0 });
   });
-  return [strokes(paths), paths.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 0.8))];
+  return [strokes(paths), paths.points.filter((p) => p.active === 1).map((p) => circle(p, 0.8))];
 });
 ```

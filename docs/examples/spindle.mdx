@@ -28,7 +28,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
     t.times(75, (i) => {
       const a = ring.points.at(i);
       const b = ring.points.at((i * 31) % 75);
-      return line(a.x, a.y, b.x, b.y, { pen: 'pigma-005-black' });
+      return line(a, b, { pen: 'pigma-005-black' });
     }),
     strokes(corners, { pen: 'pigma-05-black' }),
     ring.points.map((p) => tick(p, 2.4)),

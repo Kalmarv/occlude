@@ -22,7 +22,7 @@ import { sketch, circle, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 20 }).attribute('k', (p) => p.index % 4);
-  return [strokes(ring), ring.points.map((p) => circle(p.x, p.y, 1 + p.k, { pen: 'stabilo-88-blue' }))];
+  return [strokes(ring), ring.points.map((p) => circle(p, 1 + p.k, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -34,7 +34,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Edge.index.mdx</include>
 <include>/_sig/Edge.attrs.mdx</include>
 
-One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length`, its row `index`, and its columns under `attrs`. Here the long edges take a pen from a column, and the rest of the path takes the default one.
+One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length`, its row `index`, and its columns under `attrs`. Here the long edges take a pen from a column: green where the path climbs and blue where it falls. The rest of the path takes the default pen.
 
 ```ts live
 import { sketch, curve, strokes } from 'occlude';
@@ -44,7 +44,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const long = path.edges.filter((e) => e.length > 20);
   return [
     strokes(path.edges.subtract(long)),
-    strokes(long.filter((e) => e.attrs.climb === 1), { pen: 'pigma-05-black' }),
+    strokes(long.filter((e) => e.attrs.climb === 1), { pen: 'stabilo-88-green' }),
     strokes(long.filter((e) => e.attrs.climb === 0), { pen: 'stabilo-88-blue' }),
   ];
 });
@@ -69,9 +69,9 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   return [
     strokes(web.edges.subtract(touching).subtract(web.edges.rows([wall.index])), { pen: 'pigma-005-black' }),
     strokes(touching, { pen: 'stabilo-88-blue' }),
-    strokes(web.edges.rows([wall.index]), { pen: 'pigma-05-black' }),
-    [...touching].map((e) => circle(e.center[0], e.center[1], 1.2, { pen: 'stabilo-88-blue' })),
-    circle(wall.center[0], wall.center[1], 2.2),
+    strokes(web.edges.rows([wall.index]), { pen: 'stabilo-88-green' }),
+    touching.map((e) => circle(e.center, 1.2, { pen: 'stabilo-88-blue' })),
+    circle(wall.center, 2.2, { pen: 'stabilo-88-green' }),
   ];
 });
 ```
@@ -90,7 +90,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cloud = t.scatter({ spacing: 7 });
   const right = cloud.points.filter((p) => p.x > 50);
   const top = right.filter((p) => p.y < 50);
-  return [cloud.points.map((p) => circle(p.x, p.y, 0.8)), top.map((p) => circle(p.x, p.y, 2, { pen: 'stabilo-88-blue' }))];
+  return [cloud.points.map((p) => circle(p, 0.8)), top.map((p) => circle(p, 2, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -107,7 +107,7 @@ import { sketch, circle, rect, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cloud = t.within(t.scatter({ spacing: 8 }).points, rect(4, 4, 92, 92)).extract();
   const bands = cloud.points.groupBy((p) => Math.floor(p.y / 25));
-  return bands.map((sel) => sel.map((p) => circle(p.x, p.y, 0.6 + sel.key * 0.6, { pen: sel.key % 2 ? 'stabilo-88-blue' : undefined })));
+  return bands.map((sel) => sel.map((p) => circle(p, 0.6 + sel.key * 0.6, { pen: sel.key % 2 ? 'stabilo-88-blue' : undefined })));
 });
 ```
 
@@ -129,11 +129,32 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const low = cloud.points.filter((p) => p.y > 45);
   const both = left.intersect(low);
   return [
-    left.union(low).complement().map((p) => circle(p.x, p.y, 0.6)),
-    left.subtract(low).map((p) => circle(p.x, p.y, 2)),
-    low.subtract(left).map((p) => circle(p.x, p.y, 2, { pen: 'stabilo-88-blue' })),
-    both.map((p) => circle(p.x, p.y, 3.4, { pen: 'stabilo-88-blue' })),
+    left.union(low).complement().map((p) => circle(p, 0.6)),
+    left.subtract(low).map((p) => circle(p, 2)),
+    low.subtract(left).map((p) => circle(p, 2, { pen: 'stabilo-88-blue' })),
+    both.map((p) => circle(p, 3.4, { pen: 'stabilo-88-blue' })),
   ];
+});
+```
+
+## rows()
+
+<include>/_sig/PointSelection.rows.mdx</include>
+<include>/_sig/EdgeSelection.rows.mdx</include>
+
+The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error.
+
+Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const web = connect.triangulate(t.scatter({ spacing: 13 }));
+  const ranked = [...web.edges].sort((a, b) => b.length - a.length);
+  const longest = web.edges.rows(ranked.slice(0, 14).map((e) => e.index));
+  const hubs = web.points.rows([...web.points].filter((p) => p.adjacent.length >= 7).map((p) => p.index));
+  return [strokes(web.edges.subtract(longest), { pen: 'pigma-005-black' }), strokes(longest, { pen: 'stabilo-88-blue' }), hubs.map((p) => circle(p, 2.2))];
 });
 ```
 
@@ -151,7 +172,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 60, 34), { count: 40 });
   const arc = ring.edges.filter((e) => e.a.y < 60 && e.b.y < 60).extract();
   const start = arc.points.at(0);
-  return [strokes(ring, { pen: 'pigma-005-black' }), group({ translate: [0, -22] }, strokes(arc, { pen: 'stabilo-88-blue' }), circle(start.x, start.y, 2, { pen: 'stabilo-88-blue' }))];
+  return [strokes(ring, { pen: 'pigma-005-black' }), group({ translate: [0, -22] }, strokes(arc, { pen: 'stabilo-88-blue' }), circle(start, 2, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -169,14 +190,12 @@ import { sketch, circle, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 12 }));
-  // A material, a point selection and an edge selection all answer `edges`,
-  // so one helper reads any of them. An edge selection comes back itself.
-  const walls = (g) => g.edges;
-  const inner = walls(web.points.near([50, 50], { radius: 30 }));
-  const chains = walls(inner).curves();
+  // The edges with both ends inside the ring of points, walked into chains.
+  const inner = web.points.near([50, 50], { radius: 30 }).edges;
+  const chains = inner.curves();
   return [
-    strokes(walls(web).subtract(inner), { pen: 'pigma-005-black' }),
-    strokes(chains.filter((c, i) => i % 2 === 0), { pen: 'pigma-05-black' }),
+    strokes(web.edges.subtract(inner), { pen: 'pigma-005-black' }),
+    strokes(chains.filter((c, i) => i % 2 === 0), { pen: 'stabilo-88-green' }),
     strokes(chains.filter((c, i) => i % 2 === 1), { pen: 'stabilo-88-blue' }),
   ];
 });
@@ -206,12 +225,12 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const spokes = hub.edges;
   const close = tree.edges.near(hub, { radius: 13 }).subtract(spokes);
   return [
-    strokes(tree.edges.subtract(spokes).subtract(close)),
+    strokes(tree.edges.subtract(spokes).subtract(close), { pen: 'pigma-005-black' }),
     strokes(spokes, { pen: 'stabilo-88-blue' }),
-    strokes(close, { pen: 'pigma-05-black' }),
-    // Close to the hub, joined or not: a ring.
-    tree.points.near(hub, { radius: 26 }).map((q) => circle(q.x, q.y, 2, { pen: 'stabilo-88-green' })),
-    circle(hub.x, hub.y, 3),
+    strokes(close, { pen: 'stabilo-88-green' }),
+    // Close to the hub, joined or not: a ring of points.
+    tree.points.near(hub, { radius: 26 }).map((q) => circle(q, 2)),
+    circle(hub, 3, { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -233,7 +252,7 @@ The candidates come from the same grid that `near` keeps on the state. A rule ca
 Below, every tip follows a noise field. A tip takes its next step only into clear paper, so the lines run beside each other and stop where they meet. The blue rings are the seeds.
 
 ```ts live
-import { sketch, strokes, circle } from 'occlude';
+import { sketch, strokes, circle, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const b = t.bounds();
@@ -241,14 +260,13 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const tangle = seeds.steps(160, (cur, next) => {
     for (const p of cur.points) {
       if (p.edges.length > 1) continue;
-      const a = t.noise(p.x * 0.02, p.y * 0.02) * Math.PI * 2;
-      const to = [p.x + Math.cos(a) * 1.8, p.y + Math.sin(a) * 1.8];
+      const to = add(p, mul(fromAngle(t.noise(p.x * 0.02, p.y * 0.02) * Math.PI * 2), 1.8));
       if (to[0] < 2 || to[1] < 2 || to[0] > b.w - 2 || to[1] > b.h - 2) continue;
       if (cur.edges.crossing(p, to).indices.length > 0) continue;
       next.extrude(p, () => ({ position: to }), { inherit: true });
     }
   });
-  return [strokes(tangle), seeds.points.map((p) => circle(p.x, p.y, 0.5, { pen: 'stabilo-88-blue' }))];
+  return [strokes(tangle), seeds.points.map((p) => circle(p, 0.5, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -281,7 +299,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   return [
     strokes(lattice.points.subtract(piece).edges, { pen: 'pigma-005-black' }),
     strokes(piece.edges, { pen: 'stabilo-88-blue' }),
-    seed.map((p) => circle(p.x, p.y, 1.6)),
+    seed.map((p) => circle(p, 1.6)),
   ];
 });
 ```
@@ -299,28 +317,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 14 }));
   const q = query.edges(web);
   const probes = t.scatter({ spacing: 15 });
-  return [strokes(web, { pen: 'pigma-005-black' }), probes.points.map((p) => { const hit = q.nearest(p, { within: 10 }); return hit ? line(p.x, p.y, hit.position[0], hit.position[1], { pen: 'stabilo-88-blue' }) : circle(p.x, p.y, 1); })];
-});
-```
-
-## rows()
-
-<include>/_sig/PointSelection.rows.mdx</include>
-<include>/_sig/EdgeSelection.rows.mdx</include>
-
-The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error.
-
-Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
-
-```ts live
-import { sketch, strokes, circle, connect } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const web = connect.triangulate(t.scatter({ spacing: 13 }));
-  const ranked = [...web.edges].sort((a, b) => b.length - a.length);
-  const longest = web.edges.rows(ranked.slice(0, 14).map((e) => e.index));
-  const hubs = web.points.rows([...web.points].filter((p) => p.adjacent.length >= 7).map((p) => p.index));
-  return [strokes(web.edges.subtract(longest), { pen: 'pigma-005-black' }), strokes(longest, { pen: 'stabilo-88-blue' }), hubs.map((p) => circle(p.x, p.y, 2.2))];
+  return [strokes(web, { pen: 'pigma-005-black' }), probes.points.map((p) => {
+    const hit = q.nearest(p, { within: 10 });
+    return [circle(p, 1.2, { pen: 'stabilo-88-blue' }), hit && [line(p, hit.position, { pen: 'stabilo-88-blue' }), circle(hit.position, 0.6)]];
+  })];
 });
 ```
 
@@ -345,8 +345,8 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   // finds it.
   const rungs = cloud.points.pairs(cloud.points, (a, b) => Math.abs(a.y - b.y) < 5, { radius: 20 });
   return [
-    cloud.points.map((p) => circle(p.x, p.y, 1.1)),
-    rungs.map(([a, b]) => line(a.x, a.y, b.x, b.y, { pen: 'stabilo-88-blue' })),
+    cloud.points.map((p) => circle(p, 1.1)),
+    rungs.map(([a, b]) => line(a, b, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -365,45 +365,25 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 ## where
 
-Several material methods take `where`: the part of the material the
-operation may touch.
+Several material methods take `where`: the part of the material the operation may touch.
 
 ```ts
 m.warp({ from, to, where: m.points.filter((p) => p.y > 30) })
 ```
 
-It names the ELIGIBLE region. It does not promise that every row it names
-changes. The operation's own rule still applies on top of it.
+It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
 
-The protocol reads a selection, so you may give either domain and the
-method takes the one it uses. A method that moves points takes points.
-Give such a method an edge selection and it takes the endpoints.
-
-A point selection, taken as edges, gives **the edges among its members**.
-Those are the edges `strokes(sel)` draws and `sel.edges.extract()` keeps.
-`sel.extract()` on the points themselves keeps no edge at all, because a
-point selection is points. For the wider span, the edges touching the
-members, say `sel.edges.adjacent()`. The word means one thing everywhere.
-
-Absent is the whole material. That is what every method did before there
-was a way to say otherwise. A method refuses a selection of another
-material, by name.
-
-`m.warp` and `m.snap` move points, and they leave the rest where they are.
-`m.resample` works on EDGES. Consecutive eligible edges make a run. A run
-keeps the two vertices at its ends, so the chain stays one chain. A
-row outside the eligible region keeps its id, so a selection you held
-still answers.
+`m.warp` and `m.snap` move points and leave the rest where they are. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region keeps its id.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
-export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const ring = t.sample(circle(100, 50, 34), { count: 80 });
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const ring = t.sample(circle(50, 50, 36), { count: 90 });
   // Only the right-hand half is snapped onto the field's ridges. The left
   // half keeps the circle it was, and the two are still one chain.
-  const right = ring.points.filter((p) => p.x > 100);
-  const rough = ring.snap((x, y) => Math.sin(x / 7) + Math.sin(y / 7), { radius: 3.5, where: right });
-  return [strokes(rough, { pen: 'pigma-05-black' }), strokes(ring, { pen: 'pigma-005-black' })];
+  const right = ring.points.filter((p) => p.x > 50);
+  const rough = ring.snap((x, y) => Math.sin(x / 4) + Math.sin(y / 4), { radius: 6, where: right });
+  return [strokes(ring, { pen: 'stabilo-88-blue' }), strokes(rough)];
 });
 ```

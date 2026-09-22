@@ -42,7 +42,7 @@ import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
-  return t.grid({ cols: 30, rows: 30 }).map((c) => { const dark = 1 - img.lum(c.cx, c.cy, c.w / 2); return img.a(c.cx, c.cy) > 0.5 && circle(c.cx, c.cy, dark * c.w * 0.45); });
+  return t.grid({ cols: 46, rows: 46 }).map((c) => { const dark = 1 - img.lum(c.cx, c.cy, c.w / 2); return img.a(c.cx, c.cy) > 0.5 && circle(c.cx, c.cy, dark * c.w * 0.5); });
 });
 ```
 
@@ -68,11 +68,14 @@ import { sketch, circle, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
-  return t.scatter(img.field('dark', { area: 1 }), { spacing: mm(1.6) }).points.map((p) => circle(p.x, p.y, 0.5));
+  const dark = img.field('dark', { area: 1 });
+  return t.scatter((x, y) => img.a(x, y) * dark(x, y), { spacing: mm(1.6) }).points.map((p) => circle(p, 0.5));
 });
 ```
 
 ## img.flow()
+
+<include>/_sig/ImageSampler.flow.mdx</include>
 
 `img.flow({ radius?, iterations? })` is the direction that the picture's structure runs, as a vector field. It runs along an edge, not across it. It is smooth over `radius`, so noise does not turn it. Feed it to `t.streamlines` for hatching that follows the subject.
 

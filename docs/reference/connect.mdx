@@ -10,14 +10,17 @@ Every builder takes points, a material or a selection of one, and returns a mate
 <include>/_sig/connect.chain.mdx</include>
 <include>/_sig/connect.ring.mdx</include>
 
-Join the rows in the order given. `ring` also joins the last row to the first.
+Join the rows in the order given. `ring` also joins the last row to the first. Below, seven points on a circle, taken three steps apart. `chain` is on the left, and `ring` on the right adds one closing edge.
 
 ```ts live
-import { sketch, strokes, connect } from 'occlude';
+import { sketch, strokes, circle, connect } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const pts = t.times(12, (k) => { const a = (k / 12) * Math.PI * 2; return [50 + Math.cos(a) * (k % 2 ? 20 : 40), 50 + Math.sin(a) * (k % 2 ? 20 : 40)]; });
-  return [strokes(connect.ring(pts)), strokes(connect.chain(pts.slice(0, 7)), { pen: 'stabilo-88-blue' })];
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const order = (cx) => {
+    const pts = t.sample(circle(cx, 50, 38), { count: 7 }).points;
+    return pts.map((p, k) => pts.at((k * 3) % 7));
+  };
+  return [strokes(connect.chain(order(50))), strokes(connect.ring(order(150)), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -32,7 +35,7 @@ import { sketch, strokes, circle, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const pts = t.scatter({ spacing: 12 });
-  return [strokes(connect.nearest(pts, { count: 2 })), pts.points.map((p) => circle(p.x, p.y, 0.9))];
+  return [strokes(connect.nearest(pts, { count: 2 })), pts.points.map((p) => circle(p, 0.9))];
 });
 ```
 
@@ -78,7 +81,7 @@ import { sketch, strokes, circle, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const pts = t.scatter({ spacing: 11 });
-  return [strokes(connect.tour(pts, { closed: true })), pts.points.map((p) => circle(p.x, p.y, 0.8))];
+  return [strokes(connect.tour(pts, { closed: true })), pts.points.map((p) => circle(p, 0.8))];
 });
 ```
 
@@ -86,32 +89,20 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 
 <include>/_sig/connect.turns.mdx</include>
 
-One run through headed places, turning no tighter than `radius`. The word joins each pair of consecutive stations with the shortest Dubins path. That is the shortest route for something with a minimum turning radius and no reverse gear. The run leaves each station along its heading and reaches the next one along its heading. `connect.tour` joins places. This joins directions, and that is what stitches loose pieces of a flow into one line the pen draws without a lift.
+One run through headed places, turning no tighter than `radius`. Each pair of consecutive stations joins by the shortest Dubins path. That is the shortest route with a turning limit and no reverse. The run leaves each station along its heading and arrives along the next one's heading. `connect.tour` joins places, and this joins directions.
 
-The input is stations, as `m.along()` returns. A plain point has no heading, and the word refuses it by name. The result is a chain material. Arcs come back cut fine enough to read as curves, and straights come back as straights. `closed` joins the last station back to the first. A pair with no route at that radius gets no edge, and the run breaks there into two chains.
+The input is stations, as `m.along()` returns them. A plain point has no heading, and the word refuses it by name. The result is a chain material. `closed` joins the last station back to the first. A pair with no route at that radius gets no edge, and the run breaks there.
 
-Flow fragments, sewn into one run. The blue lines are the streamlines. The black line visits them in turn, and each hook between two of them is a turn the pen can make.
+Below, the blue ticks are six stations, each with a heading of its own. The black run visits them in order, and every hook is a turn the pen can make.
 
 ```ts live
-import { sketch, strokes, connect, curl, distance, rect, mm } from 'occlude';
+import { sketch, strokes, line, connect } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
-  const field = curl((x, y) => t.noise(x / 30, y / 30));
-  // Cut back from the edge, so the hooks have room to turn inside the frame.
-  const flow = t.within(t.streamlines(field, { spacing: mm(13) }), rect(6, 6, 88, 88));
-  const stations = flow.along({ spacing: 9 });
-  const piece = (c) => stations.filter((q) => q.chain === c);
-  // Visit the fragments nearest first, so each join is a short hook.
-  const left = [...new Set(stations.map((q) => q.chain))];
-  const order = [];
-  for (let at = left.shift(); at !== undefined; at = left.shift()) {
-    order.push(at);
-    const end = piece(at).at(-1);
-    left.sort((a, b) => distance(piece(a)[0], end) - distance(piece(b)[0], end));
-  }
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const stations = t.times(6, (k) => t.station(22 + (k % 3) * 28, 32 + Math.floor(k / 3) * 36, { heading: t.rnd(360) }));
   return [
-    strokes(flow, { pen: 'stabilo-88-blue' }),
-    strokes(connect.turns(order.flatMap(piece), { radius: 2.5 })),
+    stations.map((s) => line(s, s.step(7), { pen: 'stabilo-88-blue' })),
+    strokes(connect.turns(stations, { radius: 6 })),
   ];
 });
 ```
@@ -127,7 +118,7 @@ import { sketch, strokes, circle, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const pts = t.scatter({ spacing: 9 });
-  return [strokes(connect.tree(pts)), pts.points.map((p) => circle(p.x, p.y, 0.7))];
+  return [strokes(connect.tree(pts)), pts.points.map((p) => circle(p, 0.7))];
 });
 ```
 

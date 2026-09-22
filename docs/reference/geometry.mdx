@@ -1,160 +1,61 @@
 ---
 title: Geometry
-description: "The geometry a sketch draws in: space, projection, tilings, and distance in a curved metric."
+description: "The geometry a sketch draws in: space, projection, tilings, placement, and distance in a curved metric."
 ---
 
-A sketch draws in a geometry. The flat plane is the default. `space` on the config names another one, and every word of the sketch then reads it. There is one way to draw in a curved geometry, and this page holds it.
-
-A coordinate system is a chart. It renames points and changes no length. Hyperbolic geometry is a metric. It says what a small step is worth, and its curvature survives every chart. The frame holds both: a `space` for the metric and a `projection` for the chart the sheet is drawn in.
+A sketch draws in a geometry, and the flat plane is the default. `space` on the config names another one, and every word of the sketch reads it. `space` is the metric: what a small step is worth. `projection` is the chart: how the sheet shows the space. A chart changes no length, and the curvature survives every chart.
 
 ## space · projection
 
 <include>/_sig/Toolkit.space.mdx</include>
 
-Every page keeps to one contract, and this is it in short. Lengths: a bare number is a length in the space, and `mm()` is a length on the paper ([sketch](/docs/reference/sketch)). Points: `[x, y]` is a vertex inside a loop, and `{ x, y }` is a point with columns ([material](/docs/reference/material)). Accessors: an area answers `contours()`, a chain answers `curves()`, and positions answer `points` ([selections](/docs/reference/selections)). Doors: a shape becomes geometry at `t.material` or at `t.sample`, and nowhere else ([shapes](/docs/reference/shapes)). Placement: the inner group deforms the motif, and the outer group places the result ([placement](#placement)). Projection: the chart applies once, at the ink door ([plotting](/docs/reference/plotting)). Metric: a few words read the space, and the table below names them ([transforms](/docs/reference/transforms)).
-
-`space` sets the geometry the sketch draws in. Leave it out and the sketch draws in the flat plane, exactly as it always did. Set `space: 'hyperbolic'` and the same numbers name places in the hyperbolic plane instead.
-
-A walker starts at one corner of a pentagon and walks five equal legs with a right turn between them. In the flat plane that walk never closes. In the hyperbolic plane it closes, and the walker comes back turned by a quarter turn. One cell reflects across its sides to make the tiling around it, with four pentagons at every corner. The rim is the horizon.
+`space: 'hyperbolic'` or `space.hyperbolic({ radius })` puts the sketch in the hyperbolic plane. `space: 'spherical'` or `space.spherical({ radius })` puts it on a sphere. The same numbers then name places in that space. Below, a walker takes five equal steps with a right turn between them. In the flat plane that walk never closes. In the hyperbolic plane it closes, and the cells of the `{5, 4}` tiling fill the disk around it.
 
 ```ts live
-// THE WALK AND THE TILING
-//
-// Five legs of the first {5, 4} cell, each a `step` of the cell's own
-// side on the geodesic, with a `turn` between one leg and the next.
-// The turn is +90, positive as `rotate`: the cross product of
-// `t.space.log(cell[1], cell[0])` and `t.space.log(cell[1], cell[2])`
-// is negative, a corner that turns counter-clockwise, and +90 lands
-// every step on the next corner. The arrows are the walk's own words:
-// a shaft along the heading and two barbs turned back from the tip.
-import { sketch, line, circle, space, degrees } from 'occlude';
+import { sketch, strokes, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
-  const { cell, placements } = t.tiling(5, 4, { depth: 5 });
-  const c = t.space.center;
-  // The tiling: every cell but the first, as rings of geodesics.
-  const ring = (pts, opts) => pts.map((v, i) => {
-    const w = pts[(i + 1) % pts.length];
-    return line(v[0], v[1], w[0], w[1], opts);
-  });
-  const around = placements.slice(1).map((p) => ring(cell.map((v) => p.point(v))));
-  // The walk: the first cell, drawn by a walker and not by the tiling.
+  const tiles = t.tiling(5, 4, { depth: 5 });
+  const { cell } = tiles;
+  // Five legs of the first cell, each a `step` of the cell's own side.
   const side = t.space.distance(cell[0], cell[1]);
-  const v = t.space.log(cell[0], cell[1]);
-  let st = t.station(cell[0], { heading: degrees(Math.atan2(v[1], v[0])) });
-  const start = st;
+  let st = t.station(cell[0]).toward(cell[1]);
   const legs = [];
   for (let i = 0; i < 5; i++) {
     const from = st;
     st = st.step(side);
-    legs.push(line(from.x, from.y, st.x, st.y, { pen: 'stabilo-88-blue' }));
+    legs.push(line(from, st, { pen: 'stabilo-88-blue' }));
     if (i < 4) st = st.turn(90);
   }
-  // An arrow at a station: the shaft along the heading, two barbs back
-  // from the tip. The walk's own words draw it.
-  const arrow = (s) => {
-    const tip = s.step(9);
-    return [
-      line(s.x, s.y, tip.x, tip.y, { pen: 'stabilo-88-blue' }),
-      ...[150, -150].map((a) => { const b = tip.turn(a).step(3); return line(tip.x, tip.y, b.x, b.y, { pen: 'stabilo-88-blue' }); }),
-    ];
-  };
-  return [circle(c[0], c[1], 300), around, legs, arrow(start), arrow(st)];
+  return [circle(t.space.center, 300), strokes(tiles, { pen: 'pigma-005-black' }), legs];
 });
 ```
 
-Under `projection: 'klein'` the same program draws every side straight, because a side is a geodesic. The angles no longer look right, because Klein does not keep angles.
+`projection` picks the chart. The hyperbolic plane has two charts. `'poincare'`, the default, keeps angles and draws a geodesic as an arc. `'klein'` draws every geodesic straight and does not keep angles. The sphere has three. `'stereographic'`, the default, keeps angles and shows the whole sphere. `'gnomonic'` draws every geodesic straight. `'orthographic'` is the view from far away. The last two show the near half only, and the far half draws nothing. A `projection` with no `space` is an error. The same program under `'klein'`:
 
 ```ts live
-// THE WALK AND THE TILING
-//
-// Five legs of the first {5, 4} cell, each a `step` of the cell's own
-// side on the geodesic, with a `turn` between one leg and the next.
-// The turn is +90, positive as `rotate`: the cross product of
-// `t.space.log(cell[1], cell[0])` and `t.space.log(cell[1], cell[2])`
-// is negative, a corner that turns counter-clockwise, and +90 lands
-// every step on the next corner. The arrows are the walk's own words:
-// a shaft along the heading and two barbs turned back from the tip.
-import { sketch, line, circle, space, degrees } from 'occlude';
+import { sketch, strokes, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), projection: 'klein' }, (t) => {
-  const { cell, placements } = t.tiling(5, 4, { depth: 5 });
-  const c = t.space.center;
-  // The tiling: every cell but the first, as rings of geodesics.
-  const ring = (pts, opts) => pts.map((v, i) => {
-    const w = pts[(i + 1) % pts.length];
-    return line(v[0], v[1], w[0], w[1], opts);
-  });
-  const around = placements.slice(1).map((p) => ring(cell.map((v) => p.point(v))));
-  // The walk: the first cell, drawn by a walker and not by the tiling.
+  const tiles = t.tiling(5, 4, { depth: 5 });
+  const { cell } = tiles;
+  // Five legs of the first cell, each a `step` of the cell's own side.
   const side = t.space.distance(cell[0], cell[1]);
-  const v = t.space.log(cell[0], cell[1]);
-  let st = t.station(cell[0], { heading: degrees(Math.atan2(v[1], v[0])) });
-  const start = st;
+  let st = t.station(cell[0]).toward(cell[1]);
   const legs = [];
   for (let i = 0; i < 5; i++) {
     const from = st;
     st = st.step(side);
-    legs.push(line(from.x, from.y, st.x, st.y, { pen: 'stabilo-88-blue' }));
+    legs.push(line(from, st, { pen: 'stabilo-88-blue' }));
     if (i < 4) st = st.turn(90);
   }
-  // An arrow at a station: the shaft along the heading, two barbs back
-  // from the tip. The walk's own words draw it.
-  const arrow = (s) => {
-    const tip = s.step(9);
-    return [
-      line(s.x, s.y, tip.x, tip.y, { pen: 'stabilo-88-blue' }),
-      ...[150, -150].map((a) => { const b = tip.turn(a).step(3); return line(tip.x, tip.y, b.x, b.y, { pen: 'stabilo-88-blue' }); }),
-    ];
-  };
-  return [circle(c[0], c[1], 300), around, legs, arrow(start), arrow(st)];
+  return [circle(t.space.center, 300), strokes(tiles, { pen: 'pigma-005-black' }), legs];
 });
 ```
 
-**A coordinate is a position by steps from the centre.** `(x, y)` means x along the base geodesic, which is the horizontal line through the centre of the drawable, and then y along the geodesic at right angles to it there. So a column of the sketch is a geodesic, a row is a curve at one fixed distance from the base, and every pair of numbers names a place. Nothing is out of bounds. A sketch keeps writing the numbers it always wrote.
+A coordinate is a position by steps from the centre. `(x, y)` is x along the base geodesic through the centre, then y at right angles to it. So a column of the sketch is a geodesic, and a row is a curve at one distance from the base. A shape is its anchor plus offsets, and an offset is a step. One step is one drawable unit at the centre. An edge draws as the image of the flat edge, so a row of a grid does not bend onto a geodesic. `line(a, b)` asks for the geodesic.
 
-**A shape is its anchor plus offsets, and an offset is a step.** A grid is steps to each cell and then steps inside the cell. A rect is steps from its corner. A circle is `XY` and sin/cos, like anywhere else. One step is one drawable unit at the centre. Away from the centre a row opens out in the disk and closes in on the sphere, so the same offsets cover more of the space, or less of it. This is the one rule, and every word follows it.
-
-An edge is the image of the flat edge. The engine samples it until the sheet holds the curve. It does not bend an edge onto a geodesic, because a row of a grid is not a geodesic and must not draw as one. `line` is the word that asks for a geodesic. A line is the shortest path between two points, so `line(a, b)` draws the geodesic between them.
-
-`projection` sets the chart that carries the space to the sheet. The default is `'poincare'`. It keeps angles and draws a geodesic as an arc. `'klein'` draws every geodesic straight and does not keep angles. A `projection` with no `space` is an error, and the message names the space it needs.
-
-**One number is the geometry, and it is the curvature.** `space: { curvature: K }` is the primary form. Below zero it is hyperbolic, above zero it is spherical, and zero is the flat plane. The names are sugar for a curvature. `'hyperbolic'` reads its radius as `K = -4/radius²` and `'spherical'` reads it as `K = +1/radius²`. `t.space.curvature` answers the number whichever way you wrote it.
-
-`radius` says how curved the space is against the steps a sketch takes. `space.hyperbolic({ radius: 50 })` makes the plane bend over about 25 units, so a shape of a few units still looks flat and a grid of 50 shows the bend. A larger radius is flatter, and the flat plane is the limit as the radius grows. Without `radius` the space bends over 1.25 times the half-diagonal of the drawable.
-
-`size` on the projection says how big the picture prints. It is the radius on the page of the rim of the disk, or of the sphere's equator. Without it the picture fills the drawable, so `projection: { kind: 'poincare', size: 25 }` is the only way to ask for a smaller one. The two knobs are free of each other. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller.
-
-Set `space: 'spherical'` and the same numbers name places on a sphere. The sphere touches the sheet at the centre of the drawable, and `radius` is its radius: `space.spherical({ radius: 42 })`. Its curvature is `+1/radius²`, so a smaller sphere bends more. A row closes in toward the poles, and the equator of the base row lies a quarter of the way round, at `πR/2` from the centre. Walk further and the coordinates come back round the sphere. Half a turn from the centre, the largest x and the smallest x name one place. A segment between two points goes the short way round. A material that crosses there keeps its x continuous, and x can go past half a turn.
-
-Spherical space has three charts. `'stereographic'` is the default. It keeps angles, and it shows the whole sphere: the one point opposite the centre is the outside of the picture. `'gnomonic'` draws every geodesic straight. `'orthographic'` shows the sphere from far away, inside a circle of half the size. The last two show one half of the sphere only. A point on the far half has no place on the sheet, so it draws nothing. Two dimensions have no occlusion. The engine drops the far half. It does not hide it behind the near half. A stroke that crosses the equator stops there, and it gets no new edge along the equator. Under `'gnomonic'` the equator lies infinitely far away, so keep such a drawing well inside the near half.
-
-A bare length is a length **in the space**. A physical length is a length **on the paper**. `t.scatter({ spacing: 5 })` asks for five drawable units of the space between points, so the points crowd where the rows open out. `mm(0.4)` is 0.4 mm of ink wherever it lands, because the pen is flat. `w()`, `h()` and `s()` are percentages of the drawable, so they are paper lengths too.
-
-These words read the space in this build. We read each one to write this table. It is what the code does, not what it should do.
-
-| verb | reads the metric | in a curved sketch |
-|---|---|---|
-| `t.sample` | yes | spaces the samples by arc length of the space |
-| `m.resample` | with a space | the toolkit gives `t.sample` one, and a bare call measures flat |
-| `m.along` | with a space | stations sit by arc length of the space, flat without one |
-| `m.trim` | with a space | cuts each end by arc length of the space, flat without one |
-| `t.scatter` | yes | `spacing` is a length of the space, and the density follows the coordinates |
-| `t.tiling` | yes | the cell and the placements are the space's own, when the symbol and the sketch agree |
-| `t.distanceTo` | yes | distance by the metric, with every edge read as a geodesic |
-| `m.transform` | no | moves each vertex by an isometry of the space, and measures nothing |
-| `t.hexes` | no | a flat lattice of cells, drawn through the placement |
-| `t.isolines` | no | flat contours of the field |
-| `t.noise` | no | flat coordinates in, one number out |
-| `t.relax` | no | flat centroids over the density raster |
-| `t.settle` | no | flat centroids, and `spacing` sets a flat capacity |
-| `fill('hatch')` | no | flat rulings across the area |
-| `m.map` | no | puts each vertex where the callback says |
-| `m.warp` | no | a flat cage, corner for corner |
-
-`t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates, the numbers the sketch can go on computing with, so a material of a shape draws exactly as the shape draws. The projection applies once, at the moment the engine draws the ink. Every word marked "no" measures flat and draws through the placement. Pens, nib widths, dashes, the plan and the time estimate are never in the space, because paper is flat. The [transforms](/docs/reference/transforms) page writes each method's own units. This table says what the frame changes.
-
-The grid shows the coordinates the walker's numbers live in. The four drawings below are one program. Only the config differs. The first is flat: a nine by nine grid of cells, a circle in every other one, a sampled ring and a scatter.
+The four drawings below are one program: a grid of cells, a sampled ring and a scatter. Only the config differs. First the flat plane:
 
 ```ts live
 import { sketch, rect, circle, strokes, dots } from 'occlude';
@@ -169,7 +70,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => [
 ]);
 ```
 
-The second adds `space`. The grid is still a grid: every cell still shares its walls with its neighbours, because the cells are placed by the same steps. The rows curve, because a row is not a geodesic. The columns stay straight in the metric, and the cells at the top and the bottom open out. The whole plane draws inside the disk, so the picture pulls in from the corners of the sheet.
+Then `space`. The grid is still a grid, and every cell still shares its walls. The rows curve, because a row is not a geodesic. The whole plane draws inside the disk.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots, space } from 'occlude';
@@ -184,7 +85,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radiu
 ]);
 ```
 
-The third adds `projection: 'klein'`. It is the same space and the same places, drawn in a different chart. Every column now draws straight, because a column is a geodesic and Klein draws a geodesic straight. The rows still curve.
+Then `projection: 'klein'`. Every column now draws straight, because a column is a geodesic.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots, space } from 'occlude';
@@ -199,7 +100,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radiu
 ]);
 ```
 
-The fourth is the same program again, on a sphere. The rows bow the other way, because the curvature has the other sign, and the columns run together toward the poles. The chart of a sphere magnifies, so this picture runs a little past the drawable.
+Then a sphere. The rows bow the other way, and the columns run together toward the poles.
 
 ```ts live
 import { sketch, rect, circle, strokes, dots, space } from 'occlude';
@@ -214,19 +115,69 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.spherical({ radius
 ]);
 ```
 
+One number is the geometry: the curvature. `space: { curvature: K }` is the primary form. Below zero is hyperbolic, above zero is spherical, and zero is flat. `'hyperbolic'` reads its radius as `K = -4/radius²`, and `'spherical'` reads it as `K = +1/radius²`. A larger radius is flatter. Without `radius` the space bends over 1.25 times the half-diagonal of the drawable. `size` on the projection is how big the picture prints. It is the radius on the page of the rim of the disk, or of the equator. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller. Below, a curvature written as a number, and a disk printed at 44 units.
+
+```ts live
+import { sketch, rect, circle, strokes, pen, mm } from 'occlude';
+
+export default sketch({
+  aspect: [1, 1], seed: 6,
+  space: { curvature: -4 / (34 * 34) },
+  projection: { kind: 'poincare', size: 44 },
+  pens: { ink: pen({ width: mm(0.3), color: '#23252B' }), edge: pen({ width: mm(0.6), color: '#8A857C' }) },
+}, (t) => [
+  ...t.grid({ cols: 7, rows: 7, gap: 3 })
+    .map((c, k) => (k % 3 === 0 ? rect(c.x, c.y, c.w, c.h) : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
+  strokes(t.sample(circle(50, 50, 30), { count: 64 }), { pen: 'edge' }),
+]);
+```
+
+A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengths on the paper, because the pen is flat. So `t.scatter({ spacing: 5 })` spaces points by five units of the space, and `mm(0.4)` is 0.4 mm of ink wherever it lands. These words read the metric today:
+
+| verb | reads the metric | in a curved sketch |
+|---|---|---|
+| `t.sample` | yes | spaces the samples by arc length of the space |
+| `m.resample` | with a space | the toolkit gives `t.sample` one, and a bare call measures flat |
+| `m.along` | with a space | stations sit by arc length of the space, flat without one |
+| `m.trim` | with a space | cuts each end by arc length of the space, flat without one |
+| `t.scatter` | yes | `spacing` is a length of the space, and the density follows the coordinates |
+| `t.tiling` | yes | the cell and the placements are the space's own |
+| `t.distanceTo` | yes | distance by the metric, with every edge read as a geodesic |
+| `m.transform` | no | moves each vertex by an isometry of the space, and measures nothing |
+| `t.hexes` | no | a flat lattice of cells, drawn through the placement |
+| `t.isolines` | no | flat contours of the field |
+| `t.noise` | no | flat coordinates in, one number out |
+| `t.relax` | no | flat centroids over the density raster |
+| `t.settle` | no | flat centroids, and `spacing` sets a flat capacity |
+| `fill('hatch')` | no | flat rulings across the area |
+| `m.map` | no | puts each vertex where the callback says |
+| `m.warp` | no | a flat cage, corner for corner |
+
+`t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates, so a material of a shape draws as the shape draws. The projection applies once, when the engine draws the ink. Pens, nib widths, dashes, the plan and the time estimate never read the space.
+
 ## t.space
 
 <include>/_sig/Toolkit.space.mdx</include>
 
-`t.space` is the geometry of the run, as data. It is read-only, because the space is a frame setting and it is fixed for the run.
+The geometry of the run, as read-only data. `kind` is `'euclidean'`, `'hyperbolic'` or `'spherical'`. `projection` is the chart, or `'none'` in the flat plane. `curvature` and `radius` are in drawable units. `center` is the point the coordinates start from.
 
-`kind` is `'euclidean'`, `'hyperbolic'` or `'spherical'`. `projection` is the chart, or `'none'` in the flat plane. `curvature` and `radius` are in drawable units. `center` is the point the coordinates are measured from, which is the centre of the drawable.
+The metric is on the record. `distance(a, b)` measures the geodesic between two points. `geodesic(a, b, u)` is the point a fraction `u` of the way along it. `exp(p, v)` steps `|v|` from `p` in the direction `v`, and `log(p, q)` reads that step back. `circle(c, r, count)` is the circle of the space: every point one step `r` from `c`. `density(p)` is the area of the space that one unit of coordinate area holds. `toChart(p)` and `fromChart(z)` convert to and from the model chart. `project(p)` is the place on the sheet, and a point with no place comes back non-finite. Every member takes and answers sketch coordinates.
 
-The metric itself is on the record. `distance(a, b)` measures the geodesic between two points. `geodesic(a, b, t)` gives the point a fraction of the way along it. `exp(p, v)` steps from a point: `|v|` of the space, in the direction `v` names in the local frame. `log(p, q)` reads that step back. `circle(c, r, count)` is the circle of the space, which is the set of points one step `r` away in every direction. `density(p)` is the area of the space one unit of coordinate area holds: 1 on the base row, `cosh` of the distance to it in the disk, and `cos` of it on the sphere.
+Below, five circles of the space about the centre, eight units apart. The dots are nine equal fractions of one geodesic.
 
-`toChart(p)` takes sketch coordinates and answers the point of the model chart, in drawable units. `fromChart(z)` takes a point of that chart, in drawable units, and answers the sketch coordinates of it. `project(p)` takes sketch coordinates and answers the place on the sheet, through the projection the sketch chose. A point with no place on the sheet comes back non-finite, and the ink door reads that as nothing to draw. The ink door applies `project` once, last.
+```ts live
+import { sketch, stroke, dots, circle, space, pen, mm } from 'occlude';
 
-Every one of these takes and answers SKETCH coordinates, in drawable units: the numbers a sketch writes. Nothing here hands back a chart point, and the flat plane fills every member with the formulas the spacing words always used.
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), pens: { ink: pen({ width: mm(0.25), color: '#23252B' }), tap: pen({ width: mm(1.8), color: '#2457D6' }) } }, (t) => {
+  const c = t.space.center;
+  const far = t.space.exp(c, [60, -30]);
+  return [
+    circle(c, 300),
+    t.times(5, (k) => { const ring = t.space.circle(c, 8 + k * 8, 96); return stroke([...ring, ring[0]]); }),
+    dots(t.times(9, (k, u) => t.space.geodesic(c, far, u)), { pen: 'tap' }),
+  ];
+});
+```
 
 ## placement
 
@@ -237,15 +188,33 @@ Every one of these takes and answers SKETCH coordinates, in drawable units: the 
 <include>/_sig/between.mdx</include>
 <include>/_sig/Material.transform.mdx</include>
 
-A placement is an isometry of the space. It moves a point, a station, a material or a whole drawing. It keeps every length and every angle of its own geometry. It also has a hand. `orientation` is `1` when the placement keeps the hand of a motif, and `-1` when it turns the motif over. One mirror gives `-1`. Two mirrors give `1`.
+A placement is an isometry of the space. It moves a point, a station, a material or a whole drawing, and it keeps every length and every angle. `orientation` is `1` when it keeps the hand of a motif and `-1` when it turns the motif over.
 
-There are three ways to get one. `station.placement()` is the isometry that carries the origin station, at `(0, 0)` and facing `+x`, to that station. A tiling gives one for each copy of its cell, in `placements`. `reflection(door, a, b)` is the mirror in the geodesic through two points. The `door` is the model the isometry is a matrix on. `t.space.model` is the door of the space the sketch draws in.
+Four ways to get one: `station.placement()` carries the origin station, at `(0, 0)` facing `+x`, to that station. `between(door, from, to)` carries one station onto another, and `{ mirror: true }` turns it over on the way. `identity(door)` moves nothing. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.station(s)` moves a station and its heading. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`.
 
-There are three ways to use one. `group(placement, ...children)` draws the subtree at that place. `m.transform(placement)` moves a whole material and keeps every id, so a selection made before the move reads again with `sel.in(moved)`. `placement.station(s)` moves a station, and the heading goes with it.
+A placing group and a deforming group never share a group. Nest them: the inner group holds `translate`, `rotate` or `scale` in the motif's own coordinates, and the outer group holds the placement. The library refuses a group that names both, and the error names the keys.
 
-`a.then(b)` is the placement that applies `a` and then `b`. `a.inverse()` is the placement that undoes `a`.
+Below, one arrow motif, written once about the origin. `group(s.placement(), arrow)` puts it at each corner of the cell (black). The blue copies go through `m.transform` and then the mirror in the first side. A mirror turns a motif over, so the barbs lean the other way. The green arrow is the first corner's arrow, carried to the third corner by `between(door, from, to, { mirror: true })`. It stands at that corner turned over, so it points the other way along the side.
 
-A placing group and a deforming group are two different frames, so they never share a group. Nest them instead. The inner group holds `translate`, `rotate` or `scale`, and it works in the coordinates of the motif. The outer group holds the placement and puts the result somewhere. The library refuses a group that names both, and it names the keys that clash.
+```ts live
+import { sketch, group, strokes, line, circle, space, reflection, between } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
+  const tiles = t.tiling(5, 4, { depth: 1 });
+  const { cell } = tiles;
+  const stops = cell.map((v, i) => t.station(v).toward(cell[(i + 1) % cell.length]));
+  const arrow = [line(0, 0, 6, 0), line(6, 0, 3.4, 1.7), line(6, 0, 3.4, -1.7)];
+  const motif = t.material(...arrow);
+  const mirror = reflection(t.space.model, cell[0], cell[1]);
+  return [
+    circle(t.space.center, 300),
+    strokes(tiles, { pen: 'pigma-005-black' }),
+    stops.map((s) => group(s.placement(), arrow)),
+    stops.map((s) => strokes(motif.transform(s.placement().then(mirror)), { pen: 'stabilo-88-blue' })),
+    strokes(motif.transform(stops[0].placement().then(between(t.space.model, stops[0], stops[2], { mirror: true }))), { pen: 'stabilo-88-green' }),
+  ];
+});
+```
 
 ## t.tiling()
 
@@ -256,21 +225,11 @@ A placing group and a deforming group are two different frames, so they never sh
 
 <AutoTypeTable path="../occlude/src/tiling.ts" name="TilingOpts" />
 
-The regular tiling with `p`-gons meeting `q` at a vertex. The symbol picks the geometry, and the sketch must draw in it. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
+The regular tiling of `p`-gons, `q` at every corner. The symbol picks the geometry: `(p − 2)(q − 2)` below 4 is the sphere, 4 the plane, and above 4 the hyperbolic disk. `{3, 5}` is the icosahedron, `{4, 4}` the square grid, and `{7, 3}` the heptagonal tiling of the disk. The sketch's `space` must be the geometry of the symbol, and the error names the `space` a symbol needs.
 
-The answer is a [material](/docs/reference/material). Two cells that meet share the corners and the wall between them. A wall is one edge, and `strokes(tiles)` draws it once. A wall is a geodesic, and an edge of a material is straight, so each wall carries samples along its own curve. `tiles.faces()` gives the cells. Every other material word reads a tiling too. A point selection picks corners, `t.within` cuts it, and `polygon(face)` fills one cell.
+The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces()` gives the cells. `cell` is the first cell's corners, in order. `placements` is one [placement](#placement) for each copy, the identity first, so a motif drawn once in the cell goes to every copy. `tiles.seed` is the first face. Every face carries `generation` (reflections from the first cell), `mirrored` (1 for a copy that turns the plane over) and `placementIndex`.
 
-A tiling carries two more things. `cell` is the fundamental polygon, `p` corners in order, in sketch coordinates. `placements` is one [placement](#placement) for each copy of that cell, the identity first. Draw the motif once inside the cell. Then give every placement to `group(placement, motif)` or to `m.transform(placement)`. To move a bare point, use `placement.point(v)`. `tiles.seed` is the face of the first placement.
-
-Every face carries three columns. `generation` counts the reflections that first reached the copy, and the seed reads 0. `mirrored` is 1 for a copy that turns the plane over, and the placement itself says so. `placementIndex` names the copy in `placements`. A face column reads flat, so a sketch asks `face.mirrored`.
-
-`depth` is generations of reflection across the edges of the cell. Depth 1 is the cell and its `p` edge neighbours. A spherical tiling is finite. It has 4, 6, 8, 12 or 20 cells and no more. It comes back whole, and `depth` does nothing.
-
-`side` sets the wall length of a Euclidean tiling, in sketch units. Leave it out and the tiling takes the drawable, as it always did. A curved symbol has no such setting. Its side follows from its curvature, and `side` on one refuses by name and states that length.
-
-The word is on the toolkit, because a tiling needs the frame. Each geometry writes its tiling in its own model chart, and the chart has to land somewhere before a sketch can draw it. Where it lands follows one rule: the `space` of the sketch must be the geometry of the symbol. The model chart is then the sketch's own chart. The placements are isometries of the space the sketch draws in, and the cell is one cell of it. A symbol of another geometry is an error, and the message names the `space` that draws it. So a `{7, 3}` needs `space: space.hyperbolic({ radius })`, and a `{3, 5}` needs `space: space.spherical({ radius })`.
-
-Below, a `{7, 3}` in a hyperbolic sketch. The walls go down once, because the material shares them. Every copy at an odd generation is a fold of the one before it, and a fold turns the plane over. The blue hatch marks those cells, and `f.mirrored` picks them out without a measurement. The rim is one more circle, drawn at a radius so far out that the chart has nowhere left to put it.
+`depth` is generations of reflection across the cell's edges. A spherical tiling is finite and comes back whole. `side` sets the wall length of a flat tiling, and a curved symbol refuses it, because its curvature fixes the side. Below, a `{7, 3}`, with the mirrored cells hatched blue.
 
 ```ts live
 import { sketch, strokes, polygon, fill, circle, pen, mm, space } from 'occlude';
@@ -299,68 +258,46 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
 
 <include>/_sig/Toolkit.distanceTo.mdx</include>
 
-`t.distanceTo` reads the space. In a flat sketch it is the straight-line distance it has always been. In a curved one it measures by the metric, and the field it hands back is the one `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra already eat.
+`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. The pure `sdf.*` words stay flat, because a pure kernel reads no frame.
 
-The area is the one the ink door draws, and its edges are read as geodesics. The value at a point is its distance to the nearest edge, positive inside. That is exact for a convex cell of geodesics, and a tiling cell is one; for any other boundary it is as close as the boundary's own sampling. A circle needs no word of its own: it is a boundary like the rest, and the field is zero along the loop the sketch draws. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic. It is positive on the left of `a → b`, and `t.isolines` over it draws the equidistant curves of that geodesic.
-
-The pure `sdf.*` words stay flat. A pure kernel never reads a frame. `t.distanceTo` is the door that does.
-
-Every coordinate is a place, so the field answers a number everywhere.
-
-Below, the cell of a `{7, 3}` contoured at a few steps of its own distance field. Each contour is the set of points one fixed distance in from the boundary. The contours crowd the way the metric crowds, not the way the sheet does. One `t.isolines` call gives the insets once, and every placement carries them.
+Below, the cell of a `{7, 3}` inset at three fractions of its depth. One `t.isolines` call makes the insets once, and `m.transform` carries them to every copy.
 
 ```ts live
-import { sketch, strokes, line, circle, pen, mm, space } from 'occlude';
+import { sketch, strokes, circle, pen, mm, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radius: 47 }), pens: {
   edge: pen({ width: mm(0.3), color: '#23252B' }),
   inset: pen({ width: mm(0.2), color: '#2457D6' }),
 } }, (t) => {
-  const { cell, placements } = t.tiling(7, 3, { depth: 3 });
-  const c = t.space.center;
-  const field = t.distanceTo(cell);
-  // The deepest the cell goes is its inradius, which the field reads off
-  // at the centre. The insets are three fractions of that.
-  const deep = field(c[0], c[1]);
+  const tiles = t.tiling(7, 3, { depth: 3 });
+  const field = t.distanceTo(tiles.cell);
+  // The deepest point of the cell is its centre, and the field reads it there.
+  const deep = field(...t.space.center);
   const insets = t.isolines(field, [0.25, 0.5, 0.75].map((u) => deep * u), { step: mm(0.4) });
-  // The sides of the cell are geodesics, so they are drawn with `line`.
-  const ring = (pts) => pts.map((v, i) => {
-    const w = pts[(i + 1) % pts.length];
-    return line(v[0], v[1], w[0], w[1], { pen: 'edge' });
-  });
   return [
-    circle(c[0], c[1], 300, { pen: 'edge' }),
-    placements.map((f) => [
-      ring(cell.map((v) => f.point(v))),
-      strokes(insets.map((c2) => f.point(c2)), { pen: 'inset' }),
-    ]),
+    circle(t.space.center, 300, { pen: 'edge' }),
+    strokes(tiles, { pen: 'edge' }),
+    tiles.placements.map((f) => strokes(insets.transform(f), { pen: 'inset' })),
   ];
 });
 ```
 
-Two discs of the space, filleted where they meet, and one geodesic with its equidistant curves. `sdf.blend` never learns that its two leaves measure in another metric. The blue rings are the levels inside the pair, and the orange rings the levels outside. Far from the joint the blend is the union, so the outer rings keep the two corners. The grey curves are the family `t.isolines` draws over the field of the line. They run alongside the geodesic and close in on its two ends.
+The curves at one distance from a geodesic are not geodesics. Below, a piece of one geodesic in black, and the curves at fixed distances from it in blue. They run beside it and meet the rim where the geodesic does.
 
 ```ts live
-import { sketch, strokes, circle, line, sdf, pen, mm, space } from 'occlude';
+import { sketch, strokes, circle, line, pen, mm, space } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 3, space: space.hyperbolic({ radius: 47 }), pens: {
-  rim: pen({ width: mm(0.4), color: '#23252B' }),
-  arc: pen({ width: mm(0.18), color: '#9AA3B2' }),
-  inside: pen({ width: mm(0.25), color: '#2457D6' }),
-  outside: pen({ width: mm(0.2), color: '#B4552B' }),
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 47 }), pens: {
+  rim: pen({ width: mm(0.3), color: '#23252B' }),
+  near: pen({ width: mm(0.25), color: '#2457D6' }),
 } }, (t) => {
-  const c = t.space.center;
-  const left = t.space.exp(c, [-14, -4]);
-  const right = t.space.exp(c, [15, 6]);
-  const pair = sdf.blend(t.distanceTo(circle(left[0], left[1], 22)), t.distanceTo(circle(right[0], right[1], 22)), 8);
-  // One geodesic, near enough the whole way across the disk, and the
-  // curves at a fixed distance from it.
-  const across = t.distanceTo(line(c[0] - 42, c[1] - 18, c[0] + 42, c[1] + 18));
+  const [cx, cy] = t.space.center;
+  const a = [cx - 42, cy - 18], b = [cx + 42, cy + 18];
+  const across = t.distanceTo(line(a, b));
   return [
-    circle(c[0], c[1], 300, { pen: 'rim' }),
-    strokes(t.isolines(across, { spacing: 24 }, { step: mm(0.4) }), { pen: 'arc' }),
-    strokes(t.isolines(pair, [18, 12, 6, 0], { step: mm(0.4) }), { pen: 'inside' }),
-    strokes(t.isolines(pair, [-8, -18, -30, -44], { step: mm(0.4) }), { pen: 'outside' }),
+    circle(t.space.center, 300, { pen: 'rim' }),
+    line(a, b, { pen: 'rim' }),
+    strokes(t.isolines(across, [-30, -20, -10, 10, 20, 30], { step: mm(0.4) }), { pen: 'near' }),
   ];
 });
 ```
@@ -371,61 +308,11 @@ export default sketch({ aspect: [1, 1], seed: 3, space: space.hyperbolic({ radiu
 <include>/_sig/3d.observer.mdx</include>
 <include>/_sig/3d.geodesic3.mdx</include>
 
-`view` does not take a space yet. Until it does, the three words a hyperbolic scene needs live in `occlude/3d`, spelled bare like every other 3D word. They are the interim home, and they fold into the 3D frame when it lands.
+`view` does not take a space yet. Until it does, three words in `occlude/3d` hold a hyperbolic scene. They work in the Klein ball, the unit ball of `[x, y, z]`. There a hyperbolic line is a chord, and a hyperbolic plane is a flat plane. So a hyperbolic polyhedron is an ordinary mesh, and `view` draws it. Klein coordinates are not hyperbolic lengths: a point at distance `R` from the centre sits at Klein radius `tanh R`.
 
-They work in the Beltrami-Klein ball: the unit ball of `[x, y, z]`, whose rim lies infinitely far away. In this model a hyperbolic straight line is an ordinary chord, and a hyperbolic plane is an ordinary flat plane. So a hyperbolic polyhedron is an ordinary mesh. `mesh(cell.points, cell.faces)` takes one, and the same `view` draws it.
+`honeycomb(p, q, r, { depth })` gives the regular cell with `r` of them around every edge, and one point map for each copy, the identity first. Four symbols have a compact cell: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5, 3, 5}`. The word refuses any other symbol, and the error names its geometry. `observer(eye, target, { up })` is the point map that moves `eye` to the centre of the ball and turns `target` onto `+Y`. The Klein model keeps angles at its centre, so the picture from there has the angles of the space itself. `geodesic3(a, b, { count })` samples the chord between two points evenly in hyperbolic length.
 
-The price is length. Klein coordinates are not hyperbolic lengths, and they shrink toward the rim. A hatch spacing or an isoline step over this geometry counts Klein units. A point at hyperbolic distance `R` from the centre of the ball sits at Klein radius `tanh R`, so `Math.atanh` of a radius reads a true distance back.
-
-`honeycomb(p, q, r, { depth })` gives the regular cell with `r` of them around every edge, and one point map for each copy of it, the identity first. Four symbols have a compact cell in hyperbolic space: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5, 3, 5}`. Every other one refuses by name, and it names the geometry it belongs to. `{4, 3, 4}` is Euclidean and `{3, 3, 5}` is spherical. The copies are found by reflection in the walls of the cell, out to `depth` generations. The copies at odd generations turn space over, because a reflection does.
-
-`observer(eye, target, { up })` is the point map that moves `eye` to the centre of the ball and points `target` along `+Y`. The Klein model is true to angle at its centre. The picture the observer takes there has the angles of hyperbolic space itself. The sketch maps the scene through it and then takes `perspective({ eye: [0, 0, 0], target: [0, 1, 0] })`. A placement is a point map too, so one pass over the points does both.
-
-`geodesic3(a, b, { count })` samples the chord between two points evenly in hyperbolic length. Two points draw the line; ask for samples when something is measured or carried along it.
-
-A honeycomb fills space. From inside a cell, solid walls would hide every other cell, so the two drawings below take each cell as its edges. `polyline` makes a wire, and a wire hides nothing. Stand outside the ball, and `mesh(cell.points, cell.faces)` gives solid cells for the hidden-line engine to work on.
-
-Below, the observer stands in one cube of the `{4, 3, 5}` honeycomb and looks at a wall. Five cubes meet around every edge, and the right angles of a Euclidean cube become 72 degrees. A view this wide reaches past its own frame, so the callback keeps the lines the frame holds.
-
-```ts live
-import { sketchAsync, strokes, pen, mm } from 'occlude';
-import { polyline, view, perspective, honeycomb, observer, geodesic3 } from 'occlude/3d';
-
-export default sketchAsync({ aspect: [1, 1], pens: {
-  ink: pen({ width: mm(0.22), color: '#18202A' }),
-} }, async () => {
-  const { cell, placements } = honeycomb(4, 3, 5, { depth: 4 });
-  // Every edge of the cell once: a closed cell runs each edge both ways.
-  const edges = cell.faces.flatMap((f) => f.map((a, i) => [a, f[(i + 1) % f.length]]).filter(([a, b]) => a < b));
-  // A little off the centre of one cube, looking at a wall.
-  const eye = observer([0.05, -0.08, 0.1], [0.8, 0, 0]);
-  const name = (p) => p.map((v) => Math.round(v * 1e6)).join(',');
-  const drawn = new Set();
-  const wires = [];
-  for (const place of placements) {
-    const here = cell.points.map(place);
-    const seen = here.map(eye);
-    // Depth counts reflections; a hyperbolic radius is the honest cut.
-    // The eye sits at the centre of the ball, and a point at hyperbolic
-    // distance R from the centre sits at Klein radius tanh R.
-    const middle = eye(place([0, 0, 0]));
-    if (Math.atanh(Math.hypot(middle[0], middle[1], middle[2])) > 3) continue;
-    for (const [a, b] of edges) {
-      const id = [name(here[a]), name(here[b])].sort().join('|');
-      if (drawn.has(id)) continue;
-      drawn.add(id);
-      wires.push(polyline(geodesic3(seen[a], seen[b], { count: 24 })));
-    }
-  }
-  return view(wires, { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.01 }), stroke: 'ink' }, (lines) => {
-    const r = lines.visible.source.frame.paper;
-    const held = (p) => p[0] >= r.x && p[0] <= r.x + r.width && p[1] >= r.y && p[1] <= r.y + r.height;
-    return strokes(lines.visible.filter((c) => held(c.a) && held(c.b)), { stroke: 'ink' });
-  });
-});
-```
-
-The `{5, 3, 4}` honeycomb fills space with right-angled dodecahedra, four around every edge. The observer stands a little toward one corner of a cell and looks at the wall across from it. An `up` tilted off the world's own rolls the picture. The heavier pen draws the cell the observer stands in, so the eye finds the room. Its far wall is the small pentagon at the middle, and the near edges of the room run out to the corners of the frame.
+Below, the `{5, 3, 4}` honeycomb, four right-angled dodecahedra around every edge, seen from inside one cell. Each cell is its edges, as wires, because solid walls would hide every other cell. The heavier pen draws the room the observer stands in.
 
 ```ts live
 import { sketchAsync, strokes, pen, mm } from 'occlude';
@@ -468,86 +355,12 @@ export default sketchAsync({ aspect: [1, 1], pens: {
 });
 ```
 
-## the curvature as a number
-
-The four drawings above name their geometry. This one writes the curvature itself, which is the form the names are sugar for. Read the number as how sharply the space bends against a step of one unit. Make it smaller and the drawing flattens toward the plane. Make it positive and the same program lands on a sphere.
-
-The projection carries its own size here, so the disk prints at 44 units and not at the full drawable.
-
-```ts live
-import { sketch, rect, circle, strokes, pen, mm } from 'occlude';
-
-export default sketch({
-  aspect: [1, 1], seed: 6,
-  space: { curvature: -4 / (34 * 34) },
-  projection: { kind: 'poincare', size: 44 },
-  pens: { ink: pen({ width: mm(0.3), color: '#23252B' }), edge: pen({ width: mm(0.6), color: '#8A857C' }) },
-}, (t) => [
-  ...t.grid({ cols: 7, rows: 7, gap: 3 })
-    .map((c, k) => (k % 3 === 0 ? rect(c.x, c.y, c.w, c.h) : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
-  strokes(t.sample(circle(50, 50, 30), { count: 64 }), { pen: 'edge' }),
-]);
-```
-
-## a motif at five stations
-
-The walker of the first drawing goes round the `{5, 4}` pentagon again. This time each corner gets an arrow, and the arrow is one motif written once about the origin. `station.placement()` puts it at each corner, so the motif is never rewritten and never measured.
-
-The second pen draws the whole cell again under `reflection` in one side of it. It draws the motif the other way, through `m.transform`, because a placement moves a material as readily as it moves a subtree. A reflection turns a motif over. The barbs of the blue arrows lean the other way, and `orientation` says so before the sketch draws a line.
-
-```ts live
-import { sketch, group, strokes, line, circle, pen, mm, space, identity, reflection } from 'occlude';
-
-export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), pens: {
-  ink: pen({ width: mm(0.3), color: '#23252B' }),
-  turned: pen({ width: mm(0.3), color: '#2457D6' }),
-} }, (t) => {
-  const k = t.space.radius / 2;
-  // The side of the right-angled pentagon, which is the cell of {5, 4}.
-  const d = 2 * k * Math.asinh(Math.sqrt((Math.sqrt(5) - 1) / 4));
-  // ONE motif, written once about the origin and facing +x: a shaft and
-  // two barbs. Nothing in it knows where it will be drawn.
-  const arrow = [line(0, 0, 6, 0), line(6, 0, 3.4, 1.7), line(6, 0, 3.4, -1.7)];
-  // The walk: five legs with a right turn between them.
-  const stops = [];
-  let st = t.station(34, 44);
-  for (let i = 0; i < 5; i++) {
-    stops.push(st);
-    st = st.step(d);
-    if (i < 4) st = st.turn(90);
-  }
-  // The sides of the cell, under a placement. `line` asks for the
-  // geodesic, which is what a side of a cell is.
-  const sides = (place, ink) => stops.map((a, i) => {
-    const b = stops[(i + 1) % 5];
-    const p = place.point([a.x, a.y]);
-    const q = place.point([b.x, b.y]);
-    return line(p[0], p[1], q[0], q[1], { pen: ink });
-  });
-  // The mirror in the first side. It fixes that side and turns
-  // everything else over, so its `orientation` is -1.
-  const mirror = reflection(t.space.model, [stops[0].x, stops[0].y], [stops[1].x, stops[1].y]);
-  const motif = t.material(...arrow);
-  return [
-    circle(t.space.center[0], t.space.center[1], 300, { pen: 'ink' }),
-    sides(identity(t.space.model), 'ink'),
-    stops.map((s) => group(s.placement(), arrow)),
-    sides(mirror, 'turned'),
-    stops.map((s) => strokes(motif.transform(s.placement().then(mirror)), { pen: 'turned' })),
-  ];
-});
-```
-
 ## a tiling of the sphere
 
-The same word in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls, 20 faces, no rim and no outside. The stereographic projection carries its own size here, so the front of the sphere fills the sheet. The sketch draws every wall, and the walls on the back of the sphere are the outer arcs of the picture. Of the three generations nearest the front, it hatches every other one and puts a dot at the middle of each. The walls go down once each, because the material shares them.
-
-<include>/_sig/Station.toward.mdx</include>
-
-Each dot also carries a tick. `station.toward(q)` gives back a station at the same place, facing `q`: the direction of the geodesic that runs from here to there. A `q` in this very place keeps the heading the station has. On a sphere a `q` exactly opposite has no one direction, and the station refuses it by name. A station at the middle of a cell takes `toward` a neighbour's middle, and one `step` walks the geodesic. On a sphere that geodesic is a great circle. The tick leans the way the sphere runs, not the way the sheet does.
+The same `t.tiling` in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls and 20 faces. The walls on the back of the sphere are the outer arcs of the picture. Of the three generations nearest the front, a hatch marks every other one, and a dot marks the middle of each cell.
 
 ```ts live
-import { sketch, strokes, polygon, dots, line, fill, pen, mm, space } from 'occlude';
+import { sketch, strokes, polygon, dots, fill, pen, mm, space } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 4,
@@ -561,21 +374,10 @@ export default sketch({
   // The generation of a cell is how many folds it took to reach it, and on
   // a sphere that is how far round it sits. Three of them is the front.
   const near = tiles.faces().filter((f) => f.generation < 3);
-  // A tick at the middle of a cell, turned toward the middle of a
-  // neighbour: `toward` reads the geodesic between the two, and `step`
-  // walks it. The centroid is a point, so it goes straight into `t.station`.
-  const tick = (f) => {
-    const wall = f.edges.find((e) => e.faces.length === 2);
-    const other = wall.faces.find((g) => g.index !== f.index);
-    const from = t.station(f.centroid).toward(other.centroid);
-    const to = from.step(3);
-    return line(from, to, { pen: 'tone' });
-  };
   return [
     near.filter((f) => f.generation % 2 === 0)
       .map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(1.2) }), fillPen: 'tone', stroke: false })),
     dots(near.map((f) => f.centroid), { pen: 'wall' }),
-    near.map(tick),
     strokes(tiles, { pen: 'wall' }),
   ];
 });
