@@ -184,13 +184,12 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
 <include>/_sig/Toolkit.station.2.mdx</include>
 <include>/_sig/Station.placement.mdx</include>
 <include>/_sig/reflection.mdx</include>
-<include>/_sig/identity.mdx</include>
 <include>/_sig/between.mdx</include>
 <include>/_sig/Material.transform.mdx</include>
 
 A placement is an isometry of the space. It moves a point, a station, a material or a whole drawing, and it keeps every length and every angle. `orientation` is `1` when it keeps the hand of a motif and `-1` when it turns the motif over.
 
-Four ways to get one: `station.placement()` carries the origin station, at `(0, 0)` facing `+x`, to that station. `between(door, from, to)` carries one station onto another, and `{ mirror: true }` turns it over on the way. `identity(door)` moves nothing. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.station(s)` moves a station and its heading. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`.
+Four ways to get one: `station.placement()` carries the origin station, at `(0, 0)` facing `+x`, to that station. `between(door, from, to)` carries one station onto another, and `{ mirror: true }` turns it over on the way. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.station(s)` moves a station and its heading. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`.
 
 A placing group and a deforming group never share a group. Nest them: the inner group holds `translate`, `rotate` or `scale` in the motif's own coordinates, and the outer group holds the placement. The library refuses a group that names both, and the error names the keys.
 
@@ -318,7 +317,7 @@ Four symbols have a compact cell: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5,
 
 `observer(eye, target, { up })` is the `Placement3` that moves `eye` to the centre of the ball and turns `target` onto `+Y`. The Klein model keeps angles at its centre, so the picture from there has the angles of the space itself. `transform(placement)` on a mesh or on wires moves each point with `placement.point`, and keeps each id and each column. A chord stays a chord, so two points draw a hyperbolic line exactly. `geodesic3(a, b, { count })` puts points along the chord at equal hyperbolic distances. Use it to measure along a line, not to draw one.
 
-Below, the `{5, 3, 4}` honeycomb, four right-angled dodecahedra around every edge, seen from inside one cell. The honeycomb is its wires, because solid walls would hide every other cell. The heavier pen draws the room the observer stands in, which is generation 0. The page edge cuts the wires.
+Below, the `{5, 3, 4}` honeycomb, four right-angled dodecahedra around every edge, seen from inside one cell. The honeycomb is its wires, because solid walls would hide every other cell. The heavier pen draws the room the observer stands in. That room is generation 0. The page edge cuts the wires.
 
 ```ts live
 import { sketchAsync, strokes, clip, rect, pen, mm } from 'occlude';
@@ -339,6 +338,35 @@ export default sketchAsync({ aspect: [1, 1], pens: {
     strokes(lines.visible.filter((w) => w.attributes.generation > 0), { stroke: 'ink' }),
     strokes(lines.visible.filter((w) => w.attributes.generation === 0), { stroke: 'room' }),
   ]));
+});
+```
+
+## points along a geodesic
+
+`geodesic3(a, b, { count })` puts `count` steps of equal hyperbolic length along the chord from `a` to `b`. Near the rim of the ball the same length is a shorter chord, so the beads crowd toward the edge. The picture looks straight down the `z` axis, so each chord draws as itself.
+
+```ts live
+import { sketchAsync, strokes } from 'occlude';
+import { view, orthographic, polyline, circle, geodesic3 } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1] }, async () => {
+  // Two chords of the ball: one through the centre, one off it. Each bead
+  // is a short tick across the chord, one per step of equal hyperbolic
+  // length.
+  const chords = [[[-0.92, 0, 0], [0.92, 0, 0]], [[-0.55, 0.62, 0], [0.74, 0.38, 0]]];
+  const wires = [circle(1)];
+  for (const [a, b] of chords) {
+    wires.push(polyline([a, b]));
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    const nx = (-dy / len) * 0.035;
+    const ny = (dx / len) * 0.035;
+    for (const p of geodesic3(a, b, { count: 14 })) {
+      wires.push(polyline([[p[0] - nx, p[1] - ny, 0], [p[0] + nx, p[1] + ny, 0]]));
+    }
+  }
+  return view(wires, { camera: orthographic({ eye: [0, 0, 4], target: [0, 0, 0], up: [0, 1, 0], span: 2.3 }), stroke: 'ink' }, (lines) => strokes(lines.visible));
 });
 ```
 
