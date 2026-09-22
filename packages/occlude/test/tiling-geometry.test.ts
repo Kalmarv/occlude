@@ -1,7 +1,7 @@
 /**
  * A tiling is GEOMETRY: a material whose corners and walls are shared.
  *
- * The three symbols stand for the three geometries — `{4, 4}` fitted to a
+ * The three symbols stand for the three geometries — `{4, 4}` on the
  * flat sheet, `{7, 3}` in the sketch's own disk, `{3, 5}` on the sketch's
  * own sphere — and each is asked the same questions. Is it a material with
  * no duplicate wall? Is every corner where the placement puts it? Does
@@ -122,35 +122,6 @@ describe('a tiling is a material of shared corners and shared walls', () => {
       }
     }
   });
-
-  it('keeps a fitted picture within the tolerance of the arc it stands for', () => {
-    // A `{7, 3}` on a flat sheet is the Circle Limit picture, and the
-    // sketch's own space knows nothing about it. A geodesic of the disk is
-    // a circle at right angles to the rim, so the arc is worked out here:
-    // |c|² = 1 + r² and |z − c| = r give 2·z·c = |z|² + 1 for both ends.
-    const tiles = flat().tiling(7, 3, { depth: 2 });
-    expect(sampleCount(tiles)).toBeGreaterThan(0);
-    const model = (row: number): [number, number] => [(tiles.x[row] - 50) / 50, (tiles.y[row] - 50) / 50];
-    let judged = 0;
-    for (const wall of walls(tiles)) {
-      const [ax, ay] = model(wall.a);
-      const [bx, by] = model(wall.b);
-      const det = 2 * (ax * by - ay * bx);
-      if (Math.abs(det) < 1e-12) continue; // a wall through the middle draws straight
-      const ka = ax * ax + ay * ay + 1;
-      const kb = bx * bx + by * by + 1;
-      const cx = (ka * by - kb * ay) / det;
-      const cy = (ax * kb - bx * ka) / det;
-      const r = Math.hypot(ax - cx, ay - cy);
-      for (const row of wall.through) {
-        const [sx, sy] = model(row);
-        // In drawable units, and well inside the 0.05 the sampling keeps.
-        expect(Math.abs(Math.hypot(sx - cx, sy - cy) - r) * 50).toBeLessThan(1e-6);
-        judged++;
-      }
-    }
-    expect(judged).toBeGreaterThan(100);
-  });
 });
 
 describe('the faces are the cells', () => {
@@ -255,10 +226,9 @@ describe('side is the plane\'s own setting', () => {
   });
 });
 
-describe('the fitted pictures still answer through cell and placements', () => {
-  it('keeps the Euclidean and spherical pictures on a flat sheet', () => {
-    const t = flat();
-    for (const [p, q, n] of [[4, 4, 13], [3, 5, 20]] as const) {
+describe('each symbol answers through cell and placements in its own space', () => {
+  it('keeps the plane on a flat sheet and the sphere in a spherical sketch', () => {
+    for (const [t, p, q, n] of [[flat(), 4, 4, 13], [ball(), 3, 5, 20]] as const) {
       const tiles = t.tiling(p, q, { depth: 2 });
       expect(tiles.placements.length).toBe(n);
       expect(tiles.cell.length).toBe(p);

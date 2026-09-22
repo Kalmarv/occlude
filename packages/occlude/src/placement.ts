@@ -18,8 +18,7 @@
  * with `sign` −1 (Minkowski), +1 (the ordinary dot) or 0 (the plane, whose
  * third coordinate is not a length at all). A `ModelDoor` is how a sketch
  * point becomes a model vector and back, plus the orthonormal tangent frame
- * at a point; `space.ts` builds one per space, and `pictureDoor` builds the
- * one a model chart drawn as a PICTURE on a flat sheet uses.
+ * at a point; `space.ts` builds one per space.
  *
  * Everything else is then arithmetic that does not know which geometry it
  * is in: `point` is `down(M·up(p))`, composition is the matrix product,
@@ -54,10 +53,9 @@ export interface ModelDoor {
   /**
    * What makes two doors THE SAME door when they are not the same object:
    * the kind, the signature, and the numbers that place the model — the
-   * centre and the curvature length of a space's own door, the centre and
-   * the scale of a picture door. Compared as a string, because that is the
-   * whole of the comparison and a record of closures cannot be compared
-   * any other way.
+   * centre and the curvature length of a space's own door. Compared as a
+   * string, because that is the whole of the comparison and a record of
+   * closures cannot be compared any other way.
    */
   readonly id: string;
   /** Sketch coordinates → the model. */
@@ -308,75 +306,4 @@ export function isPlacement(v: unknown): v is Placement {
     && typeof p.door === 'object' && p.door !== null
     && (p.orientation === 1 || p.orientation === -1)
   );
-}
-
-// ---- the picture door ------------------------------------------------------
-
-/**
- * The door of a geometry's model chart DRAWN AS A PICTURE on a flat sheet:
- * the chart's unit circle at `k` from `center`, and no claim that the sheet
- * measures anything.
- *
- * `up(p) = chartUp((p − center)/k)` and `down(n) = center + k·chartDown(n)`,
- * where `chartUp`/`chartDown` are the stereographic chart of the model —
- * the unit Poincaré disk below zero, the unit sphere's chart above it. Both
- * are fixed by `sign` alone,
- *
- *     chartDown(n) = [n0, n1] / (1 + n2),
- *     chartUp(z)   = [2z0, 2z1, 1 − sign·|z|²] / (1 + sign·|z|²),
- *
- * so this is the whole of the chart and `curvedSpaceOf` exposes nothing
- * new beyond `model`: its own `chart` is this one carried onto the drawable
- * by its `center` and `size`, which is what `center` and `k` are here.
- *
- * The flat plane has no such chart — it fixes no unit of length at all — so
- * a Euclidean picture is the plain similarity `[(p − center)/k, 1]`, which
- * is what a `{4, 4}` fitted to the drawable already was.
- */
-export function pictureDoor(kind: SpaceKind, center: XY, k: number): ModelDoor {
-  const cx = vx(center);
-  const cy = vy(center);
-  const id = `picture:${kind}:${cx}:${cy}:${k}`;
-  if (kind === 'euclidean') {
-    return {
-      kind,
-      sign: 0,
-      id,
-      up: (p) => [(vx(p) - cx) / k, (vy(p) - cy) / k, 1],
-      down: (n) => [cx + (k * n[0]) / n[2], cy + (k * n[1]) / n[2]],
-      frameAt: () => [[1, 0, 0], [0, 1, 0]],
-    };
-  }
-  const sign: -1 | 1 = kind === 'hyperbolic' ? -1 : 1;
-  return {
-    kind,
-    sign,
-    id,
-    up: (p) => {
-      const zx = (vx(p) - cx) / k;
-      const zy = (vy(p) - cy) / k;
-      const r2 = zx * zx + zy * zy;
-      const d = 1 + sign * r2;
-      return [(2 * zx) / d, (2 * zy) / d, (1 - sign * r2) / d];
-    },
-    down: (n) => {
-      const w = 1 + n[2];
-      return [cx + (k * n[0]) / w, cy + (k * n[1]) / w];
-    },
-    /**
-     * The chart is CONFORMAL with factor `2/d`, so the chart's own axes,
-     * scaled by `d/2`, are an orthonormal frame of the model. At the centre
-     * it is `[1, 0, 0]`, `[0, 1, 0]`, which is the right-handed triple the
-     * orientation rule reads.
-     */
-    frameAt: (p) => {
-      const zx = (vx(p) - cx) / k;
-      const zy = (vy(p) - cy) / k;
-      const d = 1 + sign * (zx * zx + zy * zy);
-      return [
-        [1 - (2 * sign * zx * zx) / d, (-2 * sign * zx * zy) / d, (-2 * sign * zx) / d],
-        [(-2 * sign * zx * zy) / d, 1 - (2 * sign * zy * zy) / d, (-2 * sign * zy) / d],
-      ];
-    },
-  };
 }

@@ -1,57 +1,45 @@
 ---
 title: Plane and disk
-description: One motif under two symmetries, p4m on the sheet and {4, 5} inside the disk.
+description: One motif under {4, 5}, five squares at every corner, where the plane has room for four.
 ---
 
-One motif, drawn twice under two different laws. A square cell holds a smaller square turned inside it. On the sheet the cell repeats under `p4m`, the wallpaper group of the square grid. Four squares meet at every corner, and every cell is the same size.
+One motif under a law the flat plane cannot keep. A square cell holds a smaller square turned inside it. On a flat sheet the cell repeats under `p4m`, the wallpaper group of the square grid. There, four squares meet at every corner.
 
-Inside the disk the same motif repeats under `{4, 5}`. Five squares meet at every corner. No flat grid can do that, because five right angles do not close. The hyperbolic plane has the room for the fifth square. The price is size: each ring of cells comes out smaller than the ring inside it.
+Here the same motif repeats under `{4, 5}`. Five squares meet at every corner. No flat grid can do that, because five right angles do not close. The hyperbolic plane has the room for the fifth square. The price is size: each ring of cells comes out smaller than the ring inside it.
 
 Nothing shrinks in the metric of the disk. Every cell there is the same square, at the same size, and the rim lies infinitely far away. The shrinking belongs to the picture, not to the plane the picture shows.
 
-The sketch itself is flat, because the wallpaper group is a symmetry of the sheet. `t.tiling(4, 5)` reads that. The symbol asks for a geometry the sketch does not draw in, so the word fits the chart of the disk to the drawable and hands back the Circle Limit picture. The edges of a cell then draw as chords. The page on [Geometry](/docs/reference/geometry) draws the same tiling in a hyperbolic sketch, where they are the arcs they really are.
+The sketch draws in hyperbolic space, because `{4, 5}` is a tiling of that space. `t.tiling` refuses a symbol of another geometry. A wall is a geodesic, so it draws as an arc that meets the rim at a right angle. The sketch writes the turned square once, inside the cell, and every placement carries it. `strokes(tiles)` draws each wall once, because two cells that meet share the wall.
 
-The disk is an opaque polygon, so it hides the flat grid beneath it. The two geometries meet at one hard edge, and the same motif sits on both sides of it.
-
-Uses: `t.tiling`, `t.symmetry`, `group`, `clip`, `path`, `polygon` with `opaque`, `stroke`.
+Uses: `t.tiling`, `t.space`, `strokes`, `line`, `circle`.
 
 ```ts live
-// ONE MOTIF, TWO SYMMETRIES
+// ONE MOTIF, FIVE AT A CORNER
 //
-// A square cell with a smaller square turned inside it, repeated twice.
-// Across the sheet it repeats under p4m: four squares at every corner,
-// every cell the same size. Inside the disk it repeats under {4, 5}:
-// five squares at every corner, which no flat grid can do, so the cells
-// shrink toward the rim. The sketch is flat, so t.tiling fits the disk's
-// own chart to the drawable and the cell edges draw as chords. The disk
-// is opaque and hides the plane beneath it.
-import { sketch, stroke, polygon, group, clip, rect, path, pen, mm } from 'occlude';
+// A square cell with a smaller square turned inside it, repeated under
+// {4, 5}: five squares at every corner, which no flat grid can do, so
+// the cells shrink toward the rim. The sketch draws in the tiling's own
+// space, so every wall is a geodesic and draws as an arc. The turned
+// square is written once in the cell, and every placement carries it.
+import { sketch, strokes, line, circle, pen, mm, space } from 'occlude';
 
 export default sketch(
-  { aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
+  { aspect: [1, 1], seed: 5, space: space.hyperbolic({ radius: 50 }), pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), faint: pen({ width: mm(0.2), color: '#9AA4B2' }) } },
   (t) => {
-    const b = t.bounds();
-    // The plane: a square cell with a smaller square turned inside it.
-    const cell = 11;
-    const motif = [
-      path().moveTo(0, 0).lineTo(cell, 0).lineTo(cell, cell).lineTo(0, cell).close().build(),
-      path().moveTo(cell / 2, cell * 0.2).lineTo(cell * 0.8, cell / 2).lineTo(cell / 2, cell * 0.8).lineTo(cell * 0.2, cell / 2).close().build(),
+    const tiles = t.tiling(4, 5, { depth: 4 });
+    const c = t.space.center;
+    // The turned square: the middle of each wall, pulled toward the
+    // middle of the cell along the geodesic between them.
+    const quad = tiles.cell;
+    const inner = quad.map((v, i) => t.space.geodesic(c, t.space.geodesic(v, quad[(i + 1) % 4], 0.5), 0.72));
+    const ring = (pts) => pts.map((v, i) => line(v, pts[(i + 1) % pts.length], { pen: 'faint' }));
+    return [
+      // The rim, drawn at a radius so far out that the chart has nowhere
+      // left to put it.
+      circle(c[0], c[1], 300, { pen: 'ink' }),
+      strokes(tiles, { pen: 'ink' }),
+      tiles.placements.map((f) => ring(inner.map((v) => f.point(v)))),
     ];
-    const plane = clip(rect(0, 0, b.w, b.h), t.symmetry('p4m', { cell }).map((p) => group({ ...p, pen: 'faint' }, motif)));
-    // The disk: the fundamental square of {4, 5} and the same turned
-    // square inside it, under every placement. The fitted chart fills the
-    // drawable, so the sketch pulls it in to 0.6 of that.
-    const { cell: quad, placements } = t.tiling(4, 5, { depth: 4 });
-    const R = Math.min(b.w, b.h) * 0.3;
-    const put = (v) => [b.cx + (v[0] - b.cx) * 0.6, b.cy + (v[1] - b.cy) * 0.6];
-    const inner = quad.map((v, i) => {
-      const w = quad[(i + 1) % 4];
-      return [b.cx + ((v[0] + w[0]) / 2 - b.cx) * 0.72, b.cy + ((v[1] + w[1]) / 2 - b.cy) * 0.72];
-    });
-    const cells = placements.flatMap((f) => [quad, inner].map((loop) =>
-      stroke([...loop, loop[0]].map((v) => put(f.point(v))), { pen: 'ink' })));
-    const disk = polygon(t.times(181, (_, u) => [b.cx + R * Math.cos(u * Math.PI * 2), b.cy + R * Math.sin(u * Math.PI * 2)]), { opaque: true, pen: 'ink' });
-    return [plane, disk, cells];
   },
 );
 ```

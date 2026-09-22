@@ -178,7 +178,7 @@ export type { EscapeOpts, EscapeField, EscapeStep } from './escape.js';
 // copies, a mirror in a geodesic. `group(placement, …)` places a drawing,
 // `m.transform(placement)` a material, `placement.station(s)` a walker.
 // Pure — the toolkit hands it the space's model door.
-export { identity, reflection, between, isPlacement, pictureDoor } from './placement.js';
+export { identity, reflection, between, isPlacement } from './placement.js';
 export type { Placement, ModelDoor, Model } from './placement.js';
 export { space, spaceOf } from './space.js';
 export type { Space, SpaceKind, SpaceSpec, CurvatureSpec, SpaceOption, Projection, ProjectionSpec, ProjectionOption } from './space.js';
@@ -190,7 +190,7 @@ export { Tiling } from './tiling.js';
 export type { TilingGeometry, TilingOpts } from './tiling.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
-export type { TravelFrom, TravelOpts } from './travel.js';
+export type { TravelOpts } from './travel.js';
 export type { TravelTimeOpts } from './api.js';
 // The geometry protocol: what a value can say about itself, and the one
 // area contract of polygon, distanceTo, force.boundary and t.within.

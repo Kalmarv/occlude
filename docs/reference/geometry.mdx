@@ -27,7 +27,7 @@ A walker starts at one corner of a pentagon and walks five equal legs with a rig
 // is negative, a corner that turns counter-clockwise, and +90 lands
 // every step on the next corner. The arrows are the walk's own words:
 // a shaft along the heading and two barbs turned back from the tip.
-import { sketch, line, circle, space } from 'occlude';
+import { sketch, line, circle, space, degrees } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
   const { cell, placements } = t.tiling(5, 4, { depth: 5 });
@@ -41,7 +41,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
   // The walk: the first cell, drawn by a walker and not by the tiling.
   const side = t.space.distance(cell[0], cell[1]);
   const v = t.space.log(cell[0], cell[1]);
-  let st = t.station(cell[0][0], cell[0][1], Math.atan2(v[1], v[0]));
+  let st = t.station(cell[0], { heading: degrees(Math.atan2(v[1], v[0])) });
   const start = st;
   const legs = [];
   for (let i = 0; i < 5; i++) {
@@ -75,7 +75,7 @@ Under `projection: 'klein'` the same program draws every side straight, because 
 // is negative, a corner that turns counter-clockwise, and +90 lands
 // every step on the next corner. The arrows are the walk's own words:
 // a shaft along the heading and two barbs turned back from the tip.
-import { sketch, line, circle, space } from 'occlude';
+import { sketch, line, circle, space, degrees } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), projection: 'klein' }, (t) => {
   const { cell, placements } = t.tiling(5, 4, { depth: 5 });
@@ -89,7 +89,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
   // The walk: the first cell, drawn by a walker and not by the tiling.
   const side = t.space.distance(cell[0], cell[1]);
   const v = t.space.log(cell[0], cell[1]);
-  let st = t.station(cell[0][0], cell[0][1], Math.atan2(v[1], v[0]));
+  let st = t.station(cell[0], { heading: degrees(Math.atan2(v[1], v[0])) });
   const start = st;
   const legs = [];
   for (let i = 0; i < 5; i++) {
@@ -256,7 +256,7 @@ A placing group and a deforming group are two different frames, so they never sh
 
 <AutoTypeTable path="../occlude/src/tiling.ts" name="TilingOpts" />
 
-The regular tiling with `p`-gons meeting `q` at a vertex. The symbol picks the geometry, and there is nothing to set. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
+The regular tiling with `p`-gons meeting `q` at a vertex. The symbol picks the geometry, and the sketch must draw in it. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
 
 The answer is a [material](/docs/reference/material). Two cells that meet share the corners and the wall between them. A wall is one edge, and `strokes(tiles)` draws it once. A wall is a geodesic, and an edge of a material is straight, so each wall carries samples along its own curve. `tiles.faces()` gives the cells. Every other material word reads a tiling too. A point selection picks corners, `t.within` cuts it, and `polygon(face)` fills one cell.
 
@@ -268,7 +268,7 @@ Every face carries three columns. `generation` counts the reflections that first
 
 `side` sets the wall length of a Euclidean tiling, in sketch units. Leave it out and the tiling takes the drawable, as it always did. A curved symbol has no such setting. Its side follows from its curvature, and `side` on one refuses by name and states that length.
 
-The word is on the toolkit, because a tiling needs the frame. Each geometry writes its tiling in its own model chart, and the chart has to land somewhere before a sketch can draw it. Where it lands follows one rule. When the `space` of the sketch is the geometry of the symbol, the model chart is the sketch's own. The placements are then isometries of the space the sketch draws in, and the cell is one cell of it. When the two do not agree, the model chart is fitted to the drawable: its unit circle becomes the largest circle the drawable holds. The answer is the Circle Limit picture, drawn as a picture on a flat sheet. The flat plane fixes no unit of length, so a Euclidean symbol always takes that fit. A scaled tiling of the plane is still a tiling of the plane.
+The word is on the toolkit, because a tiling needs the frame. Each geometry writes its tiling in its own model chart, and the chart has to land somewhere before a sketch can draw it. Where it lands follows one rule: the `space` of the sketch must be the geometry of the symbol. The model chart is then the sketch's own chart. The placements are isometries of the space the sketch draws in, and the cell is one cell of it. A symbol of another geometry is an error, and the message names the `space` that draws it. So a `{7, 3}` needs `space: space.hyperbolic({ radius })`, and a `{3, 5}` needs `space: space.spherical({ radius })`.
 
 Below, a `{7, 3}` in a hyperbolic sketch. The walls go down once, because the material shares them. Every copy at an odd generation is a fold of the one before it, and a fold turns the plane over. The blue hatch marks those cells, and `f.mirrored` picks them out without a measurement. The rim is one more circle, drawn at a radius so far out that the chart has nowhere left to put it.
 
@@ -292,29 +292,6 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
     // Every wall once, whichever two cells share it.
     strokes(tiles, { pen: 'wall' }),
   ];
-});
-```
-
-One motif in three geometries, in a flat sketch. Each tiling is fitted to the drawable, so each one lands in the middle. The sketch moves the copies apart and scales the Euclidean one down. `placement.point` gives it a plain point to compute with.
-
-```ts live
-import { sketch, stroke, clip, circle } from 'occlude';
-
-export default sketch({ aspect: [3, 1] }, (t) => {
-  // `reach` keeps the copies whose centre is near enough the middle of
-  // the chart to draw: on the sphere that is the near half of it.
-  const panel = (p, q, depth, dx, k, reach) => {
-    const { cell, placements } = t.tiling(p, q, { depth });
-    const put = (v) => [150 + dx + (v[0] - 150) * k, 50 + (v[1] - 50) * k];
-    const inner = cell.map((v, i) => {
-      const w = cell[(i + 1) % cell.length];
-      return [150 + ((v[0] + w[0]) / 2 - 150) * 0.78, 50 + ((v[1] + w[1]) / 2 - 50) * 0.78];
-    });
-    const near = placements.filter((f) => Math.hypot(f.point([150, 50])[0] - 150, f.point([150, 50])[1] - 50) <= reach);
-    return clip(circle(150 + dx, 50, 46), near.flatMap((f) => [cell, inner].map((loop) =>
-      stroke([...loop, loop[0]].map((v) => put(f.point(v)))))));
-  };
-  return [panel(3, 5, 0, -100, 0.78, 50), panel(4, 4, 3, 0, 0.3, 450), panel(7, 3, 3, 100, 0.9, 50)];
 });
 ```
 
@@ -563,7 +540,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
 
 ## a tiling of the sphere
 
-The same word in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls, 20 faces, no rim and no outside. The stereographic projection carries its own size here, so the front of the sphere fills the sheet. The sketch keeps the three generations nearest the front, hatches every other one, and puts a dot at the middle of each. The walls go down once each, because the material shares them.
+The same word in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls, 20 faces, no rim and no outside. The stereographic projection carries its own size here, so the front of the sphere fills the sheet. The sketch draws every wall, and the walls on the back of the sphere are the outer arcs of the picture. Of the three generations nearest the front, it hatches every other one and puts a dot at the middle of each. The walls go down once each, because the material shares them.
 
 <include>/_sig/Station.toward.mdx</include>
 
@@ -584,7 +561,6 @@ export default sketch({
   // The generation of a cell is how many folds it took to reach it, and on
   // a sphere that is how far round it sits. Three of them is the front.
   const near = tiles.faces().filter((f) => f.generation < 3);
-  const walls = tiles.edges.filter((e) => e.faces.some((f) => f.generation < 3));
   // A tick at the middle of a cell, turned toward the middle of a
   // neighbour: `toward` reads the geodesic between the two, and `step`
   // walks it. The centroid is a point, so it goes straight into `t.station`.
@@ -600,7 +576,7 @@ export default sketch({
       .map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(1.2) }), fillPen: 'tone', stroke: false })),
     dots(near.map((f) => f.centroid), { pen: 'wall' }),
     near.map(tick),
-    strokes(walls, { pen: 'wall' }),
+    strokes(tiles, { pen: 'wall' }),
   ];
 });
 ```

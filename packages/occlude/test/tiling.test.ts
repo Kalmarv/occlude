@@ -7,31 +7,61 @@
  * geometry, the spherical tilings come back whole with the face counts of
  * the five Platonic solids, the identity is always first, no two
  * placements put the cell in the same place, and the cell really is the
- * `{p, q}` cell. The toolkit word puts that chart on the drawable: when
- * the sketch's `space` IS the tiling's geometry the placements are
- * isometries of that space, and when it is not the model chart is fitted
- * to the drawable and drawn as a picture.
+ * `{p, q}` cell. The kernel is read through the one door a sketch has:
+ * `t.tiling` in a sketch whose `space` IS the tiling's geometry, seen
+ * back in the model chart. The toolkit word puts that chart on the
+ * drawable, every placement an isometry of the sketch's space, and a
+ * symbol of another geometry is refused by name.
  */
 
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { space } from '../src/index.js';
-import { tiling, tilingGeometry, type Tiling, type TilingOpts } from '../src/tiling.js';
-import { pictureDoor } from '../src/placement.js';
+import { tilingGeometry, type TilingGeometry, type TilingOpts } from '../src/tiling.js';
 import { sphereOfChart } from '../src/space.js';
 import { vx, vy, type XY, type Vec } from '../src/vec.js';
 
-/** The kernel tiling in its geometry's OWN model chart: the picture door
- * of that geometry drawn at unit scale about the origin, which is the
- * model chart itself. This is the layer `t.tiling` puts on the drawable. */
-const chartTiling = (p: number, q: number, opts: TilingOpts = {}): Tiling =>
-  tiling(p, q, opts, {
-    door: pictureDoor(tilingGeometry(p, q), [0, 0], 1),
-    up: (z: XY): Vec => [vx(z), vy(z)],
-  });
+/** The sketch each geometry's tilings are drawn in. */
+const HOME: Record<TilingGeometry, Parameters<typeof toolkit>[0]> = {
+  euclidean: { aspect: [1, 1] },
+  hyperbolic: { aspect: [1, 1], space: space.hyperbolic({ radius: 40 }) },
+  spherical: { aspect: [1, 1], space: space.spherical({ radius: 30 }) },
+};
+
+/** A tiling read back in its geometry's OWN model chart. */
+interface ChartTiling {
+  space: TilingGeometry;
+  cell: Vec[];
+  placements: { point(z: XY): Vec }[];
+}
+
+/** The kernel tiling in its geometry's OWN model chart, through the
+ * space's own door: `t.tiling` in the sketch that draws in that geometry,
+ * each point carried back through the space's chart to the unit model —
+ * the unit Poincaré disk, the unit sphere's stereographic chart, and the
+ * plane at `side` 1 about the middle of the drawable. */
+const chartTiling = (p: number, q: number, opts: TilingOpts = {}): ChartTiling => {
+  const geometry = tilingGeometry(p, q);
+  const t = toolkit(HOME[geometry]);
+  const flat = geometry === 'euclidean';
+  const tl = t.tiling(p, q, flat ? { ...opts, side: 1 } : opts);
+  const b = t.bounds();
+  const c: Vec = flat ? [b.cx, b.cy] : [t.space.center[0], t.space.center[1]];
+  const k = flat ? 1 : t.space.size;
+  const toModel = (v: XY): Vec => {
+    const z = t.space.toChart(v);
+    return [(vx(z) - c[0]) / k, (vy(z) - c[1]) / k];
+  };
+  const fromModel = (z: XY): Vec => t.space.fromChart([c[0] + k * vx(z), c[1] + k * vy(z)]);
+  return {
+    space: tl.space,
+    cell: tl.cell.map(toModel),
+    placements: tl.placements.map((f) => ({ point: (z: XY) => toModel(f.point(fromModel(z))) })),
+  };
+};
 
 /** Where a tiling puts the centre of each copy of its cell. */
-const seats = (t: Tiling): [number, number][] =>
+const seats = (t: ChartTiling): [number, number][] =>
   t.placements.map((f) => {
     const p = f.point([0, 0]);
     return [p[0], p[1]];
@@ -45,15 +75,36 @@ describe('the symbol picks the geometry', () => {
     for (const [p, q] of [[3, 3], [4, 4], [7, 3]]) expect(chartTiling(p, q).space).toBe(tilingGeometry(p, q));
   });
 
-  it('refuses only p or q below 3, by name', () => {
-    const t = toolkit({ aspect: [1, 1] });
-    expect(() => t.tiling(2, 5)).toThrow(/whole numbers of 3 or more/);
-    expect(() => t.tiling(9, 1)).toThrow(/whole numbers of 3 or more/);
-    expect(() => t.tiling(3.5, 7)).toThrow(/whole numbers of 3 or more/);
-    // Every symbol from 3 up draws something, in one geometry or another.
+  it('refuses p or q below 3, by name, before it reads a geometry', () => {
+    for (const cfg of Object.values(HOME)) {
+      const t = toolkit(cfg);
+      expect(() => t.tiling(2, 5)).toThrow(/whole numbers of 3 or more/);
+      expect(() => t.tiling(9, 1)).toThrow(/whole numbers of 3 or more/);
+      expect(() => t.tiling(3.5, 7)).toThrow(/whole numbers of 3 or more/);
+    }
+    // Every symbol from 3 up draws something, in its own geometry.
     for (const [p, q] of [[3, 3], [4, 4], [3, 6], [6, 3], [7, 3], [3, 7]]) {
+      const t = toolkit(HOME[tilingGeometry(p, q)]);
       expect(t.tiling(p, q, { depth: 1 }).placements.length).toBeGreaterThan(1);
     }
+  });
+
+  it('refuses a symbol of another geometry, naming both and the space that draws it', () => {
+    const flat = toolkit(HOME.euclidean);
+    expect(() => flat.tiling(7, 3)).toThrow(
+      'tiling: {7, 3} is a tiling of hyperbolic space and this sketch draws in the flat plane — set space: space.hyperbolic({ radius }) on the sketch',
+    );
+    expect(() => flat.tiling(3, 5)).toThrow(
+      'tiling: {3, 5} is a tiling of spherical space and this sketch draws in the flat plane — set space: space.spherical({ radius }) on the sketch',
+    );
+    const disk = toolkit(HOME.hyperbolic);
+    expect(() => disk.tiling(4, 4)).toThrow(
+      'tiling: {4, 4} is a tiling of the flat plane and this sketch draws in hyperbolic space — set space: space.euclidean() on the sketch',
+    );
+    expect(() => disk.tiling(3, 5)).toThrow(/tiling: \{3, 5\} is a tiling of spherical space and this sketch draws in hyperbolic space/);
+    const ball = toolkit(HOME.spherical);
+    expect(() => ball.tiling(6, 3)).toThrow(/tiling: \{6, 3\} is a tiling of the flat plane and this sketch draws in spherical space — set space: space\.euclidean\(\)/);
+    expect(() => ball.tiling(5, 4)).toThrow(/space: space\.hyperbolic\(\{ radius \}\)/);
   });
 });
 
@@ -86,7 +137,9 @@ describe('the spherical tilings are the Platonic solids', () => {
   it('sends the cell to a different place every time, the identity first', () => {
     for (const [p, q] of [[3, 3], [4, 3], [3, 5], [5, 3]]) {
       const t = chartTiling(p, q);
-      expect(t.placements[0].point([0.11, 0.07])).toEqual([0.11, 0.07]);
+      const id = t.placements[0].point([0.11, 0.07]);
+      expect(id[0]).toBeCloseTo(0.11, 12);
+      expect(id[1]).toBeCloseTo(0.07, 12);
       // One point inside the cell, and its whole orbit, read on the
       // SPHERE. The CENTRE of the cell will not do: one copy of it lands
       // opposite the chart's own pole, where the chart has no point and
@@ -187,28 +240,6 @@ describe('t.tiling puts the chart on the drawable', () => {
   /** The largest circle the 100 × 100 drawable holds. */
   const FIT = 50;
 
-  it('fits the model chart to the drawable when the geometry is not the sketch\'s', () => {
-    const t = toolkit({ aspect: [1, 1] });
-    const flat = t.tiling(7, 3, { depth: 2 });
-    expect(flat.space).toBe('hyperbolic');
-    const model = chartTiling(7, 3, { depth: 2 });
-    for (let i = 0; i < model.cell.length; i++) {
-      expect(flat.cell[i][0]).toBeCloseTo(50 + FIT * model.cell[i][0], 9);
-      expect(flat.cell[i][1]).toBeCloseTo(50 + FIT * model.cell[i][1], 9);
-    }
-    // The identity is still first, and it is the identity on the drawable.
-    expect(flat.placements[0].point([37, 61])[0]).toBeCloseTo(37, 9);
-    expect(flat.placements[0].point([37, 61])[1]).toBeCloseTo(61, 9);
-    // The whole picture lands inside the drawable's inscribed circle: the
-    // model's rim is that circle.
-    for (const f of flat.placements) {
-      for (const v of model.cell) {
-        const p = f.point([50 + FIT * v[0], 50 + FIT * v[1]]);
-        expect(Math.hypot(p[0] - 50, p[1] - 50)).toBeLessThan(FIT + 1e-9);
-      }
-    }
-  });
-
   it('is the sketch\'s own disk when the sketch is hyperbolic', () => {
     const t = toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 40 }) });
     const tl = t.tiling(7, 3, { depth: 2 });
@@ -259,13 +290,13 @@ describe('t.tiling puts the chart on the drawable', () => {
     }
   });
 
-  it('keeps a Euclidean symbol an isometry of the sheet, whatever the fit', () => {
-    for (const cfg of [{}, { space: space.hyperbolic({ radius: 60 }) }]) {
-      const t = toolkit({ aspect: [1, 1], ...cfg });
-      const tl = t.tiling(4, 4, { depth: 1 });
+  it('keeps a Euclidean symbol an isometry of the sheet, whatever its side', () => {
+    for (const side of [undefined, 7]) {
+      const t = toolkit({ aspect: [1, 1] });
+      const tl = t.tiling(4, 4, { depth: 1, side });
       expect(tl.space).toBe('euclidean');
       // A scaled plane tiling is a plane tiling: every copy is rigid on
-      // the sheet, whether the sketch's space is flat or not.
+      // the sheet.
       for (const f of tl.placements) {
         for (let i = 0; i < tl.cell.length; i++) {
           const a = tl.cell[i];
@@ -273,8 +304,9 @@ describe('t.tiling puts the chart on the drawable', () => {
           expect(Math.hypot(...f.point(b).map((v, k) => v - f.point(a)[k]))).toBeCloseTo(Math.hypot(b[0] - a[0], b[1] - a[1]), 9);
         }
       }
-      // The model's unit length is half the short side of the drawable.
-      expect(Math.hypot(tl.cell[1][0] - tl.cell[0][0], tl.cell[1][1] - tl.cell[0][1])).toBeCloseTo(FIT, 9);
+      // The model's unit length is `side`, or half the short side of the
+      // drawable.
+      expect(Math.hypot(tl.cell[1][0] - tl.cell[0][0], tl.cell[1][1] - tl.cell[0][1])).toBeCloseTo(side ?? FIT, 9);
     }
   });
 });

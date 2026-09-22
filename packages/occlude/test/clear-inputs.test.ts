@@ -7,8 +7,8 @@
  * geometries, because a shape is lowered by the frame and the frame is
  * what a space changes? And does a named source say what the inferred one
  * could only guess: `fromPoints` is one seed per entry, `fromArea` is one
- * area, and the old positional form still reads an array of pairs as a
- * loop.
+ * area, and the old positional form is gone — a source where the options
+ * record goes is refused by name.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -61,10 +61,10 @@ describe('line and circle take points', () => {
 describe('travelTime names its source', () => {
   const PAIRS: [number, number][] = [[20, 50], [80, 50]];
 
-  it('reads every entry of fromPoints as a seed, where the old form reads one loop', () => {
+  it('reads every entry of fromPoints as a seed, and fromArea as one loop', () => {
     const t = toolkit({ aspect: [1, 1] });
     const seeds = t.travelTime({ fromPoints: PAIRS });
-    const loop = t.travelTime(PAIRS);
+    const loop = t.travelTime({ fromArea: PAIRS });
     // Both arrive at the ends at once.
     expect(seeds(20, 50)).toBeCloseTo(0, 6);
     expect(loop(20, 50)).toBeCloseTo(0, 6);
@@ -84,23 +84,28 @@ describe('travelTime names its source', () => {
     }
   });
 
-  it('reads fromArea as the old positional form reads the same loop', () => {
+  it('takes a shape under fromArea, as the material door lowers it', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const square: [number, number][] = [[30, 30], [70, 30], [70, 70], [30, 70]];
-    const named = t.travelTime({ fromArea: square });
-    const positional = t.travelTime(square);
-    for (const [x, y] of [[50, 50], [10, 10], [80, 44], [30, 70]]) {
-      expect(named(x, y)).toBeCloseTo(positional(x, y), 6);
+    const shape = t.travelTime({ fromArea: circle(50, 50, 20) });
+    const lowered = t.travelTime({ fromArea: t.material(circle(50, 50, 20)) });
+    for (const [x, y] of [[50, 50], [12, 12], [88, 50]]) {
+      expect(shape(x, y)).toBeCloseTo(lowered(x, y), 6);
     }
+    expect(shape(50, 50)).toBe(0);
   });
 
-  it('takes a shape under fromArea, as the positional form takes one', () => {
+  it('is the old positional form no more: a source where the record goes is refused by name', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const named = t.travelTime({ fromArea: circle(50, 50, 20) });
-    const positional = t.travelTime(circle(50, 50, 20));
-    for (const [x, y] of [[50, 50], [12, 12], [88, 50]]) {
-      expect(named(x, y)).toBeCloseTo(positional(x, y), 6);
-    }
+    const square: [number, number][] = [[30, 30], [70, 30], [70, 70], [30, 70]];
+    const refusal = /travelTime: the source goes in the options record — t\.travelTime\(\{ fromPoints \}\) or t\.travelTime\(\{ fromArea \}\)/;
+    expect(() => t.travelTime(PAIRS as never)).toThrow(refusal);
+    expect(() => t.travelTime([{ x: 20, y: 50 }] as never)).toThrow(refusal);
+    expect(() => t.travelTime(circle(50, 50, 20) as never)).toThrow(refusal);
+    expect(() => t.travelTime(t.material(circle(50, 50, 20)) as never)).toThrow(refusal);
+    expect(() => t.travelTime({ pts: square, closed: true } as never)).toThrow(refusal);
+    expect(() => t.travelTime(42 as never)).toThrow(refusal);
+    // The options record as the second argument of the old form, too.
+    expect(() => (t.travelTime as (...a: unknown[]) => unknown)(square, { speed: 2 })).toThrow(refusal);
   });
 
   it('refuses both sources and neither, by name', () => {

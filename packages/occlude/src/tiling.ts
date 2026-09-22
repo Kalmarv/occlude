@@ -126,8 +126,12 @@ export class Tiling extends Material {
   }
 }
 
-/** `(p − 2)(q − 2)` against 4 is the whole test. */
+/** `(p − 2)(q − 2)` against 4 is the whole test, of a symbol that is one:
+ * whole numbers of 3 or more. */
 export function tilingGeometry(p: number, q: number): TilingGeometry {
+  if (!Number.isInteger(p) || !Number.isInteger(q) || p < 3 || q < 3) {
+    throw new Error(`tiling: p and q are whole numbers of 3 or more (got ${p}, ${q})`);
+  }
   const k = (p - 2) * (q - 2);
   return k < 4 ? 'spherical' : k === 4 ? 'euclidean' : 'hyperbolic';
 }
@@ -247,16 +251,15 @@ class Corners {
  *
  * A wall is a geodesic and a material's edge is straight, so a curved wall
  * is carried as SAMPLES. They are taken in the MODEL, where one formula
- * serves all three geometries and the fitted picture as well as the
- * sketch's own space:
+ * serves all three geometries:
  *
  *     P(t) = (s((1 − t)·g)·A + s(t·g)·B) / s(g),
  *
  * with `g` the model gap, `s` the model's own sine — `sinh` below zero
  * curvature, `sin` above it — and a plain straight step on the plane,
- * whose geodesics are already straight wherever it is drawn. Reaching into
- * a `Space` instead would not do: a picture door draws a geometry the
- * sketch's space has never heard of.
+ * whose geodesics are already straight wherever it is drawn. The kernel
+ * holds a door and not a `Space`, so it stays pure: the toolkit hands it
+ * the door of the space the sketch draws in.
  *
  * The count doubles until the chord error is under `SAMPLE_TOL`, and stops
  * at `SAMPLE_CAP` pieces whatever it reads — a wall that runs off the edge
@@ -467,10 +470,9 @@ const CLOSURE = 16;
  * The `{p, q}` tiling, placed through one model door.
  *
  * The symbol picks the geometry and builds the fundamental polygon in that
- * geometry's MODEL CHART; `place.up` carries a chart point to wherever the
- * caller is drawing — the sketch's own coordinates when the sketch draws in
- * this very geometry, a picture fitted to the drawable when it does not —
- * and `place.door` is the door of that landing. The flood then runs in
+ * geometry's MODEL CHART; `place.up` carries a chart point into the
+ * sketch's own coordinates, and `place.door` is the model door of the
+ * sketch's space, which is this very geometry. The flood then runs in
  * those coordinates, so every placement that comes back is an isometry a
  * sketch can hand straight to `group`, `m.transform` or a station.
  *
@@ -490,9 +492,6 @@ export function tiling(
   opts: TilingOpts,
   place: { door: ModelDoor; up: (z: XY) => Vec },
 ): Tiling {
-  if (!Number.isInteger(p) || !Number.isInteger(q) || p < 3 || q < 3) {
-    throw new Error(`tiling: p and q are whole numbers of 3 or more (got ${p}, ${q})`);
-  }
   const space = tilingGeometry(p, q);
   const cell = cellOf(space, p, q).map(place.up);
   const depth = space === 'spherical'

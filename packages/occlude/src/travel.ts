@@ -80,9 +80,8 @@ const isPointRecord = (v: unknown): v is { x: number; y: number } =>
  *
  * Everything else is the area consumer's own reading: a material's closed
  * chains, a face's contours, contour records, loops of points. A loop of
- * one point is not an area, so it joins the loose points — which is how a
- * single seed is written, `t.travelTime([[x, y]])`. A value that carries
- * `points` and has no loop at all (a scattered material, a point
+ * one point is not an area, so it joins the loose points. A value that
+ * carries `points` and has no loop at all (a scattered material, a point
  * selection) is read as its points.
  */
 function seedsOf(from: TravelFrom, who: string): {

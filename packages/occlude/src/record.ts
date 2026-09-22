@@ -276,7 +276,10 @@ function chainMap(outer: readonly ChainStep[], frame: Frame): ((p: readonly [num
 
 /** Can the chain outside the innermost run bend a chord? A placement whose
  * door is the sketch's OWN model cannot — it is an isometry of the very
- * space the sampling was judged in — and every other element might. */
+ * space the sampling was judged in. Two things can: an affine run outside
+ * a placement, and a placement through another space's door (a
+ * `spaceOf(…).model` the sketch built itself), which is no isometry of
+ * the sheet it lands on. */
 function chainBends(outer: readonly ChainStep[], space: Space): boolean {
   return outer.some((step) => (step.place ? step.place.door.id !== space.model.id : true));
 }
@@ -734,8 +737,8 @@ function placedContours(
    * Does that rest BEND a chord? An isometry of the sketch's own space
    * carries a chord sampled to tolerance onto a chord sampled to
    * tolerance, so it asks for no resampling at all and the sample set is
-   * the one the material door already hands back. Anything else — a
-   * picture door on a flat sheet, an affine run outside a placement — is
+   * the one the material door already hands back. Anything else — an
+   * affine run outside a placement, another space's door — is
    * measured on the drawn image instead: the deviation below then reads
    * `project(through(p))`, in SHEET millimetres, against the `tol` the
    * caller already compares in (0.05 mm for ink, a quarter of the

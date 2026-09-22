@@ -173,7 +173,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
     camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), stroke: 'ink', creaseAngle: 0,
   }));`),
   },
-  { name: 'travelTime', size: '100x100 at spacing 0.5 + isolines', load: fence('fields.md', 't.travelTime([[W * 0.78') },
+  { name: 'travelTime', size: '100x100 at spacing 0.5 + isolines', load: fence('fields.md', 't.travelTime({ fromPoints: [[W * 0.78') },
   { name: 'spacefill ivy', size: 'spacing 0.4 mm', load: fence('images.md', 't.spacefill(circle(50, 50, 44)') },
   { name: 'residual portrait', size: '12000 candidate steps', load: fence('images.md', 't.residual(tone, { spacing: mm(0.7) })') },
   { name: 'lattice gray-scott', size: '5000 steps, spacing 1', load: fence('fields.md', 'seeded.steps(5000') },

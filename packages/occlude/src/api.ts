@@ -35,7 +35,7 @@ import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions 
 import { lowerToUserContours } from './record.js';
 import { modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
 import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
-import { isPlacement, pictureDoor, type Placement } from './placement.js';
+import { isPlacement, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
@@ -358,16 +358,14 @@ function numericAreaLoops(run: Execution | null, input: AreaInput | ShapeValue, 
  * Lowering it here instead would quietly drop the group's transform.
  */
 /**
- * The NAMED travel-time form: one argument that is an options record, not
- * a source. A record that answers the geometry protocol, a shape, a
- * contour record and an array are all sources, so the only thing left is
- * the options themselves — and a record that names none of the options is
- * a source too, which is how `t.travelTime(from)` keeps its meaning.
+ * Is this the `t.travelTime` options record, and not a source handed in
+ * where the record goes? A shape, a value that answers the geometry
+ * protocol, a contour record and an array are all sources, so none of
+ * them is the record.
  */
-const isTravelSourceOpts = (v: unknown): v is TravelTimeOpts => {
+const isTravelOpts = (v: unknown): v is TravelTimeOpts => {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
-  if (isShapeValue(v) || isGeometry(v) || 'pts' in v) return false;
-  return ['fromPoints', 'fromArea', 'speed', 'within', 'spacing'].some((k) => k in v);
+  return !(isShapeValue(v) || isGeometry(v) || 'pts' in v);
 };
 
 /** `fromPoints` as one seed per entry: the key says every entry is a point,
@@ -1083,6 +1081,19 @@ export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree | Pr
   return { __occludeSketch: true, config, fn };
 }
 
+/** A geometry by the words a refusal says it in, and the `space` value
+ * that draws in it. */
+const GEOMETRY_NAME: Record<Space['kind'], string> = {
+  euclidean: 'the flat plane',
+  hyperbolic: 'hyperbolic space',
+  spherical: 'spherical space',
+};
+const GEOMETRY_SPACE: Record<Space['kind'], string> = {
+  euclidean: 'space.euclidean()',
+  hyperbolic: 'space.hyperbolic({ radius })',
+  spherical: 'space.spherical({ radius })',
+};
+
 /** Is this argument a POINT — a pair or an `{x, y}` record — rather than a
  * length? A `Len` is neither an array nor a record of two numbers, so the
  * two spellings of `t.station` never have to guess. */
@@ -1246,54 +1257,43 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    *
    * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
    * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
-   * frame decides where it lands. This is why the word is on the toolkit:
-   * a tiling is written in its geometry's own model chart, and the chart
-   * has to be put somewhere before it is drawable.
+   * sketch has to draw in it. This is why the word is on the toolkit: a
+   * tiling is written in its geometry's own model chart, and that chart
+   * is the sketch's own — the disk of the space's radius, or the sphere it
+   * pictures — so every placement is an isometry of the space the sketch
+   * draws in, and the cell is one cell of it. A symbol of another geometry
+   * is refused by name, with the `space` that draws it.
    *
-   * WHERE IT LANDS. When the sketch's `space` IS the tiling's geometry,
-   * the model chart is the sketch's own — the disk of the space's radius,
-   * or the sphere it pictures — so every placement is an isometry of the
-   * space the sketch draws in, and the cell is one cell of it. When it is
-   * not — a `{7, 3}` on a flat sheet — the model chart is FITTED to the
-   * drawable instead: its unit circle becomes the largest circle the
-   * drawable holds, and the answer is the Circle Limit picture, drawn as a
-   * picture. The flat plane fixes no unit of length, so a Euclidean symbol
-   * always takes that fit; a scaled plane tiling is a plane tiling, so its
-   * placements are isometries of the sheet either way.
+   * The flat plane fixes no unit of length, so a Euclidean symbol takes
+   * one: `side`, or by default half the short side of the drawable, about
+   * its middle. That is a size, and every placement is still an isometry
+   * of the sheet.
    */
   function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
     const geometry = tilingGeometry(p, q);
-    const own = exec.space.kind === geometry ? modelChart(exec.space) : null;
-    const b = exec.bounds();
-    const cx = own ? own.center[0] : b.cx;
-    const cy = own ? own.center[1] : b.cy;
-    // The model's unit of length on the drawable. A Euclidean symbol has
-    // none of its own, so `side` sets it; a curved one takes its unit from
-    // its curvature, and says what that unit comes to here.
+    const sp = exec.space;
+    if (sp.kind !== geometry) {
+      throw new Error(`tiling: {${p}, ${q}} is a tiling of ${GEOMETRY_NAME[geometry]} and this sketch draws in ${GEOMETRY_NAME[sp.kind]} — set space: ${GEOMETRY_SPACE[geometry]} on the sketch`);
+    }
     const side = opts.side === undefined ? undefined : exec.len(opts.side);
-    if (side !== undefined && geometry !== 'euclidean') {
-      const fit = own ? own.scale : Math.min(b.w, b.h) / 2;
-      const at = (z: XY): Vec => (own ? exec.space.fromChart([cx + fit * vx(z), cy + fit * vy(z)]) : [cx + fit * vx(z), cy + fit * vy(z)]);
+    const chart = modelChart(sp);
+    if (!chart) {
+      const b = exec.bounds();
+      const k = side ?? Math.min(b.w, b.h) / 2;
+      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => [b.cx + k * vx(z), b.cy + k * vy(z)] });
+    }
+    // A curved symbol takes its unit from its curvature: the model chart
+    // is the sketch's own chart, so the model point goes through it and
+    // out the other side, into the coordinates everything else speaks.
+    const [cx, cy] = chart.center;
+    const k = chart.scale;
+    const up = (z: XY): Vec => sp.fromChart([cx + k * vx(z), cy + k * vy(z)]);
+    if (side !== undefined) {
       const model = cellOf(geometry, p, q);
-      const a = at(model[0]);
-      const c = at(model[1]);
-      const fixed = own ? exec.space.distance(a, c) : Math.hypot(c[0] - a[0], c[1] - a[1]);
+      const fixed = sp.distance(up(model[0]), up(model[1]));
       throw new Error(`tiling: {${p}, ${q}} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
     }
-    const k = own ? own.scale : side ?? Math.min(b.w, b.h) / 2;
-    // A tiling is written in its geometry's model CHART. When that
-    // geometry is the sketch's own, the chart is the sketch's own chart,
-    // and the answer has to come back in the coordinates everything else
-    // speaks — so the model point goes through the chart and out the other
-    // side, and the door is the sketch's OWN model: every placement is then
-    // an isometry of the space the sketch draws in. When it is not, the
-    // chart is a picture fitted to the drawable, the fit is the whole of
-    // it, and the door is that picture's.
-    const up = own
-      ? (z: XY): Vec => exec.space.fromChart([cx + k * vx(z), cy + k * vy(z)])
-      : (z: XY): Vec => [cx + k * vx(z), cy + k * vy(z)];
-    const door = own ? exec.space.model : pictureDoor(geometry, [cx, cy], k);
-    return tilingKernel(p, q, opts, { door, up });
+    return tilingKernel(p, q, opts, { door: sp.model, up });
   }
 
   /**
@@ -1498,10 +1498,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return contourMaterial([{ contours: streamlinesOf(env, field, opts) }], false);
   }
 
-  /** How long the front takes to reach each point of the drawable, starting
-   * from `from` — an area, a set of points, or a shape — as a plain field.
-   * The point atom decides an array: `[{ x, y }, …]` is a set of separate
-   * seeds and `[[x, y], …]` is one loop, an area.
+  /** How long the front takes to reach each point of the drawable, as a
+   * plain field. The source is NAMED, never inferred: `{ fromPoints }`
+   * reads every entry as a separate seed whatever its spelling, and
+   * `{ fromArea }` reads its input — an area or a shape — as one area.
+   * Exactly one of the two.
    * `distanceTo` measures the straight line and walks through walls; this
    * measures the walk. `speed` is a number or a field (default 1), and a
    * speed of zero or less is a WALL the front goes around; `within` is the
@@ -1509,37 +1510,24 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `t.isolines(T, …)`; unreachable ground is `+Infinity`, so contours stop
    * at a barrier instead of crossing it. With speed 1 and nothing in the
    * way it is unsigned distance. Deterministic, no seed. */
-  function travelTime(from: TravelFrom | ShapeValue, opts?: TravelTimeOpts): FieldFn;
-  /** The same field, with the source NAMED instead of inferred:
-   * `{ fromPoints }` reads every entry as a separate seed whatever its
-   * spelling, and `{ fromArea }` reads its input as one area. Exactly one
-   * of the two. */
-  function travelTime(opts: TravelTimeOpts): FieldFn;
-  function travelTime(
-    a: TravelFrom | ShapeValue | TravelTimeOpts,
-    b?: TravelTimeOpts,
-  ): FieldFn {
-    const named = b === undefined && isTravelSourceOpts(a);
-    const opts = (named ? a : b ?? {}) as TravelTimeOpts;
+  function travelTime(opts: TravelTimeOpts): FieldFn {
+    if (!isTravelOpts(opts) || arguments.length > 1) {
+      throw new Error('travelTime: the source goes in the options record — t.travelTime({ fromPoints }) or t.travelTime({ fromArea })');
+    }
     const bounds = exec.bounds();
     const env = { bounds: { x: 0, y: 0, w: bounds.w, h: bounds.h }, len: (l: L) => exec.len(l) };
     const within = opts.within === undefined
       ? undefined
       : (lowerShape(exec, opts.within, 'travelTime') as AreaInput);
-    let seeds: TravelFrom;
-    if (named) {
-      const points = opts.fromPoints !== undefined;
-      const area = opts.fromArea !== undefined;
-      if (points === area) throw new Error('travelTime: give fromPoints or fromArea, not both');
-      // Each key says what its input IS, so neither reading is inferred: a
-      // pair under `fromPoints` is one seed, and points under `fromArea`
-      // are one loop, through the ordinary area door.
-      seeds = points
-        ? seedRecords(opts.fromPoints!)
-        : (numericAreaLoops(exec, opts.fromArea!, 'travelTime') as unknown as TravelFrom);
-    } else {
-      seeds = lowerShape(exec, a as Geometry | AreaInput | ShapeValue, 'travelTime') as TravelFrom;
-    }
+    const points = opts.fromPoints !== undefined;
+    const area = opts.fromArea !== undefined;
+    if (points === area) throw new Error('travelTime: give fromPoints or fromArea, not both');
+    // Each key says what its input IS, so neither reading is inferred: a
+    // pair under `fromPoints` is one seed, and points under `fromArea`
+    // are one loop, through the ordinary area door.
+    const seeds: TravelFrom = points
+      ? seedRecords(opts.fromPoints!)
+      : (numericAreaLoops(exec, opts.fromArea!, 'travelTime') as unknown as TravelFrom);
     return travelTimeOf(env, seeds, { ...opts, within });
   }
 
@@ -1661,22 +1649,24 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * A station at a point of the sketch, facing `heading` radians (the
-   * station's own unit, as `angleOf` and `fromAngle`): where a walk
-   * starts. The space is the sketch's own, so `station.step` and
+   * A station at a point of the sketch, facing `heading` DEGREES (as
+   * `turn` and `rotate`, positive counter-clockwise), 0 by default: where
+   * a walk starts. The space is the sketch's own, so `station.step` and
    * `station.turn` walk in the geometry the sketch draws in.
    */
-  function station(x: L, y: L, heading?: number): Station;
-  /** A station at a point, facing `heading` DEGREES (as `turn` and
-   * `rotate`, positive counter-clockwise), 0 by default. The two spellings
-   * are told apart by the first argument being a point — a pair or an
-   * `{x, y}` record — never by guessing a unit from a number. */
+  function station(x: L, y: L, opts?: { heading?: number }): Station;
+  /** The same station at a point — a pair or an `{x, y}` record, so a
+   * station or a centroid goes straight in. The two spellings are told
+   * apart by the first argument being a point, never by guessing. */
   function station(point: XY, opts?: { heading?: number }): Station;
-  function station(a: L | XY, b?: L | { heading?: number }, heading = 0): Station {
-    if (isPointArg(a)) {
-      const opts = (b ?? {}) as { heading?: number };
-      return stationAt(vx(a), vy(a), radians(opts.heading ?? 0), exec.space);
+  function station(a: L | XY, b?: L | { heading?: number }, c?: { heading?: number }): Station {
+    const point = isPointArg(a);
+    const opts = (point ? b : c) as unknown;
+    if (opts !== undefined && (typeof opts !== 'object' || opts === null)) {
+      throw new Error('t.station: the heading goes in the options record, in degrees — t.station(x, y, { heading: 90 })');
     }
+    const heading = radians((opts as { heading?: number } | undefined)?.heading ?? 0);
+    if (point) return stationAt(vx(a), vy(a), heading, exec.space);
     return stationAt(exec.len(a), exec.len(b as L), heading, exec.space);
   }
 

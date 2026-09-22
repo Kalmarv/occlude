@@ -12,7 +12,7 @@ const barrier = (x0: number, y0: number, x1: number, y1: number) =>
 describe('travelTime: arrival times over the drawable', () => {
   it('is Euclidean distance from one seed on open ground at speed 1', () => {
     const t = tk();
-    const T = t.travelTime([[50, 50]]);
+    const T = t.travelTime({ fromPoints: [[50, 50]] });
     expect(T(50, 50)).toBeCloseTo(0, 9);
     // A first-order scheme overshoots most on the diagonal; the grid is
     // about half a unit, so the relative error falls with the radius.
@@ -28,7 +28,7 @@ describe('travelTime: arrival times over the drawable', () => {
   it('walks around a wall instead of through it', () => {
     const t = tk();
     // A bar from the bottom edge up to y = 70, with the seed to its left.
-    const T = t.travelTime([[20, 50]], { speed: barrier(45, 0, 55, 70), spacing: 0.4 });
+    const T = t.travelTime({ fromPoints: [[20, 50]], speed: barrier(45, 0, 55, 70), spacing: 0.4 });
     // Around the top: to the near corner, across the cap, down to the probe.
     const detour = Math.hypot(25, 20) + 10 + Math.hypot(25, 20);
     const got = T(80, 50);
@@ -40,7 +40,7 @@ describe('travelTime: arrival times over the drawable', () => {
 
   it('takes twice as long over ground at half the speed', () => {
     const t = tk();
-    const T = t.travelTime([[5, 50]], { speed: (x: number) => (x < 50 ? 1 : 0.5) });
+    const T = t.travelTime({ fromPoints: [[5, 50]], speed: (x: number) => (x < 50 ? 1 : 0.5) });
     expect(T(45, 50)).toBeCloseTo(40, 6); // 40 units at speed 1
     // 45 more units at speed 1, then 45 at speed 0.5: 45 + 90.
     expect(Math.abs(T(95, 50) - 135) / 135).toBeLessThan(0.02);
@@ -54,7 +54,7 @@ describe('travelTime: arrival times over the drawable', () => {
       const inner = x > 34 && x < 66 && y > 34 && y < 66;
       return outer && !inner ? 0 : 1;
     };
-    const T = t.travelTime([[5, 5]], { speed: room });
+    const T = t.travelTime({ fromPoints: [[5, 5]], speed: room });
     expect(T(50, 50)).toBe(Infinity);
     expect(Number.isFinite(T(10, 10))).toBe(true);
     // A level nothing reaches is not an error: it is no contours.
@@ -65,7 +65,7 @@ describe('travelTime: arrival times over the drawable', () => {
   it('starts at zero over a seed area and grows outward from it', () => {
     const t = tk();
     const square: [number, number][] = [[30, 30], [70, 30], [70, 70], [30, 70]];
-    const T = t.travelTime([square]);
+    const T = t.travelTime({ fromArea: [square] });
     expect(T(30, 50)).toBeCloseTo(0, 6); // on the loop
     expect(T(50, 50)).toBeCloseTo(0, 6); // inside it: already arrived
     expect(T(20, 50)).toBeCloseTo(10, 2); // ten units out from the wall
@@ -77,7 +77,7 @@ describe('travelTime: arrival times over the drawable', () => {
     const t = tk();
     // A vertical wall with a gap at the top, the seed on the left.
     const speed = (x: number, y: number): number => (x >= 48 && x <= 52 && y <= 60 ? 0 : 1);
-    const T = t.travelTime([[25, 20]], { speed, spacing: 0.4 });
+    const T = t.travelTime({ fromPoints: [[25, 20]], speed, spacing: 0.4 });
     const straight = T(75, 20);
     // Every route to the far side goes through the gap above y = 60.
     expect(straight).toBeGreaterThan(Math.hypot(25, 40) + Math.hypot(25, 40) - 5);
@@ -89,7 +89,7 @@ describe('travelTime: arrival times over the drawable', () => {
     const t = tk();
     const speed = (x: number, y: number): number => 0.5 + 0.5 * Math.sin(x / 9) * Math.cos(y / 11);
     const sample = () => {
-      const T = t.travelTime([[20, 20]], { speed, spacing: 0.8 });
+      const T = t.travelTime({ fromPoints: [[20, 20]], speed, spacing: 0.8 });
       const out: number[] = [];
       for (let x = 2; x < 100; x += 7) for (let y = 3; y < 100; y += 9) out.push(T(x, y));
       return out;
@@ -100,7 +100,7 @@ describe('travelTime: arrival times over the drawable', () => {
   it('lowers a shape and agrees with distanceTo on open ground', () => {
     const t = tk();
     const disc = circle(50, 50, 5);
-    const T = t.travelTime(disc);
+    const T = t.travelTime({ fromArea: disc });
     const d = t.distanceTo(disc);
     for (const [x, y] of [[50, 20], [80, 50], [75, 75], [22, 66], [50, 95]]) {
       expect(Math.abs(T(x, y) - Math.abs(d(x, y)))).toBeLessThan(0.5);
@@ -111,7 +111,7 @@ describe('travelTime: arrival times over the drawable', () => {
   it('takes points as seeds, and a within() bound as the only ground', () => {
     const t = tk();
     const pts = material([{ x: 20, y: 20 }, { x: 80, y: 80 }]);
-    const T = t.travelTime(pts.points);
+    const T = t.travelTime({ fromPoints: pts.points });
     expect(T(20, 20)).toBeCloseTo(0, 6);
     expect(T(80, 80)).toBeCloseTo(0, 6);
     // Halfway: the nearer of the two, on the diagonal where a first-order
@@ -119,14 +119,14 @@ describe('travelTime: arrival times over the drawable', () => {
     expect(Math.abs(T(50, 50) - Math.hypot(30, 30)) / Math.hypot(30, 30)).toBeLessThan(0.03);
 
     const box: [number, number][] = [[10, 10], [60, 10], [60, 60], [10, 60]];
-    const bounded = t.travelTime([[20, 20]], { within: [box] });
+    const bounded = t.travelTime({ fromPoints: [[20, 20]], within: [box] });
     expect(Number.isFinite(bounded(50, 50))).toBe(true);
     expect(bounded(90, 90)).toBe(Infinity);
   });
 
-  it('reads { x, y } records as separate seeds and [x, y] pairs as a loop', () => {
+  it('reads fromPoints as separate seeds and fromArea as a loop', () => {
     const t = tk();
-    const seeds = t.travelTime([{ x: 10, y: 10 }, { x: 90, y: 90 }]);
+    const seeds = t.travelTime({ fromPoints: [{ x: 10, y: 10 }, { x: 90, y: 90 }] });
     expect(seeds(10, 10)).toBeCloseTo(0, 6);
     expect(seeds(90, 90)).toBeCloseTo(0, 6);
     // Halfway along the line between them: the distance to the nearer one.
@@ -135,26 +135,26 @@ describe('travelTime: arrival times over the drawable', () => {
     const half = Math.hypot(40, 40);
     expect(Math.abs(seeds(50, 50) - half) / half).toBeLessThan(0.03);
 
-    // The same two positions as pairs are one loop, so the chord between
+    // The same two positions as an area are one loop, so the chord between
     // them is the source and the midpoint sits on it.
-    const loop = t.travelTime([[10, 10], [90, 90]]);
+    const loop = t.travelTime({ fromArea: [[10, 10], [90, 90]] });
     expect(loop(50, 50)).toBeCloseTo(0, 6);
-    expect(() => t.travelTime([{ x: 10, y: 10 }, [90, 90]] as never)).toThrow(/entry 1 is not a point/);
+    expect(() => t.travelTime({ fromPoints: [{ x: 10, y: 10 }, [90, Number.NaN]] })).toThrow(/entry 1 is not a point/);
   });
 
   it('refuses a value that is neither an area nor points, by name', () => {
     const t = tk();
-    expect(() => t.travelTime(42 as never)).toThrow(/travelTime: expected an area or points, got number/);
-    expect(() => t.travelTime([[50, 50]], { speed: 'fast' as never })).toThrow(/travelTime: \{ speed \}/);
+    expect(() => t.travelTime({ fromPoints: 42 as never })).toThrow(/travelTime: fromPoints expects points/);
+    expect(() => t.travelTime({ fromPoints: [[50, 50]], speed: 'fast' as never })).toThrow(/travelTime: \{ speed \}/);
   });
 
   it('is +Infinity everywhere with no seeds, or with no speed at all', () => {
     const t = tk();
-    expect(t.travelTime([])(50, 50)).toBe(Infinity);
-    expect(t.travelTime([[50, 50]], { speed: 0 })(20, 20)).toBe(Infinity);
-    expect(t.travelTime([[50, 50]], { speed: () => NaN })(20, 20)).toBe(Infinity);
+    expect(t.travelTime({ fromPoints: [] })(50, 50)).toBe(Infinity);
+    expect(t.travelTime({ fromPoints: [[50, 50]], speed: 0 })(20, 20)).toBe(Infinity);
+    expect(t.travelTime({ fromPoints: [[50, 50]], speed: () => NaN })(20, 20)).toBe(Infinity);
     // Seeds outside the ground reach nothing inside it.
-    const far = t.travelTime([[-40, -40]], { within: [[[10, 10], [60, 10], [60, 60], [10, 60]] as [number, number][]] });
+    const far = t.travelTime({ fromPoints: [[-40, -40]], within: [[[10, 10], [60, 10], [60, 60], [10, 60]] as [number, number][]] });
     expect(far(30, 30)).toBe(Infinity);
   });
 });

@@ -10,18 +10,18 @@
  *
  * The last blocks check the doors into the library: a placement in a
  * transform chain lowers the same points the material door hands back, a
- * foreign door (a hyperbolic PICTURE on a flat sheet) bends the chords and
- * says so by sampling them, and a station answers its own placement.
+ * foreign door (another space's model, on a flat sheet) bends the chords
+ * and says so by sampling them, and a station answers its own placement.
  */
 
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  circle, line, rect, space, group, strokes,
+  circle, line, rect, space, spaceOf, group, strokes,
   type Execution, type ShapeValue, type Toolkit,
 } from '../src/index.js';
 import { stationAt } from '../src/material.js';
-import { between, identity, isPlacement, pictureDoor, reflection, type ModelDoor, type Placement } from '../src/placement.js';
+import { between, identity, isPlacement, reflection, type ModelDoor, type Placement } from '../src/placement.js';
 import { lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
@@ -258,10 +258,12 @@ describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => 
   });
 });
 
-describe('a picture door on a flat sheet bends the chords', () => {
+describe('the door of another space bends the chords on a flat sheet', () => {
   it('samples a long line onto the true image, and grows the point count', () => {
     const t = flat();
-    const door = pictureDoor('hyperbolic', [50, 50], 50);
+    // A hyperbolic space the sketch built itself: its model is not the
+    // flat sketch's, so its isometries are no isometries of the sheet.
+    const door = spaceOf({ curvature: -1 / 2500, center: [50, 50], size: 50 }).model;
     // A move of the disk: the isometry taking the centre to an off-centre
     // station. It is NOT an isometry of the sheet, so a straight line under
     // it draws as an arc of the picture.
@@ -272,7 +274,7 @@ describe('a picture door on a flat sheet bends the chords', () => {
     const plain = placedOutline(t, sv, {});
     const bent = placedOutline(t, sv, { placement: P });
     expect(plain[0].pts.length).toBe(2);
-    expect(bent[0].pts.length).toBeGreaterThan(8);
+    expect(bent[0].pts.length).toBeGreaterThan(plain[0].pts.length);
     // The true image, sampled finely in the line's own parameter: every
     // lowered point lies on it, and the lowered chords never run further
     // than 0.05 from it.
@@ -297,15 +299,25 @@ describe('a picture door on a flat sheet bends the chords', () => {
 });
 
 describe('a station answers its own isometry', () => {
-  it('reads a heading in radians positionally and in degrees from a record', () => {
+  it('reads a heading in degrees from the options record, in both spellings', () => {
     const t = disk();
-    const a = t.station(46, 53, Math.PI / 2);
+    const a = t.station(46, 53, { heading: 90 });
     const b = t.station([46, 53], { heading: 90 });
     expect(b.x).toBe(a.x);
     expect(b.y).toBe(a.y);
-    sameHeading(b.heading, a.heading, 12);
+    // The station's own field stays in radians: every station verb reads it.
+    expect(a.heading).toBe(Math.PI / 2);
+    expect(b.heading).toBe(Math.PI / 2);
+    expect(t.station(46, 53).heading).toBe(0);
     expect(t.station({ x: 46, y: 53 }).heading).toBe(0);
     expect(t.station([46, 53]).space).toBe(t.space);
+  });
+
+  it('refuses a number where the options record goes, and points at it', () => {
+    const t = disk();
+    const refusal = /t\.station: the heading goes in the options record, in degrees — t\.station\(x, y, \{ heading: 90 \}\)/;
+    expect(() => t.station(46, 53, Math.PI / 2 as never)).toThrow(refusal);
+    expect(() => t.station([46, 53], 90 as never)).toThrow(refusal);
   });
 
   it('turns toward a place: the next step is nearer it', () => {
@@ -332,21 +344,21 @@ describe('a station answers its own isometry', () => {
   it('is the isometry that carries the origin station to it', () => {
     for (const make of WORLDS.map((w) => w.make)) {
       const t = make();
-      const s = t.station(43, 57, 0.8);
+      const s = t.station(43, 57, { heading: 46 });
       const P = s.placement();
       const origin = stationAt(0, 0, 0, t.space);
       const got = P.station(origin);
       near([got.x, got.y], [s.x, s.y], 9);
       sameHeading(got.heading, s.heading, 9);
       // `from` names another source frame.
-      const other = t.station(61, 39, -0.3);
+      const other = t.station(61, 39, { heading: -17 });
       near([other.placement({ from: s }).station(s).x, other.placement({ from: s }).station(s).y], [other.x, other.y], 9);
     }
   });
 
   it('places a motif with its +x line along the heading, in a curved sketch', () => {
     const t = disk();
-    const s = t.station(58, 44, 0.7);
+    const s = t.station(58, 44, { heading: 40 });
     const g = s.place(line(0, 0, 12, 0));
     expect(isPlacement(g.opts.placement!)).toBe(true);
     const P = g.opts.placement!;
@@ -364,9 +376,9 @@ describe('a station answers its own isometry', () => {
 
   it('keeps the flat emission exactly as it was', () => {
     const t = flat();
-    const g = t.station(40, 60, 0.3).place(circle(0, 0, 3), { offset: [2, 1], rotate: 10, scale: 2 });
+    const g = t.station(40, 60, { heading: 17 }).place(circle(0, 0, 3), { offset: [2, 1], rotate: 10, scale: 2 });
     expect(g.opts.placement).toBeUndefined();
-    expect(g.opts.rotate).toBeCloseTo((0.3 * 180) / Math.PI + 10, 12);
+    expect(g.opts.rotate).toBeCloseTo(17 + 10, 12);
     expect(g.opts.scale).toEqual([2, 2]);
   });
 });
