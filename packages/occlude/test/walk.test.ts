@@ -7,7 +7,7 @@
  * a closed walk then brings the heading back rotated by the holonomy. The
  * pentagon of five right angles is the test: four right turns carry the
  * heading exactly once round, so the walk's return angle IS the holonomy,
- * and its side is the right-angled pentagon side of the {4, 5} tiling,
+ * and its side is the right-angled pentagon side, the cell of the {5, 4} tiling,
  * `2 · k · asinh(sqrt((sqrt(5) - 1) / 4))` with `k = radius / 2`.
  */
 import { readFileSync } from 'node:fs';
@@ -141,7 +141,7 @@ describe('the hyperbolic walk', () => {
     expect(st.heading - start.heading).toBeCloseTo(-Math.PI / 2, 9);
   });
 
-  it('the {4, 5} side is the derived one: cosh(d / k) is the golden ratio', () => {
+  it('the {5, 4} side is the derived one: cosh(d / k) is the golden ratio', () => {
     expect(Math.cosh(side / (hyp.radius / 2))).toBeCloseTo((1 + Math.sqrt(5)) / 2, 9);
   });
 
