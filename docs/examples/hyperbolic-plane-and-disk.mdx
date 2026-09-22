@@ -49,7 +49,7 @@ export default sketch(
       return [b.cx + ((v[0] + w[0]) / 2 - b.cx) * 0.72, b.cy + ((v[1] + w[1]) / 2 - b.cy) * 0.72];
     });
     const cells = placements.flatMap((f) => [quad, inner].map((loop) =>
-      stroke([...loop, loop[0]].map((v) => put(f(v))), { pen: 'ink' })));
+      stroke([...loop, loop[0]].map((v) => put(f.point(v))), { pen: 'ink' })));
     const disk = polygon(t.times(181, (_, u) => [b.cx + R * Math.cos(u * Math.PI * 2), b.cy + R * Math.sin(u * Math.PI * 2)]), { opaque: true, pen: 'ink' });
     return [plane, disk, cells];
   },

@@ -402,6 +402,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Puts a drawable on a station, turned to the station's heading. `offset: [alongTangent, alongNormal]` moves it in the station's own frame. `rotate` adds degrees to the heading. `scale` comes before the rotation. A negative value mirrors.
 
+A motif sits about the origin, as it always did. A curved space has no flat frame to turn, so `place` is a [placement](/docs/reference/geometry#placement). The station's own isometry carries the motif from the origin to the station.
+
 ```ts live
 import { sketch, strokes, circle, rect } from 'occlude';
 

@@ -155,9 +155,13 @@ describe('the hyperbolic walk', () => {
     const q = hyp.exp([50, 60], [side, 0]);
     expect(bent.x).toBeCloseTo(q[0], 9);
     expect(bent.y).toBeCloseTo(q[1], 9);
+    // In a curved sketch `place` is a PLACEMENT — there is no affine frame
+    // to push — and the motif is authored about the origin, so the origin
+    // is what lands on the station.
     const g = bent.place(line(0, 0, 1, 1));
-    expect((g.opts.translate as [number, number])[0]).toBeCloseTo(bent.x, 12);
-    expect((g.opts.translate as [number, number])[1]).toBeCloseTo(bent.y, 12);
+    const put = g.opts.placement!.point([0, 0]);
+    expect(put[0]).toBeCloseTo(bent.x, 9);
+    expect(put[1]).toBeCloseTo(bent.y, 9);
   });
 });
 

@@ -184,6 +184,8 @@ const station = (x: number, y: number, heading: number): Station => ({
   place: () => { throw new Error('not used'); },
   step: () => { throw new Error('not used'); },
   turn: () => { throw new Error('not used'); },
+  toward: () => { throw new Error('not used'); },
+  placement: () => { throw new Error('not used'); },
 });
 
 /** Walk the chain from row 0 and measure it. */

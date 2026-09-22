@@ -34,7 +34,8 @@ import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.j
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
 import { modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { tiling as tilingKernel, type Tiling, type TilingOpts } from './tiling.js';
+import { tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
+import { isPlacement, pictureDoor, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
@@ -87,7 +88,7 @@ import {
 import { areaFill, interiorPoint } from './area.js';
 import { ui } from './ui.js';
 import { asset as assetOf, image as imageOf, type ImagePlacement } from './imageAsset.js';
-import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
+import { h, long, mm, s, w, radians, resolveLen, Len, type L } from './units.js';
 import { synth as synthPure, type SynthOpts } from './synth.js';
 import { isShader } from './shader.js';
 
@@ -176,6 +177,17 @@ export interface GroupOpts {
   /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
    * `'center'` for the centre of the drawable. */
   origin?: readonly [L, L] | 'center';
+  /**
+   * An ISOMETRY of the sketch's geometry — a station's own frame, one of a
+   * tiling's placements, a `reflection` — instead of a deformation of the
+   * sheet. `group(placement, …children)` is the short spelling.
+   *
+   * It cannot share a group with `translate`, `rotate`, `scale` or
+   * `origin`: those name the sheet and this names the space. Nest two
+   * groups instead, the inner one deforming in source coordinates and the
+   * outer one placing.
+   */
+  placement?: Placement;
   /** Default pen for children that don't set one. */
   pen?: string;
   /** Default z for children that don't set one. */
@@ -691,8 +703,23 @@ export function range(a: number, b?: number, step = 1): number[] {
 
 // ---- combinators ----
 
-export function group(opts: GroupOpts, ...children: Tree[]): GroupValue {
-  return { __occludeGroup: true, opts, children };
+/**
+ * A subtree with shared options. `group(placement, ...children)` is the
+ * short spelling of `group({ placement }, ...children)` — told apart by
+ * `isPlacement`, never by duck-typing a function, because a placement is
+ * not one.
+ */
+export function group(opts: GroupOpts | Placement, ...children: Tree[]): GroupValue {
+  if (isPlacement(opts)) return { __occludeGroup: true, opts: { placement: opts }, children };
+  const o = opts as GroupOpts;
+  if (o && o.placement !== undefined
+    && (o.translate !== undefined || o.rotate !== undefined || o.scale !== undefined || o.origin !== undefined)) {
+    throw new Error(
+      'group: a placement and translate/rotate/scale/origin name two different frames — nest groups instead, '
+      + 'the inner one deforming in source coordinates and the outer one placing',
+    );
+  }
+  return { __occludeGroup: true, opts: o, children };
 }
 
 export function clip(region: ShapeValue | InvertValue, ...children: Tree[]): ClipValue {
@@ -1001,6 +1028,16 @@ export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree | Pr
   return { __occludeSketch: true, config, fn };
 }
 
+/** Is this argument a POINT — a pair or an `{x, y}` record — rather than a
+ * length? A `Len` is neither an array nor a record of two numbers, so the
+ * two spellings of `t.station` never have to guess. */
+function isPointArg(v: unknown): v is XY {
+  if (Array.isArray(v)) return true;
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as { x?: unknown; y?: unknown };
+  return typeof p.x === 'number' && typeof p.y === 'number';
+}
+
 /** A shape's outlines in sketch units through THE lowerer (rectMode, arc
  * commands, the shape's own transform opts, curves flattened at
  * `tolerance`), each with its own closure. Shared by `material` and
@@ -1149,8 +1186,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * The regular `{p, q}` tiling on the drawable: its cell and one point
-   * map per copy of it, the identity first.
+   * The regular `{p, q}` tiling on the drawable: its cell and one
+   * `Placement` per copy of it, the identity first.
    *
    * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
    * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
@@ -1170,8 +1207,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * placements are isometries of the sheet either way.
    */
   function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
-    const t = tilingKernel(p, q, opts);
-    const own = exec.space.kind === t.space ? modelChart(exec.space) : null;
+    const geometry = tilingGeometry(p, q);
+    const own = exec.space.kind === geometry ? modelChart(exec.space) : null;
     const b = exec.bounds();
     const cx = own ? own.center[0] : b.cx;
     const cy = own ? own.center[1] : b.cy;
@@ -1180,22 +1217,15 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     // geometry is the sketch's own, the chart is the sketch's own chart,
     // and the answer has to come back in the coordinates everything else
     // speaks — so the model point goes through the chart and out the other
-    // side. When it is not, the chart is a picture fitted to the drawable
-    // and the fit is the whole of it.
+    // side, and the door is the sketch's OWN model: every placement is then
+    // an isometry of the space the sketch draws in. When it is not, the
+    // chart is a picture fitted to the drawable, the fit is the whole of
+    // it, and the door is that picture's.
     const up = own
       ? (z: XY): Vec => exec.space.fromChart([cx + k * vx(z), cy + k * vy(z)])
       : (z: XY): Vec => [cx + k * vx(z), cy + k * vy(z)];
-    const down = own
-      ? (p2: XY): Vec => {
-        const q = exec.space.toChart(p2);
-        return [(q[0] - cx) / k, (q[1] - cy) / k];
-      }
-      : (p2: XY): Vec => [(vx(p2) - cx) / k, (vy(p2) - cy) / k];
-    return {
-      space: t.space,
-      cell: t.cell.map(up),
-      placements: t.placements.map((f) => (pt: XY) => up(f(down(pt)))),
-    };
+    const door = own ? exec.space.model : pictureDoor(geometry, [cx, cy], k);
+    return tilingKernel(p, q, opts, { door, up });
   }
 
   /**
@@ -1544,8 +1574,18 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * starts. The space is the sketch's own, so `station.step` and
    * `station.turn` walk in the geometry the sketch draws in.
    */
-  function station(x: L, y: L, heading = 0): Station {
-    return stationAt(exec.len(x), exec.len(y), heading, exec.space);
+  function station(x: L, y: L, heading?: number): Station;
+  /** A station at a point, facing `heading` DEGREES (as `turn` and
+   * `rotate`, positive counter-clockwise), 0 by default. The two spellings
+   * are told apart by the first argument being a point — a pair or an
+   * `{x, y}` record — never by guessing a unit from a number. */
+  function station(point: XY, opts?: { heading?: number }): Station;
+  function station(a: L | XY, b?: L | { heading?: number }, heading = 0): Station {
+    if (isPointArg(a)) {
+      const opts = (b ?? {}) as { heading?: number };
+      return stationAt(vx(a), vy(a), radians(opts.heading ?? 0), exec.space);
+    }
+    return stationAt(exec.len(a), exec.len(b as L), heading, exec.space);
   }
 
   /**
@@ -1889,8 +1929,14 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
       // Function-application order: deeper stacks run before shallower.
       modifiers: g.opts.modifiers ? [...g.opts.modifiers, ...ctx.modifiers] : ctx.modifiers,
     };
-    const { translate, rotate, scale, origin } = g.opts;
-    if (translate || rotate !== undefined || scale !== undefined) {
+    const { translate, rotate, scale, origin, placement } = g.opts;
+    // A placement never shares a group with the affine keys (`group`
+    // refuses the two together), so it pushes an op of its own.
+    if (placement !== undefined) {
+      exec.push({ placement }, () => {
+        for (const child of g.children) emit(exec, child, inner);
+      });
+    } else if (translate || rotate !== undefined || scale !== undefined) {
       exec.push({ translate, rotate, scale, origin }, () => {
         for (const child of g.children) emit(exec, child, inner);
       });

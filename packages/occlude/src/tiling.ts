@@ -8,10 +8,11 @@
  * `{7, 3}` is the heptagonal tiling of the disk, and one word draws all
  * three. Only `p` or `q` below 3 is a mistake.
  *
- * The answer is DATA: the fundamental polygon as points in that geometry's
- * MODEL chart, and one point map per copy of it, the identity first. This
- * module is pure and knows nothing of the sheet; `t.tiling` is the door a
- * sketch uses, and it carries the model chart onto the drawable.
+ * The answer is DATA: the fundamental polygon, and one `Placement` per copy
+ * of it — an isometry a sketch can hand to `group`, to `m.transform` or to
+ * a station — the identity first. This module is pure and knows nothing of
+ * the sheet: `t.tiling` is the door a sketch uses, and it hands in the
+ * model door and the map that carries the model chart onto the drawable.
  *
  * The model chart is the one the geometry is written in: the unit Poincaré
  * disk for the hyperbolic case, the unit sphere's stereographic chart for
@@ -19,10 +20,10 @@
  * of circumradius `1/(2·sin(π/p))`, an edge of length 1, about the origin.
  */
 
-import { apply as diskApply, compose as diskCompose, reflection as diskReflection, rotation as diskRotation, type Mobius } from './hyperbolic.js';
-import { chartOfSphere, sphereOfChart, type Sphere, type SpaceKind } from './space.js';
+import { identity, reflection, type ModelDoor, type Placement } from './placement.js';
+import type { SpaceKind } from './space.js';
 import { tileGroup, type TileOps } from './tilegroup.js';
-import { vx, vy, type Vec, type XY } from './vec.js';
+import type { Vec, XY } from './vec.js';
 
 export interface TilingOpts {
   /** Generations of neighbours to reflect out to. Depth 0 is the
@@ -45,7 +46,9 @@ export interface Tiling {
    * straight they are the chords, which is a different picture. */
   cell: Vec[];
   /**
-   * One point map per copy of the cell, the identity first.
+   * One ISOMETRY per copy of the cell, the identity first: `p.point(v)`
+   * moves a point, `m.transform(p)` a whole material, `group(p, …)` a
+   * whole drawing, and `p.orientation` says which hand the copy has.
    *
    * A stereographic chart has no point for the place opposite its pole, so
    * the spherical copy that lands there is UNBOUNDED in the chart: it is
@@ -55,7 +58,7 @@ export interface Tiling {
    * "no place". A `'gnomonic'` or `'orthographic'` sketch drops that whole
    * copy, as it drops everything on the far side.
    */
-  placements: ((p: XY) => Vec)[];
+  placements: Placement[];
 }
 
 /** `(p − 2)(q − 2)` against 4 is the whole test. */
@@ -64,110 +67,30 @@ export function tilingGeometry(p: number, q: number): TilingGeometry {
   return k < 4 ? 'spherical' : k === 4 ? 'euclidean' : 'hyperbolic';
 }
 
-// ---- the disk -------------------------------------------------------------
+// ---- the isometries -------------------------------------------------------
 
-/** The disk's answer to `TileOps`: an isometry is a Möbius record, and a
- * reflection in an edge is the reflection in the geodesic through its two
- * ends. The whole plane is inside the disk, so where a copy puts the
- * origin names it outright. */
-const DISK: TileOps<Mobius> = {
-  identity: diskRotation(0),
-  compose: diskCompose,
-  apply: diskApply,
-  reflection: diskReflection,
-  seat: (m) => diskApply(m, [0, 0]),
-};
-
-// ---- the plane ------------------------------------------------------------
-
-/** A plane isometry: `p ↦ M·p + t`, `M` a rotation or a reflection. */
-interface Motion {
-  readonly m: readonly [number, number, number, number];
-  readonly t: readonly [number, number];
+/**
+ * ONE answer to `TileOps` for all three geometries: an isometry is a
+ * `Placement` over the tiling's own model door, and a reflection in an edge
+ * is the reflection in the geodesic through its two ends. The three private
+ * motion types this file used to carry — a Möbius record, a plane motion, a
+ * 3×3 turn — were one thing written three times.
+ *
+ * The seat is the MODEL image of the model origin, which is the third
+ * column of the placement's matrix. It names the tile in the geometry's own
+ * coordinates rather than in a chart, which is what the sphere needs: the
+ * tile opposite the pole has no chart point at all, and in a chart its seat
+ * would come back as rounding noise instead of one repeatable place.
+ */
+export function tileOps(door: ModelDoor): TileOps<Placement> {
+  return {
+    identity: identity(door),
+    compose: (outer, inner) => inner.then(outer),
+    apply: (m, p) => m.point(p),
+    reflection: (a, b) => reflection(door, a, b),
+    seat: (m) => [m.m[2], m.m[5], m.m[8]],
+  };
 }
-
-const PLANE: TileOps<Motion> = {
-  identity: { m: [1, 0, 0, 1], t: [0, 0] },
-  compose: (o, i) => ({
-    m: [
-      o.m[0] * i.m[0] + o.m[1] * i.m[2], o.m[0] * i.m[1] + o.m[1] * i.m[3],
-      o.m[2] * i.m[0] + o.m[3] * i.m[2], o.m[2] * i.m[1] + o.m[3] * i.m[3],
-    ],
-    t: [
-      o.m[0] * i.t[0] + o.m[1] * i.t[1] + o.t[0],
-      o.m[2] * i.t[0] + o.m[3] * i.t[1] + o.t[1],
-    ],
-  }),
-  apply: (mm, p) => [
-    mm.m[0] * vx(p) + mm.m[1] * vy(p) + mm.t[0],
-    mm.m[2] * vx(p) + mm.m[3] * vy(p) + mm.t[1],
-  ],
-  reflection: (a, b) => {
-    const dx = vx(b) - vx(a);
-    const dy = vy(b) - vy(a);
-    const len = Math.hypot(dx, dy);
-    if (!(len > 0)) throw new Error('tiling: an edge of the cell has no length — a line needs two distinct points');
-    const ux = dx / len;
-    const uy = dy / len;
-    const m: [number, number, number, number] = [ux * ux - uy * uy, 2 * ux * uy, 2 * ux * uy, uy * uy - ux * ux];
-    // The line passes through `a`, so the fixed point fixes the shift.
-    return { m, t: [vx(a) - (m[0] * vx(a) + m[1] * vy(a)), vy(a) - (m[2] * vx(a) + m[3] * vy(a))] };
-  },
-  // The plane is its own chart, so the shift IS the seat.
-  seat: (m) => m.t,
-};
-
-// ---- the sphere -----------------------------------------------------------
-
-/** A spherical isometry: a 3×3 orthogonal matrix on the unit sphere, read
- * through the stereographic chart at both ends. Rows first. */
-type Turn = readonly [Sphere, Sphere, Sphere];
-
-const cross = (u: Sphere, v: Sphere): Sphere => [
-  u[1] * v[2] - u[2] * v[1],
-  u[2] * v[0] - u[0] * v[2],
-  u[0] * v[1] - u[1] * v[0],
-];
-
-const SPHERE: TileOps<Turn> = {
-  identity: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-  compose: (o, i) => {
-    const row = (r: 0 | 1 | 2): Sphere => [
-      o[r][0] * i[0][0] + o[r][1] * i[1][0] + o[r][2] * i[2][0],
-      o[r][0] * i[0][1] + o[r][1] * i[1][1] + o[r][2] * i[2][1],
-      o[r][0] * i[0][2] + o[r][1] * i[1][2] + o[r][2] * i[2][2],
-    ];
-    return [row(0), row(1), row(2)];
-  },
-  apply: (mm, p) => {
-    const n = sphereOfChart(p);
-    return chartOfSphere([
-      mm[0][0] * n[0] + mm[0][1] * n[1] + mm[0][2] * n[2],
-      mm[1][0] * n[0] + mm[1][1] * n[1] + mm[1][2] * n[2],
-      mm[2][0] * n[0] + mm[2][1] * n[1] + mm[2][2] * n[2],
-    ]);
-  },
-  /** The reflection in the great circle through two chart points: the
-   * plane those two and the centre span, mirrored in. */
-  reflection: (a, b) => {
-    const w = cross(sphereOfChart(a), sphereOfChart(b));
-    const len = Math.hypot(w[0], w[1], w[2]);
-    if (!(len > 0)) throw new Error('tiling: an edge of the cell has no length — a great circle needs two distinct points');
-    const nx = w[0] / len;
-    const ny = w[1] / len;
-    const nz = w[2] / len;
-    return [
-      [1 - 2 * nx * nx, -2 * nx * ny, -2 * nx * nz],
-      [-2 * ny * nx, 1 - 2 * ny * ny, -2 * ny * nz],
-      [-2 * nz * nx, -2 * nz * ny, 1 - 2 * nz * nz],
-    ];
-  },
-  // The pole's image, which is the matrix's third column. Read on the
-  // SPHERE: the tile opposite the pole has no chart point, and in the
-  // chart its seat would come back as rounding noise instead of one
-  // repeatable place.
-  seat: (m) => [m[0][2], m[1][2], m[2][2]],
-};
 
 // ---- the cells ------------------------------------------------------------
 
@@ -183,7 +106,7 @@ const SPHERE: TileOps<Turn> = {
  * sign the geometry itself supplies. The Euclidean case has no such
  * radius — its cells come in every size — so it takes an edge of 1.
  */
-function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
+export function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
   const u = Math.PI / p;
   const v = Math.PI / q;
   const r = geometry === 'euclidean'
@@ -202,27 +125,35 @@ function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
 const CLOSURE = 16;
 
 /**
- * The `{p, q}` tiling in its own geometry, in that geometry's model chart.
+ * The `{p, q}` tiling, placed through one model door.
+ *
+ * The symbol picks the geometry and builds the fundamental polygon in that
+ * geometry's MODEL CHART; `place.up` carries a chart point to wherever the
+ * caller is drawing — the sketch's own coordinates when the sketch draws in
+ * this very geometry, a picture fitted to the drawable when it does not —
+ * and `place.door` is the door of that landing. The flood then runs in
+ * those coordinates, so every placement that comes back is an isometry a
+ * sketch can hand straight to `group`, `m.transform` or a station.
  *
  * `depth` is generations of reflection across the cell's edges, 3 by
  * default: depth 1 is the cell and its `p` edge neighbours. A spherical
  * tiling is FINITE — there are only ever 4, 6, 8, 12 or 20 cells — so it
  * is returned whole and `depth` is ignored rather than refused.
  */
-export function tiling(p: number, q: number, opts: TilingOpts = {}): Tiling {
+export function tiling(
+  p: number,
+  q: number,
+  opts: TilingOpts,
+  place: { door: ModelDoor; up: (z: XY) => Vec },
+): Tiling {
   if (!Number.isInteger(p) || !Number.isInteger(q) || p < 3 || q < 3) {
     throw new Error(`tiling: p and q are whole numbers of 3 or more (got ${p}, ${q})`);
   }
   const space = tilingGeometry(p, q);
-  const cell = cellOf(space, p, q);
+  const cell = cellOf(space, p, q).map(place.up);
   const depth = space === 'spherical'
     ? CLOSURE
     : opts.depth === undefined ? 3 : Math.floor(opts.depth);
   if (!Number.isFinite(depth) || depth < 0) return { space, cell, placements: [] };
-  const placements = space === 'spherical'
-    ? tileGroup('tiling', SPHERE, cell, depth).map((m) => (pt: XY) => SPHERE.apply(m, pt))
-    : space === 'euclidean'
-      ? tileGroup('tiling', PLANE, cell, depth).map((m) => (pt: XY) => PLANE.apply(m, pt))
-      : tileGroup('tiling', DISK, cell, depth).map((m) => (pt: XY) => DISK.apply(m, pt));
-  return { space, cell, placements };
+  return { space, cell, placements: tileGroup('tiling', tileOps(place.door), cell, depth) };
 }

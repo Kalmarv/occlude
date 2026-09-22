@@ -97,7 +97,7 @@ describe('an area is read as geodesics', () => {
     const f = t.distanceTo(cell);
     // The seat of a neighbouring copy is outside the cell.
     for (const place of placements.slice(1)) {
-      const seat = place(t.space.center);
+      const seat = place.point(t.space.center);
       expect(f(seat[0], seat[1])).toBeLessThan(0);
     }
     // The same loop the other way round is the same boundary, so the

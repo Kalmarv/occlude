@@ -35,7 +35,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
     const w = pts[(i + 1) % pts.length];
     return line(v[0], v[1], w[0], w[1], opts);
   });
-  const around = placements.slice(1).map((f) => ring(cell.map(f)));
+  const around = placements.slice(1).map((p) => ring(cell.map((v) => p.point(v))));
   // The walk: the first cell, drawn by a walker and not by the tiling.
   const side = t.space.distance(cell[0], cell[1]);
   const v = t.space.log(cell[0], cell[1]);
@@ -83,7 +83,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
     const w = pts[(i + 1) % pts.length];
     return line(v[0], v[1], w[0], w[1], opts);
   });
-  const around = placements.slice(1).map((f) => ring(cell.map(f)));
+  const around = placements.slice(1).map((p) => ring(cell.map((v) => p.point(v))));
   // The walk: the first cell, drawn by a walker and not by the tiling.
   const side = t.space.distance(cell[0], cell[1]);
   const v = t.space.log(cell[0], cell[1]);
@@ -207,6 +207,25 @@ The metric itself is on the record. `distance(a, b)` measures the geodesic betwe
 
 Every one of these takes and answers SKETCH coordinates, in drawable units: the numbers a sketch writes. Nothing here hands back a chart point, and the flat plane fills every member with the formulas the spacing words always used.
 
+## placement
+
+<include>/_sig/Toolkit.station.2.mdx</include>
+<include>/_sig/Station.placement.mdx</include>
+<include>/_sig/reflection.mdx</include>
+<include>/_sig/identity.mdx</include>
+<include>/_sig/between.mdx</include>
+<include>/_sig/Material.transform.mdx</include>
+
+A placement is an isometry of the space. It moves a point, a station, a material or a whole drawing. It keeps every length and every angle of its own geometry. It also has a hand. `orientation` is `1` when the placement keeps the hand of a motif, and `-1` when it turns the motif over. One mirror gives `-1`. Two mirrors give `1`.
+
+There are three ways to get one. `station.placement()` is the isometry that carries the origin station, at `(0, 0)` and facing `+x`, to that station. A tiling gives one for each copy of its cell, in `placements`. `reflection(door, a, b)` is the mirror in the geodesic through two points. The `door` is the model the isometry is a matrix on. `t.space.model` is the door of the space the sketch draws in.
+
+There are three ways to use one. `group(placement, ...children)` draws the subtree at that place. `m.transform(placement)` moves a whole material and keeps every id, so a selection made before the move reads again with `sel.in(moved)`. `placement.station(s)` moves a station, and the heading goes with it.
+
+`a.then(b)` is the placement that applies `a` and then `b`. `a.inverse()` is the placement that undoes `a`.
+
+A placing group and a deforming group are two different frames, so they never share a group. Nest them instead. The inner group holds `translate`, `rotate` or `scale`, and it works in the coordinates of the motif. The outer group holds the placement and puts the result somewhere. The library refuses a group that names both, and it names the keys that clash.
+
 ## t.tiling()
 
 <include>/_sig/Toolkit.tiling.mdx</include>
@@ -217,7 +236,7 @@ Every one of these takes and answers SKETCH coordinates, in drawable units: the 
 
 The regular tiling with `p`-gons meeting `q` at a vertex. The symbol picks the geometry, and there is nothing to set. `(p − 2)(q − 2)` below 4 is the sphere, exactly 4 the plane, and above 4 the hyperbolic disk. So `{3, 5}` gives the icosahedron. `{4, 4}` gives the square grid. `{7, 3}` gives the heptagonal tiling of the disk. One word draws all three, and only `p` or `q` below 3 is a mistake.
 
-The answer is data. `cell` is the fundamental polygon, `p` vertices in order, in sketch coordinates. `placements` is one point map for each copy of that cell, the identity first. Draw the motif once inside the cell and hand every placement to [m.map()](/docs/reference/transforms#mmap), or map the points yourself. The shape of the answer does not change with the geometry, so neither does the sketch around it.
+The answer is data. `cell` is the fundamental polygon, `p` vertices in order, in sketch coordinates. `placements` is one [placement](#placement) for each copy of that cell, the identity first. Draw the motif once inside the cell. Then give every placement to `group(placement, motif)` or to `m.transform(placement)`. To move a bare point, use `placement.point(v)`. The shape of the answer does not change with the geometry, so neither does the sketch around it.
 
 The edges of a cell are geodesics. A polyline through its corners is not, so draw them with `line`, which is the word that asks for a geodesic. The fence below does that.
 
@@ -244,23 +263,20 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
   });
   // The motif, built once inside the cell: the middle of each side.
   const motif = t.times(7, (i) => t.space.geodesic(cell[i], cell[(i + 1) % 7], 0.5));
-  // A copy at an odd generation is left-handed. The signed area of the
-  // placed cell says which hand a copy has.
-  const hand = (f) => {
-    const q = cell.map(f);
-    return q.reduce((s, a, i) => s + a[0] * q[(i + 1) % q.length][1] - q[(i + 1) % q.length][0] * a[1], 0);
-  };
+  // A copy at an odd generation is left-handed, and a placement says so
+  // itself: `orientation` is -1 for an odd number of reflections.
   return [
     circle(c[0], c[1], 300, { pen: 'even' }),
-    placements.map((f) => {
-      const ink = hand(f) < 0 ? 'odd' : 'even';
-      return [ring(motif.map(f), ink), circle(f(c)[0], f(c)[1], 1.6, { pen: ink })];
+    placements.map((p) => {
+      const ink = p.orientation < 0 ? 'odd' : 'even';
+      const at = p.point(c);
+      return [ring(motif.map((v) => p.point(v)), ink), circle(at[0], at[1], 1.6, { pen: ink })];
     }),
   ];
 });
 ```
 
-One motif in three geometries, in a flat sketch. Each tiling is fitted to the drawable, so each one lands in the middle. The sketch moves the copies apart and scales the Euclidean one down, because a placement is a plain point map and a sketch can compose it.
+One motif in three geometries, in a flat sketch. Each tiling is fitted to the drawable, so each one lands in the middle. The sketch moves the copies apart and scales the Euclidean one down. `placement.point` gives it a plain point to compute with.
 
 ```ts live
 import { sketch, stroke, clip, circle } from 'occlude';
@@ -275,9 +291,9 @@ export default sketch({ aspect: [3, 1] }, (t) => {
       const w = cell[(i + 1) % cell.length];
       return [150 + ((v[0] + w[0]) / 2 - 150) * 0.78, 50 + ((v[1] + w[1]) / 2 - 50) * 0.78];
     });
-    const near = placements.filter((f) => Math.hypot(f([150, 50])[0] - 150, f([150, 50])[1] - 50) <= reach);
+    const near = placements.filter((f) => Math.hypot(f.point([150, 50])[0] - 150, f.point([150, 50])[1] - 50) <= reach);
     return clip(circle(150 + dx, 50, 46), near.flatMap((f) => [cell, inner].map((loop) =>
-      stroke([...loop, loop[0]].map((v) => put(f(v)))))));
+      stroke([...loop, loop[0]].map((v) => put(f.point(v)))))));
   };
   return [panel(3, 5, 0, -100, 0.78, 50), panel(4, 4, 3, 0, 0.3, 450), panel(7, 3, 3, 100, 0.9, 50)];
 });
@@ -319,8 +335,8 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
   return [
     circle(c[0], c[1], 300, { pen: 'edge' }),
     placements.map((f) => [
-      ring(cell.map(f)),
-      strokes(insets.map(f), { pen: 'inset' }),
+      ring(cell.map((v) => f.point(v))),
+      strokes(insets.map((c2) => f.point(c2)), { pen: 'inset' }),
     ]),
   ];
 });
@@ -475,4 +491,53 @@ export default sketch({
     .map((c, k) => (k % 3 === 0 ? rect(c.x, c.y, c.w, c.h) : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
   strokes(t.sample(circle(50, 50, 30), { count: 64 }), { pen: 'edge' }),
 ]);
+```
+
+## a motif at five stations
+
+The walker of the first drawing goes round the `{5, 4}` pentagon again. This time each corner gets an arrow, and the arrow is one motif written once about the origin. `station.placement()` puts it at each corner, so the motif is never rewritten and never measured.
+
+The second pen draws the whole cell again under `reflection` in one side of it. It draws the motif the other way, through `m.transform`, because a placement moves a material as readily as it moves a subtree. A reflection turns a motif over. The barbs of the blue arrows lean the other way, and `orientation` says so before the sketch draws a line.
+
+```ts live
+import { sketch, group, strokes, line, circle, pen, mm, space, identity, reflection } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), pens: {
+  ink: pen({ width: mm(0.3), color: '#23252B' }),
+  turned: pen({ width: mm(0.3), color: '#2457D6' }),
+} }, (t) => {
+  const k = t.space.radius / 2;
+  // The side of the right-angled pentagon, which is the cell of {5, 4}.
+  const d = 2 * k * Math.asinh(Math.sqrt((Math.sqrt(5) - 1) / 4));
+  // ONE motif, written once about the origin and facing +x: a shaft and
+  // two barbs. Nothing in it knows where it will be drawn.
+  const arrow = [line(0, 0, 6, 0), line(6, 0, 3.4, 1.7), line(6, 0, 3.4, -1.7)];
+  // The walk: five legs with a right turn between them.
+  const stops = [];
+  let st = t.station(34, 44);
+  for (let i = 0; i < 5; i++) {
+    stops.push(st);
+    st = st.step(d);
+    if (i < 4) st = st.turn(90);
+  }
+  // The sides of the cell, under a placement. `line` asks for the
+  // geodesic, which is what a side of a cell is.
+  const sides = (place, ink) => stops.map((a, i) => {
+    const b = stops[(i + 1) % 5];
+    const p = place.point([a.x, a.y]);
+    const q = place.point([b.x, b.y]);
+    return line(p[0], p[1], q[0], q[1], { pen: ink });
+  });
+  // The mirror in the first side. It fixes that side and turns
+  // everything else over, so its `orientation` is -1.
+  const mirror = reflection(t.space.model, [stops[0].x, stops[0].y], [stops[1].x, stops[1].y]);
+  const motif = t.material(...arrow);
+  return [
+    circle(t.space.center[0], t.space.center[1], 300, { pen: 'ink' }),
+    sides(identity(t.space.model), 'ink'),
+    stops.map((s) => group(s.placement(), arrow)),
+    sides(mirror, 'turned'),
+    stops.map((s) => strokes(motif.transform(s.placement().then(mirror)), { pen: 'turned' })),
+  ];
+});
 ```

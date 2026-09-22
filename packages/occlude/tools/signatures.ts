@@ -44,6 +44,7 @@ const PAGE: Record<string, string> = {
   ReplaceOpts: 'steps', ChildSpec: 'steps', SplitOpts: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'shapes',
+  Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry',
   Mesh: '3d/primitives', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };

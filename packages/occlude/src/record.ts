@@ -12,7 +12,8 @@ import { apply, conformalScale, det, IDENTITY, invert, isConformal, mul, rotate,
 import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { Execution, TransformOp } from './execution.js';
-import type { Space } from './space.js';
+import type { Placement } from './placement.js';
+import { euclideanSpace, type Space } from './space.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
 export interface Frame {
@@ -89,6 +90,12 @@ function curvedSpace(frame: Frame): Space | null {
   const s = frame.space;
   return s !== undefined && s.kind !== 'euclidean' ? s : null;
 }
+
+/** The flat plane's record, for a FLAT sketch that holds a placement: its
+ * `project` is the identity and its `geodesic` is the straight midpoint, so
+ * the placed lowering below reads it and does the right thing without a
+ * second code path. A flat sketch with no placement never touches it. */
+const FLAT = euclideanSpace();
 
 class Resolver {
   constructor(readonly frame: Frame) {}
@@ -187,6 +194,91 @@ function composeChain(chain: TransformOp[], rz: Resolver): Mat {
     if (pivot) m = mul(m, translate(-pivot[0], -pivot[1]));
   }
   return m;
+}
+
+/** One element of a transform chain that holds a placement: an affine run
+ * folded to a matrix, or a placement between two of them. */
+type ChainStep = { mat: Mat; place?: undefined } | { place: Placement; mat?: undefined };
+
+/**
+ * The chain as `A0 · P1 · A1 · P2 · A2 …`, outermost first (which is what
+ * `tfChain` is): the affine runs folded by `composeChain`, the placements
+ * between them, and the INNERMOST run handed back on its own.
+ *
+ * That innermost run is where the shape's own vertices are placed, and — in
+ * a curved sketch — where `placedContours` samples its edges as steps. With
+ * no placement in the chain `outer` is empty and `inner` is the whole chain
+ * folded exactly as `composeChain` always folded it, matrix for matrix, so
+ * the old code path is the old code path.
+ */
+function splitChain(chain: readonly TransformOp[], rz: Resolver): { outer: ChainStep[]; inner: Mat } {
+  const outer: ChainStep[] = [];
+  let run: TransformOp[] = [];
+  for (const op of chain) {
+    if (op.placement === undefined) {
+      run.push(op);
+      continue;
+    }
+    if (run.length > 0) {
+      outer.push({ mat: composeChain(run, rz) });
+      run = [];
+    }
+    outer.push({ place: op.placement });
+  }
+  return { outer, inner: composeChain(run, rz) };
+}
+
+/**
+ * The chain elements OUTSIDE the innermost run, as one map on SKETCH
+ * coordinates — the bare numbers a sketch writes, which is drawable
+ * millimetres divided by the unit.
+ *
+ * They run innermost first, which is the END of the outermost-first list: a
+ * point under `A0 · P1 · A1` has already been placed by `A1`, so `P1` acts
+ * on it next and `A0` last. A placement acts in drawable coordinates, which
+ * is what a sketch coordinate is. An affine run acts in USER coordinates,
+ * so it goes through the frame's origin/yUp convention and back again,
+ * exactly as `lowerToUserContours` does around `placedContours`.
+ *
+ * Null when there is nothing outside the innermost run, which is every
+ * chain a sketch has ever written until now.
+ */
+function chainMap(outer: readonly ChainStep[], frame: Frame): ((p: readonly [number, number]) => [number, number]) | null {
+  if (outer.length === 0) return null;
+  const userFrame = userFrameMatrix(frame);
+  const back = invert(userFrame);
+  const unit = unitMm(frame);
+  const steps = outer
+    .slice()
+    .reverse()
+    .map((step) => {
+      if (step.place) {
+        const p = step.place;
+        return (q: readonly [number, number]): [number, number] => {
+          const out = p.point(q);
+          return [out[0], out[1]];
+        };
+      }
+      const m = step.mat;
+      return (q: readonly [number, number]): [number, number] => {
+        const [ux, uy] = apply(back, q[0] * unit, q[1] * unit);
+        const [vx2, vy2] = apply(m, ux, uy);
+        const [dx, dy] = apply(userFrame, vx2, vy2);
+        return [dx / unit, dy / unit];
+      };
+    });
+  return (p) => {
+    let q: [number, number] = [p[0], p[1]];
+    for (const f of steps) q = f(q);
+    return q;
+  };
+}
+
+/** Can the chain outside the innermost run bend a chord? A placement whose
+ * door is the sketch's OWN model cannot — it is an isometry of the very
+ * space the sampling was judged in — and every other element might. */
+function chainBends(outer: readonly ChainStep[], space: Space): boolean {
+  return outer.some((step) => (step.place ? step.place.door.id !== space.model.id : true));
 }
 
 function transformPrim(p: Prim, m: Mat): Prim[] {
@@ -611,10 +703,36 @@ function placedContours(
   space: Space,
   tol: number,
   refine = true,
+  /**
+   * The rest of the transform chain — the placements and the affine runs
+   * outside the innermost one — as a map on sketch coordinates.
+   */
+  through?: (p: readonly [number, number]) => [number, number],
+  /**
+   * Does that rest BEND a chord? An isometry of the sketch's own space
+   * carries a chord sampled to tolerance onto a chord sampled to
+   * tolerance, so it asks for no resampling at all and the sample set is
+   * the one the material door already hands back. Anything else — a
+   * picture door on a flat sheet, an affine run outside a placement — is
+   * measured on the drawn image instead: the deviation below then reads
+   * `project(through(p))`, in SHEET millimetres, against the `tol` the
+   * caller already compares in (0.05 mm for ink, a quarter of the
+   * thinnest nib the library ships), down to `SPACE_DEPTH` halvings and
+   * no complaint at the bottom.
+   */
+  bends = true,
 ): [number, number][][] {
   const unit = unitMm(frame);
+  /** The map the SAMPLING is judged through: the rest of the chain only
+   * where the rest of the chain can bend a chord. */
+  const bent = through && bends ? through : null;
   const sheet = (p: readonly [number, number]): [number, number] => {
-    const q = space.project(p);
+    const q = space.project(bent ? bent(p) : p);
+    return [q[0] * unit, q[1] * unit];
+  };
+  /** A sketch point, through the rest of the chain, back in drawable mm. */
+  const placed = (p: readonly [number, number]): [number, number] => {
+    const q = through ? through(p) : p;
     return [q[0] * unit, q[1] * unit];
   };
   // The one word that asks for a geodesic asks for it by name, in every
@@ -637,7 +755,12 @@ function placedContours(
     // A piece the sketch could not place — a NaN radius from a field that
     // says "not a place", most often — draws nothing, and nothing throws.
     for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
-    if (flat.length === 0 || (geodesicEdge && space.straight) || !refine) return flat;
+    // A straight geodesic under a straight chart has nothing left to
+    // sample — unless a placement stands between the sample and the sheet,
+    // which is the one thing that can bend it again.
+    if (flat.length === 0 || (geodesicEdge && space.straight && !bent) || !refine) {
+      return through ? flat.map(([x, y]) => placed([x / unit, y / unit])) : flat;
+    }
     const pts = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
     const out: [number, number][] = [pts[0]];
     const halve = (
@@ -669,7 +792,7 @@ function placedContours(
       halve(m, b, pm, pb, depth + 1);
     };
     for (let i = 1; i < pts.length; i++) halve(pts[i - 1], pts[i], sheet(pts[i - 1]), sheet(pts[i]), 0);
-    return out.map(([x, y]) => [x * unit, y * unit] as [number, number]);
+    return out.map(placed);
   });
 }
 
@@ -702,16 +825,23 @@ export function lowerToUserContours(
   tol = 0.05,
 ): { pts: [number, number][]; closed: boolean }[] {
   const rz = new Resolver(frame);
-  const m = composeChain([opts], rz);
+  const { outer, inner: m } = splitChain([opts], rz);
   const wholeClosed = geomClosed(geom);
-  const space = curvedSpace(frame);
+  const through = chainMap(outer, frame);
+  // A placement is a map of the sheet, so a chain that holds one is placed
+  // and sampled even in a flat sketch, where the plane's own record
+  // projects with the identity.
+  const space = curvedSpace(frame) ?? (through ? FLAT : null);
   if (space) {
     // The placement lives in DRAWABLE space, so the origin/yUp convention
     // comes in and goes back out again around it; this door answers in user
     // mm, as it always has.
     const userFrame = userFrameMatrix(frame);
     const back = invert(userFrame);
-    return placedContours(geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol).map((pts) => {
+    return placedContours(
+      geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol, true,
+      through ?? undefined, chainBends(outer, space),
+    ).map((pts) => {
       const user = pts.map(([x, y]) => apply(back, x, y));
       let closed = wholeClosed;
       if (geom.kind === 'path') {
@@ -749,12 +879,18 @@ export function userPointMm(x: L, y: L, frame: Frame): [number, number] {
 /** Full lowering of one shape into snapped paper-space primitives. */
 export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   const rz = new Resolver(frame);
+  // The chain as affine runs separated by placements. With no placement in
+  // it `inner` is the whole chain and every line below is the line it was.
+  const { outer, inner } = splitChain(shape.transform, rz);
+  const through = chainMap(outer, frame);
   // paper offset ∘ user frame (origin/yUp) ∘ transform chain: the chain acts
   // in user coordinates, so its rotations pivot around the user's origin.
-  const chain = mul(userToPaperMatrix(frame), composeChain(shape.transform, rz));
+  const chain = mul(userToPaperMatrix(frame), inner);
   const raw = lowerGeom(shape.geom, rz);
-  const space = curvedSpace(frame);
-  const toDrawable = space ? mul(userFrameMatrix(frame), composeChain(shape.transform, rz)) : IDENTITY;
+  // A placement bends the sheet even where the sketch's own geometry does
+  // not, so a flat sketch holding one takes the placed path too.
+  const space = curvedSpace(frame) ?? (through ? FLAT : null);
+  const toDrawable = space ? mul(userFrameMatrix(frame), inner) : IDENTITY;
   // A shape that names ranges along its own polyline keeps its own
   // vertices: inserting samples would renumber the segments those ranges
   // address. Its chords come from the 3D projector already fine, so it is
@@ -764,7 +900,10 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     // Place, sample to tolerance, project, then offset into paper and snap
     // — the same steps the sketch-time door takes, with the projection that
     // only ink needs.
-    ? placedContours(shape.geom, raw, toDrawable, frame, space, SPACE_TOL, refine)
+    ? placedContours(
+      shape.geom, raw, toDrawable, frame, space, SPACE_TOL, refine,
+      through ?? undefined, chainBends(outer, space),
+    )
       // One contour in, one contour out wherever the whole of it has a
       // place on the sheet — which is every projection of the hyperbolic
       // space. A hemisphere chart can cut one contour into several, and
@@ -806,7 +945,10 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   if (space && Number.isFinite(x0)) {
     const unit = unitMm(frame);
     const [dx, dy] = apply(toDrawable, (x0 + x1) / 2, (y0 + y1) / 2);
-    const q = space.project([dx / unit, dy / unit]);
+    // The anchor goes through the very same chain elements the contours
+    // did, so a fill's frame and a `dots` tap land with the shape.
+    const at: [number, number] = [dx / unit, dy / unit];
+    const q = space.project(through ? through(at) : at);
     // A centre on the far side of a hemisphere chart has no place on the
     // sheet; the transform chain's own origin stands, and the contours are
     // gone anyway.

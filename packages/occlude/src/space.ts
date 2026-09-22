@@ -47,6 +47,7 @@
  */
 
 import { halfplane as hHalfplane } from './hyperbolic.js';
+import type { Model, ModelDoor } from './placement.js';
 import type { L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
@@ -141,6 +142,11 @@ export interface Space {
   project(p: XY): Vec;
   /** Are geodesics straight lines on the sheet? */
   straight: boolean;
+  /** The model this geometry's isometries are matrices on: what a
+   * `Placement` of THIS space is built over. `t.station(…).placement()`,
+   * a tiling's placements and `reflection(space.model, a, b)` all go
+   * through it. */
+  model: ModelDoor;
 }
 
 /** The drawable a space is resolved against, in bare units. */
@@ -173,6 +179,23 @@ export const space = {
 const HYPERBOLIC_PROJECTIONS: readonly Projection[] = ['poincare', 'klein'];
 const SPHERICAL_PROJECTIONS: readonly Projection[] = ['stereographic', 'gnomonic', 'orthographic'];
 
+/** The flat plane's tangent frame: the sketch's own axes, everywhere. */
+const PLANE_FRAME: [Model, Model] = [[1, 0, 0], [0, 1, 0]];
+
+/**
+ * The flat plane's model: homogeneous coordinates, where an isometry is
+ * `[[R, t], [0, 1]]` and the third coordinate is not a length — hence
+ * `sign: 0`. There is only one flat plane, so there is only one id.
+ */
+const PLANE_DOOR: ModelDoor = {
+  kind: 'euclidean',
+  sign: 0,
+  id: 'euclidean',
+  up: (p) => [vx(p), vy(p), 1],
+  down: (n) => [n[0] / n[2], n[1] / n[2]],
+  frameAt: () => PLANE_FRAME,
+};
+
 /** The flat plane: the formulas every spacing word already uses, and the
  * identity for every map. */
 export function euclideanSpace(): Space {
@@ -202,18 +225,11 @@ export function euclideanSpace(): Space {
     fromChart: (z) => [vx(z), vy(z)],
     project: (p) => [vx(p), vy(p)],
     straight: true,
+    model: PLANE_DOOR,
   };
 }
 
 // ---- the one curved construction ------------------------------------------
-
-/**
- * A point of the model its geometry is cheapest in, written `[x, y, w]`
- * with the third coordinate last: the hyperboloid `x² + y² − w² = −1`,
- * `w > 0`, below zero curvature, and the unit sphere `x² + y² + w² = 1`
- * above it. One sign turns the first into the second.
- */
-type Model = readonly [number, number, number];
 
 /**
  * Everything the SIGN of the curvature decides, as data. The construction
@@ -469,6 +485,19 @@ export function curvedSpaceOf(
     },
     project: (p) => remap(chart(up(p))),
     straight: projection === 'klein' || projection === 'gnomonic',
+    // The model this geometry's isometries are 3×3 matrices on, made of
+    // the maps the construction already has. Two spaces share a door when
+    // they share a geometry, a centre and a curvature length; the chart's
+    // `size` is paper and does not enter, because an isometry of the space
+    // is the same isometry however big the picture is printed.
+    model: {
+      kind: curvature < 0 ? 'hyperbolic' : 'spherical',
+      sign,
+      id: `${curvature < 0 ? 'hyperbolic' : 'spherical'}:${cx}:${cy}:${ell}`,
+      up,
+      down,
+      frameAt,
+    },
   };
 }
 

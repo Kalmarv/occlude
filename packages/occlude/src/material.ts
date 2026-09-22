@@ -24,7 +24,8 @@
  */
 
 import { PointSelection, EdgeSelection, whereRows } from './relation.js';
-import type { Space } from './space.js';
+import { euclideanSpace, type Space } from './space.js';
+import { between, isPlacement, type Placement } from './placement.js';
 import { degrees, radians } from './units.js';
 // Type-only: a placement returns a tree value (the shape `group()` makes).
 // `import type` is erased, so material never depends on api at runtime.
@@ -189,6 +190,20 @@ export interface Station {
    * `rotate`, positive counter-clockwise). The position and every chain
    * field stay as they are. */
   turn(degrees: number): Station;
+  /** A NEW station at the same place, facing `q`: the direction of the
+   * geodesic that runs from here to there. A `q` in this very place keeps
+   * the heading; on the sphere a `q` exactly opposite has no one direction
+   * and is refused by name. */
+  toward(q: XY): Station;
+  /**
+   * This station as an ISOMETRY of its space: the one that carries the
+   * origin station — sketch `(0, 0)` facing along `+x` — to here. It is
+   * what `place` uses in a curved sketch, and what puts a motif authored
+   * about the origin anywhere a walk reaches.
+   *
+   * `from` names another source frame instead of the origin.
+   */
+  placement(opts?: { from?: Station }): Placement;
 }
 
 /** Where a station puts content: `offset` is `[alongTangent, alongNormal]`
@@ -210,6 +225,22 @@ const STATION_PROTO = Object.freeze({
     const [alongTangent, alongNormal] = opts.offset ?? [0, 0];
     const sc = opts.scale ?? 1;
     const [sx, sy] = typeof sc === 'number' ? [sc, sc] : sc;
+    const sp = this.space;
+    // A curved space has no affine frame to push: the station's own
+    // ISOMETRY places the motif, and the deforming group nests inside it,
+    // in the source frame where the tangent is `+x`. The motif is authored
+    // about the origin, as it always was.
+    if (sp && sp.kind !== 'euclidean') {
+      return {
+        __occludeGroup: true,
+        opts: { placement: this.placement() },
+        children: [{
+          __occludeGroup: true,
+          opts: { translate: [alongTangent, alongNormal], rotate: opts.rotate ?? 0, scale: [sx, sy] },
+          children: [content],
+        }],
+      };
+    }
     return {
       __occludeGroup: true,
       opts: {
@@ -240,12 +271,34 @@ const STATION_PROTO = Object.freeze({
   turn(this: Station, degrees: number): Station {
     return walked(this, this.x, this.y, this.heading + radians(degrees));
   },
+  toward(this: Station, q: XY): Station {
+    const sp = this.space;
+    const here: Vec = [this.x, this.y];
+    const there: Vec = [vx(q), vy(q)];
+    if (sp && sp.kind === 'spherical') {
+      // Half a turn away every direction is as good as another, and the
+      // station is asked for the one that is not there.
+      const half = Math.PI * sp.radius;
+      if (Math.abs(sp.distance(here, there) - half) < 1e-9 * half) {
+        throw new Error(`station.toward: [${there[0]}, ${there[1]}] is opposite this station and has no one direction — give a heading instead`);
+      }
+    }
+    const v = sp && sp.kind !== 'euclidean' ? sp.log(here, there) : [there[0] - this.x, there[1] - this.y];
+    // The same place names no direction, so the station keeps the one it has.
+    if (!(Math.hypot(v[0], v[1]) > 0)) return walked(this, this.x, this.y, this.heading);
+    return walked(this, this.x, this.y, Math.atan2(v[1], v[0]));
+  },
+  placement(this: Station, opts: { from?: Station } = {}): Placement {
+    const sp = this.space;
+    const door = (sp ?? euclideanSpace()).model;
+    return between(door, opts.from ?? stationAt(0, 0, 0, sp), this);
+  },
 });
 
 /** A station like `from`, at `(x, y)` and turned to `heading`: what `step`
  * and `turn` answer with. Every chain field is carried unchanged — a walked
  * station is still the station it came from, moved. */
-function walked(
+export function walked(
   from: Pick<Station, 's' | 'u' | 'length' | 'chain' | 'closed' | 'attrs' | 'edgeAttrs' | 'transfers' | 'space'>,
   x: number,
   y: number,
@@ -1872,6 +1925,24 @@ export class Material {
     // Moving a vertex retires nothing and joins nothing: every identity
     // and every column carries.
     return new Material(nx, ny, copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+  }
+
+  /**
+   * Every vertex through an ISOMETRY of the space: the same material,
+   * moved. Every id, every column and every transfer policy is kept, so a
+   * selection taken before the move rebinds with `sel.in(moved)`, and
+   * stations from `along` on the result carry the material's space as
+   * before.
+   *
+   * Only the vertices move — a straight edge between two of them stays a
+   * straight edge, as `map` documents — so resample first when the motif's
+   * own chords are too long to show the bend.
+   */
+  transform(placement: Placement): Material {
+    if (!isPlacement(placement)) {
+      throw new Error('m.transform: expected a placement — station.placement(), one of a tiling\'s placements, or reflection(space.model, a, b)');
+    }
+    return this.map((p) => placement.point([p.x, p.y]));
   }
 
   /** Thickness around this material's chains: an outline at the radius each

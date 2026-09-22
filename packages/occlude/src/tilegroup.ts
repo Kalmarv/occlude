@@ -4,13 +4,18 @@
  * A regular tiling is built the same way on the sphere, on the plane and
  * in the hyperbolic disk: take the fundamental polygon, reflect it across
  * its own edges, reflect the results across theirs, and keep going. What
- * differs is only what an isometry IS — a 3×3 rotation, a plane motion, a
- * Möbius record — and what a reflection in an edge is. That is the whole
- * of `TileOps`, and the flood below is written once against it.
+ * differs is only what an isometry IS, and what a reflection in an edge is.
+ * That is the whole of `TileOps`, and the flood below is written once
+ * against it.
+ *
+ * Today one type answers it — `Placement`, over the geometry's own model
+ * door — so `TileOps` has one implementation and not three. It stays
+ * generic because the flood is about reflecting and de-duplicating and
+ * nothing else, and because that is what makes the one implementation
+ * readable as one.
  *
  * Nothing here knows a Schläfli symbol; `tiling.ts` picks the geometry and
- * builds the cell, and `hyperbolic.tiling` is the same flood with the disk
- * isometries kept as records.
+ * builds the cell.
  */
 
 import { finiteCount } from './guard.js';
@@ -30,10 +35,10 @@ export interface TileOps<T> {
    * Where the transform puts the cell — the point that NAMES the tile, as
    * coordinates of the geometry itself rather than of the chart.
    *
-   * The plane and the disk name it by the chart point the origin goes to,
-   * which is what they have. A sphere cannot: the chart has no room for
-   * the place opposite the pole, and the tile that lands there would come
-   * back as rounding noise. It names the tile by the point of the sphere.
+   * A chart will not do. A sphere's chart has no room for the place
+   * opposite the pole, and the tile that lands there would come back as
+   * rounding noise instead of one repeatable place. The model has room for
+   * every tile, so the seat is read there.
    */
   seat(m: T): readonly number[];
 }

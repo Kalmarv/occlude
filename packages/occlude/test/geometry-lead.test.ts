@@ -56,7 +56,7 @@ describe('the {5, 4} cell', () => {
 
   it('placements[0] is the identity on every cell point', () => {
     for (const v of til.cell) {
-      const p = til.placements[0](v);
+      const p = til.placements[0].point(v);
       expect(Math.hypot(p[0] - v[0], p[1] - v[1])).toBeLessThan(1e-9);
     }
   });
@@ -91,7 +91,7 @@ describe('the Poincaré fence, end to end', () => {
         const w = pts[(i + 1) % pts.length];
         return line(v[0], v[1], w[0], w[1], opts);
       });
-      const around = placements.slice(1).map((f) => ring(cell.map(f)));
+      const around = placements.slice(1).map((f) => ring(cell.map((v) => f.point(v))));
       const side = t.space.distance(cell[0], cell[1]);
       const v = t.space.log(cell[0], cell[1]);
       let st = t.station(cell[0][0], cell[0][1], Math.atan2(v[1], v[0]));

@@ -32,6 +32,7 @@ import { Len, resolveLen, type L } from './units.js';
 import type { Shape } from './shapes.js';
 import type { DrawRequest, PlanOptions } from './plan.js';
 import { makeFrame, type Frame } from './record.js';
+import type { Placement } from './placement.js';
 import { euclideanSpace, resolveSpace, type Space, type SpaceOption, type ProjectionOption } from './space.js';
 import type { AssetPixels, AssetTable } from './imageAsset.js';
 import type { AnyFill, FillTable } from './fills.js';
@@ -47,6 +48,14 @@ export interface TransformOp {
    * `'center'` for the centre of the drawable. Its own translate is a plain
    * move. Without it, rotation and scale pivot on the user origin. */
   origin?: readonly [L, L] | 'center';
+  /**
+   * An ISOMETRY of the sketch's geometry, rather than a deformation of the
+   * sheet: what `group(placement, …)` pushes. It never shares an op with
+   * the affine keys above — `group` refuses the two together, because they
+   * name two different frames — so a chain reads as affine runs separated
+   * by placements, and `record.ts` lowers it that way.
+   */
+  placement?: Placement;
 }
 
 export interface SketchOptions {
