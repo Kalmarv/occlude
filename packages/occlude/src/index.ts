@@ -174,8 +174,8 @@ export type { EscapeOpts, EscapeField, EscapeStep } from './escape.js';
 // drawable, and `t.space` is the record every word reads. The isometries
 // of the disk and of the Klein ball are what those words are MADE of, and
 // stay internal (hyperbolic.ts, hyperbolicSpace.ts).
-export { space } from './space.js';
-export type { Space, SpaceKind, SpaceSpec, SpaceOption, Projection } from './space.js';
+export { space, spaceOf } from './space.js';
+export type { Space, SpaceKind, SpaceSpec, CurvatureSpec, SpaceOption, Projection, ProjectionSpec, ProjectionOption } from './space.js';
 // `t.tiling(p, q)` is one word for the regular tilings of all three
 // geometries: the Schläfli symbol picks the sphere, the plane or the disk,
 // and the answer is the cell and its placements as point maps on the

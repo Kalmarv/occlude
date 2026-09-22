@@ -21,11 +21,15 @@ An edge is the image of the flat edge. The engine samples it until the sheet hol
 
 `projection` sets the chart that carries the space to the sheet. The default is `'poincare'`. It keeps angles and draws a geodesic as an arc. `'klein'` draws every geodesic straight and does not keep angles. A `projection` with no `space` is an error, and the message names the space it needs.
 
-`radius` is the knob: `space.hyperbolic({ radius: 50 })` draws the plane inside a disk of radius 50 about the centre of the drawable. The rim of that disk is infinitely far away, so the whole plane fits inside it and the drawing pulls in toward it. A larger radius is flatter, and the flat plane is the limit as the radius grows. Without `radius` the disk is 1.25 times the half-diagonal of the drawable.
+**One number is the geometry, and it is the curvature.** `space: { curvature: K }` is the primary form. Below zero it is hyperbolic, above zero it is spherical, and zero is the flat plane. The names are sugar for a curvature. `'hyperbolic'` reads its radius as `K = -4/radius²` and `'spherical'` reads it as `K = +1/radius²`. `t.space.curvature` answers the number whichever way you wrote it.
 
-Set `space: 'spherical'` and the same numbers name places on a sphere. The sphere touches the sheet at the centre of the drawable, and `radius` is its radius: `space.spherical({ radius: 42 })`. A row closes in toward the poles, and the equator of the base row lies a quarter of the way round, at `πR/2` from the centre. Walk further and the coordinates come back round the sphere.
+`radius` says how curved the space is against the steps a sketch takes. `space.hyperbolic({ radius: 50 })` makes the plane bend over about 25 units, so a shape of a few units still looks flat and a grid of 50 shows the bend. A larger radius is flatter, and the flat plane is the limit as the radius grows. Without `radius` the space bends over 1.25 times the half-diagonal of the drawable.
 
-Spherical space has three charts. `'stereographic'` is the default. It keeps angles, and it shows the whole sphere: the one point opposite the centre is the outside of the picture. `'gnomonic'` draws every geodesic straight. `'orthographic'` shows the sphere from far away, inside a circle of one radius. The last two show one half of the sphere only. A point on the far half has no place on the sheet, so it draws nothing. Two dimensions have no occlusion. The engine drops the far half. It does not hide it behind the near half. A stroke that crosses the equator stops there, and it gets no new edge along the equator. Under `'gnomonic'` the equator lies infinitely far away, so keep such a drawing well inside the near half.
+`size` on the projection says how big the picture prints. It is the radius on the page of the rim of the disk, or of the sphere's equator. Without it the picture fills the drawable, so `projection: { kind: 'poincare', size: 25 }` is the only way to ask for a smaller one. The two knobs are free of each other. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller.
+
+Set `space: 'spherical'` and the same numbers name places on a sphere. The sphere touches the sheet at the centre of the drawable, and `radius` is its radius: `space.spherical({ radius: 42 })`. Its curvature is `+1/radius²`, so a smaller sphere bends more. A row closes in toward the poles, and the equator of the base row lies a quarter of the way round, at `πR/2` from the centre. Walk further and the coordinates come back round the sphere.
+
+Spherical space has three charts. `'stereographic'` is the default. It keeps angles, and it shows the whole sphere: the one point opposite the centre is the outside of the picture. `'gnomonic'` draws every geodesic straight. `'orthographic'` shows the sphere from far away, inside a circle of half the size. The last two show one half of the sphere only. A point on the far half has no place on the sheet, so it draws nothing. Two dimensions have no occlusion. The engine drops the far half. It does not hide it behind the near half. A stroke that crosses the equator stops there, and it gets no new edge along the equator. Under `'gnomonic'` the equator lies infinitely far away, so keep such a drawing well inside the near half.
 
 A bare length is a length **in the space**. A physical length is a length **on the paper**. `t.scatter({ spacing: 5 })` asks for five drawable units of the space between points, so the points crowd where the rows open out. `mm(0.4)` is 0.4 mm of ink wherever it lands, because the pen is flat. `w()`, `h()` and `s()` are percentages of the drawable, so they are paper lengths too.
 
@@ -354,4 +358,25 @@ export default sketchAsync({ aspect: [1, 1], pens: {
     ];
   });
 });
+```
+
+## the curvature as a number
+
+The four drawings above name their geometry. This one writes the curvature itself, which is the form the names are sugar for. Read the number as how sharply the space bends against a step of one unit. Make it smaller and the drawing flattens toward the plane. Make it positive and the same program lands on a sphere.
+
+The projection carries its own size here, so the disk prints at 44 units and not at the full drawable.
+
+```ts live
+import { sketch, rect, circle, strokes, pen, mm } from 'occlude';
+
+export default sketch({
+  aspect: [1, 1], seed: 6,
+  space: { curvature: -4 / (34 * 34) },
+  projection: { kind: 'poincare', size: 44 },
+  pens: { ink: pen({ width: mm(0.3), color: '#23252B' }), edge: pen({ width: mm(0.6), color: '#8A857C' }) },
+}, (t) => [
+  ...t.grid({ cols: 7, rows: 7, gap: 3 })
+    .map((c, k) => (k % 3 === 0 ? rect(c.x, c.y, c.w, c.h) : circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))),
+  strokes(t.sample(circle(50, 50, 30), { count: 64 }), { pen: 'edge' }),
+]);
 ```

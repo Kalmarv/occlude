@@ -32,7 +32,7 @@ import { Len, resolveLen, type L } from './units.js';
 import type { Shape } from './shapes.js';
 import type { DrawRequest, PlanOptions } from './plan.js';
 import { makeFrame, type Frame } from './record.js';
-import { euclideanSpace, resolveSpace, type Projection, type Space, type SpaceOption } from './space.js';
+import { euclideanSpace, resolveSpace, type Space, type SpaceOption, type ProjectionOption } from './space.js';
 import type { AssetPixels, AssetTable } from './imageAsset.js';
 import type { AnyFill, FillTable } from './fills.js';
 
@@ -58,18 +58,25 @@ export interface SketchOptions {
   yUp?: boolean;
   /** Default rect anchoring: 'corner' (default) or 'center' (p5 rectMode). */
   rectMode?: 'corner' | 'center';
-  /** The geometry the sketch draws in: `'euclidean'` (the default, and what
-   * every sketch without this key runs), `'hyperbolic'`, `'spherical'`, or
-   * the same with its radius — `space.hyperbolic({ radius: 90 })`,
-   * `space.spherical({ radius: 30 })`. A bare spacing is then a length IN
-   * THE SPACE; `mm(…)` stays a length on the paper. */
+  /** The geometry the sketch draws in, as ONE CURVATURE: `{ curvature: K }`
+   * in 1/unit², below zero hyperbolic and above zero spherical. The names
+   * are sugar for a curvature — `'euclidean'` (the default, and what every
+   * sketch without this key runs), `'hyperbolic'` (`K = −4/radius²`),
+   * `'spherical'` (`K = +1/radius²`), or the same with their radius:
+   * `space.hyperbolic({ radius: 90 })`, `space.spherical({ radius: 30 })`.
+   * This key is geometry only; how big the picture is drawn is
+   * `projection`. A bare spacing is then a length IN THE SPACE; `mm(…)`
+   * stays a length on the paper. */
   space?: SpaceOption;
-  /** The chart the sheet is drawn in. Hyperbolic space: `'poincare'` (the
-   * default) or `'klein'`, where geodesics are straight. Spherical space:
-   * `'stereographic'` (the default), `'gnomonic'`, where geodesics are
-   * straight, or `'orthographic'`; the last two show one hemisphere and
-   * drop the far side. Needs a non-Euclidean `space`. */
-  projection?: Projection;
+  /** The chart the sheet is drawn in, and how big. Hyperbolic space:
+   * `'poincare'` (the default) or `'klein'`, where geodesics are straight.
+   * Spherical space: `'stereographic'` (the default), `'gnomonic'`, where
+   * geodesics are straight, or `'orthographic'`; the last two show one
+   * hemisphere and drop the far side. `{ kind, size }` also says how big
+   * the chart is drawn — `size` is the radius of the disk on the page, or
+   * where the sphere's equator lands — and it fills the drawable by
+   * default. Needs a non-Euclidean `space`. */
+  projection?: ProjectionOption;
 }
 
 export interface ClipRecord {

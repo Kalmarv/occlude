@@ -37,10 +37,11 @@ describe('the hyperbolic space is the hyperbolic plane', () => {
   const t = tk({ space: space.hyperbolic({ radius: 80 }) });
   const s = t.space;
   /** A point of the sketch as a point of the unit disk, which is the model
-   * the maths is written in everywhere else. */
+   * the maths is written in everywhere else. The disk is drawn at the
+   * space's own `size`, which is a paper setting and not the radius. */
   const model = (p: readonly [number, number]): [number, number] => {
     const z = s.toChart(p);
-    return [(z[0] - 50) / 80, (z[1] - 50) / 80];
+    return [(z[0] - 50) / s.size, (z[1] - 50) / s.size];
   };
 
   it('names itself, its disk and its curvature', () => {
@@ -164,8 +165,9 @@ describe('the projection', () => {
     expect(k.space.straight).toBe(true);
     // `z ↦ 2z/(1 + |z|²)`, read back in drawable units.
     const c = k.space.toChart([70, 50]);
-    const z = (c[0] - 50) / 80;
-    expect(k.space.project([70, 50])[0]).toBeCloseTo(50 + 80 * ((2 * z) / (1 + z * z)), 10);
+    const m = k.space.size;
+    const z = (c[0] - 50) / m;
+    expect(k.space.project([70, 50])[0]).toBeCloseTo(50 + m * ((2 * z) / (1 + z * z)), 10);
     // The projected midpoint of a geodesic IS the midpoint of the projected
     // chord: that is what `straight` means.
     const a: [number, number] = [22, 30];
@@ -192,7 +194,7 @@ describe('lowering through the space', () => {
     expect(pts.length).toBeGreaterThan(4);
     const model = (p: readonly [number, number]): [number, number] => {
       const z = t.space.toChart(p);
-      return [(z[0] - 50) / 80, (z[1] - 50) / 80];
+      return [(z[0] - 50) / t.space.size, (z[1] - 50) / t.space.size];
     };
     const A = model(pts[0]);
     const B = model(pts[pts.length - 1]);

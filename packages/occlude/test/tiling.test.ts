@@ -203,10 +203,11 @@ describe('t.tiling puts the chart on the drawable', () => {
     const tl = t.tiling(7, 3, { depth: 2 });
     // The cell comes back in the sketch's own coordinates, so the chart
     // is where its model radius is read: the space's own disk, not the
-    // fitted one.
+    // fitted one. That disk is drawn at the space's `size`.
     const model = tiling(7, 3);
     const z = t.space.toChart(tl.cell[0]);
-    expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(40 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
+    expect(t.space.size).toBeCloseTo(50, 12);
+    expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(t.space.size * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     // Every placement is an ISOMETRY of the space the sketch draws in.
     const probe: [number, number][] = [[50, 50], [62, 47], [41, 58], [55, 63]];
     for (const f of tl.placements) {
@@ -221,11 +222,12 @@ describe('t.tiling puts the chart on the drawable', () => {
     const tl = t.tiling(3, 5);
     expect(tl.space).toBe('spherical');
     expect(tl.placements.length).toBe(20);
-    // The equator sits at twice the radius from the centre, and that is
-    // where the model chart's unit circle lands.
+    // The equator is drawn at the space's `size`, and that is where the
+    // model chart's unit circle lands.
     const model = tiling(3, 5);
     const z = t.space.toChart(tl.cell[0]);
-    expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(60 * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
+    expect(t.space.size).toBeCloseTo(50, 12);
+    expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(t.space.size * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     const probe: [number, number][] = [[50, 50], [62, 47], [41, 58]];
     // ONE copy of the cell lands opposite the point the chart is taken
     // from. In the CHART that place is the outside of the picture, with no

@@ -13,7 +13,12 @@
  * A sketch coordinate is a position by steps: `x` along the equator
  * through the drawable's centre, then `y` along the meridian there. So the
  * equator sits a QUARTER of the circumference out — `πR/2` — and not at
- * `2R`, which is where the chart draws it.
+ * `SIZE`, which is where the chart draws it.
+ *
+ * `R` and `SIZE` are two different knobs. `R` is the sphere, which the
+ * curvature names; `SIZE` is the projection, which says how big the
+ * picture is printed. The chart draws the model's unit circle at `SIZE`,
+ * and `SIZE` defaults to the largest circle the drawable holds.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -39,6 +44,10 @@ function inkContours(cfg: SketchConfig, shape: ShapeValue) {
 }
 
 const R = 40;
+/** The projection's own knob, printed size, not geometry: no fence here
+ * asks for one, so every space below draws at the default — the largest
+ * circle a 100 × 100 drawable holds. */
+const SIZE = 50;
 const C: [number, number] = [50, 50];
 
 /** The sphere point a SKETCH point stands for, worked out here from the
@@ -53,7 +62,7 @@ function onSphere(p: readonly [number, number]): [number, number, number] {
 /** The stereographic chart point of a sketch point, the same way. */
 function chartOf(p: readonly [number, number]): [number, number] {
   const n = onSphere(p);
-  return [C[0] + (2 * R * n[0]) / (1 + n[2]), C[1] + (2 * R * n[1]) / (1 + n[2])];
+  return [C[0] + (SIZE * n[0]) / (1 + n[2]), C[1] + (SIZE * n[1]) / (1 + n[2])];
 }
 
 /** The great-circle length between two sketch points, the same way. */
@@ -202,16 +211,30 @@ describe('the spherical projections', () => {
     expect(Number.isFinite(s.project([50 + quarter - 1, 50])[0])).toBe(true);
   });
 
-  it('orthographic is the sphere from far away: the near half inside a circle of R', () => {
+  it('orthographic is the sphere from far away: the near half inside a circle of half the size', () => {
     const s = tk({ space: space.spherical({ radius: R }), projection: 'orthographic' }).space;
     expect(s.straight).toBe(false);
-    // A point `R·θ` along the equator lands at `R·sin θ`.
+    expect(s.size).toBeCloseTo(SIZE, 12);
+    // A point `R·θ` along the equator lands at `(SIZE/2)·sin θ`: the sphere
+    // seen from far away, drawn at the size the projection was given.
     const p: [number, number] = [50 + R * (Math.PI / 4), 50];
-    expect(s.project(p)[0] - 50).toBeCloseTo(R * Math.sin(Math.PI / 4), 9);
+    expect(s.project(p)[0] - 50).toBeCloseTo((SIZE / 2) * Math.sin(Math.PI / 4), 9);
     // The equator itself is the rim; past it, nothing.
     const quarter = (Math.PI / 2) * R;
-    expect(s.project([50 + quarter, 50])[0] - 50).toBeCloseTo(R, 9);
+    expect(s.project([50 + quarter, 50])[0] - 50).toBeCloseTo(SIZE / 2, 9);
     expect(Number.isFinite(s.project([50 + quarter + 1, 50])[0])).toBe(false);
+  });
+
+  it('draws the same geometry at another size, scaled about the centre', () => {
+    const one = tk({ space: space.spherical({ radius: R }) }).space;
+    const two = tk({ space: space.spherical({ radius: R }), projection: { kind: 'stereographic', size: SIZE / 2 } }).space;
+    const p: [number, number] = [70, 30];
+    const q: [number, number] = [24, 66];
+    // The metric is the space's and does not hear about the size.
+    expect(two.distance(p, q)).toBeCloseTo(one.distance(p, q), 12);
+    // The picture is the same picture, half as big about the centre.
+    expect(two.project(p)[0] - 50).toBeCloseTo((one.project(p)[0] - 50) / 2, 9);
+    expect(two.project(p)[1] - 50).toBeCloseTo((one.project(p)[1] - 50) / 2, 9);
   });
 
   it('refuses a projection from the other geometry, by name', () => {
