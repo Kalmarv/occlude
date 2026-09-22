@@ -307,51 +307,38 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 47 }),
 <include>/_sig/3d.honeycomb.mdx</include>
 <include>/_sig/3d.observer.mdx</include>
 <include>/_sig/3d.geodesic3.mdx</include>
+<include>/_sig/3d.CurveGeometry.transform.mdx</include>
+<include>/_sig/3d.Mesh.transform.mdx</include>
 
-`view` does not take a space yet. Until it does, three words in `occlude/3d` hold a hyperbolic scene. They work in the Klein ball, the unit ball of `[x, y, z]`. There a hyperbolic line is a chord, and a hyperbolic plane is a flat plane. So a hyperbolic polyhedron is an ordinary mesh, and `view` draws it. Klein coordinates are not hyperbolic lengths: a point at distance `R` from the centre sits at Klein radius `tanh R`.
+`view` does not take a space yet. Until it does, three words in `occlude/3d` hold a hyperbolic scene. They work in the Klein ball, the unit ball of `[x, y, z]`. There a hyperbolic line is a chord, and a hyperbolic plane is a flat plane. Klein coordinates are not hyperbolic lengths: a point at distance `R` from the centre sits at Klein radius `tanh R`.
 
-`honeycomb(p, q, r, { depth })` gives the regular cell with `r` of them around every edge, and one point map for each copy, the identity first. Four symbols have a compact cell: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5, 3, 5}`. The word refuses any other symbol, and the error names its geometry. `observer(eye, target, { up })` is the point map that moves `eye` to the centre of the ball and turns `target` onto `+Y`. The Klein model keeps angles at its centre, so the picture from there has the angles of the space itself. `geodesic3(a, b, { count })` samples the chord between two points evenly in hyperbolic length.
+`honeycomb(p, q, r, { depth })` gives the honeycomb as one complex. `cell` is the regular cell as a mesh. `placements` has one `Placement3` for each copy of the cell, and the identity is first. `points` has each corner one time, and two cells that touch at a corner share it. `faces` has each wall one time, with the columns `cell`, `generation` and `mirrored`. `cell` is the first copy that has the wall. `generation` is the number of reflections to that copy. `mirrored` is true when that copy is a mirror image. `wires` has each edge one time, as a wire with two points, and each wire has the columns `cell` and `generation`. The complex is not a mesh, because more than two walls touch each edge.
 
-Below, the `{5, 3, 4}` honeycomb, four right-angled dodecahedra around every edge, seen from inside one cell. Each cell is its edges, as wires, because solid walls would hide every other cell. The heavier pen draws the room the observer stands in.
+Four symbols have a compact cell: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5, 3, 5}`. The word refuses any other symbol, and the error names its geometry.
+
+`observer(eye, target, { up })` is the `Placement3` that moves `eye` to the centre of the ball and turns `target` onto `+Y`. The Klein model keeps angles at its centre, so the picture from there has the angles of the space itself. `transform(placement)` on a mesh or on wires moves each point with `placement.point`, and keeps each id and each column. A chord stays a chord, so two points draw a hyperbolic line exactly. `geodesic3(a, b, { count })` puts points along the chord at equal hyperbolic distances. Use it to measure along a line, not to draw one.
+
+Below, the `{5, 3, 4}` honeycomb, four right-angled dodecahedra around every edge, seen from inside one cell. The honeycomb is its wires, because solid walls would hide every other cell. The heavier pen draws the room the observer stands in, which is generation 0. The page edge cuts the wires.
 
 ```ts live
-import { sketchAsync, strokes, pen, mm } from 'occlude';
-import { polyline, view, perspective, honeycomb, observer, geodesic3 } from 'occlude/3d';
+import { sketchAsync, strokes, clip, rect, pen, mm } from 'occlude';
+import { view, perspective, honeycomb, observer } from 'occlude/3d';
 
 export default sketchAsync({ aspect: [1, 1], pens: {
   ink: pen({ width: mm(0.18), color: '#46505C' }),
   room: pen({ width: mm(0.38), color: '#18202A' }),
-} }, async () => {
-  const { cell, placements } = honeycomb(5, 3, 4, { depth: 2 });
-  const edges = cell.faces.flatMap((f) => f.map((a, i) => [a, f[(i + 1) % f.length]]).filter(([a, b]) => a < b));
-  const middle = (f) => [0, 1, 2].map((k) => f.reduce((s, i) => s + cell.points[i][k], 0) / f.length);
-  const corner = cell.points[0];
-  const toward = (p) => p[0] * corner[0] + p[1] * corner[1] + p[2] * corner[2];
-  const wall = cell.faces.map(middle).reduce((a, b) => (toward(a) < toward(b) ? a : b));
-  const eye = observer(corner.map((v) => v * 0.15), wall, { up: [0.26, 0, 0.97] });
-  const name = (p) => p.map((v) => Math.round(v * 1e6)).join(',');
-  const drawn = new Set();
-  const wires = [];
-  // The identity comes first, so the room the observer stands in is the
-  // first cell drawn, and it takes the heavier pen.
-  placements.forEach((place, k) => {
-    const here = cell.points.map(place);
-    const seen = here.map(eye);
-    for (const [a, b] of edges) {
-      const id = [name(here[a]), name(here[b])].sort().join('|');
-      if (drawn.has(id)) continue;
-      drawn.add(id);
-      wires.push(polyline(geodesic3(seen[a], seen[b], { count: 24 }), k === 0 ? { stroke: 'room' } : {}));
-    }
-  });
-  return view(wires, { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 }), stroke: 'ink' }, (lines) => {
-    const r = lines.visible.source.frame.paper;
-    const held = (c) => [c.a, c.b].every((p) => p[0] >= r.x && p[0] <= r.x + r.width && p[1] >= r.y && p[1] <= r.y + r.height);
-    return [
-      strokes(lines.visible.filter((c) => held(c) && c.feature.stroke !== 'room'), { stroke: 'ink' }),
-      strokes(lines.visible.filter((c) => held(c) && c.feature.stroke === 'room'), { stroke: 'room' }),
-    ];
-  });
+} }, async (t) => {
+  const b = t.bounds();
+  const h = honeycomb(5, 3, 4, { depth: 2 });
+  const c = h.cell.points.at(0);
+  const toward = (f) => f.center[0] * c.x + f.center[1] * c.y + f.center[2] * c.z;
+  const wall = [...h.cell.faces].reduce((f, g) => (toward(f) < toward(g) ? f : g));
+  const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.center, { up: [0.26, 0, 0.97] });
+  const camera = perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 });
+  return view(h.wires.transform(seen), { camera, stroke: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
+    strokes(lines.visible.filter((w) => w.attributes.generation > 0), { stroke: 'ink' }),
+    strokes(lines.visible.filter((w) => w.attributes.generation === 0), { stroke: 'room' }),
+  ]));
 });
 ```
 

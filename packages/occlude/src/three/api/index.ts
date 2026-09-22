@@ -65,4 +65,6 @@ export type {ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './mesh.js';
 export {style,type Styleable} from './style.js';
 export type {Style3} from './mesh.js';
 export {honeycomb,observer,geodesic3} from './hyperbolic.js';
-export type {Honeycomb,HyperbolicCell,HoneycombOptions,Geodesic3Options,ObserverOptions} from './hyperbolic.js';
+export type {Honeycomb,HoneycombPoint,HoneycombFace,HoneycombEdgeColumns,HoneycombOptions,Geodesic3Options,ObserverOptions} from './hyperbolic.js';
+export {isPlacement3} from './placement3.js';
+export type {Placement3} from './placement3.js';
