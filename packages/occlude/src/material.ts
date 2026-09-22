@@ -25,7 +25,7 @@
 
 import { PointSelection, EdgeSelection, whereRows } from './relation.js';
 import type { Space } from './space.js';
-import { degrees } from './units.js';
+import { degrees, radians } from './units.js';
 // Type-only: a placement returns a tree value (the shape `group()` makes).
 // `import type` is erased, so material never depends on api at runtime.
 import type { GroupValue, Tree } from './api.js';
@@ -169,6 +169,9 @@ export interface Station {
   /** Source point-column policies, retained by stationsMaterial. Sampling
    * overrides affect this read only, just as for Material.resample. */
   transfers?: Readonly<Record<string, TransferPolicy>>;
+  /** The space the walk moves in: `along` carries its `space` option here,
+   * and `step` and `turn` copy it. Absent is the flat plane. */
+  space?: Space;
   /** Put `content` here, turned to the station's tangent: the motif-along-
    * a-spine idiom. The placement frame is
    * `T(position + tangent·ot + normal·on) · R(heading + rotate) · S(scale)`,
@@ -176,6 +179,16 @@ export interface Station {
    * the motif's extra rotation. Returns a drawable (a group) and does not
    * mutate the station. */
   place(content: Tree, opts?: PlaceOpts): GroupValue;
+  /** A NEW station at `distance` along this one's heading: one step of a
+   * walk. The flat plane adds `distance · (cos heading, sin heading)` and
+   * keeps the heading. A curved space walks the geodesic, and the
+   * geodesic's direction on arrival is the new heading. Position and
+   * heading change; every chain field is carried unchanged. */
+  step(distance: number): Station;
+  /** A NEW station with the heading turned by `degrees` (degrees, as
+   * `rotate`, positive counter-clockwise). The position and every chain
+   * field stay as they are. */
+  turn(degrees: number): Station;
 }
 
 /** Where a station puts content: `offset` is `[alongTangent, alongNormal]`
@@ -210,7 +223,59 @@ const STATION_PROTO = Object.freeze({
       children: [content],
     };
   },
+  step(this: Station, distance: number): Station {
+    const sp = this.space;
+    const dx = distance * Math.cos(this.heading);
+    const dy = distance * Math.sin(this.heading);
+    if (!sp || sp.kind === 'euclidean') return walked(this, this.x + dx, this.y + dy, this.heading);
+    const p: Vec = [this.x, this.y];
+    const q = sp.exp(p, [dx, dy]);
+    // The new heading is the geodesic's direction on arrival: the tangent
+    // at `q` pointing away from the start `p`, which is `log(q, p)`
+    // negated. A zero step arrives where it began and keeps its heading.
+    const back = sp.log(q, p);
+    const h = back[0] === 0 && back[1] === 0 ? this.heading : Math.atan2(-back[1], -back[0]);
+    return walked(this, q[0], q[1], h);
+  },
+  turn(this: Station, degrees: number): Station {
+    return walked(this, this.x, this.y, this.heading + radians(degrees));
+  },
 });
+
+/** A station like `from`, at `(x, y)` and turned to `heading`: what `step`
+ * and `turn` answer with. Every chain field is carried unchanged — a walked
+ * station is still the station it came from, moved. */
+function walked(
+  from: Pick<Station, 's' | 'u' | 'length' | 'chain' | 'closed' | 'attrs' | 'edgeAttrs' | 'transfers' | 'space'>,
+  x: number,
+  y: number,
+  heading: number,
+): Station {
+  const tangent: [number, number] = [Math.cos(heading), Math.sin(heading)];
+  return Object.assign(Object.create(STATION_PROTO), {
+    x,
+    y,
+    tangent,
+    normal: perp(tangent) as [number, number],
+    heading,
+    s: from.s,
+    u: from.u,
+    length: from.length,
+    chain: from.chain,
+    closed: from.closed,
+    attrs: from.attrs,
+    edgeAttrs: from.edgeAttrs,
+    transfers: from.transfers,
+    space: from.space,
+  });
+}
+
+/** A station at `(x, y)` facing `heading` radians, on `space` (absent is
+ * the flat plane): where a walk starts. The toolkit's `t.station` is this
+ * with the sketch's own space. */
+export function stationAt(x: number, y: number, heading: number, space?: Space): Station {
+  return walked({ s: 0, u: 0, length: 0, chain: 0, closed: false, attrs: {}, edgeAttrs: {}, space }, x, y, heading);
+}
 
 /** One captured state of a `steps()` run. Never touched by later steps. */
 export interface Snapshot {
@@ -1765,6 +1830,7 @@ export class Material {
           attrs,
           edgeAttrs,
           transfers: stationTransfers,
+          space: opts.space,
         });
         out.push(st);
       });

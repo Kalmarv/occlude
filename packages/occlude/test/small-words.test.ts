@@ -182,6 +182,8 @@ const station = (x: number, y: number, heading: number): Station => ({
   normal: [-Math.sin(heading), Math.cos(heading)],
   s: 0, u: 0, length: 0, chain: 0, closed: false, attrs: {}, edgeAttrs: {},
   place: () => { throw new Error('not used'); },
+  step: () => { throw new Error('not used'); },
+  turn: () => { throw new Error('not used'); },
 });
 
 /** Walk the chain from row 0 and measure it. */

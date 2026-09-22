@@ -68,7 +68,7 @@ import { residualOf, type Residual, type ResidualOpts } from './residual.js';
 import { unitMm, userPointMm } from './record.js';
 import { areaLoops, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
-  Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
+  Material, material as materialOf, alongChain, checkSampling, isStations, stationAt, stationsMaterial,
   withinMaterial, type PointsLike, type Station, type Transfer,
 } from './material.js';
 import { PointSelection, EdgeSelection } from './relation.js';
@@ -1539,6 +1539,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
+   * A station at a point of the sketch, facing `heading` radians (the
+   * station's own unit, as `angleOf` and `fromAngle`): where a walk
+   * starts. The space is the sketch's own, so `station.step` and
+   * `station.turn` walk in the geometry the sketch draws in.
+   */
+  function station(x: L, y: L, heading = 0): Station {
+    return stationAt(exec.len(x), exec.len(y), heading, exec.space);
+  }
+
+  /**
    * A variable inspector: returns `value` unchanged and records it under
    * `label`, so the studio can show what a number actually ran through —
    * count, min, max, mean, a histogram — after the render. Works anywhere in
@@ -1695,7 +1705,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
+    sample, station, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
     text,
     /**
      * The distance field of an area, taking a shape as well as resolved

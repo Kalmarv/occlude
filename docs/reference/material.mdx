@@ -411,6 +411,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## station.step() · station.turn()
+
+<include>/_sig/Station.step.mdx</include>
+<include>/_sig/Station.turn.mdx</include>
+<include>/_sig/Toolkit.station.mdx</include>
+
+`t.station(x, y, heading)` starts a walk at any point of the sketch, and the heading is in radians. `station.step(distance)` gives back a new station at that distance along the heading. `station.turn(degrees)` turns the heading by the degrees given and gives back a new station. In the flat plane a step adds `distance · (cos h, sin h)` to the position and keeps the heading as it is. In a curved space a step walks the geodesic, and the direction on arrival is the new heading. A closed walk in a curved space brings the walker back rotated, and that rotation is the holonomy.
+
 ## curves()
 
 <include>/_sig/Material.curves.mdx</include>
@@ -423,5 +431,38 @@ import { sketch, stroke, material } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const y = material([[10, 12], [50, 50], [90, 12], [50, 92]], { edges: [[0, 1], [1, 2], [1, 3]] });
   return y.curves().map((c, i) => stroke(c, { pen: i === 1 ? 'stabilo-88-blue' : undefined }));
+});
+```
+
+```ts live
+// A WALK IN THE HYPERBOLIC PLANE
+//
+// Five legs of equal length with a quarter turn between them: step, turn,
+// step, turn, and the fifth step lands where the walk began. Each leg is
+// a geodesic, and `line` is the word that draws one. The side is the
+// right-angled pentagon side, `2 · k · asinh(sqrt((sqrt(5) - 1) / 4))`
+// with `k` the radius over two: 26.5318765 here. The two ticks show the
+// holonomy. The walker comes back turned a quarter turn, and the end tick
+// points away from the start tick. The horizon: a circle drawn far enough
+// out that the chart has nowhere left to put it.
+import { sketch, line, circle, space } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
+  const k = t.space.radius / 2;
+  const d = 2 * k * Math.asinh(Math.sqrt((Math.sqrt(5) - 1) / 4));
+  let st = t.station(50, 60);
+  const start = st;
+  const legs = [];
+  for (let i = 0; i < 5; i++) {
+    const from = st;
+    st = st.step(d);
+    legs.push(line(from.x, from.y, st.x, st.y));
+    if (i < 4) st = st.turn(90);
+  }
+  const tick = (s) => {
+    const e = s.step(8);
+    return line(s.x, s.y, e.x, e.y, { pen: 'stabilo-88-blue' });
+  };
+  return [circle(50, 50, 400), legs, tick(start), tick(st)];
 });
 ```
