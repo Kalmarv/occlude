@@ -211,7 +211,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.4.mdx</include>
 <include>/_sig/Toolkit.within.5.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection, an edge selection or a face collection. `area` is a shape, a loop of pairs, a face, or a contour material. `t.within` reads the area's `contours()`.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary: the part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. An existing `cut` column is replaced. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is a shape, a loop of pairs, a face, or a contour material. `t.within` reads the area's `contours()`.
 
 A selection cannot clip. A face and an edge come through whole or not at all. Each has the same three ways to decide. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside, and `'centroid'` keeps a face whose centroid is inside. `'touching'` keeps a face that has a point in common with the area. This includes a face that holds all of the area. For edges, `{ edges: 'contained' }` (the default) keeps a wall with neither end outside and no crossing of the boundary. `'midpoint'` keeps a wall whose `center` is inside. `'touching'` keeps a wall with an end inside, or a wall that meets the boundary. A wall running along the boundary belongs to it. To cut at the boundary instead, hand `within` the material.
 
@@ -241,6 +241,20 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const disc = circle(30, 50, 24);
   const web = t.streamlines((x, y) => [1, 0.4 * Math.sin(y / 8)], { spacing: 4 });
   return [strokes(t.isolines(t.within(stripes, disc), 0)), circle(30, 50, 24, { pen: 'stabilo-88-blue' }), strokes(t.within(web, rect(62, 20, 34, 60))), rect(62, 20, 34, 60, { pen: 'stabilo-88-blue' })];
+});
+```
+
+Below, a circle cuts a lattice of cells. Each cell at the rim is a face, so `polygon` fills it. The walls draw without the rim.
+
+```ts live
+import { sketch, strokes, circle, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.within(t.hexes({ spacing: 9, orientation: 'pointy' }), circle(50, 50, 40));
+  return [
+    cells.faces().map((f, i) => polygon(f, { fill: fill('hatch', { angle: i % 2 ? 60 : -30, spacing: mm(1) }), stroke: false })),
+    strokes(cells.edges.filter((e) => !e.attrs.cut)),
+  ];
 });
 ```
 

@@ -32,7 +32,7 @@ import { degrees, radians } from './units.js';
 // `import type` is erased, so material never depends on api at runtime.
 import type { GroupValue, Tree } from './api.js';
 import { walkChains } from './chains.js';
-import { planarize, faces, type PlanarizeOpts, type Faces, type Face } from './faces.js';
+import { planarize, faces, boxGrid, faceLocator, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { VectorFieldFn } from './shapes.js';
@@ -2486,6 +2486,22 @@ export function loopCrossings(
  * area edit, not an evolution step. On the boundary counts as OUTSIDE, the
  * same rule the engine's clip uses, so a run lying exactly along the edge
  * does not survive. An unconnected vertex is kept when it is inside.
+ *
+ * The material's own closure decides what the cut leaves. An open chain ends
+ * at the boundary. A face is an area, and the part of it inside `area` is
+ * closed along the cut: each piece of the boundary with one of the source's
+ * `faces()` just inside it becomes an edge — a piece through a cell, or a
+ * piece along a wall the cut dropped — so a rim cell comes back as a face.
+ * The closing edges are data: the edge column `cut` is 1 on them and 0 on
+ * every other edge (an existing `cut` column is replaced; its policy is
+ * copy). Only a material with faces gets the column — an open chain or a
+ * point cloud keeps the columns it had, so a later `steps` or `append` is
+ * not asked for a column the sketch never wanted. A closing edge ends at
+ * the vertex the cut wall ends at; a boundary corner inside a face is a new
+ * vertex whose point columns are the previous vertex's along the boundary,
+ * and a closing edge copies the edge columns of the previous source wall (a
+ * distributed column is 0: it holds no share of any source edge). A material whose faces
+ * cannot be read — no cycle, or edges that cross — closes nothing.
  */
 export function withinMaterial(
   m: Material,
@@ -2507,6 +2523,8 @@ export function withinMaterial(
     ?? ((ax: number, ay: number, bx: number, by: number) => loopCrossings(loops, ax, ay, bx, by));
   const names = m.attrNames;
   const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
+  // `cut` is this function's answer when the source has faces: it is then
+  // written fresh. Otherwise it is an ordinary column and travels as one.
   const enames = m.edgeAttrNames;
   const ox: number[] = [];
   const oy: number[] = [];
@@ -2599,11 +2617,239 @@ export function withinMaterial(
   for (let i = 0; i < m.n; i++) {
     if (degree[i] === 0 && inside(m.x[i], m.y[i]) > 0) copyVertex(i);
   }
+  const cutFlags: number[] = new Array(edges.length / 2).fill(0);
+
+  // Closing along the boundary: the part of a face inside the area is an
+  // area, so the boundary pieces that run through a face become its walls.
+  const cells = readableFaces(m);
+  if (cells) {
+    const incident = new Int32Array(m.n).fill(-1);
+    for (let e = 0; e < m.edgeCount; e++) {
+      for (const v of [m.edgeList[2 * e], m.edgeList[2 * e + 1]]) if (incident[v] < 0) incident[v] = e;
+    }
+    const faceAt = faceLocator(cells);
+    const edgeBoxes = new Float64Array(4 * m.edgeCount);
+    for (let e = 0; e < m.edgeCount; e++) {
+      const a = m.edgeList[2 * e];
+      const b = m.edgeList[2 * e + 1];
+      edgeBoxes.set([Math.min(m.x[a], m.x[b]), Math.min(m.y[a], m.y[b]), Math.max(m.x[a], m.x[b]), Math.max(m.y[a], m.y[b])], 4 * e);
+    }
+    const walls = boxGrid(edgeBoxes);
+    const kept = new Set<number>();
+    for (let k = 0; k < edges.length; k += 2) kept.add(pairKey(edges[k], edges[k + 1]));
+    let magnitude = 1;
+    for (const loop of loops) for (const [x, y] of loop) magnitude = Math.max(magnitude, Math.abs(x), Math.abs(y));
+    // A roundoff tolerance for "on the boundary" and a side offset for "which
+    // side is filled" — both far below the 0.005 mm input grid.
+    const onTol = 1e-9 * magnitude;
+    const side = 1e-7 * magnitude;
+    for (const loop of loops) {
+      const marks = boundaryMarks(m, loop, walls, incident, onTol);
+      const M = marks.length;
+      if (M < 2) continue;
+      // Each piece runs from mark i to mark i + 1 (cyclic). It closes the
+      // face that lies just inside it: the piece must be a REAL boundary
+      // (filled on one side only — an interior contour under a nonzero rule
+      // is no boundary), and the point a hair to its filled side must be
+      // strictly inside a source face. A piece through a cell closes that
+      // cell; a piece along a source wall closes the face on the inside of
+      // it, because the cut dropped that wall (on the boundary is outside).
+      const pieceFace = new Int32Array(M).fill(-1);
+      let any = false;
+      for (let i = 0; i < M; i++) {
+        const a = marks[i];
+        const b = marks[(i + 1) % M];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len === 0) continue;
+        const mx = a.x + dx / 2;
+        const my = a.y + dy / 2;
+        const nx = (-dy / len) * side;
+        const ny = (dx / len) * side;
+        const left = inside(mx + nx, my + ny) > 0;
+        if (left === (inside(mx - nx, my - ny) > 0)) continue;
+        pieceFace[i] = left ? faceAt(mx + nx, my + ny) : faceAt(mx - nx, my - ny);
+        if (pieceFace[i] >= 0) any = true;
+      }
+      if (!any) continue;
+      // Rows, walked from a mark the source already has (a crossing or a
+      // vertex) so a corner always has a previous vertex to copy.
+      const start = Math.max(0, marks.findIndex((mk) => mk.kind !== 'corner'));
+      const firstFace = pieceFace.find((f) => f >= 0)!;
+      const fallback = cells.faces[firstFace];
+      let lastValues: number[] = names.map((name) => m.attrs[name][fallback.points.indices[0]]);
+      let lastEdge = fallback.boundaryEdges.indices[0];
+      const rowOf = new Int32Array(M).fill(-1);
+      const edgeFrom = new Int32Array(M);
+      for (let s = 0; s < M; s++) {
+        const i = (start + s) % M;
+        const mk = marks[i];
+        const used = pieceFace[i] >= 0 || pieceFace[(i + M - 1) % M] >= 0;
+        if (mk.kind === 'crossing') {
+          lastValues = names.map((name) => columnValue(name, mk.a, mk.b, mk.t));
+          lastEdge = mk.edge;
+          if (used) rowOf[i] = splitAt(mk.a, mk.b, mk.t, mk.x, mk.y);
+        } else if (mk.kind === 'vertex') {
+          lastValues = names.map((name) => m.attrs[name][mk.a]);
+          lastEdge = mk.edge;
+          if (used) rowOf[i] = copyVertex(mk.a);
+        } else if (used) {
+          rowOf[i] = ox.length;
+          ox.push(mk.x);
+          oy.push(mk.y);
+          oids.push(mintIds(1)[0]);
+          names.forEach((name, k) => oattrs[name].push(lastValues[k]));
+        }
+        edgeFrom[i] = lastEdge;
+      }
+      for (let i = 0; i < M; i++) {
+        if (pieceFace[i] < 0 || rowOf[i] === rowOf[(i + 1) % M]) continue;
+        // A wall the cut KEPT along the boundary already closes the face.
+        const pair = pairKey(rowOf[i], rowOf[(i + 1) % M]);
+        if (kept.has(pair)) continue;
+        kept.add(pair);
+        edges.push(rowOf[i], rowOf[(i + 1) % M]);
+        const id = mintIds(1)[0];
+        eids.push(id);
+        eroots.push(id);
+        for (const name of enames) {
+          eattrs[name].push(m.edgeTransfers[name] === 'distribute' ? 0 : m.edgeAttrs[name][edgeFrom[i]]);
+        }
+        cutFlags.push(1);
+      }
+    }
+  }
+
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs });
+  // The column belongs to a cut that can close: a material with faces. An
+  // open chain or a point cloud keeps the columns it had — a `cut` column it
+  // never asked for would be one more column every later edge must give.
+  const edgeTransfers = { ...m.edgeTransfers };
+  if (cells) {
+    edgeAttrs.cut = Float64Array.from(cutFlags);
+    delete edgeTransfers.cut;
+  }
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs });
+}
+
+/** The faces a cut can close, or null: a material with no cycle encloses
+ * nothing (and is not asked), and one whose edges cross has no faces to
+ * read — `within` still cuts it, best-effort, and closes nothing. */
+function readableFaces(m: Material): Faces | null {
+  // A cycle exists exactly when some edge joins two vertices already joined.
+  const parent = Int32Array.from({ length: m.n }, (_, i) => i);
+  const root = (v: number): number => {
+    while (parent[v] !== v) v = parent[v] = parent[parent[v]];
+    return v;
+  };
+  let cyclic = false;
+  for (let e = 0; e < m.edgeCount && !cyclic; e++) {
+    const a = root(m.edgeList[2 * e]);
+    const b = root(m.edgeList[2 * e + 1]);
+    if (a === b) cyclic = true;
+    else parent[a] = b;
+  }
+  if (!cyclic) return null;
+  let cells: Faces;
+  try {
+    cells = m.faces();
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('faces:')) return null;
+    throw err;
+  }
+  return cells.length > 0 ? cells : null;
+}
+
+type BoundaryMark =
+  | { kind: 'corner'; x: number; y: number }
+  | { kind: 'vertex'; x: number; y: number; a: number; edge: number }
+  | { kind: 'crossing'; x: number; y: number; a: number; b: number; t: number; edge: number };
+
+/** Where one boundary loop of a `within` area is marked, in walk order: its
+ * corners, every crossing with a source edge — the SAME point the cut minted,
+ * by the same arithmetic as `loopCrossings` — and every source vertex lying
+ * on it. Marks at one quantised position are one mark, the source's own
+ * (a crossing or a vertex) winning over a corner. */
+function boundaryMarks(
+  m: Material,
+  loop: readonly (readonly [number, number])[],
+  walls: ReturnType<typeof boxGrid>,
+  incident: Int32Array,
+  onTol: number,
+): BoundaryMark[] {
+  const out: BoundaryMark[] = [];
+  const L = loop.length;
+  for (let k = 0; k < L; k++) {
+    const p = loop[k];
+    const q = loop[(k + 1) % L];
+    const ex = q[0] - p[0];
+    const ey = q[1] - p[1];
+    const len2 = ex * ex + ey * ey;
+    if (len2 === 0) continue;
+    const lo = [Math.min(p[0], q[0]) - onTol, Math.min(p[1], q[1]) - onTol];
+    const hi = [Math.max(p[0], q[0]) + onTol, Math.max(p[1], q[1]) + onTol];
+    const along: { u: number; mark: BoundaryMark }[] = [{ u: 0, mark: { kind: 'corner', x: p[0], y: p[1] } }];
+    const len = Math.sqrt(len2);
+    // A vertex on the segment is reported once, by its first wall.
+    const onSeg = new Set<number>();
+    for (const e of walls.near(lo[0], lo[1], hi[0], hi[1]).sort((i, j) => i - j)) {
+      const a = m.edgeList[2 * e];
+      const b = m.edgeList[2 * e + 1];
+      const ax = m.x[a];
+      const ay = m.y[a];
+      const bx = m.x[b];
+      const by = m.y[b];
+      if (Math.max(ax, bx) < lo[0] || Math.min(ax, bx) > hi[0] || Math.max(ay, by) < lo[1] || Math.min(ay, by) > hi[1]) continue;
+      for (const v of [a, b]) {
+        if (onSeg.has(v)) continue;
+        const vx = m.x[v];
+        const vy = m.y[v];
+        if (vx < lo[0] || vx > hi[0] || vy < lo[1] || vy > hi[1]) continue;
+        if (Math.abs(ex * (vy - p[1]) - ey * (vx - p[0])) / len > onTol) continue;
+        // A vertex a rounding past a corner is still on the loop: both
+        // segments may report it, and the merge below keeps one.
+        const u = (ex * (vx - p[0]) + ey * (vy - p[1])) / len2;
+        if (u * len >= -onTol && (u - 1) * len <= onTol) {
+          onSeg.add(v);
+          along.push({ u, mark: { kind: 'vertex', x: vx, y: vy, a: v, edge: incident[v] } });
+        }
+      }
+      // loopCrossings, term for term, so the point's bits match the cut's.
+      const dx = bx - ax;
+      const dy = by - ay;
+      const denom = dx * ey - dy * ex;
+      if (denom === 0) continue;
+      const ox = p[0] - ax;
+      const oy = p[1] - ay;
+      const t = (ox * ey - oy * ex) / denom;
+      if (!(t > 0 && t < 1)) continue;
+      const u = (ox * dy - oy * dx) / denom;
+      if (u >= 0 && u < 1) along.push({ u, mark: { kind: 'crossing', x: p[0] + ex * u, y: p[1] + ey * u, a, b, t, edge: e } });
+    }
+    along.sort((s, r) => s.u - r.u);
+    for (const { mark } of along) out.push(mark);
+  }
+  // One mark per position: the cut's own row wins over a corner.
+  const key = (mk: BoundaryMark) => `${mk.x.toFixed(6)},${mk.y.toFixed(6)}`;
+  const rank = (mk: BoundaryMark) => (mk.kind === 'corner' ? 0 : mk.kind === 'vertex' ? 1 : 2);
+  const merged: BoundaryMark[] = [];
+  for (const mk of out) {
+    const last = merged[merged.length - 1];
+    if (last && key(last) === key(mk)) {
+      if (rank(mk) > rank(last)) merged[merged.length - 1] = mk;
+      continue;
+    }
+    merged.push(mk);
+  }
+  while (merged.length > 1 && key(merged[0]) === key(merged[merged.length - 1])) {
+    const last = merged.pop()!;
+    if (rank(last) > rank(merged[0])) merged[0] = last;
+  }
+  return merged;
 }
 
 // ---- constructors ----------------------------------------------------------------
