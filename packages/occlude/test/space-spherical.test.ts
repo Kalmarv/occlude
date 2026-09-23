@@ -247,7 +247,9 @@ describe('the spherical projections', () => {
 describe('lowering through the spherical space', () => {
   it('draws a line as a great circle under stereographic', () => {
     const t = tk({ space: space.spherical({ radius: R }) });
-    const pts = t.material(line(16, 22, 88, 74)).pts;
+    // `t.material` keeps a line's two ends; `t.sample` walks the edge.
+    expect(t.material(line(16, 22, 88, 74)).n).toBe(2);
+    const pts = t.sample(line(16, 22, 88, 74), { count: 24 }).pts;
     expect(pts.length).toBeGreaterThan(4);
     // Back on the sphere, every sample sits on ONE plane through the
     // centre: that is what a great circle is.
@@ -279,15 +281,15 @@ describe('lowering through the spherical space', () => {
     expect(contours[0][0].t).toBe('line');
   });
 
-  it('draws a circle as the sin/cos circle of the coordinates', () => {
+  it('draws a circle as steps of r from its centre: the circle of the space', () => {
     const t = tk({ space: space.spherical({ radius: R }) });
     const m = t.material(circle(50, 85, 20));
-    for (const p of m.pts) expect(Math.hypot(p[0] - 50, p[1] - 85)).toBeCloseTo(20, 6);
-    // Which is NOT the circle of the space away from the equator: a step
-    // along a row up there is worth less than a step down a column, so the
-    // loop is an oval in the metric.
-    const along = m.pts.map((p) => t.space.distance([50, 85], p));
-    expect(Math.max(...along)).toBeGreaterThan(Math.min(...along) * 1.2);
+    for (const p of m.pts) expect(t.space.distance([50, 85], p)).toBeCloseTo(20, 9);
+    // Which is NOT the sin/cos circle of the coordinates away from the
+    // equator: a step along a row up there is worth less than a step down
+    // a column, so the circle of the space is an oval in the coordinates.
+    const coords = m.pts.map((p) => Math.hypot(p[0] - 50, p[1] - 85));
+    expect(Math.max(...coords)).toBeGreaterThan(Math.min(...coords) * 1.2);
   });
 
   it('drops the far piece of a shape that runs over the equator', () => {

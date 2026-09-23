@@ -23,6 +23,9 @@ export interface ChainInput {
   endpoints: (e: number) => [number, number];
   x: ArrayLike<number>;
   y: ArrayLike<number>;
+  /** Is this edge row a geodesic of the space? Given, a chain that walks
+   * one carries `geodesic`, segment by segment (see `IsoContour`). */
+  geodesic?: (e: number) => boolean;
 }
 
 /** Vertex degree within the given edges, as a dense count per source row. */
@@ -37,7 +40,7 @@ export function degreesWithin(vertexCount: number, edgeRows: ArrayLike<number>, 
 }
 
 export function walkChains(input: ChainInput): Curve[] {
-  const { vertexCount: n, edgeRows, endpoints, x, y } = input;
+  const { vertexCount: n, edgeRows, endpoints, x, y, geodesic } = input;
   const m = edgeRows.length;
   if (m === 0) return [];
   // CSR of local edge indices by vertex, in edge order.
@@ -64,10 +67,12 @@ export function walkChains(input: ChainInput): Curve[] {
   const out: Curve[] = [];
   const walk = (from: number, firstEdge: number, stopAtDegree: boolean): Curve => {
     const indices = [from];
+    const flags: boolean[] = [];
     let v = from;
     let k = firstEdge;
     for (;;) {
       used[k] = 1;
+      if (geodesic) flags.push(geodesic(edgeRows[k]));
       v = other(k, v);
       indices.push(v);
       if (stopAtDegree && degree[v] !== 2) break;
@@ -78,7 +83,9 @@ export function walkChains(input: ChainInput): Curve[] {
     }
     const closed = indices.length > 1 && indices[0] === indices[indices.length - 1];
     if (closed) indices.pop();
-    return { indices, closed, pts: indices.map((i) => [x[i], y[i]] as [number, number]) };
+    const pts = indices.map((i) => [x[i], y[i]] as [number, number]);
+    // A closed chain's last edge is its closing segment, as the flags say.
+    return flags.some((g) => g) ? { indices, closed, pts, geodesic: flags } : { indices, closed, pts };
   };
   for (let v = 0; v < n; v++) {
     if (degree[v] === 2 || degree[v] === 0) continue;

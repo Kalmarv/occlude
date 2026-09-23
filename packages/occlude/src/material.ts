@@ -970,6 +970,7 @@ export class Material {
       endpoints: (e) => [this.edgeList[2 * e], this.edgeList[2 * e + 1]],
       x: this.x,
       y: this.y,
+      geodesic: geodesicEdges(this),
     });
   }
 
@@ -1159,11 +1160,12 @@ export class Material {
   /** A new material with these edges added (undirected; an existing pair
    * is left as it is). When edge columns are declared, `edgeAttributes`
    * must give every column for the new edges. */
-  withEdges(pairs: readonly (readonly [number, number])[], edgeAttributes: Record<string, number> = {}): Material {
+  withEdges(pairs: readonly (readonly [number, number])[], given: Record<string, number> = {}): Material {
     const list = Array.from(this.edgeList);
     const seen = new Set<number>();
     for (let e = 0; e < list.length; e += 2) seen.add(pairKey(list[e], list[e + 1]));
     const names = this.edgeAttrNames;
+    const edgeAttributes = withAbsentEdge(given, names);
     const cols: Record<string, number[]> = {};
     for (const name of names) cols[name] = Array.from(this.edgeAttrs[name]);
     // Contract: unknown columns and non-finite values are always an error;
@@ -2036,7 +2038,14 @@ export class Material {
     // The parameters inside each edge where the moved curve needs a sample.
     const cuts: number[][] = [];
     let split = false;
+    // An isometry carries a geodesic onto a geodesic: a geodesic edge is its
+    // two moved ends, and nothing is sampled.
+    const geodesic = geodesicEdges(this);
     for (let e = 0; e < this.edgeCount; e++) {
+      if (geodesic?.(e)) {
+        cuts.push([]);
+        continue;
+      }
       const [p0, p1] = source(e);
       const at = (t: number): Vec => move(p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t);
       const ts: number[] = [];
@@ -2532,7 +2541,9 @@ export function inSpace(m: Material, space: Space): Material {
  * the vertex the cut wall ends at; a boundary corner inside a face is a new
  * vertex whose point columns are the previous vertex's along the boundary,
  * and a closing edge copies the edge columns of the previous source wall (a
- * distributed column is 0: it holds no share of any source edge). A material whose faces
+ * distributed column is 0: it holds no share of any source edge; `geodesic` is
+ * 0: the closing edge is a piece of the boundary polyline, a coordinate
+ * segment). A material whose faces
  * cannot be read — no cycle, or edges that cross — closes nothing.
  */
 export function withinMaterial(
@@ -2746,7 +2757,10 @@ export function withinMaterial(
         eids.push(id);
         eroots.push(id);
         for (const name of enames) {
-          eattrs[name].push(m.edgeTransfers[name] === 'distribute' ? 0 : m.edgeAttrs[name][edgeFrom[i]]);
+          // The closing edge is a piece of the lowered boundary polyline: a
+          // coordinate segment, whatever the wall before it was.
+          if (name === 'geodesic') eattrs[name].push(0);
+          else eattrs[name].push(m.edgeTransfers[name] === 'distribute' ? 0 : m.edgeAttrs[name][edgeFrom[i]]);
         }
         cutFlags.push(1);
       }
@@ -3780,7 +3794,8 @@ export function append(...args: (Material | AppendOpts)[]): Material {
 
 function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   const fill = opts.fill ?? {};
-  const edgeFill = opts.edgeFill ?? {};
+  // A column whose absence means something fills the side that lacks it.
+  const edgeFill = { ...EDGE_ABSENT, ...(opts.edgeFill ?? {}) };
   const names = Array.from(new Set([...a.attrNames, ...b.attrNames]));
   for (const k of names) {
     if (!(k in a.attrs) || !(k in b.attrs)) {
@@ -4027,4 +4042,39 @@ function areaCentroid(contours: readonly IsoContour[]): Vec | undefined {
     my += mo.cy * a;
   });
   return ma !== 0 ? [mx / ma, my / ma] : undefined;
+}
+
+/**
+ * Edge columns whose ABSENCE has a meaning, and the value it means. A
+ * material without the column reads every edge as this value, so a verb
+ * that joins or adds edges fills it in and never asks the sketch for it.
+ *
+ * `geodesic` (1/0): the edge is the geodesic of the material's space
+ * between its ends, not the image of the coordinate segment. `t.material`
+ * writes it in a curved space — 1 on the edges of a `line`, a circle, an
+ * ellipse and an ngon, 0 on a rect's, a path's and a polygon's — and the
+ * ink door and `m.transform` read it. A material with no column is flat
+ * coordinate edges, as it always was.
+ */
+export const EDGE_ABSENT: Readonly<Record<string, number>> = Object.freeze({ geodesic: 0 });
+
+/** A new edge's record with every column that has an absent meaning, and
+ * that the material declares, filled in where the record is silent. */
+export function withAbsentEdge(attrs: Record<string, number>, names: readonly string[]): Record<string, number> {
+  let out = attrs;
+  for (const name of names) {
+    if (name in EDGE_ABSENT && !(name in attrs)) {
+      if (out === attrs) out = { ...attrs };
+      out[name] = EDGE_ABSENT[name];
+    }
+  }
+  return out;
+}
+
+/** The `geodesic` column as a predicate on edge rows, or undefined when
+ * the material has no geodesic edge — which every flat material is. */
+export function geodesicEdges(m: Material): ((e: number) => boolean) | undefined {
+  const col = m.edgeAttrs.geodesic;
+  if (col === undefined || !col.some((v) => v !== 0)) return undefined;
+  return (e) => col[e] !== 0;
 }

@@ -126,12 +126,14 @@ describe('a shape is its anchor plus offsets', () => {
     }
   });
 
-  it('draws a circle as XY and sin/cos, wherever it sits', () => {
+  it('draws a circle as steps of r from its centre, wherever it sits', () => {
+    // A round shape's offsets are steps from its anchor (spec 57): every
+    // point is at distance r of the space from the centre.
     for (const cfg of [HYP, SPH]) {
       const t = tk(cfg);
       for (const c of [[50, 50], [78, 30], [24, 86]] as [number, number][]) {
         for (const p of t.material(circle(c[0], c[1], 14)).pts) {
-          expect(Math.hypot(p[0] - c[0], p[1] - c[1])).toBeCloseTo(14, 6);
+          expect(t.space.distance(c, p)).toBeCloseTo(14, 9);
         }
       }
     }
@@ -142,7 +144,9 @@ describe('a shape is its anchor plus offsets', () => {
       const t = tk(cfg);
       const a: [number, number] = [18, 26];
       const b: [number, number] = [84, 72];
-      const pts = t.material(line(a[0], a[1], b[0], b[1])).pts;
+      // `t.material` keeps the line's own two ends; `t.sample` walks it.
+      expect(t.material(line(a[0], a[1], b[0], b[1])).n).toBe(2);
+      const pts = t.sample(line(a[0], a[1], b[0], b[1]), { count: 24 }).pts;
       expect(pts.length).toBeGreaterThan(4);
       // Every sample is on the geodesic: the two legs add up to the whole.
       const whole = t.space.distance(a, b);
@@ -200,12 +204,15 @@ describe('the sketch-time doors answer in sketch coordinates', () => {
   it('samples the edges of a shape, and every sample is on the sheet', () => {
     // The refinement is the sheet's: an edge is halved until the projected
     // chord holds the projected image, so a long edge far from the centre
-    // gets more of them than a short one at it.
+    // gets more of them than a short one at it. The ink does the halving;
+    // `t.material` keeps the rect's four corners either way (spec 57).
     const t = tk(HYP);
-    const near = t.material(rect(46, 46, 8, 8)).n;
-    const far = t.material(rect(4, 4, 92, 92)).n;
+    const near = inkContours(HYP, rect(46, 46, 8, 8))[0].length;
+    const far = inkContours(HYP, rect(4, 4, 92, 92))[0].length;
     expect(far).toBeGreaterThan(near);
     expect(near).toBeGreaterThanOrEqual(4);
+    expect(t.material(rect(46, 46, 8, 8)).n).toBe(4);
+    expect(t.material(rect(4, 4, 92, 92)).n).toBe(4);
   });
 });
 

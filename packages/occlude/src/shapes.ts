@@ -9,11 +9,13 @@ import type { L } from './units.js';
 
 export type PathCmd =
   | { op: 'move'; x: L; y: L }
-  | { op: 'line'; x: L; y: L }
+  /** `geodesic`: the segment is the geodesic of the sketch's space between
+   * its ends — what a material edge with `geodesic = 1` draws. */
+  | { op: 'line'; x: L; y: L; geodesic?: true }
   | { op: 'bezier'; c0x: L; c0y: L; c1x: L; c1y: L; x: L; y: L }
   | { op: 'quad'; cx: L; cy: L; x: L; y: L }
   | { op: 'arc'; x: L; y: L; r: L; large?: boolean }
-  | { op: 'close' };
+  | { op: 'close'; geodesic?: true };
 
 /**
  * A field: a scalar that varies over the page. Called with user coordinates

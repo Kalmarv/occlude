@@ -8,7 +8,9 @@
  * points is the segment between the NEAREST names of its ends, taken
  * cumulatively along a polyline, so a run that crosses the tear goes on
  * past it. Both doors see it: the material door hands back continuous
- * coordinates, and the ink stays where the short arc is.
+ * coordinates, and the ink stays where the short arc is. That is a
+ * STROKE's rule: an AREA's loop — any closed contour — is walked as drawn
+ * and keeps the side its winding names (spec 57).
  *
  * The POLES are the other place a coordinate names badly: at `±π/2` of
  * latitude every x names the one point, so the x a pole point carries is
@@ -158,20 +160,24 @@ describe('a coordinate segment across the tear of the sphere', () => {
     expect(c.pts[c.pts.length - 1][0]).toBeCloseTo(X(-8) + 4 * half, 9);
   });
 
-  it('closes a closed contour the short way', () => {
-    // A rect whose corners are named on either side of the tear: its top
-    // and bottom edges are 20° long, not 340°.
+  it('walks a closed contour as drawn: an area keeps the side its winding names', () => {
+    // A rect whose corners are named on either side of the tear: an AREA's
+    // loop is walked as drawn (spec 57), so its top and bottom edges run
+    // the 340° the numbers name, and nothing is renamed.
     const [r] = placed(t, rect(X(-170), Y, R * 340 * DEG, 5));
     expect(r.closed).toBe(true);
-    const all = [...r.pts, r.pts[0]];
-    for (const s of steps(all)) expect(Math.abs(s)).toBeLessThan(half);
-    expect(extent(r.pts)).toBeCloseTo(R * 20 * DEG, 9);
-    // And a closed polyline whose own closing segment is the one across.
+    expect(extent(r.pts)).toBeCloseTo(R * 340 * DEG, 9);
+    expect(Math.min(...r.pts.map((p) => p[0]))).toBeCloseTo(X(-170), 9);
+    // A closed polyline is a loop too: its closing segment across the tear
+    // is walked back the way the loop was drawn.
     const [p] = placed(t, stroke({ pts: [[X(170), Y], [X(170), Y + 5], [X(-170), Y + 5], [X(-170), Y]], closed: true }));
     const last = p.pts[p.pts.length - 1];
     expect(Math.abs(last[0] - p.pts[0][0])).toBeLessThan(1e-9);
-    for (const s of steps(p.pts)) expect(Math.abs(s)).toBeLessThan(half);
-    expect(extent(p.pts)).toBeCloseTo(R * 20 * DEG, 9);
+    expect(extent(p.pts)).toBeCloseTo(R * 340 * DEG, 9);
+    // The same polyline OPEN is a stroke: each segment the short way.
+    const [o] = placed(t, stroke([[X(170), Y], [X(170), Y + 5], [X(-170), Y + 5], [X(-170), Y]]));
+    for (const s of steps(o.pts)) expect(Math.abs(s)).toBeLessThan(half);
+    expect(extent(o.pts)).toBeCloseTo(R * 20 * DEG, 9);
   });
 
   it('leaves a line alone: its points are the geodesic the space already walks', () => {

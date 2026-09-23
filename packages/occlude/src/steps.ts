@@ -13,7 +13,7 @@
 
 import { vx, vy, type XY } from './vec.js';
 import { ownerOf, pairKey, viewKind } from './views.js';
-import { mintIds, RESERVED_FACE_FIELDS, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot, type PointId, type EdgeId } from './material.js';
+import { mintIds, RESERVED_FACE_FIELDS, withAbsentEdge, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot, type PointId, type EdgeId } from './material.js';
 import type { Space } from './space.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, type Face, type FaceSelection } from './faces.js';
@@ -766,9 +766,10 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     if (ra === rb) continue;
     const key = pairKey(ra, rb);
     if (have.has(key)) continue; // an existing pair is left as it is
-    checkAttrs(l.attrs, enames, 'a new edge');
+    const record = withAbsentEdge(l.attrs, enames);
+    checkAttrs(record, enames, 'a new edge');
     have.add(key);
-    pushEdge(ra, rb, l.attrs);
+    pushEdge(ra, rb, record);
   }
 
   const attrs: Record<string, Float64Array> = {};

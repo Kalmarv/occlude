@@ -539,7 +539,10 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // [amp_mm, wavelength_mm]. A field-valued param sets its mask bit and
     // stores a field index instead of a literal.
     const modStart = modsBuf.length;
-    for (const m of shape.modifiers) {
+    // The stack the lowering left for the engine: in a curved space a
+    // `smooth` already ran on the flat outline, before the placement.
+    const modifiers = lowered.modifiers;
+    for (const m of modifiers) {
       switch (m.kind) {
         case 'decimate': {
           const [s0, m0] = fieldParam(m.stroke, 'p01', m.align);
@@ -580,7 +583,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     shapesU32.push(
       cStart, cCount, flags, strokePen, fillPen, fillKind,
       clipStart, shape.clips.length, 0, 0, // reserved (old fill_start/count)
-      modStart, shape.modifiers.length,
+      modStart, modifiers.length,
     );
     shapesF64.push(shape.zIndex);
     // Bridge opt-in: endpoint-join tolerance in paper mm (0 = off).
@@ -589,7 +592,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // Optional source selection shares the f64 tape, outside modifier instructions.
     const rangeStart=modsBuf.length;
     if(shape.strokeRanges) {
-      if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec || shape.modifiers.some(m=>['smooth','roughen','deform'].includes(m.kind)))throw new Error('strokeRanges requires one polyline without fill or pre-stage modifiers');
+      if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec || modifiers.some(m=>['smooth','roughen','deform'].includes(m.kind)))throw new Error('strokeRanges requires one polyline without fill or pre-stage modifiers');
       const count=lowered.contours[0].length;
       let end=0;
       for(const [a,b] of shape.strokeRanges) {

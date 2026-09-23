@@ -156,7 +156,9 @@ A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengt
 | `m.map` | no | puts each vertex where the callback says |
 | `m.warp` | no | a flat cage, corner for corner |
 
-`t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates, so a material of a shape draws as the shape draws. The projection applies once, when the engine draws the ink. Pens, nib widths, dashes, the plan and the time estimate never read the space.
+`t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates. The projection applies once, when the engine draws the ink. Pens, nib widths, dashes, the plan and the time estimate never read the space.
+
+A `rect`, a `path` and a `polygon` go to the places that their numbers name. A round shape is steps from its centre, so a `circle` prints round under a conformal chart. The same is true for an `ellipse` and for the corners of an `ngon`, and the edges of an `ngon` are geodesics. `t.material` keeps the corners of a shape in every space: four for a `rect` and six for a hexagon. In a curved space it also writes the edge column `geodesic`. The value is 1 on the edges of a `line`, a `circle`, an `ellipse` and an `ngon`. It is 0 on the edges of a `rect`, a `path` and a `polygon`. `strokes`, `polygon` and `m.transform` keep an edge with the value 1 on the geodesic between its ends. So a material of a shape draws as the shape draws. `smooth` rounds the corners of the shape before the space places the shape. The loop of an area keeps the side that its winding names. This is also true when an edge is longer than half the circumference of the sphere.
 
 ## t.space
 
