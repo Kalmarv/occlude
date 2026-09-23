@@ -2208,13 +2208,14 @@ button.armed {
 
 /* Three words in one rail row: the flow reads left to right. */
 .registration .row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.registration .row > select {
-  min-width: 0;
+.registration .row > select,
+.registration .row > button {
+  width: 100%;
 }
 
 .registration .row > button {
