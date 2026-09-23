@@ -4,6 +4,8 @@
  * P2: a level of `t.isolines` is an AREA — the region where the field is at
  * or above the level — closed along the drawable (or the field's `within`
  * bound) through every corner it passes, its closing edges marked `cut`.
+ * Spec 68: the material holds the level lines; the area, closing edges and
+ * all, is read through `contours()` and `faces()` (see lazy-level-sets).
  * N1: the chain verbs walk the `curves()` of a network, junctions fixed and
  * kept by id. The sweep: `along` reads heading, tangent and normal from the
  * space's `log`, so a station faces where `station.step` walks.
@@ -36,8 +38,9 @@ const area = (pts: readonly (readonly [number, number])[]): number => {
   return Math.abs(s) / 2;
 };
 
+/** Does the level set's area pass through (x, y)? */
 const has = (m: Material, x: number, y: number): boolean =>
-  [...m.points].some((p) => Math.abs(p.x - x) < 1e-9 && Math.abs(p.y - y) < 1e-9);
+  m.contours().some((c) => c.pts.some((p) => Math.abs(p[0] - x) < 1e-9 && Math.abs(p[1] - y) < 1e-9));
 
 /** The hatch ink a sketch draws, in mm. */
 const inkOf = (def: SketchDef): number =>
@@ -107,17 +110,20 @@ describe('P2 · a level set is an area', () => {
     expect(area(ring.pts)).toBeCloseTo(W * H * (1 - 0.5), 0);
   });
 
-  it('the closing edges carry cut: strokes of the rest is the level line alone', () => {
+  it('the closing edges carry cut: the material itself is the level line alone', () => {
     const t = toolkit({ aspect: [1, 1] });
     const b = t.bounds();
     const m = t.isolines(sdf.circle(0, 0, b.w * 0.3), 0);
     const onBorder = (x: number, y: number) => Math.abs(x) < 1e-9 || Math.abs(y) < 1e-9;
-    const closing = m.edges.filter((e) => e.attrs.cut === 1);
-    const level = m.edges.filter((e) => !e.attrs.cut);
+    const walls = m.faces().at(0)!.edges;
+    const closing = walls.filter((e) => e.attrs.cut === 1);
+    const level = walls.filter((e) => !e.attrs.cut);
     expect(closing.length).toBe(2); // along the top edge, then down the left one
     expect([...closing].every((e) => onBorder(e.a.x, e.a.y) && onBorder(e.b.x, e.b.y))).toBe(true);
     expect([...level].every((e) => Math.abs(Math.hypot(e.center[0], e.center[1]) - b.w * 0.3) < 0.1)).toBe(true);
-    expect(m.edges.length).toBe(closing.length + level.length);
+    expect(walls.length).toBe(closing.length + level.length);
+    expect(m.edges.length).toBe(level.length);
+    expect([...m.edges].every((e) => e.attrs.cut === 0)).toBe(true);
   });
 
   it('closes along a within bound, through the bound\'s own corners', () => {
@@ -128,7 +134,7 @@ describe('P2 · a level set is an area', () => {
     // The right corner of the diamond is inside the circle: the ring passes it.
     expect(has(cut, 86, 70)).toBe(true);
     // Both walls that meet there close the region: neither is level line.
-    const corner = [...cut.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
+    const corner = [...cut.faces().at(0)!.edges.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
     expect([...corner.edges].map((e) => e.attrs.cut)).toEqual([1, 1]);
   });
 
@@ -277,12 +283,17 @@ describe('strokes of a closed level set', () => {
   it('draws the level lines only; the closing edges belong to polygon; an edge selection is drawn as given', () => {
     const t = toolkit({ aspect: [1, 1] });
     const m = t.isolines((x: number, y: number) => x + y, [60, 120]);
-    const lines = m.edges.filter((e) => e.attrs.cut === 0);
-    const rims = m.edges.filter((e) => e.attrs.cut === 1);
-    expect(rims.length).toBeGreaterThan(0);
-    expect(strokes(m).length).toBe(lines.extract().curves().length);
+    expect(strokes(m).length).toBe(m.curves().length);
     expect(strokes(m.edges).length).toBe(m.curves().length);
+    // One level, so its one region is a face: the walls of that face are
+    // the level line and the rim, and a selection of them is drawn as given.
+    const walls = t.isolines((x: number, y: number) => x + y, 60).faces().edges;
+    const lines = walls.filter((e) => e.attrs.cut === 0);
+    const rims = walls.filter((e) => e.attrs.cut === 1);
+    expect(rims.length).toBeGreaterThan(0);
+    expect(strokes(walls).length).toBe(walls.extract().curves().length);
     expect(strokes(rims).length).toBe(rims.extract().curves().length);
+    expect(strokes(lines).length).toBe(lines.extract().curves().length);
   });
 });
 

@@ -174,9 +174,9 @@ import { sketch, polygon, fill, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const field = (x, y) => t.noise(x / 32, y / 32);
   return [
-    t.isolines(field, 0.15).curves().map((c) =>
+    t.isolines(field, 0.15).contours().map((c) =>
       polygon(c, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }) })),
-    t.isolines(field, 0.5).curves().map((c) =>
+    t.isolines(field, 0.5).contours().map((c) =>
       polygon(c, { fill: fill('hatch', { angle: 120, spacing: mm(0.7) }) })),
   ];
 });

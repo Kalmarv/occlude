@@ -16,14 +16,19 @@
  * region the domain cuts closes along that edge, through every corner it
  * passes on the inside side, so every contour is a ring. The closing edges
  * are marked (`LevelContour.cut`): the level line is everything else.
+ *
+ * Laziness: the level lines are what `t.isolines` computes. The closing
+ * runs — and the halving that finds where an absent field stops — are worked
+ * out the first time something reads the area (`levelLines(…).close()`),
+ * once for every level of the call, and kept.
  */
 
 import { usableLength } from './guard.js';
-import { Material } from './material.js';
+import { Material, mintIds } from './material.js';
 import type { FieldFn } from './shapes.js';
 import type { Space } from './space.js';
 import { mm, type L } from './units.js';
-import { chainSegments, marchSegments, wallSegments, type SampledGrid } from './marching.js';
+import { chainSegments, edgeCells, marchSegments, type SampledGrid } from './marching.js';
 
 export type { SampledGrid, SegmentBuffer } from './marching.js';
 export { chainSegments, marchSegments } from './marching.js';
@@ -131,6 +136,16 @@ export function isolinesOf(
   return found.map((g) => g.contours);
 }
 
+/** The level lines of one `t.isolines` call, with the closure still to
+ * come: `groups` holds every level in the order asked, each with its level
+ * line; `close()` works out the runs that close each level's regions where
+ * the domain ends and joins them into rings — the first call does the work
+ * for every level at once, and every later call answers the same array. */
+export interface LevelLines {
+  groups: readonly { level: number; lines: LevelContour[] }[];
+  close(): IsoLevelContours[];
+}
+
 /**
  * The contours of `field` at every level `at` asks for, each level named by
  * the value it was traced at. One sampling of the field serves them all,
@@ -145,13 +160,30 @@ export function levelContours(
   opts: IsoOpts = {},
   domain?: IsoDomain,
 ): IsoLevelContours[] {
+  return levelLines(env, field, at, opts, domain).close();
+}
+
+/**
+ * `levelContours` in two halves: the level lines now, the closure when it
+ * is asked for. The lines are the plain cells of the march — exactly the
+ * open level line — and need neither the pad ring nor the place an absent
+ * field stops. The closure reads the same sampling: it finds where the
+ * field stops along each lattice edge once, marches the edge cells of
+ * every level over that one answer, and lets the grid go.
+ */
+export function levelLines(
+  env: IsoEnv,
+  field: FieldFn,
+  at: IsoLevels,
+  opts: IsoOpts = {},
+  domain?: IsoDomain,
+): LevelLines {
   checkOpts(opts);
   // A list is the levels themselves, in the order given — a non-finite one
   // keeps its place and draws nothing. A spec has to see the field first.
   const given = typeof at === 'number' ? [at] : Array.isArray(at) ? at : null;
   if (given === null) checkSpec(at as IsoLevelSpec);
-  const empty = (): IsoLevelContours[] =>
-    given === null ? [] : given.map((level) => ({ level, contours: [], lines: [], walls: [] }));
+  const empty = (): LevelLines => nothingToClose(given === null ? [] : given);
   // A step that is not a positive length draws no contours at all.
   if (!usableLength(opts.step)) return empty();
   const d = env.bounds;
@@ -174,25 +206,48 @@ export function levelContours(
   // The artist asked for this pitch: the only refusal is the one the
   // machine makes — samples that do not fit a Float64Array — named with
   // the count. Nothing is quietly coarsened, and nothing is capped.
-  let grid: ReturnType<typeof sampleGrid>;
+  let grid: SampledGrid;
   try {
-    grid = sampleGrid(field, b, gw, gh);
+    grid = sampleValues(field, b, gw, gh);
   } catch (e) {
     if (e instanceof RangeError) throw new Error(`isolines: a grid of ${gw} × ${gh} = ${Math.floor(cells)} samples does not fit a Float64Array — the step is too fine for this machine`);
     throw e;
   }
-  // A closing edge spans one lattice cell; a walk along a wall between its
-  // ends that is longer than a few cells is not the wall between them.
-  const walls = domain ? { loops: domain.walls, reach: 4 * Math.hypot(grid.sx, grid.sy) } : undefined;
   const levels = given ?? resolveLevels(at as IsoLevelSpec, grid);
-  return levels.map((level) => {
-    // A level that is not a number is skipped; the others still march.
-    if (!Number.isFinite(level)) return { level, contours: [], lines: [], walls: [] };
-    const segments = marchSegments(grid, level, true);
-    const lines = finishContours(chainSegments(wallSegments(segments, false)), b, false);
-    const runs = finishContours(chainSegments(wallSegments(segments, true)), b, true, walls);
-    return { level, contours: joinRings(lines, runs), lines, walls: runs };
-  });
+  // A level that is not a number is skipped; the others still march.
+  const groups = levels.map((level) => ({
+    level,
+    lines: Number.isFinite(level) ? finishContours(chainSegments(marchSegments(grid, level, false, 'plain')), b, false) : [],
+  }));
+  let held: SampledGrid | null = grid;
+  let closed: IsoLevelContours[] | null = null;
+  return {
+    groups,
+    close() {
+      if (closed !== null) return closed;
+      const g = held!;
+      sampleWalls(field, g);
+      // A closing edge spans one lattice cell; a walk along a wall between
+      // its ends that is longer than a few cells is not the wall between
+      // them.
+      const walls = domain ? { loops: domain.walls, reach: 4 * Math.hypot(g.sx, g.sy) } : undefined;
+      const edge = edgeCells(g);
+      closed = groups.map(({ level, lines }) => {
+        if (!Number.isFinite(level)) return { level, contours: [], lines, walls: [] };
+        const runs = finishContours(chainSegments(marchSegments(g, level, true, edge)), b, true, walls);
+        return { level, contours: joinRings(lines, runs), lines, walls: runs };
+      });
+      held = null;
+      return closed;
+    },
+  };
+}
+
+/** Levels with nothing traced at them: no lines, and nothing to close. */
+function nothingToClose(levels: readonly number[]): LevelLines {
+  const groups = levels.map((level) => ({ level, lines: [] as LevelContour[] }));
+  const closed = groups.map(({ level }) => ({ level, contours: [], lines: [], walls: [] }));
+  return { groups, close: () => closed };
 }
 
 /** The quantum two pieces' shared end is matched at, as `chainSegments`
@@ -341,8 +396,20 @@ const WALL_HALVINGS = 52;
  * stays finite and the marching reads them as below every level; they are
  * also marked absent, and where a lattice edge joins a present sample to an
  * absent one, the place the field stops is found along it by halving (see
- * `SampledGrid.wall`), so a region closes there rather than a sample short. */
+ * `SampledGrid.wall`), so a region closes there rather than a sample short.
+ * `sampleValues` then `sampleWalls`: the level line needs only the first. */
 export function sampleGrid(
+  field: FieldFn,
+  b: { x: number; y: number; w: number; h: number },
+  gw: number,
+  gh: number,
+): SampledGrid {
+  return sampleWalls(field, sampleValues(field, b, gw, gh));
+}
+
+/** The samples of `sampleGrid` without the walls: where the field stops
+ * along an edge is not looked for yet. */
+export function sampleValues(
   field: FieldFn,
   b: { x: number; y: number; w: number; h: number },
   gw: number,
@@ -361,7 +428,6 @@ export function sampleGrid(
   // Absent samples (non-finite — a within() bound or a hand-rolled NaN
   // hole) are tracked separately: the domain ends at them.
   const absent = new Uint8Array(pw * ph);
-  let anyAbsent = false;
   for (let j = 0; j < gh; j++) {
     const row = (j + 1) * pw + 1;
     for (let i = 0; i < gw; i++) {
@@ -369,10 +435,28 @@ export function sampleGrid(
       const fin = Number.isFinite(v);
       vals[row + i] = fin ? v : -1e30;
       absent[row + i] = fin ? 0 : 1;
-      if (!fin) anyAbsent = true;
     }
   }
-  const grid: SampledGrid = { vals, absent, pw, gw, gh, b, sx, sy };
+  return { vals, absent, pw, gw, gh, b, sx, sy };
+}
+
+/** Find, once, where the field stops along every lattice edge that joins a
+ * present sample to an absent one, and keep it on the grid (`grid.wall`).
+ * Every level's closing run reads this one answer. A grid with no absent
+ * sample has no walls; a grid that has them already is left as it is. */
+export function sampleWalls(field: FieldFn, grid: SampledGrid): SampledGrid {
+  if (grid.wall !== undefined) return grid;
+  const { absent, pw, gw, gh, b, sx, sy } = grid;
+  let anyAbsent = false;
+  for (let j = 0; j < gh && !anyAbsent; j++) {
+    const row = (j + 1) * pw + 1;
+    for (let i = 0; i < gw; i++) {
+      if (absent[row + i] === 1) {
+        anyAbsent = true;
+        break;
+      }
+    }
+  }
   if (!anyAbsent) return grid;
   const h = new Float64Array(gw * gh).fill(NaN);
   const v = new Float64Array(gw * gh).fill(NaN);
@@ -610,11 +694,75 @@ function mergeColinear(
  * direction the open march gives them, then the closing runs, which join
  * the lines' own end rows. So the level line alone,
  * `m.edges.filter((e) => !e.attrs.cut)`, walks and draws exactly as the
- * open level lines did.
+ * open level lines did. This is the area `levelSetMaterial` works out when
+ * it is asked for.
  */
 export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
+  const r = levelRows(groups, true);
+  return new Material(r.x, r.y, {}, r.edges, levelCarry(r));
+}
+
+/**
+ * The material `t.isolines` answers: the level lines of every level, each
+ * edge carrying its `level` and `cut` = 0, rows in the order
+ * `levelMaterial` gives them. Its area — `contours()`, `faces()`, and what
+ * `polygon`, `t.within` and every other area consumer read — is
+ * `levelMaterial` of the closed levels, worked out the first time it is
+ * asked for. The area's level-line rows carry this material's ids, so a
+ * selection of the lines is read against the area by id; its closing rows
+ * are minted then.
+ */
+export function levelSetMaterial(set: LevelLines): Material {
+  const r = levelRows(set.groups.map(({ level, lines }) => ({ level, lines, walls: [], contours: [] })), false);
+  const lines: Material = new Material(r.x, r.y, {}, r.edges, { ...levelCarry(r), area: () => closedArea(set, lines) });
+  return lines;
+}
+
+/** `levelMaterial` of the closed levels, its line rows under the ids the
+ * lines already have. Within each level the line rows come first in both
+ * layouts, in the same order, so the k-th line row of the area is the k-th
+ * row of the lines. The closing rows are new geometry, minted here. */
+function closedArea(set: LevelLines, lines: Material): Material {
+  const r = levelRows(set.close(), true);
+  const n = r.x.length;
+  const m = r.cut.length;
+  let rimPoints = 0;
+  for (let i = 0; i < n; i++) if (!r.lineRow[i]) rimPoints++;
+  let rimEdges = 0;
+  for (let e = 0; e < m; e++) if (r.cut[e] !== 0) rimEdges++;
+  const freshPoints = mintIds(rimPoints);
+  const freshEdges = mintIds(rimEdges);
+  const points = new Float64Array(n);
+  for (let i = 0, k = 0, f = 0; i < n; i++) points[i] = r.lineRow[i] ? lines.pointIds[k++] : freshPoints[f++];
+  const edges = new Float64Array(m);
+  const edgeRoots = new Float64Array(m);
+  for (let e = 0, k = 0, f = 0; e < m; e++) {
+    if (r.cut[e] === 0) {
+      edges[e] = lines.edgeIds[k];
+      edgeRoots[e] = lines.edgeRoots[k++];
+    } else {
+      edges[e] = edgeRoots[e] = freshEdges[f++];
+    }
+  }
+  return new Material(r.x, r.y, {}, r.edges, { ...levelCarry(r), ids: { points, edges, edgeRoots }, space: lines.space });
+}
+
+/** The rows of levels as one material, lines then (with `rims`) the
+ * closing runs, level by level; `lineRow` says which vertex rows the lines
+ * made. */
+interface LevelRows {
+  x: Float64Array;
+  y: Float64Array;
+  edges: Uint32Array;
+  level: Float64Array;
+  cut: Float64Array;
+  lineRow: Uint8Array;
+}
+
+function levelRows(groups: readonly IsoLevelContours[], rims: boolean): LevelRows {
   const x: number[] = [];
   const y: number[] = [];
+  const lineRow: number[] = [];
   const edges: number[] = [];
   const level: number[] = [];
   const cut: number[] = [];
@@ -631,6 +779,7 @@ export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
         if (had !== undefined) return had;
         x.push(p[0]);
         y.push(p[1]);
+        lineRow.push(kind === 0 ? 1 : 0);
         if (end) endRow.set(joinKey(p), x.length - 1);
         return x.length - 1;
       });
@@ -647,13 +796,26 @@ export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
       }
     };
     for (const c of g.lines) add(c, 0, false);
-    for (const c of g.walls) add(c, 1, true);
+    if (rims) for (const c of g.walls) add(c, 1, true);
   }
-  return new Material(Float64Array.from(x), Float64Array.from(y), {}, Uint32Array.from(edges), {
+  return {
+    x: Float64Array.from(x),
+    y: Float64Array.from(y),
+    edges: Uint32Array.from(edges),
+    level: Float64Array.from(level),
+    cut: Float64Array.from(cut),
+    lineRow: Uint8Array.from(lineRow),
+  };
+}
+
+/** What every level material carries: its two edge columns, copied when an
+ * edge is split. */
+function levelCarry(r: LevelRows) {
+  return {
     iteration: 0,
     history: [],
-    edgeAttrs: { level: Float64Array.from(level), cut: Float64Array.from(cut) },
+    edgeAttrs: { level: r.level, cut: r.cut },
     transfers: {},
-    edgeTransfers: { level: 'copy', cut: 'copy' },
-  });
+    edgeTransfers: { level: 'copy', cut: 'copy' } as const,
+  };
 }

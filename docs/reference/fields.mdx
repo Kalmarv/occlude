@@ -11,16 +11,16 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The areas where the field is at a value or above it, as one material. Give one value, a list of them, or a count or a spacing. Each area is a ring, and every edge carries its `level`. When the drawable cuts an area, the ring closes along the edge of the drawable. It goes through each corner that is in the area. When the field has a `t.within` bound, the ring closes along the bound in the same way. The edges that close a ring carry `cut` = 1. The edges of the level line carry `cut` = 0.
+The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the area is calculated one time and kept. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field, and it goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
 
-`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines only. The closing edges carry `cut = 1` and belong to the area, so `polygon` uses them and `strokes` does not. `strokes(m.edges)` draws every edge you give it, the closing edges too. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
+`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.edges`, `m.n` and `m.edgeCount` count the level lines only. The closing edges belong to the area: `m.faces()` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const ground = (x, y) => t.noise(x / 28, y / 28);
-  const lines = t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges.filter((e) => !e.cut);
+  const lines = t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges;
   return lines.groupBy((e) => e.level).map((sel) => strokes(sel, { pen: sel.key > 0 ? 'stabilo-88-blue' : undefined }));
 });
 ```
@@ -35,7 +35,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const high = t.isolines(ground, 0.15);
   return [
     polygon(high, { stroke: false, fill: fill('hatch', { angle: 30, spacing: mm(1) }) }),
-    strokes(high.edges.filter((e) => !e.cut)),
+    strokes(high),
   ];
 });
 ```
@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1], seed: 21, pens: {
   // The sheet as the c-plane, as in the escape() example: x = 64 is c = 0.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   // The same contours at two grid pitches, each kept on its own side of c = 0.
-  const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }).edges.filter((e) => !e.cut).extract(), area), { pen: 'fine' });
+  const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }), area), { pen: 'fine' });
   return [side(rect(0, 0, 64, t.height), undefined), side(rect(64, 0, t.width - 64, t.height), mm(0.25))];
 });
 ```
@@ -68,7 +68,7 @@ import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const ground = (x, y) => t.noise(x / 46, y / 46) + t.noise(x / 17, y / 17) * 0.3 - (y - 50) / 220;
-  return [strokes(t.isolines(ground, { spacing: 0.08 }).edges.filter((e) => !e.cut), { pen: 'pigma-005-black' }), strokes(t.isolines(ground, { spacing: 0.4 }).edges.filter((e) => !e.cut), { pen: 'stabilo-88-blue' })];
+  return [strokes(t.isolines(ground, { spacing: 0.08 }), { pen: 'pigma-005-black' }), strokes(t.isolines(ground, { spacing: 0.4 }), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -102,8 +102,8 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
   const d = distanceToPoints(sites);
   return [
-    strokes(t.isolines(d, [-6.9]).edges.filter((e) => !e.cut), { pen: 'pigma-05-black' }),
-    strokes(t.isolines(d, [-6.4, -5.6]).edges.filter((e) => !e.cut), { pen: 'pigma-005-black' }),
+    strokes(t.isolines(d, [-6.9]), { pen: 'pigma-05-black' }),
+    strokes(t.isolines(d, [-6.4, -5.6]), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -121,7 +121,7 @@ import { sketch, strokes, sdf } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const bar = sdf.segment(24, 72, 76, 28, 10);
-  return strokes(t.isolines(bar, [-28, -22, -16, -10, -5, 0, 5, 9]).edges.filter((e) => !e.cut));
+  return strokes(t.isolines(bar, [-28, -22, -16, -10, -5, 0, 5, 9]));
 });
 ```
 
@@ -197,7 +197,7 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const going = (x, y) => 0.2 + 0.8 * (0.5 + 0.5 * t.noise(x / 24, y / 24));
   const arrival = t.travelTime({ fromPoints: [[t.cx, t.cy]], speed: going, step: 0.5 });
-  return strokes(t.isolines(arrival, { spacing: t.width / 16 }).edges.filter((e) => !e.cut));
+  return strokes(t.isolines(arrival, { spacing: t.width / 16 }));
 });
 ```
 
@@ -216,7 +216,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const stripes = (x, y) => Math.sin(x / 2.5);
   const disc = (cx, cy, f) => {
     const d = circle(cx, cy, 20);
-    return [strokes(t.isolines(t.within(stripes, d), 0).edges.filter((e) => !e.cut)), strokes(t.isolines(t.within(f, d), 0).edges.filter((e) => !e.cut), { pen: 'stabilo-88-blue' }), d];
+    return [strokes(t.isolines(t.within(stripes, d), 0)), strokes(t.isolines(t.within(f, d), 0), { pen: 'stabilo-88-blue' }), d];
   };
   return [disc(27, 30, translate(stripes, 4, 0)), disc(73, 30, rotate(stripes, 30)), disc(50, 74, scale(stripes, 2))];
 });
@@ -275,7 +275,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const stripes = (x, y) => Math.sin(x / 3);
   const disc = circle(30, 50, 24);
   const web = t.streamlines((x, y) => [1, 0.4 * Math.sin(y / 8)], { spacing: 4 });
-  return [strokes(t.isolines(t.within(stripes, disc), 0).edges.filter((e) => !e.cut)), circle(30, 50, 24, { pen: 'stabilo-88-blue' }), strokes(t.within(web, rect(62, 20, 34, 60))), rect(62, 20, 34, 60, { pen: 'stabilo-88-blue' })];
+  return [strokes(t.isolines(t.within(stripes, disc), 0)), circle(30, 50, 24, { pen: 'stabilo-88-blue' }), strokes(t.within(web, rect(62, 20, 34, 60))), rect(62, 20, 34, 60, { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -310,7 +310,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     const p = [c.cx, c.cy];
     return [circle(p, 0.7, { pen }), line(p, add(p, mul(unit(vf(c.cx, c.cy)), 5)), { pen })];
   });
-  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]).edges.filter((e) => !e.cut), { pen: 'pigma-005-black' }), marks(grad(hill)), marks(curl(hill), 'stabilo-88-blue')];
+  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), marks(grad(hill)), marks(curl(hill), 'stabilo-88-blue')];
 });
 ```
 
@@ -377,7 +377,7 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const ground = (x, y) => t.noise(x / 22, y / 22);
   const crests = t.ridges(ground);
-  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]).edges.filter((e) => !e.cut), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).edges)];
+  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).edges)];
 });
 ```
 
@@ -402,7 +402,7 @@ export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.
     next.diffuse('a', 0.22);
     next.decay('a', 0.01);
   });
-  return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64]).edges.filter((e) => !e.cut)), dots(drops, { pen: 'drop' })];
+  return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])), dots(drops, { pen: 'drop' })];
 });
 ```
 
@@ -471,8 +471,8 @@ export default sketch({ aspect: [1, 1], seed: 21, pens: {
   // The sheet as the c-plane: (64, 50) is c = −0.5, and 34 sheet units are one unit of c.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   return [
-    strokes(t.isolines(count, { spacing: 1 }).edges.filter((e) => !e.cut), { pen: 'fine' }),
-    strokes(t.isolines(count, { spacing: 5 }).edges.filter((e) => !e.cut), { pen: 'heavy' }),
+    strokes(t.isolines(count, { spacing: 1 }), { pen: 'fine' }),
+    strokes(t.isolines(count, { spacing: 5 }), { pen: 'heavy' }),
   ];
 });
 ```

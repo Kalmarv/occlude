@@ -23,7 +23,7 @@
  */
 
 import type { IsoContour } from './isolines.js';
-import type { Curve } from './material.js';
+import { areaView, type Curve } from './material.js';
 import type { PointSelection } from './relation.js';
 import { Len, type L } from './units.js';
 
@@ -146,7 +146,9 @@ const loopOf = (loop: Loop, who: string): LoopPoints =>
  * chains branch is read by its faces: its area is their union. Separate
  * components stay separate loops; an isolated point contributes nothing. `who` names the caller in errors.
  */
-export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
+export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
+  // A level set's area is worked out when it is first read, here.
+  const input = areaView(given) as AreaInput;
   if (isFaceCollection(input)) {
     throw new Error(
       `${who}: a face collection is several areas — draw each one, \`cells.map((f) => polygon(f, …))\`, ` +
