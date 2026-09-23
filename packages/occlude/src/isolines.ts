@@ -234,8 +234,10 @@ function joinRings(lines: readonly LevelContour[], runs: readonly LevelContour[]
       if (n === undefined) break;
       used[n] = 1;
       const piece = open[n];
-      pts.push(...piece.pts.slice(1));
-      cut.push(...piece.cut.slice(0, piece.pts.length - 1));
+      // A loop, never a spread: a piece can be millions of points, and
+      // spreading one into a call blows the stack.
+      for (let k = 1; k < piece.pts.length; k++) pts.push(piece.pts[k]);
+      for (let k = 0; k < piece.pts.length - 1; k++) cut.push(piece.cut[k]);
     }
     if (closed) pts.pop();
     out.push({ pts, closed, cut });

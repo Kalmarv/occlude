@@ -286,3 +286,17 @@ describe('strokes of a closed level set', () => {
   });
 });
 
+describe('a level line of millions of points', () => {
+  it('is chained without a spread: a field whose one contour crosses the whole drawable at a fine step', () => {
+    const t = toolkit({ aspect: [1, 1] });
+    // One long line: a fast sine ridden by y, so the level-50 contour
+    // zigzags up and down across the whole width — a few hundred thousand
+    // points on one piece. A spread of that many arguments overflows the
+    // stack; the joiner walks it.
+    const m = t.isolines((x: number, y: number) => y + 45 * Math.sin(x * 3) + 2 * Math.sin(y * 37) * Math.cos(x * 23), 50, { step: 0.05 });
+    const longest = Math.max(...m.curves().map((c) => c.pts.length));
+    expect(longest).toBeGreaterThan(150_000);
+    expect(m.n).toBeGreaterThan(200_000);
+  });
+});
+
