@@ -440,5 +440,103 @@ function pointOnSegment(px: number, py: number, ax: number, ay: number, dx: numb
   return Math.hypot(px - qx, py - qy) <= eps ? Math.max(0, Math.min(1, t)) : null;
 }
 
-/** Queries as one namespace: `query.edges(current)`. */
-export const query = { edges };
+export interface NearestPoint {
+  point: Vertex;
+  /** The point's place, as a fresh pair. */
+  position: [number, number];
+  distance: number;
+}
+
+export interface PointQuery {
+  /** The closest point within `within` of `position` (inclusive), or null.
+   * Ties go to the earlier source row. A vertex of the queried state is
+   * never its own nearest point, as it is never its own neighbour in
+   * `points.near`; any other position — a pair, a vertex of another
+   * material — is just a place. */
+  nearest(position: XY, opts: { within: number }): NearestPoint | null;
+}
+
+/** Prepare point queries for a frozen material: the sibling of `edges`,
+ * with the same ring search over a uniform grid of the points. */
+export function points(m: Material): PointQuery {
+  const N = m.n;
+  let minx = Infinity;
+  let miny = Infinity;
+  let maxx = -Infinity;
+  let maxy = -Infinity;
+  for (let i = 0; i < N; i++) {
+    // A point that is not a place is never the nearest one.
+    if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
+    minx = Math.min(minx, m.x[i]);
+    miny = Math.min(miny, m.y[i]);
+    maxx = Math.max(maxx, m.x[i]);
+    maxy = Math.max(maxy, m.y[i]);
+  }
+  if (!Number.isFinite(minx)) { minx = miny = 0; maxx = maxy = 1; }
+  // About one point per cell.
+  const span = Math.max(maxx - minx, maxy - miny, 1e-9);
+  const cell = Math.max(span / Math.max(1, Math.ceil(Math.sqrt(N))), 1e-9);
+  const cols = Math.floor((maxx - minx) / cell) + 1;
+  const rows = Math.floor((maxy - miny) / cell) + 1;
+  const col = (x: number) => Math.min(cols - 1, Math.max(0, Math.floor((x - minx) / cell)));
+  const row = (y: number) => Math.min(rows - 1, Math.max(0, Math.floor((y - miny) / cell)));
+  const cellStart = new Int32Array(cols * rows + 1);
+  const at = new Int32Array(N).fill(-1);
+  for (let i = 0; i < N; i++) {
+    if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
+    at[i] = row(m.y[i]) * cols + col(m.x[i]);
+    cellStart[at[i] + 1]++;
+  }
+  for (let i = 0; i < cols * rows; i++) cellStart[i + 1] += cellStart[i];
+  const items = new Int32Array(cellStart[cols * rows]);
+  const cursor = cellStart.slice(0, cols * rows);
+  for (let i = 0; i < N; i++) if (at[i] >= 0) items[cursor[at[i]]++] = i;
+
+  return {
+    nearest(position, opts) {
+      const within = opts.within;
+      if (!Number.isFinite(within) || within < 0) throw new Error('query.nearest: within must be finite and non-negative');
+      const px = vx(position);
+      const py = vy(position);
+      const self = ownedBy(position, m) ? (position as Vertex).index : -1;
+      const c0 = col(px - within);
+      const c1 = col(px + within);
+      const r0 = row(py - within);
+      const r1 = row(py + within);
+      const cc = col(px);
+      const cr = row(py);
+      const kMax = Math.max(cc - c0, c1 - cc, cr - r0, r1 - cr);
+      let best = -1;
+      let bestD = Infinity;
+      for (let k = 0; k <= kMax; k++) {
+        if (k > 0) {
+          // Everything left unvisited lies outside the square already covered.
+          const reach = Math.max(0, Math.min(px - (minx + (cc - k + 1) * cell), minx + (cc + k) * cell - px, py - (miny + (cr - k + 1) * cell), miny + (cr + k) * cell - py));
+          if (reach > within || reach > bestD) break;
+        }
+        // The cells of ring k: the whole top and bottom rows, the two ends
+        // of every row between.
+        for (let r = Math.max(r0, cr - k); r <= Math.min(r1, cr + k); r++) {
+          const whole = r === cr - k || r === cr + k;
+          const ends = whole ? [] : k === 0 ? [cc] : [cc - k, cc + k];
+          const lo = Math.max(c0, cc - k);
+          const hi = Math.min(c1, cc + k);
+          for (const c of whole ? Array.from({ length: Math.max(0, hi - lo + 1) }, (_, i) => lo + i) : ends) {
+            if (c < c0 || c > c1) continue;
+            for (let j = cellStart[r * cols + c]; j < cellStart[r * cols + c + 1]; j++) {
+              const i = items[j];
+              if (i === self) continue;
+              const d = Math.hypot(m.x[i] - px, m.y[i] - py);
+              if (d > within) continue;
+              if (best < 0 || d < bestD || (d === bestD && i < best)) { best = i; bestD = d; }
+            }
+          }
+        }
+      }
+      return best < 0 ? null : { point: m.vertex(best), position: [m.x[best], m.y[best]], distance: bestD };
+    },
+  };
+}
+
+/** Queries as one namespace: `query.edges(current)`, `query.points(food)`. */
+export const query = { edges, points };

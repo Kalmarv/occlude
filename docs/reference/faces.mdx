@@ -6,7 +6,7 @@ description: The regions that a planar material encloses, and what you can read 
 A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
 
 :::note
-On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `in`, `rows`, `complement`, `union`, `intersect`, `subtract`, `adjacent`, `connected`, `components` and `extract`, with the same meanings as on the [selections](/docs/reference/selections) page.
+On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `in`, `rows`, `complement`, `union`, `intersect`, `subtract`, `adjacent`, `connected`, `components` and `extract`. They have the same meanings as on the [selections](/docs/reference/selections) page.
 :::
 
 ## planarize
@@ -15,7 +15,7 @@ On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On 
 
 <AutoTypeTable path="../occlude/src/faces.ts" name="PlanarizeOpts" />
 
-Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Where the edges at a crossing do not agree, the new vertex takes the values of the edge with the lowest row, as a split of that edge gives them. A vertex that was there before keeps its own values. `point` overrides any column. Below, the blue rings are the two new vertices, where four edges meet.
+Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Where the edges at a crossing do not agree, the new vertex takes the values of the edge with the lowest row. A split of that edge gives the same values. A vertex that was there before keeps its own values. `point` overrides any column. Below, the blue rings are the two new vertices, where four edges meet.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Face.contours.mdx</include>
 <include>/_sig/Face.extract.mdx</include>
 
-One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary`, `t.within`, `clip`, `mask`, `t.material` and `t.sample` as it is. `t.material(f)` gives its walls with their ids. To keep the faces of a collection that lie in an area, use `t.within(cells, area, { keep })`. `keep` is `'contained'` (the default), `'centroid'` or `'touching'`, the same words as for points and edges. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids. The winding of a face is fixed. The outer loop turns counter-clockwise when y points up, and each hole turns the other way. `contours()` and the walls of `face.extract()` both turn this way. A normal from `along` points to the left of the travel, so on a face's walls it points into the face.
+One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area. You can give it as it is to `polygon`, `distanceTo`, `force.boundary`, `t.within`, `clip`, `mask`, `t.material` and `t.sample`. `t.material(f)` gives its walls with their ids. To keep the faces of a collection that lie in an area, use `t.within(cells, area, { keep })`. `keep` is `'contained'` (the default), `'centroid'` or `'touching'`, the same words as for points and edges. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids. A face always has the same winding. The outer loop turns counter-clockwise when y points up, and each hole turns the other way. `contours()` and the walls of `face.extract()` both turn this way. A normal from `along` points to the left of the travel, so on a face's walls it points into the face.
 
 ```ts live
 import { sketch, circle, strokes, distanceTo } from 'occlude';
@@ -85,7 +85,7 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
 
 <include>/_sig/Face.id.mdx</include>
 
-The identity of the face. It comes from the walls of the face, so the same face has the same id after `steps`, after a transform, and after a `planarize` that keeps its walls. Use `id`, not `index`, to find a face again in another state. Below, a round hex net stretches in one step, and each cell finds its rest shape by `id`. The hatch is tighter where a cell grew.
+The identity of the face. It comes from the walls of the face. So the same face has the same id after `steps`, after a transform, and after a `planarize` that keeps its walls. Use `id`, not `index`, to find a face again in another state. Below, a round hex net stretches in one step, and each cell finds its rest shape by `id`. The hatch is tighter where a cell grew.
 
 ```ts live
 import { sketch, polygon, strokes, circle, fill, mm } from 'occlude';
@@ -185,7 +185,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-Below, the small cells fall into towns, and `components()` finds each town. Each town gets its own hatch. The left town comes out with `extract()` as a new material, and it is drawn again, smaller, in blue.
+Below, the small cells fall into towns, and `components()` finds each town. Each town gets its own hatch. `extract()` takes the left town out as a new material, and the sketch draws it again, smaller, in blue.
 
 ```ts live
 import { sketch, polygon, strokes, fill, mm } from 'occlude';
@@ -234,7 +234,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 
-Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results. `step` is the side of one raster cell, a length in the units of the material. In a material with a curved `space`, `area`, `perimeter`, the inscribed circle and the field values are measured in that space. `face.area` and `face.perimeter` are too. `centroid`, `orientation` and `elongation` stay in the coordinates.
+Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results. `step` is the side of one raster cell, a length in the units of the material. In a material with a curved `space`, the call measures `area`, `perimeter`, the inscribed circle and the field values in that space. `face.area` and `face.perimeter` are too. `centroid`, `orientation` and `elongation` stay in the coordinates.
 
 ```ts live
 import { sketch, circle, strokes, line, distance } from 'occlude';

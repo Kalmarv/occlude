@@ -23,7 +23,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   let crack = web.edges.near([0.3 * b.w, 0.32 * b.h], { radius: 0.03 * b.h });
   for (let k = 0; k < 58; k++) {
     const limit = map(k, 0, 57, 0.08, 0.5);
-    crack = crack.union(crack.adjacent().filter((e) => e.attrs.strength < limit));
+    crack = crack.union(crack.adjacent().filter((e) => e.strength < limit));
   }
   const cells = web.faces();
   const split = cells.filter((f) => [...f.edges].some((e) => crack.has(e)));

@@ -88,7 +88,7 @@ export type { MergeOpts } from './merge.js';
 export { PointSelection, EdgeSelection, meanBy } from './relation.js';
 export { planarize, faces, Faces, FaceSelection } from './faces.js';
 export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
-export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
+export type { EdgeQuery, NearestHit, FirstHit, PointQuery, NearestPoint } from './query.js';
 export type {
   Vertex, Edge, Curve, Station, Transfer, TransferPolicy, SegmentRun, PointsLike,
 } from './material.js';
@@ -202,7 +202,7 @@ export { rotate, translate, scale, vectorField, grad, curl } from './field.js';
 // perpendicular family of either kind.
 export { axisField, across } from './field.js';
 export type { AxisFieldFn } from './field.js';
-export type { Prepared } from './field.js';
+export type { Prepared, PointField } from './field.js';
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';

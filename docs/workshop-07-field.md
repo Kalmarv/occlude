@@ -10,7 +10,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const levels = ui(7, { min: 2, max: 14, step: 1 });
   const land = (x, y) => 0.5 + 0.5 * t.noise(x / scale, y / scale);
   const heights = t.times(levels, (k) => (k + 1) / (levels + 1));
-  return strokes(t.isolines(land, heights, { step: 1 }).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(land, heights, { step: 1 }).edges.filter((e) => !e.cut));
 });
 ```
 
@@ -49,7 +49,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const fields = [(x, y) => x / 200, (x, y) => 1 - distance([x, y], [100, 50]) / 70, (x, y) => 1 - distance([x, y], [100, 50]) / 70 + 0.25 * t.noise(x / 24, y / 24)];
   const field = fields[which];
   const levels = [0.2, 0.4, 0.6, 0.8];
-  return strokes(t.isolines(field, levels, { step: 1 }).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(field, levels, { step: 1 }).edges.filter((e) => !e.cut));
 });
 ```
 
@@ -70,13 +70,13 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const levels = ui(7, { min: 2, max: 14, step: 1 });
   const land = (x, y) => 0.5 + 0.5 * t.noise(x / scale, y / scale);
   const heights = t.times(levels, (k) => (k + 1) / (levels + 1));
-  return strokes(t.isolines(land, heights, { step: 1 }).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(land, heights, { step: 1 }).edges.filter((e) => !e.cut));
 });
 ```
 
 Two controls, two different kinds of change. `noise scale` changes the landscape: at 12 it is a rough field of small hills, at 80 a few broad ones. `levels` changes only how finely the same landscape is read: more contours, the same hills. Where the contours crowd the ground is steep. Look for the closed rings: each is a summit or a hollow, and nothing on the page says which.
 
-**Work on the result.** `t.isolines` returns material, the same kind chapters 2 to 6 edited and selected, with every connection carrying its `level` as an attribute. So a level can be picked out, `contours.edges.filter((e) => e.attrs.level === 0.5)`, and all of them grouped, `contours.edges.groupBy((e) => e.attrs.level)`, each group a selection `strokes` accepts. Here every other level goes in blue; the geometry is untouched.
+**Work on the result.** `t.isolines` returns material, the same kind chapters 2 to 6 edited and selected, with every connection carrying its `level` as an attribute. So a level can be picked out, `contours.edges.filter((e) => e.level === 0.5)`, and all of them grouped, `contours.edges.groupBy((e) => e.level)`, each group a selection `strokes` accepts. Here every other level goes in blue; the geometry is untouched.
 
 ```ts live focus=8-10
 import { sketch, strokes, ui } from 'occlude';
@@ -87,7 +87,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const land = (x, y) => 0.5 + 0.5 * t.noise(x / scale, y / scale);
   const heights = t.times(levels, (k) => (k + 1) / (levels + 1));
   const contours = t.isolines(land, heights, { step: 1 });
-  const byLevel = contours.edges.filter((e) => !e.attrs.cut).groupBy((e) => e.attrs.level);
+  const byLevel = contours.edges.filter((e) => !e.cut).groupBy((e) => e.level);
   return byLevel.map((group, k) => strokes(group, { pen: k % 2 ? 'stabilo-88-blue' : 'pigma-005-black' }));
 });
 ```
@@ -147,7 +147,7 @@ export default sketch({ aspect: [3, 1], seed: 9 }, (t) => {
   const heights = t.times(7, (k) => (k + 1) / 8);
   const half = rect(0, 0, 148, 100);
   return [
-    strokes(t.isolines(t.within(land, half), heights, { step: 1 }).edges.filter((e) => !e.attrs.cut)),
+    strokes(t.isolines(t.within(land, half), heights, { step: 1 }).edges.filter((e) => !e.cut)),
     group({ translate: [152, 0] }, strokes(t.streamlines(t.within(along, half), { spacing: 2 }))),
   ];
 });

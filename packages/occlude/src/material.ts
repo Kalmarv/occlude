@@ -97,7 +97,10 @@ export type Vertex = {
   readonly edges: EdgeSelection;
 } & Record<string, number>;
 
-export interface Edge {
+/** An edge view. Its columns read as properties of the row (`e.level`), as
+ * a vertex's do and as 3D rows' do; `attrs` is the same columns as one
+ * record (`e.attrs.level`), for a spread or a lookup by name. */
+export type Edge = {
   /** Vertex views at the edge's ends, in stored order (a → b). */
   a: Vertex;
   b: Vertex;
@@ -132,14 +135,15 @@ export interface Edge {
   /** The edges that share a vertex with this one, this edge excluded —
    * what `p.adjacent` is for a vertex, in the edge's own world. */
   readonly adjacent: EdgeSelection;
-  /** This edge's attribute row: `edge.attrs.rest`. */
+  /** This edge's columns as one record: `edge.attrs.rest`, which is
+   * `edge.rest`. */
   attrs: Record<string, number>;
   /** The faces on this edge's two sides, from the material's `faces()`:
    * two for a wall between cells, one for an outer wall or a spur inside a
    * face, none for an edge no face touches. Reading it on a material that
    * is not planar throws the same error as `faces()`. */
   readonly faces: Face[];
-}
+} & Record<string, number>;
 
 /** A chain of a material for drawing: stampable as-is (`stroke(curve)`), with
  * the vertex rows it walks. */
@@ -392,14 +396,18 @@ export interface FaceColumn {
 
 /**
  * The names a face view already owns. A face column reads flat —
- * `face.height`, like a vertex's `p.height` — so a column may not be
- * called one of these. The edge view had to nest its columns
- * (`edge.attrs.rest`) precisely because it ran out of top level; a face
- * has room, and a reserved list is what keeps it honest.
+ * `face.height`, like a vertex's `p.height` and an edge's `e.rest` — so a
+ * column may not be called one of these.
  */
 export const RESERVED_FACE_FIELDS: readonly string[] = [
   'index', 'id', 'area', 'perimeter', 'bounds', 'centroid',
   'edges', 'points', 'boundaryEdges', 'adjacent', 'contours', 'extract',
+];
+
+/** The names an edge view already owns, for the same reason: its columns
+ * read flat beside them (`e.rest`, with `e.attrs.rest` as the record). */
+export const RESERVED_EDGE_FIELDS: readonly string[] = [
+  'a', 'b', 'length', 'index', 'id', 'root', 'center', 'adjacent', 'attrs', 'faces',
 ];
 
 /**
@@ -593,7 +601,7 @@ export class Material {
       if (col.length !== edgeList.length / 2) {
         throw new Error(`material: edge attribute '${name}' has ${col.length} values for ${edgeList.length / 2} edges`);
       }
-      if (name === 'a' || name === 'b' || name === 'length' || name === 'index') {
+      if (RESERVED_EDGE_FIELDS.includes(name)) {
         throw new Error(`material: '${name}' is a reserved edge field`);
       }
     }
@@ -825,8 +833,10 @@ export class Material {
     const a = this.vertex(this.edgeList[2 * e]);
     const b = this.vertex(this.edgeList[2 * e + 1]);
     const attrs: Record<string, number> = {};
-    for (const name in this.edgeAttrs) attrs[name] = this.edgeAttrs[name][e];
-    const view = Object.create(this.edgeProto) as Edge & Record<string, unknown>;
+    const view = Object.create(this.edgeProto) as Record<string, unknown>;
+    // A column is a property of the row, and `attrs` the same columns as a
+    // record: the reserved names keep the two from ever colliding.
+    for (const name in this.edgeAttrs) view[name] = attrs[name] = this.edgeAttrs[name][e];
     view.a = a;
     view.b = b;
     // A length of the material's space; the flat plane keeps the old expression.
@@ -3071,7 +3081,8 @@ export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointReco
 
 /**
  * Material from positions. Unconnected unless `edges` are given; extra
- * numeric fields on object points (`w` from `t.scatter`) become columns;
+ * numeric fields on object points (`w` from `t.scatter`) become columns
+ * when every point carries them (a pair carries none);
  * named options become constant columns. An existing Material is returned
  * unchanged only without options; use its edit methods to change it.
  * Use `connect.*` for topology.
@@ -3098,23 +3109,24 @@ export function material(
   const x = new Float64Array(n);
   const y = new Float64Array(n);
   const attrs: Record<string, Float64Array> = {};
-  const extra = new Set<string>();
+  // The columns are the ones EVERY point carries. A pair carries none, so a
+  // pair beside a scatter vertex keeps positions alone, and a column only
+  // some records hold is dropped rather than half filled.
+  let shared: string[] | null = null;
   for (let i = 0; i < n; i++) {
     const p = list[i];
     x[i] = vx(p);
     y[i] = vy(p);
+    if (shared !== null && shared.length === 0) continue;
+    const own = new Set<string>();
     if (!isArr(p)) {
-      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && typeof v === 'number') extra.add(k);
+      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && typeof v === 'number') own.add(k);
     }
+    shared = shared === null ? [...own] : shared.filter((k) => own.has(k));
   }
-  for (const k of extra) {
+  for (const k of shared ?? []) {
     const col = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      const p = list[i];
-      const v = isArr(p) ? undefined : (p as Record<string, unknown>)[k];
-      if (typeof v !== 'number') throw new Error(`material: point ${i} has no numeric '${k}' — every point needs every column`);
-      col[i] = v;
-    }
+    for (let i = 0; i < n; i++) col[i] = (list[i] as Record<string, number>)[k];
     attrs[k] = col;
   }
   let edges: Uint32Array = new Uint32Array(0);

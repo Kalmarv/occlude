@@ -26,7 +26,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const e = t.synth(['x', 'y'], { bounds: { x: 0, y: 0, w: 7, h: 7 } });
   const f = (x, y) => e(x / 14, y / 14);
   const s = e.stats;
-  return strokes(t.isolines(f, range(s.lo, s.hi, (s.hi - s.lo) / 16)).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(f, range(s.lo, s.hi, (s.hi - s.lo) / 16)).edges.filter((e) => !e.cut));
 });
 ```
 
@@ -66,7 +66,7 @@ const found = synth(['x', 'y'], { seed: 'basin-6', bounds: area });
 export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
   const f = (x, y) => found(x / 14, y / 14);
   const s = probeExpression(f, ['x', 'y'], { x: 0, y: 0, w: 100, h: 100 });
-  return strokes(t.isolines(f, range(s.lo, s.hi, (s.hi - s.lo) / 18)).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(f, range(s.lo, s.hi, (s.hi - s.lo) / 18)).edges.filter((e) => !e.cut));
 });
 ```
 

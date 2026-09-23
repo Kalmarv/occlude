@@ -32,11 +32,11 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     .edgeAttribute('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
     .smooth('rest', { steps: 14 });
   const hung = net.steps(300, (cur, next) => {
-    const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
+    const pull = force.sum(force.tension(cur, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
     next.move(cur.points.filter((p) => !nails.has(p.index)), (p) => mul(pull(p), 0.1));
   });
   const [lo, hi] = extent(hung.edgeAttrs.rest);
-  const slack = hung.edges.filter((e) => e.attrs.rest > lo + 0.62 * (hi - lo));
+  const slack = hung.edges.filter((e) => e.rest > lo + 0.62 * (hi - lo));
   return [
     strokes(hung.edges.subtract(slack), { pen: 'pigma-005-black' }),
     strokes(slack, { pen: 'pigma-05-black' }),

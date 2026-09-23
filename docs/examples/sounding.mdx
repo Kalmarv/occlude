@@ -72,9 +72,9 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
   const coast = t.isolines(gb, 0);
   const levels = t.range(1, 18).map((k) => k * STEP);
   const contours = t.isolines(gb, levels);
-  const isIndex = (e) => Math.round(e.attrs.level / STEP) % 5 === 0;
-  const indexLines = contours.edges.filter((e) => !e.attrs.cut && isIndex(e));
-  const minorLines = contours.edges.filter((e) => !e.attrs.cut && !isIndex(e));
+  const isIndex = (e) => Math.round(e.level / STEP) % 5 === 0;
+  const indexLines = contours.edges.filter((e) => !e.cut && isIndex(e));
+  const minorLines = contours.edges.filter((e) => !e.cut && !isIndex(e));
 
   // ---- the water -------------------------------------------------------
   // The bed is not an echo of the coast. It is a drowned valley down the
@@ -178,7 +178,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
   const CONT_H = 2.3;
   const taken = [...spots];
   const contourLabels = [];
-  const byLevel = indexLines.groupBy((e) => e.attrs.level).slice().sort((a, c) => c.key - a.key);
+  const byLevel = indexLines.groupBy((e) => e.level).slice().sort((a, c) => c.key - a.key);
   for (const sel of byLevel) {
     if (sel.key > 1.05) continue;                 // the 100 m and 200 m lines
     const walls = [...sel].filter((e) => e.length > 0.35);
@@ -223,7 +223,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
   };
   const minorOpen = cutBy(minorLines, landBoxes);
   const indexOpen = cutBy(indexLines, landBoxes);
-  const seaOpen = cutBy(isobaths.edges.filter((e) => !e.attrs.cut), seaBoxes);
+  const seaOpen = cutBy(isobaths.edges.filter((e) => !e.cut), seaBoxes);
 
   // ---- the grid --------------------------------------------------------
   const G = 10;
@@ -282,7 +282,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
     sight, beaconMark,
 
     polygon(coast, { opaque: true, stroke: false }),
-    strokes(coast.edges.filter((e) => !e.attrs.cut), { pen: HEAVY }),
+    strokes(coast.edges.filter((e) => !e.cut), { pen: HEAVY }),
 
     strokes(minorOpen, { pen: FINE }),
     strokes(indexOpen, { pen: MID }),

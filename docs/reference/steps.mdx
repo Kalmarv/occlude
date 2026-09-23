@@ -51,7 +51,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Next.move.mdx</include>
 
-Moves the selected points by a vector, or by one vector for each point from a callback. Several moves on one point add up. A move is a step in the [space](/docs/reference/geometry) of the material, so in a curved sketch the point walks the sum of its moves along a geodesic.
+Moves the selected points by a vector, or by one vector for each point from a callback. Several moves on one point add up. A move is a step in the [space](/docs/reference/geometry) of the material. So in a curved sketch, the point walks the sum of its moves along a geodesic.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -253,8 +253,8 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
     for (const e of stretched) next.split(e);
   });
   return [
-    strokes(grown.edges.filter((e) => e.attrs.fresh < 135), { pen: 'pigma-005-black' }),
-    strokes(grown.edges.filter((e) => e.attrs.fresh >= 135), { pen: 'stabilo-88-blue' }),
+    strokes(grown.edges.filter((e) => e.fresh < 135), { pen: 'pigma-005-black' }),
+    strokes(grown.edges.filter((e) => e.fresh >= 135), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```

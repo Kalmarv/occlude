@@ -251,7 +251,7 @@ export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
     const ruleM = lift(ruled);
     const cut = (m) => (m ? t.within(m, edges) : null);
     // The tide-line of the damp, which is where the writing stops.
-    const rim = t.within(t.isolines(bite, 0.36, { step: 0.45 }).edges.filter((e) => !e.attrs.cut).extract(), edges);
+    const rim = t.within(t.isolines(bite, 0.36, { step: 0.45 }).edges.filter((e) => !e.cut).extract(), edges);
     const tide = rim.points.rows(rim.points.components().filter((r) => r.length > 46).flatMap((r) => r.indices)).edges;
     // ---- the mount --------------------------------------------------------
     // The shadow of the tear, crowded at the edge and opening outward, and
@@ -263,7 +263,7 @@ export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
         label('0.34 OF LEAF', 13, 129.6, 1.5, { pen: HAND }),
     ];
     return [
-        strokes(shade.edges.filter((e) => !e.attrs.cut), { pen: FINE }),
+        strokes(shade.edges.filter((e) => !e.cut), { pen: FINE }),
         ghosted,
         note,
         polygon(edges, { opaque: true, stroke: false }),

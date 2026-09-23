@@ -13,7 +13,7 @@ A row index belongs to one state. After a step adds or removes vertices, the row
 
 <include>/_sig/material.mdx</include>
 
-Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of row numbers. Every other option is a column. A number sets the value on every row. An array sets one value for each row. A point that carries a `w` becomes a column too.
+Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of row numbers. Every other option is a column. A number sets the value on every row. An array sets one value for each row. A number that every point carries, such as the `w` of a scatter point, becomes a column too. A pair carries no columns, so a list of pairs and records keeps only the positions.
 
 ```ts live
 import { sketch, circle, strokes, material } from 'occlude';
@@ -43,7 +43,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.material.mdx</include>
 
-Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them. `t.material` takes any `Area`, not only a shape. A group gives the outlines of its shapes, with the transform of the group applied, so an `svg` import is a material in one call. A face gives its walls, with their ids. Loops and contour records give one ring for each contour. A material comes back as it is.
+Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them. `t.material` takes any `Area`, not only a shape. A group gives the outlines of its shapes, with the transform of the group applied. So an `svg` import is a material in one call. A face gives its walls, with their ids. Loops and contour records give one ring for each contour. A material comes back as it is.
 
 ```ts live
 import { sketch, rect, ngon, strokes, circle } from 'occlude';

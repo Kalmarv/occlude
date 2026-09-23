@@ -19,6 +19,15 @@
  * the perpendicular family of either kind, and a tracer that reads the mark
  * keeps one sign along a line the formula flips signs under.
  *
+ * A field the library makes answers one point as well as two numbers:
+ * `f(x, y)` and `f(p)`, `p` a pair or an `{ x, y }` record — the spelling
+ * the vector arithmetic takes. That is every field verb here (`rotate`,
+ * `translate`, `scale`, `within`, `grad`, `curl`, `across`) and the
+ * toolkit's field words (`t.distanceTo`, `t.travelTime`, `t.noiseField`).
+ * A field you write answers what you wrote; wrap it in a verb, or call it
+ * `f(...p)`. The `sdf.*` words and the pure `distanceTo` are the fast
+ * kernels behind these and stay `(x, y)`.
+ *
  * `within(f, shape)` bounds a field's domain: outside, the field is ABSENT
  * (non-finite), and the convention holds — generators make nothing,
  * modifiers touch nothing. Nested bounds are a conjunction. Absence is any
@@ -31,7 +40,7 @@ import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
 import { lowerToUserLoops, type Frame } from './record.js';
 import { geomClosed } from './shapes.js';
-import type { XY } from './vec.js';
+import { vx, vy, type XY } from './vec.js';
 import { resolveLen, Len, type L } from './units.js';
 
 /** A `within()` bound as the encoder sees it: the shape, and the map from
@@ -121,7 +130,7 @@ export function isAxisField(fn: AnyField): boolean {
  * `across` it in two pens and the marks cross at a right angle everywhere,
  * which is the woven look; `across(grad(f))` is `curl(f)` by another road.
  */
-export function across(field: VectorFieldFn): VectorFieldFn {
+export function across(field: VectorFieldFn): PointField<VectorFieldFn> {
   const sample = (x: number, y: number): [number, number] => {
     const v = field(x, y) as unknown;
     if (typeof v === 'number') {
@@ -131,7 +140,7 @@ export function across(field: VectorFieldFn): VectorFieldFn {
     const [dx, dy] = v as [number, number];
     return [-dy, dx];
   };
-  const out: VectorFieldFn = (x, y) => sample(x, y);
+  const out = atPoint<VectorFieldFn>(sample);
   const sm = metaOf(field);
   const meta: FieldMeta = { kind: 'vector' };
   if (sm?.axis) meta.axis = true;
@@ -146,8 +155,8 @@ export function across(field: VectorFieldFn): VectorFieldFn {
 /** A vector field derived from a scalar one keeps the scalar's `within()`
  * bounds (NaN outside comes through the differences naturally, and the
  * engine still gets the bound as exact geometry). */
-function derivedVector(src: FieldFn, sample: VectorFieldFn, again: (f: FieldFn) => VectorFieldFn): VectorFieldFn {
-  const out = ((x: number, y: number) => sample(x, y)) as VectorFieldFn;
+function derivedVector(src: FieldFn, sample: VectorFieldFn, again: (f: FieldFn) => VectorFieldFn): PointField<VectorFieldFn> {
+  const out = atPoint<VectorFieldFn>(sample);
   const sm = metaOf(src);
   const meta: FieldMeta = { kind: 'vector' };
   if (sm?.bounds && sm.bounds.length > 0) {
@@ -165,7 +174,7 @@ function derivedVector(src: FieldFn, sample: VectorFieldFn, again: (f: FieldFn) 
  * `grad(distanceTo(loops))` run away from a shape; `deform` with it pushes
  * ink downhill.
  */
-export function grad(field: FieldFn, h = 0.25): VectorFieldFn {
+export function grad(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
   const sample: VectorFieldFn = (x, y) => [
     (field(x + h, y) - field(x - h, y)) / (2 * h),
     (field(x, y + h) - field(x, y - h)) / (2 * h),
@@ -179,7 +188,7 @@ export function grad(field: FieldFn, h = 0.25): VectorFieldFn {
  * `curl(noise)` are the flow-field look; streamlines of `curl(f)` at nib
  * spacing are the isolines of `f`, densely — one mechanism seen twice.
  */
-export function curl(field: FieldFn, h = 0.25): VectorFieldFn {
+export function curl(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
   const g = grad(field, h);
   const sample: VectorFieldFn = (x, y) => {
     const [gx, gy] = g(x, y);
@@ -190,6 +199,27 @@ export function curl(field: FieldFn, h = 0.25): VectorFieldFn {
 
 type AnyField = FieldFn | VectorFieldFn | LengthFn;
 
+/** A field that answers one point as well as two numbers: `f(x, y)` and
+ * `f(p)`. What the library hands back (see the note at the top). */
+export type PointField<F extends AnyField> = F & ((p: XY) => ReturnType<F>);
+
+/** `sample` as a field that also answers one point. Two numbers are the
+ * field's own call, unchanged; a single point argument is read as `[x, y]`
+ * or `{ x, y }`. */
+function atPoint<F extends AnyField>(sample: (x: number, y: number) => ReturnType<F>): PointField<F> {
+  return ((x: number | XY, y?: number) =>
+    y === undefined && typeof x === 'object' && x !== null ? sample(vx(x), vy(x)) : sample(x as number, y as number)) as PointField<F>;
+}
+
+/** The same field, answering one point as well: the toolkit's door for a
+ * field it makes. Its bounds and its marks come with it. */
+export function pointField<F extends AnyField>(fn: F): PointField<F> {
+  const out = atPoint<F>((x, y) => fn(x, y) as ReturnType<F>);
+  const m = metaOf(fn);
+  if (m) FIELD_META.set(out, m);
+  return out;
+}
+
 /** What a prepared field keeps and what it gains. A VECTOR field stays
  * vector, because transforms rotate its arrows rather than scaling them; a
  * scalar stays scalar. Either way it comes back as the full callable, so a
@@ -197,9 +227,9 @@ type AnyField = FieldFn | VectorFieldFn | LengthFn;
  * `within(() => 7, rect(…))`, `rotate((x) => x, 90)` — is still called as
  * `f(x, y)` and typechecks as one. */
 export type Prepared<F extends AnyField> =
-  F extends VectorFieldFn ? VectorFieldFn
-    : F extends FieldFn ? FieldFn
-      : LengthFn;
+  F extends VectorFieldFn ? PointField<VectorFieldFn>
+    : F extends FieldFn ? PointField<FieldFn>
+      : PointField<LengthFn>;
 
 function isVector(fn: AnyField): boolean {
   return metaOf(fn)?.kind === 'vector';
@@ -218,7 +248,7 @@ function wrap<F extends AnyField>(
 ): Prepared<F> {
   // The wrapped callable IS the field; the cast states that a lambda of the
   // right kind is one, which a conditional return type cannot prove.
-  const out = ((x: number, y: number) => sample(x, y)) as Prepared<F>;
+  const out = atPoint<F>(sample as (x: number, y: number) => ReturnType<F>) as unknown as Prepared<F>;
   const sm = metaOf(src);
   const meta: FieldMeta = { kind: sm?.kind ?? 'scalar' };
   // A verb moves an axis field's lines; it does not give them a front.

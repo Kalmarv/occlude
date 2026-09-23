@@ -34,7 +34,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Edge.index.mdx</include>
 <include>/_sig/Edge.attrs.mdx</include>
 
-One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length`, its row `index`, and its columns under `attrs`. Here the long edges take a pen from a column: green where the path climbs and blue where it falls. The rest of the path takes the default pen.
+One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length` and its row `index`. Its columns are properties of the row, as the columns of a vertex are: `e.climb`. `attrs` holds the same columns as one record, so `e.attrs.climb` reads the same value as `e.climb`. The example below uses the two forms. A column cannot use the name of a field that the edge has. Here the long edges take a pen from a column: green where the path climbs and blue where it falls. The rest of the path takes the default pen.
 
 ```ts live
 import { sketch, curve, strokes } from 'occlude';
@@ -44,7 +44,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const long = path.edges.filter((e) => e.length > 20);
   return [
     strokes(path.edges.subtract(long)),
-    strokes(long.filter((e) => e.attrs.climb === 1), { pen: 'stabilo-88-green' }),
+    strokes(long.filter((e) => e.climb === 1), { pen: 'stabilo-88-green' }),
     strokes(long.filter((e) => e.attrs.climb === 0), { pen: 'stabilo-88-blue' }),
   ];
 });
@@ -336,6 +336,32 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## query.points()
+
+<include>/_sig/query.points.mdx</include>
+
+The same index over the points of one state. `nearest(position, { within })` gives the closest point within a distance, or `null`. A hit has `point` (the vertex view), `position` (a pair) and `distance`. When two points are at the same distance, the lower row wins. A vertex of the state is never its own nearest point, so `nearest(p)` on a member finds a different member. Here each tip turns a little toward the nearest seed.
+
+```ts live
+import { sketch, circle, strokes, query, material, add, sub, mul, unit, fromAngle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const food = material(t.times(30, () => [10 + t.rnd() * 80, 10 + t.rnd() * 60]));
+  const near = query.points(food);
+  const path = material([[50, 95]], { active: 1, heading: -Math.PI / 2 }).steps(40, (cur, next) => {
+    const tips = cur.points.filter((p) => p.active === 1);
+    next.extrude(tips, (p) => {
+      const hit = near.nearest(p, { within: 30 });
+      const dir = hit ? add(mul(fromAngle(p.heading), 0.6), mul(unit(sub(hit.position, p)), 0.4)) : fromAngle(p.heading);
+      const h = Math.atan2(dir[1], dir[0]);
+      return { position: add(p, mul(fromAngle(h), 2)), attributes: { heading: h } };
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
+  });
+  return [strokes(path), food.points.map((p) => circle(p, 0.8, { pen: 'stabilo-88-blue' }))];
+});
+```
+
 ## pairs()
 
 <include>/_sig/PointSelection.pairs.mdx</include>
@@ -383,7 +409,7 @@ Several material methods take `where`: the part of the material the operation ma
 m.warp({ from, to, where: m.points.filter((p) => p.y > 30) })
 ```
 
-It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A face selection or one face gives its corners to a method that moves points, and its edges to a method on edges. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
+It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A face selection or one face gives its corners to a method that moves points. It gives its edges to a method on edges. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
 
 `m.warp` and `m.snap` move points and leave the rest where they are. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region keeps its id.
 

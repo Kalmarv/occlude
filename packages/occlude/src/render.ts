@@ -31,7 +31,7 @@ export type { WasmModule, RawRender } from './wasmRender.js';
 export { runFillJobs } from './fillJobs.js';
 export type { FillJob, SuppliedFills } from './fillJobs.js';
 import {
-  frameMaps, lowerShape, lowerToUserLoops, makeFrame, unitMm, userToPaperMatrix, type Frame,
+  frameMaps, lowerShape, sheetFrame, lowerToUserLoops, makeFrame, unitMm, userToPaperMatrix, type Frame,
 } from './record.js';
 import { fieldMeta } from './field.js';
 import { apply, invert, mul, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
@@ -244,20 +244,25 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   // byte.
   const space: Space | null = frame.space !== undefined && frame.space.kind !== 'euclidean' ? frame.space : null;
   type Reading = { pull: (px: number, py: number) => [number, number]; push: (fx: number, fy: number) => [number, number] };
-  /** user mm → drawable mm: the origin/yUp convention, which the space's
-   * coordinates are measured in, without the paper offset. */
+  /** The space lives in the sketch's own coordinates, and the origin/yUp
+   * convention stands between the projected picture and the paper
+   * (`sheetFrame`). The default frame's convention is the identity; its
+   * space points pass through it in mm, the arithmetic its fields have
+   * always been read with. */
+  const turn = sheetFrame(frame);
   const userToDrawable = mul(mtranslate(-frame.offsetX, -frame.offsetY), userToPaper);
   const drawableToUser = invert(userToDrawable);
-  /** A paper point → the sketch point drawn there (drawable units), or a
-   * non-finite pair where the sheet shows no place of the space. */
+  /** A paper point → the space point drawn there, or a non-finite pair
+   * where the sheet shows no place of the space. */
   const sketchUnder = (sp: Space, px: number, py: number): [number, number] => {
-    const q = fromSheet(sp, [(px - frame.offsetX) / unit, (py - frame.offsetY) / unit]);
+    const [sx, sy] = turn ? apply(turn.fromPaper, px, py) : [px - frame.offsetX, py - frame.offsetY];
+    const q = fromSheet(sp, [sx / unit, sy / unit]);
     return [q[0], q[1]];
   };
-  /** A sketch point (drawable units) → paper mm, through the projection. */
+  /** A space point → paper mm, through the projection. */
   const paperOver = (sp: Space, x: number, y: number): [number, number] => {
     const q = sp.project([x, y]);
-    return [q[0] * unit + frame.offsetX, q[1] * unit + frame.offsetY];
+    return turn ? apply(turn.toPaper, q[0] * unit, q[1] * unit) : [q[0] * unit + frame.offsetX, q[1] * unit + frame.offsetY];
   };
   const NONE: [number, number] = [NaN, NaN];
   /** Paper-aligned: the field's coordinates are the sketch's own (user
@@ -266,10 +271,12 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     pull: (px, py) => {
       const [x, y] = sketchUnder(space, px, py);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return NONE;
+      if (turn) return [x, y];
       const [ux, uy] = apply(drawableToUser, x * unit, y * unit);
       return [ux / unit, uy / unit];
     },
     push: (fx, fy) => {
+      if (turn) return paperOver(space, fx, fy);
       const [dx, dy] = apply(userToDrawable, fx * unit, fy * unit);
       return paperOver(space, dx / unit, dy / unit);
     },
@@ -287,8 +294,13 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     let r = shapeReadings.get(anchor);
     if (r) return r;
     const origin = sketchUnder(sp, anchor.e, anchor.f);
+    // The anchor's linear part carries the origin/yUp convention, and a step
+    // of the space is in the sketch's coordinates, before it: the offset is
+    // read through the convention's own linear part first.
+    const convention: Mat | null = turn && { ...turn.toPaper, e: 0, f: 0 };
     const lin: Mat = { a: anchor.a, b: anchor.b, c: anchor.c, d: anchor.d, e: 0, f: 0 };
-    const linInv = invert(lin);
+    const toSpace = convention ? mul(invert(convention), lin) : lin;
+    const linInv = invert(toSpace);
     const placed = Number.isFinite(origin[0]) && Number.isFinite(origin[1]);
     r = {
       pull: (px, py) => {
@@ -299,7 +311,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
       },
       push: (fx, fy) => {
         if (!placed) return NONE;
-        const [vx, vy] = apply(lin, fx, fy);
+        const [vx, vy] = apply(toSpace, fx, fy);
         const p = sp.exp(origin, [vx, vy]);
         return paperOver(sp, p[0], p[1]);
       },
