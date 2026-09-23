@@ -75,8 +75,13 @@ export function ridgesOf(env: IsoEnv, field: FieldFn, opts: RidgeOpts = {}): Rid
   const cells = gw * gh;
   // A grid that is not a finite size has no samples to walk.
   if (!Number.isFinite(cells)) return [];
-  if (cells > 16_777_216) {
-    throw new Error(`ridges: ${Math.floor(cells)} grid cells (step too fine) — capped at 16.7M (~128MB of samples)`);
+  // No cap: the step is the artist's. The one refusal is the machine's —
+  // a raster that does not fit a Float64Array — named with the count.
+  try {
+    new Float64Array(cells);
+  } catch (e) {
+    if (e instanceof RangeError) throw new Error(`ridges: a raster of ${gw} × ${gh} = ${cells} cells does not fit a Float64Array — the step is too fine for this machine`);
+    throw e;
   }
 
   const sx = b.w / (gw - 1);

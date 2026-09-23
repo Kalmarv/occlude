@@ -167,18 +167,20 @@ export function levelContours(
   const gw = Math.max(2, Math.ceil(b.w / stepU) + 1);
   const gh = Math.max(2, Math.ceil(b.h / stepU) + 1);
   // Grid cells are O(1) samples, not shape repetitions, so the combinator
-  // cap doesn't apply — only memory sanity does. 2^24 cells is a 128MB
-  // sample buffer (4096², step 0.05mm on 200mm paper — far sub-nib);
-  // beyond that is a mid-edit transient, not a sketch.
+  // cap doesn't apply, and no cap does: the step is the artist's.
   const cells = gw * gh;
   // A grid that is not a finite size has no samples to march over.
   if (!Number.isFinite(cells)) return empty();
-  if (cells > 16_777_216) {
-    throw new Error(
-      `isolines: ${Math.floor(cells)} grid cells (step too fine) — capped at 16.7M (~128MB of samples)`,
-    );
+  // The artist asked for this pitch: the only refusal is the one the
+  // machine makes — samples that do not fit a Float64Array — named with
+  // the count. Nothing is quietly coarsened, and nothing is capped.
+  let grid: ReturnType<typeof sampleGrid>;
+  try {
+    grid = sampleGrid(field, b, gw, gh);
+  } catch (e) {
+    if (e instanceof RangeError) throw new Error(`isolines: a grid of ${gw} × ${gh} = ${Math.floor(cells)} samples does not fit a Float64Array — the step is too fine for this machine`);
+    throw e;
   }
-  const grid = sampleGrid(field, b, gw, gh);
   // A closing edge spans one lattice cell; a walk along a wall between its
   // ends that is longer than a few cells is not the wall between them.
   const walls = domain ? { loops: domain.walls, reach: 4 * Math.hypot(grid.sx, grid.sy) } : undefined;

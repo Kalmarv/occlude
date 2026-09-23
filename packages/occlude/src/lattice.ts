@@ -108,7 +108,6 @@ export type LatticeValues = Record<string, Float32Array>;
 /** Memory sanity, the same bound `isolines` keeps: 4M cells is a 16MB
  * buffer per channel. Past that the spacing is a mid-edit transient or a
  * mistake, and either way nothing good comes of allocating for it. */
-const MAX_CELLS = 4_194_304;
 
 /**
  * A grid of named channels over an area, and the stepping that makes it
@@ -459,8 +458,13 @@ export function latticeOf(env: LatticeEnv, opts: LatticeOpts, init?: LatticeInit
   const rows = Math.ceil(box.h / spacing);
   if (!(cols > 0) || !(rows > 0)) return emptyLattice(channels, spacing);
   const cells = cols * rows;
-  if (cells > MAX_CELLS) {
-    throw new Error(`lattice: ${cells} cells (spacing too fine) — capped at ${MAX_CELLS} (16MB per channel)`);
+  // No cap: the spacing is the artist's. The one refusal is the machine's —
+  // a raster that does not fit a Float64Array — named with the count.
+  try {
+    new Float64Array(cells);
+  } catch (e) {
+    if (e instanceof RangeError) throw new Error(`lattice: a raster of ${cols} × ${rows} = ${cells} cells does not fit a Float64Array — the spacing is too fine for this machine`);
+    throw e;
   }
   // The grid is a whole number of cells, centred on the area's box, so the
   // overhang is the same on both sides and a cell centre is always

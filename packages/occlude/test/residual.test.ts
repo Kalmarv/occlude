@@ -279,6 +279,6 @@ describe('degenerate input takes nothing, and a mistake says so', () => {
     expect(() => r.spend([[20, 20], [80, 80]], {} as never)).toThrow(/width/);
     expect(() => r.spend(42 as never, { width: 1 })).toThrow(/cannot say where its marks are/);
     expect(() => r.spend(circle(50, 50, 10) as never, { width: 1 })).toThrow(/t\.material\(shape\)/);
-    expect(() => t.residual(all, { spacing: 0.001 })).toThrow(/cells \(spacing too fine\)/);
+    expect(() => t.residual(all, { spacing: 0.001 })).toThrow(/does not fit a Float64Array — the spacing is too fine/);
   });
 });

@@ -92,7 +92,7 @@ describe('the grid a spacing asks for', () => {
 
   it('caps a spacing fine enough to exhaust memory', () => {
     const t = toolkit();
-    expect(() => t.lattice({ spacing: 0.001 })).toThrow(/cells \(spacing too fine\)/);
+    expect(() => t.lattice({ spacing: 0.001 })).toThrow(/does not fit a Float64Array — the spacing is too fine/);
   });
 });
 

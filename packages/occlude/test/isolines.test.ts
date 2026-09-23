@@ -104,10 +104,13 @@ describe('isolines: marching squares core', () => {
     }
   });
 
-  it('guards: a zero step and an absent level draw nothing, the cap fails loudly', () => {
+  it('guards: a zero step and an absent level draw nothing; a step the machine cannot hold refuses by name, and no cap stands before it', () => {
     const field = (): number => 1;
     expect(isolinesOf(env, field, 0, { step: 0 })).toEqual([]);
-    expect(() => isolinesOf(env, field, 0, { step: 0.01 })).toThrow(/cap/);
+    // 1e-6 on a 100-unit drawable is 1e16 samples: no Float64Array holds
+    // that, and the refusal says so with the count. A fine step that does
+    // fit runs (the old 16.7 M-cell cap is gone).
+    expect(() => isolinesOf(env, field, 0, { step: 1e-6 })).toThrow(/^isolines: a grid of .* samples does not fit a Float64Array/);
     expect(isolinesOf(env, field, Number.NaN)).toEqual([]);
     // One absent level is skipped; the levels beside it still march.
     const some = isolinesOf(env, (x: number) => x, [Number.NaN, 50]);
@@ -229,10 +232,10 @@ describe('isolines: grid sizing', () => {
     expect(cs.length).toBe(2);
   });
 
-  it('absurd grids still fail fast (memory ceiling); a zero step draws nothing', () => {
+  it('a grid the machine cannot hold refuses by name; a zero step draws nothing', () => {
     expect(() =>
-      isolinesOf(env, () => 0, 0, { step: 0.02 }),
-    ).toThrow(/grid cells/);
+      isolinesOf(env, () => 0, 0, { step: 1e-6 }),
+    ).toThrow(/does not fit a Float64Array/);
     expect(isolinesOf(env, () => 0, 0, { step: 0 })).toEqual([]);
   });
 });

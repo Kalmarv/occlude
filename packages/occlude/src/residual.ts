@@ -109,7 +109,6 @@ export interface Residual {
 }
 
 /** Memory sanity, the bound `lattice` keeps: 4M cells is a 16MB buffer. */
-const MAX_CELLS = 4_194_304;
 
 /** Scan lines per cell row when a footprint is measured. Along a line the
  * overlap with each cell is exact, so the only error is the vertical
@@ -163,8 +162,13 @@ export function residualOf(env: ResidualEnv, field: FieldFn2, opts: ResidualOpts
   const cols = usable ? Math.ceil(box.w / spacing) : 0;
   const rows = usable ? Math.ceil(box.h / spacing) : 0;
   const cells = cols * rows;
-  if (cells > MAX_CELLS) {
-    throw new Error(`residual: ${cells} cells (spacing too fine) — capped at ${MAX_CELLS} (16MB)`);
+  // No cap: the spacing is the artist's. The one refusal is the machine's —
+  // a raster that does not fit a Float64Array — named with the count.
+  try {
+    new Float64Array(cells);
+  } catch (e) {
+    if (e instanceof RangeError) throw new Error(`residual: a raster of ${cols} × ${rows} = ${cells} cells does not fit a Float64Array — the spacing is too fine for this machine`);
+    throw e;
   }
   // Whole cells, centred on the area's box, so the overhang is the same on
   // both sides and a cell centre is always `bounds.x + (i + ½)·spacing`.

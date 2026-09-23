@@ -238,10 +238,13 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
   const gh = Math.max(2, Math.ceil(b.h / step) + 1);
   const n = gw * gh;
   if (!Number.isFinite(n)) return NOWHERE;
-  if (n > 16_777_216) {
-    throw new Error(
-      `travelTime: ${Math.floor(n)} grid nodes (step too fine) — capped at 16.7M (~128MB of times)`,
-    );
+  // No cap: the step is the artist's. The one refusal is the machine's —
+  // a grid whose times do not fit a Float64Array — named with the count.
+  try {
+    new Float64Array(n);
+  } catch (e) {
+    if (e instanceof RangeError) throw new Error(`travelTime: a grid of ${gw} × ${gh} = ${Math.floor(n)} nodes does not fit a Float64Array — the step is too fine for this machine`);
+    throw e;
   }
   const sx = b.w / (gw - 1);
   const sy = b.h / (gh - 1);
