@@ -138,12 +138,12 @@ describe('seeded surface hatch',()=>{
   });
   it('lights explicitly; crosshatch is two calls with their own pens',()=>{
     const cube=box(2),lit=light({direction:[0,0,1],ambient:.2});
-    const a=hatchSurface(cube,{direction:s=>s.tangentU!,stroke:'ink',spacing:.25,step:.125},stream(13)).curves.edges;
-    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,stroke:'shade',spacing:.25,step:.125},stream(13));
+    const a=hatchSurface(cube,{direction:s=>s.tangentU!,pen:'ink',spacing:.25,step:.125},stream(13)).curves.edges;
+    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,pen:'shade',spacing:.25,step:.125},stream(13));
     const b=curves.edges;
     expect(stats.families).toBe(1);expect(stats.tone.backend).toBe('cpu');
     expect(a.length).toBeGreaterThan(0);expect(b.length).toBeGreaterThan(0);
-    expect(a.every(e=>e.stroke==='ink')&&b.every(e=>e.stroke==='shade')).toBe(true);
+    expect(a.every(e=>e.pen==='ink')&&b.every(e=>e.pen==='shade')).toBe(true);
     // The top face faces the light: tone 0, so the shaded call draws nothing on it,
     // while the bottom face (tone 0.8) is fully hatched.
     expect(b.some(e=>e.a.z>1-1e-9&&e.b.z>1-1e-9)).toBe(false);expect(b.some(e=>e.a.z<-1+1e-9&&e.b.z<-1+1e-9)).toBe(true);
@@ -155,7 +155,7 @@ describe('seeded surface hatch',()=>{
     const draw=(camera:Parameters<typeof view>[1]['camera'])=>compileSketchAsync(sketchAsync({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
       const marks=await t.hatch(model,{direction:s=>s.tangentU!,spacing:.15,tone:.6,key:'ring'});
       if(!first)first=marks;else second=marks;
-      return view([model,marks],{camera,stroke:'ink'});
+      return view([model,marks],{camera,pen:'ink'});
     }));
     const a=await draw(orthographic({eye:[5,7,5],span:5})),b=await draw(perspective({eye:[-3,2,6],fovDegrees:35}));
     expect(a.modeling3[0].operation).toBe('hatch');expect(b.modeling3[0].hatch?.segments).toBeGreaterThan(0);
@@ -168,7 +168,7 @@ describe('seeded surface hatch',()=>{
     const run=await compileSketchAsync(sketchAsync({seed:1,pens:{ink:pen({width:mm(.2)})}},async t=>{
       const marks=await t.hatch(instances,{direction:s=>s.tangentV!,spacing:.2});
       expect(marks.sources.length).toBe(2);
-      return view([instances,marks],{camera:orthographic({eye:[1,-5,5],span:5}),stroke:'ink'});
+      return view([instances,marks],{camera:orthographic({eye:[1,-5,5],span:5}),pen:'ink'});
     }));
     expect(run.modeling3[0].hatch?.surfaces).toBe(2);
   });

@@ -203,8 +203,8 @@ export default sketch({ seed: 12, pens: {
     ...summits.map(([x, y]) => sphere(0.11, { segments: 16, rings: 10 }).translate([x, y, height(x, y) + 0.11])),
   ], {
     camera: orthographic({ eye: [5, -7, 5.5], target: [0, 0, 0.2], span: 8.6 }),
-    stroke: 'ink',
-    sections: t.times(11, (k) => ({ origin: [0, 0, -1.2 + k * 0.24], normal: [0, 0, 1], stroke: 'contour' })),
+    pen: 'ink',
+    sections: t.times(11, (k) => ({ origin: [0, 0, -1.2 + k * 0.24], normal: [0, 0, 1], pen: 'contour' })),
   });
 });
 ```
@@ -352,7 +352,7 @@ export default sketch({ seed: 3, pens: { ink: pen({ width: mm(0.24), color: '#18
       .translate([((b.x + b.w / 2) / 100 - 0.5) * 9, ((b.y + b.h / 2) / 100 - 0.5) * 9, h / 2]);
   }), {
     camera: orthographic({ eye: [7, -9, 6.5], target: [0, 0, 0.6], span: 12.5 }),
-    stroke: 'ink',
+    pen: 'ink',
   });
 });
 ```
@@ -547,7 +547,7 @@ And in three dimensions, where the point is simply that a route is a path. The s
 
 ```ts live
 import { sketch, pen, mm, connect, circle as disc } from 'occlude';
-import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+import { circle, curve, sweep, view, orthographic } from 'occlude/3d';
 
 // A tour is a route, and a route is a path — so the shortest way round a
 // hundred scattered points becomes the spine of a solid. Swept into a tube it
@@ -565,10 +565,10 @@ export default sketch({ seed: 21, pens: { ink: pen({ width: mm(0.3), color: '#18
       return [(px + 2 * x + nx) / 4, (py + 2 * y + ny) / 4];
     });
   }
-  const path = polyline(pts.map(([x, y]) => [(x - 100) / 17, (y - 50) / 17, t.noise(x / 34, y / 34) * 2.1]), { closed: true });
+  const path = curve(pts.map(([x, y]) => [(x - 100) / 17, (y - 50) / 17, t.noise(x / 34, y / 34) * 2.1]), { closed: true });
   return view(sweep(circle(0.1, { segments: 16 }), path), {
     camera: orthographic({ eye: [3.5, 6, 3.4], target: [0, 0, 0], span: 6.4 }),
-    stroke: 'ink',
+    pen: 'ink',
     creaseAngle: 180,
   });
 });
@@ -710,7 +710,7 @@ to decide what is in front of what.
 
 ```ts live
 import { sketch, pen, mm, connect, circle as disc } from 'occlude';
-import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+import { circle, curve, sweep, view, orthographic } from 'occlude/3d';
 
 // A tree is a tree. The points sit on a mound — high in the middle, low at the
 // rim — and the cost of joining two of them is their distance THROUGH that
@@ -730,9 +730,9 @@ export default sketch({ seed: 6, pens: { ink: pen({ width: mm(0.26), color: '#18
     },
   });
   return view(thicket.curves().filter((c) => c.pts.length > 1).map((c) =>
-    sweep(circle(0.085, { segments: 12 }), polyline(c.pts.map(([x, y]) => world(x, y))))), {
+    sweep(circle(0.085, { segments: 12 }), curve(c.pts.map(([x, y]) => world(x, y))))), {
     camera: orthographic({ eye: [5, -7.5, 3.1], target: [0, 0, 1.4], span: 8.2 }),
-    stroke: 'ink',
+    pen: 'ink',
     creaseAngle: 180,
   });
 });
@@ -899,7 +899,7 @@ length is in front where it passes through itself.
 
 ```ts live
 import { sketch, pen, mm, circle as disc, append } from 'occlude';
-import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+import { circle, curve, sweep, view, orthographic } from 'occlude/3d';
 
 // A trail is a pen-down run, and a pen-down run is a path — so each one can be
 // bent into glass. Six overlapping rings planarize into a network with no odd
@@ -918,9 +918,9 @@ export default sketch({ seed: 2, pens: { ink: pen({ width: mm(0.3), color: '#182
   const lift = (x, y) => t.noise(x / 26, y / 26) * 0.9;
   return view(runs.filter((c) => c.pts.length > 2).map((c) =>
     sweep(circle(0.11, { segments: 14 }),
-      polyline(c.pts.map(([x, y]) => [(x - 50) / 11, (y - 50) / 11, lift(x, y)]), { closed: c.closed }))), {
+      curve(c.pts.map(([x, y]) => [(x - 50) / 11, (y - 50) / 11, lift(x, y)]), { closed: c.closed }))), {
     camera: orthographic({ eye: [3.2, -7.2, 5.4], target: [0, 0, 0], span: 8.8 }),
-    stroke: 'ink',
+    pen: 'ink',
     creaseAngle: 180,
   });
 });
@@ -1049,7 +1049,7 @@ a hundred little struts.
 
 ```ts live
 import { sketch, pen, mm, connect, circle as disc } from 'occlude';
-import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+import { circle, curve, sweep, view, orthographic } from 'occlude/3d';
 
 // A space frame. The lattice is chosen flat — `room` decides which pairs are
 // close enough to be worth a member — and then lifted onto a dome. Passing it
@@ -1064,9 +1064,9 @@ export default sketch({ seed: 5, pens: { ink: pen({ width: mm(0.26), color: '#18
   const dome = (x, y) => 2.6 * Math.cos(Math.min(1, Math.hypot(x - 50, y - 50) / 44) * Math.PI / 2);
   const world = (x, y) => [(x - 50) / 9, (y - 50) / 9, dome(x, y)];
   return view(frame.curves().filter((c) => c.pts.length > 1).map((c) =>
-    sweep(circle(0.07, { segments: 10 }), polyline(c.pts.map(([x, y]) => world(x, y)), { closed: c.closed }))), {
+    sweep(circle(0.07, { segments: 10 }), curve(c.pts.map(([x, y]) => world(x, y)), { closed: c.closed }))), {
     camera: orthographic({ eye: [6, -8, 4.6], target: [0, 0, 1.1], span: 10.4 }),
-    stroke: 'ink',
+    pen: 'ink',
     creaseAngle: 180,
   });
 });
@@ -1807,9 +1807,9 @@ export default sketch({ seed: 11, pens: {
     .displace((p) => 0.06 * t.noise(p.x * 1.4, p.y * 1.4, p.z * 1.4));
   // creaseAngle 180 draws no folds, so the form is its silhouette and the
   // scales wrapping it; the marks carry their own pen.
-  return view([pod, style(mapSurface(pod, scales, { frame: CHART }), { stroke: 'scale' })], {
+  return view([pod, style(mapSurface(pod, scales, { frame: CHART }), { pen: 'scale' })], {
     camera: orthographic({ eye: [5, 3.4, 1.1], target: [0, 0, 0], span: 4 }),
-    stroke: 'ink',
+    pen: 'ink',
     creaseAngle: 180,
   });
 });
@@ -2249,9 +2249,9 @@ export default sketch({ seed: 9, pens: {
     { wavelength: (x, y) => 2.2 + (1 - rough(x, y)) * 7, amplitude: (x, y) => rough(x, y) * 1.5 },
   ));
   const globe = sphere(1.6, { segments: 96, rings: 48 });
-  return view([globe, style(mapSurface(globe, bands, { frame: CHART }), { stroke: 'relief' })], {
+  return view([globe, style(mapSurface(globe, bands, { frame: CHART }), { pen: 'relief' })], {
     camera: orthographic({ eye: [5, 2.6, 1.6], target: [0, 0, 0], span: 3.9 }),
-    stroke: 'ink',
+    pen: 'ink',
     creaseAngle: 180,
   });
 });
@@ -2407,7 +2407,7 @@ third dimension to exist.
 
 ```ts live
 import { sketch, pen, mm, strokes, curve, label, group } from 'occlude';
-import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+import { circle, curve as curve3, sweep, view, orthographic } from 'occlude/3d';
 
 // The same knot, decided two ways. On the left it is flat: one closed curve
 // that crosses itself three times, and `interlace` is TOLD which strand is on
@@ -2428,9 +2428,9 @@ export default sketch({ seed: 1, pens: {
   return [
     group({}, strokes(flat.interlace({ gap: 2.1 }), { pen: 'ink' }), label('AUTHORED', 13, 80, 3.4, { pen: 'ink' })),
     group({ translate: [25, -4] },
-      view(sweep(circle(0.16, { segments: 14 }), polyline(t.times(P, pt), { closed: true })), {
+      view(sweep(circle(0.16, { segments: 14 }), curve3(t.times(P, pt), { closed: true })), {
         camera: orthographic({ eye: [0, -1.1, 12], target: [0, 0, 0], span: 19 }),
-        stroke: 'ink',
+        pen: 'ink',
         creaseAngle: 180,
       })),
     label('COMPUTED', 61, 80, 3.4, { pen: 'ink' }),
@@ -2794,7 +2794,7 @@ works on paper — and `mapSurface` then puts the result on the pot.
 
 ```ts live paper=150x120
 import { sketch, curve, rect, append, pen, mm } from 'occlude';
-import { polyline, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
+import { curve as curve3, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
 
 // The ornament — a diaper lattice with a dot in every diamond — is drawn once,
 // flat, on a plain rectangle. A revolve stores its surface as a chart of
@@ -2871,13 +2871,13 @@ export default sketch({ aspect: [5, 4], seed: 5, pens: {
   const pot = (k, x, y, s, turn) => {
     const to = rest.map(([u, v]) => cages[k]((u - U0) / (U1 - U0), (v - V0) / (V1 - V0)));
     const panel = append(flatAll.warp({ from: rest, to }), flatEdge.warp({ from: rest, to }));
-    const body = revolve(polyline(meridian), { segments: 72 }).scale(s).rotate([0, 0, turn]).translate([x, y, 0]);
-    return [body, style(mapSurface(body, panel), { stroke: 'paint' })];
+    const body = revolve(curve3(meridian), { segments: 72 }).scale(s).rotate([0, 0, turn]).translate([x, y, 0]);
+    return [body, style(mapSurface(body, panel), { pen: 'paint' })];
   };
 
   return view(
     [...pot(0, -1.8, 0.7, 1, 104), ...pot(1, 0.7, -1.0, 0.84, 78), ...pot(2, 2.5, 1.7, 0.7, 96)],
-    { camera: perspective({ eye: [2.2, -9.2, 2.6], target: [0.2, 0, 0], fovDegrees: 30 }), stroke: 'ink' },
+    { camera: perspective({ eye: [2.2, -9.2, 2.6], target: [0.2, 0, 0], fovDegrees: 30 }), pen: 'ink' },
   );
 });
 ```
@@ -3123,7 +3123,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 ```ts live paper=180x120
 import { sketch, append, material, connect, pen, mm } from 'occlude';
-import { polyline, circle as ring3, plane, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
+import { curve, circle as ring3, plane, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
 
 // A cooling tower, and the drawing it was made from, lying on the floor under
 // it.
@@ -3152,7 +3152,7 @@ export default sketch({ aspect: [3, 2], seed: 8, pens: {
   const struts = t.times(N, (k) => {
     const a = (k / N) * Math.PI * 2;
     const b = a + skew;
-    return polyline([
+    return curve([
       [R * Math.cos(a), R * Math.sin(a), -H],
       [R * Math.cos(b), R * Math.sin(b), H],
     ]);
@@ -3165,7 +3165,7 @@ export default sketch({ aspect: [3, 2], seed: 8, pens: {
   // curve occludes nothing.
   const r0 = R * Math.cos(skew / 2);
   const skin = revolve(
-    polyline(t.times(41, (k) => {
+    curve(t.times(41, (k) => {
       const z = -H + (2 * H * k) / 40;
       return [Math.sqrt(r0 * r0 + (z / H) ** 2 * (R * R - r0 * r0)), 0, z];
     })),
@@ -3193,13 +3193,13 @@ export default sketch({ aspect: [3, 2], seed: 8, pens: {
   return view(
     [
       floor,
-      style(mapSurface(floor, chords), { stroke: 'ink' }),
-      style(mapSurface(floor, waist), { stroke: 'found' }),
+      style(mapSurface(floor, chords), { pen: 'ink' }),
+      style(mapSurface(floor, waist), { pen: 'found' }),
       skin,
       ...struts,
       ...rims,
     ],
-    { camera: perspective({ eye: [3.1, -4.4, 1.9], target: [0, 0, -0.2], fovDegrees: 40 }), stroke: 'ink' },
+    { camera: perspective({ eye: [3.1, -4.4, 1.9], target: [0, 0, -0.2], fovDegrees: 40 }), pen: 'ink' },
   );
 });
 ```

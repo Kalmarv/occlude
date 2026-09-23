@@ -41,7 +41,7 @@ describe('geodesic polyhedra',()=>{
   const flat=geodesic(1,{frequency:3,base:'tetrahedron',project:false});
   expect(flat.faces.length).toBe(36);
   manifold(flat,2);
-  const planes=geodesic(1,{frequency:1,base:'tetrahedron'}).faces.map(f=>({normal:f.normal,d:dot3(f.normal,f.center)}));
+  const planes=geodesic(1,{frequency:1,base:'tetrahedron'}).faces.map(f=>({normal:f.normal,d:dot3(f.normal,f.centroid)}));
   for(const p of flat.points)expect(planes.some(plane=>Math.abs(dot3(plane.normal,[p.x,p.y,p.z])-plane.d)<1e-9)).toBe(true);
   for(const p of geodesic(1,{frequency:3,base:'tetrahedron'}).points)expect(Math.hypot(p.x,p.y,p.z)).toBeCloseTo(1,12);
  });

@@ -20,7 +20,7 @@ import { box, sphere, intersections, style, view, orthographic } from 'occlude/3
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.4), color: '#A84932' }) } }, (t) => {
   const ball = sphere(1.3, { segments: 40, rings: 20 });
   const block = box([1.2, 1.2, 2.8]).translate([0.5, 0.3, 0]);
-  return view([ball, block, style(intersections(ball, block), { stroke: 'line' })], { camera: orthographic({ eye: [5, 6, 4], target: [0.3, 0.2, 0.3], span: 4.6 }), stroke: 'ink', creaseAngle: 180 });
+  return view([ball, block, style(intersections(ball, block), { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], target: [0.3, 0.2, 0.3], span: 4.6 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -28,7 +28,9 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.isolines.mdx</include>
 
-The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. Give `count` for even levels, or `levels` for your own.
+The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the same levels that the 2D `t.isolines` takes: one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key, pen })`. `levels` in the options is refused by name.
+
+The result is a collection of chains. `rings.curves()` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -36,7 +38,7 @@ import { sphere, isolines, style, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
   const ball = sphere(1.3, { segments: 40, rings: 20 });
-  return view([ball, style(isolines(ball, (p) => p.z, { count: 9 }), { stroke: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+  return view([ball, style(isolines(ball, (p) => p.z, { count: 9 }), { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -44,7 +46,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.trace.mdx</include>
 
-Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location.
+Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample that is on the traced mesh: `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. A curve sample that is not on the traced mesh is refused by name.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -54,7 +56,7 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.
   const ball = sphere(1.3, { segments: 40, rings: 20 });
   const seeds = t.sample(ball, { count: 24 }).points;
   const paths = trace(ball, seeds, [0, 0, 1], { step: 0.05, maxLength: 2.4 });
-  return view([ball, style(paths, { stroke: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+  return view([ball, style(paths, { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -71,7 +73,7 @@ import { cylinder, mapSurface, style, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
   const tube = cylinder(1, 2.4, { segments: 36, caps: false });
   const zigzag = append(...t.times(8, (k) => curve(t.times(40, (j, u) => [u, (k + 0.5) / 8 + Math.sin(u * Math.PI * 6) * 0.04]), { closed: false })));
-  return view([tube, style(mapSurface(tube, zigzag, { chart: 'side' }), { stroke: 'line' })], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+  return view([tube, style(mapSurface(tube, zigzag, { chart: 'side' }), { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -88,9 +90,9 @@ import { sphere, view, orthographic } from 'occlude/3d';
 export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
   const ball = sphere(1.5, { segments: 40, rings: 20 });
   const light = (s) => Math.max(0, s.normal[0] * 0.6 + s.normal[1] * 0.3 + s.normal[2] * 0.75);
-  const along = await t.hatch(ball, { direction: (s) => s.tangentU, spacing: 0.14, tone: (s) => 1 - light(s), stroke: 'shade' });
-  const across = await t.hatch(ball, { direction: (s) => s.tangentV, spacing: 0.14, tone: (s) => Math.max(0, 0.55 - light(s)) * 1.8, stroke: 'shade' });
-  return view([ball, along, across], { camera: orthographic({ eye: [5, 6, 4], span: 4.2 }), stroke: 'ink', creaseAngle: 180 });
+  const along = await t.hatch(ball, { direction: (s) => s.tangentU, spacing: 0.14, tone: (s) => 1 - light(s), pen: 'shade' });
+  const across = await t.hatch(ball, { direction: (s) => s.tangentV, spacing: 0.14, tone: (s) => Math.max(0, 0.55 - light(s)) * 1.8, pen: 'shade' });
+  return view([ball, along, across], { camera: orthographic({ eye: [5, 6, 4], span: 4.2 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -105,7 +107,7 @@ import { cylinder, sphere, instanceOnPoints, view, orthographic } from 'occlude/
 export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const can = cylinder(1, 2.2, { segments: 28 }).cornerAttribute('band', (c) => (c.chart === 'side' && Math.floor(c.uv[0] * 4) % 2 === 0 ? 1 : 0));
   const banded = t.sample(can, { count: 1400 }).points.filter((p) => p.sample.cornerAttributes.band === 1);
-  return view([can, instanceOnPoints(sphere(0.025, { segments: 6, rings: 3 }), banded)], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+  return view([can, instanceOnPoints(sphere(0.025, { segments: 6, rings: 3 }), banded)], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -122,7 +124,7 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.
   const pts = t.sample(flat, { count: 70 });
   const bent = flat.displace((p) => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1)]);
   const moved = pts.rebind(bent);
-  return view([bent, instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), moved.points)], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), stroke: 'ink', creaseAngle: 0 });
+  return view([bent, instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), moved.points)], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), pen: 'ink', creaseAngle: 0 });
 });
 ```
 
@@ -139,7 +141,7 @@ export default sketch({ aspect: [1, 1], seed: 2, pens: { ink: pen({ width: mm(0.
   const rings = isolines(ball, (p) => p.z, { count: 5 });
   const pts = t.sample(rings, { spacing: 0.35 });
   const beads = instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), pts.points);
-  return view([ball, beads], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+  return view([ball, beads], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -158,6 +160,6 @@ export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.
   const q = query(ball);
   const drops = t.times(16, (k) => { const a = (k / 16) * Math.PI * 2; return q.ray([Math.cos(a) * 3, Math.sin(a) * 3, 0.4], [-Math.cos(a), -Math.sin(a), 0]); }).filter(Boolean);
   const marks = instanceOnPoints(box(0.12), pointCloud(drops.map((h) => h.position)).points);
-  return view([ball, marks], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+  return view([ball, marks], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```

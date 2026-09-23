@@ -8,7 +8,7 @@ await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude
 describe('3D stage events',()=>{
   it('reports projected source lines and then visible lines per scene, without changing the result',async()=>{
     const events:StageEvent3[]=[];
-    const def=sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([box(2),box(1).translate([0,0,1.5])],{key:'boxes',camera:orthographic({eye:[5,7,6],span:5}),stroke:'ink'}));
+    const def=sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([box(2),box(1).translate([0,0,1.5])],{key:'boxes',camera:orthographic({eye:[5,7,6],span:5}),pen:'ink'}));
     const listened=await compileSketchAsync(def,undefined,{onStage:e=>events.push(e)});
     const silent=await compileSketchAsync(def);
     expect(events.map(e=>[e.stage,e.scene])).toEqual([['source','boxes'],['classified','boxes']]);

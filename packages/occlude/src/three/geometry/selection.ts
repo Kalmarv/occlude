@@ -7,6 +7,8 @@ export interface PointMeasure3 {
   readonly index: number;
   readonly id: string;
   readonly position: Vec3;
+  /** The position as the mesh rows say it. */
+  readonly x: number; readonly y: number; readonly z: number;
   readonly attributes: Readonly<Attributes3>;
   readonly neighbors: readonly number[];
   readonly boundary: boolean;
@@ -31,7 +33,7 @@ function capture(source: Surface3): Capture3 {
     const [a,b] = edge.vertices; neighbors[a].add(b); neighbors[b].add(a);
     if (edge.faces.length === 1) { boundary.add(a); boundary.add(b); }
   }
-  const points = Object.freeze(surface.points.map((p,index) => Object.freeze({ ...p, index, neighbors: Object.freeze([...neighbors[index]].sort((a,b) => a-b)), boundary: boundary.has(index) })));
+  const points = Object.freeze(surface.points.map((p,index) => Object.freeze({ ...p, index, x: p.position[0], y: p.position[1], z: p.position[2], neighbors: Object.freeze([...neighbors[index]].sort((a,b) => a-b)), boundary: boundary.has(index) })));
   const edges = Object.freeze(surface.edges.map((edge,index) => {
     const [a,b] = edge.vertices.map(i => surface.points[i].position);
     return Object.freeze({ ...edge, index, a, b, center: Object.freeze(a.map((v,k) => v / 2 + b[k] / 2)) as Vec3, length: Math.hypot(...sub3(b,a)), boundary: edge.faces.length === 1 });

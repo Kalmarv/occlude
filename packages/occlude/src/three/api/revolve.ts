@@ -4,6 +4,7 @@ import {Mesh,CurveGeometry,emptyMesh,type EdgeAttributes,type GeometryOptions} f
 import {emptyCount,emptySize} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import type {Vec3} from '../math.js';
+import {profileCurve} from './curves.js';
 export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
   readonly segments?:number;
   /** Signed sweep in degrees, nonzero and at most a full turn. */
@@ -11,10 +12,12 @@ export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
   /** Close angular cuts for a partial turn of a closed profile. Default false. */
   readonly caps?:boolean;
 }
-/** Revolve an XZ meridian in x>=0 around Z. Point columns follow the profile;
+/** Revolve an XZ meridian in x>=0 around Z. A 2D chain is that meridian:
+ * its x is the radius and its y the height. Point columns follow the profile;
  * side faces inherit profile edge columns, while angular caps have no columns. */
-export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:CurveGeometry<P,E>,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV> {
+export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:CurveGeometry<P,E>|{curves():unknown},options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('revolve options must be an object');
+  const profile=profileCurve(input,'xz','revolve') as CurveGeometry<P,E>;
   const path=curvePath(profile),angle=options.angle??360,n=options.segments??32,full=Math.abs(angle)===360;
   if(!Number.isFinite(angle)||Math.abs(angle)>360)throw new Error('revolve angle must be within -360 to 360 degrees');
   // No profile, no turn and no segments each revolve nothing. The angular step

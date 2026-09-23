@@ -8,6 +8,7 @@ import {intersectionsJob3,type IntersectionBudget3} from '../curves/intersection
 import {surfaceBinding3,surfaceCurveNetworkJob3,bindingWorld3,type SurfaceBinding3,type SurfaceCurveNetworkInput3,type SurfaceCurveNetwork3,type SurfaceCurveRecipe3} from '../curves/network.js';
 import {worldBounds3,overlaps3} from '../geometry/bounds.js';
 import type {IntersectionClass3} from '../curves/intersectionAtoms.js';
+import {refuseStroke} from './recipes.js';
 export type IntersectionAttributes={contact:IntersectionClass3};
 
 export type IntersectionInput=Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>;
@@ -27,6 +28,7 @@ export function captureIntersections(...args:IntersectionArguments) {
   ?(()=>{const list=args[0] as readonly IntersectionInput[];return [list,list.map((_,i)=>i),(args[1] as IntersectionOptions|undefined)??{}] as const;})()
   :[[args[0] as IntersectionInput,args[1] as IntersectionInput],[0,1],(args[2] as IntersectionOptions|undefined)??{}] as const;
  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('intersection options must be an object');
+ refuseStroke(options,'intersections');
  const settings=structuredClone(options),maxPairs=settings.maxPairs??Infinity;
  if(!(maxPairs===Infinity||Number.isSafeInteger(maxPairs))||maxPairs<0)throw new Error('intersection pair budget must be a nonnegative integer');
  const count=(value:IntersectionInput)=>value instanceof Mesh?1:value instanceof Instances?value.length:(()=>{throw new Error('intersections require meshes or mesh instances');})();
@@ -113,5 +115,5 @@ export function intersections(a:IntersectionInput,b:IntersectionInput,options?:I
 export function intersections(objects:readonly IntersectionInput[],options?:IntersectionOptions):SurfaceCurves<IntersectionAttributes>;
 export function intersections(...args:IntersectionArguments):SurfaceCurves<IntersectionAttributes> {
  const captured=captureIntersections(...args);
- return new SurfaceCurves<IntersectionAttributes>(intersectionRecipe(captured),{key:captured.settings.key,stroke:captured.settings.stroke});
+ return new SurfaceCurves<IntersectionAttributes>(intersectionRecipe(captured),{key:captured.settings.key,pen:captured.settings.pen});
 }

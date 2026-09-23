@@ -60,7 +60,7 @@ export function bindModeling3(exec: Execution, scope?: { signal?: AbortSignal; c
       return (async()=>{
         const result=await runIntersectionConstruction(captured,scope!.signal,scope!.onProgress);check();timing.merge(result.timings);
         exec.modeling3.push({operation:'intersections',backend:'cpu',dispatches:0,transferBytes:0,timings:timing.finish(),intersections:result.value.stats});
-        return new SurfaceCurves<IntersectionAttributes>(result.value.network,{key:captured.settings.key,stroke:captured.settings.stroke});
+        return new SurfaceCurves<IntersectionAttributes>(result.value.network,{key:captured.settings.key,pen:captured.settings.pen});
       })();
     },
     mapSurface(mesh:Mesh<any,any,any,any>,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {

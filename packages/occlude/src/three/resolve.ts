@@ -59,7 +59,7 @@ export async function resolveTree3(exec: Execution, tree: Tree, options: { signa
   if(isProjectedStrokes(tree)){if(tree.curves.source!==options.retainedSource)exec.fixedStrokes3.add(tree.curves.source);return inFrame3(exec,tree.curves.source.frame,tree);}
   if (isDrawing3(tree)) {
     const view = await classifyForRun3(exec, tree.scene, options);
-    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => inFrame3(exec, view.frame, strokesForRun3(exec, runs, settings)), mask3: (scene) => maskForRun3(exec, scene) }), {...options,retainedSource:view});
+    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => inFrame3(exec, view.frame, strokesForRun3(exec, runs, settings)), mask3: (scene) => maskForRun3(exec, scene), toUser: paperToUser(exec.frame) }), {...options,retainedSource:view});
   }
   if (Array.isArray(tree)) {
     const children: Tree[] = [];

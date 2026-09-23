@@ -4,6 +4,8 @@ import {assembleSurface3,type Attributes3} from '../geometry/surface.js';
 import {faceGeometry3} from '../geometry/model.js';
 import {topology3,topologyConnected,topologyComponents,type SurfaceTopology3} from '../geometry/topology.js';
 import {sub3,add3,mul3} from '../math.js';
+import {pointsNear3,edgesNear3,place3} from './near3.js';
+import type {Vector3} from '../rotation.js';
 
 export type MeshPointRow<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> = PointRow<P>&{
   readonly edges:MeshEdges<P,E,F,C>;readonly faces:MeshFaces<P,E,F,C>;readonly adjacent:MeshPoints<P,E,F,C>;readonly corners:MeshCorners<P,E,F,C>;
@@ -23,6 +25,9 @@ interface Context<P extends Attributes3,E extends EdgeAttributes,F extends Attri
   readonly points:readonly MeshPointRow<P,E,F,C>[];readonly edges:readonly MeshEdgeRow<E,P,F,C>[];readonly faces:readonly MeshFaceRow<F,P,E,C>[];
 }
 const contexts=new WeakMap<object,Context<any,any,any,any>>();
+/** A face's middle is its `centroid`, the 2D face word; `center` is an
+ * edge's midpoint in both worlds. */
+const faceCenterRefused=():never=>{throw new Error('a face\'s middle is `centroid` (the 2D face word); `center` is an edge\'s midpoint');};
 function relations<T>(row:object,getters:Record<string,()=>unknown>):T {
   for(const [name,get] of Object.entries(getters))Object.defineProperty(row,name,{get,enumerable:false});
   return Object.freeze(row) as T;
@@ -50,7 +55,8 @@ function context<P extends Attributes3,E extends EdgeAttributes,F extends Attrib
   },()=>{new MeshEdges(result);});
   const faces=lazy(()=>{
     const {normals,centers,areas}=faceGeometry3(surface);
-    return Object.freeze(surface.faces.map((face,index)=>relations<MeshFaceRow<F,P,E,C>>({...face.attributes,id:face.id,index,vertices:face.vertices,normal:normals[index],center:centers[index],area:areas[index],attributes:face.attributes,provenance:face.provenance},{
+    return Object.freeze(surface.faces.map((face,index)=>relations<MeshFaceRow<F,P,E,C>>({...face.attributes,id:face.id,index,vertices:face.vertices,normal:normals[index],centroid:centers[index],area:areas[index],attributes:face.attributes,provenance:face.provenance},{
+      center:faceCenterRefused,
       points:()=>new MeshPoints(result,face.vertices),edges:()=>new MeshEdges(result,topology.faceEdges[index]),adjacent:()=>new MeshFaces(result,topology.faceNeighbors[index]),corners:()=>new MeshCorners(result,topology.faceCorners[index]),
     })));
   },()=>{new MeshFaces(result);});
@@ -80,6 +86,14 @@ export class MeshPoints<P extends Attributes3,E extends EdgeAttributes,F extends
    * the meaning `adjacent` has in 2D and for every other kind here. The
    * selection grown by a ring is `sel.union(sel.adjacent())`. */
   adjacent():this{const held=new Set(this.indices);return this.derive(this.indices.flatMap(i=>this.context.topology.pointNeighbors[i]).filter(i=>!held.has(i)));}
+  /** The members STRICTLY closer than `radius` to `p` — a row, a triple or
+   * `{x, y, z}`. Distance, not topology (`adjacent` is topology). A point
+   * of this revision is never its own neighbour; any other place is just a
+   * position, and a point under it is found. The 2D word, in space. */
+  near(p:Vector3,opts:{readonly radius:number}):this{
+    const index=(p as {index?:unknown}).index,self=typeof index==='number'&&this.context.points[index]===p?index:-1,held=new Set(this.indices);
+    return this.derive(pointsNear3(this.context.mesh.surface,place3(p,'points'),opts?.radius).filter(i=>i!==self&&held.has(i)));
+  }
   connected():this{return this.derive(topologyConnected(this.indices,this.context.topology.pointNeighbors));}
   components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.pointNeighbors).map(ids=>this.derive(ids)));}
 }
@@ -98,6 +112,12 @@ export class MeshEdges<P extends Attributes3,E extends EdgeAttributes,F extends 
   adjacent():this{
     const held=new Set(this.indices);
     return this.derive(this.indices.flatMap(i=>this.context.topology.edgeNeighbors[i]).filter(i=>!held.has(i)));
+  }
+  /** The members STRICTLY closer than `radius` to `p`, by the true distance
+   * to each edge, as the 2D `edges.near` measures. */
+  near(p:Vector3,opts:{readonly radius:number}):this{
+    const held=new Set(this.indices);
+    return this.derive(edgesNear3(this.context.mesh.surface,place3(p,'edges'),opts?.radius).filter(i=>held.has(i)));
   }
   connected():this{return this.derive(topologyConnected(this.indices,this.context.topology.edgeNeighbors));}
   components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.edgeNeighbors).map(ids=>this.derive(ids)));}

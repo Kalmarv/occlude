@@ -7,12 +7,12 @@ beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-cor
 
 const unique=(ids:readonly string[])=>new Set(ids).size===ids.length;
 const sheet=()=>plane(4,4).subdivide(2); // 16 faces, 4 × 4, one unit each
-const cell=(m:ReturnType<typeof sheet>,i:number,j:number)=>m.faces.filter(f=>Math.abs(f.center[0]-(-1.5+i))<1e-9&&Math.abs(f.center[1]-(-1.5+j))<1e-9);
+const cell=(m:ReturnType<typeof sheet>,i:number,j:number)=>m.faces.filter(f=>Math.abs(f.centroid[0]-(-1.5+i))<1e-9&&Math.abs(f.centroid[1]-(-1.5+j))<1e-9);
 
 describe('G3-29 3D selections resolve by id',()=>{
   it('G3-29 corner.in(solid) after a boolean subtract keeps the top faces that survive, by id',()=>{
     const block=box(2).subdivide(1);
-    const corner=block.faces.filter(f=>f.center[2]>0.9).groupBy(()=>'top')[0];
+    const corner=block.faces.filter(f=>f.centroid[2]>0.9).groupBy(()=>'top')[0];
     const solid=block.subtract(sphere(0.9,{segments:20,rings:10}).translate([1,1,1]));
     const stillTop=corner.in(solid);
     const ids=new Set(corner.map(f=>f.id));
@@ -72,7 +72,7 @@ describe('G3-29 3D selections resolve by id',()=>{
     expect(unique(twice.surface.points.map(p=>p.id))).toBe(true);
     expect(unique(twice.surface.faces.map(f=>f.id))).toBe(true);
     const ids=new Set(grown.map(f=>f.id));
-    expect(twice.faces.filter(f=>ids.has(f.id)).every(f=>f.center[2]>0.1)).toBe(true);
+    expect(twice.faces.filter(f=>ids.has(f.id)).every(f=>f.centroid[2]>0.1)).toBe(true);
   });
 });
 

@@ -10,7 +10,7 @@ const config={seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'}),sh
 const camera=orthographic({eye:[5,7,6],span:5});
 it('draws composed default mesh views and retains camera interpretation without modeling',async()=>{
  let models=0;
- const definition=sketch(config,t=>{models++;const shape=plane(3,3).subdivide(2).displace(p=>[0,0,t.noise(p.x,p.y)*.2]);return [clip(rect(5,5,90,85),view([shape,box(.6).translate([0,0,.5])],{camera,hatch:{spacing:mm(3),stroke:'shade'}})),label('MESH',10,94,3,{stroke:'ink'})];});
+ const definition=sketch(config,t=>{models++;const shape=plane(3,3).subdivide(2).displace(p=>[0,0,t.noise(p.x,p.y)*.2]);return [clip(rect(5,5,90,85),view([shape,box(.6).translate([0,0,.5])],{camera,hatch:{spacing:mm(3),pen:'shade'}})),label('MESH',10,94,3,{stroke:'ink'})];});
  const original=await compileSketchAsync(definition),before=exportSvg(original),scene=[...original.scenes3.keys()][0];
  expect(before).toContain('#a84932');expect(render(original).raw.frags.length).toBeGreaterThan(0);
  const committed=await commitCamera3(original,scene,perspective({eye:[5,7,6],fovDegrees:38}));

@@ -1,6 +1,6 @@
 import {beforeAll,describe,it,expect,expectTypeOf} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {polyline,circle,box,revolve,query,view,orthographic,perspective} from 'occlude/3d';
+import {curve,circle,box,revolve,query,view,orthographic,perspective} from 'occlude/3d';
 import {initOcclude,sketch,compileSketchAsync,commitCamera3,exportSvg,pen,mm} from '../src/index.js';
 import {cross3,dot3} from '../src/three/math.js';
 import type {Mesh} from 'occlude/3d';
@@ -9,7 +9,7 @@ function volume(mesh:Mesh<any,any,any>){return mesh.surface.triangles.reduce((su
 function manifold(mesh:Mesh<any,any,any>){expect(mesh.edges.length).toBeGreaterThan(0);expect(mesh.surface.edges.every(e=>e.faces.length===2)).toBe(true);for(const edge of mesh.edges)expect(edge.length).toBeGreaterThan(0);}
 describe('curve-profile revolution',()=>{
  it('shares full seams and poles with independent polygonal cone volume and normals',()=>{
-  const n=12,r=2,h=3,profile=polyline([[0,0,0],[r,0,0],[0,0,h]]).attribute('weight',p=>p.index+1).edgeAttribute('part',e=>e.index===0?'base':'side');
+  const n=12,r=2,h=3,profile=curve([[0,0,0],[r,0,0],[0,0,h]]).attribute('weight',p=>p.index+1).edgeAttribute('part',e=>e.index===0?'base':'side');
   const solid=revolve(profile,{segments:n});manifold(solid);
   expect(solid.points.length).toBe(n+2);expect(solid.faces.length).toBe(2*n);expect(volume(solid)).toBeCloseTo(n*r*r*Math.sin(2*Math.PI/n)*h/6,12);
   expect(solid.points.filter(p=>p.x===0&&p.y===0).length).toBe(2);
@@ -19,15 +19,15 @@ describe('curve-profile revolution',()=>{
   const negative=revolve(profile,{segments:n,angle:-360});manifold(negative);expect(volume(negative)).toBeCloseTo(volume(solid),12);
  });
  it('makes open-ended vessels without automatically sealing profile boundaries',()=>{
-  const vessel=revolve(polyline([[0,0,0],[1,0,0],[1,0,2]]),{segments:16});
+  const vessel=revolve(curve([[0,0,0],[1,0,0],[1,0,2]]),{segments:16});
   expect(vessel.surface.edges.filter(e=>e.faces.length===1).length).toBe(16);
   const target=query(vessel);expect(target.ray([0,0,3],[0,0,-2])!.distance).toBeCloseTo(3,12);expect(target.ray([0,0,3],[0,0,-2])!.t).toBeCloseTo(1.5,12);
   expect(vessel.faces.filter(f=>f.normal[2]>.99).length).toBe(0);
   expect(profileUnchanged()).toEqual([[0,0,0],[1,0,0],[1,0,2]]);
-  function profileUnchanged(){const p=polyline([[0,0,0],[1,0,0],[1,0,2]]);revolve(p);return p.points.map(p=>[p.x,p.y,p.z]);}
+  function profileUnchanged(){const p=curve([[0,0,0],[1,0,0],[1,0,2]]);revolve(p);return p.points.map(p=>[p.x,p.y,p.z]);}
  });
  it('caps partial closed profiles with correct winding and signed-angle symmetry',()=>{
-  const profile=polyline([[1,0,-1],[1,0,1],[0,0,1],[0,0,-1]],{closed:true}).edgeAttribute('tag',7);
+  const profile=curve([[1,0,-1],[1,0,1],[0,0,1],[0,0,-1]],{closed:true}).edgeAttribute('tag',7);
   const n=8,angle=120,sector=revolve(profile,{segments:n,angle,caps:true});manifold(sector);
   expect(volume(sector)).toBeCloseTo(n*Math.sin(angle*Math.PI/180/n),12);
   const caps=sector.faces.filter(f=>f.tag===undefined);expect(caps.length).toBe(2);
@@ -45,25 +45,25 @@ describe('curve-profile revolution',()=>{
  });
  it('rejects branches, disconnected paths, invalid meridians, pinch points and oversized results',()=>{
   expect(()=>revolve(box().edges.extract())).toThrow('unbranched');
-  const disconnected=polyline([[1,0,0],[1,0,1],[1,0,2],[1,0,3]]).edges.filter(e=>e.index!==1).extract();expect(()=>revolve(disconnected)).toThrow('connected');
-  expect(()=>revolve(polyline([[-1,0,0],[1,0,1]]))).toThrow('XZ');
-  expect(()=>revolve(polyline([[1,1,0],[1,1,1]]))).toThrow('XZ');
-  expect(()=>revolve(polyline([[1,1,1e12],[1,1,1e12+1]]))).toThrow('XZ');
-  expect(()=>revolve(polyline([[1,0,0],[0,0,1],[1,0,2]]))).toThrow('pinched');
-  expect(revolve(polyline([[0,0,0],[0,0,1]])).surface.faces.length).toBe(0);
-  const profile=polyline([[1,0,0],[1,0,1]]);
+  const disconnected=curve([[1,0,0],[1,0,1],[1,0,2],[1,0,3]]).edges.filter(e=>e.index!==1).extract();expect(()=>revolve(disconnected)).toThrow('connected');
+  expect(()=>revolve(curve([[-1,0,0],[1,0,1]]))).toThrow('XZ');
+  expect(()=>revolve(curve([[1,1,0],[1,1,1]]))).toThrow('XZ');
+  expect(()=>revolve(curve([[1,1,1e12],[1,1,1e12+1]]))).toThrow('XZ');
+  expect(()=>revolve(curve([[1,0,0],[0,0,1],[1,0,2]]))).toThrow('pinched');
+  expect(revolve(curve([[0,0,0],[0,0,1]])).surface.faces.length).toBe(0);
+  const profile=curve([[1,0,0],[1,0,1]]);
   expect(()=>revolve(profile,{segments:2})).toThrow('smaller than 180');
   // No turn, no segments and no profile each revolve nothing.
   expect(revolve(profile,{angle:0}).surface.faces.length).toBe(0);
   expect(revolve(profile,{segments:0}).surface.faces.length).toBe(0);
-  expect(revolve(polyline([])).surface.faces.length).toBe(0);
+  expect(revolve(curve([])).surface.faces.length).toBe(0);
   expect(()=>revolve(profile,{angle:90,caps:true})).toThrow('closed profile');
   expect(()=>revolve(profile,{maxPoints:10})).toThrow('points budget');expect(()=>revolve(profile,{maxFaces:10})).toThrow('faces budget');
   expect(()=>revolve(profile,{segments:1e9,maxPoints:1_000_000})).toThrow('budget');
  });
  it('retains revolved mesh and selective hatch across camera-only commits',async()=>{
   let models=0;
-  const definition=sketch({seed:42,pens:{ink:pen({width:mm(.3)})}},()=>{models++;return view(revolve(polyline([[0,0,-1],[1,0,-1],[.5,0,1]])),{camera:orthographic({eye:[5,7,6],span:5}),hatch:{spacing:mm(3),select:f=>f.normal[2]>0}});});
+  const definition=sketch({seed:42,pens:{ink:pen({width:mm(.3)})}},()=>{models++;return view(revolve(curve([[0,0,-1],[1,0,-1],[.5,0,1]])),{camera:orthographic({eye:[5,7,6],span:5}),hatch:{spacing:mm(3),select:f=>f.normal[2]>0}});});
   const result=await compileSketchAsync(definition),before=exportSvg(result),id=[...result.scenes3.keys()][0];
   const changed=await commitCamera3(result,id,perspective({eye:[5,7,6]}));expect(models).toBe(1);expect(exportSvg(result)).toBe(before);expect(exportSvg(changed)).not.toBe(before);
  });

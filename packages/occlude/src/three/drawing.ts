@@ -19,6 +19,8 @@ export interface Paper3 {
   /** The paper the view's solids cover as one opaque region that draws
    * nothing: in paint order it hides what was drawn before it. */
   readonly mask3: (view: ClassifiedScene3) => Tree;
+  /** Paper millimetres to the sketch's drawable units. */
+  readonly toUser: (x: number, y: number) => [number, number];
 }
 export function drawing3(scene: LineArtScene3, draw: Drawing3['draw']): Drawing3 {
   if (!isLineArt3(scene) || typeof draw !== 'function') throw new Error('drawing3 requires a captured scene and a paper interpretation');

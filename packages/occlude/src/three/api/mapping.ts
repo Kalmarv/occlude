@@ -9,6 +9,7 @@ import {worldBounds3} from '../geometry/bounds.js';
 import {gcd,ratioNumber,type Ratio,type H,type V} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
 import type {Attributes3} from '../geometry/surface.js';
+import {refuseStroke} from './recipes.js';
 
 /** Where pattern coordinates lie in the chart. The default is the unit square:
  * numeric materials are already chart coordinates. A sketch-unit material from
@@ -48,6 +49,7 @@ function checkFrame(frame:ChartFrame|undefined):Required<ChartFrame>|undefined {
 export function captureSurfaceMapping(mesh:Mesh<any,any,any,any>,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {
   if(!(mesh instanceof Mesh))throw new Error('mapSurface requires a mesh');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('surface mapping options must be an object');
+  refuseStroke(options,'mapSurface');
   const settings=structuredClone(options),patterns=pattern instanceof Material?[pattern]:pattern;
   if(!Array.isArray(patterns)||!patterns.length||patterns.some(p=>!(p instanceof Material)))throw new Error('mapSurface requires resolved numeric materials; use t.material or t.sample for frame-dependent shapes');
   const maxPoints=limit(settings.maxInputPoints,Infinity,'input points'),maxSegments=limit(settings.maxInputSegments,Infinity,'input segments');
@@ -157,7 +159,7 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
   }
   const network=yield*surfaceCurveNetworkJob3({sources:[{id:'surface',binding}],nodes,segments},budget);
   stats.outputNodes=network.nodes.length;stats.outputSegments=network.segments.length;
-  return {curves:new SurfaceCurves<MappedAttributes>(network,{key:settings.key,stroke:settings.stroke}),stats:Object.freeze(stats) as SurfaceMappingStats};
+  return {curves:new SurfaceCurves<MappedAttributes>(network,{key:settings.key,pen:settings.pen}),stats:Object.freeze(stats) as SurfaceMappingStats};
 }
 /** Map resolved 2D material through stored chart coordinates onto supported
  * surface curves. Straight pattern segments map exactly; a curved motif is

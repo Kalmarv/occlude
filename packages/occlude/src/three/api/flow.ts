@@ -2,9 +2,9 @@ import {add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
 import {Mesh,type GeometryOptions} from './mesh.js';
 import {CurveGeometry} from './mesh.js';
-import {polyline} from './curves.js';
+import {curve} from './curves.js';
 import {query,type PreparedQuery} from './query.js';
-import type {VectorField3} from './vec.js';
+import {checkedField3,type VectorField3} from './vec.js';
 
 /** Where the lines start: the points themselves, or a count thrown into a
  * closed mesh — `{ count: 40, within: sphere(2) }`. */
@@ -32,7 +32,7 @@ const unit=(v:Vec3):Vec3|null=>{
   return m>1e-12&&Number.isFinite(m)?[v[0]/m,v[1]/m,v[2]/m]:null;
 };
 function direction(field:VectorField3,p:Vec3):Vec3|null {
-  const value=field(p);
+  const value=field(p[0],p[1],p[2]);
   if(!Array.isArray(value)||value.length!==3||!value.every(n=>typeof n==='number'&&Number.isFinite(n)))return null;
   return unit(value as Vec3);
 }
@@ -130,7 +130,7 @@ function cutInside(prepared:PreparedQuery,path:readonly Vec3[],scale:number):Vec
  * A field with no direction, a spacing that is not positive, or an open
  * `within` mesh draws nothing for that piece. */
 export function streamlines3(field:VectorField3,options:Streamlines3Options,env:Streamlines3Env):CurveGeometry[] {
-  if(typeof field!=='function')throw new Error('streamlines3 requires a vector field (p) => [x, y, z]');
+  checkedField3(field,'t.streamlines3');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('streamlines3 requires its options');
   if(options.spacing!==undefined&&emptySize(options.spacing))return [];
   if(options.step!==undefined&&emptySize(options.step))return [];
@@ -178,7 +178,7 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
     const path=[...back.reverse(),seed,...forward];
     if(path.length<2)continue;
     for(const run of clip?cutInside(clip,path,extent):[path])
-      if(run.length>1)curves.push(polyline(run,{...style,...(key?{key:`${key}:${curves.length}`}:{})}));
+      if(run.length>1)curves.push(curve(run,{...style,...(key?{key:`${key}:${curves.length}`}:{})}));
   }
   return curves;
 }

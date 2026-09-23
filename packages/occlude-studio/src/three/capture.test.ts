@@ -24,7 +24,7 @@ describe('saved 3D input capture',()=>{
   });
   it('preserves seamed corner data through committed scene capture and JSON reopening',async()=>{
     const model=box().cornerAttributes({uv:c=>[c.localIndex/3,c.face.index] as const});
-    const scene=view(model,{camera:orthographic({eye:[3,4,5],target:[0,0,0],span:3}),stroke:'ink'});
+    const scene=view(model,{camera:orthographic({eye:[3,4,5],target:[0,0,0],span:3}),pen:'ink'});
     const run=await compileSketchAsync(sketch({seed:42,pens:{ink:pen({width:mm(.3),color:'#000'})}},()=>scene));
     const captured=captureThree3(run,context)!;
     const reopened=JSON.parse(JSON.stringify(captured)) as typeof captured;
@@ -38,7 +38,7 @@ describe('saved 3D input capture',()=>{
   it('persists rational multi-source support in ordinary views without BigInt JSON loss',async()=>{
     const a=mesh([[1,0,0],[0,1,0],[0,0,1]],[[0,1,2]]),b=mesh([[0,0,0],[1,1,0],[0,0,1]],[[0,1,2]]);
     const curves=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'a',binding:surfaceBinding3(a.surface)},{id:'b',binding:surfaceBinding3(b.surface)}],nodes:[{id:'p',point:[1n,1n,1n,3n]},{id:'q',point:[2n,2n,1n,5n]}],segments:[{id:'seam',kind:'intersection',a:'p',b:'q',supports:[{source:0,triangle:0},{source:1,triangle:0}]}]}));
-    const drawing=view([a,b,curves],{camera:orthographic({eye:[3,4,5],span:2}),stroke:'ink'});
+    const drawing=view([a,b,curves],{camera:orthographic({eye:[3,4,5],span:2}),pen:'ink'});
     const run=await compileSketchAsync(sketch({pens:{ink:pen({width:mm(.3),color:'#111'})}},()=>drawing));
     const captured=captureThree3(run,context)!,restored=JSON.parse(JSON.stringify(captured)) as typeof captured;
     const graph=restored.scenes[0].supported![0].network;

@@ -28,13 +28,13 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
     });
   return view([terrain, box([0.9, 0.9, 1.8]).translate([0, 0, 1])], {
     camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0], span: 10 }),
-    stroke: 'ink',
-    hatch: { spacing: mm(2), angle: 35, stroke: 'shade' },
+    pen: 'ink',
+    hatch: { spacing: mm(2), angle: 35, pen: 'shade' },
   });
 });
 ```
 
-`view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default, or on an object to give it its own threshold: `torus(1.2, 0.1, { creaseAngle: 180 })` or `mesh.style({ creaseAngle: 60 })`; instances take their prototype's. 180 never draws an object's creases (smooth shading), 0 draws every fold. An object can likewise carry its own pen, `sphere(7, { stroke: 'fine' })` or `mesh.style({ stroke: 'fine' })`: the default drawing uses it for that object's lines and for its hatch where the recipe names no pen, and the view's `stroke` covers the rest. `style(geometry, { stroke, fillPen, creaseAngle })` is the one place to say how things are drawn: on a value or a list of them (`style(rings, { fillPen: 'red', creaseAngle: 180 })` returns the styled list), setting the fields named and keeping the rest, so styles compose. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
+`view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default, or on an object to give it its own threshold: `torus(1.2, 0.1, { creaseAngle: 180 })` or `mesh.style({ creaseAngle: 60 })`; instances take their prototype's. 180 never draws an object's creases (smooth shading), 0 draws every fold. An object can likewise carry its own pen, `sphere(7, { pen: 'fine' })` or `mesh.style({ pen: 'fine' })`: the default drawing uses it for that object's lines and for its hatch where the recipe names no pen, and the view's `pen` covers the rest. `style(geometry, { pen, fillPen, creaseAngle })` is the one place to say how things are drawn: on a value or a list of them (`style(rings, { fillPen: 'red', creaseAngle: 180 })` returns the styled list), setting the fields named and keeping the rest, so styles compose. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
 Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
 
@@ -103,7 +103,7 @@ export default sketch({ seed: 42, pens: {
   torus(0.65, 0.22, { segments: 16, tubeSegments: 8 }).translate([1.2, 1.2, 0.5]),
 ], {
   camera: orthographic({ eye: [6, 8, 7], target: [0, 0, 0.5], span: 7.5 }),
-  stroke: 'ink', hatch: { spacing: mm(2), angle: 35, stroke: 'shade' },
+  pen: 'ink', hatch: { spacing: mm(2), angle: 35, pen: 'shade' },
 }));
 ```
 
@@ -119,8 +119,8 @@ export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),colo
     .displace(p=>[0,0,t.noise(p.x*.7,p.y*.7)*.8])
     .steps(8,(current,next,k)=>next.move(current.points,p=>[0,0,Math.sin(p.x+k*.1)*p.mobility*.01]));
   return view([terrain,sphere(.8).translate([0,0,1.6])],{
-    camera:orthographic({eye:[6,8,5],target:[0,0,0],span:12}),stroke:'ink',
-    hatch:{spacing:mm(1.4),angle:35,stroke:'shade'},
+    camera:orthographic({eye:[6,8,5],target:[0,0,0],span:12}),pen:'ink',
+    hatch:{spacing:mm(1.4),angle:35,pen:'shade'},
   });
 });
 ```
@@ -170,7 +170,7 @@ export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},
   const sites=grid({cols:6,rows:6,spacing:1.2})
     .attribute('height',()=>t.rnd(.5,1.8));
   const forms=instanceOnPoints(cone(.4,1),sites.points,{scale:p=>[1,1,p.height]});
-  return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),stroke:'ink'});
+  return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),pen:'ink'});
 });
 ```
 
@@ -254,16 +254,16 @@ export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}
     nearRoof: nearby.field((_, hit) => hit !== null),
   }).displace(p => [0, 0, Math.min(0, p.ceiling - p.z)]);
   const drawing = captured.faceAttribute('shade', f => f.points.some(p => p.nearRoof));
-  return view(drawing,{camera:orthographic({eye:[6,8,5],target:[0,0,.2],span:7.5}),stroke:'ink',hatch:{spacing:mm(1.8),angle:35,stroke:'shade',select:f=>f.shade}});
+  return view(drawing,{camera:orthographic({eye:[6,8,5],target:[0,0,.2],span:7.5}),pen:'ink',hatch:{spacing:mm(1.8),angle:35,pen:'shade',select:f=>f.shade}});
 });
 ```
 
 
 ## Curves, paths and circle profiles
 
-`polyline(points, { closed? })` owns a piecewise-linear path through 3D vectors.
+`curve(points, { closed? })` owns a piecewise-linear path through 3D vectors.
 A closed path connects its final point to its first: do not repeat the first
-point. `curve(t => [x, y, z], { segments: 64, closed? })` samples a parameterized
+point. `parametricCurve(t => [x, y, z], { segments: 64, closed? })` samples a parameterized
 path uniformly in t, once during modeling. Open paths include both endpoints;
 closed paths omit t=1 and share the seam. These are polygonal curves, not an
 analytic spline representation. `circle(radius = 1, { segments: 64 })` constructs
@@ -289,26 +289,26 @@ A view-wide hatch recipe decorates mesh surfaces and does not fill curve loops.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { box, circle, curve, polyline, view, orthographic } from 'occlude/3d';
+import { box, circle, curve, parametricCurve, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
 } }, () => {
   const block = box([1.6, 1.6, 2]);
-  const spiral = curve(t => [
+  const spiral = parametricCurve(t => [
     1.5 * Math.cos(t * Math.PI * 6),
     1.5 * Math.sin(t * Math.PI * 6),
     (t - 0.5) * 3.5,
   ], { segments: 180 });
   const ring = circle(1.2, { segments: 64 }).translate([0, 0, 2.1]);
-  const path = polyline([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
+  const path = curve([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
     .attribute('lift', p => p.index === 1 ? 0.25 : 0)
     .steps(3, { move: p => [0, 0, p.lift] });
   const frame = box([4.4, 4.4, 4.4]).edges
     .filter(e => e.a.z < 0 && e.b.z < 0).extract();
   return view([block, spiral, ring, path, frame], {
     camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0], span: 9.5 }),
-    stroke: 'ink',
+    pen: 'ink',
   });
 });
 ```
@@ -364,18 +364,18 @@ union; a large profile on a tight path can intersect itself.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { polyline, circle, curve, revolve, sweep, view, orthographic } from 'occlude/3d';
+import { curve, parametricCurve, circle, revolve, sweep, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
   shade: pen({ width: mm(0.18), color: '#A84932' }),
 } }, () => {
-  const vessel = revolve(polyline([
+  const vessel = revolve(curve([
     [0, 0, -1.3], [0.8, 0, -1.3], [1, 0, -0.6],
     [0.7, 0, 0.3], [0.45, 0, 0.7], [0.5, 0, 1.3],
   ]), { segments: 40 }).translate([-1.7, 0, 0])
     .faceAttribute('shade', f => f.normal[2] > 0);
-  const route = curve(t => [
+  const route = parametricCurve(t => [
     0.7 * Math.cos(t * Math.PI * 4),
     0.7 * Math.sin(t * Math.PI * 4),
     (t - 0.5) * 3,
@@ -383,13 +383,13 @@ export default sketch({ seed: 42, pens: {
   const tube = sweep(circle(0.16, { segments: 16 }), route, {
     caps: true, scale: p => p.radius,
   }).translate([1.4, 0, 0]);
-  const ribbon = sweep(polyline([[-0.25, 0, 0], [0.25, 0, 0]]),
-    curve(t => [t * 3 - 1.5, 1.6, 0.3 * Math.cos(t * Math.PI * 2)], { segments: 24 }),
+  const ribbon = sweep(curve([[-0.25, 0, 0], [0.25, 0, 0]]),
+    parametricCurve(t => [t * 3 - 1.5, 1.6, 0.3 * Math.cos(t * Math.PI * 2)], { segments: 24 }),
     { twist: 180 }).translate([0, 0, -1.5]);
   return view([vessel, tube, ribbon], {
     camera: orthographic({ eye: [7, 10, 7], target: [0, 0, 0], span: 9.5 }),
-    stroke: 'ink',
-    hatch: { spacing: mm(2), angle: 35, stroke: 'shade', select: f => f.shade === true },
+    pen: 'ink',
+    hatch: { spacing: mm(2), angle: 35, pen: 'shade', select: f => f.shade === true },
   });
 });
 ```
@@ -471,8 +471,8 @@ export default sketch({ seed: 42, pens: {
   const stones = instanceOnPoints(sphere(0.08, { segments: 8, rings: 4 }), marks.points);
   return view([terrain, trees, stones], {
     camera: orthographic({ eye: [6, 8, 6], target: [0, 0, 0.2], span: 9.5 }),
-    stroke: 'ink',
-    hatch: { spacing: mm(3), angle: 35, stroke: 'shade', select: f => f.ground === true },
+    pen: 'ink',
+    hatch: { spacing: mm(3), angle: 35, pen: 'shade', select: f => f.ground === true },
   });
 });
 ```
@@ -480,18 +480,18 @@ export default sketch({ seed: 42, pens: {
 ## Hatch families and model sections
 
 `view` accepts one `hatch` recipe or an array of recipes. Each recipe has a
-`spacing`, optional `angle` (45 degrees by default), `offset`, `stroke`, `select`
-and semantic `key`. Spacing, angle, offset and stroke can be constants or fields
+`spacing`, optional `angle` (45 degrees by default), `offset`, `pen`, `select`
+and semantic `key`. Spacing, angle, offset and pen can be constants or fields
 on the mesh's typed face rows, so one recipe can rule tagged faces in another
-pen: `stroke: f => f.ring ? 'red' : 'fine'`. A recipe without a pen uses the
+pen: `pen: f => f.ring ? 'red' : 'fine'`. A recipe without a pen uses the
 object's `fillPen` (`torus(…, { fillPen: 'red' })` or `style({ fillPen })`, as in
-2D), then the object's `stroke`, then the view's. Eligibility and field values are captured once when the
+2D), then the object's `pen`, then the view's. Eligibility and field values are captured once when the
 view is created; camera commits regenerate the paper ruling without reevaluating
 those fields. An array supplies multiple families, including crosshatching.
 Each family's pen affects only its own ink. Spacing and offset use physical
 paper lengths; angles remain paper-directed, not curvature-following.
 
-`sections: [{ origin, normal, stroke?, key?, attributes? }, ...]` intersects the
+`sections: [{ origin, normal, pen?, key?, attributes? }, ...]` intersects the
 same owned mesh with planes. Origin and normal are in the mesh's model space.
 For instances they are prototype-space planes: each resulting section moves
 with its instance. A fixed world cutting plane is a different operation; the
@@ -519,13 +519,13 @@ export default sketch({ seed: 42, pens: {
   const model = box([2.4, 1.8, 2.8])
     .faceAttribute('spacing', f => f.normal[2] > 0 ? 2 : 3);
   return view(model, {
-    camera: orthographic({ eye: [5, 7, 6], span: 5 }), stroke: 'ink',
+    camera: orthographic({ eye: [5, 7, 6], span: 5 }), pen: 'ink',
     hatch: [
-      { spacing: f => mm(f.spacing), angle: 35, stroke: 'shade' },
-      { spacing: f => mm(f.spacing * 2), angle: -35, stroke: 'shade', select: f => f.normal[2] > 0 },
+      { spacing: f => mm(f.spacing), angle: 35, pen: 'shade' },
+      { spacing: f => mm(f.spacing * 2), angle: -35, pen: 'shade', select: f => f.normal[2] > 0 },
     ],
     sections: [-0.8, 0, 0.8].map(height => ({
-      origin: [0, 0, height], normal: [0, 0, 1], stroke: 'section',
+      origin: [0, 0, height], normal: [0, 0, 1], pen: 'section',
     })),
   });
 });
@@ -628,8 +628,8 @@ export default sketchAsync({ seed: 42, pens: {
   return view(relief, {
     camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0.2], span: 7 }),
     creaseAngle: 0,
-    stroke: 'ink',
-    hatch: { spacing: mm(1.8), angle: 35, stroke: 'shade' },
+    pen: 'ink',
+    hatch: { spacing: mm(1.8), angle: 35, pen: 'shade' },
   });
 });
 ```
@@ -672,7 +672,7 @@ export default sketch({ seed: 42, pens: {
     });
   return view(sheet, {
     camera: orthographic({ eye: [5, 7, 5], target: [0, 0, 0], span: 6 }),
-    stroke: 'ink',
+    pen: 'ink',
   });
 });
 ```
@@ -691,6 +691,12 @@ edge selections have `.points`, `.edges` (themselves), `.faces()`, plus
 `.adjacent()`, `.connected()` and `.components()`. Filtering, grouping and set
 operations preserve these capabilities. Row fields retain attributes across
 every relation.
+
+Distance is a different question from topology. `points.near(p, { radius })`
+and `edges.near(p, { radius })` give the members closer than `radius` to `p`
+(a row, a triple or `{ x, y, z }`), the edges by the true distance to each
+edge, as the 2D words do. A point is never near to itself. A face's middle is
+`centroid`, the 2D face word; an edge's is `center`, as in 2D.
 
 `.adjacent()` collects one-hop neighbors and LEAVES THE MEMBERS OUT, so it is
 the ring around a selection; `sel.union(sel.adjacent())` is the selection grown
@@ -758,7 +764,7 @@ export default sketch({ seed: 42, pens: {
     .rotate(axisAngle('z', 4)).translate([0, 0, -0.12]);
   return view([base, fins], {
     camera: orthographic({ eye: [5, 7, 5], target: [0, 0, 0.3], span: 6.2 }),
-    stroke: 'ink',
+    pen: 'ink',
   });
 });
 ```
@@ -820,7 +826,7 @@ export default sketch({ seed: 42, pens: {
 } }, () => {
   const sheet = plane(4, 4).subdivide(3)
     .cornerAttributes({
-      heat: c => Math.max(0, 1 - Math.hypot(c.face.center[0] + 0.7, c.point.y) / 2),
+      heat: c => Math.max(0, 1 - Math.hypot(c.face.centroid[0] + 0.7, c.point.y) / 2),
     })
     .steps(4, (current, next) => {
       next.setCorners(current.corners, c => ({
@@ -832,8 +838,8 @@ export default sketch({ seed: 42, pens: {
     .displace(p => [0, 0, meanBy(p.corners, c => c.heat)]);
   return view(sheet, {
     camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.3], span: 5.5 }),
-    stroke: 'ink',
-    hatch: { spacing: mm(1.5), angle: 35, stroke: 'warm', select: f => f.heat > 0.3 },
+    pen: 'ink',
+    hatch: { spacing: mm(1.5), angle: 35, pen: 'warm', select: f => f.heat > 0.3 },
   });
 });
 ```
@@ -909,7 +915,7 @@ export default sketch({ seed: 42, pens: {
     bent.translate([1.6, 0, 0]), bentPins.translate([1.6, 0, 0]),
   ], {
     camera: orthographic({ eye: [5, 9, 8], target: [0, 0, 0.2], span: 7.2 }),
-    stroke: 'ink',
+    pen: 'ink',
   });
 });
 ```
@@ -1004,7 +1010,7 @@ export default sketchAsync({ seed: 42, pens: {
   return [
     view([block, tower, markers], {
       camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.4], span: 4.6 }),
-      stroke: 'ink',
+      pen: 'ink',
     }),
     label('FOLLOW / THE SEAM', 8, 94, 4, { stroke: 'ink' }),
   ];
@@ -1173,7 +1179,7 @@ export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#1
   const stripes = t.times(16, (_, u) => curve([[0, u], [1, u]], { closed: false }));
   const marks = mapSurface(sheet, stripes);
   return [
-    view([sheet, marks], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), stroke: 'ink' }),
+    view([sheet, marks], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), pen: 'ink' }),
     label('MAPPED STRIPES', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1270,10 +1276,10 @@ export default sketchAsync({ seed: 42, pens: {
   const ball = sphere(1.6, { segments: 32, rings: 16 });
   const height = gradient(s => s.position[2]);
   const sun = light({ direction: [-1, -2, 2], ambient: 0.1, ramp: 'smooth' });
-  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: s => 0.25 + 0.75 * sun(s), stroke: 'warm' });
-  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6), stroke: 'cool' });
+  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: s => 0.25 + 0.75 * sun(s), pen: 'warm' });
+  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6), pen: 'cool' });
   return [
-    view([ball, meridians, parallels], { camera: perspective({ eye: [4, -6, 3], target: [0, 0, 0], fovDegrees: 36 }), stroke: 'ink' }),
+    view([ball, meridians, parallels], { camera: perspective({ eye: [4, -6, 3], target: [0, 0, 0], fovDegrees: 36 }), pen: 'ink' }),
     label('GRADIENT / ACROSS / LIGHT', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1290,7 +1296,7 @@ camera. Options:
 
 - `direction`: a vector or direction field; `spacing`: surface distance between
   neighbouring lines in model/world units (not chart units, not paper).
-- `tone`: 0..1 constant or field (default 1); `stroke`: a pen name recorded on
+- `tone`: 0..1 constant or field (default 1); `pen`: a pen name recorded on
   the lines so `view`'s default drawing uses it.
 - `step` (default spacing / 2), `maxLength` and `maxSteps` per direction from a
   seed, `seeds` random restarts per surface, `maxTraces`, `maxSegments`,
@@ -1336,7 +1342,7 @@ export default sketchAsync({
     tone: s => 0.3 + 0.7 * (1 - Math.max(0, s.normal[2])),
   });
   return [
-    view([model, marks], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), stroke: 'ink' }),
+    view([model, marks], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), pen: 'ink' }),
     label('TONAL HATCH', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1359,10 +1365,10 @@ export default sketchAsync({ seed: 42, pens: {
   const relief = plane(5, 4).subdivide(4)
     .displace(p => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1) + 0.15 * t.noise(p.x, p.y)]);
   const sun = light({ direction: [-2, 1, 3], ambient: 0.05 });
-  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun, stroke: 'shade' });
-  const cross = await t.hatch(relief, { spacing: 0.12, direction: across(curvature('max')), tone: s => Math.max(0, 2 * sun(s) - 1), stroke: 'cross' });
+  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun, pen: 'shade' });
+  const cross = await t.hatch(relief, { spacing: 0.12, direction: across(curvature('max')), tone: s => Math.max(0, 2 * sun(s) - 1), pen: 'cross' });
   return [
-    view([relief, form, cross], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), stroke: 'ink' }),
+    view([relief, form, cross], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), pen: 'ink' }),
     label('CURVATURE / CROSSHATCH', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1380,7 +1386,7 @@ export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2), color:
   const ivy = t.image('ivy.png').surface({ channel: 'dark', area: 0.01 });
   const marks = await t.hatch(sheet, { direction: [1, 0.35, 0], spacing: 0.07, tone: ivy });
   return [
-    view([sheet, marks], { camera: orthographic({ eye: [1, -6, 7], target: [0, 0, 0], span: 6.5 }), stroke: 'ink' }),
+    view([sheet, marks], { camera: orthographic({ eye: [1, -6, 7], target: [0, 0, 0], span: 6.5 }), pen: 'ink' }),
     label('IMAGE TONE', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1401,7 +1407,7 @@ corner's `uv` and `chart`, so `p => p.z` and `c => c.uv[1]` (a cross-contour of
 the stored coordinates) both read naturally. Values interpolate linearly inside
 each represented triangle, so a nonlinear field is only as accurate as the
 mesh. Levels are `{ count }` evenly inside the range, `{ spacing, offset? }`,
-or an explicit `{ levels: [...] }` array.
+or an explicit `[...]` array.
 Edges carry `level` and `levelIndex`. Seams keep their own chains; a level
 through a vertex passes through it once. Silhouettes remain view features;
 these are reusable model data.
@@ -1417,7 +1423,7 @@ export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#1
   const tube = cylinder(0.6, 2.2, { segments: 24 }).translate([2.6, 0, 1.1]);
   const rings = isolines(tube, c => c.chart === 'side' ? c.uv[1] : -1, { count: 8 });
   return [
-    view([relief, heights, tube, rings], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), stroke: 'ink' }),
+    view([relief, heights, tube, rings], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), pen: 'ink' }),
     label('ISOLINES / CROSS-CONTOURS', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1430,7 +1436,7 @@ region. Each connected component of the selection becomes a translated cap
 that keeps its face and corner IDs, attributes and UVs, and every region
 boundary edge (open sheet edges and hole loops included) grows one wall.
 `offset` is a model vector, a callback over the frozen region (`index`,
-`faces`, `normal`, `center`, `area`), or `{ distance }` along the region's
+`faces`, `normal`, `centroid`, `area`), or `{ distance }` along the region's
 area-weighted mean normal, which is refused when the region's faces cancel.
 Zero vectors and boundary-free closed shells are errors, not silent geometry;
 self-intersecting results are not repaired. Independent per-face extrusion
@@ -1452,7 +1458,7 @@ export default sketchAsync({ seed: 42, pens: {
   shade: pen({ width: mm(0.18), color: '#56626A' }),
 } }, async t => {
   const sheet = plane(4, 4).subdivide(3)
-    .faceAttributes({ heat: f => Math.exp(-3 * (f.center[0] ** 2 + f.center[1] ** 2)) })
+    .faceAttributes({ heat: f => Math.exp(-3 * (f.centroid[0] ** 2 + f.centroid[1] ** 2)) })
     .steps(4, (current, next) => {
       next.setFaces(current.faces, f => ({
         heat: 0.5 * f.heat + 0.5 * meanBy(f.adjacent, a => a.heat),
@@ -1461,11 +1467,11 @@ export default sketchAsync({ seed: 42, pens: {
   const warm = sheet.faces.filter(f => f.heat > 0.2);
   const model = sheet.extrude(warm, { distance: 0.7 }, { key: 'plateau' });
   const marks = await t.hatch(model, {
-    direction: s => s.tangentU, spacing: 0.1, stroke: 'shade',
+    direction: s => s.tangentU, spacing: 0.1, pen: 'shade',
     tone: light({ direction: [-1, -1, 2], ambient: 0.1 }),
   });
   return [
-    view([model, marks], { camera: orthographic({ eye: [5, 7, 6], span: 5.5 }), stroke: 'ink' }),
+    view([model, marks], { camera: orthographic({ eye: [5, 7, 6], span: 5.5 }), pen: 'ink' }),
     label('DIFFUSED / EXTRUDED', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1516,6 +1522,14 @@ export default sketch({ seed: 42, paper: paper({ width: mm(210), height: mm(148)
 });
 ```
 
+## 2D and 3D words
+
+3D says the 2D word where the meaning is the same: `pen` names a pen on every 3D option, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, a field of space takes `(x, y, z)`, and a 2D point or chain is a 3D one at z = 0. Some words differ because the meaning differs:
+
+- `circle(radius)` in 3D is a profile at the origin; the 2D `circle(x, y, r)` is a shape. Import one of them with another name when a sketch uses both: `import { circle as circle2 } from 'occlude'`.
+- A mesh step moves points and writes columns. The topology changes between steps, with `subdivide`, `extrude` and the booleans, because a mesh's faces must stay closed polygons.
+- A surface field reads a row (`s.normal`, `p.z`), so it is the sibling of a 2D attribute field, not of a 2D field of the plane.
+
 ## Advanced: explicit scenes and stages
 
 This section exposes `lineArt3` and its explicit stages for advanced work. Ordinary sketches use `view` and the values above; the same renderer, cameras and pens are underneath. The camera projects geometry into the sketch's drawable frame.
@@ -1540,6 +1554,8 @@ export default sketch({
   label('CROSSING BOXES', 8, 94, 4),
 ]);
 ```
+
+The explicit stage is its own vocabulary for renderer work, and it takes the ordinary values where the two meet: an object's `surface` can be a mesh from `occlude/3d` (`{ id: 'm', surface: box(1) }`), `view` draws a `Surface3` from `box3` or `surface3` as a mesh, and the rows of `PointSelection3` answer `x`, `y` and `z` as mesh rows do. An ordinary sketch does not need the stage.
 
 `surface3(positions, polygons)` constructs a polygon surface. `box3(size, center)` is an editable box factory. A scene captures its input geometry when `lineArt3` is called; later edits to the original surface do not change that drawing. IDs must be unique across objects and wires. Set `lineSource: false` to keep an object only as an occluder, or `occluder: false` to draw its lines without hiding other geometry.
 

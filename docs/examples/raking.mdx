@@ -9,7 +9,7 @@ Then one shader inks the result. It reads a diagonal ramp across the sheet and t
 
 This is why a shader runs where it does. It sees the strokes the engine has already resolved. It works the same on a flat drawing and on a solid one. The same program would light a set of circles.
 
-Uses: `plane`, `sphere`, `instanceOnPoints`, `t.scatter` on a mesh, `view` with `stroke` and `hatch`, `t.plan({ shader })` with `dash` and `keep`.
+Uses: `plane`, `sphere`, `instanceOnPoints`, `t.scatter` on a mesh, `view` with `pen` and `hatch`, `t.plan({ shader })` with `dash` and `keep`.
 
 :::note
 A shader never reveals what a shape hid. It removes ink and it re-inks ink, and the removal happens after the view has already decided what is visible. Fading a line out does not show the sphere behind it.
@@ -40,8 +40,8 @@ export default sketch({
   });
   return view([ground, stones], {
     camera: orthographic({ eye: [7, 9, 7], target: [0, 0, 0.5], span: 12 }),
-    stroke: 'ink',
-    hatch: { spacing: mm(1.4), angle: 40, stroke: 'fine' },
+    pen: 'ink',
+    hatch: { spacing: mm(1.4), angle: 40, pen: 'fine' },
   });
 });
 ```

@@ -21,7 +21,7 @@ describe('owned mesh topology relationships',()=>{
     expect('faces' in pointCloud([[0,0,0]]).points).toBe(false);
   });
   it('preserves relationship capabilities through selection algebra and groups',()=>{
-    const model=plane(2).subdivide(1).faceAttribute('group',f=>f.center[0]<0?'left':'right');
+    const model=plane(2).subdivide(1).faceAttribute('group',f=>f.centroid[0]<0?'left':'right');
     const left=model.faces.filter(f=>f.group==='left');
     expect(left.length).toBe(2);expect(left.points.length).toBe(6);expect(left.edges.length).toBe(7);expect(left.boundaryEdges().length).toBe(6);
     expect(left.complement().union(left).connected().length).toBe(4);

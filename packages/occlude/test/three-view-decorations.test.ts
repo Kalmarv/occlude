@@ -15,9 +15,9 @@ const snapshot=(scene:ReturnType<typeof view>['scene'],cameraOverride:ReturnType
 it('captures typed hatch fields once per eligible face, independently of camera and caller mutations',async()=>{
  const geometry=box(2).faceAttribute('spacing',f=>f.index+3);
  let selects=0,fields=0,models=0;
- const families:ViewHatch<{spacing:number}>[]=[{key:'one',select:f=>{selects++;return f.normal[2]>0;},spacing:f=>{fields++;expectTypeOf(f.spacing).toEqualTypeOf<number>();return mm(f.spacing);},angle:f=>f.spacing*5,stroke:'shade'}, {key:'two',select:f=>f.normal[2]>0,spacing:mm(8),angle:-35,stroke:'section'}];
+ const families:ViewHatch<{spacing:number}>[]=[{key:'one',select:f=>{selects++;return f.normal[2]>0;},spacing:f=>{fields++;expectTypeOf(f.spacing).toEqualTypeOf<number>();return mm(f.spacing);},angle:f=>f.spacing*5,pen:'shade'}, {key:'two',select:f=>f.normal[2]>0,spacing:mm(8),angle:-35,pen:'section'}];
  const planeOrigin:[number,number,number]=[0,0,0];
- const drawing=view(geometry,{camera,hatch:families,sections:[{origin:planeOrigin,normal:[0,0,1],stroke:'section'}]});
+ const drawing=view(geometry,{camera,hatch:families,sections:[{origin:planeOrigin,normal:[0,0,1],pen:'section'}]});
  families[1]={spacing:mm(100)};planeOrigin[2]=100;
  expect(selects).toBe(6);expect(fields).toBe(1);
  const object=drawing.scene.objects[0];expect(object.surface).toBe(geometry.surface);expect(object.hatch!.surface).toBe(object.surface);expect(object.curves!.surface).toBe(object.surface);

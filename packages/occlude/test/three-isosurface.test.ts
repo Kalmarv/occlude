@@ -106,7 +106,7 @@ describe('isosurface, the field made a mesh',()=>{
  });
  it('goes through view and draws',async()=>{
   const solid=isosurface(sdf3.blend(sdf3.sphere(.9,[-.5,0,0]),sdf3.sphere(.9,[.5,0,0]),.4),{bounds:[[-1.8,-1.2,-1.2],[1.8,1.2,1.2]],step:3.6/24});
-  const drawing=view(solid,{camera:orthographic({eye:[5,7,6],span:5}),stroke:'ink',creaseAngle:180});
+  const drawing=view(solid,{camera:orthographic({eye:[5,7,6],span:5}),pen:'ink',creaseAngle:180});
   expect(drawing.scene.objects.length).toBe(1);
   const execution=await compileSketchAsync(sketch({seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'})}},()=>drawing));
   expect(render(execution).raw.frags.length).toBeGreaterThan(0);

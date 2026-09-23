@@ -26,8 +26,8 @@ it('is a perspective camera when nothing is shifted',()=>{
 
 it('draws the same ink as perspective when nothing is shifted',async()=>{
   const subject=box([2,1,8]).translate([0,0,4]);
-  const straight=await compileSketchAsync(sketch(config,()=>view(subject,{camera:perspective({...level}),stroke:'ink'})));
-  const same=await compileSketchAsync(sketch(config,()=>view(subject,{camera:oblique({...level,shift:[0,0]}),stroke:'ink'})));
+  const straight=await compileSketchAsync(sketch(config,()=>view(subject,{camera:perspective({...level}),pen:'ink'})));
+  const same=await compileSketchAsync(sketch(config,()=>view(subject,{camera:oblique({...level,shift:[0,0]}),pen:'ink'})));
   expect(render(straight).raw.frags.length).toBeGreaterThan(0);
   expect(render(same).raw.prims).toEqual(render(straight).raw.prims);
   expect(render(same).raw.frags).toEqual(render(straight).raw.frags);
@@ -68,7 +68,7 @@ it('holds its own shift and refuses one it cannot use',()=>{
 it('still hides what stands behind', async()=>{
   const front=box(2).translate([0,0,1]),back=box(2).translate([0,4,1]);
   let hidden=0,visible=0;
-  const drawing=view([front,back],{camera:oblique({eye:[0,-12,1],target:[0,0,1],fovDegrees:45,shift:[0,.3]}),stroke:'ink'},lines=>{
+  const drawing=view([front,back],{camera:oblique({eye:[0,-12,1],target:[0,0,1],fovDegrees:45,shift:[0,.3]}),pen:'ink'},lines=>{
     hidden=lines.hidden.length;visible=lines.visible.length;return [];
   });
   await compileSketchAsync(sketch(config,()=>drawing));

@@ -73,7 +73,7 @@ describe('supported graph renderer',()=>{
   expect(next.edges.at(0)!.range).toEqual([.2,.8]);expect(next.edges.at(0)!.chainId).toBe('motif');
   expect(()=>marks.rebind(model.subdivide())).toThrow('regenerate');
   expect(()=>marks.rebind(mesh([[0,0,0],[2,0,0],[0,2,0]],[[0,1,2]]))).toThrow('lineage');
-  const drawing=view([bent,next],{camera:{...frame.camera,eye:[4,5,6]},stroke:'ink'});
+  const drawing=view([bent,next],{camera:{...frame.camera,eye:[4,5,6]},pen:'ink'});
   const run=await compileSketchAsync(sketch({pens:{ink:pen({width:mm(.3),color:'#111'})}},()=>drawing));
   const classified=[...run.scenes3.values()][0];expect(classified.features.some(f=>f.feature.flags===FeatureKind3.mapped)).toBe(true);
  });

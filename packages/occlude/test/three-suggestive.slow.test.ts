@@ -55,12 +55,12 @@ describe('suggestive contours',()=>{
   });
   it('is off until an object asks for it, and then the threshold keeps fewer',{timeout:60000},async()=>{
     const camera=frame(eye,7).camera;
-    expect(count(await drawn(view(blob(),{camera,stroke:'ink'})))).toBe(0);
-    const on=await drawn(view(style(blob(),{suggestive:{}}),{camera,stroke:'ink'}));
+    expect(count(await drawn(view(blob(),{camera,pen:'ink'})))).toBe(0);
+    const on=await drawn(view(style(blob(),{suggestive:{}}),{camera,pen:'ink'}));
     expect(count(on)).toBeGreaterThan(0);
     // The whole view can ask instead, and an object can refuse.
-    expect(count(await drawn(view(blob(),{camera,stroke:'ink',suggestive:{}})))).toBe(count(on));
-    expect(count(await drawn(view(style(blob(),{suggestive:false}),{camera,stroke:'ink',suggestive:{}})))).toBe(0);
+    expect(count(await drawn(view(blob(),{camera,pen:'ink',suggestive:{}})))).toBe(count(on));
+    expect(count(await drawn(view(style(blob(),{suggestive:false}),{camera,pen:'ink',suggestive:{}})))).toBe(0);
     const surface=blob().surface,f=frame(eye,7);
     const counts=[0,12,40,400].map(threshold=>featureSnapshot3([{id:'blob',surface,suggestive:{threshold}}],[],f).features.filter(row=>(row.flags&FeatureKind3.suggestive)!==0).length);
     expect(counts).toEqual([...counts].sort((a,b)=>b-a));
@@ -70,7 +70,7 @@ describe('suggestive contours',()=>{
   it('selects by kind and carries visible and hidden intervals',async()=>{
     const camera=frame(eye,7).camera;
     const wall=box([.2,2,2]).translate([.6,-2.2,.2]).withKey('wall');
-    const lines=projectedLines(await drawn(view([style(blob(),{suggestive:{}}),wall],{camera,stroke:'ink'})));
+    const lines=projectedLines(await drawn(view([style(blob(),{suggestive:{}}),wall],{camera,pen:'ink'})));
     expect(lines.visible.kind('suggestive').length).toBeGreaterThan(0);
     expect(lines.hidden.kind('suggestive').length).toBeGreaterThan(0);
     expect([...lines.visible.kind('suggestive')].every(row=>row.kinds.has('suggestive'))).toBe(true);

@@ -20,7 +20,7 @@ export default sketch(
     const coastline = await t.intersections(water, terrain);
     return view([water, terrain, levels, coastline], {
       camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),
-      stroke: 'ink',
+      pen: 'ink',
       creaseAngle: 180,
     });
   },

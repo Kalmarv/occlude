@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { box, circle, cone, cylinder, geodesic, mesh, parametric, plane, polyline, revolve, sphere, sweep, torus } from 'occlude/3d';
+import { box, circle, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus } from 'occlude/3d';
 import { chordMiddle, metricGap } from '../src/chord.js';
 import { euclideanSpace, spaceOf, type Space } from '../src/space.js';
 import { space } from '../src/index.js';
@@ -28,8 +28,8 @@ describe('a charted face row carries a typed chart', () => {
     cylinder: cylinder(),
     cone: cone(),
     torus: torus(),
-    revolve: revolve(polyline([[0, 0, 0], [1, 0, 0], [1, 0, 2]]), { segments: 8 }),
-    sweep: sweep(circle(0.2), polyline([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
+    revolve: revolve(curve([[0, 0, 0], [1, 0, 0], [1, 0, 2]]), { segments: 8 }),
+    sweep: sweep(circle(0.2), curve([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
   };
 
   it('types `f.chart` as a string on every factory that charts, and not on a bare mesh', () => {
