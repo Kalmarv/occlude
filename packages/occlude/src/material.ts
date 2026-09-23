@@ -33,6 +33,8 @@ import type { GroupValue, Tree } from './api.js';
 import { walkChains } from './chains.js';
 import { planarize, faces, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
+import { contourMoment } from './measure.js';
+import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
 import { numericLoops, type AreaInput } from './boundary.js';
 import { Delaunay } from 'd3-delaunay';
@@ -2137,6 +2139,100 @@ export class Material {
     });
   }
 
+  /**
+   * Every vertex scaled about `origin`: `m.scale(0.5, { origin: 'center' })`.
+   *
+   * `k` is one factor or `[kx, ky]`. The pivot is `origin` — a pair or an
+   * `{x, y}` record in this material's own coordinates — and the user
+   * origin `[0, 0]` when it is unset, as `group` reads it. `'center'` is
+   * the centre of this material's own bounds: a material has no frame, so
+   * it cannot mean the drawable's middle. `'centroid'` is the area centroid
+   * of its closed contours — area-weighted, a contour inside an odd number
+   * of others a hole, as `polygon` fills them — and the mean of its points
+   * when it has no area. A zero factor puts every vertex
+   * on the pivot. The same words as `group({ scale, rotate, translate })`,
+   * and like them a deformation of the coordinates, not a placement:
+   * `transform` is the word for an isometry. It is `map` underneath, so
+   * every id and every column carries.
+   */
+  scale(k: number | readonly [number, number], opts: { origin?: XY | 'center' | 'centroid' } = {}): Material {
+    const [kx, ky] = typeof k === 'number' ? [k, k] : [k[0], k[1]];
+    if (!Number.isFinite(kx) || !Number.isFinite(ky)) throw new Error(`m.scale: [${kx}, ${ky}] is not a scale factor`);
+    const [ox, oy] = this.pivot('m.scale', opts.origin);
+    return this.map((p) => [ox + (p.x - ox) * kx, oy + (p.y - oy) * ky]);
+  }
+
+  /**
+   * Every vertex rotated about `origin` by `degrees`, counter-clockwise, as
+   * `turn` and a group's `rotate` read them. The pivot is the one `scale`
+   * reads. It is `map` underneath, so every id and every column carries.
+   */
+  rotate(degrees: number, opts: { origin?: XY | 'center' | 'centroid' } = {}): Material {
+    if (!Number.isFinite(degrees)) throw new Error(`m.rotate: ${degrees} is not an angle`);
+    const [ox, oy] = this.pivot('m.rotate', opts.origin);
+    const a = radians(degrees);
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    return this.map((p) => {
+      const dx = p.x - ox;
+      const dy = p.y - oy;
+      return [ox + c * dx - s * dy, oy + s * dx + c * dy];
+    });
+  }
+
+  /** Every vertex moved by `by`. It is `map` underneath, so every id and
+   * every column carries. */
+  translate(by: XY): Material {
+    const dx = vx(by);
+    const dy = vy(by);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error(`m.translate: [${dx}, ${dy}] is not an offset`);
+    return this.map((p) => [p.x + dx, p.y + dy]);
+  }
+
+  /**
+   * Every vertex moved by a vector field: the material twin of the
+   * `deform` modifier. The field is read as that modifier reads it —
+   * `field(x, y)` at the vertex, in user units — and its answer is ADDED:
+   * a field is always a displacement, where `map` is always a position.
+   * It is `map` underneath, so every id and every column carries.
+   */
+  deform(field: VectorFieldFn): Material {
+    return this.map((p) => {
+      const d = field(p.x, p.y);
+      const dx = d?.[0];
+      const dy = d?.[1];
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error(`m.deform: the field at [${p.x}, ${p.y}] is [${dx}, ${dy}], which is not a displacement`);
+      return [p.x + dx, p.y + dy];
+    });
+  }
+
+  /** The pivot `scale` and `rotate` read: the user origin when unset,
+   * `'center'` this material's bounds centre, `'centroid'` its area
+   * centroid (see `scale`). An empty material pivots on the origin. */
+  private pivot(verb: string, origin: XY | 'center' | 'centroid' | undefined): Vec {
+    if (origin === undefined) return [0, 0];
+    if (origin === 'center' || origin === 'centroid') {
+      if (this.n === 0) return [0, 0];
+      if (origin === 'centroid') {
+        const c = areaCentroid(this.contours());
+        if (c) return c;
+        let mx = 0, my = 0;
+        for (let i = 0; i < this.n; i++) { mx += this.x[i]; my += this.y[i]; }
+        return [mx / this.n, my / this.n];
+      }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let i = 0; i < this.n; i++) {
+        x0 = Math.min(x0, this.x[i]); x1 = Math.max(x1, this.x[i]);
+        y0 = Math.min(y0, this.y[i]); y1 = Math.max(y1, this.y[i]);
+      }
+      return [(x0 + x1) / 2, (y0 + y1) / 2];
+    }
+    const x = vx(origin);
+    const y = vy(origin);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${verb}: origin [${x}, ${y}] is not a point`);
+    return [x, y];
+  }
+
   /** Thickness around this material's chains: an outline at the radius each
    * vertex asks for. See `ThickenOpts`. */
   thicken(opts: ThickenOpts): Material {
@@ -3643,4 +3739,38 @@ export function segmentRuns<K extends number | string>(m: Material, key: (e: Edg
     if (cur) runs.push(cur);
   }
   return runs;
+}
+
+/**
+ * The area centroid of closed contours, as `polygon` fills them: each
+ * contour's shoelace moment (`contourMoment`, the one a face's `centroid`
+ * sums), weighted by its unsigned area and subtracted when the contour
+ * lies inside an odd number of the others. A chain walk says nothing
+ * reliable about winding, so nesting, not orientation, names a hole.
+ * `undefined` when the contours enclose no area.
+ */
+function areaCentroid(contours: readonly IsoContour[]): Vec | undefined {
+  let ma = 0, mx = 0, my = 0;
+  contours.forEach((c, k) => {
+    const mo = contourMoment(c);
+    if (mo.a === 0) return;
+    const [px, py] = c.pts[0];
+    let depth = 0;
+    contours.forEach((o, j) => {
+      if (j === k) return;
+      let inside = false;
+      const pts = o.pts;
+      for (let i = 0, h = pts.length - 1; i < pts.length; h = i++) {
+        const [xi, yi] = pts[i];
+        const [xh, yh] = pts[h];
+        if ((yi > py) !== (yh > py) && px < ((xh - xi) * (py - yi)) / (yh - yi) + xi) inside = !inside;
+      }
+      if (inside) depth++;
+    });
+    const a = Math.abs(mo.a) * (depth % 2 === 0 ? 1 : -1);
+    ma += a;
+    mx += mo.cx * a;
+    my += mo.cy * a;
+  });
+  return ma !== 0 ? [mx / ma, my / ma] : undefined;
 }
