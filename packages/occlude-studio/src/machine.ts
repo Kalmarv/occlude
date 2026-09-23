@@ -75,6 +75,7 @@ export function createSession(
     driver: () => {
       if (prof().driver !== 'gcode') return ebb;
       grbl.settings = prof().machine;
+      grbl.onSettings = () => saveProfiles(profiles);
       grbl.manualPen = pens()[0];
       grbl.seatOffsetMm = settings.seatOffsetMm ?? 2;
       grbl.travelLiftMm = settings.travelLiftMm ?? 1;

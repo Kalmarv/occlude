@@ -119,13 +119,15 @@ This is a pointer, not an entry. The studio's Machine page holds the machine pro
 
 A registration mark is a point on the sheet that you can put a pen tip on by hand. Use it to align a second pen with the first pen, or a resume with the first pass. Two pens do not sit at the same place in the holder. After you home the bed again, the paper origin can move too. You cannot touch a pen tip to the paper origin, but you can touch it to a mark.
 
-The Plot panel has three buttons, in the order of the work:
+The mark goes at a corner of the sheet. A hand can find a corner with nothing on the paper. The drawn cross then shows where the sheet goes. The Plot panel has a corner select and one button:
 
-1. Mark registration. Click a point on the preview, in the drawing or outside it. Then push Mark registration. The studio keeps the point in paper millimetres with the sketch, not in the source. A sketch has one point. A new click and a second push replace it. The preview shows the point as a crosshair in the colour of the selected pen.
-2. Draw registration. Put scrap paper under the head, then push Draw registration. The machine goes to the point and draws the mark with the selected pen at the feed of that pen. The mark is a circle 25 mm across with a cross of the same span through its centre. A 5 mm tick goes from the circle along +x. The tick shows a sheet that you put back turned. Then the pen lifts and the head parks. Without a point, the button refuses and tells you why.
-3. Registration point. Use it after a pen change, before a resume or on the next day. Move the head by hand until the tip is on the drawn mark. Then push Registration point. The machine takes its position as the point. On GRBL, the studio sends `G10 L20 P1` with the coordinates of the point. On EBB, the board clears its step counters at the tip.
+1. Select the corner. Top right is the default. The studio keeps the corner with the sketch, not in the source. A sketch has one corner. The preview shows the corner as a crosshair in the colour of the selected pen.
+2. Put the tip where the corner of the sheet goes, by hand. Then push Draw registration. The machine takes its position as the corner. On GRBL, the studio sends `G10 L20 P1` with the coordinates of the corner. On EBB, the board clears its step counters at the tip. Then the machine draws the mark around the tip with the selected pen at the feed of that pen. The mark is a circle 25 mm across with a cross of the same span through its centre. A 5 mm tick goes from the circle along +x. The tick shows a sheet that you put back turned. Then the pen lifts and the head comes back over the corner. If the mark is not where the sheet must go, move the head by hand and push the button again.
+3. Put the sheet down with its corner on the centre of the cross and its edges along the arms.
 
-After step 3, Plot, Frame, Marks and Resume start from the mark. The record of an unfinished plot keeps the registration point. If the sketch has a different point, Resume refuses with `this plot was registered at (x, y); mark registration there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
+After step 2, Plot, Frame, Marks and Resume start from the corner. Use the same button after a pen change, before a resume, or on the next day. Move the head by hand until the tip is on the drawn cross. Then push Draw registration. Each pen draws its own cross on the same mark. A pen that does not sit where the last pen sat shows before the plot.
+
+The record of an unfinished plot keeps the registration point. If the sketch has a different corner, Resume refuses with `this plot was registered at (x, y); choose the corner there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
 
 ## estimatePlanMs()
 

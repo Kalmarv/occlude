@@ -18,6 +18,24 @@ import type { MachineProfile } from './store.js';
 /** A point on the sheet, paper mm. */
 export type PaperPoint = [number, number];
 
+/** A corner of the sheet: where the registration mark goes. The corner is
+ * a place a hand can find with nothing on the paper yet, and the drawn
+ * cross is then where the sheet's corner is put. */
+export type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export const CORNERS: readonly Corner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+/** Top-right by default: the sheet's top-left is the paper origin, and a
+ * mark there would need the head off the bed to draw its outer half. */
+export const DEFAULT_CORNER: Corner = 'top-right';
+export function isCorner(v: unknown): v is Corner { return typeof v === 'string' && (CORNERS as readonly string[]).includes(v); }
+/** The corner's point on a sheet, paper mm, rounded to 0.1 mm so a record
+ * and the sketch compare exactly. */
+export function cornerPoint(corner: Corner, paper: { w: number; h: number }): PaperPoint {
+  const round = (v: number): number => Math.round(v * 10) / 10;
+  const x = corner.endsWith('right') ? paper.w : 0;
+  const y = corner.startsWith('bottom') ? paper.h : 0;
+  return [round(x), round(y)];
+}
+
 /** The execution settings a plot ran under — the part of "the same plot"
  * that geometry identity does not cover: profile timing, flattening
  * tolerance, and each pen's feed and settle. Compared as one string. */
@@ -66,7 +84,7 @@ export interface PlotRecord {
 export function registrationRefusal(recorded: PaperPoint | null | undefined, current: PaperPoint | null): string | null {
   if (!recorded) return null;
   if (current && current[0] === recorded[0] && current[1] === recorded[1]) return null;
-  return `resume: this plot was registered at (${recorded[0]}, ${recorded[1]}); mark registration there, or start a new plot`;
+  return `resume: this plot was registered at (${recorded[0]}, ${recorded[1]}); choose the corner there, or start a new plot`;
 }
 
 /** One brush dab of a region repair, paper mm. */
@@ -174,11 +192,17 @@ export class Drawing {
    * is in when any of its ink lies under a blob. Combines with the
    * interval: both narrow. */
   region: RegionBlob[] | null = null;
-  /** The registration point: a point on the sheet that a pen tip can be
+  /** The registration corner: the corner of the sheet that a pen tip is
    * put on by hand, which every pass, pen and resume lines up on. Studio
    * state on the sketch, like the repair — never source. Kept across
    * re-renders; the host loads and saves it with the sketch's name. */
-  registration: PaperPoint | null = null;
+  registrationCorner: Corner = DEFAULT_CORNER;
+  /** The registration point: the corner on the current plan's sheet, paper
+   * mm; null before a plan. */
+  get registration(): PaperPoint | null {
+    const paper = this.plan?.settings.paper;
+    return paper ? cornerPoint(this.registrationCorner, paper) : null;
+  }
   private flat = new Map<string, Promise<FlatChain[]>>();
   private listeners: (() => void)[] = [];
   private registrationListeners: (() => void)[] = [];
@@ -311,12 +335,10 @@ export class Drawing {
     this.registrationListeners.push(fn);
   }
 
-  /** Set (or clear) the registration point, paper mm. One per sketch: a
-   * second one replaces the first. Rounded to 0.1 mm, finer than a hand
-   * sets a tip, so a record and the sketch compare exactly. */
-  setRegistration(point: readonly [number, number] | null): void {
-    const round = (v: number): number => Math.round(v * 10) / 10;
-    this.registration = point ? [round(point[0]), round(point[1])] : null;
+  /** Choose the registration corner. One per sketch: a second choice
+   * replaces the first. */
+  setRegistrationCorner(corner: Corner): void {
+    this.registrationCorner = corner;
     for (const fn of this.registrationListeners) fn();
   }
 

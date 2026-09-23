@@ -69,6 +69,13 @@ export interface MachineSettings {
    * the move completes, so 0; a servo needs its settle (the pens' penDelay
    * applies when this is unset). */
   penSettleMs?: number;
+  /** The board's own step idle delay (GRBL `$1`, ms), remembered the first
+   * time the driver reads it as something other than 255. A plot locks
+   * the motors with 255 for its duration; this is what every exit puts
+   * back, and what a connect restores when a plot died without doing so
+   * (`$1` lives in the board's EEPROM, so the lock would otherwise
+   * outlive the plot, the session and a power cycle). */
+  idleDelay?: number;
 }
 
 export interface EbbSettings {

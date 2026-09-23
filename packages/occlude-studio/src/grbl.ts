@@ -129,6 +129,9 @@ export class Grbl {
   grblSettings = new Map<number, number>();
   /** The profile's machine settings; the session assigns them before use. */
   settings: MachineSettings = { bedW: 300, bedH: 218, travelFeed: 6000, zMode: true, arcSupport: false, resolution: 0.2 };
+  /** Called when the driver writes a fact it learned from the board into
+   * `settings` (the board's own idle delay), so the host persists it. */
+  onSettings?: () => void;
   /** The pen manual pen up/down uses when no plot is running. */
   manualPen: PenDef | undefined;
   /** Seat offset, mm above full pen-down: where the carriage sits while a
@@ -187,6 +190,7 @@ export class Grbl {
     this.version = info.find((l) => l.startsWith('[VER:'))?.slice(5).replace(/\]$/, '') || this.banner || 'grbl';
     this.optFlags = info.find((l) => l.startsWith('[OPT:'))?.slice(5).split(',')[0] ?? '';
     await this.readSettings().catch(() => undefined);
+    await this.restoreIdleDelay();
     await this.status().catch(() => null);
     // Start from a known pen: a soft reset drops the motors, the spring
     // lifts the pen to its rest, and the height is declared there. Whatever
@@ -374,6 +378,30 @@ export class Grbl {
     }
     if (next.size) this.grblSettings = next;
     return this.grblSettings;
+  }
+
+  /** The board's own step idle delay is remembered in the profile the first
+   * time it is read as something other than 255 — the plot's lock value.
+   * A board reading 255 while the profile remembers another value was left
+   * locked by a plot that did not end (the setting is in EEPROM), so the
+   * remembered value goes back now; the motors are free again once the
+   * next move ends. */
+  private async restoreIdleDelay(): Promise<void> {
+    const read = this.grblSettings.get(1);
+    if (read === undefined) return;
+    const own = this.settings.idleDelay;
+    if (read !== 255) {
+      if (own !== read) { this.settings.idleDelay = read; this.onSettings?.(); }
+      return;
+    }
+    if (own === undefined || own === 255) return;
+    this.logLine('<', `(the motors were left locked by a plot that did not end — the board's own idle delay ${own} is put back)`);
+    try {
+      await this.send(`$1=${own}`);
+      this.grblSettings.set(1, own);
+    } catch (e) {
+      this.logLine('<', `(idle delay not restored: ${e instanceof Error ? e.message : String(e)})`);
+    }
   }
 
   /** Real-time status report, parsed. */
@@ -624,12 +652,35 @@ export class Grbl {
     });
   }
 
-  /** Draw the registration mark at a paper point with this pen, at its own
-   * feed: pen down only on the mark, then the lift and park every plot
-   * ends with. */
-  drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions, onProgress: (p: PlotProgress) => void = () => undefined): Promise<void> {
-    const d = registrationMark(point, pen);
-    return this.plot(d.plan, d.pens, o, onProgress);
+  /** "The tip stands at the registration point": declare the head there
+   * (`registerAt`), then draw the mark around it with this pen at its own
+   * feed — pen down only on the mark's strokes — lift, and come back over
+   * the point, so the mark can be judged against the sheet and the head
+   * nudged by hand and the mark drawn again. Not a plot: no record, no
+   * lock, no park. */
+  async drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions): Promise<void> {
+    await this.registerAt(point);
+    const { plan } = registrationMark(point, pen);
+    await this.manual(async () => {
+      const travelFeed = this.clampFeed(o.travelFeed || this.settings.travelFeed);
+      await this.send('G21 G90 G54');
+      await this.liftNow();
+      for (let i = 0; i < plan.length;) {
+        i += 2; // the pen index and the dot flag: one pen, no dots
+        const n = plan[i++];
+        const pts = plan.subarray(i, i + n * 2);
+        i += n * 2;
+        await this.send(this.travel([pts[0], pts[1]], travelFeed));
+        for (const l of this.penDownLines(pen)) await this.send(l);
+        this.penIsUp = false;
+        for (let k = 2; k < pts.length; k += 2) await this.send(this.g1([pts[k], pts[k + 1]], pen.feed ?? 1000));
+        for (const l of this.penUpLines(pen)) await this.send(l);
+        this.penIsUp = true;
+      }
+      await this.send(this.travel([point[0], point[1]], travelFeed));
+      await this.waitIdle();
+      this.wpos = [point[0], point[1]];
+    });
   }
 
   /** Run the homing cycle and make the switch corner the bed origin. With
@@ -799,13 +850,16 @@ export class Grbl {
       return true;
     };
     // The plot owns the motors: locked for its duration (the vendor's own
-    // software does the same), back to the board's own idle delay after.
-    const idleDelay = this.grblSettings.get(1);
+    // software does the same), back to the board's own idle delay after —
+    // on every exit, since the setting is in the board's EEPROM and would
+    // outlive a plot that died.
+    const idleDelay = this.settings.idleDelay ?? this.grblSettings.get(1);
     const lockMotors = idleDelay !== undefined && idleDelay !== 255;
+    let locked = false;
 
     try {
       await this.send('G21 G90 G54');
-      if (lockMotors) await this.send('$1=255');
+      if (lockMotors) { await this.send('$1=255'); locked = true; }
       // Raise before anything moves, whatever the tracker says.
       for (const l of this.penUpLines(penOf(chains[first]?.pen ?? 0))) await this.send(l);
       this.penIsUp = true;
@@ -875,7 +929,7 @@ export class Grbl {
         // release when a motion ends, so restoring it after the machine has
         // already stopped would leave the motors locked until the next move.
         await this.waitIdle();
-        if (lockMotors) await this.send(`$1=${idleDelay}`);
+        if (locked) { await this.send(`$1=${idleDelay}`); locked = false; }
         await this.send(this.travel([0, 0], travelFeed));
         await this.waitIdle();
         this.wpos = [0, 0];
@@ -885,8 +939,9 @@ export class Grbl {
         // A stop ends in a reset with nothing moving: restore the delay and
         // make one tiny pen move so the release timer runs.
         await this.flush?.catch(() => undefined);
-        if (lockMotors) {
+        if (locked) {
           await this.send(`$1=${idleDelay}`).catch(() => undefined);
+          locked = false;
           if (this.settings.zMode) for (const l of ['G91 G0 Z0.050', 'G91 G0 Z-0.050', 'G90']) await this.send(l).catch(() => undefined);
         }
         report('stopped', true);
@@ -894,6 +949,15 @@ export class Grbl {
     } finally {
       this.plotting = false;
       this.plotPause = false;
+      if (locked) {
+        // The plot died with the lock on: put the board's own delay back
+        // while the link may still answer, briefly — a dead link gets the
+        // restore at the next connect instead.
+        await this.waitIdle(3000).catch(() => undefined);
+        await this.send(`$1=${idleDelay}`, 3000).catch((e: unknown) => {
+          this.logLine('<', `(idle delay not restored after the plot failed: ${e instanceof Error ? e.message : String(e)})`);
+        });
+      }
     }
   }
 }

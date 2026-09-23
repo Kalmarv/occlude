@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decodePlanBuffer, makePlan, encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain, type PlanChain, type PlanSettings } from 'occlude';
-import { Drawing, chainsFingerprint, chainsUnder, registrationRefusal } from './drawing.js';
+import { Drawing, chainsFingerprint, chainsUnder, cornerPoint, registrationRefusal } from './drawing.js';
 import type { RenderClient } from './workerClient.js';
 
 const settings: PlanSettings = { tourBudget: 1, pens: [{ name: 'a', width: 0.3 }], paper: { w: 100, h: 50 }, bridgeGapMm: [0.15] };
@@ -279,40 +279,57 @@ it('a rejected obsolete request cannot evict its replacement after retiming', as
 });
 
 describe('registration', () => {
+  it('a corner is a point on the sheet, top-right by default', () => {
+    const paper = { w: 210, h: 297.04 };
+    expect(cornerPoint('top-left', paper)).toEqual([0, 0]);
+    expect(cornerPoint('top-right', paper)).toEqual([210, 0]);
+    expect(cornerPoint('bottom-left', paper)).toEqual([0, 297]); // 0.1 mm, as a hand sets a tip
+    expect(cornerPoint('bottom-right', paper)).toEqual([210, 297]);
+  });
+
   it('the plot record carries the registration point beside the executed set', async () => {
     const cs = chains(10);
     const buf = encodePlanBuffer(cs);
     const hash = await hashPlan(buf, settings);
     const d = new Drawing(mockClient(cs, hash, []), timing);
+    expect(d.registration).toBeNull(); // no sheet yet
     await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
-    expect(d.recordFields().registration).toBeNull();
+    const { w, h } = settings.paper;
+    expect(d.registrationCorner).toBe('top-right');
+    expect(d.registration).toEqual([w, 0]);
     let heard = 0;
     d.onRegistrationChange(() => { heard += 1; });
-    d.setRegistration([37.2841, 12.06]); // a click, kept to 0.1 mm
+    d.setRegistrationCorner('bottom-left');
     expect(heard).toBe(1);
     const rec = d.recordFields();
-    expect(rec.registration).toEqual([37.3, 12.1]);
+    expect(rec.registration).toEqual([0, h]);
     expect(rec.executed).toBe(d.plotFingerprint());
     expect(rec.planHash).toBe(hash);
-    // A copy, not the drawing's own point: a later mark does not rewrite the record.
-    d.setRegistration([80, 20]);
-    expect(rec.registration).toEqual([37.3, 12.1]);
-    // One point per sketch: the second replaced the first; it survives a new render.
+    // A copy, not the drawing's own point: a later corner does not rewrite the record.
+    d.setRegistrationCorner('top-left');
+    expect(rec.registration).toEqual([0, h]);
+    // One corner per sketch: the second replaced the first; it survives a new render.
     await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
-    expect(d.registration).toEqual([80, 20]);
+    expect(d.registration).toEqual([0, 0]);
   });
 
-  it('a resume registered elsewhere, or no longer registered, is refused by name', () => {
-    const d = new Drawing(mockClient([], '', []), timing);
-    const record = { registration: [37.3, 12.1] as [number, number] };
-    const refusal = 'resume: this plot was registered at (37.3, 12.1); mark registration there, or start a new plot';
+  it('a resume registered elsewhere is refused by name', async () => {
+    const cs = chains(10);
+    const buf = encodePlanBuffer(cs);
+    const hash = await hashPlan(buf, settings);
+    const d = new Drawing(mockClient(cs, hash, []), timing);
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
+    const { w, h } = settings.paper;
+    const record = { registration: [0, h] as [number, number] };
+    const refusal = `resume: this plot was registered at (0, ${h}); choose the corner there, or start a new plot`;
     expect(() => d.checkRegistration(record)).toThrow(refusal);
-    d.setRegistration([40, 12.1]);
+    d.setRegistrationCorner('bottom-right');
     expect(() => d.checkRegistration(record)).toThrow(refusal);
-    d.setRegistration([37.3, 12.1]);
+    d.setRegistrationCorner('bottom-left');
     expect(() => d.checkRegistration(record)).not.toThrow();
     // A record from the paper origin (or older than registration) says nothing about the frame.
-    expect(registrationRefusal(null, [37.3, 12.1])).toBeNull();
+    expect(registrationRefusal(null, [w, 0])).toBeNull();
     expect(registrationRefusal(undefined, null)).toBeNull();
   });
 });
+

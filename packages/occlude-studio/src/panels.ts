@@ -19,7 +19,8 @@ import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import {
   executionKey, machineTiming, machineTolerance, penTimingOf,
-  type Drawing, type ExecutionSettings, type PaperPoint, type PlotRecord, type RegionBlob,
+  type Corner, CORNERS, DEFAULT_CORNER, isCorner,
+  type Drawing, type ExecutionSettings, type PlotRecord, type RegionBlob,
 } from './drawing.js';
 import { registrationMarks } from './diagnostics.js';
 import { freeze } from './freeze.js';
@@ -86,13 +87,9 @@ export interface PanelHooks {
     progress(chain: number): void;
     end(): void;
   };
-  /** The registration point on the preview: the last click on the sheet
-   * (what Mark registration takes), the crosshair at the marked point, and
-   * whether the pending click is shown (the Plot rail). */
+  /** The registration crosshair on the preview, at the corner in the pen's colour. */
   registration: {
-    pick(): PaperPoint | null;
     show(mark: { x: number; y: number; color: string } | null): void;
-    picking(on: boolean): void;
   };
   /** The region brush over the preview and its blob overlay. */
   brush: {
@@ -126,7 +123,6 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
     compose.hidden = mode !== 'compose';
     plot.hidden = mode !== 'plot';
     rail.dataset.mode = mode;
-    hooks.registration.picking(mode === 'plot');
     ui.railMode = mode;
     saveUi(ui);
   };
@@ -902,7 +898,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       `Unfinished: ${saved.sketch}${from}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
       (saved.sourceChain !== null ? ` (plan row ${saved.sourceChain})` : '') +
       (saved.registration
-        ? `, registered at (${saved.registration[0]}, ${saved.registration[1]}). After a power loss, stand the tip on the drawn mark and press Registration point first.`
+        ? `, registered at (${saved.registration[0]}, ${saved.registration[1]}). After a power loss, stand the tip on the drawn mark and press Draw registration first.`
         : `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. After a power loss, re-park at the bed corner and Set bed origin first.`);
   };
   const putProgress = (p: SavedPlot): void => {
@@ -1115,74 +1111,65 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const raw = parseInt(penSelect.value, 10);
     return (raw >= 0 ? pens[raw] : undefined) ?? pens[0];
   };
+  const cornerName = (c: Corner): string => c.replace('-', ' ');
   const showRegistration = (): void => {
     const p = d.registration;
     hooks.registration.show(p ? { x: p[0], y: p[1], color: selectedPen()?.color ?? '#000' } : null);
+    cornerSel.value = d.registrationCorner;
     const here = dr().registeredAt;
     regText.textContent = !p
-      ? 'No registration point: click the preview, then Mark registration.'
-      : `Registration at (${p[0]}, ${p[1]}) mm` +
+      ? 'Registration: render the sketch first — the mark goes at a corner of its sheet.'
+      : `Registration at the ${cornerName(d.registrationCorner)} corner, (${p[0]}, ${p[1]}) mm` +
         (here && here[0] === p[0] && here[1] === p[1] ? ' · the machine stands in this frame' : '');
   };
-  // One point per sketch, loaded when a render of another sketch lands.
+  // One corner per sketch, loaded when a render of another sketch lands.
   let regFor: string | null = null;
   const followSketch = (): void => {
     const name = hooks.currentName();
     if (name === regFor) return;
     regFor = name;
-    d.setRegistration(null);
+    d.setRegistrationCorner(DEFAULT_CORNER);
     if (!name) return;
     void loadStudioState(name)
-      .then((st) => { if (regFor === name) d.setRegistration(st.registration ?? null); })
+      .then((st) => { if (regFor === name) d.setRegistrationCorner(isCorner(st.registration) ? st.registration : DEFAULT_CORNER); })
       .catch(showErr);
   };
   d.onRegistrationChange(showRegistration);
   d.onChange(() => { followSketch(); showRegistration(); });
   penSelect.addEventListener('change', showRegistration);
-  const marked = (): PaperPoint => {
-    if (!d.registration) throw new Error('no registration point: click the preview, then Mark registration');
-    return d.registration;
-  };
-  const markBtn = button('Mark registration', async () => {
-    try {
-      const name = hooks.currentName();
-      if (!name) throw new Error('mark registration: name the sketch first — the point is kept with it');
-      if (!hooks.lastResult()) throw new Error('mark registration: render the sketch first');
-      const p = hooks.registration.pick();
-      if (!p) throw new Error('mark registration: click the preview where the mark goes first');
-      d.setRegistration(p);
-      await saveStudioState(name, { registration: d.registration });
-    } catch (e) {
-      showErr(e);
-    }
+  const cornerSel = document.createElement('select');
+  for (const c of CORNERS) {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = cornerName(c);
+    cornerSel.append(opt);
+  }
+  cornerSel.value = DEFAULT_CORNER;
+  cornerSel.title = 'The corner of the sheet the registration mark is drawn at; kept with the sketch.';
+  cornerSel.addEventListener('change', () => {
+    const corner = cornerSel.value;
+    if (!isCorner(corner)) return;
+    d.setRegistrationCorner(corner);
+    const name = hooks.currentName();
+    if (name) void saveStudioState(name, { registration: corner }).catch(showErr);
   });
-  markBtn.title = 'Store the point last clicked on the preview as this sketch’s registration point; a new click and a second press replace it.';
   const drawRegBtn = button('Draw registration', async () => {
     if (!dr().connected || dr().plotting) return;
     try {
       const pen = selectedPen();
       if (!pen) throw new Error('draw registration: render the sketch first');
-      const p = marked();
-      await dr().drawRegistration(p, pen, m.opts(), onProgress);
-    } catch (e) {
-      showErr(e);
-    }
-  });
-  drawRegBtn.title = 'On scrap paper: draw the mark (a 25 mm circle, a cross, a tick toward +x) at the registration point with the selected pen, at its own feed.';
-  const regPointBtn = button('Registration point', async () => {
-    if (!dr().connected) return;
-    try {
-      const p = marked();
-      await dr().registerAt(p);
+      const p = d.registration;
+      if (!p) throw new Error('draw registration: render the sketch first — the mark goes at a corner of its sheet');
+      await dr().drawRegistration(p, pen, m.opts());
       m.frameChanged();
       showRegistration();
     } catch (e) {
       showErr(e);
     }
   });
-  regPointBtn.title = 'Move the head by hand until the tip stands on the drawn mark, then press: the machine is here, at the registration point. Plot, Frame, Marks and Resume then run from it.';
+  drawRegBtn.title = 'Stand the tip where the sheet’s corner goes (or on a drawn mark), then press: the machine is here, at the corner. It draws the mark around the tip with the selected pen (a 25 mm circle, a cross, a tick toward +x), lifts, and returns over the point. Plot, Frame, Marks and Resume then run from it.';
   const registrationBox = el('div', 'registration',
-    el('div', 'row', markBtn, drawRegBtn, regPointBtn),
+    el('div', 'row', cornerSel, drawRegBtn),
     regText,
   );
 

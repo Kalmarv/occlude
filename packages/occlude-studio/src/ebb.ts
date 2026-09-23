@@ -739,12 +739,32 @@ export class Ebb {
     this.registeredAt = [point[0], point[1]];
   }
 
-  /** Draw the registration mark at a paper point with this pen, at its own
-   * feed: pen down only on the mark, then the lift and park every plot
-   * ends with. */
-  drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions, onProgress: (p: PlotProgress) => void = () => undefined): Promise<void> {
-    const d = registrationMark(point, pen);
-    return this.plot(d.plan, d.pens, o, onProgress);
+  /** "The tip stands at the registration point": declare the head there
+   * (`registerAt`), then draw the mark around it with this pen at its own
+   * feed and settle — pen down only on the mark's strokes — lift, come
+   * back over the point and free the motors, so the mark can be judged
+   * against the sheet and the head nudged by hand and the mark drawn
+   * again. Not a plot: no record, no home, no verify. */
+  async drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions): Promise<void> {
+    await this.registerAt(point);
+    const { plan } = registrationMark(point, pen);
+    const [offX, offY] = this.paperOffset;
+    const settle = pen.penDelay ?? 300;
+    await this.penUp(settle);
+    await this.cmd('EM,1,1');
+    for (let i = 0; i < plan.length;) {
+      i += 2; // the pen index and the dot flag: one pen, no dots
+      const n = plan[i++];
+      const pts: [number, number][] = [];
+      for (let k = 0; k < n; k++) pts.push([plan[i + k * 2] + offX, plan[i + k * 2 + 1] + offY]);
+      i += n * 2;
+      await this.moveRun([pts[0]], o.travelFeed, o);
+      await this.penDown(settle);
+      await this.moveRun(pts.slice(1), pen.feed, o);
+      await this.penUp(settle);
+    }
+    await this.moveRun([[point[0] + offX, point[1] + offY]], o.travelFeed, o);
+    await this.cmd('EM,0,0'); // free for the hand: nudge, press again
   }
 
   async home(): Promise<void> {

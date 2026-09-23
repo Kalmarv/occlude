@@ -24,7 +24,10 @@ class FakeGrblPort {
    * status either). */
   dropOkOnce: string | null = null;
   dropLineOnce: string | null = null;
+  /** One command the controller refuses (error:9, locked out). */
+  errorOnce: string | null = null;
   mute = false;
+  settingsReply = '$1=254\r\n$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
   private timers: ReturnType<typeof setTimeout>[] = [];
   readonly readable = new ReadableStream<Uint8Array>({ start: (controller) => { this.input = controller; } });
   readonly writable = new WritableStream<Uint8Array>({
@@ -49,8 +52,9 @@ class FakeGrblPort {
         this.move(cmd);
         if (cmd === this.dropOkOnce) { this.dropOkOnce = null; continue; }
         let reply = 'ok\r\n';
+        if (cmd === this.errorOnce) { this.errorOnce = null; reply = 'error:9\r\n'; }
         if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
-        if (cmd === '$$') reply = '$1=254\r\n$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
+        if (cmd === '$$') reply = this.settingsReply;
         this.reply(reply, false);
       }
     },
@@ -395,6 +399,58 @@ describe('the watchdog asks the controller before it gives up', () => {
 
 });
 
+describe('the board\'s own idle delay', () => {
+  // The driver writes what it learns into the profile object it is given
+  // (that IS the persistence), so these tests hand it a profile that has
+  // not met a board yet.
+  const fresh = (extra: Partial<MachineSettings> = {}): MachineSettings => { const s = { ...h1, ...extra }; delete s.idleDelay; return { ...s, ...extra }; };
+  it('is remembered in the profile the first time it is read, and every plot exit puts it back', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    let persisted = 0;
+    g.settings = fresh();
+    g.onSettings = () => { persisted += 1; };
+    await g.connect(undefined, port as never);
+    expect(g.settings.idleDelay).toBe(254);
+    expect(persisted).toBe(1);
+    // A plot that dies mid-stroke (the controller refused a line) still
+    // restores the delay on its way out: the lock is an EEPROM setting.
+    port.errorOnce = 'G1 X80.000 Y-10.000 F3000';
+    const strokes = plan([[0, false, [10, 10, 80, 10, 80, 60]]]);
+    await expect(g.plot(strokes, [pen], opts, () => undefined)).rejects.toThrow('locked out');
+    expect(port.commands.indexOf('$1=255')).toBeGreaterThan(-1);
+    expect(port.commands.lastIndexOf('$1=254')).toBeGreaterThan(port.commands.indexOf('$1=255'));
+    expect(g.plotting).toBe(false);
+  });
+
+  it('a board left locked by a plot that did not end gets the remembered delay back on connect', async () => {
+    const port = new FakeGrblPort();
+    port.settingsReply = port.settingsReply.replace('$1=254', '$1=255');
+    const g = new Grbl();
+    g.settings = fresh({ idleDelay: 254 });
+    await g.connect(undefined, port as never);
+    expect(port.commands).toContain('$1=254');
+    expect(g.transcript()).toContain('left locked by a plot that did not end');
+    expect(g.settings.idleDelay).toBe(254);
+    // The plot then locks and releases as usual.
+    await g.plot(plan([[0, true, [30, 45]]]), [pen], opts, () => undefined);
+    expect(port.commands.filter((c) => c === '$1=255')).toHaveLength(1);
+    expect(port.commands.filter((c) => c === '$1=254')).toHaveLength(2);
+  });
+
+  it('a board that reads 255 with nothing remembered is left as it is', async () => {
+    const port = new FakeGrblPort();
+    port.settingsReply = port.settingsReply.replace('$1=254', '$1=255');
+    const g = new Grbl();
+    g.settings = fresh();
+    await g.connect(undefined, port as never);
+    expect(port.commands.some((c) => c.startsWith('$1='))).toBe(false);
+    expect(g.settings.idleDelay).toBeUndefined();
+    await g.plot(plan([[0, true, [30, 45]]]), [pen], opts, () => undefined);
+    expect(port.commands.some((c) => c.startsWith('$1='))).toBe(false);
+  });
+});
+
 describe('registration at a mark', () => {
   /** Where each XY move of the last plot put the head, in machine
    * coordinates: the work position sent plus the work offset in force. */
@@ -404,20 +460,26 @@ describe('registration at a mark', () => {
       return m ? [[Number(m[1]) + port.wco[0], Number(m[2]) + port.wco[1]] as [number, number]] : [];
     });
 
-  it('draws the mark with the pen at its feed: a circle, a cross, a tick, one landing per stroke', async () => {
+  it('declares the head at the point, draws the mark around it with the pen at its feed, and comes back over the point', async () => {
     const port = new FakeGrblPort();
+    port.pos = [123, -456, 0]; // wherever the hand put the tip
     const g = new Grbl();
     g.settings = h1;
     g.travelLiftMm = 0; // full lifts, to read the whole cycle
     await g.connect(undefined, port as never);
     await g.drawRegistration([50, 40], pen, opts);
-    const cmds = after(port, 'G21 G90 G54');
+    // First the declaration: the tip IS paper (50, 40), in the negative-Y frame.
+    const declared = port.commands.indexOf('G10 L20 P1 X50.000 Y-40.000');
+    expect(declared).toBeGreaterThan(-1);
+    expect(g.registeredAt).toEqual([50, 40]);
+    const cmds = port.commands.slice(declared + 1);
+    expect(cmds.indexOf('G21 G90 G54')).toBeGreaterThan(-1);
     // Four strokes: four landings at the pen's feed, a lift after each.
     expect(cmds.filter((c) => c === 'G1 Z10.000 F3000')).toHaveLength(4);
     expect(cmds.filter((c) => c === 'G0 Z0.000')).toHaveLength(5); // the raise before anything moves, then one per stroke
     const downs = cmds.flatMap((c, i) => (c === 'G1 Z10.000 F3000' ? [i] : []));
     const stroke = (k: number): string[] => cmds.slice(downs[k] + 2, cmds.indexOf('G0 Z0.000', downs[k])); // after the settle
-    // The circle: 25 mm across, centred on the point (negative-Y frame), closed, drawn at the pen's feed.
+    // The circle: 25 mm across, centred on the point, closed, drawn at the pen's feed.
     const circle = stroke(0);
     expect(circle).toHaveLength(72);
     for (const c of circle) {
@@ -433,8 +495,14 @@ describe('registration at a mark', () => {
     expect(stroke(2)).toEqual(['G1 X50.000 Y-52.500 F3000']);
     expect(cmds[downs[3] - 1]).toBe('G1 X62.500 Y-40.000 F12000');
     expect(stroke(3)).toEqual(['G1 X67.500 Y-40.000 F3000']);
-    // Then it lifts and parks, as every plot does.
-    expect(cmds.slice(-2)).toEqual(['$1=254', 'G1 X0.000 Y0.000 F12000']);
+    // Then it lifts and returns over the point — no lock, no park: the
+    // hand can nudge the head and the mark be drawn again.
+    expect(cmds.at(-1)).toBe('G1 X50.000 Y-40.000 F12000');
+    expect(cmds.some((c) => c.startsWith('$1='))).toBe(false);
+    expect(g.bedPosition()).toEqual([50, 40]);
+    // Physically the mark is centred where the tip stood (the fake's pos is
+    // in the work frame; the offset the declaration set puts it in machine).
+    expect([port.pos[0] + port.wco[0], port.pos[1] + port.wco[1]]).toEqual([123, -456]);
   });
 
   it('declares the head at the point with G10 L20, in the frame the driver plots in', async () => {

@@ -80,10 +80,6 @@ export class Preview {
   brush: ((x: number, y: number, phase: 'down' | 'move' | 'up') => void) | null = null;
   /** The region repair's blobs, drawn over the ink in paper mm. */
   regionBlobs: { x: number; y: number; r: number }[] | null = null;
-  /** The last click on the sheet, paper mm: the point "Mark registration"
-   * takes. Shown as a small ring while `showPick` is on (the Plot rail). */
-  pick: [number, number] | null = null;
-  showPick = false;
   /** The sketch's registration point and the pen that would draw it: a
    * crosshair over the ink, not part of the plan. */
   registration: { x: number; y: number; color: string } | null = null;
@@ -594,9 +590,7 @@ export class Preview {
       // A press that stayed put is a click; a pan is not.
       if (moved < 4 && this.result) {
         const [x, y] = this.toPaper(e.clientX, e.clientY);
-        this.pick = [x, y];
         this.onClick?.(x, y, this.scale);
-        if (this.showPick) this.draw();
       }
     });
     this.canvas.addEventListener(
@@ -619,21 +613,13 @@ export class Preview {
     );
   }
 
-  /** The registration crosshair in its pen's colour, and the pending pick
-   * as a small neutral ring; both keep a screen size at any zoom. */
+  /** The registration crosshair in its pen's colour; it keeps a screen
+   * size at any zoom. */
   private drawRegistration(ctx: CanvasRenderingContext2D): void {
     const px = 1 / this.scale;
     const reg = this.registration;
-    const pick = this.showPick ? this.pick : null;
     ctx.save();
     ctx.lineCap = 'round';
-    if (pick && !(reg && Math.hypot(pick[0] - reg.x, pick[1] - reg.y) < 0.05)) {
-      ctx.strokeStyle = 'rgba(120, 110, 95, 0.9)';
-      ctx.lineWidth = 1.25 * px;
-      ctx.beginPath();
-      ctx.arc(pick[0], pick[1], 5 * px, 0, Math.PI * 2);
-      ctx.stroke();
-    }
     if (reg) {
       const arm = 12 * px;
       ctx.strokeStyle = reg.color;

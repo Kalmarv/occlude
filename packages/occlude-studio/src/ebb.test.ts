@@ -1135,27 +1135,38 @@ describe('registration at a mark', () => {
     return { port, ebb };
   };
 
-  test('draws the mark with the pen: a circle, a cross, a tick, one landing and one lift per stroke', async () => {
+  test('declares the head at the point, draws the mark around it with the pen, and comes back over the point with the motors free', async () => {
     const { port, ebb } = await connected();
+    await ebb.jog(100, 50, direct); // wherever the head was believed to be
     const before = port.commands.length;
     await ebb.drawRegistration([50, 40], fine, direct);
     const cmds = port.commands.slice(before);
+    // First the declaration: counters zeroed under the tip, the point there.
+    expect(cmds[0]).toBe('CS');
+    expect(ebb.registeredAt).toEqual([50, 40]);
+    expect(ebb.paperOffset).toEqual([-50, -40]);
     // The pen's own settle on every landing and lift: it is this pen, not a card pen.
     expect(cmds.filter((c) => c === 'SP,0,150')).toHaveLength(4);
     const downs = cmds.flatMap((c, i) => (c === 'SP,0,150' ? [i] : []));
     for (const d of downs) expect(cmds.indexOf('SP,1,150', d)).toBeGreaterThan(d);
     for (let k = 1; k < downs.length; k++) expect(cmds.slice(downs[k - 1], downs[k]).filter((c) => c === 'SP,1,150')).toHaveLength(1);
-    // Where each stroke ends (the LM trajectory, steps at 100/mm): the
-    // circle closes where it began, the cross runs through the centre, and
-    // the tick ends 5 mm outside the circle on +x.
-    const ends = downs.map((d) => simulateLm(cmds.slice(0, cmds.indexOf('SP,1,150', d))));
+    // Where each stroke ends (the LM trajectory, steps at 100/mm, from the
+    // tip as (0, 0)): the circle closes where it began, the cross runs
+    // through the centre, and the tick ends 5 mm outside the circle on +x.
+    const motion = cmds.slice(1);
+    const ends = downs.map((d) => simulateLm(motion.slice(0, cmds.indexOf('SP,1,150', d) - 1)));
     expect(ends.every((e) => !e.stalled)).toBe(true);
-    expect([ends[0].x, ends[0].y]).toEqual([6250, 4000]);
-    expect([ends[1].x, ends[1].y]).toEqual([6250, 4000]);
-    expect([ends[2].x, ends[2].y]).toEqual([5000, 5250]);
-    expect([ends[3].x, ends[3].y]).toEqual([6750, 4000]);
-    // Then it lifts and parks as every plot does.
-    expect(cmds.slice(-2)).toEqual(['HM,2000', 'EM,0,0']);
+    expect([ends[0].x, ends[0].y]).toEqual([1250, 0]);
+    expect([ends[1].x, ends[1].y]).toEqual([1250, 0]);
+    expect([ends[2].x, ends[2].y]).toEqual([0, 1250]);
+    expect([ends[3].x, ends[3].y]).toEqual([1750, 0]);
+    // Then it lifts, returns over the point and frees the motors — no
+    // home, no park: the hand can nudge the head and the mark be drawn again.
+    const whole = simulateLm(motion.filter((c) => c !== 'EM,0,0'));
+    expect([whole.x, whole.y]).toEqual([0, 0]);
+    expect(cmds.at(-1)).toBe('EM,0,0');
+    expect(cmds).not.toContain('HM,2000');
+    expect(ebb.bedPosition(direct)).toEqual([0, 0]);
   });
 
   test('registerAt zeroes the counters under the tip and puts the point there', async () => {

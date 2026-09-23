@@ -1,4 +1,5 @@
 import { formatSeed } from 'occlude';
+import type { Corner } from './drawing.js';
 /** Client for the server-side sketch store (see vite.config.ts). */
 
 export interface SketchMeta {
@@ -36,8 +37,9 @@ export async function deleteSketchByName(name: string): Promise<void> {
 
 /** What the studio keeps with a sketch but never writes into its source. */
 export interface StudioState {
-  /** The registration point, paper mm. */
-  registration?: [number, number] | null;
+  /** The registration corner of the sheet. (Older states hold a clicked
+   * point as an array; those read as the default corner.) */
+  registration?: Corner | [number, number] | null;
 }
 
 export async function loadStudioState(name: string): Promise<StudioState> {
