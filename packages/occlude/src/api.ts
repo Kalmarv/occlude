@@ -85,7 +85,7 @@ import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { spacefill, type SpacefillOpts } from './spacefill.js';
 import { textOf, type TextOpts } from './strokeFont.js';
 import { hersheySimplex } from './fonts/hersheySimplex.js';
-import { distanceTo, type DistanceField } from './distance.js';
+import { distanceTo, distanceToPoints, type DistanceField } from './distance.js';
 import { attractIn, boundaryIn, force, separationIn, sourcePoints, vortexIn, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -317,11 +317,12 @@ export function strokes(
 ): ShapeValue[] | ProjectedStrokes {
   if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
   if (Array.isArray(source)) return (source as readonly IsoContour[]).map((c) => stroke(c, opts));
-  // A chain consumer reads `curves()`. A value that has no chains to draw —
-  // a face collection is areas, not chains — is refused by name.
+  // A chain consumer reads `curves()`: a face collection answers with its
+  // edges, each wall once. A value that has no chains to draw — one face
+  // is an area — is refused by name.
   const chains = (source as Geometry).curves;
   if (typeof chains !== 'function') {
-    throw new Error('strokes: this value has no chains to draw — a face collection is areas; draw `cells.contours()` with polygon, or its `edges` with strokes');
+    throw new Error('strokes: this value has no chains to draw — one face is an area; draw it with polygon(face), or its walls with strokes(face.edges)');
   }
   return chains.call(source).map((c) => stroke(c, opts));
 }
@@ -333,6 +334,12 @@ export interface PolygonOpts extends ShapeOpts {
    * is solid; orientation decides holes. */
   winding?: Winding;
 }
+
+/**
+ * What `polygon` says, as a type, to a face collection: it is several
+ * areas, and the sketch names which. The refusal at run time says the same.
+ */
+type FacesAreSeveralAreas = 'polygon: a face collection is several areas — polygon(cells.contours()) for their union, or cells.map((f) => polygon(f)) for each';
 
 /** Loops for any area input, in the coordinates given: a shape is lowered
  * through the one lowerer, so it agrees with what the shape itself inks; a
@@ -436,7 +443,8 @@ function pointSources(sources: Sources | ShapeValue, who: string): Sources {
  * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
  * other spelling: there the geometry's own orientation decides, as in SVG.
  */
-export function polygon(contours: AreaInput | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
+export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(area: A extends FaceSelection<unknown> ? FacesAreSeveralAreas : A, opts: PolygonOpts = {}): ShapeValue {
+  const contours = area as AreaInput | Contour | Contour[] | ShapeValue;
   const { winding: given, ...rest } = opts;
   // The source is the authority for the fill rule, and a path carries one:
   // `polygon(somePath)` keeps it, and `opts.winding` overrides it. Loops and
@@ -1460,6 +1468,39 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * geodesics, and as close as the boundary's own sampling for anything
    * else, so a circle and a tiling cell need no word of their own.
    */
+  /**
+   * `t.distanceTo(points)` in a curved space: zero at a point and minus the
+   * space's distance to the nearest point everywhere else — the sign
+   * `distanceToPoints` has, measured along geodesics. The pure word reads
+   * the chart; this one reads the space, so a ring about every site has
+   * one radius of the space wherever the site is.
+   *
+   * In the disk a space length is never shorter than its coordinate
+   * length, so a site further off in coordinates than the best found so
+   * far cannot win and is skipped unmeasured.
+   */
+  function spaceDistanceToPoints(space: Space, points: PointSelection<unknown> | Material): DistanceField {
+    const m = points instanceof Material ? points : points.extract();
+    const sx: number[] = [];
+    const sy: number[] = [];
+    for (let i = 0; i < m.n; i++) {
+      if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
+      sx.push(m.x[i]);
+      sy.push(m.y[i]);
+    }
+    if (sx.length === 0) return () => -Infinity;
+    const bounded = space.kind === 'hyperbolic';
+    return (x, y) => {
+      let best = Infinity;
+      for (let i = 0; i < sx.length; i++) {
+        if (bounded && Math.hypot(sx[i] - x, sy[i] - y) >= best) continue;
+        const d = space.distance([x, y], [sx[i], sy[i]]);
+        if (d < best) best = d;
+      }
+      return -best;
+    };
+  }
+
   function spaceDistanceTo(space: Space, area: Geometry | AreaInput | ShapeValue): DistanceField {
     // A shape says whether each of its outlines closes; anything else is
     // an area, and an area's boundaries are loops.
@@ -2015,10 +2056,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
      * geometry: inside the sketch the frame is in hand, so the toolkit
      * lowers the shape and the pure `distanceTo` never has to.
      */
-    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField =>
-      (exec.space.kind === 'euclidean'
+    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField => {
+      // Points have no inside: a point selection, or a material that is
+      // points alone, is measured to its nearest point.
+      if (area instanceof PointSelection || (area instanceof Material && area.edgeCount === 0)) {
+        return exec.space.kind === 'euclidean' ? distanceToPoints(area) : spaceDistanceToPoints(exec.space, area);
+      }
+      return exec.space.kind === 'euclidean'
         ? distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput)
-        : spaceDistanceTo(exec.space, area)),
+        : spaceDistanceTo(exec.space, area);
+    },
     /**
      * The forces, each taking a shape where it takes an area or points. The
      * pure `force.*` is the same kernel with the frame left out.

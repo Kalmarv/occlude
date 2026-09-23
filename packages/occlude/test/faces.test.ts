@@ -240,7 +240,7 @@ describe('faces', () => {
     expect(none.contours()).toEqual([]);
     expect(big.subtract(none).indices).toEqual([0, 1, 2, 3]);
     expect(big.intersect(cells.filter((f) => f.index < 2)).indices).toEqual([0, 1]);
-    expect(() => big.union(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().filter(() => true))).toThrow(/different face collections/);
+    expect(() => big.union(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().filter(() => true))).toThrow(/unrelated materials/);
     expect(() => big.union({} as FaceSelection)).toThrow(/face selection/);
     expect(cells.map((f) => f.index)).toEqual([0, 1, 2, 3]);
     expect(Object.isFrozen(cells.faces[0])).toBe(true);

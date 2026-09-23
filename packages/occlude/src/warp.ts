@@ -29,7 +29,7 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
-import { whereRows, type PointSelection, type EdgeSelection } from './relation.js';
+import { whereRows, type Where } from './relation.js';
 
 export type Corner = readonly [number, number];
 
@@ -41,7 +41,7 @@ export interface WarpOpts {
   /** Only these points bend; the rest stay where they are, and the edges
    * between a bent point and a still one simply stretch. An edge selection
    * is read as its endpoints. Absent is the whole material. */
-  where?: PointSelection | EdgeSelection;
+  where?: Where;
 }
 
 function corners(v: readonly Corner[] | Material, what: string): [number, number][] {

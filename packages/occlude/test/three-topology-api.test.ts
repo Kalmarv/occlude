@@ -44,8 +44,9 @@ describe('owned mesh topology relationships',()=>{
     expect(topology3(moved.surface)).toBe(before);
     expect(moved.points.at(0)!.z).not.toBe(model.points.at(0)!.z);
     expect(moved.faces.at(0)!.area).toBeGreaterThan(model.faces.at(0)!.area);
-    expect(()=>model.faces.union(moved.faces)).toThrow('source revision');
-    expect(moved.points.has(model.faces.at(0)!.points.at(0)! as any)).toBe(false);
+    // Revisions of one mesh resolve by id (spec 58, G3-29).
+    expect(model.faces.union(moved.faces).length).toBe(model.faces.length);
+    expect(moved.points.has(model.faces.at(0)!.points.at(0)! as any)).toBe(true);
     expect(topology3(model.subdivide().surface)).not.toBe(before);
     expect(topology3(model.faces.filter(f=>f.index===0).extract().surface)).not.toBe(before);
     expect(Object.isFrozen(before.faceNeighbors[0])).toBe(true);

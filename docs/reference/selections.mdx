@@ -3,7 +3,7 @@ title: Selections
 description: Rows of a material, chosen and combined, and what they know about each other.
 ---
 
-`m.points` and `m.edges` are collections of rows. `filter` picks rows from one and returns a selection. A selection is the same kind of collection, bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine only when they come from the same state.
+`m.points` and `m.edges` are collections of rows. `filter` picks rows from one and returns a selection. A selection is the same kind of collection, bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine when they come from the same material, in this state or in an earlier one.
 
 :::note
 A row number belongs to one state. When a step adds or removes vertices, the rows get new numbers. A selection is more than its rows. Every vertex and edge carries an id, so a selection made in one state still names the same points in the next. `sel.in(state)` reads it against a later state and drops the members that are gone. A step verb takes one directly and finds the rows itself. Select again when you want to ask the new state a new question. Do not select again to keep hold of the same points.
@@ -81,7 +81,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 <include>/_sig/PointSelection.filter.mdx</include>
 <include>/_sig/EdgeSelection.filter.mdx</include>
 
-The rows that pass the test, as a selection in source order. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. Filter a selection again to narrow it.
+The rows that pass the test, as a selection in source order. The test can return any value, and a truthy value keeps the row, as `Array.filter` does. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. Filter a selection again to narrow it.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -118,7 +118,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/PointSelection.subtract.mdx</include>
 <include>/_sig/PointSelection.complement.mdx</include>
 
-Set operations on selections of the same state. `complement()` is every row that is not selected. Edge selections have the same four.
+Set operations on selections of one material. `complement()` is every row that is not selected. Edge selections and face selections have the same four. The other selection can come from an earlier state, and the operation reads it by id, as `sel.in(state)` does. A selection of a material that shares no id is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -142,7 +142,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/PointSelection.rows.mdx</include>
 <include>/_sig/EdgeSelection.rows.mdx</include>
 
-The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error. `rows` also takes the views themselves, one or a list, so `web.edges.rows(wall)` is the selection that holds the edge `wall`.
+The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error. `rows` also takes the views themselves, one or a list, so `web.edges.rows(wall)` is the selection that holds the edge `wall`. A face selection has `rows` too, for the faces of its state.
 
 Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
 
@@ -163,7 +163,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 <include>/_sig/PointSelection.extract.mdx</include>
 <include>/_sig/EdgeSelection.extract.mdx</include>
 
-A new material from the selection. From points: the selected points with every column and no edges. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection.
+A new material from the selection. From points: the selected points with every column and no edges. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection. From faces: the edges and corners of the selected faces, with every column and every id. A builder such as `connect.chain(sel)` also keeps the ids of the members, so `sel.in(result)` finds them.
 
 ```ts live
 import { sketch, circle, strokes, group } from 'occlude';
@@ -212,7 +212,7 @@ Two different questions. `p.adjacent` is topology: the points an edge joins this
 
 `p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
-`edges.near(p, { radius })` is the same distance question for walls, and it measures the whole segment. A long wall passing close to a place is near it, whichever end you measure from. The topological question for a wall is `e.adjacent`.
+`edges.near(p, { radius })` is the same distance question for walls, and it measures the whole segment. The radius is a length in the space of the material. A long wall passing close to a place is near it, whichever end you measure from. The topological question for a wall is `e.adjacent`.
 
 ```ts live
 import { sketch, circle, rect, strokes, connect } from 'occlude';
@@ -276,7 +276,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 <include>/_sig/PointSelection.connected.mdx</include>
 <include>/_sig/PointSelection.components.mdx</include>
 
-The same three words a whole selection says, on points and on edges. `adjacent()` is one step out: every point an edge joins to a member, members excluded. `connected()` is all the way out: the members plus everything reachable from them. `components()` partitions the MEMBERS into pieces, joined by the edges among them alone, and keys them `0, 1, 2 …` as `groupBy` does. A loose vertex is a piece of its own.
+The same three words a whole selection says, on points, on edges and on faces. `adjacent()` is one step out: every point an edge joins to a member, members excluded. `connected()` is all the way out: the members plus everything reachable from them. `components()` partitions the MEMBERS into pieces, joined by the edges among them alone, and keys them `0, 1, 2 …` as `groupBy` does. A loose vertex is a piece of its own.
 
 ```ts live
 import { sketch, strokes, connect } from 'occlude';
@@ -371,7 +371,7 @@ Several material methods take `where`: the part of the material the operation ma
 m.warp({ from, to, where: m.points.filter((p) => p.y > 30) })
 ```
 
-It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
+It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A face selection or one face gives its corners to a method that moves points, and its edges to a method on edges. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
 
 `m.warp` and `m.snap` move points and leave the rest where they are. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region keeps its id.
 

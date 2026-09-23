@@ -15,6 +15,14 @@
  * resamples and plots like anything else. Nothing about occlusion changed, and
  * nothing here consults it.
  *
+ * A cut is a SPLIT, as `splitEdges` is. A vertex the cut leaves in place is
+ * the vertex it was: its id and its columns. A cut end is a new vertex, its
+ * columns read off the edge under it by each column's transfer. Every piece
+ * of an edge keeps that edge's lineage root and its columns; a piece that
+ * is the whole edge keeps the edge's id too, and a shorter one is minted.
+ * So a column the growth carried (`strand`) still picks a pen after the
+ * weave, and `sel.in(woven)` still finds what was not cut away.
+ *
  * `over` is handed the crossing and returns `true` when strand A is on top.
  * The default alternates: a strand that went under at its last crossing goes
  * over at the next, which is what makes woven work look woven, and what a
@@ -26,7 +34,9 @@
  * coordinates, as `thicken` and `oscillate` take theirs.
  */
 
-import { Material, material as makeMaterial } from './material.js';
+import { Material, material as makeMaterial, mintIds } from './material.js';
+import { inheritEdge } from './steps.js';
+import { pairKey } from './views.js';
 
 /** One place two strands cross, as `over` sees it. */
 export interface Crossing {
@@ -70,10 +80,18 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
   const gap = asked > 0 ? asked : 0;
   if (opts.over !== undefined && typeof opts.over !== 'function') throw new Error('interlace: { over } must be a function of the crossing');
 
-  const chains = src.curves().map((c) => c.pts.map(([x, y]) => [x, y] as [number, number]));
+  const curves = src.curves();
+  const chains = curves.map((c) => c.pts.map(([x, y]) => [x, y] as [number, number]));
+  // The source row under each chain point, for the columns and the ids.
+  const rowsOf = curves.map((c) => [...c.indices]);
   // A closed chain's last segment returns to its first point.
-  const closed = src.curves().map((c) => c.closed);
-  for (let k = 0; k < chains.length; k++) if (closed[k] && chains[k].length > 2) chains[k] = [...chains[k], chains[k][0]];
+  const closed = curves.map((c) => c.closed);
+  for (let k = 0; k < chains.length; k++) {
+    if (closed[k] && chains[k].length > 2) {
+      chains[k] = [...chains[k], chains[k][0]];
+      rowsOf[k] = [...rowsOf[k], rowsOf[k][0]];
+    }
+  }
   const arcs = chains.map((pts) => {
     const out = [0];
     for (let i = 1; i < pts.length; i++) out.push(out[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
@@ -138,15 +156,38 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
   const xs: number[] = [];
   const ys: number[] = [];
   const edges: number[] = [];
-  const at = (c: number, s: number): [number, number] => {
+  // Where each new point came from: a source row it IS, or a place along a
+  // source edge it was read off. And each new edge's source edge, and how
+  // much of it the piece is.
+  const pointFrom: ({ row: number } | { a: number; b: number; f: number })[] = [];
+  const edgeFrom: { edge: number; fraction: number; whole: boolean }[] = [];
+  const storedRow = new Map<number, number>();
+  for (let e = 0; e < src.edgeCount; e++) storedRow.set(pairKey(src.edgeList[2 * e], src.edgeList[2 * e + 1]), e);
+  const segmentAt = (c: number, s: number): number => {
     const a = arcs[c];
     let i = 1;
     while (i < a.length - 1 && a[i] < s) i++;
+    return i;
+  };
+  const at = (c: number, s: number): [number, number] => {
+    const a = arcs[c];
+    const i = segmentAt(c, s);
     const span = a[i] - a[i - 1];
     const f = span > 0 ? (s - a[i - 1]) / span : 0;
     const [x0, y0] = chains[c][i - 1];
     const [x1, y1] = chains[c][i];
     return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f];
+  };
+  /** The source a cut end at arc `s` of chain `c` comes from: the vertex
+   * it lands on exactly, or the place along the edge under it. */
+  const endFrom = (c: number, s: number): { row: number } | { a: number; b: number; f: number } => {
+    const a = arcs[c];
+    const i = segmentAt(c, s);
+    const span = a[i] - a[i - 1];
+    const f = span > 0 ? (s - a[i - 1]) / span : 0;
+    if (f === 0) return { row: rowsOf[c][i - 1] };
+    if (f === 1) return { row: rowsOf[c][i] };
+    return { a: rowsOf[c][i - 1], b: rowsOf[c][i], f };
   };
   for (let c = 0; c < chains.length; c++) {
     const total = arcs[c][arcs[c].length - 1];
@@ -175,14 +216,73 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
       const base = xs.length;
       // Keep the chain's own vertices inside the run, plus its two cut ends.
       const pts: [number, number][] = [at(c, a)];
-      for (let i = 0; i < arcs[c].length; i++) if (arcs[c][i] > a && arcs[c][i] < b) pts.push(chains[c][i]);
+      const along: number[] = [a];
+      pointFrom.push(endFrom(c, a));
+      for (let i = 0; i < arcs[c].length; i++) {
+        if (arcs[c][i] > a && arcs[c][i] < b) {
+          pts.push(chains[c][i]);
+          along.push(arcs[c][i]);
+          pointFrom.push({ row: rowsOf[c][i] });
+        }
+      }
       pts.push(at(c, b));
+      along.push(b);
+      pointFrom.push(endFrom(c, b));
       for (const [px, py] of pts) {
         xs.push(px);
         ys.push(py);
       }
-      for (let i = 1; i < pts.length; i++) edges.push(base + i - 1, base + i);
+      for (let i = 1; i < pts.length; i++) {
+        edges.push(base + i - 1, base + i);
+        // The piece lies on the chain segment under its middle.
+        const seg = segmentAt(c, (along[i - 1] + along[i]) / 2);
+        const s0 = arcs[c][seg - 1];
+        const s1 = arcs[c][seg];
+        const edge = storedRow.get(pairKey(rowsOf[c][seg - 1], rowsOf[c][seg]))!;
+        edgeFrom.push({ edge, fraction: s1 > s0 ? (along[i] - along[i - 1]) / (s1 - s0) : 1, whole: along[i - 1] === s0 && along[i] === s1 });
+      }
     }
   }
-  return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges), { space: m.space });
+  // Columns and identity, carried the way a split carries them.
+  const n = xs.length;
+  const attrs: Record<string, Float64Array> = {};
+  for (const name of src.attrNames) {
+    const col = src.attrs[name];
+    const nearest = src.transfers[name] === 'nearest';
+    attrs[name] = Float64Array.from(pointFrom, (p) => ('row' in p ? col[p.row] : nearest ? (p.f <= 0.5 ? col[p.a] : col[p.b]) : col[p.a] + (col[p.b] - col[p.a]) * p.f));
+  }
+  // A vertex that comes through keeps its id once. The same vertex again —
+  // the seam of a closed chain, a junction met by two chains — is a copy,
+  // and a copy is a new point.
+  const used = new Set<number>();
+  const keeps = pointFrom.map((p) => ('row' in p && !used.has(p.row) ? (used.add(p.row), true) : false));
+  const freshPoints = mintIds(keeps.reduce((k, kept) => k + (kept ? 0 : 1), 0));
+  const pointIds = new Float64Array(n);
+  let nextPoint = 0;
+  pointFrom.forEach((p, i) => { pointIds[i] = keeps[i] ? src.pointIds[(p as { row: number }).row] : freshPoints[nextPoint++]; });
+  const freshEdges = mintIds(edgeFrom.reduce((k, e) => k + (e.whole ? 0 : 1), 0));
+  const edgeIds = new Float64Array(edgeFrom.length);
+  const edgeRoots = new Float64Array(edgeFrom.length);
+  let nextEdge = 0;
+  edgeFrom.forEach((e, i) => {
+    edgeIds[i] = e.whole ? src.edgeIds[e.edge] : freshEdges[nextEdge++];
+    edgeRoots[i] = src.edgeRoots[e.edge];
+  });
+  const enames = src.edgeAttrNames;
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const name of enames) edgeAttrs[name] = new Float64Array(edgeFrom.length);
+  edgeFrom.forEach((e, i) => {
+    const parent: Record<string, number> = {};
+    for (const name of enames) parent[name] = src.edgeAttrs[name][e.edge];
+    const child = inheritEdge(src, parent, e.fraction);
+    for (const name of enames) edgeAttrs[name][i] = child[name];
+  });
+  return new Material(Float64Array.from(xs), Float64Array.from(ys), attrs, Uint32Array.from(edges), {
+    edgeAttrs,
+    transfers: { ...src.transfers },
+    edgeTransfers: { ...src.edgeTransfers },
+    ids: { points: pointIds, edges: edgeIds, edgeRoots },
+    faceAttrs: src.faceAttrs,
+    space: m.space,
+  });
 }

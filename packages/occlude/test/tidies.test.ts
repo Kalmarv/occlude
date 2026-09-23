@@ -214,11 +214,14 @@ describe('rows on the 3D collections', () => {
     expect(group.rows(0).key).toBe(group.key);
   });
 
-  it('refuses a row of another revision, of another domain, and an index out of range', () => {
+  it('reads a row of another revision by id, and refuses another domain and an index out of range', () => {
+    // Spec 58 (G3-29): a row of another revision resolves by its id.
     const other = box().subdivide(1);
-    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow('faces.rows: that face row belongs to another mesh revision');
-    expect(() => m.points.rows([0, other.points.at(0)!])).toThrow('points.rows: that point row belongs to another geometry revision');
-    expect(() => m.edges.rows(other.edges.at(1)!)).toThrow('edges.rows: that edge row belongs to another geometry revision');
+    expect(m.faces.rows(other.faces.at(0)!).at(0)!.id).toBe(other.faces.at(0)!.id);
+    expect(m.points.rows([0, other.points.at(0)!]).length).toBe(1);
+    expect(m.edges.rows(other.edges.at(1)!).at(0)!.id).toBe(other.edges.at(1)!.id);
+    const gone = box().subdivide(2).faces.find((f) => !m.faces.some((g) => g.id === f.id))!;
+    expect(() => m.faces.rows(gone)).toThrow(/gone from this revision/);
     // @ts-expect-error a point row is not a face row
     expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face row, got a point row');
     const n = m.faces.length;

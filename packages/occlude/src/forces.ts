@@ -7,6 +7,7 @@
  */
 
 import { material, Material, type PointsLike, type Vertex, type Edge } from './material.js';
+import { faceCentroids } from './faces.js';
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
 import { ownerOf, ownerOfView } from './views.js';
 import { distanceTo } from './distance.js';
@@ -255,10 +256,15 @@ export type Sources = Geometry | PointsLike;
  * A material IS the answer — asking it for `points` would throw its edges
  * away, and `force.separation`'s own `excludeConnected` reads them. A point
  * selection answers `points` with itself. Everything else that has points —
- * a face collection, an edge selection — is read through the protocol.
+ * an edge selection — is read through the protocol, and a face collection
+ * reads as its centroids.
  */
 export function sourcePoints(sources: Sources): PointsLike {
   if (sources instanceof Material) return sources;
+  // A face collection is points at its faces' centroids, for every point
+  // consumer; `faces.points` stays the word for the corners.
+  const centres = faceCentroids(sources);
+  if (centres) return centres;
   const points = (sources as Geometry).points;
   if (points === undefined || (points as unknown) === sources) return sources as PointsLike;
   return points as unknown as PointsLike;

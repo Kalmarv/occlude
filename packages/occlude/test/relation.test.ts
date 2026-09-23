@@ -74,7 +74,7 @@ describe('selections', () => {
     expect(a.intersect(none).length).toBe(0);
     expect(none.subtract(a).length).toBe(0);
     expect(none.extract().n).toBe(0);
-    expect(() => a.union(Y().points.filter(() => true))).toThrow(/different states/);
+    expect(() => a.union(Y().points.filter(() => true))).toThrow(/unrelated materials/);
     const e = m.edges.filter(() => true);
     expect(() => a.union(e as unknown as PointSelection)).toThrow(/point selection/);
     expect(() => e.intersect(a as unknown as EdgeSelection)).toThrow(/edge selection/);

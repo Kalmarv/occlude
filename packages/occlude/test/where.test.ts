@@ -64,7 +64,7 @@ describe('where', () => {
 
   it('refuses a thing that is not a selection', () => {
     const m = chain();
-    expect(() => m.warp({ ...cage, where: [1, 2] as never })).toThrow(/point selection or an edge selection/);
+    expect(() => m.warp({ ...cage, where: [1, 2] as never })).toThrow(/must be a selection/);
   });
 });
 

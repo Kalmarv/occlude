@@ -21,6 +21,7 @@ import { numericLoops, type AreaInput } from './boundary.js';
 import { vx as pointX, vy as pointY, type XY } from './vec.js';
 import type { PointsLike } from './material.js';
 import { Len } from './units.js';
+import { faceCentroids } from './faces.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -215,7 +216,14 @@ function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: 
   const xs: number[] = [];
   const ys: number[] = [];
   const v = sites as unknown as { x?: ArrayLike<number>; y?: ArrayLike<number>; n?: number };
-  if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
+  // A face collection is points at its faces' centroids.
+  const centres = faceCentroids(sites);
+  if (centres) {
+    for (const [x, y] of centres) {
+      xs.push(x);
+      ys.push(y);
+    }
+  } else if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
     for (let i = 0; i < v.n; i++) {
       xs.push(v.x[i]);
       ys.push(v.y[i]);

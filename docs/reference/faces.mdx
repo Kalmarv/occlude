@@ -6,7 +6,7 @@ description: The regions that a planar material encloses, and what you can read 
 A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
 
 :::note
-On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces reads like a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`.
+On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `in`, `rows`, `complement`, `union`, `intersect`, `subtract`, `adjacent`, `connected`, `components` and `extract`, with the same meanings as on the [selections](/docs/reference/selections) page.
 :::
 
 ## planarize
@@ -50,8 +50,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Face.bounds.mdx</include>
 <include>/_sig/Face.centroid.mdx</include>
 <include>/_sig/Face.contours.mdx</include>
+<include>/_sig/Face.extract.mdx</include>
 
-One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is.
+One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids.
 
 ```ts live
 import { sketch, circle, strokes, distanceTo } from 'occlude';
@@ -77,6 +78,30 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
     const angle = f.bounds.w > f.bounds.h ? 0 : 90;
     return polygon(f, { fill: fill('hatch', { angle, spacing: mm(0.5 + 2.2 * round) }), pen: f.index % 3 === 0 ? 'stabilo-88-blue' : undefined });
   });
+});
+```
+
+## face.id
+
+<include>/_sig/Face.id.mdx</include>
+
+The identity of the face. It comes from the walls of the face, so the same face has the same id after `steps`, after a transform, and after a `planarize` that keeps its walls. Use `id`, not `index`, to find a face again in another state. Below, a round hex net stretches in one step, and each cell finds its rest shape by `id`. The hatch is tighter where a cell grew.
+
+```ts live
+import { sketch, polygon, strokes, circle, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const net = t.within(t.hexes({ spacing: 9 }), circle(50, 50, 38));
+  const pulled = net.steps(1, (cur, next) => next.move(cur.points, (p) => [0.1 * (p.x - 50) * (1 + Math.sin(p.y / 12)), 0.1 * (p.y - 50) * (1 + Math.sin(p.x / 12))]));
+  const rest = net.faces();
+  return [
+    pulled.faces().map((f) => {
+      const before = rest.find((g) => g.id === f.id);
+      const grown = before ? f.area / before.area : 1;
+      return polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(Math.max(0.5, 0.5 + 5 * (1.45 - grown))) }) });
+    }),
+    strokes(pulled),
+  ];
 });
 ```
 
@@ -123,12 +148,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## cells.edges · points · boundaryEdges() · contours()
 
-<include>/_sig/Faces.edges.mdx</include>
-<include>/_sig/Faces.points.mdx</include>
-<include>/_sig/Faces.boundaryEdges.mdx</include>
-<include>/_sig/Faces.contours.mdx</include>
+<include>/_sig/FaceSelection.edges.mdx</include>
+<include>/_sig/FaceSelection.points.mdx</include>
+<include>/_sig/FaceSelection.boundaryEdges.mdx</include>
+<include>/_sig/FaceSelection.contours.mdx</include>
 
-The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
+The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `strokes(cells)` draws those edges, and it draws each wall one time. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
+
+A collection of faces is several areas, so `polygon(cells)` is a type error. Write `polygon(cells.contours())` for the union, or `cells.map((f) => polygon(f))` for each face. As points, a collection of faces is the centroids of its faces: `dots(cells)`, `distanceToPoints(cells)` and `material(cells)` put one point in each face. `cells.points` gives the corners.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
@@ -143,8 +170,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 ## cells.adjacent()
 
 <include>/_sig/FaceSelection.adjacent.mdx</include>
+<include>/_sig/FaceSelection.components.mdx</include>
 
-The faces on the other side of the walls of the selected faces, one step out, the selected faces excluded. Two selected faces that share a wall are each other's inside, not each other's neighbour. `sel.union(sel.adjacent())` is the selection grown by a ring, and says so. Below, the blue cells are the selection, and the hatch is its ring.
+The faces on the other side of the walls of the selected faces, one step out, the selected faces excluded. Two selected faces that share a wall are each other's inside, not each other's neighbour. `sel.union(sel.adjacent())` is the selection grown by a ring, and says so. `connected()` is the selection and every face that you can reach from it across walls. `components()` divides the selected faces into pieces that share walls, and keys them `0, 1, 2 …`. Below, the blue cells are the selection, and the hatch is its ring.
 
 ```ts live
 import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
@@ -157,9 +185,27 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+Below, the small cells fall into towns, and `components()` finds each town. Each town gets its own hatch. The left town comes out with `extract()` as a new material, and it is drawn again, smaller, in blue.
+
+```ts live
+import { sketch, polygon, strokes, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
+  const dense = (x, y) => 0.1 + Math.exp(-((x - 35) ** 2 + (y - 40) ** 2) / 200) + Math.exp(-((x - 68) ** 2 + (y - 66) ** 2) / 150);
+  const cells = t.voronoi(t.relax(t.scatter(dense, { spacing: 3 }), { iterations: 2, density: dense })).faces();
+  const towns = cells.filter((f) => f.area < 25).components().filter((town) => town.length > 2);
+  const middle = towns.find((town) => town.containing([35, 40]).length > 0) ?? towns[0];
+  return [
+    strokes(cells, { pen: 'pigma-005-black' }),
+    towns.map((town) => polygon(town.contours(), { stroke: false, fill: fill('hatch', { angle: 20 + 50 * town.key, spacing: mm(1) }) })),
+    strokes(middle.extract().scale(0.5, { origin: 'center' }), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
 ## cells.containing()
 
-<include>/_sig/Faces.containing.mdx</include>
+<include>/_sig/FaceSelection.containing.mdx</include>
 
 The faces the given places fall in. Give one point as `[x, y]` or `{ x, y }`, or give many as an array, a material, or a point selection. A place inside a face picks that face. A place on a wall picks nothing, because a wall is where two faces stop. A place outside every face picks nothing. Two places in the same face still name it once, because a selection is a set. A face with a hole does not hold what sits in the hole. The face of the hole holds it. On a selection the word answers with its own members only.
 
@@ -184,7 +230,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 ## measure
 
-<include>/_sig/Faces.measure.mdx</include>
+<include>/_sig/FaceSelection.measure.mdx</include>
 
 <AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 

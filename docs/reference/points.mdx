@@ -122,7 +122,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Toolkit.voronoi.mdx</include>
 
-The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. The cells stop at the drawable. `bounds: { x, y, w, h }` stops them at a box instead. For any other area, cut the result with `t.within`. The cells do not follow a site that moves. Build them again.
+The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. Give `cellOf` a selection of sites to get their cells as a face selection, and give `siteOf` a face selection to get its sites. The cells stop at the drawable. `bounds: { x, y, w, h }` stops them at a box instead. For any other area, cut the result with `t.within`. The cells do not follow a site that moves. Build them again.
 
 ```ts live
 import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';
