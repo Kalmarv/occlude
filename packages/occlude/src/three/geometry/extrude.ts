@@ -13,6 +13,10 @@ import {add3,finite3,type Vec3} from '../math.js';
  * Retained: cap face IDs, corner IDs/attributes (UVs included), face and edge
  * attributes and the fixed cap triangulation. Generated: boundary point copies
  * `['extrude', key, 'point', pointId]`, walls `['extrude', key, 'side', edgeId]`
+ * and wall corners `['extrude', key, 'corner', edgeId, local]`. A generated id
+ * is minted once: where that name is already held (a corner shared by two
+ * parts, or copied by an earlier extrusion) the component index joins it,
+ * `['extrude', key, 'point', component, pointId]`, then a counter. Walls come
  * with copied face/corner attributes and, where a `uv` corner column exists, a
  * side chart `[loop arclength fraction, 0|1]` named `key:side:component`.
  * Provenance records the operation; no attribute columns are added.
@@ -57,15 +61,30 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
   for(let v=0;v<surface.points.length;v++){
     const faces=topology.pointFaces[v];if(!faces.length||onBoundary.has(v))continue;
     const owners=new Set(faces.map(f=>selected.get(f)));
-    if(owners.size===1&&!owners.has(undefined))interior.set(v,[...owners][0]!);
-    else if(!owners.has(undefined)&&owners.size>1)throw new Error(`point ${surface.points[v].id} joins extruded regions by vertex only; extrude them separately`);
+    if(owners.has(undefined))continue;
+    // Interior to one component: it moves in place. Several components that
+    // meet only at this point (a non-manifold vertex, no boundary edge
+    // through it) separate there: the first keeps the point, each other one
+    // takes a copy — what extruding them one call at a time gives.
+    interior.set(v,Math.min(...owners as Set<number>));
   }
+  // A minted id is never one the input or this call already holds: the plain
+  // name first (unchanged for every copy that has no rival), then the name
+  // with the component, then a counter. Two parts sharing a corner, or a
+  // second call reaching a corner an earlier call copied, stay distinct.
+  const taken={point:new Set(surface.points.map(p=>p.id)),face:new Set(surface.faces.map(f=>f.id)),corner:new Set(surface.faces.flatMap(f=>f.corners?.map(c=>c.id)??[]))};
+  const mint=(domain:keyof typeof taken,component:number,kind:string,...rest:(string|number)[]):string=>{
+    const ids=taken[domain];let name=id(kind,...rest);
+    if(ids.has(name))name=id(kind,component,...rest);
+    for(let n=1;ids.has(name);n++)name=id(kind,component,...rest,n);
+    ids.add(name);return name;
+  };
   const vectors=new Map(active.map((c,i)=>[i,c.vector]));
   const mapped=(v:number,component:number):number=>{
     if(interior.get(v)===component)return v;
     const k=`${component}:${v}`,found=copies.get(k);if(found!==undefined)return found;
     const p=surface.points[v],index=points.length;
-    points.push({id:id('point',p.id),position:add3(p.position,vectors.get(component)!),attributes:structuredClone(p.attributes),provenance:{operation:'extrude',parents:[p.id]}});
+    points.push({id:mint('point',active[component].index,'point',p.id),position:add3(p.position,vectors.get(component)!),attributes:structuredClone(p.attributes),provenance:{operation:'extrude',parents:[p.id]}});
     copies.set(k,index);return index;
   };
   for(const [v,component] of interior)points[v].position=add3(points[v].position,vectors.get(component)!);
@@ -103,9 +122,9 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
           const source=cornerOf(v),attributes:Attributes3=structuredClone(source?.attributes??{});
           if(Object.hasOwn(attributes,'uv'))attributes.uv=[...uv];
           if(Object.hasOwn(attributes,'chart'))attributes.chart=`${operation}:side:${component.index}`;
-          return {id:id('corner',surface.edges[e.edge].id,local),attributes,provenance:{operation:'extrude',parents:source?[source.id]:[]}};
+          return {id:mint('corner',component.index,'corner',surface.edges[e.edge].id,local),attributes,provenance:{operation:'extrude',parents:source?[source.id]:[]}};
         };
-        const faceId=id('side',surface.edges[e.edge].id),attributes:Attributes3=structuredClone(face.attributes);
+        const faceId=mint('face',component.index,'side',surface.edges[e.edge].id),attributes:Attributes3=structuredClone(face.attributes);
         // A wall is built with the side chart, so its face column names it too.
         if(Object.hasOwn(attributes,'chart'))attributes.chart=`${operation}:side:${component.index}`;
         add({id:faceId,vertices:[a,b,bTop,aTop],corners:[corner(a,0,[u0,0]),corner(b,1,[u1,0]),corner(b,2,[u1,1]),corner(a,3,[u0,1])],attributes,provenance:{operation:'extrude',parents:[face.id,surface.edges[e.edge].id]}},[[a,b,bTop],[a,bTop,aTop]]);

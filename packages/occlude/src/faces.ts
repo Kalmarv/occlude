@@ -34,9 +34,9 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Curve, type Edge, type FaceColumn, type PointsLike } from './material.js';
 import type { XY } from './vec.js';
-import { groupRows, EdgeSelection, PointSelection } from './relation.js';
+import { groupRows, onState, EdgeSelection, PointSelection } from './relation.js';
 import { contourMoment, measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
 
@@ -617,11 +617,15 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
  * A bounded region of one planar state, read-only.
  *
  * Face columns read flat off it — `face.height` — the way a vertex's own
- * columns do, which is why the face's ten own fields are reserved names.
+ * columns do, which is why the face's own fields are reserved names.
  */
 export type Face = {
   /** Row in the face collection it came from — not an identity. */
   index: number;
+  /** The face's identity: the lineage of its walls. The same face in a
+   * later state — after `steps`, a transform, a `planarize` that left its
+   * walls — has the same id, so a pairing across states is by `id`. */
+  readonly id: FaceId;
   /** Filled area in squared material units: outer minus holes. */
   area: number;
   /** Outer and hole boundaries; retraced bridges and branches excluded. */
@@ -649,6 +653,9 @@ export type Face = {
    * — a face, a face collection, a material and a plain contour record are
    * all read the same way by `polygon`, `distanceTo` and `t.within`. */
   contours(): IsoContour[];
+  /** Independent material of this face: its edges and corners, every
+   * column and every id kept — the selection word, on one face. */
+  extract(): Material;
   /**
    * The face columns, read flat: `f.height`, the way a vertex reads `p.age`.
    *
@@ -796,6 +803,8 @@ function pointInWalk(m: Material, walk: number[], tail: (h: number) => number, p
  * A pair or a record is ONE place; a material, a point selection or an
  * array of either spelling is many. */
 function queryPoints(where: XY | PointsLike, who: string): [number, number][] {
+  const centres = faceCentroids(where);
+  if (centres) return centres;
   if (Array.isArray(where) && typeof where[0] === 'number') return [[where[0], where[1] as number]];
   const one = where as { x?: unknown; y?: unknown };
   if (typeof one?.x === 'number' && typeof one?.y === 'number') return [[one.x, one.y]];
@@ -1082,27 +1091,340 @@ export function faceKeyOf(roots: Iterable<number>): string {
   return [...new Set(roots)].sort((a, b) => a - b).join(',');
 }
 
-/** The bounded faces of one planar state, with selections over them. */
-export class Faces {
+/**
+ * The identity of one face, for as long as its walls last: the lineage
+ * roots of its walls, deduplicated, sorted and joined — the face's key. A
+ * wall cut in half is still that wall, so the id holds across `steps`, a
+ * transform, and a `planarize` that leaves the wall where it was. Opaque:
+ * compare it, keep it in a set, never parse it.
+ */
+export type FaceId = string & { readonly __faceId: unique symbol };
+
+/**
+ * A selection of faces of one planar state: the rows a filter picked, or
+ * every face (`Faces`, which is this with nothing left out).
+ *
+ * It has the words a point or an edge selection has, with the same
+ * meanings: iterate, `length`, `at`, `map`, `filter`, `groupBy`; `has`,
+ * `in(state)`, `rows`, `complement()`, `union`/`intersect`/`subtract`;
+ * `adjacent()`, `connected()` and `components()` across shared walls; and
+ * `extract()` for independent material. `source` is the material state the
+ * faces were read from, as it is for a point or an edge selection. `key`
+ * is set on the selections `groupBy` and `components` make.
+ */
+export class FaceSelection<K = undefined> implements Iterable<Face> {
+  /** The material state the faces were read from. */
   readonly source: Material;
-  readonly iteration: number;
+  /** @internal Every face of that state: the collection the rows index. */
+  readonly collection: Faces;
+  /** The classification that made this group; undefined otherwise. */
+  readonly key: K;
+  private readonly memberRows: readonly number[] | null;
+  private readonly set: Set<number> | null;
+
+  /** @internal Use `material.faces()` and `filter`. `rows` null means every face. */
+  constructor(collection: Faces | null, rows: Iterable<number> | null, key?: K, source?: Material) {
+    // `Faces` is the selection of all of its own faces, so it passes no
+    // collection and names itself.
+    this.collection = collection ?? (this as unknown as Faces);
+    this.source = collection ? collection.source : source!;
+    this.memberRows = rows === null ? null : Object.freeze(Array.from(new Set(rows)).sort((p, q) => p - q));
+    this.set = this.memberRows === null ? null : new Set(this.memberRows);
+    this.key = key as K;
+    if (new.target === FaceSelection) Object.freeze(this);
+  }
+
+  /** Selected face rows, ascending. Not identities across states: `id` is. */
+  get indices(): readonly number[] {
+    return this.memberRows ?? this.collection.allRows();
+  }
+
+  get length(): number {
+    return this.memberRows === null ? this.collection.faces.length : this.memberRows.length;
+  }
+
+  get iteration(): number {
+    return this.source.iteration;
+  }
+
+  at(i: number): Face {
+    const row = this.indices[i];
+    if (!Number.isInteger(i) || row === undefined) throw new Error(`faces.at: no member ${i} (${this.length} members)`);
+    return this.collection.faces[row];
+  }
+
+  *[Symbol.iterator](): Iterator<Face> {
+    const all = this.collection.faces;
+    for (const i of this.indices) yield all[i];
+  }
+
+  map<T>(fn: (f: Face, index: number) => T): T[] {
+    const all = this.collection.faces;
+    return this.indices.map((row, i) => fn(all[row], i));
+  }
+
+  forEach(fn: (f: Face, index: number) => void): void {
+    const all = this.collection.faces;
+    this.indices.forEach((row, i) => fn(all[row], i));
+  }
+
+  find(fn: (f: Face, index: number) => unknown): Face | undefined {
+    let i = 0;
+    for (const f of this) if (fn(f, i++)) return f;
+    return undefined;
+  }
+
+  some(fn: (f: Face, index: number) => unknown): boolean {
+    return this.find(fn) !== undefined;
+  }
+
+  every(fn: (f: Face, index: number) => unknown): boolean {
+    let i = 0;
+    for (const f of this) if (!fn(f, i++)) return false;
+    return true;
+  }
+
+  /** The members `fn` picks — membership decided now and fixed; a group
+   * keeps its key. */
+  filter(fn: (f: Face, index: number) => unknown): FaceSelection<K> {
+    const rows: number[] = [];
+    let i = 0;
+    for (const f of this) if (fn(f, i++)) rows.push(f.index);
+    return new FaceSelection(this.collection, rows, this.key);
+  }
+
+  /** Split into selections by key: first-occurrence order, rows in order. */
+  groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
+    return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this.collection, rows, key));
+  }
+
+  /**
+   * The MEMBERS the given places fall in: one point, or a cloud of them.
+   *
+   * A place inside a face selects it; a place ON a wall selects nothing,
+   * because a wall is where two faces stop rather than somewhere either
+   * one holds; a place outside every face selects nothing. Several places
+   * in the same face still name it once — a selection is a set. A face
+   * with a hole does not hold what sits in the hole: the hole's own face
+   * does.
+   */
+  containing(where: XY | PointsLike): FaceSelection<K> {
+    const rows: number[] = [];
+    for (const [x, y] of queryPoints(where, 'faces.containing')) {
+      const f = faceHolding(this.collection.faces, x, y);
+      if (f >= 0 && this.holds(f)) rows.push(f);
+    }
+    return new FaceSelection(this.collection, rows, this.key);
+  }
+
+  /** Every source edge incident to a selected face, once, including
+   * internal walls between two selected faces and dangling edges inside
+   * a selected face. */
+  get edges(): EdgeSelection {
+    return new EdgeSelection(this.source, this.collection.edgeRowsWhere((l, r) => this.holds(l) || this.holds(r)));
+  }
+
+  /** Endpoints of `edges`, once, in row order: the corners. A point
+   * consumer handed the selection itself reads each face as its centroid
+   * instead; this is the word for the corners. */
+  get points(): PointSelection {
+    return this.edges.points;
+  }
+
+  /** The chains of `edges`: every wall once, so `strokes(cells)` draws a
+   * wall two faces share one time, not twice. */
+  curves(): Curve[] {
+    return this.edges.curves();
+  }
+
+  /** Edges between the selected union and its exterior: a wall with a
+   * selected face on exactly one side. Walls between two selected faces
+   * and edges inside a face are excluded; a hole's boundary stays. */
+  boundaryEdges(): EdgeSelection {
+    return new EdgeSelection(this.source, this.collection.edgeRowsWhere((l, r) => this.holds(l) !== this.holds(r)));
+  }
+
+  /** Measure the selected faces: geometric area and centroid, and with
+   * `field` its integral, mean and density-weighted centre (see
+   * measure.ts). */
+  measure(field?: (x: number, y: number) => number, opts?: MeasureOpts): FaceMeasurements {
+    const all = this.collection.faces;
+    return measureFaces(this.collection, this.memberRows === null ? all : this.memberRows.map((i) => all[i]), field, opts);
+  }
+
+  /** True when `face` is a member. A face from an earlier state of the
+   * same evolution is asked about by its id; a face whose walls are gone
+   * is not a member, which is the answer a foreign face gets too. */
+  has(face: Face): boolean {
+    const kind = viewKind(face);
+    if (kind === 'vertex' || kind === 'edge') throw new Error(`selection.has: this is a face selection; ${kind === 'vertex' ? 'a vertex' : 'an edge'} view cannot be a member`);
+    if (kind !== 'face') throw new Error('selection.has: expected a face view');
+    const row = ownedBy(face, this.collection) ? face.index : this.collection.rowOfFace(face.id);
+    return row >= 0 && this.holds(row);
+  }
+
+  /**
+   * This selection read against another state of the same evolution: each
+   * member is found again by its id, and the members whose walls are gone
+   * are dropped.
+   */
+  in(state: Material): FaceSelection<K> {
+    if (state === this.source) return this;
+    const target = state.faces();
+    const ids = this.collection.ids();
+    const rows: number[] = [];
+    for (const i of this.indices) {
+      const row = target.rowOfFace(ids[i]);
+      if (row >= 0) rows.push(row);
+    }
+    return new FaceSelection(target, rows, this.key);
+  }
+
+  /** The selection holding those face ROWS of the collection — never
+   * positions within this selection: row indices or the face views
+   * themselves, one or a list. */
+  rows(rows: number | Face | Iterable<number | Face>): FaceSelection {
+    const count = this.collection.faces.length;
+    const one = (r: number | Face): number => {
+      if (typeof r === 'number') {
+        if (!Number.isInteger(r) || r < 0 || r >= count) throw new Error(`faces.rows: no face ${r} in this state (${count} faces)`);
+        return r;
+      }
+      const k = viewKind(r);
+      if (k !== 'face') throw new Error(`faces.rows: expected a face row or a face view, got ${k === undefined ? typeof r : `a ${k} view`}`);
+      if (!ownedBy(r, this.collection)) throw new Error('faces.rows: that face belongs to another state — read it against this one with sel.in(state)');
+      return r.index;
+    };
+    if (typeof rows === 'number' || viewKind(rows) === 'face') return new FaceSelection(this.collection, [one(rows as number | Face)]);
+    if (rows == null || typeof (rows as Iterable<unknown>)[Symbol.iterator] !== 'function') throw new Error('faces.rows: expected a face row, a face view, or a list of them');
+    return new FaceSelection(this.collection, Array.from(rows as Iterable<number | Face>, one));
+  }
+
+  /** Every face of the state that is NOT selected. */
+  complement(): FaceSelection {
+    const out: number[] = [];
+    for (let f = 0; f < this.collection.faces.length; f++) if (!this.holds(f)) out.push(f);
+    return new FaceSelection(this.collection, out);
+  }
+
+  /** The other operand of a set operation, on this state: read by id when
+   * it comes from another state of the same evolution. */
+  private theirs(other: FaceSelection<unknown>, what: string): FaceSelection<unknown> {
+    if (!(other instanceof FaceSelection)) throw new Error(`selection.${what}: a face selection combines only with a face selection`);
+    if (other.collection === this.collection) return other;
+    return onState(this, other, what);
+  }
+
+  /** Both selections' members; an operand from an earlier state of the
+   * same evolution is read by id. The result keeps this selection's key. */
+  union(other: FaceSelection<unknown>): FaceSelection<K> {
+    const theirs = this.theirs(other, 'union');
+    return new FaceSelection(this.collection, [...this.indices, ...theirs.indices], this.key);
+  }
+
+  intersect(other: FaceSelection<unknown>): FaceSelection<K> {
+    const theirs = this.theirs(other, 'intersect');
+    return new FaceSelection(this.collection, this.indices.filter((i) => theirs.holds(i)), this.key);
+  }
+
+  subtract(other: FaceSelection<unknown>): FaceSelection<K> {
+    const theirs = this.theirs(other, 'subtract');
+    return new FaceSelection(this.collection, this.indices.filter((i) => !theirs.holds(i)), this.key);
+  }
+
+  /** The faces across the walls of any selected face, one hop out, the
+   * members excluded. Two selected faces sharing a wall are each other's
+   * inside, not each other's neighbour; `sel.union(sel.adjacent())` is the
+   * selection grown by a ring, and says so. */
+  adjacent(): FaceSelection {
+    return new FaceSelection(this.collection, this.collection.adjacentRows((f) => this.holds(f)));
+  }
+
+  /** The members plus every face reachable from them across walls — the
+   * regions the selection touches, whole. Faces that meet only at a
+   * corner are not joined: a neighbour shares a wall. */
+  connected(): FaceSelection {
+    const seen = new Set<number>(this.indices);
+    let front = new Set(seen);
+    while (front.size) {
+      const ring = this.collection.adjacentRows((f) => front.has(f)).filter((f) => !seen.has(f));
+      for (const f of ring) seen.add(f);
+      front = new Set(ring);
+    }
+    return new FaceSelection(this.collection, seen);
+  }
+
+  /** One selection per connected piece OF THE MEMBERS, joined across the
+   * walls among them alone: an isolated member is a piece of its own.
+   * Keyed 0, 1, 2 … like `groupBy`, in the order the pieces are first met
+   * by row. */
+  components(): FaceSelection<number>[] {
+    const among = this.collection.wallPairs((f) => this.holds(f));
+    const seen = new Set<number>();
+    const out: FaceSelection<number>[] = [];
+    for (const start of this.indices) {
+      if (seen.has(start)) continue;
+      const piece: number[] = [];
+      const stack = [start];
+      seen.add(start);
+      while (stack.length) {
+        const f = stack.pop()!;
+        piece.push(f);
+        for (const g of among.get(f) ?? []) {
+          if (seen.has(g)) continue;
+          seen.add(g);
+          stack.push(g);
+        }
+      }
+      out.push(new FaceSelection(this.collection, piece, out.length));
+    }
+    return out;
+  }
+
+  /** Independent material of the selected faces: their edges and corners,
+   * every point and edge column, the face columns, and the ids — an
+   * extracted face is the face it was, so its columns and its id carry. */
+  extract(): Material {
+    return this.edges.extract();
+  }
+
+  /** Closed contours around the union of the selected faces: walls between
+   * two selected faces vanish, walls against an unselected face or the
+   * outside stay, holes stay holes. Empty selection, no contours. The same
+   * boundary as `boundaryEdges()`, as loops. */
+  contours(): IsoContour[] {
+    if (this.length === 0) return [];
+    return this.collection.boundaryContours((f) => this.holds(f));
+  }
+
+  /** @internal Does this selection hold that face row? */
+  holds(row: number): boolean {
+    return row >= 0 && (this.set === null ? row < this.collection.faces.length : this.set.has(row));
+  }
+}
+
+/**
+ * The bounded faces of one planar state: the selection of every face,
+ * with the face views and the incidence every selection of them reads.
+ */
+export class Faces extends FaceSelection {
   /** Face views, by index. */
   readonly faces: readonly Face[];
   /** @internal */ readonly next: Int32Array; // face-walk successor of a half-edge
   /** @internal */ readonly faceOf: Int32Array; // face index on a half-edge's left, -1 outside
-  /** One key per face, built the first time a face column is read. */
-  private readonly keyBox: { keys: string[] | null };
+  /** One key per face, built the first time a face column is read; the
+   * ids and the row of each id, the first time an id is asked for. */
+  private readonly keyBox: { keys: string[] | null; ids: FaceId[] | null; rowOf: Map<string, number> | null; all: readonly number[] | null };
 
   /**
    * @internal Use `material.faces()`, or `facesFromCycles` for geometry
    * that names its own faces.
    */
   constructor(m: Material, given?: readonly (readonly number[])[]) {
+    super(null, null, undefined, m);
     // Faces named outright are the authority on their own topology, and the
     // planarity check is a question about a drawn picture: skip it.
     if (given === undefined) checkPlanar(m);
-    this.source = m;
-    this.iteration = m.iteration;
     const n = m.n;
     const E = m.edgeCount;
     const H = 2 * E;
@@ -1188,7 +1510,13 @@ export class Faces {
       edges: { get(this: Face) { return new EdgeSelection(m, collection.edgeRowsWhere((l, r) => l === this.index || r === this.index)); } },
       points: { get(this: Face) { return this.edges.points; } },
       boundaryEdges: { get(this: Face) { return new EdgeSelection(m, collection.edgeRowsWhere((l, r) => (l === this.index) !== (r === this.index))); } },
-      adjacent: { get(this: Face) { return new FaceSelection(collection, collection.adjacentRows(new Set([this.index]))); } },
+      adjacent: { get(this: Face) { const me = this.index; return new FaceSelection(collection, collection.adjacentRows((f) => f === me)); } },
+      // The face's identity: its walls' lineage, read the first time any
+      // face of the collection is asked.
+      id: { get(this: Face) { return collection.ids()[this.index]; } },
+      // The selection word on one face: its edges and corners as material,
+      // every column and id kept, as the selection of this one face gives.
+      extract: { value(this: Face) { return this.edges.extract(); } },
     });
     Object.freeze(faceProto);
     for (let f = 0; f < faceWalk.length; f++) {
@@ -1233,7 +1561,7 @@ export class Faces {
     this.faces = Object.freeze(views);
     this.next = next;
     this.faceOf = faceOf;
-    this.keyBox = { keys: null };
+    this.keyBox = { keys: null, ids: null, rowOf: null, all: null };
     // Face columns read flat, the way a vertex's do: `face.height`. The
     // values are keyed by the face's walls, so they are found once the
     // keys are known, and then baked onto the frozen view.
@@ -1336,43 +1664,45 @@ export class Faces {
     return keys;
   }
 
+  /**
+   * One id per face: its key, and where two faces of one state have the
+   * same walls — a figure eight drawn as one subdivided edge — the later
+   * ones in row order are told apart by their place among them. Ids are
+   * unique within a state and stable across states for every face whose
+   * walls are.
+   */
+  ids(): readonly FaceId[] {
+    if (this.keyBox.ids) return this.keyBox.ids;
+    const seen = new Map<string, number>();
+    const ids = this.keys().map((key) => {
+      const k = seen.get(key) ?? 0;
+      seen.set(key, k + 1);
+      return (k === 0 ? key : `${key}#${k}`) as FaceId;
+    });
+    this.keyBox.ids = ids;
+    return ids;
+  }
+
+  /** The face row an id is at in this state, or -1 when no face here has
+   * those walls. */
+  rowOfFace(id: FaceId): number {
+    let map = this.keyBox.rowOf;
+    if (!map) {
+      map = new Map();
+      this.ids().forEach((id, row) => map!.set(id, row));
+      this.keyBox.rowOf = map;
+    }
+    return map.get(id) ?? -1;
+  }
+
   /** This face's key: the walls it is made of. */
   keyOf(face: Face): string {
     return this.keys()[face.index];
   }
 
-  get length(): number {
-    return this.faces.length;
-  }
-
-  at(i: number): Face {
-    const f = this.faces[i];
-    if (!Number.isInteger(i) || !f) throw new Error(`faces.at: no member ${i} (${this.faces.length} members)`);
-    return f;
-  }
-
-  [Symbol.iterator](): Iterator<Face> {
-    return this.faces[Symbol.iterator]();
-  }
-
-  map<T>(fn: (f: Face, index: number) => T): T[] {
-    return this.faces.map(fn);
-  }
-
-  forEach(fn: (f: Face, index: number) => void): void {
-    this.faces.forEach(fn);
-  }
-
-  find(fn: (f: Face, index: number) => boolean): Face | undefined {
-    return this.faces.find(fn);
-  }
-
-  some(fn: (f: Face, index: number) => boolean): boolean {
-    return this.faces.some(fn);
-  }
-
-  every(fn: (f: Face, index: number) => boolean): boolean {
-    return this.faces.every(fn);
+  /** @internal Every face row, ascending, built once. */
+  allRows(): readonly number[] {
+    return (this.keyBox.all ??= Object.freeze(this.faces.map((_, i) => i)));
   }
 
   /** The faces on the two sides of a source edge: two for a wall between
@@ -1391,26 +1721,34 @@ export class Faces {
     return out;
   }
 
-  /** True when `face` is a view of this collection. */
-  has(face: Face): boolean {
-    if (viewKind(face) !== 'face') throw new Error('faces.has: expected a face view');
-    return ownedBy(face, this);
-  }
-
-  /** @internal Rows of the faces across a wall from any of `selected`,
+  /** @internal Rows of the faces across a wall from any selected face,
    * the members THEMSELVES EXCLUDED: one hop out, the meaning `adjacent`
    * has everywhere. Two selected faces sharing a wall name each other's
    * outside, not each other. */
-  adjacentRows(selected: Set<number>): number[] {
+  adjacentRows(selected: (face: number) => boolean): number[] {
     const out = new Set<number>();
     for (let e = 0; e < this.faceOf.length / 2; e++) {
       const l = this.faceOf[2 * e];
       const r = this.faceOf[2 * e + 1];
       if (l === r) continue;
-      if (selected.has(l) && r >= 0 && !selected.has(r)) out.add(r);
-      if (selected.has(r) && l >= 0 && !selected.has(l)) out.add(l);
+      if (l >= 0 && selected(l) && r >= 0 && !selected(r)) out.add(r);
+      if (r >= 0 && selected(r) && l >= 0 && !selected(l)) out.add(l);
     }
     return [...out].sort((p, q) => p - q);
+  }
+
+  /** @internal The faces across a wall from each face, among the selected
+   * ones alone: what `components()` walks. */
+  wallPairs(selected: (face: number) => boolean): Map<number, number[]> {
+    const among = new Map<number, number[]>();
+    for (let e = 0; e < this.faceOf.length / 2; e++) {
+      const l = this.faceOf[2 * e];
+      const r = this.faceOf[2 * e + 1];
+      if (l === r || l < 0 || r < 0 || !selected(l) || !selected(r)) continue;
+      (among.get(l) ?? among.set(l, []).get(l)!).push(r);
+      (among.get(r) ?? among.set(r, []).get(r)!).push(l);
+    }
+    return among;
   }
 
   /** @internal Edge rows chosen by the faces on their two sides
@@ -1421,76 +1759,16 @@ export class Faces {
     return rows;
   }
 
-  /** Every source edge incident to a bounded face, once: the walls, and
-   * any dangling edge lying inside a face (both its sides are that face). */
-  get edges(): EdgeSelection {
-    return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => l >= 0 || r >= 0));
-  }
-
-  /** Endpoints of `edges`, once, in row order. */
-  get points(): PointSelection {
-    return this.edges.points;
-  }
-
-  /** Edges separating the union of all bounded faces from the outside:
-   * walls between two faces and edges inside a face are not boundary. */
-  boundaryEdges(): EdgeSelection {
-    return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => (l >= 0) !== (r >= 0)));
-  }
-
-  /** Measure every face: geometric area and centroid, and with `field` its
-   * integral, mean and density-weighted centre (see measure.ts). */
-  measure(field?: (x: number, y: number) => number, opts?: MeasureOpts): FaceMeasurements {
-    return measureFaces(this, this.faces, field, opts);
-  }
-
-  /**
-   * The faces the given places fall in: one point, or a cloud of them.
-   *
-   * A place inside a face selects it; a place ON a wall selects nothing,
-   * because a wall is where two faces stop rather than somewhere either
-   * one holds; a place outside every face selects nothing. Several places
-   * in the same face still name it once — a selection is a set. A face
-   * with a hole does not hold what sits in the hole: the hole's own face
-   * does.
-   */
-  containing(where: XY | PointsLike): FaceSelection {
-    const rows: number[] = [];
-    for (const [x, y] of queryPoints(where, 'faces.containing')) {
-      const f = faceHolding(this.faces, x, y);
-      if (f >= 0) rows.push(f);
-    }
-    return new FaceSelection(this, rows);
-  }
-
-  /** The faces `fn` picks — membership decided now and fixed. */
-  filter(fn: (f: Face, index: number) => boolean): FaceSelection {
-    const rows: number[] = [];
-    this.faces.forEach((f, i) => { if (fn(f, i)) rows.push(f.index); });
-    return new FaceSelection(this, rows);
-  }
-
-  /** Split the faces into selections by key: first-occurrence order. */
-  groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
-    return groupRows(this.faces, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this, rows, key));
-  }
-
-  /** Closed contours around the union of every bounded face: inner walls
-   * gone, holes against the outside kept. The same boundary as
-   * `boundaryEdges()`, as loops a consumer of areas reads directly. */
-  contours(): IsoContour[] {
-    return this.filter(() => true).contours();
-  }
-
-  /** @internal Closed contours around the union of the given faces. A
+  /** @internal Closed contours around the union of the selected faces. A
    * half-edge is a boundary when its face is selected and its twin's is
    * not; contours follow face walks, rotating through selected faces at
    * a vertex, so regions touching at a point stay separate contours. */
-  boundaryContours(selected: Set<number>): IsoContour[] {
+  boundaryContours(selected: (face: number) => boolean): IsoContour[] {
     const m = this.source;
     const H = this.faceOf.length;
     const tailOf = (h: number): number => (h & 1 ? m.edgeList[2 * (h >> 1) + 1] : m.edgeList[2 * (h >> 1)]);
-    const isBoundary = (h: number) => selected.has(this.faceOf[h]) && !selected.has(this.faceOf[h ^ 1]);
+    const inside = (f: number) => f >= 0 && selected(f);
+    const isBoundary = (h: number) => inside(this.faceOf[h]) && !inside(this.faceOf[h ^ 1]);
     const used = new Uint8Array(H);
     const out: IsoContour[] = [];
     for (let h0 = 0; h0 < H; h0++) {
@@ -1511,161 +1789,22 @@ export class Faces {
   }
 }
 
-/** Faces of one collection chosen by a filter; membership is fixed. A
- * selection is itself a face collection: iterate, `length`, `at`, `map`,
- * `filter`, `groupBy`; `key` is set on the selections `groupBy` makes. */
-export class FaceSelection<K = undefined> implements Iterable<Face> {
-  /** The exact face collection selected from. */
-  readonly source: Faces;
-  readonly indices: readonly number[];
-  readonly key: K;
-  private readonly set: Set<number>;
-
-  /** @internal Use `faces.filter(pred)`. */
-  constructor(source: Faces, indices: Iterable<number>, key?: K) {
-    this.source = source;
-    this.indices = Object.freeze(Array.from(new Set(indices)).sort((p, q) => p - q));
-    this.set = new Set(this.indices);
-    this.key = key as K;
-    Object.freeze(this);
+/**
+ * A face collection read as POINTS: each face's centroid, in row order,
+ * a degenerate face (no area, no centroid) left out. The one reading every
+ * point consumer gives a face collection or selection — `dots`,
+ * `distanceToPoints`, `material`, `connect.*`, the forces — while
+ * `faces.points` stays the word for the corners. Null for anything that
+ * is not a face selection.
+ */
+export function faceCentroids(v: unknown): [number, number][] | null {
+  if (!(v instanceof FaceSelection)) return null;
+  const out: [number, number][] = [];
+  for (const f of v as FaceSelection<unknown>) {
+    const [x, y] = f.centroid;
+    if (Number.isFinite(x) && Number.isFinite(y)) out.push([x, y]);
   }
-
-  get length(): number {
-    return this.indices.length;
-  }
-
-  get iteration(): number {
-    return this.source.iteration;
-  }
-
-  at(i: number): Face {
-    const row = this.indices[i];
-    if (!Number.isInteger(i) || row === undefined) throw new Error(`faces.at: no member ${i} (${this.indices.length} members)`);
-    return this.source.faces[row];
-  }
-
-  *[Symbol.iterator](): Iterator<Face> {
-    for (const i of this.indices) yield this.source.faces[i];
-  }
-
-  map<T>(fn: (f: Face, index: number) => T): T[] {
-    return this.indices.map((row, i) => fn(this.source.faces[row], i));
-  }
-
-  forEach(fn: (f: Face, index: number) => void): void {
-    this.indices.forEach((row, i) => fn(this.source.faces[row], i));
-  }
-
-  find(fn: (f: Face, index: number) => boolean): Face | undefined {
-    let i = 0;
-    for (const f of this) if (fn(f, i++)) return f;
-    return undefined;
-  }
-
-  some(fn: (f: Face, index: number) => boolean): boolean {
-    return this.find(fn) !== undefined;
-  }
-
-  every(fn: (f: Face, index: number) => boolean): boolean {
-    let i = 0;
-    for (const f of this) if (!fn(f, i++)) return false;
-    return true;
-  }
-
-  filter(fn: (f: Face, index: number) => boolean): FaceSelection<K> {
-    const rows: number[] = [];
-    let i = 0;
-    for (const f of this) if (fn(f, i++)) rows.push(f.index);
-    return new FaceSelection(this.source, rows, this.key);
-  }
-
-  groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
-    return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this.source, rows, key));
-  }
-
-  /** The MEMBERS the given places fall in — the collection's `containing`
-   * narrowed to this selection. A place in a face outside the selection
-   * picks nothing. */
-  containing(where: XY | PointsLike): FaceSelection<K> {
-    const mine = this.set;
-    const rows: number[] = [];
-    for (const [x, y] of queryPoints(where, 'faces.containing')) {
-      const f = faceHolding(this.source.faces, x, y);
-      if (f >= 0 && mine.has(f)) rows.push(f);
-    }
-    return new FaceSelection(this.source, rows, this.key);
-  }
-
-  /** Every source edge incident to a selected face, once, including
-   * internal walls between two selected faces and dangling edges inside
-   * a selected face. */
-  get edges(): EdgeSelection {
-    const sel = this.set;
-    return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) || sel.has(r)));
-  }
-
-  /** Endpoints of `edges`, once, in row order. */
-  get points(): PointSelection {
-    return this.edges.points;
-  }
-
-  /** The faces across the walls of any selected face, one hop out, the
-   * members excluded. Two selected faces sharing a wall are each other's
-   * inside, not each other's neighbour; `sel.union(sel.adjacent())` is the
-   * selection grown by a ring, and says so. */
-  adjacent(): FaceSelection {
-    return new FaceSelection(this.source, this.source.adjacentRows(this.set));
-  }
-
-  /** Edges between the selected union and its exterior: a wall with a
-   * selected face on exactly one side. Walls between two selected faces
-   * and edges inside a face are excluded; a hole's boundary stays. */
-  boundaryEdges(): EdgeSelection {
-    const sel = this.set;
-    return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) !== sel.has(r)));
-  }
-
-  /** Measure the selected faces (see `Faces.measure`). */
-  measure(field?: (x: number, y: number) => number, opts?: MeasureOpts): FaceMeasurements {
-    return measureFaces(this.source, this.indices.map((i) => this.source.faces[i]), field, opts);
-  }
-
-  /** True when `face` is a selected view OF THIS COLLECTION. */
-  has(face: Face): boolean {
-    const kind = viewKind(face);
-    if (kind === 'vertex' || kind === 'edge') throw new Error(`selection.has: this is a face selection; ${kind === 'vertex' ? 'a vertex' : 'an edge'} view cannot be a member`);
-    if (kind !== 'face') throw new Error('selection.has: expected a face view');
-    return ownedBy(face, this.source) && this.set.has(face.index);
-  }
-
-  private same(other: FaceSelection<unknown>, what: string): void {
-    if (!(other instanceof FaceSelection)) throw new Error(`selection.${what}: a face selection combines only with a face selection`);
-    if (other.source !== this.source) throw new Error(`selection.${what}: the two selections come from different face collections`);
-  }
-
-  union(other: FaceSelection<unknown>): FaceSelection {
-    this.same(other, 'union');
-    return new FaceSelection(this.source, [...this.indices, ...other.indices]);
-  }
-
-  intersect(other: FaceSelection<unknown>): FaceSelection {
-    this.same(other, 'intersect');
-    return new FaceSelection(this.source, this.indices.filter((i) => other.set.has(i)));
-  }
-
-  subtract(other: FaceSelection<unknown>): FaceSelection {
-    this.same(other, 'subtract');
-    return new FaceSelection(this.source, this.indices.filter((i) => !other.set.has(i)));
-  }
-
-  /** Closed contours around the union of the selected faces: walls between
-   * two selected faces vanish, walls against an unselected face or the
-   * outside stay, holes stay holes. Empty selection, no contours. The same
-   * boundary as `boundaryEdges()`, as loops. */
-  contours(): IsoContour[] {
-    if (this.length === 0) return [];
-    return this.source.boundaryContours(this.set);
-  }
+  return out;
 }
 
 /** Faces of a planar material — `material.faces()` as a function. */

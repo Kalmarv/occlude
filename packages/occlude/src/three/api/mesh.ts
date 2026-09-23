@@ -307,7 +307,7 @@ export class PointEdit<P extends Attributes3,R extends PointRow<P>=PointRow<P>> 
     if(!this.active)throw new Error('point editor is closed');
     let selected:Collection<R,unknown>;
     if(target instanceof Collection)selected=target;
-    else {if(!this.rows.has(target))throw new Error('edit row belongs to another point revision');selected=this.rows.filter(p=>p.index===target.index);}
+    else {if(!this.rows.has(target))throw new Error('edit row belongs to another point revision');selected=this.rows.rows(target);}
     const bound=this.bind(selected);this.edit.set(bound.selection,p=>evaluate(field,bound.rows.get(p.index)!));
   }
   close():void{this.active=false;}
@@ -413,7 +413,7 @@ export class CurveEdit<P extends Attributes3,E extends EdgeAttributes> {
   private single<R extends {id:string;index:number}>(rows:Collection<R,unknown>,row:R):Collection<R,unknown>{
     if(!this.active)throw new Error('curve editor is closed');
     if(!rows.has(row))throw new Error('edit row belongs to another curve revision');
-    return rows.filter(r=>r.index===row.index);
+    return rows.rows(row);
   }
   setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{this.setEdges(this.single(this.curve.edges,row),attributes);}
   setEdges(selection:Collection<EdgeRow<E,P>,unknown>,field:Field<EdgeRow<E,P>,Partial<E>>):void{
@@ -532,7 +532,10 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * per-face extrusion remains the advanced `extrudeFaces3`. */
   extrude(faces:MeshFaces<P,E,F,C>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
     checkOptions(options);
-    if(!(faces instanceof Collection)||faces.domain!=='face'||faces.source!==this.surface)throw new Error('extrude requires a face selection of this mesh revision; select from mesh.faces');
+    if(!(faces instanceof Collection)||faces.domain!=='face')throw new Error('extrude requires a face selection; select from mesh.faces');
+    // A selection from an earlier revision is read on this one by id; faces
+    // that are gone are skipped.
+    if(faces.source!==this.surface)faces=faces.in(this);
     if(typeof offset==='number')offset={distance:offset};
     if(offset===undefined||offset===null||typeof offset!=='function'&&!Array.isArray(offset)&&(typeof offset!=='object'||!('distance'in offset)))throw new Error('extrude offset must be a distance, a vector, a region callback or { distance }');
     const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');
@@ -645,7 +648,7 @@ export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends A
   private single<R extends {id:string;index:number}>(rows:Collection<R,unknown>,row:R):Collection<R,unknown>{
     if(!this.active)throw new Error('mesh editor is closed');
     if(!rows.has(row))throw new Error('edit row belongs to another mesh revision');
-    return rows.filter(r=>r.index===row.index);
+    return rows.rows(row);
   }
   private write<R extends {id:string;index:number;attributes:Readonly<Record<string,Attribute3|undefined>>}>(selection:Collection<R,unknown>,field:Field<R,object>,target:Attributes3[],domain:'point'|'edge'|'face'|'corner'):void {
     this.check(selection,domain);

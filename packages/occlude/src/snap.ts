@@ -26,7 +26,7 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
-import { whereRows, type PointSelection, type EdgeSelection } from './relation.js';
+import { whereRows, type Where } from './relation.js';
 
 export type SnapField = (x: number, y: number) => number;
 
@@ -38,7 +38,7 @@ export interface SnapOpts {
   /** Only these points look for a better place; the rest stay where they
    * are. An edge selection is read as its endpoints. Absent is the whole
    * material. */
-  where?: PointSelection | EdgeSelection;
+  where?: Where;
 }
 
 /** The golden angle, which is what spaces a spiral evenly over a disc without

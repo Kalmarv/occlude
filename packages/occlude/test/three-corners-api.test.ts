@@ -14,7 +14,8 @@ describe('typed corner fields and edits',()=>{
   expect(model.corners.filter(c=>c.index===0).complement().length).toBe(23);
   expect(model.corners.extract().length).toBe(24);expect(()=>JSON.stringify(c)).not.toThrow();
   expect(()=>model.corners.has({...c})).toThrow('expected a corner row');
-  expect(()=>model.corners.union(model.translate([0,0,0]).corners)).toThrow('source revision');
+  // Another revision's corners are read by id (spec 58, G3-29).
+  expect(model.corners.union(model.translate([0,0,0]).corners).length).toBe(24);
  });
  it('captures all corner initializers against the same input revision',()=>{
   const initial=plane().cornerAttributes({energy:2,lag:0});

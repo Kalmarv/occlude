@@ -157,8 +157,11 @@ describe('the consumers say what they read', () => {
     for (const source of [m, m.points, m.edges]) {
       expect(() => strokes(source as never)).not.toThrow();
     }
-    // A face collection is areas, not chains.
-    expect(() => strokes(cellsOf() as never)).toThrow(/no chains to draw/);
+    // A face collection draws its edges, each wall once (spec 58, G1-22);
+    // one face is an area, with no chains of its own.
+    const cells = cellsOf();
+    expect(strokes(cells).length).toBe(cells.edges.curves().length);
+    expect(() => strokes(cells.at(0) as never)).toThrow(/no chains to draw/);
   });
 
   it('a branching point selection is refused as an area, like a branching material', () => {

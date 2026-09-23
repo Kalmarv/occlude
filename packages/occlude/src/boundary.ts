@@ -51,7 +51,7 @@ export interface Geometry {
   /** Chains, open or closed, with their points. */
   curves?(): Curve[];
   /** Positions with identity and columns. */
-  points?: PointSelection;
+  points?: PointSelection<unknown>;
 }
 
 /** Anything an area consumer takes: a geometry value, or the plain shapes
@@ -95,7 +95,7 @@ const hasFaces = (v: unknown): v is { faces(): { contours(): IsoContour[] } } =>
  * pictures and the sketch has to say.
  */
 const isFaceCollection = (v: unknown): v is { map(fn: (f: unknown) => unknown): unknown[] } =>
-  isObj(v) && typeof v.contours === 'function' && typeof v.curves !== 'function' && typeof v.at === 'function' && 'source' in v;
+  isObj(v) && typeof v.contours === 'function' && typeof v.containing === 'function' && typeof v.boundaryEdges === 'function' && typeof v.at === 'function';
 /**
  * The highest vertex degree inside a value's own edges, or null for a
  * value that has none. Not part of the protocol: it is how the area

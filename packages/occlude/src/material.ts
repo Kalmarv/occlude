@@ -23,7 +23,7 @@
  * the outline of a shape comes from `t.sample`, which reads the paper.
  */
 
-import { PointSelection, EdgeSelection, whereRows } from './relation.js';
+import { PointSelection, EdgeSelection, whereRows, type Where } from './relation.js';
 import { euclideanSpace, type Space } from './space.js';
 import { between, isPlacement, type Placement } from './placement.js';
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
@@ -32,7 +32,7 @@ import { degrees, radians } from './units.js';
 // `import type` is erased, so material never depends on api at runtime.
 import type { GroupValue, Tree } from './api.js';
 import { walkChains } from './chains.js';
-import { planarize, faces, boxGrid, faceLocator, type PlanarizeOpts, type Faces, type Face } from './faces.js';
+import { planarize, faces, boxGrid, faceLocator, faceCentroids, FaceSelection, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { VectorFieldFn } from './shapes.js';
@@ -401,8 +401,8 @@ export interface FaceColumn {
  * has room, and a reserved list is what keeps it honest.
  */
 export const RESERVED_FACE_FIELDS: readonly string[] = [
-  'index', 'area', 'perimeter', 'bounds', 'centroid',
-  'edges', 'points', 'boundaryEdges', 'adjacent', 'contours',
+  'index', 'id', 'area', 'perimeter', 'bounds', 'centroid',
+  'edges', 'points', 'boundaryEdges', 'adjacent', 'contours', 'extract',
 ];
 
 /**
@@ -893,9 +893,20 @@ export class Material {
   /** For material made by `t.voronoi`: the cell (a face of this material's
    * `faces()`) of a site vertex, or undefined when the site has no cell
    * (clipped away, or a duplicate of an earlier site). */
-  cellOf(site: Vertex): Face | undefined {
+  cellOf(site: Vertex): Face | undefined;
+  /** The cells of several sites at once, as a face selection: a point
+   * selection of the sites (`sites.points.filter(…)`) gives the cells of
+   * its members, a site with no cell adding nothing. */
+  cellOf(sites: PointSelection<unknown>): FaceSelection;
+  cellOf(site: Vertex | PointSelection<unknown>): Face | FaceSelection | undefined {
     const links = voronoiLinks.get(this);
     if (!links) throw new Error('cellOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
+    if (site instanceof PointSelection) {
+      const sites = site.in(links.sites);
+      const rows: number[] = [];
+      for (const s of sites.indices) if (links.faceOfSite[s] >= 0) rows.push(links.faceOfSite[s]);
+      return links.cells.rows(rows);
+    }
     if (!ownedBy(site, links.sites)) throw new Error('cellOf: that vertex is not a site of this diagram (it belongs to another state)');
     const f = links.faceOfSite[site.index];
     return f < 0 ? undefined : links.cells.at(f);
@@ -904,9 +915,19 @@ export class Material {
   /** For material made by `t.voronoi`: the site vertex whose cell `face`
    * is, or undefined for a face no site owns. Faces from any `faces()` of
    * the same result are accepted. */
-  siteOf(face: Face): Vertex | undefined {
+  siteOf(face: Face): Vertex | undefined;
+  /** The sites of several cells at once, as a point selection of the
+   * sites: a face selection of this diagram's cells gives their sites. */
+  siteOf(cells: FaceSelection<unknown>): PointSelection;
+  siteOf(face: Face | FaceSelection<unknown>): Vertex | PointSelection | undefined {
     const links = voronoiLinks.get(this);
     if (!links) throw new Error('siteOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
+    if (face instanceof FaceSelection) {
+      if (face.source !== this) throw new Error('siteOf: those faces belong to another material\'s cells');
+      const rows: number[] = [];
+      for (const f of face.indices) if (links.siteOfFace[f] >= 0) rows.push(links.siteOfFace[f]);
+      return links.sites.points.rows(rows);
+    }
     if (viewKind(face) !== 'face') throw new Error('siteOf: expected a face view');
     const owner = ownerOfView(face) as { source?: Material } | undefined;
     if (!owner || owner.source !== this) throw new Error('siteOf: that face belongs to another material\'s cells');
@@ -1227,7 +1248,7 @@ export class Material {
    * way a split's children take their parent's — so a face column survives
    * a partial resample.
    */
-  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: PointSelection | EdgeSelection; space?: Space }): Material {
+  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: Where; space?: Space }): Material {
     // Too small to place samples (a mid-edit zero spacing): nothing to build.
     if (!checkSampling('resample', opts)) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: this.space });
     // A material is a data-world value and has no frame, so the space comes
@@ -2956,7 +2977,10 @@ export interface PointRecord extends Record<string, number> {
   y: number;
 }
 
-export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointRecord> | Material;
+/** Anything a point consumer takes. A face collection or selection reads
+ * as its faces' centroids (see `faceCentroids`); `faces.points` is the word
+ * for the corners. */
+export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointRecord> | Material | FaceSelection<unknown>;
 
 /**
  * Material from positions. Unconnected unless `edges` are given; extra
@@ -2975,8 +2999,14 @@ export function material(
     }
     return points;
   }
+  // A point selection is those points: the rows, their columns and their
+  // ids, so a builder handed one (`connect.chain(sel)`) keeps who each
+  // member is, and `sel.in(result)` finds them again.
+  if (points instanceof PointSelection && Object.keys(opts).length === 0) return points.extract();
+  // A face collection is points at its faces' centroids.
+  const centres = faceCentroids(points);
   // A point collection (m.points, a selection) is a fine source of points.
-  const list: readonly XY[] = Array.isArray(points) ? (points as readonly XY[]) : Array.from(points as Iterable<XY>);
+  const list: readonly XY[] = centres ?? (Array.isArray(points) ? (points as readonly XY[]) : Array.from(points as Iterable<XY>));
   const n = list.length;
   const x = new Float64Array(n);
   const y = new Float64Array(n);

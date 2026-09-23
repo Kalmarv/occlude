@@ -16,7 +16,7 @@ import { ownerOf, pairKey, viewKind } from './views.js';
 import { mintIds, RESERVED_FACE_FIELDS, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot, type PointId, type EdgeId } from './material.js';
 import type { Space } from './space.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
-import { Faces, type Face, type FaceSelection } from './faces.js';
+import type { Faces, Face, FaceSelection } from './faces.js';
 
 /** What `stepOnce` needs from the material cluster, handed over by the
  * caller: the state constructor and the two selection classes it must
@@ -398,13 +398,13 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
       const row = edgeRow(edge, 'setEdge'); writeEdge(row, attrs); touchedEdge.add(row);
     },
     setFaces(faces, attrs) {
-      const cells = faces instanceof Faces ? faces : faces.source;
+      const cells = faces.collection;
       if (cells.source !== cur) {
-        throw new Error('steps: setFaces: those faces are of another state — read cur.faces() in this pass');
+        throw new Error('steps: setFaces: those faces are of another state — read cur.faces() in this pass, or read the selection against it with sel.in(cur)');
       }
       const keys = cells.keys();
       for (const key of keys) faceKeysSeen.add(key);
-      const chosen = faces instanceof Faces ? [...Array(cells.length).keys()] : [...faces].map((f) => f.index);
+      const chosen = faces.indices;
       for (const index of chosen) {
         const view = cells.at(index);
         const written = typeof attrs === 'function' ? attrs(view) : attrs;

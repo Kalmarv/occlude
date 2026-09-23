@@ -70,8 +70,11 @@ describe('connected-region extrusion',()=>{
     const model=box(1);
     // A closed shell has no boundary to raise walls from: nothing to extrude.
     expect(model.extrude(model.faces,[0,0,1]).surface.faces.length).toBe(model.surface.faces.length);
+    // A selection of another revision is read by id (spec 58, G3-29): the
+    // same construction has the same ids, so this is the closed shell again.
     const other=box(1);
-    expect(()=>model.extrude(other.faces,[0,0,1])).toThrow('this mesh revision');
+    expect(model.extrude(other.faces,[0,0,1]).surface.faces.length).toBe(model.surface.faces.length);
+    expect(()=>model.extrude(model.points as any,[0,0,1])).toThrow('face selection');
     expect(model.extrude(model.faces.filter(f=>f.normal[2]>0.9),{distance:Number.NaN}).surface.faces.length).toBe(model.surface.faces.length);
     expect(()=>model.extrude(model.faces.filter(f=>f.normal[2]>0.9),[0,0,1],{key:''})).toThrow('nonempty');
     // Two opposite faces cancel: no region direction for a scalar distance.

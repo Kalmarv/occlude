@@ -146,6 +146,7 @@ A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengt
 | `t.travelTime` | yes | an arrival time is a length of the space over the speed |
 | `m.steps` | with a space | a move is a step of the space, flat without one |
 | `force.*` | with a space | distances and directions of the space, flat without one |
+| `points.near`, `pairs`, `edges.near` | with a space | the radius is a length of the space, flat without one |
 | `m.transform` | no | moves each vertex by an isometry of the space, and measures nothing |
 | `t.hexes` | no | a flat lattice of cells, drawn through the placement |
 | `t.isolines` | no | flat contours of the field |
@@ -260,7 +261,7 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
 
 <include>/_sig/Toolkit.distanceTo.mdx</include>
 
-`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. The pure `sdf.*` words stay flat, because a pure kernel reads no frame.
+`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. Points have no inside too, so `t.distanceTo(points)` is zero at each point and minus the distance of the space to the nearest point everywhere else. The pure `sdf.*` words and `distanceToPoints` stay flat, because a pure kernel reads no frame.
 
 Below, the cell of a `{7, 3}` inset at three fractions of its depth. One `t.isolines` call makes the insets once, and `m.transform` carries them to every copy.
 

@@ -75,10 +75,10 @@ describe('pairs', () => {
       .toThrow(/a point selection pairs only with a point selection/);
   });
 
-  it('refuses two selections of different states', () => {
+  it('refuses two selections of unrelated materials', () => {
     const a = material([[0, 0]]);
     const b = material([[0, 0]]);
-    expect(() => a.points.pairs(b.points, () => true)).toThrow(/different states/);
+    expect(() => a.points.pairs(b.points, () => true)).toThrow(/unrelated materials/);
   });
 
   it('edges pair by their middles', () => {
