@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { initOcclude, render, sketch, polygon, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef } from '../src/index.js';
+import { levelMaterial, type IsoLevelContours } from '../src/isolines.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -255,3 +256,20 @@ describe('sweep · along reads its frame from the space', () => {
     expect(st.heading).toBe(0);
   });
 });
+
+describe('a closing run of no length', () => {
+  it('makes no edge: a wall whose two ends are one row never joins a vertex to itself', () => {
+    const groups: IsoLevelContours[] = [{
+      level: 1,
+      lines: [{ pts: [[0, 0], [10, 0]], closed: false, cut: [0] }],
+      walls: [
+        { pts: [[10, 0], [10, 0]], closed: false, cut: [1] },
+        { pts: [[10, 0], [10, 5], [0, 5], [0, 0]], closed: false, cut: [1, 1, 1] },
+      ],
+    } as unknown as IsoLevelContours];
+    const m = levelMaterial(groups);
+    for (let e = 0; e < m.edgeCount; e++) expect(m.edgeList[2 * e]).not.toBe(m.edgeList[2 * e + 1]);
+    expect(m.edgeCount).toBe(4);
+  });
+});
+

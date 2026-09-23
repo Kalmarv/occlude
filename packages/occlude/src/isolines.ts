@@ -631,7 +631,13 @@ export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
         return x.length - 1;
       });
       for (let k = 0; k < edgeCount(c); k++) {
-        edges.push(rows[k], rows[(k + 1) % m]);
+        const a = rows[k];
+        const b = rows[(k + 1) % m];
+        // A closing run that starts and stops at one end row — a step of
+        // no length along the boundary — is no edge at all: a material
+        // cannot join a vertex to itself, and there is nothing to draw.
+        if (a === b) continue;
+        edges.push(a, b);
         level.push(g.level);
         cut.push(kind);
       }
