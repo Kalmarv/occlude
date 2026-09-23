@@ -27,12 +27,22 @@
  * domain alone — no seed stream, no paper. The grid is an implementation
  * number; arrival times are in the units of the input coordinates divided
  * by the units of `speed`.
+ *
+ * IN A CURVED SPACE the march measures the space's own walk. The metric in
+ * sketch coordinates is diagonal, `ds² = c(y)²·dx² + dy²` with `c` the
+ * space's `density` (cosh below zero, cos above, 1 flat), so a grid step
+ * along a row is worth `sx·c(y)` and a step along a column `sy`: the
+ * Godunov update takes the row's own x-step, and the start measures with
+ * the space's distance. An arrival time is then a length of the space over
+ * the speed. The flat plane's `c` is 1 and the arithmetic is the literal
+ * old one.
  */
 
 import { numericLoops, type AreaInput } from './boundary.js';
 import { distanceTo } from './distance.js';
 import { usableLength } from './guard.js';
 import type { IsoEnv } from './isolines.js';
+import type { Space } from './space.js';
 import type { PointSelection } from './relation.js';
 import type { FieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
@@ -165,6 +175,51 @@ function seedDistance(
 }
 
 /**
+ * `seedDistance` in a curved space: zero inside a seed area, and elsewhere
+ * the space's distance to the nearest seed point, or to the nearest point
+ * of a seed area's boundary — the foot on the nearest boundary segment,
+ * found in coordinates, measured in the space. Only the first cell or so
+ * is ever used, so the foot in coordinates is as good as the foot in the
+ * space. `reach` is how far in COORDINATES a node may be and still matter:
+ * anything further answers Infinity without measuring.
+ */
+function seedDistanceIn(
+  loops: [number, number][][],
+  points: [number, number][],
+  space: Space,
+): ((x: number, y: number, reach: number) => number) | null {
+  if (loops.length === 0 && points.length === 0) return null;
+  const area = loops.length > 0 ? distanceTo(loops) : null;
+  return (x, y, reach) => {
+    let best = Infinity;
+    if (area !== null) {
+      const d = area(x, y);
+      if (d >= 0) return 0;
+      if (-d <= reach) {
+        for (const loop of loops) {
+          for (let k = 0; k < loop.length; k++) {
+            const [ax, ay] = loop[k];
+            const [bx, by] = loop[(k + 1) % loop.length];
+            const dx = bx - ax;
+            const dy = by - ay;
+            const l2 = dx * dx + dy * dy;
+            const u = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
+            const ds = space.distance([x, y], [ax + dx * u, ay + dy * u]);
+            if (ds < best) best = ds;
+          }
+        }
+      }
+    }
+    for (const [px, py] of points) {
+      if (!(Math.hypot(x - px, y - py) <= reach)) continue;
+      const d = space.distance([x, y], [px, py]);
+      if (d < best) best = d;
+    }
+    return best;
+  };
+}
+
+/**
  * Arrival times over `env.bounds` as a field. See the file comment; the
  * artist-facing word is `t.travelTime`, which lowers a shape first.
  */
@@ -196,7 +251,13 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
   const speedAt: FieldFn = typeof given === 'function' ? given : () => given;
   const ground = opts.within === undefined ? null : distanceTo(opts.within);
   const start = seedsOf(from, 'travelTime');
-  const seed = seedDistance(start.loops, start.points);
+  const space = env.space !== undefined && env.space.kind !== 'euclidean' ? env.space : null;
+  const seed = space ? null : seedDistance(start.loops, start.points);
+  const seedIn = space ? seedDistanceIn(start.loops, start.points, space) : null;
+  // The row's own x-step in the space: `sx·c(y)`. Null on the flat plane,
+  // where every row steps `sx`.
+  const rowSx = space ? Float64Array.from({ length: gh }, (_, j) => sx * space.density([b.x, b.y + j * sy])) : null;
+  const rowAx = rowSx ? rowSx.map((h) => 1 / (h * h)) : null;
 
   // ---- the grid -------------------------------------------------------
   const T = new Float64Array(n).fill(Infinity);
@@ -263,6 +324,25 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
   // is marched.
   const near = Math.hypot(sx, sy);
   let seeded = 0;
+  if (seedIn !== null && rowSx !== null) {
+    for (let j = 0; j < gh; j++) {
+      const y = b.y + j * sy;
+      // One cell's diagonal OF THE SPACE on this row, and how far that
+      // reaches in coordinates: the row's x-step shrinks toward a pole.
+      const nearRow = Math.hypot(rowSx[j], sy);
+      const c = rowSx[j] / sx;
+      const reach = c > 0 ? nearRow / Math.min(1, c) : Infinity;
+      for (let i = 0; i < gw; i++) {
+        const idx = j * gw + i;
+        if (F[idx] <= 0) continue;
+        const d = seedIn(b.x + i * sx, y, reach);
+        if (!(d <= nearRow)) continue;
+        T[idx] = d / F[idx];
+        state[idx] = KNOWN;
+        seeded++;
+      }
+    }
+  }
   if (seed !== null) {
     for (let j = 0; j < gh; j++) {
       const y = b.y + j * sy;
@@ -284,6 +364,9 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
   const ay = 1 / (sy * sy);
   const solve = (idx: number, i: number, j: number): number => {
     const f = F[idx];
+    // The x-step of this row: `sx` flat, `sx·c(y)` in a curved space.
+    const hx = rowSx ? rowSx[j] : sx;
+    const axj = rowAx ? rowAx[j] : ax;
     let a = Infinity;
     if (i > 0 && state[idx - 1] === KNOWN) a = T[idx - 1];
     if (i < gw - 1 && state[idx + 1] === KNOWN && T[idx + 1] < a) a = T[idx + 1];
@@ -292,18 +375,18 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
     if (j < gh - 1 && state[idx + gw] === KNOWN && T[idx + gw] < c) c = T[idx + gw];
     const rhs = 1 / (f * f);
     if (a === Infinity) return c + sy / f;
-    if (c === Infinity) return a + sx / f;
+    if (c === Infinity) return a + hx / f;
     // (T−a)²/sx² + (T−c)²/sy² = 1/F², taking the larger root. It is the
     // right one only while the front arrives from both axes; otherwise the
     // update is one-sided.
-    const s = ax + ay;
-    const m = ax * a + ay * c;
-    const disc = m * m - s * (ax * a * a + ay * c * c - rhs);
+    const s = axj + ay;
+    const m = axj * a + ay * c;
+    const disc = m * m - s * (axj * a * a + ay * c * c - rhs);
     if (disc >= 0) {
       const t = (m + Math.sqrt(disc)) / s;
       if (t >= a && t >= c) return t;
     }
-    return Math.min(a + sx / f, c + sy / f);
+    return Math.min(a + hx / f, c + sy / f);
   };
   const relax = (idx: number, i: number, j: number): void => {
     if (state[idx] === KNOWN || F[idx] <= 0) return;

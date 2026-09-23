@@ -184,5 +184,5 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
       for (let i = 1; i < pts.length; i++) edges.push(base + i - 1, base + i);
     }
   }
-  return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges));
+  return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges), { space: m.space });
 }

@@ -818,6 +818,96 @@ export function modelChart(space: Space): { center: Vec; scale: number } | null 
   return { center: space.center, scale: space.size };
 }
 
+/**
+ * How far a bucket search widens over one box — the scatter's, and the
+ * neighbours every force reads — from the
+ * space's `density`: how much longer a length of the SPACE can be in the
+ * sketch's own coordinates — `1/sqrt(density)` at its thinnest, and never
+ * below 1. Not the chart's magnification on the sheet, which is
+ * `chartStretch` above.
+ *
+ * `density` is the area of the space one unit of coordinate area holds, so
+ * `sqrt(density)` is the linear factor and a coordinate step of `dp` is
+ * worth `sqrt(density)·dp`. A bucket grid is laid out in coordinates while
+ * every radius here is a length of the space, so a search has to be
+ * widened by this factor or it will not reach the neighbour it was meant
+ * to find.
+ *
+ * The flat plane reads 1 everywhere and the disk never reads below it —
+ * `cosh` of the distance from the base row — so both answer 1 and their
+ * searches are the numbers they always were. The sphere reads `|cos|` of
+ * that distance, which is at most 1 and VANISHES at the poles of the base
+ * row, where a whole row of coordinates is one place. The reading depends
+ * on the row alone, so the smallest over a box is at one of its two rows
+ * unless a pole lies between them, and then it is nothing at all: no
+ * bucket search is wide enough, and the answer says so with Infinity,
+ * which the caller reads as "search the whole grid".
+ */
+export function bucketStretch(space: Space, bounds: { x: number; y: number; w: number; h: number }): number {
+  if (space.kind !== 'spherical') return 1;
+  const R = space.radius;
+  const cy = space.center[1];
+  const b0 = (bounds.y - cy) / R;
+  const b1 = (bounds.y + bounds.h - cy) / R;
+  // Some `π/2 + nπ` between the two rows is a pole of the base.
+  const holdsPole = Math.ceil((b0 - Math.PI / 2) / Math.PI) <= Math.floor((b1 - Math.PI / 2) / Math.PI);
+  if (holdsPole) return Infinity;
+  const low = Math.min(space.density([bounds.x, bounds.y]), space.density([bounds.x, bounds.y + bounds.h]));
+  if (!(low > 0)) return Infinity;
+  return low >= 1 ? 1 : 1 / Math.sqrt(low);
+}
+
+// ---- the sheet back to the space ------------------------------------------
+
+/**
+ * The inverse of `project`: a point on the sheet, in drawable units, to
+ * the sketch coordinate drawn there — or a non-finite pair where the sheet
+ * shows no place of the space at all: past the rim of the disk, or outside
+ * the hemisphere a `'gnomonic'` or `'orthographic'` chart draws.
+ *
+ * `fromChart` inverts the MODEL chart only. The Klein, gnomonic and
+ * orthographic charts are each one line over it (`project` says which),
+ * and this undoes that line first. The flat plane is the identity.
+ *
+ * The engine reads a field through this: it samples on the sheet, and a
+ * field is written in sketch coordinates.
+ */
+export function fromSheet(space: Space, q: XY): Vec {
+  if (space.kind === 'euclidean') return [vx(q), vy(q)];
+  const [cx, cy] = space.center;
+  const M = space.size;
+  const wx = (vx(q) - cx) / M;
+  const wy = (vy(q) - cy) / M;
+  const r2 = wx * wx + wy * wy;
+  const none: Vec = [NaN, NaN];
+  // The factor that carries the drawn point back to the model chart.
+  let k: number;
+  switch (space.projection) {
+    case 'poincare':
+      // The rim is infinitely far away: at or past it is no place.
+      return r2 < 1 ? space.fromChart(q) : none;
+    case 'stereographic':
+      return space.fromChart(q);
+    case 'klein':
+      // `w = 2z/(1 + |z|²)`, so `z = w/(1 + √(1 − |w|²))`.
+      if (!(r2 < 1)) return none;
+      k = 1 / (1 + Math.sqrt(1 - r2));
+      break;
+    case 'gnomonic':
+      // `w = z/(1 − |z|²)` for `|z| < 1`: the smaller root.
+      k = 2 / (1 + Math.sqrt(1 + 4 * r2));
+      break;
+    case 'orthographic':
+      // `w = z/(1 + |z|²)` for `|z| ≤ 1`, which is `|w| ≤ 1/2`.
+      if (!(4 * r2 <= 1)) return none;
+      k = 2 / (1 + Math.sqrt(1 - 4 * r2));
+      break;
+    default:
+      return space.fromChart(q);
+  }
+  return space.fromChart([cx + M * wx * k, cy + M * wy * k]);
+}
+
 // ---- the metric as a distance field ---------------------------------------
 
 /**
@@ -915,6 +1005,85 @@ export interface SpaceContour {
  * draws that geodesic's equidistant curves.
  */
 export function spaceAreaField(space: Space, contours: readonly SpaceContour[]): (x: number, y: number) => number {
+  const { sign, edges } = areaEdges(space, contours);
+  const n = edges.length;
+  return (x, y) => {
+    // One chart reading a sample, whatever the area's edge count.
+    const q = space.toChart([x, y]);
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = sign * edges[i].f(q[0], q[1]);
+      if (v < best) best = v;
+    }
+    return best;
+  };
+}
+
+/** What `spaceAreaNearest` answers at a point. */
+export interface SpaceAreaReading {
+  /** The signed distance, positive inside: `spaceAreaField`'s own number. */
+  distance: number;
+  /** The nearest boundary point: the foot of the perpendicular geodesic on
+   * the nearest edge's geodesic. The point itself when nothing is near. */
+  nearest: Vec;
+  /** The unit direction, in the local frame at the point, in which the
+   * distance grows fastest: along the geodesic to `nearest`, away from it
+   * inside and toward it outside. Zero when the area has no edge. */
+  inward: Vec;
+}
+
+/**
+ * `spaceAreaField` with the POINT it measured to: the distance, the
+ * nearest boundary point, and the inward direction there.
+ *
+ * The field already chooses the nearest edge to answer its number, so the
+ * point is read off that edge and nothing is differenced. An edge's
+ * geodesic is the model's plane through the origin with unit normal `m`;
+ * the foot of `n` is `n − ⟨n, m⟩·m`, put back on the model, and the inward
+ * direction is `m` read in the point's own frame — which is exact on the
+ * boundary itself, where the direction to the nearest point is not.
+ */
+export function spaceAreaNearest(space: Space, contours: readonly SpaceContour[]): (x: number, y: number) => SpaceAreaReading {
+  const { sign, edges } = areaEdges(space, contours);
+  const door = space.model;
+  const form = (u: Model, v: Model): number => u[0] * v[0] + u[1] * v[1] + door.sign * (u[2] * v[2]);
+  return (x, y) => {
+    const q = space.toChart([x, y]);
+    let best = Infinity;
+    let at = -1;
+    for (let i = 0; i < edges.length; i++) {
+      const v = sign * edges[i].f(q[0], q[1]);
+      if (v < best) {
+        best = v;
+        at = i;
+      }
+    }
+    if (at < 0 || !edges[at].m) return { distance: best, nearest: [x, y], inward: [0, 0] };
+    const m = edges[at].m!;
+    const n = door.up([x, y]);
+    const k = form(n, m);
+    const v: Model = [n[0] - k * m[0], n[1] - k * m[1], n[2] - k * m[2]];
+    const len = Math.sqrt(Math.abs(form(v, v)));
+    const nearest = len > 0 ? door.down([v[0] / len, v[1] / len, v[2] / len]) : ([x, y] as Vec);
+    const [ex, ey] = door.frameAt([x, y]);
+    const gx = sign * form(ex, m);
+    const gy = sign * form(ey, m);
+    const g = Math.hypot(gx, gy);
+    return { distance: best, nearest, inward: g > 0 ? [gx / g, gy / g] : [0, 0] };
+  };
+}
+
+/**
+ * The edges of an area as the space reads them: each edge's signed
+ * distance in the chart (`edgeField`) and the unit normal of its geodesic
+ * in the model, oriented the same way — positive on the LEFT of `a → b` —
+ * and the sign that makes the inside positive. The closed loops are
+ * oriented by the widest of them, so a hole keeps the opposite sign.
+ */
+function areaEdges(space: Space, contours: readonly SpaceContour[]): {
+  sign: number;
+  edges: { f: (x: number, y: number) => number; m: Model | null }[];
+} {
   let widest = 0;
   for (const c of contours) {
     if (!c.closed) continue;
@@ -922,25 +1091,30 @@ export function spaceAreaField(space: Space, contours: readonly SpaceContour[]):
     if (Math.abs(a) > Math.abs(widest)) widest = a;
   }
   const sign = widest < 0 ? -1 : 1;
-  const edges: ((x: number, y: number) => number)[] = [];
+  const door = space.model;
+  const G = door.sign;
+  const edges: { f: (x: number, y: number) => number; m: Model | null }[] = [];
   for (const c of contours) {
     const n = c.closed ? c.pts.length : c.pts.length - 1;
     for (let i = 0; i < n; i++) {
       // A loop written with its first point repeated at the end closes
       // itself twice; the zero-length edge names no geodesic and drops.
-      const f = edgeField(space, c.pts[i], c.pts[(i + 1) % c.pts.length]);
-      if (f) edges.push(f);
+      const a = c.pts[i];
+      const b = c.pts[(i + 1) % c.pts.length];
+      const f = edgeField(space, a, b);
+      if (!f) continue;
+      // The plane of the geodesic: `G·(A × B)` is orthogonal to both ends
+      // in the model's own form, and it points LEFT of `a → b`, as `f` is
+      // positive there.
+      const A = door.up(a);
+      const B = door.up(b);
+      const cx = A[1] * B[2] - A[2] * B[1];
+      const cy = A[2] * B[0] - A[0] * B[2];
+      const cz = A[0] * B[1] - A[1] * B[0];
+      const mz = G * cz;
+      const len = Math.sqrt(Math.abs(cx * cx + cy * cy + G * mz * mz));
+      edges.push({ f, m: len > 0 ? [cx / len, cy / len, mz / len] : null });
     }
   }
-  const n = edges.length;
-  return (x, y) => {
-    // One chart reading a sample, whatever the area's edge count.
-    const q = space.toChart([x, y]);
-    let best = Infinity;
-    for (let i = 0; i < n; i++) {
-      const v = sign * edges[i](q[0], q[1]);
-      if (v < best) best = v;
-    }
-    return best;
-  };
+  return { sign, edges };
 }

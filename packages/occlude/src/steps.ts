@@ -14,6 +14,7 @@
 import { vx, vy, type XY } from './vec.js';
 import { ownerOf, pairKey, viewKind } from './views.js';
 import { mintIds, RESERVED_FACE_FIELDS, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot, type PointId, type EdgeId } from './material.js';
+import type { Space } from './space.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, type Face, type FaceSelection } from './faces.js';
 
@@ -32,6 +33,7 @@ export interface StepKit {
       edgeTransfers?: Record<string, EdgeTransfer>;
       ids?: { points?: Float64Array; edges?: Float64Array; edgeRoots?: Float64Array };
       faceAttrs?: Record<string, FaceColumn>;
+      space?: Space;
     },
   ) => Material;
   PointSelection: typeof PointSelection;
@@ -267,6 +269,12 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   const neattrs: Record<string, Float64Array> = {};
   for (const name of enames) neattrs[name] = Float64Array.from(cur.edgeAttrs[name]);
   const touchedPoint = new Set<number>(); // rows an explicit move/set named
+  // A move is a STEP in the material's space. The moves a pass records add
+  // up first, as vectors in the point's own frame, and the sum is walked
+  // once with `exp` after the rule. The flat plane's walk is addition, so a
+  // flat material (or one with no space) adds in place as it always has.
+  const space = cur.space !== undefined && cur.space.kind !== 'euclidean' ? cur.space : null;
+  const walk = space ? { dx: new Float64Array(n), dy: new Float64Array(n), rows: new Set<number>() } : null;
   const touchedEdge = new Set<number>(); // edge rows setEdge/setEdges named
   const removed = new Set<number>();
   const disconnected = new Set<number>();
@@ -374,7 +382,9 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
       const rows = target instanceof PointSelection ? pointRows(target, 'move') : [rowOf(target, 'move')];
       for (const row of rows) {
         const [dx, dy] = finiteXY(typeof by === 'function' ? by(cur.vertex(row)) : by, 'a move');
-        nx[row] += dx; ny[row] += dy; touchedPoint.add(row);
+        if (walk) { walk.dx[row] += dx; walk.dy[row] += dy; walk.rows.add(row); }
+        else { nx[row] += dx; ny[row] += dy; }
+        touchedPoint.add(row);
       }
     },
     set(target: Ref | PointSelection, attrs: Record<string, number> | ((p: Vertex) => Record<string, number>)) {
@@ -545,11 +555,18 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     },
   };
   rule(cur, next, k);
+  if (space && walk) {
+    for (const row of walk.rows) {
+      const q = space.exp([cur.x[row], cur.y[row]], [walk.dx[row], walk.dy[row]]);
+      nx[row] = q[0];
+      ny[row] = q[1];
+    }
+  }
 
   // ---- the moved state: split transfer callbacks read it ----
   // The same rows, moved: the split callbacks read this state and must see
   // the identities they will be asked about.
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds), edgeRoots: Float64Array.from(cur.edgeRoots) }, faceAttrs: cur.faceAttrs });
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds), edgeRoots: Float64Array.from(cur.edgeRoots) }, faceAttrs: cur.faceAttrs, space: cur.space });
 
   const movedEdges = moved.edges;
 
@@ -758,5 +775,5 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: withWrites(cur.faceAttrs, pendingFaces, faceKeysSeen) });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: withWrites(cur.faceAttrs, pendingFaces, faceKeysSeen), space: cur.space });
 }

@@ -51,7 +51,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Next.move.mdx</include>
 
-Moves the selected points by a vector, or by one vector for each point from a callback. Several moves on one point add up.
+Moves the selected points by a vector, or by one vector for each point from a callback. Several moves on one point add up. A move is a step in the [space](/docs/reference/geometry) of the material, so in a curved sketch the point walks the sum of its moves along a geodesic.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';

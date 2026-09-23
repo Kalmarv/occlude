@@ -23,7 +23,7 @@ import { distanceTo } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
-import type { Space } from './space.js';
+import { bucketStretch, type Space } from './space.js';
 import type { L } from './units.js';
 
 export type FieldFn2 = (x: number, y: number) => number;
@@ -100,7 +100,11 @@ export interface SettleOpts {
 export type SettleParent = Readonly<{ x: number; y: number; demand: number } & Record<string, number>>;
 
 /** A density raster over `bounds`: cell centres at (i + ½)·cw, values
- * clamped to 0…1, non-positive and non-finite samples empty. */
+ * clamped to 0…1, non-positive and non-finite samples empty. In a curved
+ * space each value is then weighted by the space's `density` — the area of
+ * the space one cell of coordinates holds — so a cell's integral is the
+ * field integrated over SPACE area, and its weighted centroid is weighted
+ * by it too. */
 export interface DensityRaster {
   cols: number;
   rows: number;
@@ -109,7 +113,8 @@ export interface DensityRaster {
   dens: Float64Array;
 }
 
-export function densityRaster(field: FieldFn2, bounds: Bounds, resolution: number | undefined): DensityRaster {
+export function densityRaster(field: FieldFn2, bounds: Bounds, resolution: number | undefined, space?: Space): DensityRaster {
+  const sp = space !== undefined && space.kind !== 'euclidean' ? space : null;
   const R = Math.max(32, Math.min(512, resolution ?? 256));
   const long = Math.max(bounds.w, bounds.h);
   const cw = long / R;
@@ -118,8 +123,11 @@ export function densityRaster(field: FieldFn2, bounds: Bounds, resolution: numbe
   const dens = new Float64Array(cols * rows);
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
-      const v = field(bounds.x + (i + 0.5) * cw, bounds.y + (j + 0.5) * cw);
-      dens[j * cols + i] = Number.isFinite(v) && v > 0 ? Math.min(1, v) : 0;
+      const x = bounds.x + (i + 0.5) * cw;
+      const y = bounds.y + (j + 0.5) * cw;
+      const v = field(x, y);
+      const d = Number.isFinite(v) && v > 0 ? Math.min(1, v) : 0;
+      dens[j * cols + i] = sp && d > 0 ? d * sp.density([x, y]) : d;
     }
   }
   return { cols, rows, cw, bounds, dens };
@@ -223,44 +231,6 @@ export function withinRegion(
 }
 
 /**
- * How far the scatter's bucket search widens over one box, from the
- * space's `density`: how much longer a length of the SPACE can be in the
- * sketch's own coordinates — `1/sqrt(density)` at its thinnest, and never
- * below 1. Not the chart's magnification on the sheet, which is
- * `chartStretch` in space.ts.
- *
- * `density` is the area of the space one unit of coordinate area holds, so
- * `sqrt(density)` is the linear factor and a coordinate step of `dp` is
- * worth `sqrt(density)·dp`. A bucket grid is laid out in coordinates while
- * every radius here is a length of the space, so a search has to be
- * widened by this factor or it will not reach the neighbour it was meant
- * to find.
- *
- * The flat plane reads 1 everywhere and the disk never reads below it —
- * `cosh` of the distance from the base row — so both answer 1 and their
- * searches are the numbers they always were. The sphere reads `|cos|` of
- * that distance, which is at most 1 and VANISHES at the poles of the base
- * row, where a whole row of coordinates is one place. The reading depends
- * on the row alone, so the smallest over a box is at one of its two rows
- * unless a pole lies between them, and then it is nothing at all: no
- * bucket search is wide enough, and the answer says so with Infinity,
- * which the caller reads as "search the whole grid".
- */
-function bucketStretch(space: Space, bounds: Bounds): number {
-  if (space.kind !== 'spherical') return 1;
-  const R = space.radius;
-  const cy = space.center[1];
-  const b0 = (bounds.y - cy) / R;
-  const b1 = (bounds.y + bounds.h - cy) / R;
-  // Some `π/2 + nπ` between the two rows is a pole of the base.
-  const holdsPole = Math.ceil((b0 - Math.PI / 2) / Math.PI) <= Math.floor((b1 - Math.PI / 2) / Math.PI);
-  if (holdsPole) return Infinity;
-  const low = Math.min(space.density([bounds.x, bounds.y]), space.density([bounds.x, bounds.y + bounds.h]));
-  if (!(low > 0)) return Infinity;
-  return low >= 1 ? 1 : 1 / Math.sqrt(low);
-}
-
-/**
  * Lloyd relaxation: each point moves to the density-weighted centroid of
  * its nearest-site cell within the bounds, `iterations` times. Count,
  * rows, edges and every declared column are kept; a point whose cell holds
@@ -271,7 +241,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
   if (!Number.isInteger(n) || n < 0) throw new Error('relax: iterations must be a non-negative integer');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax', opts.bounds);
   const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density ?? (() => 1), bounds, opts.resolution);
+  const raster = densityRaster(opts.density ?? (() => 1), bounds, opts.resolution, env.space);
   const coords = coordsOf(m);
   for (let it = 0; it < n && m.n > 0; it++) {
     const { w, cx, cy } = accumulateCells(coords, raster);
@@ -288,7 +258,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     y[p] = coords[2 * p + 1];
   }
   // Relaxing moves points; it makes and unmakes nothing.
-  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs });
+  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space });
   return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 
@@ -314,7 +284,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   if (!Number.isInteger(n) || n < 0) throw new Error('settle: iterations must be a non-negative integer');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'settle', opts.bounds);
   const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density, bounds, opts.resolution);
+  const raster = densityRaster(opts.density, bounds, opts.resolution, env.space);
   const cw = raster.cw;
   // Capacity: integrated density a single point should carry — the amount
   // a full-demand hex cell at `spacing` holds. Cells above split, below die.
@@ -405,7 +375,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     attrs[name] = col;
   }
   attrs.demand = demand;
-  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {} });
+  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {}, space: m.space });
   return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 

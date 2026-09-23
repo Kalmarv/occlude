@@ -16,14 +16,30 @@
  */
 
 import type { FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
-import { apply, minScale, type Mat } from './matrix.js';
+import { apply, invert, minScale, type Mat } from './matrix.js';
 import { resolveLen } from './units.js';
 
 export type FieldKind = 'p01' | 'len' | 'vx' | 'vy';
 export interface FieldUse {
   fn: LengthFn | FieldFn | VectorFieldFn; // the UNBOUNDED field the grid samples (a length kind resolves each sample)
   kind: FieldKind;
-  m: Mat; // paper mm → field units
+  /**
+   * paper mm → field units, an affine. On the flat plane it IS the
+   * reading. In a curved space it is the chart's affine and no longer the
+   * reading: the grid's lattice is laid out in it (`planGrid`'s bounds,
+   * pitch through `minScale` and read window) and the engine looks the
+   * grid up through it, while `toField` says where each lattice point is
+   * read.
+   */
+  m: Mat;
+  /**
+   * A paper point → the point the field is read at, when that is not `m`:
+   * the sketch point under the paper sample in a curved space (see
+   * `encodeScene`). A non-finite answer is a place the chart cannot show,
+   * and the sample fails open to 0. Absent on the flat plane, where the
+   * lattice point is the field point.
+   */
+  toField?: (px: number, py: number) => [number, number];
   domains: number[];
   footprint: { x0: number; y0: number; x1: number; y1: number }; // paper mm
   /** Union of the paper bboxes of every shape referencing this use — where
@@ -158,8 +174,13 @@ export function evaluateGrid(
   kind: FieldKind,
   withPartner: boolean,
   frameInner: Parameters<typeof resolveLen>[1],
+  /** The use's own reading (`FieldUse.toField`) and the affine its lattice
+   * is laid out in: a lattice point goes back to the paper and is read
+   * where `toField` says. Absent: the lattice point is the field point. */
+  reading?: { toField: (px: number, py: number) => [number, number]; m: Mat },
 ): { first: Float64Array; second: Float64Array | null } {
   const { gw, gh, cell, x0, y0, ci0, cj0, ox, oy } = plan;
+  const toPaper = reading ? invert(reading.m) : null;
   const partner = withPartner;
   const first = new Float64Array(6 + gw * gh);
   first[0] = gw; first[1] = gh; first[2] = ox; first[3] = oy; first[4] = cell; first[5] = cell;
@@ -169,7 +190,14 @@ export function evaluateGrid(
   }
   for (let j = 0; j < gh; j++) {
     for (let i = 0; i < gw; i++) {
-      const raw = fn(x0 + (ci0 + i) * cell, y0 + (cj0 + j) * cell) as unknown;
+      let raw: unknown;
+      if (reading && toPaper) {
+        const [px, py] = apply(toPaper, x0 + (ci0 + i) * cell, y0 + (cj0 + j) * cell);
+        const [fx, fy] = reading.toField(px, py);
+        raw = Number.isFinite(fx) && Number.isFinite(fy) ? fn(fx, fy) : NaN;
+      } else {
+        raw = fn(x0 + (ci0 + i) * cell, y0 + (cj0 + j) * cell) as unknown;
+      }
       let val: number;
       if (kind === 'p01') val = Math.min(1, Math.max(0, Number(raw)));
       else if (kind === 'len') val = resolveLen(raw as number, frameInner);
@@ -209,8 +237,11 @@ export function buildFieldGrids(
   let fieldLen = 0;
   const pushChunk = (a: Float64Array): void => { chunks.push(a); fieldLen += a.length; };
   const groups = new Map<string, FieldUse[]>();
+  // Uses read through different curved readings cannot share a raster: the
+  // reading is not an affine the engine can apply per use.
+  const readingKey = (u: FieldUse): string => (u.toField ? `:${idOf(u.toField)}` : '');
   for (const u of uses) {
-    const key = `${idOf(u.fn)}:${u.kind}`;
+    const key = `${idOf(u.fn)}:${u.kind}${readingKey(u)}`;
     let g = groups.get(key);
     if (!g) groups.set(key, (g = []));
     g.push(u);
@@ -225,10 +256,12 @@ export function buildFieldGrids(
     // registered together, same transform, same footprint), so they share
     // the extent and are filled from ONE evaluation per sample — the
     // field is the sketch's own closure and may be expensive.
-    const partner = kind === 'vx' ? groups.get(`${idOf(group[0].fn)}:vy`) : undefined;
-    if (partner) done.add(`${idOf(group[0].fn)}:vy`);
+    const vyKey = `${idOf(group[0].fn)}:vy${readingKey(group[0])}`;
+    const partner = kind === 'vx' ? groups.get(vyKey) : undefined;
+    if (partner) done.add(vyKey);
     const plan = planGrid(group, vector, paperW, paperH, unit);
-    const { first, second } = evaluateGrid(plan, group[0].fn, kind, partner !== undefined, frameInner);
+    const toField = group[0].toField;
+    const { first, second } = evaluateGrid(plan, group[0].fn, kind, partner !== undefined, frameInner, toField ? { toField, m: group[0].m } : undefined);
     pushChunk(first);
     for (const u of group) u.grid = gridCount;
     gridCount++;

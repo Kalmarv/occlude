@@ -28,7 +28,7 @@ import { facesFromCycles, faceKeyOf, type Face, type Faces } from './faces.js';
 import { Material, mintIds, type FaceColumn } from './material.js';
 import { identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
 import { chordMiddle, metricGap, modelGap } from './chord.js';
-import type { SpaceKind } from './space.js';
+import type { Space, SpaceKind } from './space.js';
 import { tileGroup, type TileOps } from './tilegroup.js';
 import type { L } from './units.js';
 import type { Vec, XY } from './vec.js';
@@ -51,7 +51,7 @@ export interface TilingOpts {
 }
 
 /** Which geometry a Schläfli symbol demands — the same three words the
- * sketch's own `space` is named by, so `t.tiling(p, q).space` and
+ * sketch's own `space` is named by, so `t.tiling(p, q).geometry` and
  * `t.space.kind` are comparable. */
 export type TilingGeometry = SpaceKind;
 
@@ -66,8 +66,9 @@ export type TilingGeometry = SpaceKind;
  */
 export class Tiling extends Material {
   /** The geometry the symbol belongs to, and the chart `cell` is written
-   * in. */
-  readonly space: TilingGeometry;
+   * in: a NAME, where `space` — which every material has — is the space
+   * record itself. */
+  readonly geometry: TilingGeometry;
   /**
    * The fundamental polygon, `p` vertices in order, one of them on the
    * positive x axis. Its edges are GEODESICS of that geometry; joined up
@@ -99,11 +100,11 @@ export class Tiling extends Material {
     y: Float64Array,
     attrs: Record<string, Float64Array>,
     edgeList: Uint32Array,
-    carry: { ids?: { points?: Float64Array; edges?: Float64Array }; faceAttrs?: Record<string, FaceColumn> },
-    tiling: { space: TilingGeometry; cell: Vec[]; placements: Placement[]; cycles: readonly (readonly number[])[] },
+    carry: { ids?: { points?: Float64Array; edges?: Float64Array }; faceAttrs?: Record<string, FaceColumn>; space?: Space },
+    tiling: { geometry: TilingGeometry; cell: Vec[]; placements: Placement[]; cycles: readonly (readonly number[])[] },
   ) {
     super(x, y, attrs, edgeList, carry);
-    this.space = tiling.space;
+    this.geometry = tiling.geometry;
     this.cell = Object.freeze(tiling.cell) as Vec[];
     this.placements = Object.freeze(tiling.placements) as Placement[];
     this.cycles = tiling.cycles;
@@ -486,11 +487,11 @@ export function tiling(
   p: number,
   q: number,
   opts: TilingOpts,
-  place: { door: ModelDoor; up: (z: XY) => Vec; bow: number },
+  place: { door: ModelDoor; up: (z: XY) => Vec; bow: number; space?: Space },
 ): Tiling {
-  const space = tilingGeometry(p, q);
-  const cell = cellOf(space, p, q).map(place.up);
-  const depth = space === 'spherical'
+  const geometry = tilingGeometry(p, q);
+  const cell = cellOf(geometry, p, q).map(place.up);
+  const depth = geometry === 'spherical'
     ? CLOSURE
     : opts.depth === undefined ? 3 : Math.floor(opts.depth);
   const flood = !Number.isFinite(depth) || depth < 0
@@ -510,7 +511,8 @@ export function tiling(
     {
       ids: { points, edges },
       faceAttrs: columnsOf(mesh.cycles, mesh.x.length, mesh.edgeList, edges, flood.tiles, flood.generation, mesh.kept),
+      space: place.space,
     },
-    { space, cell, placements: flood.tiles, cycles: mesh.cycles },
+    { geometry, cell, placements: flood.tiles, cycles: mesh.cycles },
   );
 }

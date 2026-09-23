@@ -34,7 +34,8 @@ import {
   lowerShape, lowerToUserLoops, makeFrame, unitMm, userToPaperMatrix, type Frame,
 } from './record.js';
 import { fieldMeta } from './field.js';
-import { apply, invert, mul, scale as mscale, type Mat } from './matrix.js';
+import { apply, invert, mul, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
+import { fromSheet, type Space } from './space.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec } from './execution.js';
 import { compileSketch, compileSketchAsync, isSketch, isSketchAsync, type SketchDef, type AsyncSketchDef } from './api.js';
@@ -231,6 +232,83 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   const userToPaper = userToPaperMatrix(frame);
   /** paper mm → user units: the paper-aligned sampling transform. */
   const paperToUnits = mul(mscale(1 / unit, 1 / unit), invert(userToPaper));
+  // ---- Fields in a curved space ---------------------------------------
+  // A field is written in SKETCH coordinates and the ink is projected, so
+  // the engine reads a field at the sketch point under each paper sample —
+  // not at the chart point, which is a different place everywhere but the
+  // centre. A READING pairs the two directions: `pull` takes a paper point
+  // to the field's own coordinates (sheet → `fromSheet` → the field), and
+  // `push` takes a field point to the paper (the field → the space →
+  // `project`), which is how a `within()` bound lands where it is drawn.
+  // The flat plane has no reading and runs the affine path below, byte for
+  // byte.
+  const space: Space | null = frame.space !== undefined && frame.space.kind !== 'euclidean' ? frame.space : null;
+  type Reading = { pull: (px: number, py: number) => [number, number]; push: (fx: number, fy: number) => [number, number] };
+  /** user mm → drawable mm: the origin/yUp convention, which the space's
+   * coordinates are measured in, without the paper offset. */
+  const userToDrawable = mul(mtranslate(-frame.offsetX, -frame.offsetY), userToPaper);
+  const drawableToUser = invert(userToDrawable);
+  /** A paper point → the sketch point drawn there (drawable units), or a
+   * non-finite pair where the sheet shows no place of the space. */
+  const sketchUnder = (sp: Space, px: number, py: number): [number, number] => {
+    const q = fromSheet(sp, [(px - frame.offsetX) / unit, (py - frame.offsetY) / unit]);
+    return [q[0], q[1]];
+  };
+  /** A sketch point (drawable units) → paper mm, through the projection. */
+  const paperOver = (sp: Space, x: number, y: number): [number, number] => {
+    const q = sp.project([x, y]);
+    return [q[0] * unit + frame.offsetX, q[1] * unit + frame.offsetY];
+  };
+  const NONE: [number, number] = [NaN, NaN];
+  /** Paper-aligned: the field's coordinates are the sketch's own (user
+   * units, which the origin/yUp convention carries to the space's). */
+  const paperReading: Reading | null = space && {
+    pull: (px, py) => {
+      const [x, y] = sketchUnder(space, px, py);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return NONE;
+      const [ux, uy] = apply(drawableToUser, x * unit, y * unit);
+      return [ux / unit, uy / unit];
+    },
+    push: (fx, fy) => {
+      const [dx, dy] = apply(userToDrawable, fx * unit, fy * unit);
+      return paperOver(space, dx / unit, dy / unit);
+    },
+  };
+  /** Shape-aligned: the shape's anchor gives an ORIGIN — its intrinsic
+   * centre, as a sketch point — and a linear part, its rotation and scale.
+   * A field point is an offset from the origin in the shape's own axes, and
+   * an offset is a step in the space: the field is read at
+   * `linear⁻¹ · log(origin, p)`, and a field point goes back out with
+   * `exp`. The flat plane's `log` is subtraction, which is the affine
+   * anchor it has always been. One reading per anchor, so a shape's vector
+   * field shares one grid for its two components. */
+  const shapeReadings = new Map<Mat, Reading>();
+  const shapeReading = (sp: Space, anchor: Mat): Reading => {
+    let r = shapeReadings.get(anchor);
+    if (r) return r;
+    const origin = sketchUnder(sp, anchor.e, anchor.f);
+    const lin: Mat = { a: anchor.a, b: anchor.b, c: anchor.c, d: anchor.d, e: 0, f: 0 };
+    const linInv = invert(lin);
+    const placed = Number.isFinite(origin[0]) && Number.isFinite(origin[1]);
+    r = {
+      pull: (px, py) => {
+        const [x, y] = sketchUnder(sp, px, py);
+        if (!placed || !Number.isFinite(x) || !Number.isFinite(y)) return NONE;
+        const v = sp.log(origin, [x, y]);
+        return apply(linInv, v[0], v[1]);
+      },
+      push: (fx, fy) => {
+        if (!placed) return NONE;
+        const [vx, vy] = apply(lin, fx, fy);
+        const p = sp.exp(origin, [vx, vy]);
+        return paperOver(sp, p[0], p[1]);
+      },
+    };
+    shapeReadings.set(anchor, r);
+    return r;
+  };
+  const readingOf = (align: FieldAlign | undefined, anchor: Mat): Reading | null =>
+    space === null ? null : align === 'shape' ? shapeReading(space, anchor) : paperReading;
   type Kind = FieldKind;
   type UseRec = FieldUse;
   const uses: UseRec[] = [];
@@ -244,10 +322,12 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   const paperFootprint = { x0: 0, y0: 0, x1: paperW, y1: paperH };
   /** Push a domain bound as a clip region in paper mm and return its index. */
   const domainCache = new Map<string, number>();
-  const pushDomain = (bound: import('./field.js').FieldBound, m: Mat, key: string): number => {
+  const pushDomain = (bound: import('./field.js').FieldBound, m: Mat, key: string, reading: Reading | null): number => {
     const cached = domainCache.get(key);
     if (cached !== undefined) return cached;
     const o = bound.shape.opts;
+    // In a curved frame this is the ink door's own lowering: the bound's
+    // outline placed in the space and sampled where the projection bends it.
     const loops = lowerToUserLoops(
       bound.shape.geom,
       { translate: o.translate, rotate: o.rotate, scale: o.scale },
@@ -258,10 +338,26 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
       invert(m),
       mul(invert(bound.toBound()), mscale(1 / unit, 1 / unit)),
     );
+    // Curved: bound space → field units by the same affine, then out
+    // through the space and the projection with the reading's `push`. A
+    // point the sheet has no place for (the far hemisphere) drops, and the
+    // run's two ends are joined straight — best effort: the clip then
+    // follows the chord across the part of the bound that is not drawn.
+    const toField = mul(invert(bound.toBound()), mscale(1 / unit, 1 / unit));
+    const place = (l: [number, number][]): [number, number][] => {
+      if (!reading) return l.map(([x, y]) => apply(toPaper, x, y));
+      const out: [number, number][] = [];
+      for (const [x, y] of l) {
+        const [fx, fy] = apply(toField, x, y);
+        const q = reading.push(fx, fy);
+        if (Number.isFinite(q[0]) && Number.isFinite(q[1])) out.push(q);
+      }
+      return out;
+    };
     const cs: Prim[][] = loops
-      .filter((l) => l.length >= 3)
-      .map((l) => {
-        const pts = l.map(([x, y]) => apply(toPaper, x, y));
+      .map(place)
+      .filter((pts) => pts.length >= 3)
+      .map((pts) => {
         const out: Prim[] = [];
         for (let i = 0; i < pts.length; i++) {
           const [x0, y0] = pts[i];
@@ -303,12 +399,14 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // Shape-aligned: field units = shape-local mm / unit, so the shape's
     // intrinsic centre is field (0, 0) and its axes are the field's.
     const m = shapeAligned ? mul(mscale(1 / unit, 1 / unit), invert(anchor)) : paperToUnits;
+    const reading = readingOf(align, anchor);
     const domains = meta.bounds.map((b, k) =>
-      pushDomain(b, m, shapeAligned ? `${key}:${uses.length}:${k}` : `${key}:paper:${k}`),
+      pushDomain(b, m, shapeAligned ? `${key}:${uses.length}:${k}` : `${key}:paper:${k}`, reading),
     );
     const idx = uses.length;
     uses.push({
       fn: meta.unbounded, kind, m, domains,
+      ...(reading ? { toField: reading.pull } : {}),
       footprint: shapeAligned ? footprint : paperFootprint,
       shapeFp: { ...footprint },
       aligned: shapeAligned,
@@ -412,10 +510,15 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
           // transform into the field's own coordinates. The fill's OWN
           // geometry anchors through ctx.anchor, the same A.
           const fm = params.align === 'shape' ? mul(mscale(1 / unit, 1 / unit), invert(anchor)) : paperToUnits;
+          // In a curved space the sampler reads the field at the sketch
+          // point under the paper point, as the engine's grids do.
+          const fillReading = readingOf(params.align === 'shape' ? 'shape' : undefined, anchor);
           for (const [k, v] of Object.entries(params)) {
             if (typeof v === 'function') {
               const field = v as (x: number, y: number) => unknown;
-              params[k] = (px: number, py: number) => field(...apply(fm, px, py));
+              params[k] = fillReading
+                ? (px: number, py: number) => field(...fillReading.pull(px, py))
+                : (px: number, py: number) => field(...apply(fm, px, py));
             }
           }
           run = fillParamsUsable(spec.params) ? (region, ctx) => def.generate(region, params, ctx) : null;

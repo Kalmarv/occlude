@@ -525,6 +525,17 @@ export class Material {
   /** Face columns, by name. A face is not a row, so these are keyed by
    * what a face IS — the walls it is made of — and not by an index. */
   readonly faceAttrs: Readonly<Record<string, FaceColumn>>;
+  /**
+   * The space these coordinates belong to: the sketch's own `Space`,
+   * stamped by the toolkit word that made the material, and carried by
+   * every verb that rebuilds it. `m.steps` walks a move in it and the
+   * forces measure with it. Absent on the pure `material(points)`, whose
+   * coordinates are flat numbers and walk flat.
+   *
+   * Non-enumerable, as `Frame.space` is: a space is a record of closures,
+   * and a material compared or copied as data is compared by its rows.
+   */
+  declare readonly space: Space | undefined;
   /** id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -566,6 +577,8 @@ export class Material {
       ids?: { points?: Float64Array; edges?: Float64Array; edgeRoots?: Float64Array };
       /** Face columns, carried from the state these rows came from. */
       faceAttrs?: Record<string, FaceColumn>;
+      /** The space the coordinates belong to (see `Material.space`). */
+      space?: Space;
     } = {},
   ) {
     const {
@@ -630,6 +643,7 @@ export class Material {
       if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`material: '${name}' is a reserved face field`);
     }
     this.faceAttrs = faceAttrs;
+    Object.defineProperty(this, 'space', { value: carry.space, enumerable: false });
     this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
@@ -1045,7 +1059,7 @@ export class Material {
       else transfers[name] = policy;
     }
     // Setting a column changes no row, so every identity carries.
-    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /**
@@ -1100,6 +1114,7 @@ export class Material {
       edgeTransfers: { ...this.edgeTransfers },
       ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) },
       faceAttrs: next,
+      space: this.space,
     });
   }
 
@@ -1138,7 +1153,7 @@ export class Material {
       if (policy === 'copy') delete edgeTransfers[name];
       else edgeTransfers[name] = policy;
     }
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /** A new material with these edges added (undirected; an existing pair
@@ -1185,7 +1200,7 @@ export class Material {
     const edgeRoots = new Float64Array(this.edgeRoots.length + added);
     edgeRoots.set(this.edgeRoots);
     edgeRoots.set(fresh, this.edgeRoots.length);
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /**
@@ -1214,7 +1229,7 @@ export class Material {
    */
   resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: PointSelection | EdgeSelection; space?: Space }): Material {
     // Too small to place samples (a mid-edit zero spacing): nothing to build.
-    if (!checkSampling('resample', opts)) return material([]);
+    if (!checkSampling('resample', opts)) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: this.space });
     // A material is a data-world value and has no frame, so the space comes
     // in with the options, the way `spacing` does: `t.sample(m, …)` hands
     // the run's own, and a bare `m.resample` from a pure context is flat.
@@ -1422,7 +1437,7 @@ export class Material {
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    const base = { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers } };
+    const base = { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, space: this.space };
     if (eligible === null) return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), base);
     // A row that came through untouched keeps what it had. A new vertex is
     // minted, and a new edge takes the lineage root of the source edge under
@@ -1609,7 +1624,7 @@ export class Material {
     const edgeRoots = Float64Array.from(esrc, (v, i) => (v >= 0 ? this.edgeRoots[v] : this.edgeRoots[eroot[i]]));
     return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
       iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
-      ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs,
+      ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, space: this.space,
     });
   }
 
@@ -1762,7 +1777,7 @@ export class Material {
     let fe = 0;
     const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
     const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots: Float64Array.from(eroot, (e) => this.edgeRoots[e]) }, faceAttrs: this.faceAttrs });
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots: Float64Array.from(eroot, (e) => this.edgeRoots[e]) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /**
@@ -1940,7 +1955,7 @@ export class Material {
     }
     // Moving a vertex retires nothing and joins nothing: every identity
     // and every column carries.
-    return new Material(nx, ny, copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+    return new Material(nx, ny, copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /**
@@ -2038,7 +2053,7 @@ export class Material {
       if (ts.length > 0) split = true;
     }
     if (!split) {
-      return new Material(Float64Array.from(nx), Float64Array.from(ny), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+      return new Material(Float64Array.from(nx), Float64Array.from(ny), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
     }
     const names = this.attrNames;
     const enames = this.edgeAttrNames;
@@ -2101,6 +2116,7 @@ export class Material {
       iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
       ids: { points: Float64Array.from(pointIds), edges: Float64Array.from(edgeIds), edgeRoots: Float64Array.from(edgeRoots) },
       faceAttrs: this.faceAttrs,
+      space: this.space,
     });
   }
 
@@ -2283,7 +2299,7 @@ export class Material {
     const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -2292,7 +2308,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs, space: cur.space })
       : cur;
   }
 }
@@ -2474,6 +2490,22 @@ export function loopCrossings(
 }
 
 /**
+ * @internal The same rows, in `space`: what the toolkit hands back from
+ * every word that answers a material, so a material made in a sketch knows
+ * the space its coordinates belong to. Every column, id and face column is
+ * carried — a copy, since no two materials share a column — and nothing
+ * moves.
+ */
+export function inSpace(m: Material, space: Space): Material {
+  if (m.space === space) return m;
+  return new Material(Float64Array.from(m.x), Float64Array.from(m.y), copyAttrs(m.attrs), Uint32Array.from(m.edgeList), {
+    iteration: m.iteration, history: m.history, edgeAttrs: copyAttrs(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
+    ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) },
+    faceAttrs: m.faceAttrs, space,
+  });
+}
+
+/**
  * What lies inside `area` — the same edges, cut where they cross the
  * boundary, everything outside dropped. The point of the verb: a chord built
  * long enough to be sure of crossing a frame ends ON the frame, instead of
@@ -2603,7 +2635,7 @@ export function withinMaterial(
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs, space: m.space });
 }
 
 // ---- constructors ----------------------------------------------------------------
@@ -2664,7 +2696,7 @@ export function stationsMaterial(stations: readonly Station[]): Material {
   }
   const attrs = Object.fromEntries(Object.entries(cols).map(([name, values]) => [name, Float64Array.from(values)]));
   const transfers = Object.fromEntries([...policies].filter(([, policy]) => policy !== 'interpolate'));
-  return new Material(Float64Array.from(stations, q => q.x), Float64Array.from(stations, q => q.y), attrs, Uint32Array.from(edges.flat()), { iteration: 0, history: [], edgeAttrs: {}, transfers: transfers });
+  return new Material(Float64Array.from(stations, q => q.x), Float64Array.from(stations, q => q.y), attrs, Uint32Array.from(edges.flat()), { iteration: 0, history: [], edgeAttrs: {}, transfers: transfers, space: stations.find((q) => q.space !== undefined)?.space });
 }
 
 /**
@@ -3429,7 +3461,9 @@ export const connect = {
     }
     // One place and nothing to turn toward is still that place.
     if (xs.length === 0) for (const q of list) place([q.x, q.y]);
-    return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges.flat()));
+    // Whatever space the stations were walked in, the path is in it too.
+    const space = stations instanceof Material ? stations.space : list.find((q) => q.space !== undefined)?.space;
+    return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges.flat()), { space });
   },
 
   /** Delaunay triangulation edges over the vertices. */
@@ -3592,7 +3626,13 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   for (const k of Object.keys(a.faceAttrs)) {
     if (k in b.faceAttrs) throw new Error(`append: both materials carry the face column '${k}' — rename one before joining them`);
   }
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs } });
+  // The joined rows are in the space of whichever side knows one. Two
+  // sides in two different geometries have no one space to be in; inside
+  // one sketch that cannot happen, so it is a mistake and says so.
+  if (a.space !== undefined && b.space !== undefined && a.space.model.id !== b.space.model.id) {
+    throw new Error(`append: the two materials are in different spaces (${a.space.kind} and ${b.space.kind}) — their coordinates name different places`);
+  }
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs }, space: a.space ?? b.space });
 }
 
 // ---- interpretation ---------------------------------------------------------------
