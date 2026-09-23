@@ -147,19 +147,24 @@ export function tilingGeometry(p: number, q: number): TilingGeometry {
  * motion types this file used to carry — a Möbius record, a plane motion, a
  * 3×3 turn — were one thing written three times.
  *
- * The seat is the MODEL image of the model origin, which is the third
- * column of the placement's matrix. It names the tile in the geometry's own
- * coordinates rather than in a chart, which is what the sphere needs: the
- * tile opposite the pole has no chart point at all, and in a chart its seat
- * would come back as rounding noise instead of one repeatable place.
+ * The seat is the MODEL image of the cell's own centre, `centre` as a
+ * model point. It names the tile in the geometry's own coordinates rather
+ * than in a chart, which is what the sphere needs: the tile opposite the
+ * pole has no chart point at all, and in a chart its seat would come back
+ * as rounding noise instead of one repeatable place. It is the CELL's
+ * centre and not the model origin because only the centre is where every
+ * placement of one tile agrees: a flat cell stands where the drawable puts
+ * it, and two placements that land it in one place with different turns
+ * send the origin to two places. With `q` odd a flood reaches a tile both
+ * ways round, so the flat `{6, 3}` would otherwise keep both.
  */
-export function tileOps(door: ModelDoor): TileOps<Placement> {
+export function tileOps(door: ModelDoor, centre: Model): TileOps<Placement> {
   return {
     identity: identity(door),
     compose: (outer, inner) => inner.then(outer),
     apply: (m, p) => m.point(p),
     reflection: (a, b) => reflection(door, a, b),
-    seat: (m) => [m.m[2], m.m[5], m.m[8]],
+    seat: (m) => act(m.m, centre),
   };
 }
 
@@ -496,7 +501,7 @@ export function tiling(
     : opts.depth === undefined ? 3 : Math.floor(opts.depth);
   const flood = !Number.isFinite(depth) || depth < 0
     ? { tiles: [], generation: [] }
-    : tileGroup('tiling', tileOps(place.door), cell, depth);
+    : tileGroup('tiling', tileOps(place.door, place.door.up(place.up([0, 0]))), cell, depth);
   const mesh = meshOf(place.door, place.bow, cell, flood.tiles);
   // The ids are minted here, in the order the constructor would mint them,
   // because the face columns are keyed by the walls of each face and a

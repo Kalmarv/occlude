@@ -16,7 +16,7 @@ const med = (label: string, f: () => unknown, runs = 5) => {
 const ring = (n: number, radius: number) => curve(Array.from({ length: n }, (_, i) => {
   const a = (i / n) * Math.PI * 2;
   return [50 + Math.cos(a) * radius, 50 + Math.sin(a) * radius] as [number, number];
-}));
+}), { closed: true });
 
 // the ring-growth recipe, written as the sketches write it: user callbacks
 // over vertex views, a spatial neighbourhood rebuilt each step

@@ -28,7 +28,7 @@ it('PNG includes bridges constructed by the drawing plan', () => {
   expect(bridged).toEqual(exportPng(drawing(false, true), opts));
 });
 it('PNG resolves time-based selections with machine timing', () => {
-  expect(() => exportPng(lines({ minutes: [0, 0.1] }), opts)).toThrow(/machine timing/);
+  expect(() => exportPng(lines({ minutes: [0, 0.1] }), opts)).toThrow(/timing: \{ penOf, opts \}/);
   const timing = { penOf: () => ({ feed: 3000, penDelay: 100 }), opts: { travelFeed: 6000, acceleration: 800, travelAcceleration: 1500, junctionDeviation: 0.05, minimumCruiseRatio: 0.5 } };
   expect(exportPng(lines({ minutes: [0, 100] }), { ...opts, timing })).toEqual(exportPng(lines(), opts));
   expect(exportPng(lines({ budget: 0 }), { ...opts, timing })).toEqual(exportPng(sketch({ seed: 1 }, () => []), opts));

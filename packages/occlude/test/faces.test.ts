@@ -78,11 +78,11 @@ describe('planarize', () => {
     expect(src.edgeCount).toBe(2);
   });
 
-  it('conflicting point attributes need a resolver; child edge attributes by interval', () => {
+  it('conflicting point attributes take the first edge\'s value unless a resolver says; child edge attributes by interval', () => {
     const a = seg([0, 0], [10, 10], { age: 0 });
     const b = seg([0, 10], [10, 0]).attribute('age', 8);
     const cross = append(a, b).edgeAttribute('rest', 3);
-    expect(() => cross.planarize()).toThrow(/conflicting 'age' \(0 vs 8\)/);
+    expect(cross.planarize().attrs.age[4]).toBe(0); // edge 0 is first: its value at the crossing
     const seen: number[][] = [];
     const p = cross.planarize({
       point: (ev) => { seen.push(ev.candidates.map((c) => c.edge!)); return { age: 1 }; },
@@ -92,7 +92,7 @@ describe('planarize', () => {
     expect(p.attrs.age[4]).toBe(1);
     expect(Array.from(p.edgeAttrs.rest)).toEqual([1.5, 1.5, 1.5, 1.5]);
     expect(() => cross.planarize({ point: () => ({ nope: 1 }) })).toThrow(/no attribute 'nope'/);
-    expect(() => cross.planarize({ point: () => ({}) })).toThrow(/still has conflicting 'age'/);
+    expect(cross.planarize({ point: () => ({}) }).attrs.age[4]).toBe(0); // a column left out keeps the default
     // nearest policy copies; unsplit edges get fraction 1
     const cat = append(seg([0, 0], [10, 10]).attribute('kind', 1, { transfer: 'nearest' }), seg([0, 10], [10, 0]).attribute('kind', 1, { transfer: 'nearest' }));
     const pc = append(cat, seg([20, 20], [30, 30]).attribute('kind', 1, { transfer: 'nearest' })).edgeAttribute('w', 2).planarize({ edges: (_, c) => ({ w: c.fraction * 10 }) });
@@ -286,7 +286,7 @@ describe('review of 3df7b04', () => {
     const bar = seg([0, 0], [10, 0]).attribute('age', 0);
     const stem = seg([5, 0], [5, 5]).attribute('age', 9);
     const t = append(bar, stem);
-    expect(() => t.planarize()).toThrow(/vertex 2 .*conflicting 'age' \(9 vs 0\)|conflicting 'age'/);
+    expect(t.planarize().attrs.age[2]).toBe(9); // the stem's end is a vertex that survives: it keeps its own value
     const seen: unknown[] = [];
     const p = t.planarize({ point: (ev) => { seen.push(ev.candidates); return { age: 4 }; } });
     expect(seen).toHaveLength(1);
@@ -325,7 +325,7 @@ describe('review of 3df7b04', () => {
     // leaves them a few ulp apart and faces() finds the leftover crossing.
     const A = seg([10.777407605201006, 17.579702530056238], [162.35881367698312, 47.36570309847593]);
     const B = seg([73.20410337299109, 72.78040776029229], [132.96105215325952, 10.908244401216507]);
-    const C = curve([[88.05579760993993, 23.695069348886015], [108.05579760993993, 36.695069348886015], [125.05579760993993, 15.695069348886015]]);
+    const C = curve([[88.05579760993993, 23.695069348886015], [108.05579760993993, 36.695069348886015], [125.05579760993993, 15.695069348886015]], { closed: true });
     const planar = append(append(A, B), C).planarize();
     // As far as these coordinates can tell, the edges meet at one point, and
     // the crossing is read as that meeting: there is nothing the reader could
@@ -405,7 +405,7 @@ describe('faces: the planarity check reads positions and pairs exactly', () => {
 });
 
 describe('faces: centroid, adjacency and an edge\'s faces', () => {
-  const sq = (x: number, y: number, s: number) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]]);
+  const sq = (x: number, y: number, s: number) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
   // three unit cells in a row sharing walls, as one material with explicit edges
   const row3 = () => material([[0, 0], [10, 0], [20, 0], [30, 0], [0, 10], [10, 10], [20, 10], [30, 10]], {
     edges: [[0, 1], [1, 2], [2, 3], [4, 5], [5, 6], [6, 7], [0, 4], [1, 5], [2, 6], [3, 7]],

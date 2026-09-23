@@ -244,8 +244,9 @@ for (const [name, cfg] of SPACES) {
 
     it('the column survives the verbs, and its absence reads as 0', () => {
       const m = t.material(ngon(50, 50, 6, 30));
-      // A new edge that does not name it is a coordinate edge.
-      const joined = m.withEdges([[0, 3]]);
+      // A new edge that does not name it is a coordinate edge; the kept
+      // walls keep theirs.
+      const joined = m.withEdges([...m.edges.map((e) => [e.a.index, e.b.index] as [number, number]), [0, 3]]);
       expect(Array.from(joined.edgeAttrs.geodesic)).toEqual([1, 1, 1, 1, 1, 1, 0]);
       // Appending a flat material fills its side with 0.
       const piled = append(m, material([[0, 0], [5, 5]], { edges: [[0, 1]] }));

@@ -1195,7 +1195,7 @@ export default sketch({ seed: 42, pens: {
 } }, t => {
   const rest = plane(4).subdivide(4);
   const ring = (cx, cy, r) =>
-    curve(t.times(40, k => [cx + r * Math.cos(k * Math.PI / 20), cy + r * Math.sin(k * Math.PI / 20)]));
+    curve(t.times(40, k => [cx + r * Math.cos(k * Math.PI / 20), cy + r * Math.sin(k * Math.PI / 20)]), { closed: true });
   const motif = t.times(5, (_, u) => t.times(5, (_, v) => ring(0.1 + 0.8 * u, 0.1 + 0.8 * v, 0.07))).flat();
   const attached = mapSurface(rest, motif);
   const sheet = rest.displace(p => [0, 0, 0.5 * Math.sin(p.x * 1.5) * Math.cos(p.y)]);

@@ -32,12 +32,12 @@ describe('selection-first step passes', () => {
     ]);
     expect(out.x[0]).toBe(14);
     expect(out.iteration).toBe(3);
-    expect(out.history.map((h) => [h.iteration, h.material.x[0]])).toEqual([
+    expect(out.history.map((h) => [h.iteration, h.x[0]])).toEqual([
       [0, 0],
       [2, 6],
       [3, 14],
     ]);
-    expect(out.history.every((h) => h.material.history.length === 0)).toBe(
+    expect(out.history.every((h) => h.history.length === 0)).toBe(
       true,
     );
     const more = out.steps(1, move, double, { every: 1 });

@@ -28,7 +28,7 @@ describe('t.inspect: the debug registry', () => {
       const a = two();
       t.inspect('source', a);
       t.inspect('grown', a.attribute('age', 3));
-      t.inspect('source', a.withEdges([[0, 2]]));  // replaced, stays first
+      t.inspect('source', a.withEdges([[0, 1], [1, 2], [0, 2]]));  // replaced, stays first
       return stroke(a.contour);
     }), ON);
     const index = exec.getInspectionIndex();

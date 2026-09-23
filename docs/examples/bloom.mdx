@@ -30,7 +30,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
     });
     next.splitEdges(room.filter(() => t.chance(0.3)));
   }, { every: 40 });
-  const rings = grown.history.slice(1, -1).map((h) => strokes(h.material, { pen: 'pigma-005-black' }));
+  const rings = grown.history.slice(1, -1).map((h) => strokes(h, { pen: 'pigma-005-black' }));
   return [
     polygon(grown, { opaque: true, fill: fill('hatch', { angle: 60, spacing: mm(1.1) }), pen: 'pigma-05-black' }),
     rings,

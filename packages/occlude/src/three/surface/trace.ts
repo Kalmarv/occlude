@@ -67,6 +67,10 @@ export function traceEnvironment3(surface:Surface3,binding:SurfaceBinding3):Trac
   return {surface,binding,placement:binding.placement,topology,world,normals};
 }
 const unit=(v:Vec3):Vec3|null=>{const l=Math.hypot(...v);return l>0&&Number.isFinite(l)?mul3(v,1/l):null;};
+/** The smallest in-surface part of a direction, as a fraction of the
+ * direction, that is a direction and not rounding: some 1e-16 is rounding,
+ * and a field meaning to cross a face at a billionth of a radian is not. */
+const IN_PLANE=1e-9;
 function position(env:TraceEnvironment3,triangle:number,w:Vec3):Vec3 {
   const [a,b,c]=env.surface.triangles[triangle].vertices.map(v=>env.world[v]);
   return [0,1,2].map(k=>a[k]*w[0]+b[k]*w[1]+c[k]*w[2]) as unknown as Vec3;
@@ -112,7 +116,13 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
     if(!wanted){stop='field';break;}
     // A vector the field could not answer is no direction at all.
     if(wanted.length!==3||!wanted.every(Number.isFinite)){stop='field';break;}
-    const inPlane=unit(sub3(wanted,mul3(n,dot3(wanted,n))));
+    // A direction along the normal has no part in the surface. Its
+    // projection is rounding, and scaled up to unit length that rounding
+    // would point anywhere — so a projection below rounding of the
+    // direction itself is no direction.
+    const projected=sub3(wanted,mul3(n,dot3(wanted,n)));
+    if(!(Math.hypot(...projected)>IN_PLANE*Math.hypot(...wanted))){stop='degenerate';break;}
+    const inPlane=unit(projected);
     if(!inPlane){stop='degenerate';break;}
     const u=inPlane;
     const [a,b,c]=env.surface.triangles[triangle].vertices.map(v=>env.world[v]),e1=sub3(b,a),e2=sub3(c,a);
@@ -120,6 +130,9 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
     if(!(det>0)){stop='degenerate';break;}
     const r1=dot3(u,e1),r2=dot3(u,e2),alpha=(r1*g22-r2*g12)/det,beta=(r2*g11-r1*g12)/det;
     const db:Vec3=[-(alpha+beta),alpha,beta];
+    // A step that moves the weights nowhere is no step: the length it would
+    // add is length the trace never walked.
+    if(db[0]===0&&db[1]===0&&db[2]===0){stop='degenerate';break;}
     let exit=-1,tExit=Infinity;
     for(let i=0;i<3;i++)if(db[i]<0){const t=-weights[i]/db[i];if(t<tExit){tExit=t;exit=i;}}
     const remaining=maxLength-length;
@@ -144,7 +157,10 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
       const closest=add3(from,mul3(seg,t));
       if(Math.hypot(...sub3(closest,startPosition))<=options.loopDistance){
         if(triangle===start.triangle){
-          length-=advance*(1-t);
+          // Measured on from the node before, never taken back from the
+          // step's end: `(d + a) − a·(1 − t)` can round below `d`, and a
+          // distance that runs backwards is a chain that runs backwards.
+          length=nodes[nodes.length-2].distance+advance*t;
           nodes[nodes.length-1]={...nodes[0],distance:length};closed=true;
         }
         stop='loop';break;
@@ -183,8 +199,22 @@ export function traceBoth3(env:TraceEnvironment3,start:{triangle:number;weights:
   if(forward.closed||forward.stop==='budget')return forward;
   const seedDirection=forward.nodes.length>1?unit(sub3(forward.nodes[1].position,forward.nodes[0].position)):undefined;
   const backward=traceSurface3(env,start,(s,previous)=>{const d=direction(s,previous&&mul3(previous,-1));return d&&mul3(d,-1);},options,hooks,seedDirection?mul3(seedDirection,-1):undefined);
+  // A lane that turns back on itself: walking backward came round to the
+  // seed, so the loop is the whole lane and the forward half only retraces
+  // part of it. The loop is the lane, run the field's way round.
+  if(backward.closed)return reversed(backward);
   const back=[...backward.nodes].reverse();
   const nodes=[...back.map(n=>({...n,distance:backward.length-n.distance})),...forward.nodes.slice(1).map(n=>({...n,distance:backward.length+n.distance}))];
   const supports=[...[...backward.supports].reverse(),...forward.supports];
   return {nodes,supports,stop:forward.stop,closed:false,length:backward.length+forward.length,steps:backward.steps+forward.steps};
+}
+/** A closed backward walk run the other way: the same nodes from the seed
+ * round to the seed, each segment on the triangle it was walked in. A
+ * crossing node keeps both of its triangles, so either segment beside it
+ * still finds its weights. */
+function reversed(loop:Trace3):Trace3 {
+  const n=loop.nodes.length,last=loop.nodes[n-1].distance;
+  const nodes=loop.nodes.map((_,i)=>{const node=loop.nodes[n-1-i];return {...node,distance:i===n-1?last:last-node.distance};});
+  nodes[0]={...nodes[0],distance:0};
+  return {nodes,supports:[...loop.supports].reverse(),stop:loop.stop,closed:true,length:last,steps:loop.steps};
 }

@@ -61,8 +61,10 @@ export interface PlanarEvent {
 }
 
 export interface PlanarizeOpts {
-  /** Resolve competing point attributes at an event: the returned record
-   * overrides. Required only where candidates disagree. */
+  /** Point attributes at an event: the returned record overrides the
+   * default, which is the first candidate's (a surviving vertex keeps its
+   * own values; a crossing takes those interpolated along its lowest edge
+   * row). A column the record leaves out keeps the default. */
   point?: (event: PlanarEvent) => Record<string, number>;
   /** Edge attributes for each child interval, merged over the parent's;
    * called once per final child, an unsplit edge with fraction 1. */
@@ -252,28 +254,20 @@ function interpolateAttrs(m: Material, a: number, b: number, t: number): Record<
   return out;
 }
 
-/** Agree per column, or ask the resolver; every unresolved conflict is an error. */
-function reconcile(m: Material, event: PlanarEvent, resolver: PlanarizeOpts['point'], what: string): Record<string, number> {
+/** The first candidate's values, overridden by the resolver. Candidates
+ * come in a fixed order (vertex row, then edge row), so where they disagree
+ * the rule is stated: a vertex that survives keeps its own values, and a
+ * crossing takes the values interpolated along its lowest edge row — the
+ * value a split of that edge would give, by the column's transfer policy. */
+function reconcile(m: Material, event: PlanarEvent, resolver: PlanarizeOpts['point']): Record<string, number> {
   const names = m.attrNames;
-  const out: Record<string, number> = {};
-  const conflicts: string[] = [];
-  for (const name of names) {
-    const v0 = event.candidates[0].attrs[name];
-    if (event.candidates.every((c) => c.attrs[name] === v0)) out[name] = v0;
-    else conflicts.push(name);
-  }
-  if (conflicts.length === 0 && !resolver) return out;
-  if (!resolver) {
-    throw new Error(`planarize: ${what} at (${event.position[0]}, ${event.position[1]}) has conflicting '${conflicts[0]}' (${event.candidates.map((c) => c.attrs[conflicts[0]]).join(' vs ')}) — give planarize({ point: (event) => ({ ${conflicts[0]}: … }) })`);
-  }
+  const out: Record<string, number> = { ...event.candidates[0].attrs };
+  if (!resolver) return out;
   const chosen = resolver(event) ?? {};
   for (const name in chosen) {
     if (!names.includes(name)) throw new Error(`planarize: no attribute '${name}' — declare it first`);
     if (!Number.isFinite(chosen[name])) throw new Error(`planarize: '${name}' from the point resolver is not a finite number`);
     out[name] = chosen[name];
-  }
-  for (const name of conflicts) {
-    if (!(name in chosen)) throw new Error(`planarize: ${what} at (${event.position[0]}, ${event.position[1]}) still has conflicting '${name}' after the resolver — return it`);
   }
   return out;
 }
@@ -471,7 +465,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
       for (const c of contacts) candidates.push({ edge: c.edge, t: c.t, attrs: interpolateAttrs(m, segs[c.edge].a, segs[c.edge].b, c.t) });
       if (candidates.length < 2) continue;
       const event: PlanarEvent = { position: [m.x[v], m.y[v]], candidates };
-      resolvedAttrs.set(v, reconcile(m, event, opts.point, `vertex ${v}`));
+      resolvedAttrs.set(v, reconcile(m, event, opts.point));
     }
   }
 
@@ -514,7 +508,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
         seen.add(edge);
         candidates.push({ edge, t, attrs: interpolateAttrs(m, segs[edge].a, segs[edge].b, t) });
       }
-      attrs = reconcile(m, { position: groupPos.get(g)!, candidates }, opts.point, 'the crossing');
+      attrs = reconcile(m, { position: groupPos.get(g)!, candidates }, opts.point);
     }
     const pos = groupPos.get(g)!;
     groupRow.set(g, ox.length);
@@ -612,6 +606,29 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
 }
 
 // ---- faces ----------------------------------------------------------------------------
+
+/**
+ * `out` (the edges of face `f`, extracted in the order `rows` names them)
+ * with every wall stored the way the face runs round: the outer boundary
+ * with the face on its left — positive signed area, counter-clockwise when
+ * y points up — and a hole the other way. A station's normal is the
+ * tangent turned to the left, so `along` on a face's walls points into the
+ * face. An edge with the face on both sides (a bridge or a spur inside it)
+ * keeps the direction it was stored in.
+ */
+function faceWise(out: Material, rows: readonly number[], faceOf: Int32Array, f: number): Material {
+  let edges: Uint32Array | undefined;
+  for (let k = 0; k < rows.length; k++) {
+    const forward = faceOf[2 * rows[k]] === f;
+    const backward = faceOf[2 * rows[k] + 1] === f;
+    if (!backward || forward) continue;
+    edges ??= Uint32Array.from(out.edgeList);
+    edges[2 * k] = out.edgeList[2 * k + 1];
+    edges[2 * k + 1] = out.edgeList[2 * k];
+  }
+  if (!edges) return out;
+  return new Material(out.x, out.y, out.attrs as Record<string, Float64Array>, edges, { iteration: out.iteration, history: [], edgeAttrs: out.edgeAttrs as Record<string, Float64Array>, transfers: { ...out.transfers }, edgeTransfers: { ...out.edgeTransfers }, ids: { points: out.pointIds, edges: out.edgeIds, edgeRoots: out.edgeRoots }, faceAttrs: out.faceAttrs, space: out.space });
+}
 
 /**
  * A bounded region of one planar state, read-only.
@@ -1515,8 +1532,10 @@ export class Faces extends FaceSelection {
       // face of the collection is asked.
       id: { get(this: Face) { return collection.ids()[this.index]; } },
       // The selection word on one face: its edges and corners as material,
-      // every column and id kept, as the selection of this one face gives.
-      extract: { value(this: Face) { return this.edges.extract(); } },
+      // every column and id kept, as the selection of this one face gives —
+      // and each wall stored the face's way round, so the chains it answers
+      // wind as `contours()` does whatever order the walls were built in.
+      extract: { value(this: Face) { return faceWise(this.edges.extract(), this.edges.indices, collection.faceOf, this.index); } },
     });
     Object.freeze(faceProto);
     for (let f = 0; f < faceWalk.length; f++) {

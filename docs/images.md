@@ -299,7 +299,7 @@ gives one palette in every sketch. Name the colours yourself, as hex strings
 or as pens. The fit then drops out, and each pixel takes the nearest colour
 you named. Every entry is plain data. `share` says how much of the picture
 the colour holds. `field()` is its membership as an ordinary scalar field,
-and `area(level)` turns that field into contours. A stipple, a hatch and an
+and `contours(level)` turns that field into contours. A stipple, a hatch and an
 outline all read the same entry. The toolkit needs no new word for any of
 them.
 

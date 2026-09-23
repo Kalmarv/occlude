@@ -69,7 +69,10 @@ describe('P5 · a face collection is a selection', () => {
     const near = t.within(hex.faces(), DISC, { faces: 'touching' });
     const shrunk = near.map((f) => f.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     const workaround = near.map((f) => f.boundaryEdges.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
-    expect(shrunk.map((m) => [...m.x])).toEqual(workaround.map((m) => [...m.x]));
+    // The same points; `face.extract()` winds its walls the face's way
+    // (G2-11), so the centroid pivot is summed in another order.
+    const flat = (ms: typeof shrunk) => ms.flatMap((m) => [...m.x, ...m.y]);
+    flat(shrunk).forEach((v, i) => expect(v).toBeCloseTo(flat(workaround)[i], 9));
     // The face column index signature no longer swallows the words a face has.
     const f = near.at(0);
     expect(typeof f.extract).toBe('function');

@@ -37,7 +37,7 @@ describe('Stage A repairs (con2)', () => {
     expect(() => m.withEdges([[0, 5]], { w: 1 })).toThrow(/beyond/);
     expect(() => m.withEdges([[0, -1]], { w: 1 })).toThrow(/beyond/);
     expect(m.withEdges([[0, 1]], {}).edgeCount).toBe(1); // existing pair, nothing added, nothing demanded
-    expect(Array.from(m.withEdges([[1, 2], [0, 2]], { w: 5 }).edgeAttrs.w)).toEqual([1, 5, 5]);
+    expect(Array.from(m.withEdges([[0, 1], [1, 2], [0, 2]], { w: 5 }).edgeAttrs.w)).toEqual([1, 5, 5]); // the kept pair keeps its column
   });
 
   it('A6 neighbour cells never alias: far-apart and negative coordinates', () => {

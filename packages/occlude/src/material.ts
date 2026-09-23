@@ -68,6 +68,8 @@ export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
 export { inheritEdge } from './steps.js';
 import { oneBatch } from './rules.js';
+import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
+import type { TransformOp } from './execution.js';
 export type {
   Handle, Ref, ChildSpec, ChildInterval, SplitOpts, EdgeRef, StepRule, StepShorthand, StepsOptions, Next, StepKit,
 } from './steps.js';
@@ -334,12 +336,6 @@ export function stationAt(x: number, y: number, heading: number, space?: Space):
   return walked({ s: 0, u: 0, length: 0, chain: 0, closed: false, attrs: {}, edgeAttrs: {}, space }, x, y, heading);
 }
 
-/** One captured state of a `steps()` run. Never touched by later steps. */
-export interface Snapshot {
-  iteration: number;
-  material: Material;
-}
-
 /** How a column carries over when `resample` places new vertices:
  * `'interpolate'` linearly between the surrounding source vertices (the
  * default for every column), `'nearest'` copies the nearer one (ties to
@@ -476,9 +472,10 @@ export class Material {
   readonly iteration: number;
   /** States captured by the `steps()` call that made this material — empty
    * unless it asked for `{ every }`. Iteration 0 of that call, every
-   * `every`-th after it, and the final one, each once, oldest first.
-   * Snapshots carry no history of their own. */
-  readonly history: readonly Snapshot[];
+   * `every`-th after it, and the final one, each once, oldest first. Each
+   * entry is a material of its own, which says its `iteration`, and
+   * carries no history of its own; nothing a later step does touches it. */
+  readonly history: readonly Material[];
   /** Edge attribute columns by name, each `edgeCount` long. */
   readonly edgeAttrs: Readonly<Record<string, Float64Array>>;
   /** Declared transfer policy per point column (default interpolate). */
@@ -567,7 +564,7 @@ export class Material {
      */
     carry: {
       iteration?: number;
-      history?: readonly Snapshot[];
+      history?: readonly Material[];
       edgeAttrs?: Record<string, Float64Array>;
       transfers?: Record<string, TransferPolicy>;
       edgeTransfers?: Record<string, EdgeTransfer>;
@@ -1180,52 +1177,60 @@ export class Material {
     return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
-  /** A new material with these edges added (undirected; an existing pair
-   * is left as it is). When edge columns are declared, `edgeAttributes`
-   * must give every column for the new edges. */
+  /** A new material with exactly these edges (undirected, in the order
+   * given; a repeated pair and a pair whose ends are one vertex are
+   * dropped). The vertices and their columns stay as they are. A pair that
+   * was already an edge keeps its id and its columns; an edge not in the
+   * list is retired; a new pair is minted. When edge columns are declared,
+   * `edgeAttributes` must give every column for the new edges. To keep an
+   * old edge, name its pair in the list. */
   withEdges(pairs: readonly (readonly [number, number])[], given: Record<string, number> = {}): Material {
-    const list = Array.from(this.edgeList);
-    const seen = new Set<number>();
-    for (let e = 0; e < list.length; e += 2) seen.add(pairKey(list[e], list[e + 1]));
+    const old = new Map<number, number>();
+    for (let e = 0; e < this.edgeCount; e++) old.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
     const names = this.edgeAttrNames;
     const edgeAttributes = withAbsentEdge(given, names);
-    const cols: Record<string, number[]> = {};
-    for (const name of names) cols[name] = Array.from(this.edgeAttrs[name]);
-    // Contract: unknown columns and non-finite values are always an error;
-    // every declared column must be given as soon as ONE edge would be
-    // added (one record serves every new edge); endpoints are validated
-    // for every pair; existing pairs are left as they are; a call that
-    // adds nothing needs no attributes.
+    // The same contract as adding: unknown columns and non-finite values
+    // are always an error, endpoints are validated for every pair, and the
+    // declared columns are demanded only when a pair is new.
     checkAttrs(edgeAttributes, names, 'a new edge', { complete: false });
     for (const [a, b] of pairs) {
-      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= this.n || b >= this.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
+      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= this.n || b >= this.n) throw new Error(`withEdges: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
     }
-    // A pair whose ends are the same vertex is no edge; it is dropped, the
-    // way an existing pair is left as it is.
-    if (pairs.some(([a, b]) => a !== b && !seen.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
+    if (pairs.some(([a, b]) => a !== b && !old.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
+    const list: number[] = [];
+    const ids: number[] = [];
+    const roots: number[] = [];
+    const cols: Record<string, number[]> = {};
+    for (const name of names) cols[name] = [];
+    const seen = new Set<number>();
     let added = 0;
     for (const [a, b] of pairs) {
       if (a === b) continue;
       const k = pairKey(a, b);
       if (seen.has(k)) continue;
       seen.add(k);
-      list.push(a, b);
-      for (const name of names) cols[name].push(edgeAttributes[name]);
-      added++;
+      const e = old.get(k);
+      if (e === undefined) {
+        list.push(a, b);
+        ids.push(-1);
+        roots.push(-1);
+        for (const name of names) cols[name].push(edgeAttributes[name]);
+        added++;
+      } else {
+        // The edge it was, kept as stored (its direction included).
+        list.push(this.edgeList[2 * e], this.edgeList[2 * e + 1]);
+        ids.push(this.edgeIds[e]);
+        roots.push(this.edgeRoots[e]);
+        for (const name of names) cols[name].push(this.edgeAttrs[name][e]);
+      }
+    }
+    const fresh = mintIds(added);
+    for (let i = 0, f = 0; i < ids.length; i++) {
+      if (ids[i] === -1) { ids[i] = fresh[f]; roots[i] = fresh[f]; f++; }
     }
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
-    // Every point stays the point it was and every edge that existed stays
-    // the edge it was: only the new pairs are new. Minting the lot would
-    // retire ids nothing retired and drop the face columns keyed by them.
-    const fresh = mintIds(added);
-    const edgeIds = new Float64Array(this.edgeIds.length + added);
-    edgeIds.set(this.edgeIds);
-    edgeIds.set(fresh, this.edgeIds.length);
-    const edgeRoots = new Float64Array(this.edgeRoots.length + added);
-    edgeRoots.set(this.edgeRoots);
-    edgeRoots.set(fresh, this.edgeRoots.length);
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, space: this.space });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: Float64Array.from(ids), edgeRoots: Float64Array.from(roots) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /**
@@ -2031,6 +2036,9 @@ export class Material {
 
   /**
    * This material through an ISOMETRY of the space: the same curves, moved.
+   * A transform record — `{ translate, rotate, scale, origin }`, one of
+   * `t.symmetry(…)` — moves it with exactly `group`'s meaning instead (see
+   * `transformByRecord`); the rest of this is about a placement.
    *
    * An edge is the image of the flat edge between its two coordinates, and
    * an isometry carries a geodesic onto a geodesic but NOT a coordinate
@@ -2057,10 +2065,14 @@ export class Material {
    * face columns, keyed by lineage, carry. So `sel.in(moved)` rebinds every
    * vertex and every unsplit edge, and a face keeps its columns.
    */
-  transform(placement: Placement): Material {
-    if (!isPlacement(placement)) {
-      throw new Error('m.transform: expected a placement — station.placement(), one of a tiling\'s placements, or reflection(space.model, a, b)');
+  transform(op: Placement | TransformOp): Material {
+    if (!isPlacement(op)) {
+      if (typeof op !== 'object' || op === null) {
+        throw new Error('m.transform: expected a placement — station.placement(), one of a tiling\'s placements, or reflection(space.model, a, b) — or a transform record such as one of t.symmetry(…)');
+      }
+      return transformByRecord(this, op);
     }
+    const placement = op;
     const door = placement.door;
     if (door.sign === 0) return this.map((p) => placement.point([p.x, p.y]));
     const move = (x: number, y: number): Vec => placement.point([x, y]);
@@ -2376,15 +2388,15 @@ export class Material {
     const opts: StepsOptions = typeof last === 'object' ? last : {};
     const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
-    const snaps: Snapshot[] = [];
+    const snaps: Material[] = [];
     const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
-    if (every) snaps.push({ iteration: this.iteration, material: base });
+    if (every) snaps.push(base);
     let cur = base;
     for (let k = 0; k < n; k++) {
       for (const pass of passes) cur = stepOnce(cur, k, pass, this.iteration + k + 1, KIT);
-      if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, material: cur });
+      if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push(cur);
     }
-    if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
+    if (every && n > 0) snaps.push(cur);
     return every
       ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs, space: cur.space })
       : cur;
@@ -3118,7 +3130,7 @@ export function material(
 }
 
 /**
- * A chain from positions — closed (a ring) unless `closed: false` — with
+ * A chain from positions — open unless `closed: true` makes it a ring — with
  * optional attribute columns as one constant per vertex or a full column.
  * Sugar for `connect.ring(material(pts))` / `connect.chain(...)`.
  */
@@ -3126,7 +3138,7 @@ export function curve(
   pts: readonly XY[],
   opts: { closed?: boolean } & Record<string, number | ArrayLike<number> | boolean | undefined> = {},
 ): Material {
-  const { closed = true, ...rest } = opts;
+  const { closed = false, ...rest } = opts;
   const cols: Record<string, number | ArrayLike<number>> = {};
   for (const [k, v] of Object.entries(rest)) {
     if (v === undefined) continue;
@@ -3137,7 +3149,91 @@ export function curve(
   return closed ? connect.ring(m) : connect.chain(m);
 }
 
+/**
+ * `m.transform` of a transform record — `{ translate, rotate, scale, origin }`, as
+ * `t.symmetry` answers and `group` takes — with exactly `group`'s
+ * meaning: scale, then rotate, both about `origin` (the user origin when
+ * it is unset), then translate. A mirror is a negative scale. It moves
+ * the coordinates, as `m.rotate` does, so it is `map` underneath and
+ * every id and column carries. A material has no frame, so every length
+ * is a number in its own units, and `origin: 'center'` — the drawable's
+ * middle in a group — is refused by name.
+ */
+function transformByRecord(m: Material, op: TransformOp): Material {
+  const who = 'm.transform';
+  if (op.placement !== undefined) {
+    const affine = op.translate !== undefined || op.rotate !== undefined || op.scale !== undefined || op.origin !== undefined;
+    if (affine) throw new Error(`${who}: a record holds a placement or translate/rotate/scale/origin, not both — they name two frames; transform twice instead`);
+    return m.transform(op.placement);
+  }
+  const num = (v: unknown, what: string): number => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${who}: ${what} is ${String(v)} — a material moves in its own units, so give a finite number`);
+    return v;
+  };
+  if (op.origin === 'center') throw new Error(`${who}: origin 'center' is the drawable's middle, and a material has no drawable — give the pivot as [x, y]`);
+  const pivot: [number, number] | null = op.origin === undefined ? null : [num(op.origin[0], 'origin[0]'), num(op.origin[1], 'origin[1]')];
+  let mat = IDENTITY;
+  if (op.translate !== undefined) mat = mulMat(mat, translateMat(num(op.translate[0], 'translate[0]'), num(op.translate[1], 'translate[1]')));
+  if (pivot) mat = mulMat(mat, translateMat(pivot[0], pivot[1]));
+  if (op.rotate !== undefined && num(op.rotate, 'rotate') !== 0) mat = mulMat(mat, rotateMat(radians(op.rotate)));
+  if (op.scale !== undefined) {
+    const [sx, sy] = typeof op.scale === 'number' ? [op.scale, op.scale] : op.scale;
+    mat = mulMat(mat, scaleMat(num(sx, 'scale'), num(sy, 'scale')));
+  }
+  if (pivot) mat = mulMat(mat, translateMat(-pivot[0], -pivot[1]));
+  return m.map((p) => applyMat(mat, p.x, p.y));
+}
+
 // ---- connections ----------------------------------------------------------------
+
+/** @internal A new material with these edges added to the ones it has
+ * (undirected; an existing pair is left as it is) — what every `connect`
+ * pattern does. When edge columns are declared, `edgeAttributes` must give
+ * every column for the new edges. */
+function addEdges(m: Material, pairs: readonly (readonly [number, number])[], given: Record<string, number> = {}): Material {
+  const list = Array.from(m.edgeList);
+  const seen = new Set<number>();
+  for (let e = 0; e < list.length; e += 2) seen.add(pairKey(list[e], list[e + 1]));
+  const names = m.edgeAttrNames;
+  const edgeAttributes = withAbsentEdge(given, names);
+  const cols: Record<string, number[]> = {};
+  for (const name of names) cols[name] = Array.from(m.edgeAttrs[name]);
+  // Contract: unknown columns and non-finite values are always an error;
+  // every declared column must be given as soon as ONE edge would be
+  // added (one record serves every new edge); endpoints are validated
+  // for every pair; existing pairs are left as they are; a call that
+  // adds nothing needs no attributes.
+  checkAttrs(edgeAttributes, names, 'a new edge', { complete: false });
+  for (const [a, b] of pairs) {
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= m.n || b >= m.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${m.n - 1}`);
+  }
+  // A pair whose ends are the same vertex is no edge; it is dropped, the
+  // way an existing pair is left as it is.
+  if (pairs.some(([a, b]) => a !== b && !seen.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
+  let added = 0;
+  for (const [a, b] of pairs) {
+    if (a === b) continue;
+    const k = pairKey(a, b);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    list.push(a, b);
+    for (const name of names) cols[name].push(edgeAttributes[name]);
+    added++;
+  }
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
+  // Every point stays the point it was and every edge that existed stays
+  // the edge it was: only the new pairs are new. Minting the lot would
+  // retire ids nothing retired and drop the face columns keyed by them.
+  const fresh = mintIds(added);
+  const edgeIds = new Float64Array(m.edgeIds.length + added);
+  edgeIds.set(m.edgeIds);
+  edgeIds.set(fresh, m.edgeIds.length);
+  const edgeRoots = new Float64Array(m.edgeRoots.length + added);
+  edgeRoots.set(m.edgeRoots);
+  edgeRoots.set(fresh, m.edgeRoots.length);
+  return new Material(copy(m.x), copy(m.y), copyAttrs(m.attrs), Uint32Array.from(list), { iteration: m.iteration, history: [], edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: copy(m.pointIds), edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs, space: m.space });
+}
 
 function chainEdges(n: number, closed: boolean): [number, number][] {
   const out: [number, number][] = [];
@@ -3297,12 +3393,12 @@ export const connect = {
   /** Consecutive rows joined, open. */
   chain(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const mm = material(m);
-    return mm.withEdges(chainEdges(mm.n, false), edgeAttributes);
+    return addEdges(mm, chainEdges(mm.n, false), edgeAttributes);
   },
   /** Consecutive rows joined and the last joined back to the first. */
   ring(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const mm = material(m);
-    return mm.withEdges(chainEdges(mm.n, true), edgeAttributes);
+    return addEdges(mm, chainEdges(mm.n, true), edgeAttributes);
   },
   /** Each vertex joined to its `count` nearest others (undirected, no
    * duplicates, self excluded; ties broken by lower row). */
@@ -3314,7 +3410,7 @@ export const connect = {
     // as the full scan ordered them.
     const k = opts.count;
     if (!Number.isInteger(k) || k < 0) throw new Error(`connect.nearest: count must be a non-negative integer, got ${k}`);
-    if (k === 0 || mm.n < 2) return mm.withEdges([], opts.edgeAttributes);
+    if (k === 0 || mm.n < 2) return addEdges(mm, [], opts.edgeAttributes);
     const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(mm.n / 2))));
     for (let i = 0; i < mm.n; i++) {
       const cand: [number, number][] = [];
@@ -3334,7 +3430,7 @@ export const connect = {
       }
       for (const [, j] of cand.slice(0, k)) pairs.push([i, j]);
     }
-    return mm.withEdges(pairs, opts.edgeAttributes);
+    return addEdges(mm, pairs, opts.edgeAttributes);
   },
   /**
    * One route through every row, visiting each once: a chain, or a ring with
@@ -3380,7 +3476,7 @@ export const connect = {
     // A choice needs two to choose between: fewer is read as two.
     const k = Math.max(2, asked);
     if (opts.cost !== undefined && typeof opts.cost !== 'function') throw new Error('connect.tour: cost must be a function of two vertex views');
-    if (n < 2) return mm.withEdges([], opts.edgeAttributes);
+    if (n < 2) return addEdges(mm, [], opts.edgeAttributes);
     const views = Array.from({ length: n }, (_, i) => mm.vertex(i));
     const raw = opts.cost;
     const cache = new Map<number, number>();
@@ -3564,7 +3660,7 @@ export const connect = {
     const pairs: [number, number][] = [];
     for (let i = 0; i + 1 < n; i++) pairs.push([order[i], order[i + 1]]);
     if (closed && n > 2) pairs.push([order[n - 1], order[0]]);
-    return mm.withEdges(pairs, opts.edgeAttributes);
+    return addEdges(mm, pairs, opts.edgeAttributes);
   },
 
   /**
@@ -3590,7 +3686,7 @@ export const connect = {
     const mm = material(m);
     const n = mm.n;
     if (opts.cost !== undefined && typeof opts.cost !== 'function') throw new Error('connect.tree: cost must be a function of two vertex views');
-    if (n < 2) return mm.withEdges([], opts.edgeAttributes);
+    if (n < 2) return addEdges(mm, [], opts.edgeAttributes);
     const views = Array.from({ length: n }, (_, i) => mm.vertex(i));
     const raw = opts.cost;
     const cost = (i: number, j: number): number => {
@@ -3634,7 +3730,7 @@ export const connect = {
       pairs.push([a, b]);
       if (pairs.length === n - 1) break;
     }
-    return mm.withEdges(pairs, opts.edgeAttributes);
+    return addEdges(mm, pairs, opts.edgeAttributes);
   },
 
 
@@ -3676,7 +3772,7 @@ export const connect = {
       const v = typeof asked === 'function' ? asked(x, y) : asked;
       return typeof v === 'number' && v > 1 ? v : 1;
     };
-    if (mm.n < 2) return mm.withEdges([], opts.edgeAttributes);
+    if (mm.n < 2) return addEdges(mm, [], opts.edgeAttributes);
     const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(mm.n / 2))));
     const delaunay = connect.triangulate(mm).edgeList;
     // Fewer than three distinct positions, or all of them collinear, and there
@@ -3730,7 +3826,7 @@ export const connect = {
       }
       if (!blocked) pairs.push([a, b]);
     }
-    return mm.withEdges(pairs, opts.edgeAttributes);
+    return addEdges(mm, pairs, opts.edgeAttributes);
   },
 
   /** Row i of `a` joined to row i of `b`, in one material (a's rows first).
@@ -3743,7 +3839,7 @@ export const connect = {
     // Rows with no partner are carried through as points: a row of five and
     // a row of four join four times, and still draw.
     for (let i = 0; i < Math.min(ma.n, mb.n); i++) pairs.push([i, ma.n + i]);
-    return joined.withEdges(pairs, edgeAttributes);
+    return addEdges(joined, pairs, edgeAttributes);
   },
   /**
    * One run through headed places, turning no tighter than `radius`.
@@ -3829,11 +3925,11 @@ export const connect = {
       firstAt.set(k, i);
       unique.push(i);
     }
-    if (unique.length < 3) return mm.withEdges([], edgeAttributes);
+    if (unique.length < 3) return addEdges(mm, [], edgeAttributes);
     // All collinear: no triangle exists (d3 would perturb the points into a
     // sliver); decided exactly.
     const [u0, u1] = unique;
-    if (unique.every((row) => orient2d(mm.x[u0], mm.y[u0], mm.x[u1], mm.y[u1], mm.x[row], mm.y[row]) === 0)) return mm.withEdges([], edgeAttributes);
+    if (unique.every((row) => orient2d(mm.x[u0], mm.y[u0], mm.x[u1], mm.y[u1], mm.x[row], mm.y[row]) === 0)) return addEdges(mm, [], edgeAttributes);
     const tri = Delaunay.from(unique.map((row) => [mm.x[row], mm.y[row]] as [number, number])).triangles;
     const pairs: [number, number][] = [];
     for (let k = 0; k + 2 < tri.length; k += 3) {
@@ -3842,7 +3938,7 @@ export const connect = {
       const c = unique[tri[k + 2]];
       pairs.push([a, b], [b, c], [c, a]);
     }
-    return mm.withEdges(pairs, edgeAttributes);
+    return addEdges(mm, pairs, edgeAttributes);
   },
 };
 

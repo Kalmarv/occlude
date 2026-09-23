@@ -95,7 +95,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 The colours a picture holds, most of the paper first. Give a count and occlude fits that many colours to the pixels, with a weighted k-means in Lab space. The fit reads the picture and never the sketch's seed, so one file gives one palette in every sketch. Give colours of your own, as hex strings or as pens. The fit then drops out, and each pixel takes the nearest colour you named.
 
-An entry holds `color`, `share`, `field(opts?)` and `area(level?)`. `color` comes back as lower case `#rrggbb`, so `pens[entry.color]` is a stable lookup. `share` is the fraction of the picture that colour holds. `field()` is membership as an ordinary scalar field. The value is 1 at the colour itself, 0.5 halfway to the next nearest, and 0 where another colour wins. `area(level)` marches that field into contours, closed along the edge of the picture. A picture with fewer distinct colours than you asked for gives fewer entries.
+An entry holds `color`, `share`, `field(opts?)` and `contours(level?)`. `color` comes back as lower case `#rrggbb`, so `pens[entry.color]` is a stable lookup. `share` is the fraction of the picture that colour holds. `field()` is membership as an ordinary scalar field. The value is 1 at the colour itself, 0.5 halfway to the next nearest, and 0 where another colour wins. `contours(level)` marches that field into contours, closed along the edge of the picture. An entry is an area, so `polygon(entry)` fills it at the level 0.5. A picture with fewer distinct colours than you asked for gives fewer entries.
 
 ```ts live
 import { sketch, polygon, pen, mm } from 'occlude';
@@ -112,7 +112,7 @@ export default sketch({ aspect: [1, 1], pens: {
   const inks = ['pale', 'mid', 'dark'];
   const tone = (hex) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
   const bands = img.palette(3).sort((a, b) => tone(b.color) - tone(a.color));
-  return bands.map((e, i) => polygon(e.area(0.55), { pen: inks[i] }));
+  return bands.map((e, i) => polygon(e.contours(0.55), { pen: inks[i] }));
 });
 ```
 
@@ -120,7 +120,7 @@ export default sketch({ aspect: [1, 1], pens: {
 
 <include>/_sig/ImageSampler.regions.mdx</include>
 
-The picture as a stack of flat colour areas, lightest first. It is `img.palette(count)` and then a sweep for connected patches. A patch smaller than `tolerance` of the picture joins what surrounds it, so a separation reads as areas and not as confetti. Draw the list in order with `opaque: true` and each dark area hides the lighter ones under it. `count: 2` is a monochrome trace, and `area` is the fraction of the picture a region covers. A region answers `contours()`, so `polygon(region, …)` draws it and `t.within(material, region)` cuts to it.
+The picture as a stack of flat colour areas, lightest first. It is `img.palette(count)` and then a sweep for connected patches. A patch smaller than `tolerance` of the picture joins what surrounds it, so a separation reads as areas and not as confetti. Draw the list in order with `opaque: true` and each dark area hides the lighter ones under it. `count: 2` is a monochrome trace, and `share` is the fraction of the picture a region covers, as on a palette entry. A region answers `contours()`, so `polygon(region, …)` draws it and `t.within(material, region)` cuts to it.
 
 ```ts live
 import { sketch, polygon, fill, pen, mm } from 'occlude';

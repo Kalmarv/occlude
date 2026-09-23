@@ -398,7 +398,7 @@ All are pure imports except `t.sample`, which reads the paper. Shapes stay exact
 
 ### Making a material
 
-Two conversions take a shape into material. `t.material(shape, …, { tolerance? })` keeps each boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm); several shapes become several outlines of one material, so `t.material(...circles).planarize().faces()` are the pieces their overlaps cut. `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes a ring or chain from positions. `material(existingMaterial)` returns that value unchanged; nonempty constructor options with an existing material are rejected. Use `.attributes(...)` or `.withEdges(...)` to edit it. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
+Two conversions take a shape into material. `t.material(shape, …, { tolerance? })` keeps each boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm); several shapes become several outlines of one material, so `t.material(...circles).planarize().faces()` are the pieces their overlaps cut. `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes an open chain from positions, or a ring with `closed: true`. `material(existingMaterial)` returns that value unchanged; nonempty constructor options with an existing material are rejected. Use `.attributes(...)` or `.withEdges(...)` to edit it. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
 
 A hexagon's corners pulled toward the centre by an amount that alternates around the ring. Nothing is computed by hand: the corners are the material's rows, and the drawing is the polygon of the result.
 
@@ -1272,7 +1272,7 @@ A reference is a row of the current state, a vertex view of it, or a handle from
 
 Within a batch: callbacks read the frozen state; moves and attribute writes apply first; removals, disconnections, splits, added points and connections resolve and rows compact once. Conflicting edits (removing a point that is also moved or connected, splitting and disconnecting one edge) throw and publish nothing.
 
-By default only the final state is kept. `{ every: m }` also records the initial state, every m-th complete iteration and the final one after all its passes finish, on the result's `history` as `{ iteration, material }`. Each sketch run recomputes from the start, so scrubbing an iteration control re-runs the growth to that point.
+By default only the final state is kept. `{ every: m }` also records the initial state, every m-th complete iteration and the final one after all its passes finish, on the result's `history`. Each entry is a material of its own, and its `iteration` says which state it is. Each sketch run recomputes from the start, so scrubbing an iteration control re-runs the growth to that point.
 
 ### forces
 
@@ -1354,7 +1354,7 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
     const pull = force.tension(cur, { rest: 6 });
     next.move(cur.points, (p) => mul(pull(p), 0.05));
   }, { every: 8 });
-  return pulled.history.map((h) => stroke(h.material.contour));
+  return pulled.history.map((h) => stroke(h.contour));
 });
 ```
 
@@ -1371,7 +1371,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const toward = force.attract(anchors, { radius: 0.34 * b.w, strength: 1 });
   const marks = material(t.grid({ cols: 24, rows: 12 }).map((c) => [c.cx, c.cy]));
   const gathered = marks.steps(90, (cur, next) => next.move(cur.points, (p) => mul(toward(p), 0.16)), { every: 1 });
-  const trail = (i) => gathered.history.map((h) => [h.material.x[i], h.material.y[i]]);
+  const trail = (i) => gathered.history.map((h) => [h.x[i], h.y[i]]);
   return [
     anchors.map(([x, y]) => circle(x, y, 3.2, { pen: 'stabilo-88-blue' })),
     marks.points.map((p) => stroke(trail(p.index))),
@@ -1390,7 +1390,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const drifts = [0.004, 0.02, 0.12].map((frequency) => force.drift(t.noise, { amount: 0.32, frequency }));
   const marks = material(t.grid({ cols: 18, rows: 6 }).map((c) => [c.cx, c.cy])).attribute('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
   const wandered = marks.steps(55, (cur, next, k) => next.move(cur.points, (p) => drifts[p.band](p, k)), { every: 1 });
-  const trail = (i) => wandered.history.map((h) => [h.material.x[i], h.material.y[i]]);
+  const trail = (i) => wandered.history.map((h) => [h.x[i], h.y[i]]);
   return [marks.points.map((p) => stroke(trail(p.index))), marks.points.map((p) => circle(p.x, p.y, 0.6))];
 });
 ```
@@ -1425,12 +1425,12 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     const a = (i / 40) * Math.PI * 2;
     const r = 36 + t.rnd(-10, 10);
     return [100 + Math.cos(a) * r * 1.6, 50 + Math.sin(a) * r];
-  }));
+  }), { closed: true });
   const settled = rough.steps(24, (cur, next) => {
     const smooth = force.relax(cur, { amount: 0.5 });
     next.move(cur.points, (p) => mul(smooth(p), 1));
   }, { every: 6 });
-  const at = (i) => settled.history[i].material.contour;
+  const at = (i) => settled.history[i].contour;
   return [stroke(at(0), { pen: 'pigma-005-black' }), stroke(at(1), { pen: 'stabilo-88-green' }), stroke(at(4), { pen: 'stabilo-88-blue' })];
 });
 ```

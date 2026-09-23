@@ -16,7 +16,7 @@ beforeAll(async () => {
 function run(body: (t: Toolkit) => void, seed: number | string = 1): Execution {
   return compileSketch(sketch({ seed }, (t) => { body(t); return circle(0, 0, 1); }), SQ);
 }
-const square = (x0: number, y0: number, s: number) => curve([[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]]);
+const square = (x0: number, y0: number, s: number) => curve([[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]], { closed: true });
 
 describe('a spacing at or below zero', () => {
   const field = () => 1;
@@ -239,7 +239,7 @@ describe('face navigation', () => {
     // the left one, a spur into the right one from its corner, and a detached
     // segment floating inside the right one.
     const twoSquares = material([[0, 0], [10, 0], [20, 0], [20, 10], [10, 10], [0, 10], [17, 3]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [1, 4], [2, 6]] });
-    let net = append(twoSquares, curve([[3, 3], [5, 3], [5, 5], [3, 5]]));
+    let net = append(twoSquares, curve([[3, 3], [5, 3], [5, 5], [3, 5]], { closed: true }));
     net = append(net, curve([[12, 7], [14, 9]], { closed: false }));
     const cells = net.faces();
     // Three faces: left annulus, the hole square, the right square.

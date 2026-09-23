@@ -40,7 +40,11 @@ function contact(points:readonly H[],coplanar:boolean):TriangleContact3|null {
  if(distinct.length===1)return Object.freeze({kind:'point',points:Object.freeze(distinct) as readonly [H],coplanar});
  return Object.freeze({kind:'segment',points:Object.freeze([distinct[0],distinct.at(-1)!]) as readonly [H,H],coplanar});
 }
-function coplanar(a:ExactTriangle3,b:ExactTriangle3,normal:H):TriangleContact3|null {
+/** The overlap of two triangles that lie in one plane, `normal`: `a`
+ * clipped to `b` along the plane's dominant axis, in exact arithmetic, so
+ * every point it answers lies on `a`'s own plane. A boolean also asks it of
+ * a pair that lies in one plane only to within its weld. */
+export function coplanarContact3(a:ExactTriangle3,b:ExactTriangle3,normal:H):TriangleContact3|null {
  const drop=dropAxis(normal),orientation=sign(orientPoint(...b,drop));
  let polygon:H[]=[...a];
  for(let i=0;i<3&&polygon.length;i++){
@@ -73,7 +77,7 @@ export function triangleContact3(a:ExactTriangle3,b:ExactTriangle3):TriangleCont
  const separated=(ds:readonly bigint[])=>ds.every(n=>n>0n)||ds.every(n=>n<0n);
  if(separated(da)||separated(db))return null;
  const parallel=cross(pa.slice(0,3) as unknown as V,pb.slice(0,3) as unknown as V).every(n=>n===0n);
- if(parallel)return da.every(n=>n===0n)?coplanar(a,b,pa):null;
+ if(parallel)return da.every(n=>n===0n)?coplanarContact3(a,b,pa):null;
  const ca=cut(a,da),cb=cut(b,db);if(!ca.length||!cb.length)return null;
  const low=compareExactPoints3(ca[0],cb[0])>=0?ca[0]:cb[0],high=compareExactPoints3(ca.at(-1)!,cb.at(-1)!)<=0?ca.at(-1)!:cb.at(-1)!;
  return compareExactPoints3(low,high)>0?null:contact([low,high],false);
