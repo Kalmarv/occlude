@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { initOcclude, render, sketch, polygon, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef } from '../src/index.js';
+import { initOcclude, render, sketch, polygon, strokes, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef } from '../src/index.js';
 import { levelMaterial, type IsoLevelContours } from '../src/isolines.js';
 
 beforeAll(async () => {
@@ -270,6 +270,19 @@ describe('a closing run of no length', () => {
     const m = levelMaterial(groups);
     for (let e = 0; e < m.edgeCount; e++) expect(m.edgeList[2 * e]).not.toBe(m.edgeList[2 * e + 1]);
     expect(m.edgeCount).toBe(4);
+  });
+});
+
+describe('strokes of a closed level set', () => {
+  it('draws the level lines only; the closing edges belong to polygon; an edge selection is drawn as given', () => {
+    const t = toolkit({ aspect: [1, 1] });
+    const m = t.isolines((x: number, y: number) => x + y, [60, 120]);
+    const lines = m.edges.filter((e) => e.attrs.cut === 0);
+    const rims = m.edges.filter((e) => e.attrs.cut === 1);
+    expect(rims.length).toBeGreaterThan(0);
+    expect(strokes(m).length).toBe(lines.extract().curves().length);
+    expect(strokes(m.edges).length).toBe(m.curves().length);
+    expect(strokes(rims).length).toBe(rims.extract().curves().length);
   });
 });
 

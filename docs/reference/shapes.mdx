@@ -267,7 +267,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/stroke.mdx</include>
 <include>/_sig/strokes.2.mdx</include>
 
-Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves()`. A material never draws itself. These are the words that make ink.
+Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves()`. A material never draws itself. These are the words that make ink. A material's rim edges are the ones with `cut = 1`. `t.within` and `t.isolines` add them along a boundary. They are the area's edge, so `polygon` uses them and `strokes(m)` does not. `strokes(m.edges)` draws every edge you give it.
 
 ```ts live
 import { sketch, stroke, strokes, circle } from 'occlude';

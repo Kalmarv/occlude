@@ -402,7 +402,14 @@ export function strokes(
   if (typeof chains !== 'function') {
     throw new Error('strokes: this value has no chains to draw — one face is an area; draw it with polygon(face), or its walls with strokes(face.edges)');
   }
-  return chains.call(source).map((c) => stroke(c, opts));
+  // A rim edge — `cut = 1`, the piece of a boundary that `t.within` or
+  // `t.isolines` added to close a region — is the area's edge, ink for
+  // `polygon`. The chains of a material are its lines; an edge selection
+  // is drawn as given.
+  const m = source instanceof Material && source.edgeAttrs.cut !== undefined
+    ? source.edges.filter((e) => e.attrs.cut === 0).extract()
+    : source;
+  return chains.call(m).map((c) => stroke(c, opts));
 }
 
 export interface PolygonOpts extends ShapeOpts {

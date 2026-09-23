@@ -15,7 +15,7 @@ import {
 } from '../src/index.js';
 import { checkFillOpaque } from '../src/fills.js';
 import { checkPlanOptions } from '../src/plan.js';
-import { checkEngineCapacity, ENGINE_BUDGET_BYTES, ENGINE_BYTES_PER_POINT, ENGINE_BYTES_PER_SHAPE, engineBytes } from '../src/wasmRender.js';
+import { checkInputFits } from '../src/wasmRender.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -209,25 +209,27 @@ describe('N4 · lengths take L', () => {
   });
 });
 
-describe('the engine refuses what it cannot hold', () => {
-  it('refuses a synthetic 4.6 M-point scene before the wasm call, with the count and the limit', () => {
-    // The scene's own buffers stand in for the real ones: the check reads
-    // their sizes, and the fake module proves nothing reached the engine.
-    // 4.6 M single-line shapes: about 5.4 GB by the measured costs.
+describe('the engine says when it cannot hold a scene', () => {
+  it('names the engine\'s own death with the counts, instead of a blank page', () => {
     const exec = compileSketch(sketch({ aspect: [1, 1] }, () => line(10, 10, 90, 90)), SQ);
     const scene = encodeScene(exec);
-    const n = 4_600_000;
-    const huge = { ...scene, prims: { length: n * 9 } as unknown as Float64Array, shapesU32: { length: n * 12 } as unknown as Uint32Array };
-    let called = false;
-    const mod = { wasm_prepare: () => { called = true; throw new Error('must not run'); } } as unknown as WasmModule;
-    const most = Math.floor((ENGINE_BUDGET_BYTES - n * ENGINE_BYTES_PER_SHAPE) / ENGINE_BYTES_PER_POINT).toLocaleString('en-US');
-    expect(() => renderEncoded(mod, huge)).toThrow(`render: 4,600,000 points is more than the engine can hold (about ${most} in 4,600,000 shapes); `);
-    expect(called).toBe(false);
+    const dying = { wasm_prepare: () => { throw new (globalThis as any).WebAssembly.RuntimeError('unreachable'); } } as unknown as WasmModule;
+    expect(() => renderEncoded(dying, scene)).toThrow(/^render: the engine ran out of memory at 1 points in 1 shapes \(preparing the outlines; its space is 4 GiB\); draw fewer/);
+    const other = { wasm_prepare: () => { throw new Error('modifier tape truncated'); } } as unknown as WasmModule;
+    expect(() => renderEncoded(other, scene)).toThrow('modifier tape truncated');
   });
 
-  it('judges the fills too: outlines that fit, with fill ink that does not, refuse before pass 2', () => {
-    expect(engineBytes(1000, 10)).toBeLessThan(ENGINE_BUDGET_BYTES);
-    expect(() => checkEngineCapacity(1000, 10)).not.toThrow();
-    expect(() => checkEngineCapacity(7_000_000, 10)).toThrow(/^render: 7,000,000 points is more than the engine can hold/);
+  it('refuses only a scene whose input alone cannot fit the address space, before the call', () => {
+    const exec = compileSketch(sketch({ aspect: [1, 1] }, () => line(10, 10, 90, 90)), SQ);
+    const scene = encodeScene(exec);
+    expect(() => checkInputFits(scene, 1, 1)).not.toThrow();
+    const n = 600_000_000;
+    const huge = { ...scene, prims: { length: n * 9 } as unknown as Float64Array };
+    let called = false;
+    const mod = { wasm_prepare: () => { called = true; throw new Error('must not run'); } } as unknown as WasmModule;
+    expect(() => renderEncoded(mod, huge)).toThrow(/^render: 600,000,000 points in 1 shapes is [0-9,]+ MiB of input, more than the engine's 4 GiB address space/);
+    expect(called).toBe(false);
+    // Six million points of polylines — a real plot — are not refused.
+    expect(() => checkInputFits({ ...scene, prims: { length: 6_700_000 * 9 } as unknown as Float64Array }, 6_700_000, 457_000)).not.toThrow();
   });
 });
