@@ -1,12 +1,12 @@
 import {PhaseClock3} from './timing.js';
-import {isProjectedStrokes} from './api/projected.js';
+import {isProjectedStrokes,maskContours3} from './api/projected.js';
 import type {ClassifiedScene3} from './visibility/scene.js';
 import { sourceStrokeShapes3 } from './strokes/paper.js';
 import type { ModifierValue } from '../shapes.js';
-import { stroke, type Tree, type GroupValue, type ClipValue } from '../api.js';
+import { stroke, clip, polygon, mask, type Tree, type GroupValue, type ClipValue } from '../api.js';
 import type { Execution } from '../execution.js';
 import { paperToUser } from '../record.js';
-import { cameraFrame3, toPaper3 } from './camera.js';
+import { cameraFrame3, toPaper3, type CameraFrame3 } from './camera.js';
 import type { Feature3 } from './features/snapshot.js';
 import { featureSnapshot3 } from './features/snapshot.js';
 import { classifyScene3 } from './visibility/scene.js';
@@ -33,15 +33,33 @@ function draftSegments(frame: Parameters<typeof toPaper3>[0], rows: readonly { f
   }
   return { segments: Float64Array.from(out), total };
 }
+/** Projected ink stays in its view's frame — the drawable, or the view's own
+ * viewport — the same way a 2D word's ink stays where it is clipped. The cut
+ * is the engine's clip on the finished strokes, so dash phase and modifier
+ * samples still run along the whole projected line and only the ink is
+ * trimmed. It wraps each piece of projected ink where it is emitted, so a
+ * group the sketch puts around that ink moves the frame with it, and 2D
+ * content a drawing adds beside its ink is not cut. */
+function inFrame3(exec: Execution, frame: CameraFrame3, tree: Tree): Tree {
+  const toUser = paperToUser(exec.frame), r = frame.paper;
+  const corners = [[r.x, r.y], [r.x + r.width, r.y], [r.x + r.width, r.y + r.height], [r.x, r.y + r.height]].map(([x, y]) => toUser(x, y));
+  return clip(polygon([corners]), tree);
+}
+/** The paper a view's solids cover, as `mask` over the nonzero union of its
+ * occluding triangles; nothing when there are none. */
+function maskForRun3(exec: Execution, view: ClassifiedScene3): Tree {
+  const contours = maskContours3(exec, view);
+  return contours.length ? mask(polygon(contours, { winding: 'nonzero' })) : [];
+}
 /** Resolve before recording, preserving ordinary composition order. The CPU
  * reference is the documented headless default; hosts pass GPU resources. */
 export async function resolveTree3(exec: Execution, tree: Tree, options: { signal?: AbortSignal; compute3?: SceneCompute3; retainedSource?:ClassifiedScene3; onStage?: StageListener3 }): Promise<Tree> {
   options.signal?.throwIfAborted();
   if (!tree) return tree;
-  if(isProjectedStrokes(tree)){if(tree.curves.source!==options.retainedSource)exec.fixedStrokes3.add(tree.curves.source);return tree;}
+  if(isProjectedStrokes(tree)){if(tree.curves.source!==options.retainedSource)exec.fixedStrokes3.add(tree.curves.source);return inFrame3(exec,tree.curves.source.frame,tree);}
   if (isDrawing3(tree)) {
     const view = await classifyForRun3(exec, tree.scene, options);
-    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => strokesForRun3(exec, runs, settings) }), {...options,retainedSource:view});
+    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => inFrame3(exec, view.frame, strokesForRun3(exec, runs, settings)), mask3: (scene) => maskForRun3(exec, scene) }), {...options,retainedSource:view});
   }
   if (Array.isArray(tree)) {
     const children: Tree[] = [];
@@ -50,7 +68,7 @@ export async function resolveTree3(exec: Execution, tree: Tree, options: { signa
   }
   if (isLineArt3(tree)) {
     const classified = await classifyForRun3(exec, tree, options);
-    return strokesForRun3(exec, constructStrokes3(classified, tree.lineSets, tree.strokes));
+    return inFrame3(exec, classified.frame, strokesForRun3(exec, constructStrokes3(classified, tree.lineSets, tree.strokes)));
   }
   if ((tree as GroupValue).__occludeGroup || (tree as ClipValue).__occludeClip) {
     const container = tree as GroupValue | ClipValue;

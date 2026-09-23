@@ -121,7 +121,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Cells that are not rectangles, as ONE material. `grid` answers with records, and these two answer with geometry. `m.faces()` are the cells, and the wall two cells share is one edge. `strokes(m)` draws each wall once, and `sel.adjacent()` answers on the cells. The lattice starts at the user origin, and the drawable edge cuts the outermost cells.
 
-`hexes` takes the centre-to-centre `spacing` of neighbouring cells. `orientation` is `'pointy'` (a vertex at the top of each cell, the default) or `'flat'` (an edge there). Each face carries its axial `i` and `j`. `origin` is the point for the centre of cell `i = 0, j = 0`. `rotate` turns the full lattice about `origin`, in degrees counter-clockwise, before the drawable edge cuts it.
+`hexes` takes the centre-to-centre `spacing` of neighbouring cells. `orientation` is `'pointy'` (a vertex at the top of each cell, the default) or `'flat'` (an edge there). Each face carries its axial `i` and `j`. `origin` is the point for the centre of cell `i = 0, j = 0`. `rotate` turns the full lattice about `origin`, in degrees clockwise on the sheet, before the drawable edge cuts it.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm } from 'occlude';

@@ -10,7 +10,15 @@ import type { ClassifiedScene3 } from './visibility/scene.js';
 export interface Drawing3 {
   readonly __occludeDrawing3: true;
   readonly scene: LineArtScene3;
-  readonly draw: (view: ClassifiedScene3, paper: Pick<Toolkit, 'strokes3'>) => Tree;
+  readonly draw: (view: ClassifiedScene3, paper: Paper3) => Tree;
+}
+/** The interpretations that need the current paper frame. */
+export interface Paper3 {
+  /** Constructed runs as ink in the sketch frame, cut at the view's frame. */
+  readonly strokes3: (runs: Parameters<Toolkit['strokes3']>[0], options?: Parameters<Toolkit['strokes3']>[1]) => Tree;
+  /** The paper the view's solids cover as one opaque region that draws
+   * nothing: in paint order it hides what was drawn before it. */
+  readonly mask3: (view: ClassifiedScene3) => Tree;
 }
 export function drawing3(scene: LineArtScene3, draw: Drawing3['draw']): Drawing3 {
   if (!isLineArt3(scene) || typeof draw !== 'function') throw new Error('drawing3 requires a captured scene and a paper interpretation');

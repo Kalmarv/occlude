@@ -18,7 +18,7 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 Every pattern takes its parameters as one object: `fill('hatch', { angle: 45, spacing: mm(1) })`. Spacing is a length. Bare numbers are drawable units, so `mm()` is the usual choice for texture, since a plotted line's weight comes from the pen and the gap between lines is what reads as tone. The default spacing is three times the fill pen's nib width.
 
-Angle is in degrees, measured from the drawable's x axis. Tone comes from the ratio of nib width to spacing: below about two nib widths, rows touch and the texture reads as grey; near one nib width it reads as black.
+Angle is in degrees, measured from the drawable's x axis, clockwise on the sheet. Tone comes from the ratio of nib width to spacing: below about two nib widths, rows touch and the texture reads as grey; near one nib width it reads as black.
 
 ```ts live
 import { sketch, rect, fill, mm } from 'occlude';
