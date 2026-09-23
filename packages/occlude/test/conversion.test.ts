@@ -246,11 +246,17 @@ describe('one boundary contract', () => {
     // Isolated points contribute nothing; an empty material is an empty boundary.
     expect(areaLoops(material([[4, 4], [5, 5]]), 'test')).toEqual([]);
     expect(distanceTo(material([]))(1, 2)).toBe(-Infinity);
-    // Branching is refused with the way out named.
+    // A branching material is read by its faces, and a tree encloses none:
+    // it is an empty area, the same to every consumer.
     const y = material([[0, 0], [10, 0], [20, 10], [20, -10]], { edges: [[0, 1], [1, 2], [1, 3]] });
-    expect(() => distanceTo(y)).toThrow(/branches.*edges\.filter.*faces/);
-    expect(() => polygon(y)).toThrow(/polygon: this material branches/);
-    expect(() => force.boundary(y, { radius: 2 })).toThrow(/force.boundary: this material branches/);
+    expect(areaLoops(y, 'test')).toEqual([]);
+    expect(distanceTo(y)(1, 2)).toBe(-Infinity);
+    expect(() => force.boundary(y, { radius: 2 })).not.toThrow();
+    // A branching selection has no faces of its own, and is refused with
+    // the way out named.
+    expect(() => distanceTo(y.edges)).toThrow(/branches.*edges\.filter.*faces/);
+    expect(() => polygon(y.edges)).toThrow(/polygon: this selection branches/);
+    expect(() => force.boundary(y.edges, { radius: 2 })).toThrow(/force.boundary: this selection branches/);
     // Drawing a branching material still works.
     expect(strokes(y)).toHaveLength(3);
   });

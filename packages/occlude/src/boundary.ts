@@ -18,7 +18,8 @@
  * Structural normalization only: coordinates pass through untouched (a
  * `[L, L]` tuple stays what it was), the consumer keeps its own units and
  * winding semantics, and nothing here welds, planarizes or guesses — a
- * branching material is refused with the way out.
+ * branching material with no closed chain is read by the faces it already
+ * has, and a branching selection is refused with the way out.
  */
 
 import type { IsoContour } from './isolines.js';
@@ -85,6 +86,8 @@ export function isGeometry(v: unknown): v is Geometry {
 const hasContours = (v: unknown): v is { contours(): IsoContour[] } => isObj(v) && typeof v.contours === 'function';
 /** A value that can say where its chains are. */
 const hasCurves = (v: unknown): v is { curves(): IsoContour[] } => isObj(v) && typeof v.curves === 'function';
+/** A value that can find the regions its edges enclose. */
+const hasFaces = (v: unknown): v is { faces(): { contours(): IsoContour[] } } => isObj(v) && typeof v.faces === 'function';
 /**
  * A face collection: several areas at once, so it must name which it means.
  * It answers `contours()` — the union outline — but `polygon(cells)` is
@@ -126,8 +129,9 @@ const loopOf = (loop: Loop, who: string): LoopPoints =>
  * its closed chains, so `polygon(m)` fills what is closed. A value with no
  * closed chain, and one that answers only `curves()`, is read by its
  * chains, where an open one is a loop the consumer closes with a chord, as
- * it always has for open input. Separate components stay separate loops; an
- * isolated point contributes nothing. `who` names the caller in errors.
+ * it always has for open input. A material with no closed chain whose
+ * chains branch is read by its faces: its area is their union. Separate
+ * components stay separate loops; an isolated point contributes nothing. `who` names the caller in errors.
  */
 export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
   if (isFaceCollection(input)) {
@@ -136,10 +140,27 @@ export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
         'or take their union outline with cells.contours()',
     );
   }
-  // A material or a selection that branches has no single inside. The
-  // refusal names the consumer, so it belongs here and not in the value.
+  // A material or a selection that branches has no single inside of its
+  // chains. A material with a closed chain is still read by what is closed
+  // (the refusal below keeps it); one with none is read by its faces — a
+  // tiling, a hex field, a planarized web — and its area is their union, the
+  // outer rim and any holes, the loops `m.faces().contours()` answers. A
+  // branching material that encloses nothing, such as a tree, has no area
+  // and gives no loops. A selection has no faces of its own, so the refusal
+  // names the consumer, which is why it belongs here and not in the value.
   {
     const degree = branchingDegree(input);
+    if (degree !== null && degree > 2 && hasFaces(input) && hasCurves(input) && !(hasContours(input) && input.contours().length > 0)) {
+      // A crossing without a vertex is the faces' own refusal, which names
+      // the way out; it carries the consumer's name as every refusal here.
+      let regions: IsoContour[];
+      try {
+        regions = input.faces().contours();
+      } catch (err) {
+        throw new Error(`${who}: ${(err as Error).message}`);
+      }
+      return regions.map((c) => c.pts as LoopPoints);
+    }
     if (degree !== null && degree > 2) {
       throw new Error(
         `${who}: this ${isObj(input) && 'indices' in input ? 'selection' : 'material'} branches (a vertex has ${degree} edges), so it has no single inside — ` +

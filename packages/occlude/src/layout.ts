@@ -4,6 +4,7 @@ import { finiteCount, usableLength } from './guard.js';
 import type { IsoContour } from './isolines.js';
 import { Material, material } from './material.js';
 import type { L } from './units.js';
+import { vx, vy, type XY } from './vec.js';
 
 export interface GridCell {
   x: number;
@@ -88,6 +89,12 @@ export interface HexOptions {
   /** Shrink every cell about its own centre until neighbouring walls stand
    * this far apart. Gapped cells touch nothing, so nothing is shared. */
   gap?: L;
+  /** The point cell `i = 0, j = 0` is centred on: a pair or an `{ x, y }`
+   * record. Default the user origin. */
+  origin?: XY;
+  /** Turn the whole lattice about `origin`, in degrees counter-clockwise.
+   * `orientation` still picks the cell before the turn. */
+  rotate?: number;
 }
 
 export interface TriangleOptions {
@@ -96,6 +103,12 @@ export interface TriangleOptions {
   /** Shrink every cell about its own centre until neighbouring walls stand
    * this far apart. Gapped cells touch nothing, so nothing is shared. */
   gap?: L;
+  /** The point the lattice's own (0, 0) stands on: a pair or an `{ x, y }`
+   * record, default the user origin. Row 0's top line runs through it, and
+   * the upward cell `i = 0, j = 0` has its apex half a side along. */
+  origin?: XY;
+  /** Turn the whole lattice about `origin`, in degrees counter-clockwise. */
+  rotate?: number;
 }
 
 /** One cell on the way to a material: its corners and its two indices. */
@@ -103,6 +116,50 @@ interface Cell {
   pts: [number, number][];
   i: number;
   j: number;
+}
+
+/**
+ * Where a lattice stands: `place` carries a point of the lattice's own
+ * frame — cell (0, 0) at its origin, unturned — to the sketch, and `box` is
+ * the drawable seen from that frame, so the cells laid over the box cover
+ * the drawable after the turn. The cut to the drawable comes after, so the
+ * coverage and the outline are the drawable's whatever the placement, and
+ * the `i`, `j` a face carries stay the lattice's own coordinates.
+ *
+ * With no origin and no turn nothing moves: `place` is the identity and the
+ * box is the drawable, so the default lattice is the one it always was.
+ * Null when the placement is not a finite point and angle — a mid-edit
+ * value, which lays out nothing.
+ */
+function latticeFrame(
+  who: string, w: number, h: number, origin: XY | undefined, rotate: number | undefined,
+): { place: (p: [number, number]) => [number, number]; x0: number; y0: number; x1: number; y1: number } | null {
+  if (rotate !== undefined && typeof rotate !== 'number') throw new Error(`${who}: rotate is an angle in degrees, got ${typeof rotate}`);
+  const ox = origin === undefined ? 0 : vx(origin);
+  const oy = origin === undefined ? 0 : vy(origin);
+  const deg = rotate ?? 0;
+  if (!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(deg)) return null;
+  if (ox === 0 && oy === 0 && deg === 0) return { place: (p) => p, x0: 0, y0: 0, x1: w, y1: h };
+  // A quarter turn is exact: a wall that should stand upright does.
+  const quarter = deg % 90 === 0 ? (((deg / 90) % 4) + 4) % 4 : -1;
+  const cos = quarter >= 0 ? [1, 0, -1, 0][quarter] : Math.cos((deg * Math.PI) / 180);
+  const sin = quarter >= 0 ? [0, 1, 0, -1][quarter] : Math.sin((deg * Math.PI) / 180);
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const [x, y] of [[0, 0], [w, 0], [w, h], [0, h]]) {
+    // The inverse placement: shift back, then turn back.
+    const dx = x - ox;
+    const dy = y - oy;
+    const lx = cos * dx + sin * dy;
+    const ly = -sin * dx + cos * dy;
+    x0 = Math.min(x0, lx);
+    y0 = Math.min(y0, ly);
+    x1 = Math.max(x1, lx);
+    y1 = Math.max(y1, ly);
+  }
+  return { place: ([x, y]) => [ox + cos * x - sin * y, oy + sin * x + cos * y], x0, y0, x1, y1 };
 }
 
 /** Vertices a hair apart are the same vertex: the wall two cells share is
@@ -305,10 +362,11 @@ function cellMaterial(cells: Cell[], w: number, h: number, name: string): Materi
 /**
  * Hexagonal cells covering the drawable, as ONE material: `m.faces()` are
  * the cells, every shared wall is one edge, and each face carries its axial
- * `i` and `j`. The lattice is anchored on the drawable's origin — the cell
- * `i = 0, j = 0` is centred there — and every cell is cut to the drawable,
- * so the outermost cells are partial and the material's outline is the
- * drawable itself.
+ * `i` and `j`. The lattice is anchored on `origin` — the cell
+ * `i = 0, j = 0` is centred there, the user origin by default — and turned
+ * about it by `rotate`; then every cell is cut to the drawable, so the
+ * outermost cells are partial and the material's outline is the drawable
+ * itself.
  */
 export function hexes(env: LayoutEnv, opts: HexOptions): Material {
   const spacing = env.len(opts.spacing);
@@ -322,15 +380,21 @@ export function hexes(env: LayoutEnv, opts: HexOptions): Material {
   const k = 1 - gap / spacing;
   if (!(k > 0)) return material([]);
   const { w, h } = env.bounds;
+  const frame = latticeFrame('hexes', w, h, opts.origin, opts.rotate);
+  if (!frame) return material([]);
   const R = spacing / Math.sqrt(3);
   const dx = flat ? spacing * (Math.sqrt(3) / 2) : spacing;
   const dy = flat ? spacing : spacing * (Math.sqrt(3) / 2);
-  const cols = Math.ceil(w / dx) + 3;
-  const rows = Math.ceil(h / dy) + 3;
+  // The lattice steps that cover the drawable as the lattice sees it, with
+  // a step to spare on every side for the stagger and the cell's reach.
+  const a0 = Math.floor(frame.x0 / dx);
+  const b0 = Math.floor(frame.y0 / dy);
+  const cols = Math.ceil((frame.x1 - frame.x0) / dx) + 3;
+  const rows = Math.ceil((frame.y1 - frame.y0) / dy) + 3;
   finiteCount('hexes', cols * rows);
   const cells: Cell[] = [];
-  for (let b = -1; b < rows - 1; b++) {
-    for (let a = -1; a < cols - 1; a++) {
+  for (let b = b0 - 1; b < b0 + rows - 1; b++) {
+    for (let a = a0 - 1; a < a0 + cols - 1; a++) {
       // Lattice index to axial: the staggered row (or column) is the axial
       // coordinate shifted by half a step, which is what `floor` undoes.
       const i = flat ? a : a - Math.floor(b / 2);
@@ -340,7 +404,7 @@ export function hexes(env: LayoutEnv, opts: HexOptions): Material {
       const pts: [number, number][] = [];
       for (let v = 0; v < 6; v++) {
         const angle = ((flat ? 60 * v : 60 * v + 30) * Math.PI) / 180;
-        pts.push([cx + R * Math.cos(angle), cy + R * Math.sin(angle)]);
+        pts.push(frame.place([cx + R * Math.cos(angle), cy + R * Math.sin(angle)]));
       }
       cells.push({ pts: k === 1 ? pts : shrink(pts, k), i, j });
     }
@@ -352,7 +416,8 @@ export function hexes(env: LayoutEnv, opts: HexOptions): Material {
  * Triangular cells covering the drawable, as ONE material: `m.faces()` are
  * the cells, every shared wall is one edge, and each face carries its row
  * `j` and its index `i` along that row — an even `i` points up, an odd one
- * points down. Cut to the drawable exactly as `hexes` is.
+ * points down. Anchored on `origin`, turned by `rotate` and cut to the
+ * drawable exactly as `hexes` is.
  */
 export function triangles(env: LayoutEnv, opts: TriangleOptions): Material {
   const size = env.len(opts.size);
@@ -363,24 +428,28 @@ export function triangles(env: LayoutEnv, opts: TriangleOptions): Material {
   const k = 1 - (gap * Math.sqrt(3)) / size;
   if (!(k > 0)) return material([]);
   const { w, h } = env.bounds;
+  const frame = latticeFrame('triangles', w, h, opts.origin, opts.rotate);
+  if (!frame) return material([]);
   const H = (size * Math.sqrt(3)) / 2;
-  const rows = Math.ceil(h / H) + 2;
-  const cols = Math.ceil(w / size) + 2;
+  const c0 = Math.floor(frame.x0 / size);
+  const j0 = Math.floor(frame.y0 / H);
+  const rows = Math.ceil((frame.y1 - frame.y0) / H) + 2;
+  const cols = Math.ceil((frame.x1 - frame.x0) / size) + 2;
   finiteCount('triangles', rows * cols * 2);
   const cells: Cell[] = [];
-  for (let j = -1; j < rows - 1; j++) {
+  for (let j = j0 - 1; j < j0 + rows - 1; j++) {
     const y0 = j * H;
     const y1 = y0 + H;
     // Consecutive rows are offset by half a side: the vertices of one row's
     // lower line are the apexes of the next row's upward cells.
     const ox = (j & 1) === 0 ? 0 : size / 2;
-    for (let i = -2; i < 2 * cols; i++) {
+    for (let i = 2 * c0 - 2; i < 2 * (c0 + cols); i++) {
       const c = Math.floor(i / 2);
       const x0 = ox + c * size;
       const pts: [number, number][] = (i & 1) === 0
         ? [[x0 + size / 2, y0], [x0 + size, y1], [x0, y1]]
         : [[x0 + size / 2, y0], [x0 + 1.5 * size, y0], [x0 + size, y1]];
-      cells.push({ pts: k === 1 ? pts : shrink(pts, k), i, j });
+      cells.push({ pts: (k === 1 ? pts : shrink(pts, k)).map(frame.place), i, j });
     }
   }
   return cellMaterial(cells, w, h, 'triangles');
