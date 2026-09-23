@@ -92,6 +92,7 @@ import {
   vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
 } from './field.js';
 import { areaFill, interiorPoint } from './area.js';
+import { orient2d } from 'robust-predicates';
 import { ui } from './ui.js';
 import { asset as assetOf, image as imageOf, type ImagePlacement } from './imageAsset.js';
 import { h, long, mm, s, w, radians, resolveLen, Len, type L } from './units.js';
@@ -260,23 +261,33 @@ export function circle(a: L | XY, b: L, c?: L | ShapeOpts, d?: ShapeOpts): Shape
   return shape({ kind: 'circle', x: a, y: b, r: c as L }, d);
 }
 
+export function ellipse(x: L, y: L, rx: L, ry: L, rotation?: number | ShapeOpts, opts?: ShapeOpts): ShapeValue;
+/** The same ellipse about a point: a pair or an `{ x, y }` record. */
+export function ellipse(center: XY, rx: L, ry: L, rotation?: number | ShapeOpts, opts?: ShapeOpts): ShapeValue;
 export function ellipse(
-  x: L, y: L, rx: L, ry: L,
-  rotation?: number | ShapeOpts,
-  opts?: ShapeOpts,
+  a: L | XY, b: L, c: L, d?: L | number | ShapeOpts,
+  e?: number | ShapeOpts,
+  f?: ShapeOpts,
 ): ShapeValue {
-  if (isOpts(rotation)) return shape({ kind: 'ellipse', x, y, rx, ry, rotation: 0 }, rotation);
-  return shape({ kind: 'ellipse', x, y, rx, ry, rotation: rotation ?? 0 }, opts);
+  if (isPointArg(a)) return ellipse(vx(a), vy(a), b, c, d as number | ShapeOpts | undefined, e as ShapeOpts | undefined);
+  const g = { kind: 'ellipse' as const, x: a, y: b, rx: c, ry: d as L };
+  if (isOpts(e)) return shape({ ...g, rotation: 0 }, e);
+  return shape({ ...g, rotation: e ?? 0 }, f);
 }
 
+export function rect(x: L, y: L, w: L, h: L, radius?: L | ShapeOpts, opts?: ShapeOpts): ShapeValue;
+/** The same rect from a point: a pair or an `{ x, y }` record. The point is
+ * the corner, or the centre under `mode: 'center'`, as (x, y) is. */
+export function rect(at: XY, w: L, h: L, radius?: L | ShapeOpts, opts?: ShapeOpts): ShapeValue;
 export function rect(
-  x: L, y: L, w: L, h: L,
-  radius?: L | ShapeOpts,
-  opts?: ShapeOpts,
+  a: L | XY, b: L, c: L, d?: L | ShapeOpts,
+  e?: L | ShapeOpts,
+  f?: ShapeOpts,
 ): ShapeValue {
-  const o = isOpts(radius) ? radius : opts;
-  const r = isOpts(radius) ? 0 : (radius ?? 0);
-  return shape({ kind: 'rect', x, y, w, h, radius: r, anchor: o?.mode }, o);
+  if (isPointArg(a)) return rect(vx(a), vy(a), b, c, d, e as ShapeOpts | undefined);
+  const o = isOpts(e) ? e : f;
+  const r = isOpts(e) ? 0 : (e ?? 0);
+  return shape({ kind: 'rect', x: a, y: b, w: c, h: d as L, radius: r, anchor: o?.mode }, o);
 }
 
 export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue;
@@ -468,7 +479,8 @@ export function polygon(contours: AreaInput | Contour | Contour[] | ShapeValue, 
  *
  * `area` is anything an area consumer takes: a shape (lowered here, through
  * the one lowerer), a face, loops, a chain material or a selection. A face
- * collection takes `{ faces: 'contained' | 'centroid' }` (see WithinFaces).
+ * collection takes `{ faces: 'contained' | 'centroid' | 'touching' }` (see
+ * WithinFaces), an edge selection `{ edges: … }` (see WithinEdges).
  */
 /** How `within` decides that a face belongs to an area. `'contained'` (the
  * default) keeps a face with no contour point strictly outside the area, no
@@ -476,9 +488,11 @@ export function polygon(contours: AreaInput | Contour | Contour[] | ShapeValue, 
  * island) lying strictly inside it — so a cell whose wall runs ALONG the
  * boundary belongs to it. `'centroid'` keeps a face whose geometric centre is
  * inside the area, so a cell the boundary cuts through is kept whole, and its
- * ink may reach past the edge by up to that cell. */
+ * ink may reach past the edge by up to that cell. `'touching'` keeps a face
+ * that shares any point with the area: a vertex inside or on the boundary,
+ * an edge meeting the boundary, or the area lying inside the face. */
 export interface WithinFaces {
-  faces?: 'contained' | 'centroid';
+  faces?: 'contained' | 'centroid' | 'touching';
 }
 
 /** How `within` decides that an edge belongs to an area. A selection cannot
@@ -487,10 +501,12 @@ export interface WithinFaces {
  * outside and no crossing of the boundary, so a wall running ALONG the
  * boundary belongs to it. `'midpoint'` keeps an edge whose `center` is inside,
  * so a wall the boundary cuts is kept whole and its ink may reach past the
- * edge by up to half that wall. To cut at the boundary instead, hand
+ * edge by up to half that wall. `'touching'` keeps an edge that shares any
+ * point with the area: an end inside or on the boundary, or the wall meeting
+ * the boundary. To cut at the boundary instead, hand
  * `within` the MATERIAL: a material is cut, a selection is filtered. */
 export interface WithinEdges {
-  edges?: 'contained' | 'midpoint';
+  edges?: 'contained' | 'midpoint' | 'touching';
 }
 
 export interface Within {
@@ -511,14 +527,14 @@ export function withinAny(
   run: Execution,
   x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection,
   area: AreaInput | ShapeValue,
-  opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid'; edges?: 'contained' | 'midpoint' } = {},
+  opts: { transfer?: Record<string, Transfer> } & WithinFaces & WithinEdges = {},
 ): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection {
   if (typeof x === 'function') return withinField(x, area as ShapeValue, boundEnv(run));
-  if (opts.faces !== undefined && opts.faces !== 'contained' && opts.faces !== 'centroid') {
-    throw new Error(`within: faces must be 'contained' or 'centroid', got '${String(opts.faces)}'`);
+  if (opts.faces !== undefined && opts.faces !== 'contained' && opts.faces !== 'centroid' && opts.faces !== 'touching') {
+    throw new Error(`within: faces must be 'contained', 'centroid' or 'touching', got '${String(opts.faces)}'`);
   }
-  if (opts.edges !== undefined && opts.edges !== 'contained' && opts.edges !== 'midpoint') {
-    throw new Error(`within: edges must be 'contained' or 'midpoint', got '${String(opts.edges)}'`);
+  if (opts.edges !== undefined && opts.edges !== 'contained' && opts.edges !== 'midpoint' && opts.edges !== 'touching') {
+    throw new Error(`within: edges must be 'contained', 'midpoint' or 'touching', got '${String(opts.edges)}'`);
   }
   if (opts.edges !== undefined && !(x instanceof EdgeSelection)) {
     throw new Error("within: 'edges' is for an edge selection");
@@ -542,6 +558,11 @@ export function withinAny(
     if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — an edge is kept whole or not at all");
     // The midpoint: one question, one point, and the wall goes with it.
     if (opts.edges === 'midpoint') return x.filter((e) => inside(e.center[0], e.center[1]) > 0);
+    // Touching: any shared point — an end inside or ON the boundary, or the
+    // wall meeting a real boundary anywhere along it.
+    if (opts.edges === 'touching') {
+      return x.filter((e) => inside(e.a.x, e.a.y) >= 0 || inside(e.b.x, e.b.y) >= 0 || meetsBoundary(fill.boundary, e.a.x, e.a.y, e.b.x, e.b.y));
+    }
     // Contained, which is the face rule on a wall: neither end strictly
     // outside, and no crossing of a REAL boundary. `>= 0` keeps a wall that
     // runs along the boundary, exactly as a cell sharing the frame's edge
@@ -559,6 +580,26 @@ export function withinAny(
     return faces.filter((f) => {
       const [cx, cy] = measured.forFace(f).centroid;
       return inside(cx, cy) > 0;
+    });
+  }
+  if (opts.faces === 'touching') {
+    // Any shared point: a vertex inside or ON the boundary, a wall meeting a
+    // real boundary, or else the area lying wholly inside the face, which a
+    // point of the boundary inside or on the face says.
+    return faces.filter((f) => {
+      const areas = f.contours();
+      if (areas.length === 0) return false;
+      for (const c of areas) {
+        for (let k = 0; k < c.pts.length; k++) {
+          const p = c.pts[k];
+          if (inside(p[0], p[1]) >= 0) return true;
+          const q = c.pts[(k + 1) % c.pts.length];
+          if (meetsBoundary(fill.boundary, p[0], p[1], q[0], q[1])) return true;
+        }
+      }
+      if (fill.boundary.length === 0) return false;
+      const [ax, ay] = fill.boundary[0];
+      return distanceTo(areas)(ax, ay) >= 0;
     });
   }
   // A face is kept whole or not kept at all: nothing of it is clipped. It
@@ -601,15 +642,45 @@ export function withinAny(
   return x instanceof Faces ? x.filter(keep) : x.filter(keep);
 }
 
+/** Do segment (ax, ay)–(bx, by) and any of these boundary segments share a
+ * point? Closed segments, exact signs: an end on the other segment, a
+ * collinear overlap and a proper crossing all count. */
+function meetsBoundary(
+  boundary: readonly (readonly [number, number, number, number])[],
+  ax: number, ay: number, bx: number, by: number,
+): boolean {
+  const lox = Math.min(ax, bx);
+  const hix = Math.max(ax, bx);
+  const loy = Math.min(ay, by);
+  const hiy = Math.max(ay, by);
+  for (const [cx, cy, dx, dy] of boundary) {
+    if (Math.max(cx, dx) < lox || Math.min(cx, dx) > hix || Math.max(cy, dy) < loy || Math.min(cy, dy) > hiy) continue;
+    const o1 = Math.sign(orient2d(ax, ay, bx, by, cx, cy));
+    const o2 = Math.sign(orient2d(ax, ay, bx, by, dx, dy));
+    const o3 = Math.sign(orient2d(cx, cy, dx, dy, ax, ay));
+    const o4 = Math.sign(orient2d(cx, cy, dx, dy, bx, by));
+    // Collinear: the boxes, which overlap, are the spans.
+    if (o1 === 0 && o2 === 0) return true;
+    // Each segment's ends on both sides of the other's line, or on it: the
+    // one point the lines share lies on both. A zero sign is an end ON the
+    // other line, and the other pair's differing signs put it within.
+    if (o1 !== o2 && o3 !== o4) return true;
+  }
+  return false;
+}
+
 /** Regular n-gon: `sides` vertices on a circle of radius `r`, the first at
  * `rotation` degrees. */
+export function ngon(x: L, y: L, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts): ShapeValue;
+/** The same n-gon about a point: a pair or an `{ x, y }` record. */
+export function ngon(center: XY, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts): ShapeValue;
 export function ngon(
-  x: L, y: L, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts,
+  a: L | XY, b: L, c: number | L, d?: L | number | ShapeOpts, e?: number | ShapeOpts, f?: ShapeOpts,
 ): ShapeValue {
-  if (isOpts(rotation)) {
-    return shape({ kind: 'ngon', x, y, sides, r, rotation: 0 }, rotation);
-  }
-  return shape({ kind: 'ngon', x, y, sides, r, rotation: rotation ?? 0 }, opts);
+  if (isPointArg(a)) return ngon(vx(a), vy(a), b as number, c, d as number | ShapeOpts | undefined, e as ShapeOpts | undefined);
+  const g = { kind: 'ngon' as const, x: a, y: b, sides: c as number, r: d as L };
+  if (isOpts(e)) return shape({ ...g, rotation: 0 }, e);
+  return shape({ ...g, rotation: e ?? 0 }, f);
 }
 
 /**
@@ -683,20 +754,37 @@ export class PathValue {
   private cmds: PathCmd[] = [];
   constructor(private winding: Winding = 'nonzero') {}
 
-  moveTo(x: L, y: L): this {
-    this.cmds.push({ op: 'move', x, y });
+  // Every point these take is a pair of numbers or one point — a pair or an
+  // `{ x, y }` record — and the first argument decides, as in the factories.
+  moveTo(x: L, y: L): this;
+  moveTo(to: XY): this;
+  moveTo(a: L | XY, b?: L): this {
+    if (isPointArg(a)) return this.moveTo(vx(a), vy(a));
+    this.cmds.push({ op: 'move', x: a, y: b as L });
     return this;
   }
-  lineTo(x: L, y: L): this {
-    this.cmds.push({ op: 'line', x, y });
+  lineTo(x: L, y: L): this;
+  lineTo(to: XY): this;
+  lineTo(a: L | XY, b?: L): this {
+    if (isPointArg(a)) return this.lineTo(vx(a), vy(a));
+    this.cmds.push({ op: 'line', x: a, y: b as L });
     return this;
   }
-  bezierTo(c0x: L, c0y: L, c1x: L, c1y: L, x: L, y: L): this {
-    this.cmds.push({ op: 'bezier', c0x, c0y, c1x, c1y, x, y });
+  bezierTo(c0x: L, c0y: L, c1x: L, c1y: L, x: L, y: L): this;
+  bezierTo(c0: XY, c1: XY, to: XY): this;
+  bezierTo(a: L | XY, b: L | XY, c: L | XY, d?: L, e?: L, f?: L): this {
+    if (isPointArg(a)) {
+      const [c1, to] = [b as XY, c as XY];
+      return this.bezierTo(vx(a), vy(a), vx(c1), vy(c1), vx(to), vy(to));
+    }
+    this.cmds.push({ op: 'bezier', c0x: a, c0y: b as L, c1x: c as L, c1y: d as L, x: e as L, y: f as L });
     return this;
   }
-  quadTo(cx: L, cy: L, x: L, y: L): this {
-    this.cmds.push({ op: 'quad', cx, cy, x, y });
+  quadTo(cx: L, cy: L, x: L, y: L): this;
+  quadTo(c: XY, to: XY): this;
+  quadTo(a: L | XY, b: L | XY, c?: L, d?: L): this {
+    if (isPointArg(a)) return this.quadTo(vx(a), vy(a), vx(b as XY), vy(b as XY));
+    this.cmds.push({ op: 'quad', cx: a, cy: b as L, x: c as L, y: d as L });
     return this;
   }
   /**
@@ -707,8 +795,11 @@ export class PathValue {
    * Under a radius of half the chord there is no such circle, and the arc
    * is the semicircle on that chord.
    */
-  arcTo(x: L, y: L, r: L, opts: { large?: boolean } = {}): this {
-    this.cmds.push({ op: 'arc', x, y, r, large: opts.large });
+  arcTo(x: L, y: L, r: L, opts?: { large?: boolean }): this;
+  arcTo(to: XY, r: L, opts?: { large?: boolean }): this;
+  arcTo(a: L | XY, b: L, c?: L | { large?: boolean }, d: { large?: boolean } = {}): this {
+    if (isPointArg(a)) return this.arcTo(vx(a), vy(a), b, c as { large?: boolean } | undefined);
+    this.cmds.push({ op: 'arc', x: a, y: b, r: c as L, large: d.large });
     return this;
   }
   close(): this {

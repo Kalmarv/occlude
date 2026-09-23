@@ -168,7 +168,7 @@ describe('within: points and faces', () => {
       catchIt(() => t.within(cells, rect(10, 10, 60, 60), { transfer: 'nearest' } as never));
       catchIt(() => t.within(chord(-50, 50, 150, 50), rect(10, 10, 60, 60), { faces: 'centroid' } as never));
     });
-    expect(errors[0]).toMatch(/faces must be 'contained' or 'centroid'/);
+    expect(errors[0]).toMatch(/faces must be 'contained', 'centroid' or 'touching'/);
     expect(errors[1]).toMatch(/'transfer' is for a material/);
     expect(errors[2]).toMatch(/'faces' is for a face collection/);
   });
@@ -517,10 +517,10 @@ describe('within: an edge selection', () => {
     });
   });
 
-  it('refuses a mode that is not one of the two, and one meant for another kind', () => {
+  it('refuses a mode that is not one of the three, and one meant for another kind', () => {
     run((t) => {
       const m = ladder();
-      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { edges: 'centroid' as never })).toThrow(/edges must be 'contained' or 'midpoint'/);
+      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { edges: 'centroid' as never })).toThrow(/edges must be 'contained', 'midpoint' or 'touching'/);
       // The types already forbid this one; the refusal is for a sketch that
       // reaches it anyway, so the test needs a loose handle to get there.
       const loose = t.within as (x: unknown, area: unknown, opts?: unknown) => unknown;

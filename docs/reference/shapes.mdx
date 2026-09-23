@@ -3,7 +3,7 @@ title: Shapes
 description: "The drawables: shapes, paths, groups, clips, masks and the modifiers that change a line."
 ---
 
-A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options).
+A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line` and each point of a `path`. A pair and an `{ x, y }` record are the same point, so a station goes straight in. The first argument decides the form, and the ink is the same ink.
 
 ## circle
 
@@ -99,7 +99,7 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(8, (k, u) => {
 
 <include>/_sig/polygon.mdx</include>
 
-One area from its boundary. Give a loop of pairs, several loops, contour records, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
+One area from its boundary. Give a loop of pairs, several loops, contour records, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A tiling or a hex field has no closed chain, and its edges branch. Such a material gives the union of its faces. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
 
 ```ts live
 import { sketch, polygon, circle, fill, mm } from 'occlude';

@@ -3,10 +3,10 @@ title: Faces
 description: The regions that a planar material encloses, and what you can read from them.
 ---
 
-A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls.
+A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
 
 :::note
-On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls.
+On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces reads like a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`.
 :::
 
 ## planarize

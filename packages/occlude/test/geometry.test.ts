@@ -135,9 +135,10 @@ describe('every area consumer reads the same values', () => {
     expect(() => polygon(cellsOf() as never)).toThrow(/face collection/);
   });
 
-  it('a branching material has no single inside, and says so', () => {
+  it('a branching material is read by its faces; a branching selection has no single inside, and says so', () => {
     const star = material([[0, 0], [10, 0], [0, 10], [-10, 0]], { edges: [[0, 1], [0, 2], [0, 3]] });
-    expect(() => polygon(star)).toThrow(/branches/);
+    expect((polygon(star).geom as { cmds: unknown[] }).cmds).toEqual([]);
+    expect(() => polygon(star.edges)).toThrow(/branches/);
   });
 });
 
