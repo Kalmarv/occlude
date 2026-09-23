@@ -52,7 +52,7 @@ import {
   scatterPoints, throwPoints, relaxMaterial, settleMaterial, withinRegion,
   type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts, type ThrowOpts,
 } from './points.js';
-import { levelContours, type IsoContour, type IsoLevels, type IsoOpts } from './isolines.js';
+import { levelContours, levelMaterial, type IsoContour, type IsoDomain, type IsoLevels, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { travelTimeOf, type TravelFrom, type TravelOpts } from './travel.js';
@@ -89,8 +89,9 @@ import { distanceTo, type DistanceField } from './distance.js';
 import { attractIn, boundaryIn, force, separationIn, sourcePoints, vortexIn, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
-  vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
+  vectorField as vectorFieldMark, within as withinField, fieldMeta, type BoundEnv, type Prepared,
 } from './field.js';
+import { apply as applyMat, invert as invertMat } from './matrix.js';
 import { areaFill, interiorPoint } from './area.js';
 import { orient2d } from 'robust-predicates';
 import { ui } from './ui.js';
@@ -1452,24 +1453,22 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /**
    * Contours as one material: each contour a chain (a ring when closed), in
-   * the order they came, never joined to each other. Every edge of an
-   * isoline carries its requested `level` as a categorical edge column
-   * (subdivision copies it).
+   * the order they came, never joined to each other. (`t.isolines` builds
+   * its own, with the `level` and `cut` edge columns: `levelMaterial`.)
    */
-  function contourMaterial(groups: readonly { contours: readonly IsoContour[]; level?: number }[], withLevel: boolean): Material {
+  function contourMaterial(contours: readonly IsoContour[]): Material {
     let n = 0;
     let e = 0;
-    for (const g of groups) for (const c of g.contours) {
+    for (const c of contours) {
       n += c.pts.length;
       e += c.closed && c.pts.length > 2 ? c.pts.length : Math.max(0, c.pts.length - 1);
     }
     const x = new Float64Array(n);
     const y = new Float64Array(n);
     const edges = new Uint32Array(2 * e);
-    const level = withLevel ? new Float64Array(e) : null;
     let vi = 0;
     let ei = 0;
-    for (const g of groups) for (const c of g.contours) {
+    for (const c of contours) {
       const first = vi;
       const m = c.pts.length;
       for (let k = 0; k < m; k++) {
@@ -1481,11 +1480,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       for (let k = 0; k < segs; k++) {
         edges[2 * ei] = first + k;
         edges[2 * ei + 1] = first + ((k + 1) % m);
-        if (level) level[ei] = g.level as number;
         ei++;
       }
     }
-    return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: level ? { level } : {}, transfers: {}, edgeTransfers: level ? { level: 'copy' } : {} });
+    return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {} });
   }
 
   /**
@@ -1530,21 +1528,55 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return residualOf(env, field, o);
   }
 
-  /** Contours of `{ field ≥ at }` via marching squares over the drawable, as
-   * one material: each contour a chain (a ring when closed), separate
-   * contours separate, every edge carrying its `level`. Draw with
-   * `strokes(m)`, fill or clip with `polygon(m)`, pick levels with
-   * `m.edges.filter((e) => e.attrs.level === 0.4)` or `m.edges.groupBy((e) =>
-   * e.attrs.level)`, or step it like any material.
-   * Open at the drawable edge by default; `{ close: true }` closes regions
-   * along it. An `at` array marches every level over one shared field
-   * sampling, in the order given; `{ count }` spreads that many levels
-   * evenly inside the field's own sampled range, and `{ spacing }` takes
-   * every multiple of it (shifted by `offset`) inside that range. */
+  /** The level sets of `{ field ≥ at }` via marching squares over the
+   * drawable, as one material: each region's boundary a ring, separate
+   * regions separate, every edge carrying its `level`. A region the drawable
+   * (or the field's `t.within` bound) cuts closes along that edge, through
+   * every corner it passes; those closing edges carry `cut` = 1 and the level
+   * line itself `cut` = 0. `polygon(m)` fills the regions, `strokes(m)` draws
+   * their whole boundary, and `strokes(m.edges.filter((e) => !e.attrs.cut))`
+   * draws the level line alone. Pick levels with `m.edges.filter((e) =>
+   * e.attrs.level === 0.4)` or `m.edges.groupBy((e) => e.attrs.level)`, or
+   * step it like any material. An `at` array marches every level over one
+   * shared field sampling, in the order given; `{ count }` spreads that many
+   * levels evenly inside the field's own sampled range, and `{ spacing }`
+   * takes every multiple of it (shifted by `offset`) inside that range. A
+   * bound field is sampled over its bound's box, not the whole drawable. */
   function isolines(field: FieldFn2, at: IsoLevels, opts: IsoOpts = {}): Material {
     const b = exec.bounds();
     const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(contourMaterial(levelContours(env, field, at, opts), true));
+    return spaced(levelMaterial(levelContours(env, field, at, opts, boundDomain(field, env.bounds))));
+  }
+
+  /** Where a bound field can exist: the box its `within` bounds share with
+   * the drawable, and the bounds' own loops, in the field's coordinates. A
+   * field with no bound is the whole drawable, and has no walls. */
+  function boundDomain(field: FieldFn2, drawable: { x: number; y: number; w: number; h: number }): IsoDomain | undefined {
+    const bounds = fieldMeta(field).bounds;
+    if (bounds.length === 0) return undefined;
+    let x0 = drawable.x;
+    let y0 = drawable.y;
+    let x1 = drawable.x + drawable.w;
+    let y1 = drawable.y + drawable.h;
+    const walls: [number, number][][] = [];
+    for (const bound of bounds) {
+      // The bound's coordinates are where the field reads it; the field's
+      // own are those back through every verb applied since.
+      const back = invertMat(bound.toBound());
+      const loops = numericAreaLoops(exec, bound.shape, 'isolines').map((loop) => loop.map(([x, y]) => applyMat(back, x, y)));
+      let bx0 = Infinity;
+      let by0 = Infinity;
+      let bx1 = -Infinity;
+      let by1 = -Infinity;
+      for (const loop of loops) for (const [x, y] of loop) {
+        bx0 = Math.min(bx0, x); by0 = Math.min(by0, y);
+        bx1 = Math.max(bx1, x); by1 = Math.max(by1, y);
+      }
+      x0 = Math.max(x0, bx0); y0 = Math.max(y0, by0);
+      x1 = Math.min(x1, bx1); y1 = Math.min(y1, by1);
+      walls.push(...loops);
+    }
+    return { box: { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) }, walls };
   }
 
   /** The crest lines of a scalar field over the drawable, as one material:
@@ -1602,7 +1634,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): Material {
     const b = exec.bounds();
     const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(contourMaterial([{ contours: streamlinesOf(env, field, opts) }], false));
+    return spaced(contourMaterial(streamlinesOf(env, field, opts)));
   }
 
   /** How long the front takes to reach each point of the drawable, as a

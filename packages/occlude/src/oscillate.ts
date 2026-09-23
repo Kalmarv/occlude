@@ -32,7 +32,7 @@
  * global paper, exactly as `thicken` refuses it.
  */
 
-import { Material, material as makeMaterial, type Station, type TransferPolicy, type EdgeTransfer } from './material.js';
+import { Material, material as makeMaterial, mintIds, type Station, type TransferPolicy, type EdgeTransfer } from './material.js';
 import { valueAt } from './guard.js';
 
 /** A number in the source material's coordinates, or a field read at the sample. */
@@ -76,8 +76,18 @@ function amountAt(v: OscillateAmount, x: number, y: number): number {
  * `s`, `u`, `length` and `chain` as columns for the studio's inspector to
  * colour by — useful there, but station bookkeeping is not part of the
  * drawing, and carrying it would surprise the next operation (planarize
- * asks for a resolver for a `heading` two crossing chains disagree on). */
-export function chainsMaterial(stations: readonly Station[], source: Material, who = 'oscillate'): Material {
+ * asks for a resolver for a `heading` two crossing chains disagree on).
+ *
+ * On a network, `junctions` names the stations that ARE a source junction
+ * (station index → source row): each junction is one vertex, with its own
+ * id, that every chain meeting it joins. A verb that has not said where its
+ * junctions are cannot keep them, and says so in its own name. */
+export function chainsMaterial(stations: readonly Station[], source: Material, who = 'oscillate', junctions?: ReadonlyMap<number, number>): Material {
+  if (!junctions) {
+    for (let i = 0; i < source.n; i++) {
+      if (source.adjacentRows(i).length > 2) throw new Error(`${who}: vertex ${i} is a junction — ${who} walks chains only`);
+    }
+  }
   if (!stations.length) return makeMaterial([]);
   const pointNames = new Set(stations.flatMap((q) => Object.keys(q.attrs)));
   const edgeNames = new Set(stations.flatMap((q) => Object.keys(q.edgeAttrs)));
@@ -90,8 +100,24 @@ export function chainsMaterial(stations: readonly Station[], source: Material, w
       throw new Error(`${who}: edge column '${name}' is 'distribute', and ${who} changes the length it would be shared over — copy it, or drop it first`);
     }
   }
+  // A row per station, except that the stations at one junction share one.
+  const rowOf = new Int32Array(stations.length);
+  const junctionRow = new Map<number, number>();
+  const sourceOfRow: number[] = [];
+  for (let k = 0; k < stations.length; k++) {
+    const v = junctions?.get(k);
+    const had = v === undefined ? undefined : junctionRow.get(v);
+    if (had !== undefined) {
+      rowOf[k] = had;
+      continue;
+    }
+    rowOf[k] = sourceOfRow.length;
+    sourceOfRow.push(v ?? -1);
+    if (v !== undefined) junctionRow.set(v, rowOf[k]);
+  }
+  const rows = sourceOfRow.length;
   const cols: Record<string, Float64Array> = {};
-  for (const name of pointNames) cols[name] = new Float64Array(stations.length).fill(NaN);
+  for (const name of pointNames) cols[name] = new Float64Array(rows).fill(NaN);
   const policies: Record<string, TransferPolicy> = {};
   const edges: number[] = [];
   // An edge column stays an EDGE column. A span takes the value of the
@@ -104,22 +130,33 @@ export function chainsMaterial(stations: readonly Station[], source: Material, w
   const span = (from: number) => {
     for (const name of edgeNames) edgeValues[name].push(stations[from].edgeAttrs[name] ?? NaN);
   };
+  const x = new Float64Array(rows);
+  const y = new Float64Array(rows);
   stations.forEach((q, k) => {
+    const row = rowOf[k];
+    x[row] = q.x;
+    y[row] = q.y;
     for (const name of Object.keys(q.attrs)) {
-      cols[name][k] = q.attrs[name];
+      cols[name][row] = q.attrs[name];
       const policy = q.transfers?.[name] ?? 'interpolate';
       if (policy !== 'interpolate') policies[name] = policy;
     }
-    if (k > 0 && stations[k - 1].chain === q.chain) { edges.push(k - 1, k); span(k - 1); }
+    if (k > 0 && stations[k - 1].chain === q.chain) { edges.push(rowOf[k - 1], row); span(k - 1); }
     else if (k > 0) runStart = k;
     const last = k === stations.length - 1 || stations[k + 1].chain !== q.chain;
-    if (last && q.closed && k > runStart + 1) { edges.push(k, runStart); span(k); }
+    if (last && q.closed && k > runStart + 1) { edges.push(row, rowOf[runStart]); span(k); }
   });
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of edgeNames) edgeAttrs[name] = Float64Array.from(edgeValues[name]);
   const edgePolicies: Record<string, EdgeTransfer> = {};
   for (const name of edgeNames) if (source.edgeTransfers[name]) edgePolicies[name] = source.edgeTransfers[name]!;
-  return new Material(Float64Array.from(stations, (q) => q.x), Float64Array.from(stations, (q) => q.y), cols, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs, transfers: policies, edgeTransfers: edgePolicies, space: source.space });
+  const carry = { iteration: 0, history: [], edgeAttrs, transfers: policies, edgeTransfers: edgePolicies, space: source.space };
+  if (!junctions) return new Material(x, y, cols, Uint32Array.from(edges), carry);
+  // A junction keeps its id; every other row is new geometry.
+  const fresh = mintIds(sourceOfRow.reduce((n, v) => n + (v < 0 ? 1 : 0), 0));
+  let f = 0;
+  const points = Float64Array.from(sourceOfRow, (v) => (v < 0 ? fresh[f++] : source.pointIds[v]));
+  return new Material(x, y, cols, Uint32Array.from(edges), { ...carry, ids: { points } });
 }
 
 /** Stations of one chain, in walk order. */
@@ -140,8 +177,12 @@ export function byChain(stations: readonly Station[]): Station[][] {
 
 /**
  * Swing `m`'s chains from side to side. Returns new Material and never
- * touches the source. Chains only: a junction is an error, as it is for
- * `along` and `resample`, because a branch has no single side to swing to.
+ * touches the source. On a network — a hex field, a tiling, a voronoi — it
+ * swings each chain of `curves()` on its own, junction to junction: a
+ * junction has no single side to swing to, so it stays where it is, one
+ * vertex with its own id, and a chain that ends at one fits a whole number
+ * of cycles, as a ring does, so the swing arrives there at the phase it
+ * left with.
  */
 export function oscillate(m: Material, opts: OscillateOpts): Material {
   const source = makeMaterial(m);
@@ -166,7 +207,28 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
   }
   // Nowhere to swing at all — an empty material, or a wavelength no station
   // can read: the chains come through straight.
-  if (!Number.isFinite(shortest)) return chainsMaterial(source.along(), source);
+  const chains = source.curves();
+  const isJunction = (v: number): boolean => source.adjacentRows(v).length > 2;
+  let network = false;
+  for (let v = 0; v < source.n && !network; v++) network = isJunction(v);
+  // The stations that are a junction: a chain's first, and an open chain's
+  // last, when the vertex there is one. A material with none has none.
+  const junctionsOf = (stations: readonly Station[]): Map<number, number> | undefined => {
+    if (!network) return undefined;
+    const at = new Map<number, number>();
+    stations.forEach((st, k) => {
+      const idx = chains[st.chain].indices;
+      const first = k === 0 || stations[k - 1].chain !== st.chain;
+      const last = k === stations.length - 1 || stations[k + 1].chain !== st.chain;
+      if (first && isJunction(idx[0])) at.set(k, idx[0]);
+      else if (last && !st.closed && isJunction(idx[idx.length - 1])) at.set(k, idx[idx.length - 1]);
+    });
+    return at;
+  };
+  if (!Number.isFinite(shortest)) {
+    const straight = source.along();
+    return chainsMaterial(straight, source, 'oscillate', junctionsOf(straight));
+  }
   const out: Station[] = [];
   for (const fine of byChain(source.along({ spacing: shortest / steps }))) {
     if (fine.length < 2) continue;
@@ -195,9 +257,17 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
       const lam = (amountAt(opts.wavelength, a.x, a.y) + amountAt(opts.wavelength, b.x, b.y)) / 2;
       if (lam > 0) span += Math.hypot(b.x - a.x, b.y - a.y) / lam;
     }
-    const fit = fine[0].closed && span > 0 ? Math.max(1, Math.round(span)) / span : 1;
+    // A chain that ends at a junction has to arrive there in step too.
+    const idx = chains[fine[0].chain].indices;
+    const endsAtJunction = !fine[0].closed && isJunction(idx[idx.length - 1]);
+    const fit = (fine[0].closed || endsAtJunction) && span > 0 ? Math.max(1, Math.round(span)) / span : 1;
     for (let k = 0; k < fine.length; k++) {
       const st = fine[k];
+      // A junction holds still: every chain that meets it meets it there.
+      if ((k === 0 && isJunction(idx[0])) || (k === fine.length - 1 && endsAtJunction)) {
+        out.push(st);
+        continue;
+      }
       const a = amountAt(opts.amplitude, st.x, st.y);
       // A station whose wavelength is not a positive length has no cycle to
       // sit on, and one whose waveform gives no number has no offset: either
@@ -207,5 +277,5 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
       out.push({ ...st, x: st.x + st.normal[0] * swing, y: st.y + st.normal[1] * swing });
     }
   }
-  return chainsMaterial(out, source);
+  return chainsMaterial(out, source, 'oscillate', junctionsOf(out));
 }

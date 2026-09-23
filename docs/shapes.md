@@ -207,7 +207,7 @@ import { sketch, clip, invert, polygon, circle } from 'occlude';
 
 // One boundary from a noise level set; fat dots inside it, fine dots outside.
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
-  const blobs = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.1, { close: true });
+  const blobs = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.1);
   const region = polygon(blobs);
   const discs = (r) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, r));
   return [

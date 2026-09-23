@@ -336,7 +336,7 @@ export default sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
   const islands = t.isolines(
     (x, y) => t.noise(x / 24, y / 24) + 0.2 * t.noise(x / 7, y / 7),
     0.05,
-    { close: true, step: 0.6 },
+    { step: 0.6 },
   );
   return [
     polygon(islands, { fill: fill('contour', { spacing: mm(1.1) }) }),

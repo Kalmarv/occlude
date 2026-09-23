@@ -38,7 +38,7 @@ med('one level, step 1 (201² grid), wavy', () => isolinesOf(E, wavy(0.1), 0, { 
 med('one level, step 0.25 (801² grid), wavy', () => isolinesOf(E, wavy(0.1), 0, { step: 0.25 }), 3);
 med('9 levels, step 1 (201² grid), wavy', () => isolinesOf(E, wavy(0.1), levels9, { step: 1 }));
 med('9 levels, step 0.25 (801² grid), wavy', () => isolinesOf(E, wavy(0.1), levels9, { step: 0.25 }), 3);
-med('9 levels, step 1, close: true', () => isolinesOf(E, wavy(0.1), levels9, { step: 1, close: true }));
+med('9 levels, step 1, closed', () => isolinesOf(E, wavy(0.1), levels9, { step: 1 }));
 med('20 levels, step 1, smooth bowl (few long contours)', () => isolinesOf(E, bowl, Array.from({ length: 20 }, (_, i) => i / 20), { step: 1 }));
 med('9 levels, step 1, a hole of absent samples', () => isolinesOf(E, holed, levels9, { step: 1 }));
 med('one level, dense field (k = 0.6), step 0.5', () => isolinesOf(E, wavy(0.6), 0, { step: 0.5 }), 3);

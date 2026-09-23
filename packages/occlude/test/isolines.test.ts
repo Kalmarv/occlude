@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initOcclude, render, sketch, strokes } from '../src/index.js';
-import { isolinesOf, levelContours, type IsoContour, type IsoEnv } from '../src/isolines.js';
+import { isolinesOf, levelContours, type IsoContour, type IsoEnv, type LevelContour } from '../src/isolines.js';
 import type { FieldFn, Material, RenderOptions, SketchDef } from '../src/index.js';
 
 beforeAll(async () => {
@@ -65,24 +65,20 @@ describe('isolines: marching squares core', () => {
     expect(perimeter(c)).toBeLessThan(2 * Math.PI * 30 * 1.01);
   });
 
-  it('a boundary-crossing region is open by default, closed with close:true', () => {
+  it('a region the drawable cuts closes along it, and its closing edges are marked cut', () => {
     const field = (x: number): number => x - 50;
-    const open = isolinesOf(env, field, 0, { step: 1 });
-    expect(open).toHaveLength(1);
-    expect(open[0].closed).toBe(false);
-    // A vertical line at x=50 spanning the full drawable, colinear-merged.
-    expect(open[0].pts).toHaveLength(2);
-    const ys = open[0].pts.map(([, y]) => y).sort((a, b) => a - b);
-    expect(ys[0]).toBeCloseTo(0, 6);
-    expect(ys[1]).toBeCloseTo(100, 6);
-    expect(open[0].pts.every(([x]) => Math.abs(x - 50) < 1e-6)).toBe(true);
-
-    const closed = isolinesOf(env, field, 0, { step: 1, close: true });
+    const closed = isolinesOf(env, field, 0, { step: 1 });
     expect(closed).toHaveLength(1);
     expect(closed[0].closed).toBe(true);
     // The right half-plane clipped to the drawable: a 50×100 rectangle.
     expect(shoelace(closed[0])).toBeCloseTo(5000, 0);
     expect(closed[0].pts.length).toBeLessThan(8); // border runs collapse to corners
+    // The level line is the one edge on x = 50; the other three are the border.
+    const c = closed[0];
+    const level = c.pts.flatMap((p, k) => (c.cut[k] === 0 ? [[p, c.pts[(k + 1) % c.pts.length]]] : []));
+    expect(level).toHaveLength(1);
+    expect(level[0].every(([x]) => Math.abs(x - 50) < 1e-6)).toBe(true);
+    expect(c.cut.filter((v) => v === 1)).toHaveLength(3);
   });
 
   it('an annulus band yields two nested closed contours', () => {
@@ -123,7 +119,12 @@ describe('isolines: marching squares core', () => {
     const field = (x: number): number => (x > 60 ? Number.NaN : 50 - x);
     const out = isolinesOf(env, field, 0, { step: 1 });
     expect(out).toHaveLength(1);
-    expect(out[0].pts.every(([x]) => Math.abs(x - 50) < 1e-6)).toBe(true);
+    // The left half, closed along the drawable; its level line is x = 50.
+    expect(shoelace(out[0])).toBeCloseTo(5000, 0);
+    const c = out[0];
+    const level = c.pts.flatMap((p, k) => (c.cut[k] === 0 ? [p, c.pts[(k + 1) % c.pts.length]] : []));
+    expect(level.length).toBeGreaterThan(0);
+    expect(level.every(([x]) => Math.abs(x - 50) < 1e-6)).toBe(true);
   });
 });
 
@@ -170,8 +171,8 @@ describe('isolines: levels', () => {
     // without one: a list keeps its places, a spec has none to keep.
     expect(levelContours(env, ramp, { count: 3 }, { step: 0 })).toEqual([]);
     expect(levelContours(env, ramp, [1, 2], { step: 0 })).toEqual([
-      { level: 1, contours: [] },
-      { level: 2, contours: [] },
+      { level: 1, contours: [], lines: [], walls: [] },
+      { level: 2, contours: [], lines: [], walls: [] },
     ]);
   });
 
@@ -224,7 +225,8 @@ describe('isolines: grid sizing', () => {
     const cs = isolinesOf(env, (x, y) => Math.hypot(x - 50, y - 50) - 20, 0, {
       step: 0.25,
     });
-    expect(cs.length).toBe(1);
+    // The area outside the circle: the drawable's edge, and the circle as its hole.
+    expect(cs.length).toBe(2);
   });
 
   it('absurd grids still fail fast (memory ceiling); a zero step draws nothing', () => {
@@ -240,7 +242,7 @@ describe('isolines: toolkit + engine integration', () => {
     const capture: Material[] = [];
     const def = sketch({ seed: 7 }, (t) => {
       capture.push(
-        t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }),
+        t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1),
       );
       return capture[capture.length - 1].curves().map((c) => t.polygon(c));
     });
@@ -277,7 +279,7 @@ describe('isolines: toolkit + engine integration', () => {
     // region is trivially closed: it fills nothing, occludes nothing.
     const def = sketch({ seed: 1 }, (t) => [
       t.polygon(
-        t.isolines((x, y) => t.noise(x / 20, y / 20), 2, { close: true }),
+        t.isolines((x, y) => t.noise(x / 20, y / 20), 2),
         { fill: t.fill('stipple') },
       ),
       t.circle(50, 50, 10),
@@ -294,7 +296,7 @@ describe('isolines: toolkit + engine integration', () => {
       sketch({ seed: 3 }, (t) => {
         const album = t.grid({ cols: 12, rows: 12 }).map((c) => t.circle(c.cx, c.cy, 2));
         if (kind === 'all') return album;
-        const r = t.polygon(t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }));
+        const r = t.polygon(t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1));
         return [kind === 'in' ? t.clip(r, album) : t.clip(t.invert(r), album)];
       });
     const ink = (def: SketchDef): number =>
@@ -336,8 +338,8 @@ describe('isolines: every crossing sits where its own grid edge says', () => {
    * a sample edge, and the level must fall at exactly that fraction between
    * the edge's two samples. It knows nothing about which case emits which
    * crossing — the part the case table decides. */
-  const audit = (field: (x: number, y: number) => number, at: number, step: number, close: boolean) => {
-    const cs = isolinesOf(env, field, at, { step, close });
+  const audit = (field: (x: number, y: number) => number, at: number, step: number) => {
+    const cs = isolinesOf(env, field, at, { step });
     const b = env.bounds;
     const gw = Math.max(2, Math.ceil(b.w / step) + 1);
     const gh = Math.max(2, Math.ceil(b.h / step) + 1);
@@ -352,7 +354,7 @@ describe('isolines: every crossing sits where its own grid edge says', () => {
       for (const [x, y] of c.pts) {
         const i = onLine(x, b.x, sx);
         const j = onLine(y, b.y, sy);
-        // `close` clamps border points onto the drawable, and the colinear
+        // The closing ring clamps border points onto the drawable, and the colinear
         // merge drops interior points; a merged corner sits on both lines.
         if (i === null && j === null) throw new Error(`point ${x},${y} is on no grid line`);
         if (i !== null && j !== null) continue; // a grid corner: nothing to interpolate
@@ -397,10 +399,10 @@ describe('isolines: every crossing sits where its own grid edge says', () => {
     ];
     for (const [, f] of fields) {
       for (const step of [1, 3.7]) {
-        for (const close of [false, true]) total += audit(f, 0, step, close);
+        total += audit(f, 0, step);
       }
     }
-    expect(total).toBeGreaterThan(2000);
+    expect(total).toBeGreaterThan(1000);
   });
 
   it('a saddle takes the diagonal the cell-centre average asks for', () => {
@@ -412,9 +414,15 @@ describe('isolines: every crossing sits where its own grid edge says', () => {
     const high = isolinesOf(one, cell(1, -0.5, 1, -0.5), 0, { step: 100 });
     // centre average below it: the other pairing
     const low = isolinesOf(one, cell(0.5, -1, 0.5, -1), 0, { step: 100 });
-    expect(high).toHaveLength(2);
-    expect(low).toHaveLength(2);
-    const ends = (cs: IsoContour[]) => cs.map((c) => c.pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' → ')).sort();
+    // The level edges alone: the closing edges along the drawable differ with
+    // the pairing anyway, and are not what the saddle decides.
+    const ends = (cs: LevelContour[]) => cs.flatMap((c) => c.pts.flatMap((p, k) => {
+      if (c.cut[k] !== 0) return [];
+      const q = c.pts[(k + 1) % c.pts.length];
+      return [`${p[0].toFixed(2)},${p[1].toFixed(2)} → ${q[0].toFixed(2)},${q[1].toFixed(2)}`];
+    })).sort();
+    expect(ends(high)).toHaveLength(2);
+    expect(ends(low)).toHaveLength(2);
     expect(ends(high)).not.toEqual(ends(low));
   });
 });

@@ -372,7 +372,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Material.resample.mdx</include>
 
-Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. A corner between two new vertices does not survive. Chains only: a junction is an error.
+Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. A corner between two new vertices does not survive. On a network, such as a hex field, a tiling or a voronoi, a chain runs from one junction to the next. Each junction stays where it is and keeps its id, and every chain still meets there. `trim`, `oscillate`, `spline` and `along` walk a network in the same way.
 
 `where` redistributes part of the material and leaves the rest alone. The eligible region is a set of edges, so a point selection means the edges with both ends in it. Consecutive eligible edges make a **run**, and a run is what gets redistributed. A run keeps the two vertices at its ends, so the result is still one chain. `count` then applies to each run, not to the chain.
 
@@ -406,13 +406,27 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+A honeycomb is a network. Below, each wall swings from side to side, and the swing grows toward the middle of the sheet. Each junction holds still, so the cells stay closed. The rings mark the junctions.
+
+```ts live
+import { sketch, strokes, circle, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const comb = t.hexes({ spacing: mm(14) });
+  const swing = (x, y) => 1.6 * Math.max(0, 1 - Math.hypot(x - 50, y - 50) / 55);
+  const wavy = comb.oscillate({ wavelength: 3, amplitude: swing });
+  const forks = comb.points.filter((p) => p.edges.length === 3);
+  return [strokes(wavy), forks.map((p) => circle(p, 0.9, { pen: 'stabilo-88-blue' }))];
+});
+```
+
 ## spline()
 
 <include>/_sig/Material.spline.mdx</include>
 
 Draws a curve through the vertices of each chain and returns it as material. The `smooth` modifier rounds a corner off, and the line passes inside it. `spline` keeps the corner vertex and bends the line between the corners, so the positions you picked are still on the drawing.
 
-`tension` scales the tangent at each vertex. 0 is the polyline it started from. 0.5, the default, is the ordinary curve. 1 swings wide and overshoots. `steps` is the number of samples for each source segment, 8 by default. Closure comes from the chain: a ring has no corner at its seam. An open chain takes the tangent at each end from its end segment. A chain of fewer than three vertices has no curve, so it comes through as it is. Chains only: a junction is an error.
+`tension` scales the tangent at each vertex. 0 is the polyline it started from. 0.5, the default, is the ordinary curve. 1 swings wide and overshoots. `steps` is the number of samples for each source segment, 8 by default. Closure comes from the chain: a ring has no corner at its seam. An open chain takes the tangent at each end from its end segment. A chain of fewer than three vertices has no curve, so it comes through as it is. On a network each chain bends on its own, from junction to junction. A junction stays, and each chain leaves it along its own end segment.
 
 The source vertices keep their ids, their positions and their columns. Each new vertex between them is new, and its columns come from the transfer policies. The call retires every source edge, and its children keep its lineage, so a face column still finds its cells.
 
@@ -432,7 +446,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 
 <include>/_sig/Material.along.mdx</include>
 
-Reads stations along each chain and changes nothing. A station is plain data. It has `x` and `y`, the unit `tangent` and `normal` of the chain under it, and the `heading` in radians. It has the arc length `s`, its fraction `u`, and the point columns in `attrs`. With no option, there is one station at each vertex. Use `resample()` when the material must be even. Use `along()` to put things on it.
+Reads stations along each chain and changes nothing. A station is plain data. It has `x` and `y`, the unit `tangent` and `normal` of the chain under it, and the `heading` in radians. It has the arc length `s`, its fraction `u`, and the point columns in `attrs`. With no option, there is one station at each vertex. On a network a junction ends each chain that meets it, so it gives one station for each of those chains. In a curved space the material's own space is the default. A station then sits on the geodesic between two vertices. Its heading is the direction that `log` of the space gives toward the next vertex. `station.step` walks in that direction. Use `resample()` when the material must be even. Use `along()` to put things on it.
 
 ```ts live
 import { sketch, strokes, circle, line, add, mul } from 'occlude';

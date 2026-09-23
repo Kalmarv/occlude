@@ -123,9 +123,11 @@ describe('oscillate', () => {
     expect(() => src.oscillate({ amplitude: 2 } as never)).toThrow(/\{ wavelength \} is required/);
     expect(() => src.oscillate({ wavelength: 5 } as never)).toThrow(/\{ amplitude \} is required/);
     expect(() => src.oscillate({ wavelength: 5, amplitude: 2, steps: 3 })).toThrow(/at least 4/);
-    // A junction has no single side to swing to; `along` already says so.
+    // A junction has no single side to swing to: it holds still, one vertex
+    // every chain still meets (level-sets-and-chains N1).
     const star = append(append(line(0, 0, 10, 0), line(10, 0, 20, 5)), line(10, 0, 20, -5)).planarize();
-    expect(() => star.oscillate({ wavelength: 4, amplitude: 1 })).toThrow();
+    const swung = star.oscillate({ wavelength: 4, amplitude: 1 });
+    expect([...swung.points].filter((p) => p.edges.length === 3).map((p) => [p.x, p.y])).toEqual([[10, 0]]);
     // Lone points contribute nothing rather than erroring.
     expect(material([[5, 5]]).oscillate({ wavelength: 4, amplitude: 1 }).n).toBe(0);
     // The result is ordinary Material: the source's own columns, and none of

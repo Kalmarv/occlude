@@ -168,8 +168,9 @@ describe('the ledger', () => {
     const t = toolkit();
     const r = t.residual(all, { spacing: 1 });
     r.spend([[50, 50]], { width: 20 });
-    // The paper's own edge is an open contour; the hole is the closed one.
-    const rings = t.isolines(r, 0.5).curves().filter((c) => c.closed);
+    // The owed ground is an area closed along the paper's edge (those edges
+    // are cut); the hole is the level line, a ring of its own.
+    const rings = t.isolines(r, 0.5).edges.filter((e) => !e.attrs.cut).curves().filter((c) => c.closed);
     expect(rings.length).toBe(1);
     const ring = rings[0];
     for (const [x, y] of ring.pts) expect(Math.hypot(x - 50, y - 50)).toBeGreaterThan(9);

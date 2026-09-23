@@ -1,30 +1,29 @@
 /**
  * Field → contours: marching squares over a sampled grid — the bridge from
- * scalar fields to stampable geometry. Returns plain data (composable data
- * over sealed features): the artist stamps `polygon(c.pts)`, assembles
- * several contours into one evenodd `path()` for regions with holes, or
- * hands the result to `clip`.
+ * scalar fields to stampable geometry. `t.isolines` turns the result into a
+ * material (`levelMaterial`); the plain contour records serve the kernels
+ * and tests that read them directly.
  *
- * Semantics: contours trace the boundary of `{ field ≥ at }`. Contour
- * orientation is consistent (holes wind opposite their parents), but the
- * supported stamping story is evenodd winding, which never looks at
- * orientation. Non-finite field samples are ABSENT (a within() bound or a
- * NaN hole): cells touching absence emit nothing, so contours truncate
- * OPEN at a domain edge exactly as at the paper edge. Deterministic: a
- * pure function of the field, level, and options.
+ * Semantics: a level is the AREA where `field ≥ at`, and its contours are
+ * that area's boundary. Contour orientation is consistent (holes wind
+ * opposite their parents), but the supported stamping story is evenodd
+ * winding, which never looks at orientation. Deterministic: a pure function
+ * of the field, level, and options.
  *
- * Boundary policy: an isoline that exits the drawable edge is genuinely
- * open and comes back `closed: false`, drawable as ink without ugly border
- * runs. `close: true` pads the sampled grid with below-threshold sentinels
- * so every region closes along the drawable edge — the form clip and fill
- * want.
+ * Boundary policy: the area stops where the domain does — the edge of the
+ * lattice (the drawable, or the box of a `within` bound), and wherever the
+ * field is absent (non-finite: outside a `within` bound, or a NaN hole). A
+ * region the domain cuts closes along that edge, through every corner it
+ * passes on the inside side, so every contour is a ring. The closing edges
+ * are marked (`LevelContour.cut`): the level line is everything else.
  */
 
 import { usableLength } from './guard.js';
+import { Material } from './material.js';
 import type { FieldFn } from './shapes.js';
 import type { Space } from './space.js';
 import { mm, type L } from './units.js';
-import { chainSegments, marchSegments, type SampledGrid } from './marching.js';
+import { chainSegments, marchSegments, wallSegments, type SampledGrid } from './marching.js';
 
 export type { SampledGrid, SegmentBuffer } from './marching.js';
 export { chainSegments, marchSegments } from './marching.js';
@@ -34,12 +33,20 @@ export interface IsoContour {
   closed: boolean;
 }
 
+/** A contour with its edges marked: `cut[k]` is 1 on the edge from point
+ * `k` to the next (the last one back to the first on a ring) when that edge
+ * closes the region — it lies in a lattice cell at the edge of the domain,
+ * along that edge or the step to it — and 0 when it runs along the level
+ * through open ground. The 0 edges are the level line an open march
+ * draws. */
+export interface LevelContour extends IsoContour {
+  cut: number[];
+}
+
 export interface IsoOpts {
   /** Sampling step (default: max of mm(1) and long-side/256 — crossings
    * are edge-interpolated, so positional error is far below the step). */
   step?: L;
-  /** Close boundary-crossing regions along the drawable edge. */
-  close?: boolean;
 }
 
 /**
@@ -60,10 +67,16 @@ export type IsoLevels =
 type IsoLevelSpec = Exclude<IsoLevels, number | number[]>;
 
 /** One level with the contours found at it — the shape `t.isolines` turns
- * into a material whose every edge carries its `level`. */
+ * into a material whose every edge carries its `level`. `contours` are the
+ * rings; `lines` and `walls` are the two kinds of piece they are joined
+ * from: the level line through open ground (chained and finished exactly
+ * as an open march does it, so its ink is that march's), and the runs that
+ * close a region where the domain ends. */
 export interface IsoLevelContours {
   level: number;
-  contours: IsoContour[];
+  contours: LevelContour[];
+  lines: LevelContour[];
+  walls: LevelContour[];
 }
 
 /** Environment handed in by the toolkit: drawable bounds and sketch-time
@@ -76,30 +89,39 @@ export interface IsoEnv {
   space?: Space;
 }
 
+/** Where a bound field exists, as the toolkit lowered it: `box` is the part
+ * of the drawable its bound can reach, which the lattice covers instead of
+ * the whole drawable, and `walls` are the bound's own loops, whose corners
+ * a region cut by the bound walks through. */
+export interface IsoDomain {
+  box: { x: number; y: number; w: number; h: number };
+  walls: readonly (readonly [number, number])[][];
+}
+
 export function isolinesOf(
   env: IsoEnv,
   field: FieldFn,
   at: number,
   opts?: IsoOpts,
-): IsoContour[];
+): LevelContour[];
 export function isolinesOf(
   env: IsoEnv,
   field: FieldFn,
   at: number[] | IsoLevelSpec,
   opts?: IsoOpts,
-): IsoContour[][];
+): LevelContour[][];
 export function isolinesOf(
   env: IsoEnv,
   field: FieldFn,
   at: IsoLevels,
   opts?: IsoOpts,
-): IsoContour[] | IsoContour[][];
+): LevelContour[] | LevelContour[][];
 export function isolinesOf(
   env: IsoEnv,
   field: FieldFn,
   at: IsoLevels,
   opts: IsoOpts = {},
-): IsoContour[] | IsoContour[][] {
+): LevelContour[] | LevelContour[][] {
   const found = levelContours(env, field, at, opts);
   if (typeof at === 'number') return found.length > 0 ? found[0].contours : [];
   return found.map((g) => g.contours);
@@ -109,27 +131,35 @@ export function isolinesOf(
  * The contours of `field` at every level `at` asks for, each level named by
  * the value it was traced at. One sampling of the field serves them all,
  * and `{ count }` / `{ spacing }` read their range from that same sampling.
- * `isolinesOf` is this without the names.
+ * `isolinesOf` is this without the names. `domain` narrows the lattice to a
+ * bound's box and names the walls its regions close along.
  */
 export function levelContours(
   env: IsoEnv,
   field: FieldFn,
   at: IsoLevels,
   opts: IsoOpts = {},
+  domain?: IsoDomain,
 ): IsoLevelContours[] {
-  const b = env.bounds;
+  checkOpts(opts);
   // A list is the levels themselves, in the order given — a non-finite one
   // keeps its place and draws nothing. A spec has to see the field first.
   const given = typeof at === 'number' ? [at] : Array.isArray(at) ? at : null;
   if (given === null) checkSpec(at as IsoLevelSpec);
   const empty = (): IsoLevelContours[] =>
-    given === null ? [] : given.map((level) => ({ level, contours: [] }));
+    given === null ? [] : given.map((level) => ({ level, contours: [], lines: [], walls: [] }));
   // A step that is not a positive length draws no contours at all.
   if (!usableLength(opts.step)) return empty();
+  const d = env.bounds;
+  // The step is the drawable's; the lattice covers only the part of it the
+  // field can exist in.
   const stepU =
     opts.step !== undefined
       ? env.len(opts.step)
-      : Math.max(env.len(mm(1)), Math.max(b.w, b.h) / 256);
+      : Math.max(env.len(mm(1)), Math.max(d.w, d.h) / 256);
+  const b = domain?.box ?? d;
+  // A bound that reaches no part of the drawable leaves nothing to trace.
+  if (!(b.w > 0) || !(b.h > 0)) return empty();
   const gw = Math.max(2, Math.ceil(b.w / stepU) + 1);
   const gh = Math.max(2, Math.ceil(b.h / stepU) + 1);
   // Grid cells are O(1) samples, not shape repetitions, so the combinator
@@ -145,22 +175,108 @@ export function levelContours(
     );
   }
   const grid = sampleGrid(field, b, gw, gh);
-
-  const close = opts.close === true;
+  // A closing edge spans one lattice cell; a walk along a wall between its
+  // ends that is longer than a few cells is not the wall between them.
+  const walls = domain ? { loops: domain.walls, reach: 4 * Math.hypot(grid.sx, grid.sy) } : undefined;
   const levels = given ?? resolveLevels(at as IsoLevelSpec, grid);
-  return levels.map((level) => ({
-    level,
+  return levels.map((level) => {
     // A level that is not a number is skipped; the others still march.
-    contours: Number.isFinite(level)
-      ? finishContours(chainSegments(marchSegments(grid, level, close)), b, close)
-      : [],
-  }));
+    if (!Number.isFinite(level)) return { level, contours: [], lines: [], walls: [] };
+    const segments = marchSegments(grid, level, true);
+    const lines = finishContours(chainSegments(wallSegments(segments, false)), b, false);
+    const runs = finishContours(chainSegments(wallSegments(segments, true)), b, true, walls);
+    return { level, contours: joinRings(lines, runs), lines, walls: runs };
+  });
 }
 
-/** A count that is not a whole repetition count is a mistake, whatever the
- * field turns out to hold, so it is caught before the field is sampled. */
+/** The quantum two pieces' shared end is matched at, as `chainSegments`
+ * matches its segments: far below any step, above float noise. */
+const JOIN_Q = 1e-6;
+const joinKey = (p: readonly [number, number]): string => `${Math.round(p[0] / JOIN_Q)},${Math.round(p[1] / JOIN_Q)}`;
+
+/** The rings the pieces make, end to start: a level line, then the run that
+ * closes it along the wall, then the next level line, until the ring comes
+ * back. A piece that closed on its own is a ring already. Pieces that meet
+ * nothing stay open (a lattice too coarse to close them). */
+function joinRings(lines: readonly LevelContour[], runs: readonly LevelContour[]): LevelContour[] {
+  const out: LevelContour[] = [];
+  const open: LevelContour[] = [];
+  for (const c of [...lines, ...runs]) (c.closed ? out : open).push(c);
+  const byStart = new Map<string, number[]>();
+  open.forEach((c, i) => {
+    const k = joinKey(c.pts[0]);
+    const at = byStart.get(k);
+    if (at) at.push(i);
+    else byStart.set(k, [i]);
+  });
+  const used = new Uint8Array(open.length);
+  const next = (k: string): number | undefined => byStart.get(k)?.find((i) => !used[i]);
+  for (let i = 0; i < open.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const pts = [...open[i].pts];
+    const cut = open[i].cut.slice(0, open[i].pts.length - 1);
+    const first = joinKey(pts[0]);
+    let closed = false;
+    for (;;) {
+      const end = joinKey(pts[pts.length - 1]);
+      if (end === first && pts.length > 2) {
+        closed = true;
+        break;
+      }
+      const n = next(end);
+      if (n === undefined) break;
+      used[n] = 1;
+      const piece = open[n];
+      pts.push(...piece.pts.slice(1));
+      cut.push(...piece.cut.slice(0, piece.pts.length - 1));
+    }
+    if (closed) pts.pop();
+    out.push({ pts, closed, cut });
+  }
+  return out;
+}
+
+/** The one option there is. `close` was the other: every level set closes
+ * now, so asking for it is asking for something that no longer exists. */
+function checkOpts(opts: IsoOpts): void {
+  if (opts === null || typeof opts !== 'object') return;
+  for (const key of Object.keys(opts)) {
+    if (key === 'step') continue;
+    if (key === 'close') {
+      throw new Error(
+        'isolines: { close } is gone — every level set is an area and closes along the drawable (or its within bound); ' +
+          'the closing edges carry cut = 1, so strokes(m.edges.filter((e) => !e.attrs.cut)) draws the level line alone',
+      );
+    }
+    throw new Error(`isolines: '${key}' is not an option — the options are { step }`);
+  }
+}
+
+/** A spec is one of two spellings, and a key from neither is a mistake the
+ * sketch would otherwise never hear about. A count that is not a whole
+ * repetition count is a mistake too, whatever the field turns out to hold,
+ * so both are caught before the field is sampled. */
 function checkSpec(spec: IsoLevelSpec): void {
-  if ('count' in spec && !Number.isSafeInteger(spec.count)) {
+  if (spec === null || typeof spec !== 'object') {
+    throw new Error('isolines: the levels are a number, a list of numbers, { count, min?, max? } or { spacing, offset? }');
+  }
+  const isCount = 'count' in spec;
+  const isSpacing = 'spacing' in spec;
+  if (isCount && isSpacing) {
+    throw new Error('isolines: a level spec is { count, min?, max? } or { spacing, offset? } — not both');
+  }
+  if (!isCount && !isSpacing) {
+    throw new Error('isolines: a level spec needs count or spacing — { count, min?, max? } or { spacing, offset? }');
+  }
+  const allowed = isCount ? ['count', 'min', 'max'] : ['spacing', 'offset'];
+  for (const key of Object.keys(spec)) {
+    if (allowed.includes(key)) continue;
+    const where = key === 'step' ? ' — the lattice step goes in the options: t.isolines(field, levels, { step })' : '';
+    const spelling = isCount ? '{ count, min?, max? }' : '{ spacing, offset? }';
+    throw new Error(`isolines: '${key}' is not a level key — the spec is ${spelling}${where}`);
+  }
+  if (isCount && !Number.isSafeInteger(spec.count)) {
     throw new Error('isolines count must be a positive integer');
   }
 }
@@ -207,10 +323,17 @@ function sampledRange(grid: SampledGrid): { min: number; max: number } {
   return { min, max };
 }
 
+/** Halvings that place the domain's edge on a lattice edge: 2^-52 of a step
+ * is the last bit of the fraction, so the edge is where the field says it
+ * is, not where the grid is. */
+const WALL_HALVINGS = 52;
+
 /** Sample `field` on the `gw × gh` lattice over `b`, padded by one ring.
  * Non-finite samples become deeply-outside sentinels so interpolation
- * stays finite and the crossing lands at the finite corner; they are also
- * marked absent, so cells touching them emit nothing (see marching.ts). */
+ * stays finite and the marching reads them as below every level; they are
+ * also marked absent, and where a lattice edge joins a present sample to an
+ * absent one, the place the field stops is found along it by halving (see
+ * `SampledGrid.wall`), so a region closes there rather than a sample short. */
 export function sampleGrid(
   field: FieldFn,
   b: { x: number; y: number; w: number; h: number },
@@ -220,18 +343,17 @@ export function sampleGrid(
   const sx = b.w / (gw - 1);
   const sy = b.h / (gh - 1);
   // Sample once; every level marches over the same grid. Padded by one ring
-  // on every side (stride pw = gw + 2). The ring holds the `close` sentinel
-  // and is never "absent", so the marching reads samples with a plain
-  // indexed load instead of four bounds checks per access — `val` alone was
-  // 20% of isolinesOf.
+  // on every side (stride pw = gw + 2). The ring holds the closing
+  // sentinel and is never "absent", so the marching reads samples with a
+  // plain indexed load instead of four bounds checks per access — `val`
+  // alone was 20% of isolinesOf.
   const pw = gw + 2;
   const ph = gh + 2;
   const vals = new Float64Array(pw * ph);
   // Absent samples (non-finite — a within() bound or a hand-rolled NaN
-  // hole) are tracked separately: cells touching absence emit NOTHING, so
-  // contours truncate OPEN at the domain edge exactly as they do at the
-  // paper edge — never a staircase wall hugging the bound.
+  // hole) are tracked separately: the domain ends at them.
   const absent = new Uint8Array(pw * ph);
+  let anyAbsent = false;
   for (let j = 0; j < gh; j++) {
     const row = (j + 1) * pw + 1;
     for (let i = 0; i < gw; i++) {
@@ -239,50 +361,218 @@ export function sampleGrid(
       const fin = Number.isFinite(v);
       vals[row + i] = fin ? v : -1e30;
       absent[row + i] = fin ? 0 : 1;
+      if (!fin) anyAbsent = true;
     }
   }
-  return { vals, absent, pw, gw, gh, b, sx, sy };
+  const grid: SampledGrid = { vals, absent, pw, gw, gh, b, sx, sy };
+  if (!anyAbsent) return grid;
+  const h = new Float64Array(gw * gh).fill(NaN);
+  const v = new Float64Array(gw * gh).fill(NaN);
+  // The fraction of the way from the edge's first sample to its second at
+  // which the field stops, the present end being the one that exists.
+  const edgeOf = (x0: number, y0: number, dx: number, dy: number, firstPresent: boolean): number => {
+    let inside = firstPresent ? 0 : 1;
+    let outside = firstPresent ? 1 : 0;
+    for (let k = 0; k < WALL_HALVINGS; k++) {
+      const mid = (inside + outside) / 2;
+      if (Number.isFinite(field(x0 + mid * dx, y0 + mid * dy))) inside = mid;
+      else outside = mid;
+    }
+    return inside;
+  };
+  for (let j = 0; j < gh; j++) {
+    for (let i = 0; i < gw; i++) {
+      const here = absent[(j + 1) * pw + i + 1];
+      if (i + 1 < gw && here !== absent[(j + 1) * pw + i + 2]) {
+        h[j * gw + i] = edgeOf(b.x + i * sx, b.y + j * sy, sx, 0, here === 0);
+      }
+      if (j + 1 < gh && here !== absent[(j + 2) * pw + i + 1]) {
+        v[j * gw + i] = edgeOf(b.x + i * sx, b.y + j * sy, 0, sy, here === 0);
+      }
+    }
+  }
+  grid.wall = { h, v };
+  return grid;
 }
 
-/** Clamp close-mode points onto the drawable, drop duplicate vertices, and
- * merge colinear runs (the clamped border runs collapse to their corners). */
-export function finishContours(
-  contours: IsoContour[],
+/** Clamp close-mode points onto the lattice box, walk the closing edges
+ * through the corners of `walls.loops` (no further than `walls.reach`),
+ * drop duplicate vertices, and merge colinear runs (the clamped border
+ * runs collapse to their corners). A contour that carries `cut` marks
+ * keeps them edge for edge. */
+export function finishContours<C extends IsoContour>(
+  contours: C[],
   b: { x: number; y: number; w: number; h: number },
   close: boolean,
-): IsoContour[] {
-  const out: IsoContour[] = [];
+  walls?: { loops: IsoDomain['walls']; reach: number },
+): C[] {
+  const out: C[] = [];
   for (const c of contours) {
+    const marks = (c as IsoContour & { cut?: number[] }).cut;
     let pts = c.pts;
+    let cut = marks;
     if (close) {
       pts = pts.map(([x, y]) => [
         Math.min(b.x + b.w, Math.max(b.x, x)),
         Math.min(b.y + b.h, Math.max(b.y, y)),
       ]);
     }
-    // Consecutive duplicates.
+    if (walls && walls.loops.length > 0 && cut) [pts, cut] = walkWalls(pts, cut, c.closed, walls.loops, walls.reach);
+    // Consecutive duplicates. The edge a dropped point began is the edge
+    // the point it duplicates begins now.
     const dedup: [number, number][] = [];
-    for (const p of pts) {
+    const dedupCut: number[] = [];
+    for (let k = 0; k < pts.length; k++) {
+      const p = pts[k];
       const l = dedup[dedup.length - 1];
-      if (!l || Math.abs(p[0] - l[0]) > 1e-9 || Math.abs(p[1] - l[1]) > 1e-9) dedup.push(p);
+      if (!l || Math.abs(p[0] - l[0]) > 1e-9 || Math.abs(p[1] - l[1]) > 1e-9) {
+        dedup.push(p);
+        if (cut) dedupCut.push(cut[k] ?? 0);
+      } else if (cut) {
+        dedupCut[dedupCut.length - 1] = cut[k] ?? 0;
+      }
     }
     if (c.closed && dedup.length > 1) {
       const [f, l] = [dedup[0], dedup[dedup.length - 1]];
-      if (Math.abs(f[0] - l[0]) <= 1e-9 && Math.abs(f[1] - l[1]) <= 1e-9) dedup.pop();
+      if (Math.abs(f[0] - l[0]) <= 1e-9 && Math.abs(f[1] - l[1]) <= 1e-9) {
+        dedup.pop();
+        if (cut) dedupCut.pop();
+      }
     }
-    pts = mergeColinear(dedup, c.closed);
-    if (pts.length >= (c.closed ? 3 : 2)) out.push({ pts, closed: c.closed });
+    const merged = mergeColinear(dedup, c.closed, cut ? dedupCut : null);
+    if (merged.pts.length >= (c.closed ? 3 : 2)) {
+      out.push({ ...c, pts: merged.pts, closed: c.closed, ...(cut ? { cut: merged.cut } : {}) } as C);
+    }
   }
   return out;
 }
 
-function mergeColinear(pts: [number, number][], closed: boolean): [number, number][] {
+/** A point's place on the walls: which loop, which segment, how far along. */
+interface WallSpot {
+  loop: number;
+  seg: number;
+  t: number;
+}
+
+/** Where `p` lies on the walls, or null when it is not on one: the nearest
+ * segment, if it is within float noise of the point. */
+function wallSpot(p: readonly [number, number], walls: IsoDomain['walls'], tol: number): WallSpot | null {
+  let best: WallSpot | null = null;
+  let bestD = tol;
+  for (let l = 0; l < walls.length; l++) {
+    const loop = walls[l];
+    const n = loop.length;
+    for (let s = 0; s < n; s++) {
+      const a = loop[s];
+      const q = loop[(s + 1) % n];
+      const dx = q[0] - a[0];
+      const dy = q[1] - a[1];
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2)) : 0;
+      const d = Math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1]);
+      if (d <= bestD) {
+        bestD = d;
+        best = { loop: l, seg: s, t };
+      }
+    }
+  }
+  return best;
+}
+
+/** The corners of the wall between two spots on one loop, the shorter way
+ * round, and that way's length. */
+function wallBetween(a: WallSpot, b: WallSpot, loop: readonly (readonly [number, number])[]): { pts: [number, number][]; length: number } {
+  const n = loop.length;
+  const at = (s: WallSpot): [number, number] => {
+    const p = loop[s.seg];
+    const q = loop[(s.seg + 1) % n];
+    return [p[0] + s.t * (q[0] - p[0]), p[1] + s.t * (q[1] - p[1])];
+  };
+  const pathLength = (from: [number, number], corners: [number, number][], to: [number, number]): number => {
+    let length = 0;
+    let prev = from;
+    for (const c of [...corners, to]) {
+      length += Math.hypot(c[0] - prev[0], c[1] - prev[1]);
+      prev = c;
+    }
+    return length;
+  };
+  const pa = at(a);
+  const pb = at(b);
+  // Forward: along the loop's own order, from a's segment end to b's start.
+  const forward: [number, number][] = [];
+  if (!(a.seg === b.seg && b.t >= a.t)) {
+    for (let s = (a.seg + 1) % n, k = 0; k < n; s = (s + 1) % n, k++) {
+      forward.push([loop[s][0], loop[s][1]]);
+      if (s === b.seg) break;
+    }
+  }
+  // Backward: against it, from a's segment start to b's segment end.
+  const backward: [number, number][] = [];
+  if (!(a.seg === b.seg && b.t <= a.t)) {
+    for (let s = a.seg, k = 0; k < n; s = (s - 1 + n) % n, k++) {
+      backward.push([loop[s][0], loop[s][1]]);
+      if (s === (b.seg + 1) % n) break;
+    }
+  }
+  const lf = pathLength(pa, forward, pb);
+  const lb = pathLength(pa, backward, pb);
+  return lf <= lb ? { pts: forward, length: lf } : { pts: backward, length: lb };
+}
+
+/** Walk each closing edge whose two ends lie on one wall along that wall,
+ * through the corners between them, instead of the chord a lattice cell
+ * draws. The corners are closing edges too. */
+function walkWalls(
+  pts: [number, number][],
+  cut: number[],
+  closed: boolean,
+  walls: IsoDomain['walls'],
+  reach: number,
+): [[number, number][], number[]] {
+  let scale = 0;
+  for (const loop of walls) for (const p of loop) scale = Math.max(scale, Math.abs(p[0]), Math.abs(p[1]));
+  const tol = 1e-9 * Math.max(1, scale);
+  const spots = new Map<number, WallSpot | null>();
+  const spotOf = (k: number): WallSpot | null => {
+    if (!spots.has(k)) spots.set(k, wallSpot(pts[k], walls, tol));
+    return spots.get(k)!;
+  };
+  const outPts: [number, number][] = [];
+  const outCut: number[] = [];
   const n = pts.length;
-  if (n < 3) return pts;
+  const edges = closed ? n : n - 1;
+  for (let k = 0; k < n; k++) {
+    outPts.push(pts[k]);
+    outCut.push(cut[k] ?? 0);
+    if (k >= edges || cut[k] !== 1) continue;
+    const a = spotOf(k);
+    const b = a ? spotOf((k + 1) % n) : null;
+    if (!a || !b || a.loop !== b.loop) continue;
+    const between = wallBetween(a, b, walls[a.loop]);
+    if (between.pts.length === 0 || !(between.length <= reach)) continue;
+    for (const c of between.pts) {
+      outPts.push(c);
+      outCut.push(1);
+    }
+  }
+  return [outPts, outCut];
+}
+
+/** Drop a vertex whose two edges run straight on, when both edges are the
+ * same kind — a level edge and a closing edge stay apart where they meet. */
+function mergeColinear(
+  pts: [number, number][],
+  closed: boolean,
+  cut: number[] | null,
+): { pts: [number, number][]; cut: number[] } {
+  const n = pts.length;
+  if (n < 3) return { pts, cut: cut ?? [] };
   const keep: boolean[] = new Array<boolean>(n).fill(true);
   const lo = closed ? 0 : 1;
   const hi = closed ? n : n - 1;
   for (let k = lo; k < hi; k++) {
+    if (cut && cut[(k - 1 + n) % n] !== cut[k]) continue;
     const p = pts[(k - 1 + n) % n];
     const q = pts[k];
     const r = pts[(k + 1) % n];
@@ -296,5 +586,60 @@ function mergeColinear(pts: [number, number][], closed: boolean): [number, numbe
       keep[k] = false;
     }
   }
-  return pts.filter((_, k) => keep[k]);
+  // A kept point begins the edge it began; a dropped point's edge is the
+  // same kind as the one before it, which the kept point already names.
+  return { pts: pts.filter((_, k) => keep[k]), cut: cut ? cut.filter((_, k) => keep[k]) : [] };
+}
+
+/**
+ * The levels as one material: each region's boundary a ring (a chain where
+ * the lattice could not close one), separate regions separate, every edge
+ * carrying the `level` it was traced at and `cut` — 1 on the edges that
+ * close a region where the domain ends, 0 on the level line itself. Both
+ * columns copy when an edge is split.
+ *
+ * The rows of a level are its level lines first, in the order and the
+ * direction the open march gives them, then the closing runs, which join
+ * the lines' own end rows. So the level line alone,
+ * `m.edges.filter((e) => !e.attrs.cut)`, walks and draws exactly as the
+ * open level lines did.
+ */
+export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
+  const x: number[] = [];
+  const y: number[] = [];
+  const edges: number[] = [];
+  const level: number[] = [];
+  const cut: number[] = [];
+  const edgeCount = (c: IsoContour) => (c.closed && c.pts.length > 2 ? c.pts.length : Math.max(0, c.pts.length - 1));
+  for (const g of groups) {
+    // The end rows of the level lines, by place: a closing run starts and
+    // stops at one of them.
+    const endRow = new Map<string, number>();
+    const add = (c: IsoContour, kind: number, share: boolean) => {
+      const m = c.pts.length;
+      const rows = c.pts.map((p, k) => {
+        const end = !c.closed && (k === 0 || k === m - 1);
+        const had = share && end ? endRow.get(joinKey(p)) : undefined;
+        if (had !== undefined) return had;
+        x.push(p[0]);
+        y.push(p[1]);
+        if (end) endRow.set(joinKey(p), x.length - 1);
+        return x.length - 1;
+      });
+      for (let k = 0; k < edgeCount(c); k++) {
+        edges.push(rows[k], rows[(k + 1) % m]);
+        level.push(g.level);
+        cut.push(kind);
+      }
+    };
+    for (const c of g.lines) add(c, 0, false);
+    for (const c of g.walls) add(c, 1, true);
+  }
+  return new Material(Float64Array.from(x), Float64Array.from(y), {}, Uint32Array.from(edges), {
+    iteration: 0,
+    history: [],
+    edgeAttrs: { level: Float64Array.from(level), cut: Float64Array.from(cut) },
+    transfers: {},
+    edgeTransfers: { level: 'copy', cut: 'copy' },
+  });
 }

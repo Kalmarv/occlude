@@ -29,7 +29,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   const longChannels = longRuns(channels, 40);
   const longSpines = longRuns(spines, 6);
   return [
-    strokes(ripples),
+    strokes(ripples.edges.filter((e) => !e.attrs.cut)),
     strokes(longChannels.filter((p) => -d(p.x, p.y) > 4).edges, { pen: 'stabilo-88-blue' }),
     polygon(stones, { opaque: true, stroke: false }),
     strokes(stones),

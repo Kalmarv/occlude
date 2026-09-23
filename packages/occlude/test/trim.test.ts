@@ -85,8 +85,14 @@ describe('m.trim', () => {
     expect(() => m.trim({ start: NaN })).toThrow(/finite length/);
   });
 
-  it('refuses a junction, as along and resample do', () => {
+  it('keeps a junction: only a loose end is cut (level-sets-and-chains N1)', () => {
     const y = material([[0, 0], [10, 0], [20, 5], [20, -5]], { edges: [[0, 1], [1, 2], [1, 3]] });
-    expect(() => y.trim({ start: 1 })).toThrow(/junction — chains only/);
+    const cut = y.trim({ start: 1, end: 1 });
+    const fork = [...cut.points].filter((p) => p.edges.length === 3);
+    expect(fork).toHaveLength(1);
+    expect([fork[0].x, fork[0].y, fork[0].id]).toEqual([10, 0, y.points.at(1).id]);
+    // Three chains out of the fork, each 1 shorter at its loose end only.
+    expect(cut.points.length).toBe(4);
+    expect([...cut.points].some((p) => p.x === 1 && p.y === 0)).toBe(true);
   });
 });

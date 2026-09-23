@@ -117,7 +117,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const f = t.within(grain, circle(100, 50, 42));
   return [
     circle(100, 50, 42),
-    strokes(t.isolines(f, [0.1, 0.35, 0.6], { step: 0.6 })),
+    strokes(t.isolines(f, [0.1, 0.35, 0.6], { step: 0.6 }).edges.filter((e) => !e.attrs.cut)),
   ];
 });
 ```
@@ -163,7 +163,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### isolines
 
-`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.attrs.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.attrs.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
+`t.isolines(field, at, { step? })` traces the areas where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.attrs.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.attrs.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A region that leaves the drawable closes along its edge, through every corner it passes, and so does a region cut by the field's `t.within` bound; the closing edges carry `cut` = 1, so `strokes(m)` draws whole rings and `strokes(m.edges.filter((e) => !e.attrs.cut))` draws the level line alone. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -175,9 +175,9 @@ import { sketch, polygon, fill, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const field = (x, y) => t.noise(x / 32, y / 32);
   return [
-    t.isolines(field, 0.15, { close: true }).curves().map((c) =>
+    t.isolines(field, 0.15).curves().map((c) =>
       polygon(c, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }) })),
-    t.isolines(field, 0.5, { close: true }).curves().map((c) =>
+    t.isolines(field, 0.5).curves().map((c) =>
       polygon(c, { fill: fill('hatch', { angle: 120, spacing: mm(0.7) }) })),
   ];
 });
@@ -189,7 +189,7 @@ Contour levels drawn differently. `edges.groupBy` splits the material into one s
 import { sketch, strokes, polygon, fill, force, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.3, 0.5], { step: 1, close: true });
+  const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.3, 0.5], { step: 1 });
   const [low, mid, high] = contours.edges.groupBy((e) => e.attrs.level);
   const softened = high.extract().steps(12, (cur, next) => {
     const smooth = force.relax(cur, { amount: 0.5 });
@@ -212,15 +212,15 @@ The boundary is whatever `polygon` and `force.boundary` also take: plain loops (
 ```ts live
 import { sketch, polygon, strokes, distanceTo } from 'occlude';
 
-// A blob echoed inward every 5 units and haloed once outside. Contours
-// that leave the drawable come back open, and strokes() draws them as such.
+// A blob echoed inward every 5 units and haloed once outside. Only the
+// level line is drawn (cut 0), so an echo the drawable cuts stays open there.
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
-  const blob = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.3, { close: true, step: 1 });
+  const blob = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.3, { step: 1 });
   const d = distanceTo(blob);
   return [
     polygon(blob),
-    strokes(t.isolines(d, [5, 10, 15, 20, 25], { step: 0.7 })),
-    strokes(t.isolines(d, -5, { step: 0.7 })),
+    strokes(t.isolines(d, [5, 10, 15, 20, 25], { step: 0.7 }).edges.filter((e) => !e.attrs.cut)),
+    strokes(t.isolines(d, -5, { step: 0.7 }).edges.filter((e) => !e.attrs.cut)),
   ];
 });
 ```
@@ -233,7 +233,7 @@ import { sketch, rect, strokes } from 'occlude';
 export default sketch({ aspect: [2, 1] }, (t) => {
   const box = rect(100, 50, 56, 26, { rotate: 20, mode: 'center' });
   const d = t.distanceTo(t.material(box));
-  return [box, strokes(t.isolines(d, [-6, -12, -18, -24, -30], { step: 0.6 }))];
+  return [box, strokes(t.isolines(d, [-6, -12, -18, -24, -30], { step: 0.6 }).edges.filter((e) => !e.attrs.cut))];
 });
 ```
 
@@ -264,7 +264,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const solid = (x, y) => bars.some((b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
   const arrival = t.travelTime({ fromPoints: [[W * 0.78, H * 0.5]], speed: (x, y) => (solid(x, y) ? 0 : 1), step: 0.5 });
   return [
-    strokes(t.isolines(arrival, { spacing: W / 22 })),
+    strokes(t.isolines(arrival, { spacing: W / 22 }).edges.filter((e) => !e.attrs.cut)),
     bars.map((b) => rect(b[0], b[1], b[2] - b[0], b[3] - b[1], { pen: 'stabilo-88-blue' })),
   ];
 });
@@ -381,7 +381,7 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const ground = (x, y) => t.noise(x / 44, y / 44);
   return [
-    strokes(t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4], { step: 1 }), { pen: 'stabilo-88-blue' }),
+    strokes(t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4], { step: 1 }).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }),
     strokes(t.ridges(ground, { step: 1 })),
   ];
 });
@@ -404,7 +404,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
   const shore = (x, y) =>
     t.noise(x / 40, y / 40) + 0.78 -
     1.45 * Math.hypot((x - t.cx) / (t.width * 0.46), (y - t.cy) / (t.height * 0.44)) ** 2;
-  const coast = t.isolines(shore, 0, { close: true, step: 1 });
+  const coast = t.isolines(shore, 0, { step: 1 });
   const inland = distanceTo(coast);
   const height = (x, y) =>
     Math.max(0, inland(x, y)) * 0.55 + 15 * t.noise(x / 21, y / 21) + 3.5 * t.noise(x / 8, y / 8);
@@ -479,7 +479,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   const longSpines = longRuns(spines, 6);
 
   return [
-    strokes(ripples),
+    strokes(ripples.edges.filter((e) => !e.attrs.cut)),
     strokes(
       longChannels.filter((p) => -d(p.x, p.y) > 4).edges,
       { pen: 'stabilo-88-blue' },
@@ -608,6 +608,6 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
       next.set('b', i, j, b + Dv * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
     }
   });
-  return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 })), disc];
+  return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 }).edges.filter((e) => !e.attrs.cut)), disc];
 });
 ```
