@@ -26,7 +26,7 @@
  * from `neighbours`.
  */
 
-import { Material, ownedBy, viewKind, type Curve, type Edge, type Vertex } from './material.js';
+import { Material, geodesicEdges, ownedBy, viewKind, type Curve, type Edge, type Vertex } from './material.js';
 import { degreesWithin, walkChains } from './chains.js';
 import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
 
@@ -721,6 +721,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
       endpoints: (e) => [m.edgeList[2 * e], m.edgeList[2 * e + 1]],
       x: m.x,
       y: m.y,
+      geodesic: geodesicEdges(m),
     });
   }
 

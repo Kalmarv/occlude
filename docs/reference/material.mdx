@@ -43,7 +43,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.material.mdx</include>
 
-Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them.
+Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them.
 
 ```ts live
 import { sketch, rect, ngon, strokes, circle } from 'occlude';

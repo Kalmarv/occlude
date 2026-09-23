@@ -10,7 +10,7 @@
 import { geomClosed } from './shapes.js';
 import { apply, conformalScale, det, IDENTITY, invert, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
 import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
-import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
+import type { ModifierValue, Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { Execution, TransformOp } from './execution.js';
 import type { Placement } from './placement.js';
 import { euclideanSpace, geodesicBowOf, INK_TOL, type Space } from './space.js';
@@ -299,7 +299,7 @@ function transformPrim(p: Prim, m: Mat): Prim[] {
   if (p.t === 'line') {
     const [x0, y0] = apply(m, p.x0, p.y0);
     const [x1, y1] = apply(m, p.x1, p.y1);
-    return [{ t: 'line', x0, y0, x1, y1 }];
+    return [p.geodesic ? { t: 'line', x0, y0, x1, y1, geodesic: true } : { t: 'line', x0, y0, x1, y1 }];
   }
   if (p.t === 'cubic') {
     const [x0, y0] = apply(m, p.x0, p.y0);
@@ -495,7 +495,7 @@ function lowerPath(cmds: PathCmd[], rz: Resolver): Prim[][] {
       }
       case 'line': {
         const [x, y] = rz.pos(cmd.x, cmd.y);
-        current.push({ t: 'line', x0: cx, y0: cy, x1: x, y1: y });
+        current.push(cmd.geodesic ? { t: 'line', x0: cx, y0: cy, x1: x, y1: y, geodesic: true } : { t: 'line', x0: cx, y0: cy, x1: x, y1: y });
         cx = x;
         cy = y;
         break;
@@ -535,7 +535,7 @@ function lowerPath(cmds: PathCmd[], rz: Resolver): Prim[][] {
       }
       case 'close': {
         if (Math.abs(cx - sx) > 1e-12 || Math.abs(cy - sy) > 1e-12) {
-          current.push({ t: 'line', x0: cx, y0: cy, x1: sx, y1: sy });
+          current.push(cmd.geodesic ? { t: 'line', x0: cx, y0: cy, x1: sx, y1: sy, geodesic: true } : { t: 'line', x0: cx, y0: cy, x1: sx, y1: sy });
           cx = sx;
           cy = sy;
         }
@@ -589,6 +589,9 @@ export interface LoweredShape {
    * at the intrinsic bbox centre, axes turned by the explicit transforms)
    * → paper mm. Identity-plus-centre for coordinate-placed shapes. */
   anchor: Mat;
+  /** The modifier stack the ENGINE runs: the shape's own, less any
+   * `smooth` a curved space already ran on the flat outline. */
+  modifiers: readonly ModifierValue[];
 }
 
 /** User-space mm → paper mm: the paper offset and the origin/yUp frame. */
@@ -637,15 +640,16 @@ export function geodesicBow(space: Space, frame: Frame, tol = INK_TOL): number {
 const EDGE_STEPS = 20;
 
 /**
- * A polyline on a sphere, its x coordinates made CONTINUOUS in place.
+ * An open polyline on a sphere — a STROKE — its x coordinates made
+ * CONTINUOUS in place.
  *
  * The sphere's x is the azimuth times `ell`, so it comes round every
  * `period` and tears where it does: the largest x and the smallest name one
- * line. A segment between two sketch points is the segment between the
- * NEAREST names of its ends, so each point takes the name within half a
+ * line. A stroke's segment between two sketch points is the segment between
+ * the NEAREST names of its ends, so each point takes the name within half a
  * period of the point before it — already moved, so a run that crosses the
- * tear goes on past it and does not jump back. A closed contour's closing
- * segment is the last one in the list, and it obeys the same rule.
+ * tear goes on past it and does not jump back. An AREA's loop is not read
+ * this way: it keeps the side its winding names (see `placedContours`).
  * Everything downstream reads x through `sin` and `cos`, which come round
  * too, so a name outside the principal range is as good a place as one in
  * it.
@@ -671,16 +675,22 @@ function shortWay(pts: [number, number][], period: number): void {
  * name each; the run between them lies on the pole row and its image is
  * the pole itself. A pole point at an end of the run takes the one
  * neighbour it has, and a run of pole points reads the nearest points off
- * the pole on each side. Nothing else moves.
+ * the pole on each side. Nothing else moves. `seg` carries each segment's
+ * flags (`SEG_CURVE`, `SEG_GEODESIC`) along; the run along the pole row
+ * has none.
  */
-function poleNames(pts: [number, number][], cy: number, ell: number): [number, number][] {
+function poleNames(pts: [number, number][], seg: number[], cy: number, ell: number): { pts: [number, number][]; seg: number[] } {
   const onPole = (p: readonly [number, number]): number => {
     const b = (p[1] - cy) / ell;
     return Math.abs(Math.PI / 2 - Math.abs(b)) < POLE_EPS ? Math.sign(b) : 0;
   };
-  if (!pts.some((p) => onPole(p) !== 0)) return pts;
+  if (!pts.some((p) => onPole(p) !== 0)) return { pts, seg };
   const out: [number, number][] = [];
+  // `outSeg[k]` is the segment `out[k] → out[k + 1]`, as `seg` is.
+  const outSeg: number[] = [];
   for (let i = 0; i < pts.length; i++) {
+    // The segment into this point, from the last one kept.
+    if (out.length > 0) outSeg.push(seg[i - 1]);
     const pole = onPole(pts[i]);
     if (pole === 0) {
       out.push(pts[i]);
@@ -694,11 +704,17 @@ function poleNames(pts: [number, number][], cy: number, ell: number): [number, n
     const into = before ?? after ?? pts[i][0];
     const from = after ?? into;
     out.push([into, y]);
-    if (from !== into) out.push([from, y]);
-    // The run of pole points is one point with two names.
+    // The run between the two names lies on the pole row: its image is the
+    // pole itself, no curve to follow.
+    if (from !== into) {
+      outSeg.push(0);
+      out.push([from, y]);
+    }
+    // The run of pole points is one point with two names; the segment out
+    // of it is the one out of the run's last point.
     i = j - 1;
   }
-  return out;
+  return { pts: out, seg: outSeg };
 }
 
 /**
@@ -756,26 +772,157 @@ function projectRuns(pts: readonly [number, number][], space: Space, unit: numbe
   return runs;
 }
 
+/** A flat segment's flags: a piece of a curve the shape draws (sampled by
+ * `'curves'`), and a geodesic of the space between its ends (a path
+ * segment a material edge with `geodesic = 1` wrote). */
+const SEG_CURVE = 1;
+const SEG_GEODESIC = 2;
+
+/** How much of an outline the placement samples. `'all'` samples every
+ * edge to the tolerance: the ink, and the sketch-time doors that read an
+ * area's boundary. `'curves'` keeps a straight edge whole and samples only
+ * what the shape draws as a curve — `t.material(shape)`, whose vertices
+ * are the shape's own. `'none'` samples nothing: the 3D projector's chords
+ * are already fine, and a stroke range addresses them by index. */
+export type Refine = 'all' | 'curves' | 'none';
+
+/** One placed outline: its points, and — for a circle or an ellipse — the
+ * curve itself between two of them. `curve(seg, t)` is the point of the
+ * drawn curve a fraction `t` of the way from `pts[seg]` to the next point,
+ * ON the curve and not on the chord between them. */
+interface PlacedContour {
+  pts: [number, number][];
+  curve?: (seg: number, t: number) => [number, number];
+  /** Segment by segment: is it a geodesic of the space? The round kinds'
+   * and a `line`'s edges are, and a path segment that says so; every other
+   * edge is the image of its coordinate segment. */
+  geodesic?: boolean[];
+}
+
+/**
+ * A ROUND shape's placement in a curved space (design §10): its points are
+ * steps from its anchor. The point at angle θ of `circle(c, r)` is
+ * `space.exp(c, r·(cos θ, sin θ))` in the frame at `c` — the circle of the
+ * space, every point at distance `r` from `c` — an ellipse the same with
+ * `(rx cos θ, ry sin θ)` turned by its rotation, and an ngon the same at
+ * its corners. The shape's own transform turns and lengthens the steps.
+ *
+ * Null for every other shape, whose points are placed where their own
+ * numbers name, and in the flat plane, where a step is addition and
+ * nothing moves.
+ *
+ * `step` takes a flat point (sketch coordinates) to its place: its offset
+ * from the anchor, taken as a step. `onCurve` takes a flat point to the
+ * point of the flat curve at the same angle, so a sample between two
+ * vertices lands on the curve and not on their chord; an ngon's outline
+ * has no curve, and a smoothed outline is no longer the circle.
+ */
+function roundPlacing(
+  geom: ShapeGeom,
+  toDrawable: Mat,
+  frame: Frame,
+  space: Space,
+  smoothed: boolean,
+): { anchor: [number, number]; step: (p: readonly [number, number]) => [number, number]; onCurve?: (p: readonly [number, number]) => [number, number] } | null {
+  if (space.kind === 'euclidean') return null;
+  if (geom.kind !== 'circle' && geom.kind !== 'ellipse' && geom.kind !== 'ngon') return null;
+  const rz = new Resolver(frame);
+  const unit = unitMm(frame);
+  const [cx, cy] = rz.pos(geom.x, geom.y);
+  const [ax, ay] = apply(toDrawable, cx, cy);
+  const anchor: [number, number] = [ax / unit, ay / unit];
+  const step = (p: readonly [number, number]): [number, number] => {
+    const q = space.exp(anchor, [p[0] - anchor[0], p[1] - anchor[1]]);
+    return [q[0], q[1]];
+  };
+  if (geom.kind === 'ngon' || smoothed) return { anchor, step };
+  const lin: Mat = { ...toDrawable, e: 0, f: 0 };
+  const inv = invert(lin);
+  if (![inv.a, inv.b, inv.c, inv.d].every(Number.isFinite)) return { anchor, step };
+  const rx = Math.abs(rz.len(geom.kind === 'circle' ? geom.r : geom.rx));
+  const ry = Math.abs(rz.len(geom.kind === 'circle' ? geom.r : geom.ry));
+  const rot = geom.kind === 'ellipse' ? (geom.rotation * Math.PI) / 180 : 0;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const onCurve = (p: readonly [number, number]): [number, number] => {
+    // Back into the shape's own axes, the angle there, and out again.
+    const [ux, uy] = apply(inv, (p[0] - anchor[0]) * unit, (p[1] - anchor[1]) * unit);
+    const lx = ux * cos + uy * sin;
+    const ly = -ux * sin + uy * cos;
+    const a = Math.atan2(ly * rx, lx * ry);
+    const ex = rx * Math.cos(a);
+    const ey = ry * Math.sin(a);
+    const [qx, qy] = apply(lin, ex * cos - ey * sin, ex * sin + ey * cos);
+    return [anchor[0] + qx / unit, anchor[1] + qy / unit];
+  };
+  return { anchor, step, onCurve };
+}
+
+/** Are the edges between a shape's placed corners the space's geodesics?
+ * A `line` names the shortest path between its ends, and an ngon in a
+ * curved space is its stepped corners joined the shortest way — the
+ * regular polygon of the space. A smoothed ngon has no corners left. */
+function geodesicEdges(geom: ShapeGeom, space: Space, smoothed: boolean): boolean {
+  return geom.kind === 'line' || (geom.kind === 'ngon' && space.kind !== 'euclidean' && !smoothed);
+}
+
+/**
+ * Chaikin corner cutting on a polyline in drawable mm: pass for pass the
+ * engine's own (`chaikin` in pipeline.rs, after `contour_polyline` drops
+ * a closed outline's repeated start), so a smoothed shape placed in a
+ * curved space is the smoothed flat shape, placed. The closed outline
+ * comes back closed on its start again, as the lowering hands it on.
+ */
+function chaikin(pts: [number, number][], passes: readonly number[], closed: boolean): [number, number][] {
+  let poly = pts;
+  if (closed && poly.length > 1) {
+    const a = poly[0];
+    const z = poly[poly.length - 1];
+    if (Math.hypot(a[0] - z[0], a[1] - z[1]) < 1e-9) poly = poly.slice(0, -1);
+  }
+  for (const n of passes) {
+    for (let k = 0; k < n; k++) {
+      const m = poly.length;
+      if (m < 3) break;
+      const out: [number, number][] = [];
+      const cut = (a: readonly [number, number], b: readonly [number, number]): void => {
+        out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+        out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+      };
+      if (closed) {
+        for (let i = 0; i < m; i++) cut(poly[i], poly[(i + 1) % m]);
+      } else {
+        out.push(poly[0]);
+        for (let i = 0; i < m - 1; i++) cut(poly[i], poly[i + 1]);
+        out.push(poly[m - 1]);
+      }
+      poly = out;
+    }
+  }
+  return closed && poly.length > 1 ? [...poly, poly[0]] : poly;
+}
+
 /**
  * A shape's contours PLACED in a curved space (design §10): the anchor and
  * its offsets, each offset a step from the anchor.
  *
  * A SKETCH COORDINATE IS A POSITION BY STEPS from the drawable's centre —
- * x along the base geodesic, then y along the perpendicular geodesic there
- * — so a shape's anchor, wherever the transform chain puts it, is placed
- * by those steps, and every point of the shape is its own offset from that
- * anchor taken as steps in the frame carried there. The arithmetic is one
- * line, because the coordinates already say it: a point is placed where
- * its own numbers name. Nothing is bent: an EDGE is the image of the flat
- * edge under that placement, which is what `m.map` does to any map.
+ * x along the base geodesic, then y along the perpendicular geodesic there.
+ * A rect, a path, a polygon and text are placed where their own numbers
+ * name, so walls stay shared and a grid stays a grid: their points ARE
+ * sketch coordinates, and an EDGE is the image of the flat edge under that
+ * placement, which is what `m.map` does to any map. A ROUND shape —
+ * circle, ellipse, ngon — is steps from its anchor instead
+ * (`roundPlacing`): off the base geodesic the two readings differ, and
+ * only the steps give the circle of the space. An ngon's edges and a
+ * `line` are geodesics (`geodesicEdges`).
  *
- * Only two things then have to be worked out. The flat outline is sampled
- * at `tol` as it always was, and each flat segment is HALVED again until
- * the projected chord holds the projected image within `tol` — the same
- * adaptive sampling a curve gets, in the flat parameter. And a `line`
- * names the shortest path between its two ends, so it is the one word
- * whose edge is the space's geodesic; every other straight run is the
- * image of a straight run.
+ * Then only the sampling has to be worked out. The flat outline is
+ * flattened at `tol` as it always was, and each segment is HALVED again
+ * until the projected chord holds the projected image within `tol` — the
+ * same adaptive sampling a curve gets, in the flat parameter. A circle's
+ * or an ellipse's new points are taken on the flat curve itself, so every
+ * point of the placed outline is on the curve of the space.
  *
  * The points come back in drawable millimetres and in SKETCH coordinates:
  * they are the numbers a sketch can keep computing with, which is what
@@ -793,7 +940,7 @@ function placedContours(
   frame: Frame,
   space: Space,
   tol: number,
-  refine = true,
+  refine: Refine = 'all',
   /**
    * The rest of the transform chain — the placements and the affine runs
    * outside the innermost one — as a map on sketch coordinates.
@@ -819,13 +966,33 @@ function placedContours(
    * STORED, and a placement may carry it anywhere.
    */
   bow?: number,
-): [number, number][][] {
+  /**
+   * The `smooth` passes the ink door lifted off the shape's modifiers
+   * (`liftSmooth`): Chaikin runs on the FLAT outline, before the
+   * placement, so it rounds the shape's corners and not the samples of
+   * its image.
+   */
+  smooth?: readonly number[],
+): PlacedContour[] {
   const unit = unitMm(frame);
   /** The map the SAMPLING is judged through: the rest of the chain only
    * where the rest of the chain can bend a chord. */
   const bent = through && bends ? through : null;
+  const smoothed = smooth !== undefined && smooth.length > 0;
+  const round = roundPlacing(geom, toDrawable, frame, space, smoothed);
+  // The words that ask for a geodesic ask for it by name, in every
+  // projection — and under one that draws a geodesic straight there is
+  // nothing left to sample.
+  const geodesicEdge = geodesicEdges(geom, space, smoothed);
+  // Where the halving works. A geodesic edge runs between PLACED corners,
+  // so an ngon's corners are stepped first and halved in place; every
+  // other outline is halved in its flat parameter and stepped after.
+  const before = geodesicEdge && round ? round.step : null;
+  const after = !geodesicEdge && round ? round.step : null;
+  const onCurve = !geodesicEdge ? round?.onCurve : undefined;
   const sheet = (p: readonly [number, number]): [number, number] => {
-    const q = space.project(bent ? bent(p) : p);
+    const w = after ? after(p) : p;
+    const q = space.project(bent ? bent(w) : w);
     return [q[0] * unit, q[1] * unit];
   };
   /** A sketch point, through the rest of the chain, back in drawable mm. */
@@ -833,43 +1000,96 @@ function placedContours(
     const q = through ? through(p) : p;
     return [q[0] * unit, q[1] * unit];
   };
-  // The one word that asks for a geodesic asks for it by name, in every
-  // projection — and under one that draws a geodesic straight there is
-  // nothing left to sample.
-  const geodesicEdge = geom.kind === 'line';
   const mid = geodesicEdge
     ? (a: [number, number], b: [number, number]): [number, number] => {
       const g = space.geodesic(a, b, 0.5);
       return [g[0], g[1]];
     }
-    : (a: [number, number], b: [number, number]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  return raw.map((contour) => {
+    : onCurve
+      ? (a: [number, number], b: [number, number]): [number, number] => onCurve([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
+      : (a: [number, number], b: [number, number]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  // On a sphere x comes round every `period`. A stepped point comes back
+  // with the name the space gives it; each is renamed within half a period
+  // of the one before it, from the anchor on, so a round outline's numbers
+  // run on as its drawing does.
+  const period = 2 * Math.PI * space.radius;
+  const named = (pts: [number, number][]): [number, number][] => {
+    if (!round || !(space.curvature > 0)) return pts;
+    let ref = round.anchor;
+    return pts.map((q) => {
+      const r: [number, number] = [q[0] - period * Math.round((q[0] - ref[0]) / period), q[1]];
+      ref = r;
+      return r;
+    });
+  };
+  const wholeClosed = geomClosed(geom);
+  return raw.map((contour): PlacedContour => {
     const prims = contour.flatMap((p) => transformPrim(p, toDrawable));
     let flat: [number, number][] = [];
+    // `seg[i]` flags the segment `flat[i] → flat[i + 1]`: a piece of a curve
+    // the shape draws or a straight edge of it, and a geodesic or not.
+    let seg: number[] = [];
     for (const q of prims) {
       const fp = flattenPrim(q, tol);
-      for (let i = flat.length > 0 ? 1 : 0; i < fp.length; i++) flat.push(fp[i]);
+      const flags = q.t !== 'line' ? SEG_CURVE : q.geodesic ? SEG_GEODESIC : 0;
+      for (let i = flat.length > 0 ? 1 : 0; i < fp.length; i++) {
+        if (flat.length > 0) seg.push(flags);
+        flat.push(fp[i]);
+      }
+    }
+    if (smooth !== undefined && smoothed) {
+      flat = chaikin(flat, smooth, wholeClosed);
+      seg = flat.slice(1).map(() => SEG_CURVE);
     }
     // A piece the sketch could not place — a NaN radius from a field that
     // says "not a place", most often — draws nothing, and nothing throws.
-    for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
-    // On a sphere x comes round, so one line has two names and the flat
-    // segment between them would run the long way. The short way is the
-    // segment. A pole has every x for a name, so a segment to it or from
-    // it takes its neighbour's and runs along the meridian. A `line`
-    // already walks the geodesic, which knows both.
-    if (space.curvature > 0 && !geodesicEdge) {
-      flat = poleNames(flat, space.center[1] * unit, space.radius * unit);
-      shortWay(flat, 2 * Math.PI * space.radius * unit);
+    for (const [x, y] of flat) if (!Number.isFinite(x) || !Number.isFinite(y)) return { pts: [] };
+    // On a sphere x comes round, so one line has two names. A pole has
+    // every x for a name, so a segment to it or from it takes its
+    // neighbour's and runs along the meridian. A STROKE's author drew the
+    // segment between two names, so the segment is the short way. An
+    // AREA's loop keeps the side its winding names: it is walked as drawn,
+    // and an edge longer than half the circumference runs the long way,
+    // because that is where the drawn edge goes. A geodesic knows both,
+    // and a stepped point is renamed after it is placed.
+    if (space.curvature > 0 && !geodesicEdge && !round) {
+      ({ pts: flat, seg } = poleNames(flat, seg, space.center[1] * unit, space.radius * unit));
+      const a = flat[0];
+      const z = flat[flat.length - 1];
+      const closed = wholeClosed && (geom.kind !== 'path' || (flat.length > 2 && Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9));
+      if (!closed) shortWay(flat, 2 * Math.PI * space.radius * unit);
     }
     // A straight geodesic under a straight chart has nothing left to
     // sample — unless a placement stands between the sample and the sheet,
     // which is the one thing that can bend it again.
-    if (flat.length === 0 || (geodesicEdge && space.straight && !bent) || !refine) {
-      return through ? flat.map(([x, y]) => placed([x / unit, y / unit])) : flat;
+    if (flat.length === 0 || (geodesicEdge && space.straight && !bent && !before) || refine === 'none') {
+      if (!round) {
+        const pts = through ? flat.map(([x, y]) => placed([x / unit, y / unit])) : flat;
+        return geodesicEdge ? { pts, geodesic: pts.slice(1).map(() => true) } : { pts };
+      }
     }
-    const pts = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
-    const out: [number, number][] = [pts[0]];
+    const src = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
+    const pts = before ? src.map(before) : onCurve ? src.map(onCurve) : src;
+    const out: [number, number][] = pts.length > 0 ? [pts[0]] : [];
+    /** Is segment `i - 1 → i` a geodesic of the space? */
+    const geodesicAt = (i: number): boolean => geodesicEdge || (seg[i - 1] & SEG_GEODESIC) !== 0;
+    /** Is segment `i - 1 → i` one this refinement samples? A geodesic under
+     * a chart that draws it straight has nothing to sample. */
+    const sampled = (i: number): boolean =>
+      refine === 'all' ? !(geodesicAt(i) && space.straight && !bent) : refine === 'curves' && (seg[i - 1] & SEG_CURVE) !== 0;
+    /** The midpoint a segment is halved at: on the geodesic for a segment
+     * that is one, else the shape's own. */
+    const geodesicMid = (a: [number, number], b: [number, number]): [number, number] => {
+      const g = space.geodesic(a, b, 0.5);
+      return [g[0], g[1]];
+    };
+    const midAt = (i: number) => (!geodesicEdge && geodesicAt(i) ? geodesicMid : mid);
+    // Each output segment's geodesic flag, from the segment it is a piece of.
+    const outGeodesic: boolean[] = [];
+    const record = (i: number, before: number): void => {
+      const g = round !== null || geodesicAt(i);
+      for (let k = before; k < out.length; k++) outGeodesic.push(g);
+    };
     if (bow !== undefined && geodesicEdge && !through) {
       const chordMid = chordMiddle(space.model);
       const stored = (a: [number, number], b: [number, number], depth: number): void => {
@@ -881,39 +1101,64 @@ function placedContours(
         stored(a, m, depth + 1);
         stored(m, b, depth + 1);
       };
-      for (let i = 1; i < pts.length; i++) stored(pts[i - 1], pts[i], 0);
-      return out.map(placed);
-    }
-    const halve = (
-      a: [number, number], b: [number, number],
-      pa: [number, number], pb: [number, number], depth: number,
-    ): void => {
-      const m = mid(a, b);
-      const pm = sheet(m);
-      // How far the projected chord runs from the projected image: the
-      // distance from the image's middle to the chord itself, not to the
-      // chord's middle — a projection need not carry the one to the other.
-      const dx = pb[0] - pa[0];
-      const dy = pb[1] - pa[1];
-      const len = Math.hypot(dx, dy);
-      const dev = len > 0
-        ? Math.abs(dx * (pm[1] - pa[1]) - dy * (pm[0] - pa[0])) / len
-        : Math.hypot(pm[0] - pa[0], pm[1] - pa[1]);
-      // A segment that has a place on the sheet at one end and none at the
-      // other crosses the edge of a hemisphere chart somewhere inside it.
-      // The deviation says nothing there (it is NaN), so the crossing is
-      // hunted down by halving instead, and the piece that does have a
-      // place is sampled like any other.
-      const together = Number.isFinite(pa[0]) === Number.isFinite(pm[0]) && Number.isFinite(pm[0]) === Number.isFinite(pb[0]);
-      if ((together && !(dev > tol)) || depth >= SPACE_DEPTH) {
-        out.push(b);
-        return;
+      for (let i = 1; i < pts.length; i++) {
+        const n0 = out.length;
+        if (sampled(i)) stored(pts[i - 1], pts[i], 0);
+        else out.push(pts[i]);
+        record(i, n0);
       }
-      halve(a, m, pa, pm, depth + 1);
-      halve(m, b, pm, pb, depth + 1);
+    } else {
+      const halve = (
+        a: [number, number], b: [number, number],
+        pa: [number, number], pb: [number, number], depth: number,
+        mid: (a: [number, number], b: [number, number]) => [number, number],
+      ): void => {
+        const m = mid(a, b);
+        const pm = sheet(m);
+        // How far the projected chord runs from the projected image: the
+        // distance from the image's middle to the chord itself, not to the
+        // chord's middle — a projection need not carry the one to the other.
+        const dx = pb[0] - pa[0];
+        const dy = pb[1] - pa[1];
+        const len = Math.hypot(dx, dy);
+        const dev = len > 0
+          ? Math.abs(dx * (pm[1] - pa[1]) - dy * (pm[0] - pa[0])) / len
+          : Math.hypot(pm[0] - pa[0], pm[1] - pa[1]);
+        // A segment that has a place on the sheet at one end and none at the
+        // other crosses the edge of a hemisphere chart somewhere inside it.
+        // The deviation says nothing there (it is NaN), so the crossing is
+        // hunted down by halving instead, and the piece that does have a
+        // place is sampled like any other.
+        const together = Number.isFinite(pa[0]) === Number.isFinite(pm[0]) && Number.isFinite(pm[0]) === Number.isFinite(pb[0]);
+        if ((together && !(dev > tol)) || depth >= SPACE_DEPTH) {
+          out.push(b);
+          return;
+        }
+        halve(a, m, pa, pm, depth + 1, mid);
+        halve(m, b, pm, pb, depth + 1, mid);
+      };
+      for (let i = 1; i < pts.length; i++) {
+        const n0 = out.length;
+        if (sampled(i)) halve(pts[i - 1], pts[i], sheet(pts[i - 1]), sheet(pts[i]), 0, midAt(i));
+        else out.push(pts[i]);
+        record(i, n0);
+      }
+    }
+    const here = named(after ? out.map(after) : out);
+    const geodesic = outGeodesic.some((g) => g) ? outGeodesic : undefined;
+    if (!onCurve || !after) return geodesic ? { pts: here.map(placed), geodesic } : { pts: here.map(placed) };
+    const n = out.length;
+    return {
+      pts: here.map(placed),
+      ...(geodesic ? { geodesic } : {}),
+      curve: (seg, t) => {
+        const a = out[seg];
+        const b = out[(seg + 1) % n];
+        const q = after(onCurve([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]));
+        const ref = here[seg];
+        return placed(space.curvature > 0 ? [q[0] - period * Math.round((q[0] - ref[0]) / period), q[1]] : q);
+      },
     };
-    for (let i = 1; i < pts.length; i++) halve(pts[i - 1], pts[i], sheet(pts[i - 1]), sheet(pts[i]), 0);
-    return out.map(placed);
   });
 }
 
@@ -944,7 +1189,11 @@ export function lowerToUserContours(
   opts: TransformOp,
   frame: Frame,
   tol = 0.05,
-): { pts: [number, number][]; closed: boolean }[] {
+  /** `'curves'` keeps a straight edge whole: the shape's own vertices,
+   * which is what `t.material(shape)` hands back (see `Refine`). In the
+   * flat plane nothing is sampled but a curve, so the two are one. */
+  refine: Exclude<Refine, 'none'> = 'all',
+): { pts: [number, number][]; closed: boolean; curve?: (seg: number, t: number) => [number, number]; geodesic?: boolean[] }[] {
   const rz = new Resolver(frame);
   const { outer, inner: m } = splitChain([opts], rz);
   const wholeClosed = geomClosed(geom);
@@ -959,13 +1208,13 @@ export function lowerToUserContours(
     // mm, as it always has.
     const userFrame = userFrameMatrix(frame);
     const back = invert(userFrame);
-    // A `line` is stored as chords of its geodesic, and a stored chord is
-    // judged in the metric, where no placement can change it.
-    const bow = geom.kind === 'line' && space !== FLAT ? geodesicBow(space, frame, tol) : undefined;
+    // A geodesic edge is stored as chords of its geodesic, and a stored
+    // chord is judged in the metric, where no placement can change it.
+    const bow = geodesicEdges(geom, space, false) && space !== FLAT ? geodesicBow(space, frame, tol) : undefined;
     return placedContours(
-      geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol, true,
+      geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol, refine,
       through ?? undefined, chainBends(outer, space), bow,
-    ).map((pts) => {
+    ).map(({ pts, curve, geodesic }) => {
       const user = pts.map(([x, y]) => apply(back, x, y));
       let closed = wholeClosed;
       if (geom.kind === 'path') {
@@ -973,7 +1222,12 @@ export function lowerToUserContours(
         const z = user[user.length - 1];
         closed = user.length > 2 && !!a && !!z && Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9;
       }
-      return { pts: user, closed };
+      return {
+        pts: user,
+        closed,
+        ...(curve ? { curve: (seg: number, t: number) => apply(back, ...curve(seg, t)) } : {}),
+        ...(geodesic ? { geodesic } : {}),
+      };
     });
   }
   return lowerGeom(geom, rz).map((contour) => {
@@ -1019,20 +1273,23 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   // vertices: inserting samples would renumber the segments those ranges
   // address. Its chords come from the 3D projector already fine, so it is
   // placed and not refined.
-  const refine = shape.strokeRanges === undefined;
+  const refine = shape.strokeRanges === undefined ? 'all' : 'none';
+  // In a curved space `smooth` rounds the FLAT outline, before the
+  // placement; the engine runs what is left of the stack.
+  const lift = space && space !== FLAT && refine === 'all' ? liftSmooth(shape.modifiers) : null;
   const contours = space
     // Place, sample to tolerance, project, then offset into paper and snap
     // — the same steps the sketch-time door takes, with the projection that
     // only ink needs.
     ? placedContours(
       shape.geom, raw, toDrawable, frame, space, INK_TOL, refine,
-      through ?? undefined, chainBends(outer, space),
+      through ?? undefined, chainBends(outer, space), undefined, lift?.passes,
     )
       // One contour in, one contour out wherever the whole of it has a
       // place on the sheet — which is every projection of the hyperbolic
       // space. A hemisphere chart can cut one contour into several, and
       // then each piece is a contour of its own.
-      .flatMap((pts) => projectRuns(pts, space, unitMm(frame)).map((run) => {
+      .flatMap(({ pts }) => projectRuns(pts, space, unitMm(frame)).map((run) => {
         const out: Prim[] = [];
         let prev: [number, number] | null = null;
         for (const [x, y] of run) {
@@ -1048,7 +1305,10 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     : raw.map((contour) =>
       contour.flatMap((p) => transformPrim(p, chain)).map(snapPrim),
     );
-  const convex = isConvexGeom(shape.geom);
+  // A convex outline stays convex under the flat plane's own maps. Under a
+  // chart it need not: an ngon's geodesic edges bow in on the Poincaré
+  // disk, so a curved space makes no promise and the engine measures.
+  const convex = space && space !== FLAT ? false : isConvexGeom(shape.geom);
   // C: the intrinsic bbox centre (pre-transform) — the one anchor every
   // shape kind has, and a fixed point of the shape under G.
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -1081,7 +1341,29 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
       anchor.f = q[1] * unit + frame.offsetY;
     }
   }
-  return { shape, contours, convex, anchor };
+  return { shape, contours, convex, anchor, modifiers: lift?.rest ?? shape.modifiers };
+}
+
+/**
+ * The `smooth` entries a curved space runs on the flat outline, and the
+ * stack the engine runs after them. A smooth is lifted only where the
+ * engine would have run it on the shape's own outline: before any
+ * `roughen` or `deform`, which move the points it would round. The post
+ * stage (decimate, wobble, dash) runs after every pre-stage entry
+ * whatever the order, so it stays where it is. Passes are clamped as the
+ * engine clamps them (1 to 8). Null when there is nothing to lift, and
+ * the stack is then the shape's own array.
+ */
+function liftSmooth(mods: readonly ModifierValue[]): { passes: number[]; rest: ModifierValue[] } | null {
+  const passes: number[] = [];
+  const rest: ModifierValue[] = [];
+  let moved = false;
+  for (const m of mods) {
+    if (m.kind === 'roughen' || m.kind === 'deform') moved = true;
+    if (m.kind === 'smooth' && !moved) passes.push(Math.min(8, Math.max(1, Math.round(m.passes))));
+    else rest.push(m);
+  }
+  return passes.length > 0 ? { passes, rest } : null;
 }
 
 function isConvexGeom(geom: ShapeGeom): boolean {

@@ -450,16 +450,44 @@ export function polygon(contours: AreaInput | Contour | Contour[] | ShapeValue, 
     return shape({ kind: 'area', of: { geom: contours.geom, opts: { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin } }, winding }, rest);
   }
   const loops = lowerArea(null, contours, 'polygon');
+  const geodesic = geodesicSegments(contours);
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
     cmds.push({ op: 'move', x: loop[0][0], y: loop[0][1] });
     for (let k = 1; k < loop.length; k++) {
-      cmds.push({ op: 'line', x: loop[k][0], y: loop[k][1] });
+      cmds.push(geodesic?.(loop[k - 1], loop[k]) ? { op: 'line', x: loop[k][0], y: loop[k][1], geodesic: true } : { op: 'line', x: loop[k][0], y: loop[k][1] });
     }
-    cmds.push({ op: 'close' });
+    cmds.push(geodesic?.(loop[loop.length - 1], loop[0]) ? { op: 'close', geodesic: true } : { op: 'close' });
   }
   return shape({ kind: 'path', cmds, winding }, rest);
+}
+
+/**
+ * The geodesic segments of an area source, as a test on a segment's two
+ * ends: the chains the source answers (`curves()`), each segment its
+ * `geodesic` flag says is one, keyed by its ends either way round. A
+ * loop `areaLoops` reads — a closed chain, a face's rim — is made of those
+ * very edges, with the very coordinates. Undefined when nothing is a
+ * geodesic, which is every flat source.
+ */
+function geodesicSegments(source: unknown): ((a: readonly [unknown, unknown], b: readonly [unknown, unknown]) => boolean) | undefined {
+  if (typeof source !== 'object' || source === null || typeof (source as { curves?: unknown }).curves !== 'function') return undefined;
+  const keys = new Set<string>();
+  for (const c of (source as { curves(): IsoContour[] }).curves()) {
+    const g = c.geodesic;
+    if (!g) continue;
+    const n = c.pts.length;
+    for (let k = 0; k < g.length; k++) {
+      if (!g[k]) continue;
+      const a = c.pts[k];
+      const b = c.pts[(k + 1) % n];
+      keys.add(`${a[0]},${a[1]},${b[0]},${b[1]}`);
+      keys.add(`${b[0]},${b[1]},${a[0]},${a[1]}`);
+    }
+  }
+  if (keys.size === 0) return undefined;
+  return (a, b) => keys.has(`${a[0]},${a[1]},${b[0]},${b[1]}`);
 }
 
 /**
@@ -694,13 +722,17 @@ export function stroke(
 ): ShapeValue {
   const pts = Array.isArray(contour) ? contour : contour.pts;
   const closed = Array.isArray(contour) ? false : contour.closed;
+  // A segment the contour names a geodesic is drawn as one (a material
+  // edge with `geodesic = 1`); every other is the image of its coordinate
+  // segment, as always.
+  const geodesic = Array.isArray(contour) ? undefined : contour.geodesic;
   const cmds: PathCmd[] = [];
   if (pts.length > 0) {
     cmds.push({ op: 'move', x: pts[0][0], y: pts[0][1] });
     for (let i = 1; i < pts.length; i++) {
-      cmds.push({ op: 'line', x: pts[i][0], y: pts[i][1] });
+      cmds.push(geodesic?.[i - 1] ? { op: 'line', x: pts[i][0], y: pts[i][1], geodesic: true } : { op: 'line', x: pts[i][0], y: pts[i][1] });
     }
-    if (closed) cmds.push({ op: 'close' });
+    if (closed) cmds.push(geodesic?.[pts.length - 1] ? { op: 'close', geodesic: true } : { op: 'close' });
   }
   return shape({ kind: 'path', cmds, winding: 'nonzero' }, opts);
 }
@@ -1200,8 +1232,13 @@ function isPointArg(v: unknown): v is XY {
 /** A shape's outlines in sketch units through THE lowerer (rectMode, arc
  * commands, the shape's own transform opts, curves flattened at
  * `tolerance`), each with its own closure. Shared by `material` and
- * `sample`. */
-function shapeContours(run: Execution, shape: ShapeValue, tolerance: L | undefined): { pts: [number, number][]; closed: boolean }[] {
+ * `sample`. `'curves'` keeps every straight edge whole, so the outline's
+ * vertices are the shape's own in every space; a circle's or an ellipse's
+ * outline in a curved space also carries `curve`, the point of the curve
+ * itself between two of its vertices. */
+function shapeContours(
+  run: Execution, shape: ShapeValue, tolerance: L | undefined, refine: 'all' | 'curves' = 'all',
+): { pts: [number, number][]; closed: boolean; curve?: (seg: number, t: number) => [number, number]; geodesic?: boolean[] }[] {
   if (!shape || typeof shape !== 'object' || !('geom' in shape) || !('opts' in shape)) {
     throw new Error('expected a shape value (circle, rect, path, polygon, …); for points use the pure material(points)');
   }
@@ -1214,7 +1251,20 @@ function shapeContours(run: Execution, shape: ShapeValue, tolerance: L | undefin
     { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
     frame,
     tol,
-  ).map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
+    refine,
+  ).map(({ closed, pts, curve, geodesic }) => {
+    const sketch = pts.map(([x, y]) => [x / unit, y / unit] as [number, number]);
+    if (!curve) return geodesic ? { closed, pts: sketch, geodesic } : { closed, pts: sketch };
+    return {
+      closed,
+      pts: sketch,
+      ...(geodesic ? { geodesic } : {}),
+      curve: (seg: number, t: number): [number, number] => {
+        const [x, y] = curve(seg, t);
+        return [x / unit, y / unit];
+      },
+    };
+  });
 }
 
 /** The host's automatic form of `inspect`, bound to a run: called for
@@ -1670,7 +1720,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (shapes.length === 0) return spaced(materialOf([]));
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
-    for (const shape of shapes) for (const c of shapeContours(exec, shape as ShapeValue, opts.tolerance)) {
+    // In a curved space every edge says what it is: a geodesic of the
+    // space (the edges of a line, a circle, an ellipse, an ngon), or the
+    // image of its coordinate segment (a rect's, a path's, a polygon's).
+    // The flat plane has no difference to say, and writes nothing.
+    const curved = exec.space.kind !== 'euclidean';
+    const geodesic: number[] = [];
+    // The shape's own vertices in every space: a straight edge is kept
+    // whole, and the ink door samples it when the material is drawn.
+    for (const shape of shapes) for (const c of shapeContours(exec, shape as ShapeValue, opts.tolerance, 'curves')) {
+      const flag = (k: number): number => (c.geodesic?.[k] ? 1 : 0);
       let poly = c.pts;
       // A closed outline comes back with its start repeated at the end: the
       // ring closes with an edge, not a coincident vertex.
@@ -1682,11 +1741,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       const first = pts.length;
       for (let k = 0; k < poly.length; k++) {
         pts.push(poly[k]);
-        if (k > 0) edges.push([first + k - 1, first + k]);
+        if (k > 0) {
+          edges.push([first + k - 1, first + k]);
+          geodesic.push(flag(k - 1));
+        }
       }
-      if (c.closed && poly.length > 2) edges.push([first + poly.length - 1, first]);
+      // The closing edge is the outline's last segment: back onto the seam
+      // the ring dropped, or the implicit one when there was none.
+      if (c.closed && poly.length > 2) {
+        edges.push([first + poly.length - 1, first]);
+        geodesic.push(flag(poly.length - 1));
+      }
     }
-    return spaced(materialOf(pts, { edges }));
+    const m = materialOf(pts, { edges });
+    return spaced(curved ? m.edgeAttribute('geodesic', (e) => geodesic[e.index]) : m);
   }
 
   /**
@@ -1737,14 +1805,18 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     // on the geodesic. Euclidean: the literal `Math.hypot` sum of
     // `chainLengths` and the literal lerp below.
     const curved = exec.space.kind !== 'euclidean' ? exec.space : null;
-    for (const { pts: poly, closed } of shapeContours(exec, shape, opts.tolerance)) {
+    for (const { pts: poly, closed, curve } of shapeContours(exec, shape, opts.tolerance)) {
       const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU, space: exec.space });
       const first = pts.length;
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         const [x0, y0] = poly[seg];
         const [x1, y1] = poly[(seg + 1) % poly.length];
-        if (curved) {
+        // A circle or an ellipse in a curved space: the sample is ON the
+        // curve, a step from its centre, and not on a chord of it.
+        if (curve) {
+          pts.push(curve(seg, t));
+        } else if (curved) {
           const g = curved.geodesic([x0, y0], [x1, y1], t);
           pts.push([g[0], g[1]]);
         } else {

@@ -32,6 +32,10 @@ export { chainSegments, marchSegments } from './marching.js';
 export interface IsoContour {
   pts: [number, number][];
   closed: boolean;
+  /** Segment by segment (a closed contour's closing segment last): is it a
+   * geodesic of the sketch's space? Absent, every segment is the image of
+   * its coordinate segment. A material's `geodesic` edge column says it. */
+  geodesic?: readonly boolean[];
 }
 
 export interface IsoOpts {

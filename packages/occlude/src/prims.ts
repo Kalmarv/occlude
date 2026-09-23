@@ -4,7 +4,10 @@
  */
 
 export type Prim =
-  | { t: 'line'; x0: number; y0: number; x1: number; y1: number }
+  /** `geodesic`: in a curved sketch, this segment is the geodesic between
+   * its ends and not the image of the coordinate segment. Only the
+   * placement in a curved space reads it; the engine never sees it. */
+  | { t: 'line'; x0: number; y0: number; x1: number; y1: number; geodesic?: true }
   | { t: 'arc'; cx: number; cy: number; r: number; start: number; sweep: number }
   | {
       t: 'cubic';

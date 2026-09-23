@@ -1,30 +1,28 @@
 ---
 title: Circles
-description: Eight rings about one point, drawn as steps of the space and as XY and sin/cos.
+description: Eight rings about one point, drawn as steps of the space, once by circle and once by t.space.circle.
 ---
 
 Eight rings about one point, at eight equal radii, drawn twice. The sketch draws in the hyperbolic plane, so a coordinate is a position by steps from the centre of the drawable.
 
 The ink family is the circle of the plane: every point one step `r` away from the middle point, in every direction. `t.space.circle` gives those points, and the sketch joins them up.
 
-The faint family is what `circle` draws: `XY` and sin/cos in the coordinates the sketch writes. It is a shape like any other, and a shape is its anchor plus offsets.
+The faint family is what `circle` draws. A round shape is steps from its centre, so `circle` draws the same circle of the plane. The two families are one family, and each faint ring lies under an ink ring.
 
-The two start together. A step at the centre of the drawable is one drawable unit, so near the middle the two families almost agree.
+The rings are equal steps apart in the plane. The disk draws each one as a round circle, but the circles get closer together and drift toward the rim. A step far from the centre of the disk takes less of the page.
 
-After that they part. A row of the coordinates opens out away from the base, and an offset along it is worth more than its number. So the faint rings hold more of the plane to the left and right than up and down. They stretch that way. The ink rings stay round in the metric. The disk draws each one as a round circle that drifts toward the rim.
-
-The small dot marks the one point both families are about. The rim is the horizon of the picture. It is one more ring, at a radius so far out that the chart has nowhere left to put it.
+The small dot marks the point that all the rings are about. The rim is the horizon of the picture. It is one more ring, at a radius so far out that the chart has nowhere left to put it.
 
 Uses: `space.hyperbolic`, `t.space`, `circle`, `stroke`, `t.times`, `pen`, `mm`.
 
 ```ts live
-// CIRCLES, BY THE METRIC AND BY THE COORDINATES
+// CIRCLES OF THE HYPERBOLIC PLANE, TWO WAYS
 //
 // Eight rings about one point, at eight equal radii, drawn two ways. The
-// ink ones are the circles of the hyperbolic plane: every point one step
-// out. The faint ones are what `circle` draws — XY and sin/cos in the
-// sketch's own coordinates, placed by the same steps as everything else.
-// They start together at the middle and part as the rows open out.
+// ink ones are joined from t.space.circle: every point one step out. The
+// faint ones are what `circle` draws — a round shape is steps from its
+// centre, so they are the same rings, and each faint ring lies under an
+// ink one.
 import { sketch, stroke, circle, pen, mm, space } from 'occlude';
 
 export default sketch(

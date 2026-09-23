@@ -189,8 +189,10 @@ describe('lowering through the space', () => {
     const t = tk({ space: space.hyperbolic({ radius: 80 }) });
     // One edge on its own, so there is nothing to disentangle: in the
     // MODEL a geodesic is an arc of the circle that meets the rim at right
-    // angles, `|centre|² = r² + 1`.
-    const pts = t.material(line(16, 22, 88, 74)).pts;
+    // angles, `|centre|² = r² + 1`. `t.material` keeps a line's two ends
+    // (its own vertices); `t.sample` walks the edge between them.
+    expect(t.material(line(16, 22, 88, 74)).n).toBe(2);
+    const pts = t.sample(line(16, 22, 88, 74), { count: 24 }).pts;
     expect(pts.length).toBeGreaterThan(4);
     const model = (p: readonly [number, number]): [number, number] => {
       const z = t.space.toChart(p);
@@ -225,17 +227,17 @@ describe('lowering through the space', () => {
     expect(box[0].length).toBeGreaterThan(4);
   });
 
-  it('draws a circle as the sin/cos circle of the coordinates', () => {
+  it('draws a circle as steps of r from its centre: the circle of the space', () => {
     const t = tk({ space: space.hyperbolic({ radius: 80 }) });
-    // A circle away from the base row: `XY` and sin/cos, placed by the
-    // same steps as everything else.
+    // A circle away from the base row: every point is `exp(c, r·(cos θ,
+    // sin θ))`, what `t.space.circle` draws (spec 57).
     const m = t.material(circle(50, 85, 20));
-    for (const p of m.pts) expect(Math.hypot(p[0] - 50, p[1] - 85)).toBeCloseTo(20, 6);
-    // Which is NOT the circle of the space up there: a step along a row is
-    // worth more than a step down a column, so the loop is an oval in the
-    // metric. `t.space.circle` is the word for the other one.
-    const along = m.pts.map((p) => t.space.distance([50, 85], p));
-    expect(Math.max(...along)).toBeGreaterThan(Math.min(...along) * 1.1);
+    for (const p of m.pts) expect(t.space.distance([50, 85], p)).toBeCloseTo(20, 9);
+    // Which is NOT the sin/cos circle of the coordinates up there: a step
+    // along a row is worth more than a step down a column, so the circle
+    // of the space is an oval in the coordinates.
+    const coords = m.pts.map((p) => Math.hypot(p[0] - 50, p[1] - 85));
+    expect(Math.max(...coords)).toBeGreaterThan(Math.min(...coords) * 1.1);
   });
 
   it('keeps the flat lowering literally unchanged with no space key', () => {
