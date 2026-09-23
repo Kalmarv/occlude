@@ -510,6 +510,12 @@ export class Material {
    * is asked for. A box like the others, because the state is frozen — and
    * the one seat a value that knows its own faces (a `Tiling`) fills. */
   readonly facesBox: { faces: Faces | null };
+  /** @internal The area of a material whose area is worked out when it is
+   * asked for (a level set: its lines are the rows, and the closed regions
+   * are a material of their own). `make` builds it the first time
+   * `areaMaterial(m)` is called, and `material` keeps it. Both null: the
+   * material's area is its own closed chains. A box, like the others. */
+  readonly areaBox: { make: (() => Material) | null; material: Material | null };
   /** One id per vertex row, and one per edge row. Outside `attrs` on
    * purpose: a column would be interpolated at every split (a mean of two
    * ids is a forged id), would be demanded of every `addPoint` caller, and
@@ -585,6 +591,9 @@ export class Material {
       faceAttrs?: Record<string, FaceColumn>;
       /** The space the coordinates belong to (see `Material.space`). */
       space?: Space;
+      /** The material's area, when it is not its own closed chains: built
+       * the first time an area consumer asks (see `areaMaterial`). */
+      area?: () => Material;
     } = {},
   ) {
     const {
@@ -632,6 +641,7 @@ export class Material {
     }
     this.adjBox = { rows: null, edges: null };
     this.facesBox = { faces: null };
+    this.areaBox = { make: carry.area ?? null, material: null };
     const edgeCount = edgeList.length / 2;
     if (ids?.points !== undefined && ids.points.length !== this.n) {
       throw new Error(`material: ${ids.points.length} point ids for ${this.n} vertices`);
@@ -679,7 +689,15 @@ export class Material {
     // have been read (cached on the state): the reverse of `face.edges`.
     const owner = this;
     const edgeProto = Object.create(viewProto(this, 'edge')) as object;
-    Object.defineProperty(edgeProto, 'faces', { get(this: Edge) { return owner.faces().facesOf(this); }, enumerable: false });
+    // The faces of a material with an area of its own are that area's: the
+    // edge is found there by id.
+    Object.defineProperty(edgeProto, 'faces', {
+      get(this: Edge) {
+        const cells = owner.faces();
+        return cells.facesOf(cells.source === owner ? this : cells.source.edgeOf(this.id)!);
+      },
+      enumerable: false,
+    });
     Object.defineProperty(edgeProto, 'id', { get(this: Edge) { return owner.edgeIds[this.index] as EdgeId; }, enumerable: false });
     Object.defineProperty(edgeProto, 'root', { get(this: Edge) { return owner.edgeRoots[this.index] as EdgeId; }, enumerable: false });
     Object.defineProperty(edgeProto, 'center', { get(this: Edge) { return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec; }, enumerable: false });
@@ -896,8 +914,12 @@ export class Material {
    * face collection: repeated calls return the same object, so a face view
    * from any call is accepted by every consumer of this material's faces. */
   faces(): Faces {
+    const area = areaMaterial(this);
+    if (area !== this) return area.faces();
     return (this.facesBox.faces ??= faces(this));
   }
+
+
 
   /** For material made by `t.voronoi`: the cell (a face of this material's
    * `faces()`) of a site vertex, or undefined when the site has no cell
@@ -949,9 +971,13 @@ export class Material {
    * winding. This is what an area consumer reads — `polygon(m)` fills these
    * and `t.within(x, m)` bounds by them. A material whose chains are all
    * open has no area, and the consumer says so rather than drawing nothing.
-   * For every chain, open or closed, see `curves()`.
+   * For every chain, open or closed, see `curves()`. A level set's area is
+   * its regions, closed along the drawable, a bound and every hole: worked
+   * out on this first ask, not by `t.isolines`.
    */
   contours(): IsoContour[] {
+    const area = areaMaterial(this);
+    if (area !== this) return area.contours();
     return this.curves().filter((c) => c.closed);
   }
 
@@ -2608,10 +2634,14 @@ export function loopCrossings(
  */
 export function inSpace(m: Material, space: Space): Material {
   if (m.space === space) return m;
+  // The rows are the same rows, so an area of their own is the same area,
+  // in the same space.
+  const own = m.areaBox.make !== null || m.areaBox.material !== null;
   return new Material(Float64Array.from(m.x), Float64Array.from(m.y), copyAttrs(m.attrs), Uint32Array.from(m.edgeList), {
     iteration: m.iteration, history: m.history, edgeAttrs: copyAttrs(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
     ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) },
     faceAttrs: m.faceAttrs, space,
+    ...(own ? { area: () => inSpace(areaMaterial(m), space) } : {}),
   });
 }
 
@@ -4283,4 +4313,72 @@ export function geodesicEdges(m: Material): ((e: number) => boolean) | undefined
   const col = m.edgeAttrs.geodesic;
   if (col === undefined || !col.some((v) => v !== 0)) return undefined;
   return (e) => col[e] !== 0;
+}
+
+/** @internal The material an area consumer reads: `m` itself, or — for a
+ * material whose area is worked out on demand (a level set) — that area,
+ * built on the first ask and kept. */
+export function areaMaterial(m: Material): Material {
+  const box = m.areaBox;
+  if (box.material === null && box.make !== null) {
+    box.material = box.make();
+    box.make = null;
+  }
+  return box.material ?? m;
+}
+
+/**
+ * @internal What an area consumer reads of `input`. A material whose area
+ * is worked out on demand (a level set) is read as that area. An edge
+ * selection of one is read as the matching selection of the area: its
+ * edges, found there by id, and every closing run whose two ends are ends
+ * of those edges — so `polygon(m.edges.filter((e) => e.level === 3))`
+ * fills the regions of level 3. A selection of every edge is the whole
+ * area, rings with no level line in them included. Anything else is read
+ * as it is.
+ */
+export function areaView<T>(input: T): T | Material | EdgeSelection {
+  if (input instanceof Material) return areaMaterial(input);
+  if (!(input instanceof EdgeSelection)) return input;
+  const source = input.source;
+  const area = areaMaterial(source);
+  if (area === source) return input;
+  if (input.length === source.edgeCount) return area.edges;
+  const lines = input.in(area);
+  const cut = area.edgeAttrs.cut;
+  if (cut === undefined) return lines;
+  const ends = new Set<number>();
+  for (const e of lines.indices) {
+    ends.add(area.edgeList[2 * e]);
+    ends.add(area.edgeList[2 * e + 1]);
+  }
+  // The closing runs: the components of the cut edges, each a path from one
+  // line end to another (or a ring with no ends, which no line names).
+  const parent = new Int32Array(area.n).map((_, i) => i);
+  const find = (i: number): number => {
+    while (parent[i] !== i) i = parent[i] = parent[parent[i]];
+    return i;
+  };
+  const rimDegree = new Uint32Array(area.n);
+  for (let e = 0; e < area.edgeCount; e++) {
+    if (cut[e] === 0) continue;
+    const a = area.edgeList[2 * e];
+    const b = area.edgeList[2 * e + 1];
+    rimDegree[a]++;
+    rimDegree[b]++;
+    parent[find(a)] = find(b);
+  }
+  // A run is kept when it has ends and every one of them is an end of the
+  // selected lines.
+  const keep = new Map<number, boolean>();
+  for (let v = 0; v < area.n; v++) {
+    if (rimDegree[v] !== 1) continue;
+    const run = find(v);
+    keep.set(run, (keep.get(run) ?? true) && ends.has(v));
+  }
+  const rows = [...lines.indices];
+  for (let e = 0; e < area.edgeCount; e++) {
+    if (cut[e] !== 0 && keep.get(find(area.edgeList[2 * e])) === true) rows.push(e);
+  }
+  return new EdgeSelection(area, rows);
 }

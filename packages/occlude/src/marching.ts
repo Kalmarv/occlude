@@ -55,8 +55,16 @@ export interface SegmentBuffer {
  * Where the domain ends — the drawable with `close`, or an absent sample —
  * counts as below the level, so every region closes along it. A segment
  * that runs along that edge rather than along the level is marked in
- * `segWall`; the level line is everything else. */
-export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): SegmentBuffer {
+ * `segWall`; the level line is everything else.
+ *
+ * `cells` picks which cells emit: `'plain'` the level line alone (it never
+ * reads `grid.wall`, so a grid sampled without its walls serves), `'all'`
+ * every cell, and a list from `edgeCells` the closing runs alone — the
+ * cells at the domain's edge are the same at every level, so they are found
+ * once and each level visits only them. Plain and edge cells are each
+ * other's complement in the same cell order, so either one is
+ * `wallSegments` of `'all'`. */
+export function marchSegments(grid: SampledGrid, lvl: number, close: boolean, cells: 'all' | 'plain' | Int32Array = 'all'): SegmentBuffer {
   const { vals, absent, pw, gw, gh, b, sx, sy, wall } = grid;
   // With `close`, one ring of below-level sentinel samples surrounds the
   // grid (indices -1 and gw/gh), so every region's boundary closes just
@@ -170,6 +178,25 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
       default: seg(0, 3); break; // 14
     }
   };
+  // The edge cells alone: each packed as its padded top-left index, in the
+  // order the full walk meets them. The list is the closing walk's, ring
+  // included, so it is marched as `close` marches.
+  if (cells instanceof Int32Array) {
+    for (let k = 0; k < cells.length; k++) {
+      const o = cells[k];
+      const j = Math.floor(o / pw) - 1;
+      const i = o - (j + 1) * pw - 1;
+      const va = vals[o];
+      const vb = vals[o + 1];
+      const vc = vals[o + pw + 1];
+      const vd = vals[o + pw];
+      const code =
+        (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
+      if (code === 0 || code === 15) continue;
+      wallCell(i, j, o, va, vb, vc, vd, code);
+    }
+    return { segXY, segWall, segN };
+  }
   for (let j = lo; j < hiJ; j++) {
     for (let i = lo; i < hiI; i++) {
       const o = at(i, j);
@@ -184,7 +211,7 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
       if (code === 0 || code === 15) continue;
       const ring = i < 0 || j < 0 || i >= gw - 1 || j >= gh - 1;
       if (ring || absent[o] === 1 || absent[o + 1] === 1 || absent[o + pw + 1] === 1 || absent[o + pw] === 1) {
-        wallCell(i, j, o, va, vb, vc, vd, code);
+        if (cells === 'all') wallCell(i, j, o, va, vb, vc, vd, code);
         continue;
       }
       // Crossing coordinates as scalars. The x of a top/bottom crossing and
@@ -225,6 +252,24 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
     }
   }
   return { segXY, segWall, segN };
+}
+
+/** The cells at the edge of the domain — the pad ring around the lattice
+ * and every cell touching an absent sample — in the order `marchSegments`
+ * walks the cells with `close`, each as its padded top-left index. They do
+ * not depend on the level: `marchSegments(grid, lvl, true, edgeCells(grid))`
+ * is the closing runs of any level. */
+export function edgeCells(grid: SampledGrid): Int32Array {
+  const { absent, pw, gw, gh } = grid;
+  const out: number[] = [];
+  for (let j = -1; j < gh; j++) {
+    for (let i = -1; i < gw; i++) {
+      const o = (j + 1) * pw + (i + 1);
+      const ring = i < 0 || j < 0 || i >= gw - 1 || j >= gh - 1;
+      if (ring || absent[o] === 1 || absent[o + 1] === 1 || absent[o + pw + 1] === 1 || absent[o + pw] === 1) out.push(o);
+    }
+  }
+  return Int32Array.from(out);
 }
 
 /** The segments of one buffer that do (`wall` true) or do not lie in an

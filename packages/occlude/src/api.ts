@@ -55,7 +55,7 @@ import {
   scatterPoints, throwPoints, relaxMaterial, settleMaterial, withinRegion,
   type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts, type ThrowOpts,
 } from './points.js';
-import { levelContours, levelMaterial, type IsoContour, type IsoDomain, type IsoLevels, type IsoOpts } from './isolines.js';
+import { levelLines, levelSetMaterial, type IsoContour, type IsoDomain, type IsoLevels, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { travelTimeOf, type TravelFrom, type TravelOpts } from './travel.js';
@@ -79,7 +79,7 @@ import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, inSpace, isStations, stationAt, stationsMaterial,
-  withinMaterial, areaCentroid, append, type PointsLike, type Station, type Transfer,
+  withinMaterial, areaCentroid, append, areaView, type PointsLike, type Station, type Transfer,
 } from './material.js';
 import { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
@@ -759,7 +759,7 @@ export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(
  * and `mask` make of an area that is not a shape. */
 function areaPath(input: AreaInput, who: string, winding: Winding, opts: ShapeOpts = {}): ShapeValue {
   refuseNonArea(who, input, true);
-  return loopsPath(areaLoops(input, who), winding, opts, geodesicSegments(input));
+  return loopsPath(areaLoops(input, who), winding, opts, geodesicSegments(areaView(input)));
 }
 
 /** Loops as one path shape, each loop a closed subpath. */
@@ -2116,16 +2116,18 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return residualOf(env, field, o);
   }
 
-  /** The level sets of `{ field ≥ at }` via marching squares over the
-   * drawable, as one material: each region's boundary a ring, separate
-   * regions separate, every edge carrying its `level`. A region the drawable
-   * (or the field's `t.within` bound) cuts closes along that edge, through
-   * every corner it passes; those closing edges carry `cut` = 1 and the level
-   * line itself `cut` = 0. `polygon(m)` fills the regions, `strokes(m)` draws
-   * their whole boundary, and `strokes(m.edges.filter((e) => !e.attrs.cut))`
-   * draws the level line alone. Pick levels with `m.edges.filter((e) =>
-   * e.attrs.level === 0.4)` or `m.edges.groupBy((e) => e.attrs.level)`, or
-   * step it like any material. An `at` array marches every level over one
+  /** The level lines of `{ field ≥ at }` via marching squares over the
+   * drawable, as one material: every edge a level line (`cut` = 0) carrying
+   * its `level`. Its area — each region's boundary a ring, closed along the
+   * drawable, the field's `t.within` bound and every hole, through every
+   * corner it passes, those closing edges `cut` = 1 — is worked out the first
+   * time `contours()`, `faces()`, `polygon`, `t.within` or any other area
+   * consumer asks, and kept; a selection of the lines is closed by the runs
+   * that join its ends. `polygon(m)` fills the regions and `strokes(m)` draws
+   * the level lines. Pick levels with `m.edges.filter((e) => e.level ===
+   * 0.4)` or `m.edges.groupBy((e) => e.level)`, or step it like any
+   * material (a verb that moves or rebuilds the rows reads its own closed
+   * chains as its area). An `at` array marches every level over one
    * shared field sampling, in the order given; `{ count }` spreads that many
    * levels evenly inside the field's own sampled range, and `{ spacing }`
    * takes every multiple of it (shifted by `offset`) inside that range. A
@@ -2133,7 +2135,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function isolines(field: FieldFn2, at: IsoLevels, opts: IsoOpts = {}): Material {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(levelMaterial(levelContours(env, field, at, opts, boundDomain(field, env.bounds))));
+    return spaced(levelSetMaterial(levelLines(env, field, at, opts, boundDomain(field, env.bounds))));
   }
 
   /** Where a bound field can exist: the box its `within` bounds share with
