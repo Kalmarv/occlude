@@ -1,4 +1,4 @@
-import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV} from '../geometry/coordinates.js';
+import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3} from '../geometry/surface.js';
 import {Mesh,CurveGeometry,emptyMesh,type EdgeAttributes,type GeometryOptions} from './mesh.js';
 import {emptyCount,emptySize} from '../degenerate.js';
@@ -13,7 +13,7 @@ export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
 }
 /** Revolve an XZ meridian in x>=0 around Z. Point columns follow the profile;
  * side faces inherit profile edge columns, while angular caps have no columns. */
-export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:CurveGeometry<P,E>,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3,SurfaceUV> {
+export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:CurveGeometry<P,E>,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('revolve options must be an object');
   const path=curvePath(profile),angle=options.angle??360,n=options.segments??32,full=Math.abs(angle)===360;
   if(!Number.isFinite(angle)||Math.abs(angle)>360)throw new Error('revolve angle must be within -360 to 360 degrees');
@@ -78,5 +78,5 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:
     add(JSON.stringify(['revolve','end']),boundary.map(i=>index(i,n)).reverse(),{},path.edges.map(i=>source.edges[i].id),boundary.map(i=>capByPoint!.get(i)!).reverse(), 'end');
   }
   const topology=surface3(points.map(p=>p.position as Vec3),faces.map(f=>f.vertices));
-  return new Mesh<P,{},Partial<E>&Attributes3,SurfaceUV>(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key});
+  return new Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV>(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key});
 }

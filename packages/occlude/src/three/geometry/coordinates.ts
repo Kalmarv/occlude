@@ -4,6 +4,8 @@ import type {Vec3} from '../math.js';
 
 /** Ordinary corner columns; chart identity is categorical, UV is interpolated. */
 export type SurfaceUV = {readonly uv:readonly [number,number];readonly chart:string};
+/** The face column a charted surface writes: the chart the face was built with. */
+export type SurfaceChart = {readonly chart:string};
 
 /** Attach charts without changing geometric topology, fixed triangles or IDs.
  * The face column `chart` is the chart the face was built with — its first

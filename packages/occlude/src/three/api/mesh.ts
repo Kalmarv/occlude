@@ -1,4 +1,4 @@
-import {chartSurface3,type SurfaceUV} from '../geometry/coordinates.js';
+import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
 import {inheritTopology3} from '../geometry/topology.js';
 import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCornerRow,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
@@ -720,7 +720,7 @@ export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (re
   return new Mesh(source as Surface3,facesOrOptions as GeometryOptions);
 }
 /** One quad with a stored unit-square XY chart. Subdivision preserves this chart. */
-export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{
+export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV>{
   if(emptySize(width,height))return emptyMesh(options);
   const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
@@ -747,7 +747,7 @@ export interface ParametricOptions extends GeometryOptions {
  * solid draws as an outward surface; swap u and v to turn it inside out.
  *
  * Too few samples, or a point the formula could not answer, is an empty mesh. */
-export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Mesh<{},{},{},SurfaceUV>{
+export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Mesh<{},{},SurfaceChart,SurfaceUV>{
   checkOptions(options);
   if(typeof point!=='function')throw new Error('parametric requires a point formula (u, v) => [x, y, z]');
   for(const [name,value] of [['closeU',options.closeU],['closeV',options.closeV]] as const)if(value!==undefined&&typeof value!=='boolean')throw new Error(`parametric ${name} must be boolean`);
@@ -801,7 +801,7 @@ export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOpt
   return new Mesh(ownSurface3(chartSurface3(surface3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'}))),options);
 }
 /** Each outward-wound face has its own unit-square chart; vertices stay shared. */
-export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{
+export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV>{
   const source=box3(typeof size==='number'?[size,size,size]:size),uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
   return new Mesh(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
 }

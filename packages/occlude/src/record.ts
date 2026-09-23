@@ -14,6 +14,7 @@ import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { Execution, TransformOp } from './execution.js';
 import type { Placement } from './placement.js';
 import { euclideanSpace, geodesicBowOf, INK_TOL, type Space } from './space.js';
+import { chordMiddle, POLE_EPS } from './chord.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
 export interface Frame {
@@ -610,10 +611,6 @@ export function unitMm(frame: Frame): number {
   return Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
 }
 
-/** How finely a curved space is sampled, in mm: the tolerance
- * `lowerToUserContours` has always used for a curve, and a quarter of the
- * thinnest nib the library ships. */
-const SPACE_TOL = 0.05;
 /** An edge that will not sit inside `tol` after this many halvings is one
  * the sheet cannot show anyway. */
 const SPACE_DEPTH = 12;
@@ -627,7 +624,7 @@ const SPACE_DEPTH = 12;
  * and the frame supplies what the door could not. The `line` material
  * door, a tiling's walls and `m.transform` are all sampled to it.
  */
-export function geodesicBow(space: Space, frame: Frame, tol = SPACE_TOL): number {
+export function geodesicBow(space: Space, frame: Frame, tol = INK_TOL): number {
   const bow = space.model.bow;
   if (bow !== undefined) return bow * (tol / INK_TOL);
   const reach = Math.hypot(frame.inner.innerW, frame.inner.innerH) / 2 / unitMm(frame);
@@ -660,11 +657,6 @@ function shortWay(pts: [number, number][], period: number): void {
     if (Math.abs(d) > half) pts[i] = [pts[i][0] - period * Math.round(d / period), pts[i][1]];
   }
 }
-
-/** How near a pole, in radians of the sphere, a point stands ON it: the
- * poles a model point comes back at are one rounding away, and nothing
- * that far off has an azimuth worth keeping. */
-const POLE_EPS = 1e-9;
 
 /**
  * A polyline on a sphere, a point ON A POLE given the names of its
@@ -707,27 +699,6 @@ function poleNames(pts: [number, number][], cy: number, ell: number): [number, n
     i = j - 1;
   }
   return out;
-}
-
-/**
- * The middle of the flat segment between two sketch points, named the way
- * the ink names the segment: on a sphere the far end the short way round,
- * and a pole end on the other end's meridian. Elsewhere it is the plain
- * average.
- */
-function chordMiddle(space: Space): (a: readonly [number, number], b: readonly [number, number]) => [number, number] {
-  if (!(space.curvature > 0)) return (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  const ell = space.radius;
-  const cy = space.center[1];
-  const period = 2 * Math.PI * ell;
-  const onPole = (p: readonly [number, number]): boolean => Math.abs(Math.PI / 2 - Math.abs((p[1] - cy) / ell)) < POLE_EPS;
-  return (a, b) => {
-    let u: [number, number] = [a[0], a[1]];
-    let v: [number, number] = [b[0] - period * Math.round((b[0] - a[0]) / period), b[1]];
-    if (onPole(u)) u = [v[0], u[1]];
-    if (onPole(v)) v = [u[0], v[1]];
-    return [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
-  };
 }
 
 /**
@@ -900,7 +871,7 @@ function placedContours(
     const pts = flat.map(([x, y]) => [x / unit, y / unit] as [number, number]);
     const out: [number, number][] = [pts[0]];
     if (bow !== undefined && geodesicEdge && !through) {
-      const chordMid = chordMiddle(space);
+      const chordMid = chordMiddle(space.model);
       const stored = (a: [number, number], b: [number, number], depth: number): void => {
         const m = mid(a, b);
         if (depth >= SPACE_DEPTH || !(space.distance(chordMid(a, b), m) > bow)) {
@@ -1054,7 +1025,7 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     // — the same steps the sketch-time door takes, with the projection that
     // only ink needs.
     ? placedContours(
-      shape.geom, raw, toDrawable, frame, space, SPACE_TOL, refine,
+      shape.geom, raw, toDrawable, frame, space, INK_TOL, refine,
       through ?? undefined, chainBends(outer, space),
     )
       // One contour in, one contour out wherever the whole of it has a

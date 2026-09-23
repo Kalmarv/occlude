@@ -1386,7 +1386,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     }
     // A wall's stored chords are judged in the metric, where no placement
     // can change them, to the bow the widest part of the chart allows.
-    return tilingKernel(p, q, opts, { door: sp.model, up, bow: geodesicBow(sp, exec.frame) * Math.sqrt(Math.abs(sp.curvature)) });
+    return tilingKernel(p, q, opts, { door: sp.model, up, bow: geodesicBow(sp, exec.frame) });
   }
 
   /**
