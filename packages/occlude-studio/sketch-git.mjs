@@ -25,8 +25,9 @@ export async function ensureRepo(dir) {
   await git(dir, ['init', '-q']);
   await git(dir, ['config', 'user.name', 'occlude studio']);
   await git(dir, ['config', 'user.email', 'studio@occlude.local']);
-  // Thumbnails and the plot log are derived/append-only: not history.
-  writeFileSync(join(dir, '.gitignore'), '.history/\n.thumbs/\n*.jsonl\n');
+  // Thumbnails, studio state and the plot log are derived, per-studio or
+  // append-only: not history.
+  writeFileSync(join(dir, '.gitignore'), '.history/\n.thumbs/\n.studio/\n*.jsonl\n');
   await git(dir, ['add', '-A']);
   await git(dir, ['commit', '-q', '-m', 'import existing sketches']).catch(() => undefined);
 }

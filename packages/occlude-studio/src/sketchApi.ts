@@ -34,6 +34,27 @@ export async function deleteSketchByName(name: string): Promise<void> {
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }
 
+/** What the studio keeps with a sketch but never writes into its source. */
+export interface StudioState {
+  /** The registration point, paper mm. */
+  registration?: [number, number] | null;
+}
+
+export async function loadStudioState(name: string): Promise<StudioState> {
+  const res = await fetch(`/api/sketches/${encodeURIComponent(name)}/studio`);
+  if (!res.ok) throw new Error(`studio state of '${name}' failed (${res.status})`);
+  return (await res.json()) as StudioState;
+}
+
+export async function saveStudioState(name: string, state: StudioState): Promise<void> {
+  const res = await fetch(`/api/sketches/${encodeURIComponent(name)}/studio`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(state),
+  });
+  if (!res.ok) throw new Error(`saving the studio state of '${name}' failed (${res.status})`);
+}
+
 // ---- the library beyond files: forks, snapshots, thumbnails, history ----
 
 export interface SketchInfo extends SketchMeta {

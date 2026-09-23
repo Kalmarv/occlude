@@ -115,6 +115,18 @@ const firstMinutes = exportPng(def, { paper: 'A4', scale: 11.81, timing });
 
 This is a pointer, not an entry. The studio's Machine page holds the machine profiles: an EBB board over Web Serial, or a G-code controller such as GRBL. A profile is the bed, the axes, the pen heights and feeds, and the motion limits. Plot, pause and resume, homing, the pen ladder and the motion tests are on that page. The device notes cover each controller's quirks.
 
+## Registration
+
+A registration mark is a point on the sheet that you can put a pen tip on by hand. Use it to align a second pen with the first pen, or a resume with the first pass. Two pens do not sit at the same place in the holder. After you home the bed again, the paper origin can move too. You cannot touch a pen tip to the paper origin, but you can touch it to a mark.
+
+The Plot panel has three buttons, in the order of the work:
+
+1. Mark registration. Click a point on the preview, in the drawing or outside it. Then push Mark registration. The studio keeps the point in paper millimetres with the sketch, not in the source. A sketch has one point. A new click and a second push replace it. The preview shows the point as a crosshair in the colour of the selected pen.
+2. Draw registration. Put scrap paper under the head, then push Draw registration. The machine goes to the point and draws the mark with the selected pen at the feed of that pen. The mark is a circle 25 mm across with a cross of the same span through its centre. A 5 mm tick goes from the circle along +x. The tick shows a sheet that you put back turned. Then the pen lifts and the head parks. Without a point, the button refuses and tells you why.
+3. Registration point. Use it after a pen change, before a resume or on the next day. Move the head by hand until the tip is on the drawn mark. Then push Registration point. The machine takes its position as the point. On GRBL, the studio sends `G10 L20 P1` with the coordinates of the point. On EBB, the board clears its step counters at the tip.
+
+After step 3, Plot, Frame, Marks and Resume start from the mark. The record of an unfinished plot keeps the registration point. If the sketch has a different point, Resume refuses with `this plot was registered at (x, y); mark registration there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
+
 ## estimatePlanMs()
 
 <include>/_sig/estimatePlanMs.mdx</include>

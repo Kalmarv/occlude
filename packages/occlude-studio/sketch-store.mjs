@@ -20,6 +20,9 @@
  *   DELETE /api/sketches/<name>/snapshots/<id>
  *   POST   /api/sketches/<name>/snapshots/<id>/fork {to?}
  *   GET/PUT /api/sketches/<name>/thumb          → PNG (also …/snapshots/<id>/thumb)
+ *   GET/PUT /api/sketches/<name>/studio         → the sketch's studio state (JSON object; {} before the first save):
+ *                                                 what the studio keeps with a sketch but never writes into its
+ *                                                 source — today the registration point. Not in git, like thumbs.
  *   GET/PUT/DELETE /api/plot-progress → the one unfinished plot (resume record)
  *   GET    /api/pens             → pen library JSON (404 before first save)
  *   PUT    /api/pens             → save pen library JSON
@@ -48,6 +51,8 @@ export function createSketchHandler(dir) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const thumbs = join(dir, '.thumbs');
   if (!existsSync(thumbs)) mkdirSync(thumbs, { recursive: true });
+  const studio = join(dir, '.studio');
+  if (!existsSync(studio)) mkdirSync(studio, { recursive: true });
   const repo = sg.ensureRepo(dir).catch((e) => {
     console.error(`sketch library: git unavailable (${e.message}) — saves still write files`);
   });
@@ -215,6 +220,21 @@ export function createSketchHandler(dir) {
         }
         return send(405, '{"error":"method"}');
       }
+      if (sub === 'studio') {
+        const sp = join(studio, `${name}.json`);
+        if (req.method === 'GET') {
+          const src = await fs.readFile(sp, 'utf8').catch(() => null);
+          return send(200, src ?? '{}');
+        }
+        if (req.method === 'PUT') {
+          const body = (await readBody(req)).toString('utf8');
+          const state = JSON.parse(body);
+          if (!state || typeof state !== 'object' || Array.isArray(state)) return send(400, '{"error":"studio state is a JSON object"}');
+          await fs.writeFile(sp, body);
+          return send(200, '{"ok":true}');
+        }
+        return send(405, '{"error":"method"}');
+      }
       if (sub === 'history') {
         if (req.method !== 'GET') return send(405, '{"error":"method"}');
         const commits = await sg.history(dir, name);
@@ -356,6 +376,7 @@ export function createSketchHandler(dir) {
         await sg.remove(dir, `${name}.ts`, `delete ${name}`).catch(() => undefined);
         await fs.unlink(file).catch(() => undefined);
         await fs.unlink(join(thumbs, `${name}.png`)).catch(() => undefined);
+        await fs.unlink(join(studio, `${name}.json`)).catch(() => undefined);
         return send(200, '{"ok":true}');
       }
       return send(405, '{"error":"method"}');
