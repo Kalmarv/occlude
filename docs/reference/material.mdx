@@ -340,7 +340,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.translate.mdx</include>
 <include>/_sig/Material.deform.mdx</include>
 
-Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, counter-clockwise. Both pivot on `origin`, which is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. A material has no frame, so `'center'` is the middle of the material's own bounds, not the middle of the drawable. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points.
+Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, counter-clockwise. Both pivot on `origin`. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. A material has no frame, so `'center'` is the middle of the material's own bounds, not the middle of the drawable. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points.
 
 `deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement, and `m.map()` is always a position.
 
