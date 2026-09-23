@@ -124,6 +124,15 @@ export interface Space {
   exp(p: XY, v: XY): Vec;
   /** The direction and distance from `p` to `q`: `exp(p, log(p, q)) === q`. */
   log(p: XY, q: XY): Vec;
+  /** `distance` between two points already lifted by `model.up`: the same
+   * double, for a caller that lifts each point once and measures it many
+   * times — a neighbour search, a force over a frozen state. */
+  modelDistance(n: Model, m: Model): number;
+  /** `log` from a lifted `n`, in the frame `model.frameAt` gives there, to
+   * a lifted `m`: the same pair of doubles as `log` — or null at the point
+   * opposite on the sphere, where `log` answers with the coordinates the
+   * caller wrote, which a lifted point no longer has; ask `log` there. */
+  modelLog(n: Model, frame: readonly [Model, Model], m: Model): Vec | null;
   /** The point a fraction `t` of the way along the geodesic from `a` to `b`. */
   geodesic(a: XY, b: XY, t: number): Vec;
   /** The circle of radius `r` about `c`, as `count` sketch points. */
@@ -209,6 +218,8 @@ export function euclideanSpace(): Space {
     distance: (a, b) => Math.hypot(vx(b) - vx(a), vy(b) - vy(a)),
     exp: (p, v) => [vx(p) + vx(v), vy(p) + vy(v)],
     log: (p, q) => [vx(q) - vx(p), vy(q) - vy(p)],
+    modelDistance: (n, m) => Math.hypot(m[0] - n[0], m[1] - n[1]),
+    modelLog: (n, _frame, m) => [m[0] - n[0], m[1] - n[1]],
     geodesic: (a, b, t) => [vx(a) + (vx(b) - vx(a)) * t, vy(a) + (vy(b) - vy(a)) * t],
     circle: (c, r, count) => {
       if (!(r > 0) || !(count >= 3)) return [];
@@ -372,6 +383,24 @@ export function curvedSpaceOf(
     const d: Model = [n[0] - m[0], n[1] - m[1], n[2] - m[2]];
     return 2 * F.as(Math.sqrt(Math.max(0, form(d, d))) / 2);
   };
+  /** The metric between two model points. */
+  const measure = (n: Model, m: Model): number => ell * gap(n, m);
+  /** `log` between two model points, in the frame at the first; null at
+   * the point opposite, which `log` answers from the coordinates. */
+  const toward = (n: Model, [ex, ey]: readonly [Model, Model], m: Model): Vec | null => {
+    const g = gap(n, m);
+    const sg = F.s(g);
+    // No one geodesic: the same place, or — on the sphere alone — the
+    // point opposite. Close by there is nowhere to go; a half-turn away
+    // every direction is as good as another, so the coordinates' own
+    // difference is the honest answer.
+    if (!(sg > F.eps)) return g < 1 ? [0, 0] : null;
+    const cg = F.c(g);
+    // The unit tangent at `n` that points at `m`.
+    const u: Model = [(m[0] - n[0] * cg) / sg, (m[1] - n[1] * cg) / sg, (m[2] - n[2] * cg) / sg];
+    const s = ell * g;
+    return [s * form(u, ex), s * form(u, ey)];
+  };
   /**
    * The model chart → the sheet. Two of the charts ARE the model's own
    * picture and pass straight through; each of the others is one line over
@@ -409,7 +438,7 @@ export function curvedSpaceOf(
     radius: curvature < 0 ? 2 * ell : ell,
     size: M,
     center: [cx, cy],
-    distance: (a, b) => ell * gap(up(a), up(b)),
+    distance: (a, b) => measure(up(a), up(b)),
     exp(p, v) {
       const s = Math.hypot(vx(v), vy(v));
       if (!(s > 0)) return [vx(p), vy(p)];
@@ -423,23 +452,9 @@ export function curvedSpaceOf(
       const out = down([n[0] * ct + u[0] * st, n[1] * ct + u[1] * st, n[2] * ct + u[2] * st]);
       return Number.isFinite(out[0]) && Number.isFinite(out[1]) ? out : [vx(p) + vx(v), vy(p) + vy(v)];
     },
-    log(p, q) {
-      const n = up(p);
-      const m = up(q);
-      const g = gap(n, m);
-      const sg = F.s(g);
-      // No one geodesic: the same place, or — on the sphere alone — the
-      // point opposite. Close by there is nowhere to go; a half-turn away
-      // every direction is as good as another, so the coordinates' own
-      // difference is the honest answer.
-      if (!(sg > F.eps)) return g < 1 ? [0, 0] : [vx(q) - vx(p), vy(q) - vy(p)];
-      const cg = F.c(g);
-      // The unit tangent at `p` that points at `q`.
-      const u: Model = [(m[0] - n[0] * cg) / sg, (m[1] - n[1] * cg) / sg, (m[2] - n[2] * cg) / sg];
-      const [ex, ey] = frameAt(p);
-      const s = ell * g;
-      return [s * form(u, ex), s * form(u, ey)];
-    },
+    log: (p, q) => toward(up(p), frameAt(p), up(q)) ?? [vx(q) - vx(p), vy(q) - vy(p)],
+    modelDistance: measure,
+    modelLog: toward,
     geodesic(a, b, t) {
       // The ends are the points asked for, not the ends of a sampling.
       if (!(t > 0)) return [vx(a), vy(a)];
@@ -819,8 +834,81 @@ export function modelChart(space: Space): { center: Vec; scale: number } | null 
 }
 
 /**
- * How far a bucket search widens over one box — the scatter's, and the
- * neighbours every force reads — from the
+ * How a bucket grid laid out in sketch coordinates finds every point within
+ * a METRIC radius, one query at a time — the neighbours every force reads.
+ *
+ * A row `y` is a distance from the base geodesic, so a point within `r`
+ * lies within `r` of the query's row: the band of rows is the radius
+ * itself. Along a row the metric is `c(y/ell)·dx`, and how far in x the
+ * circle of radius `r` reaches depends on the QUERY's row alone: the
+ * tangent geodesics from the base's pole give `sin(dx) = sin(ρ)/cos(b)` on
+ * the sphere and `sinh(dx) = sinh(ρ)/cosh(b)` in the disk (`ρ = r/ell`,
+ * `b = y/ell`, the query's row). The disk never reaches past `r`. The
+ * sphere reaches further toward its poles, and every x when a pole lies
+ * within `r` of the query — that one query then searches its band of rows
+ * across the whole grid, and no other query pays for it.
+ *
+ * The sphere's coordinates also name each place more than once: x turns
+ * round with a period of `2π·ell`, and a y past a pole is a place on the
+ * other side. `home` is the one pair of each place — x within half a turn
+ * of the centre, y between the poles, which is what `exp` answers — so a
+ * grid of homes holds every place once, and a search near the seam wraps
+ * by `period`. The disk and the plane are covered once: `home` is the
+ * identity and `period` is Infinity.
+ */
+export interface BucketChart {
+  /** The pair a point is bucketed at. */
+  home(x: number, y: number): Vec;
+  /** How far in x, from a home on row `y`, a point within `r` can lie:
+   * Infinity when no x is too far. */
+  reach(y: number, r: number): number;
+  /** The x period of the homes: `2π·ell` on the sphere, else Infinity. */
+  period: number;
+}
+
+/** Rounding margin on a reach: the formulas are exact, the doubles are not. */
+const REACH_SLACK = 1 + 1e-9;
+
+export function bucketChart(space: Space): BucketChart {
+  const [cx, cy] = space.center;
+  if (space.kind === 'spherical') {
+    const ell = space.radius;
+    const half = Math.PI * ell;
+    const pole = Math.PI / 2;
+    return {
+      home(x, y) {
+        // `exp` already answers homes; only a pair a sketch wrote itself
+        // can lie outside and go round through the model.
+        if (Math.abs(x - cx) < half && Math.abs(y - cy) <= pole * ell) return [x, y];
+        return space.model.down(space.model.up([x, y]));
+      },
+      reach(y, r) {
+        const b = Math.abs(y - cy) / ell;
+        const rho = r / ell;
+        if (!(b + rho < pole)) return Infinity;
+        const w = ell * Math.asin(Math.min(1, Math.sin(rho) / Math.cos(b))) * REACH_SLACK;
+        return w < half ? w : Infinity;
+      },
+      period: 2 * half,
+    };
+  }
+  if (space.kind === 'hyperbolic') {
+    const ell = space.radius / 2;
+    return {
+      home: (x, y) => [x, y],
+      reach(y, r) {
+        const w = ell * Math.asinh(Math.sinh(r / ell) / Math.cosh((y - cy) / ell)) * REACH_SLACK;
+        // Far out `sinh` and `cosh` overflow; `r` itself always holds.
+        return w < r ? w : r;
+      },
+      period: Infinity,
+    };
+  }
+  return { home: (x, y) => [x, y], reach: (_y, r) => r, period: Infinity };
+}
+
+/**
+ * How far a bucket search widens over one box — the scatter's — from the
  * space's `density`: how much longer a length of the SPACE can be in the
  * sketch's own coordinates — `1/sqrt(density)` at its thinnest, and never
  * below 1. Not the chart's magnification on the sheet, which is
