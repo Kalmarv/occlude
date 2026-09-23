@@ -470,8 +470,22 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     let ranges = shape.strokeRanges;
     let seed = shape.strokeSeed;
     if (ranges && shape.modifiers.some((m) => m.kind === 'smooth' || m.kind === 'roughen' || m.kind === 'deform')) {
+      // A range is a stretch of the source line in segment units, fractional
+      // at both ends: the piece from a to b is the segments floor(a) … ceil(b)
+      // with the first and last trimmed at their fraction.
       const src = lowered.contours[0] ?? [];
-      lowered = { ...lowered, contours: ranges.map(([a, b]) => src.slice(a, b)).filter((c) => c.length > 0) };
+      const piece = ([a, b]: readonly [number, number]): Prim[] => {
+        const out: Prim[] = [];
+        const first = Math.floor(a);
+        const last = Math.min(src.length, Math.ceil(b)) - 1;
+        for (let i = Math.max(0, first); i <= last; i++) {
+          const t0 = i === first ? a - i : 0;
+          const t1 = i === last ? b - i : 1;
+          if (t1 > t0) out.push(subPrim(src[i], t0, t1));
+        }
+        return out;
+      };
+      lowered = { ...lowered, contours: ranges.map(piece).filter((c) => c.length > 0) };
       ranges = undefined;
       seed = undefined;
     }
