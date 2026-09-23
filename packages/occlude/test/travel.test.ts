@@ -28,7 +28,7 @@ describe('travelTime: arrival times over the drawable', () => {
   it('walks around a wall instead of through it', () => {
     const t = tk();
     // A bar from the bottom edge up to y = 70, with the seed to its left.
-    const T = t.travelTime({ fromPoints: [[20, 50]], speed: barrier(45, 0, 55, 70), spacing: 0.4 });
+    const T = t.travelTime({ fromPoints: [[20, 50]], speed: barrier(45, 0, 55, 70), step: 0.4 });
     // Around the top: to the near corner, across the cap, down to the probe.
     const detour = Math.hypot(25, 20) + 10 + Math.hypot(25, 20);
     const got = T(80, 50);
@@ -77,7 +77,7 @@ describe('travelTime: arrival times over the drawable', () => {
     const t = tk();
     // A vertical wall with a gap at the top, the seed on the left.
     const speed = (x: number, y: number): number => (x >= 48 && x <= 52 && y <= 60 ? 0 : 1);
-    const T = t.travelTime({ fromPoints: [[25, 20]], speed, spacing: 0.4 });
+    const T = t.travelTime({ fromPoints: [[25, 20]], speed, step: 0.4 });
     const straight = T(75, 20);
     // Every route to the far side goes through the gap above y = 60.
     expect(straight).toBeGreaterThan(Math.hypot(25, 40) + Math.hypot(25, 40) - 5);
@@ -89,7 +89,7 @@ describe('travelTime: arrival times over the drawable', () => {
     const t = tk();
     const speed = (x: number, y: number): number => 0.5 + 0.5 * Math.sin(x / 9) * Math.cos(y / 11);
     const sample = () => {
-      const T = t.travelTime({ fromPoints: [[20, 20]], speed, spacing: 0.8 });
+      const T = t.travelTime({ fromPoints: [[20, 20]], speed, step: 0.8 });
       const out: number[] = [];
       for (let x = 2; x < 100; x += 7) for (let y = 3; y < 100; y += 9) out.push(T(x, y));
       return out;

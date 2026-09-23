@@ -46,7 +46,21 @@ export interface FieldUse {
    * the raster is actually read, as opposed to the sheet it spans. */
   shapeFp: { x0: number; y0: number; x1: number; y1: number };
   aligned: boolean;
+  /** The lattice pitch this use asks for, in paper mm: the element's
+   * `step`, or `paperStep` when it names none. Uses that share a grid
+   * take the tightest. */
+  step: number;
   grid?: number;
+}
+
+/** The pitch, in paper mm, of a field grid whose element names no `step`:
+ * from the sheet's long side, finer for a vector field — deform geometry
+ * follows its raster directly and vortex-like fields turn fast near their
+ * cores. */
+export function paperStep(vector: boolean, paperW: number, paperH: number): number {
+  return vector
+    ? Math.max(0.25, Math.min(1, Math.max(paperW, paperH) / 256))
+    : Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
 }
 
 
@@ -67,16 +81,12 @@ export interface GridPlan {
 }
 
 /** Plan the grid of one use group (uses of one field and kind): bounds
- * from the union of the uses' pulled-back footprints, pitch from the
- * paper step scaled by the tightest use, the sample budget, one cell of
+ * from the union of the uses' pulled-back footprints, pitch from each
+ * use's paper step through its scale (the tightest wins), one cell of
  * margin, and — for paper-aligned grids — the window of the full grid the
- * shapes actually read. Pure arithmetic over the uses' transforms. */
-export function planGrid(group: readonly FieldUse[], vector: boolean, paperW: number, paperH: number, unit: number): GridPlan {
-  // Deform geometry follows its raster directly and vortex-like fields
-  // turn fast near their cores: finer than the scalar pitch.
-  const paperStep = vector
-    ? Math.max(0.25, Math.min(1, Math.max(paperW, paperH) / 256))
-    : Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
+ * shapes actually read. Pure arithmetic over the uses' transforms. The
+ * pitch is what the uses ask for: nothing coarsens it. */
+export function planGrid(group: readonly FieldUse[], unit: number): GridPlan {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   let cell = Infinity;
   for (const u of group) {
@@ -86,14 +96,9 @@ export function planGrid(group: readonly FieldUse[], vector: boolean, paperW: nu
       x0 = Math.min(x0, fx); y0 = Math.min(y0, fy);
       x1 = Math.max(x1, fx); y1 = Math.max(y1, fy);
     }
-    cell = Math.min(cell, paperStep * minScale(u.m));
+    cell = Math.min(cell, u.step * minScale(u.m));
   }
-  if (!Number.isFinite(cell) || !(cell > 0)) cell = paperStep / unit;
-  // Cell budget: coarsen rather than allocate without bound.
-  const MAX_SAMPLES = 1_048_576;
-  const span = Math.max(x1 - x0, y1 - y0, cell);
-  const need = ((x1 - x0) / cell + 2) * ((y1 - y0) / cell + 2);
-  if (need > MAX_SAMPLES) cell = span / Math.sqrt(MAX_SAMPLES) * 1.05;
+  if (!Number.isFinite(cell) || !(cell > 0)) cell = Math.min(...group.map((u) => u.step)) / unit;
   // One cell of margin so Catmull-Rom never clamps on a footprint edge.
   x0 -= cell; y0 -= cell; x1 += cell; y1 += cell;
   let gw = Math.max(2, Math.ceil((x1 - x0) / cell) + 1);
@@ -163,6 +168,17 @@ export function planGrid(group: readonly FieldUse[], vector: boolean, paperW: nu
   return { gw, gh, cell, x0, y0, ci0, cj0, ox, oy };
 }
 
+/** One grid record's storage (`6 + gw × gh` doubles). A step fine enough
+ * that the samples do not fit a Float64Array is refused with the count:
+ * the artist asked for that pitch, so it is never quietly coarsened. */
+function samples(gw: number, gh: number): Float64Array {
+  try {
+    return new Float64Array(6 + gw * gh);
+  } catch {
+    throw new Error(`step: a field grid of ${gw} × ${gh} = ${gw * gh} samples does not fit a Float64Array — the step is too fine`);
+  }
+}
+
 /** Evaluate `fn` on a planned lattice into the engine's grid record
  * (`[w, h, x0, y0, dx, dy, ...samples]`), one field call per sample: a
  * `p01` kind clamps to [0, 1], a `len` kind resolves each sample as a
@@ -182,9 +198,9 @@ export function evaluateGrid(
   const { gw, gh, cell, x0, y0, ci0, cj0, ox, oy } = plan;
   const toPaper = reading ? invert(reading.m) : null;
   const partner = withPartner;
-  const first = new Float64Array(6 + gw * gh);
+  const first = samples(gw, gh);
   first[0] = gw; first[1] = gh; first[2] = ox; first[3] = oy; first[4] = cell; first[5] = cell;
-  const second = partner ? new Float64Array(6 + gw * gh) : null;
+  const second = partner ? samples(gw, gh) : null;
   if (second) {
     second[0] = gw; second[1] = gh; second[2] = ox; second[3] = oy; second[4] = cell; second[5] = cell;
   }
@@ -221,15 +237,13 @@ export function evaluateGrid(
 export function buildFieldGrids(
   uses: FieldUse[],
   idOf: (fn: object) => number,
-  paperW: number,
-  paperH: number,
   unit: number,
   frameInner: Parameters<typeof resolveLen>[1],
 ): Float64Array {
   // ---- Build the grids: one per (unbounded field, kind), over the union
   // of its uses' pulled-back footprints, at the pitch the tightest use
-  // needs (paper pitch × the smallest scale any use applies) — a shrunken
-  // motif never aliases, a magnified one never wastes cells.
+  // needs (each use's paper step × its scale, the smallest wins) — a
+  // shrunken motif never aliases, a magnified one never wastes cells.
   // Grid chunks are collected as exact-size Float64Arrays and joined once.
   // The old shape pushed every sample into a plain number[] (4.1M pushes on
   // ring) and copied it into a Float64Array at the end.
@@ -251,7 +265,6 @@ export function buildFieldGrids(
   for (const [gkey, group] of groups) {
     if (done.has(gkey)) continue;
     const kind = group[0].kind;
-    const vector = kind === 'vx' || kind === 'vy';
     // A vector field's two grids share every use (both components are
     // registered together, same transform, same footprint), so they share
     // the extent and are filled from ONE evaluation per sample — the
@@ -259,7 +272,7 @@ export function buildFieldGrids(
     const vyKey = `${idOf(group[0].fn)}:vy${readingKey(group[0])}`;
     const partner = kind === 'vx' ? groups.get(vyKey) : undefined;
     if (partner) done.add(vyKey);
-    const plan = planGrid(group, vector, paperW, paperH, unit);
+    const plan = planGrid(group, unit);
     const toField = group[0].toField;
     const { first, second } = evaluateGrid(plan, group[0].fn, kind, partner !== undefined, frameInner, toField ? { toField, m: group[0].m } : undefined);
     pushChunk(first);
@@ -272,7 +285,12 @@ export function buildFieldGrids(
     }
   }
   const joinFields = (): Float64Array => {
-    const all = new Float64Array(fieldLen);
+    let all: Float64Array;
+    try {
+      all = new Float64Array(fieldLen);
+    } catch {
+      throw new Error(`step: the field grids hold ${fieldLen} doubles together, more than a Float64Array holds — a step is too fine`);
+    }
     let o = 0;
     for (const c of chunks) { all.set(c, o); o += c.length; }
     return all;

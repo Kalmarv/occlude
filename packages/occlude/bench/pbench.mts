@@ -64,7 +64,7 @@ for (const [name, field] of [['flat', flat], ['tonal', tone]] as const) {
 {
   const s = scatter(tone, 1.5);
   med('settle 50 rounds, spacing 1.5', () => settleMaterial(env, s, { iterations: 50, density: tone, spacing: 1.5 }), 2);
-  med('settle 10 rounds, resolution 512', () => settleMaterial(env, s, { iterations: 10, density: tone, spacing: 1.5, resolution: 512 }), 2);
+  med('settle 10 rounds, step 200/512', () => settleMaterial(env, s, { iterations: 10, density: tone, spacing: 1.5, step: 200 / 512 }), 2);
 }
 
 // degenerate: a field that is zero almost everywhere, one point that the

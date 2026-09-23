@@ -18,7 +18,7 @@ import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
 import { flattenPrim, subPrim, SNAP_GRID, type Prim } from './prims.js';
 import { PRIM_STRIDE, FRAG_STRIDE, PrimSink, encodePrim, decodePrim } from './sceneBuffers.js';
-import { buildFieldGrids, type FieldKind, type FieldUse } from './fieldGrid.js';
+import { buildFieldGrids, paperStep, type FieldKind, type FieldUse } from './fieldGrid.js';
 import type { FillJob } from './fillJobs.js';
 import { renderEncoded, requireWasm, type RawRender, type WasmModule } from './wasmRender.js';
 import { shadeChains, type ShaderValue } from './shader.js';
@@ -374,25 +374,38 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     domainCache.set(key, idx);
     return idx;
   };
-  /** Register a use of `field` at this shape and return its index. */
+  /** A modifier's `step` in paper mm, or undefined for the paper default.
+   * A step that is not a positive finite length has no lattice. */
+  const gridStep = (step: L | undefined, word: string): number | undefined => {
+    if (step === undefined) return undefined;
+    const v = resolveLen(step, frame.inner);
+    if (!Number.isFinite(v) || !(v > 0)) throw new Error(`${word}: step must be a positive finite length, got ${v} mm`);
+    return v;
+  };
+  /** Register a use of `field` at this shape and return its index. The
+   * use asks for `step` (paper mm) or, without one, the paper default. */
   const useOf = (
     field: LengthFn | FieldFn | VectorFieldFn,
     kind: Kind,
     align: FieldAlign | undefined,
     anchor: Mat,
     footprint: UseRec['footprint'],
+    step: number | undefined,
   ): number => {
     const meta = fieldMeta(field);
     const shapeAligned = align === 'shape';
     const key = `${idOf(field)}:${kind}`;
+    const pitch = step ?? paperStep(kind === 'vx' || kind === 'vy', paperW, paperH);
     if (!shapeAligned) {
       const hit = paperUseIndex.get(key);
       if (hit !== undefined) {
         // Shared paper-aligned use: widen the read window to cover this shape
-        // too, or its side of the raster gets clipped away.
+        // too, or its side of the raster gets clipped away; the shared grid
+        // takes the tighter of the two steps.
         const f = uses[hit].shapeFp;
         f.x0 = Math.min(f.x0, footprint.x0); f.y0 = Math.min(f.y0, footprint.y0);
         f.x1 = Math.max(f.x1, footprint.x1); f.y1 = Math.max(f.y1, footprint.y1);
+        uses[hit].step = Math.min(uses[hit].step, pitch);
         return hit;
       }
     }
@@ -410,6 +423,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
       footprint: shapeAligned ? footprint : paperFootprint,
       shapeFp: { ...footprint },
       aligned: shapeAligned,
+      step: pitch,
     });
     if (!shapeAligned) paperUseIndex.set(key, idx);
     return idx;
@@ -456,8 +470,9 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
       v: number | import('./units.js').L | LengthFn,
       kind: 'p01' | 'len',
       align: FieldAlign | undefined,
+      step: number | undefined,
     ): [number, number] => {
-      if (typeof v === 'function') return [useOf(v, kind, align, anchor, fp), 1];
+      if (typeof v === 'function') return [useOf(v, kind, align, anchor, fp, step), 1];
       return [kind === 'len' ? resolveLen(v, frame.inner) : (v as number), 0];
     };
 
@@ -542,13 +557,14 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     for (const m of shape.modifiers) {
       switch (m.kind) {
         case 'decimate': {
-          const [s0, m0] = fieldParam(m.stroke, 'p01', m.align);
-          const [s1, m1] = fieldParam(m.fill, 'p01', m.align);
+          const step = gridStep(m.step, 'decimate');
+          const [s0, m0] = fieldParam(m.stroke, 'p01', m.align, step);
+          const [s1, m1] = fieldParam(m.fill, 'p01', m.align, step);
           modsBuf.push(1, m0 | (m1 << 1), s0, s1);
           break;
         }
         case 'wobble': {
-          const [a, ma] = fieldParam(m.amount, 'len', m.align);
+          const [a, ma] = fieldParam(m.amount, 'len', m.align, gridStep(m.step, 'wobble'));
           modsBuf.push(2, ma, a, resolveLen(m.wavelength ?? mm(25), frame.inner));
           break;
         }
@@ -564,13 +580,14 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
           modsBuf.push(4, 0, Math.max(1, Math.round(m.passes)));
           break;
         case 'roughen': {
-          const [a, ma] = fieldParam(m.amount, 'len', m.align);
+          const [a, ma] = fieldParam(m.amount, 'len', m.align, gridStep(m.step, 'roughen'));
           modsBuf.push(5, ma, a, resolveLen(m.detail ?? mm(1.5), frame.inner));
           break;
         }
         case 'deform': {
-          const dx = useOf(m.field, 'vx', m.align, anchor, fp);
-          const dy = useOf(m.field, 'vy', m.align, anchor, fp);
+          const step = gridStep(m.step, 'deform');
+          const dx = useOf(m.field, 'vx', m.align, anchor, fp, step);
+          const dy = useOf(m.field, 'vy', m.align, anchor, fp, step);
           modsBuf.push(6, 0b11, dx, dy, resolveLen(m.detail ?? mm(2), frame.inner));
           break;
         }
@@ -602,7 +619,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     if(sourceSeedProtocol)shapesF64.push(shape.strokeSeed??-1);
   }
 
-  const fieldData = buildFieldGrids(uses, idOf, paperW, paperH, unit, frame.inner);
+  const fieldData = buildFieldGrids(uses, idOf, unit, frame.inner);
   const fieldUses: number[] = [];
   const domainList: number[] = [];
   for (const u of uses) {

@@ -49,6 +49,11 @@ export type VectorFieldFn = (x: number, y: number) => [number, number];
  * field turns with the motif's explicit transforms. */
 export type FieldAlign = 'paper' | 'shape';
 
+/* `step` on a modifier record is the pitch of the lattice the engine
+ * samples its field on, a length on the paper (default: from the sheet
+ * size — 0.5…2 mm for a scalar field, 0.25…1 mm for a vector field). Uses
+ * of one field that share a grid take the tightest step among them. */
+
 export type ModifierValue =
   | {
       readonly __occludeModifier: true;
@@ -56,6 +61,7 @@ export type ModifierValue =
       stroke: number | FieldFn;
       fill: number | FieldFn;
       align?: FieldAlign;
+      step?: L;
     }
   | {
       readonly __occludeModifier: true;
@@ -63,6 +69,7 @@ export type ModifierValue =
       amount: L | LengthFn;
       wavelength?: L;
       align?: FieldAlign;
+      step?: L;
     }
   | { readonly __occludeModifier: true; readonly kind: 'dash'; len: L; gap: L; offset?: L }
   | { readonly __occludeModifier: true; readonly kind: 'smooth'; passes: number }
@@ -72,6 +79,7 @@ export type ModifierValue =
       amount: L | FieldFn;
       detail?: L;
       align?: FieldAlign;
+      step?: L;
     }
   | {
       readonly __occludeModifier: true;
@@ -79,6 +87,7 @@ export type ModifierValue =
       field: VectorFieldFn;
       detail?: L;
       align?: FieldAlign;
+      step?: L;
     };
 
 export type ShapeGeom =

@@ -60,9 +60,10 @@ export interface TravelOpts {
   /** The ground the front may cross (default: the whole drawable).
    * Everything outside it is wall. */
   within?: AreaInput;
-  /** Grid cell in user units (default: max of mm(1) and long-side/256).
-   * A first-order scheme, so the error falls with the cell. */
-  spacing?: L;
+  /** The lattice pitch the march runs on, a length (default: the larger
+   * of mm(1) and the long side / 256, as `t.isolines`). A first-order
+   * scheme, so the error falls with the step. */
+  step?: L;
 }
 
 /** Unreachable everywhere: the honest answer for a domain with no ground,
@@ -225,12 +226,13 @@ function seedDistanceIn(
  */
 export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {}): FieldFn {
   const b = env.bounds;
-  // A domain with no area, or a cell that is not a positive length, has
+  // A domain with no area, or a step that is not a positive length, has
   // nothing to march over — best-effort: nothing arrives anywhere.
+  if ('spacing' in opts) throw new Error('travelTime: spacing is now step');
   if (!(b.w > 0) || !(b.h > 0)) return NOWHERE;
-  if (!usableLength(opts.spacing)) return NOWHERE;
-  const step = opts.spacing !== undefined
-    ? env.len(opts.spacing)
+  if (!usableLength(opts.step)) return NOWHERE;
+  const step = opts.step !== undefined
+    ? env.len(opts.step)
     : Math.max(env.len(mm(1)), Math.max(b.w, b.h) / 256);
   const gw = Math.max(2, Math.ceil(b.w / step) + 1);
   const gh = Math.max(2, Math.ceil(b.h / step) + 1);
@@ -238,7 +240,7 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
   if (!Number.isFinite(n)) return NOWHERE;
   if (n > 16_777_216) {
     throw new Error(
-      `travelTime: ${Math.floor(n)} grid nodes (spacing too fine) — capped at 16.7M (~128MB of times)`,
+      `travelTime: ${Math.floor(n)} grid nodes (step too fine) — capped at 16.7M (~128MB of times)`,
     );
   }
   const sx = b.w / (gw - 1);

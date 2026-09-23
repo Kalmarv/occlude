@@ -128,7 +128,7 @@ describe('relax and settle as explicit operations', () => {
     run((t) => {
       const sites = t.scatter({ spacing: 12 });
       const bounds = { x: 0, y: 0, w: 100, h: 100 };
-      const raster = densityRaster(field, bounds, 128);
+      const raster = densityRaster(field, bounds, 100 / 128);
       const coords = new Float64Array(sites.n * 2);
       for (let i = 0; i < sites.n; i++) { coords[2 * i] = sites.x[i]; coords[2 * i + 1] = sites.y[i]; }
       kernel = accumulateCells(coords, raster);
@@ -530,9 +530,9 @@ describe('review of fe26c3f', () => {
   });
 
   it('5. non-finite density is absent in the raster, as in face measurement', () => {
-    const inf = densityRaster(() => Infinity, B, 4);
+    const inf = densityRaster(() => Infinity, B, Math.max(B.w, B.h) / 32);
     expect(Math.max(...Array.from(inf.dens))).toBe(0);
-    const mixed = densityRaster((x) => (x < 50 ? Infinity : 0.5), B, 4);
+    const mixed = densityRaster((x) => (x < 50 ? Infinity : 0.5), B, Math.max(B.w, B.h) / 32);
     expect(Math.max(...Array.from(mixed.dens))).toBe(0.5);
     expect(Array.from(mixed.dens).filter((v) => v === 0).length).toBe(mixed.dens.length / 2);
     const cells = voronoi([[25, 50], [75, 50]], B);
