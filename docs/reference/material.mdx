@@ -333,6 +333,40 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## m.scale() · m.rotate() · m.translate() · m.deform()
+
+<include>/_sig/Material.scale.mdx</include>
+<include>/_sig/Material.rotate.mdx</include>
+<include>/_sig/Material.translate.mdx</include>
+<include>/_sig/Material.deform.mdx</include>
+
+Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, counter-clockwise. Both pivot on `origin`, which is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. A material has no frame, so `'center'` is the middle of the material's own bounds, not the middle of the drawable. `'centroid'` is the area centroid of the closed contours, and it is the mean of the points when the material has no closed contour.
+
+`deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement, and `m.map()` is always a position.
+
+The four are `m.map()` with a fixed formula, so the rows, the ids and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
+
+Below, each whole cell of a hex lattice is its own outline, scaled about its own centroid. The scale follows a noise field, so the cells open and close across the sheet. The inner ring turns with the scale. A small displacement field then moves the corners of each ring.
+
+```ts live
+import { sketch, strokes, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const b = t.bounds();
+  const cells = t.hexes({ spacing: mm(12), orientation: 'flat' });
+  const drift = t.noiseField(0.008 * b.w, 0.15 * b.w);
+  const faces = cells.faces().faces;
+  const whole = Math.max(...faces.map((f) => f.area)) * 0.99;
+  return faces.filter((f) => f.area > whole).map((f) => {
+    const outline = f.boundaryEdges.extract();
+    const k = 0.2 + 0.75 * (0.5 + 0.5 * t.noise((f.centroid[0] / b.w) * 3, (f.centroid[1] / b.h) * 3));
+    const outer = outline.scale(k, { origin: 'centroid' });
+    const inner = outline.scale(k * 0.55, { origin: 'centroid' }).rotate(60 * k, { origin: 'centroid' });
+    return [strokes(outer.deform(drift)), strokes(inner.deform(drift))];
+  });
+});
+```
+
 ## resample()
 
 <include>/_sig/Material.resample.mdx</include>
