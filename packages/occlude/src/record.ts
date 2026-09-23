@@ -13,7 +13,8 @@ import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { Execution, TransformOp } from './execution.js';
 import type { Placement } from './placement.js';
-import { euclideanSpace, geodesicBowOf, INK_TOL, type Space } from './space.js';
+import { euclideanSpace, fromSheet, geodesicBowOf, INK_TOL, type Space } from './space.js';
+import type { Vec } from './vec.js';
 import { chordMiddle, POLE_EPS } from './chord.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
@@ -604,6 +605,45 @@ export function userUnitsToPaper(frame: Frame): (x: number, y: number) => [numbe
   const m = userToPaperMatrix(frame);
   const unit = unitMm(frame);
   return (x, y) => apply(m, x * unit, y * unit);
+}
+
+/** The sketch frame both ways: `toUnits` takes a paper point (mm) to the
+ * sketch point drawn there, in drawable units under the origin/yUp
+ * convention; `toPaper` takes a sketch point to the paper. In a curved space
+ * the paper shows the space through its projection, so the two go through
+ * `fromSheet` and `project`; a paper point where the sheet shows no place of
+ * the space answers a non-finite pair. */
+export interface FrameMaps {
+  toUnits(px: number, py: number): Vec;
+  toPaper(x: number, y: number): Vec;
+}
+
+export function frameMaps(frame: Frame): FrameMaps {
+  const unit = unitMm(frame);
+  const userToPaper = userToPaperMatrix(frame);
+  const space = frame.space !== undefined && frame.space.kind !== 'euclidean' ? frame.space : null;
+  if (!space) {
+    const paperToUnits = mul(mscale(1 / unit, 1 / unit), invert(userToPaper));
+    return {
+      toUnits: (px, py) => apply(paperToUnits, px, py),
+      toPaper: (x, y) => apply(userToPaper, x * unit, y * unit),
+    };
+  }
+  const userToDrawable = mul(translate(-frame.offsetX, -frame.offsetY), userToPaper);
+  const drawableToUser = invert(userToDrawable);
+  return {
+    toUnits: (px, py) => {
+      const [x, y] = fromSheet(space, [(px - frame.offsetX) / unit, (py - frame.offsetY) / unit]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return [NaN, NaN];
+      const [ux, uy] = apply(drawableToUser, x * unit, y * unit);
+      return [ux / unit, uy / unit];
+    },
+    toPaper: (x, y) => {
+      const [dx, dy] = apply(userToDrawable, x * unit, y * unit);
+      const q = space.project([dx / unit, dy / unit]);
+      return [q[0] * unit + frame.offsetX, q[1] * unit + frame.offsetY];
+    },
+  };
 }
 
 /** One bare user unit in mm (percent of the drawable's short side). */

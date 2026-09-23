@@ -7,17 +7,24 @@ A fill is texture inside a closed shape: parallel lines, crossed lines, dots, ne
 
 ## fill()
 
+<include>/_sig/fill.2.mdx</include>
 <include>/_sig/fill.3.mdx</include>
+<include>/_sig/fill.4.mdx</include>
+<include>/_sig/fill.5.mdx</include>
+<include>/_sig/fill.6.mdx</include>
+<include>/_sig/fill.7.mdx</include>
 
-A built-in pattern by name, with its parameters in one object. Spacing is a length. A bare number is drawable units. `mm()` is the usual choice, because the gap between lines is what reads as tone. Angle is in degrees from the x axis.
+A built-in pattern by name, with its parameters in one object. Spacing is a length. A bare number is drawable units. `mm()` is the usual choice, because the gap between lines is what reads as tone. Angle is in degrees from the x axis. Each pattern takes only the parameters in the table. A misspelt key is a type error, and the render refuses it by name.
 
 | Pattern | Parameters | Marks |
 |---|---|---|
-| `'hatch'` | `angle`, `spacing`, `offset`, `align` | parallel lines |
-| `'crosshatch'` | `angles`, `spacing`, `offset`, `align` | one hatch pass per angle |
-| `'stipple'` | `density` 0 to 1, `minDist` | dots, each one a pen tap |
+| `'hatch'` | `angle`, `spacing`, `offset`, `align`, `step` | parallel lines |
+| `'crosshatch'` | `angles`, `spacing`, `offset`, `align`, `step` | one hatch pass per angle |
+| `'stipple'` | `density` 0 to 1 or a field, `minDist` | dots, each one a pen tap |
 | `'contour'` | `spacing`, `connectors` | nested loops that follow the boundary, joined into long runs |
-| `'solid'` | `angle` | rows at 0.9 nib widths, so they overlap |
+| `'solid'` | `angle`, `spacing`, `step` | rows at 0.9 nib widths, so they overlap |
+
+A filled shape always hides what is below it. A texture that does not hide is not available yet, so `{ fill, opaque: false }` refuses. Draw the fill and the outline as two shapes.
 
 ```ts live
 import { sketch, circle, fill, mm } from 'occlude';
@@ -57,7 +64,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [ngon(32, 50, 6, 26, { fill: fi
 
 <AutoTypeTable path="../occlude/src/fillModule.ts" name="FillRegion" />
 
-A fill is a function of the region: `(region, ctx) => strokes`. `region.bbox` is the bounding box in millimetres, `region.contains(x, y)` the point test, and `ctx.rnd()` the seeded random stream. It runs during the render, for that one shape, and returns strokes in paper millimetres as records: `{ type: 'line', x1, y1, x2, y2 }`, `{ type: 'arc', cx, cy, r, start, sweep }`, `{ type: 'cubic', … }` or `{ type: 'polyline', pts }`. The engine clips them to the region and occludes them like every other mark. Use `ctx.rnd()`, not `Math.random()`, so the fill follows the seed.
+A fill is a function of the region: `(region, ctx) => strokes`. `region.bbox` is the bounding box in millimetres, `region.contains(x, y)` the point test, and `ctx.rnd()` the seeded random stream. `ctx.toUnits(p)` changes a paper point into the sketch point at that position, in drawable units. `ctx.toPaper(p)` changes it back. Use them to read a field of the sketch. It runs during the render, for that one shape, and returns strokes in paper millimetres as records: `{ type: 'line', x1, y1, x2, y2 }`, `{ type: 'arc', cx, cy, r, start, sweep }`, `{ type: 'cubic', … }` or `{ type: 'polyline', pts }`. The engine clips them to the region and occludes them like every other mark. Use `ctx.rnd()`, not `Math.random()`, so the fill follows the seed.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -92,6 +99,7 @@ export default sketch({ aspect: [1, 1] }, (t) => rect(15, 15, 70, 70, {
 ## fillAsset()
 
 <include>/_sig/fillAsset.mdx</include>
+<include>/_sig/fill.1.mdx</include>
 
 A fill as a value: declared parameters, with their defaults, plus a generator. `fill(asset, params)` uses it, with `params` over the defaults. The studio's Fills page stores fill files in the same shape, and a fill file imports nothing but occlude.
 
@@ -104,4 +112,19 @@ const combs = fillAsset({
 });
 
 export default sketch({ aspect: [1, 1] }, (t) => [circle(30, 50, 24, { fill: fill(combs) }), circle(70, 50, 24, { fill: fill(combs, { spacing: 1, angle: 105 }) })]);
+```
+
+## A field where a length goes
+
+The `spacing` of `hatch`, `crosshatch` and `solid` can be a field of lengths, `(x, y) => length`. Each line reads the field along its length, one sample for each `step` (1 mm by default). The line keeps the smallest value inside the shape as the gap to the next line. The `density` of `stipple` can be a field too. Each dot reads it at its own position, so the dots are closer where the value is higher.
+
+Below, the lines of the water are closer near the horizon, and the dots of the sun are closer at its lower edge.
+
+```ts live
+import { sketch, rect, circle, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => [
+  circle(100, 52, 30, { fill: fill('stipple', { density: (x, y) => (y - 22) / 30 }) }),
+  rect(0, 52, 200, 48, { stroke: false, fill: fill('hatch', { spacing: (x, y) => mm(0.3 + (y - 52) / 9) }) }),
+]);
 ```

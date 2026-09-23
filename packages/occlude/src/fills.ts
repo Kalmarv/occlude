@@ -41,20 +41,53 @@ export type FillSpec =
   | { type: 'custom'; fn: CustomFillFn }
   | { type: 'mask' };
 
+/** The parameters a fill module declares, as a call site gives them: every
+ * key optional. A field parameter's declared default (a literal function)
+ * widens to the field it stands for, so `(x, y) => 0.5` in the file takes
+ * any `(x, y) => number` at the call. */
+export type FillParams<P> = {
+  [K in keyof P]?: P[K] extends (x: number, y: number) => infer R
+    ? (x: number, y: number) => (R extends number ? number : R)
+    : P[K];
+};
+
+/** The parameters of each built-in, read from the declared `params` of its
+ * file (src/fills/*.ts): the table on the fills page and the type are one
+ * source. */
+export type HatchParams = FillParams<typeof hatch.params>;
+export type CrosshatchParams = FillParams<typeof crosshatch.params>;
+export type SolidParams = FillParams<typeof solid.params>;
+export type StippleParams = FillParams<typeof stipple.params>;
+export type ContourParams = { spacing?: L; connectors?: boolean };
+/** The names the package resolves itself; a custom fill cannot take one. */
+export type BuiltinFillName = 'hatch' | 'crosshatch' | 'solid' | 'stipple' | 'contour';
+
 /**
  * Use a fill module with parameter overrides — by NAME (a literal: computed
  * names defeat scanning and import rewiring; the stored/referenced form)
  * or by VALUE (a `fillAsset` defined right in the sketch — the declared-
  * params form without a library; execution and storage are separate
- * concerns).
+ * concerns). A built-in name takes exactly the parameters its file
+ * declares; a key it does not declare is a type error here and a refusal
+ * by name at render.
  */
 export function fill<P extends Record<string, unknown>>(
   asset: FillAssetDef<P>,
-  params?: Partial<P>,
+  params?: FillParams<P>,
 ): FillSpec;
+/** Parallel lines. `spacing` is a length or a field of lengths read along
+ * each line at `step`; `align` anchors the lines to the paper or the shape. */
+export function fill(name: 'hatch', params?: HatchParams): FillSpec;
+/** Stacked hatch passes, one per angle in `angles`. */
+export function fill(name: 'crosshatch', params?: CrosshatchParams): FillSpec;
+/** Unbroken ink: shape-aligned rows at 0.9× the nib. */
+export function fill(name: 'solid', params?: SolidParams): FillSpec;
+/** Poisson-disc dots. `density` is 0…1 or a field of it read at every dot. */
+export function fill(name: 'stipple', params?: StippleParams): FillSpec;
 /** Native contour loops; disable optional transitions while retaining cleanup ink. */
-export function fill(name: 'contour', params?: { spacing?: L; connectors?: boolean }): FillSpec;
-export function fill(name: string, params?: Record<string, unknown>): FillSpec;
+export function fill(name: 'contour', params?: ContourParams): FillSpec;
+/** A custom fill from the run's fill table, by its library name. */
+export function fill<N extends string>(name: N extends BuiltinFillName ? never : N, params?: Record<string, unknown>): FillSpec;
 export function fill(
   ref: string | FillAssetDef<Record<string, unknown>>,
   params: Record<string, unknown> = {},
@@ -216,12 +249,35 @@ function occludeModule(): Record<string, unknown> {
 
 /** Can this fill use draw? Its L-typed params must be usable lengths: a
  * spacing or minDist at or below zero (a mid-edit transient) makes no ink,
- * and the region is left opaque with none. */
+ * and the region is left opaque with none. A field where a length goes is
+ * judged per sample, by the fill, so it is usable here. */
 export function fillParamsUsable(params: Record<string, unknown>): boolean {
   for (const key of ['spacing', 'minDist'] as const) {
-    if (key in params && !usableLength(params[key] as L | undefined)) return false;
+    if (!(key in params) || typeof params[key] === 'function') continue;
+    if (!usableLength(params[key] as L | undefined)) return false;
   }
   return true;
+}
+
+/** Refuse a parameter the fill does not declare, by name: a misspelt key
+ * would otherwise fall back to the default without a word. `label` names
+ * the fill as the message shows it: `'hatch'` quoted, or `asset`. */
+export function checkFillParams(label: string, declared: Record<string, unknown>, params: Record<string, unknown>): void {
+  for (const key of Object.keys(params)) {
+    if (!Object.hasOwn(declared, key)) {
+      const known = Object.keys(declared);
+      throw new Error(`fill ${label}: unknown parameter '${key}' — ${label} takes ${known.length ? known.join(', ') : 'no parameters'}`);
+    }
+  }
+}
+
+/** A fill that does not hide (law 1's texture over what is beneath) is not
+ * built yet, so `{ fill, opaque: false }` refuses rather than hide in
+ * silence. The shape option readers call this. */
+export function checkFillOpaque(opts: { fill?: unknown; opaque?: boolean }): void {
+  if (opts.fill !== undefined && opts.opaque === false) {
+    throw new Error('polygon: a fill that does not hide is not built yet — draw the fill and the outline separately');
+  }
 }
 
 /** Default hatch spacing for a pen: 3× nib width, in mm. */

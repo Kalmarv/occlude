@@ -11,9 +11,9 @@ import type { SceneCompute3 } from './three/scene.js';
  * host runs elsewhere (the studio's main thread decodes posted buffers).
  */
 
-import { decodePlanBuffer, encodePlanBuffer, makePlan, parseToolpath, planValue, resolveDraw, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
+import { bridgeMm, decodePlanBuffer, encodePlanBuffer, makePlan, parseToolpath, planValue, resolveDraw, resolvePlanOptions, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
 import type { EstimateOpts, PenTiming } from './motion.js';
-import { resolveFill, fillParamsUsable, isNativeFill, type FillSpec } from './fills.js';
+import { resolveFill, fillParamsUsable, checkFillParams, isNativeFill, type FillSpec } from './fills.js';
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
 import { flattenPrim, subPrim, SNAP_GRID, type Prim } from './prims.js';
@@ -21,7 +21,7 @@ import { PRIM_STRIDE, FRAG_STRIDE, PrimSink, encodePrim, decodePrim } from './sc
 import { buildFieldGrids, paperStep, type FieldKind, type FieldUse } from './fieldGrid.js';
 import type { FillJob } from './fillJobs.js';
 import { renderEncoded, requireWasm, type RawRender, type WasmModule } from './wasmRender.js';
-import { shadeChains, type ShaderValue } from './shader.js';
+import { shadeChains, type ShadeFrame, type ShaderValue } from './shader.js';
 
 // The render pipeline this module was one file with, re-exported so its
 // importers (tools, tests, the studio worker) keep one door: the wasm
@@ -31,7 +31,7 @@ export type { WasmModule, RawRender } from './wasmRender.js';
 export { runFillJobs } from './fillJobs.js';
 export type { FillJob, SuppliedFills } from './fillJobs.js';
 import {
-  lowerShape, lowerToUserLoops, makeFrame, unitMm, userToPaperMatrix, type Frame,
+  frameMaps, lowerShape, lowerToUserLoops, makeFrame, unitMm, userToPaperMatrix, type Frame,
 } from './record.js';
 import { fieldMeta } from './field.js';
 import { apply, invert, mul, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
@@ -518,6 +518,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
                 'custom fills are saved on the studio Fills page',
             );
           }
+          checkFillParams(spec.type === 'asset' ? 'asset' : `'${spec.name}'`, def.params, spec.params);
           const params: Record<string, unknown> = { ...def.params, ...spec.params };
           // Field params are anchored by the runtime (rule 10: `align` on the
           // fill use applies to all of them): the fill receives a sampler in
@@ -619,6 +620,12 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     if(sourceSeedProtocol)shapesF64.push(shape.strokeSeed??-1);
   }
 
+  // A shader may answer any pen the sketch declares, not only the pens its
+  // shapes drew with: those join the table after the used ones, so every
+  // slot the shapes hold is unchanged. A drawing with no shader keeps the
+  // table it drew.
+  if (state.planOptions?.shader) for (const name of state.declaredPens) penIdx(name);
+
   const fieldData = buildFieldGrids(uses, idOf, unit, frame.inner);
   const fieldUses: number[] = [];
   const domainList: number[] = [];
@@ -658,7 +665,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     pens,
     frame,
     paper: exec.paper.color !== undefined ? { w: paperW, h: paperH, color: exec.paper.color } : { w: paperW, h: paperH },
-    plan: state.planOptions ?? undefined,
+    plan: state.planOptions ? resolvePlanOptions(state.planOptions, frame.inner) : undefined,
     draw: state.drawRequest ?? undefined,
   };
 }
@@ -875,7 +882,7 @@ export function exportPng(def: SketchDef | Execution, opts: PngOptions = {}): Ui
  * plan's settings record, so the identity says what was bridged. */
 export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number {
   if (bridge === false) return 0;
-  if (typeof bridge === 'number') return Math.max(0, bridge);
+  if (bridge !== undefined && bridge !== true) return Math.max(0, bridgeMm(bridge));
   return Math.max(pen.width, 0.05) * 0.5;
 }
 
@@ -891,18 +898,22 @@ export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number
  * drops or re-pens a stroke, and never reorders the drawing. A program
  * that returns `{}` leaves the bytes untouched.
  */
-export function applyShader(buffer: Float64Array, shader: ShaderValue, pens: PenDef[], inner: { innerW: number; innerH: number }): Float64Array {
-  const frame = {
+export function applyShader(buffer: Float64Array, shader: ShaderValue, pens: readonly PenDef[], frame: Frame): Float64Array {
+  const maps = frameMaps(frame);
+  const shade: ShadeFrame = {
     nibOf: (pen: number): number => Math.max(pens[pen]?.width ?? 0, SNAP_GRID),
-    resolve: (v: L): number => resolveLen(v, inner),
+    resolve: (v: L): number => resolveLen(v, frame.inner),
     penCount: (): number => pens.length,
+    nameOf: (pen: number): string => pens[pen]?.name ?? String(pen),
     penOf: (name: string): number => {
       const i = pens.findIndex((p) => p.name === name);
-      if (i < 0) throw new Error(`shader: this drawing does not use the pen '${name}' (it uses ${pens.map((p) => `'${p.name}'`).join(', ')}). A shader chooses among the pens the drawing draws with.`);
+      if (i < 0) throw new Error(`shader: this drawing has no pen '${name}' (it has ${pens.map((p) => `'${p.name}'`).join(', ')}). A shader chooses among the pens the drawing draws with and the pens the sketch declares in its \`pens\`.`);
       return i;
     },
+    unit: unitMm(frame),
+    toUnits: maps.toUnits,
   };
-  return encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), shader.program, frame));
+  return encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), shader.program, shade));
 }
 
 /**
@@ -942,7 +953,7 @@ export function planAsBuffers(buffer: Float64Array): { prims: Float64Array<Array
  * pen, and -1 for "each pen's own half nib".
  */
 export const bridgeArg = (bridge: PlanOptions['bridge']): number =>
-  bridge === false ? 0 : typeof bridge === 'number' ? Math.max(0, bridge) : -1;
+  bridge === false ? 0 : bridge !== undefined && bridge !== true ? Math.max(0, bridgeMm(bridge)) : -1;
 
 /**
  * THE plan settings — what identifies a plan besides its bytes.
@@ -968,9 +979,10 @@ export function planSettings(
   };
 }
 
-export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
+export function planBuffer(result: RenderResult, given: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
+  const opts = resolvePlanOptions(given, result.frame.inner);
   let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), tourBudget(opts.optimize), bridgeArg(opts.bridge));
-  if (opts.shader) buffer = applyShader(buffer, opts.shader, result.pens, result.frame.inner);
+  if (opts.shader) buffer = applyShader(buffer, opts.shader, result.pens, result.frame);
   return { buffer, settings: planSettings(result.pens, result.paper, opts, engine) };
 }
 

@@ -44,6 +44,7 @@ const PAGE: Record<string, string> = {
   Next: 'steps', StepRule: 'steps', StepShorthand: 'steps', StepsOptions: 'steps', FaceRow: 'steps', Rewrite: 'steps',
   ReplaceOpts: 'steps', ChildSpec: 'steps', SplitOpts: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
+  HatchParams: 'fills', CrosshatchParams: 'fills', SolidParams: 'fills', StippleParams: 'fills', ContourParams: 'fills', BuiltinFillName: 'fills', FillParams: 'fills',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
   Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry',
   Placement3: 'geometry', Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',

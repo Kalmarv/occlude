@@ -10,7 +10,7 @@ Rendering makes the visible ink. Planning puts it in order: fragments merge into
 <include>/_sig/Toolkit.plan.mdx</include>
 <include>/_sig/Toolkit.draw.mdx</include>
 
-`plan` sets the path settings for this run. Call it once in the sketch body, before the return. It returns nothing. `optimize` is the tour budget. `bridge` is the gap the pen closes without a lift, or `false`. `draw` chooses the part of the ordered drawing to plot, in the same way: once, before the return. `progress` is a fraction of the chains. `chains` is a range of them. `minutes` is an interval of the estimated time, and `budget` keeps the longest prefix that fits. A range never re-plans or reorders. Ink that a later shape hid stays hidden.
+`plan` sets the path settings for this run. Call it once in the sketch body, before the return. It returns nothing. `optimize` is the tour budget. `bridge` is the gap the pen closes without a lift, or `false`. The gap is a length: `mm(1)` is one millimetre, and a bare number is millimetres too. `draw` chooses the part of the ordered drawing to plot, in the same way: once, before the return. `progress` is a fraction of the chains. `chains` is a range of them. `minutes` is an interval of the estimated time, and `budget` keeps the longest prefix that fits. A range never re-plans or reorders. Ink that a later shape hid stays hidden.
 
 ```ts live
 import { sketch, circle, ui } from 'occlude';
@@ -25,7 +25,9 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 
 <include>/_sig/shader.mdx</include>
 
-A shader is a program that runs along every stroke in the plan. It reads the arc length in millimetres, the point there, and the stroke it walks. It answers with what the pen does: more `passes`, another `pen`, a `dash`, or no ink. Give it to `t.plan({ shader })`, and the stroke splits wherever the answer changes. A split lands on the nib grid.
+A shader is a program that runs along every stroke in the plan. It reads the arc length `s`, the point `p` there, and the stroke it walks. `s` and `p` are in drawable units, the same units as `t.bounds()` and every shape, so a field of the sketch reads `p` directly. It answers with what the pen does: more `passes`, another `pen`, a `dash`, or no ink. Give it to `t.plan({ shader })`, and the stroke splits wherever the answer changes. A split lands on the nib grid.
+
+`ctx.pen` is the name of the stroke's pen, the same word that a `pen` answer takes. `ctx.slot` is its number in the pen table. `ctx.length` is the length of the stroke in drawable units. `ctx.mm` holds `s`, `p` and `length` on the paper, in millimetres. A `pen` answer can name a pen that the drawing uses or a pen that the sketch declares in `pens`. Any other name refuses.
 
 ```ts live
 import { sketch, shader, circle, mm, distance } from 'occlude';

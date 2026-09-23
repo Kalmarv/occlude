@@ -100,7 +100,7 @@ describe('a stroke shader', () => {
     expect(ratio).toBeLessThan(0.6);
   });
 
-  it('gives the program arc length in mm and the stroke it is walking', () => {
+  it('gives the program arc length in drawable units and the stroke it is walking', () => {
     const seen: { s: number; at: number; length: number; index: number }[] = [];
     planned((s, _p, ctx) => {
       seen.push({ s, at: ctx.at, length: ctx.length, index: ctx.index });
@@ -130,7 +130,7 @@ describe('a stroke shader', () => {
     };
     const chains = shade((_s, p) => ({ pen: p[0] < 50 ? 'pigma-005-black' : 'pigma-05-black' }));
     expect(new Set(chains.map((c) => c.pen))).toEqual(new Set([0, 1]));
-    expect(() => shade(() => ({ pen: 'stabilo-88-green' }))).toThrow(/does not use the pen 'stabilo-88-green'/);
+    expect(() => shade(() => ({ pen: 'stabilo-88-green' }))).toThrow(/has no pen 'stabilo-88-green'/);
   });
 
   it('measures arc length along a curve, not the curve\'s own parameter', () => {

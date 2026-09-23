@@ -43,7 +43,7 @@ export default sketch({
   }
   t.plan({
     shader: shader((s, p, ctx) => {
-      if (ctx.pen === 0) return {};
+      if (ctx.pen === 'ink') return {};
       const d = body(p[0], p[1]) / deepest;
       if (d < 0.22) return { dash: [mm(0.7), mm(2.4)] };
       if (d < 0.48) return { dash: [mm(1.8), mm(1.3)] };

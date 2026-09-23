@@ -18,19 +18,21 @@
 
 import { schedulePlan, type EstimateOpts, type PenTiming, type PlanEstimate, type PlanSchedule } from './motion.js';
 import type { Prim } from './prims.js';
-import type { ShaderValue } from './shader.js';
+import { isShader, type ShaderValue } from './shader.js';
+import { Len, resolveLen, type L, type UnitCtx } from './units.js';
 
 export const PLAN_SCHEMA = 1;
 
 /** The path-optimization inputs of a plan — the only knobs planning has.
  * `optimize`: the 2-opt tour budget (`false` = nearest-neighbour order
  * only, a number overrides, default 200 000). `bridge`: draw through
- * sub-nib gaps instead of lifting — `false` never, a number is the gap
- * in mm for every pen, default half the nib per pen. A sketch states
- * them with `t.plan({...})`; `plan(result, opts)` takes them directly. */
+ * sub-nib gaps instead of lifting — `false` never, a length is the gap for
+ * every pen (a bare number is mm here, and `mm(1)` says the same), default
+ * half the nib per pen. A sketch states them with `t.plan({...})`;
+ * `plan(result, opts)` takes them directly. */
 export interface PlanOptions {
   optimize?: boolean | number;
-  bridge?: boolean | number;
+  bridge?: boolean | L;
   /** A stroke shader: a program that runs along every stroke the plan
    * holds and decides what the pen does there. It runs after the tour, so
    * it never changes the drawing order — only the ink. */
@@ -49,6 +51,36 @@ export interface DrawRequest {
   progress?: [number, number];
   minutes?: [number, number];
   budget?: number;
+}
+
+/** The bridge gap as the engine reads it, in mm: a bare number is mm, and
+ * a length resolves against the drawable. */
+export function resolvePlanOptions(opts: PlanOptions, inner: UnitCtx): PlanOptions {
+  const b = opts.bridge;
+  if (!(b instanceof Len)) return opts;
+  return { ...opts, bridge: resolveLen(b, inner) };
+}
+
+/** A bridge gap in mm from an option already resolved against the drawable
+ * (`resolvePlanOptions`); `mm()` needs no drawable and reads as its value. */
+export function bridgeMm(bridge: L): number {
+  if (typeof bridge === 'number') return bridge;
+  if (bridge.kind === 'mm') return bridge.value;
+  throw new Error('plan: a bridge relative to the drawable is resolved against its render — plan the render result, or give mm()');
+}
+
+/** Refuse a `t.plan` record that planning cannot read, by name. */
+export function checkPlanOptions(opts: PlanOptions): PlanOptions {
+  if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge?, shader? }');
+  for (const k of Object.keys(opts)) if (!['optimize', 'bridge', 'shader'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize, bridge and shader; engine identity is the host's)`);
+  if (opts.shader !== undefined && !isShader(opts.shader)) throw new Error('plan: shader must be a shader(program) value');
+  if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
+  const b = opts.bridge;
+  if (b !== undefined && typeof b !== 'boolean') {
+    const v = typeof b === 'number' ? b : b instanceof Len ? b.value : NaN;
+    if (!(Number.isFinite(v) && v >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative length (a bare number is mm)');
+  }
+  return { ...opts };
 }
 
 /** A plan's options across an execution fork (a 3D camera change rebuilds

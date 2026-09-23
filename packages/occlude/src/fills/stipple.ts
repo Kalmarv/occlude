@@ -1,6 +1,7 @@
 // Built-in fill 'stipple' — Bridson Poisson-disk dots, plotted as pen taps.
-import { fillAsset, type CustomPrimitive } from '../fillModule.js';
+import { fillAsset, type CustomPrimitive, type FillRegion } from '../fillModule.js';
 import type { L } from '../units.js';
+import type { FieldFn } from '../shapes.js';
 
 // The cells a candidate must be judged against, as (dx, dy) offsets from its
 // own cell, ordered nearest first: its own cell, the eight around it, then the
@@ -21,7 +22,9 @@ const NEIGHBOURHOOD = new Int8Array([
 
 export default fillAsset({
   params: {
-    density: 0.5,
+    /** 0…1, or a field of it read at every dot: 1 packs the dots `minDist`
+     * apart, lower spreads them (to 20× `minDist` at 0.05 and below). */
+    density: 0.5 as number | FieldFn,
     /** Length; default 2× the fill pen's nib. */
     minDist: undefined as L | undefined,
   },
@@ -34,11 +37,19 @@ export default fillAsset({
     const b = region.bbox;
     if (!(b.w > 0) || !(b.h > 0) || !Number.isFinite(b.w * b.h)) return [];
     const MAX_CELLS = 4_000_000;
+    const density = p.density;
+    if (typeof density === 'function') return variable(region, density, minDist, Math.max(0.05, Math.sqrt((2 * b.w * b.h) / MAX_CELLS)), ctx.rnd);
+    // A radius that is not a finite length has no disc: the loop below would
+    // never place a second dot and never stop.
+    if (typeof density !== 'number' || !Number.isFinite(density)) {
+      throw new Error(`stipple: density must be a finite number from 0 to 1 or a field (x, y) => number, got ${String(density)}`);
+    }
     const r = Math.max(
-      minDist / Math.min(1, Math.max(0.05, p.density)),
+      minDist / Math.min(1, Math.max(0.05, density)),
       0.05,
       Math.sqrt((2 * b.w * b.h) / MAX_CELLS),
     );
+    if (!Number.isFinite(r)) throw new Error(`stipple: the dot spacing is not a finite length (minDist ${minDist} mm)`);
     const rr = r * r;
     const cell = r / Math.SQRT2;
     const cols = Math.ceil(b.w / cell) + 1;
@@ -127,3 +138,87 @@ export default fillAsset({
     return out;
   },
 });
+
+/**
+ * The same Bridson growth with a radius per disc: the density field is read
+ * at each candidate, and the candidate keeps its own radius from every dot
+ * already placed. The grid is cut for the smallest radius (density 1), so a
+ * cell still holds one dot, and a candidate searches as far as its own
+ * radius reaches. A field that answers no place (a non-finite value) places
+ * no dot there.
+ */
+function variable(region: FillRegion, density: FieldFn, minDist: number, floor: number, rnd: () => number): CustomPrimitive[] {
+  const b = region.bbox;
+  const rmin = Math.max(minDist, floor);
+  if (!Number.isFinite(rmin)) throw new Error(`stipple: the dot spacing is not a finite length (minDist ${minDist} mm)`);
+  const radiusAt = (x: number, y: number): number => {
+    const d = density(x, y);
+    if (typeof d !== 'number' || Number.isNaN(d)) return NaN;
+    return Math.max(minDist / Math.min(1, Math.max(0.05, d)), floor);
+  };
+  const cell = rmin / Math.SQRT2;
+  const cols = Math.ceil(b.w / cell) + 1;
+  const rows = Math.ceil(b.h / cell) + 1;
+  const grid = new Int32Array(cols * rows).fill(-1);
+  const px: number[] = [];
+  const py: number[] = [];
+  const pr: number[] = [];
+  const active: number[] = [];
+  const bx1 = b.x + b.w;
+  const by1 = b.y + b.h;
+  const cellOf = (x: number, y: number): [number, number] =>
+    [Math.min(cols - 1, Math.floor((x - b.x) / cell)), Math.min(rows - 1, Math.floor((y - b.y) / cell))];
+  const fits = (x: number, y: number, r: number): boolean => {
+    const [cx, cy] = cellOf(x, y);
+    const reach = Math.ceil(r / cell);
+    const rr = r * r;
+    for (let gy = Math.max(0, cy - reach); gy <= Math.min(rows - 1, cy + reach); gy++) {
+      for (let gx = Math.max(0, cx - reach); gx <= Math.min(cols - 1, cx + reach); gx++) {
+        const idx = grid[gy * cols + gx];
+        if (idx < 0) continue;
+        const dx = px[idx] - x;
+        const dy = py[idx] - y;
+        if (dx * dx + dy * dy < rr) return false;
+      }
+    }
+    return true;
+  };
+  const push = (x: number, y: number, r: number): void => {
+    const idx = px.length;
+    px.push(x); py.push(y); pr.push(r);
+    active.push(idx);
+    const [cx, cy] = cellOf(x, y);
+    grid[cy * cols + cx] = idx;
+  };
+  // The first dot: the first draw the field answers for. A field that
+  // answers nowhere in 64 draws places none.
+  for (let tries = 0; tries < 64 && px.length === 0; tries++) {
+    const x = b.x + rnd() * b.w;
+    const y = b.y + rnd() * b.h;
+    const r = radiusAt(x, y);
+    if (Number.isFinite(r)) push(x, y, r);
+  }
+  const K = 24;
+  while (active.length > 0) {
+    const pick = Math.floor(rnd() * active.length) % active.length;
+    const bi = active[pick];
+    let placed = false;
+    for (let t = 0; t < K; t++) {
+      const ang = rnd() * 2 * Math.PI;
+      const rad = pr[bi] + rnd() * pr[bi];
+      const x = px[bi] + Math.cos(ang) * rad;
+      const y = py[bi] + Math.sin(ang) * rad;
+      if (x < b.x || x > bx1 || y < b.y || y > by1) continue;
+      const r = radiusAt(x, y);
+      if (!Number.isFinite(r) || !fits(x, y, r)) continue;
+      push(x, y, r);
+      placed = true;
+      break;
+    }
+    if (!placed) {
+      active[pick] = active[active.length - 1];
+      active.pop();
+    }
+  }
+  return px.map((x, i) => ({ type: 'dot', x, y: py[i] }));
+}
