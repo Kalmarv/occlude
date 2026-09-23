@@ -8,7 +8,7 @@
  * always says what to look at first.
  *
  *   rust       cargo test -p occlude-core
- *   ts         pnpm -r test            (occlude + studio)
+ *   ts         occlude test:all (fast + slow) + studio test
  *   types      tsc over src, tools and test
  *   studio     tsc over the studio (vite strips types without checking)
  *   docs       every `ts live` fence renders
@@ -33,7 +33,7 @@ import { spawnSync } from 'node:child_process';
 const root = new URL('.', import.meta.url).pathname;
 const gates = [
   ['rust', ['cargo', ['test', '-p', 'occlude-core']]],
-  ['ts', ['pnpm', ['-r', 'test']]],
+  ['ts', ['sh', ['-c', 'pnpm --filter occlude test:all && pnpm --filter occlude-studio test']]],
   ['types', ['pnpm', ['--filter', 'occlude', 'typecheck']]],
   ['studio', ['pnpm', ['--filter', 'occlude-studio', 'typecheck']]],
   ['words', ['pnpm', ['--filter', 'occlude', 'docs:words']]],

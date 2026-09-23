@@ -153,7 +153,7 @@ from source, so the studio image exists only when every gate passed:
 | gate | command | proves |
 |---|---|---|
 | rust | `cargo test -p occlude-core` | the engine's unit, property and golden-scene tests |
-| ts | `pnpm -r test` | the library and studio vitest suites |
+| ts | `test:all` + studio `test` | the library's fast and slow vitest sets, and the studio suite |
 | types | `pnpm --filter occlude typecheck` | `src`, `tools` and `test` compile |
 | studio | `pnpm --filter occlude-studio typecheck` | the studio compiles (vite only strips types) and `server.mjs` parses |
 | docs | `docs:check` | every `ts live` fence on every topic page renders, with no ink outside the drawable |
@@ -177,6 +177,25 @@ worker entry, a fence asset, module-level code, or a new module takes
 everything. The oracle's own code keys the map, so a change to it finds
 no map. The mode never saves a baseline, and `check.mjs` still runs the
 full `--check`: the fast mode is for the loop, the full gate is for done.
+
+**The loop** is `pnpm loop` in the occlude package (`tools/loop.mjs`). It
+runs three stages and prints one line for each, with its result and
+time: the incremental typecheck, `test:affected`, and `docs:affected`. It
+stops at the first failure and shows the tail of that stage. It never
+saves a baseline. `pnpm check` is still the gate. A test file that takes
+more than 5 s has the name `*.slow.test.ts`. `pnpm test` runs the fast set,
+`test:slow` the slow set, and `test:all` both. The gate runs
+`test:all`. `test:affected` selects test files the same way the oracle selects
+fences. It reads `node_modules/.cache/test-coverage/<commit>.json`. This map
+records the lines each test file ran, the modules it loaded, and the files
+it read or spawned. It runs every file that a hunk reaches, fast or slow,
+and every test file that is new or changed. The selector finds a renamed
+test file by its content. The engine, the dependencies, `tsconfig.json`, `index.ts`,
+the classifier worker entry, or a new `src` module runs the full fast
+set. The test harness keys the map, as the oracle's code keys its own
+map. Each map is for one commit. After each landing, run `pnpm maps`
+(`docs:map`, then `test:map`) from a clean worktree. With no map for
+HEAD, each stage tells you and runs its full set.
 
 Beyond the gates, the oracles a toolpath-affecting change consults by
 hand: `plotstats church.ts --seed 42` (381.0 min, 16 515 travel mm at
