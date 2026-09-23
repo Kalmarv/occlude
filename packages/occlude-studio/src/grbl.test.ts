@@ -19,13 +19,19 @@ class FakeGrblPort {
   quirkyZ = false;
   /** Reply latency per line, so a plot takes real time and can be paused. */
   delayMs = 0;
+  /** A flaky link: one command whose ok never comes (the move ran), one
+   * that never arrives at all (no move, no reply), or a dead link (no
+   * status either). */
+  dropOkOnce: string | null = null;
+  dropLineOnce: string | null = null;
+  mute = false;
   private timers: ReturnType<typeof setTimeout>[] = [];
   readonly readable = new ReadableStream<Uint8Array>({ start: (controller) => { this.input = controller; } });
   readonly writable = new WritableStream<Uint8Array>({
     write: (chunk) => {
       const text = new TextDecoder().decode(chunk);
       for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
-      if (text === '?') { this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
+      if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
       if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
       if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
       if (text === '\x18') {
@@ -38,8 +44,10 @@ class FakeGrblPort {
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
         const cmd = line.replace(/\r$/, '');
+        if (cmd === this.dropLineOnce) { this.dropLineOnce = null; continue; }
         this.commands.push(cmd);
         this.move(cmd);
+        if (cmd === this.dropOkOnce) { this.dropOkOnce = null; continue; }
         let reply = 'ok\r\n';
         if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
         if (cmd === '$$') reply = '$1=254\r\n$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
@@ -354,3 +362,35 @@ describe('GRBL driver', () => {
     expect(cmds).toContain('G1 X0.000 Y-10.000 F12000');
   });
 });
+
+describe('the watchdog asks the controller before it gives up', () => {
+  it('a lost ok: the controller stands at the target, so the line is settled and the plot goes on', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    await g.connect(undefined, port as never);
+    port.dropOkOnce = 'G1 X10 Y20 F1000';
+    await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).resolves.toEqual([]);
+    expect(port.commands.filter((c) => c === 'G1 X10 Y20 F1000')).toHaveLength(1);
+    await expect(g.cmd('G1 X11 Y20 F1000', true, 60)).resolves.toEqual([]);
+  });
+
+  it('a lost line: the controller is elsewhere, so the line is sent once more', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    await g.connect(undefined, port as never);
+    port.dropLineOnce = 'G1 X10 Y20 F1000';
+    await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).resolves.toEqual([]);
+    expect(port.commands.filter((c) => c === 'G1 X10 Y20 F1000')).toHaveLength(1);
+    expect(port.pos.slice(0, 2)).toEqual([10, 20]);
+  });
+
+  it('a dead link: no status report either, so the line fails by name', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    await g.connect(undefined, port as never);
+    port.dropLineOnce = 'G1 X10 Y20 F1000';
+    port.mute = true;
+    await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).rejects.toThrow(/no reply to G1 X10 Y20 F1000 after 0.06 s, and no status report — the link is down/);
+  });
+});
+

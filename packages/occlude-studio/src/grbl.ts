@@ -68,6 +68,8 @@ interface Pending {
   line: string;
   bytes: number;
   feedback: string[];
+  /** Sent a second time by the watchdog: one retry, never more. */
+  resent?: boolean;
   resolve: (lines: string[]) => void;
   reject: (err: Error) => void;
   timer?: ReturnType<typeof setTimeout>;
@@ -97,6 +99,16 @@ export interface GrblStatus {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** The X and Y a `G0`/`G1` line moves to, or null when it names neither. */
+function targetOf(line: string): [number, number] | null {
+  if (!/^G0?[01]\b/.test(line)) return null;
+  const x = /\bX(-?\d+(?:\.\d+)?)/.exec(line);
+  const y = /\bY(-?\d+(?:\.\d+)?)/.exec(line);
+  if (!x || !y) return null;
+  return [Number(x[1]), Number(y[1])];
+}
+
 
 export class Grbl {
   private port: SerialPortLike | null = null;
@@ -275,11 +287,7 @@ export class Grbl {
         if (!this.writer) { reject(new GrblError('not connected')); return; }
         if (this.inFlightBytes + bytes > RX_BUDGET && this.pending.length > 0) { this.waiters.push({ attempt, reject }); return; }
         const p: Pending = { line, bytes, feedback: [], resolve, reject };
-        p.timer = setTimeout(() => {
-          if (!this.pending.includes(p)) return;
-          this.logLine('<', `(watchdog: no reply to ${line} after ${timeoutMs} ms)`);
-          reject(new GrblError(`no reply to ${line} after ${timeoutMs / 1000} s`));
-        }, timeoutMs);
+        p.timer = setTimeout(() => { void this.stalled(p, timeoutMs); }, timeoutMs);
         this.pending.push(p);
         this.inFlightBytes += bytes;
         this.logLine('>', line);
@@ -292,6 +300,59 @@ export class Grbl {
       };
       attempt();
     });
+  }
+
+  /**
+   * The watchdog: a line the controller has not acknowledged for the
+   * timeout. Silence is not yet a verdict — on a plot of a million short
+   * moves one lost byte in three hours is ordinary, and it used to end the
+   * plot. So the controller is asked (`?`, the real-time status, which
+   * bypasses the line buffer):
+   *   - no status report: the link is down — the line fails by name;
+   *   - an alarm, hold or door: the controller stopped — named;
+   *   - the controller stands at the line's own target: the move ran and
+   *     its `ok` was lost — the line is settled as acknowledged;
+   *   - otherwise the line itself was lost — it is sent once more, and a
+   *     second silence fails it.
+   * Only the oldest unacknowledged line is judged; the lines behind it
+   * re-arm and follow its fate through the ordinary `ok` order.
+   */
+  private async stalled(p: Pending, timeoutMs: number): Promise<void> {
+    if (!this.pending.includes(p)) return;
+    if (this.pending[0] !== p) { p.timer = setTimeout(() => { void this.stalled(p, timeoutMs); }, timeoutMs); return; }
+    this.logLine('<', `(watchdog: no reply to ${p.line} after ${timeoutMs} ms — asking the controller)`);
+    let st: GrblStatus | null = null;
+    try { st = await this.status(); } catch { st = null; }
+    if (!this.pending.includes(p)) return; // the ok arrived while we asked
+    const fail = (why: string): void => {
+      this.pending = this.pending.filter((q) => q !== p);
+      this.inFlightBytes -= p.bytes;
+      p.reject(new GrblError(why));
+      this.wake();
+    };
+    if (!st) { fail(`no reply to ${p.line} after ${timeoutMs / 1000} s, and no status report — the link is down`); return; }
+    const state = st.state.split(':')[0];
+    if (state === 'Alarm' || state === 'Hold' || state === 'Door' || state === 'Sleep') {
+      fail(`no reply to ${p.line}: the controller is in ${st.state}`);
+      return;
+    }
+    const target = targetOf(p.line);
+    if (target && Math.abs(st.work[0] - target[0]) < 0.02 && Math.abs(st.work[1] - target[1]) < 0.02) {
+      this.logLine('<', `(watchdog: the controller stands at the target of ${p.line} — its ok was lost; carrying on)`);
+      this.pending.shift();
+      this.inFlightBytes -= p.bytes;
+      p.resolve(p.feedback);
+      this.wake();
+      return;
+    }
+    if (!p.resent) {
+      p.resent = true;
+      this.logLine('>', `(watchdog: the line was lost — sending it again) ${p.line}`);
+      p.timer = setTimeout(() => { void this.stalled(p, timeoutMs); }, timeoutMs);
+      this.raw(p.line + '\n').catch((e: unknown) => { clearTimeout(p.timer); fail(e instanceof Error ? e.message : String(e)); });
+      return;
+    }
+    fail(`no reply to ${p.line} after two tries — the controller answers status (${st.state}) but not the line`);
   }
 
   /** A single command: the same as `send`, kept for the controls and the log. */
