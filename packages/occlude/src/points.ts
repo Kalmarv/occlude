@@ -223,9 +223,11 @@ export function withinRegion(
 }
 
 /**
- * How much longer a length of the SPACE can be in the sketch's own
- * coordinates, over one box: `1/sqrt(density)` at its thinnest, and never
- * below 1.
+ * How far the scatter's bucket search widens over one box, from the
+ * space's `density`: how much longer a length of the SPACE can be in the
+ * sketch's own coordinates — `1/sqrt(density)` at its thinnest, and never
+ * below 1. Not the chart's magnification on the sheet, which is
+ * `chartStretch` in space.ts.
  *
  * `density` is the area of the space one unit of coordinate area holds, so
  * `sqrt(density)` is the linear factor and a coordinate step of `dp` is
@@ -244,7 +246,7 @@ export function withinRegion(
  * bucket search is wide enough, and the answer says so with Infinity,
  * which the caller reads as "search the whole grid".
  */
-function chartStretch(space: Space, bounds: Bounds): number {
+function bucketStretch(space: Space, bounds: Bounds): number {
   if (space.kind !== 'spherical') return 1;
   const R = space.radius;
   const cy = space.center[1];
@@ -501,7 +503,7 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
       if (!(v > 1 / 36)) return Infinity;
       return rMin / Math.sqrt(Math.min(1, v));
     };
-  const stretch = space ? chartStretch(space, bounds) : 1;
+  const stretch = space ? bucketStretch(space, bounds) : 1;
   // Neighbour grid at the minimum radius.
   const cell = rMin / Math.SQRT2;
   const cols = Math.max(1, Math.ceil(bounds.w / cell));

@@ -1,5 +1,5 @@
 import {surface3} from '../geometry/surface.js';
-import {chartSurface3,type SurfaceUV} from '../geometry/coordinates.js';
+import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {Mesh,emptyMesh,type GeometryOptions} from './mesh.js';
 import {emptyCount,emptySize} from '../degenerate.js';
 import {ownSurface3} from '../geometry/model.js';
@@ -39,7 +39,7 @@ function budget(points:number,faces:number):void{if(points>500000||faces>250000)
 function optionsObject(options:unknown):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('primitive options must be an object');}
 
 /** Shared latitude rings and single poles; +Z is the polar axis. */
-export function sphere(radius=1,options:SphereOptions={}):Mesh<{},{},{},SurfaceUV> {
+export function sphere(radius=1,options:SphereOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
   optionsObject(options);
   const n=options.segments??32,r=options.rings??16;
   if(empty([radius],[[n,3,'sphere segments'],[r,2,'sphere rings']]))return emptyMesh(options);
@@ -95,7 +95,7 @@ export interface GeodesicOptions extends GeometryOptions {readonly frequency?:Ge
  * The chart is spherical: u is the longitude around Z, v the latitude, and a
  * triangle that crosses the meridian carries u past 1 rather than folding the
  * chart back on itself. */
-export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},{},SurfaceUV> {
+export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
   optionsObject(options);
   const name=options.base??'icosahedron',project=options.project??true;
   if(typeof project!=='boolean')throw new Error('geodesic project must be boolean');
@@ -167,7 +167,7 @@ export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},{},Surf
 }
 
 /** Centered on Z, with shared cap/side rims. */
-export function cylinder(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},{},SurfaceUV> {
+export function cylinder(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
   optionsObject(options);
   const n=options.segments??32;
   if(empty([radius,height],[[n,3,'cylinder segments']]))return emptyMesh(options);
@@ -184,7 +184,7 @@ export function cylinder(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},
 }
 
 /** Base at -height/2, one shared apex at +height/2. */
-export function cone(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},{},SurfaceUV> {
+export function cone(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
   optionsObject(options);
   const n=options.segments??32;
   if(empty([radius,height],[[n,3,'cone segments']]))return emptyMesh(options);
@@ -201,7 +201,7 @@ export function cone(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},{},S
 }
 
 /** Ring in XY: radius measures the tube centerline, tubeRadius its section. */
-export function torus(radius=1,tubeRadius=.25,options:TorusOptions={}):Mesh<{},{},{},SurfaceUV> {
+export function torus(radius=1,tubeRadius=.25,options:TorusOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
   optionsObject(options);
   const n=options.segments??32,m=options.tubeSegments??12;
   if(empty([radius,tubeRadius],[[n,3,'torus segments'],[m,3,'torus tube segments']]))return emptyMesh(options);

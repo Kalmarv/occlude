@@ -25,7 +25,8 @@
 
 import { PointSelection, EdgeSelection, whereRows } from './relation.js';
 import { euclideanSpace, type Space } from './space.js';
-import { between, isPlacement, type Model, type Placement } from './placement.js';
+import { between, isPlacement, type Placement } from './placement.js';
+import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { degrees, radians } from './units.js';
 // Type-only: a placement returns a tree value (the shape `group()` makes).
 // `import type` is erased, so material never depends on api at runtime.
@@ -458,9 +459,6 @@ export function mintIds(count: number): Float64Array {
 const TRANSFORM_TOL = 0.05;
 /** Halvings of one edge before `m.transform` stops asking. */
 const TRANSFORM_DEPTH = 12;
-/** How near a pole, in radians of the sphere, a moved point stands ON it,
- * as the ink door reads one. */
-const TRANSFORM_POLE_EPS = 1e-9;
 
 export class Material {
   readonly n: number;
@@ -1980,52 +1978,25 @@ export class Material {
     const door = placement.door;
     if (door.sign === 0) return this.map((p) => placement.point([p.x, p.y]));
     const move = (x: number, y: number): Vec => placement.point([x, y]);
-    // A sphere's coordinates name a point more than once: x comes round
-    // every `2π·ell`, and a pole has every x. The door says where both
-    // are — its model's `+z` is the centre and `+x` a quarter turn along
-    // the base row — so the chord can be named the way the ink names it.
-    let named = (_from: Vec, q: Vec): Vec => q;
-    let onPole = (_q: Vec): boolean => false;
-    if (door.sign > 0) {
-      const [cx, cy] = door.down([0, 0, 1]);
-      const ell = (door.down([1, 0, 0])[0] - cx) / (Math.PI / 2);
-      const period = 2 * Math.PI * ell;
-      onPole = (q) => Math.abs(Math.PI / 2 - Math.abs((q[1] - cy) / ell)) < TRANSFORM_POLE_EPS;
-      named = (from, q) => [q[0] - period * Math.round((q[0] - from[0]) / period), q[1]];
-    }
-    /** The chord `a → b` as the ink draws it: both ends named from `a`. */
-    const chord = (a: Vec, b: Vec): [Vec, Vec] => {
-      let u = a;
-      let v = named(a, b);
-      if (onPole(u)) u = [v[0], u[1]];
-      if (onPole(v)) v = [u[0], v[1]];
-      return [u, v];
-    };
+    // A sphere's coordinates name a point more than once, so the chord is
+    // named the way the ink names it: the far end the short way round, a
+    // pole end on the other end's meridian.
+    const chord = chordNamer(door);
     const bow = door.bow;
     /** Does the moved curve, through `m`, stand off the chord `a → b`? */
     let bends: (a: Vec, b: Vec, m: Vec) => boolean;
     if (bow !== undefined) {
       // In the metric: the space distance between the chord's middle and
-      // the curve's, in sketch units. The model's own product gives the
-      // chord length of the difference, and `2·as(|Δ|/2)` the arc, as
-      // the space's `distance` reads it; the curvature length is where
-      // the door puts one radian along the base row.
-      const sign = door.sign;
-      const as = sign > 0 ? (t: number): number => Math.asin(Math.min(1, t)) : Math.asinh;
-      const ell = door.down(sign > 0 ? [Math.sin(1), 0, Math.cos(1)] : [Math.sinh(1), 0, Math.cosh(1)])[0] - door.down([0, 0, 1])[0];
-      bends = (a, b, m) => {
-        const [u, v] = chord(a, b);
-        const n = door.up([(u[0] + v[0]) / 2, (u[1] + v[1]) / 2]);
-        const k = door.up(m);
-        const d: Model = [n[0] - k[0], n[1] - k[1], n[2] - k[2]];
-        const gap = 2 * as(Math.sqrt(Math.max(0, d[0] * d[0] + d[1] * d[1] + sign * d[2] * d[2])) / 2);
-        return ell * gap > bow;
-      };
+      // the curve's, in sketch units.
+      const middle = chordMiddle(door);
+      const gap = metricGap(door);
+      bends = (a, b, m) => gap(middle(a, b), m) > bow;
     } else {
-      // In sketch units: how far `m` stands from the chord itself.
+      // In sketch units: how far `m`, named from the chord's start, stands
+      // from the chord itself.
       bends = (a, b, m) => {
         const [u, v] = chord(a, b);
-        const w = named(u, m);
+        const w = chord(u, m)[1];
         const dx = v[0] - u[0];
         const dy = v[1] - u[1];
         const len2 = dx * dx + dy * dy;
@@ -2033,17 +2004,11 @@ export class Material {
         return Math.hypot(w[0] - (u[0] + dx * s), w[1] - (u[1] + dy * s)) > TRANSFORM_TOL;
       };
     }
-    /** An edge's SOURCE curve, as the ink reads it: the flat segment
-     * between the nearest names of its two ends, a pole end on the other
-     * end's meridian. */
+    /** An edge's SOURCE curve, as the ink reads it. */
     const source = (e: number): [Vec, Vec] => {
       const a = this.edgeList[2 * e];
       const b = this.edgeList[2 * e + 1];
-      let u: Vec = [this.x[a], this.y[a]];
-      let v = named(u, [this.x[b], this.y[b]]);
-      if (onPole(u)) u = [v[0], u[1]];
-      if (onPole(v)) v = [u[0], v[1]];
-      return [u, v];
+      return chord([this.x[a], this.y[a]], [this.x[b], this.y[b]]);
     };
     const nx: number[] = [];
     const ny: number[] = [];

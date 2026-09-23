@@ -27,6 +27,7 @@
 import { facesFromCycles, faceKeyOf, type Face, type Faces } from './faces.js';
 import { Material, mintIds, type FaceColumn } from './material.js';
 import { identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
+import { chordMiddle, metricGap, modelGap } from './chord.js';
 import type { SpaceKind } from './space.js';
 import { tileGroup, type TileOps } from './tilegroup.js';
 import type { L } from './units.js';
@@ -189,20 +190,15 @@ export function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
 
 // ---- the mesh -------------------------------------------------------------
 
-/** The chord error a wall's samples keep, in the coordinates the tiling
- * lands in, and how many pieces one wall is ever cut into. Implementation
- * numbers: a wall is a geodesic, an edge is straight, and this is how
- * closely the second stands in for the first. */
-/** Pieces a wall is halved into at most, whatever its bow reads. The
+/** Pieces a wall is halved into at most, whatever its bow reads — an
+ * implementation number: a wall is a geodesic, an edge is straight, and
+ * the bow says how closely the second stands in for the first. The
  * worst wall on the docs sheet needs 32 (the `{3, 5}` of the geometry
  * page, and a `{5, 4}` under Klein), and the pieces a bow asks for grow as
  * the square root of the paper's scale: A0, the largest sheet the library
  * ships, is about 4.7 times the docs sheet, so about 2.2 times the pieces,
  * and the next doubling is 128. */
 const SAMPLE_CAP = 128;
-/** How near a pole, in radians of the sphere, a sample stands ON it, as
- * the ink door reads one. */
-const POLE_EPS = 1e-9;
 
 /** Two corners are ONE vertex when their model points agree this closely,
  * bucketed this coarsely. The model is the honest key in all three
@@ -263,32 +259,26 @@ class Corners {
  *
  *     P(t) = (s((1 − t)·g)·A + s(t·g)·B) / s(g),
  *
- * with `g` the model gap, `s` the model's own sine — `sinh` below zero
- * curvature, `sin` above it — and a plain straight step on the plane,
- * whose geodesics are already straight wherever it is drawn.
+ * with `g` the model gap (`modelGap`), `s` the model's own sine — `sinh`
+ * below zero curvature, `sin` above it — and a plain straight step on the
+ * plane, whose geodesics are already straight wherever it is drawn.
  *
- * A piece is judged by its BOW IN THE METRIC: the model gap between the
- * middle of the flat segment the ink will draw — named as the ink names
- * it, a sphere's x the short way round and a pole end on the other end's
- * meridian — and the geodesic's own middle. That is a distance a
- * placement cannot change, so a wall sampled to `bow` (model units, the
- * toolkit's `geodesicBow` over the curvature length) stays within it
- * wherever the tiling is carried. The count doubles until every piece
+ * A piece is judged by its BOW IN THE METRIC: the space's distance
+ * (`metricGap`) between the middle of the flat segment the ink will draw —
+ * named as the ink names it (`chordMiddle`) — and the geodesic's own
+ * middle. That is a distance a placement cannot change, so a wall sampled
+ * to `bow` (sketch units, the toolkit's `geodesicBow`, as the ink's `line`
+ * and `m.transform` read it) stays within it wherever the tiling is
+ * carried. The count doubles until every piece
  * holds, and stops at `SAMPLE_CAP` pieces whatever it reads.
  */
 function samplesBetween(door: ModelDoor, a: Vec, b: Vec, bow: number): Vec[] {
   if (door.sign === 0) return [];
-  const negative = door.sign < 0;
-  const sine = negative ? Math.sinh : Math.sin;
-  const arc = negative ? Math.asinh : Math.asin;
+  const sign = door.sign;
+  const sine = sign < 0 ? Math.sinh : Math.sin;
   const A = door.up(a);
   const B = door.up(b);
-  /** The model's own gap between two model points, through the chord. */
-  const gapOf = (P: Model, Q: Model): number => {
-    const d: Model = [P[0] - Q[0], P[1] - Q[1], P[2] - Q[2]];
-    return 2 * arc(Math.sqrt(Math.max(0, d[0] * d[0] + d[1] * d[1] + door.sign * d[2] * d[2])) / 2);
-  };
-  const g = gapOf(A, B);
+  const g = modelGap(sign, A, B);
   const sg = sine(g);
   if (!(Math.abs(sg) > 1e-12)) return [];
   const model = (t: number): Model => {
@@ -298,12 +288,13 @@ function samplesBetween(door: ModelDoor, a: Vec, b: Vec, bow: number): Vec[] {
   };
   const at = (t: number): Vec => door.down(model(t));
   const middle = chordMiddle(door);
+  const gap = metricGap(door);
   let pieces = 1;
   let nodes: Vec[] = [[a[0], a[1]], [b[0], b[1]]];
   while (pieces < SAMPLE_CAP) {
     let worst = 0;
     for (let k = 0; k < pieces; k++) {
-      const off = gapOf(door.up(middle(nodes[k], nodes[k + 1])), model((k + 0.5) / pieces));
+      const off = gap(middle(nodes[k], nodes[k + 1]), at((k + 0.5) / pieces));
       if (off > worst) worst = off;
     }
     if (!(worst > bow)) break;
@@ -315,28 +306,6 @@ function samplesBetween(door: ModelDoor, a: Vec, b: Vec, bow: number): Vec[] {
     nodes = grown;
   }
   return nodes.slice(1, -1);
-}
-
-/**
- * The middle of the flat segment between two sketch points, named the way
- * the ink names it. A sphere's coordinates name a point more than once: x
- * comes round every `2π·ell`, and a pole has every x. The door says where
- * both are — its model's `+z` is the centre and `+x` a quarter turn along
- * the base row. Elsewhere it is the plain average.
- */
-function chordMiddle(door: ModelDoor): (u: Vec, v: Vec) => Vec {
-  if (!(door.sign > 0)) return (u, v) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
-  const [cx, cy] = door.down([0, 0, 1]);
-  const ell = (door.down([1, 0, 0])[0] - cx) / (Math.PI / 2);
-  const period = 2 * Math.PI * ell;
-  const onPole = (p: Vec): boolean => Math.abs(Math.PI / 2 - Math.abs((p[1] - cy) / ell)) < POLE_EPS;
-  return (u, v) => {
-    let p: Vec = [u[0], u[1]];
-    let q: Vec = [v[0] - period * Math.round((v[0] - u[0]) / period), v[1]];
-    if (onPole(p)) p = [q[0], p[1]];
-    if (onPole(q)) q = [p[0], q[1]];
-    return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
-  };
 }
 
 /** One wall: the two corners it joins, and the rows of its samples in the
@@ -499,8 +468,9 @@ const CLOSURE = 16;
  * sketch's space, which is this very geometry. The flood then runs in
  * those coordinates, so every placement that comes back is an isometry a
  * sketch can hand straight to `group`, `m.transform` or a station.
- * `place.bow` is the bow a wall's stored chords may keep, in model units:
- * the toolkit reads it off the frame, where the chart is widest.
+ * `place.bow` is the bow a wall's stored chords may keep, in the space's
+ * metric and in sketch units: the toolkit reads it off the frame, where
+ * the chart is widest.
  *
  * `depth` is generations of reflection across the cell's edges, 3 by
  * default: depth 1 is the cell and its `p` edge neighbours. A spherical

@@ -41,7 +41,7 @@ export {intersections} from './intersections.js';
 export type {IntersectionInput,IntersectionOptions,IntersectionAttributes} from './intersections.js';
 export type {CurveSamples,CurveSample,CurveSampleRow,CurveSamplingOptions} from './curveSampling.js';
 
-export type {SurfaceUV} from '../geometry/coordinates.js';
+export type {SurfaceUV,SurfaceChart} from '../geometry/coordinates.js';
 export {planarUV,cylindricalUV} from './coordinates.js';
 export type {PlanarUVOptions,CylindricalUVOptions} from './coordinates.js';
 export {mapSurface} from './mapping.js';

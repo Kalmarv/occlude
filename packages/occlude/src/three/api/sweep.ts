@@ -1,4 +1,4 @@
-import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV} from '../geometry/coordinates.js';
+import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
 import {Mesh,CurveGeometry,emptyMesh,evaluate,type PointRow,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
@@ -29,7 +29,7 @@ function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
 }
 /** Carry an XY profile along an unbranched 3D path using transported frames.
  * Closed paths distribute frame-closure twist by arc length. */
-export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(profile:CurveGeometry<P,E>,path:CurveGeometry<A,B>,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3,SurfaceUV> {
+export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(profile:CurveGeometry<P,E>,path:CurveGeometry<A,B>,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('sweep options must be an object');
   const section=curvePath(profile),route=curvePath(path),shape=profile.surface,source=path.surface;
   // Nothing to carry, or nowhere to carry it: an empty sweep, not a failure.
@@ -104,5 +104,5 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     const uv:readonly (readonly [number,number])[]=[[u[edge],v[ring]],[u[edge+1],v[ring]],[u[edge+1],v[ring+1]],[u[edge],v[ring+1]]];
     return {uv:uv[c],chart:'side'};
   });
-  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3,SurfaceUV>(surface,options);
+  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV>(surface,options);
 }
