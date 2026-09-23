@@ -14,6 +14,7 @@
 import type { ShapeOpts, Tree } from './api.js';
 import { path } from './api.js';
 import { mm } from './units.js';
+import { vx, vy, type XY } from './vec.js';
 
 type Stroke = [number, number][];
 
@@ -115,7 +116,16 @@ export function labelWidth(str: string, h: number): number {
  * kerning, leading and text on a curve, `t.text(str, { font, size })` is
  * the door, and it hands back a Material rather than ink.
  */
-export function label(str: string, x: number, y: number, h: number, opts: LabelOpts = {}): Tree {
+export function label(str: string, at: XY, h: number, opts?: LabelOpts): Tree;
+export function label(str: string, x: number, y: number, h: number, opts?: LabelOpts): Tree;
+export function label(str: string, a: XY | number, b: number, c?: number | LabelOpts, d?: LabelOpts): Tree {
+  // A shape that starts at a point also takes that point as one value; the
+  // second argument decides, as in the shape factories.
+  if (typeof a !== 'number') return labelAt(str, vx(a), vy(a), b, (c as LabelOpts | undefined) ?? {});
+  return labelAt(str, a, b, c as number, d ?? {});
+}
+
+function labelAt(str: string, x: number, y: number, h: number, opts: LabelOpts): Tree {
   const { unit = 'user', align = 'left', ...shapeOpts } = opts;
   const U = unit === 'mm' ? mm : (n: number): number => n;
   const w = labelWidth(str, h);

@@ -598,7 +598,7 @@ describe('t.relax and t.settle weigh a cell by the space\'s area', () => {
     const density = (x: number): number => 0.2 + x / 200;
     const spacing = 9;
     const out = settleMaterial({ rnd: () => 0.25, bounds: B, len: (l) => l as number, space: sp }, sites, {
-      density, spacing, iterations: 1, bounds: B, step: Math.max(B.w, B.h) / 96,
+      density, spacing, iterations: 1, step: Math.max(B.w, B.h) / 96,
     });
     // The cells by brute force: each raster sample to its nearest site,
     // weighted by the field and by the space's area element.
@@ -622,7 +622,7 @@ describe('t.relax and t.settle weigh a cell by the space\'s area', () => {
     for (const d of out.attrs.demand) expect(want.some((v) => Math.abs(v - d) < 1e-9)).toBe(true);
     // And the flat reading of the same cells is a different number.
     const flatOut = settleMaterial({ rnd: () => 0.25, bounds: B, len: (l) => l as number }, sites, {
-      density, spacing, iterations: 1, bounds: B, step: Math.max(B.w, B.h) / 96,
+      density, spacing, iterations: 1, step: Math.max(B.w, B.h) / 96,
     });
     expect(Math.max(...flatOut.attrs.demand) - Math.max(...out.attrs.demand)).toBeGreaterThan(0.01);
   });
@@ -633,7 +633,9 @@ describe('t.relax and t.settle weigh a cell by the space\'s area', () => {
     const r = t.relax(pts, { iterations: 3, density: (x: number) => 0.2 + x / 125 });
     expect(r.n).toBe(172);
     expect(hash([...r.x, ...r.y])).toBe('c32f3b60955107ed');
-    const s = t.settle(pts, { density: (x: number, y: number) => 0.1 + (x * y) / 12000, spacing: 5, iterations: 6 });
+    // A second draw of the points stream reads a stream of its own, so the
+    // kernel's golden is read where settle is the run's first draw from it.
+    const s = toolkit({ aspect: [1, 1], seed: 7 }).settle(pts, { density: (x: number, y: number) => 0.1 + (x * y) / 12000, spacing: 5, iterations: 6 });
     expect(s.n).toBe(207);
     expect(hash([...s.x, ...s.y, ...s.attrs.demand])).toBe('2a684d0d3172eecb');
   });

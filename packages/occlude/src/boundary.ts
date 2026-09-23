@@ -56,7 +56,15 @@ export interface Geometry {
 
 /** Anything an area consumer takes: a geometry value, or the plain shapes
  * of loops and contour records a sketch can write by hand. */
-export type AreaInput = Geometry | IsoContour | readonly IsoContour[] | Loop | readonly Loop[];
+/** A rectangle as a record: its corner and its size. */
+export interface RectRecord {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+export type AreaInput = Geometry | IsoContour | readonly IsoContour[] | Loop | readonly Loop[] | RectRecord;
 
 const isCoord = (v: unknown): v is Coord => typeof v === 'number' || v instanceof Len;
 /** A point as a pair (extra entries ignored). */
@@ -81,6 +89,11 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 export function isGeometry(v: unknown): v is Geometry {
   return isObj(v) && (typeof v.contours === 'function' || typeof v.curves === 'function' || v.points !== undefined);
 }
+
+/** A rect record: four finite numbers `x, y, w, h`, and nothing that
+ * answers the protocol (a grid cell answers `contours()` itself). */
+const isRectRecord = (v: unknown): v is RectRecord =>
+  isObj(v) && typeof v.x === 'number' && typeof v.y === 'number' && typeof v.w === 'number' && typeof v.h === 'number' && !('pts' in v);
 
 /** A value that can say where its areas are. */
 const hasContours = (v: unknown): v is { contours(): IsoContour[] } => isObj(v) && typeof v.contours === 'function';
@@ -179,6 +192,12 @@ export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
   }
   if (hasCurves(input)) return input.curves().map((c) => c.pts as LoopPoints);
   if (isContour(input)) return [input.pts as LoopPoints];
+  // A rect record — `{ x, y, w, h }`, as `t.bounds()` and a grid cell
+  // spell a rectangle — is the rectangle's one loop.
+  if (isRectRecord(input)) {
+    const { x, y, w, h } = input;
+    return [[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]];
+  }
   if (!Array.isArray(input)) {
     throw new Error(
       `${who}: expected geometry — a material, a selection, a face, contour records or loops of points. ` +

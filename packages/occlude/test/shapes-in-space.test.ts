@@ -302,8 +302,9 @@ for (const [name, cfg] of SPACES) {
 
 describe('an area keeps the side its winding names', () => {
   it('t.within(() => 1, rect(6, 6, 188, 88)) on a 2:1 sphere reads 1 at the centre', () => {
-    const t = toolkit({ aspect: [2, 1], space: 'spherical' });
-    // The default radius names a half circumference narrower than the rect.
+    const t = toolkit({ aspect: [2, 1], space: { kind: 'spherical', radius: 50 } });
+    // A radius whose half circumference is narrower than the rect (the
+    // default before it read the half-diagonal).
     expect(Math.PI * t.space.radius).toBeLessThan(188);
     const f = t.within(() => 1, rect(6, 6, 188, 88));
     expect(f(100, 50)).toBe(1);
@@ -316,7 +317,7 @@ describe('an area keeps the side its winding names', () => {
   it('a stroke still takes the short way between two names', () => {
     // An open path across more than half the sphere: its one segment is
     // the short way round, as its author drew it between two names.
-    const t = toolkit({ aspect: [2, 1], space: 'spherical' });
+    const t = toolkit({ aspect: [2, 1], space: { kind: 'spherical', radius: 50 } });
     const period = 2 * Math.PI * t.space.radius;
     const open = t.material(stroke([[6, 50], [194, 50]])).pts;
     expect(open[1][0]).toBeCloseTo(194 - period, 9);

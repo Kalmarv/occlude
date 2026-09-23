@@ -114,7 +114,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 <include>/_sig/sdf.box.mdx</include>
 <include>/_sig/sdf.segment.mdx</include>
 
-A shape can be the field that measures it. These three are exact, and they spell their arguments the way `circle` and `line` do. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
+A shape can be the field that measures it. These three are exact, and they spell their arguments the way `circle` and `line` do: `sdf.circle(p, r)`, `sdf.box(p, w, h)` and `sdf.segment(a, b, r)` take points as one value. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
 
 ```ts live
 import { sketch, strokes, sdf } from 'occlude';

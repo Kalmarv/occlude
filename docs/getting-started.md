@@ -33,9 +33,9 @@ sketch({
 }, (t) => tree)
 ```
 
-A fixed aspect is letterboxed onto whatever paper is chosen at render time. The toolkit carries the drawable's size as plain numbers (`t.width`, `t.height`, `t.cx`, `t.cy`), the same values `t.bounds()` returns.
+A fixed aspect is letterboxed onto whatever paper is chosen at render time. The toolkit carries the drawable's size as plain numbers (`t.width`, `t.height`, `t.cx`, `t.cy`), the same values `t.bounds()` returns. `t.bounds()` is the drawable as a rect record, `{ x, y, w, h, cx, cy }`, in the frame the config names: under `origin: 'center'` its corner is `(-w/2, -h/2)` and its middle is `(0, 0)`. It is an area, so `t.within(m, t.bounds())` cuts to the drawable. Every word that covers the drawable by default (`t.grid`, `t.hexes`, `t.voronoi`, `t.scatter`, the fields) reads the same record.
 
-Pure constructors are imports from `'occlude'`: shapes, fills, modifiers, units, `map` and `ease`, `ui`, `svg`, and the material vocabulary. They work in helper files too. Anything that depends on the running sketch lives only on the toolkit: randomness (`rnd`, `noise`, `pick`, `chance`, `stream` read the seed), layout (`bounds`, `grid`, `times` need the resolved paper), and sampling (`scatter`, `sample`, `points`). The toolkit also exposes the pure functions, so destructuring `({ circle, rnd }) => …` is an equivalent style.
+Pure constructors are imports from `'occlude'`: shapes, fills, modifiers, units, `map` and `ease`, `ui`, `svg`, and the material vocabulary. They work in helper files too. Anything that depends on the running sketch lives only on the toolkit: randomness (`rnd`, `noise`, `pick`, `chance`, `stream` read the seed), layout (`bounds`, `grid`, `times` need the resolved paper), and sampling (`scatter`, `sample`, `points`). The toolkit also carries the shape factories, `stroke`, `polygon`, `label`, fills, modifiers, units, `map` and `ease`, so destructuring `({ circle, rnd }) => …` is an equivalent style for those. Import the rest — `strokes`, `dots`, `material`, `curve`, `connect` and the vector arithmetic — from `'occlude'`.
 
 ## Coordinates and units
 

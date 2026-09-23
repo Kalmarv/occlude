@@ -9,7 +9,7 @@ description: "The camera, the drawing boundary, hatch, the view callback and sty
 
 <include>/_sig/3d.view.1.mdx</include>
 
-Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame.
+Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame. `t.strokes3` cuts its runs at the same frame. The strokes of a view are 2D geometry of the sketch. In a sketch with a `space`, they follow that space as all other ink does: the view draws flat, and then the space bends the lines.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

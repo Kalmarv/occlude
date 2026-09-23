@@ -21,19 +21,30 @@
  * can never be separated, so without a depth the split would not stop.
  */
 
-import { Material, material as makeMaterial } from './material.js';
-import type { Bounds } from './points.js';
+import { Material, material as makeMaterial, withinMaterial } from './material.js';
+import { withinRegion, type Bounds } from './points.js';
+import type { AreaInput } from './boundary.js';
 
 export interface QuadtreeOpts {
   /** Points a cell may hold before it splits (default 1). */
   capacity?: number;
   /** How many times a cell may split (default 12). */
   depth?: number;
-  /** The rectangle to subdivide (default: the drawable). */
-  bounds?: Bounds;
+  /** The area to subdivide (default: the drawable). The subdivision runs
+   * over the area's box; any other area than a rectangle then cuts the
+   * lattice at its boundary, and the cut edges close along it. */
+  within?: AreaInput;
 }
 
-export function quadtree(points: Material | Parameters<typeof makeMaterial>[0], bounds: Bounds, opts: QuadtreeOpts = {}): Material {
+/** The subdivision of `drawable`, or of `opts.within` when given. */
+export function quadtree(points: Material | Parameters<typeof makeMaterial>[0], drawable: Bounds, opts: QuadtreeOpts = {}): Material {
+  if ('bounds' in opts) throw new Error('quadtree: bounds is now within — a rect is an area: { within: rect(…) } or { within: t.bounds() }');
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'quadtree');
+  const cells = lattice(points, region?.bounds ?? drawable, opts);
+  return region?.loops ? withinMaterial(cells, region.loops) : cells;
+}
+
+function lattice(points: Material | Parameters<typeof makeMaterial>[0], bounds: Bounds, opts: QuadtreeOpts): Material {
   const m = makeMaterial(points);
   const capacity = opts.capacity ?? 1;
   if (!Number.isInteger(capacity) || capacity < 1) throw new Error(`quadtree: { capacity } must be a whole number of points, at least 1 (got ${String(opts.capacity)})`);

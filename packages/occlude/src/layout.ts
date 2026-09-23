@@ -3,36 +3,58 @@
 import { finiteCount, usableLength } from './guard.js';
 import type { IsoContour } from './isolines.js';
 import { Material, material } from './material.js';
+import type { Face, Faces } from './faces.js';
 import type { L } from './units.js';
 import { vx, vy, type XY } from './vec.js';
 
-export interface GridCell {
+/**
+ * A rectangle as a record: its corner, its size and its middle. It is an
+ * AREA, so it answers the area protocol and every area consumer takes it as
+ * it takes a face: `polygon(b)`, `t.within(m, b)`, `t.distanceTo(b)`, the
+ * `within` of a point operation. `t.bounds()` answers one, and a grid cell
+ * is one with its two indices.
+ */
+export interface Box {
   x: number;
   y: number;
   w: number;
   h: number;
-  /** Cell centre — the point most stamps actually want. */
+  /** The middle — the point most stamps actually want. */
   cx: number;
   cy: number;
-  i: number;
-  j: number;
-  /**
-   * The cell as one closed loop, counter-clockwise in a y-up reading.
-   *
-   * A cell is an AREA, so it answers the area protocol and every area
-   * consumer takes it as it takes a face: `polygon(cell, { fill })`,
-   * `t.within(m, cell)`, `t.distanceTo(cell)`.
-   */
+  /** The rectangle as one closed loop, counter-clockwise in a y-up reading. */
   contours(): IsoContour[];
 }
 
-/** The four corners, read off the cell the method belongs to. */
-const CELL_PROTO = {
-  contours(this: GridCell): IsoContour[] {
+export interface GridCell extends Box {
+  i: number;
+  j: number;
+}
+
+/** The four corners, read off the record the method belongs to. */
+const BOX_PROTO = {
+  contours(this: Box): IsoContour[] {
     const { x, y, w, h } = this;
     return [{ pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], closed: true }];
   },
 };
+
+/** A rect record at `(x, y)` of size `w × h`, answering `contours()`. */
+export function box(x: number, y: number, w: number, h: number): Box {
+  return Object.assign(Object.create(BOX_PROTO) as Box, { x, y, w, h, cx: x + w / 2, cy: y + h / 2 });
+}
+
+/** A rectangle as the words that lay out over one read it: the corner
+ * defaults to the origin. */
+export interface Rect {
+  x?: number;
+  y?: number;
+  w: number;
+  h: number;
+}
+
+/** The corner of a rect, the origin when it names none. */
+const cornerOf = (r: Rect): [number, number] => [r.x ?? 0, r.y ?? 0];
 
 export interface GridOptions {
   cols: number;
@@ -42,31 +64,25 @@ export interface GridOptions {
 }
 
 /**
- * Cell rectangles covering the WHOLE drawable area, in bare units (percent
- * of the short side — the long axis runs past 100 on non-square drawables,
- * exactly like `bounds()`). Pass the values straight to shape functions.
+ * Cell rectangles covering the WHOLE drawable, in bare units (percent of
+ * the short side — the long axis runs past 100 on non-square drawables,
+ * exactly like `bounds()`), in the sketch's own frame: the first cell sits
+ * at the drawable's corner `b.x, b.y`. Pass the values straight to shape
+ * functions.
  */
-export function grid(b: { w: number; h: number }, opts: GridOptions): GridCell[] {
+export function grid(b: Rect, opts: GridOptions): GridCell[] {
   const { cols, rows, gap = 0 } = opts;
   // No cells to lay out (a zero or non-finite count): an empty grid.
   if (finiteCount('grid', cols * rows) === 0) return [];
   const cells: GridCell[] = [];
+  const [x0, y0] = cornerOf(b);
   const cw = (b.w - gap * (cols - 1)) / cols;
   const ch = (b.h - gap * (rows - 1)) / rows;
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
-      const x = i * (cw + gap);
-      const y = j * (ch + gap);
-      cells.push(Object.assign(Object.create(CELL_PROTO) as GridCell, {
-        x,
-        y,
-        w: cw,
-        h: ch,
-        cx: x + cw / 2,
-        cy: y + ch / 2,
-        i,
-        j,
-      }));
+      const x = x0 + i * (cw + gap);
+      const y = y0 + j * (ch + gap);
+      cells.push(Object.assign(box(x, y, cw, ch) as GridCell, { i, j }));
     }
   }
   return cells;
@@ -76,7 +92,8 @@ export function grid(b: { w: number; h: number }, opts: GridOptions): GridCell[]
 
 /** What a layout function needs of the run: the drawable, and lengths. */
 export interface LayoutEnv {
-  bounds: { w: number; h: number };
+  /** The drawable in the sketch's frame. */
+  bounds: Rect;
   len(l: L): number;
 }
 
@@ -111,6 +128,15 @@ export interface TriangleOptions {
   rotate?: number;
 }
 
+/** A face of a cell material: every cell carries its two indices. */
+export type CellFace = Face & { i: number; j: number };
+
+/** What `t.hexes` and `t.triangles` answer: a material whose faces carry
+ * `i` and `j` on every face, so a held face reads them as numbers. */
+export interface CellMaterial extends Material {
+  faces(): Faces<CellFace>;
+}
+
 /** One cell on the way to a material: its corners and its two indices. */
 interface Cell {
   pts: [number, number][];
@@ -132,14 +158,15 @@ interface Cell {
  * value, which lays out nothing.
  */
 function latticeFrame(
-  who: string, w: number, h: number, origin: XY | undefined, rotate: number | undefined,
+  who: string, r: Rect, origin: XY | undefined, rotate: number | undefined,
 ): { place: (p: [number, number]) => [number, number]; x0: number; y0: number; x1: number; y1: number } | null {
   if (rotate !== undefined && typeof rotate !== 'number') throw new Error(`${who}: rotate is an angle in degrees, got ${typeof rotate}`);
   const ox = origin === undefined ? 0 : vx(origin);
   const oy = origin === undefined ? 0 : vy(origin);
   const deg = rotate ?? 0;
   if (!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(deg)) return null;
-  if (ox === 0 && oy === 0 && deg === 0) return { place: (p) => p, x0: 0, y0: 0, x1: w, y1: h };
+  const [rx, ry] = cornerOf(r);
+  if (ox === 0 && oy === 0 && deg === 0) return { place: (p) => p, x0: rx, y0: ry, x1: rx + r.w, y1: ry + r.h };
   // A quarter turn is exact: a wall that should stand upright does.
   const quarter = deg % 90 === 0 ? (((deg / 90) % 4) + 4) % 4 : -1;
   const cos = quarter >= 0 ? [1, 0, -1, 0][quarter] : Math.cos((deg * Math.PI) / 180);
@@ -148,7 +175,7 @@ function latticeFrame(
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  for (const [x, y] of [[0, 0], [w, 0], [w, h], [0, h]]) {
+  for (const [x, y] of [[rx, ry], [rx + r.w, ry], [rx + r.w, ry + r.h], [rx, ry + r.h]]) {
     // The inverse placement: shift back, then turn back.
     const dx = x - ox;
     const dy = y - oy;
@@ -196,14 +223,17 @@ function clipHalf(pts: [number, number][], inside: (p: [number, number]) => bool
 }
 
 /** A cell cut to the drawable, or null when nothing of it is left. */
-function clipToDrawable(pts: [number, number][], w: number, h: number): [number, number][] | null {
+function clipToDrawable(pts: [number, number][], r: Rect): [number, number][] | null {
   let p = pts;
+  const [x0, y0] = cornerOf(r);
+  const w = x0 + r.w;
+  const h = y0 + r.h;
   const lerp = (a: [number, number], b: [number, number], t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-  p = clipHalf(p, (q) => q[0] >= 0, (a, b) => lerp(a, b, (0 - a[0]) / (b[0] - a[0])));
+  p = clipHalf(p, (q) => q[0] >= x0, (a, b) => lerp(a, b, (x0 - a[0]) / (b[0] - a[0])));
   if (p.length < 3) return null;
   p = clipHalf(p, (q) => q[0] <= w, (a, b) => lerp(a, b, (w - a[0]) / (b[0] - a[0])));
   if (p.length < 3) return null;
-  p = clipHalf(p, (q) => q[1] >= 0, (a, b) => lerp(a, b, (0 - a[1]) / (b[1] - a[1])));
+  p = clipHalf(p, (q) => q[1] >= y0, (a, b) => lerp(a, b, (y0 - a[1]) / (b[1] - a[1])));
   if (p.length < 3) return null;
   p = clipHalf(p, (q) => q[1] <= h, (a, b) => lerp(a, b, (h - a[1]) / (b[1] - a[1])));
   if (p.length < 3) return null;
@@ -228,7 +258,7 @@ function area2(pts: [number, number][]): number {
  * what makes `sel.adjacent()` answer on cells and `strokes()` draw a shared
  * wall a single time.
  */
-function cellMaterial(cells: Cell[], w: number, h: number, name: string): Material {
+function cellMaterial(cells: Cell[], r: Rect, name: string): CellMaterial {
   const xs: number[] = [];
   const ys: number[] = [];
   const buckets = new Map<string, number[]>();
@@ -256,7 +286,7 @@ function cellMaterial(cells: Cell[], w: number, h: number, name: string): Materi
   const bucketOf = (x: number, y: number, s: number): string => `${Math.floor(x / s)},${Math.floor(y / s)}`;
   const sites: { x: number; y: number; i: number; j: number }[] = [];
   for (const cell of cells) {
-    const cut = clipToDrawable(cell.pts, w, h);
+    const cut = clipToDrawable(cell.pts, r);
     // Nothing of the cell reached the drawable, or the cut left a sliver
     // with no area. Judged BEFORE any vertex is minted: a discarded cell
     // must leave no loose vertex behind.
@@ -305,10 +335,10 @@ function cellMaterial(cells: Cell[], w: number, h: number, name: string): Materi
     }
   }
   const m = material(pts, { edges: edges.map(([a, b]) => [row[a], row[b]] as [number, number]) });
-  if (sites.length === 0 || m.edgeCount === 0) return m;
+  if (sites.length === 0 || m.edgeCount === 0) return m as CellMaterial;
   // A face is found by the cell whose centroid is nearest: a face IS one
   // clipped cell, so the nearest centroid is its own.
-  const span = Math.max(WELD, Math.sqrt((w * h) / sites.length));
+  const span = Math.max(WELD, Math.sqrt((r.w * r.h) / sites.length));
   const index = new Map<string, { x: number; y: number; i: number; j: number }[]>();
   for (const site of sites) {
     const key = bucketOf(site.x, site.y, span);
@@ -353,7 +383,7 @@ function cellMaterial(cells: Cell[], w: number, h: number, name: string): Materi
     return m.faceAttributes({
       i: (f) => nearest(f.centroid[0], f.centroid[1]).i,
       j: (f) => nearest(f.centroid[0], f.centroid[1]).j,
-    });
+    }) as CellMaterial;
   } catch (err) {
     throw new Error(`${name}: ${(err as Error).message}`);
   }
@@ -368,7 +398,7 @@ function cellMaterial(cells: Cell[], w: number, h: number, name: string): Materi
  * outermost cells are partial and the material's outline is the drawable
  * itself.
  */
-export function hexes(env: LayoutEnv, opts: HexOptions): Material {
+export function hexes(env: LayoutEnv, opts: HexOptions): CellMaterial {
   const spacing = env.len(opts.spacing);
   const gap = opts.gap === undefined ? 0 : env.len(opts.gap);
   const flat = opts.orientation === 'flat';
@@ -376,12 +406,11 @@ export function hexes(env: LayoutEnv, opts: HexOptions): Material {
     throw new Error(`hexes: orientation must be 'pointy' or 'flat', got '${String(opts.orientation)}'`);
   }
   // A mid-edit zero or a gap that eats the cell: nothing to lay out.
-  if (!usableLength(spacing)) return material([]);
+  if (!usableLength(spacing)) return material([]) as CellMaterial;
   const k = 1 - gap / spacing;
-  if (!(k > 0)) return material([]);
-  const { w, h } = env.bounds;
-  const frame = latticeFrame('hexes', w, h, opts.origin, opts.rotate);
-  if (!frame) return material([]);
+  if (!(k > 0)) return material([]) as CellMaterial;
+  const frame = latticeFrame('hexes', env.bounds, opts.origin, opts.rotate);
+  if (!frame) return material([]) as CellMaterial;
   const R = spacing / Math.sqrt(3);
   const dx = flat ? spacing * (Math.sqrt(3) / 2) : spacing;
   const dy = flat ? spacing : spacing * (Math.sqrt(3) / 2);
@@ -409,7 +438,7 @@ export function hexes(env: LayoutEnv, opts: HexOptions): Material {
       cells.push({ pts: k === 1 ? pts : shrink(pts, k), i, j });
     }
   }
-  return cellMaterial(cells, w, h, 'hexes');
+  return cellMaterial(cells, env.bounds, 'hexes');
 }
 
 /**
@@ -419,17 +448,16 @@ export function hexes(env: LayoutEnv, opts: HexOptions): Material {
  * points down. Anchored on `origin`, turned by `rotate` and cut to the
  * drawable exactly as `hexes` is.
  */
-export function triangles(env: LayoutEnv, opts: TriangleOptions): Material {
+export function triangles(env: LayoutEnv, opts: TriangleOptions): CellMaterial {
   const size = env.len(opts.size);
   const gap = opts.gap === undefined ? 0 : env.len(opts.gap);
-  if (!usableLength(size)) return material([]);
+  if (!usableLength(size)) return material([]) as CellMaterial;
   // The gap opens between two cells that shared a wall, so each gives up
   // half of it: an inradius of size/(2√3) shrinks by gap/2.
   const k = 1 - (gap * Math.sqrt(3)) / size;
-  if (!(k > 0)) return material([]);
-  const { w, h } = env.bounds;
-  const frame = latticeFrame('triangles', w, h, opts.origin, opts.rotate);
-  if (!frame) return material([]);
+  if (!(k > 0)) return material([]) as CellMaterial;
+  const frame = latticeFrame('triangles', env.bounds, opts.origin, opts.rotate);
+  if (!frame) return material([]) as CellMaterial;
   const H = (size * Math.sqrt(3)) / 2;
   const c0 = Math.floor(frame.x0 / size);
   const j0 = Math.floor(frame.y0 / H);
@@ -452,5 +480,5 @@ export function triangles(env: LayoutEnv, opts: TriangleOptions): Material {
       cells.push({ pts: (k === 1 ? pts : shrink(pts, k)).map(frame.place), i, j });
     }
   }
-  return cellMaterial(cells, w, h, 'triangles');
+  return cellMaterial(cells, env.bounds, 'triangles');
 }

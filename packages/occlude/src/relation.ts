@@ -766,6 +766,35 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     return extractRows(this.source, this.endpointRows, this.indices);
   }
 
+  // The chain verbs, on the selected edges: each walks the chains of the
+  // extracted edges exactly as the material verb does, so a selection never
+  // has to be extracted and rewrapped by hand to reach them.
+
+  /** `this.extract().resample(opts)`: the chains respaced along their length. */
+  resample(opts: Parameters<Material['resample']>[0]): Material {
+    return this.extract().resample(opts);
+  }
+
+  /** `this.extract().trim(opts)`: each chain cut back at its ends. */
+  trim(opts: Parameters<Material['trim']>[0]): Material {
+    return this.extract().trim(opts);
+  }
+
+  /** `this.extract().spline(opts)`: each chain through a smooth curve. */
+  spline(opts?: Parameters<Material['spline']>[0]): Material {
+    return this.extract().spline(opts);
+  }
+
+  /** `this.extract().oscillate(opts)`: a wave along each chain. */
+  oscillate(opts: Parameters<Material['oscillate']>[0]): Material {
+    return this.extract().oscillate(opts);
+  }
+
+  /** `this.extract().along(opts)`: stations spaced along each chain. */
+  along(opts?: Parameters<Material['along']>[0]): ReturnType<Material['along']> {
+    return this.extract().along(opts);
+  }
+
   /** The selected edges as chains, each edge once, with `indices` as SOURCE
    * rows. Junctions and open ends are those of the selected graph alone. */
   curves(): Curve[] {

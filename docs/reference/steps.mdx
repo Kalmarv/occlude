@@ -282,6 +282,23 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
+## t.force
+
+The toolkit carries the same forces as `t.force`. `t.force.boundary`, `t.force.separation` and `t.force.attract` also take a shape, because the toolkit can change a shape into geometry. The pure `force.boundary(rect(…))` refuses a shape, and its message names `t.force`. In a sketch with a `space`, the `t.force` words measure in that space. Below, dots start over all of the page, and `t.force.boundary` pushes them into a square frame.
+
+```ts live
+import { sketch, circle, rect, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const frame = rect(25, 25, 50, 50);
+  const held = t.scatter({ spacing: 7 }).steps(40, (cur, next) => {
+    const push = t.force.sum(t.force.boundary(frame, { radius: 4 }), t.force.separation(cur, { radius: 4 }));
+    next.move(cur.points, (p) => mul(push(p), 0.3));
+  });
+  return [rect(25, 25, 50, 50, { pen: 'stabilo-88-blue' }), held.points.map((p) => circle(p, 0.8))];
+});
+```
+
 ## force.sum()
 
 <include>/_sig/force.sum.mdx</include>

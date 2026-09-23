@@ -32,7 +32,9 @@ beforeAll(async () => {
  * its step, and `coordinates` splits on the coordinate length of an edge,
  * as the old `e.length` read it. */
 function growth(space: 'spherical' | undefined, steps: number, seen?: (cur: Material) => void, coordinates = false): Material {
-  const t = toolkit({ aspect: [2, 1], seed: 4, ...(space ? { space } : {}) }, { paper: paperSize(docsPaper({})), seed: '42' });
+  // The radius the sphere defaulted to on 2:1 when these rows were taken
+  // (half the short side); the default now reads the half-diagonal.
+  const t = toolkit({ aspect: [2, 1], seed: 4, ...(space ? { space: { kind: space, radius: 50 } } : {}) }, { paper: paperSize(docsPaper({})), seed: '42' });
   const posts = material([[40, 24], [100, 16], [160, 28], [44, 76], [104, 84], [160, 72]]);
   const shove = (p: { x: number; y: number }) => sumBy(posts.points.near(p, { radius: 18 }), (q) => {
     const delta = sub(p, q);

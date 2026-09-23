@@ -16,16 +16,16 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
   const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
-  const sites = t.relax(t.scatter({ spacing: 7, within: rect(0, 0, 100, 100) }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter({ spacing: 7, within: rect(0, 0, 100, 100) }), { iterations: 2, within: half }).attribute('mobility', 1).attribute('stopped', -1);
   const settled = sites.steps(iterations, (current, next, k) => {
-    const diagram = t.voronoi(current, { bounds: half });
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const diagram = t.voronoi(current, { within: half });
+    const measured = diagram.faces().measure(light, { step: 0.78125 });
     next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
     next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const still = settled.points.filter((p) => p.stopped >= 0);
   return [
-    strokes(t.voronoi(settled, { bounds: half })),
+    strokes(t.voronoi(settled, { within: half })),
     group({ translate: [100, 0] }, settled.points.map((p) => circle(p, 0.5)), still.map((p) => circle(p, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
   ];
 });

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { compileSketchAsync, constructStrokes3, FeatureSelection3, lineArt3, sketchAsync, initOcclude, pen, mm, wobble, dash, render, type Toolkit } from '../src/index.js';
+import { compileSketchAsync, constructStrokes3, FeatureSelection3, lineArt3, sketchAsync, initOcclude, pen, mm, wobble, dash, render, type Toolkit, type ClipValue, type ShapeValue } from '../src/index.js';
 const scene = () => lineArt3({ camera: { kind:'orthographic', span:4, eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10 }, wires:[{id:'wire',points:[[-1,0,0],[0,0,0],[1,0,0]]}],lineSets:[] });
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 
@@ -17,7 +17,8 @@ describe('reusable classified line styles', () => {
       const separate = constructStrokes3(a,[{id:'all',stroke:'ink',select:selected}],{chain:false});
       expect(chained).toHaveLength(1); expect(separate).toHaveLength(2);
       const marks = t.strokes3(chained,{modifiers:[dash(mm(2),mm(1)),wobble({amount:mm(.1),wavelength:mm(3)})]});
-      expect(marks[0].opts.modifiers?.map(m=>m.kind)).toEqual(['dash','wobble']);
+      expect((marks as ClipValue).__occludeClip).toBe(true);
+      expect(((marks as ClipValue).children[0] as ShapeValue[])[0].opts.modifiers?.map(m=>m.kind)).toEqual(['dash','wobble']);
       return marks;
     }),undefined,{onStage:event=>{if(event.stage==='classified')calls++;}});
     expect(calls).toBe(1); expect(run.scenes3.size).toBe(1); expect(run.pendingScenes3.size).toBe(0);

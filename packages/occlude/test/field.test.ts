@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   circle, compileSketch, deform, encodeScene, fill, group, initOcclude, mm, path, rect, render,
-  rotate, scale, sketch, stroke, translate, vectorField, within, strokes , type Material } from '../src/index.js';
+  rotate, scale, sketch, stroke, translate, vectorField, strokes , type Material } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
 

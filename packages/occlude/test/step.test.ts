@@ -54,7 +54,9 @@ describe('t.relax and t.settle: step', () => {
     const t = toolkit({ aspect: [1, 1], seed: 11 });
     const pts = t.scatter({ spacing: 7 });
     const r = t.relax(pts, { iterations: 2, density: (x: number) => 0.1 + x / 150, step });
-    const s = t.settle(pts, { density: (x: number, y: number) => 0.2 + (x * y) / 15000, spacing: 6, iterations: 4, step });
+    // settle as the run's first draw from the points stream, where the golden
+    // was read: a second draw reads a stream of its own.
+    const s = toolkit({ aspect: [1, 1], seed: 11 }).settle(pts, { density: (x: number, y: number) => 0.2 + (x * y) / 15000, spacing: 6, iterations: 4, step });
     return { r, s };
   };
 

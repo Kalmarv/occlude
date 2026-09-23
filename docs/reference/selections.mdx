@@ -165,6 +165,18 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 
 A new material from the selection. From points: the selected points with every column and no edges. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection. From faces: the edges and corners of the selected faces, with every column and every id. A builder such as `connect.chain(sel)` also keeps the ids of the members, so `sel.in(result)` finds them.
 
+An edge selection also has the chain verbs of a material: `resample`, `trim`, `spline`, `oscillate` and `along`. Each one is `sel.extract()` and then the verb, so you need not extract first. Below, the cells of a hex field lose the walls near a line, and `trim` shortens each wall that stays.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.hexes({ spacing: 16 });
+  const kept = cells.edges.filter((e) => Math.abs(e.center[0] - e.center[1]) > 12);
+  return [strokes(cells, { pen: 'stabilo-88-blue' }), strokes(kept.trim({ start: 1.5, end: 1.5 }))];
+});
+```
+
 ```ts live
 import { sketch, circle, strokes, group } from 'occlude';
 

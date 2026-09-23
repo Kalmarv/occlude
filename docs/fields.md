@@ -97,11 +97,10 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 Any `(x, y) => number` is a scalar field, and any `(x, y) => [dx, dy]` a vector field. Sketch-time consumers (`isolines`, `streamlines`, `scatter`, fills) call them directly. Engine-side modifier parameters marked as fielded in Shapes & layout (`decimate` probabilities, `wobble` amount, `roughen` amount, `deform`'s vector) also accept one; those are sampled onto a raster at encode time, so the value varies over the page while the render stays deterministic.
 
-Four pure imports transform a field's sampling:
+Three pure imports transform a field's sampling, and one toolkit word bounds it. `t.within(f, area)` bounds the domain to the area; outside it the field is absent (generators make nothing, modifiers touch nothing, contours end at the edge). It is on the toolkit because a shape area needs the sketch frame.
 
 | Function | Effect |
 |---|---|
-| `within(f, shape)` | bounds the domain to the shape; outside it the field is absent (generators make nothing, modifiers touch nothing, contours end at the edge) |
 | `rotate(f, deg)` | turns the sampling about the origin |
 | `translate(f, dx, dy)` | moves it |
 | `scale(f, s)` | scales it; `s` may be `[sx, sy]` |
@@ -272,7 +271,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ## Flow lines
 
-`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` traces evenly spaced streamlines of a vector field over the drawable, after Jobard and Lefer, and returns them as one material of open chains: `strokes(m)` draws them, and a chain can carry attributes or be stepped like any material. Lines stop at the drawable edge, at a `within()` bound, and half a spacing from ink already laid, so they never cross or bunch. `spacing` is a length (default 1 mm) or a field of lengths, which turns density into tone; `minSpacing` (default 0.3 mm) is its floor. The result is a pure function of the fields, with no seed involved. Long continuous lines with few pen lifts are the cheapest ink a plotter draws.
+`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` traces evenly spaced streamlines of a vector field over the drawable, after Jobard and Lefer, and returns them as one material of open chains: `strokes(m)` draws them, and a chain can carry attributes or be stepped like any material. Lines stop at the drawable edge, at a `t.within()` bound, and half a spacing from ink already laid, so they never cross or bunch. `spacing` is a length (default 1 mm) or a field of lengths, which turns density into tone; `minSpacing` (default 0.3 mm) is its floor. The result is a pure function of the fields, with no seed involved. Long continuous lines with few pen lifts are the cheapest ink a plotter draws.
 
 ```ts live
 import { sketch, strokes, curl } from 'occlude';
@@ -354,7 +353,7 @@ which ones earn ink is the drawing's decision:
 `step` is not a quality setting. It is the distance the derivatives are taken
 over, so it sets the **scale of the question**: a coarse grid finds the major
 ranges and a fine one the spurs hanging off them, and both answers are true.
-Deterministic, no seed. A `within()` bound arrives as non-finite samples, and a
+Deterministic, no seed. A `t.within()` bound arrives as non-finite samples, and a
 node whose stencil touches one has no second derivative, so the crest stops at
 the hole rather than guessing across it.
 

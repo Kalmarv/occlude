@@ -78,9 +78,10 @@ export interface IsosurfaceOptions extends GeometryOptions {
   readonly bounds:readonly [Vec3,Vec3];
   /** The level the surface is taken at; 0 (the boundary of the solid) by default. */
   readonly level?:number;
-  /** Cells along the LONGEST side of the box, the others divided to match so
-   * the cells stay cubes; a triple sets the three counts itself. */
-  readonly resolution:number|readonly [number,number,number];
+  /** The cell's side, a length in the scene's units: the box is cut into
+   * cubes of about this side, each axis a whole number of them (at least
+   * one), so a cell is a cube up to the rounding. */
+  readonly step:number;
   /** Laplacian passes over the result: each one moves every point halfway to
    * the mean of its neighbours. Rounds the staircase of a coarse grid, and
    * shrinks the solid a little. None by default. */
@@ -89,21 +90,16 @@ export interface IsosurfaceOptions extends GeometryOptions {
 
 /** The output limit, spelled as the primitives spell it. */
 function budget(points:number,faces:number):void{if(points>500000||faces>250000)throw new Error('isosurface exceeds budget (500000 points / 250000 faces)');}
-const cellCounts=(resolution:IsosurfaceOptions['resolution'],size:Vec3):[number,number,number]|undefined=>{
-  if(Array.isArray(resolution)){
-    const given=resolution as readonly number[];
-    if(given.length!==3)throw new Error('isosurface resolution must be a count or a triple of counts');
-    return given.some(n=>emptyCount(n,1,'isosurface resolution'))?undefined:[given[0],given[1],given[2]];
-  }
-  if(typeof resolution!=='number')throw new Error('isosurface resolution must be a count or a triple of counts');
-  if(emptyCount(resolution,1,'isosurface resolution'))return undefined;
-  const longest=Math.max(...size);
-  return size.map(s=>Math.max(1,Math.round(resolution*s/longest))) as unknown as [number,number,number];
+const cellCounts=(step:number,size:Vec3):[number,number,number]|undefined=>{
+  if(typeof step!=='number')throw new Error('isosurface step must be a length, the side of one cell');
+  // No cell to march (a zero, negative or non-finite step): nothing drawn.
+  if(!(step>0)||!Number.isFinite(step))return undefined;
+  return size.map(s=>Math.max(1,Math.round(s/step))) as unknown as [number,number,number];
 };
 
 /**
- * The surface of a distance field, as a mesh: marching cubes over `bounds` at
- * `resolution`, with the vertices placed along the cell edges by linear
+ * The surface of a distance field, as a mesh: marching cubes over `bounds` in
+ * cells of side `step`, with the vertices placed along the cell edges by linear
  * interpolation and shared between the cells that meet there, so the result
  * is closed wherever the solid is closed inside the box. `sdf3` builds the
  * field; anything else that answers `(x, y, z)` with a number, positive
@@ -111,7 +107,7 @@ const cellCounts=(resolution:IsosurfaceOptions['resolution'],size:Vec3):[number,
  *
  * A solid that leaves the box is cut off there and comes back open along the
  * wall — give the box room if you want a closed surface. A box with no
- * extent, a resolution below one cell, and a field that is nowhere inside
+ * extent, a step that is not a positive length, and a field that is nowhere inside
  * each draw nothing: the result is an empty mesh.
  */
 export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Mesh {
@@ -123,7 +119,8 @@ export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Mesh 
   finite3(min);finite3(max);
   const size:Vec3=[max[0]-min[0],max[1]-min[1],max[2]-min[2]];
   const level=clampSetting(options.level,-Number.MAX_VALUE,Number.MAX_VALUE,0,'isosurface level');
-  const counts=emptySize(...size)?undefined:cellCounts(options.resolution,size);
+  if('resolution' in options)throw new Error('isosurface: resolution is now step — the side of one cell, a length in the scene\'s units');
+  const counts=emptySize(...size)?undefined:cellCounts(options.step,size);
   const passes=options.smooth===undefined||emptyCount(options.smooth,1,'isosurface smooth')?0:options.smooth;
   if(!counts)return emptyMesh(options);
   const [nx,ny,nz]=counts;

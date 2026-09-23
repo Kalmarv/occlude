@@ -58,21 +58,21 @@ describe('sdf3, the distance algebra in space',()=>{
 describe('isosurface, the field made a mesh',()=>{
  it('closes a sphere on the grid, with every point on the radius and the volume it should have',()=>{
   const cells=24,span=3,size=span/cells;
-  const ball=isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:cells});
+  const ball=isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:span/cells});
   const volume=manifold(ball,2);
   expect(components(ball)).toBe(1);
   for(const p of ball.points)expect(Math.abs(Math.hypot(p.x,p.y,p.z)-1)).toBeLessThan(size);
   expect(volume).toBeCloseTo(4*Math.PI/3,1);
-  // The same field at the same resolution is the same mesh, point for point.
-  const again=isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:cells});
+  // The same field at the same step is the same mesh, point for point.
+  const again=isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:span/cells});
   expect(again.points.map(p=>[p.x,p.y,p.z])).toEqual(ball.points.map(p=>[p.x,p.y,p.z]));
   expect(again.surface.faces.map(f=>f.vertices)).toEqual(ball.surface.faces.map(f=>f.vertices));
  });
  it('joins a union into one closed piece and keeps a smoothed surface closed',()=>{
   const pair=sdf3.union(sdf3.sphere(.8,[-.5,0,0]),sdf3.sphere(.8,[.5,0,0]));
-  const welded=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],resolution:28});
+  const welded=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],step:3.4/28});
   manifold(welded,2);expect(components(welded)).toBe(1);
-  const eased=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],resolution:28,smooth:3});
+  const eased=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],step:3.4/28,smooth:3});
   manifold(eased,2);
   expect(eased.surface.faces.map(f=>f.vertices)).toEqual(welded.surface.faces.map(f=>f.vertices));
   // Laplacian passes move the points and pull the surface in a little.
@@ -80,32 +80,32 @@ describe('isosurface, the field made a mesh',()=>{
  });
  it('changes the genus when a solid is cut through, and counts the pieces a lattice makes',()=>{
   // A box with a tunnel bored through it is genus one: chi = 2 - 2g = 0.
-  const bored=isosurface(sdf3.subtract(sdf3.box(2),sdf3.capsule([0,0,-3],[0,0,3],.5)),{bounds:cube(1.5),resolution:24});
+  const bored=isosurface(sdf3.subtract(sdf3.box(2),sdf3.capsule([0,0,-3],[0,0,3],.5)),{bounds:cube(1.5),step:3/24});
   manifold(bored,0);expect(components(bored)).toBe(1);
   // A hollow ring is genus one too, and it reads the three counts itself.
-  const ring=isosurface(sdf3.torus(1,.35),{bounds:[[-1.6,-1.6,-.6],[1.6,1.6,.6]],resolution:[32,32,12]});
+  const ring=isosurface(sdf3.torus(1,.35),{bounds:[[-1.6,-1.6,-.6],[1.6,1.6,.6]],step:0.1});
   manifold(ring,0);expect(components(ring)).toBe(1);
   // Repetition folds space: twenty-seven balls on the lattice inside the box.
-  const balls=isosurface(sdf3.repeat(sdf3.sphere(.25),1),{bounds:cube(1.5),resolution:36});
+  const balls=isosurface(sdf3.repeat(sdf3.sphere(.25),1),{bounds:cube(1.5),step:3/36});
   manifold(balls,2*27);expect(components(balls)).toBe(27);
  });
- it('draws nothing for a degenerate box, and refuses a resolution it cannot answer',()=>{
+ it('draws nothing for a degenerate box or step, and refuses a step it cannot answer',()=>{
   for(const make of [
-    ()=>isosurface(sdf3.sphere(1),{bounds:[[0,0,0],[0,0,0]],resolution:8}),
-    ()=>isosurface(sdf3.sphere(1),{bounds:[[1,1,1],[-1,-1,-1]],resolution:8}),
-    ()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:0}),
+    ()=>isosurface(sdf3.sphere(1),{bounds:[[0,0,0],[0,0,0]],step:3/8}),
+    ()=>isosurface(sdf3.sphere(1),{bounds:[[1,1,1],[-1,-1,-1]],step:3/8}),
+    ()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:0}),
     // Nowhere inside, and a field that answers with nothing at all, each draw nothing.
-    ()=>isosurface(sdf3.union(),{bounds:cube(1.5),resolution:8}),
-    ()=>isosurface((()=>Number.NaN) as never,{bounds:cube(1.5),resolution:8}),
-    ()=>isosurface(sdf3.sphere(9),{bounds:cube(1.5),resolution:8}),
+    ()=>isosurface(sdf3.union(),{bounds:cube(1.5),step:3/8}),
+    ()=>isosurface((()=>Number.NaN) as never,{bounds:cube(1.5),step:3/8}),
+    ()=>isosurface(sdf3.sphere(9),{bounds:cube(1.5),step:3/8}),
   ])expect(make().surface.faces.length).toBe(0);
-  expect(()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:8.5})).toThrow('integer');
-  expect(()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:200})).toThrow('budget');
-  expect(()=>isosurface(null as never,{bounds:cube(1.5),resolution:8})).toThrow('function of (x, y, z)');
-  expect(()=>isosurface(sdf3.sphere(1),{bounds:[[0,0,0]] as never,resolution:8})).toThrow('bounds');
+  expect(()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:8} as never)).toThrow('resolution is now step');
+  expect(()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:3/200})).toThrow('budget');
+  expect(()=>isosurface(null as never,{bounds:cube(1.5),step:3/8})).toThrow('function of (x, y, z)');
+  expect(()=>isosurface(sdf3.sphere(1),{bounds:[[0,0,0]] as never,step:3/8})).toThrow('bounds');
  });
  it('goes through view and draws',async()=>{
-  const solid=isosurface(sdf3.blend(sdf3.sphere(.9,[-.5,0,0]),sdf3.sphere(.9,[.5,0,0]),.4),{bounds:[[-1.8,-1.2,-1.2],[1.8,1.2,1.2]],resolution:24});
+  const solid=isosurface(sdf3.blend(sdf3.sphere(.9,[-.5,0,0]),sdf3.sphere(.9,[.5,0,0]),.4),{bounds:[[-1.8,-1.2,-1.2],[1.8,1.2,1.2]],step:3.6/24});
   const drawing=view(solid,{camera:orthographic({eye:[5,7,6],span:5}),stroke:'ink',creaseAngle:180});
   expect(drawing.scene.objects.length).toBe(1);
   const execution=await compileSketchAsync(sketch({seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'})}},()=>drawing));
