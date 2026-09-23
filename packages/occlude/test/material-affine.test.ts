@@ -182,8 +182,12 @@ describe('the four verbs are map underneath', () => {
 
 describe('a non-finite input is refused by name', () => {
   it('scale, rotate, translate, deform and the pivot', () => {
-    expect(() => src().deform(() => [NaN, 0])).toThrow(/m\.deform/);
-    expect(() => src().deform((x) => [0, x > 3 ? Infinity : 0])).toThrow(/m\.deform/);
+    // A sample the field cannot answer moves the vertex nowhere, as the
+    // drawing-side `deform` reads it: not a mistake, not a throw.
+    const still = src().deform(() => [NaN, 0]);
+    expect(still.points.map((p) => [p.x, p.y])).toEqual(src().points.map((p) => [p.x, p.y]));
+    const partly = src().deform((x) => [0, x > 3 ? Infinity : 2]);
+    expect(partly.points.map((p) => p.y - src().points.at(p.index).y)).toEqual(src().points.map((p) => (p.x > 3 ? 0 : 2)));
     expect(() => src().scale(NaN)).toThrow(/m\.scale/);
     expect(() => src().scale([1, Infinity])).toThrow(/m\.scale/);
     expect(() => src().rotate(NaN)).toThrow(/m\.rotate/);

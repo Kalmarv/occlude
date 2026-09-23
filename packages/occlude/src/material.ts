@@ -2194,14 +2194,17 @@ export class Material {
    * `deform` modifier. The field is read as that modifier reads it —
    * `field(x, y)` at the vertex, in user units — and its answer is ADDED:
    * a field is always a displacement, where `map` is always a position.
-   * It is `map` underneath, so every id and every column carries.
+   * It is `map` underneath, so every id and every column carries. A
+   * sample the field cannot answer — NaN, or infinite — moves the vertex
+   * nowhere, as the `deform` modifier reads such a sample: a field may
+   * honestly say "not a place" at a boundary, and that is not a mistake.
    */
   deform(field: VectorFieldFn): Material {
     return this.map((p) => {
       const d = field(p.x, p.y);
       const dx = d?.[0];
       const dy = d?.[1];
-      if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error(`m.deform: the field at [${p.x}, ${p.y}] is [${dx}, ${dy}], which is not a displacement`);
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [p.x, p.y];
       return [p.x + dx, p.y + dy];
     });
   }
