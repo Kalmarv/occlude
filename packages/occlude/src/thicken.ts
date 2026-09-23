@@ -12,7 +12,7 @@
  * The operation remains synchronous and independent of the renderer.
  */
 
-import { Material, material as makeMaterial, type Vertex } from './material.js';
+import { Material, type Vertex } from './material.js';
 import { EdgeSelection, PointSelection } from './relation.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
 import {
@@ -215,7 +215,7 @@ export function thicken(
     );
   }
 
-  if (vRows.length === 0) return makeMaterial([]);
+  if (vRows.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
 
   const radii = new Float64Array(src.n);
   radii.fill(NaN);
@@ -286,7 +286,7 @@ export function thicken(
       maxY: src.y[row] + r,
     });
   }
-  if (shapes.length === 0) return makeMaterial([]);
+  if (shapes.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
 
   // A loop that came back with no area cannot be drawn as a boundary at
   // these coordinates; it is left out and the loops that survive are kept.
@@ -386,5 +386,5 @@ export function thicken(
     attrs = cols;
   }
 
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {} });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {}, space: src.space });
 }

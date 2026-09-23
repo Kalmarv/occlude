@@ -143,12 +143,15 @@ A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengt
 | `t.scatter` | yes | `spacing` is a length of the space, and the density follows the coordinates |
 | `t.tiling` | yes | the cell and the placements are the space's own |
 | `t.distanceTo` | yes | distance by the metric, with every edge read as a geodesic |
+| `t.travelTime` | yes | an arrival time is a length of the space over the speed |
+| `m.steps` | with a space | a move is a step of the space, flat without one |
+| `force.*` | with a space | distances and directions of the space, flat without one |
 | `m.transform` | no | moves each vertex by an isometry of the space, and measures nothing |
 | `t.hexes` | no | a flat lattice of cells, drawn through the placement |
 | `t.isolines` | no | flat contours of the field |
 | `t.noise` | no | flat coordinates in, one number out |
-| `t.relax` | no | flat centroids over the density raster |
-| `t.settle` | no | flat centroids, and `spacing` sets a flat capacity |
+| `t.relax` | yes | the centroid of a cell is weighted by the area of the space |
+| `t.settle` | yes | the demand is the area of the space, and `spacing` sets the capacity in it |
 | `fill('hatch')` | no | flat rulings across the area |
 | `m.map` | no | puts each vertex where the callback says |
 | `m.warp` | no | a flat cage, corner for corner |
@@ -297,6 +300,44 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 47 }),
     circle(t.space.center, 300, { pen: 'rim' }),
     line(a, b, { pen: 'rim' }),
     strokes(t.isolines(across, [-30, -20, -10, 10, 20, 30], { step: mm(0.4) }), { pen: 'near' }),
+  ];
+});
+```
+
+## fields and forces in a space
+
+A field is a function of sketch coordinates. The engine samples a field on the paper. It reads each sample at the sketch point under that place of the sheet. So a `decimate` field, a fill field and a `t.within(field, area)` bound land where the ink of the same numbers lands. A sample at a place that the chart does not show reads 0. A `within` bound goes through the same lowering as the ink. Where the bound goes off the sheet, the engine joins the two ends of the visible part with a straight line.
+
+A material from the toolkit knows the space of its coordinates, as `m.space`. `m.steps` moves each point by a step of that space. The forces measure distance and direction in it. `material(points)` knows no space, and it moves and measures flat. `t.travelTime` measures the walk in the space, and `t.relax` and `t.settle` weigh each cell by the area of the space.
+
+Some words stay words of the chart. `t.voronoi` makes the cells of the coordinates. The `step` of `t.isolines` is a coordinate step. `t.hexes` and `t.grid` are flat lattices, and `t.streamlines` follows the field in coordinates. A hatch `spacing` is a length on the paper, and `t.noise` reads flat coordinates.
+
+Below, the field of one cell of a `{5, 4}` tiling sets the hatch spacing of each cell. The field is zero on the walls of that cell. It falls with the distance of the space, so the hatch is tight on the cell and opens toward the rim. The dots are a scatter inside a circle of the space. `t.force.separation` then pushes them apart by steps of the space. They keep one spacing of the space from the centre to the rim.
+
+```ts live
+import { sketch, polygon, strokes, dots, fill, circle, mul, pen, mm, space } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 50 }), pens: {
+  wall: pen({ width: mm(0.25), color: '#23252B' }),
+  hatch: pen({ width: mm(0.2), color: '#2457D6' }),
+  dot: pen({ width: mm(0.9), color: '#D2462E' }),
+} }, (t) => {
+  const tiles = t.tiling(5, 4, { depth: 4 });
+  // The field of one cell, in the space: 0 on its walls, negative outside.
+  const near = t.distanceTo(tiles.cell);
+  // Each cell's hatch spacing grows with the cell's distance from that one,
+  // measured in the space at the cell's centroid.
+  const hatchAt = (f) => fill('hatch', { angle: 30, spacing: mm(0.5 + Math.max(0, -near(...f.centroid)) / 10) });
+  // A move is a step of the space, and the force measures in the space.
+  const pts = t.scatter({ spacing: 7, within: circle(t.space.center, 62) }).steps(12, (cur, next) => {
+    const apart = t.force.separation(cur, { radius: 7 });
+    next.move(cur.points, (p) => mul(apart(p), 0.15));
+  });
+  return [
+    tiles.faces().map((f) => polygon(f, { fill: hatchAt(f), fillPen: 'hatch', stroke: false })),
+    strokes(tiles, { pen: 'wall' }),
+    circle(t.space.center, 300, { pen: 'wall' }),
+    dots(pts, { pen: 'dot' }),
   ];
 });
 ```

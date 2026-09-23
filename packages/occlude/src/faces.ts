@@ -607,6 +607,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     edgeTransfers: { ...m.edgeTransfers },
     ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
     faceAttrs: m.faceAttrs,
+    space: m.space,
   });
 }
 

@@ -22,6 +22,7 @@
 
 import { usableLength } from './guard.js';
 import type { FieldFn } from './shapes.js';
+import type { Space } from './space.js';
 import { mm, type L } from './units.js';
 import { chainSegments, marchSegments, type SampledGrid } from './marching.js';
 
@@ -66,10 +67,13 @@ export interface IsoLevelContours {
 }
 
 /** Environment handed in by the toolkit: drawable bounds and sketch-time
- * length resolution, both in user units. */
+ * length resolution, both in user units, and the run's geometry for the
+ * words that measure in it (`t.travelTime`). Absent or Euclidean is the
+ * flat plane. The marching grid itself is a chart grid either way. */
 export interface IsoEnv {
   bounds: { x: number; y: number; w: number; h: number };
   len(l: L): number;
+  space?: Space;
 }
 
 export function isolinesOf(

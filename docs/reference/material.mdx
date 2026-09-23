@@ -93,8 +93,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.pts.mdx</include>
 <include>/_sig/Material.attrs.mdx</include>
 <include>/_sig/Material.closed.mdx</include>
+<include>/_sig/Material.space.mdx</include>
 
-The value. `n` is the number of vertices. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
+The value. `n` is the number of vertices. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `space` is the [space](/docs/reference/geometry) of the coordinates: the space of the sketch on a material from the toolkit, and `undefined` on `material(points)`. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
 
 ```ts live
 import { sketch, rect, circle, strokes } from 'occlude';

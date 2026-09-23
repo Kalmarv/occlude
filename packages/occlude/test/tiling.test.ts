@@ -30,7 +30,7 @@ const HOME: Record<TilingGeometry, Parameters<typeof toolkit>[0]> = {
 
 /** A tiling read back in its geometry's OWN model chart. */
 interface ChartTiling {
-  space: TilingGeometry;
+  geometry: TilingGeometry;
   cell: Vec[];
   placements: { point(z: XY): Vec }[];
 }
@@ -54,7 +54,7 @@ const chartTiling = (p: number, q: number, opts: TilingOpts = {}): ChartTiling =
   };
   const fromModel = (z: XY): Vec => t.space.fromChart([c[0] + k * vx(z), c[1] + k * vy(z)]);
   return {
-    space: tl.space,
+    geometry: tl.geometry,
     cell: tl.cell.map(toModel),
     placements: tl.placements.map((f) => ({ point: (z: XY) => toModel(f.point(fromModel(z))) })),
   };
@@ -72,7 +72,7 @@ describe('the symbol picks the geometry', () => {
     for (const [p, q] of [[3, 3], [3, 4], [4, 3], [3, 5], [5, 3]]) expect(tilingGeometry(p, q)).toBe('spherical');
     for (const [p, q] of [[4, 4], [3, 6], [6, 3]]) expect(tilingGeometry(p, q)).toBe('euclidean');
     for (const [p, q] of [[7, 3], [3, 7], [5, 4], [4, 5], [5, 5]]) expect(tilingGeometry(p, q)).toBe('hyperbolic');
-    for (const [p, q] of [[3, 3], [4, 4], [7, 3]]) expect(chartTiling(p, q).space).toBe(tilingGeometry(p, q));
+    for (const [p, q] of [[3, 3], [4, 4], [7, 3]]) expect(chartTiling(p, q).geometry).toBe(tilingGeometry(p, q));
   });
 
   it('refuses p or q below 3, by name, before it reads a geometry', () => {
@@ -262,7 +262,7 @@ describe('t.tiling puts the chart on the drawable', () => {
   it('is the sketch\'s own sphere when the sketch is spherical', () => {
     const t = toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
     const tl = t.tiling(3, 5);
-    expect(tl.space).toBe('spherical');
+    expect(tl.geometry).toBe('spherical');
     expect(tl.placements.length).toBe(20);
     // The equator is drawn at the space's `size`, and that is where the
     // model chart's unit circle lands.
@@ -294,7 +294,7 @@ describe('t.tiling puts the chart on the drawable', () => {
     for (const side of [undefined, 7]) {
       const t = toolkit({ aspect: [1, 1] });
       const tl = t.tiling(4, 4, { depth: 1, side });
-      expect(tl.space).toBe('euclidean');
+      expect(tl.geometry).toBe('euclidean');
       // A scaled plane tiling is a plane tiling: every copy is rigid on
       // the sheet.
       for (const f of tl.placements) {

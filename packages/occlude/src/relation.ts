@@ -827,7 +827,7 @@ function midpoints(m: Material): Material {
     x[e] = (m.x[a] + m.x[b]) / 2;
     y[e] = (m.y[a] + m.y[b]) / 2;
   }
-  box.material = new Material(x, y, {}, new Uint32Array(0));
+  box.material = new Material(x, y, {}, new Uint32Array(0), { space: m.space });
   return box.material;
 }
 
@@ -874,7 +874,7 @@ function extractRows(m: Material, pointRows: readonly number[], edgeRows: readon
     edgeIds[k] = m.edgeIds[edgeRows[k]];
     edgeRoots[k] = m.edgeRoots[edgeRows[k]];
   }
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs, space: m.space });
 }
 
 // ---- relational measures ----------------------------------------------------------

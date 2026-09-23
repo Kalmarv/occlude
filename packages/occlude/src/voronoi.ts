@@ -34,6 +34,7 @@ import { Material, attachVoronoi, material, type PointsLike } from './material.j
 import { PointSelection } from './relation.js';
 import type { Bounds } from './points.js';
 import type { IsoContour } from './isolines.js';
+import type { Space } from './space.js';
 
 /** Sites for a construction: a material (every row) or a point selection
  * of one (the selected rows, correspondence to that source). */
@@ -136,11 +137,14 @@ export interface VoronoiWalls {
   del: Delaunay<[number, number]> | null;
 }
 
-/** The material of a rectangle-clipped Voronoi diagram of `sites`. */
-export function voronoiOf(sites: Sites, bounds: Bounds): Material {
+/** The material of a rectangle-clipped Voronoi diagram of `sites`, in
+ * `space` when the toolkit names the sketch's: the cells are a chart
+ * construction either way, and their correspondence is kept on THIS
+ * material, so the space goes in here rather than onto a copy. */
+export function voronoiOf(sites: Sites, bounds: Bounds, space?: Space): Material {
   const { source, rows } = sitesOf(sites);
   const { vx, vy, edges, del } = voronoiWalls(sites, bounds);
-  const m = new Material(Float64Array.from(vx), Float64Array.from(vy), {}, Uint32Array.from(edges));
+  const m = new Material(Float64Array.from(vx), Float64Array.from(vy), {}, Uint32Array.from(edges), { space });
   // Faces ↔ sites: a cell is convex, so its area centroid lies inside it and
   // names the site by nearest-site search. Site numbers are rows of the
   // source; rows outside a selection have no cell.
