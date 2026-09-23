@@ -2,6 +2,7 @@ import {orient2d} from 'robust-predicates';
 import {assembleSurface3,type Attribute3,type Attributes3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3} from './surface.js';
 import {add3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
 import {pointNumber,triangleWeights,type H} from './exact.js';
+import {coplanarContact3,type TriangleContact3} from '../curves/contact.js';
 import {bindingTriangle3,surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
 import {intersectionContactsJob3,type PreparedIntersectionSource3} from '../curves/intersectionContacts.js';
 import {runGeometryJob3} from './job.js';
@@ -36,7 +37,9 @@ const turn2=(a:Vec2,b:Vec2,c:Vec2)=>-orient2d(a[0],a[1],b[0],b[1],c[0],c[1]);
  * that means to lie in a box's diagonal plane misses it by an ulp, and the true
  * seam then carries a segment a fraction of an ulp long. Vertices within this
  * fraction of the scene are one vertex, which retires those segments before
- * they reach the triangulator. Anything larger is real geometry and is kept. */
+ * they reach the triangulator. By the same rule, a triangle whose corners all
+ * lie within it of another triangle's plane lies in that plane (see
+ * `coplanarOverlaps`). Anything larger is real geometry and is kept. */
 const WELD=1e-10;
 
 interface Side {
@@ -151,7 +154,17 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
     let list=side.cuts.get(triangle);if(!list){list=[];side.cuts.set(triangle,list);}
     if(!list.some(([u,v])=>ekey(u,v)===ekey(a,b)))list.push([a,b]);
   };
-  for(const row of contacts.contacts){
+  // A pair that lies in one plane to within the weld overlaps over an area,
+  // whatever the exact kernel says about the ulp of tilt between them: its
+  // exact contact is replaced by that overlap, cut in the first triangle's own
+  // plane. A pair the kernel already found exactly coplanar keeps its answer.
+  const coplanar=coplanarOverlaps(sides,weld);
+  const exactArea=new Set(contacts.contacts.filter(row=>row.contact.kind==='area').map(row=>pairKey(row.a,row.b)));
+  const rows:ContactRow[]=[
+    ...contacts.contacts.filter(row=>row.contact.kind==='area'||!coplanar.has(pairKey(row.a,row.b))),
+    ...[...coplanar].flatMap(([key,row])=>row.contact&&!exactArea.has(key)?[row as ContactRow]:[]),
+  ];
+  for(const row of rows){
     const triangles=[row.a,row.b] as const;
     const indices=row.contact.points.map(p=>{
       const position=pointNumber(p);
@@ -225,6 +238,47 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
   return result;
 }
 
+type ContactRow={readonly a:number;readonly b:number;readonly contact:TriangleContact3};
+type CoplanarRow={readonly a:number;readonly b:number;readonly contact:TriangleContact3|null};
+const pairKey=(a:number,b:number)=>`${a}:${b}`;
+
+/** Pairs of triangles, first solid then second, that lie in one plane to
+ * within the weld: every corner of one of them is within the weld of the
+ * other's plane. A cone set on a sphere's facet by its sampled normal is such
+ * a pair — the rotation that stands it on the facet leaves its base an ulp
+ * off the facet's plane, and the exact kernel then reports a seam at an ulp of
+ * tilt that no classification can read. By the rule the weld already states
+ * (what the solids mean to share, they share), the two lie in one plane, and
+ * each pair answers its overlap, `coplanarContact3` in the first's own exact
+ * plane. The answer is null for a pair that lies side by side without
+ * overlapping. */
+function coplanarOverlaps(sides:readonly Side[],weld:number):Map<string,CoplanarRow> {
+  const [left,right]=[sides[0].prepared,sides[1].prepared],out=new Map<string,CoplanarRow>();
+  for(let i=0;i<left.bounds.length;i++){
+    const b=left.bounds[i],grown=[b[0]-weld,b[1]-weld,b[2]-weld,b[3]+weld,b[4]+weld,b[5]+weld] as unknown as WorldBounds3;
+    for(const j of right.index.query(grown)){
+      // Two triangles with planes, one within the weld of the other's.
+      if(!hasPlane(left.corners,9*i)||!hasPlane(right.corners,9*j))continue;
+      if(!withinPlane(right.corners,9*j,left.corners,9*i,weld)&&!withinPlane(left.corners,9*i,right.corners,9*j,weld))continue;
+      out.set(pairKey(i,j),{a:i,b:j,contact:coplanarContact3(bindingTriangle3(sides[0].binding,i),bindingTriangle3(sides[1].binding,j),left.planes[i])});
+    }
+  }
+  return out;
+}
+/** Whether a triangle, read from a nine-double corner row, has a plane. */
+function hasPlane(corners:Float64Array,q:number):boolean {
+  const a:Vec3=[corners[q],corners[q+1],corners[q+2]],b:Vec3=[corners[q+3],corners[q+4],corners[q+5]],c:Vec3=[corners[q+6],corners[q+7],corners[q+8]];
+  return Math.hypot(...cross3(sub3(b,a),sub3(c,a)))>0;
+}
+/** Whether all three corners of one triangle lie within `weld` of the plane of
+ * another, both read from nine-double corner rows. */
+function withinPlane(points:Float64Array,p:number,plane:Float64Array,q:number,weld:number):boolean {
+  const a:Vec3=[plane[q],plane[q+1],plane[q+2]],b:Vec3=[plane[q+3],plane[q+4],plane[q+5]],c:Vec3=[plane[q+6],plane[q+7],plane[q+8]];
+  const n=cross3(sub3(b,a),sub3(c,a)),length=Math.hypot(...n);
+  if(!(length>0))return false;
+  for(let k=0;k<3;k++)if(Math.abs(dot3(n,sub3([points[p+3*k],points[p+3*k+1],points[p+3*k+2]],a)))>weld*length)return false;
+  return true;
+}
 const clone=(attrs:Attributes3):Attributes3=>Object.fromEntries(Object.entries(attrs).map(([k,v])=>[k,Array.isArray(v)?[...v]:v]));
 const faceId=(side:number,id:string,mint:(...parts:(string|number)[])=>string)=>side===0?id:mint('b',id);
 const oriented=(vertices:readonly number[],flip:boolean):readonly number[]=>flip?[...vertices].reverse():vertices;

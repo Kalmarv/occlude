@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { append, curve, material } from '../src/index.js';
 
-const square = (x: number) => curve([[x, 0], [x + 10, 0], [x + 10, 10], [x, 10]]);
+const square = (x: number) => curve([[x, 0], [x + 10, 0], [x + 10, 10], [x, 10]], { closed: true });
 
 describe('append takes any number of materials', () => {
   it('piles a list in the order given, edges renumbered', () => {

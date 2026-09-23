@@ -484,7 +484,7 @@ export function resolveDraw(plan: DrawingPlan, req: DrawRequest | undefined, tim
   const r = checkDrawRequest(req ?? {});
   const n = plan.chains.length;
   const needsTime = r.minutes !== undefined || r.budget !== undefined;
-  if (needsTime && !timing) throw new Error('draw: a range in minutes or a budget needs the machine timing (pass timing, or choose chains / progress)');
+  if (needsTime && !timing) throw new Error('draw: t.draw({ minutes }) and { budget } read the time of the plot, which only a machine knows — give the export { timing: { penOf, opts } } from the machine profile, or draw by chains or progress');
   if (timing && timing.flat.length !== n) throw new Error('draw: the toolpath does not cover the whole plan');
   let selection: PlanSelection;
   let effective: ResolvedDraw['effective'];

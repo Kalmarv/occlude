@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { append, curve, distance, material, type Material } from '../src/material.js';
 
 // Off-centre on purpose: its bounds centre is [3, 5], not the origin.
-const src = (): Material => curve([[1, 2], [5, 2], [5, 8], [1, 8]], { age: [1, 2, 3, 4] })
+const src = (): Material => curve([[1, 2], [5, 2], [5, 8], [1, 8]], { closed: true, age: [1, 2, 3, 4] })
   .attribute('kind', 7, { transfer: 'nearest' })
   .edgeAttribute('w', (e) => e.index + 1, { transfer: 'distribute' });
 
@@ -42,8 +42,8 @@ describe("origin: 'centroid'", () => {
   it('keeps a face centroid fixed when its extracted outline scales', () => {
     // Irregular on purpose, so the area centroid is not the bounds centre.
     const cells = append(
-      curve([[0, 0], [9, 0], [12, 4], [3, 10], [0, 6]]),
-      curve([[9, 0], [20, 1], [12, 4]]),
+      curve([[0, 0], [9, 0], [12, 4], [3, 10], [0, 6]], { closed: true }),
+      curve([[9, 0], [20, 1], [12, 4]], { closed: true }),
     ).merge().planarize().faces();
     expect(cells.faces.length).toBeGreaterThan(1);
     for (const f of cells.faces) {
@@ -66,14 +66,14 @@ describe("origin: 'centroid'", () => {
   });
 
   it('is not the bounds centre', () => {
-    const tri = curve([[0, 0], [6, 0], [0, 6]]);
+    const tri = curve([[0, 0], [6, 0], [0, 6]], { closed: true });
     close(tri.scale(0, { origin: 'centroid' }).pts, [[2, 2], [2, 2], [2, 2]]);
     close(tri.scale(0, { origin: 'center' }).pts, [[3, 3], [3, 3], [3, 3]]);
   });
 
   it('subtracts a hole, whatever way the hole is walked', () => {
-    const outer = curve([[0, 0], [10, 0], [10, 10], [0, 10]]);
-    for (const hole of [curve([[6, 4], [9, 4], [9, 6], [6, 6]]), curve([[6, 4], [6, 6], [9, 6], [9, 4]])]) {
+    const outer = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
+    for (const hole of [curve([[6, 4], [9, 4], [9, 6], [6, 6]], { closed: true }), curve([[6, 4], [6, 6], [9, 6], [9, 4]], { closed: true })]) {
       // Area 100 at [5, 5] less area 6 at [7.5, 5].
       const cx = (100 * 5 - 6 * 7.5) / 94;
       const p = append(outer, hole).scale(0, { origin: 'centroid' }).pts[0];
@@ -83,8 +83,8 @@ describe("origin: 'centroid'", () => {
   });
 
   it('weights several separate areas by their area', () => {
-    const big = curve([[0, 0], [4, 0], [4, 4], [0, 4]]);
-    const small = curve([[10, 0], [12, 0], [12, 2], [10, 2]]);
+    const big = curve([[0, 0], [4, 0], [4, 4], [0, 4]], { closed: true });
+    const small = curve([[10, 0], [12, 0], [12, 2], [10, 2]], { closed: true });
     const p = append(big, small).scale(0, { origin: 'centroid' }).pts[0];
     expect(p[0]).toBeCloseTo((16 * 2 + 4 * 11) / 20, 12);
     expect(p[1]).toBeCloseTo((16 * 2 + 4 * 1) / 20, 12);

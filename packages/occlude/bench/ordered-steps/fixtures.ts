@@ -32,6 +32,7 @@ export function ring(ordered: boolean, count = 30): Material {
       20 * Math.cos((i * Math.PI) / 20),
       20 * Math.sin((i * Math.PI) / 20),
     ]),
+    { closed: true },
   );
   const makePush = (prev: Material) => {
     const attraction = force.attract(prev, {

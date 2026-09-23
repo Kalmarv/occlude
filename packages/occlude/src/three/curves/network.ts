@@ -228,7 +228,7 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
   }
   const nodeRows:SurfaceCurveNode3[]=[];
   for(let i=0;i<drafts.length;i++){
-    if(!nodeSupports[i].size)throw new Error('isolated surface contacts require declared support');
+    if(!nodeSupports[i].size)throw new Error(`isolated surface contacts require declared support (node ${drafts[i].id} at ${JSON.stringify(drafts[i].position)})`);
     nodeRows.push(Object.freeze({...drafts[i],supports:Object.freeze([...nodeSupports[i].values()])}));if((++work&127)===0)yield;
   }
   const nodes=Object.freeze(nodeRows);

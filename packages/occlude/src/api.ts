@@ -248,7 +248,22 @@ export type Tree =
   | undefined
   | false;
 
+/** Every option a shape takes, as the type names them: `satisfies` keeps
+ * the two lists one list. */
+const SHAPE_OPTION = {
+  pen: true, fill: true, fillPen: true, opaque: true, stroke: true, z: true, mode: true,
+  decimate: true, wobble: true, bridge: true, preserveStroke: true, strokeSeed: true,
+  strokeRanges: true, translate: true, rotate: true, scale: true, origin: true, modifiers: true,
+} satisfies Record<keyof ShapeOpts, true>;
+
 function shape(geom: ShapeGeom, opts: ShapeOpts = {}): ShapeValue {
+  // An option a shape does not take would be dropped in silence, and the
+  // shape drawn as if it were never written: refused by name instead.
+  for (const key of Object.keys(opts)) {
+    if (!Object.hasOwn(SHAPE_OPTION, key)) {
+      throw new Error(`a shape has no option '${key}' — it takes ${Object.keys(SHAPE_OPTION).join(', ')}`);
+    }
+  }
   checkOrigin('shape', opts?.origin);
   return { __occludeShape: true, geom, opts };
 }
@@ -355,6 +370,11 @@ export function line(a: L | XY, b: L | XY, c?: L | ShapeOpts, d?: L, e?: ShapeOp
 /** A closed boundary as plain points. Open input gets its closing chord. */
 export type Contour = [L, L][];
 
+const STROKES_OF_A_SHAPE = 'strokes: a shape is not geometry yet — draw the shape itself, or make its chains with t.material(shape) and draw those';
+/** What `strokes` says, as a type, to a shape: the same words as the
+ * refusal at run time. */
+type ShapeIsNotChains = typeof STROKES_OF_A_SHAPE;
+
 /**
  * One stroke per contour, all with the same options — for a material's
  * chains, a selection's, `segmentRuns` output or any contour records:
@@ -363,13 +383,16 @@ export type Contour = [L, L][];
  * `.map`: nothing here assigns pens from keys.
  */
 export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
-export function strokes(source:Geometry|readonly IsoContour[],opts?:ShapeOpts):ShapeValue[];
+export function strokes<S extends Geometry | readonly IsoContour[] | ShapeValue>(source: S extends ShapeValue ? ShapeIsNotChains : S, opts?: ShapeOpts): ShapeValue[];
 export function strokes(
-  source: Geometry | readonly IsoContour[] | ProjectedCurves,
+  source: Geometry | readonly IsoContour[] | ProjectedCurves | ShapeValue,
   opts?: ShapeOpts | ProjectedStrokeOptions,
 ): ShapeValue[] | ProjectedStrokes {
   if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
   if (Array.isArray(source)) return (source as readonly IsoContour[]).map((c) => stroke(c, opts));
+  // A shape is not geometry until the toolkit lowers it, so it has no
+  // chains yet; it is refused by name before any other reading.
+  if (isShapeValue(source)) throw new Error(STROKES_OF_A_SHAPE);
   // A chain consumer reads `curves()`: a face collection answers with its
   // edges, each wall once. A value that has no chains to draw — one face
   // is an area — is refused by name.

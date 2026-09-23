@@ -126,15 +126,15 @@ describe('img.palette', () => {
     expect(red(-5, -5)).toBe(0); // outside the placed rect
   });
 
-  it('answers area() with the contours of that membership, closed on the picture', () => {
+  it('answers contours() with the contours of that membership, closed on the picture', () => {
     const p = banded().palette(4);
-    const red = p[0].area();
+    const red = p[0].contours();
     expect(red.length).toBeGreaterThan(0);
     expect(red.every((c) => c.closed)).toBe(true);
     // The red band is the top half, so its contour stays in the top half.
     const ys = red.flatMap((c) => c.pts.map(([, y]) => y));
     expect(Math.max(...ys)).toBeLessThan(22);
-    expect(p[0].area(Number.NaN)).toEqual([]);
+    expect(p[0].contours(Number.NaN)).toEqual([]);
   });
 
   it('holds no share for a pixel the picture does not cover', () => {
@@ -153,7 +153,7 @@ describe('img.regions', () => {
     const img = image(picture(16, 16, (x) => (x < 8 ? BLACK : WHITE)), 't.png', { width: 40 });
     const r = img.regions({ count: 2 });
     expect(r.map((e) => e.color)).toEqual(['#ffffff', '#000000']);
-    expect(r.map((e) => e.area)).toEqual([0.5, 0.5]);
+    expect(r.map((e) => e.share)).toEqual([0.5, 0.5]);
     for (const region of r) {
       const cs = region.contours();
       expect(cs.length).toBeGreaterThan(0);
@@ -175,7 +175,7 @@ describe('img.regions', () => {
     expect(speck.regions({ count: 2, tolerance: 0 }).map((e) => e.color)).toEqual(['#ffffff', '#000000']);
     const merged = speck.regions({ count: 2, tolerance: 0.02 });
     expect(merged.map((e) => e.color)).toEqual(['#ffffff']);
-    expect(merged[0].area).toBe(1);
+    expect(merged[0].share).toBe(1);
   });
 
   it('is a monochrome trace at count 2, and refuses a count that is not one', () => {
@@ -200,6 +200,6 @@ describe('img.regions', () => {
     const img = image(picture(16, 16, (x) => (x < 8 ? WHITE : [0, 0, 0, 0])), 't.png', { width: 40 });
     const r = img.regions({ count: 2 });
     expect(r).toHaveLength(1);
-    expect(r[0].area).toBeCloseTo(0.5, 6);
+    expect(r[0].share).toBeCloseTo(0.5, 6);
   });
 });

@@ -150,7 +150,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     const d = mul(fromAngle(u * Math.PI * 2), 9);
     return [116 + d[0], 36 + d[1]];
   });
-  const ring = curve(ringPts)
+  const ring = curve(ringPts, { closed: true })
     .attribute('age', 0)
     .attribute('tag', (p) => p.index % 2, { transfer: 'nearest' })
     .edgeAttribute('tick', (e) => e.length)

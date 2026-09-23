@@ -13,7 +13,7 @@ Uses: `t.material`, `t.sample`, `points.at`, `t.times`, `strokes`, vector arithm
 import { sketch, strokes, line, ngon, sub, unit, mul, add } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const plate = ngon(50, 50, 5, 38, { rotation: -90 });
+  const plate = ngon(50, 50, 5, 38, -90);
   const corners = t.material(plate);          // the boundary's own vertices
   const ring = t.sample(plate, { count: 75 }); // evenly, by arc length
 

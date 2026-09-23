@@ -55,7 +55,7 @@ const start = curve(
     const r = 6 + (rng.float() - 0.5) * 0.6;
     return [50 + Math.cos(a) * r, 50 + Math.sin(a) * r] as [number, number];
   }),
-  material ? { age: 0, rest } : { age: 0 },
+  material ? { closed: true, age: 0, rest } : { closed: true, age: 0 },
 );
 
 const stats: NeighbourStats = { queries: 0, candidates: 0, hits: 0 };

@@ -63,7 +63,7 @@ describe('mapSurface',()=>{
   });
 
   it('maps a closed motif into a topologically closed loop with interpolated node attributes',()=>{
-    const sheet=plane(2),square=curve([[.2,.2],[.7,.2],[.7,.7],[.2,.7]],{w:[0,1,2,3]});
+    const sheet=plane(2),square=curve([[.2,.2],[.7,.2],[.7,.7],[.2,.7]],{ closed: true, w:[0,1,2,3]});
     const marks=mapSurface(sheet,square);
     expect(marks.edges.length).toBe(6);expect(marks.points.length).toBe(6);
     const closed=sampleSurfaceCurves(marks,{count:4});
@@ -74,7 +74,7 @@ describe('mapSurface',()=>{
     // A corner exactly on the diagonal in decimal is a sliver in binary64: the
     // exact graph still closes, and the sliver's float phase has zero width
     // (its exact interval is narrower than binary64) without any nudging.
-    const sliver=mapSurface(sheet,curve([[.2,.2],[.8,.2],[.8,.8],[.2,.8]]));
+    const sliver=mapSurface(sheet,curve([[.2,.2],[.8,.2],[.8,.8],[.2,.8]], { closed: true }));
     expect(sampleSurfaceCurves(sliver,{count:4}).points.length).toBe(4);
     const ranges=sliver.network.segments.map(s=>s.range);
     expect(ranges.every(r=>r[1]>=r[0]&&r[0]>=0&&r[1]<=1)).toBe(true);expect(ranges.some(r=>r[1]===r[0])).toBe(true);

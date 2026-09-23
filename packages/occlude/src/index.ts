@@ -90,7 +90,7 @@ export { planarize, faces, Faces, FaceSelection } from './faces.js';
 export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
 export type {
-  Vertex, Edge, Curve, Station, Snapshot, Transfer, TransferPolicy, SegmentRun, PointsLike,
+  Vertex, Edge, Curve, Station, Transfer, TransferPolicy, SegmentRun, PointsLike,
 } from './material.js';
 export type { Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts } from './steps.js';
 export type { NeighbourStats, Sources } from './forces.js';

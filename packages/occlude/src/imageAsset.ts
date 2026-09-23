@@ -198,8 +198,9 @@ export interface ImageSampler {
    * Each entry is data: `share` is how much of the picture it holds,
    * `field()` is its membership as an ordinary scalar field (1 at the colour
    * itself, 0.5 halfway to the next nearest, 0 where another colour wins),
-   * and `area(level)` is that field's contours. So `t.scatter(e.field())`
-   * stipples one separation and `polygon(e.area())` outlines it.
+   * and `contours(level)` is that field's contours. An entry is an area, so
+   * `t.scatter(e.field())` stipples one separation and `polygon(e)`
+   * outlines it.
    *
    * Transparent pixels hold no share and belong to no colour.
    */
@@ -214,7 +215,8 @@ export interface ImageSampler {
    * a monochrome trace.
    *
    * Each region answers `contours()`, so `polygon(region, …)` takes it
-   * directly, and `area` is the fraction of the picture it covers.
+   * directly, and `share` is the fraction of the picture it covers — the
+   * word a palette entry uses; `area` is always a measured size.
    */
   regions(opts?: RegionOpts): ImageRegion[];
   /** The same pixels as a field over surface chart coordinates, for 3D tone,
@@ -254,8 +256,9 @@ export interface PaletteEntry {
   field(opts?: { area?: number }): (x: number, y: number) => number;
   /** The contours of `field()` at `level` — 0.5, the default, is exactly
    * where this colour stops being the nearest one. Closed along the edge of
-   * the picture, so the result fills. */
-  area(level?: number): IsoContour[];
+   * the picture, so the result fills. It is the accessor every area
+   * consumer reads, so an entry goes to `polygon` or `t.within` as it is. */
+  contours(level?: number): IsoContour[];
 }
 
 export interface RegionOpts {
@@ -275,7 +278,7 @@ export interface ImageRegion {
   /** The fraction of the placed rectangle this region covers, 0–1. A
    * transparent part of the picture belongs to no region, so the regions
    * add up to the part the picture actually covers. */
-  readonly area: number;
+  readonly share: number;
   /** Its closed boundary, outer contours and holes together, for even-odd
    * filling. A call, not a property: it builds a new collection. */
   contours(): IsoContour[];
@@ -723,7 +726,7 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
         color: colours[i],
         share: bins.total > 0 ? counts[i].weight / bins.total : 0,
         field: (o: { area?: number } = {}) => membership(space, centres, i, o.area),
-        area: (level = 0.5) =>
+        contours: (level = 0.5) =>
           Number.isFinite(level)
             ? march(sampleGrid(membership(space, centres, i), lattice, bandCols, bandRows), level)
             : [],
@@ -781,7 +784,7 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
       kept.sort((a, b) => toneSum[b] / covered[b] - toneSum[a] / covered[a] || a - b);
       return kept.map((c) => ({
         color: hexOfRgb(fitted[c].r, fitted[c].g, fitted[c].b),
-        area: covered[c] / cells,
+        share: covered[c] / cells,
         contours: () => march(maskGrid(labels, bandCols, bandRows, c, lattice), 0.5),
       }));
     },

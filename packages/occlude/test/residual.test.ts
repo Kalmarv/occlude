@@ -111,7 +111,7 @@ describe('what a stroke takes, and in what unit', () => {
     expect(fromRecord).toBeCloseTo(fromArray, 6);
     // A closed chain comes back to where it started: four walls, not three.
     const square: [number, number][] = [[30, 30], [70, 30], [70, 70], [30, 70]];
-    const closed = t.residual(all, { spacing: 1 }).spend(curve(square), { width: 2 });
+    const closed = t.residual(all, { spacing: 1 }).spend(curve(square, { closed: true }), { width: 2 });
     const open = t.residual(all, { spacing: 1 }).spend(square, { width: 2 });
     expect(closed / open).toBeGreaterThan(1.3);
   });

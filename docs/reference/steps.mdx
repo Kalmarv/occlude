@@ -21,7 +21,7 @@ import { sketch, circle, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 30), { count: 60 });
   const grown = ring.steps(8, { move: (p) => [(p.x - 50) * 0.06, (p.y - 50) * 0.06 * (1 + 0.5 * Math.sin(p.index))] }, { every: 2 });
-  return grown.history.map((h) => strokes(h.material));
+  return grown.history.map((h) => strokes(h));
 });
 ```
 
@@ -274,7 +274,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   );
   const seeds = material(t.grid({ cols: 34, rows: 17 }).map((c) => [c.cx, c.cy]));
   const flown = seeds.steps(80, (cur, next) => next.move(cur.points, (p) => mul(push(p), 0.3)), { every: 1 });
-  const trail = (i) => flown.history.map((h) => [h.material.x[i], h.material.y[i]]);
+  const trail = (i) => flown.history.map((h) => [h.x[i], h.y[i]]);
   return [
     seeds.points.map((p) => stroke(trail(p.index))),
     posts.map((p) => circle(p, 3, { pen: 'stabilo-88-blue' })),

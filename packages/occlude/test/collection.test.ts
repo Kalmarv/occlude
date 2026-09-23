@@ -67,7 +67,7 @@ describe('geometry collections: points and edges', () => {
 describe('selections as boundaries', () => {
   it('a ring picked out of a branching network is an area; a branching subset is not', () => {
     // A square ring with a spur off one corner.
-    const net = curve([[0, 0], [10, 0], [10, 10], [0, 10]]).steps(1, (cur, next) => {
+    const net = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).steps(1, (cur, next) => {
       const spur = next.addPoint([20, 20], {});
       next.connect(2, spur);
     });
@@ -85,7 +85,7 @@ describe('selections as boundaries', () => {
 
   it('equivalent material, selection and contour inputs agree; open chains chord-close; empties stay empty', () => {
     const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
-    const m = curve(square);
+    const m = curve(square, { closed: true });
     const all = m.edges.filter(() => true);
     for (const [x, y] of [[5, 5], [12, 5], [0, 0]]) {
       expect(distanceTo(all)(x, y)).toBe(distanceTo(m)(x, y));
@@ -100,7 +100,7 @@ describe('selections as boundaries', () => {
   });
 
   it('faces stay explicit per face', () => {
-    const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]]), curve([[20, 0], [30, 0], [30, 10], [20, 10]])).faces();
+    const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true })).faces();
     // A selection is several areas at once: it must say which one.
     // Deliberately the wrong input (a selection is several areas): the
     // refusal is the contract.
@@ -144,7 +144,7 @@ describe('groupBy', () => {
   });
 
   it('edge groups are boundaries and draw directly; face groups keep their faces', () => {
-    const two = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]]), curve([[20, 0], [30, 0], [30, 10], [20, 10]]))
+    const two = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true }))
       .edgeAttribute('level', (e) => (e.index < 4 ? 0.2 : 0.4));
     const levels = two.edges.groupBy((e) => e.attrs.level);
     expect(levels.map((g) => g.key)).toEqual([0.2, 0.4]);

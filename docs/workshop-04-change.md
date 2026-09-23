@@ -22,7 +22,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   }, { every });
   const states = grown.history;
   return [
-    states.slice(0, -1).map((h) => strokes(h.material, { pen: 'pigma-005-black' })),
+    states.slice(0, -1).map((h) => strokes(h, { pen: 'pigma-005-black' })),
     strokes(grown, { pen: 'stabilo-88-blue' }),
   ];
 });
@@ -221,7 +221,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   }, { every });
   const states = grown.history;
   return [
-    states.slice(0, -1).map((h) => strokes(h.material, { pen: 'pigma-005-black' })),
+    states.slice(0, -1).map((h) => strokes(h, { pen: 'pigma-005-black' })),
     strokes(grown, { pen: 'stabilo-88-blue' }),
   ];
 });
@@ -251,7 +251,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   }, (current, next) => {
     next.splitEdges(current.edges.filter((e) => e.length > 5));
   }, { every });
-  return grown.history.map((h) => strokes(h.material, { pen: 'pigma-005-black' }));
+  return grown.history.map((h) => strokes(h, { pen: 'pigma-005-black' }));
 });
 ```
 

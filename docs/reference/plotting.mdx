@@ -90,7 +90,7 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 <include>/_sig/exportPng.mdx</include>
 <include>/_sig/exportGcode.mdx</include>
 
-Headless export, after `initOcclude()` once. `exportSvg` writes one path for each chain in plot order, with arcs and cubics kept exact. `exportPng` rasterises at `scale` pixels for each millimetre. `exportGcode` writes one job for each pen. `profile` describes the machine: `bed`, `resolution`, `travelFeed`, `zMode`, `arcSupport` and `yAxis`. All three honour `t.draw`. The studio's Export panel does the same for the current selection.
+Headless export, after `initOcclude()` once. `exportSvg` writes one path for each chain in plot order, with arcs and cubics kept exact. `exportPng` rasterises at `scale` pixels for each millimetre. `exportGcode` writes one job for each pen. `profile` describes the machine: `bed`, `resolution`, `travelFeed`, `zMode`, `arcSupport` and `yAxis`. All three honour `t.draw`. The studio's Export panel does the same for the current selection. `t.draw({ minutes })` and `t.draw({ budget })` read the time of the plot, and only a machine knows its time. So an export of such a sketch needs `timing`: `penOf` gives the `feed` and `penDelay` of each pen, and `opts` gives the motion limits of your machine profile. The same numbers go into `estimatePlanMs`. Without `timing`, the export refuses the sketch and names the option.
 
 ```ts
 import { initOcclude, sketch, circle, render, exportSvg, exportGcode, exportPng } from 'occlude';
@@ -102,6 +102,13 @@ const out = render(def, { paper: 'A4' });
 const svg = exportSvg(def, { paper: 'A4', background: '#f6f2ea' });
 const jobs = exportGcode(def, { paper: 'A4', profile });
 const png = exportPng(def, { paper: 'A4', scale: 11.81 });
+
+// A sketch that calls t.draw({ minutes: [0, 3] }) exports with the machine's timing.
+const timing = {
+  penOf: () => ({ feed: 3000, penDelay: 150 }),
+  opts: { travelFeed: 8000, acceleration: 800, travelAcceleration: 1500, junctionDeviation: 0.05, minimumCruiseRatio: 0.5 },
+};
+const firstMinutes = exportPng(def, { paper: 'A4', scale: 11.81, timing });
 ```
 
 ## Machines

@@ -3,7 +3,7 @@ title: Surface fields
 description: "Light, gradient, across and curvature: the fields that surface hatch reads."
 ---
 
-A surface field is a function of a surface location. The location has `position`, `normal`, `uv`, `tangentU` and `tangentV`. It also has the attributes of the point, face and corner under it. A direction field returns a vector, and the consumer projects it onto the tangent plane. A tone field returns 0 for light and 1 for dark. `t.hatch` reads both.
+A surface field is a function of a surface location. The location has `position`, `normal`, `uv`, `tangentU` and `tangentV`. It also has the attributes of the point, face and corner under it. `uv` is there only where the corners of the face have a `uv` column. The primitives have one. The result of a boolean has none, and a mesh that you make from points has none unless you give it. `tangentU` and `tangentV` are there only where `uv` is there and it does not fold to a line. So a field that reads the chart must give a value for a location without one, for example `s.uv ?? [0, 0]`. A field that reads `position` or `normal` works on every face. A direction field returns a vector, and the consumer projects it onto the tangent plane. A tone field returns 0 for light and 1 for dark. `t.hatch` reads both.
 
 ## light()
 

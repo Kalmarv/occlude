@@ -15,7 +15,7 @@ On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On 
 
 <AutoTypeTable path="../occlude/src/faces.ts" name="PlanarizeOpts" />
 
-Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Below, the blue rings are the two new vertices, where four edges meet.
+Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Where the edges at a crossing do not agree, the new vertex takes the values of the edge with the lowest row, as a split of that edge gives them. A vertex that was there before keeps its own values. `point` overrides any column. Below, the blue rings are the two new vertices, where four edges meet.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Face.contours.mdx</include>
 <include>/_sig/Face.extract.mdx</include>
 
-One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary`, `t.within`, `clip`, `mask`, `t.material` and `t.sample` as it is. `t.material(f)` gives its walls with their ids. To keep the faces of a collection that lie in an area, use `t.within(cells, area, { keep })`. `keep` is `'contained'` (the default), `'centroid'` or `'touching'`, the same words as for points and edges. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids.
+One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary`, `t.within`, `clip`, `mask`, `t.material` and `t.sample` as it is. `t.material(f)` gives its walls with their ids. To keep the faces of a collection that lie in an area, use `t.within(cells, area, { keep })`. `keep` is `'contained'` (the default), `'centroid'` or `'touching'`, the same words as for points and edges. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids. The winding of a face is fixed. The outer loop turns counter-clockwise when y points up, and each hole turns the other way. `contours()` and the walls of `face.extract()` both turn this way. A normal from `along` points to the left of the travel, so on a face's walls it points into the face.
 
 ```ts live
 import { sketch, circle, strokes, distanceTo } from 'occlude';

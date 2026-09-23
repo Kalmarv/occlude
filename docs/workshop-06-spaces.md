@@ -60,6 +60,8 @@ Each crossing splits both connections that pass through it, so a chord crossed t
 
 Crossing is a fact about ink. Connection is a decision about the material, and `planarize` is that decision made for every crossing at once. Chapter 5 made it one crossing at a time, with `firstHit`, and chose to make some crossings joins and leave others as they were.
 
+A grown network carries columns, such as chapter 5's `heading`, and the two lines at a crossing seldom agree on them. The new point takes the values of the line that comes first in the material, read at the crossing as a split would read them. To choose them yourself, give `planarize({ point: (event) => ({ heading: … }) })`: the event lists every line through the point and the values each one gives.
+
 </details>
 
 ## Reveal the areas

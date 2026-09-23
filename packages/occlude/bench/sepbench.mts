@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { curve, force, neighbours } from '../src/index.js';
 const N = 5000;
-const ring = curve(Array.from({ length: N }, (_, i) => { const a = (i / N) * Math.PI * 2; return [50 + Math.cos(a) * 20 + Math.sin(i) * 0.3, 50 + Math.sin(a) * 20] as [number, number]; }), { age: 0 });
+const ring = curve(Array.from({ length: N }, (_, i) => { const a = (i / N) * Math.PI * 2; return [50 + Math.cos(a) * 20 + Math.sin(i) * 0.3, 50 + Math.sin(a) * 20] as [number, number]; }), { closed: true, age: 0 });
 const pts = ring.points;
 const cur = force.separation(ring, { radius: 2, excludeConnected: true });
 let t0 = performance.now(); for (const p of pts) cur(p); console.log('current separation (views + closures)', (performance.now() - t0).toFixed(1), 'ms');

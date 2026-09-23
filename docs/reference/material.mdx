@@ -28,14 +28,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/curve.mdx</include>
 
-Builds one chain from positions, in the order given. `closed: true` makes a ring. The other options are columns, as in `material()`.
+Builds one chain from positions, in the order given. The chain is open. `closed: true` makes a ring. The other options are columns, as in `material()`.
 
 ```ts live
 import { sketch, strokes, curve } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const zig = t.times(9, (k) => [10 + k * 10, k % 2 ? 20 : 45]);
-  return [strokes(curve(zig, { closed: false })), strokes(curve([[15, 65], [85, 65], [50, 92]], { closed: true }))];
+  return [strokes(curve(zig)), strokes(curve([[15, 65], [85, 65], [50, 92]], { closed: true }))];
 });
 ```
 
@@ -290,7 +290,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Material.withEdges.mdx</include>
 
-Replaces the edge list. Give pairs of row numbers. The vertices and their columns stay as they are.
+Replaces the edge list. Give pairs of row numbers. The vertices and their columns stay as they are. A pair that was an edge before keeps its id and its columns. An edge that is not in the list goes away, so name an old pair to keep it.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';

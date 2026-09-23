@@ -11,7 +11,7 @@ import { curve, material } from '../src/material.js';
 import { neighbours } from '../src/forces.js';
 import { query } from '../src/query.js';
 
-const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]]);
+const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
 describe('ownership: derived states copy, the public arrays stay writable', () => {
   it('a derived material never shares a column with its source', () => {
@@ -29,11 +29,11 @@ describe('ownership: derived states copy, the public arrays stay writable', () =
   it('steps: the result, its snapshots and the input own their columns', () => {
     const m = square().attribute('age', 0);
     const r = m.steps(2, (prev, next) => next.move(prev.points, [1, 0]), { every: 1 });
-    const snap0 = r.history[0].material;
+    const snap0 = r.history[0];
     r.x[0] = 500;
     expect(m.x[0]).toBe(0);
     expect(snap0.x[0]).toBe(0);
-    expect(r.history[1].material.x[0]).toBe(1);
+    expect(r.history[1].x[0]).toBe(1);
     m.x[1] = 700;
     expect(r.x[1]).toBe(12);
   });

@@ -59,12 +59,12 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(() => append(base, other)).toThrow(/edge column 'rest'/);
   });
 
-  it('crossings: agreeing candidates pass, disagreeing ones need the resolver, whatever the policy', () => {
+  it('crossings: agreeing candidates pass, disagreeing ones take the first edge\'s value unless the resolver says, whatever the policy', () => {
     const a = seg([0, 0], [10, 10]).attribute('kind', 1, { transfer: 'nearest' });
     const b = seg([0, 10], [10, 0]).attribute('kind', 1, { transfer: 'nearest' });
     expect(planarize(append(a, b)).attrs.kind[4]).toBe(1);
     const c = seg([0, 10], [10, 0]).attribute('kind', 2, { transfer: 'nearest' });
-    expect(() => planarize(append(a, c))).toThrow(/conflicting 'kind'/);
+    expect(planarize(append(a, c)).attrs.kind[4]).toBe(1);
     expect(planarize(append(a, c), { point: () => ({ kind: 9 }) }).attrs.kind[4]).toBe(9);
   });
 

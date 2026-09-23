@@ -43,6 +43,9 @@ export interface SurfaceLocation3 {
   readonly pointAttributes:Readonly<Attributes3>;
   readonly faceAttributes:Readonly<Attributes3>;
   readonly cornerAttributes:Readonly<Attributes3>;
+  /** Chart coordinates, where the face's corners carry a `uv` column: every
+   * primitive does; a boolean's result and a mesh built from points do not.
+   * `chartStatus` says which. */
   readonly uv?:readonly [number,number];readonly chart?:string|number;
   readonly modelFrame?:SurfaceTangentFrame3;readonly frame?:SurfaceTangentFrame3;
   /** Unit chart directions in the location's space (world when placed):

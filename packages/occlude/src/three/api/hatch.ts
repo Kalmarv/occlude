@@ -36,7 +36,9 @@ export interface HatchOptions extends GeometryOptions {
   readonly step?:number;
   /** Per-trace limits in each direction from a seed; default 200 spacings, unlimited steps. */
   readonly maxLength?:number;readonly maxSteps?:number;
-  /** Random restart seeds per surface after side seeding runs dry; default 16. */
+  /** Random restart seeds per surface after side seeding runs dry; default 16.
+   * After them, every triangle whose centre no lane reaches seeds one lane
+   * of its own, so each face the direction crosses is hatched. */
   readonly seeds?:number;
   readonly maxTraces?:number;readonly maxSegments?:number;readonly maxTotalSteps?:number;
   /** Fold angle that stops a trace; default 60, 180 never stops. */
@@ -52,7 +54,7 @@ export type HatchAttributes={family:string;lane:number;threshold:number;seed:num
 export interface HatchStats {
   readonly families:number;readonly surfaces:number;
   readonly traces:number;readonly accepted:number;readonly segments:number;readonly steps:number;
-  readonly seedsQueued:number;readonly randomSeeds:number;readonly occupancyRejections:number;
+  readonly seedsQueued:number;readonly randomSeeds:number;readonly sweepSeeds:number;readonly occupancyRejections:number;
   readonly stops:Readonly<Partial<Record<TraceStop3,number>>>;
   readonly tone:{readonly locations:number;readonly backend:'cpu'|'gpu'|'constant'|'mixed';readonly dispatches:number;readonly transferBytes:number;readonly refinements:number;readonly ambiguous:number};
 }
@@ -116,7 +118,7 @@ export interface HatchTrace {readonly lane:number;readonly seed:number;readonly 
 export interface HatchTraced {
   readonly settings:Settings;readonly bindings:readonly {id:string;binding:SurfaceBinding3}[];
   readonly families:readonly {readonly family:Family;readonly surfaces:readonly {readonly binding:number;readonly env:TraceEnvironment3;readonly traces:readonly HatchTrace[]}[]}[];
-  readonly stats:{traces:number;accepted:number;steps:number;seedsQueued:number;randomSeeds:number;occupancyRejections:number;stops:Partial<Record<TraceStop3,number>>};
+  readonly stats:{traces:number;accepted:number;steps:number;seedsQueued:number;randomSeeds:number;sweepSeeds:number;occupancyRejections:number;stops:Partial<Record<TraceStop3,number>>};
 }
 /** Surface-aware occupancy: a candidate is blocked by an accepted sample of the
  * same connected component within `radius`, whose normal agrees within 60°
@@ -154,6 +156,12 @@ function areaTable(env:TraceEnvironment3):{cumulative:Float64Array;total:number}
   env.surface.triangles.forEach((t,i)=>{const [a,b,c]=t.vertices.map(v=>env.world[v]);total+=Math.hypot(...cross3(sub3(b,a),sub3(c,a)))/2;cumulative[i]=total;});
   return {cumulative,total};
 }
+/** Does an accepted lane already reach the centre of this triangle? */
+function reached(env:TraceEnvironment3,occupancy:Occupancy,triangle:number,radius:number):boolean {
+  const [a,b,c]=env.surface.triangles[triangle].vertices.map(v=>env.world[v]);
+  const centre=mul3(add3(add3(a,b),c),1/3);
+  return occupancy.blocked(centre,env.normals[triangle],triangle,radius);
+}
 function randomSeed(env:TraceEnvironment3,table:{cumulative:Float64Array;total:number},rnd:()=>number,lane:number):Seed|null {
   if(!(table.total>0))return null;
   const q=rnd()*table.total;let lo=0,hi=table.cumulative.length-1;
@@ -165,7 +173,7 @@ function randomSeed(env:TraceEnvironment3,table:{cumulative:Float64Array;total:n
  * tone selects among them later, so a camera or tone change never reseeds. */
 export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>number,onProgress?:(event:{operation:'hatch';done:number;total?:number;detail?:string})=>void):Generator<void,HatchTraced> {
   const {settings,bindings}=captured;
-  const stats:HatchTraced['stats']={traces:0,accepted:0,steps:0,seedsQueued:0,randomSeeds:0,occupancyRejections:0,stops:{}};
+  const stats:HatchTraced['stats']={traces:0,accepted:0,steps:0,seedsQueued:0,randomSeeds:0,sweepSeeds:0,occupancyRejections:0,stops:{}};
   let totalSteps=0;const budget=()=>totalSteps++<settings.maxTotalSteps;
   const envs=bindings.map(b=>traceEnvironment3(b.binding.source,b.binding));yield;
   const families:HatchTraced['families'][number][]=[];
@@ -177,10 +185,21 @@ export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>
       const options:TraceOptions3={step,maxLength:settings.maxLength??spacing*200,maxSteps:settings.maxSteps,creaseDegrees:settings.creaseDegrees,loopDistance:Math.min(step,dtest),uvAttribute:settings.uv,chartAttribute:settings.chartAttribute};
       const walk:TraceOptions3={...options,step:spacing/4,maxLength:spacing,maxSteps:Math.max(8,Math.ceil(spacing/(spacing/4))*8),loopDistance:0};
       const occupancy=new Occupancy(spacing,env.topology.components),table=areaTable(env),queue:Seed[]=[];
-      const traces:HatchTrace[]=[];let randomUsed=0,seedCounter=0;
+      const traces:HatchTrace[]=[];let randomUsed=0,seedCounter=0,sweep=0;
+      const triangles=env.surface.triangles.length;
       while(traces.length<settings.maxTraces){
         let seed=queue.shift();
-        if(!seed){if(randomUsed>=settings.seeds)break;randomUsed++;stats.randomSeeds++;const s=randomSeed(env,table,rnd,0);if(!s)break;seed=s;}
+        if(!seed&&randomUsed<settings.seeds){randomUsed++;stats.randomSeeds++;const s=randomSeed(env,table,rnd,0);if(s)seed=s;else randomUsed=settings.seeds;}
+        if(!seed){
+          // The random restarts are spent. A region the lanes never reached —
+          // a face across a crease, the scoop a boolean cut — would stay bare
+          // on the luck of the draw, so sweep the triangles in order and seed
+          // the centre of each one no lane reaches. Each is tried once; one
+          // whose direction lies along its normal traces nothing and is passed.
+          while(sweep<triangles&&reached(env,occupancy,sweep,dtest))sweep++;
+          if(sweep>=triangles)break;
+          seed={triangle:sweep++,weights:[1/3,1/3,1/3],lane:0,random:false};stats.sweepSeeds++;
+        }
         const start={triangle:seed.triangle,weights:seed.weights},startNode=traceLocation3(env,seed.triangle,seed.weights,options);
         if(occupancy.blocked(startNode.position,startNode.normal,seed.triangle,dtest)){stats.occupancyRejections++;continue;}
         const trace=traceBoth3(env,start,field,options,{occupied:node=>occupancy.blocked(node.position,node.normal,node.triangle,dtest),budget});
@@ -306,8 +325,11 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
         const total=trace.length;
         for(let i=0;i+1<trace.nodes.length;i++){
           if(!accept(i)||!accept(i+1))continue;
+          // A step that did not advance (a node on an edge, crossing it) is
+          // still handed over: the network folds a zero-length piece of a
+          // traced chain into its neighbour, and dropping it here instead
+          // cut the chain and left the node before it with no segment.
           const a=trace.nodes[i],b=trace.nodes[i+1];
-          if(a.distance===b.distance)continue;
           if(++segmentCount>settings.maxSegments)throw new Error('hatch exceeds segment budget');
           const attributes:Attributes3={family:family.id,lane,threshold,seed,...(family.stroke?{stroke:family.stroke}:{})};
           segments.push({id:identity('hatch-segment',chain,i),kind:'trace',a:nodeId(i),b:nodeId(i+1),chainId:chain,range:[a.distance/total,b.distance/total],supports:[{source:surface.binding,triangle:trace.supports[i],a:weightsOn(i,trace.supports[i]),b:weightsOn(i+1,trace.supports[i])}],attributes});
@@ -318,7 +340,7 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
     }
   }
   const network=yield*surfaceCurveNetworkJob3({sources:bindings.map(b=>({id:b.id,binding:b.binding})),nodes,segments},settings.budget);
-  const stats:HatchStats={families:traced.families.length,surfaces:bindings.length,traces:traced.stats.traces,accepted:traced.stats.accepted,segments:network.segments.length,steps:traced.stats.steps,seedsQueued:traced.stats.seedsQueued,randomSeeds:traced.stats.randomSeeds,occupancyRejections:traced.stats.occupancyRejections,stops:traced.stats.stops,tone:tone.stats};
+  const stats:HatchStats={families:traced.families.length,surfaces:bindings.length,traces:traced.stats.traces,accepted:traced.stats.accepted,segments:network.segments.length,steps:traced.stats.steps,seedsQueued:traced.stats.seedsQueued,randomSeeds:traced.stats.randomSeeds,sweepSeeds:traced.stats.sweepSeeds,occupancyRejections:traced.stats.occupancyRejections,stops:traced.stats.stops,tone:tone.stats};
   return {curves:new SurfaceCurves<HatchAttributes>(network,{key:settings.key}),stats};
 }
 /** Synchronous hatch with an explicit random source and CPU tone, for headless

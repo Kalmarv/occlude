@@ -223,7 +223,7 @@ describe('engine: one plan, every consumer', () => {
       t.draw({ minutes: [0, 0.2], budget: 0.1 });
       return t.times(8, (k) => stroke([[10, 10 + k * 8], [90, 12 + k * 8]]));
     });
-    expect(() => exportSvg(timed, { paper: 'Square20' })).toThrow(/machine timing/);
+    expect(() => exportSvg(timed, { paper: 'Square20' })).toThrow(/timing: \{ penOf, opts \}/);
     const svgTimed = exportSvg(timed, { paper: 'Square20', timing: { penOf, opts: timing } });
     expect(paths(svgTimed)).toBeGreaterThan(0);
     expect(paths(svgTimed)).toBeLessThan(8);

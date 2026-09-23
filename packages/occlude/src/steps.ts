@@ -13,7 +13,7 @@
 
 import { vx, vy, type XY } from './vec.js';
 import { ownerOf, pairKey, viewKind } from './views.js';
-import { mintIds, RESERVED_FACE_FIELDS, withAbsentEdge, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type Snapshot, type PointId, type EdgeId } from './material.js';
+import { mintIds, RESERVED_FACE_FIELDS, withAbsentEdge, type Material, type Vertex, type Edge, type FaceColumn, type TransferPolicy, type EdgeTransfer, type PointId, type EdgeId } from './material.js';
 import type { Space } from './space.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
 import type { Faces, Face, FaceSelection } from './faces.js';
@@ -27,7 +27,7 @@ export interface StepKit {
     x: Float64Array, y: Float64Array, attrs: Record<string, Float64Array>, edgeList: Uint32Array,
     carry?: {
       iteration?: number;
-      history?: readonly Snapshot[];
+      history?: readonly Material[];
       edgeAttrs?: Record<string, Float64Array>;
       transfers?: Record<string, TransferPolicy>;
       edgeTransfers?: Record<string, EdgeTransfer>;
@@ -212,8 +212,11 @@ export interface Next {
   /** Swap every selected edge for a motif. The edge goes, and the motif's
    * one open chain takes its place between the same two points, scaled and
    * turned to the edge. Point columns interpolate and edge columns inherit,
-   * exactly as a split's children do. This is the substitution an L-system
-   * is made of: a Koch curve is one motif and four steps. */
+   * exactly as a split's children do. A motif point that lands on a point
+   * already there — a corner, or the tip another wall's motif put in the
+   * same place — IS that point, and keeps that point's columns, so motifs
+   * that meet share a vertex. This is the substitution an L-system is made
+   * of: a Koch curve is one motif and four steps. */
   replace(edges: EdgeSelection, motif: Material, opts?: ReplaceOpts): void;
   /** Create children connected to selected parents. Children do not enter the
    * parent selection. With inherit, parent attributes precede explicit overrides. */
@@ -253,6 +256,58 @@ interface SplitRequest {
 }
 
 /** @internal Apply one pass to `cur` and return the committed next state. */
+/** How close, as a fraction of the replaced edge's length, a motif point
+ * must land on a point already there to be that point. Rounding in the
+ * motif's frame is some 1e-14 of it; a distance a sketch means is not
+ * below 1e-9 of it. */
+const WELD = 1e-9;
+
+/** The places `replace` has landed on in one step: the state's own points
+ * first, then every motif point minted, each by the ref it answers to.
+ * Looked up in a grid of cells sized to the state's shortest edge, so a
+ * weld is a handful of compares. */
+class Landing {
+  private readonly cells = new Map<string, { x: number; y: number; ref: Ref }[]>();
+  private readonly size: number;
+
+  constructor(cur: Material) {
+    let shortest = Infinity;
+    for (let e = 0; e < cur.edgeCount; e++) {
+      const a = cur.edgeList[2 * e];
+      const b = cur.edgeList[2 * e + 1];
+      const d = Math.hypot(cur.x[b] - cur.x[a], cur.y[b] - cur.y[a]);
+      if (d > 0 && d < shortest) shortest = d;
+    }
+    this.size = Number.isFinite(shortest) ? shortest : 1;
+    for (let i = 0; i < cur.n; i++) this.add(cur.x[i], cur.y[i], i);
+  }
+
+  private key(i: number, j: number): string {
+    return `${i},${j}`;
+  }
+
+  add(x: number, y: number, ref: Ref): void {
+    const k = this.key(Math.floor(x / this.size), Math.floor(y / this.size));
+    const cell = this.cells.get(k);
+    if (cell) cell.push({ x, y, ref });
+    else this.cells.set(k, [{ x, y, ref }]);
+  }
+
+  /** The first place within `tol` of (x, y), oldest first. */
+  find(x: number, y: number, tol: number): Ref | undefined {
+    const ci = Math.floor(x / this.size);
+    const cj = Math.floor(y / this.size);
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        for (const held of this.cells.get(this.key(i, j)) ?? []) {
+          if (Math.hypot(held.x - x, held.y - y) <= tol) return held.ref;
+        }
+      }
+    }
+    return undefined;
+  }
+}
+
 export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: number, kit: StepKit): Material {
   const { Material, PointSelection, EdgeSelection } = kit;
   const n = cur.n;
@@ -281,6 +336,10 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   const splits = new Map<number, SplitRequest[]>(); // by ORIGINAL edge row
   const added: { x: number; y: number; attrs: Record<string, number> }[] = [];
   const links: { a: Ref; b: Ref; attrs: Record<string, number> }[] = [];
+  // Where `replace` has put a point this step, and where the state's own
+  // points stand: a motif point that lands on one of them IS that point.
+  // Built on the first replace; a step that never replaces pays nothing.
+  let landed: Landing | undefined;
 
   const rowOf = (r: Ref, what: string): number => {
     if (r instanceof EdgeSelection) throw new Error(`steps: ${what} needs a point selection, not edges`);
@@ -511,12 +570,22 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
           return out;
         };
         const childEdge = edgeNames.length > 0 ? inheritEdge(cur, e.attrs, 1 / (local.length + 1)) : undefined;
+        landed ??= new Landing(cur);
+        // Two positions this close are one place worked out twice: the
+        // motifs of two walls that meet at a tip, or a tip on a corner.
+        const tol = WELD * Math.hypot(ex, ey);
         let from: Ref = e.a;
         for (const [along, off] of local) {
           const o = off * across;
-          const handle = next.addPoint([e.a.x + along * ex - o * ey, e.a.y + along * ey + o * ex], inherit(along));
-          next.connect(from, handle, childEdge);
-          from = handle;
+          const x = e.a.x + along * ex - o * ey;
+          const y = e.a.y + along * ey + o * ex;
+          let at = landed.find(x, y, tol);
+          if (at === undefined) {
+            at = next.addPoint([x, y], inherit(along));
+            landed.add(x, y, at);
+          }
+          if (at !== from) next.connect(from, at, childEdge);
+          from = at;
         }
         next.connect(from, e.b, childEdge);
       }
