@@ -13,15 +13,15 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 The areas where the field is at a value or above it, as one material. Give one value, a list of them, or a count or a spacing. Each area is a ring, and every edge carries its `level`. When the drawable cuts an area, the ring closes along the edge of the drawable. It goes through each corner that is in the area. When the field has a `t.within` bound, the ring closes along the bound in the same way. The edges that close a ring carry `cut` = 1. The edges of the level line carry `cut` = 0.
 
-`polygon(m)` fills the areas with their holes. `strokes(m)` draws the full rings, the closing edges too. `strokes(m.edges.filter((e) => !e.attrs.cut))` draws only the level lines. That is the ink that `strokes(m)` gave before the rings closed. `m.edges.groupBy((e) => e.attrs.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
+`polygon(m)` fills the areas with their holes. `strokes(m)` draws the full rings, the closing edges too. `strokes(m.edges.filter((e) => !e.cut))` draws only the level lines. That is the ink that `strokes(m)` gave before the rings closed. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const ground = (x, y) => t.noise(x / 28, y / 28);
-  const lines = t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges.filter((e) => !e.attrs.cut);
-  return lines.groupBy((e) => e.attrs.level).map((sel) => strokes(sel, { pen: sel.key > 0 ? 'stabilo-88-blue' : undefined }));
+  const lines = t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges.filter((e) => !e.cut);
+  return lines.groupBy((e) => e.level).map((sel) => strokes(sel, { pen: sel.key > 0 ? 'stabilo-88-blue' : undefined }));
 });
 ```
 
@@ -35,7 +35,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const high = t.isolines(ground, 0.15);
   return [
     polygon(high, { stroke: false, fill: fill('hatch', { angle: 30, spacing: mm(1) }) }),
-    strokes(high.edges.filter((e) => !e.attrs.cut)),
+    strokes(high.edges.filter((e) => !e.cut)),
   ];
 });
 ```
@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1], seed: 21, pens: {
   // The sheet as the c-plane, as in the escape() example: x = 64 is c = 0.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   // The same contours at two grid pitches, each kept on its own side of c = 0.
-  const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }).edges.filter((e) => !e.attrs.cut).extract(), area), { pen: 'fine' });
+  const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }).edges.filter((e) => !e.cut).extract(), area), { pen: 'fine' });
   return [side(rect(0, 0, 64, t.height), undefined), side(rect(64, 0, t.width - 64, t.height), mm(0.25))];
 });
 ```
@@ -68,7 +68,7 @@ import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const ground = (x, y) => t.noise(x / 46, y / 46) + t.noise(x / 17, y / 17) * 0.3 - (y - 50) / 220;
-  return [strokes(t.isolines(ground, { spacing: 0.08 }).edges.filter((e) => !e.attrs.cut), { pen: 'pigma-005-black' }), strokes(t.isolines(ground, { spacing: 0.4 }).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' })];
+  return [strokes(t.isolines(ground, { spacing: 0.08 }).edges.filter((e) => !e.cut), { pen: 'pigma-005-black' }), strokes(t.isolines(ground, { spacing: 0.4 }).edges.filter((e) => !e.cut), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -76,7 +76,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 
 <include>/_sig/distanceTo.mdx</include>
 
-A signed distance field from a boundary: positive inside, zero on it, negative outside. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material. `distanceTo` reads the boundary's `contours()`.
+A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` record. This is true for `t.distanceTo`, `t.travelTime`, `t.noiseField`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material. `distanceTo` reads the boundary's `contours()`.
 
 ```ts live
 import { sketch, strokes, ngon, distanceTo } from 'occlude';
@@ -102,8 +102,8 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
   const d = distanceToPoints(sites);
   return [
-    strokes(t.isolines(d, [-6.9]).edges.filter((e) => !e.attrs.cut), { pen: 'pigma-05-black' }),
-    strokes(t.isolines(d, [-6.4, -5.6]).edges.filter((e) => !e.attrs.cut), { pen: 'pigma-005-black' }),
+    strokes(t.isolines(d, [-6.9]).edges.filter((e) => !e.cut), { pen: 'pigma-05-black' }),
+    strokes(t.isolines(d, [-6.4, -5.6]).edges.filter((e) => !e.cut), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -114,14 +114,14 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 <include>/_sig/sdf.box.mdx</include>
 <include>/_sig/sdf.segment.mdx</include>
 
-A shape can be the field that measures it. These three are exact, and they spell their arguments the way `circle` and `line` do: `sdf.circle(p, r)`, `sdf.box(p, w, h)` and `sdf.segment(a, b, r)` take points as one value. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
+A shape can be the field that measures it. These three are exact. They spell their arguments as `circle` and `line` do: `sdf.circle(p, r)`, `sdf.box(p, w, h)` and `sdf.segment(a, b, r)` take each point as one value. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
 
 ```ts live
 import { sketch, strokes, sdf } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const bar = sdf.segment(24, 72, 76, 28, 10);
-  return strokes(t.isolines(bar, [-28, -22, -16, -10, -5, 0, 5, 9]).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(bar, [-28, -22, -16, -10, -5, 0, 5, 9]).edges.filter((e) => !e.cut));
 });
 ```
 
@@ -197,7 +197,7 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const going = (x, y) => 0.2 + 0.8 * (0.5 + 0.5 * t.noise(x / 24, y / 24));
   const arrival = t.travelTime({ fromPoints: [[t.cx, t.cy]], speed: going, step: 0.5 });
-  return strokes(t.isolines(arrival, { spacing: t.width / 16 }).edges.filter((e) => !e.attrs.cut));
+  return strokes(t.isolines(arrival, { spacing: t.width / 16 }).edges.filter((e) => !e.cut));
 });
 ```
 
@@ -216,7 +216,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const stripes = (x, y) => Math.sin(x / 2.5);
   const disc = (cx, cy, f) => {
     const d = circle(cx, cy, 20);
-    return [strokes(t.isolines(t.within(stripes, d), 0).edges.filter((e) => !e.attrs.cut)), strokes(t.isolines(t.within(f, d), 0).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }), d];
+    return [strokes(t.isolines(t.within(stripes, d), 0).edges.filter((e) => !e.cut)), strokes(t.isolines(t.within(f, d), 0).edges.filter((e) => !e.cut), { pen: 'stabilo-88-blue' }), d];
   };
   return [disc(27, 30, translate(stripes, 4, 0)), disc(73, 30, rotate(stripes, 30)), disc(50, 74, scale(stripes, 2))];
 });
@@ -246,9 +246,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.4.mdx</include>
 <include>/_sig/Toolkit.within.5.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, contour records or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. A value that is not an area is refused by name.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, contour records or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. The call refuses a value that is not an area, and names it.
 
-A selection cannot clip. A point, an edge and a face come through whole or not at all. The option `keep` decides, with the same three words for points, edges and faces. `{ keep: 'contained' }` is the default. It keeps a member with no point outside the area and no crossing of the boundary. The boundary belongs to the area, so a point on the boundary is in, and a wall along the boundary is in. `'centroid'` keeps a member whose centroid is in the area or on its boundary. The centroid of an edge is its `center`, and the centroid of a point is the point. `'touching'` keeps a member that has a point in common with the area. This includes a face that holds all of the area. The call judges the boundary with the ink tolerance, 0.05 mm on the sheet. A vertex that is nearer than this to the boundary is on the boundary. The old option names `faces` and `edges` are refused by name. To cut at the boundary instead, give `within` the material.
+A selection cannot clip. A point, an edge and a face come through whole or not at all. The option `keep` decides, with the same three words for points, edges and faces. `{ keep: 'contained' }` is the default. It keeps a member with no point outside the area and no crossing of the boundary. The boundary belongs to the area, so a point on the boundary is in, and a wall along the boundary is in. `'centroid'` keeps a member whose centroid is in the area or on its boundary. The centroid of an edge is its `center`, and the centroid of a point is the point. `'touching'` keeps a member that has a point in common with the area. This includes a face that holds all of the area. The call judges the boundary with the ink tolerance, 0.05 mm on the sheet. A vertex that is nearer than this to the boundary is on the boundary. The call refuses the old option names `faces` and `edges`, and names them. To cut at the boundary instead, give `within` the material.
 
 Below, the black walls are `contained`. The blue walls are what `centroid` adds. Each one straddles the circle, so its ink reaches past the edge by up to half a wall.
 
@@ -275,7 +275,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const stripes = (x, y) => Math.sin(x / 3);
   const disc = circle(30, 50, 24);
   const web = t.streamlines((x, y) => [1, 0.4 * Math.sin(y / 8)], { spacing: 4 });
-  return [strokes(t.isolines(t.within(stripes, disc), 0).edges.filter((e) => !e.attrs.cut)), circle(30, 50, 24, { pen: 'stabilo-88-blue' }), strokes(t.within(web, rect(62, 20, 34, 60))), rect(62, 20, 34, 60, { pen: 'stabilo-88-blue' })];
+  return [strokes(t.isolines(t.within(stripes, disc), 0).edges.filter((e) => !e.cut)), circle(30, 50, 24, { pen: 'stabilo-88-blue' }), strokes(t.within(web, rect(62, 20, 34, 60))), rect(62, 20, 34, 60, { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -288,7 +288,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.within(t.hexes({ spacing: 9, orientation: 'pointy' }), circle(50, 50, 40));
   return [
     cells.faces().map((f, i) => polygon(f, { fill: fill('hatch', { angle: i % 2 ? 60 : -30, spacing: mm(1) }), stroke: false })),
-    strokes(cells.edges.filter((e) => !e.attrs.cut)),
+    strokes(cells.edges.filter((e) => !e.cut)),
   ];
 });
 ```
@@ -310,7 +310,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     const p = [c.cx, c.cy];
     return [circle(p, 0.7, { pen }), line(p, add(p, mul(unit(vf(c.cx, c.cy)), 5)), { pen })];
   });
-  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]).edges.filter((e) => !e.attrs.cut), { pen: 'pigma-005-black' }), marks(grad(hill)), marks(curl(hill), 'stabilo-88-blue')];
+  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]).edges.filter((e) => !e.cut), { pen: 'pigma-005-black' }), marks(grad(hill)), marks(curl(hill), 'stabilo-88-blue')];
 });
 ```
 
@@ -377,7 +377,7 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const ground = (x, y) => t.noise(x / 22, y / 22);
   const crests = t.ridges(ground);
-  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).edges)];
+  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]).edges.filter((e) => !e.cut), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).edges)];
 });
 ```
 
@@ -402,7 +402,7 @@ export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.
     next.diffuse('a', 0.22);
     next.decay('a', 0.01);
   });
-  return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64]).edges.filter((e) => !e.attrs.cut)), dots(drops, { pen: 'drop' })];
+  return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64]).edges.filter((e) => !e.cut)), dots(drops, { pen: 'drop' })];
 });
 ```
 
@@ -471,8 +471,8 @@ export default sketch({ aspect: [1, 1], seed: 21, pens: {
   // The sheet as the c-plane: (64, 50) is c = −0.5, and 34 sheet units are one unit of c.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   return [
-    strokes(t.isolines(count, { spacing: 1 }).edges.filter((e) => !e.attrs.cut), { pen: 'fine' }),
-    strokes(t.isolines(count, { spacing: 5 }).edges.filter((e) => !e.attrs.cut), { pen: 'heavy' }),
+    strokes(t.isolines(count, { spacing: 1 }).edges.filter((e) => !e.cut), { pen: 'fine' }),
+    strokes(t.isolines(count, { spacing: 5 }).edges.filter((e) => !e.cut), { pen: 'heavy' }),
   ];
 });
 ```

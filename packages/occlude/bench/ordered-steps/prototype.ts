@@ -272,7 +272,7 @@ export class OrderedEditor {
       this.assertOpen();
       if (!e.alive) throw new Error("edge was replaced or disconnected");
     };
-    const view: Edge = Object.freeze({
+    const fields = {
       index: id,
       get a() {
         check();
@@ -306,7 +306,11 @@ export class OrderedEditor {
       get root(): never {
         throw new Error('ordered-steps prototype: identity is not modelled');
       },
-    });
+    };
+    // An edge's columns read flat, as a point's do.
+    for (const key of Object.keys(e.attrs))
+      Object.defineProperty(fields, key, { enumerable: true, get: () => { check(); return e.attrs[key]; } });
+    const view = Object.freeze(fields) as unknown as Edge;
     // Always expose live endpoints, even when connect received frozen prev views.
     a = this.ps[ai].view;
     b = this.ps[bi].view;

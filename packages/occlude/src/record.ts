@@ -138,6 +138,21 @@ function userFrameMatrix(frame: Frame): Mat {
 }
 
 /**
+ * The origin/yUp convention between the SPACE and the drawable. A curved
+ * space lives in the sketch's own coordinates — its centre is the middle
+ * of the drawable as the sketch names it, `(0, 0)` under `origin: 'center'`
+ * — so a shape is placed and projected in those coordinates, and only the
+ * projected picture goes through the convention onto the paper. Null when
+ * the convention is the identity (the default frame), so that frame keeps
+ * its literal arithmetic.
+ */
+export function sheetFrame(frame: Frame): { toPaper: Mat; fromPaper: Mat } | null {
+  if (frame.origin !== 'center' && !frame.yUp) return null;
+  const toPaper = userToPaperMatrix(frame);
+  return { toPaper, fromPaper: invert(toPaper) };
+}
+
+/**
  * Inverse of the user→paper mapping (frame origin/yUp, no transform chain):
  * paper mm → user coordinates in bare units. Used to sample field functions
  * over the page in the coordinates the sketch was written in.
@@ -230,18 +245,14 @@ function splitChain(chain: readonly TransformOp[], rz: Resolver): { outer: Chain
  *
  * They run innermost first, which is the END of the outermost-first list: a
  * point under `A0 · P1 · A1` has already been placed by `A1`, so `P1` acts
- * on it next and `A0` last. A placement acts in drawable coordinates, which
- * is what a sketch coordinate is. An affine run acts in USER coordinates,
- * so it goes through the frame's origin/yUp convention and back again,
- * exactly as `lowerToUserContours` does around `placedContours`.
+ * on it next and `A0` last. A placement and an affine run both act in the
+ * sketch's own coordinates, the ones the space lives in (see `sheetFrame`).
  *
  * Null when there is nothing outside the innermost run, which is every
  * chain a sketch has ever written until now.
  */
 function chainMap(outer: readonly ChainStep[], frame: Frame): ((p: readonly [number, number]) => [number, number]) | null {
   if (outer.length === 0) return null;
-  const userFrame = userFrameMatrix(frame);
-  const back = invert(userFrame);
   const unit = unitMm(frame);
   const steps = outer
     .slice()
@@ -256,10 +267,8 @@ function chainMap(outer: readonly ChainStep[], frame: Frame): ((p: readonly [num
       }
       const m = step.mat;
       return (q: readonly [number, number]): [number, number] => {
-        const [ux, uy] = apply(back, q[0] * unit, q[1] * unit);
-        const [vx2, vy2] = apply(m, ux, uy);
-        const [dx, dy] = apply(userFrame, vx2, vy2);
-        return [dx / unit, dy / unit];
+        const [vx2, vy2] = apply(m, q[0] * unit, q[1] * unit);
+        return [vx2 / unit, vy2 / unit];
       };
     });
   return (p) => {
@@ -623,6 +632,24 @@ export function frameMaps(frame: Frame): FrameMaps {
     return {
       toUnits: (px, py) => apply(paperToUnits, px, py),
       toPaper: (x, y) => apply(userToPaper, x * unit, y * unit),
+    };
+  }
+  // The space is in sketch coordinates: the sheet point is undone through
+  // the origin/yUp convention first, then read in the space. The default
+  // frame's convention is the identity, and its space points pass through
+  // it in mm, the arithmetic its fills and shaders have always had.
+  const turn = sheetFrame(frame);
+  if (turn) {
+    return {
+      toUnits: (px, py) => {
+        const [sx, sy] = apply(turn.fromPaper, px, py);
+        const [x, y] = fromSheet(space, [sx / unit, sy / unit]);
+        return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : [NaN, NaN];
+      },
+      toPaper: (x, y) => {
+        const q = space.project([x, y]);
+        return apply(turn.toPaper, q[0] * unit, q[1] * unit);
+      },
     };
   }
   const userToDrawable = mul(translate(-frame.offsetX, -frame.offsetY), userToPaper);
@@ -1238,19 +1265,15 @@ export function lowerToUserContours(
   // projects with the identity.
   const space = curvedSpace(frame) ?? (through ? FLAT : null);
   if (space) {
-    // The placement lives in DRAWABLE space, so the origin/yUp convention
-    // comes in and goes back out again around it; this door answers in user
-    // mm, as it always has.
-    const userFrame = userFrameMatrix(frame);
-    const back = invert(userFrame);
+    // The placement lives in the sketch's own coordinates, as the space
+    // does, so this door answers in user mm with nothing to undo.
     // A geodesic edge is stored as chords of its geodesic, and a stored
     // chord is judged in the metric, where no placement can change it.
     const bow = geodesicEdges(geom, space, false) && space !== FLAT ? geodesicBow(space, frame, tol) : undefined;
     return placedContours(
-      geom, lowerGeom(geom, rz), mul(userFrame, m), frame, space, tol, refine,
+      geom, lowerGeom(geom, rz), m, frame, space, tol, refine,
       through ?? undefined, chainBends(outer, space), bow,
-    ).map(({ pts, curve, geodesic }) => {
-      const user = pts.map(([x, y]) => apply(back, x, y));
+    ).map(({ pts: user, curve, geodesic }) => {
       let closed = wholeClosed;
       if (geom.kind === 'path') {
         const a = user[0];
@@ -1260,7 +1283,7 @@ export function lowerToUserContours(
       return {
         pts: user,
         closed,
-        ...(curve ? { curve: (seg: number, t: number) => apply(back, ...curve(seg, t)) } : {}),
+        ...(curve ? { curve } : {}),
         ...(geodesic ? { geodesic } : {}),
       };
     });
@@ -1303,7 +1326,12 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   // A placement bends the sheet even where the sketch's own geometry does
   // not, so a flat sketch holding one takes the placed path too.
   const space = curvedSpace(frame) ?? (through ? FLAT : null);
-  const toDrawable = space ? mul(userFrameMatrix(frame), inner) : IDENTITY;
+  // In a curved frame the shape is placed and projected in the sketch's
+  // own coordinates, and the origin/yUp convention comes after (`sheet`).
+  const toSketch = space ? inner : IDENTITY;
+  const turn = space ? sheetFrame(frame) : null;
+  const sheet = (x: number, y: number): [number, number] =>
+    turn ? apply(turn.toPaper, x, y) : [x + frame.offsetX, y + frame.offsetY];
   // A shape that names ranges along its own polyline keeps its own
   // vertices: inserting samples would renumber the segments those ranges
   // address. Its chords come from the 3D projector already fine, so it is
@@ -1317,7 +1345,7 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     // — the same steps the sketch-time door takes, with the projection that
     // only ink needs.
     ? placedContours(
-      shape.geom, raw, toDrawable, frame, space, INK_TOL, refine,
+      shape.geom, raw, toSketch, frame, space, INK_TOL, refine,
       through ?? undefined, chainBends(outer, space), undefined, lift?.passes,
     )
       // One contour in, one contour out wherever the whole of it has a
@@ -1328,7 +1356,7 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
         const out: Prim[] = [];
         let prev: [number, number] | null = null;
         for (const [x, y] of run) {
-          const here: [number, number] = [x + frame.offsetX, y + frame.offsetY];
+          const here = sheet(x, y);
           // One segment in, one segment out — the flat door never drops a
           // degenerate primitive either, and a shape's segment count is a
           // protocol its stroke ranges read.
@@ -1363,7 +1391,7 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   // with the anchor's axes left as the transform chain set them.
   if (space && Number.isFinite(x0)) {
     const unit = unitMm(frame);
-    const [dx, dy] = apply(toDrawable, (x0 + x1) / 2, (y0 + y1) / 2);
+    const [dx, dy] = apply(toSketch, (x0 + x1) / 2, (y0 + y1) / 2);
     // The anchor goes through the very same chain elements the contours
     // did, so a fill's frame and a `dots` tap land with the shape.
     const at: [number, number] = [dx / unit, dy / unit];
@@ -1372,8 +1400,7 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
     // sheet; the transform chain's own origin stands, and the contours are
     // gone anyway.
     if (Number.isFinite(q[0]) && Number.isFinite(q[1])) {
-      anchor.e = q[0] * unit + frame.offsetX;
-      anchor.f = q[1] * unit + frame.offsetY;
+      [anchor.e, anchor.f] = sheet(q[0] * unit, q[1] * unit);
     }
   }
   return { shape, contours, convex, anchor, modifiers: lift?.rest ?? shape.modifiers };

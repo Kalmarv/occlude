@@ -408,13 +408,15 @@ export class Execution {
     // The space reads the drawable (its centre and its default horizon) and
     // the paper (a radius given in mm), so it resolves after both are fixed
     // — and before the frame, which carries it to both lowering doors.
-    // The space is centred on the middle of the drawable in DRAWABLE
-    // coordinates (the frame's origin/yUp are applied before it projects).
+    // The space is centred on the middle of the drawable in the SKETCH's
+    // coordinates — `(0, 0)` under `origin: 'center'` — so every word reads
+    // one frame; the origin/yUp convention is applied after it projects.
     const size = this.drawableSize();
+    const middle = this.bounds();
     this.space = resolveSpace(cfg.space, cfg.projection, {
       ...size,
-      cx: size.w / 2,
-      cy: size.h / 2,
+      cx: middle.cx,
+      cy: middle.cy,
       len: (l) => this.len(l),
     });
     this.frame = makeFrame(this, this.paper.w, this.paper.h, false);

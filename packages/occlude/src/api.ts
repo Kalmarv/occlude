@@ -20,15 +20,17 @@
  *   stays usable — build() snapshots)
  */
 
-import {Mesh,type EdgeAttributes} from './three/api/mesh.js';
+import {Mesh,CurveGeometry,type PointGeometry,type EdgeAttributes} from './three/api/mesh.js';
+import {MeshFaces} from './three/api/topology.js';
 import type {Attributes3} from './three/geometry/surface.js';
 import {sampleSurfacePoints,scatterSurfacePoints,type SurfaceSamples,type SurfaceSamplingOptions,type SurfaceScatterOptions} from './three/api/sampling.js';
 import {SurfaceCurves} from './three/api/supported.js';
 import {sampleSurfaceCurves,type CurveSamples,type CurveSamplingOptions} from './three/api/curveSampling.js';
-import {ProjectedCurves,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
+import {ProjectedCurves,type ProjectedCurve,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
-import type { Camera3 } from './three/camera.js';
+import { toPaper3, type Camera3 } from './three/camera.js';
+import { lerp3 } from './three/math.js';
 import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3, inFrame3 } from './three/resolve.js';
 import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
@@ -90,7 +92,7 @@ import { distanceTo, distanceToPoints, type DistanceField } from './distance.js'
 import { attractIn, boundaryIn, force, separationIn, sourcePoints, vortexIn, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
-  vectorField as vectorFieldMark, within as withinField, fieldMeta, type BoundEnv, type Prepared,
+  vectorField as vectorFieldMark, within as withinField, fieldMeta, pointField, type BoundEnv, type Prepared, type PointField,
 } from './field.js';
 import { apply as applyMat, invert as invertMat } from './matrix.js';
 import { areaFill, interiorPoint } from './area.js';
@@ -841,6 +843,7 @@ export interface Within {
   (points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
   (edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
   (faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
+  (lines: ProjectedCurves, area: Area): ProjectedCurves;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: Area): Prepared<F>;
@@ -848,13 +851,14 @@ export function withinAny(run: Execution, material: Material, area: Area, opts?:
 export function withinAny(run: Execution, points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
 export function withinAny(run: Execution, edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
 export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
+export function withinAny(run: Execution, lines: ProjectedCurves, area: Area): ProjectedCurves;
 
 export function withinAny(
   run: Execution,
-  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection,
+  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection | ProjectedCurves,
   area: Area,
   opts: { transfer?: Record<string, Transfer> } & WithinKeep = {},
-): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection {
+): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection | ProjectedCurves {
   // The one area door: a field is bounded by the area as one shape, which
   // the engine receives as exact geometry.
   if (typeof x === 'function') return withinField(x, areaAsShape(run, area, 'within'), boundEnv(run));
@@ -880,6 +884,11 @@ export function withinAny(
   if (x instanceof Material) {
     if (opts.keep !== undefined) throw new Error("within: 'keep' is for a selection — a material is cut at the boundary");
     return withinMaterial(x, loops, { ...opts, inside, crossings: fill.crossings });
+  }
+  if (x instanceof ProjectedCurves) {
+    if (opts.keep !== undefined) throw new Error("within: 'keep' is for a selection — projected lines are cut at the boundary");
+    if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material's columns — a projected line keeps its source's");
+    return withinProjected(x, inside, fill.crossings, paperToUser(run.frame));
   }
   if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — a selection's member is kept whole or not at all");
   const side = boundarySide(fill, INK_TOL / unitMm(run.frame));
@@ -971,6 +980,64 @@ export function withinAny(
     return true;
   };
   return x instanceof Faces ? x.filter(keepFace) : x.filter(keepFace);
+}
+
+/**
+ * Projected lines cut by an area, as a material is: a line whose chord lies
+ * inside is kept as it is, and a line that crosses the boundary is cut into
+ * the pieces inside, each a line of the same source feature over part of
+ * the old line's range. The source scene is kept, as `filter` keeps it, so
+ * the ink of a kept piece is the ink of the same stretch uncut. Inside is
+ * the material rule: the middle of a piece strictly inside the fill.
+ *
+ * A piece is found on the paper chord, and its range is read back through
+ * the camera: under perspective a line's paper parameter is a projective
+ * function of its source parameter, fixed by the ends and the middle.
+ */
+function withinProjected(
+  lines: ProjectedCurves,
+  inside: (x: number, y: number) => number,
+  crossings: (ax: number, ay: number, bx: number, by: number) => { t: number }[],
+  toUser: (x: number, y: number) => [number, number],
+): ProjectedCurves {
+  const rows: ProjectedCurve[] = [];
+  for (const row of lines) {
+    const [ax, ay] = toUser(row.a[0], row.a[1]);
+    const [bx, by] = toUser(row.b[0], row.b[1]);
+    const marks = [0, ...crossings(ax, ay, bx, by).map((h) => h.t), 1];
+    const pieces: [number, number][] = [];
+    for (let k = 0; k + 1 < marks.length; k++) {
+      const mid = (marks[k] + marks[k + 1]) / 2;
+      if (inside(ax + (bx - ax) * mid, ay + (by - ay) * mid) > 0) pieces.push([marks[k], marks[k + 1]]);
+    }
+    if (pieces.length === 1 && pieces[0][0] === 0 && pieces[0][1] === 1) {
+      rows.push(row);
+      continue;
+    }
+    if (pieces.length === 0) continue;
+    // The chord parameter u of the source parameter's fraction s is
+    // u = k·s / (1 + (k − 1)·s), with k fixed by where the source middle lands.
+    const [r0, r1] = row.range;
+    const f = row.feature;
+    const m = toPaper3(lines.source.frame, lerp3(f.a, f.b, (r0 + r1) / 2));
+    const dx = row.b[0] - row.a[0];
+    const dy = row.b[1] - row.a[1];
+    const um = ((m[0] - row.a[0]) * dx + (m[1] - row.a[1]) * dy) / (dx * dx + dy * dy);
+    const k = um / (1 - um);
+    const source = (u: number): number => r0 + (r1 - r0) * (u === 0 || u === 1 || k === 1 ? u : u / (k - (k - 1) * u));
+    const paper = (u: number): readonly [number, number] => Object.freeze([row.a[0] + dx * u, row.a[1] + dy * u] as const);
+    const parent = JSON.parse(row.id) as unknown[];
+    pieces.forEach(([u0, u1], i) => {
+      rows.push(Object.freeze({
+        ...row,
+        id: JSON.stringify([...parent, i]),
+        range: Object.freeze([source(u0), source(u1)] as const),
+        a: u0 === 0 ? row.a : paper(u0),
+        b: u1 === 1 ? row.b : paper(u1),
+      }) as ProjectedCurve);
+    });
+  }
+  return new ProjectedCurves(lines.source, lines.visibility, rows, lines.key, toUser);
 }
 
 /**
@@ -1731,14 +1798,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Field-modulated Poisson-disk points as point-only material with a
    * `density` column (the field at each point). `t.relax` and `t.settle`
    * refine it; `t.voronoi` reads its cells. */
-  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
+  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|MeshFaces<P,E,F,C>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
   function scatter(area: AreaInput | ShapeValue, opts: Omit<ScatterOpts, 'within'>): Material;
   function scatter(opts: ScatterOpts): Material;
   function scatter(
-    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Mesh<any,any,any> | undefined,
+    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Mesh<any,any,any> | MeshFaces<any,any,any,any> | undefined,
     b?: ScatterOpts | Omit<ScatterOpts, 'within'> | SurfaceScatterOptions<any>,
   ): Material | SurfaceSamples<any,any,any,any> {
+    // A face selection is the surface it names: its faces, ids kept.
+    if(a instanceof MeshFaces)a=a.extract();
     if(a instanceof Mesh){const options=b as SurfaceScatterOptions<any>;return scatterSurfacePoints(a,options,{rnd:exec.stream('__surface-scatter:'+ (options?.key??a.key??'default')).rnd,signal:scope?.signal});}
     const field = typeof a === 'function' ? a : undefined;
     const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
@@ -2161,7 +2230,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `t.isolines(T, …)`; unreachable ground is `+Infinity`, so contours stop
    * at a barrier instead of crossing it. With speed 1 and nothing in the
    * way it is unsigned distance. Deterministic, no seed. */
-  function travelTime(opts: TravelTimeOpts): FieldFn {
+  function travelTime(opts: TravelTimeOpts): PointField<FieldFn> {
     if (!isTravelOpts(opts) || arguments.length > 1) {
       throw new Error('travelTime: the source goes in the options record — t.travelTime({ fromPoints }) or t.travelTime({ fromArea })');
     }
@@ -2181,7 +2250,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const seeds: TravelFrom = points
       ? seedRecords(opts.fromPoints!)
       : (numericAreaLoops(exec, opts.fromArea!, 'travelTime') as unknown as TravelFrom);
-    return travelTimeOf(env, seeds, { ...opts, within });
+    return pointField(travelTimeOf(env, seeds, { ...opts, within }));
   }
 
   /**
@@ -2295,15 +2364,24 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * keep the shape's own vertices — `t.material(shape)` does. Positions and
    * connectivity only — attributes come from `.attribute()`.
    */
-  function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
+  function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|MeshFaces<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
+  function sample<P extends Attributes3>(curve:CurveGeometry<P,any>,options:{count?:number;spacing?:number;key?:string}):PointGeometry<P>;
   function sample(area:Area,options:{count?:number;spacing?:L;tolerance?:L}):Material;
   function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
-    shape: Area | Material | Mesh<any,any,any> | SurfaceCurves<any>,
-    options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions = {},
-  ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> {
+    shape: Area | Material | Mesh<any,any,any> | MeshFaces<any,any,any,any> | SurfaceCurves<any> | CurveGeometry<any,any>,
+    options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions | { count?: number; spacing?: number; key?: string } = {},
+  ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> | PointGeometry<any> {
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
+    // A 3D curve is sampled as a 2D chain is: by arc length, in world units,
+    // through its own `resample`; the samples are its points, columns kept.
+    if(shape instanceof CurveGeometry){
+      const {key,...walk}=options as {count?:number;spacing?:number;key?:string};
+      const points=shape.resample(walk).points.extract();
+      return key===undefined?points:points.withKey(key);
+    }
+    if(shape instanceof MeshFaces)shape=shape.extract();
     // A material is already geometry: redistributing along its chains by arc
     // length is `resample`, the same door in the material's own world. The
     // toolkit form exists so one word means one thing whatever it is given.
@@ -2476,7 +2554,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     mm, w, h, s, long,
     polygon,
     /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
-    noiseField: (amount: number, wavelength = 25): VectorFieldFn => noiseFieldOf(noise, amount, wavelength),
+    noiseField: (amount: number, wavelength = 25): PointField<VectorFieldFn> => pointField(noiseFieldOf(noise, amount, wavelength)),
     rnd,
     /** A whole number from the seeded stream, one draw: `rndInt(n)` is
      * 0 … n−1, `rndInt(a, b)` is a … b with both ends in. */
@@ -2555,15 +2633,15 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
      * geometry: inside the sketch the frame is in hand, so the toolkit
      * lowers the shape and the pure `distanceTo` never has to.
      */
-    distanceTo: (area: Area): DistanceField => {
+    distanceTo: (area: Area): PointField<DistanceField> => {
       // Points have no inside: a point selection, or a material that is
       // points alone, is measured to its nearest point.
       if (area instanceof PointSelection || (area instanceof Material && area.edgeCount === 0)) {
-        return exec.space.kind === 'euclidean' ? distanceToPoints(area) : spaceDistanceToPoints(exec.space, area);
+        return pointField(exec.space.kind === 'euclidean' ? distanceToPoints(area) : spaceDistanceToPoints(exec.space, area));
       }
-      return exec.space.kind === 'euclidean'
+      return pointField(exec.space.kind === 'euclidean'
         ? distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput)
-        : spaceDistanceTo(exec.space, area);
+        : spaceDistanceTo(exec.space, area));
     },
     /**
      * The forces, each taking a shape where it takes an area or points. The

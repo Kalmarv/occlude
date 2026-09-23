@@ -328,4 +328,4 @@ Make the tips behave differently on the two halves of the sheet, with one growth
 
 ## Where to look things up
 
-`extrude`, `split` and `append` are under *Movement and growth* and *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*; the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.
+`extrude`, `split` and `append` are under *Movement and growth* and *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*, and `query.points` for the nearest point on [Selections](#/reference-selections); the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.

@@ -7,7 +7,7 @@ description: "Points on a surface, and one prototype placed at every point or fa
 
 ## t.sample() · t.scatter() on a mesh
 
-Both take a mesh and return points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.sample(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both.
+Both take a mesh and return points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.sample(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both. A face selection is the surface that it names: `t.scatter(mesh.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. Each row keeps the id of its face.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

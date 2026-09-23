@@ -13,7 +13,7 @@ A distribution is a material of loose points. `scatter` makes one from a density
 
 <AutoTypeTable path="../occlude/src/points.ts" name="ScatterOpts" />
 
-Poisson-disk points over the drawable, at `spacing` where the field is 1 and further apart where it is lower. Where the field is 0, there are no points. Each point carries a `density` column with the field's value. With no field, the points are even. Give an area first, `t.scatter(area, { spacing })`, as `t.throw` takes one, or give it as `within`. Each call of a point word draws new values: two `t.scatter` calls make two different clouds, and the same seed makes the same two clouds again.
+Poisson-disk points over the drawable, at `spacing` where the field is 1 and further apart where it is lower. Where the field is 0, there are no points. Each point carries a `density` column with the field's value. With no field, the points are even. Give an area first, `t.scatter(area, { spacing })`, as `t.throw` takes one, or give it as `within`. Each call of a point word draws new values. Two `t.scatter` calls make two different clouds, and the same seed makes the same two clouds again.
 
 ```ts live
 import { sketch, circle, distance } from 'occlude';
@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/points.ts" name="RelaxOpts" />
 
-Lloyd relaxation: each point moves to the centroid of its Voronoi cell, weighted by `density` if you give one. The count, the edges and every column stay. It writes no column. `within` keeps the points inside an area. A cloud from `t.scatter` or `t.throw` with an area keeps that area, and `t.relax` and `t.settle` use it when you give no `within`. A point selection relaxes its members, as a material of their own. `step` is the cell of the density grid, and the default is the long side of the bounds divided by 256.
+Lloyd relaxation: each point moves to the centroid of its Voronoi cell, weighted by `density` if you give one. The count, the edges and every column stay. It writes no column. `within` keeps the points inside an area. A cloud from `t.scatter` or `t.throw` with an area keeps that area. `t.relax` and `t.settle` use it when you give no `within`. A point selection relaxes its members, as a material of their own. `step` is the cell of the density grid, and the default is the long side of the bounds divided by 256.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -106,7 +106,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/quadtree.ts" name="QuadtreeOpts" />
 
-Divides the drawable, or the `within` area, into cells that split where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls. A wall meets a bigger cell's wall at a T, so run `planarize()` before `faces()` reads the cells.
+Divides the drawable, or the `within` area, into cells. A cell splits where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls. A wall meets a bigger cell's wall at a T, so run `planarize()` before `faces()` reads the cells.
 
 ```ts live
 import { sketch, circle, strokes, polygon, fill, mm, distance } from 'occlude';
@@ -123,7 +123,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Toolkit.voronoi.mdx</include>
 
-The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. Give `cellOf` a selection of sites to get their cells as a face selection, and give `siteOf` a face selection to get its sites. The cells stop at the drawable. `within` cuts them at an area: a rect, `t.bounds()`, a face or a shape. A cut cell closes along the edge of the area, and it keeps its site. The cells do not follow a site that moves. Build them again.
+The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. Give `cellOf` a selection of sites to get their cells as a face selection. Give `siteOf` a face selection to get its sites. The cells stop at the drawable. `within` cuts them at an area: a rect, `t.bounds()`, a face or a shape. A cut cell closes along the edge of the area, and it keeps its site. The cells do not follow a site that moves. Build them again.
 
 ```ts live
 import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';

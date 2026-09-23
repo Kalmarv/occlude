@@ -33,7 +33,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     .edgeAttribute('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
     .smooth('rest', { steps: 14 });
   const hung = net.steps(300, (cur, next) => {
-    const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
+    const pull = force.sum(force.tension(cur, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
     next.move(cur.points.filter((p) => !nails.has(p.index)), (p) => mul(pull(p), 0.1));
   });
   const cells = hung.faces();

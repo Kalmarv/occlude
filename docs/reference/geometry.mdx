@@ -115,7 +115,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.spherical({ radius
 ]);
 ```
 
-One number is the geometry: the curvature. `space: { curvature: K }` is the primary form. Below zero is hyperbolic, above zero is spherical, and zero is flat. `'hyperbolic'` reads its radius as `K = -4/radius²`, and `'spherical'` reads it as `K = +1/radius²`. A larger radius is flatter. Without `radius`, the disk bends over 1.25 times the half-diagonal of the drawable. The sphere bends over the half-diagonal divided by √2, which is half the side of a square drawable. Thus the middle row of a wide drawable stays less than a quarter turn from the centre, and the drawable stays on the near side of the sphere. `size` on the projection is how big the picture prints. It is the radius on the page of the rim of the disk, or of the equator. Without `size`, the disk prints as the biggest circle that the drawable holds, and all of the drawable is inside that circle. A wide drawable then prints small. `size` and `radius` are the two controls: a larger `size` prints the disk larger, and a larger `radius` makes the drawable fill more of the disk. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller. Below, a curvature written as a number, and a disk printed at 44 units.
+One number is the geometry: the curvature. `space: { curvature: K }` is the primary form. Below zero is hyperbolic, above zero is spherical, and zero is flat. `'hyperbolic'` reads its radius as `K = -4/radius²`, and `'spherical'` reads it as `K = +1/radius²`. A larger radius is flatter. Without `radius`, the disk bends over 1.25 times the half-diagonal of the drawable. The sphere bends over the half-diagonal divided by √2. On a square drawable, that is half the side. So the middle row of a wide drawable stays less than a quarter turn from the centre. The drawable stays on the near side of the sphere. `size` on the projection is how big the picture prints. It is the radius on the page of the rim of the disk, or of the equator. Without `size`, the disk prints as the biggest circle that the drawable holds, and all of the drawable is inside that circle. A wide drawable then prints small. `size` and `radius` are the two controls. A larger `size` prints the disk larger. A larger `radius` makes the drawable fill more of the disk. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller. Below, a curvature written as a number, and a disk printed at 44 units.
 
 ```ts live
 import { sketch, rect, circle, strokes, pen, mm } from 'occlude';
@@ -132,7 +132,7 @@ export default sketch({
 ]);
 ```
 
-A bare length is a length in the space. So `t.scatter({ spacing: 5 })` spaces points by five units of the space. `mm()`, `w()`, `h()` and `s()` have two meanings. In an ink word (a pen, a fill or a modifier) they are lengths on the paper, because the pen is flat: `mm(0.4)` is 0.4 mm of ink wherever it lands. In geometry (a shape, `t.scatter`, `t.sample` and the words in the table) they change to drawable units, and the result is then a length in the space. The modifiers (`wobble`, `roughen`, `dash` and `deform`) change the ink, so each length that a modifier reads is a length on the paper. Every fill works on the paper, after the projection: a hatch, a stipple and a fill callback read lengths on the paper. These words read the metric today:
+A bare length is a length in the space. So `t.scatter({ spacing: 5 })` spaces points by five units of the space. `mm()`, `w()`, `h()` and `s()` have two meanings. In an ink word (a pen, a fill or a modifier) they are lengths on the paper, because the pen is flat. `mm(0.4)` is 0.4 mm of ink at all positions. In geometry (a shape, `t.scatter`, `t.sample` and the words in the table) they change to drawable units. The result is then a length in the space. The modifiers (`wobble`, `roughen`, `dash` and `deform`) change the ink. So each length that a modifier reads is a length on the paper. Every fill works on the paper, after the projection: a hatch, a stipple and a fill callback read lengths on the paper. These words read the metric today:
 
 | verb | reads the metric | in a curved sketch |
 |---|---|---|
@@ -170,7 +170,7 @@ On the sphere, the coordinates repeat. A coordinate beyond ±πR names a place a
 
 <include>/_sig/Toolkit.space.mdx</include>
 
-The geometry of the run, as read-only data. `kind` is `'euclidean'`, `'hyperbolic'` or `'spherical'`. `projection` is the chart, or `'none'` in the flat plane. `curvature` and `radius` are in drawable units. `center` is the point the coordinates start from.
+The geometry of the run, as read-only data. `kind` is `'euclidean'`, `'hyperbolic'` or `'spherical'`. `projection` is the chart, or `'none'` in the flat plane. `curvature` and `radius` are in drawable units. `center` is the point the coordinates start from: the middle of the drawable, in the frame that the sketch names. Under `origin: 'center'` it is `(0, 0)`.
 
 The metric is on the record. `distance(a, b)` measures the geodesic between two points. `geodesic(a, b, u)` is the point a fraction `u` of the way along it. `exp(p, v)` steps `|v|` from `p` in the direction `v`, and `log(p, q)` reads that step back. `circle(c, r, count)` is the circle of the space: every point one step `r` from `c`. `density(p)` is the area of the space that one unit of coordinate area holds. `toChart(p)` and `fromChart(z)` convert to and from the model chart. `project(p)` is the place on the sheet, and a point with no place comes back non-finite. Every member takes and answers sketch coordinates.
 
@@ -268,7 +268,7 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
 
 <include>/_sig/Toolkit.distanceTo.mdx</include>
 
-`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. Points have no inside too, so `t.distanceTo(points)` is zero at each point and minus the distance of the space to the nearest point everywhere else. The pure `sdf.*` words and `distanceToPoints` stay flat, because a pure kernel reads no frame.
+`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. Points have no inside too. So `t.distanceTo(points)` is zero at each point. At other positions it is minus the distance of the space to the nearest point. The pure `sdf.*` words and `distanceToPoints` stay flat, because a pure kernel reads no frame.
 
 Below, the cell of a `{7, 3}` inset at three fractions of its depth. One `t.isolines` call makes the insets once, and `m.transform` carries them to every copy.
 
@@ -307,7 +307,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 47 }),
   return [
     circle(t.space.center, 300, { pen: 'rim' }),
     line(a, b, { pen: 'rim' }),
-    strokes(t.isolines(across, [-30, -20, -10, 10, 20, 30], { step: mm(0.4) }).edges.filter((e) => !e.attrs.cut), { pen: 'near' }),
+    strokes(t.isolines(across, [-30, -20, -10, 10, 20, 30], { step: mm(0.4) }).edges.filter((e) => !e.cut), { pen: 'near' }),
   ];
 });
 ```

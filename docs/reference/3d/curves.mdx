@@ -66,7 +66,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 <include>/_sig/3d.CurveGeometry.along.mdx</include>
 <include>/_sig/3d.CurveGeometry.resample.mdx</include>
 
-A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives places along the curve by arc length. Each place has `x`, `y`, `z`, the unit `tangent`, the arc length `s`, the fraction `u` and the point columns. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it.
+A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives places along the curve by arc length. Each place has `x`, `y`, `z`, the unit `tangent`, the arc length `s`, the fraction `u` and the point columns. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it. `t.sample(curve, { count })` or `{ spacing }` gives the points of `resample` as a point set, with the point columns.
 
 Below, beads are put on a helix at equal arc length.
 
