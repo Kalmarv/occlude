@@ -18,6 +18,7 @@
  */
 
 import type { PenDef } from 'occlude';
+import { registrationMark } from './diagnostics.js';
 
 import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude';
 import {
@@ -694,8 +695,13 @@ export class Ebb {
    */
   paperOffset: [number, number] = [0, 0];
 
+  /** The paper point the head was last registered at (`registerAt`), until
+   * an origin replaces the frame. */
+  registeredAt: [number, number] | null = null;
+
   setPaperOrigin(o: EbbOptions): [number, number] {
     this.paperOffset = this.bedPosition(o).map((v) => Math.round(v * 100) / 100) as [number, number];
+    this.registeredAt = null;
     return this.paperOffset;
   }
 
@@ -714,6 +720,31 @@ export class Ebb {
     this.stepX = 0;
     this.stepY = 0;
     this.paperOffset = [0, 0];
+    this.registeredAt = null;
+  }
+
+  /** "The tip stands on the registration mark": the head is declared to be
+   * at the paper point `point`, wherever the step counters thought it was
+   * (the motors were free; a hand moved it). The EBB cannot set its
+   * counters, only clear them, so the counters are zeroed here (Set
+   * origin's CS) and the paper offset becomes minus the point: the paper
+   * point lands on the head, every other point relative to it. */
+  async registerAt(point: readonly [number, number]): Promise<void> {
+    if (this.plotting && !this.plotPause) throw new Error('the plot owns the machine; pause first');
+    if (this.plotting) this.pauseAdjusted = true;
+    await this.cmd('CS');
+    this.stepX = 0;
+    this.stepY = 0;
+    this.paperOffset = [-point[0], -point[1]];
+    this.registeredAt = [point[0], point[1]];
+  }
+
+  /** Draw the registration mark at a paper point with this pen, at its own
+   * feed: pen down only on the mark, then the lift and park every plot
+   * ends with. */
+  drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions, onProgress: (p: PlotProgress) => void = () => undefined): Promise<void> {
+    const d = registrationMark(point, pen);
+    return this.plot(d.plan, d.pens, o, onProgress);
   }
 
   async home(): Promise<void> {

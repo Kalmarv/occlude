@@ -392,5 +392,106 @@ describe('the watchdog asks the controller before it gives up', () => {
     port.mute = true;
     await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).rejects.toThrow(/no reply to G1 X10 Y20 F1000 after 0.06 s, and no status report — the link is down/);
   });
+
 });
 
+describe('registration at a mark', () => {
+  /** Where each XY move of the last plot put the head, in machine
+   * coordinates: the work position sent plus the work offset in force. */
+  const physical = (port: FakeGrblPort): [number, number][] =>
+    after(port, 'G21 G90 G54').flatMap((c) => {
+      const m = c.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+)/);
+      return m ? [[Number(m[1]) + port.wco[0], Number(m[2]) + port.wco[1]] as [number, number]] : [];
+    });
+
+  it('draws the mark with the pen at its feed: a circle, a cross, a tick, one landing per stroke', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.travelLiftMm = 0; // full lifts, to read the whole cycle
+    await g.connect(undefined, port as never);
+    await g.drawRegistration([50, 40], pen, opts);
+    const cmds = after(port, 'G21 G90 G54');
+    // Four strokes: four landings at the pen's feed, a lift after each.
+    expect(cmds.filter((c) => c === 'G1 Z10.000 F3000')).toHaveLength(4);
+    expect(cmds.filter((c) => c === 'G0 Z0.000')).toHaveLength(5); // the raise before anything moves, then one per stroke
+    const downs = cmds.flatMap((c, i) => (c === 'G1 Z10.000 F3000' ? [i] : []));
+    const stroke = (k: number): string[] => cmds.slice(downs[k] + 2, cmds.indexOf('G0 Z0.000', downs[k])); // after the settle
+    // The circle: 25 mm across, centred on the point (negative-Y frame), closed, drawn at the pen's feed.
+    const circle = stroke(0);
+    expect(circle).toHaveLength(72);
+    for (const c of circle) {
+      const m = c.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+) F3000$/)!;
+      expect(Math.hypot(Number(m[1]) - 50, Number(m[2]) + 40)).toBeCloseTo(12.5, 2);
+    }
+    expect(circle.at(-1)).toBe('G1 X62.500 Y-40.000 F3000');
+    expect(cmds[downs[0] - 1]).toBe('G1 X62.500 Y-40.000 F12000');
+    // The cross, the same span through the centre; then the tick outward along +x.
+    expect(cmds[downs[1] - 1]).toBe('G1 X37.500 Y-40.000 F12000');
+    expect(stroke(1)).toEqual(['G1 X62.500 Y-40.000 F3000']);
+    expect(cmds[downs[2] - 1]).toBe('G1 X50.000 Y-27.500 F12000');
+    expect(stroke(2)).toEqual(['G1 X50.000 Y-52.500 F3000']);
+    expect(cmds[downs[3] - 1]).toBe('G1 X62.500 Y-40.000 F12000');
+    expect(stroke(3)).toEqual(['G1 X67.500 Y-40.000 F3000']);
+    // Then it lifts and parks, as every plot does.
+    expect(cmds.slice(-2)).toEqual(['$1=254', 'G1 X0.000 Y0.000 F12000']);
+  });
+
+  it('declares the head at the point with G10 L20, in the frame the driver plots in', async () => {
+    for (const [settings, line] of [
+      [h1, 'G10 L20 P1 X50.000 Y-40.000'], // negative Y
+      [{ ...h1, yAxis: 'up' as const, bedH: 100 }, 'G10 L20 P1 X50.000 Y60.000'], // mirrored across the bed
+      [{ ...h1, yAxis: 'down' as const }, 'G10 L20 P1 X50.000 Y40.000'],
+    ] as const) {
+      const port = new FakeGrblPort();
+      port.pos = [123, -456, 0]; // wherever the hand left it: the controller's belief does not matter
+      const g = new Grbl();
+      g.settings = settings;
+      g.manualPen = pen;
+      await g.connect(undefined, port as never);
+      g.paperOffset = [7, 9];
+      await g.registerAt([50, 40]);
+      expect(port.commands).toContain(line);
+      expect(port.commands.some((c) => c.startsWith('G92 X'))).toBe(false); // honoured: no fallback
+      expect(g.paperOffset).toEqual([0, 0]);
+      expect(g.bedPosition()).toEqual([50, 40]);
+      expect(g.registeredAt).toEqual([50, 40]);
+    }
+  });
+
+  it('a plot after registerAt is the plot after setOrigin, translated by the mark', async () => {
+    const strokes = plan([[0, false, [10, 10, 80, 10, 80, 60]], [0, true, [30, 45]]]);
+    const run = async (declare: (g: Grbl) => Promise<void>): Promise<[number, number][]> => {
+      const port = new FakeGrblPort();
+      port.pos = [200, -300, 0]; // the same place under the tip both times
+      const g = new Grbl();
+      g.settings = h1;
+      g.manualPen = pen;
+      await g.connect(undefined, port as never);
+      await declare(g);
+      await g.plot(strokes, [pen], opts, () => undefined);
+      return physical(port);
+    };
+    const origin = await run((g) => g.setOrigin());
+    const registered = await run((g) => g.registerAt([50, 40]));
+    expect(registered).toHaveLength(origin.length);
+    // Paper (50, 40) sits under the tip instead of paper (0, 0): every
+    // move lands 50 mm less along x and 40 mm less down the sheet (up, in
+    // the negative-Y frame).
+    registered.forEach(([x, y], i) => {
+      expect(x).toBeCloseTo(origin[i][0] - 50, 6);
+      expect(y).toBeCloseTo(origin[i][1] + 40, 6);
+    });
+  });
+
+  it('an origin replaces the registered frame', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    await g.registerAt([50, 40]);
+    await g.setOrigin();
+    expect(g.registeredAt).toBeNull();
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decodePlanBuffer, makePlan, encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain, type PlanChain, type PlanSettings } from 'occlude';
-import { Drawing, chainsFingerprint, chainsUnder } from './drawing.js';
+import { Drawing, chainsFingerprint, chainsUnder, registrationRefusal } from './drawing.js';
 import type { RenderClient } from './workerClient.js';
 
 const settings: PlanSettings = { tourBudget: 1, pens: [{ name: 'a', width: 0.3 }], paper: { w: 100, h: 50 }, bridgeGapMm: [0.15] };
@@ -276,4 +276,43 @@ it('a rejected obsolete request cannot evict its replacement after retiming', as
   await d.toolpath();
   expect(calls).toBe(2);
   expect(d.selection?.count).toBe(2);
+});
+
+describe('registration', () => {
+  it('the plot record carries the registration point beside the executed set', async () => {
+    const cs = chains(10);
+    const buf = encodePlanBuffer(cs);
+    const hash = await hashPlan(buf, settings);
+    const d = new Drawing(mockClient(cs, hash, []), timing);
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
+    expect(d.recordFields().registration).toBeNull();
+    let heard = 0;
+    d.onRegistrationChange(() => { heard += 1; });
+    d.setRegistration([37.2841, 12.06]); // a click, kept to 0.1 mm
+    expect(heard).toBe(1);
+    const rec = d.recordFields();
+    expect(rec.registration).toEqual([37.3, 12.1]);
+    expect(rec.executed).toBe(d.plotFingerprint());
+    expect(rec.planHash).toBe(hash);
+    // A copy, not the drawing's own point: a later mark does not rewrite the record.
+    d.setRegistration([80, 20]);
+    expect(rec.registration).toEqual([37.3, 12.1]);
+    // One point per sketch: the second replaced the first; it survives a new render.
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
+    expect(d.registration).toEqual([80, 20]);
+  });
+
+  it('a resume registered elsewhere, or no longer registered, is refused by name', () => {
+    const d = new Drawing(mockClient([], '', []), timing);
+    const record = { registration: [37.3, 12.1] as [number, number] };
+    const refusal = 'resume: this plot was registered at (37.3, 12.1); mark registration there, or start a new plot';
+    expect(() => d.checkRegistration(record)).toThrow(refusal);
+    d.setRegistration([40, 12.1]);
+    expect(() => d.checkRegistration(record)).toThrow(refusal);
+    d.setRegistration([37.3, 12.1]);
+    expect(() => d.checkRegistration(record)).not.toThrow();
+    // A record from the paper origin (or older than registration) says nothing about the frame.
+    expect(registrationRefusal(null, [37.3, 12.1])).toBeNull();
+    expect(registrationRefusal(undefined, null)).toBeNull();
+  });
 });

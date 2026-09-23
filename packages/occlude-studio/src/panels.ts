@@ -10,30 +10,22 @@ import {
   encodeToolpath, chainsBounds, type FlatChain,
   estimatePlanMs, profileToJson,
   type GcodeJob, type PenDef, type RenderResult, type PaperDef , exportCollisions , moduleName } from 'occlude';
-import { listSketches, loadSketchByName, saveSketchByName } from './sketchApi.js';
+import { listSketches, loadSketchByName, loadStudioState, saveSketchByName, saveStudioState } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
   download, loadUi, savePens, saveProfiles, saveSettings, saveUi,
   type MachineProfile, type Settings, savePapers } from './store.js';
 import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
-import { machineTiming, machineTolerance, penTimingOf, type Drawing, type RegionBlob } from './drawing.js';
+import {
+  executionKey, machineTiming, machineTolerance, penTimingOf,
+  type Drawing, type ExecutionSettings, type PaperPoint, type PlotRecord, type RegionBlob,
+} from './drawing.js';
 import { registrationMarks } from './diagnostics.js';
 import { freeze } from './freeze.js';
 import { dualRange } from './rangeSlider.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
 import { canonicalJson } from 'occlude';
-
-/** The execution settings a plot ran under — the part of "the same plot"
- * that geometry identity does not cover: profile timing, flattening
- * tolerance, and each pen's feed and settle. Compared as one string. */
-export interface ExecutionSettings {
-  profile: string;
-  tolerance: number;
-  timing: unknown;
-  pens: { name: string; feed: number; penDelay: number }[];
-}
-export const executionKey = (e: ExecutionSettings): string => canonicalJson(e);
 import type { RenderDraws, RenderClient } from './workerClient.js';
 import { iconButton, relabel, setIcon, withIcon } from './icons.js';
 import { confirmDialog, notify } from './wa.js';
@@ -94,6 +86,14 @@ export interface PanelHooks {
     progress(chain: number): void;
     end(): void;
   };
+  /** The registration point on the preview: the last click on the sheet
+   * (what Mark registration takes), the crosshair at the marked point, and
+   * whether the pending click is shown (the Plot rail). */
+  registration: {
+    pick(): PaperPoint | null;
+    show(mark: { x: number; y: number; color: string } | null): void;
+    picking(on: boolean): void;
+  };
   /** The region brush over the preview and its blob overlay. */
   brush: {
     start(fn: (x: number, y: number, phase: 'down' | 'move' | 'up') => void): void;
@@ -126,6 +126,7 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
     compose.hidden = mode !== 'compose';
     plot.hidden = mode !== 'plot';
     rail.dataset.mode = mode;
+    hooks.registration.picking(mode === 'plot');
     ui.railMode = mode;
     saveUi(ui);
   };
@@ -878,32 +879,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
    * driver reports indices into this list; source rows come from it. */
   let executed: FlatChain[] = [];
 
-  // Saved progress: which plan, which selection of it, and the chain the
-  // machine reached — after a stop, a crashed tab, or a power loss.
-  interface SavedPlot {
-    sketch: string;
-    sourceHash: string;
-    seed: string | null;
-    penIndex: number | null;
-    paperOffset: [number, number];
-    /** Index into the EXECUTED list (selection, pen-filtered). */
-    chain: number;
-    chainTotal: number;
-    /** Full-plan row of that chain, for reading. */
-    sourceChain: number | null;
-    /** Identity of the plan and the selected range this progress is of. */
-    planHash: string | null;
-    selection: { from: number; to: number } | null;
-    /** The repairs in force and the executed set's identity, so a resume
-     * restores exactly the chains this record counts. */
-    repair?: { minutes: [number, number] | null; region: RegionBlob[] | null };
-    executed?: string | null;
-    /** When the plot ran from a saved result: its id — resume loads those bytes. */
-    resultId: string | null;
-    /** Profile timing, tolerance and pen feed/settle the plot ran under. */
-    execution: ExecutionSettings | null;
-    ts: string;
-  }
+  // Saved progress: which plan, which selection of it, the frame, and the
+  // chain the machine reached — after a stop, a crashed tab, or a power loss.
+  type SavedPlot = PlotRecord;
   let saved: SavedPlot | null = null;
   let lastSavedChain = -1;
   let lastSavedAt = 0;
@@ -923,8 +901,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     savedText.textContent =
       `Unfinished: ${saved.sketch}${from}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
       (saved.sourceChain !== null ? ` (plan row ${saved.sourceChain})` : '') +
-      `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. ` +
-      'After a power loss, re-park at the bed corner and Set bed origin first.';
+      (saved.registration
+        ? `, registered at (${saved.registration[0]}, ${saved.registration[1]}). After a power loss, stand the tip on the drawn mark and press Registration point first.`
+        : `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. After a power loss, re-park at the bed corner and Set bed origin first.`);
   };
   const putProgress = (p: SavedPlot): void => {
     saved = p;
@@ -948,7 +927,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!r) return;
     const plan = await buildPlan(r, penIndex);
     if (!plan) return;
-    const sel = hooks.drawing.plotSelection;
     const record = (chain: number, chainTotal: number): void => {
       putProgress({
         sketch: hooks.currentName(),
@@ -958,10 +936,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         paperOffset: [...dr().paperOffset] as [number, number],
         chain, chainTotal,
         sourceChain: executed[chain]?.index ?? null,
-        planHash: hooks.drawing.plan?.planHash ?? null,
-        selection: sel ? { from: sel.fromChain, to: sel.toChain } : null,
-        repair: { minutes: hooks.drawing.repair, region: hooks.drawing.region },
-        executed: hooks.drawing.plotFingerprint(),
+        ...hooks.drawing.recordFields(),
         resultId: hooks.frozenResult(),
         execution: hooks.execution(),
         ts: new Date().toISOString(),
@@ -1029,17 +1004,20 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const flat = await hooks.drawing.plotToolpath(Math.max(0.0001, prof().machine.resolution));
       const bb = chainsBounds(flat);
       // Pen-up perimeter of the selection's bounding box, at the paper
-      // offset: the placement check no model can do.
+      // offset: the placement check no model can do. Bed positions, walked
+      // from wherever the head stands (the bed origin, or a registration
+      // mark) and back there.
       const [ox, oy] = dr().paperOffset;
-      const legs: [number, number][] = [
-        [ox + bb.x, oy + bb.y], [bb.w, 0], [0, bb.h], [-bb.w, 0], [0, -bb.h], [-(ox + bb.x), -(oy + bb.y)],
-      ];
-      for (const [dx, dy] of legs) await dr().jog(dx, dy, m.opts());
+      const start = dr().bedPosition(m.opts());
+      const x0 = ox + bb.x, y0 = oy + bb.y;
+      const stops: [number, number][] = [[x0, y0], [x0 + bb.w, y0], [x0 + bb.w, y0 + bb.h], [x0, y0 + bb.h], [x0, y0], start];
+      let at = start;
+      for (const p of stops) { await dr().jog(p[0] - at[0], p[1] - at[1], m.opts()); at = p; }
     } catch (e) {
       showErr(e);
     }
   });
-  frameBtn.title = 'Frame — trace the plan’s bounding box pen-up from the paper origin — see where the piece lands before committing ink';
+  frameBtn.title = 'Frame — trace the plan’s bounding box pen-up in the current frame (paper origin or registration) — see where the piece lands before committing ink';
   // Registration corners: a right angle at the sheet's top-left and another
   // at its bottom-right, drawn with the selected pen. Between pens: marks,
   // tape, swap, marks again — the brackets coincide iff the new pen sits
@@ -1111,16 +1089,102 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       } else if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash || (hooks.currentSeed() ?? null) !== sv.seed) {
         throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged (seed ${sv.seed}) first — this record predates plan identities`);
       }
+      // The frame too: a plot registered at a mark resumes only from that mark.
+      hooks.drawing.checkRegistration(sv);
       dr().paperOffset = [...sv.paperOffset] as [number, number];
+      m.frameChanged();
       const penIndex = sv.penIndex === null ? undefined : sv.penIndex;
       await runPlot(penIndex, sv.chain);
     } catch (e) {
       showErr(e);
     }
   });
-  resumeBtn.title = 'Carry on from the saved chain at the saved paper offset — only when the current render IS the saved plan (same hash) and the same range is selected.';
+  resumeBtn.title = 'Carry on from the saved chain at the saved paper offset — only when the current render IS the saved plan (same hash), the same range is selected, and the sketch is registered where the plot was.';
   const clearSavedBtn = button('Forget', clearProgress);
   savedBox.append(savedText, el('div', 'row', resumeBtn, clearSavedBtn));
+
+  // Registration: a point on the sheet a pen tip can be put on by hand.
+  // Mark it on the preview, draw it on scrap with the current pen, and later
+  // (a pen change, a resume, the next day) stand the tip on the drawn mark
+  // and declare it: every pass lines up on it. The point is studio state on
+  // the sketch, saved with its name, never source.
+  const d = hooks.drawing;
+  const regText = hint('');
+  const selectedPen = (): PenDef | undefined => {
+    const pens = hooks.lastResult()?.pens ?? [];
+    const raw = parseInt(penSelect.value, 10);
+    return (raw >= 0 ? pens[raw] : undefined) ?? pens[0];
+  };
+  const showRegistration = (): void => {
+    const p = d.registration;
+    hooks.registration.show(p ? { x: p[0], y: p[1], color: selectedPen()?.color ?? '#000' } : null);
+    const here = dr().registeredAt;
+    regText.textContent = !p
+      ? 'No registration point: click the preview, then Mark registration.'
+      : `Registration at (${p[0]}, ${p[1]}) mm` +
+        (here && here[0] === p[0] && here[1] === p[1] ? ' · the machine stands in this frame' : '');
+  };
+  // One point per sketch, loaded when a render of another sketch lands.
+  let regFor: string | null = null;
+  const followSketch = (): void => {
+    const name = hooks.currentName();
+    if (name === regFor) return;
+    regFor = name;
+    d.setRegistration(null);
+    if (!name) return;
+    void loadStudioState(name)
+      .then((st) => { if (regFor === name) d.setRegistration(st.registration ?? null); })
+      .catch(showErr);
+  };
+  d.onRegistrationChange(showRegistration);
+  d.onChange(() => { followSketch(); showRegistration(); });
+  penSelect.addEventListener('change', showRegistration);
+  const marked = (): PaperPoint => {
+    if (!d.registration) throw new Error('no registration point: click the preview, then Mark registration');
+    return d.registration;
+  };
+  const markBtn = button('Mark registration', async () => {
+    try {
+      const name = hooks.currentName();
+      if (!name) throw new Error('mark registration: name the sketch first — the point is kept with it');
+      if (!hooks.lastResult()) throw new Error('mark registration: render the sketch first');
+      const p = hooks.registration.pick();
+      if (!p) throw new Error('mark registration: click the preview where the mark goes first');
+      d.setRegistration(p);
+      await saveStudioState(name, { registration: d.registration });
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  markBtn.title = 'Store the point last clicked on the preview as this sketch’s registration point; a new click and a second press replace it.';
+  const drawRegBtn = button('Draw registration', async () => {
+    if (!dr().connected || dr().plotting) return;
+    try {
+      const pen = selectedPen();
+      if (!pen) throw new Error('draw registration: render the sketch first');
+      const p = marked();
+      await dr().drawRegistration(p, pen, m.opts(), onProgress);
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  drawRegBtn.title = 'On scrap paper: draw the mark (a 25 mm circle, a cross, a tick toward +x) at the registration point with the selected pen, at its own feed.';
+  const regPointBtn = button('Registration point', async () => {
+    if (!dr().connected) return;
+    try {
+      const p = marked();
+      await dr().registerAt(p);
+      m.frameChanged();
+      showRegistration();
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  regPointBtn.title = 'Move the head by hand until the tip stands on the drawn mark, then press: the machine is here, at the registration point. Plot, Frame, Marks and Resume then run from it.';
+  const registrationBox = el('div', 'registration',
+    el('div', 'row', markBtn, drawRegBtn, regPointBtn),
+    regText,
+  );
 
   const connect = buildConnect(m);
   const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn, marksBtn);
@@ -1129,7 +1193,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   // Plot only: a repair interval on the plan's timeline. Studio state, not
   // the sketch's: it narrows what Plot, Frame and Marks run and what the
   // preview keeps in ink, and is recorded with the plot's progress.
-  const d = hooks.drawing;
   const repairText = hint('');
   const fmtMinutes = (min: number): string => (min >= 10 ? min.toFixed(1) : min.toFixed(2));
   const slider = dualRange({
@@ -1220,6 +1283,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     transport,
     bar,
     progressText,
+    registrationBox,
     repairBox,
     savedBox,
     el('h4', 'band-title', 'Manual control'),
@@ -1227,6 +1291,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     hint('Profile, calibration and the serial log live on the Machine page.'),
   );
   refreshPenSelect();
+  followSketch();
+  showRegistration();
 }
 
 // ---- export (runs in the render worker on the last rendered buffers) ----

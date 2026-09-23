@@ -1121,6 +1121,74 @@ describe('paper origin', () => {
   });
 });
 
+describe('registration at a mark', () => {
+  const direct = { ...opts, lmMotion: true, swapXY: false, invertX: false };
+  const fine = { name: 'fine', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 };
+  const connected = async (): Promise<{ port: FakePort; ebb: Ebb }> => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    return { port, ebb };
+  };
+
+  test('draws the mark with the pen: a circle, a cross, a tick, one landing and one lift per stroke', async () => {
+    const { port, ebb } = await connected();
+    const before = port.commands.length;
+    await ebb.drawRegistration([50, 40], fine, direct);
+    const cmds = port.commands.slice(before);
+    // The pen's own settle on every landing and lift: it is this pen, not a card pen.
+    expect(cmds.filter((c) => c === 'SP,0,150')).toHaveLength(4);
+    const downs = cmds.flatMap((c, i) => (c === 'SP,0,150' ? [i] : []));
+    for (const d of downs) expect(cmds.indexOf('SP,1,150', d)).toBeGreaterThan(d);
+    for (let k = 1; k < downs.length; k++) expect(cmds.slice(downs[k - 1], downs[k]).filter((c) => c === 'SP,1,150')).toHaveLength(1);
+    // Where each stroke ends (the LM trajectory, steps at 100/mm): the
+    // circle closes where it began, the cross runs through the centre, and
+    // the tick ends 5 mm outside the circle on +x.
+    const ends = downs.map((d) => simulateLm(cmds.slice(0, cmds.indexOf('SP,1,150', d))));
+    expect(ends.every((e) => !e.stalled)).toBe(true);
+    expect([ends[0].x, ends[0].y]).toEqual([6250, 4000]);
+    expect([ends[1].x, ends[1].y]).toEqual([6250, 4000]);
+    expect([ends[2].x, ends[2].y]).toEqual([5000, 5250]);
+    expect([ends[3].x, ends[3].y]).toEqual([6750, 4000]);
+    // Then it lifts and parks as every plot does.
+    expect(cmds.slice(-2)).toEqual(['HM,2000', 'EM,0,0']);
+  });
+
+  test('registerAt zeroes the counters under the tip and puts the point there', async () => {
+    const { port, ebb } = await connected();
+    await ebb.jog(100, 50, direct); // wherever the head was believed to be
+    await ebb.registerAt([50, 40]);
+    expect(port.commands.at(-1)).toBe('CS');
+    expect(ebb.paperOffset).toEqual([-50, -40]);
+    expect(ebb.bedPosition(direct)).toEqual([0, 0]);
+    expect(ebb.registeredAt).toEqual([50, 40]);
+    await ebb.setOrigin();
+    expect(ebb.registeredAt).toBeNull();
+  });
+
+  test('a plot after registerAt is the plot after setOrigin, translated by the mark', async () => {
+    const stroke = new Float64Array([0, 0, 2, 50, 40, 60, 40]);
+    const endOf = async (declare: (e: Ebb) => Promise<void>): Promise<[number, number]> => {
+      const { port, ebb } = await connected();
+      await declare(ebb);
+      const before = port.commands.length;
+      await ebb.plot(stroke, [fine], direct, () => undefined);
+      const sim = simulateLm(port.commands.slice(before));
+      expect(sim.stalled).toBe(false);
+      return [sim.x, sim.y];
+    };
+    const origin = await endOf((e) => e.setOrigin());
+    const registered = await endOf((e) => e.registerAt([50, 40]));
+    expect(origin).toEqual([6000, 4000]);
+    // Paper (50, 40) is under the tip: the stroke runs from the tip, 10 mm along +x.
+    expect(registered).toEqual([origin[0] - 5000, origin[1] - 4000]);
+  });
+});
+
 describe('connect resilience', () => {
   test('stale bytes at power-up cannot corrupt the version or disable LM', async () => {
     // A lone OK left in the CDC buffer used to be consumed as V's reply:

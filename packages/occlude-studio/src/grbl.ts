@@ -21,7 +21,8 @@
  *  - `$J=` jogs (cancellable, no modal side effects) run only from Idle;
  *    `$H` homes (with `$HX`/`$HY` per axis when `[OPT:` lists `H`, which
  *    matters on a board with no Z switch); `G10 L20 P1 X0 Y0` sets the
- *    persistent work origin; `G92 Z` re-declares the pen height.
+ *    persistent work origin (and `G10 L20 P1 X<x> Y<y>` declares the head
+ *    at a registration mark); `G92 Z` re-declares the pen height.
  *  - opening or closing the port does not reset the board and does not
  *    stop motion: a stop is `!` then 0x18, never a disconnect.
  *
@@ -44,6 +45,7 @@
  */
 import { schedulePlan, type PenDef, type PlanEstimate, type PlanSchedule } from 'occlude';
 
+import { registrationMark } from './diagnostics.js';
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';
 import type { MachineSettings } from './store.js';
 
@@ -150,6 +152,9 @@ export class Grbl {
   /** The hold → reset → resync in progress, so a resume waits for it. */
   private flush: Promise<void> | null = null;
   paperOffset: [number, number] = [0, 0];
+  /** The paper point the head was last registered at (`registerAt`), until
+   * an origin replaces the frame. */
+  registeredAt: [number, number] | null = null;
 
   private logLine(dir: '>' | '<', text: string): void {
     this.log.push(`${((Date.now() - this.t0) / 1000).toFixed(3)} ${dir} ${text}`);
@@ -565,6 +570,7 @@ export class Grbl {
 
   setPaperOrigin(_o?: EbbOptions): [number, number] {
     this.paperOffset = this.wpos.map((v) => Math.round(v * 100) / 100) as [number, number];
+    this.registeredAt = null;
     if (this.plotting) this.pauseAdjusted = true;
     return this.paperOffset;
   }
@@ -585,8 +591,45 @@ export class Grbl {
     await this.send('G10 L20 P1 X0 Y0');
     this.wpos = [0, 0];
     this.paperOffset = [0, 0];
+    this.registeredAt = null;
     if (this.plotting) this.pauseAdjusted = true;
     await this.status().catch(() => null); // picks up the new offset
+  }
+
+  /** "The tip stands on the registration mark": the head is declared to be
+   * at the paper point `point`, whatever the controller believed. The work
+   * offset is set so that the point's coordinates in the controller's own
+   * frame (the mapping plots use: mirrored, negative Y) are where the head
+   * is, and the paper offset is folded in — from here the work frame IS the
+   * paper frame, persistent in the controller like Set origin. G10 L20
+   * first; G92 where the board ignores it; a board that honours neither is
+   * refused by name, read back from the status report. */
+  registerAt(point: readonly [number, number]): Promise<void> {
+    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the machine; pause first'));
+    return this.manual(async () => {
+      const [x, y] = this.toMachine(point);
+      const declared = async (line: string): Promise<boolean> => {
+        await this.send(line);
+        const s = await this.status().catch(() => null);
+        return !!s && Math.abs(s.work[0] - x) <= 0.01 && Math.abs(s.work[1] - y) <= 0.01;
+      };
+      const coords = `X${this.fmt(x)} Y${this.fmt(y)}`;
+      if (!(await declared(`G10 L20 P1 ${coords}`)) && !(await declared(`G92 ${coords}`))) {
+        throw new GrblError(`registration not honoured: the controller does not report work ${coords} after G10 L20 or G92`);
+      }
+      this.paperOffset = [0, 0];
+      this.wpos = [point[0], point[1]];
+      this.registeredAt = [point[0], point[1]];
+      if (this.plotting) this.pauseAdjusted = true;
+    });
+  }
+
+  /** Draw the registration mark at a paper point with this pen, at its own
+   * feed: pen down only on the mark, then the lift and park every plot
+   * ends with. */
+  drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions, onProgress: (p: PlotProgress) => void = () => undefined): Promise<void> {
+    const d = registrationMark(point, pen);
+    return this.plot(d.plan, d.pens, o, onProgress);
   }
 
   /** Run the homing cycle and make the switch corner the bed origin. With

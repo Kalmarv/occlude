@@ -502,6 +502,11 @@ async function boot(): Promise<void> {
       end: () => preview.endLive(),
     },
     optimizationView: (view) => preview.setOptimization(view),
+    registration: {
+      pick: () => preview.pick,
+      show: (mark) => { preview.registration = mark; preview.draw(); },
+      picking: (on) => { preview.showPick = on; preview.draw(); },
+    },
     brush: {
       start: (fn) => { preview.brush = fn; $('preview').classList.add('painting'); },
       stop: () => { preview.brush = null; $('preview').classList.remove('painting'); },

@@ -168,6 +168,36 @@ export function registrationMarks(base: PenDef | undefined, bb: { x: number; y: 
   return { plan: encode(chains), pens: [pen('marks', base?.feed ?? 3000, base)] };
 }
 
+/** The registration mark's span, mm: the circle's diameter and the cross's length. */
+export const REGISTRATION_SPAN = 25;
+/** The tick that says which way the sheet lies, mm, outward from the circle along +x. */
+export const REGISTRATION_TICK = 5;
+
+/**
+ * The registration mark at a paper point, drawn with the pen itself (its
+ * own feed and settle, not a synthetic card pen): a circle of
+ * `REGISTRATION_SPAN` diameter, a cross of the same span through its
+ * centre, and a tick outward from the circle along the paper's +x, so a
+ * sheet put back turned is caught. Four strokes, one landing each.
+ */
+export function registrationMark(point: readonly [number, number], base: PenDef): Diagnostic {
+  const [cx, cy] = point;
+  const r = REGISTRATION_SPAN / 2;
+  // 72 chords: a 0.012 mm sagitta at this radius, under any nib.
+  const circle: [number, number][] = Array.from({ length: 73 }, (_, i) => {
+    const a = (i * Math.PI * 2) / 72;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  });
+  circle[72] = circle[0]; // closed exactly, whatever the float error
+  const chains: Chain[] = [
+    { pen: 0, pts: circle },
+    { pen: 0, pts: [[cx - r, cy], [cx + r, cy]] },
+    { pen: 0, pts: [[cx, cy - r], [cx, cy + r]] },
+    { pen: 0, pts: [[cx + r, cy], [cx + r + REGISTRATION_TICK, cy]] },
+  ];
+  return { plan: encode(chains), pens: [base] };
+}
+
 /** Left square: every edge drawn twice from the same end. Right square:
  * every edge there-and-back in one stroke. Footprint ~45×20mm. */
 export function backlashSquares(base?: PenDef): Diagnostic {

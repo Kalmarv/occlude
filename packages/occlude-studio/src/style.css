@@ -2195,6 +2195,29 @@ button.armed {
   width: 84px;
 }
 
+/* ---- registration: mark, draw, declare ---- */
+
+.registration {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+}
+
+/* Three words in one rail row: the flow reads left to right. */
+.registration .row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.registration .row > button {
+  white-space: normal;
+  line-height: 1.2;
+  padding: 6px 4px;
+}
+
 /* ---- plot only: the repair interval ---- */
 
 .repair {
