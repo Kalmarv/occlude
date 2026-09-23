@@ -819,6 +819,61 @@ function queryPoints(where: XY | PointsLike, who: string): [number, number][] {
 }
 
 /**
+ * A uniform grid over axis-aligned boxes, four numbers per item
+ * (`minx, miny, maxx, maxy`): `near` lists, once each, the items whose box
+ * may meet the query box. A prefilter, not an answer — the caller tests.
+ */
+export function boxGrid(boxes: Float64Array): { near(minx: number, miny: number, maxx: number, maxy: number): number[] } {
+  const count = boxes.length / 4;
+  let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+  for (let i = 0; i < count; i++) {
+    x0 = Math.min(x0, boxes[4 * i]); y0 = Math.min(y0, boxes[4 * i + 1]);
+    x1 = Math.max(x1, boxes[4 * i + 2]); y1 = Math.max(y1, boxes[4 * i + 3]);
+  }
+  if (!(x0 <= x1 && y0 <= y1)) return { near: () => [] };
+  const across = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const cell = Math.max(x1 - x0, y1 - y0, 1e-9) / across;
+  const cols = Math.floor((x1 - x0) / cell) + 1;
+  const rows = Math.floor((y1 - y0) / cell) + 1;
+  const col = (x: number) => Math.min(cols - 1, Math.max(0, Math.floor((x - x0) / cell)));
+  const row = (y: number) => Math.min(rows - 1, Math.max(0, Math.floor((y - y0) / cell)));
+  const buckets: number[][] = Array.from({ length: cols * rows }, () => []);
+  for (let i = 0; i < count; i++) {
+    for (let r = row(boxes[4 * i + 1]); r <= row(boxes[4 * i + 3]); r++) {
+      for (let c = col(boxes[4 * i]); c <= col(boxes[4 * i + 2]); c++) buckets[r * cols + c].push(i);
+    }
+  }
+  const stamp = new Int32Array(count);
+  let query = 0;
+  return {
+    near(minx, miny, maxx, maxy) {
+      const out: number[] = [];
+      if (maxx < x0 || minx > x1 || maxy < y0 || miny > y1) return out;
+      query++;
+      for (let r = row(miny); r <= row(maxy); r++) {
+        for (let c = col(minx); c <= col(maxx); c++) {
+          for (const i of buckets[r * cols + c]) {
+            if (stamp[i] === query) continue;
+            stamp[i] = query;
+            out.push(i);
+          }
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/** `faces.containing` for many single points: the face index holding
+ * (x, y), or −1, by the same rule, with the faces bucketed by their bounds. */
+export function faceLocator(cells: Faces): (x: number, y: number) => number {
+  const boxes = new Float64Array(4 * cells.faces.length);
+  cells.faces.forEach((f, i) => boxes.set([f.bounds.x, f.bounds.y, f.bounds.x + f.bounds.w, f.bounds.y + f.bounds.h], 4 * i));
+  const grid = boxGrid(boxes);
+  return (x, y) => faceHolding(grid.near(x, y, x, y).sort((a, b) => a - b).map((i) => cells.faces[i]), x, y);
+}
+
+/**
  * The bounded face that holds (x, y), or −1.
  *
  * Even-odd over the face's OWN contours, so a face with a hole does not
