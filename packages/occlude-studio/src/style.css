@@ -2195,7 +2195,7 @@ button.armed {
   width: 84px;
 }
 
-/* ---- registration: mark, draw, declare ---- */
+/* ---- registration: a corner of the sheet, and one button that declares and draws ---- */
 
 .registration {
   display: flex;
@@ -2209,13 +2209,17 @@ button.armed {
 /* Three words in one rail row: the flow reads left to right. */
 .registration .row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.registration .row > select {
+  min-width: 0;
 }
 
 .registration .row > button {
-  white-space: normal;
-  line-height: 1.2;
-  padding: 6px 4px;
+  white-space: nowrap;
+  padding: 6px 10px;
 }
 
 /* ---- plot only: the repair interval ---- */
