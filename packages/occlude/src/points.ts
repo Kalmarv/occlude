@@ -70,8 +70,9 @@ export interface RelaxOpts {
    * non-rectangular boundary thins the population near itself. A rectangle
    * needs no trimming. `bounds` and `within` are alternatives. */
   within?: AreaInput | ShapeValue;
-  /** Density raster resolution along the bounds' long side (default 256, clamped 32…512). */
-  resolution?: number;
+  /** The density raster's cell, a length (default: the bounds' long side
+   * / 256). */
+  step?: L;
 }
 
 export interface SettleOpts {
@@ -87,7 +88,9 @@ export interface SettleOpts {
    * near a non-rectangular boundary is thinned. A rectangle needs no
    * trimming. `bounds` and `within` are alternatives. */
   within?: AreaInput | ShapeValue;
-  resolution?: number;
+  /** The density raster's cell, a length (default: the bounds' long side
+   * / 256). */
+  step?: L;
   /** Point attributes for each child a split inserts, merged over the
    * inherited ones (a copy of the parent's): a partial record of declared
    * columns, or a callback of the parent as it is when it splits (its
@@ -113,14 +116,18 @@ export interface DensityRaster {
   dens: Float64Array;
 }
 
-export function densityRaster(field: FieldFn2, bounds: Bounds, resolution: number | undefined, space?: Space): DensityRaster {
+export function densityRaster(field: FieldFn2, bounds: Bounds, step: number | undefined, space?: Space, word = 'densityRaster'): DensityRaster {
   const sp = space !== undefined && space.kind !== 'euclidean' ? space : null;
-  const R = Math.max(32, Math.min(512, resolution ?? 256));
-  const long = Math.max(bounds.w, bounds.h);
-  const cw = long / R;
+  if (step !== undefined && !(Number.isFinite(step) && step > 0)) throw new Error(`${word}: step must be a positive finite length, got ${step}`);
+  const cw = step ?? Math.max(bounds.w, bounds.h) / 256;
   const cols = Math.max(2, Math.round(bounds.w / cw));
   const rows = Math.max(2, Math.round(bounds.h / cw));
-  const dens = new Float64Array(cols * rows);
+  let dens: Float64Array;
+  try {
+    dens = new Float64Array(cols * rows);
+  } catch {
+    throw new Error(`${word}: a density raster of ${cols} × ${rows} = ${cols * rows} cells does not fit a Float64Array — the step is too fine`);
+  }
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const x = bounds.x + (i + 0.5) * cw;
@@ -230,6 +237,13 @@ export function withinRegion(
   return { bounds: box, loops: isAxisBox(loops, box) ? null : loops };
 }
 
+/** The density raster's cell in user units, or undefined for the default.
+ * `resolution` (a count along the long side) was the old knob. */
+function rasterStep(env: PointsEnv, opts: { step?: L }, word: string): number | undefined {
+  if ('resolution' in opts) throw new Error(`${word}: resolution is now step`);
+  return opts.step === undefined ? undefined : env.len(opts.step);
+}
+
 /**
  * Lloyd relaxation: each point moves to the density-weighted centroid of
  * its nearest-site cell within the bounds, `iterations` times. Count,
@@ -241,7 +255,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
   if (!Number.isInteger(n) || n < 0) throw new Error('relax: iterations must be a non-negative integer');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax', opts.bounds);
   const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density ?? (() => 1), bounds, opts.resolution, env.space);
+  const raster = densityRaster(opts.density ?? (() => 1), bounds, rasterStep(env, opts, 'relax'), env.space, 'relax');
   const coords = coordsOf(m);
   for (let it = 0; it < n && m.n > 0; it++) {
     const { w, cx, cy } = accumulateCells(coords, raster);
@@ -284,7 +298,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   if (!Number.isInteger(n) || n < 0) throw new Error('settle: iterations must be a non-negative integer');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'settle', opts.bounds);
   const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density, bounds, opts.resolution, env.space);
+  const raster = densityRaster(opts.density, bounds, rasterStep(env, opts, 'settle'), env.space, 'settle');
   const cw = raster.cw;
   // Capacity: integrated density a single point should carry — the amount
   // a full-demand hex cell at `spacing` holds. Cells above split, below die.

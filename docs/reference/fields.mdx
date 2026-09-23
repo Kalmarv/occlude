@@ -3,7 +3,7 @@ title: Fields
 description: Functions of position that shapes, fills and materials read.
 ---
 
-A field is a function of position. A scalar field is `(x, y) => number`. A vector field is `(x, y) => [dx, dy]`. A field receives drawable units. Fills, modifiers, `scatter`, `isolines` and `streamlines` read them, so one function can decide tone, spacing and direction in the same drawing.
+A field is a function of position. A scalar field is `(x, y) => number`. A vector field is `(x, y) => [dx, dy]`. A field receives drawable units. Fills, modifiers, `scatter`, `isolines` and `streamlines` read them, so one function can decide tone, spacing and direction in the same drawing. Every word that samples a field on a lattice takes `step`, the lattice pitch as a length.
 
 ## t.isolines()
 
@@ -11,7 +11,7 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value, a list of them, or a count or a spacing. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels (see [Selections](/docs/reference/selections)).
+The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value, a list of them, or a count or a spacing. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid, and the default is the larger of 1 mm and the long side divided by 256.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -19,6 +19,23 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const ground = (x, y) => t.noise(x / 28, y / 28);
   return t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges.groupBy((e) => e.attrs.level).map((sel) => strokes(sel, { pen: sel.key > 0 ? 'stabilo-88-blue' : undefined }));
+});
+```
+
+A coarse grid shows in the contours of a field with fine detail. Here the Mandelbrot count is drawn twice. Left of c = 0 the contours use the default step, and right of it they use `step: mm(0.25)`. The stairs at the edge of the set are the grid, and on the right they go.
+
+```ts live
+import { sketch, strokes, escape, complex, rect, pen, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 21, pens: {
+  fine: pen({ width: mm(0.3), color: '#23252B' }),
+} }, (t) => {
+  const field = escape((z, c) => complex.add(complex.mul(z, z), c), { input: 'c', iterations: 60, bailout: 1e6 });
+  // The sheet as the c-plane, as in the escape() example: x = 64 is c = 0.
+  const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
+  // The same contours at two grid pitches, each kept on its own side of c = 0.
+  const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }), area), { pen: 'fine' });
+  return [side(rect(0, 0, 64, t.height), undefined), side(rect(64, 0, t.width - 64, t.height), mm(0.25))];
 });
 ```
 
@@ -151,7 +168,7 @@ A boundary stays exact, and the depth behind it does not. `union` measures corre
 
 <AutoTypeTable path="../occlude/src/travel.ts" name="TravelOpts" />
 
-The time a front needs to reach each point of the drawable. The front starts at its source at time zero, and the options record names the source. Under `fromPoints` every entry is a separate seed, a pair or an `{ x, y }` record. Under `fromArea` the input is one area or a shape. Give one key or the other, and the call refuses both keys at once by name. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `distanceTo`.
+The time a front needs to reach each point of the drawable. The front starts at its source at time zero, and the options record names the source. Under `fromPoints` every entry is a separate seed, a pair or an `{ x, y }` record. Under `fromArea` the input is one area or a shape. Give one key or the other, and the call refuses both keys at once by name. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `distanceTo`. `step` is the pitch of the grid that the front moves on, and its default is the same as the default of `t.isolines`.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -161,7 +178,7 @@ import { sketch, strokes } from 'occlude';
 // and stretch where the going is easy.
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const going = (x, y) => 0.2 + 0.8 * (0.5 + 0.5 * t.noise(x / 24, y / 24));
-  const arrival = t.travelTime({ fromPoints: [[t.cx, t.cy]], speed: going, spacing: 0.5 });
+  const arrival = t.travelTime({ fromPoints: [[t.cx, t.cy]], speed: going, step: 0.5 });
   return strokes(t.isolines(arrival, { spacing: t.width / 16 }));
 });
 ```

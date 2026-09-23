@@ -239,7 +239,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ### travelTime
 
-`t.travelTime({ fromPoints | fromArea, speed?, within?, spacing? })` answers a different question about distance. `distanceTo` measures the straight line, and it measures straight through a wall. This measures the walk. `fromPoints` names separate seeds, and `fromArea` names one area. The front leaves its source at time zero and moves at `speed`, a number or a field. A speed of zero or less is a wall, so the front goes around it. `within` names the ground the front may cross, and the drawable is the default. `t.isolines` over the result draws arrival rings, and the rings bend through a gap in the wall. Unreachable ground reads `+Infinity`, so a ring stops at a barrier and draws nothing behind it. With speed 1 on open ground the two words agree, because arrival time is distance.
+`t.travelTime({ fromPoints | fromArea, speed?, within?, step? })` answers a different question about distance. `distanceTo` measures the straight line, and it measures straight through a wall. This measures the walk. `fromPoints` names separate seeds, and `fromArea` names one area. The front leaves its source at time zero and moves at `speed`, a number or a field. A speed of zero or less is a wall, so the front goes around it. `within` names the ground the front may cross, and the drawable is the default. `t.isolines` over the result draws arrival rings, and the rings bend through a gap in the wall. Unreachable ground reads `+Infinity`, so a ring stops at a barrier and draws nothing behind it. With speed 1 on open ground the two words agree, because arrival time is distance.
 
 ```ts live
 import { sketch, strokes, rect } from 'occlude';
@@ -262,7 +262,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
     [x1 - th, H * 0.6, x1, y1 - th],
   ];
   const solid = (x, y) => bars.some((b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
-  const arrival = t.travelTime({ fromPoints: [[W * 0.78, H * 0.5]], speed: (x, y) => (solid(x, y) ? 0 : 1), spacing: 0.5 });
+  const arrival = t.travelTime({ fromPoints: [[W * 0.78, H * 0.5]], speed: (x, y) => (solid(x, y) ? 0 : 1), step: 0.5 });
   return [
     strokes(t.isolines(arrival, { spacing: W / 22 })),
     bars.map((b) => rect(b[0], b[1], b[2] - b[0], b[3] - b[1], { pen: 'stabilo-88-blue' })),

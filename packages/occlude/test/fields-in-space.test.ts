@@ -25,7 +25,7 @@ import {
 } from '../src/index.js';
 import { lowerShape, unitMm, userToPaperMatrix } from '../src/record.js';
 import { flattenPrim, type Prim } from '../src/prims.js';
-import { planGrid } from '../src/fieldGrid.js';
+import { paperStep, planGrid } from '../src/fieldGrid.js';
 import { apply, invert, mul, scale as mscale } from '../src/matrix.js';
 import { decodePrim, PRIM_STRIDE } from '../src/sceneBuffers.js';
 import { densityRaster, settleMaterial } from '../src/points.js';
@@ -145,7 +145,8 @@ describe('the engine reads a field at the sketch point under each paper sample',
     const plan = planGrid([{
       fn: field, kind: 'p01', m, domains: [],
       footprint: { x0: 0, y0: 0, x1: frame.paperW, y1: frame.paperH }, shapeFp: fp, aligned: false,
-    }], false, frame.paperW, frame.paperH, unit);
+      step: paperStep(false, frame.paperW, frame.paperH),
+    }], unit);
     const want: Pt[] = [];
     for (let j = 0; j < plan.gh; j++) {
       for (let i = 0; i < plan.gw; i++) want.push([plan.x0 + (plan.ci0 + i) * plan.cell, plan.y0 + (plan.cj0 + j) * plan.cell]);
@@ -264,7 +265,7 @@ describe('t.travelTime measures the walk in the space', () => {
     it(`${name}: arrival time from a point is the space's distance`, () => {
       const t = toolkit(cfg);
       const c: Pt = [50, 50];
-      const T = t.travelTime({ fromPoints: [c], spacing: 0.1 });
+      const T = t.travelTime({ fromPoints: [c], step: 0.1 });
       for (const p of [[70, 50], [50, 80], [80, 80], [20, 30], [90, 10]] as Pt[]) {
         const d = t.space.distance(c, p);
         // First-order marching: within 1% of the distance, which the flat
@@ -577,8 +578,8 @@ describe('t.relax and t.settle weigh a cell by the space\'s area', () => {
     const sp = toolkit(SPH).space;
     const field = (x: number, y: number): number => 0.3 + (x + y) / 400;
     const B = { x: 10, y: 5, w: 80, h: 90 };
-    const flat = densityRaster(field, B, 64);
-    const curved = densityRaster(field, B, 64, sp);
+    const flat = densityRaster(field, B, Math.max(B.w, B.h) / 64);
+    const curved = densityRaster(field, B, Math.max(B.w, B.h) / 64, sp);
     for (let j = 0; j < flat.rows; j++) {
       for (let i = 0; i < flat.cols; i++) {
         const y = B.y + (j + 0.5) * flat.cw;
@@ -597,7 +598,7 @@ describe('t.relax and t.settle weigh a cell by the space\'s area', () => {
     const density = (x: number): number => 0.2 + x / 200;
     const spacing = 9;
     const out = settleMaterial({ rnd: () => 0.25, bounds: B, len: (l) => l as number, space: sp }, sites, {
-      density, spacing, iterations: 1, bounds: B, resolution: 96,
+      density, spacing, iterations: 1, bounds: B, step: Math.max(B.w, B.h) / 96,
     });
     // The cells by brute force: each raster sample to its nearest site,
     // weighted by the field and by the space's area element.
@@ -621,7 +622,7 @@ describe('t.relax and t.settle weigh a cell by the space\'s area', () => {
     for (const d of out.attrs.demand) expect(want.some((v) => Math.abs(v - d) < 1e-9)).toBe(true);
     // And the flat reading of the same cells is a different number.
     const flatOut = settleMaterial({ rnd: () => 0.25, bounds: B, len: (l) => l as number }, sites, {
-      density, spacing, iterations: 1, bounds: B, resolution: 96,
+      density, spacing, iterations: 1, bounds: B, step: Math.max(B.w, B.h) / 96,
     });
     expect(Math.max(...flatOut.attrs.demand) - Math.max(...out.attrs.demand)).toBeGreaterThan(0.01);
   });
