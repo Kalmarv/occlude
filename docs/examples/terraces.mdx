@@ -13,7 +13,7 @@ import { sketch, polygon, strokes, fill, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 21 }, (t) => {
   const ground = (x, y) => t.noise(x / 34, y / 34) + 0.3 * t.noise(x / 11, y / 11);
   const levels = [-0.25, 0.05, 0.35, 0.65];
-  const contours = t.isolines(ground, levels, { close: true });
+  const contours = t.isolines(ground, levels);
   const terraces = contours.edges.groupBy((e) => e.attrs.level).map((sel, i) =>
     polygon(sel, { opaque: true, stroke: false, fill: fill('hatch', { angle: 15 + i * 40, spacing: mm(2.2 - i * 0.4) }) }));
   return [terraces, strokes(contours, { pen: 'pigma-005-black' })];

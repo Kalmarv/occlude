@@ -302,7 +302,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 47 }),
   return [
     circle(t.space.center, 300, { pen: 'rim' }),
     line(a, b, { pen: 'rim' }),
-    strokes(t.isolines(across, [-30, -20, -10, 10, 20, 30], { step: mm(0.4) }), { pen: 'near' }),
+    strokes(t.isolines(across, [-30, -20, -10, 10, 20, 30], { step: mm(0.4) }).edges.filter((e) => !e.attrs.cut), { pen: 'near' }),
   ];
 });
 ```

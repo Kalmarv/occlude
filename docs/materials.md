@@ -92,7 +92,7 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const lattice = material(t.grid({ cols: 17, rows: 9 }).map((c) => [c.cx, c.cy]));
   const moved = lattice.snap(ridge, { radius: 9 });
   return [
-    strokes(t.isolines(ridge, [0.15, 0.45], { step: 0.8 }), { pen: 'stabilo-88-blue' }),
+    strokes(t.isolines(ridge, [0.15, 0.45], { step: 0.8 }).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }),
     lattice.points.map((p) => line(p.x, p.y, moved.x[p.index], moved.y[p.index])),
     moved.points.map((p) => circle(p.x, p.y, 1)),
   ];
@@ -166,7 +166,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const cloud = t.scatter({ spacing: 4.4 });
   const gathered = cloud.snap(land, { radius: 45, samples: 700 });
   return [
-    strokes(t.isolines(land, [0.2, 0.5], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
+    strokes(t.isolines(land, [0.2, 0.5], { step: 0.9 }).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }),
     cloud.points.map((p) => line(p.x, p.y, gathered.x[p.index], gathered.y[p.index])),
     gathered.points.map((p) => circle(p.x, p.y, 0.8)),
   ];
@@ -633,7 +633,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
     cost: (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * (1 + Math.pow((land(a.x, a.y) + land(b.x, b.y)) / 2, 2) * 7),
   });
   return [
-    strokes(t.isolines(land, [0.56, 0.68, 0.8], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
+    strokes(t.isolines(land, [0.56, 0.68, 0.8], { step: 0.9 }).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }),
     strokes(rivers),
   ];
 });
@@ -675,7 +675,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
     polygon(measured.thicken({ radius: (p) => 0.14 + Math.pow(p.drains, 0.42) * 0.3 }), {
       fill: fill('hatch', { angle: 30, spacing: mm(0.5) }),
     }),
-    strokes(t.isolines(land, [0.56, 0.72], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
+    strokes(t.isolines(land, [0.56, 0.72], { step: 0.9 }).edges.filter((e) => !e.attrs.cut), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -3032,7 +3032,7 @@ export default sketch({ aspect: [3, 2], seed: 14 }, (t) => {
   const field = (x, y) =>
     t.noise(x / 46, y / 46) + 0.42 -
     1.3 * Math.hypot((x - t.cx) / (t.width * 0.4), (y - t.cy) / (t.height * 0.46)) ** 2;
-  const all = t.isolines(field, 0, { close: true, step: 0.6 });
+  const all = t.isolines(field, 0, { step: 0.6 });
   const pieces = all.points.components();
   const biggest = pieces.reduce((a, b) => (b.length > a.length ? b : a));
   const bowl = biggest.edges.extract().resample({ spacing: 0.7 });

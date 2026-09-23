@@ -113,14 +113,17 @@ describe('within: domain bounds and absence', () => {
     expect(Number.isNaN(f(0, 0))).toBe(true);
   });
 
-  it('isolines truncate OPEN at the domain edge — no staircase wall', () => {
-    // Constant field bounded to a circle: every level-set boundary would be
-    // the domain edge itself. Correct output: NO contours at all (nothing
-    // crosses the level inside the domain) — the old sentinel behavior drew
-    // a staircase ring hugging the circle.
+  it('a level set closes ON the domain edge — no staircase wall, no level line', () => {
+    // Constant field bounded to a circle: the level set is the whole disc,
+    // so its boundary is the domain edge itself. It is one ring, every edge
+    // of it a closing edge (cut), every point on the circle — not the
+    // staircase the old sentinel drew a cell inside it.
     const f = tk.within(() => 5, circle(50, 50, 20));
     const cs = isolinesOf(env, f, 1, { step: 1 });
-    expect(cs).toHaveLength(0);
+    expect(cs).toHaveLength(1);
+    expect(cs[0].closed).toBe(true);
+    expect(cs[0].cut.every((v) => v === 1)).toBe(true);
+    for (const [x, y] of cs[0].pts) expect(Math.abs(Math.hypot(x - 50, y - 50) - 20)).toBeLessThan(0.06);
   });
 
   it('isolines inside the domain still close normally', () => {
@@ -135,7 +138,7 @@ describe('within: domain bounds and absence', () => {
     expect(cs[0].closed).toBe(true);
   });
 
-  it('a contour crossing the domain edge comes back open', () => {
+  it('a contour crossing the domain edge closes along it; its level line is the open part', () => {
     // The cone's level set pokes past the bound on one side.
     const f = tk.within(
       (x: number, y: number) => 25 - Math.hypot(x - 50, y - 50),
@@ -143,7 +146,8 @@ describe('within: domain bounds and absence', () => {
     );
     const cs = isolinesOf(env, f, 5, { step: 0.5 });
     expect(cs.length).toBeGreaterThan(0);
-    expect(cs.every((c) => !c.closed)).toBe(true);
+    expect(cs.every((c) => c.closed)).toBe(true);
+    expect(cs.every((c) => c.cut.includes(0) && c.cut.includes(1))).toBe(true);
   });
 });
 

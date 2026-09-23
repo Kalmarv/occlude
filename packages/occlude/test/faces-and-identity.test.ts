@@ -267,7 +267,7 @@ describe('P5 · a face collection is a selection', () => {
   it('G6-31 · union keeps the key type, so a component list folds', () => {
     const t = toolkit({ aspect: [3, 4], seed: 11 });
     const sheet = (x: number, y: number) => sdf.box(50, 65, 60, 90)(x, y);
-    const edges = t.isolines(sheet, 0, { close: true });
+    const edges = t.isolines(sheet, 0);
     const rim = t.within(t.isolines((x, y) => 0.5 + 0.5 * t.noise(x / 14, y / 18), 0.62), edges);
     const long = rim.edges.components().filter((piece) => piece.length > 3);
     expect(long.length).toBeGreaterThan(0);

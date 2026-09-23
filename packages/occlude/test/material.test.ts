@@ -560,7 +560,9 @@ describe('material: material beyond one chain', () => {
     expect(Array.from(zeroed.attrs.age).every((v) => v === 0)).toBe(true);
     const fn = ring.resample({ count: 4, transfer: { age: (a, b, t) => a.age * 100 + t } });
     expect(fn.attrs.age[1]).toBeCloseTo(701, 6); // lands exactly on vertex 1: a = vertex 0, t = 1
-    expect(() => material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).resample({ spacing: 1 })).toThrow(/junction/);
+    // A junction is kept: one vertex, three chains still meeting there.
+    const fork = material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).resample({ spacing: 0.25 });
+    expect([...fork.points].filter((p) => p.edges.length === 3).map((p) => [p.x, p.y])).toEqual([[1, 0]]);
   });
 
   it('along: stations by arc length with tangents and transferred columns; the material untouched', () => {
@@ -602,7 +604,8 @@ describe('material: material beyond one chain', () => {
     expect(both.map((q) => q.chain)).toEqual([0, 0, 1, 1]);
     expect(both.map((q) => q.length)).toEqual([4, 4, 3, 3]);
     expect(both[3].tangent).toEqual([0, 1]);
-    expect(() => material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).along({ spacing: 1 })).toThrow(/junction/);
+    // A junction ends each of the three chains that meet there.
+    expect(material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).along({ spacing: 1 }).map((q) => q.chain)).toEqual([0, 0, 1, 1, 2, 2]);
     expect(() => ring.along({ spacing: 5, count: 3 })).toThrow(/exactly one/);
   });
 

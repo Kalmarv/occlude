@@ -12,7 +12,7 @@ import { sketch, strokes, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
   const shore = (x, y) => t.noise(x / 40, y / 40) + 0.78 - 1.45 * Math.hypot((x - t.cx) / (t.width * 0.46), (y - t.cy) / (t.height * 0.44)) ** 2;
-  const coast = t.isolines(shore, 0, { close: true, step: 1 });
+  const coast = t.isolines(shore, 0, { step: 1 });
   const inland = distanceTo(coast);
   const height = (x, y) => Math.max(0, inland(x, y)) * 0.55 + 15 * t.noise(x / 21, y / 21) + 3.5 * t.noise(x / 8, y / 8);
   const keep = (m, minStrength, minRun) => {

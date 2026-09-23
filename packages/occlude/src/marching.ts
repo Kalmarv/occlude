@@ -12,7 +12,7 @@
  * the one-file version; the emitted coordinates are the same doubles.
  */
 
-import type { IsoContour } from './isolines.js';
+import type { LevelContour } from './isolines.js';
 
 /** A field sampled on the isoline lattice, padded by one ring on every
  * side (stride `pw = gw + 2`): sample (i, j) of the grid is
@@ -23,6 +23,11 @@ import type { IsoContour } from './isolines.js';
 export interface SampledGrid {
   vals: Float64Array;
   absent: Uint8Array;
+  /** Where the domain ends along each lattice edge that joins a present
+   * sample to an absent one, as the fraction of the step from the edge's
+   * first sample: `h[j * gw + i]` on the edge (i, j)–(i + 1, j), `v[j * gw
+   * + i]` on (i, j)–(i, j + 1). Absent when the grid has no absent sample. */
+  wall?: { h: Float64Array; v: Float64Array };
   pw: number;
   gw: number;
   gh: number;
@@ -32,25 +37,34 @@ export interface SampledGrid {
 }
 
 /** Directed crossing segments, four scalars each: `[ax, ay, bx, by]` at
- * `4k`; only the first `segN` are meaningful. */
+ * `4k`; only the first `segN` are meaningful. `segWall[k]` is 1 when
+ * segment `k` lies in a cell at the edge of the domain — the pad ring
+ * outside the drawable, or a cell touching an absent sample — and so
+ * closes a region rather than tracing the level through open ground. */
 export interface SegmentBuffer {
   segXY: Float64Array;
+  segWall: Uint8Array;
   segN: number;
 }
 
 /** Marching squares over one sampled grid at one level: the directed
  * crossing segments, four scalars each, in cell order. The pad ring of
  * `grid.vals` is (re)written with the below-level sentinel on every call —
- * the levels of one sampling share the buffer, as they always have. */
+ * the levels of one sampling share the buffer, as they always have.
+ *
+ * Where the domain ends — the drawable with `close`, or an absent sample —
+ * counts as below the level, so every region closes along it. A segment
+ * that runs along that edge rather than along the level is marked in
+ * `segWall`; the level line is everything else. */
 export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): SegmentBuffer {
-  const { vals, absent, pw, gw, gh, b, sx, sy } = grid;
+  const { vals, absent, pw, gw, gh, b, sx, sy, wall } = grid;
   // With `close`, one ring of below-level sentinel samples surrounds the
   // grid (indices -1 and gw/gh), so every region's boundary closes just
   // outside the drawable; the emitted points are clamped back onto it and
   // the colinear merge collapses the border runs.
   // The pad ring carries the below-level sentinel; out-of-grid samples are
   // the paper-edge closing ring, never "absent", so `absent` stays 0 there
-  // and only in-grid non-finite samples truncate contours. Index (i,j) in
+  // and only in-grid non-finite samples are absent. Index (i,j) in
   // grid space is (j+1)*pw + (i+1) in padded space, valid for i,j in
   // [-1, gw] / [-1, gh] — exactly the range marchLevel walks.
   const pad = lvl - 1;
@@ -75,15 +89,20 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
   // 256² grid is ~330k closures a level and showed up as pure GC time.
   let segCap = 1024;
   let segXY = new Float64Array(segCap * 4);
+  let segWall = new Uint8Array(segCap);
   let segN = 0;
-  const emit = (ax: number, ay: number, bx: number, by: number): void => {
+  const emit = (ax: number, ay: number, bx: number, by: number, onWall = 0): void => {
     if (ax === bx && ay === by) return;
     if (segN === segCap) {
       segCap *= 2;
       const g = new Float64Array(segCap * 4);
       g.set(segXY);
       segXY = g;
+      const w = new Uint8Array(segCap);
+      w.set(segWall);
+      segWall = w;
     }
+    segWall[segN] = onWall;
     const o = segN++ * 4;
     segXY[o] = ax; segXY[o + 1] = ay; segXY[o + 2] = bx; segXY[o + 3] = by;
   };
@@ -96,6 +115,61 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
     px(i) + sx * ((lvl - va) / (vb - va));
   const yLy = (j: number, va: number, vd: number): number =>
     py(j) + sy * ((lvl - va) / (vd - va));
+
+  // A cell on the domain's edge: in the pad ring, or touching an absent
+  // sample. Few of them, so they take a slower path that names each
+  // crossing by the cell side it lies on: T, R, B, L = 0, 1, 2, 3.
+  const edgeX = new Float64Array(4);
+  const edgeY = new Float64Array(4);
+  const wallCell = (i: number, j: number, o: number, va: number, vb: number, vc: number, vd: number, code: number): void => {
+    // Top (i,j)–(i+1,j), right (i+1,j)–(i+1,j+1), bottom (i,j+1)–(i+1,j+1),
+    // left (i,j)–(i,j+1). A crossing against an absent sample lies where the
+    // field stops, which the sampler found; any other is interpolated as in
+    // the plain cell, the pad ring included.
+    const aT = absent[o] === 1 || absent[o + 1] === 1;
+    const aR = absent[o + 1] === 1 || absent[o + pw + 1] === 1;
+    const aB = absent[o + pw] === 1 || absent[o + pw + 1] === 1;
+    const aL = absent[o] === 1 || absent[o + pw] === 1;
+    edgeY[0] = py(j);
+    edgeX[0] = aT ? px(i) + sx * wall!.h[j * gw + i] : xTx(i, va, vb);
+    edgeX[1] = px(i + 1);
+    edgeY[1] = aR ? py(j) + sy * wall!.v[j * gw + i + 1] : yLy(j, vb, vc);
+    edgeY[2] = py(j + 1);
+    edgeX[2] = aB ? px(i) + sx * wall!.h[(j + 1) * gw + i] : xTx(i, vd, vc);
+    edgeX[3] = px(i);
+    edgeY[3] = aL ? py(j) + sy * wall!.v[j * gw + i] : yLy(j, va, vd);
+    // Every segment of an edge cell closes the region: a ring cell lies
+    // outside the drawable and is clamped onto its edge, and a cell touching
+    // an absent sample is where the field stops. The level line is the
+    // plain cells alone — exactly the line an open march draws.
+    const seg = (p: number, q: number): void => emit(edgeX[p], edgeY[p], edgeX[q], edgeY[q], 1);
+    switch (code) {
+      case 1: seg(3, 0); break;
+      case 2: seg(0, 1); break;
+      case 3: seg(3, 1); break;
+      case 4: seg(1, 2); break;
+      case 5: {
+        const centre = (va + vb + vc + vd) / 4 >= lvl;
+        if (centre) { seg(1, 0); seg(3, 2); }
+        else { seg(3, 0); seg(1, 2); }
+        break;
+      }
+      case 6: seg(0, 2); break;
+      case 7: seg(3, 2); break;
+      case 8: seg(2, 3); break;
+      case 9: seg(2, 0); break;
+      case 10: {
+        const centre = (va + vb + vc + vd) / 4 >= lvl;
+        if (centre) { seg(0, 3); seg(2, 1); }
+        else { seg(0, 1); seg(2, 3); }
+        break;
+      }
+      case 11: seg(2, 1); break;
+      case 12: seg(1, 3); break;
+      case 13: seg(1, 0); break;
+      default: seg(0, 3); break; // 14
+    }
+  };
   for (let j = lo; j < hiJ; j++) {
     for (let i = lo; i < hiI; i++) {
       const o = at(i, j);
@@ -103,12 +177,16 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
       const vb = vals[o + 1]; // top-right
       const vc = vals[o + pw + 1]; // bottom-right
       const vd = vals[o + pw]; // bottom-left
-      // Domain-edge policy: a cell touching an absent sample emits nothing
-      // — the contour ends (open), like at the paper edge.
-      if (absent[o] === 1 || absent[o + 1] === 1 || absent[o + pw + 1] === 1 || absent[o + pw] === 1) continue;
+      // An absent sample reads as below the level (its value is the deep
+      // sentinel), so the region stops where the field does.
       const code =
         (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
       if (code === 0 || code === 15) continue;
+      const ring = i < 0 || j < 0 || i >= gw - 1 || j >= gh - 1;
+      if (ring || absent[o] === 1 || absent[o + 1] === 1 || absent[o + pw + 1] === 1 || absent[o + pw] === 1) {
+        wallCell(i, j, o, va, vb, vc, vd, code);
+        continue;
+      }
       // Crossing coordinates as scalars. The x of a top/bottom crossing and
       // the y of a left/right crossing are the only varying components; the
       // other component of each is a grid line. Each case reads only the
@@ -146,15 +224,31 @@ export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): S
       }
     }
   }
-  return { segXY, segN };
+  return { segXY, segWall, segN };
 }
 
+/** The segments of one buffer that do (`wall` true) or do not lie in an
+ * edge cell, as a buffer of their own, in the order they were emitted. */
+export function wallSegments({ segXY, segWall, segN }: SegmentBuffer, wall: boolean): SegmentBuffer {
+  const keep = wall ? 1 : 0;
+  let n = 0;
+  for (let k = 0; k < segN; k++) if (segWall[k] === keep) n++;
+  const xy = new Float64Array(n * 4);
+  let o = 0;
+  for (let k = 0; k < segN; k++) {
+    if (segWall[k] !== keep) continue;
+    xy.set(segXY.subarray(k * 4, k * 4 + 4), o);
+    o += 4;
+  }
+  return { segXY: xy, segWall: new Uint8Array(n).fill(keep), segN: n };
+}
 
 /** Join directed segments end-to-start into contours. Orientation is
  * consistent from the case table, so forward extension follows `b → a`
  * matches and backward extension `a → b` matches; iteration is emission
- * order, so the result is deterministic. */
-export function chainSegments({ segXY, segN }: SegmentBuffer): IsoContour[] {
+ * order, so the result is deterministic. Each contour's `cut[k]` is the
+ * wall mark of its edge from point `k` to the next. */
+export function chainSegments({ segXY, segWall, segN }: SegmentBuffer): LevelContour[] {
   const Q = 1e-6; // user units — far below any step, above float noise
   const q = (v: number): number => Math.round(v / Q);
   const ax = (k: number): number => segXY[k * 4];
@@ -201,7 +295,7 @@ export function chainSegments({ segXY, segN }: SegmentBuffer): IsoContour[] {
     bkt.cur = c;
     return c < list.length ? list[c] : undefined;
   };
-  const out: IsoContour[] = [];
+  const out: LevelContour[] = [];
   for (let k = 0; k < segN; k++) {
     if (used[k]) continue;
     used[k] = 1;
@@ -209,6 +303,7 @@ export function chainSegments({ segXY, segN }: SegmentBuffer): IsoContour[] {
       [ax(k), ay(k)],
       [bx(k), by(k)],
     ];
+    let cut: number[] = [segWall[k]];
     // Quantised key of the chain's first point, kept in step with pts[0].
     let sx = q(ax(k));
     let sy = q(ay(k));
@@ -226,6 +321,7 @@ export function chainSegments({ segXY, segN }: SegmentBuffer): IsoContour[] {
       if (n === undefined) break;
       used[n] = 1;
       pts.push([bx(n), by(n)]);
+      cut.push(segWall[n]);
     }
     let closed = endsAtStart();
     if (closed) {
@@ -235,22 +331,25 @@ export function chainSegments({ segXY, segN }: SegmentBuffer): IsoContour[] {
       // and spliced once — unshift per segment made long open chains
       // quadratic.
       const head: [number, number][] = [];
+      const headCut: number[] = [];
       for (;;) {
         const n = take(byEnd, sx, sy);
         if (n === undefined) break;
         used[n] = 1;
         head.push([ax(n), ay(n)]);
+        headCut.push(segWall[n]);
         sx = q(ax(n));
         sy = q(ay(n));
       }
       if (head.length > 0) {
         head.reverse();
         pts = head.concat(pts);
+        cut = headCut.reverse().concat(cut);
       }
       closed = endsAtStart();
       if (closed) pts.pop();
     }
-    out.push({ pts, closed });
+    out.push({ pts, closed, cut });
   }
   return out;
 }

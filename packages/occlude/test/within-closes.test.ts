@@ -202,15 +202,19 @@ describe('the closure decides', () => {
     expect([...out.edgeAttrs.cut].every((c) => c === 0)).toBe(true);
   });
 
-  it('an existing cut column is replaced, not a throw', () => {
+  it('an existing cut column is kept: its marks OR the closing marks', () => {
     const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 });
-    const marked = src.edgeAttributes({ cut: 7 });
+    const marked = src.edgeAttributes({ cut: 1 });
     const area = circle(50, 50, 30);
     const plain = t.within(src, area);
     const out = t.within(marked, area);
     expect(out.faces().length).toBe(plain.faces().length);
-    expect([...out.edgeAttrs.cut]).toEqual([...plain.edgeAttrs.cut]);
-    expect(out.edgeAttrs.cut.some((c) => c === 1)).toBe(true);
+    // Every source edge stays marked, and the closing edges are marked too.
+    expect(out.edgeAttrs.cut.every((c) => c === 1)).toBe(true);
+    expect(out.edgeCount).toBe(plain.edgeCount);
+    // A source with an unmarked column gets exactly the closing marks.
+    const zero = t.within(src.edgeAttributes({ cut: 0 }), area);
+    expect([...zero.edgeAttrs.cut]).toEqual([...plain.edgeAttrs.cut]);
   });
 });
 

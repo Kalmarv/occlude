@@ -1231,10 +1231,13 @@ export class Material {
   /**
    * Resample the material's chains evenly by arc length — the explicit,
    * lossy redistribution of sampled material after it has been deformed.
-   * Chains only (a junction is an error, for now). Each chain gets
-   * `count` vertices, or as many as fit at `spacing` (at least 2 open,
-   * 3 closed); open chains keep both endpoints, closed ones keep their
-   * seam at their first vertex. Corners are NOT preserved: a new vertex
+   * It walks `curves()`: each chain gets `count` vertices, or as many as
+   * fit at `spacing` (at least 2 open, 3 closed); open chains keep both
+   * endpoints, closed ones keep their seam at their first vertex. On a
+   * network — a hex field, a tiling, a voronoi — a chain runs from one
+   * junction to the next, and every junction and loose end stays where it
+   * is and who it is: one vertex, the same id, every chain still meeting
+   * there. Corners are NOT preserved: a new vertex
    * lands on the old polyline, but a corner between two new vertices is
    * cut. Attributes carry over per `transfer` (default: linear
    * interpolation for every column; `'nearest'`, a constant, or a function
@@ -1259,9 +1262,10 @@ export class Material {
     // in with the options, the way `spacing` does: `t.sample(m, …)` hands
     // the run's own, and a bare `m.resample` from a pure context is flat.
     const curved = opts.space !== undefined && opts.space.kind !== 'euclidean' ? opts.space : null;
-    for (let i = 0; i < this.n; i++) {
-      if (this.adj[i].length > 2) throw new Error(`resample: vertex ${i} is a junction — chains only`);
-    }
+    // A network pins its chains' ends: a junction is one vertex that several
+    // chains share, so each chain is redistributed between its two ends as a
+    // `where` run is, and the ends keep their rows and their ids.
+    const network = hasJunction(this);
     // The eligible region is a set of EDGES: a redistribution is about the
     // stretch between two vertices, not about the vertices.
     const eligible = whereRows(this, opts.where, 'edges', 'resample');
@@ -1354,10 +1358,11 @@ export class Material {
     // A vertex this call does not touch: verbatim, not through `transfer`.
     // A transfer rule says what a value does at a NEW vertex, and this is
     // not one.
+    const keepsIds = eligible !== null || network;
     const copy = (v: number) => {
       ox.push(this.x[v]);
       oy.push(this.y[v]);
-      osrc.push(eligible === null ? -1 : v);
+      osrc.push(keepsIds ? v : -1);
       for (const name of names) oattrs[name].push(this.attrs[name][v]);
     };
     // Isolated vertices are not chains: they come through unchanged.
@@ -1374,25 +1379,30 @@ export class Material {
       }
       if (closed && samples.length > 1) p.link(first + samples.length - 1, first, p.at(samples, samples.length - 1), p.total);
     };
+    // An output row per source vertex, made the first time the walk needs
+    // it, so a vertex two pieces share is one row and the ring closes — and
+    // a junction several chains share is one row too.
+    const rowOf = new Map<number, number>();
     for (const c of this.curves()) {
-      const idx = c.indices;
+      // A chain on a network ends at its junctions and keeps them: it is
+      // walked as an open piece, a loop back to its own junction included.
+      const pinned = network && (!c.closed || this.adj[c.indices[0]].length > 2);
+      const idx = pinned && c.closed ? [...c.indices, c.indices[0]] : c.indices;
+      const closed = c.closed && !pinned;
       const m = idx.length;
       const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s], idx[(s + 1) % m]))!;
-      if (eligible === null) {
-        whole(idx, c.closed);
+      if (eligible === null && !pinned) {
+        whole(idx, closed);
         continue;
       }
-      const segs = c.closed ? m : m - 1;
-      const on = (s: number) => eligible.has(rowOfSeg(s));
+      const segs = closed ? m : m - 1;
+      const on = (s: number) => eligible === null || eligible.has(rowOfSeg(s));
       let count = 0;
       for (let s = 0; s < segs; s++) if (on(s)) count++;
-      if (count === segs) {
-        whole(idx, c.closed);
+      if (count === segs && !pinned) {
+        whole(idx, closed);
         continue;
       }
-      // An output row per source vertex, made the first time the walk needs
-      // it, so a vertex two pieces share is one row and the ring closes.
-      const rowOf = new Map<number, number>();
       const rowFor = (v: number) => {
         const had = rowOf.get(v);
         if (had !== undefined) return had;
@@ -1440,7 +1450,7 @@ export class Material {
       // ring closes on a vertex both of them own. An open one starts at its
       // own first vertex.
       let start = 0;
-      if (c.closed) {
+      if (closed) {
         for (let s = 0; s < segs; s++) {
           if (on(s) !== on((s + segs - 1) % segs)) {
             start = s;
@@ -1463,7 +1473,7 @@ export class Material {
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
     const base = { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, space: this.space };
-    if (eligible === null) return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), base);
+    if (!keepsIds) return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), base);
     // A row that came through untouched keeps what it had. A new vertex is
     // minted, and a new edge takes the lineage root of the source edge under
     // its middle — the way a split's children take their parent's, so the
@@ -1495,8 +1505,9 @@ export class Material {
    * segment (default 8) — the source segment becomes that many edges. An
    * open chain takes its end tangents from its end segments. A chain of
    * fewer than three vertices has no curve to describe and comes through
-   * as it is. Junctions are an error, as they are for `along` and
-   * `resample`.
+   * as it is. On a network each chain of `curves()` bends on its own,
+   * junction to junction: a junction is a vertex like any other, kept, and
+   * each chain leaves it along its own end segment.
    *
    * The source vertices are the same vertices: same ids, same positions,
    * same columns. Each new vertex between them is minted, with its columns
@@ -1513,9 +1524,6 @@ export class Material {
     const steps = opts.steps ?? 8;
     if (!Number.isInteger(steps) || steps < 1) {
       throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
-    }
-    for (let i = 0; i < this.n; i++) {
-      if (this.adj[i].length > 2) throw new Error(`spline: vertex ${i} is a junction — chains only`);
     }
     const names = this.attrNames;
     const enames = this.edgeAttrNames;
@@ -1575,9 +1583,13 @@ export class Material {
     // Isolated vertices are not chains: they come through unchanged.
     for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) rowFor(i);
     for (const c of this.curves()) {
-      const idx = c.indices;
+      // A loop that leaves a junction and comes back to it ends there twice,
+      // like any chain that ends at a junction: it is walked open.
+      const pinned = c.closed && this.adj[c.indices[0]].length > 2;
+      const idx = pinned ? [...c.indices, c.indices[0]] : c.indices;
+      const closed = c.closed && !pinned;
       const k = idx.length;
-      const segs = c.closed ? k : k - 1;
+      const segs = closed ? k : k - 1;
       const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s % k], idx[(s + 1) % k]))!;
       // Two vertices describe a straight line and nothing else: no curve to
       // draw, so the chain is the chain it was.
@@ -1588,7 +1600,7 @@ export class Material {
       // The vertex before the segment and the one after it set the tangents.
       // An open chain has none at its ends, so the end segment is its own
       // neighbour and the curve leaves along it.
-      const at = (j: number): number => (c.closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
+      const at = (j: number): number => (closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
       for (let s = 0; s < segs; s++) {
         const row = rowOfSeg(s);
         const p0 = at(s - 1);
@@ -1668,7 +1680,11 @@ export class Material {
    *
    * A chain with nothing left after the cut draws nothing, the way every
    * degenerate input here does. So does an isolated vertex, which is not a
-   * chain. Junctions are an error, as they are for `along` and `resample`.
+   * chain. On a network the chains are those of `curves()`, junction to
+   * junction, and a junction is not an end: it stays, with every chain that
+   * meets it, and only a loose end is cut — the tips of a crack, not its
+   * forks. `start` is cut from a chain's first vertex, `end` from its last,
+   * in the order `curves()` walks it.
    *
    * The vertices between the two cuts are the SAME vertices: same ids,
    * same positions, same columns. Each new end is a fresh vertex, with its
@@ -1684,9 +1700,6 @@ export class Material {
     for (const [name, v] of [['start', head], ['end', tail]] as const) {
       if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`trim: { ${name} } must be a finite length in the material's own coordinates (mm(1) and the other lengths need the sketch frame, as for thicken)`);
       if (v < 0) throw new Error(`trim: { ${name} } must not be negative — a cut removes length, it does not add any`);
-    }
-    for (let i = 0; i < this.n; i++) {
-      if (this.adj[i].length > 2) throw new Error(`trim: vertex ${i} is a junction — chains only`);
     }
     if (head === 0 && tail === 0) return material(this);
     const names = this.attrNames;
@@ -1707,14 +1720,20 @@ export class Material {
     const eroot: number[] = [];
     const storedRow = new Map<number, number>();
     for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
-    // A vertex this call does not touch, verbatim; a cut end, blended.
-    const keep = (v: number) => {
+    // A vertex this call does not touch, verbatim, and once: a junction the
+    // chains share is one row. A cut end, blended.
+    const rowOf = new Map<number, number>();
+    const keep = (v: number): number => {
+      const had = rowOf.get(v);
+      if (had !== undefined) return had;
       ox.push(this.x[v]);
       oy.push(this.y[v]);
       osrc.push(v);
       for (const name of names) oattrs[name].push(this.attrs[name][v]);
+      rowOf.set(v, ox.length - 1);
+      return ox.length - 1;
     };
-    const cut = (a: number, b: number, t: number) => {
+    const cut = (a: number, b: number, t: number): number => {
       if (curved) {
         const g = curved.geodesic([this.x[a], this.y[a]], [this.x[b], this.y[b]], t);
         ox.push(g[0]);
@@ -1733,6 +1752,7 @@ export class Material {
         else if (typeof rule === 'number') oattrs[name].push(rule);
         else oattrs[name].push(rule(this.vertex(a), this.vertex(b), t));
       }
+      return ox.length - 1;
     };
     const join = (from: number, to: number, sourceEdge: number, whole: boolean) => {
       edges.push(from, to);
@@ -1744,18 +1764,18 @@ export class Material {
       const idx = c.indices;
       // A ring has no ends: it comes through as it is.
       if (c.closed) {
-        const first = ox.length;
-        for (const v of idx) keep(v);
+        const rows = idx.map(keep);
         for (let s = 0; s < idx.length; s++) {
-          join(first + s, first + ((s + 1) % idx.length), storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!, true);
+          join(rows[s], rows[(s + 1) % idx.length], storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!, true);
         }
         continue;
       }
       const pts = idx.map((i) => [this.x[i], this.y[i]] as [number, number]);
       const cum = chainLengths(pts, false, opts?.space);
       const total = cum[cum.length - 1];
-      const from = head;
-      const to = total - tail;
+      // A junction is not an end: nothing is cut there.
+      const from = this.adj[idx[0]].length > 2 ? 0 : head;
+      const to = this.adj[idx[idx.length - 1]].length > 2 ? total : total - tail;
       // Nothing survives the cut: this chain draws nothing.
       if (!(to > from)) continue;
       // The segment a distance falls on, and how far along it.
@@ -1772,15 +1792,11 @@ export class Material {
       for (let v = 0; v < idx.length; v++) if (cum[v] >= from && cum[v] <= to) stops.push({ d: cum[v], row: v });
       if (stops.length === 0 || stops[0].d > from) stops.unshift({ d: from, row: -1 });
       if (stops[stops.length - 1].d < to) stops.push({ d: to, row: -1 });
-      const first = ox.length;
-      for (const stop of stops) {
-        if (stop.row >= 0) {
-          keep(idx[stop.row]);
-          continue;
-        }
+      const rows = stops.map((stop) => {
+        if (stop.row >= 0) return keep(idx[stop.row]);
         const [seg, t] = at(stop.d);
-        cut(idx[seg], idx[seg + 1], t);
-      }
+        return cut(idx[seg], idx[seg + 1], t);
+      });
       // Consecutive stops always lie within ONE source segment, because
       // every source vertex between the cuts is a stop. The segment under
       // the middle is therefore the segment they are both on.
@@ -1789,7 +1805,7 @@ export class Material {
         // The edge survives whole, and keeps its id, only when both ends are
         // the source vertices it already joined.
         const whole = stops[k].row >= 0 && stops[k + 1].row === stops[k].row + 1;
-        join(first + k, first + k + 1, storedRow.get(pairKey(idx[seg], idx[seg + 1]))!, whole);
+        join(rows[k], rows[k + 1], storedRow.get(pairKey(idx[seg], idx[seg + 1]))!, whole);
       }
     }
     const attrs: Record<string, Float64Array> = {};
@@ -1815,18 +1831,23 @@ export class Material {
    * or neither for a station at every vertex, in walk order (the chain's
    * own corners, as `t.material` keeps them); open chains include both ends, closed chains start at the
    * seam and never repeat it; every chain is walked on its own, in
-   * `curves()` order; isolated vertices give nothing; a junction is an
-   * error. Columns come across by their transfer policies (see `Station`),
-   * `transfer` overriding point columns per call as in `resample`.
+   * `curves()` order; isolated vertices give nothing. On a network a chain
+   * runs from junction to junction, so a junction ends every chain that
+   * meets it and gives one station for each, facing along that chain.
+   * Columns come across by their transfer policies (see `Station`),
+   * `transfer` overriding point columns per call as in `resample`. In a
+   * curved space (`space`) a station sits on the geodesic between two
+   * vertices, and its heading, tangent and normal are the direction the
+   * space's `log` gives toward the next vertex — the frame `station.step`
+   * walks in.
    */
   along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; space?: Space } = {}): Station[] {
     const atVertices = opts.spacing === undefined && opts.count === undefined;
-    // Frame data through the options door, exactly as `resample` takes it.
-    const curved = opts.space !== undefined && opts.space.kind !== 'euclidean' ? opts.space : null;
+    // The space the options name, else the one the material carries: a
+    // curved material is walked in its own geometry.
+    const space = opts.space ?? this.space;
+    const curved = space !== undefined && space.kind !== 'euclidean' ? space : null;
     if (!atVertices && !checkSampling('along', opts)) return [];
-    for (let i = 0; i < this.n; i++) {
-      if (this.adj[i].length > 2) throw new Error(`along: vertex ${i} is a junction — chains only`);
-    }
     const names = this.attrNames;
     const stationTransfers = Object.freeze({ ...this.transfers });
     const transfer: Record<string, Transfer> = { ...this.transfers, ...(opts.transfer ?? {}) };
@@ -1841,8 +1862,8 @@ export class Material {
       // No sampling option: the chain's own vertices, in walk order.
       const samples = atVertices
         ? idx.map((_, k) => (k < segs ? { seg: k, t: 0 } : { seg: segs - 1, t: 1 }))
-        : alongChain(pts, c.closed, opts);
-      const cum = chainLengths(pts, c.closed, opts.space);
+        : alongChain(pts, c.closed, { ...opts, space });
+      const cum = chainLengths(pts, c.closed, space);
       const total = cum[segs];
       const rowOfSeg = (sg: number) => storedRow.get(pairKey(idx[sg], idx[(sg + 1) % idx.length]))!;
       const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
@@ -1870,6 +1891,31 @@ export class Material {
         if (t <= 1e-9) return tangentAtVertex(seg);
         if (t >= 1 - 1e-9) return tangentAtVertex(seg + 1);
         return dir(seg);
+      };
+      // In a curved space a direction belongs to the point it is taken at:
+      // the one `log` answers there, toward the vertex ahead (or away from
+      // the one behind, which is the same geodesic seen from its far end).
+      const unit = (v: readonly number[], sign = 1): [number, number] | null => {
+        const len = Math.hypot(v[0], v[1]);
+        return len > 0 ? [(sign * v[0]) / len, (sign * v[1]) / len] : null;
+      };
+      const logTangentAtVertex = (sp: Space, v: number): [number, number] => {
+        const here = pts[v % idx.length];
+        const hasPrev = c.closed || v > 0;
+        const hasNext = c.closed || v < segs;
+        const before = hasPrev ? unit(sp.log(here, pts[(v - 1 + idx.length) % idx.length]), -1) : null;
+        const after = hasNext ? unit(sp.log(here, pts[(v + 1) % idx.length])) : null;
+        if (!before) return after ?? [1, 0];
+        if (!after) return before;
+        const sx = before[0] + after[0];
+        const sy = before[1] + after[1];
+        const len = Math.hypot(sx, sy);
+        return len > 1e-9 ? [sx / len, sy / len] : after; // a hairpin: carry on
+      };
+      const logTangentAt = (sp: Space, seg: number, t: number, here: readonly [number, number]): [number, number] => {
+        if (t <= 1e-9) return logTangentAtVertex(sp, seg);
+        if (t >= 1 - 1e-9) return logTangentAtVertex(sp, seg + 1);
+        return unit(sp.log(here, pts[(seg + 1) % idx.length])) ?? unit(sp.log(here, pts[seg]), -1) ?? [1, 0];
       };
       // The share of chain a station owns for 'distribute' columns: from
       // half way to the previous station to half way to the next; the ends
@@ -1903,7 +1949,8 @@ export class Material {
         const a = idx[seg];
         const b = idx[(seg + 1) % idx.length];
         const onVertexAhead = t >= 1 - 1e-9 && seg + 1 < segs;
-        const tangent = tangentAt(seg, t);
+        const at2 = curved ? curved.geodesic(pts[seg], pts[(seg + 1) % idx.length], t) : null;
+        const tangent = curved ? logTangentAt(curved, seg, t, [at2![0], at2![1]]) : tangentAt(seg, t);
         const attrs: Record<string, number> = {};
         for (const name of names) {
           const rule = transfer[name] ?? 'interpolate';
@@ -1924,7 +1971,6 @@ export class Material {
           }
         }
         const sAt = at(k);
-        const at2 = curved ? curved.geodesic(pts[seg], pts[(seg + 1) % idx.length], t) : null;
         const st: Station = Object.assign(Object.create(STATION_PROTO), {
           x: at2 ? at2[0] : pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
           y: at2 ? at2[1] : pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
@@ -1939,7 +1985,7 @@ export class Material {
           attrs,
           edgeAttrs,
           transfers: stationTransfers,
-          space: opts.space,
+          space,
         });
         out.push(st);
       });
@@ -2446,6 +2492,13 @@ export function pointGrid(x: Float64Array, y: Float64Array, cellsAcross: number)
  * the seam segment). With a curved `space`, each step is measured by the
  * space's own metric; without one the expression is the literal Euclidean
  * hypotenuse every sketch has always summed. */
+/** True when some vertex joins three or more edges: the material is a
+ * network, and a chain verb keeps its junctions where they are. */
+function hasJunction(m: Material): boolean {
+  for (let i = 0; i < m.n; i++) if (m.adjacentRows(i).length > 2) return true;
+  return false;
+}
+
 function chainLengths(pts: readonly (readonly [number, number])[], closed: boolean, space?: Space): number[] {
   const n = pts.length;
   const segs = closed ? n : n - 1;
@@ -2799,7 +2852,10 @@ export function withinMaterial(
   // never asked for would be one more column every later edge must give.
   const edgeTransfers = { ...m.edgeTransfers };
   if (cells) {
-    edgeAttrs.cut = Float64Array.from(cutFlags);
+    // A source that already carries `cut` (a level set closed along the
+    // drawable) keeps its marks: the two are OR-ed, never replaced.
+    const priorCut = edgeAttrs.cut;
+    edgeAttrs.cut = Float64Array.from(cutFlags, (f, i) => (f || (priorCut !== undefined && priorCut[i] !== 0) ? 1 : 0));
     delete edgeTransfers.cut;
   }
   return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs, space: m.space });

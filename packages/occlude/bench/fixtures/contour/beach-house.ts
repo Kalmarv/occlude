@@ -35,7 +35,7 @@ export default sketch({ aspect: [1, 1], margin: 5 }, (t) => {
   const period = Math.round(t.rnd(minLevels, maxLevels));
 
   const levels = t.times(period, (i, k) => t.map(k, 0, 1, minLine, maxLine));
-  const contours = isolines(falloffField, levels, { close: true, step: 0.5 });
+  const contours = isolines(falloffField, levels, { step: 0.5 });
   const center = circle(50, 50, 16, { opaque: true });
   const d = distanceTo(t.material(center));
   const repeat = contours.edges

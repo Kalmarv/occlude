@@ -133,8 +133,11 @@ describe('isolines and streamlines as material', () => {
     expect(raw[3]).toHaveLength(0);
     expect(cs.map((c) => c.pts)).toEqual([raw[0][0].pts, raw[1][0].pts, raw[2][0].pts]);
     expect(cs.every((c) => c.closed)).toBe(true);
-    expect(m!.edgeAttrNames).toEqual(['level']);
+    // Every edge carries its level, and `cut` says which edges close a region
+    // where the drawable ends: none here, the bowl's rings lie inside it.
+    expect(m!.edgeAttrNames).toEqual(['level', 'cut']);
     expect(m!.edgeTransfers.level).toBe('copy');
+    expect(Array.from(m!.edgeAttrs.cut).every((v) => v === 0)).toBe(true);
     const levels = new Set(Array.from(m!.edgeAttrs.level));
     expect([...levels].sort((a, b) => a - b)).toEqual([10, 25]);
     // Selecting by value takes both rings at level 10.
@@ -160,7 +163,7 @@ describe('isolines and streamlines as material', () => {
     expect(none!.n).toBe(0);
     expect(none!.edgeCount).toBe(0);
     expect(none!.curves()).toEqual([]);
-    expect(none!.edgeAttrNames).toEqual(['level']);
+    expect(none!.edgeAttrNames).toEqual(['level', 'cut']);
   });
 
   it('streamlines: open chains in the kernel\'s order, positions intact, editable', () => {

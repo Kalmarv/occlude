@@ -1,15 +1,16 @@
 /**
  * The isoline stages as separate calls (docs/architecture.md, "Fields and
  * units" / "Isolines"): sampling, marching, chaining and finishing compose
- * to exactly what `isolinesOf` returns, and the marching decides the case
+ * to exactly what `levelContours` returns, and the marching decides the case
  * table on its own — saddles, samples equal to the level, absent cells,
  * open boundaries, `close: true`, several levels over one sampling.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
-  chainSegments, finishContours, isolinesOf, marchSegments, sampleGrid, type IsoEnv, type SampledGrid,
+  chainSegments, finishContours, levelContours, marchSegments, sampleGrid, type IsoEnv, type SampledGrid,
 } from '../src/isolines.js';
+import { wallSegments } from '../src/marching.js';
 
 const env: IsoEnv = { bounds: { x: 0, y: 0, w: 4, h: 4 }, len: (l) => (typeof l === 'number' ? l : 1) };
 
@@ -17,7 +18,8 @@ const env: IsoEnv = { bounds: { x: 0, y: 0, w: 4, h: 4 }, len: (l) => (typeof l 
 function gridOf(rows: number[][]): SampledGrid {
   const gh = rows.length;
   const gw = rows[0].length;
-  return sampleGrid((x, y) => rows[y][x], { x: 0, y: 0, w: gw - 1, h: gh - 1 }, gw, gh);
+  // Between the samples there is no table entry: the field is absent there.
+  return sampleGrid((x, y) => rows[y]?.[x] ?? NaN, { x: 0, y: 0, w: gw - 1, h: gh - 1 }, gw, gh);
 }
 
 const segs = (b: ReturnType<typeof marchSegments>) => {
@@ -27,17 +29,23 @@ const segs = (b: ReturnType<typeof marchSegments>) => {
 };
 
 describe('marching: the composition is the production path', () => {
-  it('sample → march → chain → finish equals isolinesOf, per level, over one sampling', () => {
+  it('sample → march → chain → finish equals levelContours, per level, over one sampling', () => {
     const field = (x: number, y: number) => Math.hypot(x - 2, y - 2);
     const b = env.bounds;
     const gw = Math.max(2, Math.ceil(b.w / 0.5) + 1);
     const gh = Math.max(2, Math.ceil(b.h / 0.5) + 1);
     const grid = sampleGrid(field, b, gw, gh);
-    for (const close of [false, true]) {
-      const staged = [1, 1.5, 3].map((lvl) => finishContours(chainSegments(marchSegments(grid, lvl, close)), b, close));
-      const direct = isolinesOf(env, field, [1, 1.5, 3], { step: 0.5, close });
-      expect(staged).toEqual(direct);
-    }
+    // The level line is the plain cells, finished as an open march; the runs
+    // that close it are the edge cells, finished onto the drawable.
+    const staged = [1, 1.5, 3].map((lvl) => {
+      const segments = marchSegments(grid, lvl, true);
+      return {
+        lines: finishContours(chainSegments(wallSegments(segments, false)), b, false),
+        walls: finishContours(chainSegments(wallSegments(segments, true)), b, true),
+      };
+    });
+    const direct = levelContours(env, field, [1, 1.5, 3], { step: 0.5 }).map(({ lines, walls }) => ({ lines, walls }));
+    expect(staged).toEqual(direct);
   });
 });
 
@@ -66,7 +74,7 @@ describe('marching: case decisions on hand grids', () => {
     expect(pair(a)).not.toBe(pair(b));
   });
 
-  it('a cell touching an absent sample emits nothing; the contour ends open there', () => {
+  it('an absent sample is where the domain ends: the region closes there, along closing (cut) edges', () => {
     const rows = [
       [0, 0, 0, 0],
       [0, 1, 1, 0],
@@ -77,7 +85,8 @@ describe('marching: case decisions on hand grids', () => {
     expect(g.absent[(2 + 1) * g.pw + (2 + 1)]).toBe(1);
     const cs = finishContours(chainSegments(marchSegments(g, 0.5, false)), g.b, false);
     expect(cs.length).toBeGreaterThan(0);
-    expect(cs.every((c) => !c.closed)).toBe(true);
+    expect(cs.every((c) => c.closed)).toBe(true);
+    expect(cs.some((c) => c.cut.includes(1))).toBe(true);
   });
 
   it('a region leaving the grid is open, and closes along the edge with close: true', () => {

@@ -91,9 +91,10 @@ describe('spline', () => {
     expect(reach(zigzag().spline({ tension: 1 }))).toBeGreaterThan(reach(zigzag().spline({ tension: 0.5 })));
   });
 
-  it('refuses a junction, a tension outside 0 to 1 and a step count below one', () => {
+  it('keeps a junction; refuses a tension outside 0 to 1 and a step count below one', () => {
     const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]]).withEdges([[0, 1], [1, 2], [1, 3]]);
-    expect(() => tee.spline()).toThrow('junction');
+    const fork = [...tee.spline().points].filter((p) => p.edges.length === 3);
+    expect(fork.map((p) => [p.x, p.y, p.id])).toEqual([[10, 0, tee.points.at(1).id]]);
     expect(() => zigzag().spline({ tension: 2 })).toThrow('tension');
     expect(() => zigzag().spline({ steps: 0 })).toThrow('steps');
     expect(() => zigzag().spline({ steps: 2.5 })).toThrow('steps');

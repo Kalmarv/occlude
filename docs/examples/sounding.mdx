@@ -73,8 +73,8 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
   const levels = t.range(1, 18).map((k) => k * STEP);
   const contours = t.isolines(gb, levels);
   const isIndex = (e) => Math.round(e.attrs.level / STEP) % 5 === 0;
-  const indexLines = contours.edges.filter(isIndex);
-  const minorLines = contours.edges.filter((e) => !isIndex(e));
+  const indexLines = contours.edges.filter((e) => !e.attrs.cut && isIndex(e));
+  const minorLines = contours.edges.filter((e) => !e.attrs.cut && !isIndex(e));
 
   // ---- the water -------------------------------------------------------
   // The bed is not an echo of the coast. It is a drowned valley down the
@@ -223,7 +223,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
   };
   const minorOpen = cutBy(minorLines, landBoxes);
   const indexOpen = cutBy(indexLines, landBoxes);
-  const seaOpen = cutBy(isobaths.edges, seaBoxes);
+  const seaOpen = cutBy(isobaths.edges.filter((e) => !e.attrs.cut), seaBoxes);
 
   // ---- the grid --------------------------------------------------------
   const G = 10;
@@ -282,7 +282,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
     sight, beaconMark,
 
     polygon(coast, { opaque: true, stroke: false }),
-    strokes(coast, { pen: HEAVY }),
+    strokes(coast.edges.filter((e) => !e.attrs.cut), { pen: HEAVY }),
 
     strokes(minorOpen, { pen: FINE }),
     strokes(indexOpen, { pen: MID }),

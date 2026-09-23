@@ -27,7 +27,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   });
   const boxes = spots.map((s) => rect(s.x - (0.34 * h * s.text.length + 0.2 * h), s.y - 0.8 * h, 0.68 * h * s.text.length + 0.4 * h, 1.6 * h));
   const blocked = boxes.map((r) => t.within(contours.edges, r)).reduce((a, c) => a.union(c));
-  const broken = contours.edges.subtract(blocked).extract().trim({ start: 0.008 * b.h, end: 0.008 * b.h });
+  const broken = contours.edges.filter((e) => !e.attrs.cut).subtract(blocked).extract().trim({ start: 0.008 * b.h, end: 0.008 * b.h });
   return [strokes(broken), spots.map((s) => label(s.text, s.x, s.y + 0.36 * h, h, { align: 'center' }))];
 });
 ```

@@ -8,7 +8,7 @@ export default sketch({ aspect: [1, 3], margin: 5, seed: 42 }, (t) => {
   const noiseScale = ui(29, { min: 1, max: 30 });
 
   const isoField = (x, y) => noise(x / noiseScale, y / noiseScale);
-  const isoOpts = { close: true, step: 0.2 };
+  const isoOpts = { step: 0.2 };
 
   const minLine = ui(-1, { min: -2, max: 0, step: 0.01 });
   const maxLine = ui(1, { min: 0, max: 2, step: 0.01 });
