@@ -269,7 +269,7 @@ describe('a honeycomb on paper', () => {
       const h = honeycomb3(4, 3, 5, { depth: 1 });
       const seen = observer([0.05, -0.08, 0.1], [0.8, 0, 0]);
       const b = t.bounds();
-      return view(h.wires.transform(seen), { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.01 }), stroke: 'ink' }, (lines) =>
+      return view(h.wires.transform(seen), { camera: perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.01 }), pen: 'ink' }, (lines) =>
         clip(rect(0, 0, b.w, b.h), strokes(lines.visible, { stroke: 'ink' })));
     });
     const out = render(await compileSketchAsync(definition), { paper: { w: 148, h: 148 }, marginPct: 5 });

@@ -14,6 +14,7 @@ import {evaluateSurfaceCpu3,type SurfaceEvaluationResult3,type SurfaceEvaluation
 import type {SceneCompute3} from '../scene.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
 import {clampSetting,sampleValue} from '../degenerate.js';
+import {refuseStroke} from './recipes.js';
 
 /** One direction family of a hatch. Several families over the same surface
  * are crosshatch; each keeps its identity and may name its own pen. */
@@ -22,8 +23,8 @@ export interface HatchFamily {
   readonly direction:DirectionInput;
   /** 0 light (no lines) to 1 dark (every lane). Constant or surface field. */
   readonly tone?:ToneInput;
-  /** Named pen for `view`'s default drawing; attribute `stroke` on the lines. */
-  readonly stroke?:string;
+  /** Named pen for `view`'s default drawing; column `pen` on the lines. */
+  readonly pen?:string;
   /** Surface spacing between neighbouring lanes, model/world units. */
   readonly spacing?:number;
 }
@@ -31,7 +32,6 @@ export interface HatchOptions extends GeometryOptions {
   readonly direction?:DirectionInput;
   readonly spacing?:number;
   readonly tone?:ToneInput;
-  readonly stroke?:string;
   /** Straight advance between direction reads; default spacing / 2. */
   readonly step?:number;
   /** Per-trace limits in each direction from a seed; default 200 spacings, unlimited steps. */
@@ -48,7 +48,7 @@ export interface HatchOptions extends GeometryOptions {
   readonly budget?:SurfaceCurveBudget3;
 }
 export type HatchInput=Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>;
-export type HatchAttributes={family:string;lane:number;threshold:number;seed:number}&Partial<{stroke:string}>;
+export type HatchAttributes={family:string;lane:number;threshold:number;seed:number}&Partial<{pen:string}>;
 export interface HatchStats {
   readonly families:number;readonly surfaces:number;
   readonly traces:number;readonly accepted:number;readonly segments:number;readonly steps:number;
@@ -58,7 +58,7 @@ export interface HatchStats {
 }
 /** Chart u where a chart exists, else world +X (the tracer projects it). */
 const defaultFallback:DirectionField=s=>s.tangentU??[1,0,0];
-interface Family {readonly id:string;readonly direction:DirectionField;readonly tone:ToneField;readonly constantTone?:number;readonly recipe?:ToneRecipe3;readonly stroke?:string;readonly spacing:number}
+interface Family {readonly id:string;readonly direction:DirectionField;readonly tone:ToneField;readonly constantTone?:number;readonly recipe?:ToneRecipe3;readonly pen?:string;readonly spacing:number}
 interface Settings {
   readonly families:readonly Family[];readonly step?:number;readonly maxLength?:number;readonly maxSteps:number;readonly seeds:number;
   readonly maxTraces:number;readonly maxSegments:number;readonly maxTotalSteps:number;readonly creaseDegrees:number;readonly fallback?:DirectionField;
@@ -78,16 +78,17 @@ function count(value:number|undefined,fallback:number,name:string):number {
 export function captureHatch(input:HatchInput,options:HatchOptions) {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('hatch requires an options object');
   if(!(input instanceof Mesh)&&!(input instanceof Instances))throw new Error('hatch requires a mesh or mesh instances');
-  const rows:readonly HatchFamily[]=[{id:'hatch',direction:options.direction as DirectionInput,tone:options.tone,stroke:options.stroke,spacing:options.spacing}];
+  refuseStroke(options,'t.hatch');
+  const rows:readonly HatchFamily[]=[{id:'hatch',direction:options.direction as DirectionInput,tone:options.tone,pen:options.pen,spacing:options.spacing}];
   if(options.direction===undefined)throw new Error('families' in (options as object)?'hatch traces one family per call: give a direction, and call hatch again for a crosshatch family':'hatch requires a direction');
   const families=rows.map((row,i):Family=>{
     if(!row||typeof row!=='object')throw new Error('hatch family must be an object');
     const id=row.id??(rows.length===1?'hatch':`hatch:${i}`);if(typeof id!=='string'||!id)throw new Error('hatch family id must be a nonempty string');
     const direction=row.direction??options.direction;if(direction===undefined)throw new Error(`hatch family ${id} requires a direction`);
     const toneInput=row.tone??options.tone??1,tone=toneField(toneInput);
-    const stroke=row.stroke??options.stroke;if(stroke!==undefined&&(typeof stroke!=='string'||!stroke))throw new Error('hatch stroke must be a pen name');
+    const pen=row.pen??options.pen;if(pen!==undefined&&(typeof pen!=='string'||!pen))throw new Error('hatch pen must be a pen name');
     if(row.spacing===undefined&&options.spacing===undefined)throw new Error('hatch requires a spacing');
-    return {id,direction:directionField(direction),tone,constantTone:typeof toneInput==='number'?toneInput:undefined,recipe:toneRecipe3(toneInput),stroke,spacing:positive(row.spacing??options.spacing,NaN)};
+    return {id,direction:directionField(direction),tone,constantTone:typeof toneInput==='number'?toneInput:undefined,recipe:toneRecipe3(toneInput),pen,spacing:positive(row.spacing??options.spacing,NaN)};
   });
   if(new Set(families.map(f=>f.id)).size!==families.length)throw new Error('hatch family ids must be unique');
   // A degenerate step or length stops every family; a degenerate spacing stops
@@ -309,7 +310,7 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
           const a=trace.nodes[i],b=trace.nodes[i+1];
           if(a.distance===b.distance)continue;
           if(++segmentCount>settings.maxSegments)throw new Error('hatch exceeds segment budget');
-          const attributes:Attributes3={family:family.id,lane,threshold,seed,...(family.stroke?{stroke:family.stroke}:{})};
+          const attributes:Attributes3={family:family.id,lane,threshold,seed,...(family.pen?{pen:family.pen}:{})};
           segments.push({id:identity('hatch-segment',chain,i),kind:'trace',a:nodeId(i),b:nodeId(i+1),chainId:chain,range:[a.distance/total,b.distance/total],supports:[{source:surface.binding,triangle:trace.supports[i],a:weightsOn(i,trace.supports[i]),b:weightsOn(i+1,trace.supports[i])}],attributes});
         }
         offset+=trace.nodes.length;
@@ -333,7 +334,9 @@ export interface TraceOptions extends SurfaceCurveOptions {
   readonly uv?:string;readonly chartAttribute?:string;readonly budget?:SurfaceCurveBudget3;
 }
 type SeedLocation=Pick<SurfaceLocation3,'triangle'|'barycentric'>&Partial<Pick<SurfaceLocation3,'source'>>;
-export type TraceSeed={readonly sample:SeedLocation}|SeedLocation;
+/** Where a trace starts: a surface sample, a location, or a curve sample
+ * (`t.sample(curves, …)` rows) that lies on the traced mesh. */
+export type TraceSeed={readonly sample:SeedLocation}|{readonly sample:{on(target:Mesh<any,any,any,any>):readonly SeedLocation[]}}|SeedLocation;
 export type TraceAttributes={trace:number};
 /** Pure tracing from explicit seeds: sampled points, scattered points or
  * surface locations. Both directions from each seed; no spacing control, no
@@ -341,6 +344,7 @@ export type TraceAttributes={trace:number};
 export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direction:DirectionInput,options:TraceOptions):SurfaceCurves<TraceAttributes> {
   if(!(mesh instanceof Mesh))throw new Error('trace requires a mesh');
   if(!options||typeof options!=='object')throw new Error('trace requires options with a step');
+  refuseStroke(options,'trace');
   const step=positive(options.step,NaN),field=directionField(direction);
   const settings:TraceOptions3={step,maxLength:positive(options.maxLength,step*1000),maxSteps:count(options.maxSteps,Infinity,'maxSteps'),creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'trace creaseDegrees'),loopDistance:step*0.5,uvAttribute:options.uv,chartAttribute:options.chartAttribute};
   // No step and no length are no walk: an empty set of curves.
@@ -349,7 +353,15 @@ export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direc
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   let index=0;
   for(const seed of walks?seeds:[]){
-    const location='sample' in seed?seed.sample:seed;
+    const held='sample' in seed?seed.sample:seed;
+    // A curve sample keeps its attachment to every surface it lies on; the
+    // one on this mesh is the seed.
+    let location:SeedLocation;
+    if(typeof (held as {on?:unknown}).on==='function'){
+      const on=(held as {on(target:Mesh<any,any,any,any>):readonly SeedLocation[]}).on(mesh);
+      if(!on.length)throw new Error('trace seed is a curve sample that does not lie on this mesh: sample curves on the traced mesh (intersections with it, its isolines)');
+      location=on[0];
+    }else location=held as SeedLocation;
     if(!location||!Number.isSafeInteger(location.triangle)||!mesh.surface.triangles[location.triangle]||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
     // A location knows its surface; a seed sampled on another mesh would be
     // read as a triangle index on this one and land somewhere else entirely.
@@ -370,5 +382,5 @@ export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direc
     index++;
   }
   const network=runGeometryJob3(surfaceCurveNetworkJob3({sources:[{id:'surface',binding}],nodes,segments},options.budget)).value;
-  return new SurfaceCurves<TraceAttributes>(network,{key:options.key,stroke:options.stroke});
+  return new SurfaceCurves<TraceAttributes>(network,{key:options.key,pen:options.pen});
 }

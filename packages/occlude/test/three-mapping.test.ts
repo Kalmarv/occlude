@@ -129,7 +129,7 @@ describe('mapSurface',()=>{
     const run=await compileSketchAsync(sketchAsync({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
       const sheet=plane(2).subdivide(3);
       marks=await t.mapSurface(sheet,t.times(8,(_,u)=>stripe((u+.5)/8)));
-      return view([sheet,marks],{camera:orthographic({eye:[5,7,6],span:4}),stroke:'ink'});
+      return view([sheet,marks],{camera:orthographic({eye:[5,7,6],span:4}),pen:'ink'});
     }));
     expect(run.modeling3[0].operation).toBe('mapSurface');
     expect(run.modeling3[0].mapping?.outputSegments).toBe(marks.edges.length);
@@ -145,7 +145,7 @@ describe('mapSurface',()=>{
     const sheet=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[-1,-1,2],[-1,1,2]],[[0,1,2,3],[2,1,4,5]]).cornerAttributes({uv:c=>[c.point.x*.5+.5,c.point.y*.5+.5] as const,chart:c=>c.face.id});
     const marks=mapSurface(sheet,[stripe(.25),stripe(.75)]);
     expect(marks.edges.length).toBe(8);
-    const draw=(select:(lines:import('../src/three/api/projected.js').ProjectedLines)=>import('../src/three/api/projected.js').ProjectedCurves)=>compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([sheet,marks],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),stroke:'ink'},lines=>strokes(select(lines),{stroke:'ink'}))));
+    const draw=(select:(lines:import('../src/three/api/projected.js').ProjectedLines)=>import('../src/three/api/projected.js').ProjectedCurves)=>compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([sheet,marks],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),pen:'ink'},lines=>strokes(select(lines),{stroke:'ink'}))));
     const run=await draw(lines=>lines.visible.filter(c=>c.kinds.has('mapped')));
     const classified=[...run.scenes3.values()][0],mapped=classified.features.filter(f=>f.feature.supportedCurve);
     expect(mapped.length).toBe(8);

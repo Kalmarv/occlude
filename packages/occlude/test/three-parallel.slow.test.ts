@@ -30,7 +30,7 @@ const boxField = () => {
     const h = 0.4 + ((i * 7 + j * 5) % 6) * 0.35;
     boxes.push(box([0.8, 0.8, h]).translate([i - 9.5, j - 4.5, h / 2]));
   }
-  return view(boxes, { camera: orthographic({ eye: [9, -13, 8], span: 17 }), stroke: 'ink', creaseAngle: 20 });
+  return view(boxes, { camera: orthographic({ eye: [9, -13, 8], span: 17 }), pen: 'ink', creaseAngle: 20 });
 };
 /** The globe bench fixture with the frequency dropped to [6, 6], and a plain
  * ripple where the sketch reads seeded noise. The frequency is what puts this
@@ -44,7 +44,7 @@ const globe = () => {
   const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
   return view([water, terrain, levels], {
     camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),
-    stroke: 'ink', creaseAngle: 180,
+    pen: 'ink', creaseAngle: 180,
   });
 };
 const snapshotOf = (drawing: ReturnType<typeof boxField>) => {

@@ -93,7 +93,7 @@ import { obj, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) =>
   view(obj(t.asset('stanford-bunny.obj')).scale(20), {
     camera: orthographic({ eye: [6, -8, 5], target: [-0.3, 0, 2.2], span: 4 }),
-    stroke: 'ink', creaseAngle: 180,
+    pen: 'ink', creaseAngle: 180,
   }));`, fixtures),
   },
   {
@@ -108,7 +108,7 @@ export default sketch({ aspect: [1, 1], seed: 7, pens: { ink: pen({ width: mm(0.
     const h = 0.4 + ((i * 7 + j * 5) % 6) * 0.35;
     boxes.push(box([0.8, 0.8, h]).translate([i - 9.5, j - 4.5, h / 2]));
   }
-  return view(boxes, { camera: orthographic({ eye: [9, -13, 8], span: 17 }), stroke: 'ink', creaseAngle: 20 });
+  return view(boxes, { camera: orthographic({ eye: [9, -13, 8], span: 17 }), pen: 'ink', creaseAngle: 20 });
 });`),
   },
   {
@@ -119,8 +119,8 @@ import { sphere, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, () =>
   view(sphere(1.2, { segments: 96, rings: 48 }), {
-    camera: orthographic({ eye: [4, -6, 3], span: 3 }), stroke: 'ink',
-    hatch: { spacing: mm(0.4), angle: 35, stroke: 'shade' },
+    camera: orthographic({ eye: [4, -6, 3], span: 3 }), pen: 'ink',
+    hatch: { spacing: mm(0.4), angle: 35, pen: 'shade' },
   }));`),
   },
   { name: 'isosurface', size: 'resolution 44', load: fence('reference/3d/primitives.mdx', 'sdf3.blend') },
@@ -137,7 +137,7 @@ import { box, sphere, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, () =>
   view(box(1.4).subtract(sphere(1, { segments: 64, rings: 32 })), {
-    camera: orthographic({ eye: [4, -6, 3], span: 2.6 }), stroke: 'ink', creaseAngle: 25,
+    camera: orthographic({ eye: [4, -6, 3], span: 2.6 }), pen: 'ink', creaseAngle: 25,
   }));`),
   },
   {
@@ -148,7 +148,7 @@ import { box, torus, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, () =>
   view(torus(1, 0.38, { segments: 64, tubeSegments: 24 }).subtract(box([4, 4, 0.36]).translate([0, 0, 0.18])), {
-    camera: orthographic({ eye: [4, -6, 3], span: 3.2 }), stroke: 'ink', creaseAngle: 25,
+    camera: orthographic({ eye: [4, -6, 3], span: 3.2 }), pen: 'ink', creaseAngle: 25,
   }));`),
   },
   {
@@ -159,7 +159,7 @@ import { geodesic, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, () =>
   view(geodesic(1, { frequency: [8, 3] }), {
-    camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), stroke: 'ink', creaseAngle: 0,
+    camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), pen: 'ink', creaseAngle: 0,
   }));`),
   },
   {
@@ -170,7 +170,7 @@ import { geodesic, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, () =>
   view(geodesic(1, { frequency: [8, 3] }).dual(), {
-    camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), stroke: 'ink', creaseAngle: 0,
+    camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), pen: 'ink', creaseAngle: 0,
   }));`),
   },
   { name: 'travelTime', size: '100x100 at step 0.5 + isolines', load: fence('fields.md', 't.travelTime({ fromPoints: [[W * 0.78') },

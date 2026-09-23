@@ -84,7 +84,7 @@ describe('surface samples and scatter',()=>{
  it('binds mesh sampling to the sketch seed without changing model draws on camera commit',async()=>{
   let models=0,sites:SurfaceSamples<any,any>|undefined;
   const definition=sketch({seed:42,pens:{ink:pen({width:mm(.3)})}},t=>{
-    models++;const terrain=plane(3).subdivide(2).faceAttribute('height',f=>f.center[0]);
+    models++;const terrain=plane(3).subdivide(2).faceAttribute('height',f=>f.centroid[0]);
     const a=t.sample(terrain,{count:10}),b=t.sample(terrain,{count:10});expect(a.surface).toEqual(b.surface);
     const generated=t.scatter(terrain,{spacing:.6,maxAttempts:300,maxPoints:12});sites=generated;
     return view([terrain,instanceOnPoints(box(.2),generated.points)],{camera:orthographic({eye:[5,7,6],span:5})});

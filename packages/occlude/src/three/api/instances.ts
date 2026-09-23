@@ -1,4 +1,6 @@
 import {rotation3,alignAxis,type RotationInput} from '../rotation.js';
+import {pointCloud} from './mesh.js';
+import {points2} from './lift.js';
 import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow,type Style3} from './mesh.js';
 import {Collection} from './collection.js';
 import {identity} from './identity.js';
@@ -104,13 +106,25 @@ export function instanceSurfaceBinding3(instances:Instances<any,any,any,any,any,
 
 /** Points as a collection, or anything that has one: sampled or scattered
  * points, a point cloud, a mesh (its vertices). */
-export type PointsInput<R extends PointRow<{}>>=Collection<R,unknown>|{readonly points:Collection<R,unknown>};
+/** 2D points at z = 0: a 2D point collection or selection, a material, or
+ * `[x, y]` pairs. */
+export type Points2Input=Iterable<{readonly x:number;readonly y:number}>|{readonly points:Iterable<{readonly x:number;readonly y:number}>}|readonly (readonly [number,number])[];
+export type PointsInput<R extends PointRow<{}>>=Collection<R,unknown>|{readonly points:Collection<R,unknown>}|Points2Input;
+export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends PointRow<{}>>(
+  prototype:Mesh<P,E,F,C>,input:Collection<R,unknown>|{readonly points:Collection<R,unknown>},options?:InstanceOnPointsOptions<R['attributes'],R>,
+):Instances<P,E,F,R['attributes'],R['attributes'],R,C>;
+/** 2D points stand at z = 0; their columns are numbers. */
+export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(
+  prototype:Mesh<P,E,F,C>,input:Points2Input,options?:InstanceOnPointsOptions<Record<string,number>,PointRow<Record<string,number>>>,
+):Instances<P,E,F,Record<string,number>,Record<string,number>,PointRow<Record<string,number>>,C>;
 export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends PointRow<{}>>(
   prototype:Mesh<P,E,F,C>,input:PointsInput<R>,options:InstanceOnPointsOptions<R['attributes'],R>={},
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>{
   if(!(prototype instanceof Mesh))throw new Error('instanceOnPoints requires a mesh prototype');
-  const points=input instanceof Collection?input:input&&typeof input==='object'&&'points'in input?input.points:undefined;
-  if(!(points instanceof Collection)||points.domain!=='point')throw new Error('instanceOnPoints requires points: a point collection, sampled points or a mesh');
+  const held=input instanceof Collection?input:input&&typeof input==='object'&&'points'in input?input.points:undefined;
+  // 2D points stand on the ground plane: z = 0, ids and columns kept.
+  const points=held instanceof Collection?held:points2(input,'instanceOnPoints')?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Collection<R,unknown>:undefined;
+  if(!(points instanceof Collection)||points.domain!=='point')throw new Error('instanceOnPoints requires points: a point collection, sampled points, a mesh, or 2D points');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('instance options must be an object');
   key(options.key);if(points.length>100000)throw new Error('instance count exceeds budget (100000)');
   return new Instances<P,E,F,R['attributes'],R['attributes'],R,C>(prototype,points.map(source=>{
@@ -141,6 +155,6 @@ export function instanceOnFaces<P extends Attributes3,E extends EdgeAttributes,F
     const along=evaluate(options.offset??0,face),offset=typeof along==='number'?mul3(face.normal,along):along;finite3(offset);
     const aligned=alignAxis('z',face.normal),extra=options.rotate?rotation3(evaluate(options.rotate,face)):undefined;
     return {id:identity('instance',prototype.key??'prototype',face.id),source:face as unknown as R,attributes:face.attributes,
-      transform:transform({translate:add3(face.center,offset),rotate:extra?aligned.then(extra):aligned,scale:evaluate(options.scale??1,face)})};
+      transform:transform({translate:add3(face.centroid,offset),rotate:extra?aligned.then(extra):aligned,scale:evaluate(options.scale??1,face)})};
   }) as never,options);
 }

@@ -253,7 +253,7 @@ export default sketch({ seed: 4, pens: { ink: pen({ width: mm(0.22), color: '#18
   });
   return view(blades, {
     camera: perspective({ eye: [0.5, -9.5, 11], target: [0, 0.2, 0.2], fovDegrees: 40 }),
-    stroke: 'ink',
+    pen: 'ink',
   });
 });
 ```

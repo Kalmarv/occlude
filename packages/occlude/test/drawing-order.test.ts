@@ -62,7 +62,7 @@ describe('views', () => {
   const camera = orthographic({ eye: [7, 9, 7], target: [0, 0, 0], span: 6 });
   it('clips view ink to the drawable', async () => {
     // The plane is wider than the frame, so its edges leave it.
-    const out = await renderAsync(sketch({ aspect: [1, 1], margin: 6, pens }, () => view(plane(12, 12).subdivide(3), { camera, stroke: 'black', creaseAngle: 0 })), { paper: 'Square20' });
+    const out = await renderAsync(sketch({ aspect: [1, 1], margin: 6, pens }, () => view(plane(12, 12).subdivide(3), { camera, pen: 'black', creaseAngle: 0 })), { paper: 'Square20' });
     const d = drawable(out);
     expect(out.frags.length).toBeGreaterThan(0);
     let atEdge = 0;
@@ -77,12 +77,12 @@ describe('views', () => {
   it('gives the callback only the folds creaseAngle keeps, visible and hidden', async () => {
     let seen: ProjectedLines | undefined;
     const ball = sphere(1, { segments: 24, rings: 12 });
-    const callback = await renderAsync(sketch({ aspect: [1, 1], pens }, () => view(ball, { camera, stroke: 'black' }, (lines) => { seen = lines; return strokes(lines.visible, { stroke: 'black' }); })), { paper: 'Square20' });
+    const callback = await renderAsync(sketch({ aspect: [1, 1], pens }, () => view(ball, { camera, pen: 'black' }, (lines) => { seen = lines; return strokes(lines.visible, { stroke: 'black' }); })), { paper: 'Square20' });
     const fold = (r: ProjectedLines['visible']['rows'][number]) => r.kinds.has('crease') && r.kinds.size === 1;
     expect(seen!.visible.rows.filter(fold).every((r) => r.feature.creaseAngle >= 30)).toBe(true);
     expect(seen!.hidden.rows.filter(fold).every((r) => r.feature.creaseAngle >= 30)).toBe(true);
     // The callback's lines are the default ink's lines.
-    const plain = await renderAsync(sketch({ aspect: [1, 1], pens }, () => view(ball, { camera, stroke: 'black' })), { paper: 'Square20' });
+    const plain = await renderAsync(sketch({ aspect: [1, 1], pens }, () => view(ball, { camera, pen: 'black' })), { paper: 'Square20' });
     expect(callback.raw.prims).toEqual(plain.raw.prims);
   });
   // Vertical grain over the whole sheet, then a box in the middle of it.
@@ -94,13 +94,13 @@ describe('views', () => {
     });
   };
   const grain = (t: { width: number; height: number }) => polygon(rect(0, 0, t.width, t.height), { fill: fill('hatch', { angle: 90, spacing: mm(1) }), stroke: false, pen: 'blue' });
-  const cube = view(box(2), { camera, stroke: 'black' });
+  const cube = view(box(2), { camera, pen: 'black' });
   it('hides nothing drawn before a view', async () => {
     const out = await renderAsync(sketch({ aspect: [1, 1], pens }, (t) => [grain(t), cube]), { paper: 'Square20' });
     expect(grainThroughMiddle(out)).toBe(true);
   });
   it('hides what was drawn before an opaque view, and keeps the view\'s own ink', async () => {
-    const out = await renderAsync(sketch({ aspect: [1, 1], pens }, (t) => [grain(t), view(box(2), { camera, stroke: 'black', opaque: true })]), { paper: 'Square20' });
+    const out = await renderAsync(sketch({ aspect: [1, 1], pens }, (t) => [grain(t), view(box(2), { camera, pen: 'black', opaque: true })]), { paper: 'Square20' });
     const bare = await renderAsync(sketch({ aspect: [1, 1], pens }, () => cube), { paper: 'Square20' });
     expect(grainThroughMiddle(out)).toBe(false);
     const black = (r: RenderResult) => r.frags.filter((f) => penOf(r, f.pen) === 'black').length;

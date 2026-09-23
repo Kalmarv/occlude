@@ -223,7 +223,7 @@ describe('transform', () => {
     cell.faces.map((f, i) => expect(moved.faces.at(i)!.vertices).toEqual([...f.vertices].reverse()));
     const middle = flip.point([0, 0, 0]);
     for (const f of moved.faces) {
-      const out = [f.center[0] - middle[0], f.center[1] - middle[1], f.center[2] - middle[2]];
+      const out = [f.centroid[0] - middle[0], f.centroid[1] - middle[1], f.centroid[2] - middle[2]];
       expect(out[0] * f.normal[0] + out[1] * f.normal[1] + out[2] * f.normal[2]).toBeGreaterThan(0);
     }
     // Rewound faces are reassembled, so edges keep their ids, not their rows.
@@ -258,11 +258,11 @@ describe('the {5, 3, 4} fence', () => {
     } }, async (t) => {
       const b = t.bounds();
       const c = h.cell.points.at(0)!;
-      const toward = (f: { center: Vec3 }): number => f.center[0] * c.x + f.center[1] * c.y + f.center[2] * c.z;
+      const toward = (f: { centroid: Vec3 }): number => f.centroid[0] * c.x + f.centroid[1] * c.y + f.centroid[2] * c.z;
       const wall = [...h.cell.faces].reduce((f, g) => (toward(f) < toward(g) ? f : g));
-      const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.center, { up: [0.26, 0, 0.97] });
+      const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.centroid, { up: [0.26, 0, 0.97] });
       const camera = perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 });
-      return view(h.wires.transform(seen), { camera, stroke: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
+      return view(h.wires.transform(seen), { camera, pen: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
         strokes(lines.visible.filter((w) => (w.attributes.generation as number) > 0), { stroke: 'ink' }),
         strokes(lines.visible.filter((w) => w.attributes.generation === 0), { stroke: 'room' }),
       ]));

@@ -12,12 +12,16 @@ import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
 import {dualSurface3,type DualOptions} from '../geometry/dual.js';
 import {isPlacement3,type Placement3} from './placement3.js';
 import {booleanSurface3} from '../geometry/boolean.js';
+import {refuseStroke,hatchRecipes,type ViewHatchInput} from './recipes.js';
+import {points2} from './lift.js';
+import {curveLength,alongCurve,resampledSurface,type Station3} from './curveWalk.js';
 /** One connected component of an extrusion selection, measured on the frozen input. */
 export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
   readonly index:number;readonly faces:MeshFaces<P,E,F,C>;
   /** Unit area-weighted mean normal; undefined when the region's faces cancel. */
-  readonly normal?:Vec3;readonly center:Vec3;readonly area:number;
+  readonly normal?:Vec3;readonly centroid:Vec3;readonly area:number;
 }
+const regionCenterRefused=():never=>{throw new Error('an extrude region\'s middle is `centroid` (the 2D face word)');};
 export type ExtrudeOffset<R>=number|Vec3|((region:R)=>Vec3)|{readonly distance:Field<R,number>};
 export interface ExtrudeOptions {
   /** Stable identity for generated points, walls and corners; default 'extrude'. */
@@ -37,8 +41,8 @@ export interface GeometryOptions {
    * (30 by default); 180 never draws creases, the smooth-shaded look. */
   readonly creaseAngle?:number;
   /** The pen the default drawing uses for this object's lines; the view's
-   * `stroke` applies when unset. A hatch recipe's own `stroke` still wins. */
-  readonly stroke?:string;
+   * `pen` applies when unset. A hatch recipe's own `pen` still wins. */
+  readonly pen?:string;
   /** The pen for this object's hatch when the recipe names none (2D `fillPen`). */
   readonly fillPen?:string;
   /** Draw this object's suggestive contours, the lines where the surface is
@@ -50,14 +54,14 @@ export interface GeometryOptions {
 export type SuggestiveInput={readonly threshold?:number}|false;
 /** How an object is drawn by the default drawing: its pen, its hatch pen, its
  * crease threshold. `style` sets only the fields named and keeps the rest. */
-export interface Style3 {readonly stroke?:string;readonly fillPen?:string;readonly creaseAngle?:number;readonly suggestive?:SuggestiveInput}
+export interface Style3 {readonly pen?:string;readonly fillPen?:string;readonly creaseAngle?:number;readonly suggestive?:SuggestiveInput;readonly hatch?:ViewHatchInput}
 function checkedSuggestive(value:SuggestiveInput|undefined):SuggestiveInput|undefined {
   if(value===undefined||value===false)return value;
   if(typeof value!=='object'||Array.isArray(value))throw new Error('suggestive must be false or { threshold }');
   return Object.freeze({...value});
 }
-function checkedStroke(value:string|undefined):string|undefined {
-  if(value!==undefined&&(typeof value!=='string'||!value))throw new Error('stroke must be a nonempty pen name');
+function checkedPen(value:string|undefined,name='pen'):string|undefined {
+  if(value!==undefined&&(typeof value!=='string'||!value))throw new Error(`${name} must be a nonempty pen name`);
   return value;
 }
 function checkedCreaseAngle(value:number|undefined):number|undefined {
@@ -68,9 +72,10 @@ export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Read
   /** The middle of the edge — the same word a face answers, the same word
    * `EdgeMeasure3` answers, and the same word 2D's `Edge` answers. */
   center:Vec3;attributes:Readonly<A>;provenance?:Provenance3}>;
-export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;center:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
+/** `centroid` is the area centroid of the face, the 2D face word. */
+export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;centroid:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type CornerRow<A extends Attributes3={}> = Readonly<A&{id:string;index:number;localIndex:number;attributes:Readonly<A>;provenance?:Provenance3}>;
-const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','area','a','b','length','source','sample','points','edges','faces','adjacent','corners','face','point','localIndex']);
+const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','centroid','area','a','b','length','source','sample','points','edges','faces','adjacent','corners','face','point','localIndex']);
 export function attributeName(name:string):void {if(!name||reserved.has(name)||name==='__proto__'||name==='constructor'||name==='prototype')throw new Error(`reserved or empty geometry attribute name: ${name}`);}
 export function attributeValue(value:Attribute3):Attribute3 {
   if(typeof value==='string'||typeof value==='boolean')return value;
@@ -92,7 +97,7 @@ function pointRows<P extends Attributes3>(surface:Surface3):readonly PointRow<P>
   if(!rows){rows=Object.freeze(surface.points.map((p,index)=>Object.freeze({...p.attributes,id:p.id,index,x:p.position[0],y:p.position[1],z:p.position[2],attributes:p.attributes,provenance:p.provenance})));pointCache.set(surface,rows);}
   return rows as unknown as readonly PointRow<P>[];
 }
-function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');}
+function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
 // Attribute records are frozen and shared between a surface and every surface
 // derived from it (transforms, subdivisions, further attribute edits), so a
@@ -335,7 +340,7 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   readonly history:readonly CurveSnapshot<P,E>[];
   readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>;readonly provenance?:Provenance3}[];
   /** Own pen for the default drawing, or undefined for the view's. */
-  readonly stroke?:string;
+  readonly pen?:string;
   constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly CurveSnapshot<P,E>[]}={}) {
     checkOptions(options);validateAttributes(surface);
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
@@ -343,11 +348,20 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
     const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
     const mapping=new Map(used.map((v,i)=>[v,i]));
     const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
-    this.surface=captureSurface3(source);this.key=checkedKey(options.key);this.stroke=checkedStroke(options.stroke);
+    this.surface=captureSurface3(source);this.key=checkedKey(options.key);this.pen=checkedPen(options.pen);
     this.iteration=options.iteration??0;this.history=Object.freeze([...(options.history??[])]);
     this.segments=this.surface.edges as unknown as typeof this.segments;Object.freeze(this);
   }
   get points():Collection<PointRow<P>,PointGeometry<P>>{return new Collection(this.surface,'point',pointRows<P>(this.surface),ids=>new PointGeometry(pointsOnly(this.surface,ids)));}
+  /** The whole length, every edge once, in world units — a 2D chain's word. */
+  get length():number{return curveLength(this.surface);}
+  /** Places along the curve by arc length, `{ count }` or `{ spacing }`, as
+   * a 2D material's `along`: position, tangent, `s`, `u`, `length` and the
+   * point columns. One unbranched curve; a branched one is refused by name. */
+  along(opts:{readonly count?:number;readonly spacing?:number}):Station3[]{return alongCurve(this,opts);}
+  /** The same path with its points redistributed by arc length, `{ count }`
+   * or `{ spacing }`, as a 2D material's `resample`. */
+  resample(opts:{readonly count?:number;readonly spacing?:number}):CurveGeometry<P,{}>{const surface=resampledSurface(this,opts);return new CurveGeometry<P,{}>(surface,surface.edges.map((_,i)=>i),{key:this.key,pen:this.pen});}
   get edges():Collection<EdgeRow<E,P>,CurveGeometry<P,E>>{
     const points=pointRows<P>(this.surface);
     const rows=this.surface.edges.map((e,index)=>Object.freeze({...e.attributes,id:e.id,index,vertices:e.vertices,a:points[e.vertices[0]],b:points[e.vertices[1]],length:Math.hypot(...sub3(this.surface.points[e.vertices[0]].position,this.surface.points[e.vertices[1]].position)),attributes:e.attributes,provenance:e.provenance})) as unknown as readonly EdgeRow<E,P>[];
@@ -458,14 +472,16 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   /** Own crease threshold in degrees, or undefined for the view's. */
   readonly creaseAngle?:number;
   /** Own pen for the default drawing, or undefined for the view's. */
-  readonly stroke?:string;
+  readonly pen?:string;
   /** Own pen for hatch recipes that name none. */
   readonly fillPen?:string;
   /** Own suggestive-contour reading, or undefined for the view's. */
   readonly suggestive?:SuggestiveInput;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
+  /** Own hatch recipes, or undefined for the view's `hatch`. */
+  readonly hatch?:ViewHatchInput<any>;
+  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&{hatch?:ViewHatchInput<any>;iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);this.fillPen=checkedStroke(options.fillPen);this.suggestive=checkedSuggestive(options.suggestive);
+    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.pen=checkedPen(options.pen);this.fillPen=checkedPen(options.fillPen,'fillPen');this.suggestive=checkedSuggestive(options.suggestive);if(options.hatch!==undefined){hatchRecipes(options.hatch,'style');this.hatch=options.hatch;}
     this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});recordRadial(this,options.radialCentre);Object.freeze(this);
   }
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
@@ -541,7 +557,7 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
     const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');
     const components=faces.components().map((component,index)=>{
       const measure=regionDirection3(this.surface,component.indices);
-      const region:ExtrudeRegion<P,E,F,C>=Object.freeze({index,faces:component,normal:measure.normal&&Object.freeze(measure.normal) as Vec3,center:Object.freeze(measure.center) as Vec3,area:measure.area});
+      const region:ExtrudeRegion<P,E,F,C>=Object.freeze(Object.defineProperty({index,faces:component,normal:measure.normal&&Object.freeze(measure.normal) as Vec3,centroid:Object.freeze(measure.center) as Vec3,area:measure.area},'center',{get:regionCenterRefused,enumerable:false}));
       let vector:Vec3;
       if(Array.isArray(offset))vector=offset as Vec3;
       else if(typeof offset==='function')vector=offset(region);
@@ -603,9 +619,9 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * turns space over rewinds every face so a solid stays wound outward. */
   transform(placement:Placement3):Mesh<P,E,F,C>{return new Mesh(placedSurface(this.surface,placement),{...this,history:[],origin:placement.point(this.origin)});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key,radialCentre:this.radialCentre});}
-  /** The same mesh drawn differently: `style({ stroke, fillPen, creaseAngle })`
+  /** The same mesh drawn differently: `style({ pen, fillPen, creaseAngle, hatch })`
    * sets the fields named and keeps the others. */
-  style(style:Style3):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,...style,radialCentre:this.radialCentre});}
+  style(style:Style3):Mesh<P,E,F,C>{refuseStroke(style,'style');return new Mesh(this.surface,{...this,...style,radialCentre:this.radialCentre});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     if(stepRule(rule)){
@@ -813,4 +829,16 @@ export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},Su
  * like any other geometry. */
 export function emptyMesh(options:GeometryOptions={}):Mesh<any,any,any,any>{return new Mesh(ownSurface3(surface3([],[])),options);}
 export function emptyCurve(options:GeometryOptions={}):CurveGeometry<any,any>{return new CurveGeometry(surface3([],[]),[],options);}
-export function pointCloud(positions:readonly Vec3[],options:GeometryOptions={}):PointGeometry{return new PointGeometry(ownSurface3(surface3(positions,[])),options);}
+/** Points from positions, or 2D points (a point collection or selection, a
+ * material, `[x, y]` pairs) at z = 0 with their ids and columns kept. */
+export function pointCloud(positions:readonly Vec3[],options?:GeometryOptions):PointGeometry;
+export function pointCloud(points:Iterable<{readonly x:number;readonly y:number}>|{readonly points:Iterable<{readonly x:number;readonly y:number}>}|readonly (readonly [number,number])[],options?:GeometryOptions):PointGeometry<Attributes3>;
+export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly points:unknown},options:GeometryOptions={}):PointGeometry<any>{
+  const lifted=points2(positions,'pointCloud');
+  if(lifted){
+    const base=surface3(lifted.map(p=>[p.x,p.y,0] as Vec3),[]);
+    return new PointGeometry(ownSurface3({...base,points:base.points.map((p,i)=>({...p,id:lifted[i].id,attributes:Object.freeze({...lifted[i].attributes})}))}),options);
+  }
+  if(!Array.isArray(positions))throw new Error('pointCloud takes [x, y, z] positions or 2D points');
+  return new PointGeometry(ownSurface3(surface3(positions as readonly Vec3[],[])),options);
+}

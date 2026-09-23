@@ -571,10 +571,10 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
   return view(
     [
       ground,
-      style(mapSurface(ground, crest), { stroke: 'ink' }),
-      style(mapSurface(ground, water), { stroke: 'water' }),
+      style(mapSurface(ground, crest), { pen: 'ink' }),
+      style(mapSurface(ground, water), { pen: 'water' }),
     ],
-    { camera: perspective({ eye: [0.2, -6.4, 2.5], target: [0, 0.15, -0.15], fovDegrees: 32 }), stroke: 'ink' },
+    { camera: perspective({ eye: [0.2, -6.4, 2.5], target: [0, 0.15, -0.15], fovDegrees: 32 }), pen: 'ink' },
   );
 });
 ```

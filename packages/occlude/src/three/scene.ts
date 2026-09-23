@@ -19,7 +19,9 @@ export interface SceneCompute3 extends Partial<ModelingCompute3> {
 export interface LineArtOptions3 {
   /** Stable key for a camera override in sketch configuration. */
   readonly id?: string;
-  readonly objects?: readonly SurfaceObject3[];
+  /** An object's `surface` may be a mesh value from `occlude/3d`; its
+   * surface is read. */
+  readonly objects?: readonly (Omit<SurfaceObject3, 'surface'> & { readonly surface: SurfaceObject3['surface'] | { readonly surface: SurfaceObject3['surface'] } })[];
   readonly wires?: readonly WireObject3[];
   readonly curves?: readonly SurfaceCurveObject3[];
   readonly camera: Camera3;
@@ -28,7 +30,7 @@ export interface LineArtOptions3 {
   readonly lineSets: readonly LineSet3[];
   readonly strokes?: Parameters<typeof constructStrokes3>[2];
 }
-export interface LineArtScene3 extends LineArtOptions3 {
+export interface LineArtScene3 extends Omit<LineArtOptions3, 'objects'> {
   readonly __occludeLineArt3: true;
   readonly objects: readonly SurfaceObject3[];
   readonly wires: readonly WireObject3[];
@@ -51,7 +53,9 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     if (!owned) { owned = snapshotSurface3(surface); surfaces.set(surface, owned); }
     return owned;
   };
-  for(const object of options.objects??[]) {
+  // A mesh value holds its surface; the stage reads that.
+  const objects: readonly SurfaceObject3[] = (options.objects ?? []).map(object => Array.isArray((object.surface as { points?: unknown }).points) ? object as SurfaceObject3 : { ...object, surface: (object.surface as { surface: SurfaceObject3['surface'] }).surface });
+  for(const object of objects) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
     if(object.binding)objectSurfaceBinding3(object);
@@ -62,7 +66,7 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     id: options.id,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,surface:captureSurface(object.surface)}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)), ...(object.radialCentre?{ radialCentre: freeze([...object.radialCentre]) as typeof object.radialCentre }:{}) }))),
+    objects: Object.freeze(objects.map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,surface:captureSurface(object.surface)}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)), ...(object.radialCentre?{ radialCentre: freeze([...object.radialCentre]) as typeof object.radialCentre }:{}) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
     curves:Object.freeze((options.curves??[]).map(entry=>Object.freeze({...entry,attributes:freeze(structuredClone(entry.attributes))}))),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),

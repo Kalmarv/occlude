@@ -1,14 +1,17 @@
-import {Mesh,type GeometryOptions} from './mesh.js';
+import {Mesh} from './mesh.js';
+import type {IsoLevels} from '../../isolines.js';
+import {refuseStroke} from './recipes.js';
 import type {MeshCornerRow} from './topology.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {isolines3} from '../curves/isolines.js';
 import {snapshotSurface3} from '../geometry/model.js';
 import {surfaceBinding3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3,type SurfaceCurveRecipe3,type SurfaceCurveView3} from '../curves/network.js';
 
-export type IsolineLevels=readonly number[]|{readonly count:number;readonly min?:number;readonly max?:number}|{readonly spacing:number;readonly offset?:number};
+/** Which levels to trace: the 2D `t.isolines` `at` — one level, a list,
+ * `{ count }` levels spread inside the field's range (`min`/`max` pin it),
+ * or every multiple of `{ spacing }` (shifted by `offset`) inside it. */
+export type IsolineLevels=IsoLevels;
 export interface IsolineOptions extends SurfaceCurveOptions {
-  /** Explicit levels; or `count` evenly inside the field's range; or `spacing` (with `offset`). */
-  readonly levels?:IsolineLevels;readonly count?:number;readonly spacing?:number;readonly offset?:number;
   readonly maxSegments?:number;readonly maxNodes?:number;readonly budget?:SurfaceCurveBudget3;
 }
 /** `levelIndex` rather than `index`: edge rows already carry their row index. */
@@ -23,6 +26,7 @@ export type IsolineField=string|((row:IsolineRow)=>number);
  * count, which is a repetition count, still rejects a non-integer. */
 function resolveLevels(spec:IsolineLevels,values:ArrayLike<number>):number[] {
   let min=Infinity,max=-Infinity;for(let i=0;i<values.length;i++)if(Number.isFinite(values[i])){min=Math.min(min,values[i]);max=Math.max(max,values[i]);}
+  if(typeof spec==='number')return Number.isFinite(spec)?[spec]:[];
   if(Array.isArray(spec))return spec.filter(l=>Number.isFinite(l));
   if('count'in spec){
     const count=spec.count,lo=spec.min??min,hi=spec.max??max;
@@ -47,12 +51,24 @@ export interface CapturedIsolines {
   readonly values:Float64Array;readonly levels:readonly number[];
   readonly key?:string;readonly maxSegments?:number;readonly maxNodes?:number;readonly budget?:SurfaceCurveBudget3;
 }
-export function captureIsolines(mesh:Mesh<any,any,any,any>,field:IsolineField,options:IsolineOptions):CapturedIsolines {
+const levelWords=['levels','count','spacing','offset','min','max'] as const;
+/** `at` is the levels and nothing else; the options are everything else. */
+function checkedLevels(at:unknown):IsoLevels {
+  if(typeof at==='number'||Array.isArray(at))return at as IsoLevels;
+  if(!at||typeof at!=='object')throw new Error('isolines: at is a level, a list of levels, { count } or { spacing } — isolines(mesh, field, [0, 0.5])');
+  if('levels' in at)throw new Error('isolines: `levels` is gone — the levels are the third argument, as in 2D: isolines(mesh, field, [0, 0.5])');
+  const other=Object.keys(at).filter(k=>!(levelWords as readonly string[]).includes(k));
+  if(other.length)throw new Error(`isolines: '${other[0]}' is an option, not a level — isolines(mesh, field, at, { ${other[0]} })`);
+  if(('count' in at)===('spacing' in at))throw new Error('isolines: at takes one of { count } or { spacing }');
+  return at as IsoLevels;
+}
+export function captureIsolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):CapturedIsolines {
   if(!(mesh instanceof Mesh))throw new Error('isolines require a mesh');
-  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isolines require options: { count }, { spacing } or { levels }');
-  const given=[options.levels!==undefined,options.count!==undefined,options.spacing!==undefined].filter(Boolean).length;
-  if(given!==1)throw new Error('isolines take exactly one of levels, count or spacing');
-  const spec:IsolineLevels=options.levels??(options.count!==undefined?{count:options.count}:{spacing:options.spacing!,offset:options.offset});
+  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isolines options must be an object');
+  const moved=(levelWords as readonly string[]).find(k=>k in options);
+  if(moved)throw new Error(`isolines: '${moved}' is a level, not an option — the levels are the third argument, as in 2D: isolines(mesh, field, ${moved==='levels'?'[0, 0.5]':`{ ${moved}: … }`})`);
+  refuseStroke(options,'isolines');
+  const spec=checkedLevels(at);
   const corners=[...mesh.corners];
   const values=Float64Array.from(corners,c=>{
     const row:IsolineRow=Object.freeze(Object.assign(Object.create(c) as IsolineRow,{...c.point.attributes,x:c.point.x,y:c.point.y,z:c.point.z}));
@@ -98,12 +114,13 @@ export function isolineRecipe(captured:CapturedIsolines):SurfaceCurveRecipe3 {
     },
   });
 }
-/** Isolines of a per-corner scalar: a numeric point attribute by name, or a
+/** Isolines of a per-corner scalar at the levels `at` (the 2D `t.isolines`
+ * spelling): a numeric point attribute by name, or a
  * callback over mesh corner rows (`c => c.uv[1]` for cross-contours). Values
  * are interpolated linearly inside each represented triangle; a nonlinear
  * field is approximated by its corner samples, so refine the mesh for
  * accuracy. Reusable supported construction geometry, not a view feature. */
-export function isolines(mesh:Mesh<any,any,any,any>,field:IsolineField,options:IsolineOptions):SurfaceCurves<IsolineAttributes> {
-  const captured=captureIsolines(mesh,field,options);
-  return new SurfaceCurves<IsolineAttributes>(isolineRecipe(captured),{key:options.key,stroke:options.stroke});
+export function isolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):SurfaceCurves<IsolineAttributes> {
+  const captured=captureIsolines(mesh,field,at,options);
+  return new SurfaceCurves<IsolineAttributes>(isolineRecipe(captured),{key:options.key,pen:options.pen});
 }

@@ -374,11 +374,11 @@ export default sketchAsync({ aspect: [1, 1], pens: {
   const b = t.bounds();
   const h = honeycomb(5, 3, 4, { depth: 2 });
   const c = h.cell.points.at(0);
-  const toward = (f) => f.center[0] * c.x + f.center[1] * c.y + f.center[2] * c.z;
+  const toward = (f) => f.centroid[0] * c.x + f.centroid[1] * c.y + f.centroid[2] * c.z;
   const wall = [...h.cell.faces].reduce((f, g) => (toward(f) < toward(g) ? f : g));
-  const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.center, { up: [0.26, 0, 0.97] });
+  const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.centroid, { up: [0.26, 0, 0.97] });
   const camera = perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 });
-  return view(h.wires.transform(seen), { camera, stroke: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
+  return view(h.wires.transform(seen), { camera, pen: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
     strokes(lines.visible.filter((w) => w.attributes.generation > 0), { stroke: 'ink' }),
     strokes(lines.visible.filter((w) => w.attributes.generation === 0), { stroke: 'room' }),
   ]));
@@ -391,7 +391,7 @@ export default sketchAsync({ aspect: [1, 1], pens: {
 
 ```ts live
 import { sketchAsync, strokes } from 'occlude';
-import { view, orthographic, polyline, circle, geodesic3 } from 'occlude/3d';
+import { view, orthographic, curve, circle, geodesic3 } from 'occlude/3d';
 
 export default sketchAsync({ aspect: [1, 1] }, async () => {
   // Two chords of the ball: one through the centre, one off it. Each bead
@@ -400,17 +400,17 @@ export default sketchAsync({ aspect: [1, 1] }, async () => {
   const chords = [[[-0.92, 0, 0], [0.92, 0, 0]], [[-0.55, 0.62, 0], [0.74, 0.38, 0]]];
   const wires = [circle(1)];
   for (const [a, b] of chords) {
-    wires.push(polyline([a, b]));
+    wires.push(curve([a, b]));
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const len = Math.hypot(dx, dy);
     const nx = (-dy / len) * 0.035;
     const ny = (dx / len) * 0.035;
     for (const p of geodesic3(a, b, { count: 14 })) {
-      wires.push(polyline([[p[0] - nx, p[1] - ny, 0], [p[0] + nx, p[1] + ny, 0]]));
+      wires.push(curve([[p[0] - nx, p[1] - ny, 0], [p[0] + nx, p[1] + ny, 0]]));
     }
   }
-  return view(wires, { camera: orthographic({ eye: [0, 0, 4], target: [0, 0, 0], up: [0, 1, 0], span: 2.3 }), stroke: 'ink' }, (lines) => strokes(lines.visible));
+  return view(wires, { camera: orthographic({ eye: [0, 0, 4], target: [0, 0, 0], up: [0, 1, 0], span: 2.3 }), pen: 'ink' }, (lines) => strokes(lines.visible));
 });
 ```
 

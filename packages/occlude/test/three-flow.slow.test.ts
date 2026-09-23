@@ -20,7 +20,7 @@ describe('streamlines of a 3D field',()=>{
  });
  it('comes back to where it started in a vortex',()=>{
   // A circle about Z: the line closes on itself, so its ends nearly meet.
-  const lines=streamlines3(p=>[-p[1],p[0],0],{seeds:[[1,0,0]],spacing:.1,step:.02,maxLength:20},env);
+  const lines=streamlines3((x,y)=>[-y,x,0],{seeds:[[1,0,0]],spacing:.1,step:.02,maxLength:20},env);
   const path=points(lines[0]);
   for(const p of path)expect(Math.hypot(p[0],p[1])).toBeCloseTo(1,3);
   // The two halves stop when they meet, so the ends sit about one spacing
@@ -58,7 +58,7 @@ describe('streamlines of a 3D field',()=>{
   // An open mesh has no inside to cut to.
   expect(streamlines3(()=>[0,0,1],{seeds,within:box(2)},env).length).toBe(1);
   expect(streamlines3(()=>[0,0,1],{seeds,within:cylinder(1,2,{caps:false})},env).length).toBe(0);
-  expect(()=>streamlines3(undefined as never,{seeds},env)).toThrow('vector field');
+  expect(()=>streamlines3(undefined as never,{seeds},env)).toThrow('field of space');
   expect(()=>streamlines3(()=>[0,0,1],{seeds:{count:1.5,within:box(1)}},env)).toThrow('integer');
  });
  it('throws a count of seeds into a mesh with the sketch stream',()=>{
@@ -70,19 +70,19 @@ describe('streamlines of a 3D field',()=>{
 
 describe('curl and gradient of a 3D field',()=>{
  it('reads the slope of a scalar field',()=>{
-  const g=grad3(p=>p[0]*p[0]+2*p[1]);
-  expect(g([1,0,0])[0]).toBeCloseTo(2,6);
-  expect(g([1,0,0])[1]).toBeCloseTo(2,6);
-  expect(g([1,0,0])[2]).toBeCloseTo(0,6);
+  const g=grad3((x,y)=>x*x+2*y);
+  expect(g(1,0,0)[0]).toBeCloseTo(2,6);
+  expect(g(1,0,0)[1]).toBeCloseTo(2,6);
+  expect(g(1,0,0)[2]).toBeCloseTo(0,6);
   // A field with no value there has no slope: zero, not NaN.
-  expect(grad3(()=>Number.NaN)([0,0,0])).toEqual([0,0,0]);
+  expect(grad3(()=>Number.NaN)(0,0,0)).toEqual([0,0,0]);
  });
  it('reads the turn of a vector field',()=>{
-  const c=curl3(p=>[-p[1],p[0],0]);
-  const value=c([0.3,-0.2,1]);
+  const c=curl3((x,y)=>[-y,x,0]);
+  const value=c(0.3,-0.2,1);
   expect(value[0]).toBeCloseTo(0,5);expect(value[1]).toBeCloseTo(0,5);expect(value[2]).toBeCloseTo(2,5);
   // The curl of a gradient is zero: the identity that makes it a flow word.
-  const none=curl3(grad3(p=>p[0]*p[1]+p[2]*p[2]))([.5,.5,.5]);
+  const none=curl3(grad3((x,y,z)=>x*y+z*z))(.5,.5,.5);
   expect(Math.hypot(...none)).toBeLessThan(1e-3);
  });
 });
@@ -94,9 +94,9 @@ describe('streamlines3 on the toolkit',()=>{
   const run=async()=>{
     let count=0;
     const execution=await compileSketchAsync(sketchAsync(config,async t=>{
-      const flow=t.streamlines3(curl3(p=>[0,0,Math.sin(p[0])*Math.cos(p[1])]),{seeds:{count:8,within:sphere(1.2)},spacing:.15,step:.04,maxLength:6,key:'flow'});
+      const flow=t.streamlines3(curl3((x,y)=>[0,0,Math.sin(x)*Math.cos(y)]),{seeds:{count:8,within:sphere(1.2)},spacing:.15,step:.04,maxLength:6,key:'flow'});
       count=flow.length;
-      return view([...flow,box(.4).translate([0,0,1.4])],{camera:orthographic({eye:[4,6,3],span:5}),stroke:'ink'});
+      return view([...flow,box(.4).translate([0,0,1.4])],{camera:orthographic({eye:[4,6,3],span:5}),pen:'ink'});
     }));
     return {count,execution};
   };

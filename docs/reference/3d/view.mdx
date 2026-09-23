@@ -9,13 +9,13 @@ description: "The camera, the drawing boundary, hatch, the view callback and sty
 
 <include>/_sig/3d.view.1.mdx</include>
 
-Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame.
+Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `pen` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { box, sphere, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([box(1.5), sphere(0.7, { segments: 24, rings: 12 }).translate([1.4, 0.8, 0.9])], { camera: orthographic({ eye: [5, 7, 4], target: [0.5, 0.4, 0.4], span: 5 }), stroke: 'ink' }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([box(1.5), sphere(0.7, { segments: 24, rings: 12 }).translate([1.4, 0.8, 0.9])], { camera: orthographic({ eye: [5, 7, 4], target: [0.5, 0.4, 0.4], span: 5 }), pen: 'ink' }));
 ```
 
 ## orthographic() · perspective()
@@ -32,8 +32,8 @@ import { box, view, orthographic, perspective } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const row = t.times(4, (k) => box(0.8).translate([k * 1.2 - 1.8, 0, 0]));
   return [
-    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(row, { camera: orthographic({ eye: [3, 8, 4], span: 6 }), stroke: 'ink' })),
-    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(row, { camera: perspective({ eye: [2, 5, 2.5], fovDegrees: 50 }), stroke: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(row, { camera: orthographic({ eye: [3, 8, 4], span: 6 }), pen: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(row, { camera: perspective({ eye: [2, 5, 2.5], fovDegrees: 50 }), pen: 'ink' })),
   ];
 });
 ```
@@ -50,7 +50,7 @@ import { box, view, oblique } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const town = t.times(5, (k) => box([1.8, 1.8, 5 + k * 1.3]).translate([k * 2.6 - 5.2, k % 2 ? 1.4 : -1.4, (5 + k * 1.3) / 2]));
-  return view(town, { camera: oblique({ eye: [0, -16, 0.6], target: [0, 0, 0.6], fovDegrees: 50, shift: [0, 0.4] }), stroke: 'ink' });
+  return view(town, { camera: oblique({ eye: [0, -16, 0.6], target: [0, 0, 0.6], fovDegrees: 50, shift: [0, 0.4] }), pen: 'ink' });
 });
 ```
 
@@ -62,7 +62,7 @@ The view draws a fold between two faces when the angle between them is larger th
 import { sketch, pen, mm } from 'occlude';
 import { sphere, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => view([sphere(1, { segments: 16, rings: 8, creaseAngle: 0 }).translate([-1.2, 0, 0]), sphere(1, { segments: 16, rings: 8, creaseAngle: 180 }).translate([1.2, 0, 0])], { camera: orthographic({ eye: [4, 7, 3], span: 5 }), stroke: 'ink' }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => view([sphere(1, { segments: 16, rings: 8, creaseAngle: 0 }).translate([-1.2, 0, 0]), sphere(1, { segments: 16, rings: 8, creaseAngle: 180 }).translate([1.2, 0, 0])], { camera: orthographic({ eye: [4, 7, 3], span: 5 }), pen: 'ink' }));
 ```
 
 ## suggestive
@@ -94,13 +94,13 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## hatch
 
-`hatch: { spacing, angle?, offset?, stroke?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a test on the face rows. A recipe without a pen uses the object's `fillPen`, then its `stroke`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
+`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the mesh, or a test on its face rows. The test gets the mesh's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. A fill that is not parallel lines is refused, and so is a spacing field of the paper. A recipe without a pen uses the object's `fillPen`, then its `pen`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { box, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => view(box([2.4, 1.6, 1.2]), { camera: orthographic({ eye: [5, 7, 5], span: 4.5 }), stroke: 'ink', hatch: { spacing: mm(1.6), angle: 45, stroke: 'shade', select: (f) => f.normal[2] > 0.5 } }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => view(box([2.4, 1.6, 1.2]), { camera: orthographic({ eye: [5, 7, 5], span: 4.5 }), pen: 'ink', hatch: { spacing: mm(1.6), angle: 45, pen: 'shade', select: (f) => f.normal[2] > 0.5 } }));
 ```
 
 ## crosshatch
@@ -111,23 +111,23 @@ A list of recipes is several families at once. Two recipes over the same faces, 
 import { sketch, pen, mm } from 'occlude';
 import { sphere, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, (t) => view(sphere(1.4, { segments: 32, rings: 16 }), { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180, hatch: [{ spacing: mm(1.4), angle: 30, stroke: 'shade', select: (f) => f.normal[2] < 0.2 }, { spacing: mm(1.4), angle: 120, stroke: 'shade', select: (f) => f.normal[2] < -0.3 }] }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, (t) => view(sphere(1.4, { segments: 32, rings: 16 }), { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180, hatch: [{ spacing: mm(1.4), angle: 30, pen: 'shade', select: (f) => f.normal[2] < 0.2 }, { spacing: mm(1.4), angle: 120, pen: 'shade', select: (f) => f.normal[2] < -0.3 }] }));
 ```
 
 ## sections
 
-`sections: [{ origin, normal, stroke? }]` on the view cuts the mesh with planes in model space and draws the cut lines. Each section can name its own pen. A section is the line where a plane cuts the mesh. It does not change the mesh.
+`sections: [{ origin, normal, pen? }]` on the view cuts the mesh with planes in model space and draws the cut lines. Each section can name its own pen. A section is the line where a plane cuts the mesh. It does not change the mesh.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { sphere, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), section: pen({ width: mm(0.2), color: '#A84932' }) } }, (t) => view(sphere(1.5, { segments: 36, rings: 18 }), { camera: orthographic({ eye: [5, 6, 4], span: 4.4 }), stroke: 'ink', creaseAngle: 180, sections: [-1, -0.5, 0, 0.5, 1].map((z) => ({ origin: [0, 0, z], normal: [0, 0, 1], stroke: 'section' })) }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), section: pen({ width: mm(0.2), color: '#A84932' }) } }, (t) => view(sphere(1.5, { segments: 36, rings: 18 }), { camera: orthographic({ eye: [5, 6, 4], span: 4.4 }), pen: 'ink', creaseAngle: 180, sections: [-1, -0.5, 0, 0.5, 1].map((z) => ({ origin: [0, 0, z], normal: [0, 0, 1], pen: 'section' })) }));
 ```
 
 ## The view callback
 
-`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace`, `suggestive` and `mapped`. Each also carries its source attributes. `lines` holds only the folds that `creaseAngle` keeps, as the default ink does. A flatter fold is not in `lines`. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.
+`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace`, `suggestive` and `mapped`. Each reads the columns of its source as properties, `c.rim`, and `c.attributes` is the same record. `lines.visible.curves()` joins the intervals end to end into chains in drawable units, and `contours()` gives the closed chains. Thus `polygon(lines.visible.kind('silhouette'), { fill })` fills the outline of the object. `lines` holds only the folds that `creaseAngle` keeps, as the default ink does. A flatter fold is not in `lines`. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';
@@ -155,7 +155,7 @@ import { box, view, orthographic } from 'occlude/3d';
 
 export default sketchAsync({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.35), color: '#18202A' }), note: pen({ width: mm(0.18), color: '#A84932' }) } }, async (t) => {
   const cube = box(2);
-  const drawing = view(cube, { camera: orthographic({ eye: [5, 7, 4], span: 7.2 }), stroke: 'ink' });
+  const drawing = view(cube, { camera: orthographic({ eye: [5, 7, 4], span: 7.2 }), pen: 'ink' });
   const callouts = [[[-1, -1, 1], 'A'], [[1, -1, -1], 'B'], [[1, 1, -1], 'C']];
   return [drawing, callouts.map(([corner, name]) => {
     const at = t.toPaper(drawing, corner);
@@ -174,13 +174,13 @@ export default sketchAsync({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.35),
 
 <include>/_sig/3d.style.mdx</include>
 
-Sets the drawing of a value: `stroke`, `fillPen` and `creaseAngle`. It returns the styled value, or a styled list, and keeps the fields it does not name.
+Sets the drawing of a value: `pen`, `fillPen`, `creaseAngle` and `hatch`. The hatch of an object replaces the hatch of the view for that object, as each 2D polygon has its own fill. It returns the styled value, or a styled list, and keeps the fields it does not name.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { box, sphere, style, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), blue: pen({ width: mm(0.3), color: '#2457D6' }) } }, (t) => view([box(1.4), ...style([sphere(0.6, { segments: 20, rings: 10 }).translate([1.3, 0.6, 0.6]), sphere(0.4, { segments: 20, rings: 10 }).translate([-1.1, -0.8, 0.9])], { stroke: 'blue', creaseAngle: 180 })], { camera: orthographic({ eye: [5, 7, 4], span: 5 }), stroke: 'ink' }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), blue: pen({ width: mm(0.3), color: '#2457D6' }) } }, (t) => view([box(1.4), ...style([sphere(0.6, { segments: 20, rings: 10 }).translate([1.3, 0.6, 0.6]), sphere(0.4, { segments: 20, rings: 10 }).translate([-1.1, -0.8, 0.9])], { pen: 'blue', creaseAngle: 180 })], { camera: orthographic({ eye: [5, 7, 4], span: 5 }), pen: 'ink' }));
 ```
 
 ## opaque
@@ -193,6 +193,6 @@ import { box, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), grain: pen({ width: mm(0.15), color: '#8A94A6' }) } }, (t) => [
   polygon(rect(0, 0, t.width, t.height), { fill: fill('hatch', { angle: 90, spacing: mm(1.2) }), stroke: false, pen: 'grain' }),
-  view(box([2, 2, 3]), { camera: orthographic({ eye: [6, -9, 5], target: [0, 0, 1.5], span: 7 }), stroke: 'ink', opaque: true }),
+  view(box([2, 2, 3]), { camera: orthographic({ eye: [6, -9, 5], target: [0, 0, 1.5], span: 7 }), pen: 'ink', opaque: true }),
 ]);
 ```

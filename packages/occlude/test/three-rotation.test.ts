@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {axisAngle,alignAxis,pointCloud,box,instanceOnPoints,polyline,type Rotation} from 'occlude/3d';
+import {axisAngle,alignAxis,pointCloud,box,instanceOnPoints,curve,type Rotation} from 'occlude/3d';
 import {rotation3,rotateVector3} from '../src/three/rotation.js';
 import type {Vec3} from '../src/three/math.js';
 function near(actual:Vec3,wanted:Vec3,precision=12){actual.forEach((v,i)=>expect(v).toBeCloseTo(wanted[i],precision));}
@@ -57,7 +57,7 @@ describe('rotation values and alignment',()=>{
  it('applies pivoted rotations to point, curve and mesh data and mirrored instances',()=>{
    const r=axisAngle('z',90),point=pointCloud([[2,0,0]]).rotate(r,[1,0,0]).points.at(0)!;
    near([point.x,point.y,point.z],[1,1,0]);
-   const curve=polyline([[0,0,0],[1,0,0]]).rotate(r);near(curve.surface.points[1].position,[0,1,0]);
+   const line=curve([[0,0,0],[1,0,0]]).rotate(r);near(line.surface.points[1].position,[0,1,0]);
    const prototype=box([2,4,6]),instances=instanceOnPoints(prototype,pointCloud([[10,0,0]]).points,{rotate:()=>r,scale:[-2,3,4]});
    expect(Array.isArray(instances.rows[0].transform.rotate)).toBe(false);
    const realized=instances.realize();

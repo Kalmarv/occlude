@@ -34,7 +34,7 @@ const globe = (frequency = 5) => {
   const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
   const drawing = view([water, terrain, levels], {
     camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),
-    stroke: 'ink', creaseAngle: 180,
+    pen: 'ink', creaseAngle: 180,
   });
   return drawing.scene;
 };
@@ -107,8 +107,8 @@ describe('the isoline view door', () => {
       () => {
         const ball = sphere(1.3, { segments: 40, rings: 20 });
         const recipe = isolines(ball, (p) => p.z, { count: 9 }).recipe!;
-        const rings = new SurfaceCurves(eager ? recipe.resolve() : recipe, { stroke: 'line' });
-        return view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 },
+        const rings = new SurfaceCurves(eager ? recipe.resolve() : recipe, { pen: 'line' });
+        return view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 },
           (lines) => [
             strokes(lines.visible.filter((c) => !c.kinds.has('isoline')), { stroke: 'ink' }),
             strokes(lines.visible.filter((c) => c.kinds.has('isoline')), { stroke: 'line', modifiers: modifiers as never }),
@@ -158,7 +158,7 @@ describe('the isoline view door', () => {
     // complete one, and every record it left out is on a certified face.
     const ball = sphere(1.3, { segments: 40, rings: 20 });
     const rings = isolines(ball, (p) => p.z, { count: 9 });
-    const scene = view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 }).scene;
+    const scene = view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 }).scene;
     const snapshot = snapshotOf(scene, scene.curves ?? []);
     expect(snapshot.curveGraphs![0].network.segments.length).toBeLessThan(rings.recipe!.resolve().segments.length);
   }, 180_000);
@@ -168,7 +168,7 @@ describe('the isoline view door', () => {
     // the certificate declines: the view's network is the complete one.
     const relief = plane(3, 3).subdivide(3).displace((p) => [0, 0, 0.5 * Math.sin(p.x * 2) * Math.cos(p.y * 1.5)]);
     const heights = isolines(relief, (p) => p.z, { count: 7 });
-    const scene = view([relief, heights], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), stroke: 'ink' }).scene;
+    const scene = view([relief, heights], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), pen: 'ink' }).scene;
     const snapshot = snapshotOf(scene, scene.curves ?? []);
     expect(snapshot.curveGraphs?.[0].network.segments.length).toBe(heights.network.segments.length);
   });

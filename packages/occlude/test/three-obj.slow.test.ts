@@ -100,7 +100,7 @@ describe('obj() mesh source',()=>{
     expect(Math.max(...z)-Math.min(...z)).toBeCloseTo(0.154,2);
   });
   it('is drawn through view like any mesh, with hidden lines removed',async()=>{
-    const def=sketch({seed:1,pens:{ink:pen({width:mm(.3),color:'#000'})}},()=>view(obj(CUBE),{camera:orthographic({eye:[5,7,4],target:[0,0,1],span:5}),stroke:'ink'}));
+    const def=sketch({seed:1,pens:{ink:pen({width:mm(.3),color:'#000'})}},()=>view(obj(CUBE),{camera:orthographic({eye:[5,7,4],target:[0,0,1],span:5}),pen:'ink'}));
     const run=await compileSketchAsync(def);
     expect(run.scenes3.size).toBe(1);
     // Nine visible edges of a cube from a three-quarter view; three hidden.

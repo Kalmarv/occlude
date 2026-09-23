@@ -11,10 +11,10 @@ import {runGeometryJob3} from '../src/three/geometry/job.js';
  * filter reasons about: bodies wholly behind others, lines on their own
  * surfaces, coplanar neighbours, lines leaving the sheet, and curves. */
 const scenes=[
-  ()=>view([box(1),sphere(.8,{segments:24,rings:12}).translate([0,3,0]),torus(1,.3,{segments:32,tubeSegments:12}).translate([0,-3,.5])],{camera:perspective({eye:[0,-9,4],target:[0,0,0],fovDegrees:50}),stroke:'ink'}),
-  ()=>view([plane(4,4).subdivide(2),box(1).translate([0,0,.5]),box(.6).translate([1.5,1.5,.3])],{camera:orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:5}),stroke:'ink'}),
-  ()=>{const sheet=plane(3,3).subdivide(3).displace(p=>Math.sin(p.x*2)*.3);return view([sheet,isolines(sheet,p=>p.z,{count:5}),sphere(6,{segments:24,rings:12})],{camera:perspective({eye:[2,-3,2],target:[0,0,0],fovDegrees:80}),stroke:'ink'});},
-  ()=>view([box(20)],{camera:perspective({eye:[0,-30,0],target:[0,0,0],fovDegrees:30}),stroke:'ink'}),
+  ()=>view([box(1),sphere(.8,{segments:24,rings:12}).translate([0,3,0]),torus(1,.3,{segments:32,tubeSegments:12}).translate([0,-3,.5])],{camera:perspective({eye:[0,-9,4],target:[0,0,0],fovDegrees:50}),pen:'ink'}),
+  ()=>view([plane(4,4).subdivide(2),box(1).translate([0,0,.5]),box(.6).translate([1.5,1.5,.3])],{camera:orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:5}),pen:'ink'}),
+  ()=>{const sheet=plane(3,3).subdivide(3).displace(p=>Math.sin(p.x*2)*.3);return view([sheet,isolines(sheet,p=>p.z,{count:5}),sphere(6,{segments:24,rings:12})],{camera:perspective({eye:[2,-3,2],target:[0,0,0],fovDegrees:80}),pen:'ink'});},
+  ()=>view([box(20)],{camera:perspective({eye:[0,-30,0],target:[0,0,0],fovDegrees:30}),pen:'ink'}),
 ];
 
 describe('certified raster filter',()=>{

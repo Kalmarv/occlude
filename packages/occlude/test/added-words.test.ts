@@ -88,7 +88,7 @@ describe('distance and length from occlude/3d', () => {
 describe('a face knows its chart', () => {
   const extruded = (() => {
     const sheet = plane(2, 2).subdivide(2);
-    return sheet.extrude(sheet.faces.filter((f) => Math.abs(f.center[0]) < 0.5 && Math.abs(f.center[1]) < 0.5), { distance: 0.5 });
+    return sheet.extrude(sheet.faces.filter((f) => Math.abs(f.centroid[0]) < 0.5 && Math.abs(f.centroid[1]) < 0.5), { distance: 0.5 });
   })();
   const meshes = {
     sphere: sphere(1, { segments: 8, rings: 5 }),

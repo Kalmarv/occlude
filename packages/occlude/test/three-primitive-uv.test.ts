@@ -1,5 +1,5 @@
 import {describe,expect,it,expectTypeOf} from 'vitest';
-import {box,circle,cone,cylinder,plane,polyline,revolve,sphere,sweep,torus,instanceOnPoints,type Mesh} from '../src/three/api/index.js';
+import {box,circle,cone,cylinder,plane,curve,revolve,sphere,sweep,torus,instanceOnPoints,type Mesh} from '../src/three/api/index.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 
 type UV = readonly [number,number];
@@ -45,8 +45,8 @@ describe('primitive UV charts',()=>{
       [cylinder(1,2,{segments:8}),['side','bottom','top']],
       [cone(1,2,{segments:8}),['side','bottom']],
       [torus(2,.3,{segments:8,tubeSegments:5}),['torus']],
-      [sweep(circle(.4,{segments:8}),polyline([[0,0,0],[0,0,2]]),{caps:true}),['side','start','end']],
-      [revolve(polyline([[1,0,-1],[2,0,-1],[2,0,1],[1,0,1]],{closed:true}),{angle:180,segments:8,caps:true}),['side','start','end']],
+      [sweep(circle(.4,{segments:8}),curve([[0,0,0],[0,0,2]]),{caps:true}),['side','start','end']],
+      [revolve(curve([[1,0,-1],[2,0,-1],[2,0,1],[1,0,1]],{closed:true}),{angle:180,segments:8,caps:true}),['side','start','end']],
     ];
     for(const [mesh,required] of fixtures){
       checkLocations(mesh);
@@ -67,7 +67,7 @@ describe('primitive UV charts',()=>{
     expect(seamMultiplicity(ring)).toBeGreaterThan(0);
     expect(seamMultiplicity(cylinder(1,2,{segments:8}))).toBeGreaterThan(0);
     expect(seamMultiplicity(cone(1,2,{segments:8}))).toBeGreaterThan(0);
-    expect(seamMultiplicity(sweep(circle(.4,{segments:8}),polyline([[0,0,0],[0,0,2]])))).toBeGreaterThan(0);
+    expect(seamMultiplicity(sweep(circle(.4,{segments:8}),curve([[0,0,0],[0,0,2]])))).toBeGreaterThan(0);
   });
 
   it('preserves corner UV values through edits, mirrors, extraction, subdivision and realization',()=>{
@@ -84,8 +84,8 @@ describe('primitive UV charts',()=>{
   });
 
   it('uses profile and path arclength for sweep UVs',()=>{
-    const profile=polyline([[0,0,0],[1,0,0],[1,.5,0],[0,.5,0]],{closed:true});
-    const path=polyline([[0,0,0],[0,0,1],[0,0,4]]);
+    const profile=curve([[0,0,0],[1,0,0],[1,.5,0],[0,.5,0]],{closed:true});
+    const path=curve([[0,0,0],[0,0,1],[0,0,4]]);
     const mesh=sweep(profile,path);
     const first=mesh.surface.faces[0].corners!.map(c=>c.attributes.uv as UV);
     expect(first).toEqual([[0,0],[1/3,0],[1/3,1/4],[0,1/4]]);
@@ -96,7 +96,7 @@ describe('primitive UV charts',()=>{
   });
 
   it('keeps revolve sweep fractions signed in orientation and profile arclength in v',()=>{
-    const profile=polyline([[1,0,0],[2,0,0],[2,0,2],[1,0,2]],{closed:true});
+    const profile=curve([[1,0,0],[2,0,0],[2,0,2],[1,0,2]],{closed:true});
     const positive=revolve(profile,{angle:180,segments:4,caps:true});
     const negative=revolve(profile,{angle:-180,segments:4,caps:true});
     const side=positive.surface.faces[0].corners!.map(c=>c.attributes.uv as UV);

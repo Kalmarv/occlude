@@ -87,7 +87,7 @@ describe('intersections resolve in the view, among what the view keeps',()=>{
     expect(curves.recipe).toBeDefined();
     const first=curves.network;
     expect(curves.network).toBe(first);
-    expect(curves.style({stroke:'x'}).network).toBe(first); // a styled copy shares the resolution
+    expect(curves.style({pen:'x'}).network).toBe(first); // a styled copy shares the resolution
     expect(curves.edges.length).toBeGreaterThan(0);
   });
   it('draws the same seams whether or not off-screen objects are in the list',async()=>{

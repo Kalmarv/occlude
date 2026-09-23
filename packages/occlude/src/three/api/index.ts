@@ -21,7 +21,7 @@ export {query} from './query.js';
 export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,QueryResults,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
 export {force} from './force.js';
 export type {Force} from './force.js';
-export {polyline,curve,circle} from './curves.js';
+export {curve,parametricCurve,circle} from './curves.js';
 export type {PolylineOptions,CurveOptions} from './curves.js';
 export {revolve} from './revolve.js';
 export type {RevolveOptions} from './revolve.js';
@@ -50,7 +50,7 @@ export {trace,laneThreshold} from './hatch.js';
 export {v3,falloff,grad3,curl3} from './vec.js';
 /** The 3D twins of `distance` and `length` from `occlude`: triples or `{x, y, z}` rows. */
 export {distance,length} from './vec.js';
-export type {VectorField3} from './vec.js';
+export type {VectorField3,ScalarField3} from './vec.js';
 export type {Seeds3,Streamlines3Options} from './flow.js';
 export {instanceOnFaces} from './instances.js';
 export type {InstanceOnFacesOptions} from './instances.js';

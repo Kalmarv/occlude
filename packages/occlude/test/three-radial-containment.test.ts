@@ -52,7 +52,7 @@ describe('radial provenance', () => {
   });
 
   it('re-proves radiality from the triangles, whatever the record says', () => {
-    const scene = view([geodesic(1, { frequency: 4 }).dual()], { camera: perspective({ eye: [5, 0, 0], target: [0, 0, 0] }), stroke: 'ink' }).scene;
+    const scene = view([geodesic(1, { frequency: 4 }).dual()], { camera: perspective({ eye: [5, 0, 0], target: [0, 0, 0] }), pen: 'ink' }).scene;
     const snapshot = featureSnapshot3(scene.objects, scene.wires, cameraFrame3(scene.camera, { x: 5, y: 5, width: 190, height: 190 }), undefined, scene.curves);
     const mesh = snapshot.occluderMeshes[0];
     expect(mesh.radialCentre).toEqual([0, 0, 0]);
@@ -62,7 +62,7 @@ describe('radial provenance', () => {
     expect(radialAbout3(mesh, Object.freeze([5, 0, 0]) as unknown as Vec3)).toBe(false);
     // A ring is star-shaped about no point at all: the planes of the inner
     // wall face the wrong way, and the proof says so.
-    const ring = view([torus(1, 0.35, { segments: 16, tubeSegments: 8 })], { camera: perspective({ eye: [5, 0, 0], target: [0, 0, 0] }), stroke: 'ink' }).scene;
+    const ring = view([torus(1, 0.35, { segments: 16, tubeSegments: 8 })], { camera: perspective({ eye: [5, 0, 0], target: [0, 0, 0] }), pen: 'ink' }).scene;
     const ringSnapshot = featureSnapshot3(ring.objects, ring.wires, cameraFrame3(ring.camera, { x: 5, y: 5, width: 190, height: 190 }), undefined, ring.curves);
     expect(radialAbout3(ringSnapshot.occluderMeshes[0], Object.freeze([0, 0, 0]) as unknown as Vec3)).toBe(false);
   });
@@ -77,7 +77,7 @@ describe('the containment certificate', () => {
     const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
     return view([water, terrain, levels], {
       camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),
-      stroke: 'ink', creaseAngle: 180,
+      pen: 'ink', creaseAngle: 180,
     }).scene;
   };
 
@@ -111,7 +111,7 @@ describe('the containment certificate', () => {
   }, 120_000);
 
   it('says nothing about a scene with one shell', () => {
-    const scene = view([sphere(1, { segments: 16, rings: 8 })], { camera: perspective({ eye: [5, 0, 0], target: [0, 0, 0] }), stroke: 'ink' }).scene;
+    const scene = view([sphere(1, { segments: 16, rings: 8 })], { camera: perspective({ eye: [5, 0, 0], target: [0, 0, 0] }), pen: 'ink' }).scene;
     const snapshot = featureSnapshot3(scene.objects, scene.wires, cameraFrame3(scene.camera, { x: 5, y: 5, width: 190, height: 190 }), undefined, scene.curves);
     expect(facingCertificate3(snapshot)!.stats.containment).toBeUndefined();
   });

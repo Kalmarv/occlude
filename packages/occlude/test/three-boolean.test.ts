@@ -124,9 +124,9 @@ describe('mesh booleans',()=>{
  it('draws through a view with hidden lines',async()=>{
   const bitten=box(2).subtract(sphere(1.2,{segments:12,rings:6}).translate([0.9,0.8,0.7]));
   let visible=0,hidden=0;
-  const drawing=view(bitten,{camera:orthographic({eye:[5,7,6],span:6}),stroke:'ink',creaseAngle:20},lines=>{visible=lines.visible.length;hidden=lines.hidden.length;return undefined;});
+  const drawing=view(bitten,{camera:orthographic({eye:[5,7,6],span:6}),pen:'ink',creaseAngle:20},lines=>{visible=lines.visible.length;hidden=lines.hidden.length;return undefined;});
   const config={seed:42,margin:0,pens:{ink:pen({width:mm(0.25),color:'#112233'})}};
-  const execution=await compileSketchAsync(sketch(config,()=>view(bitten,{camera:orthographic({eye:[5,7,6],span:6}),stroke:'ink',creaseAngle:20})));
+  const execution=await compileSketchAsync(sketch(config,()=>view(bitten,{camera:orthographic({eye:[5,7,6],span:6}),pen:'ink',creaseAngle:20})));
   expect(render(execution).raw.frags.length).toBeGreaterThan(0);
   await compileSketchAsync(sketch(config,()=>drawing));
   expect(visible).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 import {describe,it,expect,expectTypeOf,beforeAll} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {plane,box,polyline,pointCloud,query} from 'occlude/3d';
+import {plane,box,curve,pointCloud,query} from 'occlude/3d';
 import {initOcclude,sketch,compileSketch} from '../src/index.js';
 import type {MeshEdit,CurveEdit,PointEdit} from 'occlude/3d';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -79,7 +79,7 @@ describe('field-map initialization and frozen attribute edits',()=>{
     expect(result.faces.at(0)!.age).toBe(4);
   });
   it('keeps curve domains honest while reusing frozen point/edge edits',()=>{
-    const source=polyline([[0,0,0],[1,0,0],[2,0,0]]).attributes({age:()=>0}).edgeAttributes({age:()=>0});
+    const source=curve([[0,0,0],[1,0,0],[2,0,0]]).attributes({age:()=>0}).edgeAttributes({age:()=>0});
     let escaped:CurveEdit<{age:number},{age:number}>|undefined;
     const result=source.steps(2,(current,next)=>{
       escaped=next;expect('setFaces' in next).toBe(false);

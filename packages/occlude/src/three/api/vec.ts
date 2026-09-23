@@ -20,8 +20,19 @@ export const v3={
   lerp:(a:Vector3,b:Vector3,t:number):Vec3=>lerp3(v(a),v(b),t),
   mix:(a:Vector3,b:Vector3,t:number):Vec3=>lerp3(v(a),v(b),t),
 };
-/** A vector at every point of space: what `t.streamlines3` follows. */
-export type VectorField3=(point:Vec3)=>Vec3;
+/** A number at every point of space, `(x, y, z) => …`: the 2D field
+ * `(x, y) => …` with a third coordinate, and what `sdf3` makes. */
+export type ScalarField3=(x:number,y:number,z:number)=>number;
+/** A vector at every point of space, `(x, y, z) => [vx, vy, vz]`: what
+ * `t.streamlines3` follows. */
+export type VectorField3=(x:number,y:number,z:number)=>Vec3;
+/** A field of space takes its coordinates, as `sdf3` and every 2D field do.
+ * A function of one point is the other spelling, refused by name; one that
+ * declares no parameters (`() => [0, 0, 1]`) is a constant field. */
+export function checkedField3(field:unknown,who:string):void {
+  if(typeof field!=='function')throw new Error(`${who} requires a field of space, (x, y, z) => …`);
+  if(field.length===1)throw new Error(`${who}: a field of space takes (x, y, z), as sdf3 and the 2D fields do — write (x, y, z) => …, not (p) => …`);
+}
 const sample=(value:unknown):number=>typeof value==='number'&&Number.isFinite(value)?value:Number.NaN;
 /** A field's own answer, read without judgement: a sample it could not give
  * comes back as NaN and the caller decides what that means. */
@@ -34,15 +45,15 @@ const spacing=(step:number|undefined):number=>Number.isFinite(step)&&(step as nu
  * rises fastest, as long as its rise. `step` is the distance the difference is
  * taken over (1e-3 by default). Where the field has no value the gradient is
  * zero, so a tracer stops there rather than following a NaN. */
-export function grad3(scalar:(point:Vec3)=>number,options:{step?:number}={}):VectorField3 {
-  if(typeof scalar!=='function')throw new Error('grad3 requires a scalar field of a 3D point');
+export function grad3(scalar:ScalarField3,options:{step?:number}={}):VectorField3 {
+  checkedField3(scalar,'grad3');
   const h=spacing(options.step);
-  return point=>{
-    const p=vector3(point),out=[0,0,0] as [number,number,number];
+  return (x,y,z)=>{
+    const p:Vec3=[x,y,z],out=[0,0,0] as [number,number,number];
     for(let k=0;k<3;k++){
       const a=[...p] as [number,number,number],b=[...p] as [number,number,number];
       a[k]+=h;b[k]-=h;
-      out[k]=(sample(scalar(a))-sample(scalar(b)))/(2*h);
+      out[k]=(sample(scalar(...a))-sample(scalar(...b)))/(2*h);
     }
     return out.every(Number.isFinite)?out:[0,0,0];
   };
@@ -52,14 +63,14 @@ export function grad3(scalar:(point:Vec3)=>number,options:{step?:number}={}):Vec
  * `curl3` of a vector potential is the flow word — streamlines of it neither
  * pile up nor thin out. */
 export function curl3(field:VectorField3,options:{step?:number}={}):VectorField3 {
-  if(typeof field!=='function')throw new Error('curl3 requires a vector field of a 3D point');
+  checkedField3(field,'curl3');
   const h=spacing(options.step);
-  return point=>{
-    const p=vector3(point),d:Vec3[]=[];
+  return (x,y,z)=>{
+    const p:Vec3=[x,y,z],d:Vec3[]=[];
     for(let k=0;k<3;k++){
       const a=[...p] as [number,number,number],b=[...p] as [number,number,number];
       a[k]+=h;b[k]-=h;
-      const high=read(field(a)),low=read(field(b));
+      const high=read(field(...a)),low=read(field(...b));
       d.push([(high[0]-low[0])/(2*h),(high[1]-low[1])/(2*h),(high[2]-low[2])/(2*h)]);
     }
     const out:Vec3=[d[1][2]-d[2][1],d[2][0]-d[0][2],d[0][1]-d[1][0]];

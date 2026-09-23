@@ -12,7 +12,7 @@ const corners:[number,number,number][]=[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
 
 it('puts a world point exactly where the view draws it',async()=>{
  let placed:(readonly [number,number])[]=[];
- const drawing=view(box(2),{camera,stroke:'ink'});
+ const drawing=view(box(2),{camera,pen:'ink'});
  const execution=await compileSketchAsync(sketchAsync(config,async t=>{
    placed=corners.map(c=>t.toPaper(drawing,c));
    return drawing;
@@ -31,7 +31,7 @@ it('puts a world point exactly where the view draws it',async()=>{
 
 it('follows the camera the view is actually drawn with',async()=>{
  let before:readonly [number,number]=[0,0],after:readonly [number,number]=[0,0];
- const drawing=view(box(2),{camera,stroke:'ink',key:'main'});
+ const drawing=view(box(2),{camera,pen:'ink',key:'main'});
  const plain=async(t:{toPaper:(v:typeof drawing,p:[number,number,number])=>readonly [number,number]})=>t.toPaper(drawing,[1,1,1]);
  await compileSketchAsync(sketchAsync(config,async t=>{before=await plain(t);return drawing;}));
  const override=perspective({eye:[6,9,7],fovDegrees:40});
@@ -45,7 +45,7 @@ it('follows the camera the view is actually drawn with',async()=>{
 });
 
 it('makes a material of many points and a NaN pair behind the eye',async()=>{
- const drawing=view(box(2),{camera:perspective({eye:[0,-6,2],fovDegrees:45}),stroke:'ink'});
+ const drawing=view(box(2),{camera:perspective({eye:[0,-6,2],fovDegrees:45}),pen:'ink'});
  let cloud:Material|undefined,behind:readonly [number,number]=[0,0],rows=0;
  await compileSketchAsync(sketchAsync(config,async t=>{
    cloud=t.toPaper(drawing,corners);
