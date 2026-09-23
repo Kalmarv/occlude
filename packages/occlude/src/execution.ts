@@ -275,6 +275,9 @@ export class Execution {
   /** Every pen a name in this run may resolve to: the captured library
    * under the sketch's declared pens (a declared name shadows). */
   pens: Map<string, PenDef> = new Map();
+  /** The names the sketch's own `pens` config declares, in its order — the
+   * pens a stroke shader may answer beyond those the drawing uses. */
+  declaredPens: readonly string[] = [];
   currentPen = 'default';
   /** The seed the streams were built from, base only (the tail is `overrides`). */
   seedUsed: number | string = 0;
@@ -380,6 +383,7 @@ export class Execution {
       throw new Error("sketch config: `pen` is gone — the first entry of `pens` is the default (`pens: { ink: 'stabilo-88-blue' }` names a library pen)");
     }
     const declared = cfg.pens ?? {};
+    this.declaredPens = Object.keys(declared);
     for (const [name, def] of Object.entries(declared)) {
       if (typeof def === 'string') {
         const lib = this.pens.get(def);

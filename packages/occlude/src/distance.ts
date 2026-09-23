@@ -20,6 +20,7 @@
 import { numericLoops, type AreaInput } from './boundary.js';
 import { vx as pointX, vy as pointY, type XY } from './vec.js';
 import type { PointsLike } from './material.js';
+import { Len } from './units.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -692,9 +693,24 @@ const everywhere: DistanceField = () => Infinity;
 NODE.set(nowhere, { fused: false, kind: 'const', v: -Infinity });
 NODE.set(everywhere, { fused: false, kind: 'const', v: Infinity });
 
+/**
+ * The `sdf` words take drawable units. A field is a function the sketch
+ * calls itself — a shader reads `body(p[0], p[1])` — so it holds no paper to
+ * read `mm(4)` against, and a tagged length would read as NaN everywhere.
+ * Refuse it by name and say the door: `t.len` lowers a length in the run.
+ */
+const units = (word: string, ...args: unknown[]): void => {
+  for (const v of args) {
+    if (v instanceof Len) {
+      throw new Error(`sdf.${word}: a length like mm(${v.value}) needs the paper, and a field has none — its arguments are drawable units; give t.len(mm(${v.value}))`);
+    }
+  }
+};
+
 /** A disc of radius `r` about `cx, cy` — spelled like `circle(x, y, r)`.
  * Exact. */
 const circleField = (cx: number, cy: number, r: number): DistanceField => {
+  units('circle', cx, cy, r);
   const f: DistanceField = (x, y) => r - hyp(x - cx, y - cy);
   NODE.set(f, { fused: false, kind: 'circle', cx, cy, r });
   // The disc's own formula IS `peak − dist(p, box)` for the degenerate box
@@ -713,6 +729,7 @@ const circleField = (cx: number, cy: number, r: number): DistanceField => {
  * one name with two anchors would be a trap. A box is centred, always.
  */
 const boxField = (cx: number, cy: number, w: number, h: number): DistanceField => {
+  units('box', cx, cy, w, h);
   const hw = Math.abs(w) / 2;
   const hh = Math.abs(h) / 2;
   const f: DistanceField = (x, y) => {
@@ -741,6 +758,7 @@ const boxField = (cx: number, cy: number, w: number, h: number): DistanceField =
  * all. A field is an area, and an area needs a width.
  */
 const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number): DistanceField => {
+  units('segment', x0, y0, x1, y1, r);
   const ax = x0;
   const ay = y0;
   const dx = x1 - ax;
@@ -900,6 +918,7 @@ function subtractField(a: DistanceField, ...args: Array<DistanceField | readonly
 function blendField(fields: readonly DistanceField[], radius: number): DistanceField;
 function blendField(a: DistanceField, b: DistanceField, radius: number): DistanceField;
 function blendField(a: DistanceField | readonly DistanceField[], b: DistanceField | number, radius?: number): DistanceField {
+  units('blend', b, radius);
   if (Array.isArray(a)) {
     if (radius !== undefined) throw new Error('sdf.blend: pass one array of fields and the radius, or two fields and the radius — not both');
     const fs = many(a as readonly DistanceField[], 'blend');

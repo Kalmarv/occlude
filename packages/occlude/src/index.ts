@@ -54,7 +54,7 @@ export type { LiveMeta } from './docsExamples.js';
 export { synth, probe as probeExpression } from './synth.js';
 export type { SynthFn, SynthOpts, SynthStats, SynthBounds, WarpFn } from './synth.js';
 export type { LabelOpts } from './font.js';
-export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
+export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion, FillParams, BuiltinFillName, HatchParams, CrosshatchParams, SolidParams, StippleParams, ContourParams } from './fills.js';
 
 // Material: meshes with attributes and connections — hold, connect, step,
 // resample, reinterpret (pure; the toolkit's t.sample turns a shape into
@@ -219,7 +219,7 @@ export type { PenTiming,
   MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts, PlanSchedule,
 } from './motion.js';
 
-export type { StreamOpts } from './streamlines.js';
+export type { StreamOpts, LengthField } from './streamlines.js';
 export { shaper } from './shaper.js';
 export type { Shaper, ShaperOpts, ShaperPoint } from './shaper.js';
 
@@ -239,6 +239,7 @@ export type {
   ExecutionInputs, PaperSpec, CompileConfig, ProbeSummary, InspectionEntry, InspectionPayload, SketchOptions, TransformOp, Winding,
 } from './execution.js';
 export { userUnitsToPaper } from './record.js';
+export type { Frame } from './record.js';
 export { inspectHook, bindToolkit, DEFAULT_INPUTS } from './api.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the

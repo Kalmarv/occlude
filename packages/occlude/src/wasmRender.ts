@@ -10,6 +10,47 @@
 
 import { runFillJobs, type SuppliedFills } from './fillJobs.js';
 import type { EncodedScene } from './render.js';
+import { PRIM_STRIDE } from './sceneBuffers.js';
+
+/**
+ * What the engine can hold. The core is wasm32: one linear memory of at most
+ * 4 GiB, and a scene past it dies inside the engine as `RuntimeError:
+ * unreachable` with nothing on the page. So the render estimates the
+ * engine's peak memory from the buffers before it calls in, and refuses by
+ * name.
+ *
+ * The cost is measured, not derived: the memory the wasm instance had grown
+ * to after one render, on a fresh instance per scene (2026-09-23, this
+ * build). Scattered single lines, 20 000 to 100 000 shapes of one primitive:
+ * 1 110–1 170 bytes a point. Polylines of 1 000 points, 100 000 to 800 000
+ * points: 620–720 bytes a point. Hatch fills, 43 000 to 347 000 fill
+ * primitives: 620–830. Polylines under 400 opaque discs: 440–470. A
+ * primitive costs about 620 bytes and a shape about 560 more, and the
+ * budget keeps 15% of the 4 GiB for the growth of the engine's largest
+ * vector, which doubles.
+ */
+export const ENGINE_BYTES_PER_POINT = 620;
+export const ENGINE_BYTES_PER_SHAPE = 560;
+export const ENGINE_BUDGET_BYTES = 0.85 * 2 ** 32;
+/** shapes_u32 stride (scene.rs). */
+const SHAPE_STRIDE = 12;
+
+/** The engine's estimated peak for a scene, in bytes. `points` counts every
+ * primitive and fill dot the engine will hold. */
+export function engineBytes(points: number, shapes: number): number {
+  return points * ENGINE_BYTES_PER_POINT + shapes * ENGINE_BYTES_PER_SHAPE;
+}
+
+/** Refuse a scene the engine cannot hold, before the call that would die. */
+export function checkEngineCapacity(points: number, shapes: number): void {
+  if (engineBytes(points, shapes) <= ENGINE_BUDGET_BYTES) return;
+  const most = Math.max(0, Math.floor((ENGINE_BUDGET_BYTES - shapes * ENGINE_BYTES_PER_SHAPE) / ENGINE_BYTES_PER_POINT));
+  const n = (v: number): string => v.toLocaleString('en-US');
+  throw new Error(
+    `render: ${n(points)} points is more than the engine can hold (about ${n(most)} in ${n(shapes)} shapes); ` +
+      'draw fewer or shorter strokes — a longer resample spacing, a wider fill spacing — or split the drawing across sheets',
+  );
+}
 
 export interface WasmModule {
   wasm_prepare(
@@ -115,6 +156,9 @@ export interface RawRender {
  * pass 2 clips and occludes it. One synchronous call frame. */
 export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
   const t0 = performance.now();
+  const shapes = scene.shapesU32.length / SHAPE_STRIDE;
+  const outlinePoints = scene.prims.length / PRIM_STRIDE;
+  checkEngineCapacity(outlinePoints, shapes);
   const prepared = mod.wasm_prepare(
     scene.prims,
     scene.contours,
@@ -145,6 +189,9 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
       prepared.jobs_contours,
       prepared.jobs_prims,
     );
+    // The fills are ink the outline count did not know about: judge the
+    // whole scene again before pass 2 takes it.
+    checkEngineCapacity(outlinePoints + supplied.fillPrims.length / PRIM_STRIDE + supplied.fillDots.length / 2, shapes);
   } catch (e) {
     prepared.free?.();
     throw e;

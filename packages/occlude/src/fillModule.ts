@@ -10,6 +10,7 @@
  */
 
 import type { Prim } from './prims.js';
+import type { Vec, XY } from './vec.js';
 
 /** The region handed to a JS fill, in paper mm: post-deform outline,
  * before clip/occluder subtraction. */
@@ -40,6 +41,12 @@ export interface FillCtx {
    * part, so a mirrored motif mirrors its texture. Identity-plus-centre for
    * a coordinate-placed shape: halftone dots keep identical marks. */
   anchor: FillAnchor;
+  /** A paper point (mm, the region's coordinates) as the sketch point drawn
+   * there, in drawable units: the frame every field, shape and `t.bounds()`
+   * of the sketch speaks. A place the sheet does not show answers NaN. */
+  toUnits(p: XY): Vec;
+  /** A sketch point (drawable units) as the paper point (mm) it is drawn at. */
+  toPaper(p: XY): Vec;
 }
 
 /** An affine shape-local mm → paper mm: (x', y') = (a x + c y + e, b x + d y + f). */
@@ -88,8 +95,16 @@ export function fillAsset<P extends Record<string, unknown>>(
 }
 
 export interface RulingOpts {
-  /** Line spacing in paper mm. */
-  spacing: number;
+  /** Line spacing in paper mm, or a function of the paper point that
+   * answers it. A function is read along each ruling at `step`, at the
+   * points inside the region, and the ruling takes the smallest answer as
+   * its distance to the next one. A ruling with no answer (outside the
+   * region, or a value that is not a positive finite number) draws nothing
+   * and the next is `step` further on. */
+  spacing: number | ((x: number, y: number) => number);
+  /** Paper mm between the reads of a spacing function along a ruling
+   * (default 1). A number spacing does not read it. */
+  step?: number;
   /** Degrees; 0 = horizontal. */
   angle?: number;
   /** Phase offset along the ruling normal, mm. */
@@ -118,7 +133,7 @@ export function rulings(region: FillRegion, opts: RulingOpts): CustomPrimitive[]
   const align = opts.align ?? 'paper';
   const b = region.bbox;
   const diag = Math.hypot(b.w, b.h);
-  const s = Math.max(opts.spacing, 0.02, diag / 100_000);
+  const floor = Math.max(0.02, diag / 100_000);
   const theta = (angleDeg * Math.PI) / 180;
   let dir = [Math.cos(theta), Math.sin(theta)];
   const A = align === 'shape' ? opts.anchor : undefined;
@@ -142,6 +157,43 @@ export function rulings(region: FillRegion, opts: RulingOpts): CustomPrimitive[]
     omin = Math.min(omin, o); omax = Math.max(omax, o);
     dmin = Math.min(dmin, d); dmax = Math.max(dmax, d);
   }
+  const ruling = (o: number, pad: number): CustomPrimitive => ({
+    type: 'line',
+    x1: nrm[0] * o + dir[0] * (dmin - pad),
+    y1: nrm[1] * o + dir[1] * (dmin - pad),
+    x2: nrm[0] * o + dir[0] * (dmax + pad),
+    y2: nrm[1] * o + dir[1] * (dmax + pad),
+  });
+  const out: CustomPrimitive[] = [];
+  if (typeof opts.spacing === 'function') {
+    // A spacing per ruling: each ruling reads the function along its length
+    // and keeps the smallest answer inside the region, so the texture is
+    // never lighter than the field asks anywhere along it. There is no
+    // shared phase — the rulings start `offset` in from the region's edge.
+    const spacingAt = opts.spacing;
+    const step = opts.step !== undefined && Number.isFinite(opts.step) && opts.step > 0 ? Math.max(opts.step, floor) : 1;
+    const reads = Math.max(1, Math.ceil((dmax - dmin) / step));
+    for (let o = omin + offset; o <= omax;) {
+      let s = Infinity;
+      for (let i = 0; i < reads; i++) {
+        const d = dmin + ((i + 0.5) * (dmax - dmin)) / reads;
+        const x = nrm[0] * o + dir[0] * d;
+        const y = nrm[1] * o + dir[1] * d;
+        if (!region.contains(x, y)) continue;
+        const v = spacingAt(x, y);
+        if (Number.isFinite(v) && v > 0 && v < s) s = v;
+      }
+      if (s === Infinity) {
+        o += step;
+        continue;
+      }
+      s = Math.max(s, floor);
+      out.push(ruling(o, s * 0.5));
+      o += s;
+    }
+    return out;
+  }
+  const s = Math.max(opts.spacing, floor);
   // Phase: paper-anchored rulings are multiples of spacing in paper space
   // (adjacent same-spec fills align); shape-anchored ones centre the
   // ruling on the region, so small shapes render identically anywhere.
@@ -150,16 +202,6 @@ export function rulings(region: FillRegion, opts: RulingOpts): CustomPrimitive[]
   const k0 = Math.ceil((omin - phase) / s);
   const k1 = Math.floor((omax - phase) / s);
   const pad = s * 0.5;
-  const out: CustomPrimitive[] = [];
-  for (let k = k0; k <= k1; k++) {
-    const o = k * s + phase;
-    out.push({
-      type: 'line',
-      x1: nrm[0] * o + dir[0] * (dmin - pad),
-      y1: nrm[1] * o + dir[1] * (dmin - pad),
-      x2: nrm[0] * o + dir[0] * (dmax + pad),
-      y2: nrm[1] * o + dir[1] * (dmax + pad),
-    });
-  }
+  for (let k = k0; k <= k1; k++) out.push(ruling(k * s + phase, pad));
   return out;
 }

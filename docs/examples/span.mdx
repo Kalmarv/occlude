@@ -5,16 +5,16 @@ description: A network inked by how far the pen travels without lifting, which i
 
 The geometry is a scatter of points joined wherever nothing sits between them. Every edge is much the same length. On this drawing they run from 6mm to 13mm, and half sit within a millimetre of 8mm. No edge asks to be heavier than another.
 
-The shader reads `ctx.length`. That is the STROKE: the path the pen draws between two lifts. The planner merges the network's 209 edges into chains, and those chains run from 8mm to 294mm. A short stroke is a stub the pen dabs on its own. A long one sweeps across the sheet through a dozen junctions.
+The shader reads `ctx.mm.length`, the length in millimetres. That is the STROKE: the path the pen draws between two lifts. The planner merges the network's 209 edges into chains, and those chains run from 8mm to 294mm. A short stroke is a stub the pen dabs on its own. A long one sweeps across the sheet through a dozen junctions.
 
 So the ink says something the geometry never did. A stub gets the heavy pen. A medium stroke is solid and fine. A long one breaks into dashes, and the longest into dust. The drawing shows the pen's own path, not the network's.
 
 The steps are that distribution's quartiles. I measured the sketch to find them.
 
-Uses: `t.scatter`, `connect.unimpeded`, `t.plan({ shader })` reading `ctx.length`, `pen` and `dash` in one program, `strokes`, `polygon`.
+Uses: `t.scatter`, `connect.unimpeded`, `t.plan({ shader })` reading `ctx.mm.length`, `pen` and `dash` in one program, `strokes`, `polygon`.
 
 :::note
-`ctx.length` is a plan chain, not a source edge. A rule or a fill that made many short pieces may reach the shader as one long stroke. Two shapes that never touched in the sketch may be one chain by the time the pen draws them. Measure the distribution before choosing thresholds.
+`ctx.length` measures a plan chain, not a source edge. A rule or a fill that made many short pieces may reach the shader as one long stroke. Two shapes that never touched in the sketch may be one chain by the time the pen draws them. Measure the distribution before choosing thresholds.
 :::
 
 ```ts live
@@ -30,9 +30,9 @@ export default sketch({
   const net = connect.unimpeded(points.extract(), { room: 1.25 });
   t.plan({
     shader: shader((s, p, ctx) => {
-      if (ctx.length <= 20) return { pen: 'ink' };
-      if (ctx.length <= 37) return {};
-      if (ctx.length <= 82) return { dash: [mm(2.4), mm(1.1)] };
+      if (ctx.mm.length <= 20) return { pen: 'ink' };
+      if (ctx.mm.length <= 37) return {};
+      if (ctx.mm.length <= 82) return { dash: [mm(2.4), mm(1.1)] };
       return { dash: [mm(0.8), mm(2.2)] };
     }),
   });

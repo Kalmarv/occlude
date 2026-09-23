@@ -13,6 +13,8 @@ import type { Mat } from './matrix.js';
 import { Rng } from './random.js';
 import type { Winding } from './execution.js';
 import { resolveLen } from './units.js';
+import { frameMaps } from './record.js';
+import { vx, vy } from './vec.js';
 import { PRIM_STRIDE, PrimSink, decodePrim, encodePrim } from './sceneBuffers.js';
 import type { EncodedScene } from './render.js';
 
@@ -103,6 +105,9 @@ export function runFillJobs(
   const fillChains: number[] = [];
   const fillPrims = new PrimSink();
   const fillDots: number[] = [];
+  const maps = frameMaps(scene.frame);
+  const toUnits: FillCtx['toUnits'] = (p) => maps.toUnits(vx(p), vy(p));
+  const toPaper: FillCtx['toPaper'] = (p) => maps.toPaper(vx(p), vy(p));
   for (let j = 0; j + 2 < jobsIndex.length; j += 3) {
     const shapeIdx = jobsIndex[j];
     const cStart = jobsIndex[j + 1];
@@ -129,6 +134,8 @@ export function runFillJobs(
       coarsen: scene.coarsen,
       len: (l) => resolveLen(l, scene.frame.inner),
       anchor: { ...a, rotation: (Math.atan2(a.b, a.a) * 180) / Math.PI },
+      toUnits,
+      toPaper,
     };
     const marks = job.run(region, ctx);
     const chainStart = fillChains.length / 2;

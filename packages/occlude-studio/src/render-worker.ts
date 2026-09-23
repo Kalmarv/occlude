@@ -16,7 +16,7 @@ import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
-import { GpuSceneCompute3, applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planAsBuffers, planSettings, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { GpuSceneCompute3, applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planAsBuffers, planSettings, renderEncoded, tourBudget, type Execution, type Frame, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -109,7 +109,7 @@ const compute3 = new GpuSceneCompute3(navigator.gpu);
 
 const mod = core as unknown as WasmModule;
 
-let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number }; inner: { innerW: number; innerH: number } } | null = null;
+let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number }; frame: Frame } | null = null;
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
 /** The render whose run (and inspection registry) is current. */
 let lastExecutionId = -1;
@@ -140,7 +140,7 @@ async function planDrawing(drawing: NonNullable<typeof last>, opts: PlanOptions)
   // call. Without it the preview, the saved SVG and the machine would all
   // draw the unshaded plan while a headless export drew the shaded one —
   // two renderers, two answers, which law 5 forbids.
-  if (opts.shader) buffer = applyShader(buffer, opts.shader, drawing.pens, drawing.inner);
+  if (opts.shader) buffer = applyShader(buffer, opts.shader, drawing.pens, drawing.frame);
   // The settings go into the plan's hash, so they come from the library's
   // own function. A field added there must not have to be added here too.
   const settings: PlanSettings = planSettings(drawing.pens, drawing.paper, opts, typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev');
@@ -207,7 +207,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         signal?.throwIfAborted();
         draft('render');
         const raw = renderEncoded(mod, scene);
-        const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper, inner: scene.frame.inner };
+        const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper, frame: scene.frame };
         // THE plan, once per render, under the sketch's own t.plan({...}):
         // everything downstream selects from it, as the sketch's t.draw says.
         const { buffer: planBuf, settings, planHash } = await planDrawing(drawing, scene.plan ?? {});

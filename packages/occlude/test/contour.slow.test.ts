@@ -35,9 +35,11 @@ it('draws no contours for a spacing it cannot use, and rejects meaningless param
     expect(draw(circle(50,50,20,{stroke:false,fill:fill('contour',{spacing})})).frags.length).toBe(0);
     expect(draw(circle(50,50,20,{fill:fill('contour',{spacing})})).frags.length).toBeGreaterThan(0);
   }
+  // @ts-expect-error: a misspelt key is a type error first; the refusal is what this checks
   expect(()=>draw(circle(50,50,20,{fill:fill('contour',{angle:45})}))).toThrow(/unsupported parameter/);
   expect(draw(circle(50,50,20,{stroke:false,fill:fill('contour',{spacing:mm(2)})})).frags.length).toBeGreaterThan(0);
   for (const connectors of [0, 1, 'false', null]) {
+    // @ts-expect-error: a non-boolean is a type error first; the refusal is what this checks
     expect(()=>draw(circle(50,50,20,{fill:fill('contour',{connectors})}))).toThrow(/connectors must be a boolean/);
   }
 });

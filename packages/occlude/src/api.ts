@@ -31,13 +31,13 @@ import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './thr
 import type { Camera3 } from './three/camera.js';
 import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
-import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
+import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
 import { modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
 import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
 import { isPlacement, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
-import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
+import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
@@ -1881,12 +1881,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
    * the program, so the same source plans the same way everywhere. */
   function planWith(opts: PlanOptions): void {
-    if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge?, shader? }');
-    for (const k of Object.keys(opts)) if (!['optimize', 'bridge', 'shader'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize, bridge and shader; engine identity is the host's)`);
-    if (opts.shader !== undefined && !isShader(opts.shader)) throw new Error('plan: shader must be a shader(program) value');
-    if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
-    if (opts.bridge !== undefined && typeof opts.bridge !== 'boolean' && !(typeof opts.bridge === 'number' && Number.isFinite(opts.bridge) && opts.bridge >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative gap in mm');
-    exec.planOptions = { ...opts };
+    exec.planOptions = checkPlanOptions(opts);
   }
 
   /** Which part of the ordered plan to draw — a prefix or interval by
@@ -2243,6 +2238,7 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
 
 function emitShape(exec: Execution, sv: ShapeValue, ctx: EmitCtx): void {
   const o = sv.opts;
+  checkFillOpaque(o);
   if (o.translate || o.rotate !== undefined || o.scale !== undefined) {
     const { translate, rotate, scale, origin } = o;
     exec.push({ translate, rotate, scale, origin }, () =>

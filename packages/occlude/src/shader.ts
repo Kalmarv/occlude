@@ -5,8 +5,10 @@
  * The domain is the PLAN CHAIN, not the fragment. A fragment is a sub-range
  * of one primitive, and a stroked circle is already twenty-odd primitives —
  * the thing an artist calls a stroke only exists after the plan's merge.
- * A chain has an arc length, an order and an index, so `s` in millimetres
- * is exact rather than reconstructed.
+ * A chain has an arc length, an order and an index, so `s` is exact rather
+ * than reconstructed. The plan is in paper mm; the program is handed the
+ * sketch frame (drawable units, the sketch's origin and axes), because
+ * that is the frame its fields and bounds are written in.
  *
  * The stage is chains to chains: the program is sampled along a chain at
  * the pen's own nib width, in the MIDDLE of each step (finer detail cannot
@@ -20,37 +22,53 @@ import { evalPrim, primLength, subPrim, type Prim } from './prims.js';
 import type { L } from './units.js';
 import type { PlanChain } from './plan.js';
 
-/** What the stage knows that a chain does not: the pen's nib, and how to
- * read a length the sketch wrote in its own units. Both need the resolved
- * paper, so they are passed in — the kernel never reaches for the frame. */
+/** What the stage knows that a chain does not: the pen table, how to read
+ * a length the sketch wrote in its own units, and the sketch frame the
+ * program speaks. All need the resolved paper, so they are passed in — the
+ * kernel never reaches for the frame. */
 export interface ShadeFrame {
   nibOf(pen: number): number;
   resolve(v: L): number;
-  /** The drawing's pen table, by name. A shader reaches a pen the drawing
-   * uses; an unknown name is a loud error, the same as anywhere else. */
+  /** The pen table, by name: the pens the drawing uses and the pens the
+   * sketch declares. An unknown name is a loud error, the same as anywhere
+   * else. */
   penOf(name: string): number;
-  /** How many pens the drawing uses. A slot outside the table is refused
-   * here, because a plan that names a pen the exporters cannot find loses
-   * its ink in silence. */
+  /** The name of a slot of the pen table. */
+  nameOf(pen: number): string;
+  /** How many pens the table holds. A slot outside it is refused here,
+   * because a plan that names a pen the exporters cannot find loses its ink
+   * in silence. */
   penCount(): number;
+  /** One drawable unit in paper mm. */
+  unit: number;
+  /** A paper point (mm) as the sketch point drawn there, drawable units. */
+  toUnits(px: number, py: number): [number, number];
 }
 
 /** More passes than this is not weight, it is a mistake. A pen laying the
  * same line down sixteen times has already made the darkest mark it can. */
 export const MAX_PASSES = 16;
 
-/** What the engine knows about the stroke at the point being shaded. */
+/** What the engine knows about the stroke at the point being shaded. Every
+ * length and point is in the sketch's own drawable units, as `t.bounds()`
+ * and every shape speak them; `mm` holds the same three on the paper. */
 export interface StrokeCtx {
   /** Row of this stroke in the full plan — its drawing order. */
   index: number;
-  /** Pen slot the plan gave the stroke, before any shader override. */
-  pen: number;
-  /** Arc length of the whole stroke, mm. */
+  /** The pen the plan gave the stroke, by name, before any shader
+   * override: the word a `pen` answer takes. */
+  pen: string;
+  /** The same pen as a slot of the drawing's pen table. */
+  slot: number;
+  /** Arc length of the whole stroke, drawable units. */
   length: number;
   /** A stipple tap: zero length, plotted as a pen-down/delay/pen-up. */
   dot: boolean;
   /** Position along the stroke as a fraction, `s / length`. */
   at: number;
+  /** The same point on the paper: `s` and `length` in millimetres and `p`
+   * as a paper point, for a rule that follows the nib. */
+  mm: { s: number; p: [number, number]; length: number };
 }
 
 /** What the pen does at that point. Every field is optional; an empty
@@ -61,9 +79,9 @@ export interface StrokeInk {
   passes?: number;
   /** The pen to draw this span with, by name or by slot. The tour grouped
    * pens BEFORE the shader ran, so an override costs a tool change the
-   * plan did not optimize for. A shader reaches the pens the drawing
-   * already uses: a name the drawing never drew with is an error, not a
-   * new pen. */
+   * plan did not optimize for. A shader reaches the pens the drawing uses
+   * and the pens the sketch declares in its `pens`; any other name is an
+   * error, not a new pen. */
   pen?: number | string;
   /** Mark and gap, repeated along the stroke. Lengths in the sketch's own
    * units: `mm(2)` is two millimetres, a bare `2` is two percent of the
@@ -73,8 +91,8 @@ export interface StrokeInk {
   keep?: boolean;
 }
 
-/** The program itself: arc length in mm, the point there, and what the
- * engine knows about the stroke. */
+/** The program itself: arc length and the point there, in the sketch's
+ * drawable units, and what the engine knows about the stroke. */
 export type StrokeProgram = (s: number, p: [number, number], ctx: StrokeCtx) => StrokeInk;
 
 const SHADER = Symbol.for('occlude.shader');
@@ -233,7 +251,7 @@ const normalize = (ink: StrokeInk, pen: number, frame: ShadeFrame, nib: number):
       // find no pen for it and drop the chain, so the ink would vanish
       // with no error anywhere — the one failure a plotter must not have.
       if (!Number.isFinite(want) || want < 0 || want >= frame.penCount()) {
-        throw new Error(`shader: no pen ${String(ink.pen)} in this drawing (it uses ${frame.penCount()} pen${frame.penCount() === 1 ? '' : 's'}, numbered from 0). Name the pen instead.`);
+        throw new Error(`shader: no pen ${String(ink.pen)} in this drawing (it has ${frame.penCount()} pen${frame.penCount() === 1 ? '' : 's'}, numbered from 0). Name the pen instead.`);
       }
     }
   }
@@ -250,11 +268,22 @@ const same = (a: Span, b: Span): boolean =>
  */
 function shadeChain(chain: PlanChain, program: StrokeProgram, frame: ShadeFrame): Omit<PlanChain, 'index'>[] {
   const r = measure(chain.prims);
-  const ctxBase = { index: chain.index, pen: chain.pen, length: r.total, dot: chain.dot };
+  const u = frame.unit;
+  const pen = frame.nameOf(chain.pen);
+  // The program speaks the sketch frame; the stage samples and cuts in
+  // paper mm, as the plan holds the ink.
+  const call = (s: number): StrokeInk => {
+    const q = pointAt(chain.prims, r, s);
+    return program(s / u, frame.toUnits(q[0], q[1]), {
+      index: chain.index, pen, slot: chain.pen, length: r.total / u, dot: chain.dot,
+      at: r.total > 0 ? s / r.total : 0,
+      mm: { s, p: q, length: r.total },
+    });
+  };
 
   // A tap has no length to walk: it is shaded once, at its own point.
   if (chain.dot || r.total <= 0) {
-    const span = normalize(program(0, pointAt(chain.prims, r, 0), { ...ctxBase, at: 0 }), chain.pen, frame, frame.nibOf(chain.pen));
+    const span = normalize(call(0), chain.pen, frame, frame.nibOf(chain.pen));
     if (!span.keep) return [];
     const out: Omit<PlanChain, 'index'>[] = [];
     for (let k = 0; k < span.passes; k++) out.push({ pen: span.pen, dot: chain.dot, prims: chain.prims });
@@ -271,7 +300,7 @@ function shadeChain(chain: PlanChain, program: StrokeProgram, frame: ShadeFrame)
     // The step's MIDDLE, not its leading edge: the last nib of a stroke
     // gets a say, and a change lands within half a step of where it is.
     const s = (r.total * (i + 0.5)) / steps;
-    const span = normalize(program(s, pointAt(chain.prims, r, s), { ...ctxBase, at: s / r.total }), chain.pen, frame, nib);
+    const span = normalize(call(s), chain.pen, frame, nib);
     if (cuts.length === 0 || !same(cuts[cuts.length - 1].span, span)) cuts.push({ from: (r.total * i) / steps, span });
   }
 
