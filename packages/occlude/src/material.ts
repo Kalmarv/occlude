@@ -2815,7 +2815,10 @@ export function withinMaterial(
   // never asked for would be one more column every later edge must give.
   const edgeTransfers = { ...m.edgeTransfers };
   if (cells) {
-    edgeAttrs.cut = Float64Array.from(cutFlags);
+    // A source that already carries `cut` (a level set closed along the
+    // drawable) keeps its marks: the two are OR-ed, never replaced.
+    const priorCut = edgeAttrs.cut;
+    edgeAttrs.cut = Float64Array.from(cutFlags, (f, i) => (f || (priorCut !== undefined && priorCut[i] !== 0) ? 1 : 0));
     delete edgeTransfers.cut;
   }
   return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs, space: m.space });
