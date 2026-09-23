@@ -166,18 +166,20 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 <include>/_sig/group.mdx</include>
 
-Applies a transform, a default pen, a default `z` and default modifiers to its children. `rotate` and `scale` pivot on `origin`: a pair, or `'center'` for the middle of the drawable. Without `origin` they pivot on the user origin, the corner of the drawable.
+Applies a transform, a default pen, a default `z` and default modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point (a pair or an `{ x, y }` record, so a station goes in as it is), `'center'` or `'centroid'`. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin, the corner of the drawable. A word that is not one of these is refused by name.
+
+A group is also an area. `t.material`, `t.within`, `clip` and every other word that takes an area read a group as the union of its shapes, with the transform of the group applied.
 
 :::warning
-`origin: 'center'` is the middle of the drawable, not the middle of the group. To pivot on a shape's own middle, give that point: `origin: [cx, cy]`.
+`origin: 'center'` is the middle of the group, not the middle of the drawable. To pivot on the middle of the drawable, give that point: `origin: [t.bounds().cx, t.bounds().cy]`.
 :::
 
 ```ts live
 import { sketch, group, rect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => [
-  t.times(6, (k) => group({ rotate: k * 15, origin: 'center' }, rect(54, 44, 30, 12))),
-  t.times(6, (k) => group({ rotate: k * 15, origin: [31, 22], pen: 'stabilo-88-blue' }, rect(16, 16, 30, 12))),
+  t.times(6, (k) => group({ rotate: k * 15, origin: [t.bounds().cx, t.bounds().cy] }, rect(54, 44, 30, 12))),
+  t.times(6, (k) => group({ rotate: k * 15, origin: 'center', pen: 'stabilo-88-blue' }, rect(16, 16, 30, 12))),
 ]);
 ```
 
@@ -186,7 +188,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/clip.mdx</include>
 <include>/_sig/invert.mdx</include>
 
-`clip` keeps only the ink of its children that lies inside the shape. The shape itself is not drawn and hides nothing. Nested clips intersect. `invert(shape)` turns the region inside out, so `clip(invert(shape), …)` keeps the ink outside.
+`clip` keeps only the ink of its children that lies inside the area. The area is any `Area`: a shape, a group, a face, loops, contour records or a closed material. The area itself is not drawn and hides nothing. Nested clips intersect. `invert(area)` is the area outside, so `clip(invert(area), …)` keeps the ink outside. `invert(area)` is an area in every word that takes an area. In a toolkit word, it is the drawable with the area taken out.
 
 ```ts live
 import { sketch, clip, invert, circle, line } from 'occlude';
@@ -202,7 +204,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/mask.mdx</include>
 
-A shape that hides what is beneath it and draws nothing. This is the hidden-line tool.
+An area that hides what is beneath it and draws nothing. This is the hidden-line tool. `mask` takes any `Area`. A face, loops or a material give one shape. A group gives a group of masks, so their union hides. `mask(invert(area))` hides all of the drawable outside the area.
 
 ```ts live
 import { sketch, mask, circle, line } from 'occlude';

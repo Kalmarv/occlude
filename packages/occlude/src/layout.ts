@@ -5,6 +5,7 @@ import type { IsoContour } from './isolines.js';
 import { Material, material } from './material.js';
 import type { L } from './units.js';
 import { vx, vy, type XY } from './vec.js';
+import type { Origin } from './shapes.js';
 
 export interface GridCell {
   x: number;
@@ -89,9 +90,11 @@ export interface HexOptions {
   /** Shrink every cell about its own centre until neighbouring walls stand
    * this far apart. Gapped cells touch nothing, so nothing is shared. */
   gap?: L;
-  /** The point cell `i = 0, j = 0` is centred on: a pair or an `{ x, y }`
-   * record. Default the user origin. */
-  origin?: XY;
+  /** The point cell `i = 0, j = 0` is centred on (see `Origin`): a pair
+   * or an `{ x, y }` record, or `'center'`/`'centroid'` for the middle of
+   * the lattice's own bounds, which are the drawable. Default the user
+   * origin. */
+  origin?: Origin;
   /** Turn the whole lattice about `origin`, in degrees counter-clockwise.
    * `orientation` still picks the cell before the turn. */
   rotate?: number;
@@ -103,10 +106,11 @@ export interface TriangleOptions {
   /** Shrink every cell about its own centre until neighbouring walls stand
    * this far apart. Gapped cells touch nothing, so nothing is shared. */
   gap?: L;
-  /** The point the lattice's own (0, 0) stands on: a pair or an `{ x, y }`
-   * record, default the user origin. Row 0's top line runs through it, and
-   * the upward cell `i = 0, j = 0` has its apex half a side along. */
-  origin?: XY;
+  /** The point the lattice's own (0, 0) stands on (see `Origin`): a pair
+   * or an `{ x, y }` record, or `'center'`/`'centroid'` for the middle of
+   * the drawable, default the user origin. Row 0's top line runs through
+   * it, and the upward cell `i = 0, j = 0` has its apex half a side along. */
+  origin?: Origin;
   /** Turn the whole lattice about `origin`, in degrees counter-clockwise. */
   rotate?: number;
 }
@@ -132,11 +136,17 @@ interface Cell {
  * value, which lays out nothing.
  */
 function latticeFrame(
-  who: string, w: number, h: number, origin: XY | undefined, rotate: number | undefined,
+  who: string, w: number, h: number, origin: Origin | undefined, rotate: number | undefined,
 ): { place: (p: [number, number]) => [number, number]; x0: number; y0: number; x1: number; y1: number } | null {
   if (rotate !== undefined && typeof rotate !== 'number') throw new Error(`${who}: rotate is an angle in degrees, got ${typeof rotate}`);
-  const ox = origin === undefined ? 0 : vx(origin);
-  const oy = origin === undefined ? 0 : vy(origin);
+  // A lattice's own bounds are the drawable it covers, so its middle and
+  // its centroid are one point.
+  const middle = origin === 'center' || origin === 'centroid';
+  if (typeof origin === 'string' && !middle) {
+    throw new Error(`${who}: origin is a point ([x, y] or { x, y }), 'center' or 'centroid' — got '${origin}'`);
+  }
+  const ox = origin === undefined ? 0 : middle ? w / 2 : vx(origin as XY);
+  const oy = origin === undefined ? 0 : middle ? h / 2 : vy(origin as XY);
   const deg = rotate ?? 0;
   if (!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(deg)) return null;
   if (ox === 0 && oy === 0 && deg === 0) return { place: (p) => p, x0: 0, y0: 0, x1: w, y1: h };

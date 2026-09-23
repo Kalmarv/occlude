@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Face.contours.mdx</include>
 <include>/_sig/Face.extract.mdx</include>
 
-One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids.
+One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary`, `t.within`, `clip`, `mask`, `t.material` and `t.sample` as it is. `t.material(f)` gives its walls with their ids. To keep the faces of a collection that lie in an area, use `t.within(cells, area, { keep })`. `keep` is `'contained'` (the default), `'centroid'` or `'touching'`, the same words as for points and edges. `face.extract()` gives the face as a new material, with its edges, its corners, its columns and its ids.
 
 ```ts live
 import { sketch, circle, strokes, distanceTo } from 'occlude';
@@ -179,7 +179,7 @@ import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
-  const seed = t.within(cells, rect(40, 40, 20, 20), { faces: 'centroid' });
+  const seed = t.within(cells, rect(40, 40, 20, 20), { keep: 'centroid' });
   const ring = seed.adjacent();
   return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), strokes(seed.boundaryEdges(), { pen: 'stabilo-88-blue' })];
 });

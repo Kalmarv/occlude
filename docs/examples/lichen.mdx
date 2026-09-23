@@ -128,7 +128,7 @@ export default sketch({
                 // where it weathers.
                 const patch = (x, y) => clamp01(0.5 + 0.85 * t.noise(x / 11 - off, y / 11 + off));
                 const plates = t
-                    .within(cells.faces(), inner, { faces: 'contained' })
+                    .within(cells.faces(), inner, { keep: 'contained' })
                     .filter((f) => {
                     const [fx, fy] = f.centroid;
                     const depth = clamp01((zoneField(fx, fy) - band) / (s.r * 0.35));

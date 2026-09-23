@@ -59,10 +59,10 @@ describe('object origin and rotation',()=>{
     // Turning in place: the centroid stays at the origin the box was carried to.
     const centroid1=centroid(turned);
     expect(near(centroid1,[5,0,0])).toBe(true);
-    const world=b.rotate('z',90,{about:'world'});
+    const world=b.rotate('z',90,{origin:[0,0,0]});
     const c2=centroid(world);
     expect(near(c2,[0,5,0],1e-9)).toBe(true);
-    const point=b.rotate('z',180,{about:[6,0,0]});
+    const point=b.rotate('z',180,{origin:[6,0,0]});
     const c3=centroid(point);
     expect(near(c3,[7,0,0])).toBe(true);
     // A rotation value with an explicit pivot still works.
@@ -72,16 +72,16 @@ describe('object origin and rotation',()=>{
   });
   it('the origin rides along with a rotation or scale about another pivot',()=>{
     const b=box(1).translate([5,0,0]);
-    const turned=b.rotate('z',90,{about:'world'});
+    const turned=b.rotate('z',90,{origin:[0,0,0]});
     expect(near(turned.origin,[0,5,0],1e-9)).toBe(true);
     // A later default rotation now turns in place at the carried origin.
     expect(near(centroid(turned.rotate([0,0,45])),[0,5,0],1e-9)).toBe(true);
     const value=b.rotate(axisAngle('z',180),[6,0,0]);
     expect(near(value.origin,[7,0,0],1e-9)).toBe(true);
-    const grown=b.scale(2,{about:'world'});
+    const grown=b.scale(2,{origin:[0,0,0]});
     expect(near(grown.origin,[10,0,0])).toBe(true);
     expect(near(centroid(grown.scale(0.5)),[10,0,0],1e-9)).toBe(true);
-    const line=polyline([[5,0,0],[6,0,0]]).translate([1,0,0]).rotate('z',90,{about:'world'});
+    const line=polyline([[5,0,0],[6,0,0]]).translate([1,0,0]).rotate('z',90,{origin:[0,0,0]});
     expect(near(line.origin,[0,1,0],1e-9)).toBe(true);
     expect(near(pointCloud([[0,0,0]]).translate([2,0,0]).scale([3,1,1],[1,0,0]).origin,[4,0,0])).toBe(true);
   });
@@ -113,7 +113,7 @@ describe('object origin and rotation',()=>{
   it('scale pivots on the origin by default and accepts about',()=>{
     const b=box(1).translate([3,0,0]).scale(2);
     expect(Math.min(...b.points.map(p=>p.x))).toBeCloseTo(2);expect(Math.max(...b.points.map(p=>p.x))).toBeCloseTo(4);
-    const w=box(1).translate([3,0,0]).scale(2,{about:'world'});
+    const w=box(1).translate([3,0,0]).scale(2,{origin:[0,0,0]});
     expect(Math.min(...w.points.map(p=>p.x))).toBeCloseTo(5);
   });
 });

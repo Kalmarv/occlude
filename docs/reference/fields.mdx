@@ -207,7 +207,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 <include>/_sig/rotate.mdx</include>
 <include>/_sig/scale.mdx</include>
 
-Transforms of a field's sampling. `translate` moves it, `rotate` turns it about the origin, and `scale` scales it, with `[sx, sy]` for each axis. The result is a plain function again. Each disc below holds the plain field in black and the changed one in blue: moved, turned and scaled.
+Transforms of a field's sampling. `translate` moves it, `rotate` turns it, and `scale` scales it, with `[sx, sy]` for each axis. `rotate` and `scale` turn and scale about `origin`, a point. The user origin is the default. A field has no bounds, so it has no middle and no centroid: the call refuses `'center'` and `'centroid'` by name. For the middle of the drawable, give the point `[t.bounds().cx, t.bounds().cy]`. The result is a plain function again. Each disc below holds the plain field in black and the changed one in blue: moved, turned and scaled.
 
 ```ts live
 import { sketch, circle, strokes, translate, rotate, scale } from 'occlude';
@@ -246,11 +246,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.4.mdx</include>
 <include>/_sig/Toolkit.within.5.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is a shape, a loop of pairs, a face, or a contour material. `t.within` reads the area's `contours()`.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, contour records or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. A value that is not an area is refused by name.
 
-A selection cannot clip. A face and an edge come through whole or not at all. Each has the same three ways to decide. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside, and `'centroid'` keeps a face whose centroid is inside. `'touching'` keeps a face that has a point in common with the area. This includes a face that holds all of the area. For edges, `{ edges: 'contained' }` (the default) keeps a wall with neither end outside and no crossing of the boundary. `'midpoint'` keeps a wall whose `center` is inside. `'touching'` keeps a wall with an end inside, or a wall that meets the boundary. A wall running along the boundary belongs to it. To cut at the boundary instead, hand `within` the material.
+A selection cannot clip. A point, an edge and a face come through whole or not at all. The option `keep` decides, with the same three words for points, edges and faces. `{ keep: 'contained' }` is the default. It keeps a member with no point outside the area and no crossing of the boundary. The boundary belongs to the area, so a point on the boundary is in, and a wall along the boundary is in. `'centroid'` keeps a member whose centroid is in the area or on its boundary. The centroid of an edge is its `center`, and the centroid of a point is the point. `'touching'` keeps a member that has a point in common with the area. This includes a face that holds all of the area. The call judges the boundary with the ink tolerance, 0.05 mm on the sheet. A vertex that is nearer than this to the boundary is on the boundary. The old option names `faces` and `edges` are refused by name. To cut at the boundary instead, give `within` the material.
 
-Below, the black walls are `contained`. The blue walls are what `midpoint` adds. Each one straddles the circle, so its ink reaches past the edge by up to half a wall.
+Below, the black walls are `contained`. The blue walls are what `centroid` adds. Each one straddles the circle, so its ink reaches past the edge by up to half a wall.
 
 ```ts live
 import { sketch, strokes, circle, connect } from 'occlude';
@@ -259,7 +259,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 11 }));
   const disc = circle(50, 50, 30);
   const whole = t.within(web.edges, disc);
-  const cut = t.within(web.edges, disc, { edges: 'midpoint' });
+  const cut = t.within(web.edges, disc, { keep: 'centroid' });
   return [
     strokes(whole),
     strokes(cut.subtract(whole), { pen: 'stabilo-88-blue' }),

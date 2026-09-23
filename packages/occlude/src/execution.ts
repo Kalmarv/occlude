@@ -44,10 +44,11 @@ export interface TransformOp {
   /** Degrees. */
   rotate?: number;
   scale?: number | readonly [number, number];
-  /** Pivot for `rotate` and `scale`, in user coordinates: `[x, y]`, or
-   * `'center'` for the centre of the drawable. Its own translate is a plain
-   * move. Without it, rotation and scale pivot on the user origin. */
-  origin?: readonly [L, L] | 'center';
+  /** Pivot for `rotate` and `scale`, in user coordinates. The toolkit
+   * resolves a shape's or a group's `Origin` to this pair before anything
+   * is recorded, so the lowerer never meets a word. Its own translate is a
+   * plain move. Without it, rotation and scale pivot on the user origin. */
+  origin?: readonly [L, L];
   /**
    * An ISOMETRY of the sketch's geometry, rather than a deformation of the
    * sheet: what `group(placement, …)` pushes. It never shares an op with

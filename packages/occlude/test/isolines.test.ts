@@ -312,7 +312,7 @@ describe('isolines: toolkit + engine integration', () => {
 
   it('invert() in the tree fails loudly', () => {
     const def = sketch({ seed: 1 }, (t) => [t.invert(t.circle(50, 50, 10)) as never]);
-    expect(() => sq(def)).toThrow(/region annotation/);
+    expect(() => sq(def)).toThrow(/invert\(\) is an area, not a drawable/);
   });
 
   it('an evenodd polygon used as clip respects holes', () => {

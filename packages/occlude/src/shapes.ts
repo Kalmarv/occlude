@@ -7,6 +7,18 @@ import { customFill, type CustomFillFn, type FillSpec } from './fills.js';
 import type { Execution, TransformOp, Winding } from './execution.js';
 import type { L } from './units.js';
 
+/**
+ * A pivot, the one type every `rotate` and `scale` reads: a point — a pair
+ * or an `{ x, y }` record — or a word for a point of the value itself.
+ * `'center'` is the middle of the value's own bounds and `'centroid'` its
+ * area centroid (the mean of its points when it encloses no area). The
+ * middle of the drawable is a point like any other: `[t.bounds().cx,
+ * t.bounds().cy]`. `C` is what a coordinate may be: a number, or on a
+ * shape or a group a length such as `mm(10)`, which resolves where the
+ * shape is drawn.
+ */
+export type Origin<C = number> = readonly [C, C] | readonly C[] | { x: C; y: C } | 'center' | 'centroid';
+
 export type PathCmd =
   | { op: 'move'; x: L; y: L }
   /** `geodesic`: the segment is the geodesic of the sketch's space between
@@ -103,7 +115,7 @@ export type ShapeGeom =
   /** The area of another shape (`polygon(circle(…))`): lowered through the
    * same lowerer as the shape itself, at record time, when the run's frame
    * is known — so a shape is an area input anywhere, with no run in hand. */
-  | { kind: 'area'; of: { geom: ShapeGeom; opts: TransformOp }; winding: Winding };
+  | { kind: 'area'; of: { geom: ShapeGeom; opts: Omit<TransformOp, 'origin'> & { origin?: Origin<L> } }; winding: Winding };
 
 /** Is this geometry a closed region? An empty path is the empty region:
  * trivially closed (no boundary), so a generator that produced nothing

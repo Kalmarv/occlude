@@ -43,7 +43,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.material.mdx</include>
 
-Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them.
+Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them. `t.material` takes any `Area`, not only a shape. A group gives the outlines of its shapes, with the transform of the group applied, so an `svg` import is a material in one call. A face gives its walls, with their ids. Loops and contour records give one ring for each contour. A material comes back as it is.
 
 ```ts live
 import { sketch, rect, ngon, strokes, circle } from 'occlude';
@@ -58,7 +58,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.sample.3.mdx</include>
 
-Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
+Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. It takes any `Area`, as `t.material` does, and samples every contour, the holes too. A `clip` is ink, not an area, so the call refuses it by name. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';
@@ -341,7 +341,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.translate.mdx</include>
 <include>/_sig/Material.deform.mdx</include>
 
-Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. A material has no frame, so `'center'` is the middle of the material's own bounds, not the middle of the drawable. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points.
+Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`, an `Origin`: the same pivot type as a shape, a group, a lattice and a field. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. `'center'` is the middle of the material's own bounds, as it is on a shape and on a group. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points. For the middle of the drawable, give the point `[t.bounds().cx, t.bounds().cy]`.
 
 `deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement, and `m.map()` is always a position.
 

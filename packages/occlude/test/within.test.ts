@@ -139,9 +139,9 @@ describe('within: points and faces', () => {
       // A frame whose right and bottom edges cut the far half of the grid,
       // past the centre of the cells they cut.
       const frame = rect(10, 10, 60, 60);
-      contained = t.within(grid, frame, { faces: 'contained' }).length;
+      contained = t.within(grid, frame, { keep: 'contained' }).length;
       def = t.within(grid, frame).length;
-      const byCentre = t.within(grid, frame, { faces: 'centroid' });
+      const byCentre = t.within(grid, frame, { keep: 'centroid' });
       centroid = byCentre.length;
       bounds = byCentre.map((f) => [f.bounds.x, f.bounds.y]);
     });
@@ -164,13 +164,13 @@ describe('within: points and faces', () => {
         .planarize().faces();
       // Each of these is deliberately the wrong option for its domain (or an
       // unknown rule): `as never` states that the call is meant to throw.
-      catchIt(() => t.within(cells, rect(10, 10, 60, 60), { faces: 'nope' } as never));
+      catchIt(() => t.within(cells, rect(10, 10, 60, 60), { keep: 'nope' } as never));
       catchIt(() => t.within(cells, rect(10, 10, 60, 60), { transfer: 'nearest' } as never));
-      catchIt(() => t.within(chord(-50, 50, 150, 50), rect(10, 10, 60, 60), { faces: 'centroid' } as never));
+      catchIt(() => t.within(chord(-50, 50, 150, 50), rect(10, 10, 60, 60), { keep: 'centroid' } as never));
     });
-    expect(errors[0]).toMatch(/faces must be 'contained', 'centroid' or 'touching'/);
+    expect(errors[0]).toMatch(/keep must be 'contained', 'centroid' or 'touching'/);
     expect(errors[1]).toMatch(/'transfer' is for a material/);
-    expect(errors[2]).toMatch(/'faces' is for a face collection/);
+    expect(errors[2]).toMatch(/'keep' is for a selection/);
   });
 
   it('still bounds a field', () => {
@@ -361,7 +361,7 @@ describe('within: the filled region, not the contours', () => {
         material(outer, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
         material(holePts, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
       ).planarize().faces();
-      const faces = [...t.within(ring, area, { faces: 'contained' })];
+      const faces = [...t.within(ring, area, { keep: 'contained' })];
       kept = faces.length;
       contours = faces[0]?.contours().length ?? 0;
     });
@@ -380,7 +380,10 @@ describe('within: holes and winding', () => {
       expect(pointsOf(t.within(chord(0, 50, 100, 50), area))).toBe('10,50 90,50');
       const points = material([[70, 20], [70, 50], [95, 50]]);
       expect(pointsOf(t.within(points, area))).toBe('70,50');
-      expect(t.within(points.points, area).indices).toEqual([1]);
+      // (70, 20) is ON the real boundary, which belongs to the area; the
+      // material cut above reads a boundary point as outside, as the engine's
+      // clip does.
+      expect(t.within(points.points, area).indices).toEqual([0, 1]);
       const face = t.material(rect(60, 45, 20, 20)).planarize().faces();
       expect(t.within(face, area).length).toBe(1); // crosses the redundant edge at x=70
     });
@@ -414,9 +417,9 @@ describe('within: holes and winding', () => {
         .planarize().faces();
       const awayFaces = material([[15, 15], [30, 15], [30, 30], [15, 30]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
         .planarize().faces();
-      spanning = t.within(spanningFaces, [ring, hole], { faces: 'contained' }).length;
-      withoutHole = t.within(spanningFaces, [ring], { faces: 'contained' }).length;
-      away = t.within(awayFaces, [ring, hole], { faces: 'contained' }).length;
+      spanning = t.within(spanningFaces, [ring, hole], { keep: 'contained' }).length;
+      withoutHole = t.within(spanningFaces, [ring], { keep: 'contained' }).length;
+      away = t.within(awayFaces, [ring, hole], { keep: 'contained' }).length;
     });
     // Every vertex is inside and no edge crosses — but the face's interior
     // covers the hole, which is excluded space, so it is not contained.
@@ -495,7 +498,7 @@ describe('within: an edge selection', () => {
       const m = ladder();
       // Wall 1 runs 45 → 70; its middle is at 57.5, outside. Move the
       // boundary out to 60 and the middle is in, so the whole wall is.
-      expect(t.within(m.edges, rect(0, 0, 60, 100), { edges: 'midpoint' }).indices).toEqual([0, 1, 3]);
+      expect(t.within(m.edges, rect(0, 0, 60, 100), { keep: 'centroid' }).indices).toEqual([0, 1, 3]);
       expect(t.within(m.edges, rect(0, 0, 60, 100)).indices).toEqual([0, 3]);
     });
   });
@@ -520,11 +523,12 @@ describe('within: an edge selection', () => {
   it('refuses a mode that is not one of the three, and one meant for another kind', () => {
     run((t) => {
       const m = ladder();
-      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { edges: 'centroid' as never })).toThrow(/edges must be 'contained', 'midpoint' or 'touching'/);
+      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { edges: 'centroid' } as never)).toThrow(/'edges' option is spelled keep/);
+      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { keep: 'midpoint' as never })).toThrow(/keep must be 'contained', 'centroid' or 'touching'/);
       // The types already forbid this one; the refusal is for a sketch that
       // reaches it anyway, so the test needs a loose handle to get there.
       const loose = t.within as (x: unknown, area: unknown, opts?: unknown) => unknown;
-      expect(() => loose(m.points, rect(0, 0, 50, 100), { edges: 'midpoint' })).toThrow(/'edges' is for an edge selection/);
+      expect(() => loose(m.points, rect(0, 0, 50, 100), { faces: 'centroid' })).toThrow(/'faces' option is spelled keep/);
       expect(() => t.within(m.edges, rect(0, 0, 50, 100), { transfer: {} } as never)).toThrow(/kept whole or not at all/);
     });
   });
