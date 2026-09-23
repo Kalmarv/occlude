@@ -242,7 +242,7 @@ function isVector(fn: AnyField): boolean {
  * gains the verb's inverse), the unbounded twin gets the verb too. */
 function wrap<F extends AnyField>(
   src: F,
-  sample: (x: number, y: number) => number | Len | [number, number],
+  sample: (x: number, y: number) => number | Len | readonly [number, number] | readonly number[],
   xf?: () => Mat,
   again?: (f: F) => Prepared<F>,
 ): Prepared<F> {

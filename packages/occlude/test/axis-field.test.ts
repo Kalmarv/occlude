@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { SQ, toolkit } from './helpers/run.js';
 import { across, axisField, circle, grad, initOcclude, rotate, scale, translate, vectorField } from '../src/index.js';
+import type { VectorFieldFn } from '../src/shapes.js';
 import { fieldMeta, isAxisField } from '../src/field.js';
 import type { IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
@@ -28,7 +29,7 @@ const flipped = (x: number): [number, number] => [x < 50 ? 1 : -1, 0];
 /** Circles about the centre, still at the centre itself. */
 const swirl = (x: number, y: number): [number, number] => [-(y - 50), x - 50];
 
-const lines = (field: (x: number, y: number) => [number, number], opts = {}): [number, number][][] =>
+const lines = (field: VectorFieldFn, opts = {}): [number, number][][] =>
   streamlinesOf(env, field, { spacing: 5, ...opts }).map((c) => c.pts);
 
 /** Unit tangent of a line at point i, from its neighbours. */
@@ -82,7 +83,7 @@ describe('axis fields', () => {
       for (let i = 1; i < l.length - 1; i += 7) {
         const [x, y] = l[i];
         if (Math.hypot(x - 50, y - 50) < 6) continue; // the still centre
-        const u = unit(axes(x, y));
+        const v = axes(x, y); const u = unit([v[0], v[1]]);
         const t = tangent(l, i);
         expect(Math.abs(u[0] * t[0] + u[1] * t[1])).toBeLessThan(0.08);
         checked++;
@@ -103,7 +104,7 @@ describe('axis fields', () => {
   });
 
   it('across() refuses a scalar field by name, and absence stays absent', () => {
-    expect(() => across(((x: number) => x) as unknown as (x: number, y: number) => [number, number])(1, 2))
+    expect(() => across(((x: number) => x) as unknown as VectorFieldFn)(1, 2))
       .toThrow(/scalar field has no direction/);
     const absent = across(axisField(() => [NaN, NaN]))(1, 2);
     expect(absent.every((n) => Number.isNaN(n))).toBe(true);

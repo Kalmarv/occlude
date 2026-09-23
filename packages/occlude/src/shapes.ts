@@ -50,7 +50,11 @@ export type LengthFn = (x: number, y: number) => number | L;
  * A vector field: a displacement (in user units) that varies over the page.
  * Drives `deform` — sampled at encode time in user coordinates.
  */
-export type VectorFieldFn = (x: number, y: number) => [number, number];
+/** A vector field: two numbers at a point, as a pair. A field a sketch
+ * writes by hand may answer any array of two numbers — TypeScript reads a
+ * literal `[dx, dy]` as `number[]`, and the library reads its first two
+ * entries either way. */
+export type VectorFieldFn = (x: number, y: number) => readonly [number, number] | readonly number[];
 
 /**
  * One entry of a shape's modifier stack — a plain value made by the

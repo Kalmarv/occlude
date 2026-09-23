@@ -5,6 +5,7 @@ import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   circle, compileSketch, deform, encodeScene, fill, group, initOcclude, mm, path, rect, render,
   rotate, scale, sketch, stroke, translate, vectorField, strokes , type Material } from '../src/index.js';
+import type { VectorFieldFn } from '../src/shapes.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
 
@@ -50,7 +51,7 @@ describe('field transforms', () => {
 
   it('vector fields: rotation rotates the arrows (iron-filings rule)', () => {
     const wind = vectorField(() => [1, 0]); // east everywhere
-    const g = rotate(wind, 90) as (x: number, y: number) => [number, number];
+    const g = rotate(wind, 90) as VectorFieldFn;
     const [dx, dy] = g(0, 0);
     expect(dx).toBeCloseTo(0, 9);
     expect(dy).toBeCloseTo(1, 9); // now north(+y)
@@ -58,7 +59,7 @@ describe('field transforms', () => {
 
   it('vector fields: scale never scales magnitudes', () => {
     const wind = vectorField(() => [3, 4]); // magnitude 5
-    const g = scale(wind, [2, 1]) as (x: number, y: number) => [number, number];
+    const g = scale(wind, [2, 1]) as VectorFieldFn;
     const [dx, dy] = g(0, 0);
     expect(Math.hypot(dx, dy)).toBeCloseTo(5, 9); // direction tilts, |v| kept
     expect(Math.abs(dx)).toBeGreaterThan(3); // tilted toward the stretch

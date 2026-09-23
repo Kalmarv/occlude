@@ -460,11 +460,25 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   let shapeIndex = -1;
   for (const shape of state.shapes) {
     shapeIndex++;
-    const lowered = lowerShape(shape, frame);
+    let lowered = lowerShape(shape, frame);
+    // A projected stroke carries its whole source line and the ranges of it
+    // that are seen. A pre-stage modifier (deform, roughen, smooth) moves
+    // the line before the solve, where a range means nothing — so the seen
+    // pieces are cut out first, as plain polylines, and the modifier takes
+    // those. The seed protocol (a dash phase carried across pieces) goes
+    // with the ranges.
+    let ranges = shape.strokeRanges;
+    let seed = shape.strokeSeed;
+    if (ranges && shape.modifiers.some((m) => m.kind === 'smooth' || m.kind === 'roughen' || m.kind === 'deform')) {
+      const src = lowered.contours[0] ?? [];
+      lowered = { ...lowered, contours: ranges.map(([a, b]) => src.slice(a, b)).filter((c) => c.length > 0) };
+      ranges = undefined;
+      seed = undefined;
+    }
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
     const winding = (geom.kind === 'path' || geom.kind === 'area') && geom.winding === 'evenodd' ? 4 : 0;
-    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding | (shape.preserveStroke || shape.strokeRanges ? 16 : 0);
+    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding | (shape.preserveStroke || ranges ? 16 : 0);
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
     // Paper footprint of this shape, for shape-aligned grid extents.
     const fp = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -621,18 +635,18 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     shapesF64.push(nativeSpacing);
     // Optional source selection shares the f64 tape, outside modifier instructions.
     const rangeStart=modsBuf.length;
-    if(shape.strokeRanges) {
+    if(ranges) {
       if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec || modifiers.some(m=>['smooth','roughen','deform'].includes(m.kind)))throw new Error('strokeRanges requires one polyline without fill or pre-stage modifiers');
       const count=lowered.contours[0].length;
       let end=0;
-      for(const [a,b] of shape.strokeRanges) {
+      for(const [a,b] of ranges) {
         if(!Number.isFinite(a)||!Number.isFinite(b)||a<end||a>=b||b>count)throw new Error('strokeRanges must be sorted disjoint intervals within the source polyline');
         modsBuf.push(a,b);end=b;
       }
     }
-    if(shape.strokeSeed!==undefined && (!shape.strokeRanges || !Number.isInteger(shape.strokeSeed) || shape.strokeSeed<0 || shape.strokeSeed>0xffffffff))throw new Error('strokeSeed requires source ranges and a u32 key');
-    if(sourceRangeProtocol || sourceSeedProtocol)shapesF64.push(shape.strokeRanges ? rangeStart : -1,shape.strokeRanges?.length??0);
-    if(sourceSeedProtocol)shapesF64.push(shape.strokeSeed??-1);
+    if(seed!==undefined && (!ranges || !Number.isInteger(seed) || seed<0 || seed>0xffffffff))throw new Error('strokeSeed requires source ranges and a u32 key');
+    if(sourceRangeProtocol || sourceSeedProtocol)shapesF64.push(ranges ? rangeStart : -1,ranges?.length??0);
+    if(sourceSeedProtocol)shapesF64.push(seed??-1);
   }
 
   // A shader may answer any pen the sketch declares, not only the pens its

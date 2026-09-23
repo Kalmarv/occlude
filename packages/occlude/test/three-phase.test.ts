@@ -31,11 +31,13 @@ it('anchors a multi-segment 3D wire through a box occluder and actual planned SV
   expect(svg).toContain('<path');expect(svg).not.toContain('NaN');
 });
 
-it('rejects invalid source intervals and topology-changing modifiers',()=>{
+it('rejects invalid source intervals; a pre-stage modifier takes the seen pieces',()=>{
   const run=(ranges:readonly (readonly [number,number])[],modifiers:NonNullable<Parameters<typeof stroke>[1]>['modifiers']=[])=>render(sketch(config,()=>stroke([[10,50],[90,50]],{stroke:'ink',strokeRanges:ranges,modifiers})),{paper:{w:100,h:100}});
   expect(()=>run([[.5,.4]])).toThrow('sorted disjoint');
   expect(()=>run([[0,2]])).toThrow('sorted disjoint');
-  expect(()=>run([[0,1]],[smooth(1)])).toThrow('pre-stage modifiers');
+  // A pre-stage modifier no longer refuses: the seen piece is cut out and
+  // the modifier takes it as a plain polyline.
+  expect(run([[0,1]],[smooth(1)]).raw.frags.length).toBeGreaterThan(0);
   expect(run([]).raw.frags.length).toBe(0);
 });
 
