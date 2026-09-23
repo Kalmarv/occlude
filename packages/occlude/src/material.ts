@@ -99,6 +99,7 @@ export interface Edge {
   /** Vertex views at the edge's ends, in stored order (a → b). */
   a: Vertex;
   b: Vertex;
+  /** The edge's length in the material's space: `space.distance(a, b)`. */
   length: number;
   /** Row of this edge in the material's edge list. */
   index: number;
@@ -831,7 +832,8 @@ export class Material {
     const view = Object.create(this.edgeProto) as Edge & Record<string, unknown>;
     view.a = a;
     view.b = b;
-    view.length = distance(a, b);
+    // A length of the material's space; the flat plane keeps the old expression.
+    view.length = this.space !== undefined && this.space.kind !== 'euclidean' ? this.space.distance(a, b) : distance(a, b);
     view.index = e;
     view.attrs = attrs;
     return view as Edge;

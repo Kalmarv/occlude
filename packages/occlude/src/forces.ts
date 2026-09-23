@@ -14,9 +14,14 @@ import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
 import { grad } from './field.js';
 import { valueAt } from './guard.js';
 import type { VectorFieldFn } from './shapes.js';
-import { bucketStretch, spaceAreaNearest, type Space } from './space.js';
+import type { Model } from './placement.js';
+import { bucketChart, spaceAreaNearest, type Space } from './space.js';
 
 // ---- spatial neighbours -----------------------------------------------------------
+
+/** The space a recipe measures in: a curved one, or null for the flat
+ * plane and the literal old arithmetic. */
+const curved = (space: Space | undefined): Space | null => (space !== undefined && space.kind !== 'euclidean' ? space : null);
 
 export interface NeighbourStats {
   queries: number;
@@ -41,14 +46,13 @@ export interface NeighbourStats {
  * of it.
  */
 export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats; space?: Space }): (p: XY, reach?: number) => number[] {
+  const space = curved(opts.space);
+  if (space) {
+    const index = neighboursIn(m, opts.radius, opts.stats, space);
+    return (p, reach) => index.near(p, space.model.up(p), reach === undefined ? opts.radius : reach, null);
+  }
   const radius = opts.radius;
   const stats = opts.stats;
-  // In a curved space a radius is a length OF THE SPACE, and the grid is
-  // laid out in coordinates: a cell is widened by how much longer a space
-  // length can be in coordinates over the material's box (`bucketStretch`,
-  // the scatter's own reading), and the test is the space's distance. The
-  // flat plane widens by 1 and tests the squared coordinate distance.
-  const space = opts.space !== undefined && opts.space.kind !== 'euclidean' ? opts.space : null;
   // Cells are indexed row-major over the material's own extent — no packed
   // key, so no two cells can share an index whatever the coordinates.
   let minx = Infinity;
@@ -61,8 +65,7 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
     if (m.y[i] < miny) miny = m.y[i];
     if (m.y[i] > maxy) maxy = m.y[i];
   }
-  const widen = space && Number.isFinite(minx) ? bucketStretch(space, { x: minx, y: miny, w: maxx - minx, h: maxy - miny }) : 1;
-  const cell = space ? radius * widen : radius;
+  const cell = radius;
   const gx0 = Number.isFinite(minx) ? Math.floor(minx / cell) : 0;
   const gy0 = Number.isFinite(miny) ? Math.floor(miny / cell) : 0;
   const cols = Number.isFinite(maxx) ? Math.floor(maxx / cell) - gx0 + 1 : 1;
@@ -84,9 +87,7 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
     const cy = Math.floor(py / cell);
     // The rings a reach of its own needs; the fixed radius needs one.
     const r2 = reach === undefined ? radius * radius : reach * reach;
-    const far = reach === undefined ? radius : reach;
-    const span = space ? (reach === undefined ? undefined : reach * widen) : reach;
-    const rings = span === undefined || !(span > cell) ? 1 : Math.ceil(span / cell);
+    const rings = reach === undefined || !(reach > cell) ? 1 : Math.ceil(reach / cell);
     if (stats) stats.queries++;
     for (let gx = cx - rings; gx <= cx + rings; gx++) {
       for (let gy = cy - rings; gy <= cy + rings; gy++) {
@@ -97,10 +98,6 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
         if (stats) stats.candidates += bucket.length;
         for (const j of bucket) {
           if (j === self) continue;
-          if (space) {
-            if (space.distance([px, py], [m.x[j], m.y[j]]) < far) out.push(j);
-            continue;
-          }
           const dx = px - m.x[j];
           const dy = py - m.y[j];
           if (dx * dx + dy * dy < r2) out.push(j);
@@ -110,6 +107,123 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
     if (stats) stats.hits += out.length;
     return out;
   };
+}
+
+/**
+ * `neighbours` in a curved space, where a radius is a length OF THE SPACE
+ * and the grid is laid out in coordinates. The grid holds each place at its
+ * home (`bucketChart`) in cells of the radius, and each query widens its
+ * own search from its own row: the band of rows the radius reaches, and
+ * across it the x the space's circle reaches there — around the sphere's
+ * seam when it crosses it, the whole band when a pole lies within reach.
+ * The test is the space's distance. In the disk the reach is never wider
+ * than the flat one, so it visits a subset of the same cells in the same
+ * order and answers the same rows.
+ *
+ * Every row is lifted to the space's model once (`lifted`), and a query
+ * brings its own point lifted, so a pair is measured without lifting
+ * either end again; `dists`, when given, receives each row's distance —
+ * the same double `space.distance` answers — for the recipe to reuse.
+ */
+interface CurvedNeighbours {
+  lifted: readonly Model[];
+  near(p: XY, lifted: Model, far: number, dists: number[] | null): number[];
+}
+
+function neighboursIn(m: Material, radius: number, stats: NeighbourStats | undefined, space: Space): CurvedNeighbours {
+  const chart = bucketChart(space);
+  const cell = radius;
+  const n = m.n;
+  const lifted = liftRows(m, space);
+  const hx = new Float64Array(n);
+  const hy = new Float64Array(n);
+  let minx = Infinity;
+  let miny = Infinity;
+  let maxx = -Infinity;
+  let maxy = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const [x, y] = chart.home(m.x[i], m.y[i]);
+    hx[i] = x;
+    hy[i] = y;
+    if (x < minx) minx = x;
+    if (x > maxx) maxx = x;
+    if (y < miny) miny = y;
+    if (y > maxy) maxy = y;
+  }
+  const gx0 = Number.isFinite(minx) ? Math.floor(minx / cell) : 0;
+  const gy0 = Number.isFinite(miny) ? Math.floor(miny / cell) : 0;
+  const cols = Number.isFinite(maxx) ? Math.floor(maxx / cell) - gx0 + 1 : 1;
+  const rows = Number.isFinite(maxy) ? Math.floor(maxy / cell) - gy0 + 1 : 1;
+  const grid = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const k = (Math.floor(hy[i] / cell) - gy0) * cols + (Math.floor(hx[i] / cell) - gx0);
+    const bucket = grid.get(k);
+    if (bucket) bucket.push(i);
+    else grid.set(k, [i]);
+  }
+  // The column spans one query visits: its own, and on the sphere the same
+  // span a turn either way when that lands on the grid.
+  const spans: number[] = [];
+  const addSpan = (x0: number, x1: number) => {
+    const c0 = Math.max(0, Math.floor(x0 / cell) - gx0);
+    const c1 = Math.min(cols - 1, Math.floor(x1 / cell) - gx0);
+    if (c0 <= c1) spans.push(c0, c1);
+  };
+  const near = (p: XY, np: Model, far: number, dists: number[] | null): number[] => {
+    const px = vx(p);
+    const py = vy(p);
+    const self = ownerOf(p as Vertex) === m ? (p as Vertex).index : -1;
+    const out: number[] = [];
+    if (dists) dists.length = 0;
+    if (stats) stats.queries++;
+    const [qx, qy] = chart.home(px, py);
+    const r0 = Math.max(0, Math.floor((qy - far) / cell) - gy0);
+    const r1 = Math.min(rows - 1, Math.floor((qy + far) / cell) - gy0);
+    spans.length = 0;
+    const w = chart.reach(qy, far);
+    // Two cells of room keep a span and its turn from sharing a cell.
+    if (!(2 * w + 2 * cell < chart.period)) addSpan(-Infinity, Infinity);
+    else {
+      addSpan(qx - w, qx + w);
+      if (Number.isFinite(chart.period)) {
+        addSpan(qx - w - chart.period, qx + w - chart.period);
+        addSpan(qx - w + chart.period, qx + w + chart.period);
+      }
+    }
+    for (let s = 0; s < spans.length; s += 2) {
+      for (let c = spans[s]; c <= spans[s + 1]; c++) {
+        for (let r = r0; r <= r1; r++) {
+          const bucket = grid.get(r * cols + c);
+          if (!bucket) continue;
+          if (stats) stats.candidates += bucket.length;
+          for (const j of bucket) {
+            if (j === self) continue;
+            const d = space.modelDistance(np, lifted[j]);
+            if (d < far) {
+              out.push(j);
+              if (dists) dists.push(d);
+            }
+          }
+        }
+      }
+    }
+    if (stats) stats.hits += out.length;
+    return out;
+  };
+  return { lifted, near };
+}
+
+/** Each row of `m` lifted to the space's model, once for the state. */
+function liftRows(m: Material, space: Space): Model[] {
+  const out = new Array<Model>(m.n);
+  for (let i = 0; i < m.n; i++) out[i] = space.model.up([m.x[i], m.y[i]]);
+  return out;
+}
+
+/** `space.log(p, q)` for a `p` lifted to `np` with its `frame`, and a row
+ * lifted to `nq`: the lifted door, and `log` itself at the point opposite. */
+function logRow(space: Space, p: XY, np: Model, frame: readonly [Model, Model], m: Material, j: number, nq: Model): Vec {
+  return space.modelLog(np, frame, nq) ?? space.log(p, [m.x[j], m.y[j]]);
 }
 
 // ---- forces -----------------------------------------------------------------------
@@ -166,10 +280,6 @@ export function spaceOfSources(sources: unknown): Space | undefined {
   return owner instanceof Material ? owner.space : undefined;
 }
 
-/** The space a recipe measures in: a curved one, or null for the flat
- * plane and the literal old arithmetic. */
-const curved = (space: Space | undefined): Space | null => (space !== undefined && space.kind !== 'euclidean' ? space : null);
-
 /**
  * Slack tension, prepared for `m`: `pull(p)` is the vector toward each of
  * p's CONNECTED neighbours (edge order) by the part of the gap beyond
@@ -193,12 +303,14 @@ export function tension(m: Material, opts: { rest: number | ((e: Edge) => number
     // part of the space's distance beyond the rest length.
     const restOf = typeof rest === 'number' ? () => rest : typeof rest === 'function' ? (e: number) => valueAt(rest(m.edge(e)), 0) : null;
     if (!restOf) throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
+    const lifted = liftRows(m, space);
     return (p) => {
       const edgeRows = m.incidentEdgeRows(p.index);
+      const np = space.model.up(p);
+      const frame = space.model.frameAt(p);
       return sumBy(m.adjacentRows(p.index), (j, k) => {
-        const q: Vec = [m.x[j], m.y[j]];
-        const d = space.distance(p, q);
-        return mul(unit(space.log(p, q)), Math.max(0, d - restOf(edgeRows[k])));
+        const d = space.modelDistance(np, lifted[j]);
+        return mul(unit(logRow(space, p, np, frame, m, j, lifted[j])), Math.max(0, d - restOf(edgeRows[k])));
       });
     };
   }
@@ -261,7 +373,40 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
     own[i] = Math.max(0, valueAt(radius(m.vertex(i)), 0));
     if (own[i] > widest) widest = own[i];
   }
-  const near = neighbours(m, { radius: widest > 0 ? widest : 1, space: space ?? undefined });
+  const cell = widest > 0 ? widest : 1;
+  if (space) {
+    const index = neighboursIn(m, cell, undefined, space);
+    const dists: number[] = [];
+    return (p) => {
+      const rp = Math.max(0, valueAt(radius(p), 0));
+      const row = ownerOf(p) === m ? p.index : -1;
+      const adj = excludeConnected && row >= 0 ? m.adjacentRows(row) : null;
+      const np = space.model.up(p);
+      let frame: readonly [Model, Model] | null = null;
+      let x = 0;
+      let y = 0;
+      const rows = index.near(p, np, rp + widest, dists);
+      for (let k = 0; k < rows.length; k++) {
+        const j = rows[k];
+        if (adj && adj.includes(j)) continue;
+        const r = rp + own[j];
+        if (!(r > 0)) continue;
+        // Away from the neighbour along the geodesic: `log` toward it,
+        // turned round, in p's own frame.
+        const d = dists[k];
+        if (d <= 0 || d >= r) continue;
+        frame ??= space.model.frameAt(p);
+        const l = logRow(space, p, np, frame, m, j, index.lifted[j]);
+        const ll = Math.hypot(l[0], l[1]);
+        if (!(ll > 0)) continue;
+        const s = (1 - d / r) * r;
+        x -= (l[0] / ll) * s;
+        y -= (l[1] / ll) * s;
+      }
+      return [x, y];
+    };
+  }
+  const near = neighbours(m, { radius: cell });
   return (p) => {
     const rp = Math.max(0, valueAt(radius(p), 0));
     const row = ownerOf(p) === m ? p.index : -1;
@@ -274,20 +419,6 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
       if (adj && adj.includes(j)) continue;
       const r = rp + own[j];
       if (!(r > 0)) continue;
-      if (space) {
-        // Away from the neighbour along the geodesic: `log` toward it,
-        // turned round, in p's own frame.
-        const q: Vec = [m.x[j], m.y[j]];
-        const d = space.distance(p, q);
-        if (d <= 0 || d >= r) continue;
-        const l = space.log(p, q);
-        const ll = Math.hypot(l[0], l[1]);
-        if (!(ll > 0)) continue;
-        const s = (1 - d / r) * r;
-        x -= (l[0] / ll) * s;
-        y -= (l[1] / ll) * s;
-        continue;
-      }
       const dx = p.x - m.x[j];
       const dy = p.y - m.y[j];
       const d = Math.sqrt(dx * dx + dy * dy);
@@ -340,17 +471,22 @@ function radial(m: Material, radius: number, excludeConnected: boolean, strength
  * direction from `log`, magnitude from the space's distance, the same
  * linear law. */
 function radialIn(m: Material, radius: number, excludeConnected: boolean, strength: number, sign: number, space: Space): (p: Vertex) => Vec {
-  const near = neighbours(m, { radius, space });
+  const index = neighboursIn(m, radius, undefined, space);
+  const dists: number[] = [];
   return (p) => {
     const own = ownerOf(p) === m ? p.index : -1;
     const adj = excludeConnected && own >= 0 ? m.adjacentRows(own) : null;
+    const np = space.model.up(p);
+    let frame: readonly [Model, Model] | null = null;
     let x = 0;
     let y = 0;
-    for (const j of near(p)) {
+    const rows = index.near(p, np, radius, dists);
+    for (let k = 0; k < rows.length; k++) {
+      const j = rows[k];
       if (adj && adj.includes(j)) continue;
-      const q: Vec = [m.x[j], m.y[j]];
-      const d = space.distance(p, q);
-      const l = space.log(p, q);
+      const d = dists[k];
+      frame ??= space.model.frameAt(p);
+      const l = logRow(space, p, np, frame, m, j, index.lifted[j]);
       const ll = Math.hypot(l[0], l[1]);
       if (d > 0 && ll > 0) {
         const s = (1 - d / radius) * strength * sign;
@@ -497,13 +633,16 @@ export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) 
   if (space) {
     // The mean of the directions to the neighbours, each `log(p, q)` in
     // p's own frame: the vector to the neighbours' centre of mass.
+    const lifted = liftRows(m, space);
     return (p) => {
       const nb = m.adjacentRows(p.index);
       if (nb.length < 2) return [0, 0];
+      const np = space.model.up(p);
+      const frame = space.model.frameAt(p);
       let mx = 0;
       let my = 0;
       for (const j of nb) {
-        const l = space.log(p, [m.x[j], m.y[j]]);
+        const l = logRow(space, p, np, frame, m, j, lifted[j]);
         mx += l[0];
         my += l[1];
       }
