@@ -32,8 +32,9 @@ import type { Camera3 } from './three/camera.js';
 import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3, inFrame3 } from './three/resolve.js';
 import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
-import { lowerToUserContours } from './record.js';
-import { modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
+import { lowerToUserContours, paperToUser } from './record.js';
+import ClipperLib from 'clipper-lib';
+import { INK_TOL, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
 import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
 import { isPlacement, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
@@ -44,7 +45,7 @@ import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, hexes as hexCells, triangles as triangleCells, type Box, type CellMaterial, type GridCell, type GridOptions, type HexOptions, type TriangleOptions } from './layout.js';
 import { placements as symmetryPlacements, cellStep as symmetryCellStep, type PlaneGroup } from './symmetry.js';
-import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
+import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type Origin, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type RandomStream, type SketchOptions, type TransformOp, type Winding } from './execution.js';
 import type { PenDef } from './pens.js';
 import { invertRange, mapRange, normRange } from './random.js';
@@ -62,21 +63,21 @@ import { travelTimeOf, type TravelFrom, type TravelOpts } from './travel.js';
 export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
   /** The ground the front may cross (default: the whole drawable).
    * Everything outside it is wall. */
-  within?: AreaInput | ShapeValue;
+  within?: Area;
   /** Seeds, one per entry, whatever the spelling: a pair IS a seed here,
    * because the key says so. Give this or `fromArea`, not both. */
   fromPoints?: PointSelection | readonly XY[];
   /** One area to start from — its whole interior and boundary — read
    * through the ordinary area door. Give this or `fromPoints`, not both. */
-  fromArea?: AreaInput | ShapeValue;
+  fromArea?: Area;
 }
 import { latticeOf, type Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
 import { residualOf, type Residual, type ResidualOpts } from './residual.js';
 import { geodesicBow, unitMm, userPointMm } from './record.js';
-import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
+import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, inSpace, isStations, stationAt, stationsMaterial,
-  withinMaterial, type PointsLike, type Station, type Transfer,
+  withinMaterial, areaCentroid, append, type PointsLike, type Station, type Transfer,
 } from './material.js';
 import { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
@@ -149,10 +150,10 @@ export interface ShapeOpts {
   /** Degrees; pivots around `origin` (the user origin by default). */
   rotate?: number;
   scale?: number | readonly [number, number];
-  /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
-   * `'center'` for the centre of the drawable. Scaling about the middle of
-   * the sheet is `{ scale: s, origin: 'center' }`. */
-  origin?: readonly [L, L] | 'center';
+  /** Pivot for `rotate` and `scale` (see `Origin`): a point in user
+   * coordinates, `'center'` for the middle of this shape's own bounds or
+   * `'centroid'` for its area centroid. The user origin when unset. */
+  origin?: Origin<L>;
   /** Ordered modifier stack, applied first-to-last. Stacks compose in
    * function-application order: this list runs first, then `modify()`
    * ancestors inside-out; the `decimate`/`wobble` shorthand opts run last,
@@ -180,9 +181,10 @@ export interface GroupOpts {
   /** Degrees; pivots around `origin`. */
   rotate?: number;
   scale?: number | readonly [number, number];
-  /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
-   * `'center'` for the centre of the drawable. */
-  origin?: readonly [L, L] | 'center';
+  /** Pivot for `rotate` and `scale` (see `Origin`): a point in user
+   * coordinates, `'center'` for the middle of the children's own bounds
+   * or `'centroid'` for the area centroid of their union. */
+  origin?: Origin<L>;
   /**
    * An ISOMETRY of the sketch's geometry — a station's own frame, one of a
    * tiling's placements, a `reflection` — instead of a deformation of the
@@ -208,18 +210,30 @@ export interface GroupValue {
 
 export interface ClipValue {
   readonly __occludeClip: true;
-  readonly region: ShapeValue;
+  /** A shape, or a group the toolkit lowers to its union when the clip is
+   * drawn. Any other area was made a shape by `clip` itself. */
+  readonly region: ShapeValue | GroupValue;
   /** Complement: children keep the OUTSIDE of the region. */
   readonly invert: boolean;
   readonly children: Tree[];
 }
 
-/** Region complement marker made by `invert()` — legal only where a region
- * is consumed (clip's first argument). */
+/** The outside of an area, made by `invert()`. It is an area wherever an
+ * area is taken: `clip` keeps the ink outside it, and every toolkit word
+ * reads it as the drawable with the area taken out. It is not a drawable. */
 export interface InvertValue {
   readonly __occludeInvert: true;
-  readonly shape: ShapeValue;
+  readonly area: Area;
 }
+
+/**
+ * Anything an area consumer takes: the plain area inputs (a face, contour
+ * records, loops, a closed material or a selection), a shape, a group — the
+ * union of its children through its own transform, as an svg import or a
+ * placed shape is — and the outside of any of these, `invert(area)`. A
+ * shape and a group are lowered by the toolkit, which has the frame.
+ */
+export type Area = AreaInput | ShapeValue | GroupValue | InvertValue;
 
 /** Falsy entries are skipped, so conditional composition reads naturally. */
 export type Tree =
@@ -235,7 +249,41 @@ export type Tree =
   | false;
 
 function shape(geom: ShapeGeom, opts: ShapeOpts = {}): ShapeValue {
+  checkOrigin('shape', opts?.origin);
   return { __occludeShape: true, geom, opts };
+}
+
+/** A pivot as a value says it: a point, or one of the two words. Anything
+ * else is refused here, by name, before the lowerer could turn it into a
+ * NaN. */
+function checkOrigin(who: string, origin: unknown): void {
+  if (origin === undefined || origin === 'center' || origin === 'centroid') return;
+  if (Array.isArray(origin) && origin.length >= 2 && isLen(origin[0]) && isLen(origin[1])) return;
+  if (typeof origin === 'object' && origin !== null && !Array.isArray(origin)) {
+    const o = origin as { x?: unknown; y?: unknown };
+    if (isLen(o.x) && isLen(o.y)) return;
+  }
+  throw new Error(`${who}: origin is a point ([x, y] or { x, y }), 'center' or 'centroid' — got ${describeValue(origin)}`);
+}
+
+/** How a refusal names a value it was handed. */
+function describeValue(v: unknown): string {
+  if (typeof v === 'string') return `'${v}'`;
+  if (v === null || typeof v !== 'object') return String(v);
+  if (Array.isArray(v)) return `[${v.map((e) => (typeof e === 'object' && e !== null ? '…' : String(e))).join(', ')}]`;
+  return JSON.stringify(v) ?? 'a value';
+}
+
+/** The kind of a value an area consumer refuses, as its refusal says it. */
+function kindOf(v: unknown): string {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (typeof v === 'function') return 'function';
+  if (typeof v !== 'object') return typeof v;
+  if ((v as ClipValue).__occludeClip) return 'clip';
+  if ((v as { __occludeModifier?: true }).__occludeModifier) return 'modifier';
+  const name = Object.getPrototypeOf(v)?.constructor?.name;
+  return name && name !== 'Object' ? name : 'record';
 }
 
 const isOpts = (v: unknown): v is ShapeOpts =>
@@ -244,6 +292,10 @@ const isOpts = (v: unknown): v is ShapeOpts =>
 /** A shape value, as opposed to any other area input. */
 const isShapeValue = (v: unknown): v is ShapeValue =>
   typeof v === 'object' && v !== null && '__occludeShape' in v;
+const isGroupValue = (v: unknown): v is GroupValue =>
+  typeof v === 'object' && v !== null && (v as GroupValue).__occludeGroup === true;
+const isInvertValue = (v: unknown): v is InvertValue =>
+  typeof v === 'object' && v !== null && (v as InvertValue).__occludeInvert === true;
 
 // ---- pure shape constructors ----
 //
@@ -342,23 +394,227 @@ export interface PolygonOpts extends ShapeOpts {
  */
 type FacesAreSeveralAreas = 'polygon: a face collection is several areas — polygon(cells.contours()) for their union, or cells.map((f) => polygon(f)) for each';
 
-/** Loops for any area input, in the coordinates given: a shape is lowered
- * through the one lowerer, so it agrees with what the shape itself inks; a
- * face, loops, a chain material or a selection come from the boundary
- * contract. */
-function lowerArea(run: Execution | null, input: AreaInput | ShapeValue, who: string): LoopPoints[] {
-  if (isShapeValue(input)) {
-    if (!run) throw new Error(`${who}: a shape area is lowered by the toolkit — use t.${who}`);
-    return shapeContours(run, input, undefined).map((c) => c.pts);
+/**
+ * Refuse, by name, a value no area consumer can read: not a shape, a group,
+ * an inverted area, loops, a contour record, nor a value that answers
+ * `contours()` or `curves()`. A pure word (`clip`, `mask`, `invert`) names
+ * itself; a toolkit word is named with its `t.`.
+ */
+function refuseNonArea(who: string, v: unknown, pure = false): void {
+  const name = pure ? who : `t.${who}`;
+  if ((v as ClipValue | null)?.__occludeClip) {
+    throw new Error(`${name}: a clip is ink, not an area — cut a material with t.within(t.material(shape), region) instead`);
   }
-  return areaLoops(input, who);
+  if (isShapeValue(v) || isGroupValue(v) || isInvertValue(v) || Array.isArray(v) || isRectRecord(v)) return;
+  if (typeof v === 'object' && v !== null) {
+    const o = v as { contours?: unknown; curves?: unknown; pts?: unknown };
+    if (typeof o.contours === 'function' || typeof o.curves === 'function' || Array.isArray(o.pts)) return;
+  }
+  throw new Error(`${name}: a ${kindOf(v)} is not an area — give a face, contours, a closed material, a shape or a rect`);
 }
 
-/** `areaLoops` for a consumer that computes with the coordinates: a length
- * such as `mm(10)` is a drawing unit the sketch must resolve first. */
-function numericAreaLoops(run: Execution | null, input: AreaInput | ShapeValue, who: string): [number, number][][] {
-  return numericLoops(lowerArea(run, input, who), who);
+/** One outline of a lowered area in sketch coordinates, with its own
+ * closure (a path may hold a ring and a chain). */
+interface Outline {
+  pts: [number, number][];
+  closed: boolean;
+  curve?: (seg: number, t: number) => [number, number];
+  geodesic?: boolean[];
 }
+
+/** An area as loops in sketch coordinates and the fill rule they read. */
+interface Region {
+  loops: [number, number][][];
+  rule: Winding;
+}
+
+/** The fill rule a shape brings: a path's own, even-odd for the rest. */
+const windingOf = (sv: ShapeValue): Winding =>
+  sv.geom.kind === 'path' || sv.geom.kind === 'area' ? sv.geom.winding : 'evenodd';
+
+/**
+ * THE toolkit area lowering: every area word reads an area through this.
+ * A shape is lowered through the one lowerer with its own fill rule; a group
+ * is the union of its shapes through its transform (one shape stays that
+ * shape, loop for loop); `invert(area)` is the drawable with the area taken
+ * out; anything else is read through the boundary contract, which refuses a
+ * face collection by name.
+ */
+function areaRegion(run: Execution, area: Area, who: string): Region {
+  if (isInvertValue(area)) {
+    return { loops: [drawableLoop(run), ...cleanLoops(areaRegion(run, area.area, who))], rule: 'evenodd' };
+  }
+  if (isGroupValue(area)) {
+    const leaves = treeLeaves(run, area, [], who, undefined, 'all');
+    if (leaves.length === 0) return { loops: [], rule: 'evenodd' };
+    const regions = leaves.map((l) => ({ loops: l.outlines.map((o) => o.pts), rule: windingOf(l.shape) }));
+    if (regions.length === 1) return regions[0];
+    return { loops: unionLoops(regions), rule: 'evenodd' };
+  }
+  if (isShapeValue(area)) return { loops: shapeContours(run, area, undefined).map((c) => c.pts), rule: windingOf(area) };
+  refuseNonArea(who, area);
+  return { loops: numericLoops(areaLoops(area, who), who), rule: 'evenodd' };
+}
+
+/** `areaRegion`'s loops, which is what a consumer that reads even-odd
+ * loops (and has always read a shape's loops that way) takes. */
+function numericAreaLoops(run: Execution, input: Area, who: string): [number, number][][] {
+  return areaRegion(run, input, who).loops;
+}
+
+/** Any area as ONE shape: a shape keeps its own geometry (its pivot words
+ * resolved), anything else becomes the path of its lowered loops. What a
+ * field bound and a clip region hold. */
+function areaAsShape(run: Execution, area: Area, who: string): ShapeValue {
+  if (isShapeValue(area)) return pinShape(run, area);
+  const r = areaRegion(run, area, who);
+  return loopsPath(r.loops, r.rule);
+}
+
+/** The drawable as one loop in sketch coordinates, whatever the frame's
+ * origin and y direction: the outside an `invert` is bounded by. */
+function drawableLoop(run: Execution): [number, number][] {
+  const f = run.frame;
+  const back = paperToUser(f);
+  const { innerW, innerH } = f.inner;
+  const x0 = f.offsetX;
+  const y0 = f.offsetY;
+  return [back(x0, y0), back(x0 + innerW, y0), back(x0 + innerW, y0 + innerH), back(x0, y0 + innerH)];
+}
+
+/** Polygon arithmetic resolution for a union: sketch units to integers. */
+const UNION_SCALE = 2 ** 20;
+type ClipperPath = { X: number; Y: number }[];
+const toClipper = (loop: readonly (readonly [number, number])[]): ClipperPath =>
+  loop.map(([x, y]) => ({ X: Math.round(x * UNION_SCALE), Y: Math.round(y * UNION_SCALE) }));
+function clipperUnion(paths: ClipperPath[], rule: Winding): ClipperPath[] {
+  const c = new ClipperLib.Clipper();
+  c.StrictlySimple = true;
+  c.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);
+  const ft = rule === 'nonzero' ? ClipperLib.PolyFillType.pftNonZero : ClipperLib.PolyFillType.pftEvenOdd;
+  const out: ClipperPath[] = [];
+  if (!c.Execute(ClipperLib.ClipType.ctUnion, out, ft, ft)) throw new Error('area union failed');
+  return out;
+}
+
+/** Several regions, each under its own rule, as the loops of their union:
+ * simple, holes inside outers, read the same under either rule. */
+function unionLoops(regions: readonly Region[]): [number, number][][] {
+  const each = regions.flatMap((r) => clipperUnion(r.loops.map(toClipper), r.rule));
+  return clipperUnion(each, 'nonzero').map((p) => p.map((q) => [q.X / UNION_SCALE, q.Y / UNION_SCALE] as [number, number]));
+}
+
+/** A region's loops as even-odd reads them: already so for an even-odd
+ * region or a single loop, otherwise the union under its own rule. */
+function cleanLoops(r: Region): [number, number][][] {
+  if (r.rule === 'evenodd' || r.loops.length <= 1) return r.loops;
+  return unionLoops([r]);
+}
+
+/** A pivot resolved to a point in the value's own coordinates: a pair
+ * stays the pair it was, a record becomes one, and `'center'`/`'centroid'`
+ * are read off the outlines `own` lowers. */
+function pinOrigin(who: string, origin: Origin<L> | undefined, own: () => readonly Outline[]): readonly [L, L] | undefined {
+  if (origin === undefined) return undefined;
+  checkOrigin(who, origin);
+  if (origin === 'center' || origin === 'centroid') return pivotOf(own(), origin);
+  if (Array.isArray(origin)) return origin.length === 2 ? (origin as unknown as readonly [L, L]) : [origin[0], origin[1]];
+  const o = origin as { x: L; y: L };
+  return [o.x, o.y];
+}
+
+/** `'center'`: the middle of the outlines' bounds. `'centroid'`: the area
+ * centroid of the closed ones as `polygon` fills them, else the mean of
+ * every point. Nothing at all pivots on the user origin. */
+function pivotOf(outlines: readonly Outline[], which: 'center' | 'centroid'): [number, number] {
+  let n = 0, mx = 0, my = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const o of outlines) for (const [x, y] of o.pts) {
+    n++; mx += x; my += y;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  if (n === 0) return [0, 0];
+  if (which === 'center') return [(x0 + x1) / 2, (y0 + y1) / 2];
+  const c = areaCentroid(outlines.filter((o) => o.closed && o.pts.length >= 3).map((o) => ({ pts: o.pts, closed: true }) as IsoContour));
+  return c ? [c[0], c[1]] : [mx / n, my / n];
+}
+
+/** A shape with its pivot words resolved to a point of its own geometry —
+ * before its transform, which is what the pivot turns — so nothing past the
+ * toolkit meets a word. A `polygon(shape)`'s inner shape is resolved too. */
+function pinShape(run: Execution, sv: ShapeValue): ShapeValue {
+  let geom = sv.geom;
+  if (geom.kind === 'area') {
+    const inner = pinShape(run, shape(geom.of.geom, geom.of.opts as ShapeOpts));
+    if (inner.geom !== geom.of.geom || inner.opts.origin !== geom.of.opts.origin) {
+      geom = { ...geom, of: { geom: inner.geom, opts: { ...geom.of.opts, origin: inner.opts.origin } } };
+    }
+  }
+  const g = geom;
+  const origin = pinOrigin('shape', sv.opts.origin, () => {
+    const unit = unitMm(run.frame);
+    return lowerToUserContours(g, {}, run.frame).map((c) => ({ pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]), closed: c.closed }));
+  });
+  if (geom === sv.geom && origin === sv.opts.origin) return sv;
+  return { ...sv, geom, opts: { ...sv.opts, origin } };
+}
+
+/** A group with its pivot word resolved against its children's own
+ * outlines (their transforms applied, the group's not). */
+function pinGroup(run: Execution, g: GroupValue): GroupValue {
+  const origin = pinOrigin('group', g.opts.origin, () => treeLeaves(run, g.children, [], 'group', undefined, 'all').flatMap((l) => l.outlines));
+  return origin === g.opts.origin ? g : { ...g, opts: { ...g.opts, origin } };
+}
+
+/** The op a (pinned) group pushes onto the chain, or none. */
+function groupOp(g: GroupValue): TransformOp | null {
+  const { translate, rotate, scale, origin, placement } = g.opts;
+  if (placement !== undefined) return { placement };
+  if (translate || rotate !== undefined || scale !== undefined) return { translate, rotate, scale, origin: origin as readonly [L, L] | undefined };
+  return null;
+}
+
+/** Every shape in a tree with its outlines, lowered through `chain` (the
+ * enclosing groups' ops, outermost first) and its own transform. A group
+ * is an area through the shapes it holds; anything else in it is refused
+ * by name. */
+function treeLeaves(
+  run: Execution, tree: Tree, chain: readonly TransformOp[], who: string,
+  tolerance: L | undefined, refine: 'all' | 'curves',
+): { shape: ShapeValue; outlines: Outline[] }[] {
+  if (!tree) return [];
+  if (Array.isArray(tree)) return tree.flatMap((c) => treeLeaves(run, c, chain, who, tolerance, refine));
+  if (isGroupValue(tree)) {
+    const g = pinGroup(run, tree);
+    const op = groupOp(g);
+    return treeLeaves(run, g.children, op ? [...chain, op] : chain, who, tolerance, refine);
+  }
+  if (isShapeValue(tree)) return [{ shape: tree, outlines: shapeContours(run, tree, tolerance, refine, chain) }];
+  throw new Error(`${who}: a ${kindOf(tree)} in a group is not an area — a group is an area through the shapes it holds`);
+}
+
+/** A face: one area of a face collection, which knows its own walls. */
+const isFace = (v: unknown): v is Face =>
+  typeof v === 'object' && v !== null && typeof (v as Face).index === 'number'
+  && typeof (v as Face).contours === 'function' && typeof (v as Face).extract === 'function'
+  && (v as { boundaryEdges?: unknown }).boundaryEdges instanceof EdgeSelection;
+
+/** Every outline of an area with its own closure, for the words that walk a
+ * boundary (`t.material`, `t.sample`): a shape's and a group's shapes' own,
+ * a contour record's own, every other contour (holes too) a ring. */
+function areaOutlines(run: Execution, area: Area, who: string, tolerance: L | undefined, refine: 'all' | 'curves'): Outline[] {
+  if (isShapeValue(area)) return shapeContours(run, area, tolerance, refine);
+  if (isGroupValue(area)) return treeLeaves(run, area, [], who, tolerance, refine).flatMap((l) => l.outlines);
+  if (isInvertValue(area)) return areaRegion(run, area, who).loops.map((pts) => ({ pts, closed: true }));
+  refuseNonArea(who, area);
+  const records = (Array.isArray(area) && area.length > 0 && isContourRecord(area[0])) ? area as readonly IsoContour[]
+    : isContourRecord(area) ? [area] : null;
+  if (records) return records.map((c) => ({ pts: numericLoops([c.pts as Loop], who)[0], closed: c.closed !== false }));
+  return numericLoops(areaLoops(area, who), who).map((pts) => ({ pts, closed: true }));
+}
+const isContourRecord = (v: unknown): v is IsoContour =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as IsoContour).pts)
+  && typeof (v as { contours?: unknown }).contours !== 'function';
 
 /**
  * A shape as geometry: its outlines as contour records, in the sketch's own
@@ -405,9 +661,14 @@ function seedRecords(from: PointSelection | readonly XY[]): { x: number; y: numb
   return out;
 }
 
-function lowerShape(run: Execution, input: Geometry | AreaInput | ShapeValue, who: string): Geometry | AreaInput {
-  if (!isShapeValue(input)) return input as Geometry | AreaInput;
-  return shapeContours(run, input, undefined).map((c) => ({ pts: c.pts, closed: c.closed }));
+/** An area for a word that reads it as geometry: a shape lowered with each
+ * outline's own closure, a group or an inverted area as its loops, and any
+ * other area as it is (refused by name when it is none). */
+function lowerShape(run: Execution, input: Area, who: string): AreaInput {
+  if (isShapeValue(input)) return shapeContours(run, input, undefined).map((c) => ({ pts: c.pts, closed: c.closed }));
+  if (isGroupValue(input) || isInvertValue(input)) return areaRegion(run, input, who).loops.map((pts) => ({ pts, closed: true }));
+  refuseNonArea(who, input);
+  return input;
 }
 
 /**
@@ -458,8 +719,22 @@ export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(
     const o = contours.opts;
     return shape({ kind: 'area', of: { geom: contours.geom, opts: { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin } }, winding }, rest);
   }
-  const loops = lowerArea(null, contours, 'polygon');
-  const geodesic = geodesicSegments(contours);
+  return areaPath(contours as AreaInput, 'polygon', winding, rest);
+}
+
+/** An area input as a path shape, pure: its loops in the coordinates they
+ * were given, geodesic walls kept. What `polygon` draws, and what `clip`
+ * and `mask` make of an area that is not a shape. */
+function areaPath(input: AreaInput, who: string, winding: Winding, opts: ShapeOpts = {}): ShapeValue {
+  refuseNonArea(who, input, true);
+  return loopsPath(areaLoops(input, who), winding, opts, geodesicSegments(input));
+}
+
+/** Loops as one path shape, each loop a closed subpath. */
+function loopsPath(
+  loops: readonly (readonly (readonly [L, L])[])[], winding: Winding, opts: ShapeOpts = {},
+  geodesic?: (a: readonly [unknown, unknown], b: readonly [unknown, unknown]) => boolean,
+): ShapeValue {
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -469,7 +744,7 @@ export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(
     }
     cmds.push(geodesic?.(loop[loop.length - 1], loop[0]) ? { op: 'close', geodesic: true } : { op: 'close' });
   }
-  return shape({ kind: 'path', cmds, winding }, rest);
+  return shape({ kind: 'path', cmds, winding }, opts);
 }
 
 /**
@@ -500,181 +775,195 @@ function geodesicSegments(source: unknown): ((a: readonly [unknown, unknown], b:
 }
 
 /**
- * The region word, one spelling. `t.within(field, shape)` bounds a field's
+ * The region word, one spelling. `within(field, area)` bounds a field's
  * domain (the field is ABSENT outside — see field.ts). Everything else keeps
  * only what lies INSIDE the area:
  *
  * - a material: its edges cut where they cross the boundary, the outside
  *   dropped, so a chord built long enough to be sure of crossing a frame
  *   ends ON the frame (columns keep their declared transfer policy);
- * - a point selection: the points inside, as a selection of the same source,
- *   so it still chains and still works as `{ where }` in a step rule;
- * - a face collection: the faces lying entirely inside — nothing is clipped,
- *   a straddling face is simply not kept.
+ * - a point, edge or face selection: the members that belong to the area,
+ *   whole, as a selection of the same source, so it still chains and still
+ *   works as `{ where }` in a step rule.
  *
- * `area` is anything an area consumer takes: a shape (lowered here, through
- * the one lowerer), a face, loops, a chain material or a selection. A face
- * collection takes `{ faces: 'contained' | 'centroid' | 'touching' }` (see
- * WithinFaces), an edge selection `{ edges: … }` (see WithinEdges).
+ * `area` is any `Area`, read through the one toolkit lowering: a shape, a
+ * group, a face, loops, contour records, a closed material, a selection, or
+ * `invert(area)` for the outside. A selection takes `{ keep }` (see
+ * WithinKeep).
  */
-/** How `within` decides that a face belongs to an area. `'contained'` (the
- * default) keeps a face with no contour point strictly outside the area, no
- * edge crossing its boundary, and none of the area's own loops (a hole, an
- * island) lying strictly inside it — so a cell whose wall runs ALONG the
- * boundary belongs to it. `'centroid'` keeps a face whose geometric centre is
- * inside the area, so a cell the boundary cuts through is kept whole, and its
- * ink may reach past the edge by up to that cell. `'touching'` keeps a face
- * that shares any point with the area: a vertex inside or on the boundary,
- * an edge meeting the boundary, or the area lying inside the face. */
-export interface WithinFaces {
-  faces?: 'contained' | 'centroid' | 'touching';
-}
-
-/** How `within` decides that an edge belongs to an area. A selection cannot
- * clip, so an edge is kept whole or not at all — the face contract, on a
- * wall. `'contained'` (the default) keeps an edge with neither end strictly
- * outside and no crossing of the boundary, so a wall running ALONG the
- * boundary belongs to it. `'midpoint'` keeps an edge whose `center` is inside,
- * so a wall the boundary cuts is kept whole and its ink may reach past the
- * edge by up to half that wall. `'touching'` keeps an edge that shares any
- * point with the area: an end inside or on the boundary, or the wall meeting
- * the boundary. To cut at the boundary instead, hand
- * `within` the MATERIAL: a material is cut, a selection is filtered. */
-export interface WithinEdges {
-  edges?: 'contained' | 'midpoint' | 'touching';
+/** How `within` decides that a member of a selection belongs to an area:
+ * one vocabulary for points, edges and faces. The boundary is judged with
+ * the one ink tolerance (`INK_TOL`, on the sheet): a vertex that close to
+ * the boundary is ON it, and a wall that runs along the boundary does not
+ * cross it.
+ *
+ * `'contained'` (the default) keeps a member with no point outside the area
+ * and no crossing of its boundary, so the boundary belongs to the area: a
+ * point on it is in, and a cell whose wall runs along it is in. A face must
+ * also not hold a hole or an island of the area inside it. `'centroid'`
+ * keeps a member whose centroid is in or on the area — an edge's centroid is
+ * its middle, a point's is the point — so a cell the boundary cuts is kept
+ * whole, and its ink may reach past the edge by up to that cell.
+ * `'touching'` keeps a member that shares any point with the area: a vertex
+ * in or on it, a wall meeting its boundary, or the area lying inside a
+ * face. To cut at the boundary instead, hand `within` the MATERIAL: a
+ * material is cut, a selection is filtered. */
+export interface WithinKeep {
+  keep?: 'contained' | 'centroid' | 'touching';
 }
 
 export interface Within {
-  <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: ShapeValue): Prepared<F>;
-  (material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-  (points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
-  (edges: EdgeSelection, area: AreaInput | ShapeValue, opts?: WithinEdges): EdgeSelection;
-  (faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
+  <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: Area): Prepared<F>;
+  (material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
+  (points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
+  (edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
+  (faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
 }
 
-export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: ShapeValue): Prepared<F>;
-export function withinAny(run: Execution, material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-export function withinAny(run: Execution, points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
-export function withinAny(run: Execution, edges: EdgeSelection, area: AreaInput | ShapeValue, opts?: WithinEdges): EdgeSelection;
-export function withinAny(run: Execution, faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
+export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: Area): Prepared<F>;
+export function withinAny(run: Execution, material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
+export function withinAny(run: Execution, points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
+export function withinAny(run: Execution, edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
+export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
 
 export function withinAny(
   run: Execution,
   x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection,
-  area: AreaInput | ShapeValue,
-  opts: { transfer?: Record<string, Transfer> } & WithinFaces & WithinEdges = {},
+  area: Area,
+  opts: { transfer?: Record<string, Transfer> } & WithinKeep = {},
 ): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection {
-  if (typeof x === 'function') return withinField(x, area as ShapeValue, boundEnv(run));
-  if (opts.faces !== undefined && opts.faces !== 'contained' && opts.faces !== 'centroid' && opts.faces !== 'touching') {
-    throw new Error(`within: faces must be 'contained', 'centroid' or 'touching', got '${String(opts.faces)}'`);
+  // The one area door: a field is bounded by the area as one shape, which
+  // the engine receives as exact geometry.
+  if (typeof x === 'function') return withinField(x, areaAsShape(run, area, 'within'), boundEnv(run));
+  const old = opts as { faces?: unknown; edges?: unknown };
+  for (const key of ['faces', 'edges'] as const) {
+    if (old[key] !== undefined) {
+      throw new Error(`within: the '${key}' option is spelled keep — { keep: 'contained' | 'centroid' | 'touching' }, the same on points, edges and faces`);
+    }
   }
-  if (opts.edges !== undefined && opts.edges !== 'contained' && opts.edges !== 'midpoint' && opts.edges !== 'touching') {
-    throw new Error(`within: edges must be 'contained', 'midpoint' or 'touching', got '${String(opts.edges)}'`);
+  const keep = opts.keep ?? 'contained';
+  if (keep !== 'contained' && keep !== 'centroid' && keep !== 'touching') {
+    throw new Error(`within: keep must be 'contained', 'centroid' or 'touching', got ${describeValue(opts.keep)}`);
   }
-  if (opts.edges !== undefined && !(x instanceof EdgeSelection)) {
-    throw new Error("within: 'edges' is for an edge selection");
-  }
-  const loops = numericAreaLoops(run, area, 'within');
+  const region = areaRegion(run, area, 'within');
+  const loops = region.loops;
   // The FILLED REGION, not the contours: under a nonzero rule an interior
   // contour has fill on both sides and is not a boundary at all, so points on
   // it are inside, material along it is not cut, and a face may cross or
   // enclose it. A shape area brings its own rule; loops and faces carry none
   // and read even-odd, exactly as `distanceTo` documents.
-  const shapeArea = isShapeValue(area) ? area : null;
-  const rule = shapeArea && (shapeArea.geom.kind === 'path' || shapeArea.geom.kind === 'area') ? shapeArea.geom.winding : 'evenodd';
-  const fill = areaFill(loops, rule);
+  const fill = areaFill(loops, region.rule);
   const inside = fill.at;
   if (x instanceof Material) {
-    if (opts.faces !== undefined) throw new Error("within: 'faces' is for a face collection — a material is cut at the boundary");
+    if (opts.keep !== undefined) throw new Error("within: 'keep' is for a selection — a material is cut at the boundary");
     return withinMaterial(x, loops, { ...opts, inside, crossings: fill.crossings });
   }
-  if (x instanceof PointSelection) return x.filter((p) => inside(p.x, p.y) > 0);
-  if (x instanceof EdgeSelection) {
-    if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — an edge is kept whole or not at all");
-    // The midpoint: one question, one point, and the wall goes with it.
-    if (opts.edges === 'midpoint') return x.filter((e) => inside(e.center[0], e.center[1]) > 0);
-    // Touching: any shared point — an end inside or ON the boundary, or the
-    // wall meeting a real boundary anywhere along it.
-    if (opts.edges === 'touching') {
-      return x.filter((e) => inside(e.a.x, e.a.y) >= 0 || inside(e.b.x, e.b.y) >= 0 || meetsBoundary(fill.boundary, e.a.x, e.a.y, e.b.x, e.b.y));
+  if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — a selection's member is kept whole or not at all");
+  const side = boundarySide(fill, INK_TOL / unitMm(run.frame));
+  // A point is its own centroid, and touches the area exactly when it is
+  // in or on it: the three questions have one answer.
+  if (x instanceof PointSelection) return x.filter((p) => side(p.x, p.y) >= 0);
+  // A wall belongs when no piece of it lies outside: its ends in or on the
+  // area, and between any two crossings of the real boundary the middle in
+  // or on it too — so a wall that runs along the boundary, crossing it back
+  // and forth by a rounding error, belongs.
+  const wallIn = (ax: number, ay: number, bx: number, by: number): boolean => {
+    if (!(side(ax, ay) >= 0) || !(side(bx, by) >= 0)) return false;
+    let t0 = 0;
+    for (const t1 of [...fill.crossings(ax, ay, bx, by).map((h) => h.t), 1]) {
+      const tm = (t0 + t1) / 2;
+      if (!(side(ax + (bx - ax) * tm, ay + (by - ay) * tm) >= 0)) return false;
+      t0 = t1;
     }
-    // Contained, which is the face rule on a wall: neither end strictly
-    // outside, and no crossing of a REAL boundary. `>= 0` keeps a wall that
-    // runs along the boundary, exactly as a cell sharing the frame's edge
-    // belongs to the frame.
-    return x.filter((e) => {
-      if (!(inside(e.a.x, e.a.y) >= 0) || !(inside(e.b.x, e.b.y) >= 0)) return false;
-      return fill.crossings(e.a.x, e.a.y, e.b.x, e.b.y).length === 0;
-    });
+    return true;
+  };
+  const touches = (ax: number, ay: number, bx: number, by: number): boolean =>
+    side(ax, ay) >= 0 || side(bx, by) >= 0 || meetsBoundary(fill.boundary, ax, ay, bx, by);
+  if (x instanceof EdgeSelection) {
+    if (keep === 'centroid') return x.filter((e) => side(e.center[0], e.center[1]) >= 0);
+    if (keep === 'touching') return x.filter((e) => touches(e.a.x, e.a.y, e.b.x, e.b.y));
+    return x.filter((e) => wallIn(e.a.x, e.a.y, e.b.x, e.b.y));
   }
   const faces: Faces | FaceSelection = x;
-  if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — a face is kept whole or not at all");
-  if (opts.faces === 'centroid') {
+  const tol = INK_TOL / unitMm(run.frame);
+  if (keep === 'centroid') {
     // Geometric centres: no field is measured, so no raster is built.
     const measured = faces.measure();
     return faces.filter((f) => {
       const [cx, cy] = measured.forFace(f).centroid;
-      return inside(cx, cy) > 0;
+      return side(cx, cy) >= 0;
     });
   }
-  if (opts.faces === 'touching') {
-    // Any shared point: a vertex inside or ON the boundary, a wall meeting a
-    // real boundary, or else the area lying wholly inside the face, which a
-    // point of the boundary inside or on the face says.
+  if (keep === 'touching') {
+    // Any shared point: a vertex in or ON the boundary, a wall meeting a real
+    // boundary, or else the area lying wholly inside the face, which a point
+    // of the boundary inside or on the face says.
     return faces.filter((f) => {
       const areas = f.contours();
       if (areas.length === 0) return false;
       for (const c of areas) {
         for (let k = 0; k < c.pts.length; k++) {
           const p = c.pts[k];
-          if (inside(p[0], p[1]) >= 0) return true;
           const q = c.pts[(k + 1) % c.pts.length];
-          if (meetsBoundary(fill.boundary, p[0], p[1], q[0], q[1])) return true;
+          if (touches(p[0], p[1], q[0], q[1])) return true;
         }
       }
       if (fill.boundary.length === 0) return false;
       const [ax, ay] = fill.boundary[0];
-      return distanceTo(areas)(ax, ay) >= 0;
+      return distanceTo(areas)(ax, ay) >= -tol;
     });
   }
   // A face is kept whole or not kept at all: nothing of it is clipped. It
-  // belongs to the area when no edge crosses the boundary and no point of it
-  // is strictly outside — so a cell whose wall RUNS ALONG the boundary is in
-  // (the artist means the cells that belong to the frame, and the frame's own
-  // cells share its edges), while a face merely touching it from outside is
-  // not.
-  const keep = (f: Face): boolean => {
+  // belongs to the area when every wall does — so a cell whose wall RUNS
+  // ALONG the boundary is in (the artist means the cells that belong to the
+  // frame, and the frame's own cells share its edges), while a face merely
+  // touching it from outside is not.
+  const keepFace = (f: Face): boolean => {
     const areas = f.contours();
     if (areas.length === 0) return false;
     for (const c of areas) {
       for (let k = 0; k < c.pts.length; k++) {
         const p = c.pts[k];
-        if (!(inside(p[0], p[1]) >= 0)) return false;
         const q = c.pts[(k + 1) % c.pts.length];
         // Only a REAL boundary stops a face: an interior contour may be crossed
         // freely, since the fill is on both of its sides.
-        if (fill.crossings(p[0], p[1], q[0], q[1]).length > 0) return false;
+        if (!wallIn(p[0], p[1], q[0], q[1])) return false;
       }
     }
     // A face must also have somewhere of its own inside the fill: a wall it
     // shares with the boundary says nothing by itself, and the same walls bound
     // the annulus and the hole it encloses.
     const probe = interiorPoint(areas.map((c) => c.pts));
-    if (probe && !(inside(probe[0], probe[1]) > 0)) return false;
-    // Every vertex inside and no edge crossing still leaves the reverse case: a
-    // real boundary — a hole, or an island — lying strictly inside the face,
-    // whose excluded space the face would cover. Each real segment is tested at
-    // its ends and its middle; the face's own contours say what is inside IT,
-    // so a wall the face shares with the boundary is ON it, not in it, and
-    // passes.
+    if (probe && !(side(probe[0], probe[1]) >= 0)) return false;
+    // Every wall in still leaves the reverse case: a real boundary — a hole,
+    // or an island — lying inside the face, whose excluded space the face
+    // would cover. Each real segment is tested at its ends and its middle,
+    // deeper than the tolerance; a wall the face shares with the boundary is
+    // ON it, not in it, and passes.
     const faceInside = distanceTo(areas);
     for (const s of fill.boundary) {
       const [ax, ay, bx, by] = s;
-      if (faceInside(ax, ay) > 0 || faceInside(bx, by) > 0 || faceInside((ax + bx) / 2, (ay + by) / 2) > 0) return false;
+      if (faceInside(ax, ay) > tol || faceInside(bx, by) > tol || faceInside((ax + bx) / 2, (ay + by) / 2) > tol) return false;
     }
     return true;
   };
-  return x instanceof Faces ? x.filter(keep) : x.filter(keep);
+  return x instanceof Faces ? x.filter(keepFace) : x.filter(keepFace);
+}
+
+/**
+ * Which side of a filled region a point is on, the boundary judged with a
+ * tolerance: 0 within `tol` of a real boundary segment (ON it), otherwise
+ * the fill's own sign — positive in, negative out. The distance to the
+ * boundary is built on the first point that needs it.
+ */
+function boundarySide(fill: ReturnType<typeof areaFill>, tol: number): (x: number, y: number) => number {
+  let near: DistanceField | null = null;
+  return (x, y) => {
+    const v = fill.at(x, y);
+    if (!(v > 0) && !(v < 0)) return v;
+    near ??= fill.boundary.length === 0 ? () => Infinity : distanceTo(fill.boundary.map(([ax, ay, bx, by]) => [[ax, ay], [bx, by]] as [number, number][]));
+    return Math.abs(near(x, y)) <= tol ? 0 : v;
+  };
 }
 
 /** Do segment (ax, ay)–(bx, by) and any of these boundary segments share a
@@ -718,10 +1007,6 @@ export function ngon(
   return shape({ ...g, rotation: e ?? 0 }, f);
 }
 
-/** An `IsoContour` record (`{ pts, closed }`), not a list of points. */
-function isContourRecord(v: unknown): v is IsoContour {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as { pts?: unknown }).pts);
-}
 
 /**
  * Draw along a contour with the pen — `polygon`'s open-minded sibling. A
@@ -907,6 +1192,7 @@ export function range(a: number, b?: number, step = 1): number[] {
 export function group(opts: GroupOpts | Placement, ...children: Tree[]): GroupValue {
   if (isPlacement(opts)) return { __occludeGroup: true, opts: { placement: opts }, children };
   const o = opts as GroupOpts;
+  checkOrigin('group', o?.origin);
   if (o && o.placement !== undefined
     && (o.translate !== undefined || o.rotate !== undefined || o.scale !== undefined || o.origin !== undefined)) {
     throw new Error(
@@ -917,23 +1203,38 @@ export function group(opts: GroupOpts | Placement, ...children: Tree[]): GroupVa
   return { __occludeGroup: true, opts: o, children };
 }
 
-export function clip(region: ShapeValue | InvertValue, ...children: Tree[]): ClipValue {
-  const inv = (region as InvertValue).__occludeInvert === true;
+/**
+ * The children's ink restricted to an area: any `Area` — a shape, a group,
+ * a face, loops, contour records, a closed material — and `invert(area)`
+ * keeps the ink outside it instead. The area is not drawn.
+ */
+export function clip(region: Area, ...children: Tree[]): ClipValue {
+  let inv = false;
+  let r: Area = region;
+  while (isInvertValue(r)) {
+    inv = !inv;
+    r = r.area;
+  }
   return {
     __occludeClip: true,
-    region: inv ? (region as InvertValue).shape : (region as ShapeValue),
+    // A group is lowered when the clip is drawn, with the run in hand; any
+    // other area is its path now, so a refusal comes from here.
+    region: isShapeValue(r) || isGroupValue(r) ? r : areaPath(r, 'clip', 'evenodd'),
     invert: inv,
     children,
   };
 }
 
 /**
- * Complement a region: `clip(invert(shape), ...children)` keeps the
- * children's ink OUTSIDE the shape instead of inside. A region annotation,
- * not a drawable — returning it in the tree fails loudly.
+ * The outside of an area: an area wherever an area is taken.
+ * `clip(invert(area), ...children)` keeps the ink outside it,
+ * `mask(invert(area))` hides everything but it, and a toolkit word reads it
+ * as the drawable with the area taken out. Not a drawable — returning it
+ * in the tree fails loudly.
  */
-export function invert(shape: ShapeValue): InvertValue {
-  return { __occludeInvert: true, shape };
+export function invert(area: Area): InvertValue {
+  refuseNonArea('invert', area, true);
+  return { __occludeInvert: true, area };
 }
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
@@ -1117,9 +1418,31 @@ export function modify(mods: ModifierValue[], ...children: Tree[]): GroupValue {
   return { __occludeGroup: true, opts: { modifiers: mods }, children };
 }
 
-/** Occludes everything beneath it and draws nothing at all. */
-export function mask(sv: ShapeValue): ShapeValue {
+/** An area that occludes everything beneath it and draws nothing at all.
+ * A shape or any other area input answers a shape, a group a group of
+ * masks (their union hides), and `invert(area)` a clip that hides the
+ * whole drawable outside the area. */
+export function mask(area: ShapeValue | AreaInput): ShapeValue;
+export function mask(area: GroupValue): GroupValue;
+export function mask(area: InvertValue): ClipValue;
+export function mask(area: Area): ShapeValue | GroupValue | ClipValue;
+export function mask(area: Area): ShapeValue | GroupValue | ClipValue {
+  if (isInvertValue(area)) {
+    // Everything but the area: an opaque sheet past the drawable on every
+    // side, anchored at its corner whatever the sketch's rectMode.
+    return clip(area, mask(rect(w(-100), h(-100), w(300), h(300), { mode: 'corner' })));
+  }
+  if (isGroupValue(area)) return { ...area, children: area.children.map(maskTree) };
+  const sv = isShapeValue(area) ? area : areaPath(area, 'mask', 'evenodd');
   return { ...sv, opts: { ...sv.opts, opaque: true, stroke: false, fill: undefined } };
+}
+
+/** A group's children as masks, shape by shape. */
+function maskTree(tree: Tree): Tree {
+  if (!tree) return tree;
+  if (Array.isArray(tree)) return tree.map(maskTree);
+  if (isShapeValue(tree) || isGroupValue(tree)) return mask(tree);
+  throw new Error(`mask: a ${kindOf(tree)} in a group is not an area — a group is an area through the shapes it holds`);
 }
 
 /** A hand-drawn-looking line built from the sketch's noise stream. */
@@ -1258,18 +1581,22 @@ function isPointArg(v: unknown): v is XY {
  * outline in a curved space also carries `curve`, the point of the curve
  * itself between two of its vertices. */
 function shapeContours(
-  run: Execution, shape: ShapeValue, tolerance: L | undefined, refine: 'all' | 'curves' = 'all',
-): { pts: [number, number][]; closed: boolean; curve?: (seg: number, t: number) => [number, number]; geodesic?: boolean[] }[] {
-  if (!shape || typeof shape !== 'object' || !('geom' in shape) || !('opts' in shape)) {
+  run: Execution, source: ShapeValue, tolerance: L | undefined, refine: 'all' | 'curves' = 'all',
+  /** Enclosing groups' ops, outermost first: a shape in a group. */
+  chain: readonly TransformOp[] = [],
+): Outline[] {
+  if (!source || typeof source !== 'object' || !('geom' in source) || !('opts' in source)) {
     throw new Error('expected a shape value (circle, rect, path, polygon, …); for points use the pure material(points)');
   }
   const frame = run.frame;
   const unit = unitMm(frame);
   const tol = tolerance !== undefined ? resolveLen(tolerance, frame.inner) : 0.05;
-  const o = shape.opts;
+  const pinned = pinShape(run, source);
+  const o = pinned.opts;
+  const own: TransformOp = { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin as readonly [L, L] | undefined };
   return lowerToUserContours(
-    shape.geom,
-    { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
+    pinned.geom,
+    chain.length === 0 ? own : [...chain, own],
     frame,
     tol,
     refine,
@@ -1374,7 +1701,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /** A point operation's `within`, lowered, or undefined. */
-  function withinLoops(area: AreaInput | ShapeValue | undefined, who: string): [number, number][][] | undefined {
+  function withinLoops(area: Area | undefined, who: string): [number, number][][] | undefined {
     return area === undefined ? undefined : numericAreaLoops(exec, area, who);
   }
 
@@ -1405,11 +1732,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `t.throw(field, { count, within? })` kept with the chance the field
    * gives at the point. The random counterpart of `scatter`. */
   function throwTk(field: FieldFn2 | undefined, opts: ThrowOpts): Material;
-  function throwTk(area: AreaInput | ShapeValue, opts: Omit<ThrowOpts, 'within'>): Material;
+  function throwTk(area: Area, opts: Omit<ThrowOpts, 'within'>): Material;
   function throwTk(opts: ThrowOpts): Material;
-  function throwTk(a: FieldFn2 | AreaInput | ShapeValue | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
+  function throwTk(a: FieldFn2 | Area | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
     const field = typeof a === 'function' ? a : undefined;
-    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
+    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as Area) : undefined;
     const raw = (b ?? a) as ThrowOpts;
     if (!raw || typeof raw !== 'object' || raw.count === undefined) throw new Error('throw: { count } is required');
     const within = withinLoops(area ?? raw.within, 'throw');
@@ -1458,7 +1785,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * out. `rule` is the recursion table — `hilbertRule` by default,
    * `peanoRule` and `meanderRule` beside it, and a table of your own if you
    * want another fold. Draw it with `strokes`. */
-  function spacefillTk(area: AreaInput | ShapeValue, opts: SpacefillOpts): Material {
+  function spacefillTk(area: Area, opts: SpacefillOpts): Material {
     return spaced(spacefill({ len: (l: L) => exec.len(l) }, numericAreaLoops(exec, area, 'spacefill'), opts));
   }
 
@@ -1487,18 +1814,35 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       throw new Error(`tiling: {${p}, ${q}} is a tiling of ${GEOMETRY_NAME[geometry]} and this sketch draws in ${GEOMETRY_NAME[sp.kind]} — set space: ${GEOMETRY_SPACE[geometry]} on the sketch`);
     }
     const side = opts.side === undefined ? undefined : exec.len(opts.side);
+    if (opts.rotate !== undefined && !Number.isFinite(opts.rotate)) throw new Error(`tiling: rotate is an angle in degrees, got ${describeValue(opts.rotate)}`);
+    // The turn about the cell's centre: the identity when there is none, so
+    // an unturned tiling is the one it always was.
+    // A quarter turn is exact, so a wall that should stand upright does.
+    const deg = opts.rotate ?? 0;
+    const quarter = deg % 90 === 0 ? (((deg / 90) % 4) + 4) % 4 : -1;
+    const cos = quarter >= 0 ? [1, 0, -1, 0][quarter] : Math.cos(radians(deg));
+    const sin = quarter >= 0 ? [0, 1, 0, -1][quarter] : Math.sin(radians(deg));
+    const turn = deg === 0
+      ? (z: XY): Vec => [vx(z), vy(z)]
+      : (z: XY): Vec => [cos * vx(z) - sin * vy(z), sin * vx(z) + cos * vy(z)];
     const chart = modelChart(sp);
     if (!chart) {
       const b = exec.bounds();
       const k = side ?? Math.min(b.w, b.h) / 2;
-      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => [b.cx + k * vx(z), b.cy + k * vy(z)], bow: 0, space: sp });
+      checkOrigin('tiling', opts.origin);
+      const [ox, oy] = opts.origin === undefined || opts.origin === 'center' || opts.origin === 'centroid'
+        ? [b.cx, b.cy] : [vx(opts.origin as XY), vy(opts.origin as XY)];
+      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => { const t = turn(z); return [ox + k * t[0], oy + k * t[1]]; }, bow: 0, space: sp });
+    }
+    if (opts.origin !== undefined) {
+      throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling stands on its chart's centre — move it with a placement, group(placement, …), not origin`);
     }
     // A curved symbol takes its unit from its curvature: the model chart
     // is the sketch's own chart, so the model point goes through it and
     // out the other side, into the coordinates everything else speaks.
     const [cx, cy] = chart.center;
     const k = chart.scale;
-    const up = (z: XY): Vec => sp.fromChart([cx + k * vx(z), cy + k * vy(z)]);
+    const up = (z: XY): Vec => { const t = turn(z); return sp.fromChart([cx + k * t[0], cy + k * t[1]]); };
     if (side !== undefined) {
       const model = cellOf(geometry, p, q);
       const fixed = sp.distance(up(model[0]), up(model[1]));
@@ -1553,7 +1897,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     };
   }
 
-  function spaceDistanceTo(space: Space, area: Geometry | AreaInput | ShapeValue): DistanceField {
+  function spaceDistanceTo(space: Space, area: Area): DistanceField {
     // A shape says whether each of its outlines closes; anything else is
     // an area, and an area's boundaries are loops.
     const contours: SpaceContour[] = isShapeValue(area)
@@ -1584,7 +1928,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * along its boundary. `cells.cellOf(site)` and `cells.siteOf(face)`
    * relate the result to its sites; a material or a point selection of one
    * stays the sites, bare points become one. */
-  function voronoiTk(sites: PointsLike, opts: { within?: AreaInput | ShapeValue } = {}): Material {
+  function voronoiTk(sites: PointsLike, opts: { within?: Area } = {}): Material {
     if ('bounds' in opts) throw new Error('voronoi: bounds is now within — a rect is an area: { within: rect(…) } or { within: t.bounds() }');
     const b = exec.bounds();
     // The sites as the pure `voronoi` reads them: a selection stays the
@@ -1833,18 +2177,52 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * given, welding nothing — `t.material(...circles).planarize()` is the
    * pile whose `faces()` are the pieces the overlaps cut. The options are the
    * trailing plain object. Points go through the pure `material(points)`.
+   *
+   * Any `Area` enters here, through the one lowering: a group's shapes
+   * through its transform (an svg import, a placed shape), a face as its
+   * walls with their ids, loops and contour records one ring or chain each,
+   * `invert(area)` as the drawable with the area taken out, and a material
+   * as the material it already is.
    */
-  function materialFromShape(...shapes: ShapeValue[]): Material;
-  function materialFromShape(...args: [...ShapeValue[], { tolerance?: L }]): Material;
-  function materialFromShape(...args: (ShapeValue | { tolerance?: L })[]): Material {
+  function materialFromShape(...areas: Area[]): Material;
+  function materialFromShape(...args: [...Area[], { tolerance?: L }]): Material;
+  function materialFromShape(...args: (Area | { tolerance?: L })[]): Material {
     const last: unknown = args[args.length - 1];
-    // Only a trailing plain object is options; anything else (an array of
-    // points included) is judged as a shape, so the error names what it saw.
-    const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype && !('__occludeShape' in last);
+    // Only a trailing plain object that is no area is options; anything else
+    // (a contour record, loops, a face) is judged as an area, so the error
+    // names what it saw.
+    const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype
+      && !('__occludeShape' in last) && !('__occludeGroup' in last) && !('__occludeInvert' in last) && !('pts' in last);
     const opts: { tolerance?: L } = trailingOpts ? (last as { tolerance?: L }) : {};
-    const shapes = (trailingOpts ? args.slice(0, -1) : args) as unknown[];
-    // No shapes (a spread of an empty list) is the empty material.
-    if (shapes.length === 0) return spaced(materialOf([]));
+    const areas = (trailingOpts ? args.slice(0, -1) : args) as Area[];
+    // No areas (a spread of an empty list) is the empty material.
+    if (areas.length === 0) return spaced(materialOf([]));
+    // A material is already material, and a face's walls are material with
+    // their ids: both come back as they are. Every other area is its
+    // outlines, and a run of those is one material, built at once.
+    const pieces: Material[] = [];
+    let run: Outline[] = [];
+    const flush = (): void => {
+      if (run.length > 0) pieces.push(outlineMaterial(run));
+      run = [];
+    };
+    for (const area of areas) {
+      if (area instanceof Material) {
+        flush();
+        pieces.push(area);
+      } else if (isFace(area)) {
+        flush();
+        pieces.push(area.boundaryEdges.extract());
+      } else {
+        run.push(...areaOutlines(exec, area, 'material', opts.tolerance, 'curves'));
+      }
+    }
+    flush();
+    return pieces.length === 1 ? pieces[0] : spaced(append(...pieces));
+  }
+
+  /** Outlines as one material, each a ring or a chain, welding nothing. */
+  function outlineMaterial(outlines: readonly Outline[]): Material {
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
     // In a curved space every edge says what it is: a geodesic of the
@@ -1855,7 +2233,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const geodesic: number[] = [];
     // The shape's own vertices in every space: a straight edge is kept
     // whole, and the ink door samples it when the material is drawn.
-    for (const shape of shapes) for (const c of shapeContours(exec, shape as ShapeValue, opts.tolerance, 'curves')) {
+    for (const c of outlines) {
       const flag = (k: number): number => (c.geodesic?.[k] ? 1 : 0);
       let poly = c.pts;
       // A closed outline comes back with its start repeated at the end: the
@@ -1896,10 +2274,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    */
   function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
-  function sample(shape:ShapeValue,options:{count?:number;spacing?:L;tolerance?:L}):Material;
+  function sample(area:Area,options:{count?:number;spacing?:L;tolerance?:L}):Material;
   function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
-    shape: ShapeValue | Material | Mesh<any,any,any> | SurfaceCurves<any>,
+    shape: Area | Material | Mesh<any,any,any> | SurfaceCurves<any>,
     options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions = {},
   ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> {
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
@@ -1932,7 +2310,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     // on the geodesic. Euclidean: the literal `Math.hypot` sum of
     // `chainLengths` and the literal lerp below.
     const curved = exec.space.kind !== 'euclidean' ? exec.space : null;
-    for (const { pts: poly, closed, curve } of shapeContours(exec, shape, opts.tolerance)) {
+    for (const { pts: poly, closed, curve } of areaOutlines(exec, shape, 'sample', opts.tolerance, 'all')) {
       const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU, space: exec.space });
       const first = pts.length;
       for (let k = 0; k < samples.length; k++) {
@@ -2041,7 +2419,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return amount * exec.noise(x / wavelength, y / wavelength, z === undefined ? undefined : z / wavelength);
   }
   const b0 = exec.bounds();
-  const within = ((x: never, area: AreaInput | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
+  const within = ((x: never, area: Area, opts?: never) => withinAny(exec, x, area, opts)) as Within;
   const synthEnv = (opts: SynthOpts): SynthOpts => ({
     ...opts,
     seed: opts.seed ?? `${exec.seedUsed}:synth:${exec.rng.float()}`,
@@ -2144,7 +2522,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     scatter, throw: throwTk, isolines, ridges, streamlines, travelTime,
     lattice,
     residual,
-    /** A shape's boundary as material with the boundary's OWN vertices,
+    /** An area's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
     sample, station, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
@@ -2154,7 +2532,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
      * geometry: inside the sketch the frame is in hand, so the toolkit
      * lowers the shape and the pure `distanceTo` never has to.
      */
-    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField => {
+    distanceTo: (area: Area): DistanceField => {
       // Points have no inside: a point selection, or a material that is
       // points alone, is measured to its nearest point.
       if (area instanceof PointSelection || (area instanceof Material && area.edgeCount === 0)) {
@@ -2175,7 +2553,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
        * is what a flattening tolerance is for, so lowering one here means
        * what it means everywhere else.
        */
-      boundary: (area: Geometry | AreaInput | ShapeValue, opts: { radius: number; strength?: number }) =>
+      boundary: (area: Area, opts: { radius: number; strength?: number }) =>
         boundaryIn(lowerShape(exec, area, 'force.boundary') as AreaInput, opts, exec.space),
       separation: (sources: Sources | ShapeValue, opts: { radius: number; excludeConnected?: boolean }) =>
         separationIn(pointSources(sources, 'force.separation'), opts, exec.space),
@@ -2330,7 +2708,7 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
     );
   }
   if ((tree as GroupValue).__occludeGroup) {
-    const g = tree as GroupValue;
+    const g = pinGroup(exec, tree as GroupValue);
     const inner: EmitCtx = {
       pen: g.opts.pen ?? ctx.pen,
       z: g.opts.z ?? ctx.z,
@@ -2340,15 +2718,11 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
       // Function-application order: deeper stacks run before shallower.
       modifiers: g.opts.modifiers ? [...g.opts.modifiers, ...ctx.modifiers] : ctx.modifiers,
     };
-    const { translate, rotate, scale, origin, placement } = g.opts;
     // A placement never shares a group with the affine keys (`group`
     // refuses the two together), so it pushes an op of its own.
-    if (placement !== undefined) {
-      exec.push({ placement }, () => {
-        for (const child of g.children) emit(exec, child, inner);
-      });
-    } else if (translate || rotate !== undefined || scale !== undefined) {
-      exec.push({ translate, rotate, scale, origin }, () => {
+    const op = groupOp(g);
+    if (op) {
+      exec.push(op, () => {
         for (const child of g.children) emit(exec, child, inner);
       });
     } else {
@@ -2358,11 +2732,12 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   }
   if ((tree as ClipValue).__occludeClip) {
     const c = tree as ClipValue;
+    const region = areaAsShape(exec, c.region, 'clip');
     // Capture the region's own transform without applying it to children.
-    const { translate, rotate, scale, origin } = c.region.opts;
+    const { translate, rotate, scale, origin } = region.opts;
     let regionShape!: Shape;
-    exec.push({ translate, rotate, scale, origin }, () => {
-      regionShape = new Shape(c.region.geom, exec);
+    exec.push({ translate, rotate, scale, origin: origin as readonly [L, L] | undefined }, () => {
+      regionShape = new Shape(region.geom, exec);
     });
     exec.clip(
       regionShape,
@@ -2375,18 +2750,19 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   }
   if ((tree as unknown as InvertValue).__occludeInvert) {
     throw new Error(
-      'invert() is a region annotation, not a drawable — use it as clip(invert(shape), ...)',
+      'invert() is an area, not a drawable — use it as clip(invert(area), ...) or mask(invert(area))',
     );
   }
   emitShape(exec, tree as ShapeValue, ctx);
 }
 
-function emitShape(exec: Execution, sv: ShapeValue, ctx: EmitCtx): void {
+function emitShape(exec: Execution, given: ShapeValue, ctx: EmitCtx): void {
+  const sv = pinShape(exec, given);
   const o = sv.opts;
   checkFillOpaque(o);
   if (o.translate || o.rotate !== undefined || o.scale !== undefined) {
     const { translate, rotate, scale, origin } = o;
-    exec.push({ translate, rotate, scale, origin }, () =>
+    exec.push({ translate, rotate, scale, origin: origin as readonly [L, L] | undefined }, () =>
       emitShape(exec, { ...sv, opts: { ...o, translate: undefined, rotate: undefined, scale: undefined, origin: undefined } }, ctx),
     );
     return;

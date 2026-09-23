@@ -92,7 +92,7 @@ export function isGeometry(v: unknown): v is Geometry {
 
 /** A rect record: four finite numbers `x, y, w, h`, and nothing that
  * answers the protocol (a grid cell answers `contours()` itself). */
-const isRectRecord = (v: unknown): v is RectRecord =>
+export const isRectRecord = (v: unknown): v is RectRecord =>
   isObj(v) && typeof v.x === 'number' && typeof v.y === 'number' && typeof v.w === 'number' && typeof v.h === 'number' && !('pts' in v);
 
 /** A value that can say where its areas are. */

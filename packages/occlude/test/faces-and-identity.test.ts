@@ -66,7 +66,7 @@ describe('P5 · a face collection is a selection', () => {
   it('G2-8 · face.extract() is one face as material, so the chain needs no rewrap', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
     const hex = t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 });
-    const near = t.within(hex.faces(), DISC, { faces: 'touching' });
+    const near = t.within(hex.faces(), DISC, { keep: 'touching' });
     const shrunk = near.map((f) => f.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     const workaround = near.map((f) => f.boundaryEdges.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     expect(shrunk.map((m) => [...m.x])).toEqual(workaround.map((m) => [...m.x]));
@@ -79,7 +79,7 @@ describe('P5 · a face collection is a selection', () => {
   it('G2-9 · FaceSelection has extract() and in(state)', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
     const hex = t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 });
-    const near = t.within(hex.faces(), DISC, { faces: 'touching' });
+    const near = t.within(hex.faces(), DISC, { keep: 'touching' });
     const kept = near.extract().scale(0.5, { origin: 'center' });
     expect(kept.n).toBe(near.edges.extract().n);
     const moved = hex.rotate(10, { origin: [50, 50] });

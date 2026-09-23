@@ -210,22 +210,54 @@ const pointHistory=new WeakMap<object,readonly PointSnapshot<any>[]>();
  * object origin). Rotations accumulate an orientation so `{ local: true }`
  * can turn about the object's own current axes. */
 export interface PlacementOptions {readonly origin?:Vec3;readonly orientation?:RotationInput}
+/** A pivot in 3D, the words `Origin` has in 2D: a point, `'center'` for
+ * the middle of the value's own bounds, or `'centroid'` for its area
+ * centroid (the mean of its points when it has no triangles). */
+export type Origin3='center'|'centroid'|Vec3;
 export interface RotateOptions {
-  /** Pivot: the object's origin (default), the world origin, or a point. */
-  readonly about?:'origin'|'world'|Vec3;
+  /** Pivot (see `Origin3`); the object's own origin when unset, and the
+   * world's is the point [0, 0, 0]. */
+  readonly origin?:Origin3;
   /** Read the axis in the object's current frame instead of world axes. */
   readonly local?:boolean;
 }
-export interface ScaleOptions {readonly about?:'origin'|'world'|Vec3}
+export interface ScaleOptions {
+  /** Pivot (see `Origin3`); the object's own origin when unset. */
+  readonly origin?:Origin3;
+}
 interface Placement {readonly origin:Vec3;readonly orientation:Rotation}
 function placement(options:PlacementOptions):Placement {
   const origin=options.origin??[0,0,0];finite3(origin);
   return {origin:Object.freeze([origin[0],origin[1],origin[2]]) as unknown as Vec3,orientation:rotation3(options.orientation??[0,0,0])};
 }
-function pivotOf(about:'origin'|'world'|Vec3|undefined,origin:Vec3):Vec3 {
-  if(about===undefined||about==='origin')return origin;
-  if(about==='world')return [0,0,0];
-  finite3(about);return about;
+interface Pivoted extends Placement {readonly surface:Surface3}
+/** The pivot a verb turns or scales about. `about` is the old spelling and
+ * is refused by name; an unknown word is refused before it is a NaN. */
+function pivotOf(verb:string,options:RotateOptions|ScaleOptions|undefined,self:Pivoted):Vec3 {
+  if(options&&(options as {about?:unknown}).about!==undefined)throw new Error(`${verb}: 'about' is spelled origin — { origin: [x, y, z] | 'center' | 'centroid' }; the object's own origin is the default and the world's is [0, 0, 0]`);
+  const o=options?.origin;
+  if(o===undefined)return self.origin;
+  if(Array.isArray(o)){finite3(o as Vec3);return o as Vec3;}
+  if(o!=='center'&&o!=='centroid')throw new Error(`${verb}: origin is a point [x, y, z], 'center' or 'centroid' — got ${typeof o==='string'?`'${o}'`:JSON.stringify(o)}`);
+  const pts=self.surface.points;
+  if(pts.length===0)return self.origin;
+  if(o==='center'){
+    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(const p of pts)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
+    return [(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2];
+  }
+  // Area-weighted triangle centroids: the centroid of the surface itself.
+  let area=0;const c=[0,0,0];
+  for(const t of self.surface.triangles){
+    const [a,b,d]=t.vertices.map(i=>pts[i].position);
+    const u=sub3(b,a),v=sub3(d,a);
+    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+    const w=Math.hypot(n[0],n[1],n[2])/2;
+    area+=w;for(let k=0;k<3;k++)c[k]+=w*(a[k]+b[k]+d[k])/3;
+  }
+  if(area>0)return [c[0]/area,c[1]/area,c[2]/area];
+  for(const p of pts)for(let k=0;k<3;k++)c[k]+=p.position[k];
+  return [c[0]/pts.length,c[1]/pts.length,c[2]/pts.length];
 }
 function isRotationInput(value:unknown):value is RotationInput {
   return Array.isArray(value)||(typeof value==='object'&&value!==null&&(value as RotationData).kind==='rotation');
@@ -234,7 +266,7 @@ function isRotationInput(value:unknown):value is RotationInput {
 /** The object's origin after turning about a pivot: it rides along like every
  * other point, so a later default rotation still turns in place. */
 function movedOrigin(self:Placement,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3{return Object.freeze(add3(pivot,move(sub3(self.origin,pivot)))) as unknown as Vec3;}
-function rotationArguments(self:Placement,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3} {
+function rotationArguments(self:Pivoted,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3} {
   let rotate:Rotation,options:RotateOptions={};
   if(typeof b==='number'){
     if(!Number.isFinite(b))throw new Error('rotate degrees must be finite');
@@ -247,15 +279,15 @@ function rotationArguments(self:Placement,a:RotationInput|Axis3,b?:number|Vec3|R
     if(Array.isArray(b)){finite3(b as Vec3);return {rotate,origin:b as Vec3,orientation:self.orientation.then(rotate),moved:movedOrigin(self,b as Vec3,v=>rotate.apply(v))};}
     options=(b as RotateOptions|undefined)??{};
   }
-  const origin=pivotOf(options.about,self.origin);
+  const origin=pivotOf('rotate',options,self);
   return {rotate,origin,orientation:self.orientation.then(rotate),moved:movedOrigin(self,origin,v=>rotate.apply(v))};
 }
 /** A zero factor is allowed at this level: an object scaled to nothing is
  * nothing (`empty`), drawing and occluding nothing, so loops that pass through
  * zero carry on. The exact kernel below still refuses singular transforms. */
-function scaleArguments(self:Placement,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3;empty:boolean} {
+function scaleArguments(self:Pivoted,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3;empty:boolean} {
   const factors:Vec3=typeof scale==='number'?[scale,scale,scale]:scale;finite3(factors);
-  const origin=Array.isArray(b)?b as Vec3:pivotOf((b as ScaleOptions|undefined)?.about,self.origin);if(Array.isArray(b))finite3(origin);
+  const origin=Array.isArray(b)?b as Vec3:pivotOf('scale',b as ScaleOptions|undefined,self);if(Array.isArray(b))finite3(origin);
   return {scale:factors,origin,moved:movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]),empty:factors.some(f=>f===0)};
 }
 /** Points collapsed by a scale with a zero factor: no faces or edges to break, so the points simply move. */

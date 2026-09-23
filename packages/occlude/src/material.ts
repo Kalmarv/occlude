@@ -35,7 +35,7 @@ import { walkChains } from './chains.js';
 import { planarize, faces, boxGrid, faceLocator, faceCentroids, FaceSelection, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
-import type { VectorFieldFn } from './shapes.js';
+import type { Origin, VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
 import { numericLoops, type AreaInput } from './boundary.js';
 import { Delaunay } from 'd3-delaunay';
@@ -2214,7 +2214,7 @@ export class Material {
    * `transform` is the word for an isometry. It is `map` underneath, so
    * every id and every column carries.
    */
-  scale(k: number | readonly [number, number], opts: { origin?: XY | 'center' | 'centroid' } = {}): Material {
+  scale(k: number | readonly [number, number], opts: { origin?: Origin } = {}): Material {
     const [kx, ky] = typeof k === 'number' ? [k, k] : [k[0], k[1]];
     if (!Number.isFinite(kx) || !Number.isFinite(ky)) throw new Error(`m.scale: [${kx}, ${ky}] is not a scale factor`);
     const [ox, oy] = this.pivot('m.scale', opts.origin);
@@ -2226,7 +2226,7 @@ export class Material {
    * `turn` and a group's `rotate` read them. The pivot is the one `scale`
    * reads. It is `map` underneath, so every id and every column carries.
    */
-  rotate(degrees: number, opts: { origin?: XY | 'center' | 'centroid' } = {}): Material {
+  rotate(degrees: number, opts: { origin?: Origin } = {}): Material {
     if (!Number.isFinite(degrees)) throw new Error(`m.rotate: ${degrees} is not an angle`);
     const [ox, oy] = this.pivot('m.rotate', opts.origin);
     const a = radians(degrees);
@@ -2271,7 +2271,7 @@ export class Material {
   /** The pivot `scale` and `rotate` read: the user origin when unset,
    * `'center'` this material's bounds centre, `'centroid'` its area
    * centroid (see `scale`). An empty material pivots on the origin. */
-  private pivot(verb: string, origin: XY | 'center' | 'centroid' | undefined): Vec {
+  private pivot(verb: string, origin: Origin | undefined): Vec {
     if (origin === undefined) return [0, 0];
     if (origin === 'center' || origin === 'centroid') {
       if (this.n === 0) return [0, 0];
@@ -2289,6 +2289,7 @@ export class Material {
       }
       return [(x0 + x1) / 2, (y0 + y1) / 2];
     }
+    if (typeof origin === 'string') throw new Error(`${verb}: origin is a point ([x, y] or { x, y }), 'center' or 'centroid' — got '${origin}'`);
     const x = vx(origin);
     const y = vy(origin);
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${verb}: origin [${x}, ${y}] is not a point`);
@@ -4106,7 +4107,7 @@ export function segmentRuns<K extends number | string>(m: Material, key: (e: Edg
  * reliable about winding, so nesting, not orientation, names a hole.
  * `undefined` when the contours enclose no area.
  */
-function areaCentroid(contours: readonly IsoContour[]): Vec | undefined {
+export function areaCentroid(contours: readonly IsoContour[]): Vec | undefined {
   let ma = 0, mx = 0, my = 0;
   contours.forEach((c, k) => {
     const mo = contourMoment(c);

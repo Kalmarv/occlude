@@ -10,7 +10,7 @@ const env = { bounds: { w: 100, h: 100 }, len: (l: number) => l as number };
 /** A placement as the map `group()` applies: T(t)·T(p)·R·S·T(−p). */
 function mapOf(op: TransformOp): (x: number, y: number) => [number, number] {
   const [tx, ty] = (op.translate ?? [0, 0]) as [number, number];
-  const [px, py] = (op.origin === undefined || op.origin === 'center' ? [0, 0] : op.origin) as [number, number];
+  const [px, py] = (op.origin === undefined ? [0, 0] : op.origin) as [number, number];
   const th = ((op.rotate ?? 0) * Math.PI) / 180;
   const [sx, sy] = op.scale === undefined ? [1, 1] : typeof op.scale === 'number' ? [op.scale, op.scale] : (op.scale as [number, number]);
   const c = Math.cos(th);

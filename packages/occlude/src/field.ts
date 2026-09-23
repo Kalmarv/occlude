@@ -31,6 +31,7 @@ import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
 import { lowerToUserLoops, type Frame } from './record.js';
 import { geomClosed } from './shapes.js';
+import type { XY } from './vec.js';
 import { resolveLen, Len, type L } from './units.js';
 
 /** A `within()` bound as the encoder sees it: the shape, and the map from
@@ -233,12 +234,39 @@ function wrap<F extends AnyField>(
   return out;
 }
 
+/** A field verb's pivot: a point, and only a point. A field has no bounds
+ * and no area, so it has no middle and no centroid to name. */
+function fieldPivot(verb: string, opts: { origin?: unknown } | undefined): [number, number] | null {
+  const o = opts?.origin;
+  if (o === undefined) return null;
+  if (o === 'center' || o === 'centroid') {
+    throw new Error(`${verb}: a field has no bounds, so it has no '${o}' — give the point, e.g. { origin: [t.bounds().cx, t.bounds().cy] }`);
+  }
+  const x = Array.isArray(o) ? o[0] : (o as { x?: unknown } | null)?.x;
+  const y = Array.isArray(o) ? o[1] : (o as { y?: unknown } | null)?.y;
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error(`${verb}: origin is a point ([x, y] or { x, y }) — got ${typeof o === 'string' ? `'${o}'` : JSON.stringify(o)}`);
+  }
+  return [x, y];
+}
+
+/** A verb about a pivot: move the pivot to the user origin, apply, move it
+ * back. With no pivot the verb is itself. */
+function aboutPivot<F extends AnyField>(field: F, pivot: [number, number] | null, verb: (f: F) => Prepared<F>): Prepared<F> {
+  if (!pivot) return verb(field);
+  const [px, py] = pivot;
+  return translate(verb(translate(field, -px, -py) as unknown as F) as unknown as F, px, py);
+}
+
 /**
- * Rotate a field by `deg` about the user origin. Scalar fields: the value
- * landscape turns. Vector fields: the arrows turn too — squash a photo of
- * iron filings and the filings turn with it.
+ * Rotate a field by `deg` about `origin` (a point; the user origin by
+ * default). Scalar fields: the value landscape turns. Vector fields: the
+ * arrows turn too — squash a photo of iron filings and the filings turn
+ * with it.
  */
-export function rotate<F extends AnyField>(field: F, deg: number): Prepared<F> {
+export function rotate<F extends AnyField>(field: F, deg: number, opts?: { origin?: XY }): Prepared<F> {
+  const pivot = fieldPivot('rotate', opts);
+  if (pivot) return aboutPivot(field, pivot, (f) => rotate(f, deg));
   const th = (deg * Math.PI) / 180;
   const c = Math.cos(th);
   const s = Math.sin(th);
@@ -280,12 +308,15 @@ export function translate<F extends AnyField>(field: F, dx: L, dy: L, len: LenRe
 }
 
 /**
- * Scale a field about the user origin. Sampling coordinates scale; output
+ * Scale a field about `origin` (a point; the user origin by default).
+ * Sampling coordinates scale; output
  * MAGNITUDES never do (a 2mm wobble is 2mm at any motif size — the pen
  * didn't change). Non-uniform scale tilts vector directions with the
  * squash, magnitude preserved.
  */
-export function scale<F extends AnyField>(field: F, s: number | [number, number]): Prepared<F> {
+export function scale<F extends AnyField>(field: F, s: number | [number, number], opts?: { origin?: XY }): Prepared<F> {
+  const pivot = fieldPivot('scale', opts);
+  if (pivot) return aboutPivot(field, pivot, (f) => scale(f, s));
   const [sx, sy] = typeof s === 'number' ? [s, s] : s;
   const vec = isVector(field);
   return wrap(
@@ -386,7 +417,8 @@ function containsTest(shape: ShapeValue, env: BoundEnv): (x: number, y: number) 
     loops = indexLoops(
       lowerToUserLoops(
         shape.geom,
-        { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
+        // The toolkit hands a bound over with its pivot resolved to a point.
+        { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin as readonly [L, L] | undefined },
         frame,
       ),
     );

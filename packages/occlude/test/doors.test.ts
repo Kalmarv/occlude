@@ -132,18 +132,18 @@ describe("within keeps what touches", () => {
 
   it('a face half inside touches, and is neither contained nor centred', () => {
     const cells = two.faces();
-    expect(leftOf(t.within(cells, area, { faces: 'touching' })).sort()).toEqual([false, true]);
+    expect(leftOf(t.within(cells, area, { keep: 'touching' })).sort()).toEqual([false, true]);
     expect(leftOf(t.within(cells, area))).toEqual([false]);
-    expect(leftOf(t.within(cells, area, { faces: 'centroid' }))).toEqual([false]);
+    expect(leftOf(t.within(cells, area, { keep: 'centroid' }))).toEqual([false]);
   });
 
   it('an area wholly inside one big face touches that face', () => {
     const big = t.material(rect(0, 0, 100, 100)).planarize().faces();
     const small: [number, number][] = [[40, 40], [60, 40], [60, 60], [40, 60]];
-    expect(t.within(big, small, { faces: 'touching' }).length).toBe(1);
+    expect(t.within(big, small, { keep: 'touching' }).length).toBe(1);
     expect(t.within(big, small).length).toBe(0);
     // Far away, nothing is shared.
-    expect(t.within(big, [[200, 200], [210, 200], [210, 210]], { faces: 'touching' }).length).toBe(0);
+    expect(t.within(big, [[200, 200], [210, 200], [210, 210]], { keep: 'touching' }).length).toBe(0);
   });
 
   it('an edge crossing the boundary touches, and is not kept by its midpoint', () => {
@@ -155,14 +155,16 @@ describe("within keeps what touches", () => {
     // (0,20)–(10,20) crosses x = 7 with its midpoint outside. (0,2)–(14,-12)
     // meets the area only at its corner (7,-5), exactly. (40,40)–(50,40) is
     // far outside. (8,0)–(12,0) is wholly inside.
-    expect(ends(t.within(m.edges, area, { edges: 'touching' }))).toEqual([0, 0, 8]);
-    expect(ends(t.within(m.edges, area, { edges: 'midpoint' }))).toEqual([8]);
+    expect(ends(t.within(m.edges, area, { keep: 'touching' }))).toEqual([0, 0, 8]);
+    // The second edge's middle IS the corner: on the boundary, which
+    // belongs to the area under every `keep`.
+    expect(ends(t.within(m.edges, area, { keep: 'centroid' }))).toEqual([0, 8]);
     expect(ends(t.within(m.edges, area))).toEqual([8]);
   });
 
   it('names the three words when the option is wrong', () => {
-    expect(() => t.within(two.faces(), area, { faces: 'near' as 'touching' })).toThrow(/'contained', 'centroid' or 'touching'/);
-    expect(() => t.within(two.edges, area, { edges: 'near' as 'touching' })).toThrow(/'contained', 'midpoint' or 'touching'/);
+    expect(() => t.within(two.faces(), area, { keep: 'near' as 'touching' })).toThrow(/'contained', 'centroid' or 'touching'/);
+    expect(() => t.within(two.edges, area, { keep: 'near' as 'touching' })).toThrow(/'contained', 'centroid' or 'touching'/);
   });
 });
 

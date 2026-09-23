@@ -223,12 +223,12 @@ describe('the filter forms do not change', () => {
   const disc = circle(50, 50, 30);
   it('faces', () => {
     for (const form of ['contained', 'centroid', 'touching'] as const) {
-      expect([...t.within(cells.faces(), disc, { faces: form })].map((f) => f.index)).toEqual(golden.faces[form]);
+      expect([...t.within(cells.faces(), disc, { keep: form })].map((f) => f.index)).toEqual(golden.faces[form]);
     }
   });
   it('edges', () => {
-    for (const form of ['contained', 'midpoint', 'touching'] as const) {
-      expect([...t.within(cells.edges, disc, { edges: form }).indices]).toEqual(golden.edges[form]);
+    for (const form of ['contained', 'centroid', 'touching'] as const) {
+      expect([...t.within(cells.edges, disc, { keep: form }).indices]).toEqual(golden.edges[form === 'centroid' ? 'midpoint' : form]);
     }
   });
 });

@@ -81,7 +81,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 <include>/_sig/PointSelection.filter.mdx</include>
 <include>/_sig/EdgeSelection.filter.mdx</include>
 
-The rows that pass the test, as a selection in source order. The test can return any value, and a truthy value keeps the row, as `Array.filter` does. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. Filter a selection again to narrow it.
+The rows that pass the test, as a selection in source order. The test can return any value, and a truthy value keeps the row, as `Array.filter` does. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. Filter a selection again to narrow it. To filter by an area, use `t.within(sel, area, { keep })`. `keep` has the same three words for points, edges and faces: `'contained'` (the default), `'centroid'` and `'touching'`. The boundary belongs to the area, so a point on the boundary is in (see [Fields](/docs/reference/fields)).
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';

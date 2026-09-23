@@ -24,6 +24,7 @@
  * of circumradius `1/(2·sin(π/p))`, an edge of length 1, about the origin.
  */
 
+import type { Origin } from './shapes.js';
 import { facesFromCycles, faceKeyOf, type Face, type Faces } from './faces.js';
 import { Material, mintIds, type FaceColumn } from './material.js';
 import { identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
@@ -48,6 +49,17 @@ export interface TilingOpts {
    * asks for.
    */
   side?: L;
+  /**
+   * Where the cell's centre stands (see `Origin`), for a EUCLIDEAN symbol:
+   * a point, or `'center'`/`'centroid'` for the middle of the drawable,
+   * which is also the default. A curved tiling stands on its chart's
+   * centre, and moving it is a placement: `origin` refuses by name there.
+   */
+  origin?: Origin;
+  /** Turn the whole tiling about its centre, in degrees counter-clockwise.
+   * A turn about the chart's centre is an isometry of every geometry, so a
+   * curved tiling takes it too. */
+  rotate?: number;
 }
 
 /** Which geometry a Schläfli symbol demands — the same three words the

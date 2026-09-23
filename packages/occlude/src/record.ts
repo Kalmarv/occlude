@@ -170,21 +170,14 @@ function composeChain(chain: TransformOp[], rz: Resolver): Mat {
       m = mul(m, translate(dx, dy));
     }
     // `origin` is the pivot for rotate and scale: the op is
-    // T(origin) · R · S · T(-origin), inside the op's own translate.
-    // The chain runs in user coordinates, so 'center' — the drawable's
-    // middle — depends on where the frame puts the user origin: under
-    // origin 'center' that origin IS the sheet's middle, so the pivot is
-    // [0, 0]; under topLeft/yUp it is the half-size away. (yUp only flips
-    // the axis in the outer frame matrix, so it pivots like topLeft.)
-    const { innerW, innerH } = rz.frame.inner;
+    // T(origin) · R · S · T(-origin), inside the op's own translate. The
+    // toolkit has already resolved every word to a point (see `pinOrigin`
+    // in api.ts), in user coordinates.
+    if (op.origin !== undefined && !Array.isArray(op.origin)) {
+      throw new Error(`origin reached the lowerer unresolved (${JSON.stringify(op.origin)}) — a shape's origin is resolved by the toolkit`);
+    }
     const pivot: [number, number] | null =
-      op.origin === undefined
-        ? null
-        : op.origin === 'center'
-          ? rz.frame.origin === 'center'
-            ? [0, 0]
-            : [innerW / 2, innerH / 2]
-          : [rz.len(op.origin[0]), rz.len(op.origin[1])];
+      op.origin === undefined ? null : [rz.len(op.origin[0]), rz.len(op.origin[1])];
     if (pivot) m = mul(m, translate(pivot[0], pivot[1]));
     if (op.rotate !== undefined && op.rotate !== 0) {
       m = mul(m, rotate((op.rotate * Math.PI) / 180));
@@ -444,7 +437,7 @@ function lowerGeom(geom: ShapeGeom, rz: Resolver): Prim[][] {
       // what `t.material(shape)` reads, and what `polygon(loops)` would
       // have been handed had the loops been computed first.
       const o = geom.of.opts;
-      return lowerToUserContours(geom.of.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin }, rz.frame)
+      return lowerToUserContours(geom.of.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin as TransformOp['origin'] }, rz.frame)
         .map((c) => {
           // A closed outline comes back with its start repeated at the end
           // (as `t.material(shape)` also strips): the ring closes with an
@@ -1212,7 +1205,7 @@ function placedContours(
  */
 export function lowerToUserLoops(
   geom: ShapeGeom,
-  opts: TransformOp,
+  opts: TransformOp | readonly TransformOp[],
   frame: Frame,
   tol = 0.05,
 ): [number, number][][] {
@@ -1226,7 +1219,9 @@ export function lowerToUserLoops(
  * a ring and a chain. */
 export function lowerToUserContours(
   geom: ShapeGeom,
-  opts: TransformOp,
+  /** The shape's own op, or a chain of them outermost first — a group's
+   * transform over the shape's own, which is how a group is an area. */
+  opts: TransformOp | readonly TransformOp[],
   frame: Frame,
   tol = 0.05,
   /** `'curves'` keeps a straight edge whole: the shape's own vertices,
@@ -1235,7 +1230,7 @@ export function lowerToUserContours(
   refine: Exclude<Refine, 'none'> = 'all',
 ): { pts: [number, number][]; closed: boolean; curve?: (seg: number, t: number) => [number, number]; geodesic?: boolean[] }[] {
   const rz = new Resolver(frame);
-  const { outer, inner: m } = splitChain([opts], rz);
+  const { outer, inner: m } = splitChain(Array.isArray(opts) ? opts : [opts as TransformOp], rz);
   const wholeClosed = geomClosed(geom);
   const through = chainMap(outer, frame);
   // A placement is a map of the sheet, so a chain that holds one is placed

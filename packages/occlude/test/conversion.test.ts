@@ -102,7 +102,12 @@ describe('t.material: a shape boundary with its own vertices', () => {
     expect(m!.n).toBe(5);                         // (10, 10) exists twice, one per contour
     expect(m!.points.at(2).adjacent.length).toBe(2);
     expect(m!.points.at(3).adjacent.length).toBe(1);
-    expect(() => run((t) => t.material([[1, 2]] as never))).toThrow(/expected a shape/);
+    // A loop is an area now (spec 62): it comes back as a ring. What is no
+    // area at all is refused by name.
+    let loop: Material | null = null;
+    run((t) => { loop = t.material([[0, 0], [10, 0], [10, 10]]); });
+    expect(loop!.edgeCount).toBe(3);
+    expect(() => run((t) => t.material(42 as never))).toThrow(/t\.material: a number is not an area/);
   });
 
   it('sample: outputs unchanged in count, spacing and closure', () => {

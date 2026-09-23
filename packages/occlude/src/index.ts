@@ -24,9 +24,9 @@ export {
 } from './api.js';
 export type {
   SketchDef, AsyncSketchDef, SketchConfig, Toolkit, Tree,
-  ShapeValue, ShapeOpts, PolygonOpts, Contour, GroupValue, GroupOpts, ClipValue, InvertValue, WithinFaces,
+  ShapeValue, ShapeOpts, PolygonOpts, Contour, GroupValue, GroupOpts, ClipValue, InvertValue, WithinKeep, Area,
 } from './api.js';
-export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
+export type { ModifierValue, FieldFn, VectorFieldFn, Origin } from './shapes.js';
 
 // Fills are pure data (module reference + params) or plain functions.
 // Built-ins resolve from the package; hosts load custom fills into the

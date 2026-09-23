@@ -41,10 +41,10 @@ function sameInk(a: { frags: number; box: number[] }, b: { frags: number; box: n
 }
 
 describe('origin: the pivot for rotate and scale', () => {
-  it("scales about the drawable's centre — exactly the ritual it replaces", () => {
+  it("scales about the drawable's centre, named as the point it is — exactly the ritual it replaces", () => {
     const s = 0.6;
     const ritual = ink(sketch({}, (t) => group({ scale: s, translate: [t.cx * (1 - s), t.cy * (1 - s)] }, circle(30, 30, 12))));
-    sameInk(ink(sketch({}, () => group({ scale: s, origin: 'center' }, circle(30, 30, 12)))), ritual);
+    sameInk(ink(sketch({}, (t) => group({ scale: s, origin: [t.cx, t.cy] }, circle(30, 30, 12)))), ritual);
   });
 
   it('means the same on a shape as on a group around it', () => {
@@ -92,24 +92,19 @@ describe('origin: the pivot for rotate and scale', () => {
     expect(Math.abs(dots.box[2] - inked.box[2])).toBeLessThan(0.2);
   });
 
-  it("centres 'center' on the user origin when the frame's origin is the sheet's middle", () => {
+  it("reads 'center' as the middle of the value's own bounds, in any frame", () => {
     const s = 0.5;
     const centred = { aspect: [1, 1] as [number, number], origin: 'center' as const };
     const square = { aspect: [1, 1] as [number, number] };
-    // Under a centred frame the user origin IS the sheet's middle, so
-    // 'center' names the same point as an unset origin and both must agree.
-    const centredMiddle = ink(sketch(centred, () => rect(-10, -10, 20, 20, { scale: s, origin: 'center' })));
-    const centredPlain = ink(sketch(centred, () => rect(-10, -10, 20, 20, { scale: s })));
-    sameInk(centredMiddle, centredPlain);
-
-    // Mirror: with the default topLeft frame the sheet's middle is
-    // [innerW/2, innerH/2] mm — 50 user units on this square drawable, one
-    // unit being 1/100 of the short side — so 'center' must differ from an
-    // unset origin and match that explicit point.
-    const topLeftMiddle = ink(sketch(square, () => rect(-10, -10, 20, 20, { scale: s, origin: 'center' })));
-    const topLeftPlain = ink(sketch(square, () => rect(-10, -10, 20, 20, { scale: s })));
-    const topLeftExplicit = ink(sketch(square, () => rect(-10, -10, 20, 20, { scale: s, origin: [50, 50] })));
-    expect(topLeftMiddle.box[0]).not.toBeCloseTo(topLeftPlain.box[0], 6);
-    sameInk(topLeftMiddle, topLeftExplicit);
+    for (const frame of [centred, square]) {
+      sameInk(
+        ink(sketch(frame, () => rect(10, 20, 30, 20, { scale: s, rotate: 30, origin: 'center' }))),
+        ink(sketch(frame, () => rect(10, 20, 30, 20, { scale: s, rotate: 30, origin: [25, 30] }))),
+      );
+      sameInk(
+        ink(sketch(frame, () => group({ scale: s, origin: 'center' }, rect(10, 20, 30, 20), circle(60, 30, 10)))),
+        ink(sketch(frame, () => group({ scale: s, origin: [40, 30] }, rect(10, 20, 30, 20), circle(60, 30, 10)))),
+      );
+    }
   });
 });

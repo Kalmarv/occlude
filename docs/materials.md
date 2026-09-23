@@ -2086,7 +2086,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 });
 ```
 
-A face collection answers with `{ faces: … }`. `'contained'` (the default) keeps the cells that lie inside the area — a cell whose wall runs along the boundary belongs to it — and refuses one whose interior covers excluded space, which is how a cell that spans a hole is caught even though all its corners are inside. `'centroid'` keeps the cells whose *centre* is inside, so a cell the boundary cuts through is kept whole and its ink reaches past the edge. The same nine-cell grid and the same frame, whose right and bottom edges cut the far cells past their centres: one cell on the left, all four on the right.
+A selection answers with `{ keep: … }`, the same three words for points, edges and faces. `'contained'` (the default) keeps the cells that lie inside the area — a cell whose wall runs along the boundary belongs to it — and refuses one whose interior covers excluded space, which is how a cell that spans a hole is caught even though all its corners are inside. `'centroid'` keeps the cells whose *centre* is inside, so a cell the boundary cuts through is kept whole and its ink reaches past the edge. The same nine-cell grid and the same frame, whose right and bottom edges cut the far cells past their centres: one cell on the left, all four on the right.
 
 ```ts live
 import { sketch, strokes, label, polygon, fill, mm, line, rect, append, group } from 'occlude';
@@ -2095,13 +2095,13 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const square = (x0) => t.material(rect(x0, 6, 88, 88));
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.4) });
-  const panel = (x0, faces) => {
+  const panel = (x0, keep) => {
     const frame = rect(x0, 6, 56, 56);
     const network = [square(x0), chord(x0, 50, x0 + 88, 50), chord(x0 + 44, 6, x0 + 44, 94)]
       .reduce((a, b) => append(a, b))
       .planarize();
     return [
-      t.within(network.faces(), frame, { faces }).map((f) => polygon(f, { fill: hatch, stroke: false })),
+      t.within(network.faces(), frame, { keep }).map((f) => polygon(f, { fill: hatch, stroke: false })),
       strokes(network, { pen: 'pigma-005-black' }),
       strokes(t.material(frame), { pen: 'pigma-05-black' }),
     ];
