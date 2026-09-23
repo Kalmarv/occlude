@@ -19,8 +19,8 @@ Two standard refinements, both explicit about what they read:
 
 | Operation | Effect |
 |---|---|
-| `t.relax(m, { iterations?, density?, bounds?, step? })` | Lloyd relaxation: each point moves to the density-weighted centroid of its cell within the bounds (default the drawable). Count, edges and every column are kept; nothing is written. |
-| `t.settle(m, { density, spacing, iterations?, bounds?, step?, point? })` | Weighted Linde-Buzo-Gray settling: relaxation plus population control. A point whose cell holds more demand than one point's capacity at `spacing` splits, a starved one dies, so the count converges to the density's ink budget. Point-only input; survivors keep their columns, children copy their parent's merged with `point` (a partial record of declared columns, or a callback of the splitting parent: `point: (parent) => ({ age: 0 })` resets a child's age and keeps its species), and `demand` is written: cell demand over capacity, 1 for a full cell. |
+| `t.relax(m, { iterations?, density?, within?, step? })` | Lloyd relaxation: each point moves to the density-weighted centroid of its cell within the area (default the area a bounded cloud came from, else the drawable). A point selection relaxes its members. Count, edges and every column are kept; nothing is written. |
+| `t.settle(m, { density, spacing, iterations?, within?, step?, point? })` | Weighted Linde-Buzo-Gray settling: relaxation plus population control. A point whose cell holds more demand than one point's capacity at `spacing` splits, a starved one dies, so the count converges to the density's ink budget. Point-only input; survivors keep their columns, children copy their parent's merged with `point` (a partial record of declared columns, or a callback of the splitting parent: `point: (parent) => ({ age: 0 })` resets a child's age and keeps its species), and `demand` is written: cell demand over capacity, 1 for a full cell. |
 
 Three quantities, three names: `density` is the field at a point, `demand` a cell's integrated density over one point's capacity, and a cell's mean density is `integral / area` from `faces().measure(field)` below. Left, a plain grid; right, the same grid after twelve settle passes over a tone field, dots sized by demand.
 
@@ -38,7 +38,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 });
 ```
 
-`t.voronoi(sites, { bounds? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces()` reads the cells. Adjacent cells share their corners and one wall, the clipping rectangle (the drawable by default) is explicit, and the result relates to its sites in both directions: `cells.cellOf(site)` gives a site's face, `cells.siteOf(face)` a face's site vertex, both checked against the exact site material. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so `cellOf` answers for that source's vertices and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces()` are the triangles. The pure form `voronoi(points, bounds)` takes explicit bounds. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
+`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces()` reads the cells. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and the result relates to its sites in both directions: `cells.cellOf(site)` gives a site's face, `cells.siteOf(face)` a face's site vertex, both checked against the exact site material. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so `cellOf` answers for that source's vertices and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces()` are the triangles. The pure form `voronoi(points, bounds)` takes explicit bounds. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
 
 ```ts live
 import { sketch, polygon, fill, mm, strokes, connect } from 'occlude';
@@ -47,7 +47,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pts = t.relax(t.scatter({ spacing: 9 }), { iterations: 3 });
   const left = pts.points.filter((p) => p.x < 96);
   const right = pts.points.filter((p) => p.x > 104);
-  const cells = t.voronoi(left, { bounds: { x: 0, y: 0, w: 98, h: 100 } });
+  const cells = t.voronoi(left, { within: { x: 0, y: 0, w: 98, h: 100 } });
   return [
     cells.faces().map((f) => polygon(f, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }), stroke: false } : { stroke: false })),
     strokes(cells),
@@ -211,7 +211,7 @@ export default sketch({ seed: 12, pens: {
 
 ### quadtree
 
-`t.quadtree(points, { capacity?, depth?, bounds? })` puts detail where the
+`t.quadtree(points, { capacity?, depth?, within? })` puts detail where the
 points are. A cell holding more than `capacity` of them (1 by default) splits
 into four, and its children do the same, until every cell is within its
 allowance or the subdivision has gone `depth` splits deep (12). A scatter
@@ -262,7 +262,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const dark = img.field('dark', { area: 1.1 });
   const edge = img.field('edge', { area: 0.5 });
   const detail = t.scatter((x, y) => 0.04 + Math.pow(Math.min(1, edge(x, y) * 9), 2.2) * 0.96, { spacing: 1.2 });
-  return t.quadtree(detail, { capacity: 2, bounds: { x: 4, y: 4, w: 92, h: 92 } })
+  return t.quadtree(detail, { capacity: 2, within: { x: 4, y: 4, w: 92, h: 92 } })
     .planarize().faces().measure()
     .map((r) => {
       const tone = dark(r.inscribedCentre[0], r.inscribedCentre[1]);
@@ -343,7 +343,7 @@ export default sketch({ seed: 3, pens: { ink: pen({ width: mm(0.24), color: '#18
   const dark = img.field('dark', { area: 1.4 });
   const edge = img.field('edge', { area: 0.6 });
   const detail = t.scatter((x, y) => 0.03 + Math.pow(Math.min(1, edge(x, y) * 9), 1.1) * 0.97, { spacing: 1.7 });
-  const cells = t.quadtree(detail, { capacity: 2, bounds: { x: 0, y: 0, w: 100, h: 100 } }).planarize().faces();
+  const cells = t.quadtree(detail, { capacity: 2, within: { x: 0, y: 0, w: 100, h: 100 } }).planarize().faces();
   return view(cells.measure().results.map((r) => {
     const b = r.face.bounds;
     const tone = dark(r.inscribedCentre[0], r.inscribedCentre[1]);
@@ -370,7 +370,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const settled = t.settle(seeds, { density: tone, spacing: 3, iterations: 20 });
   const nudged = settled.steps(2, (current, next) => {
     const cells = t.voronoi(current);
-    const measured = cells.faces().measure(tone, { resolution: 200 });
+    const measured = cells.faces().measure(tone, { step: 1 });
     next.move(current.points, (p) => {
       const face = cells.cellOf(p);
       const target = face ? measured.forFace(face).weightedCentroid : null;
@@ -1573,11 +1573,11 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `cells.adjacent()`, `sel.adjacent()`, `face.adjacent` | the faces across the walls of the (selected) faces, one hop: neighbours share a wall, not merely a corner, and a selected neighbour is collected too, so `sel.adjacent().subtract(sel)` is the ring outside |
 | `cells.boundaryEdges()`, `sel.boundaryEdges()` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
 | `cells.contours()`, `sel.contours()` | closed contours around the same union boundary, as loops: what `polygon` reads for the union |
-| `cells.measure(field?, { resolution?, bounds?, precision? })` | per-face geometric `area`, `centroid`, `orientation`, `elongation`, `inscribedCentre` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
+| `cells.measure(field?, { step?, bounds?, precision? })` | per-face geometric `area`, `centroid`, `orientation`, `elongation`, `inscribedCentre` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
 
 A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
 
-Measurements are midpoint sums on a square raster (cells of the long side of `bounds` over `resolution`, default 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. `integral` is that sum; `mean` is the average of the samples that fell inside, which keeps it within the field's own range however small the face is, and is `NaN` for a face that caught no sample at all — a region too small for the raster reports no measurement rather than a zero. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
+Measurements are midpoint sums on a square raster (cells of side `step`, a length in the material's units, default the long side of `bounds` over 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. `integral` is that sum; `mean` is the average of the samples that fell inside, which keeps it within the field's own range however small the face is, and is `NaN` for a face that caught no sample at all — a region too small for the raster reports no measurement rather than a zero. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
 
 Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so the default `'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `contours()`.
 
@@ -1787,7 +1787,7 @@ export default sketch({ seed: 11, pens: {
 } }, (t) => {
   const CHART = { x: 0, y: 0, width: 100, height: 100 };
   const field = rect(0, 0, 100, 100);
-  const cells = t.within(t.voronoi(t.relax(t.scatter({ spacing: 4.4, within: field }), { iterations: 2, within: field }), { bounds: { x: 0, y: 0, w: 100, h: 100 } }), field);
+  const cells = t.within(t.voronoi(t.relax(t.scatter({ spacing: 4.4, within: field }), { iterations: 2, within: field }), { within: { x: 0, y: 0, w: 100, h: 100 } }), field);
   // One scale per cell, bounded by the circle that cell can hold and turned
   // onto its own axis. Each sits inside its own cell, so no two can overlap —
   // and the chart carries that guarantee onto the form.
@@ -1866,7 +1866,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const enclosed = planar.faces();
   if (enclosed.length === 0) return strokes(web);
   const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 70, y - 40) / 90);
-  const measured = enclosed.measure(light, { resolution: 200 });
+  const measured = enclosed.measure(light, { step: 1 });
   const lit = enclosed.filter((f) => f.area > 25 && measured.forFace(f).mean > 0.5);
   return [
     lit.map((f) => polygon(f, { fill: fill('hatch', { angle: 60, spacing: mm(1.2) }), stroke: false })),
@@ -2457,7 +2457,7 @@ import { sketch, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 19 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 3 });
-  const lace = t.voronoi(sites, { bounds: { x: 7, y: 7, w: 86, h: 86 } });
+  const lace = t.voronoi(sites, { within: { x: 7, y: 7, w: 86, h: 86 } });
   const body = lace.thicken({ radius: (p) => 0.45 + 1.5 * p.y / 100 });
   return polygon(body, {
     fill: fill('hatch', { angle: 35, spacing: mm(0.6) }),
@@ -2681,10 +2681,10 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const panel = { x: 0, y: 0, w: PW, h: PH };
   const toward = (x, y) => 0.12 + 0.88 * (1 - y / PH) ** 1.6;
   const sites = t.within(
-    t.settle(t.scatter(toward, { spacing: 7 }), { density: toward, spacing: 7, iterations: 14, bounds: panel }),
+    t.settle(t.scatter(toward, { spacing: 7 }), { density: toward, spacing: 7, iterations: 14, within: panel }),
     rect(0, 0, PW, PH),
   );
-  const veins = t.voronoi(sites, { bounds: panel });
+  const veins = t.voronoi(sites, { within: panel });
   const edge = t.sample(rect(0, 0, PW, PH), { spacing: 1.2 });
 
   const N = 34;

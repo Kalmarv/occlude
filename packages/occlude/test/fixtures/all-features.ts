@@ -95,7 +95,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const insideSeeds = t.within(seeds.points, region);
   const relaxed = t.relax(seeds, { iterations: 2, density: land });
   const settled = t.settle(seeds, { density: land, spacing: 6, iterations: 3 });
-  const cells = t.voronoi(seeds, { bounds: { x: 102, y: 72, w: 46, h: 24 } });
+  const cells = t.voronoi(seeds, { within: { x: 102, y: 72, w: 46, h: 24 } });
   const isolinesMat = t.isolines(bounded, 0.5, { step: 6 });
   const streams = t.streamlines(t.within(swirl, rect(100, 6, 38, 20)), { spacing: 10, minSpacing: 1, step: 4 });
   const dfield = distanceTo([[[150, 8], [192, 8], [192, 30], [150, 30]]]);
@@ -212,7 +212,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const planar = planarize(net);
   const faceSet = planar.faces();
   const chosen = faceSet.filter((f) => f.area > 80);
-  const measured = faceSet.measure(land, { resolution: 40 });
+  const measured = faceSet.measure(land, { step: 0.8 });
   const faceOne = chosen.length > 0 ? measured.forFace(chosen.at(0)) : null;
   const facePerim = chosen.length > 0 ? chosen.at(0).perimeter : 0;
   const faceEdges = chosen.edges.length;

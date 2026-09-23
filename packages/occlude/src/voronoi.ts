@@ -30,7 +30,7 @@
 
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
-import { Material, attachVoronoi, material, type PointsLike } from './material.js';
+import { Material, attachVoronoi, material, withinMaterial, type PointsLike } from './material.js';
 import { PointSelection } from './relation.js';
 import type { Bounds } from './points.js';
 import type { IsoContour } from './isolines.js';
@@ -140,18 +140,28 @@ export interface VoronoiWalls {
 /** The material of a rectangle-clipped Voronoi diagram of `sites`, in
  * `space` when the toolkit names the sketch's: the cells are a chart
  * construction either way, and their correspondence is kept on THIS
- * material, so the space goes in here rather than onto a copy. */
-export function voronoiOf(sites: Sites, bounds: Bounds, space?: Space): Material {
+ * material, so the space goes in here rather than onto a copy.
+ *
+ * `within`, when given, is an area that is not its own box (the box is
+ * `bounds`): the diagram is built over the box and then cut at the area,
+ * each cut cell closed along the boundary, so a cell is the part of the
+ * site's region inside the area. A cell the area splits in two is two
+ * faces of one site; `cellOf` answers the larger. */
+export function voronoiOf(sites: Sites, bounds: Bounds, space?: Space, within?: readonly (readonly [number, number])[][]): Material {
   const { source, rows } = sitesOf(sites);
   const { vx, vy, edges, del } = voronoiWalls(sites, bounds);
-  const m = new Material(Float64Array.from(vx), Float64Array.from(vy), {}, Uint32Array.from(edges), { space });
+  const boxed = new Material(Float64Array.from(vx), Float64Array.from(vy), {}, Uint32Array.from(edges), { space });
+  const m = within ? withinMaterial(boxed, within as [number, number][][]) : boxed;
   // Faces ↔ sites: a cell is convex, so its area centroid lies inside it and
   // names the site by nearest-site search. Site numbers are rows of the
-  // source; rows outside a selection have no cell.
+  // source; rows outside a selection have no cell. A cell cut at an area
+  // need not be convex, so there the centroid is checked, and a point that
+  // is inside is looked for when it is not.
   const cells = m.faces(); // cached on the material: every later faces() is this collection
   const siteOfFace = new Int32Array(cells.length).fill(-1);
   const faceOfSite = new Int32Array(source.n).fill(-1);
   if (del) {
+    const areaOf = new Float64Array(cells.length);
     for (const f of cells) {
       const outer = f.contours()[0].pts;
       let cx = 0;
@@ -168,16 +178,53 @@ export function voronoiOf(sites: Sites, bounds: Bounds, space?: Space): Material
       if (a2 === 0) continue;
       cx /= 3 * a2;
       cy /= 3 * a2;
+      if (within) {
+        const at = pointInside(f.contours(), cx, cy, f.bounds);
+        if (!at) continue;
+        [cx, cy] = at;
+      }
       const k = del.find(cx, cy);
       if (k < 0) continue;
       const s = rows[k];
-      if (faceOfSite[s] !== -1) continue;
+      areaOf[f.index] = Math.abs(a2);
+      if (faceOfSite[s] !== -1 && !(within && areaOf[f.index] > areaOf[faceOfSite[s]])) {
+        if (within) siteOfFace[f.index] = s;
+        continue;
+      }
       siteOfFace[f.index] = s;
       faceOfSite[s] = f.index;
     }
   }
   attachVoronoi(m, { sites: source, siteOfFace, faceOfSite, cells });
   return m;
+}
+
+/** A point strictly inside a face: its centroid when that is inside, else
+ * the first of a fine grid over its box that is; null for a face with no
+ * inside the grid can find. */
+function pointInside(contours: IsoContour[], cx: number, cy: number, b: { x: number; y: number; w: number; h: number }): [number, number] | null {
+  const inside = (x: number, y: number): boolean => {
+    let odd = false;
+    for (const c of contours) {
+      const pts = c.pts;
+      for (let k = 0, j = pts.length - 1; k < pts.length; j = k++) {
+        const [xi, yi] = pts[k];
+        const [xj, yj] = pts[j];
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) odd = !odd;
+      }
+    }
+    return odd;
+  };
+  if (inside(cx, cy)) return [cx, cy];
+  const n = 16;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const x = b.x + ((i + 0.5) / n) * b.w;
+      const y = b.y + ((j + 0.5) / n) * b.h;
+      if (inside(x, y)) return [x, y];
+    }
+  }
+  return null;
 }
 
 /** @internal */

@@ -5,9 +5,9 @@
  * raster. A measurement is a frozen result about its exact input faces —
  * looked up by face with ownership checked — and never geometry.
  *
- * Approximation: the raster has cells of side `cellSize`, the long side of
- * `bounds` (default: the measured faces' bounding box) divided by
- * `resolution` (default 256, clamped 32…512); each cell centre inside a
+ * Approximation: the raster has cells of side `step`, a length in the
+ * material's units (default: the long side of `bounds` — the measured
+ * faces' bounding box unless given — over 256); each cell centre inside a
  * face (even-odd over its contours) contributes `field × cellSize²`. The
  * error is of the order of the perimeter times the cell size; halving the
  * cell size roughly halves it. Non-finite samples are absent, as for
@@ -35,10 +35,20 @@
  * diagonal does, so whole regions are discarded rather than sampled. It is
  * refined until the remaining uncertainty is `precision` (default: the
  * face's diagonal over 4096).
+ *
+ * IN A SPACE. A material in a curved space measures in that space: the
+ * face is the region its walls enclose as they are drawn — each wall the
+ * straight run between its ends in the sketch's coordinates — and `area`,
+ * the field's `integral`, `mean` and `weightedCentroid` weigh every sample
+ * by the space's `density`; `perimeter` is each wall's length in the
+ * space; the inscribed circle is the largest circle OF THE SPACE inside
+ * the face, its radius a length of the space. `centroid`, `orientation`
+ * and `elongation` stay chart readings of the coordinates.
  */
 
 import type { Face, Faces } from './faces.js';
 import type { Bounds } from './points.js';
+import type { Space } from './space.js';
 import { ownedBy, viewKind } from './material.js';
 import type { IsoContour } from './isolines.js';
 import { distanceTo } from './distance.js';
@@ -92,8 +102,9 @@ type Draft = {
 };
 
 export interface MeasureOpts {
-  /** Raster cells along the long side of `bounds` (default 256). */
-  resolution?: number;
+  /** The raster's cell, a length in the material's units (default: the
+   * long side of `bounds` / 256). */
+  step?: number;
   /** Raster extent and origin (default: the measured faces' bounding box). */
   bounds?: Bounds;
   /** How close the inscribed circle's radius is driven to the true maximum
@@ -117,6 +128,121 @@ export function contourMoment(c: IsoContour): { a: number; cx: number; cy: numbe
   }
   if (a2 === 0) return { a: 0, cx: 0, cy: 0 };
   return { a: a2 / 2, cx: cx / (3 * a2), cy: cy / (3 * a2) };
+}
+
+/** The space a measurement reads: the material's own, or null when it is
+ * flat and the chart is the space. */
+export function curvedSpaceOf(space: Space | undefined): Space | null {
+  return space !== undefined && space.kind !== 'euclidean' ? space : null;
+}
+
+/** Sub-steps a wall is walked in to find its length in a curved space. */
+const WALL_STEPS = 32;
+/** Sub-divisions of a fan triangle's side for the area quadrature. */
+const FAN_STEPS = 16;
+
+/** The length in `space` of the straight coordinate run from `a` to `b`:
+ * the space's distance summed over short steps along it. */
+export function spaceLength(space: Space, a: readonly [number, number], b: readonly [number, number]): number {
+  let total = 0;
+  let px = a[0];
+  let py = a[1];
+  for (let k = 1; k <= WALL_STEPS; k++) {
+    const t = k / WALL_STEPS;
+    const x = a[0] + (b[0] - a[0]) * t;
+    const y = a[1] + (b[1] - a[1]) * t;
+    total += space.distance([px, py], [x, y]);
+    px = x;
+    py = y;
+  }
+  return total;
+}
+
+/** The perimeter in `space` of a face's contours: every wall once. */
+export function spacePerimeter(space: Space, contours: readonly IsoContour[]): number {
+  let total = 0;
+  for (const c of contours) {
+    const pts = c.pts;
+    for (let k = 0; k < pts.length; k++) total += spaceLength(space, pts[k], pts[(k + 1) % pts.length]);
+  }
+  return total;
+}
+
+/** The area in `space` of the region a face's contours enclose: the
+ * space's density integrated over it. Each wall with the face's first
+ * corner makes a signed triangle, so outer minus holes and any non-convex
+ * outline come out of the signs; each triangle is summed by the midpoint
+ * rule over `FAN_STEPS²` small triangles. */
+export function spaceArea(space: Space, contours: readonly IsoContour[]): number {
+  const first = contours.find((c) => c.pts.length > 0);
+  if (!first) return 0;
+  const [ox, oy] = first.pts[0];
+  const n = FAN_STEPS;
+  let total = 0;
+  for (const c of contours) {
+    const pts = c.pts;
+    for (let k = 0; k < pts.length; k++) {
+      const [ax, ay] = pts[k];
+      const [bx, by] = pts[(k + 1) % pts.length];
+      const ux = (ax - ox) / n;
+      const uy = (ay - oy) / n;
+      const vx = (bx - ox) / n;
+      const vy = (by - oy) / n;
+      const small = (ux * vy - uy * vx) / 2;
+      if (small === 0) continue;
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; i + j < n; j++) {
+          // The upward small triangle at (i, j), and the downward one beside
+          // it where there is room; each weighted at its centroid.
+          sum += space.density([ox + (i + 1 / 3) * ux + (j + 1 / 3) * vx, oy + (i + 1 / 3) * uy + (j + 1 / 3) * vy]);
+          if (i + j < n - 1) sum += space.density([ox + (i + 2 / 3) * ux + (j + 2 / 3) * vx, oy + (i + 2 / 3) * uy + (j + 2 / 3) * vy]);
+        }
+      }
+      total += sum * small;
+    }
+  }
+  return total;
+}
+
+/** The distance in `space` from `p` to the straight coordinate run from
+ * `a` to `b`: the nearest of a few samples along it, then a golden-section
+ * search on the stretch around it. */
+function spaceDistanceToWall(space: Space, p: readonly [number, number], a: readonly [number, number], b: readonly [number, number]): number {
+  const at = (t: number): number => space.distance(p, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+  const n = 8;
+  let best = 0;
+  let bestD = Infinity;
+  for (let k = 0; k <= n; k++) {
+    const d = at(k / n);
+    if (d < bestD) {
+      bestD = d;
+      best = k;
+    }
+  }
+  let lo = Math.max(0, (best - 1) / n);
+  let hi = Math.min(1, (best + 1) / n);
+  const g = (Math.sqrt(5) - 1) / 2;
+  let x1 = hi - g * (hi - lo);
+  let x2 = lo + g * (hi - lo);
+  let f1 = at(x1);
+  let f2 = at(x2);
+  for (let it = 0; it < 24; it++) {
+    if (f1 < f2) {
+      hi = x2;
+      x2 = x1;
+      f2 = f1;
+      x1 = hi - g * (hi - lo);
+      f1 = at(x1);
+    } else {
+      lo = x1;
+      x1 = x2;
+      f1 = f2;
+      x2 = lo + g * (hi - lo);
+      f2 = at(x2);
+    }
+  }
+  return Math.min(bestD, f1, f2);
 }
 
 /** Raw area moments of one closed contour about the origin, signed by the
@@ -193,11 +319,27 @@ function principalAxis(face: Face): { orientation: number; elongation: number } 
  * 1-Lipschitz. Cells that cannot are discarded whole; the rest are
  * quartered, best-first, until the remaining slack is under `precision`.
  * Exact input, deterministic, and no seed involved. */
-function inscribedCircle(face: Face, precision: number): { centre: [number, number]; radius: number } {
+function inscribedCircle(face: Face, precision: number, space: Space | null): { centre: [number, number]; radius: number } {
   const b = face.bounds;
   if (!(b.w > 0) || !(b.h > 0)) return { centre: [b.x, b.y], radius: 0 };
   let best: [number, number] = [b.x + b.w / 2, b.y + b.h / 2];
-  const dist = distanceTo(face.contours());
+  const flat = distanceTo(face.contours());
+  // In a space the distance is the space's own to the nearest wall, signed
+  // by the flat test's side, and a coordinate step of `h` is worth at most
+  // `lip · h` of it — the widest stretch the metric has over the box (the
+  // density's square root bounds the linear stretch along one axis, and a
+  // step across the rows is never stretched) — so the bound stays a bound.
+  const walls = space ? face.contours().flatMap((c) => c.pts.map((p, k) => [p, c.pts[(k + 1) % c.pts.length]] as const)) : [];
+  const dist = space
+    ? (x: number, y: number): number => {
+      const side = flat(x, y);
+      if (!(side > 0)) return side;
+      let d = Infinity;
+      for (const [a, q] of walls) d = Math.min(d, spaceDistanceToWall(space, [x, y], a, q));
+      return d;
+    }
+    : flat;
+  const lip = space ? Math.max(1, Math.sqrt(densityOver(space, b))) : 1;
   let bestR = -Infinity;
   // Cells as a centre and a half-side, in a max-heap on their upper bound,
   // so the most promising region is always split next and the search
@@ -231,7 +373,7 @@ function inscribedCircle(face: Face, precision: number): { centre: [number, numb
       bestR = d;
       best = [x, y];
     }
-    const bound = d + h * Math.SQRT2;
+    const bound = d + lip * h * Math.SQRT2;
     if (bound > bestR + precision) {
       heap.push({ x, y, h, bound });
       up(heap.length - 1);
@@ -254,6 +396,14 @@ function inscribedCircle(face: Face, precision: number): { centre: [number, numb
     push(c.x + h, c.y + h, h);
   }
   return { centre: best, radius: Math.max(0, bestR) };
+}
+
+/** The largest density over a box, from its rows: the density reads the
+ * row alone in every space this library has. */
+function densityOver(space: Space, b: { x: number; y: number; w: number; h: number }): number {
+  let top = 0;
+  for (let k = 0; k <= 64; k++) top = Math.max(top, space.density([b.x, b.y + (b.h * k) / 64]));
+  return top;
 }
 
 /** Even-odd containment over a face's contours. */
@@ -312,6 +462,11 @@ export class FaceMeasurements implements Iterable<FaceMeasure> {
 }
 
 export function measureFaces(source: Faces, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): FaceMeasurements {
+  if ('resolution' in opts) throw new Error('measure: resolution is now step — the raster cell, a length in the material\'s units');
+  if (opts.step !== undefined && !(typeof opts.step === 'number' && Number.isFinite(opts.step) && opts.step > 0)) {
+    throw new Error(`measure: step must be a positive finite number in the material's units, got ${String(opts.step)} — resolve a length such as mm() with t.len`);
+  }
+  const space = curvedSpaceOf(source.source.space);
   // Geometry first: exact from the contours.
   const results: Draft[] = members.map((face) => {
     let a = 0;
@@ -326,7 +481,7 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     const centroid: [number, number] = a !== 0 ? [mx / a, my / a] : [NaN, NaN];
     const axis = principalAxis(face);
     const slack = opts.precision ?? Math.hypot(face.bounds.w, face.bounds.h) / 4096;
-    const circle = inscribedCircle(face, slack);
+    const circle = inscribedCircle(face, slack, space);
     return { face, area: face.area, centroid, integral: NaN, mean: NaN, weightedCentroid: null, samples: 0, orientation: axis.orientation, elongation: axis.elongation, inscribedCentre: circle.centre, inscribedRadius: circle.radius };
   });
   if (!field || members.length === 0) return new FaceMeasurements(source, results.map(freezeMeasure));
@@ -345,10 +500,10 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     }
     b = { x: x0, y: y0, w: Math.max(x1 - x0, 1e-9), h: Math.max(y1 - y0, 1e-9) };
   }
-  const R = Math.max(32, Math.min(512, opts.resolution ?? 256));
-  const cw = Math.max(b.w, b.h) / R;
+  const cw = opts.step ?? Math.max(b.w, b.h) / 256;
   const cols = Math.max(2, Math.round(b.w / cw));
   const rows = Math.max(2, Math.round(b.h / cw));
+  if (!(cols * rows <= 1 << 26)) throw new Error(`measure: a raster of ${cols} × ${rows} cells is too fine — give a larger step`);
   const cellArea = cw * cw;
   // Sample the field once per raster cell that any face's box covers.
   const values = new Float64Array(cols * rows).fill(NaN);
@@ -372,6 +527,9 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     let wy = 0;
     let negative = false;
     let samples = 0;
+    // The weight of the samples inside: their count flat, the space's area
+    // they hold in a curved space.
+    let weight = 0;
     const crossings: number[] = [];
     for (let j = j0; j <= j1; j++) {
       const y = b.y + (j + 0.5) * cw;
@@ -387,8 +545,16 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
           const v = sampleAt(i, j);
           if (!Number.isFinite(v)) continue;
           samples++;
-          integral += v;
           if (v < 0) negative = true;
+          if (space) {
+            const d = space.density([x, y]);
+            weight += d;
+            integral += v * d;
+            wx += v * d * x;
+            wy += v * d * y;
+            continue;
+          }
+          integral += v;
           wx += v * x;
           wy += v * y;
         }
@@ -401,7 +567,7 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     // a mean far outside the field's own range. Averaging the samples stays
     // inside that range, converges to the same value as the raster refines,
     // and makes a face that caught no sample NaN — absent — rather than 0.
-    r.mean = samples > 0 ? integral / samples : NaN;
+    r.mean = samples > 0 ? integral / (space ? weight : samples) : NaN;
     r.weightedCentroid = !negative && integral > 0 ? [wx / integral, wy / integral] : null;
     r.samples = samples;
   }

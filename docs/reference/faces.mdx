@@ -234,7 +234,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 
-Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results.
+Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results. `step` is the side of one raster cell, a length in the units of the material. In a material with a curved `space`, `area`, `perimeter`, the inscribed circle and the field values are measured in that space. `face.area` and `face.perimeter` are too. `centroid`, `orientation` and `elongation` stay in the coordinates.
 
 ```ts live
 import { sketch, circle, strokes, line, distance } from 'occlude';
@@ -242,7 +242,7 @@ import { sketch, circle, strokes, line, distance } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
   const light = (x, y) => Math.max(0, 1 - distance([x, y], [20, 20]) / 70);
-  const m = cells.measure(light, { resolution: 120 });
+  const m = cells.measure(light, { step: 0.7 });
   return [strokes(cells.edges), [...m].map((r) => [circle(r.centroid, 1.2), circle(r.weightedCentroid, 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid, r.weightedCentroid, { pen: 'stabilo-88-blue' })])];
 });
 ```

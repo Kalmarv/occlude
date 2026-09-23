@@ -11,18 +11,18 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
   const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
-  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, within: half }).attribute('mobility', 1).attribute('stopped', -1);
   const started = Date.now();
   const settled = sites.steps(iterations, (current, next, k) => {
-    const diagram = t.voronoi(current, { bounds: half });
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const diagram = t.voronoi(current, { within: half });
+    const measured = diagram.faces().measure(light, { step: 0.78125 });
     next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
     next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const took = Date.now() - started;
   const still = settled.points.filter((p) => p.stopped >= 0);
   return [
-    strokes(t.voronoi(settled, { bounds: half })),
+    strokes(t.voronoi(settled, { within: half })),
     group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.5)), still.map((p) => circle(p.x, p.y, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
     label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 104, 97, 2.6),
   ];
@@ -43,7 +43,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[100, 50], [16, 14], [184, 86]]);
   const diagram = t.voronoi(sites);
   const cell = diagram.cellOf(sites.points.at(0));
-  const measured = diagram.faces().measure(field, { resolution: 128 });
+  const measured = diagram.faces().measure(field, { step: 1.5625 });
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6)),
     strokes(t.isolines(patch, [0.3, 0.6], { step: 1 }), { pen: 'stabilo-88-blue' }),
@@ -53,7 +53,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-Slide the patch. When is the site's own reading large, and when does the cell's mean say the light is there while the site says it is not? A point sample sees what is under it; a measurement sees the cell. Every rule on this page reads the measurement. The measurement is a raster sum, and `resolution` is how fine the raster is: it is not an exact integral, and a patch narrower than a raster cell can slip between samples.
+Slide the patch. When is the site's own reading large, and when does the cell's mean say the light is there while the site says it is not? A point sample sees what is under it; a measurement sees the cell. Every rule on this page reads the measurement. The measurement is a raster sum, and `step` is the side of one raster cell: it is not an exact integral, and a patch narrower than a raster cell can slip between samples.
 
 ## Find a useful target
 
@@ -69,7 +69,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[100, 50], [16, 14], [184, 86]]);
   const diagram = t.voronoi(sites);
   const cell = diagram.cellOf(sites.points.at(0));
-  const m = diagram.faces().measure(field, { resolution: 128 }).forFace(cell);
+  const m = diagram.faces().measure(field, { step: 1.5625 }).forFace(cell);
   const target = m.weightedCentroid;
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6)),
@@ -93,7 +93,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const arrows = [];
   const moved = sites.steps(1, (current, next) => {
     const diagram = t.voronoi(current);
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const measured = diagram.faces().measure(light, { step: 1.5625 });
     next.move(current.points, (p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
@@ -122,7 +122,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 12 }), { iterations: 2 });
   const gathered = sites.steps(iterations, (current, next) => {
     const diagram = t.voronoi(current);
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const measured = diagram.faces().measure(light, { step: 1.5625 });
     next.move(current.points, (p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
@@ -145,10 +145,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const bright = ui(0.35, { min: 0.05, max: 0.9, step: 0.05, label: 'bright enough to stop' });
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const light = (x, y) => 0.005 + Math.pow(Math.max(0, 1 - distance([x, y], [50, 50]) / 34), 4);
-  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 8 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 8 }), { iterations: 2, within: half }).attribute('mobility', 1).attribute('stopped', -1);
   const respond = (stopping) => sites.steps(iterations, (current, next, k) => {
-    const diagram = t.voronoi(current, { bounds: half });
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const diagram = t.voronoi(current, { within: half });
+    const measured = diagram.faces().measure(light, { step: 0.78125 });
     next.move(current.points, (p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
@@ -159,7 +159,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const gathered = respond(false);
   const stopped = respond(true);
   const marks = (m) => m.points.map((p) => circle(p.x, p.y, 0.6));
-  return [strokes(t.voronoi(gathered, { bounds: half })), marks(gathered), group({ translate: [100, 0] }, strokes(t.voronoi(stopped, { bounds: half })), marks(stopped))];
+  return [strokes(t.voronoi(gathered, { within: half })), marks(gathered), group({ translate: [100, 0] }, strokes(t.voronoi(stopped, { within: half })), marks(stopped))];
 });
 ```
 
@@ -175,7 +175,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 8 }), { iterations: 2 }).attribute('mobility', 1).attribute('stopped', -1);
   const stopped = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current);
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const measured = diagram.faces().measure(light, { step: 0.78125 });
     next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
     next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
@@ -212,18 +212,18 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
   const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
-  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, within: half }).attribute('mobility', 1).attribute('stopped', -1);
   const started = Date.now();
   const settled = sites.steps(iterations, (current, next, k) => {
-    const diagram = t.voronoi(current, { bounds: half });
-    const measured = diagram.faces().measure(light, { resolution: 128 });
+    const diagram = t.voronoi(current, { within: half });
+    const measured = diagram.faces().measure(light, { step: 0.78125 });
     next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
     next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const took = Date.now() - started;
   const still = settled.points.filter((p) => p.stopped >= 0);
   return [
-    strokes(t.voronoi(settled, { bounds: half })),
+    strokes(t.voronoi(settled, { within: half })),
     group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.5)), still.map((p) => circle(p.x, p.y, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
     label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 104, 97, 2.6),
   ];

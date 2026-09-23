@@ -133,7 +133,7 @@ describe('relax and settle as explicit operations', () => {
       for (let i = 0; i < sites.n; i++) { coords[2 * i] = sites.x[i]; coords[2 * i + 1] = sites.y[i]; }
       kernel = accumulateCells(coords, raster);
       const cells = t.voronoi(sites);
-      const m = cells.faces().measure(field, { bounds, resolution: 128 });
+      const m = cells.faces().measure(field, { bounds, step: 100 / 128 });
       measured = sites.points.map((p) => {
         const f = cells.cellOf(p);
         return f ? m.forFace(f).integral / (raster.cw * raster.cw) : NaN;
@@ -297,25 +297,25 @@ describe('face measurements', () => {
     const lopsided = append(square(0, 0, 30), square(2, 2, 10)).planarize().faces().filter((f) => f.contours().length === 2).measure().results[0];
     expect(lopsided.centroid[0]).toBeGreaterThan(15);
     // A constant density integrates to the area; the weighted centre is the centroid.
-    const one = ring.measure(() => 1, { resolution: 300 });
+    const one = ring.measure(() => 1, { step: 30 / 300 });
     const c1 = one.results[0];
     expect(c1.integral).toBeCloseTo(800, -1);
     expect(c1.mean).toBeCloseTo(1, 2);
     expect(c1.weightedCentroid![0]).toBeCloseTo(15, 1);
     expect(c1.samples).toBeGreaterThan(1000);
     // A gradient: the weighted centre moves toward the dense side.
-    const grad = ring.measure((x) => x / 30, { resolution: 300 }).results[0];
+    const grad = ring.measure((x) => x / 30, { step: 30 / 300 }).results[0];
     expect(grad.weightedCentroid![0]).toBeGreaterThan(17);
     expect(grad.mean).toBeCloseTo(0.5, 1);
     // Zero density: an integral of zero and no centre; a signed field has an integral but no centre either.
     const zero = ring.measure(() => 0).results[0];
     expect(zero.integral).toBe(0);
     expect(zero.weightedCentroid).toBeNull();
-    const signed = ring.measure((x) => x - 15, { resolution: 300 }).results[0];
+    const signed = ring.measure((x) => x - 15, { step: 30 / 300 }).results[0];
     expect(Math.abs(signed.integral)).toBeLessThan(30);
     expect(signed.weightedCentroid).toBeNull();
     // Absent samples (non-finite) contribute nothing.
-    const holed = ring.measure((x) => (x < 5 ? NaN : 1), { resolution: 300 }).results[0];
+    const holed = ring.measure((x) => (x < 5 ? NaN : 1), { step: 30 / 300 }).results[0];
     expect(holed.integral).toBeLessThan(c1.integral);
     expect(holed.samples).toBeLessThan(c1.samples);
     // Ownership.
@@ -334,17 +334,17 @@ describe('face measurements', () => {
     // A sliver far thinner than a raster cell still reports a mean the field
     // could actually produce; dividing the integral by its geometric area
     // would not (that is what reported 7.4 for a 0…1 field).
-    const sliver = rect(20, 50, 60, 0.02).faces().measure(unit, { bounds, resolution: 64 }).results[0];
+    const sliver = rect(20, 50, 60, 0.02).faces().measure(unit, { bounds, step: 100 / 64 }).results[0];
     if (sliver.samples > 0) {
       expect(sliver.mean).toBeGreaterThanOrEqual(0.25);
       expect(sliver.mean).toBeLessThanOrEqual(0.75);
     }
     // A face too small to contain any raster centre has no mean at all.
-    const speck = rect(50.2, 50.2, 0.01, 0.01).faces().measure(unit, { bounds, resolution: 32 }).results[0];
+    const speck = rect(50.2, 50.2, 0.01, 0.01).faces().measure(unit, { bounds, step: 100 / 32 }).results[0];
     expect(speck.samples).toBe(0);
     expect(Number.isNaN(speck.mean)).toBe(true);
     // A well-covered face is unaffected: a constant field means itself.
-    const big = rect(10, 10, 80, 80).faces().measure(() => 0.4, { bounds, resolution: 300 }).results[0];
+    const big = rect(10, 10, 80, 80).faces().measure(() => 0.4, { bounds, step: 100 / 300 }).results[0];
     expect(big.mean).toBeCloseTo(0.4, 6);
     expect(big.integral).toBeCloseTo(0.4 * 80 * 80, -1);
   });
@@ -440,7 +440,7 @@ describe('review of fe26c3f', () => {
     expect(some.siteOf(some.faces().at(0))!.index).toBeLessThan(3);
     // the same through the toolkit
     run((t) => {
-      const c = t.voronoi(part, { bounds: B });
+      const c = t.voronoi(part, { within: [[[B.x, B.y], [B.x + B.w, B.y], [B.x + B.w, B.y + B.h], [B.x, B.y + B.h]]] });
       expect(c.cellOf(m.vertex(0))).toBeDefined();
       expect(c.faces().length).toBe(3);
     });
@@ -458,7 +458,10 @@ describe('review of fe26c3f', () => {
       expect(plain.n).toBeGreaterThan(src.n);
       expect(Array.from(plain.attrs.age).every((a) => a === 9)).toBe(true);
       // children reset age, keep species
-      const reset = t.settle(src, { density: dense, spacing: 12, iterations: 6, point: { age: 0 } });
+      // Each settle draws its own stream; the same draws are the first
+      // settle of another run.
+      let reset!: Material;
+      run((u) => { reset = u.settle(src, { density: dense, spacing: 12, iterations: 6, point: { age: 0 } }); });
       expect(reset.n).toBe(plain.n);
       const ages = Array.from(reset.attrs.age);
       expect(ages.filter((a) => a === 0).length).toBeGreaterThan(0);

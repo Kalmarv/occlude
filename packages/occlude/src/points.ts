@@ -23,7 +23,7 @@ import { distanceTo } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
-import { bucketStretch, type Space } from './space.js';
+import { bucketStretch, densityCeiling, type Space } from './space.js';
 import type { L } from './units.js';
 
 export type FieldFn2 = (x: number, y: number) => number;
@@ -52,9 +52,8 @@ export interface ScatterOpts {
   spacing: L;
   /** Keep only what lies inside this area. The sampling runs over the
    * area's box, then the points outside it are dropped — for a rectangle
-   * that is exactly the box, so nothing is dropped. `bounds` and `within`
-   * are alternatives; giving both is an error. A shape is lowered by the
-   * toolkit, where the sketch frame exists. */
+   * that is exactly the box, so nothing is dropped. A shape is lowered by
+   * the toolkit, where the sketch frame exists. */
   within?: AreaInput | ShapeValue;
 }
 
@@ -63,12 +62,11 @@ export interface RelaxOpts {
   iterations?: number;
   /** Weighting density (0…1; default uniform). */
   density?: FieldFn2;
-  /** Cells are clipped to these bounds (default: the drawable). */
-  bounds?: Bounds;
-  /** Keep only what lies inside this area: the refinement runs over the
+  /** Keep only what lies inside this area (default: the drawable, or the
+   * area a toolkit cloud was bounded by): the refinement runs over the
    * area's box and the result is trimmed to the area afterwards, so a
    * non-rectangular boundary thins the population near itself. A rectangle
-   * needs no trimming. `bounds` and `within` are alternatives. */
+   * — `rect(…)`, `t.bounds()`, a grid cell — needs no trimming. */
   within?: AreaInput | ShapeValue;
   /** The density raster's cell, a length (default: the bounds' long side
    * / 256). */
@@ -82,11 +80,11 @@ export interface SettleOpts {
   spacing: L;
   /** Rounds (default 10). */
   iterations?: number;
-  bounds?: Bounds;
-  /** Keep only what lies inside this area: the settling runs over the area's
-   * box and the result is trimmed to the area afterwards, so the population
-   * near a non-rectangular boundary is thinned. A rectangle needs no
-   * trimming. `bounds` and `within` are alternatives. */
+  /** Keep only what lies inside this area (default: the drawable, or the
+   * area a toolkit cloud was bounded by): the settling runs over the
+   * area's box and the result is trimmed to the area afterwards, so the
+   * population near a non-rectangular boundary is thinned. A rectangle
+   * needs no trimming. */
   within?: AreaInput | ShapeValue;
   /** The density raster's cell, a length (default: the bounds' long side
    * / 256). */
@@ -211,9 +209,7 @@ function isAxisBox(loops: readonly (readonly (readonly [number, number])[])[], b
 export function withinRegion(
   area: AreaInput | ShapeValue,
   who: string,
-  bounds: Bounds | undefined,
 ): { bounds: Bounds; loops: [number, number][][] | null } {
-  if (bounds !== undefined) throw new Error(`${who}: give bounds or within, not both`);
   if (typeof area === 'object' && area !== null && '__occludeShape' in area) {
     throw new Error(`${who}: a shape area is lowered by the toolkit (t.${who}), where the sketch frame is known — pass loops, a face or a material here`);
   }
@@ -241,6 +237,7 @@ export function withinRegion(
  * `resolution` (a count along the long side) was the old knob. */
 function rasterStep(env: PointsEnv, opts: { step?: L }, word: string): number | undefined {
   if ('resolution' in opts) throw new Error(`${word}: resolution is now step`);
+  if ('bounds' in opts) throw new Error(`${word}: bounds is now within — a rect is an area: { within: rect(…) } or { within: t.bounds() }`);
   return opts.step === undefined ? undefined : env.len(opts.step);
 }
 
@@ -253,9 +250,10 @@ function rasterStep(env: PointsEnv, opts: { step?: L }, word: string): number | 
 export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {}): Material {
   const n = opts.iterations ?? 1;
   if (!Number.isInteger(n) || n < 0) throw new Error('relax: iterations must be a non-negative integer');
-  const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax', opts.bounds);
-  const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density ?? (() => 1), bounds, rasterStep(env, opts, 'relax'), env.space, 'relax');
+  const step = rasterStep(env, opts, 'relax');
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax');
+  const bounds = region?.bounds ?? env.bounds;
+  const raster = densityRaster(opts.density ?? (() => 1), bounds, step, env.space, 'relax');
   const coords = coordsOf(m);
   for (let it = 0; it < n && m.n > 0; it++) {
     const { w, cx, cy } = accumulateCells(coords, raster);
@@ -296,9 +294,10 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   if (!(spacingU > 0)) return m;
   const n = opts.iterations ?? 10;
   if (!Number.isInteger(n) || n < 0) throw new Error('settle: iterations must be a non-negative integer');
-  const region = opts.within === undefined ? null : withinRegion(opts.within, 'settle', opts.bounds);
-  const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density, bounds, rasterStep(env, opts, 'settle'), env.space, 'settle');
+  const step = rasterStep(env, opts, 'settle');
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'settle');
+  const bounds = region?.bounds ?? env.bounds;
+  const raster = densityRaster(opts.density, bounds, step, env.space, 'settle');
   const cw = raster.cw;
   // Capacity: integrated density a single point should carry — the amount
   // a full-demand hex cell at `spacing` holds. Cells above split, below die.
@@ -419,9 +418,15 @@ export function throwPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: T
   const count = Math.floor(opts.count);
   if (!(count > 0)) return makeMaterial([]);
   const attempts = opts.attempts ?? 1000;
-  const region = opts.within === undefined ? null : withinRegion(opts.within, 'throw', undefined);
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'throw');
   const { bounds } = region ?? env;
   const inside = region?.loops ? distanceTo(region.loops) : null;
+  // Uniform per area OF THE SPACE, as `scatter` is: in a curved space a
+  // landing is kept with the chance the space's density over its ceiling
+  // on the box gives, so a coordinate cell that holds more of the space
+  // catches more points. Flat, nothing is drawn for it.
+  const space = env.space !== undefined && env.space.kind !== 'euclidean' ? env.space : null;
+  const ceiling = space ? densityCeiling(space, bounds) : 1;
   const xs: number[] = [];
   const ys: number[] = [];
   while (xs.length < count) {
@@ -430,6 +435,7 @@ export function throwPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: T
       const x = bounds.x + env.rnd() * bounds.w;
       const y = bounds.y + env.rnd() * bounds.h;
       if (inside && !(inside(x, y) > 0)) continue;
+      if (space && !(env.rnd() * ceiling < space.density([x, y]))) continue;
       if (field) {
         const v = field(x, y);
         if (!(env.rnd() < Math.min(1, v))) continue;
@@ -448,7 +454,7 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   const spacingU = env.len(opts.spacing);
   // No spacing to pack at: no points.
   if (!(spacingU > 0)) return makeMaterial([]);
-  const region = opts.within === undefined ? null : withinRegion(opts.within, 'scatter', undefined);
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'scatter');
   const { bounds } = region ?? env;
   const rMin = spacingU; // full-demand radius
   const rMax = spacingU * 6; // demand below (1/6)² is treated as empty

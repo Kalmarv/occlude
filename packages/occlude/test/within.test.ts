@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   append, circle, clip, compileSketch, initOcclude, material, path, polygon, rect, render,
-  sketch, within,
+  sketch,
   type Face, type Faces, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY, Execution,
 } from '../src/index.js';
 import type { Loop } from '../src/boundary.js';
@@ -187,17 +187,18 @@ describe('within: points and faces', () => {
 });
 
 describe('within: the point operations', () => {
-  const box = { x: 20, y: 20, w: 60, h: 60 };
+  // The same rectangle as a bare loop: a rect is an area whatever its spelling.
+  const box = [[[20, 20], [80, 20], [80, 80], [20, 80]]] as [number, number][][];
   const coords = (m: Material): string =>
     Array.from({ length: m.n }, (_, i) => `${m.pts[i][0]},${m.pts[i][1]}`).join(' ');
 
-  it('relaxes inside a rectangle exactly as bounds does, and keeps a circle', () => {
+  it('relaxes inside a rectangle the same in either spelling, and keeps a circle', () => {
     let byBounds: Material | null = null;
     let byWithin: Material | null = null;
     let byCircle: Material | null = null;
     run((t) => {
       const dots = t.scatter(() => 1, { spacing: 6 });
-      byBounds = t.relax(dots, { iterations: 3, bounds: box });
+      byBounds = t.relax(dots, { iterations: 3, within: box });
       byWithin = t.relax(dots, { iterations: 3, within: rect(20, 20, 60, 60) });
       byCircle = t.relax(dots, { iterations: 3, within: circle(50, 50, 30) });
     });
@@ -212,15 +213,14 @@ describe('within: the point operations', () => {
     }
   });
 
-  it('settles inside a rectangle exactly as bounds does', () => {
+  it('settles inside a rectangle the same in either spelling', () => {
     let byBounds: Material | null = null;
     let byWithin: Material | null = null;
-    run((t) => {
-      const dots = t.scatter(() => 1, { spacing: 8 });
-      const o = { density: () => 1, spacing: 8, iterations: 4 };
-      byBounds = t.settle(dots, { ...o, bounds: box });
-      byWithin = t.settle(dots, { ...o, within: rect(20, 20, 60, 60) });
-    });
+    // Each settle draws a stream of its own, so the two spellings run in two
+    // runs of one seed.
+    const o = { density: () => 1, spacing: 8, iterations: 4 };
+    run((t) => { byBounds = t.settle(t.scatter(() => 1, { spacing: 8 }), { ...o, within: box }); });
+    run((t) => { byWithin = t.settle(t.scatter(() => 1, { spacing: 8 }), { ...o, within: rect(20, 20, 60, 60) }); });
     expect(coords(byWithin!)).toBe(coords(byBounds!));
   });
 
@@ -234,35 +234,37 @@ describe('within: the point operations', () => {
     }
   });
 
-  it('clips voronoi to a rectangle, and names the trim for anything else', () => {
+  it('clips voronoi to a rectangle, and cuts it at any other area', () => {
     const sites = [[30, 30], [70, 40], [50, 75]] as XY[];
     let byBounds: Material | null = null;
     let byWithin: Material | null = null;
-    let message = '';
+    let byCircle: Material | null = null;
     run((t) => {
       const m = material(sites);
-      byBounds = t.voronoi(m, { bounds: box });
+      byBounds = t.voronoi(m, { within: box });
       byWithin = t.voronoi(m, { within: rect(20, 20, 60, 60) });
-      try {
-        t.voronoi(m, { within: circle(50, 50, 30) });
-      } catch (e) {
-        message = (e as Error).message;
-      }
+      byCircle = t.voronoi(m, { within: circle(50, 50, 30) });
     });
     expect(coords(byWithin!)).toBe(coords(byBounds!));
-    expect(message).toMatch(/needs a rectangle .*within\(t\.voronoi\(sites\), area\)/);
+    // Three cells, each closed along the circle, each still its site's.
+    const cells = byCircle!.faces();
+    expect(cells.length).toBe(3);
+    for (const f of cells) {
+      expect(byCircle!.siteOf(f)).toBeDefined();
+      for (const c of f.contours()) for (const [x, y] of c.pts) expect(Math.hypot(x - 50, y - 50)).toBeLessThan(30.000001);
+    }
   });
 
-  it('refuses bounds and within together, and refuses a shape in the kernel', () => {
+  it('refuses bounds by name, and refuses a shape in the kernel', () => {
     let message = '';
     run((t) => {
       try {
-        t.relax(material([[30, 30]]), { bounds: box, within: rect(20, 20, 60, 60) });
+        t.relax(material([[30, 30]]), { bounds: box } as never);
       } catch (e) {
         message = (e as Error).message;
       }
     });
-    expect(message).toMatch(/give bounds or within, not both/);
+    expect(message).toMatch(/relax: bounds is now within/);
     // A shape never reaches the pure kernel: the toolkit lowers it first.
     const env = { rnd: () => 0.5, bounds: { x: 0, y: 0, w: 100, h: 100 }, len: () => 5 };
     expect(() => scatterPoints(env, undefined, { spacing: 5, within: circle(50, 50, 20) }))

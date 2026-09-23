@@ -37,7 +37,7 @@ import { orient2d } from 'robust-predicates';
 import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Curve, type Edge, type FaceColumn, type PointsLike } from './material.js';
 import type { XY } from './vec.js';
 import { groupRows, onState, EdgeSelection, PointSelection } from './relation.js';
-import { contourMoment, measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
+import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
 
 const EVENT_TOL = 1e-9;
@@ -997,6 +997,7 @@ function fromWalk(
     const v = tailOf(walks[w].halfEdges[0]);
     let best = -1;
     let bestArea = Infinity;
+    const curved = curvedSpaceOf(m.space);
     for (let f = 0; f < faceWalk.length; f++) {
       const fw = walks[faceWalk[f]];
       if (fw.comp === walks[w].comp || fw.area >= bestArea) continue;
@@ -1112,7 +1113,7 @@ export type FaceId = string & { readonly __faceId: unique symbol };
  * faces were read from, as it is for a point or an edge selection. `key`
  * is set on the selections `groupBy` and `components` make.
  */
-export class FaceSelection<K = undefined> implements Iterable<Face> {
+export class FaceSelection<K = undefined, F extends Face = Face> implements Iterable<F> {
   /** The material state the faces were read from. */
   readonly source: Material;
   /** @internal Every face of that state: the collection the rows index. */
@@ -1147,38 +1148,38 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
     return this.source.iteration;
   }
 
-  at(i: number): Face {
+  at(i: number): F {
     const row = this.indices[i];
     if (!Number.isInteger(i) || row === undefined) throw new Error(`faces.at: no member ${i} (${this.length} members)`);
-    return this.collection.faces[row];
+    return this.collection.faces[row] as F;
   }
 
-  *[Symbol.iterator](): Iterator<Face> {
-    const all = this.collection.faces;
+  *[Symbol.iterator](): Iterator<F> {
+    const all = this.collection.faces as readonly F[];
     for (const i of this.indices) yield all[i];
   }
 
-  map<T>(fn: (f: Face, index: number) => T): T[] {
-    const all = this.collection.faces;
+  map<T>(fn: (f: F, index: number) => T): T[] {
+    const all = this.collection.faces as readonly F[];
     return this.indices.map((row, i) => fn(all[row], i));
   }
 
-  forEach(fn: (f: Face, index: number) => void): void {
-    const all = this.collection.faces;
+  forEach(fn: (f: F, index: number) => void): void {
+    const all = this.collection.faces as readonly F[];
     this.indices.forEach((row, i) => fn(all[row], i));
   }
 
-  find(fn: (f: Face, index: number) => unknown): Face | undefined {
+  find(fn: (f: F, index: number) => unknown): F | undefined {
     let i = 0;
     for (const f of this) if (fn(f, i++)) return f;
     return undefined;
   }
 
-  some(fn: (f: Face, index: number) => unknown): boolean {
+  some(fn: (f: F, index: number) => unknown): boolean {
     return this.find(fn) !== undefined;
   }
 
-  every(fn: (f: Face, index: number) => unknown): boolean {
+  every(fn: (f: F, index: number) => unknown): boolean {
     let i = 0;
     for (const f of this) if (!fn(f, i++)) return false;
     return true;
@@ -1186,16 +1187,16 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
 
   /** The members `fn` picks — membership decided now and fixed; a group
    * keeps its key. */
-  filter(fn: (f: Face, index: number) => unknown): FaceSelection<K> {
+  filter(fn: (f: F, index: number) => unknown): FaceSelection<K, F> {
     const rows: number[] = [];
     let i = 0;
     for (const f of this) if (fn(f, i++)) rows.push(f.index);
-    return new FaceSelection(this.collection, rows, this.key);
+    return new FaceSelection<K, F>(this.collection, rows, this.key);
   }
 
   /** Split into selections by key: first-occurrence order, rows in order. */
-  groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
-    return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this.collection, rows, key));
+  groupBy<G>(classify: (f: F, index: number) => G): FaceSelection<G, F>[] {
+    return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection<G, F>(this.collection, rows, key));
   }
 
   /**
@@ -1208,13 +1209,13 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
    * with a hole does not hold what sits in the hole: the hole's own face
    * does.
    */
-  containing(where: XY | PointsLike): FaceSelection<K> {
+  containing(where: XY | PointsLike): FaceSelection<K, F> {
     const rows: number[] = [];
     for (const [x, y] of queryPoints(where, 'faces.containing')) {
       const f = faceHolding(this.collection.faces, x, y);
       if (f >= 0 && this.holds(f)) rows.push(f);
     }
-    return new FaceSelection(this.collection, rows, this.key);
+    return new FaceSelection<K, F>(this.collection, rows, this.key);
   }
 
   /** Every source edge incident to a selected face, once, including
@@ -1248,7 +1249,7 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
    * `field` its integral, mean and density-weighted centre (see
    * measure.ts). */
   measure(field?: (x: number, y: number) => number, opts?: MeasureOpts): FaceMeasurements {
-    const all = this.collection.faces;
+    const all = this.collection.faces as readonly F[];
     return measureFaces(this.collection, this.memberRows === null ? all : this.memberRows.map((i) => all[i]), field, opts);
   }
 
@@ -1317,19 +1318,19 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
 
   /** Both selections' members; an operand from an earlier state of the
    * same evolution is read by id. The result keeps this selection's key. */
-  union(other: FaceSelection<unknown>): FaceSelection<K> {
+  union(other: FaceSelection<unknown>): FaceSelection<K, F> {
     const theirs = this.theirs(other, 'union');
-    return new FaceSelection(this.collection, [...this.indices, ...theirs.indices], this.key);
+    return new FaceSelection<K, F>(this.collection, [...this.indices, ...theirs.indices], this.key);
   }
 
-  intersect(other: FaceSelection<unknown>): FaceSelection<K> {
+  intersect(other: FaceSelection<unknown>): FaceSelection<K, F> {
     const theirs = this.theirs(other, 'intersect');
-    return new FaceSelection(this.collection, this.indices.filter((i) => theirs.holds(i)), this.key);
+    return new FaceSelection<K, F>(this.collection, this.indices.filter((i) => theirs.holds(i)), this.key);
   }
 
-  subtract(other: FaceSelection<unknown>): FaceSelection<K> {
+  subtract(other: FaceSelection<unknown>): FaceSelection<K, F> {
     const theirs = this.theirs(other, 'subtract');
-    return new FaceSelection(this.collection, this.indices.filter((i) => !theirs.holds(i)), this.key);
+    return new FaceSelection<K, F>(this.collection, this.indices.filter((i) => !theirs.holds(i)), this.key);
   }
 
   /** The faces across the walls of any selected face, one hop out, the
@@ -1358,10 +1359,10 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
    * walls among them alone: an isolated member is a piece of its own.
    * Keyed 0, 1, 2 … like `groupBy`, in the order the pieces are first met
    * by row. */
-  components(): FaceSelection<number>[] {
+  components(): FaceSelection<number, F>[] {
     const among = this.collection.wallPairs((f) => this.holds(f));
     const seen = new Set<number>();
-    const out: FaceSelection<number>[] = [];
+    const out: FaceSelection<number, F>[] = [];
     for (const start of this.indices) {
       if (seen.has(start)) continue;
       const piece: number[] = [];
@@ -1376,7 +1377,7 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
           stack.push(g);
         }
       }
-      out.push(new FaceSelection(this.collection, piece, out.length));
+      out.push(new FaceSelection<number, F>(this.collection, piece, out.length));
     }
     return out;
   }
@@ -1407,9 +1408,9 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
  * The bounded faces of one planar state: the selection of every face,
  * with the face views and the incidence every selection of them reads.
  */
-export class Faces extends FaceSelection {
+export class Faces<F extends Face = Face> extends FaceSelection<undefined, F> {
   /** Face views, by index. */
-  readonly faces: readonly Face[];
+  readonly faces: readonly F[];
   /** @internal */ readonly next: Int32Array; // face-walk successor of a half-edge
   /** @internal */ readonly faceOf: Int32Array; // face index on a half-edge's left, -1 outside
   /** One key per face, built the first time a face column is read; the
@@ -1519,6 +1520,7 @@ export class Faces extends FaceSelection {
       extract: { value(this: Face) { return this.edges.extract(); } },
     });
     Object.freeze(faceProto);
+    const curved = curvedSpaceOf(m.space);
     for (let f = 0; f < faceWalk.length; f++) {
       const fw = walks[faceWalk[f]];
       let area = fw.area;
@@ -1550,6 +1552,16 @@ export class Faces extends FaceSelection {
       }
       const centroid: [number, number] = ma !== 0 ? [mx / ma, my / ma] : [NaN, NaN];
       const view = Object.assign(Object.create(faceProto) as Face, { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), centroid: Object.freeze(centroid) as unknown as [number, number] });
+      // In a curved space the face is measured in the space: its area is
+      // the space's density over the region its walls enclose, and its
+      // perimeter each wall's length in the space. Both are read the first
+      // time they are asked and kept, and stay data keys of the record.
+      if (curved) {
+        let spaceAreaOf: number | undefined;
+        let spacePerimeterOf: number | undefined;
+        Object.defineProperty(view, 'area', { enumerable: true, get: () => (spaceAreaOf ??= spaceArea(curved, contours)) });
+        Object.defineProperty(view, 'perimeter', { enumerable: true, get: () => (spacePerimeterOf ??= spacePerimeter(curved, contours)) });
+      }
       // The contours are the face's own, but `contours()` is a call, like
       // every other area value's: it hangs off the view without joining the
       // view's data keys, so a face still spreads and serialises as the
@@ -1558,7 +1570,7 @@ export class Faces extends FaceSelection {
       Object.defineProperty(view, 'contours', { value: () => held });
       views.push(view);
     }
-    this.faces = Object.freeze(views);
+    this.faces = Object.freeze(views) as readonly Face[] as readonly F[];
     this.next = next;
     this.faceOf = faceOf;
     this.keyBox = { keys: null, ids: null, rowOf: null, all: null };

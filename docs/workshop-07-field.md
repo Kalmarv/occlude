@@ -131,7 +131,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-`streamlines` fills the whole drawable it is given, so each field is bounded to the left half with `within(field, shape)` before the right one is moved over: outside the shape the field is absent, and a line stops at its edge. The same bound works for contours.
+`streamlines` fills the whole drawable it is given, so each field is bounded to the left half with `t.within(field, shape)` before the right one is moved over: outside the shape the field is absent, and a line stops at its edge. The same bound works for contours.
 
 ## Connect the two
 
@@ -262,7 +262,7 @@ Take the contour map from the start of the page, the one whose seven levels comp
 <details>
 <summary>A hint, not the answer</summary>
 
-Contours have no `spacing` control, but they have levels, and levels can be chosen per region: `within(land, shape)` traces contours inside a shape only, so a dense set of levels inside a disc and a sparse set outside it is two `isolines` calls. `t.isolines(land, 0.6)` is a closed outline of everything above a height, which `polygon` fills and `clip` cuts with. The sentence is the harder part, and the more useful one.
+Contours have no `spacing` control, but they have levels, and levels can be chosen per region: `t.within(land, shape)` traces contours inside a shape only, so a dense set of levels inside a disc and a sparse set outside it is two `isolines` calls. `t.isolines(land, 0.6)` is a closed outline of everything above a height, which `polygon` fills and `clip` cuts with. The sentence is the harder part, and the more useful one.
 
 </details>
 

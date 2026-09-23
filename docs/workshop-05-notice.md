@@ -37,7 +37,7 @@ Set `steer` to −0.5 and the same seeds under the same rule gather into bundles
 
 ## One tip leaves a trail
 
-A material of one point. It carries two attributes chosen for this drawing: `active`, 1 while the point may still grow, and `heading`, the direction it grows in, as an angle in radians, pointing up. Each step, `next.extend` gives every active point a child: a new point one stride along the heading, connected to its parent, with attributes of its own; `fromAngle(heading)` is the unit vector in that direction. Then the parent's `active` is set to 0. Only the newest point of the path keeps growing, and the older ones are the trail. The dot marks the point that is active now.
+A material of one point. It carries two attributes chosen for this drawing: `active`, 1 while the point may still grow, and `heading`, the direction it grows in, as an angle in radians, pointing up. Each step, `next.extrude` gives every active point a child: a new point one stride along the heading, connected to its parent, with attributes of its own; `fromAngle(heading)` is the unit vector in that direction. Then the parent's `active` is set to 0. Only the newest point of the path keeps growing, and the older ones are the trail. The dot marks the point that is active now.
 
 ```ts live focus=5,7-13
 import { sketch, circle, strokes, material, add, mul, fromAngle, ui } from 'occlude';
@@ -328,4 +328,4 @@ Make the tips behave differently on the two halves of the sheet, with one growth
 
 ## Where to look things up
 
-`extend`, `split` and `append` are under *Movement and growth* and *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*; the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.
+`extrude`, `split` and `append` are under *Movement and growth* and *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*; the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.

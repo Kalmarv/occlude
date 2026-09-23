@@ -55,6 +55,11 @@ export interface TilingOpts {
  * `t.space.kind` are comparable. */
 export type TilingGeometry = SpaceKind;
 
+/** A cell of a tiling: every face carries the flood `generation` it was
+ * first reached in, `mirrored` (1 when its placement turns the plane over)
+ * and its `placementIndex`. */
+export type TilingFace = Face & { generation: number; mirrored: 0 | 1; placementIndex: number };
+
 /**
  * One regular tiling: a `Material` of shared corners and shared walls, its
  * cell, and where the copies go.
@@ -117,13 +122,13 @@ export class Tiling extends Material {
    * planarity. It is the same memo every material keeps, so one collection
    * answers every call.
    */
-  override faces(): Faces {
-    return (this.facesBox.faces ??= facesFromCycles(this, this.cycles));
+  override faces(): Faces<TilingFace> {
+    return (this.facesBox.faces ??= facesFromCycles(this, this.cycles)) as Faces as Faces<TilingFace>;
   }
 
   /** The face of the identity placement: the cell itself, where a motif is
    * written before the placements carry it everywhere else. */
-  get seed(): Face {
+  get seed(): TilingFace {
     return this.faces().faces[0];
   }
 }

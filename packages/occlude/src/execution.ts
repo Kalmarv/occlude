@@ -27,6 +27,7 @@ import { DEFAULT_PENS, type PenDef } from './pens.js';
 import type { PaperDef } from './paper.js';
 import { Rng } from './random.js';
 import { parseSeed } from './draws.js';
+import { box, type Box } from './layout.js';
 import type { Material } from './material.js';
 import { Len, resolveLen, type L } from './units.js';
 import type { Shape } from './shapes.js';
@@ -406,8 +407,13 @@ export class Execution {
     // The space reads the drawable (its centre and its default horizon) and
     // the paper (a radius given in mm), so it resolves after both are fixed
     // — and before the frame, which carries it to both lowering doors.
+    // The space is centred on the middle of the drawable in DRAWABLE
+    // coordinates (the frame's origin/yUp are applied before it projects).
+    const size = this.drawableSize();
     this.space = resolveSpace(cfg.space, cfg.projection, {
-      ...this.bounds(),
+      ...size,
+      cx: size.w / 2,
+      cy: size.h / 2,
       len: (l) => this.len(l),
     });
     this.frame = makeFrame(this, this.paper.w, this.paper.h, false);
@@ -416,12 +422,11 @@ export class Execution {
   // ---- geometry of the drawable ----
 
   /**
-   * The drawable extent in bare units (percent of the short side): the safe
-   * full-bleed rect is `rect(0, 0, b.w, b.h)`. The short side is always 100;
-   * the long side is 100 × aspect ratio. For aspect 'paper' this uses the
-   * run's paper.
+   * The drawable's size in bare units (percent of the short side): the
+   * short side is always 100, the long side 100 × aspect ratio. For aspect
+   * 'paper' this uses the run's paper.
    */
-  bounds(): { w: number; h: number; cx: number; cy: number } {
+  private drawableSize(): { w: number; h: number } {
     let aw: number;
     let ah: number;
     if (this.aspect === 'square') {
@@ -435,11 +440,20 @@ export class Execution {
       [aw, ah] = this.aspect;
     }
     const short = Math.min(aw, ah);
-    const w = (100 * aw) / short;
-    const h = (100 * ah) / short;
-    return { w, h, cx: w / 2, cy: h / 2 };
+    return { w: (100 * aw) / short, h: (100 * ah) / short };
   }
 
+  /**
+   * The drawable in the sketch's own frame: a rect record `{ x, y, w, h,
+   * cx, cy }` that answers `contours()`, so it is an area like a grid cell.
+   * `origin: 'center'` puts `(0, 0)` in the middle, so the corner is
+   * `(−w/2, −h/2)`; `yUp` flips the axis but keeps the corner at `(0, 0)`.
+   * The safe full-bleed rect is `rect(b.x, b.y, b.w, b.h)`.
+   */
+  bounds(): Box {
+    const { w, h } = this.drawableSize();
+    return this.origin === 'center' ? box(-w / 2, -h / 2, w, h) : box(0, 0, w, h);
+  }
   /** mm per user unit for the run's aspect and paper — lets sketch-time
    * helpers (scatter spacing) resolve mm() before render. */
   unitScaleMm(): number {
@@ -464,7 +478,7 @@ export class Execution {
   /** Sketch-time length resolution against the drawable (mm via the paper). */
   len(l: L): number {
     if (l instanceof Len && l.kind === 'mm') return l.value / this.unitScaleMm();
-    const b = this.bounds();
+    const b = this.drawableSize();
     return resolveLen(l, { innerW: b.w, innerH: b.h });
   }
 
@@ -605,7 +619,27 @@ export class Execution {
    * a composition can be iterated on in isolation.
    */
   stream(name: string): RandomStream {
-    const rng = new Rng(`${this.seedUsed}:stream:${name}`);
+    return this.streamAt(name);
+  }
+
+  /** How many times each toolkit word's stream was opened this run. */
+  private readonly streamOpens = new Map<string, number>();
+
+  /**
+   * The stream one call of a toolkit word draws from. The n-th open of
+   * `name` in a run reads `${seed}:stream:${name}:${n}` — the first one the
+   * plain `${seed}:stream:${name}` — so two calls draw different values and
+   * the same program with the same seed draws the same ones again. A named
+   * `stream(name)` is the sketch's own address and does not count.
+   */
+  freshStream(name: string): RandomStream {
+    const n = this.streamOpens.get(name) ?? 0;
+    this.streamOpens.set(name, n + 1);
+    return this.streamAt(n === 0 ? name : `${name}:${n}`);
+  }
+
+  private streamAt(key: string): RandomStream {
+    const rng = new Rng(`${this.seedUsed}:stream:${key}`);
     const rnd = (a?: number, b?: number): number => {
       const f = this.unitDraw(rng);
       const v = a === undefined ? f : b === undefined ? f * a : a + f * (b - a);

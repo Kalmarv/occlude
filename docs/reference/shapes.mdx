@@ -3,7 +3,7 @@ title: Shapes
 description: "The drawables: shapes, paths, groups, clips, masks and the modifiers that change a line."
 ---
 
-A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line` and each point of a `path`. A pair and an `{ x, y }` record are the same point, so a station goes straight in. The first argument decides the form, and the ink is the same ink.
+A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line`, `label` and each point of a `path`. A pair and an `{ x, y }` record are the same point, so a station goes straight in. The first argument decides the form, and the ink is the same ink.
 
 ## circle
 
@@ -116,7 +116,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/label.mdx</include>
 <include>/_sig/labelWidth.mdx</include>
 
-Single-stroke text with cap height `h`: capitals, digits and basic punctuation. The font has capitals only, so lower case comes out as capitals. The point `(x, y)` is the top left of the text. `align: 'center'` or `'right'` moves the anchor. The default is `'left'`. `labelWidth(text, h)` is the width the same call will use.
+Single-stroke text with cap height `h`: capitals, digits and basic punctuation. The font has capitals only, so lower case comes out as capitals. The point `(x, y)` is the top left of the text. `label(text, p, h)` takes the point as one value. `align: 'center'` or `'right'` moves the anchor. The default is `'left'`. `labelWidth(text, h)` is the width the same call will use.
 
 ```ts live
 import { sketch, label, labelWidth, rect } from 'occlude';

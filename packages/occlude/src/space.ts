@@ -76,7 +76,8 @@ export interface SpaceSpec {
   kind: SpaceKind;
   /** The radius the curvature names: `K = −4/radius²` in the disk
    * (default: 1.25 × the drawable's half-diagonal) or `K = +1/radius²`
-   * on the sphere (default: half the drawable's short side). How big the
+   * on the sphere (default: the half-diagonal over √2, half the side of a
+   * square drawable). How big the
    * picture is drawn is the projection's `size`, not this. */
   radius?: L;
 }
@@ -737,10 +738,14 @@ export function spaceOf(opts: { curvature: number; center?: XY; projection?: Pro
 
 /** The radius of the sugar forms, with the default each one carries. */
 function radiusOf(kind: 'hyperbolic' | 'spherical', given: L | undefined, frame: SpaceFrame): number {
-  // The default sphere is half the drawable's short side; the default disk
-  // holds the whole drawable with room to spare.
+  // Both defaults read the drawable's half-diagonal. The default disk holds
+  // the whole drawable with room to spare. The default sphere is the
+  // half-diagonal over √2 — half the side of a square drawable — so the
+  // drawable's middle row reaches `max(w, h)/2 ÷ R` = at most π/2 on any
+  // aspect: a wide drawable stays on the near side, its corners short of
+  // the equator, and never wraps toward the antipode.
   const fallback = kind === 'spherical'
-    ? Math.min(frame.w, frame.h) / 2
+    ? Math.hypot(frame.w, frame.h) / (2 * Math.SQRT2)
     : 1.25 * (Math.hypot(frame.w, frame.h) / 2);
   const r = given === undefined ? fallback : frame.len(given);
   if (!(r > 0) || !Number.isFinite(r)) {
@@ -943,6 +948,25 @@ export function bucketStretch(space: Space, bounds: { x: number; y: number; w: n
   const low = Math.min(space.density([bounds.x, bounds.y]), space.density([bounds.x, bounds.y + bounds.h]));
   if (!(low > 0)) return Infinity;
   return low >= 1 ? 1 : 1 / Math.sqrt(low);
+}
+
+/**
+ * The largest `density` the space reaches over a box of sketch
+ * coordinates: the bound a rejection draw uniform per area of the space
+ * accepts against. The density reads the row alone (`|c((y − cy)/ℓ)|`),
+ * so the answer is exact: the cosh of the row farthest from the centre in
+ * the disk, and on the sphere 1 when the box holds a row `cy + kπR`, else
+ * the larger of its two edge rows. Flat, 1.
+ */
+export function densityCeiling(space: Space, bounds: { x: number; y: number; w: number; h: number }): number {
+  if (space.kind === 'euclidean') return 1;
+  const edges = Math.max(space.density([bounds.x, bounds.y]), space.density([bounds.x, bounds.y + bounds.h]));
+  if (space.kind === 'hyperbolic') return edges;
+  const R = space.radius;
+  const cy = space.center[1];
+  const u0 = (bounds.y - cy) / (Math.PI * R);
+  const u1 = (bounds.y + bounds.h - cy) / (Math.PI * R);
+  return Math.ceil(u0) <= Math.floor(u1) ? 1 : edges;
 }
 
 // ---- the sheet back to the space ------------------------------------------

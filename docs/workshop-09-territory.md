@@ -109,7 +109,7 @@ import { sketch, strokes, circle, polygon, fill, mm, material, group } from 'occ
 export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[20, 30], [70, 26], [35, 72], [56, 50], [85, 74], [60, 90], [14, 90], [88, 12]])
     .attribute('kind', (p) => (p.x + p.y < 110 ? 0 : 1));
-  const diagram = t.voronoi(sites, { bounds: { x: 0, y: 0, w: 100, h: 100 } });
+  const diagram = t.voronoi(sites, { within: { x: 0, y: 0, w: 100, h: 100 } });
   const cells = diagram.faces();
   const kind = (face) => diagram.siteOf(face).kind;
   const marked = diagram.edgeAttribute('same', (e) => { const [a, b] = e.faces; return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
@@ -211,8 +211,8 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const make = (x0) => {
     const centre = [x0 + 44, 52];
     const density = t.within((x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 30, 6)), rect(x0, 0, 98, 100));
-    const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density, bounds: { x: x0, y: 0, w: 98, h: 100 } });
-    const diagram = t.voronoi(sites, { bounds: { x: x0, y: 0, w: 98, h: 100 } });
+    const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density, within: { x: x0, y: 0, w: 98, h: 100 } });
+    const diagram = t.voronoi(sites, { within: { x: x0, y: 0, w: 98, h: 100 } });
     return { centre, diagram, cells: diagram.faces() };
   };
   const left = make(0);

@@ -40,7 +40,7 @@ function draftSegments(frame: Parameters<typeof toPaper3>[0], rows: readonly { f
  * trimmed. It wraps each piece of projected ink where it is emitted, so a
  * group the sketch puts around that ink moves the frame with it, and 2D
  * content a drawing adds beside its ink is not cut. */
-function inFrame3(exec: Execution, frame: CameraFrame3, tree: Tree): Tree {
+export function inFrame3(exec: Execution, frame: CameraFrame3, tree: Tree): Tree {
   const toUser = paperToUser(exec.frame), r = frame.paper;
   const corners = [[r.x, r.y], [r.x + r.width, r.y], [r.x + r.width, r.y + r.height], [r.x, r.y + r.height]].map(([x, y]) => toUser(x, y));
   return clip(polygon([corners]), tree);

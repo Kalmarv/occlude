@@ -115,7 +115,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.spherical({ radius
 ]);
 ```
 
-One number is the geometry: the curvature. `space: { curvature: K }` is the primary form. Below zero is hyperbolic, above zero is spherical, and zero is flat. `'hyperbolic'` reads its radius as `K = -4/radius²`, and `'spherical'` reads it as `K = +1/radius²`. A larger radius is flatter. Without `radius` the space bends over 1.25 times the half-diagonal of the drawable. `size` on the projection is how big the picture prints. It is the radius on the page of the rim of the disk, or of the equator. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller. Below, a curvature written as a number, and a disk printed at 44 units.
+One number is the geometry: the curvature. `space: { curvature: K }` is the primary form. Below zero is hyperbolic, above zero is spherical, and zero is flat. `'hyperbolic'` reads its radius as `K = -4/radius²`, and `'spherical'` reads it as `K = +1/radius²`. A larger radius is flatter. Without `radius`, the disk bends over 1.25 times the half-diagonal of the drawable. The sphere bends over the half-diagonal divided by √2, which is half the side of a square drawable. Thus the middle row of a wide drawable stays less than a quarter turn from the centre, and the drawable stays on the near side of the sphere. `size` on the projection is how big the picture prints. It is the radius on the page of the rim of the disk, or of the equator. Without `size`, the disk prints as the biggest circle that the drawable holds, and all of the drawable is inside that circle. A wide drawable then prints small. `size` and `radius` are the two controls: a larger `size` prints the disk larger, and a larger `radius` makes the drawable fill more of the disk. Change `radius` and the geometry changes. Change `size` and the same drawing prints larger or smaller. Below, a curvature written as a number, and a disk printed at 44 units.
 
 ```ts live
 import { sketch, rect, circle, strokes, pen, mm } from 'occlude';
@@ -132,7 +132,7 @@ export default sketch({
 ]);
 ```
 
-A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengths on the paper, because the pen is flat. So `t.scatter({ spacing: 5 })` spaces points by five units of the space, and `mm(0.4)` is 0.4 mm of ink wherever it lands. These words read the metric today:
+A bare length is a length in the space. So `t.scatter({ spacing: 5 })` spaces points by five units of the space. `mm()`, `w()`, `h()` and `s()` have two meanings. In an ink word (a pen, a fill or a modifier) they are lengths on the paper, because the pen is flat: `mm(0.4)` is 0.4 mm of ink wherever it lands. In geometry (a shape, `t.scatter`, `t.sample` and the words in the table) they change to drawable units, and the result is then a length in the space. The modifiers (`wobble`, `roughen`, `dash` and `deform`) change the ink, so each length that a modifier reads is a length on the paper. Every fill works on the paper, after the projection: a hatch, a stipple and a fill callback read lengths on the paper. These words read the metric today:
 
 | verb | reads the metric | in a curved sketch |
 |---|---|---|
@@ -141,6 +141,9 @@ A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengt
 | `m.along` | with a space | stations sit by arc length of the space, flat without one |
 | `m.trim` | with a space | cuts each end by arc length of the space, flat without one |
 | `t.scatter` | yes | `spacing` is a length of the space, and the density follows the coordinates |
+| `t.throw` | yes | the points are uniform over the area of the space |
+| `faces().measure()`, `face.area`, `face.perimeter` | with a space | area, perimeter, the inscribed circle and the field integral in the space; `centroid`, `orientation` and `elongation` stay in the coordinates |
+| `t.voronoi` | no | flat cells in the coordinates |
 | `t.tiling` | yes | the cell and the placements are the space's own |
 | `t.distanceTo` | yes | distance by the metric, with every edge read as a geodesic |
 | `t.travelTime` | yes | an arrival time is a length of the space over the speed |
@@ -160,6 +163,8 @@ A bare length is a length in the space. `mm()`, `w()`, `h()` and `s()` are lengt
 `t.material`, `t.sample`, `t.within` and `polygon` answer in sketch coordinates. The projection applies once, when the engine draws the ink. Pens, nib widths, dashes, the plan and the time estimate never read the space.
 
 A `rect`, a `path` and a `polygon` go to the places that their numbers name. A round shape is steps from its centre, so a `circle` prints round under a conformal chart. The same is true for an `ellipse` and for the corners of an `ngon`, and the edges of an `ngon` are geodesics. `t.material` keeps the corners of a shape in every space: four for a `rect` and six for a hexagon. In a curved space it also writes the edge column `geodesic`. The value is 1 on the edges of a `line`, a `circle`, an `ellipse` and an `ngon`. It is 0 on the edges of a `rect`, a `path` and a `polygon`. `strokes`, `polygon` and `m.transform` keep an edge with the value 1 on the geodesic between its ends. So a material of a shape draws as the shape draws. `smooth` rounds the corners of the shape before the space places the shape. The loop of an area keeps the side that its winding names. This is also true when an edge is longer than half the circumference of the sphere.
+
+On the sphere, the coordinates repeat. A coordinate beyond ±πR names a place again. The words that cut, join or measure in coordinates (`planarize`, `faces()` and `t.within`) then see two places where the sphere has one.
 
 ## t.space
 

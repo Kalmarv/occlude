@@ -197,7 +197,7 @@ export type { TravelTimeOpts } from './api.js';
 export { areaLoops, isGeometry, numericLoops } from './boundary.js';
 export type { AreaInput, Geometry } from './boundary.js';
 // Fields as citizens: explicit transforms, domain bounds, vector marking.
-export { rotate, translate, scale, within, vectorField, grad, curl } from './field.js';
+export { rotate, translate, scale, vectorField, grad, curl } from './field.js';
 // Unoriented direction fields: an axis has no front, and `across` is the
 // perpendicular family of either kind.
 export { axisField, across } from './field.js';

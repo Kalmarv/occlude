@@ -29,6 +29,7 @@ import { usableLength } from './guard.js';
 import type { IsoContour, IsoEnv } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
+import { material, type PointsLike } from './material.js';
 
 /** A field of lengths: user units, or `mm(...)` per sample. */
 export type LengthField = (x: number, y: number) => L;
@@ -42,10 +43,12 @@ export interface StreamOpts {
   minSpacing?: L;
   /** Integration step (default: a quarter of the smallest spacing). */
   step?: L;
-  /** Starting seeds in user units. Default: a coarse lattice over the
-   * drawable, so a field that is still or absent at any one point (a swirl's
-   * centre, a hole) still gets its lines. */
-  seeds?: [number, number][];
+  /** Starting seeds in user units: any points — pairs, `{ x, y }`
+   * records, a material or a point selection, read through its points.
+   * Default: a coarse lattice over the drawable, so a field that is still
+   * or absent at any one point (a swirl's centre, a hole) still gets its
+   * lines. */
+  seeds?: PointsLike;
   /** Longest run each way from the seed, in user units, or a field of
    * lengths read AT THE SEED — one length per line, so a line is long where
    * it starts long. Default: 8× the drawable's long side. A seed
@@ -277,7 +280,7 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
     }
     return out;
   };
-  const queue: [number, number][] = opts.seeds ? [...opts.seeds] : lattice();
+  const queue: [number, number][] = opts.seeds ? material(opts.seeds).pts.map(([x, y]) => [x, y] as [number, number]) : lattice();
   let head = 0;
   while (head < queue.length) {
     const [sx, sy] = queue[head++];

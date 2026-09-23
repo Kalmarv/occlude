@@ -100,7 +100,9 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, row
 <include>/_sig/Toolkit.bounds.mdx</include>
 <include>/_sig/Toolkit.grid.mdx</include>
 
-`bounds()` is the drawable in the sketch's units: `w`, `h`, `cx`, `cy`. `t.width`, `t.height`, `t.cx` and `t.cy` are the same four numbers, read directly. Read them when a drawing must fill whatever drawable it lands on. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
+`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. `t.width`, `t.height`, `t.cx` and `t.cy` are the same numbers, read directly. Read them when a drawing must fill whatever drawable it lands on. The record is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
+
+Under `origin: 'center'`, the corner of the drawable is `(-w/2, -h/2)` and its middle is `(0, 0)`. `bounds()` answers in that frame, and every word that covers the drawable (`grid`, `hexes`, `triangles`, `scatter`, `voronoi` and the fields) reads it. Below, the grid covers the drawable of a centred, y-up sketch.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';
@@ -108,6 +110,19 @@ import { sketch, rect, circle } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const b = t.bounds();
   return [rect(2, 2, b.w - 4, b.h - 4), t.grid({ cols: 6, rows: 6, gap: 3 }).map((c) => circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))];
+});
+```
+
+```ts live
+import { sketch, rect, circle, line } from 'occlude';
+
+export default sketch({ aspect: [3, 2], origin: 'center', yUp: true }, (t) => {
+  const b = t.bounds();
+  return [
+    rect(b.x + 2, b.y + 2, b.w - 4, b.h - 4),
+    t.grid({ cols: 6, rows: 4, gap: 3 }).map((c) => circle(c.cx, c.cy, Math.min(c.w, c.h) / 3)),
+    line(0, 0, 0, b.h / 2 - 2, { pen: 'stabilo-88-blue' }),
+  ];
 });
 ```
 
@@ -121,7 +136,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Cells that are not rectangles, as ONE material. `grid` answers with records, and these two answer with geometry. `m.faces()` are the cells, and the wall two cells share is one edge. `strokes(m)` draws each wall once, and `sel.adjacent()` answers on the cells. The lattice starts at the user origin, and the drawable edge cuts the outermost cells.
 
-`hexes` takes the centre-to-centre `spacing` of neighbouring cells. `orientation` is `'pointy'` (a vertex at the top of each cell, the default) or `'flat'` (an edge there). Each face carries its axial `i` and `j`. `origin` is the point for the centre of cell `i = 0, j = 0`. `rotate` turns the full lattice about `origin`, in degrees clockwise on the sheet, before the drawable edge cuts it.
+`hexes` takes the centre-to-centre `spacing` of neighbouring cells. `orientation` is `'pointy'` (a vertex at the top of each cell, the default) or `'flat'` (an edge there). Each face carries its axial `i` and `j`, and a face of `t.hexes` reads them as numbers. `origin` is the point for the centre of cell `i = 0, j = 0`. `rotate` turns the full lattice about `origin`, in degrees clockwise on the sheet, before the drawable edge cuts it.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm } from 'occlude';

@@ -785,6 +785,35 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
   return tagged(f, { x0: bx0, y0: by0, x1: bx1, y1: by1, peak: r, hi: boxBound(bx0, by0, bx1, by1, r), tight: false });
 };
 
+/** A point argument — a pair or an `{ x, y }` record — as the shape
+ * factories take one; a bare number or a length is not. */
+const isPointArg = (v: unknown): v is XY => typeof v === 'object' && v !== null && !(v instanceof Len);
+
+/** `sdf.circle(c, r)` beside `sdf.circle(cx, cy, r)`: the first argument
+ * decides, as in `circle`. */
+function circleWord(c: XY, r: number): DistanceField;
+function circleWord(cx: number, cy: number, r: number): DistanceField;
+function circleWord(a: XY | number, b: number, c?: number): DistanceField {
+  return isPointArg(a) ? circleField(pointX(a), pointY(a), b) : circleField(a, b, c as number);
+}
+
+/** `sdf.box(c, w, h)` beside `sdf.box(cx, cy, w, h)`. */
+function boxWord(c: XY, w: number, h: number): DistanceField;
+function boxWord(cx: number, cy: number, w: number, h: number): DistanceField;
+function boxWord(a: XY | number, b: number, c: number, d?: number): DistanceField {
+  return isPointArg(a) ? boxField(pointX(a), pointY(a), b, c) : boxField(a, b, c, d as number);
+}
+
+/** `sdf.segment(a, b, r)` beside `sdf.segment(x0, y0, x1, y1, r)`, as
+ * `line(a, b)` beside `line(x0, y0, x1, y1)`. */
+function segmentWord(a: XY, b: XY, r: number): DistanceField;
+function segmentWord(x0: number, y0: number, x1: number, y1: number, r: number): DistanceField;
+function segmentWord(a: XY | number, b: XY | number, c: number, d?: number, e?: number): DistanceField {
+  if (isPointArg(a) && isPointArg(b)) return segmentField(pointX(a), pointY(a), pointX(b), pointY(b), c);
+  if (isPointArg(a) || isPointArg(b)) throw new Error('sdf.segment: give two points and a radius, or four numbers and a radius');
+  return segmentField(a, b, c, d as number, e as number);
+}
+
 /**
  * Inside wherever any of them is inside — a maximum. Takes one array of
  * fields as well as the fields themselves: `union(discs)` is `union(...discs)`,
@@ -1042,9 +1071,9 @@ function blendField(a: DistanceField | readonly DistanceField[], b: DistanceFiel
  * anyway: `distance(a, b)` is already the distance between two points.
  */
 export const sdf = {
-  circle: circleField,
-  box: boxField,
-  segment: segmentField,
+  circle: circleWord,
+  box: boxWord,
+  segment: segmentWord,
   union: unionField,
   intersect: intersectField,
   subtract: subtractField,
