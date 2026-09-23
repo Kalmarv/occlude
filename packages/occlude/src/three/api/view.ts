@@ -49,14 +49,20 @@ export interface ViewSection {
 }
 export interface ViewOptions<F extends Attributes3=Attributes3> {
   readonly camera:Camera3;readonly stroke?:string;readonly key?:string;readonly viewport?:PaperFrame3;
-  /** Artistic threshold in degrees; default 30. Silhouettes remain visible. */
-  /** Default crease threshold in degrees (30) for objects without their own. */
+  /** Default crease threshold in degrees (30) for objects without their own.
+   * A fold flatter than it is not a line of the view, in the default ink and
+   * in the callback's `lines` alike. Silhouettes remain visible. */
   readonly creaseAngle?:number;
   /** Suggestive contours for objects without their own reading: `false` (the
    * default) draws none, `{}` or `{ threshold }` draws them. */
   readonly suggestive?:SuggestiveInput;
   readonly hatch?:ViewHatch<F>|readonly ViewHatch<F>[];
   readonly sections?:readonly ViewSection[];
+  /** A view is ink, not an occluder: unset, it hides nothing drawn before it.
+   * `true` makes the paper its solids cover opaque in paint order, the same
+   * word as `polygon`'s — what was drawn before the view is hidden there, and
+   * the view's own ink is not. */
+  readonly opaque?:boolean;
 }
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
@@ -122,9 +128,17 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
-  return drawing3(scene,classified=>{
-    const lines=projectedLines(classified);
-    if(draw)return draw(lines);
+  // A fold flatter than its object's crease angle (the view's when the object
+  // has none) is not a line of this view, visible or hidden, so the callback
+  // sees the folds the default ink draws. A row that is also something else
+  // (a boundary, a marked edge) stays, and answers to that kind.
+  const line=(c:{kinds:ReadonlySet<string>;feature:{creaseAngle:number;creaseThreshold?:number}})=>!c.kinds.has('crease')||c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)||c.kinds.size>1;
+  return drawing3(scene,(classified,paper)=>{
+    const all=projectedLines(classified),lines:ProjectedLines=Object.freeze({visible:all.visible.filter(line),hidden:all.hidden.filter(line)});
+    const ink=draw?draw(lines):defaultInk(lines);
+    return settings.opaque?[paper.mask3(classified),ink]:ink;
+  });
+  function defaultInk(lines:ProjectedLines):Tree{
     // Generated marks may name their own pen through a `stroke` attribute (hatch
     // families); everything else follows the view's stroke.
     const generated=(c:{kinds:ReadonlySet<string>})=>c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||c.kinds.has('intersection');
@@ -139,5 +153,5 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
       ...recipes.flatMap((recipe,i)=>{const family=lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]);const hatchPen=(c:{attributes:Attributes3;feature:{stroke?:string;fillPen?:string}})=>typeof c.attributes.stroke==='string'?c.attributes.stroke:c.feature.fillPen??c.feature.stroke??settings.stroke;return [...new Set([...family].map(hatchPen))].sort().map(pen=>projectedStrokes(family.filter(c=>hatchPen(c)===pen),{stroke:pen}));}),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),
     ];
-  });
+  }
 }

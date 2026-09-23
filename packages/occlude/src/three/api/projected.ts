@@ -83,3 +83,15 @@ export function emitProjectedStrokes(exec:Execution,intent:ProjectedStrokes,curr
   const toUser=paperToUser(exec.frame),{pass,modifiers,...shapeOpts}=opts;
   return sourceStrokeShapes3(runs,p=>toUser(p[0],p[1]),{pass,modifiers}).map(shape=>({...shape,opts:{...shape.opts,...shapeOpts,preserveStroke:true,strokeSeed:shape.opts.strokeSeed,strokeRanges:shape.opts.strokeRanges,stroke:pen}}));
 }
+/** Every triangle that hides in a view, on the paper in user units and
+ * turned one way round, so their nonzero union is the paper the view's solids
+ * cover; triangles seen edge-on cover nothing and are left out. */
+export function maskContours3(exec:Execution,view:ClassifiedScene3):[number,number][][]{
+  const toUser=paperToUser(exec.frame),out:[number,number][][]=[];
+  for(const triangle of view.occluders){
+    const [a,b,c]=triangle.map(p=>{const q=toPaper3(view.frame,p);return toUser(q[0],q[1]);});
+    const area=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+    if(area>0)out.push([a,b,c]);else if(area<0)out.push([a,c,b]);
+  }
+  return out;
+}

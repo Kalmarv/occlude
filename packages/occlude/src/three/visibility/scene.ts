@@ -14,7 +14,10 @@ import { facingCertificate3, type FacingCertificate3, type FacingStats3 } from '
 import type { GpuIntervals3, VisibilityPair3 } from '../../compute/webgpu/interval.js';
 
 export interface ClassifiedFeature3 { readonly feature: Feature3; readonly hidden: readonly Interval3[]; readonly visible: readonly Interval3[] }
-export interface ClassifiedScene3 { readonly curveGraphs?:FeatureSnapshot3['curveGraphs']; readonly referenceFeatures?:readonly Feature3[]; readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; paperToleranceMm?: number; parameterTolerance?: number; wallMs: number; timings?: PhaseTimings3; certificates?: FacingStats3 } }
+export interface ClassifiedScene3 { readonly curveGraphs?:FeatureSnapshot3['curveGraphs']; readonly referenceFeatures?:readonly Feature3[]; readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[];
+  /** The camera-space triangles that hide in this view, near/far clipped:
+   * projected, they cover the paper the view's solids cover. */
+  readonly occluders: readonly Triangle3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; paperToleranceMm?: number; parameterTolerance?: number; wallMs: number; timings?: PhaseTimings3; certificates?: FacingStats3 } }
 
 /** Everything the exact classifier reads of a captured snapshot: the camera
  * frame, each feature's two endpoints, its basis and the ids of its own
@@ -95,7 +98,7 @@ export function refinementTargets3(runs: readonly { interval: Interval3; occlude
   }
   return { refine, closed };
 }
-const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: ClassifiedScene3['stats']): ClassifiedScene3 => Object.freeze({ frame: snapshot.frame, referenceFeatures:snapshot.referenceFeatures, curveGraphs:snapshot.curveGraphs, features: Object.freeze(snapshot.features.map((feature, i) => { const ranges = unionIntervals3(hidden[i]); return Object.freeze({ feature, hidden: Object.freeze(ranges.map(r=>Object.freeze(r))), visible: Object.freeze(visibleIntervals3(ranges).map(r=>Object.freeze(r))) }); })), stats: Object.freeze({...stats}) });
+const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: ClassifiedScene3['stats']): ClassifiedScene3 => Object.freeze({ frame: snapshot.frame, occluders: Object.freeze(snapshot.occluders.map(o => o.triangle)), referenceFeatures:snapshot.referenceFeatures, curveGraphs:snapshot.curveGraphs, features: Object.freeze(snapshot.features.map((feature, i) => { const ranges = unionIntervals3(hidden[i]); return Object.freeze({ feature, hidden: Object.freeze(ranges.map(r=>Object.freeze(r))), visible: Object.freeze(visibleIntervals3(ranges).map(r=>Object.freeze(r))) }); })), stats: Object.freeze({...stats}) });
 /** The exact classifier as a task-yielding job (a checkpoint every 1024
  * candidate pairs), so a worker can cancel it and keep its message loop alive;
  * same result as `classifySceneCpu3`. */

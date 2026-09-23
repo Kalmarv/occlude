@@ -98,8 +98,11 @@ const density = (x, y) => {
 
 1. Later wins. A shape hides everything earlier in the tree that lies under its area. `z` overrides the order; ties break by tree order.
 2. Only area hides. A shape occludes when it has a fill or `opaque: true`. Strokes never hide anything, and a stroke's width does not enlarge the hidden area. In the current version a fill always makes its shape opaque; see Fills for the details and the open question around non-hiding texture.
-3. Ink exactly on an occluder's boundary stays visible. Where two shapes share an edge, it is drawn once.
-4. The pen width decides what is drawable. Each visible run of a stroke is judged as a whole: a run shorter than the nib becomes a single pen tap, or is dropped when a neighbouring stroke of the same pen already covers it. A hidden gap shorter than the pen width is inked through, because the pen could not have left it. A closed outline whose circumference exceeds the nib is drawn as a ring, however small.
+3. Ink exactly on an occluder's boundary stays visible.
+4. The first stroke on a path keeps it. When two strokes lie on the same path, the plotter draws the path one time. It uses the pen of the stroke that is first in the tree. The later stroke is not drawn, whichever pen it names, and `z` does not change this. To give a shape a heavy border, draw the border first.
+5. A view is ink, not an occluder. A `view` hides nothing that is earlier in the tree, and a second view does not hide the first. Put the meshes that must hide each other in one view. `view(…, { opaque: true })` makes the paper under the view's solids opaque, as `opaque: true` does for a shape. It hides the earlier ink there, and the view's own lines stay visible.
+6. Angles are in degrees, clockwise on the sheet. This is from +x toward +y, and y increases down the page. It is true for `rotate`, for a station `heading` and for a fill `angle`. When the sketch sets `yUp: true`, y increases up the page, and the same angles turn counter-clockwise.
+7. The pen width decides what is drawable. Each visible run of a stroke is judged as a whole: a run shorter than the nib becomes a single pen tap, or is dropped when a neighbouring stroke of the same pen already covers it. A hidden gap shorter than the pen width is inked through, because the pen could not have left it. A closed outline whose circumference exceeds the nib is drawn as a ring, however small.
 
 Other numerical policies exist but are not artistic tolerances: input coordinates snap to a 0.005 mm grid so shared edges coincide exactly, curves stay exact through the solve and are flattened only at export, and fields are sampled on rasters at encode time.
 

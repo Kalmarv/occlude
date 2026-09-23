@@ -341,7 +341,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.translate.mdx</include>
 <include>/_sig/Material.deform.mdx</include>
 
-Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, counter-clockwise. Both pivot on `origin`. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. A material has no frame, so `'center'` is the middle of the material's own bounds, not the middle of the drawable. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points.
+Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. A material has no frame, so `'center'` is the middle of the material's own bounds, not the middle of the drawable. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points.
 
 `deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement, and `m.map()` is always a position.
 
@@ -482,7 +482,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Station.toward.mdx</include>
 <include>/_sig/Toolkit.station.mdx</include>
 
-`t.station(x, y, { heading })` starts a walk at any point. The heading is in degrees, counter-clockwise from `+x`. `t.station(point, { heading })` takes a pair or an `{ x, y }` record, so a station or a centroid goes straight in. The `heading` field of a station stays in radians, because every station verb reads it.
+`t.station(x, y, { heading })` starts a walk at any point. The heading is in degrees from `+x`, clockwise on the sheet. `t.station(point, { heading })` takes a pair or an `{ x, y }` record, so a station or a centroid goes straight in. The `heading` field of a station stays in radians, because every station verb reads it.
 
 `station.step(distance)` gives a new station that distance along the heading. `station.turn(degrees)` gives a new station with the heading turned. `station.toward(q)` gives a new station at the same place, facing `q` along the geodesic from here to there. A `q` at this very place keeps the heading. On a sphere, a `q` exactly opposite has no one direction, and the station refuses it by name.
 

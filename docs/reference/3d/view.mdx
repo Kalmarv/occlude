@@ -9,7 +9,7 @@ description: "The camera, the drawing boundary, hatch, the view callback and sty
 
 <include>/_sig/3d.view.1.mdx</include>
 
-Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen.
+Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -94,7 +94,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## hatch
 
-`hatch: { spacing, angle?, offset?, stroke?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle. `select` is a test on the face rows. A recipe without a pen uses the object's `fillPen`, then its `stroke`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
+`hatch: { spacing, angle?, offset?, stroke?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a test on the face rows. A recipe without a pen uses the object's `fillPen`, then its `stroke`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -127,7 +127,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## The view callback
 
-`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace`, `suggestive` and `mapped`. Each also carries its source attributes. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.
+`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace`, `suggestive` and `mapped`. Each also carries its source attributes. `lines` holds only the folds that `creaseAngle` keeps, as the default ink does. A flatter fold is not in `lines`. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';
@@ -181,4 +181,18 @@ import { sketch, pen, mm } from 'occlude';
 import { box, sphere, style, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), blue: pen({ width: mm(0.3), color: '#2457D6' }) } }, (t) => view([box(1.4), ...style([sphere(0.6, { segments: 20, rings: 10 }).translate([1.3, 0.6, 0.6]), sphere(0.4, { segments: 20, rings: 10 }).translate([-1.1, -0.8, 0.9])], { stroke: 'blue', creaseAngle: 180 })], { camera: orthographic({ eye: [5, 7, 4], span: 5 }), stroke: 'ink' }));
+```
+
+## opaque
+
+A view is ink, not an occluder. It hides nothing that is earlier in the tree, and a second view does not hide the first. Put the meshes that must hide each other in one view. `opaque: true` makes the paper under the view's solids opaque, as `opaque: true` does for a shape. The view then hides the earlier ink there, and its own lines stay visible. A later opaque shape hides the view in the same way.
+
+```ts live
+import { sketch, pen, mm, polygon, rect, fill } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), grain: pen({ width: mm(0.15), color: '#8A94A6' }) } }, (t) => [
+  polygon(rect(0, 0, t.width, t.height), { fill: fill('hatch', { angle: 90, spacing: mm(1.2) }), stroke: false, pen: 'grain' }),
+  view(box([2, 2, 3]), { camera: orthographic({ eye: [6, -9, 5], target: [0, 0, 1.5], span: 7 }), stroke: 'ink', opaque: true }),
+]);
 ```

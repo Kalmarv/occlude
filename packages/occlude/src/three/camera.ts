@@ -104,8 +104,9 @@ export function clipTriangle3(triangle: Triangle3, near: number, far: number): T
  * physical `sheet` is given, beyond one edge of it. Nothing inside the convex
  * hull of such points can be plotted, and nothing outside the view can stand
  * between the eye and a visible point, so the object can be skipped without
- * changing a stroke. Strokes are not clipped to the paper frame, only to the
- * sheet by the plotter, so the frame itself is never a cull. A perspective
+ * changing a stroke. Features are not cut at the paper frame here — the
+ * finished ink is clipped to it (`inFrame3` in resolve.ts), after modifiers
+ * that need the whole line — so the frame itself is never a cull. A perspective
  * object with a point behind the eye is kept. */
 export function outsideView3(frame: CameraFrame3, points: readonly Vec3[], sheet?: PaperFrame3): boolean {
   if (!points.length) return true;

@@ -14,7 +14,7 @@ A fill is texture inside a closed shape: parallel lines, crossed lines, dots, ne
 <include>/_sig/fill.6.mdx</include>
 <include>/_sig/fill.7.mdx</include>
 
-A built-in pattern by name, with its parameters in one object. Spacing is a length. A bare number is drawable units. `mm()` is the usual choice, because the gap between lines is what reads as tone. Angle is in degrees from the x axis. Each pattern takes only the parameters in the table. A misspelt key is a type error, and the render refuses it by name.
+A built-in pattern by name, with its parameters in one object. Spacing is a length. A bare number is drawable units. `mm()` is the usual choice, because the gap between lines is what reads as tone. Angle is in degrees from the x axis, clockwise on the sheet. Each pattern takes only the parameters in the table. A misspelt key is a type error, and the render refuses it by name.
 
 | Pattern | Parameters | Marks |
 |---|---|---|
@@ -118,7 +118,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [circle(30, 50, 24, { fill: fil
 
 The `spacing` of `hatch`, `crosshatch` and `solid` can be a field of lengths, `(x, y) => length`. Each line reads the field along its length, one sample for each `step` (1 mm by default). The line keeps the smallest value inside the shape as the gap to the next line. The `density` of `stipple` can be a field too. Each dot reads it at its own position, so the dots are closer where the value is higher.
 
-Below, the lines of the water are closer near the horizon, and the dots of the sun are closer at its lower edge.
+Below, the lines of the water are closer near the horizon. The dots of the sun are closer at its lower edge.
 
 ```ts live
 import { sketch, rect, circle, fill, mm } from 'occlude';

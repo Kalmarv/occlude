@@ -569,10 +569,10 @@ fn coincident_seam_deduped() {
 }
 
 #[test]
-fn different_pen_overdraw_survives() {
-    // A different pen is intent, never a duplicate seam: a contour re-drawn
-    // in red, or index lines laid over fine ones in a wider pen, must reach
-    // the paper. Same pen, same geometry is still one seam.
+fn first_stroke_keeps_a_path_whatever_the_pen() {
+    // One pass of the pen: the first-drawn shape keeps a coincident path in
+    // its own pen, and a later stroke on the same path is dropped, whether
+    // its pen is the same or not.
     let g = || Primitive::Line(line(0., 0., 10., 0.));
     let rev = || Primitive::Line(line(10., 0., 0., 0.));
 
@@ -583,16 +583,16 @@ fn different_pen_overdraw_survives() {
         ],
         0.05,
     );
-    assert_eq!(out.len(), 2, "different pens both draw: {out:?}");
-    assert_eq!(out[0].pen, 0);
-    assert_eq!(out[1].pen, 1);
+    assert_eq!(out.len(), 1, "one path, one pass: {out:?}");
+    assert_eq!((out[0].shape, out[0].pen), (0, 0), "the first stroke keeps it");
 
-    // Order is free: the wide pen first keeps both as well.
+    // Order decides: the wide pen first keeps the path in the wide pen.
     let out = dedupe_seams(
         vec![Frag::whole(0, g(), 1, 0), Frag::whole(1, rev(), 0, 1)],
         0.05,
     );
-    assert_eq!(out.len(), 2, "overdraw survives either order: {out:?}");
+    assert_eq!(out.len(), 1, "one path, one pass: {out:?}");
+    assert_eq!((out[0].shape, out[0].pen), (0, 1), "the first stroke keeps it");
 
     // Same pen: one seam, the earlier shape.
     let out = dedupe_seams(
