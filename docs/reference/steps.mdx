@@ -202,7 +202,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 A batch is a list of records. Each edit adds records to `next.edits`, and the step applies the list when the pass ends. A record is plain data, for example `{ op: 'connect', a, b }`. The compound edits add the simple records: `extrude` adds `addPoint` and `connect`, and `splitEdges` adds one `split` for each edge. A pass can return a list, and then that list is the batch. In `steps(n, [rule, stage])`, `stage` reads the records of `rule` and returns a changed list. `m.steps(1, () => list)` applies a list that you keep.
 
-A record names a point in three ways: a vertex, its `id`, or the record of a new point in the same batch. A number is always an id, and never a row. To name a row, use `cur.points.at(row)`.
+A record names a point by a vertex, by its `id`, or by a new point's record from the same batch. A number is always an id, and never a row. To name a row, use `cur.points.at(row)`.
 
 | `op` | Fields |
 |---|---|
