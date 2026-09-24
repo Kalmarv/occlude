@@ -694,6 +694,64 @@ fn source_selection_preserves_ordered_modifier_phase_and_paper_crop() {
 }
 
 #[test]
+fn pre_stage_modifiers_carry_the_seen_ranges_through() {
+    use occlude_core::modifier::{Modifier,Param};
+    // A straight source line, seen on two stretches. Smooth, a zero roughen
+    // and a zero deform each reshape its vertex list without moving the
+    // ink, so the seen pieces must come out cut at exactly the same places:
+    // x in [26,46] and [58,82].
+    let line=Primitive::Line(Line::new(v(10.0,50.0),v(90.0,50.0)));
+    let programs=[
+        vec![Modifier::Smooth{passes:2}],
+        vec![Modifier::Roughen{amp:Param::Lit(0.0),detail:3.0}],
+        vec![Modifier::Deform{dx:Param::Lit(0.0),dy:Param::Lit(0.0),detail:2.0}],
+        vec![Modifier::Smooth{passes:1},Modifier::Deform{dx:Param::Lit(0.0),dy:Param::Lit(0.0),detail:1.0}],
+    ];
+    for program in programs {
+        let mut shape=stroke_shape(vec![vec![line]],false);
+        shape.modifiers=program.clone();shape.stroke_ranges=Some(vec![(0.2,0.45),(0.6,0.9)]);
+        let out=render(&input(vec![shape]));
+        assert!(!out.frags.is_empty(),"{program:?}");
+        let mut ink=0.0;let (mut lo,mut hi)=(f64::MAX,f64::MIN);
+        for f in &out.frags {
+            let (a,b)=(f.geom.start(),f.geom.end());
+            assert!((a.y-50.0).abs()<1e-9&&(b.y-50.0).abs()<1e-9,"{program:?}: ink left the line");
+            let (x0,x1)=(a.x.min(b.x),a.x.max(b.x));
+            assert!((x0>=26.0-1e-6&&x1<=46.0+1e-6)||(x0>=58.0-1e-6&&x1<=82.0+1e-6),"{program:?}: a piece outside the seen stretches: {x0}..{x1}");
+            ink+=x1-x0;lo=lo.min(x0);hi=hi.max(x1);
+        }
+        assert!((ink-44.0).abs()<1e-6,"{program:?}: ink {ink}");
+        assert!((lo-26.0).abs()<1e-6&&(hi-82.0).abs()<1e-6,"{program:?}: {lo}..{hi}");
+    }
+    // A deform that moves the line moves the pieces with it, cut at the
+    // same fractions of the source.
+    let mut shape=stroke_shape(vec![vec![line]],false);
+    shape.modifiers=vec![Modifier::Deform{dx:Param::Lit(0.0),dy:Param::Lit(5.0),detail:2.0}];
+    shape.stroke_ranges=Some(vec![(0.2,0.45)]);
+    let out=render(&input(vec![shape]));
+    let xs:Vec<f64>=out.frags.iter().flat_map(|f|[f.geom.start().x,f.geom.end().x]).collect();
+    assert!(out.frags.iter().all(|f|(f.geom.start().y-55.0).abs()<1e-9));
+    assert!((xs.iter().cloned().fold(f64::MAX,f64::min)-26.0).abs()<1e-6&&(xs.iter().cloned().fold(f64::MIN,f64::max)-46.0).abs()<1e-6);
+    // And the dash phase runs along the whole reshaped line: a selection's
+    // pieces are the full line's dashes, not dashes restarted per piece.
+    let program=vec![Modifier::Deform{dx:Param::Lit(0.0),dy:Param::Lit(3.0),detail:2.0},Modifier::Dash{len:3.7,gap:2.3,offset:0.9}];
+    let mut shape=stroke_shape(vec![vec![line]],false);
+    shape.modifiers=program;shape.stroke_ranges=Some(vec![(0.0,1.0)]);
+    let full=render(&input(vec![shape.clone()]));
+    shape.stroke_ranges=Some(vec![(0.2,0.45),(0.6,0.9)]);
+    let selected=render(&input(vec![shape]));
+    assert!(selected.frags.len()>4);
+    for f in &selected.frags {
+        let r=f.run.unwrap();
+        let original=full.frags.iter().find(|g|{let s=g.run.unwrap();s.start<=r.start+1e-9&&s.end>=r.end-1e-9}).expect("a seen piece is a piece of the full line's dashes");
+        let s=original.run.unwrap();
+        for (t,point) in [(r.start,f.geom.start()),(r.end,f.geom.end())] {
+            assert!(point.dist(original.geom.eval((t-s.start)/(s.end-s.start)))<1e-6);
+        }
+    }
+}
+
+#[test]
 fn source_selection_keeps_tiny_gaps_and_off_page_modifier_overscan() {
     use occlude_core::modifier::{Modifier,Param};
     let mut shape=stroke_shape(vec![vec![Primitive::Line(Line::new(v(10.0,50.0),v(90.0,50.0)))]],false);

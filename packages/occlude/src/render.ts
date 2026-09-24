@@ -460,35 +460,14 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   let shapeIndex = -1;
   for (const shape of state.shapes) {
     shapeIndex++;
-    let lowered = lowerShape(shape, frame);
+    const lowered = lowerShape(shape, frame);
     // A projected stroke carries its whole source line and the ranges of it
-    // that are seen. A pre-stage modifier (deform, roughen, smooth) moves
-    // the line before the solve, where a range means nothing — so the seen
-    // pieces are cut out first, as plain polylines, and the modifier takes
-    // those. The seed protocol (a dash phase carried across pieces) goes
-    // with the ranges.
-    let ranges = shape.strokeRanges;
-    let seed = shape.strokeSeed;
-    if (ranges && shape.modifiers.some((m) => m.kind === 'smooth' || m.kind === 'roughen' || m.kind === 'deform')) {
-      // A range is a stretch of the source line in segment units, fractional
-      // at both ends: the piece from a to b is the segments floor(a) … ceil(b)
-      // with the first and last trimmed at their fraction.
-      const src = lowered.contours[0] ?? [];
-      const piece = ([a, b]: readonly [number, number]): Prim[] => {
-        const out: Prim[] = [];
-        const first = Math.floor(a);
-        const last = Math.min(src.length, Math.ceil(b)) - 1;
-        for (let i = Math.max(0, first); i <= last; i++) {
-          const t0 = i === first ? a - i : 0;
-          const t1 = i === last ? b - i : 1;
-          if (t1 > t0) out.push(subPrim(src[i], t0, t1));
-        }
-        return out;
-      };
-      lowered = { ...lowered, contours: ranges.map(piece).filter((c) => c.length > 0) };
-      ranges = undefined;
-      seed = undefined;
-    }
+    // that are seen, in the line's own segment units. A pre-stage modifier
+    // (deform, roughen, smooth) reshapes the line inside the engine, which
+    // carries the ranges through to the reshaped line's units — one cut,
+    // in the engine, and the dash phase (the seed) kept across the pieces.
+    const ranges = shape.strokeRanges;
+    const seed = shape.strokeSeed;
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
     const winding = (geom.kind === 'path' || geom.kind === 'area') && geom.winding === 'evenodd' ? 4 : 0;
@@ -650,7 +629,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // Optional source selection shares the f64 tape, outside modifier instructions.
     const rangeStart=modsBuf.length;
     if(ranges) {
-      if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec || modifiers.some(m=>['smooth','roughen','deform'].includes(m.kind)))throw new Error('strokeRanges requires one polyline without fill or pre-stage modifiers');
+      if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec)throw new Error('strokeRanges requires one polyline without fill');
       const count=lowered.contours[0].length;
       let end=0;
       for(const [a,b] of ranges) {

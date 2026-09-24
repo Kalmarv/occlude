@@ -1,11 +1,12 @@
 /**
  * A pre-stage modifier on a 3D view's strokes. A projected stroke carries
  * its whole source line and the ranges of it that are seen; `deform`,
- * `roughen` and `smooth` move the line before the solve, where a range
- * means nothing, so the seen pieces are cut out first and the modifier
- * takes those. Before this it refused: "strokeRanges requires one polyline
- * without fill or pre-stage modifiers". Also: a field a sketch writes by
- * hand may answer a plain `[dx, dy]` — TypeScript reads that as number[].
+ * `roughen` and `smooth` reshape the line inside the engine, which carries
+ * the ranges through to the reshaped line's units — one cut, in the
+ * engine, and the dash phase kept across the pieces. Before this it
+ * refused: "strokeRanges requires one polyline without fill or pre-stage
+ * modifiers". Also: a field a sketch writes by hand may answer a plain
+ * `[dx, dy]` — TypeScript reads that as number[].
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -18,12 +19,15 @@ beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 });
 
-const drawing = (field: (x: number, y: number) => number[]) => sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#000000' }) } }, () => {
+const drawing = (field: ((x: number, y: number) => number[]) | null) => sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#000000' }) } }, () => {
   const pts = grid({ rows: 2, cols: 2, layers: 2, spacing: 1.2 });
   const boxes = instanceOnPoints(box(), pts.points);
   return view(boxes, { camera: perspective({ eye: [5, 5.3, 2.8], target: [0.6, 0.5, 0], fovDegrees: 45 }) },
-    (lines) => deform(field, strokes(lines.visible, { pen: 'ink' })));
+    (lines) => field ? deform(field, strokes(lines.visible, { pen: 'ink' })) : strokes(lines.visible, { pen: 'ink' }));
 }) as SketchDef;
+
+const inkOf = (frags: { geom: { t: string; x0?: number; y0?: number; x1?: number; y1?: number } }[]): number =>
+  frags.reduce((s, f) => f.geom.t === 'line' ? s + Math.hypot(f.geom.x1! - f.geom.x0!, f.geom.y1! - f.geom.y0!) : s, 0);
 
 describe('deform on a view\'s strokes', () => {
   it('a plain [dx, dy] field is accepted, and the seen pieces are warped instead of refused', async () => {
@@ -34,5 +38,11 @@ describe('deform on a view\'s strokes', () => {
     const x0 = still.frags.map((f) => f.geom.t === 'line' ? f.geom.x0 : 0).reduce((a, b) => a + b, 0);
     const x1 = waved.frags.map((f) => f.geom.t === 'line' ? f.geom.x0 : 0).reduce((a, b) => a + b, 0);
     expect(Math.abs(x1 - x0)).toBeGreaterThan(1);
+  }, 120_000);
+
+  it('a field that moves nothing leaves exactly the plain view\'s ink: the seen pieces are cut where the view cut them', async () => {
+    const plain = await renderAsync(drawing(null), { paper: 'Square20' });
+    const still = await renderAsync(drawing((x, y) => [0, 0]), { paper: 'Square20' });
+    expect(inkOf(still.frags)).toBeCloseTo(inkOf(plain.frags), 6);
   }, 120_000);
 });

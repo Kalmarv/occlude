@@ -31,13 +31,23 @@ it('anchors a multi-segment 3D wire through a box occluder and actual planned SV
   expect(svg).toContain('<path');expect(svg).not.toContain('NaN');
 });
 
-it('rejects invalid source intervals; a pre-stage modifier takes the seen pieces',()=>{
+it('rejects invalid source intervals; a pre-stage modifier carries the seen ranges through',()=>{
   const run=(ranges:readonly (readonly [number,number])[],modifiers:NonNullable<Parameters<typeof stroke>[1]>['modifiers']=[])=>render(sketch(config,()=>stroke([[10,50],[90,50]],{stroke:'ink',strokeRanges:ranges,modifiers})),{paper:{w:100,h:100}});
   expect(()=>run([[.5,.4]])).toThrow('sorted disjoint');
   expect(()=>run([[0,2]])).toThrow('sorted disjoint');
-  // A pre-stage modifier no longer refuses: the seen piece is cut out and
-  // the modifier takes it as a plain polyline.
-  expect(run([[0,1]],[smooth(1)]).raw.frags.length).toBeGreaterThan(0);
+  // A pre-stage modifier does not refuse: the engine reshapes the line and
+  // re-expresses the seen range in the reshaped line's own units, so a
+  // smoothed straight line is still cut at the same two places.
+  const smoothed=run([[0.25,0.5]],[smooth(1)]).frags;
+  expect(smoothed.length).toBeGreaterThan(0);
+  let ink=0;
+  for(const f of smoothed){
+    if(f.geom.t!=='line')throw new Error('a line');
+    const [x0,x1]=[Math.min(f.geom.x0,f.geom.x1),Math.max(f.geom.x0,f.geom.x1)];
+    expect(x0).toBeGreaterThanOrEqual(30-1e-6);expect(x1).toBeLessThanOrEqual(50+1e-6);
+    ink+=x1-x0;
+  }
+  expect(ink).toBeCloseTo(20,6);
   expect(run([]).raw.frags.length).toBe(0);
 });
 

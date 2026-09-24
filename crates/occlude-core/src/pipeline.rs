@@ -479,8 +479,8 @@ impl Prepared {
         for s in &self.shapes {
             if s.stroke_seed.is_some() && s.stroke_ranges.is_none() {return Err("source seed requires source ranges".into());}
             if let Some(ranges) = &s.stroke_ranges {
-                if s.contours.len()!=1 || s.contours[0].iter().any(|p| !matches!(p,Primitive::Line(_))) || s.fill.is_some() || s.modifiers.iter().any(|m|m.stage()==Stage::Pre) {
-                    return Err("stroke ranges require one polyline without fill or pre-stage modifiers".into());
+                if s.contours.len()!=1 || s.contours[0].iter().any(|p| !matches!(p,Primitive::Line(_))) || s.fill.is_some() {
+                    return Err("stroke ranges require one polyline without fill".into());
                 }
                 let mut end=0.0;
                 for &(a,b) in ranges {
@@ -1490,6 +1490,17 @@ fn prefix_len(origin: &Primitive, t0: f64) -> f64 {
 /// Contours flatten to polylines once (0.05 mm), the ops transform points,
 /// and line primitives are rebuilt at the end. Convexity is conservatively
 /// dropped — deformed geometry makes no promises.
+/// Where a reshaped vertex came from: its position along the ORIGINAL
+/// polyline, in that polyline's segment units (vertex i of the original is
+/// i). Every pre-stage step keeps the list in step with its points —
+/// resampling and corner cutting interpolate between the parameters of the
+/// vertices they sit between, subdivision halves, displacement leaves them
+/// alone, and a merged vertex takes its own away — so a shape's seen
+/// ranges (`stroke_ranges`, in the original's units) can be re-expressed in
+/// the reshaped polyline's units and the engine keeps its one cut and the
+/// dash phase across the pieces.
+type Params = Vec<f64>;
+
 fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens: &[Pen]) -> ShapeRec {
     if !s.modifiers.iter().any(|m| m.stage() == Stage::Pre) {
         return s.clone();
@@ -1500,18 +1511,19 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
         .iter()
         .map(|c| contour_polyline(c, 0.05, closed))
         .collect();
+    let mut params: Vec<Params> = polys.iter().map(|p| (0..p.len()).map(|i| i as f64).collect()).collect();
     for m in &s.modifiers {
         match m {
             Modifier::Smooth { passes } => {
                 let _z = crate::profile::zone("1a smooth");
-                for poly in &mut polys {
-                    chaikin(poly, *passes, closed);
+                for (poly, pr) in polys.iter_mut().zip(params.iter_mut()) {
+                    chaikin(poly, pr, *passes, closed);
                 }
             }
             Modifier::Roughen { amp, detail } => {
                 let _z = crate::profile::zone("1b roughen");
-                for (ci, poly) in polys.iter_mut().enumerate() {
-                    resample_polyline(poly, detail.max(0.2), closed);
+                for (ci, (poly, pr)) in polys.iter_mut().zip(params.iter_mut()).enumerate() {
+                    resample_polyline(poly, pr, detail.max(0.2), closed);
                     let n = poly.len();
                     let (lo, hi) = if closed {
                         (0, n)
@@ -1540,7 +1552,7 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
                     let d = fields.vector(dx, dy, p);
                     v(p.x + d.x, p.y + d.y)
                 };
-                for poly in &mut polys {
+                for (poly, pr) in polys.iter_mut().zip(params.iter_mut()) {
                     // Adaptive floor: small shapes need proportionally finer
                     // source sampling — guarantee ≥64 segments per contour.
                     let len: f64 = poly
@@ -1548,7 +1560,7 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
                         .map(|w| (w[1].x - w[0].x).hypot(w[1].y - w[0].y))
                         .sum();
                     let step = target.min(len / 64.0).max(0.2);
-                    resample_polyline(poly, step, closed);
+                    resample_polyline(poly, pr, step, closed);
                     // Displace with OUTPUT-adaptive subdivision: the field
                     // can stretch space (a vortex core stretches tangent
                     // spacing many-fold), so bisect source edges until the
@@ -1560,14 +1572,18 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
                     }
                     let edges = if closed { n } else { n - 1 };
                     let mut out: Vec<Vec2> = Vec::with_capacity(n * 2);
+                    let mut out_p: Params = Vec::with_capacity(n * 2);
                     for i in 0..edges {
                         let (a, b) = (poly[i], poly[(i + 1) % n]);
-                        subdivide_map(&map, a, b, map(a), map(b), target, 7, &mut out);
+                        let (pa, pb) = (pr[i], wrap_param(pr, i, n));
+                        subdivide_map(&map, a, b, map(a), map(b), pa, pb, target, 7, &mut out, &mut out_p);
                     }
                     if !closed {
                         out.push(map(poly[n - 1]));
+                        out_p.push(pr[n - 1]);
                     }
                     *poly = out;
+                    *pr = out_p;
                 }
             }
             _ => {}
@@ -1583,9 +1599,19 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
         .map(|p| p.width)
         .unwrap_or(0.3)
         .max(0.05);
-    for poly in &mut polys {
-        simplify_polyline(poly, min_seg, closed);
+    for (poly, pr) in polys.iter_mut().zip(params.iter_mut()) {
+        simplify_polyline(poly, pr, min_seg, closed);
     }
+    // The seen ranges, in the reshaped polyline's segment units. A range
+    // that collapses (both ends merged into one vertex) is gone.
+    let stroke_ranges = s.stroke_ranges.as_ref().map(|ranges| {
+        let pr = params.first().map(Vec::as_slice).unwrap_or(&[]);
+        ranges
+            .iter()
+            .map(|&(a, b)| (locate_param(pr, a), locate_param(pr, b)))
+            .filter(|&(a, b)| b > a)
+            .collect::<Vec<_>>()
+    });
     let contours: Vec<Vec<Primitive>> = polys
         .iter()
         .map(|poly| polyline_prims(poly, closed))
@@ -1594,8 +1620,35 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
     ShapeRec {
         contours,
         convex: false,
+        stroke_ranges,
         ..s.clone()
     }
+}
+
+/// The parameter of the end of edge `i` of an `n`-vertex polyline: the next
+/// vertex's, or one segment past the last for a closed polyline's closing
+/// edge (its wrap edge is the original's last segment).
+fn wrap_param(pr: &[f64], i: usize, n: usize) -> f64 {
+    if i + 1 < n { pr[i + 1] } else { pr[n - 1] + 1.0 }
+}
+
+/// The position along a reshaped polyline, in its segment units, of the
+/// original parameter `t`: the vertex pair whose parameters bracket `t`,
+/// interpolated. Past either end it clamps to the end.
+fn locate_param(pr: &[f64], t: f64) -> f64 {
+    if pr.len() < 2 {
+        return 0.0;
+    }
+    let j = pr.partition_point(|&p| p <= t);
+    if j == 0 {
+        return 0.0;
+    }
+    if j >= pr.len() {
+        return (pr.len() - 1) as f64;
+    }
+    let (p0, p1) = (pr[j - 1], pr[j]);
+    let frac = if p1 > p0 { (t - p0) / (p1 - p0) } else { 0.0 };
+    (j - 1) as f64 + frac.clamp(0.0, 1.0)
 }
 
 /// Flatten a contour to a polyline. Closed contours arrive with the last
@@ -1619,55 +1672,66 @@ fn contour_polyline(contour: &[Primitive], tol: f64, closed: bool) -> Vec<Vec2> 
 }
 
 /// Insert vertices so no edge (including a closed polyline's implicit
-/// closing edge) exceeds `step`.
-fn resample_polyline(poly: &mut Vec<Vec2>, step: f64, closed: bool) {
+/// closing edge) exceeds `step`; their parameters interpolate.
+fn resample_polyline(poly: &mut Vec<Vec2>, pr: &mut Params, step: f64, closed: bool) {
     let n = poly.len();
     if n < 2 {
         return;
     }
     let mut out: Vec<Vec2> = Vec::with_capacity(n * 2);
+    let mut out_p: Params = Vec::with_capacity(n * 2);
     let edges = if closed { n } else { n - 1 };
     for i in 0..edges {
         let a = poly[i];
         let b = poly[(i + 1) % n];
+        let (pa, pb) = (pr[i], wrap_param(pr, i, n));
         let len = (b.x - a.x).hypot(b.y - a.y);
         let k = (len / step).ceil().max(1.0) as usize;
         for j in 0..k {
             let t = j as f64 / k as f64;
             out.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+            out_p.push(pa + (pb - pa) * t);
         }
     }
     if !closed {
         out.push(poly[n - 1]);
+        out_p.push(pr[n - 1]);
     }
     *poly = out;
+    *pr = out_p;
 }
 
 /// Chaikin corner cutting; converges to a quadratic B-spline. Open
-/// polylines keep their endpoints.
-fn chaikin(poly: &mut Vec<Vec2>, passes: u32, closed: bool) {
+/// polylines keep their endpoints. Parameters follow the cuts.
+fn chaikin(poly: &mut Vec<Vec2>, pr: &mut Params, passes: u32, closed: bool) {
     for _ in 0..passes {
         let n = poly.len();
         if n < 3 {
             return;
         }
         let mut out: Vec<Vec2> = Vec::with_capacity(n * 2);
-        let cut = |a: Vec2, b: Vec2, out: &mut Vec<Vec2>| {
+        let mut out_p: Params = Vec::with_capacity(n * 2);
+        let cut = |a: Vec2, b: Vec2, pa: f64, pb: f64, out: &mut Vec<Vec2>, out_p: &mut Params| {
             out.push(v(a.x * 0.75 + b.x * 0.25, a.y * 0.75 + b.y * 0.25));
             out.push(v(a.x * 0.25 + b.x * 0.75, a.y * 0.25 + b.y * 0.75));
+            out_p.push(pa * 0.75 + pb * 0.25);
+            out_p.push(pa * 0.25 + pb * 0.75);
         };
         if closed {
             for i in 0..n {
-                cut(poly[i], poly[(i + 1) % n], &mut out);
+                cut(poly[i], poly[(i + 1) % n], pr[i], wrap_param(pr, i, n), &mut out, &mut out_p);
             }
         } else {
             out.push(poly[0]);
+            out_p.push(pr[0]);
             for i in 0..n - 1 {
-                cut(poly[i], poly[i + 1], &mut out);
+                cut(poly[i], poly[i + 1], pr[i], pr[i + 1], &mut out, &mut out_p);
             }
             out.push(poly[n - 1]);
+            out_p.push(pr[n - 1]);
         }
         *poly = out;
+        *pr = out_p;
     }
 }
 
@@ -1676,24 +1740,31 @@ fn chaikin(poly: &mut Vec<Vec2>, passes: u32, closed: bool) {
 /// FLAT enough — the midpoint's image must sit within `SAG_TOL` of the
 /// chord midpoint. The flatness test is what catches tight curls: near a
 /// vortex core the curve can turn sharply between samples that are well
-/// within the length bound. Pushes f(a) and refined interior points; the
-/// caller's next edge (or explicit tail) supplies f(b).
+/// within the length bound. Pushes f(a) and refined interior points, with
+/// their source parameters (`pa`, `pb` are the edge's); the caller's next
+/// edge (or explicit tail) supplies f(b).
+#[allow(clippy::too_many_arguments)]
 fn subdivide_map<F: Fn(Vec2) -> Vec2>(
     f: &F,
     a: Vec2,
     b: Vec2,
     fa: Vec2,
     fb: Vec2,
+    pa: f64,
+    pb: f64,
     target: f64,
     depth: u32,
     out: &mut Vec<Vec2>,
+    out_p: &mut Params,
 ) {
     const SAG_TOL: f64 = 0.05;
     if depth == 0 {
         out.push(fa);
+        out_p.push(pa);
         return;
     }
     let m = v((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+    let pm = (pa + pb) / 2.0;
     let fm = f(m);
     let chord = (fb.x - fa.x).hypot(fb.y - fa.y);
     let dev = (fm.x - (fa.x + fb.x) / 2.0).hypot(fm.y - (fa.y + fb.y) / 2.0);
@@ -1709,31 +1780,36 @@ fn subdivide_map<F: Fn(Vec2) -> Vec2>(
         let d3 = (fq3.x - (fm.x + fb.x) / 2.0).hypot(fq3.y - (fm.y + fb.y) / 2.0);
         if d1 <= SAG_TOL && d3 <= SAG_TOL {
             out.push(fa);
+            out_p.push(pa);
             return;
         }
     }
-    subdivide_map(f, a, m, fa, fm, target, depth - 1, out);
-    subdivide_map(f, m, b, fm, fb, target, depth - 1, out);
+    subdivide_map(f, a, m, fa, fm, pa, pm, target, depth - 1, out, out_p);
+    subdivide_map(f, m, b, fm, fb, pm, pb, target, depth - 1, out, out_p);
 }
 
 /// Merge chain vertices so no segment falls below `min_seg`. Endpoints of
 /// open chains are preserved (the final point replaces the last kept one
 /// when it lands too close); closed chains drop a last point that crowds
-/// the start.
-fn simplify_polyline(poly: &mut Vec<Vec2>, min_seg: f64, closed: bool) {
+/// the start. A dropped vertex's parameter goes with it.
+fn simplify_polyline(poly: &mut Vec<Vec2>, pr: &mut Params, min_seg: f64, closed: bool) {
     if poly.len() < 3 || min_seg <= 0.0 {
         return;
     }
     let mut out: Vec<Vec2> = Vec::with_capacity(poly.len());
+    let mut out_p: Params = Vec::with_capacity(poly.len());
     out.push(poly[0]);
+    out_p.push(pr[0]);
     let last_idx = poly.len() - 1;
     for (i, &p) in poly.iter().enumerate().skip(1) {
         let l = *out.last().unwrap();
         let d = (p.x - l.x).hypot(p.y - l.y);
         if d >= min_seg {
             out.push(p);
+            out_p.push(pr[i]);
         } else if !closed && i == last_idx && out.len() > 1 {
             *out.last_mut().unwrap() = p;
+            *out_p.last_mut().unwrap() = pr[i];
         }
     }
     // Closed: keep popping while the wrap segment is sub-nib — a single
@@ -1745,11 +1821,13 @@ fn simplify_polyline(poly: &mut Vec<Vec2>, min_seg: f64, closed: bool) {
         let (a, b) = (out[0], *out.last().unwrap());
         if (a.x - b.x).hypot(a.y - b.y) < min_seg {
             out.pop();
+            out_p.pop();
         } else {
             break;
         }
     }
     *poly = out;
+    *pr = out_p;
 }
 
 fn polyline_prims(poly: &[Vec2], closed: bool) -> Vec<Primitive> {
