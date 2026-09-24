@@ -216,25 +216,42 @@ A record names a point by a vertex, by its `id`, or by a new point's record from
 | `remove` | `point` |
 | `split` | `edge`, `at`, `point`, `edges` |
 
-Below, a ring grows by the drift of Anders Hoff. At each step, a random point gets a child, and two random points join. The second pass in the list is an error process. It sends one `connect` in twenty to the first point of the ring. The black run is the drift. The blue run is the same drift with the errors. Where the two runs agree, the black covers the blue, so the blue fan is what the errors changed. A slip onto a joined pair, or onto the first point itself, drops, and the step continues.
-
-`t.stream(name)` starts the stream again each time that you open it. So open an error stream one time, outside the rule. Here the same restart gives the two runs the same drift.
+Below, one rule settles a grid, and a second pass in the same batch reads its records. The pass scales each `move` by a field that rises from left to right. It reads the point by its `id` with `cur.pointOf`. The left of the sheet stays a grid, and the right wanders. The rule does not know about the field. The pass never moves a point. It only changes what the rule asked.
 
 ```ts live
-import { sketch, strokes, circle, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, rect, material, connect, force, mul } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
-  const ring = t.sample(circle(50, 50, 16), { count: 16 });
-  const first = ring.points.at(0).id;
-  const errors = t.stream('errors');
-  const drift = (rng) => (cur, next) => {
-    next.extrude(rng.pick(cur.points), (p) => ({ position: add(p, mul(fromAngle(rng.rnd(0, 2 * Math.PI)), 8)) }));
-    next.connect(rng.pick(cur.points), rng.pick(cur.points));
+export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
+  const b = t.bounds();
+  const page = t.material(rect(b.x + 4, b.y + 4, b.w - 8, b.h - 8));
+  const chaos = (x) => ((x - b.x) / b.w) ** 2;
+  const grid = connect.triangulate(material(t.grid({ cols: 36, rows: 24, gap: 4 }).map((c) => [c.cx, c.cy])));
+  const wander = force.drift(t.noise, { amount: 1.5, frequency: 0.08 });
+  const settle = (cur, next, k) => {
+    const push = force.sum(force.separation(cur, { radius: 3 }), force.boundary(page, { radius: 5 }), wander);
+    next.move(cur.points, (p) => mul(push(p, k), 0.4));
   };
-  const slip = (e) => (e.op === 'connect' && errors.chance(0.05) ? { ...e, b: first } : e);
-  const faithful = ring.steps(220, drift(t.stream('drift')));
-  const mutated = ring.steps(220, [drift(t.stream('drift')), (cur, next) => next.edits.map(slip)]);
-  return [strokes(faithful), strokes(mutated, { pen: 'stabilo-88-blue' })];
+  const scaled = (cur, next) => next.edits.map((e) => (e.op === 'move' ? { ...e, by: mul(e.by, chaos(cur.pointOf(e.point).x)) } : e));
+  return strokes(grid.steps(30, [settle, scaled]));
+});
+```
+
+A rule can also return a list and call nothing on `next`. Below, array code builds the list. It holds a chord from each point, a small move for each point, and a removal of every third point. A removal wins over a move on that point. So the fold drops those moves as `removed`, and also the chords that meet those points. `dropped` names each one. The blue rings mark the points that are gone, read from the state before the step.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const ring = t.sample(circle(50, 50, 38), { count: 48 });
+  const pts = [...ring.points];
+  const list = [
+    ...pts.map((p, i) => ({ op: 'connect', a: p.id, b: pts[(i + 19) % pts.length].id })),
+    ...pts.map((p) => ({ op: 'move', point: p.id, by: [t.rnd(-1.5, 1.5), t.rnd(-1.5, 1.5)] })),
+    ...pts.filter((p) => p.index % 3 === 0).map((p) => ({ op: 'remove', point: p.id })),
+  ];
+  const cut = ring.steps(1, () => list);
+  const gone = cut.dropped.filter((d) => d.edit.op === 'move').map((d) => ring.pointOf(d.edit.point));
+  return [strokes(cut, { pen: 'pigma-005-black' }), gone.map((p) => circle(p, 1.4, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
