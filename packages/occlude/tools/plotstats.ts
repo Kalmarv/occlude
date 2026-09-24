@@ -1,6 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * Toolpath statistics: render sketches headless, export the toolpath plan,
+ * Toolpath statistics: render sketches headless, plan them exactly as the
+ * studio and the exports do (the sketch's own `t.plan` — bridge, tour
+ * budget, shader — with the library's defaults where it said nothing),
  * and report the numbers that path-optimization passes would change —
  * measured before/after evidence, not guesses.
  *
@@ -461,12 +463,12 @@ for (const file of files) {
       : Object.values(exp).find(isSketch)) as SketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
     const r = render(def, inputsFor(js, { paper: { paper, landscape }, seed: seedArg(seed), pens }));
-    const plan = (core as unknown as {
-      wasm_export_toolpath(
-        p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number,
-      ): Float64Array;
-    }).wasm_export_toolpath(r.raw.prims, r.raw.frags, pensToJson(r.pens), 200_000, tolerance);
-    rows.push(analyze(basename(file, '.ts'), parsePlan(plan), r.pens));
+    // The plan the sketch asked for (`t.plan`: bridge, tour budget, shader),
+    // through the same door the studio and the exports use; the library's
+    // defaults where the sketch said nothing.
+    const p = await occlude.plan(r);
+    const chains = occlude.planToolpath(p, occlude.selectAll(p), tolerance).map((c) => ({ pen: c.pen, dot: c.dot, pts: Array.from(c.pts) }));
+    rows.push(analyze(basename(file, '.ts'), chains, r.pens));
   } catch (e) {
     console.error(`${basename(file)}: ${e instanceof Error ? e.message : String(e)}`);
   }
