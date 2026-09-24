@@ -21,7 +21,6 @@ const PATHS = {
   pause: '<path d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
   frame: '<rect x="4" y="5" width="16" height="14" rx="1.5"/><path d="M4 9h16M8 5v14"/>',
-  marks: '<circle cx="12" cy="12" r="5"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>',
   trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>',
   open: '<path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 13v7H4V6h7"/>',
   gallery: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/>',

@@ -22,7 +22,6 @@ import {
   type Corner, CORNERS, DEFAULT_CORNER, isCorner,
   type Drawing, type ExecutionSettings, type PlotRecord, type RegionBlob,
 } from './drawing.js';
-import { registrationMarks } from './diagnostics.js';
 import { freeze } from './freeze.js';
 import { dualRange } from './rangeSlider.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
@@ -1018,25 +1017,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   // at its bottom-right, drawn with the selected pen. Between pens: marks,
   // tape, swap, marks again — the brackets coincide iff the new pen sits
   // where the old one did, and the pair traces the sheet's bounds.
-  const marksBtn = iconButton('marks', 'Marks — draw a right angle at the sheet’s top-left and bottom-right', async () => {
-    if (!dr().connected || dr().plotting) return;
-    const r = hooks.lastResult();
-    if (!r) return;
-    try {
-      // The sheet in paper mm: the diagnostic is plotted with the paper offset,
-      // so (0,0) is the sheet's own corner.
-      const bb = { x: 0, y: 0, w: r.paper.w, h: r.paper.h };
-      const raw = parseInt(penSelect.value, 10);
-      const chosen = raw >= 0 ? r.pens[raw] : r.pens[0];
-      const pen = chosen ?? undefined;
-      const d = registrationMarks(pen, bb);
-      await dr().plot(d.plan, d.pens, m.opts(), onProgress);
-    } catch (e) {
-      showErr(e);
-    }
-  });
-  marksBtn.title = 'Marks — draw a right angle at the sheet’s top-left and bottom-right with the selected pen, the legs running inward so the pair traces the sheet’s bounds. Before a pen change: marks, tape over them, swap pens, marks again — line the brackets up and the pens are registered.';
-
   const resumeBtn = button('Resume', async () => {
     if (!dr().connected || dr().plotting || !saved) return;
     const r = hooks.lastResult();
@@ -1174,7 +1154,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   );
 
   const connect = buildConnect(m);
-  const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn, marksBtn);
+  const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn);
   const manual = buildManualControls(m);
 
   // Plot only: a repair interval on the plan's timeline. Studio state, not

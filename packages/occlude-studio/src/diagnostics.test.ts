@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  backlashSquares, cornerRinging, downSweep, liftGrid, liftTraverse, registrationMarks, registrationProbe, settleLift,
+  backlashSquares, cornerRinging, downSweep, liftGrid, liftTraverse, registrationProbe, settleLift,
 } from './diagnostics.js';
 
 /** Mirror of ebb.plot()'s plan parser. */
@@ -165,24 +165,4 @@ describe('lift traverse', () => {
     }
   });
 
-  test('registration corners: a right angle through the sheet’s (0,0) and its bottom-right, legs inward', () => {
-    const base = { name: 'posca', width: 1, color: '#000', feed: 3500, penDown: 0, penUp: 5, penDelay: 400 };
-    const d = registrationMarks(base, { x: 0, y: 0, w: 148, h: 100 }, 3);
-    const chains = parse(d.plan);
-    expect(chains).toHaveLength(2);
-    // The vertex IS the sheet corner — not a mark beside it — and the legs run
-    // inward along the two edges.
-    expect(chains[0].pts).toEqual([[0, 3], [0, 0], [3, 0]]);
-    expect(chains[1].pts).toEqual([[148, 97], [148, 100], [145, 100]]);
-    for (const c of chains) {
-      const [a, v, b] = c.pts;
-      const leg1 = [v[0] - a[0], v[1] - a[1]];
-      const leg2 = [b[0] - v[0], b[1] - v[1]];
-      expect(leg1[0] * leg2[0] + leg1[1] * leg2[1]).toBe(0); // perpendicular
-      expect(Math.hypot(leg1[0], leg1[1])).toBeCloseTo(3); // legs are `size`
-      expect(Math.hypot(leg2[0], leg2[1])).toBeCloseTo(3);
-    }
-    expect(d.pens[0].feed).toBe(3500);
-    expect(d.pens[0].penDelay).toBe(400);
-  });
 });

@@ -138,7 +138,7 @@ Three tools in the Plot panel narrow what the *machine* plots without changing t
 
 The readout while plotting is `<state> · <pen> · <eta> min left · <drawn> / <total> mm · re-ink in <N> mm`. A pen with a re-ink budget parks at the bed origin mid-plan and waits, which is where you pump, refill or reseat it; Device notes has the procedure.
 
-**Marks** draws a right angle at the sheet's top-left and another at its bottom-right with the selected pen, the legs running inward, so the pair traces the sheet's bounds. For a pen change: marks, tape over them, swap pens, marks again — line the brackets up and the pens are registered. Marks is a plot of its own, so it leaves the progress record alone.
+For a pen change, register the pens on one mark. The Registration section of the plotting reference has the flow.
 
 ## Calibration
 
