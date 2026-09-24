@@ -43,7 +43,8 @@ describe('immutable mesh values and frozen domains',()=>{
   expect(value.history.every(s=>s.geometry.history.length===0)).toBe(true);
   expect(value.points.map(p=>p.z)).toEqual(original.points.map(p=>p.mobility*6));
   expect(()=>escaped!.move(original.points,[0,0,1])).toThrow('closed');
-  expect(()=>value.steps(1,(_,next)=>next.move(original.points,[0,0,1]))).toThrow('another mesh revision');
+  // a selection of an earlier revision is read by id, and lands
+  expect(value.steps(1,(_,next)=>next.move(original.points,[0,0,1])).points.map(p=>p.z)).toEqual(value.points.map(p=>p.z+1));
   const continued=value.steps(1,(_,next)=>{}, {every:1});expect(continued.iteration).toBe(4);expect(continued.history.map(s=>s.iteration)).toEqual([3,4]);
   expect(original.points.map(p=>p.z)).toEqual([0,0,0,0]);
  });

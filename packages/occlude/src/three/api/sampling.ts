@@ -57,7 +57,7 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C 
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):SurfaceSamples<P,F,C,Q>{return this.changed(super.scale(scale,pivot));}
   get history():readonly PointSnapshot<P,SurfaceSamples<P,F,C,Q>>[]{return super.history as readonly PointSnapshot<P,SurfaceSamples<P,F,C,Q>>[];}
   steps(count:number,rule:PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepShorthand<SurfaceSampleRow<StepAttributes<P>,F,C,Q>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepsOptions)[]):SurfaceSamples<StepAttributes<P>,F,C,Q>{
-    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history})));
+    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history,dropped)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history,dropped})));
   }
   /** Put points back on their retained source attachments on a new revision.
    * Point columns remain captured state; sample domain fields refresh. */

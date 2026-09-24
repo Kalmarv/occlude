@@ -65,7 +65,12 @@ describe('field-map initialization and frozen attribute edits',()=>{
     const source=plane().attributes({age:()=>0,vector:()=>[1,2]}).edgeAttributes({age:()=>0}).faceAttributes({age:()=>0});
     const result=source.steps(1,(current,next)=>{
       expect(()=>next.set(source.points,{age:1})).not.toThrow(); // initial input retains this owned source revision
-      expect(()=>next.set(source.translate([0,0,1]).points,{age:3})).toThrow('another mesh revision');
+      // another revision of the same rows is read by id, and lands
+      expect(()=>next.set(source.translate([0,0,1]).points,{age:3})).not.toThrow();
+      // 3D ids are the generator's own ('p0', …): a selection shares rows by id,
+      // and one that shares none is a wrong program
+      const other=box().attributes({age:()=>0});
+      expect(()=>next.set(other.points.filter(p=>!source.points.some(q=>q.id===p.id)) as never,{age:3})).toThrow('none of them');
       expect(()=>next.set(current.points,p=>p.index===2?({undeclared:1} as any):({age:99}))).toThrow('initialize');
       expect(()=>next.set(current.points,{age:'bad'} as any)).toThrow('initialized type');
       expect(()=>next.set(current.points,{vector:[1,2,3]})).toThrow('vector dimension');
@@ -74,7 +79,7 @@ describe('field-map initialization and frozen attribute edits',()=>{
       next.setFace(current.faces.at(0)!,{age:4});
       expect(()=>next.set({...current.points.at(0)!},{age:5})).toThrow('expected a point row');
     });
-    expect(result.points.map(p=>p.age)).toEqual([2,1,1,1]);
+    expect(result.points.map(p=>p.age)).toEqual([2,3,3,3]);
     expect(result.edges.map(e=>e.age)).toEqual([3,0,0,0]);
     expect(result.faces.at(0)!.age).toBe(4);
   });
@@ -124,9 +129,10 @@ describe('point and sampled point passes',()=>{
   });
   it('rejects asynchronous patches and escaped point revisions',()=>{
     const source=pointCloud([[0,0,0]]).attributes({age:0});
-    expect(()=>source.steps(1,async()=>{})).toThrow('synchronous');
+    expect(()=>source.steps(1,(async()=>{}) as never)).toThrow('synchronous');
     expect(()=>source.steps(1,(current,next)=>next.set(current.points,(async()=>({age:1})) as any))).toThrow('synchronous');
-    expect(()=>source.steps(1,(_,next)=>next.set(source.translate([1,0,0]).points,{age:1}))).toThrow('another point revision');
+    // another revision of the same points is read by id
+    expect(source.steps(1,(_,next)=>next.set(source.translate([1,0,0]).points,{age:1})).points.at(0)!.age).toBe(1);
     expect(()=>plane().faceAttributes((async()=>({age:1})) as any)).toThrow('synchronous');
   });
   it('preserves typed captured surface interpretation in sample steps and history',()=>{

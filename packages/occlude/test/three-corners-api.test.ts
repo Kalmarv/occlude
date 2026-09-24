@@ -40,7 +40,7 @@ describe('typed corner fields and edits',()=>{
   expect(out.corners.at(0)!.uv[0]).toBe(source.corners.at(0)!.uv[0]+2);
   expect(out.history.map(h=>h.geometry.corners.at(0)!.age)).toEqual([0,1,2]);
   expect(()=>escaped!.setCorners(out.corners,{age:4})).toThrow('closed');
-  expect(()=>out.steps(1,(_,next)=>next.setCorners(source.corners,{age:3}))).toThrow('revision');
+  expect(out.steps(1,(_,next)=>next.setCorners(source.corners,{age:3})).corners.every(c=>c.age===3)).toBe(true);
  });
  it('preserves typed corner data and transfer policies through extraction and realization',()=>{
   const source=box().cornerAttributes({uv:c=>[c.point.x,c.point.y] as const,label:c=>c.index},{transfer:{label:'nearest'}});

@@ -1241,8 +1241,8 @@ Selections are explicit targets. Use `prev.points` or `prev.edges` for all eleme
 | `next.move(points, vectorOrCallback)`, `next.move(ref, vector)` | displacement; several moves add up |
 | `next.set(points, attrsOrCallback)`, `next.set(ref, attrs)` | write point attributes; the last write of a field wins |
 | `next.setEdges(edges, attrsOrCallback)`, `next.setEdge(edge, attrs)` | write edge attributes |
-| `next.addPoint(position, attributes)` → handle | a new vertex; the handle names it within this pass |
-| `next.connect(a, b, edgeAttributes?)` | one undirected edge between rows, views or handles |
+| `next.addPoint(position, attributes)` → record | a new vertex; its record names it within this pass |
+| `next.connect(a, b, edgeAttributes?)` | one undirected edge between views, ids or new-point records |
 | `next.disconnect(edgesOrEdge)` | remove edges; their points stay |
 | `next.remove(pointsOrRef)` | delete points and their incident edges; neighbours are never joined |
 | `next.split(edge, { at?, point?, edges? })` → reference | replace an edge with two through a new vertex; endpoint cuts return the existing endpoint |

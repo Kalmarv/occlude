@@ -87,7 +87,7 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
  withKey(key:string):CurveSamples<P,A>{return this.changed(super.withKey(key));}
  get history():readonly PointSnapshot<P,CurveSamples<P,A>>[]{return super.history as readonly PointSnapshot<P,CurveSamples<P,A>>[];}
  steps(count:number,rule:PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepShorthand<CurveSampleRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepsOptions)[]):CurveSamples<StepAttributes<P>,A>{
-  return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history})));
+  return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history,dropped)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history,dropped})));
  }
  rebind(target:SurfaceCurves<A>):CurveSamples<P,A>{
   if(!(target instanceof SurfaceCurves))throw new Error('curve samples rebind to regenerated or rebound source curves');

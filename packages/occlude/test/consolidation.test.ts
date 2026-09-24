@@ -12,13 +12,15 @@ describe('Stage A repairs (con2)', () => {
     expect(split.attrs.kind[1]).toBe(0); // nearest copies, still
   });
 
-  it('A3 a legacy parent rewrite never changes what another split inherits', () => {
+  it('A3 a write on a split edge\'s end feeds what every cut inherits', () => {
     const m = material([[0, 0], [10, 0], [0, 10]], { edges: [[0, 1], [0, 2]], age: [0, 0, 0] });
     const out = m.steps(1, (cur, next) => {
-      next.split(cur.edge(0), { parent: () => ({ age: 100 }) });
+      next.split(cur.edge(0));
+      next.set(cur.points.at(0), { age: 100 });
       next.split(cur.edge(1), { at: 0.5 });
     });
-    expect(Array.from(out.attrs.age)).toEqual([100, 0, 0, 0, 0]); // both cuts inherit from the frozen 0s
+    // Both cuts read the written state, whichever order the batch asked in.
+    expect(Array.from(out.attrs.age)).toEqual([100, 50, 50, 0, 0]);
   });
 
   it('A4 triangulate by index: the first row at a position takes part, later coincident rows stay isolated', () => {
@@ -56,7 +58,11 @@ describe('Stage A repairs (con2)', () => {
     // An edge runs 0…1: a parameter past the end is read as the end, which
     // creates nothing, exactly as `at: 1` does.
     expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1.5 })).n).toBe(3);
-    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: NaN }))).toThrow(/within \[0, 1\]/);
+    // A parameter that is not finite is data: every split drops, nothing throws.
+    const nan = m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: NaN }));
+    expect(nan.n).toBe(3);
+    expect(nan.dropped.map((d) => d.reason)).toEqual(['not-finite', 'not-finite']);
+    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 'half' as never }))).toThrow(/at is a number/);
     expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0, point: { x: 1 } as never }))).toThrow(/endpoint/);
   });
 

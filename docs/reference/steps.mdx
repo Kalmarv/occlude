@@ -11,10 +11,6 @@ description: Change a material by a rule, one batch of edits at a time.
 
 The rule is `(prev, next, k) => …`: `prev` is the current state, `next` collects the edits, `k` is the iteration. The shorthand `{ move, set }` applies one move or one column write to every point. Several rules become passes: each pass reads the state the pass before it produced. An ARRAY of rules is one batch instead: every rule in it matches the same frozen state. `{ every: m }` keeps the initial state, every m-th state and the last one on the result's `history`.
 
-:::warning
-Two edits that contradict each other in one batch fail the step. Examples: remove a point and also connect it, or split an edge and also disconnect it. Moves add up, and the last write of a column wins.
-:::
-
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
 
@@ -30,6 +26,20 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 `steps(n, [a, b])` is ONE batch. Both passes read the same frozen state. A point that `a` moves is still where it was when `b` looks at it. `steps(n, a, b)` is two batches, and `b` reads what `a` committed.
 
 Reading is order-free. Editing is not, and the batch rules decide it. Moves add up, so two moves commute. A later `set` overwrites an earlier one. A later `connect` on a pair an earlier pass already made changes nothing. New points keep the order the passes asked for them.
+
+Some edits in one batch cannot land. The step does not fail. It drops each of these edits and gives a reason. The order of the batch does not change what it drops. A removal wins over a move, a write, a split or a join on that point. A disconnection wins over a split or a write on that edge.
+
+| Reason | The step drops the edit when |
+|---|---|
+| `gone` | a reference names nothing in this state: a removed point, a split edge, an id of another material, or a new point that did not land |
+| `self` | a `connect` joins a point to itself |
+| `already` | the state is already what the edit asks: a joined pair, a second `remove` of a point, a second `disconnect` of an edge, or the same new point two times in the list |
+| `removed` | the edit touches a point that the batch removes |
+| `disconnected` | the edit touches an edge that the batch disconnects |
+| `conflict` | two splits at one place on an edge give different values. The step makes one cut with the values that it inherits |
+| `not-finite` | a move, a position, a value or an `at` is not a finite number |
+
+`m.dropped` on the result lists each dropped edit, with its reason and its step `k`.
 
 Below, rule `a` moves a ring to the right, and rule `b` moves down every point right of x = 30. At the top, one batch: `b` sees the ring where it was, so only its right side drops. At the bottom, two passes: `b` sees the moved ring, so all of it drops. The fine rings are the start.
 
@@ -108,7 +118,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Next.split.mdx</include>
 <include>/_sig/Next.splitEdges.mdx</include>
 
-Replaces an edge with two edges through a new vertex, at the fraction `at` along it (0.5 by default). The new vertex gets its columns by each column's transfer rule, and `point` overrides them. `splitEdges` does it for a selection. `split` returns a reference to the new vertex for use in the same batch.
+Replaces an edge with two edges through a new vertex, at the fraction `at` along it (0.5 by default). The new vertex gets its columns by each column's transfer rule, and `point` overrides them. `splitEdges` does it for a selection. `split` returns its record, and the record names the new vertex in the same batch.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -150,7 +160,7 @@ A motif is ONE open chain, read from its edges and not from its row order. Nothi
 <include>/_sig/Next.connect.mdx</include>
 <include>/_sig/Next.disconnect.mdx</include>
 
-`connect` adds one edge between two references: rows, vertex views, or handles from this batch. A pair that is already joined stays as it is. `disconnect` removes edges and keeps their points.
+`connect` adds one edge between two references: vertex views, point ids, or the records of new points in this batch. A pair that is already joined stays as it is. `disconnect` removes edges and keeps their points.
 
 ```ts live
 import { sketch, circle, strokes, distance } from 'occlude';
@@ -170,7 +180,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Next.remove.mdx</include>
 <include>/_sig/Next.addPoint.mdx</include>
 
-`remove` deletes points and the edges that touch them. The neighbours of a removed point are not joined. `addPoint` adds a loose point and returns a handle that `connect` accepts in the same batch.
+`remove` deletes points and the edges that touch them. The neighbours of a removed point are not joined. `addPoint` adds a loose point and returns its record, and `connect` accepts that record in the same batch.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -183,6 +193,48 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     for (const p of cur.points.filter((p) => p.index % 9 === 4)) next.connect(p, h);
   });
   return strokes(gapped);
+});
+```
+
+## next.edits
+
+<include>/_sig/Next.edits.mdx</include>
+
+A batch is a list of records. Each edit adds records to `next.edits`, and the step applies the list when the pass ends. A record is plain data, for example `{ op: 'connect', a, b }`. The compound edits add the simple records: `extrude` adds `addPoint` and `connect`, and `splitEdges` adds one `split` for each edge. A pass can return a list, and then that list is the batch. In `steps(n, [rule, stage])`, `stage` reads the records of `rule` and returns a changed list. `m.steps(1, () => list)` applies a list that you keep.
+
+A record names a point in three ways: a vertex, its `id`, or the record of a new point in the same batch. A number is always an id, and never a row. To name a row, use `cur.points.at(row)`.
+
+| `op` | Fields |
+|---|---|
+| `move` | `point`, `by` |
+| `set` | `point`, `attrs` |
+| `setEdge` | `edge`, `attrs` |
+| `setFace` | `face` (the key of the face), `attrs` |
+| `addPoint` | `position`, `attrs` |
+| `connect` | `a`, `b`, `attrs` |
+| `disconnect` | `edge` |
+| `remove` | `point` |
+| `split` | `edge`, `at`, `point`, `edges` |
+
+Below, a ring grows by the drift of Anders Hoff. At each step, a random point gets a child, and two random points join. The second pass in the list is an error process. It sends one `connect` in twenty to the first point of the ring. The black run is the drift. The blue run is the same drift with the errors. Where the two runs agree, the black covers the blue, so the blue fan is what the errors changed. A slip onto a joined pair, or onto the first point itself, drops, and the step continues.
+
+`t.stream(name)` starts the stream again each time that you open it. So open an error stream one time, outside the rule. Here the same restart gives the two runs the same drift.
+
+```ts live
+import { sketch, strokes, circle, add, mul, fromAngle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
+  const ring = t.sample(circle(50, 50, 16), { count: 16 });
+  const first = ring.points.at(0).id;
+  const errors = t.stream('errors');
+  const drift = (rng) => (cur, next) => {
+    next.extrude(rng.pick(cur.points), (p) => ({ position: add(p, mul(fromAngle(rng.rnd(0, 2 * Math.PI)), 8)) }));
+    next.connect(rng.pick(cur.points), rng.pick(cur.points));
+  };
+  const slip = (e) => (e.op === 'connect' && errors.chance(0.05) ? { ...e, b: first } : e);
+  const faithful = ring.steps(220, drift(t.stream('drift')));
+  const mutated = ring.steps(220, [drift(t.stream('drift')), (cur, next) => next.edits.map(slip)]);
+  return [strokes(faithful), strokes(mutated, { pen: 'stabilo-88-blue' })];
 });
 ```
 

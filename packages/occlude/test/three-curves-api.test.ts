@@ -41,8 +41,8 @@ describe('owned 3D curve geometry',()=>{
   expect(result.history.map(row=>row.iteration)).toEqual([0,2,3]);expect(result.edges.length).toBe(1);
   expect(result.steps(1,()=>{}).iteration).toBe(4);
   expect(()=>escaped.move(result.points,[0,0,1])).toThrow('closed');
-  expect(()=>original.steps(1,(_,next)=>next.move(original.points,[0,0,1]))).toThrow('another curve revision');
-  expect(()=>original.steps(1,async()=>{})).toThrow('synchronous');
+  expect(original.steps(1,(_,next)=>next.move(original.points,[0,0,1])).points.map(p=>p.z)).toEqual(original.points.map(p=>p.z+1));
+  expect(()=>original.steps(1,(async()=>{}) as never)).toThrow('synchronous');
  });
  it('samples functions once and rejects oversized work before invoking callbacks',()=>{
   const parameters:number[]=[];const path=parametricCurve(t=>{parameters.push(t);return [t,t*t,t*t*t];},{segments:4});

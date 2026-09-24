@@ -40,7 +40,7 @@ const growth = (start: ReturnType<typeof ring>, steps: number, split: boolean) =
         sumBy([prev, nxt], (jj) => pull(p, cur.vertex(jj))),
         sumBy(near(p), (jj) => (jj === prev || jj === nxt ? [0, 0] : repel(p, cur.vertex(jj)))),
       );
-      next.move(p.index, mul(f, 0.15));
+      next.move(p, mul(f, 0.15));
     }
   }, (cur, next) => {
     if (split) next.splitEdges(cur.edges.filter((e) => e.length > 0.9 && rnd() < 0.25), { attributes: {} });
@@ -61,7 +61,7 @@ for (const n of [2000, 20000]) {
   const near = neighbours(r, { radius: 2 });
   const pts = r.points;
   med(`${n}: neighbours query ×n`, () => { for (const p of pts) near(p); });
-  med(`${n}: steps(1), move only`, () => r.steps(1, (cur, next) => { for (const p of cur.points) next.move(p.index, [0.01, 0]); }));
+  med(`${n}: steps(1), move only`, () => r.steps(1, (cur, next) => { for (const p of cur.points) next.move(p, [0.01, 0]); }));
   med(`${n}: steps(1), split every edge`, () => r.steps(1, (_c, next) => next.splitEdges(_c.edges.filter(() => true), { attributes: {} })));
   const sep = force.separation(r, { radius: 2, excludeConnected: true });
   med(`${n}: force.separation evaluate ×n`, () => { for (const p of pts) sep(p); });
@@ -70,11 +70,11 @@ for (const n of [2000, 20000]) {
 // demanding: one very large state, one very long run
 med('200 000-vertex ring: points + one move step', () => {
   const big = ring(200000, 300);
-  big.steps(1, (cur, next) => { for (const p of cur.points) next.move(p.index, [0.01, 0]); });
+  big.steps(1, (cur, next) => { for (const p of cur.points) next.move(p, [0.01, 0]); });
 }, 3);
 med('2 000 steps of a 200-vertex ring', () => growth(ring(200, 8), 2000, false), 3);
 // a state with no edges at all: adjacency, chains and edge views on nothing
 med('100 000 isolated points: 50 move steps', () => {
   const dust = material(Array.from({ length: 100000 }, () => [rnd() * 100, rnd() * 100] as [number, number]));
-  dust.steps(50, (cur, next) => { for (const p of cur.points) next.move(p.index, [0.001, 0]); });
+  dust.steps(50, (cur, next) => { for (const p of cur.points) next.move(p, [0.001, 0]); });
 }, 3);

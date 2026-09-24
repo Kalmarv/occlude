@@ -15,6 +15,7 @@ import {booleanSurface3} from '../geometry/boolean.js';
 import {refuseStroke,hatchRecipes,type ViewHatchInput} from './recipes.js';
 import {points2} from './lift.js';
 import {curveLength,alongCurve,resampledSurface,type Station3} from './curveWalk.js';
+import type {DropReason} from '../../steps.js';
 /** One connected component of an extrusion selection, measured on the frozen input. */
 export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
   readonly index:number;readonly faces:MeshFaces<P,E,F,C>;
@@ -206,8 +207,14 @@ function displaced<R extends PointRow<any>>(surface:Surface3,field:Field<R,Vec3|
 }
 
 export interface PointSnapshot<P extends Attributes3,G extends PointGeometry<P>=PointGeometry<P>> {readonly iteration:number;readonly geometry:G}
-export type PointRule<P extends Attributes3,R extends PointRow<P>=PointRow<P>,G extends PointGeometry<P>=PointGeometry<P>>=(current:G,next:PointEdit<P,R>,k:number)=>void;
+export type PointRule<P extends Attributes3,R extends PointRow<P>=PointRow<P>,G extends PointGeometry<P>=PointGeometry<P>>=(current:G,next:PointEdit<P,R>,k:number)=>void|readonly Edit3[];
 const pointHistory=new WeakMap<object,readonly PointSnapshot<any>[]>();
+/** What the `steps` call that made a geometry dropped, kept beside it as its
+ * history is: a spread of the geometry, which every derived value is made
+ * from, does not carry it, so any other operation starts it empty. */
+const droppedOf=new WeakMap<object,readonly Dropped3[]>();
+const NOTHING_DROPPED:readonly Dropped3[]=Object.freeze([]);
+function recordDropped(owner:object,dropped:readonly Dropped3[]|undefined):void{if(dropped&&dropped.length>0)droppedOf.set(owner,Object.freeze([...dropped]));}
 
 
 /** Where an object turns and scales: its own origin, which primitives are
@@ -306,12 +313,14 @@ export class PointGeometry<P extends Attributes3={}> {
   readonly surface:Surface3;readonly key?:string;readonly iteration:number;
   /** The object's own pivot, carried along by `translate`. */
   readonly origin:Vec3;readonly orientation:Rotation;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly PointSnapshot<P>[]}={}){
+  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly PointSnapshot<P>[];dropped?:readonly Dropped3[]}={}){
     checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
-    pointHistory.set(this,Object.freeze([...(options.history??[])]));Object.freeze(this);
+    pointHistory.set(this,Object.freeze([...(options.history??[])]));recordDropped(this,options.dropped);Object.freeze(this);
   }
   get history():readonly PointSnapshot<P>[]{return pointHistory.get(this)!;}
+  /** The records the `steps` call that made this geometry did not land, as a material's `dropped`. */
+  get dropped():readonly Dropped3[]{return droppedOf.get(this)??NOTHING_DROPPED;}
   get points():Collection<PointRow<P>,PointGeometry<P>>{return new Collection(this.surface,'point',pointRows<P>(this.surface),indices=>new PointGeometry(pointsOnly(this.surface,indices)));}
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<PointRow<P>,Value>):PointGeometry<Omit<P,Name>&Record<Name,Value>>{return new PointGeometry<Omit<P,Name>&Record<Name,Value>>(setPoints(this.surface,name,field),{...this,history:[]});}
   attributes<A extends Attributes3>(fields:AttributeFields<PointRow<P>,A>):PointGeometry<Omit<P,keyof A>&A>{return new PointGeometry<Omit<P,keyof A>&A>(setPointFields(this.surface,fields),{...this,history:[]});}
@@ -323,7 +332,7 @@ export class PointGeometry<P extends Attributes3={}> {
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(r.empty?collapsedPoints(this.surface,r.scale,r.origin):transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key,iteration:this.iteration,history:this.history});}
   steps(count:number,rule:PointRule<StepAttributes<P>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>>|StepsOptions)[]):PointGeometry<StepAttributes<P>>{
-    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history}));
+    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history,dropped)=>new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history,dropped}));
   }
 }
 
@@ -331,10 +340,14 @@ export class PointGeometry<P extends Attributes3={}> {
 export class PointEdit<P extends Attributes3,R extends PointRow<P>=PointRow<P>> {
   private active=true;
   constructor(private readonly rows:Collection<R,unknown>,private readonly input:Mesh<P,{},{}>,private readonly edit:MeshEdit<P,{},{}>){}
+  /** The batch so far, as records; a pass that returns a list replaces it. */
+  get edits():readonly Edit3[]{if(!this.active)throw new Error('point editor is closed');return this.edit.edits;}
   private bind(selection:Collection<R,unknown>){
     if(!this.active)throw new Error('point editor is closed');
-    if(!(selection instanceof Collection)||selection.domain!=='point'||selection.source!==this.rows.source)throw new Error('point selection belongs to another point revision');
-    const indices=new Set(selection.indices),rows=new Map(selection.map(p=>[p.index,p]));
+    if(!(selection instanceof Collection)||selection.domain!=='point')throw new Error('a point edit needs a point selection');
+    // A selection of another revision is read here by id; what is gone is skipped.
+    const here=selection.source===this.rows.source?selection:rebound(selection,this.rows,'point');
+    const indices=new Set(here.indices),rows=new Map(here.map(p=>[p.index,p]));
     return {selection:this.input.points.filter(p=>indices.has(p.index)),rows};
   }
   move(selection:Collection<R,unknown>,field:Field<R,Vec3>):void{
@@ -344,7 +357,8 @@ export class PointEdit<P extends Attributes3,R extends PointRow<P>=PointRow<P>> 
     if(!this.active)throw new Error('point editor is closed');
     let selected:Collection<R,unknown>;
     if(target instanceof Collection)selected=target;
-    else {if(!this.rows.has(target))throw new Error('edit row belongs to another point revision');selected=this.rows.rows(target);}
+    else if(this.rows.has(target))selected=this.rows.rows(target);
+    else return this.edit.set(target as unknown as PointRow<P>,field as Field<PointRow<P>,Partial<P>>);
     const bound=this.bind(selected);this.edit.set(bound.selection,p=>evaluate(field,bound.rows.get(p.index)!));
   }
   close():void{this.active=false;}
@@ -352,7 +366,7 @@ export class PointEdit<P extends Attributes3,R extends PointRow<P>=PointRow<P>> 
 /** Shared point-pass driver lets rich point geometry retain its own row context. */
 export function pointSteps<P extends Attributes3,R extends PointRow<StepAttributes<P>>,G extends PointGeometry<StepAttributes<P>> & {readonly points:Collection<R,unknown>}>(
   initial:PointGeometry<P>,count:number,rule:PointRule<StepAttributes<P>,R,G>|StepShorthand<R,StepAttributes<P>>,passesAndOptions:readonly (PointRule<StepAttributes<P>,R,G>|StepsOptions)[],
-  create:(surface:Surface3,iteration:number,history?:readonly PointSnapshot<StepAttributes<P>,G>[])=>G,
+  create:(surface:Surface3,iteration:number,history?:readonly PointSnapshot<StepAttributes<P>,G>[],dropped?:readonly Dropped3[])=>G,
 ):G {
   if(stepRule<R,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as PointRule<StepAttributes<P>,R,G>;
   const pass=(rule:PointRule<StepAttributes<P>,R,G>):MeshRule<StepAttributes<P>,{},{}>=>(input,next,k)=>{
@@ -362,7 +376,7 @@ export function pointSteps<P extends Attributes3,R extends PointRow<StepAttribut
   const passes=passesAndOptions.map(p=>typeof p==='function'?pass(p):p);
   const result=new Mesh<P,{},{}>(initial.surface,{key:initial.key,iteration:initial.iteration}).steps(count,pass(rule as PointRule<StepAttributes<P>,R,G>),...passes);
   const history=result.history.map(row=>Object.freeze({iteration:row.iteration,geometry:create(row.geometry.surface,row.iteration)}));
-  return create(result.surface,result.iteration,history);
+  return create(result.surface,result.iteration,history,result.dropped);
 }
 
 /** Owned polyline/edge-graph data with point and edge domains, never faces. */
@@ -373,7 +387,7 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>;readonly provenance?:Provenance3}[];
   /** Own pen for the default drawing, or undefined for the view's. */
   readonly pen?:string;
-  constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly CurveSnapshot<P,E>[]}={}) {
+  constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly CurveSnapshot<P,E>[];dropped?:readonly Dropped3[]}={}) {
     checkOptions(options);validateAttributes(surface);
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
     if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
@@ -382,8 +396,10 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
     const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
     this.surface=captureSurface3(source);this.key=checkedKey(options.key);this.pen=checkedPen(options.pen);
     this.iteration=options.iteration??0;this.history=Object.freeze([...(options.history??[])]);
-    this.segments=this.surface.edges as unknown as typeof this.segments;Object.freeze(this);
+    this.segments=this.surface.edges as unknown as typeof this.segments;recordDropped(this,options.dropped);Object.freeze(this);
   }
+  /** The records the `steps` call that made this curve did not land, as a material's `dropped`. */
+  get dropped():readonly Dropped3[]{return droppedOf.get(this)??NOTHING_DROPPED;}
   get points():Collection<PointRow<P>,PointGeometry<P>>{return new Collection(this.surface,'point',pointRows<P>(this.surface),ids=>new PointGeometry(pointsOnly(this.surface,ids)));}
   /** The whole length, every edge once, in world units — a 2D chain's word. */
   get length():number{return curveLength(this.surface);}
@@ -432,40 +448,45 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
     const options=passesAndOptions.map(p=>typeof p==='function'?pass(p):p);
     const result=new Mesh<P,E,{}>(this.surface,{key:this.key,iteration:this.iteration}).steps(count,pass(rule as CurveRule<StepAttributes<P>,StepAttributes<E>>),...options);
     const convert=(value:Mesh<StepAttributes<P>,StepAttributes<E>,{}>)=>new CurveGeometry<StepAttributes<P>,StepAttributes<E>>(value.surface,value.surface.edges.map((_,i)=>i),{key:this.key,iteration:value.iteration});
-    return new CurveGeometry<StepAttributes<P>,StepAttributes<E>>(result.surface,result.surface.edges.map((_,i)=>i),{key:this.key,iteration:result.iteration,history:result.history.map(row=>Object.freeze({iteration:row.iteration,geometry:convert(row.geometry)}))});
+    return new CurveGeometry<StepAttributes<P>,StepAttributes<E>>(result.surface,result.surface.edges.map((_,i)=>i),{key:this.key,iteration:result.iteration,history:result.history.map(row=>Object.freeze({iteration:row.iteration,geometry:convert(row.geometry)})),dropped:result.dropped});
   }
 
 }
 
 export interface CurveSnapshot<P extends Attributes3,E extends EdgeAttributes>{readonly iteration:number;readonly geometry:CurveGeometry<P,E>}
-export type CurveRule<P extends Attributes3,E extends EdgeAttributes>=(current:CurveGeometry<P,E>,next:CurveEdit<P,E>,k:number)=>void;
+export type CurveRule<P extends Attributes3,E extends EdgeAttributes>=(current:CurveGeometry<P,E>,next:CurveEdit<P,E>,k:number)=>void|readonly Edit3[];
 /** Curve edits reuse the same frozen point-edit machinery as mesh steps. */
 export class CurveEdit<P extends Attributes3,E extends EdgeAttributes> {
   private active=true;
   constructor(private readonly curve:CurveGeometry<P,E>,private readonly input:Mesh<P,E,{}>,private readonly edit:MeshEdit<P,E,{}>){}
-  move(selection:Collection<PointRow<P>,unknown>,field:Field<PointRow<P>,Vec3>):void{
+  /** The batch so far, as records; a pass that returns a list replaces it. */
+  get edits():readonly Edit3[]{if(!this.active)throw new Error('curve editor is closed');return this.edit.edits;}
+  /** The selection read on this curve: its own rows, or another revision's by id. */
+  private here<R extends {readonly id:string;readonly index:number}>(selection:Collection<R,unknown>,rows:Collection<R,unknown>,domain:'point'|'edge'):Collection<R,unknown>{
     if(!this.active)throw new Error('curve editor is closed');
-    if(selection.domain!=='point'||selection.source!==this.curve.surface)throw new Error('point selection belongs to another curve revision; select from current.points');
-    const indices=new Set(selection.indices),rows=new Map(selection.map(p=>[p.index,p]));
+    if(!(selection instanceof Collection)||selection.domain!==domain)throw new Error(`a curve edit needs ${domain==='point'?'a point':'an edge'} selection; select from current.${domain}s`);
+    return selection.source===this.curve.surface?selection:rebound(selection,rows,domain);
+  }
+  move(selection:Collection<PointRow<P>,unknown>,field:Field<PointRow<P>,Vec3>):void{
+    const here=this.here(selection,this.curve.points,'point');
+    const indices=new Set(here.indices),rows=new Map(here.map(p=>[p.index,p]));
     this.edit.move(this.input.points.filter(p=>indices.has(p.index)),p=>evaluate(field,rows.get(p.index)!));
   }
   set(target:Collection<PointRow<P>,unknown>|PointRow<P>,field:Field<PointRow<P>,Partial<P>>):void{
     if(!this.active)throw new Error('curve editor is closed');
-    const selection=target instanceof Collection?target:this.single(this.curve.points,target);
-    if(selection.domain!=='point'||selection.source!==this.curve.surface)throw new Error('point selection belongs to another curve revision');
-    const indices=new Set(selection.indices),rows=new Map(selection.map(p=>[p.index,p]));
+    if(!(target instanceof Collection)&&!this.curve.points.has(target))return this.edit.set(target,field);
+    const here=this.here(target instanceof Collection?target:this.curve.points.rows(target),this.curve.points,'point');
+    const indices=new Set(here.indices),rows=new Map(here.map(p=>[p.index,p]));
     this.edit.set(this.input.points.filter(p=>indices.has(p.index)),p=>evaluate(field,rows.get(p.index)!));
   }
-  private single<R extends {id:string;index:number}>(rows:Collection<R,unknown>,row:R):Collection<R,unknown>{
+  setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{
     if(!this.active)throw new Error('curve editor is closed');
-    if(!rows.has(row))throw new Error('edit row belongs to another curve revision');
-    return rows.rows(row);
+    if(!this.curve.edges.has(row))return this.edit.setEdge(row,attributes);
+    this.setEdges(this.curve.edges.rows(row),attributes);
   }
-  setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{this.setEdges(this.single(this.curve.edges,row),attributes);}
   setEdges(selection:Collection<EdgeRow<E,P>,unknown>,field:Field<EdgeRow<E,P>,Partial<E>>):void{
-    if(!this.active)throw new Error('curve editor is closed');
-    if(selection.domain!=='edge'||selection.source!==this.curve.surface)throw new Error('edge selection belongs to another curve revision');
-    const indices=new Set(selection.indices),rows=new Map(selection.map(e=>[e.index,e]));
+    const here=this.here(selection,this.curve.edges,'edge');
+    const indices=new Set(here.indices),rows=new Map(here.map(e=>[e.index,e]));
     this.edit.setEdges(this.input.edges.filter(e=>indices.has(e.index)),e=>evaluate(field,rows.get(e.index)!));
   }
   close():void{this.active=false;}
@@ -491,7 +512,7 @@ function pointShorthandRule<Row extends PointRow<any>&{readonly id:string;readon
   };
 }
 export interface MeshSnapshot<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>{readonly iteration:number;readonly geometry:Mesh<P,E,F,C>}
-export type MeshRule<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>=(current:Mesh<P,E,F,C>,next:MeshEdit<P,E,F,C>,k:number)=>void;
+export type MeshRule<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>=(current:Mesh<P,E,F,C>,next:MeshEdit<P,E,F,C>,k:number)=>void|readonly Edit3[];
 
 /** One common immutable polygon-mesh contract, regardless of its factory. */
 export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
@@ -511,11 +532,15 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   readonly suggestive?:SuggestiveInput;
   /** Own hatch recipes, or undefined for the view's `hatch`. */
   readonly hatch?:ViewHatchInput<any>;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&{hatch?:ViewHatchInput<any>;iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
+  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&{hatch?:ViewHatchInput<any>;iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers;dropped?:readonly Dropped3[]}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.pen=checkedPen(options.pen);this.fillPen=checkedPen(options.fillPen,'fillPen');this.suggestive=checkedSuggestive(options.suggestive);if(options.hatch!==undefined){hatchRecipes(options.hatch,'style');this.hatch=options.hatch;}
-    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});recordRadial(this,options.radialCentre);Object.freeze(this);
+    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});recordRadial(this,options.radialCentre);recordDropped(this,options.dropped);Object.freeze(this);
   }
+  /** The records the `steps` call that made this mesh did not land, as a
+   * material's `dropped`: a row that is gone from this revision, or a value
+   * that is not finite. Empty on every other mesh. */
+  get dropped():readonly Dropped3[]{return droppedOf.get(this)??NOTHING_DROPPED;}
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
   get edges():MeshEdges<P,E,F,C>{return meshEdges(this);}
   get corners():MeshCorners<P,E,F,C>{return meshCorners(this);}
@@ -668,72 +693,206 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
     const passes=[rule as MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,...passesAndOptions.filter((p):p is MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>=>typeof p==='function')];
     let current=new Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>(this.surface,{...this,history:[]});const history:MeshSnapshot<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>[]=[];
     if(every)history.push(Object.freeze({iteration:current.iteration,geometry:current}));
+    const dropped:Dropped3[]=[];
     for(let k=0;k<count;k++){
-      for(const pass of passes){const edit=new MeshEdit(current);try{const result:unknown=(pass as MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>)(current,edit,k);if(result&&typeof (result as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});throw new Error('mesh steps callbacks must be synchronous');}current=edit.finish(this.iteration+k+1);}finally{edit.close();}}
+      for(const pass of passes){const edit=new MeshEdit(current);try{const result:unknown=(pass as MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>)(current,edit,k);if(result&&typeof (result as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});throw new Error('mesh steps callbacks must be synchronous');}edit.adopt(result);current=edit.finish(this.iteration+k+1,k,dropped);}finally{edit.close();}}
       if(every&&((k+1)%every===0||k+1===count))history.push(Object.freeze({iteration:current.iteration,geometry:current}));
     }
-    return new Mesh(current.surface,{...current,history});
+    return new Mesh(current.surface,{...current,history,dropped});
   }
 }
 
-/** An editor is valid only during its frozen pass; all reads use its input. */
+/**
+ * One alteration of a mesh step, as data: a material's words over a mesh's
+ * five ops, each naming its row by the row itself or by its string id. A
+ * step of a mesh has no topology, so `addPoint`, `connect`, `disconnect`,
+ * `remove` and `split` are not edits here.
+ */
+export type Edit3 =
+  | {readonly op:'move';readonly point:string|PointRow<any>;readonly by:Vec3}
+  | {readonly op:'set';readonly point:string|PointRow<any>;readonly attrs:Readonly<Record<string,Attribute3>>}
+  | {readonly op:'setEdge';readonly edge:string|EdgeRow<any,any>;readonly attrs:Readonly<Record<string,Attribute3>>}
+  | {readonly op:'setFace';readonly face:string|FaceRow<any>;readonly attrs:Readonly<Record<string,Attribute3>>}
+  | {readonly op:'setCorner';readonly corner:string|CornerRow<any>;readonly attrs:Readonly<Record<string,Attribute3>>};
+/** One record a mesh `steps` call did not land, the reason, and the step `k`. */
+export interface Dropped3 {readonly edit:Edit3;readonly reason:DropReason;readonly k:number}
+
+type Domain3='point'|'edge'|'face'|'corner';
+type Op3=Edit3['op'];
+/** Each op's domain, and the field that names its row. */
+const OPS3:Readonly<Record<Op3,Domain3>>={move:'point',set:'point',setEdge:'edge',setFace:'face',setCorner:'corner'};
+const TOPOLOGY3=new Set(['addPoint','connect','disconnect','remove','split']);
+const isPlainRecord=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null&&!Array.isArray(v);
+const refOf=(edit:Edit3):string|{readonly id:string}=>(edit as unknown as Record<Domain3,string|{readonly id:string}>)[OPS3[edit.op]];
+/** A value that is not finite: a number, or a component of a vector. */
+const notFinite=(value:Attribute3):boolean=>typeof value==='number'?!Number.isFinite(value):Array.isArray(value)&&!value.every(Number.isFinite);
+
+/** A selection of another revision of the same geometry, read on `rows` by
+ * id with what is gone left out. One that shares no row with it is of
+ * another geometry, or everything it named is gone: a wrong program. */
+function rebound<R extends {readonly id:string;readonly index:number}>(selection:Collection<R,unknown>,rows:Collection<R,unknown>,domain:Domain3):Collection<R,unknown>{
+  const here=selection.in(rows);
+  if(selection.length>0&&here.length===0)throw new Error(`steps: that ${domain} selection names ${selection.length} rows and this revision has none of them — it is of another geometry, or everything it named is gone`);
+  return here;
+}
+
+/** The per-row records of one edit over a selection, kept as columns until
+ * something reads `next.edits`. */
+class Run3 {
+  constructor(readonly op:Op3,readonly indices:readonly number[],readonly values:readonly unknown[],private readonly ids:readonly string[]){}
+  record(i:number):Edit3{
+    const id=this.ids[this.indices[i]],v=this.values[i];
+    return Object.freeze(this.op==='move'?{op:'move',point:id,by:v as Vec3}:{op:this.op,[OPS3[this.op]]:id,attrs:Object.freeze({...(v as Record<string,Attribute3>)})}) as Edit3;
+  }
+}
+
+/** An editor is valid only during its frozen pass; all reads use its input.
+ * Every call appends records to the batch, and `finish` folds the list: a
+ * row that is gone from this revision drops as `gone`, a value that is not
+ * finite as `not-finite`. */
 export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> {
   private active=true;
-  private readonly points:SurfacePoint3[];
-  private readonly edgeAttributes:Attributes3[];
-  private readonly faceAttributes:Attributes3[];
-  private readonly cornerAttributes:Attributes3[];
-  constructor(private readonly input:Mesh<P,E,F,C>){
-    this.points=input.surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}));
-    this.edgeAttributes=input.surface.edges.map(e=>structuredClone(e.attributes));
-    this.faceAttributes=input.surface.faces.map(f=>structuredClone(f.attributes));
-    this.cornerAttributes=input.surface.faces.flatMap(f=>f.corners!.map(c=>structuredClone(c.attributes)));
+  private entries:(Edit3|Run3)[]=[];
+  /** Records this batch made: already judged, so a list that hands them back is not judged again. */
+  private readonly minted=new WeakSet<object>();
+  private idBox?:Record<Domain3,{readonly ids:readonly string[];readonly rows:ReadonlyMap<string,number>}>;
+  constructor(private readonly input:Mesh<P,E,F,C>){}
+  private open():void{if(!this.active)throw new Error('mesh editor is closed');}
+  private rowsOf(domain:Domain3):Collection<{readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>},unknown>{
+    return (domain==='point'?this.input.points:domain==='edge'?this.input.edges:domain==='face'?this.input.faces:this.input.corners) as unknown as Collection<{readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>},unknown>;
   }
-  private check<R extends {id:string;index:number}>(selection:Collection<R,unknown>,domain:'point'|'edge'|'face'|'corner'):void {
-    if(!this.active)throw new Error('mesh editor is closed');
-    if(!(selection instanceof Collection)||selection.domain!==domain||selection.source!==this.input.surface)throw new Error(`${domain} selection belongs to another mesh revision or domain; select from the current geometry`);
+  /** Each domain's ids in row order, and the row of each id. */
+  private ids(domain:Domain3){
+    this.idBox??={} as Record<Domain3,{readonly ids:readonly string[];readonly rows:ReadonlyMap<string,number>}>;
+    const box=this.idBox[domain];
+    if(box)return box;
+    const ids=this.rowsOf(domain).map(r=>r.id);
+    return this.idBox[domain]={ids,rows:new Map(ids.map((id,i)=>[id,i]))};
   }
-  private single<R extends {id:string;index:number}>(rows:Collection<R,unknown>,row:R):Collection<R,unknown>{
-    if(!this.active)throw new Error('mesh editor is closed');
-    if(!rows.has(row))throw new Error('edit row belongs to another mesh revision');
-    return rows.rows(row);
+  /** The batch so far, as records. A pass that returns a list replaces it. */
+  get edits():readonly Edit3[]{
+    this.open();
+    if(this.entries.some(e=>e instanceof Run3)){
+      const out:Edit3[]=[];
+      for(const e of this.entries){
+        if(!(e instanceof Run3)){out.push(e);continue;}
+        for(let i=0;i<e.indices.length;i++){const r=e.record(i);this.minted.add(r);out.push(r);}
+      }
+      this.entries=out;
+    }
+    return Object.freeze(this.entries.slice() as Edit3[]);
   }
-  private write<R extends {id:string;index:number;attributes:Readonly<Record<string,Attribute3|undefined>>}>(selection:Collection<R,unknown>,field:Field<R,object>,target:Attributes3[],domain:'point'|'edge'|'face'|'corner'):void {
-    this.check(selection,domain);
-    // Capture/validate the whole operation before publishing any of its writes.
-    const patches=selection.map(row=>{
-      const patch=evaluate(field,row);
-      attributeRecord(patch);
-      return Object.fromEntries(Object.entries(patch).map(([name,value])=>{
-        if(!Object.hasOwn(row.attributes,name))throw new Error(`no ${domain} attribute '${name}'; initialize it before stepping`);
-        const checked=attributeValue(value),previous=row.attributes[name];
-        if(typeof checked!==typeof previous||Array.isArray(checked)!==Array.isArray(previous)||(Array.isArray(checked)&&checked.length!==(previous as readonly number[]).length))throw new Error(`attribute '${name}' must retain its initialized type and vector dimension`);
-        return [name,checked];
-      }));
-    });
-    selection.indices.forEach((i,j)=>Object.assign(target[i],patches[j]));
+  /** The selection read on this revision: its own rows, or another revision's by id. */
+  private bind<R extends {readonly id:string;readonly index:number}>(selection:Collection<R,unknown>,domain:Domain3):Collection<R,unknown>{
+    this.open();
+    if(!(selection instanceof Collection)||selection.domain!==domain)throw new Error(`a mesh edit needs a ${domain} selection; select from the current geometry`);
+    return selection.source===this.input.surface?selection:rebound(selection,this.rowsOf(domain) as unknown as Collection<R,unknown>,domain);
   }
+  /** A patch is a program check: every name initialized, every value of its
+   * initialized kind and dimension. A value that is not finite is data. */
+  private patch(value:unknown,row:{readonly attributes:Readonly<Record<string,Attribute3|undefined>>},domain:Domain3):Record<string,Attribute3>{
+    attributeRecord(value);
+    for(const [name,v] of Object.entries(value)){
+      if(!Object.hasOwn(row.attributes,name))throw new Error(`no ${domain} attribute '${name}'; initialize it before stepping`);
+      const previous=row.attributes[name];
+      if(typeof v!==typeof previous||Array.isArray(v)!==Array.isArray(previous)||(Array.isArray(v)&&v.length!==(previous as readonly number[]).length))throw new Error(`attribute '${name}' must retain its initialized type and vector dimension`);
+      if(Array.isArray(v)&&!v.every(c=>typeof c==='number'))throw new Error('geometry attribute must be a string, boolean, finite number or finite numeric array');
+    }
+    return value;
+  }
+  private by(value:unknown):Vec3{
+    if(!Array.isArray(value)||value.length!==3||!value.every(c=>typeof c==='number'))throw new Error('3D coordinates must be finite triples');
+    return value as unknown as Vec3;
+  }
+  private write<R extends {readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>}>(selection:Collection<R,unknown>,field:Field<R,object>,op:Exclude<Op3,'move'>):void {
+    const domain=OPS3[op],here=this.bind(selection,domain);
+    // Capture and judge the whole operation before any of it joins the batch.
+    const values=here.map(row=>this.patch(evaluate(field,row),row,domain));
+    if(values.length>0)this.entries.push(new Run3(op,here.indices,values,this.ids(domain).ids));
+  }
+  /** One row, of this revision or another: a row gone from this one is kept by id and drops as gone. */
+  private one<R extends {readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>}>(row:R,field:Field<R,object>,op:Exclude<Op3,'move'>):void{
+    const domain=OPS3[op],rows=this.rowsOf(domain) as unknown as Collection<R,unknown>;
+    this.open();
+    if(rows.has(row))return this.write(rows.rows(row),field,op);
+    this.append({op,[domain]:row.id,attrs:this.patch(evaluate(field,row),row,domain)} as unknown as Edit3);
+  }
+  private append(edit:Edit3):void{Object.freeze(edit);this.minted.add(edit);this.entries.push(edit);}
   move<R extends PointRow<P>>(selection:Collection<R,unknown>,field:Field<R,Vec3>):void{
-    this.check(selection,'point');const deltas=selection.map(p=>{const delta=evaluate(field,p);finite3(delta);return delta;});
-    selection.indices.forEach((i,j)=>this.points[i].position=add3(this.points[i].position,deltas[j]));
+    const here=this.bind(selection,'point');
+    const values=here.map(p=>this.by(evaluate(field,p)));
+    if(values.length>0)this.entries.push(new Run3('move',here.indices,values,this.ids('point').ids));
   }
   set<R extends PointRow<P>>(target:Collection<R,unknown>|R,field:Field<R,Partial<P>>):void{
-    const selection=target instanceof Collection?target:this.single(this.input.points as unknown as Collection<R,unknown>,target);
-    this.write(selection,field,this.points.map(p=>p.attributes),'point');
+    if(target instanceof Collection)this.write(target,field,'set');
+    else this.one(target,field,'set');
   }
-  setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{this.setEdges(this.single(this.input.edges,row),attributes);}
-  setEdges<R extends EdgeRow<E,P>>(selection:Collection<R,unknown>,field:Field<R,Partial<E>>):void{this.write(selection,field,this.edgeAttributes,'edge');}
-  setFace(row:FaceRow<F>,attributes:Partial<F>):void{this.setFaces(this.single(this.input.faces,row),attributes);}
-  setFaces<R extends FaceRow<F>>(selection:Collection<R,unknown>,field:Field<R,Partial<F>>):void{this.write(selection,field,this.faceAttributes,'face');}
-  setCorner(row:CornerRow<C>,attributes:Partial<C>):void{this.setCorners(this.single(this.input.corners,row),attributes);}
-  setCorners<R extends CornerRow<C>>(selection:Collection<R,unknown>,field:Field<R,Partial<C>>):void{this.write(selection,field,this.cornerAttributes,'corner');}
-  finish(iteration:number):Mesh<P,E,F,C>{
-    if(!this.active)throw new Error('mesh editor is closed');this.active=false;
+  setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{this.one(row,attributes,'setEdge');}
+  setEdges<R extends EdgeRow<E,P>>(selection:Collection<R,unknown>,field:Field<R,Partial<E>>):void{this.write(selection,field,'setEdge');}
+  setFace(row:FaceRow<F>,attributes:Partial<F>):void{this.one(row,attributes,'setFace');}
+  setFaces<R extends FaceRow<F>>(selection:Collection<R,unknown>,field:Field<R,Partial<F>>):void{this.write(selection,field,'setFace');}
+  setCorner(row:CornerRow<C>,attributes:Partial<C>):void{this.one(row,attributes,'setCorner');}
+  setCorners<R extends CornerRow<C>>(selection:Collection<R,unknown>,field:Field<R,Partial<C>>):void{this.write(selection,field,'setCorner');}
+  /** @internal A pass's return value: a list becomes the batch, judged as
+   * the calls would judge it; anything else leaves the batch as it is. */
+  adopt(out:unknown):void{
+    if(!Array.isArray(out))return;
+    this.open();
+    out.forEach((r:unknown,i)=>{
+      if(!isPlainRecord(r)||!('op' in r))throw new Error(`steps: a pass returned something that is not an edit record (index ${i})`);
+      if(this.minted.has(r))return;
+      const op=r.op as string;
+      if(TOPOLOGY3.has(op))throw new Error(`steps: a mesh step has no topology edits ('${op}') — change the topology with subdivide, extrude or a boolean between steps`);
+      if(!Object.hasOwn(OPS3,op))throw new Error(`steps: unknown edit op '${String(op)}' (index ${i})`);
+      const domain=OPS3[op as Op3],ref=r[domain];
+      if(typeof ref!=='string'){
+        const rows=this.rowsOf(domain);
+        if(!rows.has(ref as never))throw new Error(`steps: a ${op} record names a ${domain} row gone from this revision; name it by id to let it drop`);
+      }
+      if(op==='move'){this.by(r.by);return;}
+      const id=typeof ref==='string'?ref:(ref as {id:string}).id,row=this.ids(domain).rows.get(id);
+      if(row===undefined){attributeRecord(r.attrs);return;}
+      this.patch(r.attrs,this.rowsOf(domain).at(row)!,domain);
+    });
+    this.entries=out.slice() as Edit3[];
+  }
+  /** Fold the batch into the next mesh; what cannot land joins `dropped`. */
+  finish(iteration:number,k=0,dropped:Dropped3[]=[]):Mesh<P,E,F,C>{
+    this.open();this.active=false;
+    const surface=this.input.surface;
+    const points=surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}));
+    const targets:Record<Domain3,Attributes3[]>={
+      point:points.map(p=>p.attributes),
+      edge:surface.edges.map(e=>structuredClone(e.attributes)),
+      face:surface.faces.map(f=>structuredClone(f.attributes)),
+      corner:surface.faces.flatMap(f=>f.corners!.map(c=>structuredClone(c.attributes))),
+    };
+    const land=(op:Op3,row:number,value:unknown,edit:()=>Edit3):void=>{
+      if(op==='move'){
+        const by=value as Vec3;
+        if(!by.every(Number.isFinite)){dropped.push(Object.freeze({edit:edit(),reason:'not-finite',k}));return;}
+        points[row].position=add3(points[row].position,by);
+        return;
+      }
+      const attrs=value as Record<string,Attribute3>;
+      if(Object.values(attrs).some(notFinite)){dropped.push(Object.freeze({edit:edit(),reason:'not-finite',k}));return;}
+      const target=targets[OPS3[op]][row];
+      for(const [name,v] of Object.entries(attrs))target[name]=attributeValue(v);
+    };
+    for(const e of this.entries){
+      if(e instanceof Run3){
+        for(let i=0;i<e.indices.length;i++)land(e.op,e.indices[i],e.values[i],()=>e.record(i));
+        continue;
+      }
+      const ref=refOf(e),row=this.ids(OPS3[e.op]).rows.get(typeof ref==='string'?ref:ref.id);
+      if(row===undefined){dropped.push(Object.freeze({edit:e,reason:'gone',k}));continue;}
+      land(e.op,row,e.op==='move'?e.by:e.attrs,()=>e);
+    }
     let corner=0;
-    const faces=this.input.surface.faces.map((face,i)=>({...face,corners:face.corners!.map(c=>({...c,attributes:this.cornerAttributes[corner++]})),attributes:this.faceAttributes[i]}));
-    const previous={...this.input.surface,edges:this.input.surface.edges.map((edge,i)=>({...edge,attributes:this.edgeAttributes[i]}))};
-    inheritTopology3(previous,this.input.surface);
-    return new Mesh(ownSurface3(assembleSurface3(this.points,faces,this.input.surface.triangles,previous)),{...this.input,iteration,history:[]});
+    const faces=surface.faces.map((face,i)=>({...face,corners:face.corners!.map(c=>({...c,attributes:targets.corner[corner++]})),attributes:targets.face[i]}));
+    const previous={...surface,edges:surface.edges.map((edge,i)=>({...edge,attributes:targets.edge[i]}))};
+    inheritTopology3(previous,surface);
+    return new Mesh(ownSurface3(assembleSurface3(points,faces,surface.triangles,previous)),{...this.input,iteration,history:[]});
   }
   close():void{this.active=false;}
 }

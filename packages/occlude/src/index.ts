@@ -92,7 +92,11 @@ export type { EdgeQuery, NearestHit, FirstHit, PointQuery, NearestPoint } from '
 export type {
   Vertex, Edge, Curve, Station, Transfer, TransferPolicy, SegmentRun, PointsLike,
 } from './material.js';
-export type { Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts } from './steps.js';
+export type {
+  Next, ChildSpec, ChildInterval, SplitOpts,
+  Edit, PointRef, FaceKey, DropReason, Dropped,
+  MoveEdit, SetEdit, SetEdgeEdit, SetFaceEdit, AddPointEdit, ConnectEdit, DisconnectEdit, RemoveEdit, SplitEdit,
+} from './steps.js';
 export type { NeighbourStats, Sources } from './forces.js';
 export type { Vec, XY } from './vec.js';
 

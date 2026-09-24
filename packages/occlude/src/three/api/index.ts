@@ -1,6 +1,6 @@
 export {mesh,plane,box,pointCloud,parametric} from './mesh.js';
 export type {ParametricOptions} from './mesh.js';
-export type {Mesh,PointGeometry,PointEdit,PointRule,PointSnapshot,CurveGeometry,CurveRule,CurveEdit,CurveSnapshot,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,AttributeOptions,StepAttributes,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot} from './mesh.js';
+export type {Mesh,PointGeometry,PointEdit,PointRule,PointSnapshot,CurveGeometry,CurveRule,CurveEdit,CurveSnapshot,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,AttributeOptions,StepAttributes,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot,Edit3,Dropped3} from './mesh.js';
 export {view,orthographic,perspective,oblique} from './view.js';
 export type {ViewOptions,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
