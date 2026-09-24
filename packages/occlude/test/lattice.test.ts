@@ -169,6 +169,34 @@ describe('the bulk verbs every rule wants', () => {
     const guarded = lat.steps(1, (_cur, next) => { next.set('a', -1, 0, 9); next.add('a', 999, 0, 9); });
     expect(guarded.values.a).toEqual(lat.values.a);
   });
+
+  it('cells is the in-lattice cells, row-major, each once: the walk a per-cell rule hands to the lattice', () => {
+    const t = toolkit();
+    const lat = t.lattice({ spacing: 4, area: disc(50, 50, 20), channels: ['h', 'v'] }, (x, y) => ({ h: Math.exp(-((x - 50) ** 2 + (y - 50) ** 2) / 30), v: 0 }));
+    let walked: [number, number][] = [];
+    lat.steps(1, (cur) => { walked = [...cur.cells]; });
+    // The cells the area named, not the whole grid (`n` counts the grid).
+    const inside = live(lat, 'h').length;
+    expect(inside).toBeLessThan(lat.n);
+    expect(walked.length).toBe(inside);
+    expect(new Set(walked.map(([i, j]) => `${i},${j}`)).size).toBe(inside);
+    for (let k = 1; k < walked.length; k++) {
+      const [i0, j0] = walked[k - 1], [i1, j1] = walked[k];
+      expect(j1 > j0 || (j1 === j0 && i1 > i0)).toBe(true);
+    }
+    lat.steps(1, (cur) => { for (const [i, j] of cur.cells) expect(cur.inside(i, j)).toBe(true); });
+    // A wave written over cells is the wave written with the hand loop, bit for bit.
+    const wave = (cur: Parameters<LatticeRule>[0], next: Parameters<LatticeRule>[1], i: number, j: number): void => {
+      const v = cur.at('v', i, j) * 0.995 + 0.2 * cur.laplacian('h', i, j);
+      next.set('v', i, j, v);
+      next.set('h', i, j, cur.at('h', i, j) + v);
+    };
+    const byCells = lat.steps(30, (cur, next) => { for (const [i, j] of cur.cells) wave(cur, next, i, j); });
+    const byLoop = lat.steps(30, (cur, next) => { for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) if (cur.inside(i, j)) wave(cur, next, i, j); });
+    expect(byCells.values.h).toEqual(byLoop.values.h);
+    expect(byCells.values.v).toEqual(byLoop.values.v);
+    expect(Math.min(...live(byCells, 'h'))).toBeLessThan(0); // a wave, not a diffusion: it swings below zero
+  });
 });
 
 describe('a Gray-Scott recipe, written in the sketch', () => {

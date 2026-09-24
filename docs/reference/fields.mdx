@@ -387,7 +387,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 A grid of named channels over an area, and a rule that steps it. `spacing` sets the cell size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each cell from its centre.
 
-`lat.steps(n, rule)` returns a new lattice. The rule is `(cur, next, k) => …`, as for `m.steps`. `cur.at(channel, i, j)` reads a cell, `cur.laplacian(channel, i, j)` is the five-point stencil, and `cur.neighbours(i, j)` lists the cells beside one. `next.set` and `next.add` write one cell. `next.diffuse(channel, rate)` and `next.decay(channel, rate)` work on the whole channel. A `diffuse` rate above 0.25 runs away.
+`lat.steps(n, rule)` returns a new lattice. The rule is `(cur, next, k) => …`, as for `m.steps`. `cur.cells` is the cells of the lattice as `[i, j]` pairs, so a rule that does arithmetic on each cell walks `for (const [i, j] of cur.cells)`. `cur.at(channel, i, j)` reads a cell, `cur.laplacian(channel, i, j)` is the five-point stencil, and `cur.neighbours(i, j)` lists the cells beside one. `next.set` and `next.add` write one cell. `next.diffuse(channel, rate)` and `next.decay(channel, rate)` work on the whole channel. A `diffuse` rate above 0.25 runs away.
 
 `lat.add(points, amount, channel?)` puts an amount into the cell under each point. `lat.field(channel)` reads a channel back as a field. `lat.values`, `lat.cols`, `lat.rows` and `lat.cell(x, y)` give the raw numbers. Every operation returns a new value.
 

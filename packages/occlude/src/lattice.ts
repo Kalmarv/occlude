@@ -78,6 +78,10 @@ export interface LatticeState {
   laplacian(channel: string, i: number, j: number): number;
   /** The in-lattice four-neighbourhood of a cell, as `[i, j]` pairs. */
   neighbours(i: number, j: number): [number, number][];
+  /** The cells of the lattice, as `[i, j]` pairs, row-major: the
+   * collection a per-cell rule walks, so the walk is the lattice's and the
+   * rule is the arithmetic. */
+  readonly cells: Iterable<[number, number]>;
 }
 
 /** The edits a rule batches for the next state. It starts as a copy of the
@@ -301,6 +305,14 @@ export class Lattice {
         if (j > 0 && mask[idx - cols]) out.push([i, j - 1]);
         if (j + 1 < rows && mask[idx + cols]) out.push([i, j + 1]);
         return out;
+      },
+      cells: {
+        *[Symbol.iterator](): Iterator<[number, number]> {
+          for (let j = 0; j < rows; j++) {
+            const row = j * cols;
+            for (let i = 0; i < cols; i++) if (mask[row + i]) yield [i, j];
+          }
+        },
       },
     };
 
