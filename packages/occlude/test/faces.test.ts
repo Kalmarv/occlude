@@ -144,9 +144,9 @@ describe('faces', () => {
   });
 
   it('a square with one diagonal has two faces; both diagonals need planarize and give four', () => {
-    const diag = square().steps(1, (_, next) => next.connect(0, 2));
+    const diag = square().steps(1, (cur, next) => next.connect(cur.points.at(0), cur.points.at(2)));
     expect(areas(diag)).toEqual([50, 50]);
-    const both = diag.steps(1, (_, next) => next.connect(1, 3));
+    const both = diag.steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(3)));
     expect(() => both.faces()).toThrow(/cross without a shared vertex — run planarize\(\)/);
     const p = both.planarize();
     expect(p.n).toBe(5);
@@ -185,12 +185,12 @@ describe('faces', () => {
     expect(cells.faces[0].contours()).toHaveLength(1);
     expect(cells.faces[0].contours()[0].pts).toHaveLength(4);
     // a bridge between two loops
-    const bridged = append(square(), square(20, 0)).steps(1, (_, next) => next.connect(1, 4));
+    const bridged = append(square(), square(20, 0)).steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(4)));
     expect(areas(bridged)).toEqual([100, 100]);
     expect(bridged.faces().length).toBe(euler(bridged));
     for (const f of bridged.faces().faces) expect(f.contours()[0].pts).toHaveLength(4);
     // a ring hanging inside another by a bridge: annulus with a pinched hole, two contours, no retrace
-    const inner = append(square(0, 0, 30), square(10, 10, 10)).steps(1, (_, next) => next.connect(1, 5));
+    const inner = append(square(0, 0, 30), square(10, 10, 10)).steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(5)));
     const ic = inner.faces();
     expect(areas(inner)).toEqual([100, 800]);
     const ann = ic.faces.find((f) => f.area === 800)!;
@@ -247,7 +247,7 @@ describe('faces', () => {
   });
 
   it('union boundaries: shared walls vanish, holes stay when the inner face is unselected', () => {
-    const diag = square().steps(1, (_, next) => next.connect(0, 2));
+    const diag = square().steps(1, (cur, next) => next.connect(cur.points.at(0), cur.points.at(2)));
     const cells = diag.faces();
     expect(cells.contours()).toHaveLength(1);
     expect(cells.contours()[0].pts).toHaveLength(4);
@@ -449,7 +449,7 @@ describe('faces: centroid, adjacency and an edge\'s faces', () => {
     expect(cells.has(wall.faces[0])).toBe(true);
     const outer = m.edges.find((e) => e.a.y === 0 && e.b.y === 0 && e.b.x === 10)!;
     expect(outer.faces.length).toBe(1);
-    const crossed = sq(0, 0, 10).steps(1, (_, next) => { next.connect(0, 2); next.connect(1, 3); });
+    const crossed = sq(0, 0, 10).steps(1, (cur, next) => { next.connect(cur.points.at(0), cur.points.at(2)); next.connect(cur.points.at(1), cur.points.at(3)); });
     expect(() => crossed.edges.at(0).faces).toThrow(/planar/);
   });
 });

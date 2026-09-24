@@ -54,7 +54,7 @@ import { snap as snapKernel, type SnapField, type SnapOpts } from './snap.js';
 import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
-import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
+import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type Dropped, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
 import type { EdgeQuery } from './query.js';
 
 // The vocabulary this module was one file with, re-exported so its
@@ -71,7 +71,9 @@ import { oneBatch } from './rules.js';
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
 export type {
-  Handle, Ref, ChildSpec, ChildInterval, SplitOpts, EdgeRef, StepRule, StepShorthand, StepsOptions, Next, StepKit,
+  ChildSpec, ChildInterval, SplitOpts, StepRule, StepShorthand, StepsOptions, Next, StepKit,
+  Edit, PointRef, EdgeRef, FaceKey, DropReason, Dropped,
+  MoveEdit, SetEdit, SetEdgeEdit, SetFaceEdit, AddPointEdit, ConnectEdit, DisconnectEdit, RemoveEdit, SplitEdit,
 } from './steps.js';
 
 // ---- the material --------------------------------------------------------------------
@@ -442,6 +444,9 @@ export const RESERVED_EDGE_FIELDS: readonly string[] = [
 export type PointId = number & { readonly __pointId: unique symbol };
 export type EdgeId = number & { readonly __edgeId: unique symbol };
 
+/** The `dropped` of every material no `steps` call made. */
+const NOTHING_DROPPED: readonly Dropped[] = Object.freeze([]);
+
 /** The run's id counter. Reset at the start of every execution. */
 let nextId = 1;
 
@@ -548,6 +553,17 @@ export class Material {
    * and a material compared or copied as data is compared by its rows.
    */
   declare readonly space: Space | undefined;
+  /**
+   * The records the `steps` call that made this material did not land,
+   * each with its reason and the step `k` — empty on every other material,
+   * as `history` is. A reference that is gone, a join of a point to
+   * itself, a second ask for what already is, an ask about a point or an
+   * edge the same batch removes, two splits that disagree, a value that is
+   * not finite: the fold drops each and says so here. It never draws.
+   *
+   * Non-enumerable, as `space` is: a record may hold a callback.
+   */
+  declare readonly dropped: readonly Dropped[];
   /** id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -594,6 +610,8 @@ export class Material {
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
+      /** What the `steps` call that made this state dropped (see `dropped`). */
+      dropped?: readonly Dropped[];
     } = {},
   ) {
     const {
@@ -660,6 +678,7 @@ export class Material {
     }
     this.faceAttrs = faceAttrs;
     Object.defineProperty(this, 'space', { value: carry.space, enumerable: false });
+    Object.defineProperty(this, 'dropped', { value: carry.dropped === undefined ? NOTHING_DROPPED : Object.freeze(carry.dropped), enumerable: false });
     this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
@@ -2405,9 +2424,14 @@ export class Material {
    * relaxation, deformation and erosion are different rules for this one
    * verb; `.steps(1, rule)` is a single transition. Additional callbacks run
    * in order within each iteration: each receives the completed output of
-   * the previous pass. All passes share k. Selections and handles belong to
-   * one pass; select again from the following pass's input. Optional history
-   * settings are the final argument, and capture only completed iterations.
+   * the previous pass. All passes share k. A new point's record names it
+   * only in its own batch; an id or a vertex names a point in every state
+   * that still has it. Optional history settings are the final argument,
+   * and capture only completed iterations.
+   *
+   * The batch is a list of edit records (`next.edits`), and a pass that
+   * returns a list makes that list the batch. The fold drops what cannot
+   * land and gives a reason; the result's `dropped` lists them.
    *
    * By default only the final state is kept. `{ every: m }` also captures
    * iteration 0, every m-th iteration, and the final one (no duplicates)
@@ -2431,13 +2455,19 @@ export class Material {
     const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
     if (every) snaps.push(base);
     let cur = base;
+    // What every step of this call drops, handed to the state it returns:
+    // the last step's state, or the copy that carries the history.
+    const dropped: Dropped[] = [];
     for (let k = 0; k < n; k++) {
-      for (const pass of passes) cur = stepOnce(cur, k, pass, this.iteration + k + 1, KIT);
+      for (let i = 0; i < passes.length; i++) {
+        const last = !every && k === n - 1 && i === passes.length - 1;
+        cur = stepOnce(cur, k, passes[i], this.iteration + k + 1, KIT, dropped, last);
+      }
       if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push(cur);
     }
     if (every && n > 0) snaps.push(cur);
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs, space: cur.space })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs, space: cur.space, dropped })
       : cur;
   }
 }

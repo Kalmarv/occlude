@@ -96,16 +96,23 @@ describe('next.setFaces', () => {
     expect(marks).toEqual([0, 1]);
   });
 
-  it('refuses a reserved name and a value that is not a number', () => {
+  it('refuses a reserved name; drops a value that is not a number', () => {
     const m = twoFaces();
     expect(() => m.steps(1, (cur, next) => next.setFaces(cur.faces(), () => ({ area: 1 })))).toThrow(/reserved face field/);
-    expect(() => m.steps(1, (cur, next) => next.setFaces(cur.faces(), () => ({ h: NaN })))).toThrow(/not a finite number/);
+    const nan = m.steps(1, (cur, next) => next.setFaces(cur.faces(), () => ({ h: NaN })));
+    expect(nan.dropped.map((d) => d.reason)).toEqual(['not-finite', 'not-finite']);
+    expect([...nan.faces()].every((f) => f.h === undefined)).toBe(true);
   });
 
-  it('refuses faces read from another state', () => {
+  it('reads faces of an earlier state by their walls, and refuses faces of another material', () => {
     const m = twoFaces();
     const stale = m.faces();
-    expect(() => m.steps(1, (_cur, next) => next.setFaces(stale, () => ({ h: 1 })))).toThrow(/another state/);
+    const written = m.steps(1, (_cur, next) => next.setFaces(stale, () => ({ h: 1 })));
+    expect([...written.faces()].map((f) => f.h)).toEqual([1, 1]);
+    // A face this state does not have is gone.
+    const gone = m.steps(1, () => [{ op: 'setFace', face: 'no such walls', attrs: { h: 1 } }]);
+    expect(gone.dropped.map((d) => d.reason)).toEqual(['gone']);
+    expect(() => m.steps(1, (_cur, next) => next.setFaces(twoFaces().faces(), () => ({ h: 1 })))).toThrow(/another material/);
   });
 });
 
@@ -113,7 +120,7 @@ describe('when the boundary changes', () => {
   /** A square split by a diagonal, then a wall added across one half. */
   const split = (m: Material): Material => m.steps(1, (cur, next) => {
     const mid = next.addPoint([5, 0], {});
-    next.connect(mid, 2);
+    next.connect(mid, cur.points.at(2));
   });
 
   it('a new face inherits from the old face it shares the most walls with', () => {

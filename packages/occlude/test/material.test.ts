@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   add, append, banding, connect, curve, distance, extent, isStations, length, limit, material, mul, perp, segmentRuns, stationsMaterial, sub, sum, sumBy, unit,
-  type Material, type Next, type Vertex,
+  type Material, type Next, type Vertex, type PointId, type PointRef, type AddPointEdit,
 } from '../src/material.js';
 import { force } from '../src/forces.js';
 const { attract, boundary, drift, field, relax, separation, tension, vortex } = force;
@@ -238,8 +238,8 @@ describe('forces', () => {
 describe('steps', () => {
   const march = (cur: Material, next: Next) => {
     for (const p of cur.points) {
-      next.move(p.index, [1, 0]);
-      next.set(p.index, { age: p.age + 1 });
+      next.move(p, [1, 0]);
+      next.set(p, { age: p.age + 1 });
     }
   };
 
@@ -284,7 +284,7 @@ describe('steps', () => {
   it('history on and off give the same final geometry; later steps leave snapshots untouched', () => {
     const start = square();
     const rule = (cur: Material, n: Next) => {
-      n.splitEdges(cur.edges.filter((e) => e.length > 12), { attributes: { age: 0 } });
+      n.splitEdges(cur.edges.filter((e) => e.length > 12), { point: { age: 0 } });
     };
     const off = start.steps(6, march, rule);
     const on = start.steps(6, march, rule, { every: 2 });
@@ -307,11 +307,11 @@ describe('steps', () => {
       const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
       return [(cur: Material, n: Next) => {
         for (const p of cur.points) {
-          n.move(p.index, [rnd() - 0.5, rnd() - 0.5]);
-          n.set(p.index, { age: p.age + 1 });
+          n.move(p, [rnd() - 0.5, rnd() - 0.5]);
+          n.set(p, { age: p.age + 1 });
         }
       }, (cur: Material, n: Next) => {
-        n.splitEdges(cur.edges.filter((e) => e.length > 3 && rnd() < 0.3), { attributes: { age: 0 } });
+        n.splitEdges(cur.edges.filter((e) => e.length > 3 && rnd() < 0.3), { point: { age: 0 } });
       }] as const;
     };
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 0 });
@@ -328,9 +328,9 @@ describe('steps', () => {
   it('splits see the moved state, insert with explicit attributes, and reconnect the ring', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 5 });
     const next = start.steps(1, (cur, n) => {
-      n.move(1, [10, 0]); // edge 0→1 becomes 20 long AFTER the move
+      n.move(cur.points.at(1), [10, 0]); // edge 0→1 becomes 20 long AFTER the move
     }, (cur, n) => {
-      n.splitEdges(cur.edges.filter((e) => e.length > 15), { attributes: { age: 0 } });
+      n.splitEdges(cur.edges.filter((e) => e.length > 15), { point: { age: 0 } });
     });
     expect(next.n).toBe(5);
     expect(next.pts).toEqual([[0, 0], [10, 0], [20, 0], [10, 10], [0, 10]]);
@@ -338,11 +338,11 @@ describe('steps', () => {
     expect(next.points.at(4).adjacent.indices).toContain(0);
   });
 
-  it('split predicates run in edge order on the moved edges; equal parameters share a vertex, conflicts throw', () => {
+  it('split predicates run in edge order on the moved edges; equal parameters share a vertex, conflicts drop', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 0 });
     const seen: [number, number][] = [];
     const out = start.steps(1, (cur, n) => {
-      n.move(0, [-10, 0]);
+      n.move(cur.points.at(0), [-10, 0]);
     }, (cur, n) => {
       n.splitEdges(cur.edges.filter((e) => { seen.push([e.a.index, Math.round(e.length)]); return e.length > 15; }), { point: { age: 9 } });
       n.splitEdges(cur.edges.filter(() => true), { point: { age: 9 } }); // same parameter, same value: one vertex
@@ -350,46 +350,31 @@ describe('steps', () => {
     expect(seen).toEqual([[0, 20], [1, 10], [2, 10], [3, 14]]);
     expect(out.n).toBe(8);
     expect(Array.from(out.attrs.age)).toEqual([0, 9, 0, 9, 0, 9, 0, 9]);
-    expect(() => start.steps(1, (_, n) => {
+    // Same parameter, different value: both overrides drop as a conflict,
+    // and the one cut takes what it inherits.
+    const clash = start.steps(1, (_, n) => {
       n.splitEdges(_.edges.filter(() => true), { point: { age: 1 } });
-      n.splitEdges(_.edges.filter(() => true), { point: { age: 2 } }); // same parameter, different value
-    })).toThrow(/conflicting 'age'/);
+      n.splitEdges(_.edges.filter(() => true), { point: { age: 2 } });
+    });
+    expect(clash.n).toBe(8);
+    expect(Array.from(clash.attrs.age)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(clash.dropped.map((d) => d.reason)).toEqual(Array(8).fill('conflict'));
   });
 
-  it('edge attributes on the start vertex: a split divides them between the children, total preserved', () => {
-    // `rest` is the rest length of the OUTGOING edge of each vertex.
+  it('a split vertex inherits what it is not told: every column interpolated', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 0, rest: 1 });
-    const total = (c: Material) => Array.from(c.attrs.rest).reduce((a, b) => a + b, 0);
-    const out = start.steps(1, (cur, n) => {
-      n.move(1, [10, 0]); // edge 0→1 is 20 long after the move
-    }, (cur, n) => {
-      n.splitEdges(cur.edges.filter((e) => e.length > 15), {
-        at: 0.25,
-        attributes: (e) => ({ age: 0, rest: e.a.rest * 0.75 }),
-        parent: (e) => ({ rest: e.a.rest * 0.25 }),
-      });
-    });
-    expect(out.n).toBe(5);
-    expect(out.pts[1]).toEqual([5, 0]); // at 0.25 along 0→(20,0)
-    expect(Array.from(out.attrs.rest)).toEqual([0.25, 0.75, 1, 1, 1]);
-    expect(total(out)).toBeCloseTo(total(start), 12);
-    // repeated splitting keeps the total exactly: every edge, ten steps
-    const many = start.steps(10, (_, n) =>
-      n.splitEdges(_.edges.filter(() => true), { attributes: (e) => ({ age: 0, rest: e.a.rest / 2 }), parent: (e) => ({ rest: e.a.rest / 2 }) }),
-    );
-    expect(many.n).toBe(4 * 2 ** 10);
-    expect(total(many)).toBeCloseTo(4, 9);
-    // the inserted vertex inherits what it is not told: rest interpolated, age interpolated
     const inherited = start.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { point: { age: 0 } }));
     expect(Array.from(inherited.attrs.rest).every((v) => v === 1)).toBe(true);
+    // The migration options that wrote a start vertex's column are retired.
+    expect(() => start.steps(1, (cur, n) => n.split(cur.edge(0), { parent: () => ({ rest: 0 }) } as never))).toThrow(/'parent' option is retired/);
   });
 
   it('a split inherits unnamed columns; a new point must name them; unknown names are refused', () => {
     const start = curve([[0, 0], [10, 0], [10, 10]], { closed: true, age: 0, energy: 1 });
-    const out = start.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { attributes: { age: 0 } }));
+    const out = start.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { point: { age: 0 } }));
     expect(Array.from(out.attrs.energy).every((v) => v === 1)).toBe(true);
     expect(() => start.steps(1, (_, n) => n.addPoint([1, 1], { age: 0 }))).toThrow(/must give 'energy'/);
-    expect(() => start.steps(1, (_, n) => n.set(0, { branch: 1 }))).toThrow(/no attribute 'branch'/);
+    expect(() => start.steps(1, (cur, n) => n.set(cur.points.at(0), { branch: 1 }))).toThrow(/no attribute 'branch'/);
   });
 });
 
@@ -495,10 +480,10 @@ describe('material: material beyond one chain', () => {
     const out = start.steps(1, (cur, next) => {
       next.move(cur.points, (p) => [p.x > 5 ? 1 : 0, 0]);
       next.move(cur.points.filter((p) => p.active === 1), () => [0, 2]);
-      next.move(0, [0, 0.5]);
+      next.move(cur.points.at(0), [0, 0.5]);
       next.set(cur.points, (p) => ({ age: p.age + 1 }));
       next.set(cur.points.filter((p) => p.active === 1), () => ({ active: 0 }));
-      next.set(1, { age: 9 });
+      next.set(cur.points.at(1), { age: 9 });
     });
     expect(out.pts).toEqual([[0, 2.5], [11, 0], [11, 12], [0, 10]]);
     expect(Array.from(out.attrs.age)).toEqual([1, 9, 1, 1]);
@@ -515,7 +500,7 @@ describe('material: material beyond one chain', () => {
       ]);
       next.set(cur.points.filter((p) => p.active === 1), () => ({ active: 0 })); // current selection: not the children
       const h = next.addPoint([-5, 0], { active: 0, generation: 0 });
-      next.connect(0, h);
+      next.connect(cur.points.at(0), h);
     });
     expect(grown.n).toBe(5);
     expect(grown.points.at(1).adjacent.length).toBe(3); // the tip became a junction
@@ -523,10 +508,14 @@ describe('material: material beyond one chain', () => {
     expect(Array.from(grown.attrs.generation)).toEqual([0, 0, 1, 1, 0]);
     expect(grown.points.at(0).adjacent.has(grown.points.at(4))).toBe(true);
     expect(grown.curves()).toHaveLength(3); // 4→0→1 is one chain into the junction, then 1→2 and 1→3
-    expect(() => start.steps(1, (_, n) => n.connect(0, 7))).toThrow(/no vertex 7/);
+    // A number is an id, never a row: one this state lacks is gone.
+    expect(start.rowOfPoint(7 as PointId)).toBe(-1); // 7 is no id of this state, whatever row 7 would be
+    const seven = start.steps(1, (cur, n) => n.connect(cur.points.at(0), 7 as PointId));
+    expect(seven.edgeCount).toBe(start.edgeCount);
+    expect(seven.dropped.map((d) => d.reason)).toEqual(['gone']);
     expect(() => start.steps(1, (_, n) => n.addPoint([0, 0], { active: 0 }))).toThrow(/must give 'generation'/);
-    // a handle from one batch is meaningless in another: resolved only in its own step
-    expect(() => start.steps(1, (_, n) => n.connect(0, { __handle: 3, __batch: {} }))).toThrow(/another edit batch/);
+    // something that is no point at all is a wrong program
+    expect(() => start.steps(1, (cur, n) => n.connect(cur.points.at(0), { __handle: 3 } as never))).toThrow(/needs a point/);
   });
 
   it('neighbourhood identity: membership in the source state, not coordinates or indices', () => {
@@ -697,20 +686,32 @@ describe('boundaries (review 2026-09-07)', () => {
   it('1. connecting an existing pair is idempotent — no second edge, no doubled tension', () => {
     const c = curve([[0, 0], [10, 0], [10, 10]], { closed: false });
     const pullBefore = tension(c, { rest: 1 })(c.points.at(0));
-    const out = c.steps(1, (_, n) => { n.connect(0, 1); n.connect(1, 0); n.connect(0, 1); });
+    const out = c.steps(1, (cur, n) => {
+      const [p, q] = [cur.points.at(0), cur.points.at(1)];
+      n.connect(p, q); n.connect(q, p); n.connect(p, q);
+    });
     expect(out.edgeCount).toBe(2);
     expect(tension(out, { rest: 1 })(out.vertex(0))).toEqual(pullBefore);
-    // A link whose ends are one vertex is no edge: dropped, like a pair
-    // that is already there.
-    expect(c.steps(1, (_, n) => n.connect(1, 1)).edgeCount).toBe(2);
+    expect(out.dropped.map((d) => d.reason)).toEqual(['already', 'already', 'already']);
+    // A link whose ends are one vertex is no edge: dropped, and it says so.
+    const self = c.steps(1, (cur, n) => n.connect(cur.points.at(1), cur.points.at(1).id));
+    expect(self.edgeCount).toBe(2);
+    expect(self.dropped.map((d) => d.reason)).toEqual(['self']);
   });
 
-  it('2. a handle is owned by its batch: one saved from an earlier step is refused', () => {
+  it('2. a new point\'s record names it in its own batch: one saved from an earlier step is gone', () => {
     const start = curve([[0, 0], [10, 0]], { closed: false });
-    let saved: import('../src/material.js').Handle | null = null;
+    let saved: AddPointEdit | null = null;
     const a = start.steps(1, (_, n) => { saved = n.addPoint([5, 5], {}); });
     expect(a.n).toBe(3);
-    expect(() => a.steps(1, (_, n) => { n.addPoint([9, 9], {}); n.connect(0, saved!); })).toThrow(/another edit batch/);
+    const b = a.steps(1, (cur, n) => { n.addPoint([9, 9], {}); n.connect(cur.points.at(0), saved!); });
+    expect(b.n).toBe(4);
+    expect(b.edgeCount).toBe(1);
+    expect(b.dropped.map((d) => [d.edit.op, d.reason])).toEqual([['connect', 'gone']]);
+    // Listed again, the record is a point to add, and it lands as a new one.
+    const c = a.steps(1, (cur) => [saved!, { op: 'connect', a: cur.points.at(0), b: saved! }]);
+    expect(c.n).toBe(4);
+    expect(c.edgeCount).toBe(2);
   });
 
   it('3. resample: correct spacing on open chains, isolated vertices kept, inputs validated', () => {
@@ -800,7 +801,7 @@ describe('structural editing (edges brief)', () => {
 
   it('remove: an endpoint and a junction; incident edges go, survivors compact, attributes align', () => {
     const y = Y();
-    const noTip = y.steps(1, (_, n) => n.remove(4));
+    const noTip = y.steps(1, (cur, n) => n.remove(cur.points.at(4)));
     expect(noTip.n).toBe(4);
     expect(noTip.edgeCount).toBe(3);
     expect(Array.from(noTip.attrs.age)).toEqual([1, 2, 3, 4]);
@@ -813,8 +814,9 @@ describe('structural editing (edges brief)', () => {
     expect(noJunction.edge(0).attrs.rest).toBeCloseTo(Math.hypot(10, 5));
     expect(noJunction.points.at(0).adjacent.length).toBe(0); // 0 is isolated now, never joined to anything
     // idempotent, by predicate too
-    const twice = y.steps(1, (_, n) => { n.remove(4); n.remove(4); n.remove(_.points.filter((p) => p.age === 5)); });
+    const twice = y.steps(1, (cur, n) => { n.remove(cur.points.at(4)); n.remove(cur.points.at(4)); n.remove(cur.points.filter((p) => p.age === 5)); });
     expect(twice.n).toBe(4);
+    expect(twice.dropped.map((d) => d.reason)).toEqual(['already', 'already']);
   });
 
   it('disconnect keeps the points; repeated disconnect is a no-op; predicate form', () => {
@@ -822,12 +824,13 @@ describe('structural editing (edges brief)', () => {
     const cut = y.steps(1, (cur, n) => { n.disconnect(cur.edge(1)); n.disconnect(cur.edge(1)); });
     expect(cut.n).toBe(5);
     expect(cut.edgeCount).toBe(3);
+    expect(cut.dropped.map((d) => d.reason)).toEqual(['already']);
     expect(cut.points.at(2).adjacent.length).toBe(0);
     const pruned = y.steps(1, (_, n) => n.disconnect(_.edges.filter((e) => e.length > 11)));
     expect(pruned.edgeCount).toBe(1); // the three ~11.18 diagonals go, the 10-long base stays
   });
 
-  it('split returns a handle usable in the batch; foreign and stale references are refused', () => {
+  it('split returns its record, usable in the batch; foreign and stale references drop as gone', () => {
     const y = Y();
     const out = y.steps(1, (cur, n) => {
       const mid = n.split(cur.edge(0), { at: 0.25 });
@@ -841,13 +844,16 @@ describe('structural editing (edges brief)', () => {
     expect(out.edge(1).attrs.rest).toBeCloseTo(10);
     expect(out.points.at(1).adjacent.length).toBe(3);
     const other = Y();
-    // A view of a material that shares no identity is not of this state,
-    // and the refusal names both ways that can happen.
-    expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/not an edge of this state/);
-    expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/not a vertex of this state/);
-    let stale: import('../src/material.js').Ref | null = null;
+    // A view of a material that shares no identity names nothing here: the
+    // fold drops it as gone and the state is as it was.
+    const foreign = y.steps(1, (_, n) => { n.split(other.edge(0)); n.remove(other.vertex(0)); });
+    expect(foreign.n).toBe(y.n);
+    expect(foreign.dropped.map((d) => [d.edit.op, d.reason])).toEqual([['remove', 'gone'], ['split', 'gone']]);
+    let stale: PointRef | null = null;
     const a = y.steps(1, (cur, n) => { stale = n.split(cur.edge(0)); });
-    expect(() => a.steps(1, (cur, n) => { n.split(cur.edge(0)); n.connect(stale!, 4, { rest: 1, strength: 1 }); })).toThrow(/another edit batch/);
+    const b = a.steps(1, (cur, n) => { n.split(cur.edge(0)); n.connect(stale!, cur.points.at(4), { rest: 1, strength: 1 }); });
+    expect(b.n).toBe(a.n + 1);
+    expect(b.dropped.map((d) => [d.edit.op, d.reason])).toEqual([['connect', 'gone']]);
   });
 
   it('several splits of one edge: sorted parameters, equal ones merge, endpoints create nothing', () => {
@@ -858,14 +864,15 @@ describe('structural editing (edges brief)', () => {
       n.split(e, { at: 0.7, edges: share });
       n.split(e, { at: 0.2, edges: share }); // the same definition again: fine
       n.split(e, { at: 0.7, point: { age: 7 } });
-      const end = n.split(e, { at: 1 });
-      expect(end).toBe(1);
+      // An endpoint split creates nothing: its record names the end.
+      n.connect(n.split(e, { at: 1 }), cur.points.at(1));
     });
     expect(out.pts.map(([x]) => x)).toEqual([0, 2, 7, 10]);
     expect(Array.from(out.attrs.age)).toEqual([0, 2, 7, 10]);
     const rests = Array.from(out.edgeAttrs.rest);
     expect(rests.map((r) => +r.toFixed(9))).toEqual([2, 5, 3]);
     expect(rests.reduce((a, b) => a + b, 0)).toBeCloseTo(10, 9);
+    expect(out.dropped.map((d) => [d.edit.op, d.reason])).toEqual([['connect', 'self']]);
     // a split at an endpoint creates nothing and returns the endpoint; overrides describe created data and do not apply
     const untouched = line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1, point: { age: 0 } }));
     expect(untouched.n).toBe(line.n);
@@ -875,8 +882,12 @@ describe('structural editing (edges brief)', () => {
     expect(line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1.5 })).n).toBe(line.n);
     // distinct child-edge definitions on one parent are a conflict; the same one twice is fine
     const same = (p: import('../src/material.js').Edge, c: import('../src/material.js').ChildInterval) => ({ rest: p.attrs.rest * c.fraction });
-    expect(() => line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: same }); })).not.toThrow();
-    expect(() => line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: () => ({ rest: 1 }) }); })).toThrow(/two different child-edge definitions/);
+    expect(line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: same }); }).dropped).toEqual([]);
+    const clash = line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: () => ({ rest: 1 }) }); });
+    // Both definitions drop; both cuts land, and the children inherit.
+    expect(clash.dropped.map((d) => d.reason)).toEqual(['conflict', 'conflict']);
+    expect(clash.n).toBe(4);
+    expect(Array.from(clash.edgeAttrs.rest)).toEqual([10, 10, 10]);
   });
 
   it('transfer policies: nearest copies (ties to a), per-operation overrides win, resample obeys them', () => {
@@ -893,19 +904,36 @@ describe('structural editing (edges brief)', () => {
     expect(Array.from(rs.attrs.age)).toEqual([0, 2.5, 5, 7.5, 10]);
   });
 
-  it('conflicts throw and publish nothing', () => {
+  it('contradictions drop by precedence, in either order, and leave the source alone', () => {
     const y = Y();
     const before = { pts: y.pts, edges: Array.from(y.edgeList), age: Array.from(y.attrs.age) };
-    expect(() => y.steps(1, (_, n) => { n.remove(1); n.move(1, [1, 0]); })).toThrow(/removed and also moved/);
-    expect(() => y.steps(1, (_, n) => { n.remove(_.points.filter((p) => p.age === 2)); n.set(_.points, () => ({ age: 0 })); })).toThrow(/use a selector/);
-    expect(() => y.steps(1, (cur, n) => { n.split(cur.edge(0)); n.disconnect(cur.edge(0)); })).toThrow(/split and disconnected/);
-    expect(() => y.steps(1, (cur, n) => { n.setEdge(cur.edge(0), { strength: 0 }); n.disconnect(cur.edge(0)); })).toThrow(/attributes set and is disconnected/);
-    expect(() => y.steps(1, (cur, n) => { n.remove(0); n.split(cur.edge(0)); })).toThrow(/vertices is removed/);
-    expect(() => y.steps(1, (_, n) => { n.remove(0); n.connect(0, 4, { rest: 1, strength: 1 }); })).toThrow(/is removed in this step/);
-    expect(() => y.steps(1, (_, n) => n.connect(0, 4))).toThrow(/must give 'rest'/);
-    expect(() => y.steps(1, (_, n) => n.addPoint([NaN, 0], { age: 0 }))).toThrow(/not finite/);
+    const reasons = (m: Material) => m.dropped.map((d) => [d.edit.op, d.reason]);
+    // Removal beats a move, a write, a split beside it and a join, whichever came first.
+    const moved = y.steps(1, (cur, n) => { n.move(cur.points.at(1), [1, 0]); n.remove(cur.points.at(1)); });
+    expect(moved.n).toBe(4);
+    expect(reasons(moved)).toEqual([['move', 'removed']]);
+    const written = y.steps(1, (cur, n) => { n.remove(cur.points.filter((p) => p.age === 2)); n.set(cur.points, () => ({ age: 0 })); });
+    expect(Array.from(written.attrs.age)).toEqual([0, 0, 0, 0]);
+    expect(reasons(written)).toEqual([['set', 'removed']]);
+    const beside = y.steps(1, (cur, n) => { n.split(cur.edge(0)); n.remove(cur.points.at(0)); });
+    expect(beside.n).toBe(4);
+    expect(reasons(beside)).toEqual([['split', 'removed']]);
+    const joined = y.steps(1, (cur, n) => { n.connect(cur.points.at(0), cur.points.at(4), { rest: 1, strength: 1 }); n.remove(cur.points.at(0)); });
+    expect(joined.edgeCount).toBe(3);
+    expect(reasons(joined)).toEqual([['connect', 'removed']]);
+    // Disconnection beats a split and a write on that edge.
+    const cut = y.steps(1, (cur, n) => { n.split(cur.edge(0)); n.setEdge(cur.edge(0), { strength: 0 }); n.disconnect(cur.edge(0)); });
+    expect(cut.n).toBe(5);
+    expect(cut.edgeCount).toBe(3);
+    expect(reasons(cut)).toEqual([['split', 'disconnected'], ['setEdge', 'disconnected']]);
+    // A value that is not finite is data: dropped, never thrown.
+    const nan = y.steps(1, (_, n) => n.addPoint([NaN, 0], { age: 0 }));
+    expect(nan.n).toBe(5);
+    expect(reasons(nan)).toEqual([['addPoint', 'not-finite']]);
+    // A new edge that does not name every declared column is a wrong program.
+    expect(() => y.steps(1, (cur, n) => n.connect(cur.points.at(0), cur.points.at(4)))).toThrow(/must give 'rest'/);
     // explicit disconnect of an edge dying with its point is allowed
-    expect(() => y.steps(1, (cur, n) => { n.remove(4); n.disconnect(cur.edge(3)); })).not.toThrow();
+    expect(y.steps(1, (cur, n) => { n.remove(cur.points.at(4)); n.disconnect(cur.edge(3)); }).dropped).toEqual([]);
     expect(y.pts).toEqual(before.pts);
     expect(Array.from(y.edgeList)).toEqual(before.edges);
     expect(Array.from(y.attrs.age)).toEqual(before.age);
@@ -920,7 +948,7 @@ describe('structural editing (edges brief)', () => {
     const out = line.steps(1, (cur, n) => {
       n.extrude(cur.points.filter((p) => p.active === 1), (p) => [
         { position: [25, 5], attributes: { active: 1 } },
-        { to: 0 },
+        { to: cur.points.at(0) },
         { to: n.split(cur.edge(0), { at: 0.5 }) },
       ]);
       n.extrude(cur.points.filter((p) => p.active === 0), () => []);
@@ -930,15 +958,17 @@ describe('structural editing (edges brief)', () => {
     expect(out.points.at(3).adjacent.has(out.points.at(0))).toBe(true); // rows: 0, split(1), 1→2, 2→3, child→4
     expect(out.points.at(3).adjacent.has(out.points.at(1))).toBe(true);
     expect(out.points.at(3).adjacent.has(out.points.at(4))).toBe(true);
-    expect(() => line.steps(1, (_, n) => n.extrude(_.points, () => ({ position: [1, 1], attributes: { active: 0 }, to: 0 } as never)))).toThrow(/exactly one of/);
+    expect(() => line.steps(1, (_, n) => n.extrude(_.points, () => ({ position: [1, 1], attributes: { active: 0 }, to: _.points.at(0) } as never)))).toThrow(/exactly one of/);
   });
 
-  it('a stale handle never resolves even when its row exists', () => {
+  it('a stale record never resolves, even when a point it once named is there', () => {
     const line = curve([[0, 0], [10, 0]], { closed: false });
-    let h: import('../src/material.js').Ref | null = null;
+    let h: PointRef | null = null;
     const a = line.steps(1, (_, n) => { h = n.addPoint([5, 5], {}); });
     expect(a.n).toBe(3);
-    expect(() => a.steps(1, (_, n) => { n.addPoint([9, 9], {}); n.connect(h!, 0); })).toThrow(/another edit batch/);
+    const b = a.steps(1, (cur, n) => { n.addPoint([9, 9], {}); n.connect(h!, cur.points.at(0)); });
+    expect(b.edgeCount).toBe(1);
+    expect(b.dropped.map((d) => d.reason)).toEqual(['gone']);
   });
 });
 
@@ -1143,13 +1173,13 @@ describe('correctness pass (review of 22c9887)', () => {
 
   it('5. connecting an existing attributed pair is a no-op and needs no attributes', () => {
     const m = curve([[0, 0], [10, 0]], { closed: false }).edgeAttribute('rest', 3);
-    const same = m.steps(1, (_, next) => next.connect(0, 1));
+    const same = m.steps(1, (cur, next) => next.connect(cur.points.at(0), cur.points.at(1)));
     expect(same.edgeCount).toBe(1);
     expect(same.edgeAttrs.rest[0]).toBe(3);
-    expect(() => m.steps(1, (_, next) => next.connect(1, 0))).not.toThrow();
+    expect(() => m.steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(0)))).not.toThrow();
     // a genuinely new edge still demands every column
     const three = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1]] }).edgeAttribute('rest', 3);
-    expect(() => three.steps(1, (_, next) => next.connect(1, 2))).toThrow(/rest/);
+    expect(() => three.steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(2)))).toThrow(/rest/);
   });
 
   it('6. firstHit keeps along within [0, 1] for tolerated endpoint contact', async () => {

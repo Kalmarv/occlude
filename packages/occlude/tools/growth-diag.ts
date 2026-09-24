@@ -87,8 +87,8 @@ const rule = ruleName === 'alt'
         const step = limit(mul(force, speed), splitAt / 2);
         if (length(mul(force, speed)) > splitAt / 2) capped++;
         moves.push(length(step));
-        next.move(p.index, step);
-        next.set(p.index, { age: p.age + 1 });
+        next.move(p, step);
+        next.set(p, { age: p.age + 1 });
       }
     }
   : (current: Material, next: Next, k: number) => {
@@ -111,18 +111,18 @@ const rule = ruleName === 'alt'
         );
         const step = mul(force, speed);
         moves.push(length(step));
-        next.move(p.index, step);
-        next.set(p.index, { age: p.age + 1 });
+        next.move(p, step);
+        next.set(p, { age: p.age + 1 });
       }
     };
 const subdivide = (current: Material, next: Next) => {
   const edges = current.edges.filter(e => e.length > splitAt && chance(grow));
   if (material && ruleName !== 'alt') {
-    next.splitEdges(edges, {
-      attributes: e => ({ age: 0, rest: e.a.rest * 0.5 }),
-      parent: e => ({ rest: e.a.rest * 0.5 }),
-    });
-  } else next.splitEdges(edges, { attributes: { age: 0 } });
+    // The start vertex's rest halves, and the split callback reads that
+    // written state: the new vertex takes the other half.
+    for (const e of edges) next.set(e.a, { rest: e.a.rest * 0.5 });
+    next.splitEdges(edges, { point: (e) => ({ age: 0, rest: e.a.rest }) });
+  } else next.splitEdges(edges, { point: { age: 0 } });
 };
 
 console.log(`rule=${ruleName}${material ? ' MATERIAL' : ''} pull=${pullKind} repel=${repelKind} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);

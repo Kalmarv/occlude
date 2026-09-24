@@ -13,7 +13,7 @@ for (const N of [500, 2000, 5000]) {
   const step = (cur: typeof ring, next: O.Next, k: number) => {
     const pull = force.tension(cur, { rest: 1.0 });
     const repel = force.separation(cur, { radius: 2, excludeConnected: true });
-    for (const p of cur.points) next.move(p.index, mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
+    for (const p of cur.points) next.move(p, mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
     next.set(cur.points, (p) => ({ age: p.age + 1 }));
   };
   console.log(`\n== growth ring N=${N}`);

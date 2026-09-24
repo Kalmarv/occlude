@@ -50,14 +50,16 @@ describe('extend with inherit', () => {
     expect(grown.attrs.heading[0]).toBeCloseTo(-1.5, 12); // the parent is untouched
     expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: 0 } })))).toThrow(/must give 'active'/);
     expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4] }), { inherit: true }))).not.toThrow();
-    // unknown and non-finite overrides are still refused
+    // an unknown override is refused; a non-finite one drops the child and its join
     expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { colour: 1 } }), { inherit: true }))).toThrow(/no attribute 'colour'/);
-    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: NaN } }), { inherit: true }))).toThrow(/not a finite number/);
+    const nan = seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: NaN } }), { inherit: true }));
+    expect(nan.n).toBe(1);
+    expect(nan.dropped.map((d) => [d.edit.op, d.reason])).toEqual([['addPoint', 'not-finite'], ['connect', 'gone']]);
   });
   it('a join to an existing vertex leaves that vertex as it was, inherit or not', () => {
     const two = material([[0, 0], [10, 0]], { active: [1, 0], heading: [0, 2], depth: [0, 9] });
     const joined = two.steps(1, (cur, next) => {
-      next.extrude(cur.points.filter((p) => p.index === 0), () => ({ to: 1 }), { inherit: true });
+      next.extrude(cur.points.filter((p) => p.index === 0), () => ({ to: cur.points.at(1) }), { inherit: true });
     });
     expect(joined.n).toBe(2);
     expect(joined.edgeCount).toBe(1);

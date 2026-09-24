@@ -4,7 +4,7 @@ import {
   material,
 
   type StepRule,
-  type Handle,
+  type AddPointEdit,
 } from '../src/material.js';
 import { force } from '../src/forces.js';
 import type { PointSelection } from '../src/relation.js';
@@ -145,9 +145,9 @@ describe('selection-first step passes', () => {
       [10, 0],
     ]);
   });
-  it('rejects references crossing a pass boundary and preserves input when a later pass fails', () => {
+  it('re-binds a selection across a pass boundary; a new point\'s record from another pass is gone', () => {
     let selection: PointSelection;
-    let handle: Handle;
+    let handle: AddPointEdit;
     const seed = material([[0, 0]]);
     // A selection made in an earlier pass is about the same points, so the
     // later pass re-binds it rather than refusing it: the point moves twice.
@@ -160,15 +160,18 @@ describe('selection-first step passes', () => {
       (_, next) => next.move(selection, [1, 0]),
     );
     expect(twice.x[0]).toBe(2);
-    expect(() =>
-      seed.steps(
-        1,
-        (_, next) => {
-          handle = next.addPoint([1, 0], {});
-        },
-        (prev, next) => next.connect(prev.vertex(0), handle),
-      ),
-    ).toThrow(/another edit batch/);
+    // The point landed in the first pass; the second pass's list does not
+    // hold its record, so the join names a point that pass never made.
+    const crossed = seed.steps(
+      1,
+      (_, next) => {
+        handle = next.addPoint([1, 0], {});
+      },
+      (prev, next) => next.connect(prev.vertex(0), handle),
+    );
+    expect(crossed.n).toBe(2);
+    expect(crossed.edgeCount).toBe(0);
+    expect(crossed.dropped.map((d) => [d.edit.op, d.reason, d.k])).toEqual([['connect', 'gone', 0]]);
     expect(seed.pts).toEqual([[0, 0]]);
   });
   it('removes legacy callback-first and predicate signatures', () => {

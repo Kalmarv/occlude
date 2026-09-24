@@ -63,6 +63,8 @@ export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.
 
 `mesh.steps(count, rule)` is the frozen edit loop, the same as a material's. The rule reads `current` and writes `next`. The shorthand `{ move, set }` applies to every point, and a numeric `move` follows the vertex normal. A step of a mesh moves points and writes columns: `next.move`, `next.set`, `next.setEdges`, `next.setFaces` and `next.setCorners`. It does not change the topology, because the faces of a mesh must stay closed polygons between two verbs. To change the topology, use `subdivide`, `extrude` or a boolean between the steps. Here one rule lifts the middle of a sheet a little on each step. The three sheets are the rule applied 0, 4 and 10 times.
 
+A step of a mesh uses the words of a [material step](/docs/reference/steps). `next.edits` is the batch as records, in five ops: `move`, `set`, `setEdge`, `setFace` and `setCorner`. A record names its row by the row or by its `id`. A pass that returns a list replaces the batch. A selection from an earlier revision applies by id and skips the rows that are gone. A record for a row that is not in this revision drops as `gone`, and a value that is not finite drops as `not-finite`. `mesh.dropped` lists them. A topology record, for example `connect` or `split`, is an error, and the error names the op.
+
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { plane, view, orthographic } from 'occlude/3d';

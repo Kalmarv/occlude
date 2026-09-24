@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material, planarize } from '../src/index.js';
+import type { EdgeId } from '../src/material.js';
 
 const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
 
@@ -87,19 +88,23 @@ describe('transfer contracts (con2 stage B)', () => {
     // verb takes it and moves them.
     const rebound = m.steps(1, (_, next) => next.move(stale, () => [1, 0]));
     for (const i of stale.indices) expect(rebound.x[i]).toBe(m.x[i] + 1);
-    expect(() => m.steps(1, (cur, next) => next.remove(cur.edges.filter(() => true) as never))).toThrow(/point selection/);
+    expect(() => m.steps(1, (cur, next) => next.remove(cur.edges.filter(() => true) as never))).toThrow(/needs a point, not an edge/);
   });
 
-  it('edges by row or view; vertex accessors take rows or views of this state', () => {
+  it('edges by id or view; vertex accessors take rows or views of this state', () => {
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 0]], { closed: false }).edgeAttribute('w', 0);
     const out = m.steps(1, (cur, next) => {
-      next.setEdge(0, { w: 5 });
-      next.split(1, { at: 0.5 });
-      next.disconnect(2);
+      next.setEdge(cur.edge(0).id, { w: 5 });
+      next.split(cur.edge(1), { at: 0.5 });
+      next.disconnect(cur.edge(2).id);
     });
     expect(out.edgeCount).toBe(3);
     expect(out.edgeAttrs.w[0]).toBe(5);
-    expect(() => m.steps(1, (_, next) => next.setEdge(9, { w: 1 }))).toThrow(/no edge 9/);
+    // A number is an edge id, never a row: one this state lacks is gone.
+    expect(m.rowOfEdge(9 as EdgeId)).toBe(-1);
+    const nine = m.steps(1, (_, next) => next.setEdge(9 as EdgeId, { w: 1 }));
+    expect(nine.dropped.map((d) => d.reason)).toEqual(['gone']);
+    expect(() => m.steps(1, (cur, next) => next.setEdge(cur.points.at(0) as never, { w: 1 }))).toThrow(/needs an edge/);
     expect(m.points.at(1).adjacent.length).toBe(2);
     expect(m.points.at(0).adjacent.indices).toEqual([1]);
     expect(m.points.at(0).adjacent.has(m.points.at(1))).toBe(true);

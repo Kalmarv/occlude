@@ -69,7 +69,7 @@ describe('selections as boundaries', () => {
     // A square ring with a spur off one corner.
     const net = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).steps(1, (cur, next) => {
       const spur = next.addPoint([20, 20], {});
-      next.connect(2, spur);
+      next.connect(cur.points.at(2), spur);
     });
     expect(() => distanceTo(net)).toThrow(/branches/);
     const ring = net.edges.filter((e) => e.index < 4);
