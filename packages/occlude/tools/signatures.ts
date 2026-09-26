@@ -31,7 +31,8 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
   Material: 'm', Tiling: 'tiles', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
-  PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
+  PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Lattice: 'l', Toolkit: 't', '3d.Mesh': 'mesh',
+  '3d.MeshPoints': 'mesh.points', '3d.MeshEdges': 'mesh.edges', '3d.MeshFaces': 'mesh.faces', '3d.MeshCorners': 'mesh.corners',
   '3d.CurveGeometry': 'curve', '3d.Honeycomb': 'h', '3d.Placement3': 'place',
   connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
@@ -41,14 +42,14 @@ const PAGE: Record<string, string> = {
   Material: 'material', Curve: 'material', IsoContour: 'material',
   Vertex: 'selections', Edge: 'selections', PointSelection: 'selections', EdgeSelection: 'selections', Station: 'material',
   Faces: 'faces', FaceSelection: 'faces', Face: 'faces', FaceMeasurements: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
-  Next: 'steps', StepRule: 'steps', StepShorthand: 'steps', StepsOptions: 'steps', FaceRow: 'steps', Rewrite: 'steps',
-  ReplaceOpts: 'steps', ChildSpec: 'steps', SplitOpts: 'steps', Vec: 'material', XY: 'material',
+  PointValue: 'steps', EdgeValue: 'steps', GraphForce: 'steps', ReplaceOpts: 'steps',
+  Lattice: 'steps', CellSelection: 'steps', Cell: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   HatchParams: 'fills', CrosshatchParams: 'fills', SolidParams: 'fills', StippleParams: 'fills', ContourParams: 'fills', BuiltinFillName: 'fills', FillParams: 'fills',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
   Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry', TransformOp: 'transforms',
   Placement3: 'geometry', Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',
-  Mesh: '3d/primitives', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
+  Mesh: '3d/primitives', MeshPoints: '3d/edits', MeshEdges: '3d/edits', MeshFaces: '3d/edits', MeshCorners: '3d/edits', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
 
@@ -129,7 +130,7 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
   void ownerType;
 }
 
-const OWNERS = ['ImageSampler', 'Material', 'Tiling', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
+const OWNERS = ['ImageSampler', 'Material', 'Tiling', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Lattice', 'Toolkit'];
 
 /**
  * A subclass owns only what it adds. `Tiling` is a `Material`, so every
@@ -150,7 +151,7 @@ const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
  * object type on one line. */
 const SUBNAMESPACES: string[] = [];
 /** The 3D values whose members a page documents, keyed `3d.<Owner>.<word>`. */
-const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb', 'Placement3'];
+const OWNERS3 = ['Mesh', 'MeshPoints', 'MeshEdges', 'MeshFaces', 'MeshCorners', 'CurveGeometry', 'Honeycomb', 'Placement3'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);

@@ -9,7 +9,7 @@ beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-cor
 const env=(seed:number|string=42)=>{const rng=new Rng(seed);return {rnd:()=>rng.float()};};
 describe('surface samples and scatter',()=>{
  it('selects by area times captured face weight, with an independent quantile oracle',()=>{
-  const target=mesh([[0,0,0],[2,0,0],[0,1,0],[10,0,0],[16,0,0],[10,1,0]],[[0,1,2],[3,4,5]]).faceAttribute('region',f=>f.index);
+  const target=mesh([[0,0,0],[2,0,0],[0,1,0],[10,0,0],[16,0,0],[10,1,0]],[[0,1,2],[3,4,5]]).faces.set('region',f=>f.index);
   let draws=0,weights=0;
   const sites=sampleSurfacePoints(target,{count:700,weight:f=>{weights++;return f.region?2:1;}},{rnd:()=>{const i=draws++;return i%3===0?(Math.floor(i/3)+.5)/700:i%3===1?.25:.5;}});
   expect(weights).toBe(2);expect(draws).toBe(2100);
@@ -20,11 +20,11 @@ describe('surface samples and scatter',()=>{
  });
  it('samples triangle interiors uniformly and interpolates numeric columns without averaging labels',()=>{
   const target=mesh([[0,0,0],[2,0,0],[0,3,0]],[[0,1,2]])
-    .attribute('height',p=>2*p.x+3*p.y).attribute('vector',p=>[p.x,p.y])
-    .attribute('label',p=>p.index,{transfer:'nearest'}).attribute('name',p=>'point-'+p.index)
-    .faceAttribute('region','terrain').faceAttribute('height',99);
+    .points.set('height',p=>2*p.x+3*p.y).points.set('vector',p=>[p.x,p.y])
+    .points.set('label',p=>p.index,{transfer:'nearest'}).points.set('name',p=>'point-'+p.index)
+    .faces.set('region','terrain').faces.set('height',99);
   const sites=sampleSurfacePoints(target,{count:6000},env());
-  expectTypeOf(sites.points.at(0)!.height).toEqualTypeOf<number>();expectTypeOf(sites.points.at(0)!.sample.face.region).toEqualTypeOf<'terrain'>();
+  expectTypeOf(sites.points.at(0)!.height).toEqualTypeOf<number>();expectTypeOf(sites.points.at(0)!.sample.face.region).toEqualTypeOf<string>();
   let x=0,y=0;
   for(const p of sites.points){
     expect(p.x).toBeGreaterThanOrEqual(0);expect(p.y).toBeGreaterThanOrEqual(0);expect(p.x/2+p.y/3).toBeLessThanOrEqual(1+1e-15);
@@ -35,25 +35,25 @@ describe('surface samples and scatter',()=>{
   expect(Math.abs(x/sites.points.length-2/3)).toBeLessThan(.02);expect(Math.abs(y/sites.points.length-1)).toBeLessThan(.025);
  });
  it('preserves sample ownership and typed provenance through fields, edits, extraction and instances',()=>{
-  const target=plane(2).faceAttribute('roof',true),samples=sampleSurfacePoints(target,{count:12},env());
-  const edited=samples.attribute('up',p=>p.sample.normal).attribute('tag',p=>p.sample.face.roof).translate([0,0,2]).displace(p=>[0,0,p.tag?1:0]);
+  const target=plane(2).faces.set('roof',true),samples=sampleSurfacePoints(target,{count:12},env());
+  const edited=samples.points.set('up',p=>p.sample.normal).points.set('tag',p=>p.sample.face.roof).translate([0,0,2]).displace(p=>[0,0,p.tag?1:0]);
   expect(edited.points.at(0)!.sample).toBe(samples.points.at(0)!.sample);expect(edited.points.at(0)!.z).toBe(3);expect(edited.points.at(0)!.sample.position[2]).toBe(0);
   const selected=edited.points.filter(p=>p.index%2===0).extract();expect(selected.points.length).toBe(6);expect(selected.points.at(1)!.id).toBe(samples.points.at(2)!.id);expect(selected.points.at(1)!.sample).toBe(samples.points.at(2)!.sample);
   expect(selected.generation).toEqual(samples.generation);expect(selected.withKey('selected').key).toBe('selected');
-  expect(()=>edited.attribute('sample',1)).toThrow('reserved');expect(()=>{(edited.points.at(0)!.sample.position as unknown as number[])[0]=99;}).toThrow();
-  const placed=instanceOnPoints(box(.1),selected.points,{offset:p=>p.sample.normal});expectTypeOf(placed.instances.at(0)!.source.sample.face.roof).toEqualTypeOf<true>();expect(placed.instances.at(1)!.source).toBe(selected.points.at(1));
+  expect(()=>edited.points.set('sample',1)).toThrow('reserved');expect(()=>{(edited.points.at(0)!.sample.position as unknown as number[])[0]=99;}).toThrow();
+  const placed=instanceOnPoints(box(.1),selected.points,{offset:p=>p.sample.normal});expectTypeOf(placed.instances.at(0)!.source.sample.face.roof).toEqualTypeOf<boolean>();expect(placed.instances.at(1)!.source).toBe(selected.points.at(1));
   expect(samples.points.at(0)!.sample.face.attributes.roof).toBe(true);
  });
  it('retains rich sample rows through synchronous and async query batches',async()=>{
-  const target=plane(2).faceAttribute('roof',true),sites=sampleSurfacePoints(target,{count:4},env()).translate([0,0,2]);
+  const target=plane(2).faces.set('roof',true),sites=sampleSurfacePoints(target,{count:4},env()).translate([0,0,2]);
   const batch=query(target).batch();
   for(const results of [batch.nearest(sites.points),batch.rays(sites.points,{direction:p=>p.sample.normal.map(n=>-n) as [number,number,number]}),batch.segments(sites.points,{to:p=>p.sample.position})]){
-    expect(results[0].source).toBe(sites.points.at(0));expectTypeOf(results[0].source.sample.face.roof).toEqualTypeOf<true>();expect(results[0].hit!.distance).toBeCloseTo(2,12);
+    expect(results[0].source).toBe(sites.points.at(0));expectTypeOf(results[0].source.sample.face.roof).toEqualTypeOf<boolean>();expect(results[0].hit!.distance).toBeCloseTo(2,12);
   }
   await compileSketchAsync(sketchAsync({seed:42},async t=>{
     const samples=t.sample(target,{count:3}).translate([0,0,1]),batch=query(target).batch(t);
     for(const rows of [await batch.nearest(samples.points),await batch.rays(samples.points,{direction:p=>[0,0,-p.sample.normal[2]]}),await batch.segments(samples.points,{to:p=>p.sample.position})]){
-      expectTypeOf(rows[0].source.sample.face.roof).toEqualTypeOf<true>();expect(rows[0].source).toBe(samples.points.at(0));expect(rows[0].hit!.distance).toBeCloseTo(1,12);
+      expectTypeOf(rows[0].source.sample.face.roof).toEqualTypeOf<boolean>();expect(rows[0].source).toBe(samples.points.at(0));expect(rows[0].hit!.distance).toBeCloseTo(1,12);
     }
     return [];
   }));
@@ -84,7 +84,7 @@ describe('surface samples and scatter',()=>{
  it('binds mesh sampling to the sketch seed without changing model draws on camera commit',async()=>{
   let models=0,sites:SurfaceSamples<any,any>|undefined;
   const definition=sketch({seed:42,pens:{ink:pen({width:mm(.3)})}},t=>{
-    models++;const terrain=plane(3).subdivide(2).faceAttribute('height',f=>f.centroid[0]);
+    models++;const terrain=plane(3).subdivide(2).faces.set('height',f=>f.centroid[0]);
     const a=t.sample(terrain,{count:10}),b=t.sample(terrain,{count:10});expect(a.surface).toEqual(b.surface);
     const generated=t.scatter(terrain,{spacing:.6,maxAttempts:300,maxPoints:12});sites=generated;
     return view([terrain,instanceOnPoints(box(.2),generated.points)],{camera:orthographic({eye:[5,7,6],span:5})});

@@ -63,10 +63,9 @@ describe('within: a material inside an area', () => {
   it('interpolates a cut vertex by the column policy, and keeps iteration', () => {
     let out: Material | null = null;
     run((t) => {
-      const m = material([[0, 50], [100, 50]], { edges: [[0, 1]] })
-        .attribute('v', (p) => p.x / 100)
-        .attribute('cat', (p) => (p.x < 50 ? 1 : 9), { transfer: 'nearest' })
-        .steps(2, () => { /* nothing moves: two iterations, for the count */ });
+      const m = t.steps(2, material([[0, 50], [100, 50]], { edges: [[0, 1]] })
+        .points.set('v', (p) => p.x / 100)
+        .points.set('cat', (p) => (p.x < 50 ? 1 : 9), { transfer: 'nearest' }), (g) => g /* nothing moves: two steps, for the count */);
       out = t.within(m, rect(20, 20, 60, 60));
     });
     expect(out!.iteration).toBe(2);          // an area edit is not a step
@@ -101,7 +100,7 @@ describe('within: points and faces', () => {
     let more = 0;
     let indices: readonly number[] = [];
     run((t) => {
-      const m = material([[10, 10], [50, 50], [70, 70], [95, 95]]).attribute('k', (p) => p.x);
+      const m = material([[10, 10], [50, 50], [70, 70], [95, 95]]).points.set('k', (p) => p.x);
       const sel: PointSelection = t.within(m.points, rect(20, 20, 60, 60));
       length = sel.length;
       more = sel.filter((p) => p.k > 60).length;

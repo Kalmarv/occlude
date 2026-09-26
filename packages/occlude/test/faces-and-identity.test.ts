@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
   circle, line, connect, distanceToPoints, dots, material, polygon, space, strokes, force, mul, append, sdf,
-  type Face, type Material,
+  type Face, type Material, type Vertex,
 } from '../src/index.js';
 
 const DISC = circle(50, 50, 34);
@@ -94,7 +94,7 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G2-13 · where takes a face selection: its corners for a point method', () => {
     const t = toolkit({ aspect: [1, 1], seed: 2 });
-    const hex = t.hexes({ spacing: 10 }).steps(3, (cur, next) => next.splitEdges(cur.edges, { at: 0.5 }));
+    const hex = t.steps<Material>(3, t.hexes({ spacing: 10 }), (g) => g.split(g.edges));
     const inside = t.within(hex.faces(), circle(50, 50, 28));
     const ripple = (x: number, y: number) => Math.sin(Math.hypot(x - 50, y - 50) / 2);
     const bent = hex.snap(ripple, { radius: 1.5, where: inside });
@@ -217,11 +217,11 @@ describe('P5 · a face collection is a selection', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
     const gap = 9;
     const net = t.hexes({ spacing: gap, origin: [50, 10] })
-      .edgeAttribute('rest', (e) => e.length * (1 + 0.6 * t.noise(e.center[0] / 30, e.center[1] / 30)));
+      .edges.set('rest', (e) => e.length * (1 + 0.6 * t.noise(e.center[0] / 30, e.center[1] / 30)));
     const nails = net.points.filter((p) => p.y < 2);
-    const hung = net.steps(10, (cur, next) => {
-      const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.08 * gap]);
-      next.move(cur.points.subtract(nails), (p) => mul(pull(p), 0.1));
+    const hung = t.steps(10, net, (g) => {
+      const pull = force.sum(force.tension(g, { rest: (e) => e.attrs.rest }), () => [0, 0.08 * gap]);
+      return g.move((p: Vertex) => mul(pull(p), 0.1), g.points.subtract(nails));
     });
     const cells = hung.faces();
     const rest = net.faces();
@@ -231,12 +231,12 @@ describe('P5 · a face collection is a selection', () => {
     expect(partner.every((g) => g !== undefined)).toBe(true);
     expect(new Set(partner.map((g) => g.index)).size).toBe(cells.length);
     expect(new Set(cells.map((f) => f.id)).size).toBe(cells.length);
-    // steps keep the rows here, so the partner is the same row.
+    // moves keep the rows, so the partner is the same row.
     expect(partner.map((g) => g.index)).toEqual(cells.map((f) => f.index));
     // A renumbering does not move an id: a line laid across one corner of
     // the web and planarized splits a few cells and renumbers the rest, and
     // every cell it did not cross keeps its id — and its area.
-    const crossed = append(net, t.material(line(0, 30, 30, 0)).edgeAttribute('rest', 0)).planarize().faces();
+    const crossed = append(net, t.material(line(0, 30, 30, 0)).edges.set('rest', 0)).planarize().faces();
     const byId = new Map(crossed.map((f) => [f.id, f] as const));
     const kept = rest.filter((f) => byId.has(f.id));
     expect(kept.length).toBeLessThan(rest.length);
@@ -280,7 +280,7 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G7-16 · cellOf(selection) is the cells of those sites; siteOf(cells) the sites', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const sites = t.relax(t.scatter({ spacing: 7 }), { iterations: 3 }).attribute('kind', (p) => (p.index % 3 === 0 ? 1 : 0));
+    const sites = t.relax(t.scatter({ spacing: 7 }), { iterations: 3 }).points.set('kind', (p) => (p.index % 3 === 0 ? 1 : 0));
     const diagram = t.voronoi(sites);
     const chosenSites = sites.points.filter((p) => p.kind === 1);
     const chosenCells = diagram.cellOf(chosenSites);
@@ -310,13 +310,14 @@ describe('P6 · identity survives every verb', () => {
       t.times(26, (k) => { const a = (k / 26) * Math.PI * 2; return [100 + Math.cos(a) * 44, 50 + Math.sin(a) * 24]; }),
       { heading: t.times(26, (k) => (k / 26) * Math.PI * 2 + Math.PI), tip: 1, strand: t.times(26, (k) => k) },
     );
-    const grown = seeds.steps(60, (cur, next) => {
-      const tips = cur.points.filter((p) => p.tip === 1 && p.x > 3 && p.x < 197 && p.y > 3 && p.y < 97);
-      next.extrude(tips, (p) => {
+    const grown = t.steps(60, seeds, (g) => {
+      const tips = g.points.filter((p) => p.tip === 1 && p.x > 3 && p.x < 197 && p.y > 3 && p.y < 97);
+      let out = g;
+      for (const p of tips) {
         const heading = p.heading + 0.05 * Math.sin(p.strand + p.x / 9);
-        return { position: [p.x + 1.1 * Math.cos(heading), p.y + 1.1 * Math.sin(heading)], attributes: { heading, tip: 1, strand: p.strand } };
-      });
-      next.set(tips, { tip: 0 });
+        out = out.extrude(p, [1.1 * Math.cos(heading), 1.1 * Math.sin(heading)], { heading, tip: 1, strand: p.strand });
+      }
+      return out.points.set('tip', 0, tips);
     }).oscillate({ wavelength: 13, amplitude: 1.6 });
     const woven = grown.interlace({ gap: 2.2 });
     expect(woven.attrNames).toContain('strand');
@@ -342,11 +343,12 @@ describe('P6 · identity survives every verb', () => {
       if (c > 0) edges.push([i - 1, i]);
       if (r > 0) edges.push([i - cols, i]);
     }
-    const net = material(pts).withEdges(edges).edgeAttribute('rest', gap * 1.2);
+    const net = material(pts, { edges }).edges.set('rest', gap * 1.2);
     const nails = net.points.filter((p) => p.y < 11 && (p.index % 6 === 0 || p.index === cols - 1));
-    const hang = (by: (cur: Material) => ReturnType<Material['points']['filter']>) => net.steps(20, (cur, next) => {
-      const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
-      next.move(by(cur), (p) => mul(pull(p), 0.1));
+    const t = toolkit({ seed: 1 });
+    const hang = (by: (cur: Material) => ReturnType<Material['points']['filter']>) => t.steps(20, net, (g) => {
+      const pull = force.sum(force.tension(g, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
+      return g.move((p: Vertex) => mul(pull(p), 0.1), by(g));
     });
     const stale = hang((cur) => cur.points.subtract(nails));
     const spelled = hang((cur) => cur.points.subtract(nails.in(cur)));

@@ -5,22 +5,19 @@ import { connect, curve, material, initOcclude, path, render, sketch, stroke } f
 
 describe('Stage A repairs (con2)', () => {
   it('A1 a value update keeps the declared transfer policy; explicit interpolate resets it', () => {
-    const m = curve([[0, 0], [10, 0]], { closed: false }).attribute('kind', 1, { transfer: 'nearest' });
-    expect(m.attribute('kind', 2).transfers.kind).toBe('nearest');
-    expect(m.attribute('kind', 2, { transfer: 'interpolate' }).transfers.kind).toBeUndefined();
-    const split = m.attribute('kind', (p) => p.index).steps(1, (c, n) => n.split(c.edge(0), { at: 0.3 }));
-    expect(split.attrs.kind[1]).toBe(0); // nearest copies, still
+    const m = curve([[0, 0], [10, 0]], { closed: false }).points.set('kind', 1, { transfer: 'nearest' });
+    expect(m.points.set('kind', 2).transfers.kind).toBe('nearest');
+    expect(m.points.set('kind', 2, { transfer: 'interpolate' }).transfers.kind).toBeUndefined();
+    const k = m.points.set('kind', (p) => p.index);
+    const split = k.split(k.edge(0), 0.3);
+    expect(split.attrs.kind[2]).toBe(0); // nearest copies, still
   });
 
-  it('A3 a write on a split edge\'s end feeds what every cut inherits', () => {
+  it('A3 a write on a split edge\'s end feeds what every later cut inherits', () => {
     const m = material([[0, 0], [10, 0], [0, 10]], { edges: [[0, 1], [0, 2]], age: [0, 0, 0] });
-    const out = m.steps(1, (cur, next) => {
-      next.split(cur.edge(0));
-      next.set(cur.points.at(0), { age: 100 });
-      next.split(cur.edge(1), { at: 0.5 });
-    });
-    // Both cuts read the written state, whichever order the batch asked in.
-    expect(Array.from(out.attrs.age)).toEqual([100, 50, 50, 0, 0]);
+    const out = m.points.set('age', 100, m.points.at(0)).split(m.edges);
+    // Both cuts read the written state: a chain of writes is a sequence.
+    expect(Array.from(out.attrs.age)).toEqual([100, 0, 0, 50, 50]);
   });
 
   it('A4 triangulate by index: the first row at a position takes part, later coincident rows stay isolated', () => {
@@ -32,14 +29,13 @@ describe('Stage A repairs (con2)', () => {
     expect(connect.triangulate([[0, 0], [0, 0]]).edgeCount).toBe(0);
   });
 
-  it('A5 withEdges: names always checked, completeness when an edge would be added, endpoints validated, no-op needs nothing', () => {
-    const m = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1]] }).edgeAttribute('w', 1);
-    expect(() => m.withEdges([[1, 2]], {})).toThrow(/must give 'w'/);
-    expect(() => m.withEdges([[0, 1]], { nope: 1 })).toThrow(/no attribute 'nope'/);
-    expect(() => m.withEdges([[0, 5]], { w: 1 })).toThrow(/beyond/);
-    expect(() => m.withEdges([[0, -1]], { w: 1 })).toThrow(/beyond/);
-    expect(m.withEdges([[0, 1]], {}).edgeCount).toBe(1); // existing pair, nothing added, nothing demanded
-    expect(Array.from(m.withEdges([[0, 1], [1, 2], [0, 2]], { w: 5 }).edgeAttrs.w)).toEqual([1, 5, 5]); // the kept pair keeps its column
+  it('A5 edges.add: completeness when an edge would be added, a new column is declared, an existing pair needs nothing', () => {
+    const m = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1]] }).edges.set('w', 1);
+    const [a, b, c] = [m.points.at(0), m.points.at(1), m.points.at(2)];
+    expect(() => m.edges.add([b, c], {})).toThrow(/must give 'w'/);
+    expect(Array.from(m.edges.add([b, c], { w: 2, nope: 1 }).edgeAttrs.nope)).toEqual([0, 1]);
+    expect(m.edges.add([a, b], {}).edgeCount).toBe(1); // existing pair, nothing added, nothing demanded
+    expect(Array.from(m.edges.add([[a, b], [b, c], [a, c]], { w: 5 }).edgeAttrs.w)).toEqual([1, 5, 5]); // the kept pair keeps its column
   });
 
   it('A6 neighbour cells never alias: far-apart and negative coordinates', () => {
@@ -51,19 +47,17 @@ describe('Stage A repairs (con2)', () => {
     expect(near([1e6, 1e6])).toEqual([]);
   });
 
-  it('A10 splitEdges accepts an endpoint parameter and creates nothing, like split', () => {
+  it('A10 split at an end creates nothing', () => {
     const m = curve([[0, 0], [10, 0], [20, 0]], { closed: false });
-    expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0 })).n).toBe(3);
-    expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1 })).n).toBe(3);
+    expect(m.split(m.edges, 0).n).toBe(3);
+    expect(m.split(m.edges, 1).n).toBe(3);
     // An edge runs 0…1: a parameter past the end is read as the end, which
     // creates nothing, exactly as `at: 1` does.
-    expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1.5 })).n).toBe(3);
-    // A parameter that is not finite is data: every split drops, nothing throws.
-    const nan = m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: NaN }));
-    expect(nan.n).toBe(3);
-    expect(nan.dropped.map((d) => d.reason)).toEqual(['not-finite', 'not-finite']);
-    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 'half' as never }))).toThrow(/at is a number/);
-    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0, point: { x: 1 } as never }))).toThrow(/endpoint/);
+    expect(m.split(m.edges, 1.5).n).toBe(3);
+    expect(m.split(m.edges, -2).n).toBe(3);
+    // A parameter that is not finite is data: every split skips, nothing throws.
+    expect(m.split(m.edges, NaN).n).toBe(3);
+    expect(() => m.split(m.edges, 'half' as never)).toThrow(/at is a number/);
   });
 
   describe('with the engine', () => {
@@ -98,7 +92,7 @@ describe('Stage A repairs (con2)', () => {
 });
 
 describe('Stage C helpers (con2)', () => {
-  it('strokes: one stroke per contour from a material, a selection or runs; force.sum passes k; banding.over fits; complement', async () => {
+  it('strokes: one stroke per contour from a material, a selection or runs; force.sum sums; banding.over fits; complement', async () => {
     const { strokes, segmentRuns, banding, force, mul, sum: vsum } = await import('../src/index.js');
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 5]], { closed: false, age: [0, 1, 2, 3] });
     expect(strokes(m, { pen: 'a' })).toHaveLength(1);
@@ -109,11 +103,12 @@ describe('Stage C helpers (con2)', () => {
     expect(m.points.filter((p) => p.index < 2).complement().indices).toEqual([2, 3]);
     expect(m.edges.filter((e) => e.index === 0).complement().indices).toEqual([1, 2]);
     const pull = force.tension(m, { rest: 5 });
-    const turn = (p: { x: number }, k: number) => [0, k] as [number, number];
-    const push = force.sum(pull, turn);
+    const lift = () => [0, 3] as [number, number];
+    const push = force.sum(pull, lift);
     const p = m.vertex(1);
-    expect(push(p, 3)).toEqual(mul(vsum(pull(p), [0, 3]), 1));
-    expect(push(p)).toEqual(vsum(pull(p), [0, 0]));
+    expect(push(p)).toEqual(mul(vsum(pull(p), [0, 3]), 1));
+    // A move reads the sum at every point, in one instant.
+    expect(m.move(push).pts[1]).toEqual(vsum(m.pts[1], vsum(pull(p), [0, 3])));
   });
 });
 
@@ -148,7 +143,7 @@ describe('closeout (review of 793e35f)', () => {
 
   it('distributed resampling stays linear and exact; nearest with count 0 adds nothing and rejects bad counts', () => {
     const big = curve(Array.from({ length: 16000 }, (_, i) => [i * 0.1, Math.sin(i * 0.01)] as [number, number]), { closed: false })
-      .edgeAttribute('w', (e) => e.index, { transfer: 'distribute' });
+      .edges.set('w', (e) => e.index, { transfer: 'distribute' });
     const t0 = performance.now();
     const rs = big.resample({ spacing: 0.15 });
     const ms = performance.now() - t0;

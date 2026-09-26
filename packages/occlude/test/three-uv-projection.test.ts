@@ -6,7 +6,7 @@ describe('explicit stored UV projections',()=>{
   it('solves an oblique planar frame and retains unrelated typed columns',()=>{
     // p = origin + u * [2,0,0] + v * [1,3,0], with an independent normal offset.
     const source=mesh([[5,7,9],[7,7,9],[8,10,9],[6,10,9]],[[0,1,2,3]])
-      .cornerAttributes({ink:2,uv:[99,99] as const},{transfer:{ink:'nearest',uv:'nearest'}});
+      .corners.set({ink:2,uv:[99,99] as const},{transfer:{ink:'nearest',uv:'nearest'}});
     const mapped=planarUV(source,{origin:[5,7,0],u:[2,0,0],v:[1,3,0],chart:'oblique'});
     expect(mapped.corners.map(c=>c.uv)).toEqual([[0,0],[1,0],[1,1],[0,1]]);
     expect(mapped.corners.every(c=>c.ink===2&&c.chart==='oblique')).toBe(true);

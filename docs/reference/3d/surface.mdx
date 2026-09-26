@@ -28,7 +28,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.isolines.mdx</include>
 
-The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the same levels that the 2D `t.isolines` takes: one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key, pen })`. `levels` in the options is refused by name.
+The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key, pen })`. The call refuses `levels` in the options by name.
 
 The result is a collection of chains. `rings.curves()` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
 
@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.trace.mdx</include>
 
-Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample that is on the traced mesh: `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. A curve sample that is not on the traced mesh is refused by name.
+Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample on the traced mesh. `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. The call refuses a curve sample that is not on the traced mesh, by name.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -96,16 +96,16 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 });
 ```
 
-## Charts and corner attributes
+## Charts and corner columns
 
-Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` it was built with, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.cornerAttribute(name, field)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { cylinder, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
-  const can = cylinder(1, 2.2, { segments: 28 }).cornerAttribute('band', (c) => (c.chart === 'side' && Math.floor(c.uv[0] * 4) % 2 === 0 ? 1 : 0));
+  const can = cylinder(1, 2.2, { segments: 28 }).corners.set('band', (c) => (c.chart === 'side' && Math.floor(c.uv[0] * 4) % 2 === 0 ? 1 : 0));
   const banded = t.sample(can, { count: 1400 }).points.filter((p) => p.sample.cornerAttributes.band === 1);
   return view([can, instanceOnPoints(sphere(0.025, { segments: 6, rings: 3 }), banded)], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });

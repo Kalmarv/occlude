@@ -56,7 +56,7 @@ export type { SynthFn, SynthOpts, SynthStats, SynthBounds, WarpFn } from './synt
 export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion, FillParams, BuiltinFillName, HatchParams, CrosshatchParams, SolidParams, StippleParams, ContourParams } from './fills.js';
 
-// Material: meshes with attributes and connections — hold, connect, step,
+// Material: meshes with columns and connections — hold, connect, write,
 // resample, reinterpret (pure; the toolkit's t.sample turns a shape into
 // material with its outline's connectivity).
 export {
@@ -69,10 +69,9 @@ export type { Amount, SeparationOpts } from './forces.js';
 // The value you hold is the name: a point or an edge made here names the
 // row it becomes in every later state and every write.
 export { point, edge } from './tables.js';
-export type { PointValue, EdgeValue, PointEnd, EdgeEnd, EdgeRowSpec, PointWhere, EdgeWhere, ColumnValue, Displacement } from './tables.js';
+export type { PointValue, EdgeValue, PointEnd, EdgeEnd, EdgeRowSpec, PointWhere, EdgeWhere, ColumnValue, Displacement, ReplaceOpts } from './tables.js';
 export { query } from './query.js';
-export { inheritEdge } from './steps.js';
-export type { EdgeRef, StepRule, StepsOptions } from './steps.js';
+export { inheritEdge } from './tables.js';
 export type { EdgeTransfer } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
 // Same-world transforms are methods on Material now (`m.thicken(opts)`),
@@ -92,16 +91,11 @@ export type { CoilOpts } from './coil.js';
 export type { MergeOpts } from './merge.js';
 export { PointSelection, EdgeSelection, meanBy } from './relation.js';
 export { planarize, faces, Faces, FaceSelection } from './faces.js';
-export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
+export type { Face, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { EdgeQuery, NearestHit, FirstHit, PointQuery, NearestPoint } from './query.js';
 export type {
   Vertex, Edge, Curve, Station, Transfer, TransferPolicy, SegmentRun, PointsLike,
 } from './material.js';
-export type {
-  Next, ChildSpec, ChildInterval, SplitOpts,
-  Edit, PointRef, FaceKey, DropReason, Dropped,
-  MoveEdit, SetEdit, SetEdgeEdit, SetFaceEdit, AddPointEdit, ConnectEdit, DisconnectEdit, RemoveEdit, SplitEdit,
-} from './steps.js';
 export type { NeighbourStats, Sources } from './forces.js';
 export type { Vec, XY } from './vec.js';
 
@@ -141,7 +135,6 @@ export {
   standaloneEstimate, fitDuration, planSchedule, chainsBounds, resolveDraw, planValue, checkDrawRequest,
 } from './plan.js';
 export { plan, planBuffer, planSvg, planGcode, planToolpath, bridgeGapFor } from './render.js';
-export type { ReplaceOpts } from './steps.js';
 export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult, PlanOptions, DrawRequest, DrawTiming, ResolvedDraw } from './plan.js';
 export { PAPERS, DEFAULT_PAPERS, paperSize } from './paper.js';
 export type { Paper, PaperChoice, PaperDef } from './paper.js';
@@ -163,7 +156,7 @@ export type { FaceMeasure, MeasureOpts } from './measure.js';
 export type { IsoContour, IsoOpts, IsoLevels } from './isolines.js';
 // A grid of values you can step: the stateful counterpart of a field. The
 // door is `t.lattice` — it reads the drawable and the seeded init.
-export type { Lattice, LatticeOpts, LatticeInit, LatticeRule, LatticeState, LatticeNext, LatticeValues, Cell, CellWhere } from './lattice.js';
+export type { Lattice, LatticeOpts, LatticeInit, LatticeValues, Cell, CellWhere } from './lattice.js';
 export { CellSelection } from './lattice.js';
 // Ink as a budget: the tone a drawing still owes, paid down by the marks it
 // makes. The door is `t.residual` — it reads the drawable and the nib.
@@ -284,7 +277,7 @@ export type { Camera3, PaperFrame3 } from './three/camera.js';
 export type { LineSet3, Stroke3, StrokeReference3 } from './three/strokes/construct.js';
 export { GpuSceneCompute3 } from './compute/webgpu/scene.js';
 
-export { grid3, FaceSelection3, measureFaces3, extrudeFaces3, transformSurface3, stepsSurface3, cloneSurface3, snapshotSurface3 } from './three/geometry/model.js';
+export { grid3, FaceSelection3, measureFaces3, extrudeFaces3, transformSurface3, cloneSurface3, snapshotSurface3 } from './three/geometry/model.js';
 export type { DeformOptions3 } from './three/geometry/deform.js';
 export type { SurfaceQueryInput3, SurfaceQueryResult3, ModelingStats3 } from './three/modeling.js';
 export type { RayQuery3, NearestQuery3, SurfaceHit3 } from './three/queries/surface.js';

@@ -5,7 +5,7 @@
  * field on the paper, so it reads the field at the sketch point UNDER each
  * paper sample; a `within()` bound is lowered and projected the way the ink
  * is; `t.travelTime` marches the space's metric; a material from the toolkit
- * carries the sketch's space, `m.steps` walks a move in it with `exp`, and
+ * carries the sketch's space, `move` walks in it with `exp`, and
  * the forces measure with `distance` and `log`; `t.relax`/`t.settle` weigh a
  * cell by the space's area.
  *
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, compileSketch, encodeScene, fill, force, initOcclude, line, material, rect, render, sketch, space,
+  append, circle, compileSketch, curve, encodeScene, fill, force, initOcclude, line, material, rect, render, sketch, space,
   Material, type SketchConfig,
 } from '../src/index.js';
 import { lowerShape, unitMm, userToPaperMatrix } from '../src/record.js';
@@ -299,18 +299,21 @@ describe('a material carries the space its coordinates belong to', () => {
    * prototype is enumerated below, so a new verb that is not listed here
    * fails the test that says which. */
   const verbs = (m: Material, sp: Space): Record<string, () => Material> => ({
-    smooth: () => m.attribute('w', 1).smooth('w'),
-    attribute: () => m.attribute('w', 1),
-    attributes: () => m.attributes({ w: 1 }),
-    faceAttribute: () => m.faceAttribute('f', 1),
-    faceAttributes: () => m.faceAttributes({ f: 1 }),
-    edgeAttribute: () => m.edgeAttribute('e', 1),
-    edgeAttributes: () => m.edgeAttributes({ e: 1 }),
-    withEdges: () => m.withEdges([[0, 2]]),
+    smooth: () => m.points.set('w', 1).smooth('w'),
+    'points.set': () => m.points.set('w', 1),
+    'points.set record': () => m.points.set({ w: 1 }),
+    'faces().set': () => m.faces().set('f', 1),
+    'faces().set record': () => m.faces().set({ f: 1 }),
+    'edges.set': () => m.edges.set('e', 1),
+    'edges.set record': () => m.edges.set({ e: 1 }),
+    'points.add': () => m.points.add([50, 50]),
+    'points.remove': () => m.points.remove(m.points.at(0)),
+    'edges.add': () => m.edges.add([m.points.at(0), m.points.at(2)]),
+    'edges.remove': () => m.edges.remove(m.edges.at(0)),
     resample: () => m.resample({ count: 24 }),
     spline: () => m.spline(),
     trim: () => m.trim({ start: 1 }),
-    map: () => m.map((p) => [p.x + 1, p.y]),
+    'points.set x': () => m.points.set('x', (p) => p.x + 1),
     transform: () => m.transform(toolkitStation(sp).placement()),
     scale: () => m.scale(0.5),
     rotate: () => m.rotate(10),
@@ -324,7 +327,8 @@ describe('a material carries the space its coordinates belong to', () => {
     interlace: () => m.interlace({ gap: 1 }),
     snap: () => m.snap(() => 0, { radius: 1 }),
     trails: () => m.trails(),
-    steps: () => m.steps(1, { move: () => [0.1, 0] }),
+    replace: () => m.replace(m.edges.at(0), curve([[0, 0], [0.5, 0.2], [1, 0]])),
+    withHistory: () => m.withHistory([]),
     planarize: () => m.planarize(),
     merge: () => m.merge(),
     extract: () => m.points.extract(),
@@ -337,7 +341,7 @@ describe('a material carries the space its coordinates belong to', () => {
 
   /** Two crossing rings: faces, crossings for interlace, chains for the rest. */
   const source = (t: ReturnType<typeof toolkit>): Material =>
-    t.sample(circle(45, 50, 12), { count: 40 }).steps(0, { move: () => [0, 0] });
+    t.sample(circle(45, 50, 12), { count: 40 });
 
   it('every verb that answers a material keeps the receiver\'s space', () => {
     for (const cfg of [HYP, SPH, FLAT]) {
@@ -412,31 +416,28 @@ describe('a material carries the space its coordinates belong to', () => {
   });
 });
 
-// ---- steps walk -----------------------------------------------------------
+// ---- a move walks ---------------------------------------------------------
 
 describe('a move is a walk in the material\'s space', () => {
   it('sphere: each point lands at exp(p, move)', () => {
     const t = toolkit(SPH);
     const m = t.sample(circle(50, 50, 15), { count: 16 });
     const d = 4;
-    const out = m.steps(1, { move: () => [d, 0] });
+    const out = m.move([d, 0]);
     for (let i = 0; i < m.n; i++) {
       const want = t.space.exp([m.x[i], m.y[i]], [d, 0]);
       expect(out.x[i]).toBe(want[0]);
       expect(out.y[i]).toBe(want[1]);
     }
-    // Two moves in one pass add up first, then walk once.
-    const twice = m.steps(1, (cur, next) => {
-      next.move(cur.points, () => [1, 0.5]);
-      next.move(cur.points, () => [2, -0.5]);
-    });
+    // Two displacements in one move add up first, then walk once.
+    const twice = m.move([1, 0.5], () => [2, -0.5]);
     const want = t.space.exp([m.x[3], m.y[3]], [3, 0]);
     expect([twice.x[3], twice.y[3]]).toEqual(want);
   });
 
   it('flat: x + d exactly, for a pure material and a flat toolkit one', () => {
     for (const m of [material([[1.1, 2.3], [7.7, 0.3]]), toolkit(FLAT).material(rect(1.1, 2.3, 4.4, 5.5))]) {
-      const out = m.steps(1, { move: () => [0.1, 0] });
+      const out = m.move([0.1, 0]);
       for (let i = 0; i < m.n; i++) {
         expect(out.x[i]).toBe(m.x[i] + 0.1);
         expect(out.y[i]).toBe(m.y[i] + 0);
@@ -449,7 +450,7 @@ describe('a move is a walk in the material\'s space', () => {
 
 describe('forces measure with the space', () => {
   const pairIn = (t: ReturnType<typeof toolkit>, a: Pt, b: Pt): Material =>
-    t.sample(line(a[0], a[1], b[0], b[1]), { count: 2 }).map((p) => (p.index === 0 ? a : b));
+    t.sample(line(a[0], a[1], b[0], b[1]), { count: 2 }).points.set({ x: (p) => (p.index === 0 ? a : b)[0], y: (p) => (p.index === 0 ? a : b)[1] });
 
   it('separation pushes apart along the geodesic, by the old law in the space distance', () => {
     for (const cfg of [HYP, SPH]) {
@@ -566,7 +567,7 @@ describe('forces measure with the space', () => {
     const vor = force.vortex([20, 20], { strength: 3, falloff: 7 });
     const bnd = force.boundary([[[0, 0], [20, 0], [20, 20], [0, 20]]], { radius: 4, strength: 1.5 });
     for (const p of mm.points) vs.push(...sep(p), ...att(p), ...vor(p), ...bnd(p));
-    const ring = t.sample(circle(40, 40, 10), { count: 12 }).steps(1, { move: (p) => [Math.sin(p.index) * 0.7, Math.cos(p.index * 3) * 0.5] });
+    const ring = t.sample(circle(40, 40, 10), { count: 12 }).move((p) => [Math.sin(p.index) * 0.7, Math.cos(p.index * 3) * 0.5]);
     const ten = force.tension(ring, { rest: 3 });
     const rl = force.relax(ring, { amount: 0.5 });
     for (const p of ring.points) vs.push(...ten(p), ...rl(p), ring.x[p.index], ring.y[p.index]);

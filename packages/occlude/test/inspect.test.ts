@@ -27,8 +27,8 @@ describe('t.inspect: the debug registry', () => {
     const exec = compileSketch(sketch({ seed: 1 }, (t) => {
       const a = two();
       t.inspect('source', a);
-      t.inspect('grown', a.attribute('age', 3));
-      t.inspect('source', a.withEdges([[0, 1], [1, 2], [0, 2]]));  // replaced, stays first
+      t.inspect('grown', a.points.set('age', 3));
+      t.inspect('source', a.edges.add([a.points.at(0), a.points.at(2)]));  // replaced, stays first
       return stroke(a.contour);
     }), ON);
     const index = exec.getInspectionIndex();
@@ -63,9 +63,9 @@ describe('t.inspect: the debug registry', () => {
 
   it('inspecting inside a step keeps the last state, not every iteration', () => {
     const exec = compileSketch(sketch({ seed: 1 }, (t) => {
-      const grown = two().steps(5, (cur, next, k) => {
-        next.move(cur.points, () => [1, 0]);
-        t.inspect('step', cur);
+      const grown = t.steps(5, two(), (g) => {
+        t.inspect('step', g);
+        return g.move([1, 0]);
       });
       return stroke(grown.contour);
     }), ON);
@@ -78,7 +78,7 @@ describe('t.inspect: the debug registry', () => {
     {
       let held: ReturnType<typeof two> | null = null;
       const exec = compileSketch(sketch({ seed: 1 }, (t) => {
-        held = two().attribute('w', (p) => p.x).edgeAttribute('rest', 2);
+        held = two().points.set('w', (p) => p.x).edges.set('rest', 2);
         t.inspect('m', held);
         return circle(50, 50, 10);
       }), ON);

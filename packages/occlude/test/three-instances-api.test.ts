@@ -9,8 +9,8 @@ beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-cor
 const camera=orthographic({eye:[5,7,6],span:7});
 describe('shared mesh instances',()=>{
  it('keeps a single prototype through fields, selections and retained scene capture',()=>{
-  const prototype=box().attribute('weight',2),sites=pointCloud([[0,0,0],[2,0,0],[4,0,0]]).attribute('height',p=>p.index+1);
-  const placed=instanceOnPoints(prototype,sites.points,{scale:p=>[1,1,p.height]}).attribute('ink',r=>r.height%2?'a':'b');
+  const prototype=box().points.set('weight',2),sites=pointCloud([[0,0,0],[2,0,0],[4,0,0]]).points.set('height',p=>p.index+1);
+  const placed=instanceOnPoints(prototype,sites.points,{scale:p=>[1,1,p.height]}).instances.set('ink',r=>r.height%2?'a':'b');
   expect(placed.prototype).toBe(prototype);expect(placed.length).toBe(3);expect('faces' in placed).toBe(false);expect('points' in placed).toBe(false);
   expect(placed.instances.at(1)!.source).toBe(sites.points.at(1));expect(placed.instances.map(r=>r.transform.scale[2])).toEqual([1,2,3]);
   const drawing=view(placed,{camera});
@@ -25,7 +25,7 @@ describe('shared mesh instances',()=>{
  it('owns transform and attribute inputs without changing prototype or source points',()=>{
   const scale:[number,number,number]=[-2,3,4],offset:[number,number,number]=[2,0,0],attr=[1,2];
   const source=pointCloud([[1,2,3]]),prototype=box();
-  const a=instanceOnPoints(prototype,source.points,{scale,offset}).attribute('value',attr);
+  const a=instanceOnPoints(prototype,source.points,{scale,offset}).instances.set('value',attr);
   scale[0]=99;offset[0]=99;attr[0]=99;
   expect(a.rows[0].transform.scale).toEqual([-2,3,4]);expect(a.rows[0].value).toEqual([1,2]);
   const b=a.transform({rotate:[0,0,90]}).translate([0,1,0]);expect(a.rows[0].transform.translate).toEqual([3,2,3]);expect(b.rows[0].transform.translate).toEqual([3,3,3]);expect(b.prototype).toBe(prototype);
@@ -34,8 +34,8 @@ describe('shared mesh instances',()=>{
   expect(source.points.at(0)).toMatchObject({x:1,y:2,z:3});expect(prototype.points.length).toBe(8);
  });
  it('realizes disconnected shared topology with typed attributes and deterministic provenance',()=>{
-  const prototype=box().attribute('tag','prototype').edgeAttribute('edgeTag',7).faceAttribute('faceTag',9);
-  const sites=pointCloud([[0,0,0],[2,0,0]]).attribute('tag','instance').attribute('height',2);
+  const prototype=box().points.set('tag','prototype').edges.set('edgeTag',7).faces.set('faceTag',9);
+  const sites=pointCloud([[0,0,0],[2,0,0]]).points.set({tag:'instance',height:2});
   const placed=instanceOnPoints(prototype,sites.points),a=placed.realize(),b=placed.realize();
   expect(a.surface).toEqual(b.surface);expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(a.surface.edges.every(e=>e.faces.length===2)).toBe(true);
   expect(a.points.map(p=>p.tag)).toEqual(Array(16).fill('prototype'));expect(a.edges.at(0)!.edgeTag).toBe(7);expect(a.faces.at(0)!.faceTag).toBe(9);expect(a.faces.at(0)!.height).toBe(2);
@@ -67,7 +67,7 @@ describe('shared mesh instances',()=>{
  });
  it('retains prototype/placement capture across a camera-only commit without model RNG',async()=>{
   let models=0,eligibility=0;
-  const definition=sketch({seed:42,pens:{ink:pen({width:mm(.25)})}},t=>{models++;const sites=pointCloud([[0,0,0],[1,0,0]]).attribute('height',()=>t.rnd(.5,1.5));return view(instanceOnPoints(box(),sites.points,{scale:p=>[1,1,p.height]}),{camera,hatch:{spacing:mm(5),select:()=>{eligibility++;return true;}}});});
+  const definition=sketch({seed:42,pens:{ink:pen({width:mm(.25)})}},t=>{models++;const sites=pointCloud([[0,0,0],[1,0,0]]).points.set('height',()=>t.rnd(.5,1.5));return view(instanceOnPoints(box(),sites.points,{scale:p=>[1,1,p.height]}),{camera,hatch:{spacing:mm(5),select:()=>{eligibility++;return true;}}});});
   const original=await compileSketchAsync(definition),before=exportSvg(original),scene=[...original.scenes3.keys()][0];
   const committed=await commitCamera3(original,scene,perspective({eye:[5,7,6],fovDegrees:40}));expect(models).toBe(1);expect(eligibility).toBe(6);expect(exportSvg(original)).toBe(before);expect(exportSvg(committed)).not.toBe(before);
  });
@@ -76,6 +76,7 @@ describe('shared mesh instances',()=>{
   expect(instanceOnPoints(prototype,sites.points,{scale:0}).rows[0].transform.scale).toEqual([0,0,0]);
   expect(()=>instanceOnPoints(prototype,prototype.faces as any)).toThrow('point collection');
   expect(()=>instanceOnPoints(sites as any,sites.points)).toThrow('mesh prototype');
-  expect(()=>instanceOnPoints(prototype,sites.points).attribute('transform',1)).toThrow('reserved');
+  expect(()=>instanceOnPoints(prototype,sites.points).instances.set('transform',1)).toThrow("'transform' is not a column");
+  expect(()=>instanceOnPoints(prototype,sites.points).instances.set('id',1)).toThrow('reserved');
  });
 });

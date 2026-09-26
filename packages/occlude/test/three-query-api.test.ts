@@ -5,10 +5,11 @@ import type {QueryHost} from '../src/three/api/query.js';
 import {prepareSurfaceQueries3} from '../src/three/queries/surface.js';
 import {initOcclude,sketchAsync,compileSketchAsync,pen,mm,commitCamera3} from '../src/index.js';
 import {perspective} from 'occlude/3d';
+import {toolkit} from './helpers/run.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 describe('prepared surface query facade',()=>{
  it('distinguishes world distance from ray and segment parameters, with owned typed face data',()=>{
-  const mesh=plane(4).faceAttribute('kind','floor'),q=query(mesh);
+  const mesh=plane(4).faces.set('kind','floor'),q=query(mesh);
   const nearest=q.nearest([.25,.25,3])!;expect(nearest.distance).toBe(3);expect(nearest.position).toEqual([.25,.25,0]);expect(nearest.face.kind).toBe('floor');expect('t' in nearest).toBe(false);
   const ray=q.ray([.25,.25,3],[0,0,-2])!;expect(ray.t).toBe(1.5);expect(ray.distance).toBe(3);
   const segment=q.segment([.25,.25,3],[.25,.25,-1])!;expect(segment.t).toBe(.75);expect(segment.distance).toBe(3);
@@ -16,7 +17,7 @@ describe('prepared surface query facade',()=>{
   expect(Object.isFrozen(ray.position)).toBe(true);expect(Object.isFrozen(ray.face.attributes)).toBe(true);
  });
  it('preserves each source row including misses and empty selections',()=>{
-  const q=query(plane(2)),points=pointCloud([[0,0,2],[4,0,2],[.4,0,2]]).attribute('tag',p=>p.index);
+  const q=query(plane(2)),points=pointCloud([[0,0,2],[4,0,2],[.4,0,2]]).points.set('tag',p=>p.index);
   const selected=points.points.filter(p=>p.index!==2),hits=q.batch().rays(selected,{direction:[0,0,-2]});
   expect(hits).toHaveLength(2);expect(hits[0].source).toBe(points.points.at(0));expect(hits[1].source).toBe(points.points.at(1));expect(hits[0].hit!.t).toBe(1);expect(hits[1].hit).toBeNull();expect(hits[1].source.tag).toBe(1);
   expect(q.batch().nearest(points.points.filter(()=>false))).toEqual([]);expect(Object.isFrozen(hits)).toBe(true);expect(Object.isFrozen(hits[1])).toBe(true);
@@ -54,8 +55,8 @@ describe('prepared surface query facade',()=>{
 });
 describe('reusable world-space force fields',()=>{
  it('evaluates on each current frozen pass and preserves history',()=>{
-  const pull=force.attract([0,0,1],{strength:.5}),original=plane(2),out=original.steps(3,(current,next)=>next.move(current.points,pull),{every:1});
-  expect(out.points.at(0)!.z).toBe(.875);expect(out.points.at(0)!.x).toBe(-.125);expect(out.history.map(s=>s.geometry.points.at(0)!.z)).toEqual([0,.5,.75,.875]);expect(original.points.at(0)!.z).toBe(0);
+  const pull=force.attract([0,0,1],{strength:.5}),original=plane(2),out=toolkit().steps(3,original,m=>m.displace(pull),{every:1});
+  expect(out.points.at(0)!.z).toBe(.875);expect(out.points.at(0)!.x).toBe(-.125);expect(out.history.map(s=>s.points.at(0)!.z)).toEqual([0,.5,.75,.875]);expect(original.points.at(0)!.z).toBe(0);
  });
  it('makes plane sidedness explicit and projects to nearest surface without claiming containment',()=>{
   const below=force.plane({origin:[0,0,1],normal:[0,0,2],side:'below'}),above=force.plane({origin:[0,0,1],normal:[0,0,1],side:'above'});
@@ -66,7 +67,7 @@ describe('reusable world-space force fields',()=>{
  });
  it('supports the same query/deformation workflow on a different mesh source',()=>{
   for(const source of [plane(2).subdivide(2),box(2),sphere(1,{segments:8,rings:4})]){
-    const out=source.attribute('gain',.1).steps(2,(current,next)=>next.move(current.points,p=>force.attract([0,0,0],{strength:p.gain})(p)));
+    const out=toolkit().steps(2,source.points.set('gain',.1),m=>m.displace(p=>force.attract([0,0,0],{strength:p.gain})(p)));
     expect(query(out).nearest([0,0,4])).not.toBeNull();expect(source.points.length).toBe(out.points.length);
   }
   expect(()=>force.plane({origin:[0,0,0],normal:[0,0,0],side:'below'})).toThrow();expect(()=>force.plane({origin:[0,0,0],normal:[0,0,1],side:'below',strength:2})).toThrow();

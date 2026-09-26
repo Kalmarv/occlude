@@ -113,7 +113,7 @@ describe('where, on resample', () => {
   });
 
   it('an edge column comes through a kept edge verbatim', () => {
-    const m = chain().edgeAttribute('tag', (e) => e.index * 10);
+    const m = chain().edges.set('tag', (e) => e.index * 10);
     const out = m.resample({ count: 3, where: m.edges.filter((e) => e.index === 4) });
     expect([...out.edgeAttrs.tag].slice(0, 4)).toEqual([0, 10, 20, 30]);
     // The run's own edges take the value of the edge under each middle.

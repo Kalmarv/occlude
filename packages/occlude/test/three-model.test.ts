@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {box3} from '../src/three/geometry/surface.js';
-import {grid3,FaceSelection3,measureFaces3,extrudeFaces3,transformSurface3,cloneSurface3,stepsSurface3} from '../src/three/geometry/model.js';
+import {grid3,FaceSelection3,measureFaces3,extrudeFaces3,transformSurface3,cloneSurface3,snapshotSurface3} from '../src/three/geometry/model.js';
 import {dot3,cross3} from '../src/three/math.js';
 const volume=(s:ReturnType<typeof box3>)=>s.triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(v=>s.points[v].position);return sum+dot3(a,cross3(b,c))/6;},0);
 describe('procedural surface construction',()=>{
@@ -43,10 +43,11 @@ describe('procedural surface construction',()=>{
     // A singular scale flattens the surface rather than failing.
     expect(transformSurface3(s,{scale:[0,1,1]}).points.every(p=>p.position[0]===0)).toBe(true);
   });
-  it('captures frozen inputs, commits in order, bounds history and rejects old selections',()=>{
-    const s=grid3(1,1),old=new FaceSelection3(s);const seen:number[]=[];
-    const result=stepsSurface3(s,4,(input,i)=>{seen.push(input.points[0].position[2]);expect(()=>{input.points[0].position=[9,9,9];}).toThrow();expect(()=>extrudeFaces3(input,old,1,{operation:'stale'})).toThrow(/another surface/);const out=cloneSurface3(input);out.points.forEach(p=>p.position=[p.position[0],p.position[1],i+1]);return out;},{history:2});
-    expect(seen).toEqual([0,1,2,3]);expect(result.history.map(h=>h.points[0].position[2])).toEqual([3,4]);expect(result.surface.points[0].position[2]).toBe(4);expect(s.points[0].position[2]).toBe(0);
+  it('freezes a snapshot and rejects a face selection of another surface',()=>{
+    const s=grid3(1,1),old=new FaceSelection3(s),input=snapshotSurface3(cloneSurface3(s));
+    expect(()=>{input.points[0].position=[9,9,9];}).toThrow();
+    expect(()=>extrudeFaces3(input,old,1,{operation:'stale'})).toThrow(/another surface/);
+    expect(s.points[0].position[2]).toBe(0);
   });
   it('rejects coincident adjacent walls and nonfinite callback output',()=>{
     const s=grid3(2,1);expect(()=>extrudeFaces3(s,new FaceSelection3(s),1,{operation:'bad'})).toThrow(/nonadjacent/);

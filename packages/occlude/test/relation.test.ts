@@ -5,7 +5,7 @@ import { EdgeSelection, PointSelection, meanBy } from '../src/relation.js';
 // a Y: 0-1-2 trunk, 2-3 and 2-4 branches, plus an isolated point 5
 const Y = () =>
   material([[0, 0], [10, 0], [20, 0], [30, 10], [30, -10], [50, 50]], { edges: [[0, 1], [1, 2], [2, 3], [2, 4]], age: [0, 1, 2, 3, 4, 9] })
-    .edgeAttribute('strength', (e) => e.index + 1);
+    .edges.set('strength', (e) => e.index + 1);
 
 describe('selections', () => {
   it('membership is fixed at creation, in source order, with source-bound views', () => {
@@ -24,7 +24,7 @@ describe('selections', () => {
     // A vertex of a LATER state of the same evolution is the same vertex:
     // `has` asks by identity, not by row. A vertex of a material that
     // shares no identity is not a member, however its rows line up.
-    const other = m.attribute('age', 0);
+    const other = m.points.set('age', 0);
     expect(old.has(other.vertex(3))).toBe(true);
     expect(old.has(Y().vertex(3))).toBe(false);
     // wrong domain
@@ -42,9 +42,9 @@ describe('selections', () => {
     const es = m.edges.filter(() => true);
     expect(() => es.has(m.vertex(0) as never)).toThrow(/vertex view/);
     expect(() => pts.has(m.edge(0) as never)).toThrow(/edge view/);
-    // the edit interface is just as strict: a vertex named a/b is not an edge
-    expect(() => m.steps(1, (cur, next) => next.split(cur.vertex(0) as never))).toThrow(/needs an edge/);
-    expect(m.steps(1, (cur, next) => next.move(cur.vertex(1), [1, 0])).x[1]).toBe(2);
+    // the writes are just as strict: a vertex named a/b is not an edge
+    expect(() => m.split(m.vertex(0) as never)).toThrow(/an edge reference must be an edge value or an edge view/);
+    expect(m.move([1, 0], m.vertex(1)).x[1]).toBe(2);
   });
 
   it('edge selections: views, deduplicated endpoints in source order, domain checks', () => {
@@ -100,16 +100,17 @@ describe('extraction', () => {
     expect(patch.n).toBe(3); // the isolated 5 is absent
     expect(patch.edgeCount).toBe(2);
     expect(Array.from(patch.x)).toEqual([20, 30, 30]);
-    // point-only material still accepts steps and append
-    const grown = pts.steps(1, (_, next) => next.extrude(_.points, () => ({ position: [0, 1], attributes: { age: 0 }, edgeAttributes: { strength: 1 } })));
-    expect(grown.n).toBe(8);
-    expect(grown.edgeCount).toBe(4);
+    // point-only material still takes new rows and joins
+    const grown = pts.points.add(pts.points.map((p) => [p.x, p.y + 1] as [number, number]), { age: 0 });
+    const joined = grown.edges.add(pts.points.map((p, i) => [p, grown.points.at(pts.n + i)] as const), { strength: 1 });
+    expect(joined.n).toBe(8);
+    expect(joined.edgeCount).toBe(4);
   });
 
   it('edge extraction: remapped rows, stored orientation, both attribute domains, transfers, independence', () => {
-    const src = Y().attribute('kind', 7, { transfer: 'nearest' });
+    const src = Y().points.set('kind', 7, { transfer: 'nearest' });
     // select the trunk in reverse-stored orientation to check it is kept
-    const flipped = material([[0, 0], [10, 0], [20, 0]], { edges: [[2, 1], [1, 0]] }).edgeAttribute('strength', (e) => e.index + 10);
+    const flipped = material([[0, 0], [10, 0], [20, 0]], { edges: [[2, 1], [1, 0]] }).edges.set('strength', (e) => e.index + 10);
     const rev = flipped.edges.filter(() => true).extract();
     expect(Array.from(rev.edgeList)).toEqual([2, 1, 1, 0]);
     const branches = src.edges.filter((e) => e.index >= 2).extract();
@@ -129,9 +130,9 @@ describe('extraction', () => {
     expect(src.x[2]).toBe(20);
     expect(src.edges.filter(() => true).has(branches.edge(0))).toBe(true);
     // a split afterwards obeys the carried policy (nearest copies)
-    const split = branches.steps(1, (cur, next) => next.split(cur.edge(0), { at: 0.3 }));
-    expect(split.attrs.kind[1]).toBe(7);
-    expect(split.attrs.age[1]).toBeCloseTo(2.3);
+    const split = branches.split(branches.edge(0), 0.3);
+    expect(split.attrs.kind[3]).toBe(7);
+    expect(split.attrs.age[3]).toBeCloseTo(2.3);
   });
 
   it('continued editing and combining of extracted results through existing APIs', () => {
@@ -143,7 +144,7 @@ describe('extraction', () => {
     expect(joined.edgeCount).toBe(2);
     const paired = connect.pairs(branch, other, { strength: 0 });
     expect(paired.edgeCount).toBe(4);
-    const nearestPolicy = m.attribute('age', 1, { transfer: 'nearest' }).edges.filter(() => true).extract();
+    const nearestPolicy = m.points.set('age', 1, { transfer: 'nearest' }).edges.filter(() => true).extract();
     expect(() => append(branch, nearestPolicy)).toThrow(/transfer/);
   });
 });
@@ -168,33 +169,25 @@ describe('drawing selections', () => {
 });
 
 describe('selections in edits', () => {
-  it('a current-state selection drives existing selectors, and an outer one re-binds by identity', () => {
+  it('a selection drives the writes, and one of an earlier state re-binds by identity', () => {
     const m = Y();
     const outer = m.points.filter((p) => p.age >= 3);
-    const moved = m.steps(1, (current, next) => {
-      const old = current.points.filter((p) => p.age >= 3);
-      expect(current).not.toBe(m); // steps works on its own copy
-      // The copy carries identity, so a selection made before the step is
-      // still about the same points: `has` answers by who, not by which row.
-      expect(outer.has(current.vertex(3))).toBe(true);
-      next.move(current.points.filter((p) => old.has(p)), () => [0, 5]);
-      const strong = current.edges.filter((e) => e.attrs.strength >= 3);
-      next.setEdges(current.edges.filter((e) => strong.has(e)), () => ({ strength: 100 }));
-      next.disconnect(current.edges.filter((e) => e.index === 0 && !strong.has(e)));
-    });
+    const first = m.points.set('seen', 1);
+    // A write carries identity, so a selection made before it is still
+    // about the same points: `has` answers by who, not by which row.
+    expect(outer.has(first.vertex(3))).toBe(true);
+    const strong = m.edges.filter((e) => e.attrs.strength >= 3);
+    const moved = first
+      .move([0, 5], outer)
+      .edges.set('strength', 100, strong)
+      .edges.remove(m.edges.filter((e) => e.index === 0 && !strong.has(e)));
     expect(Array.from(moved.y)).toEqual([0, 0, 0, 15, -5, 55]);
     expect(Array.from(moved.edgeAttrs.strength)).toEqual([2, 100, 100]);
-    // Bulk splitting uses the explicit input selection, just like individual splitting.
-    const strongSplit = m.steps(1, (current, next) => {
-      const strong = current.edges.filter((e) => e.attrs.strength >= 3);
-      expect(() => next.splitEdges(current.edges.filter((e) => strong.has(e)))).not.toThrow();
-    });
-    expect(strongSplit.n).toBe(8);
-    const explicit = m.steps(1, (current, next) => {
-      const strong = current.edges.filter((e) => e.attrs.strength >= 3);
-      for (const e of strong) next.split(e);
-    });
-    expect(explicit.n).toBe(8);
+    // A split takes a selection, one edge, or an edge of an earlier state.
+    expect(m.split(strong).n).toBe(8);
+    let each = m;
+    for (const e of strong) each = each.split(e);
+    expect(each.n).toBe(8);
   });
 });
 
@@ -208,12 +201,12 @@ describe('relational attributes', () => {
     // The cross-state guard now lives where it matters: the step verbs.
     expect(Y().vertex(2).adjacent.source).not.toBe(m);
     expect(() => m.points.at(9).adjacent).toThrow(/no member/);
-    const marked = m.attribute('neighbourAge', (p) => meanBy(p.adjacent, (q) => q.age));
+    const marked = m.points.set('neighbourAge', (p) => meanBy(p.adjacent, (q) => q.age));
     expect(Array.from(marked.attrs.neighbourAge)).toEqual([1, 1, (1 + 3 + 4) / 3, 2, 2, 0]);
     expect(meanBy([], () => 1)).toBe(0);
     expect(meanBy([1, NaN], (v) => v)).toBeNaN();
     expect(meanBy(new Set([2, 4]), (v) => v)).toBe(3);
-    const deg = m.attribute('degree', (p) => p.adjacent.length);
+    const deg = m.points.set('degree', (p) => p.adjacent.length);
     expect(Array.from(deg.attrs.degree)).toEqual([1, 2, 3, 1, 1, 0]);
   });
 
@@ -226,7 +219,7 @@ describe('relational attributes', () => {
     // The piece a row belongs to, as a column: what `components(m).label` was.
     const partOf = new Map<number, number>();
     pieces.forEach((piece, k) => { for (const i of piece.indices) partOf.set(i, k); });
-    const labelled = m.attribute('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
+    const labelled = m.points.set('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
     expect(Array.from(labelled.attrs.piece)).toEqual([0, 0, 1, 2, 2]);
     expect(labelled.transfers.piece).toBe('nearest');
     expect(Y().points.components().map((c) => c.indices)).toEqual([[0, 1, 2, 3, 4], [5]]);
@@ -258,7 +251,7 @@ describe('relational attributes', () => {
     expect(m.points.at(0).edges.indices).toEqual([0]);
     expect(m.points.at(0).edges.at(0).b.index).toBe(1);
     // An `edges` column cannot shadow the word.
-    expect(() => material([[0, 0]], { edges: [] }).attribute('edges', 1)).toThrow(/reserved/);
+    expect(() => material([[0, 0]], { edges: [] }).points.set('edges', 1)).toThrow(/reserved/);
   });
 
   it('edge selections say the same three words', () => {

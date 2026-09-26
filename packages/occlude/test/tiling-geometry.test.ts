@@ -81,7 +81,7 @@ describe('a tiling is a material of shared corners and shared walls', () => {
       }
       // A material verb answers a plain material: a warped tiling is no
       // longer a tiling.
-      const moved = tiles.map((p) => [p.x + 1, p.y]);
+      const moved = tiles.move([1, 0]);
       expect(moved).toBeInstanceOf(Material);
       expect(moved).not.toBeInstanceOf(Tiling);
     }

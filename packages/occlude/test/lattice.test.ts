@@ -2,8 +2,9 @@
  * `t.lattice` — a grid of values you can step.
  *
  * The contract, in order: the grid the spacing asks for, the field it hands
- * back, the two bulk verbs (`diffuse` conserves, `decay` scales), a
- * Gray-Scott recipe that is not uniform and is reproducible, deposits
+ * back, the two bulk passes written with `set` (diffusion conserves, decay
+ * scales), a Gray-Scott recipe run by `t.steps` that is not uniform and is
+ * reproducible, deposits
  * landing in the right cell, contours off a lattice field, the degenerate
  * inputs that must draw nothing rather than throw, and the immutability the
  * whole value rests on.
@@ -13,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { circle, curve, initOcclude, material, type Lattice, type LatticeRule } from '../src/index.js';
+import { circle, curve, initOcclude, material, type Cell, type Lattice } from '../src/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -123,13 +124,18 @@ describe('a channel as a field', () => {
   });
 });
 
-describe('the bulk verbs every rule wants', () => {
-  it('diffuse conserves the channel total, with zero flux at the area edge', () => {
+describe('the bulk passes every run wants, written with set', () => {
+  /** One explicit diffusion pass: `v += rate · laplacian(v)`, zero-flux. */
+  const diffuse = (rate: number) => (l: Lattice) => l.set('a', (c) => c.a + rate * c.laplacian('a'));
+  /** The channel scaled by `1 − rate`. */
+  const decay = (rate: number) => (l: Lattice) => l.set('a', (c) => c.a * (1 - rate));
+
+  it('diffusion conserves the channel total, with zero flux at the area edge', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 2, area: disc(50, 50, 20) }, (x, y) => Math.exp(-((x - 44) ** 2 + (y - 52) ** 2) / 6));
     const before = total(lat);
     expect(before).toBeGreaterThan(0.5);
-    const after = lat.steps(40, (_cur, next) => next.diffuse('a', 0.24));
+    const after = t.steps(40, lat, diffuse(0.24));
     expect(after.n).toBe(lat.n);
     expect(total(after)).toBeCloseTo(before, 3);
     // It really spread: the peak came down.
@@ -139,42 +145,37 @@ describe('the bulk verbs every rule wants', () => {
   it('decay scales the whole channel', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 5 }, () => 4);
-    const once = lat.steps(1, (_cur, next) => next.decay('a', 0.25));
-    expect(once.sample('a', 3, 3)).toBeCloseTo(3, 6);
-    const thrice = lat.steps(3, (_cur, next) => next.decay('a', 0.5));
-    expect(thrice.sample('a', 3, 3)).toBeCloseTo(0.5, 6);
+    expect(decay(0.25)(lat).sample('a', 3, 3)).toBeCloseTo(3, 6);
+    expect(t.steps(3, lat, decay(0.5)).sample('a', 3, 3)).toBeCloseTo(0.5, 6);
   });
 
-  it('set, add and the neighbourhood read the frozen state', () => {
+  it('a set reads the lattice as it was: the neighbourhood is the frozen state', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 10 }, (x, y) => (x < 50 && y < 50 ? 1 : 0));
     // Every cell becomes the mean of its four neighbours — the five-tap
     // blur this whole value exists to replace.
-    const blur: LatticeRule = (cur, next) => {
-      for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
-        const nb = cur.neighbours(i, j);
-        if (nb.length === 0) continue;
-        let s = 0;
-        for (const [ni, nj] of nb) s += cur.at('a', ni, nj);
-        next.set('a', i, j, s / nb.length);
-      }
-    };
-    const out = lat.steps(1, blur);
+    const blur = (l: Lattice) => l.set('a', (c: Cell) => {
+      const nb = c.adjacent;
+      if (nb.length === 0) return c.a;
+      let s = 0;
+      for (const q of nb) s += q.a;
+      return s / nb.length;
+    });
+    const out = blur(lat);
     // A corner cell inside the block: two neighbours at 1, none outside.
     expect(out.sample('a', 0, 0)).toBeCloseTo(1, 6);
     // The cell just past the block's edge picks its neighbours up.
     expect(out.sample('a', 5, 0)).toBeGreaterThan(0);
     expect(out.sample('a', 5, 0)).toBeLessThan(1);
-    // A write outside the lattice is dropped, not an error.
-    const guarded = lat.steps(1, (_cur, next) => { next.set('a', -1, 0, 9); next.add('a', 999, 0, 9); });
+    // A write off the lattice reaches nothing, and is not an error.
+    const guarded = lat.set('a', 9, lat.cell([-5, 0])).set('a', 9, lat.cell([999, 0]));
     expect(guarded.values.a).toEqual(lat.values.a);
   });
 
-  it('cells is the in-lattice cells, row-major, each once: the walk a per-cell rule hands to the lattice', () => {
+  it('cells is the in-lattice cells, row-major, each once', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 4, area: disc(50, 50, 20), channels: ['h', 'v'] }, (x, y) => ({ h: Math.exp(-((x - 50) ** 2 + (y - 50) ** 2) / 30), v: 0 }));
-    let walked: [number, number][] = [];
-    lat.steps(1, (cur) => { walked = [...cur.cells]; });
+    const walked = [...lat.cells].map((c) => [c.i, c.j] as const);
     // The cells the area named, not the whole grid (`n` counts the grid).
     const inside = live(lat, 'h').length;
     expect(inside).toBeLessThan(lat.n);
@@ -184,39 +185,25 @@ describe('the bulk verbs every rule wants', () => {
       const [i0, j0] = walked[k - 1], [i1, j1] = walked[k];
       expect(j1 > j0 || (j1 === j0 && i1 > i0)).toBe(true);
     }
-    lat.steps(1, (cur) => { for (const [i, j] of cur.cells) expect(cur.inside(i, j)).toBe(true); });
-    // A wave written over cells is the wave written with the hand loop, bit for bit.
-    const wave = (cur: Parameters<LatticeRule>[0], next: Parameters<LatticeRule>[1], i: number, j: number): void => {
-      const v = cur.at('v', i, j) * 0.995 + 0.2 * cur.laplacian('h', i, j);
-      next.set('v', i, j, v);
-      next.set('h', i, j, cur.at('h', i, j) + v);
-    };
-    const byCells = lat.steps(30, (cur, next) => { for (const [i, j] of cur.cells) wave(cur, next, i, j); });
-    const byLoop = lat.steps(30, (cur, next) => { for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) if (cur.inside(i, j)) wave(cur, next, i, j); });
-    expect(byCells.values.h).toEqual(byLoop.values.h);
-    expect(byCells.values.v).toEqual(byLoop.values.v);
-    expect(Math.min(...live(byCells, 'h'))).toBeLessThan(0); // a wave, not a diffusion: it swings below zero
+    // A wave: both columns in one instant, `h` taking the new speed.
+    const speed = (c: Cell) => c.v * 0.995 + 0.2 * c.laplacian('h');
+    const waved = t.steps(30, lat, (l) => l.set({ v: speed, h: (c) => c.h + speed(c) }));
+    expect(Math.min(...live(waved, 'h'))).toBeLessThan(0); // a wave, not a diffusion: it swings below zero
   });
 });
 
 describe('a Gray-Scott recipe, written in the sketch', () => {
-  const grayScott = (feed: number, kill: number): LatticeRule => (cur, next) => {
-    for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
-      if (!cur.inside(i, j)) continue;
-      const a = cur.at('a', i, j);
-      const b = cur.at('b', i, j);
-      const abb = a * b * b;
-      next.set('a', i, j, a + 0.2 * cur.laplacian('a', i, j) - abb + feed * (1 - a));
-      next.set('b', i, j, b + 0.1 * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
-    }
-  };
+  const grayScott = (feed: number, kill: number) => (l: Lattice) => l.set({
+    a: (c) => c.a + 0.2 * c.laplacian('a') - c.a * c.b * c.b + feed * (1 - c.a),
+    b: (c) => c.b + 0.1 * c.laplacian('b') + c.a * c.b * c.b - (feed + kill) * c.b,
+  });
 
   const seeded = (seed: number): Lattice => {
     const t = toolkit({ seed });
-    return t.lattice({ spacing: 2, channels: ['a', 'b'] }, (x, y) => ({
+    return t.steps(200, t.lattice({ spacing: 2, channels: ['a', 'b'] }, (x, y) => ({
       a: 1,
       b: t.noise(x / 9, y / 9) > 0.45 ? 0.35 : 0,
-    })).steps(200, grayScott(0.055, 0.062));
+    })), grayScott(0.055, 0.062));
   };
 
   it('leaves a field with both high and low ground', () => {
@@ -237,9 +224,12 @@ describe('the coral fence, value for value', () => {
   /** The docs' Gray-Scott fence (docs/fields.md, "A lattice you can step")
    * at 300 steps instead of 5000: same seed, same disc, same spacing, same
    * four lines of rule. It is here as a fixture, not as a behaviour — the
-   * digests below are the bits `steps` produced on 2026-09-20, and any
-   * change to `lattice.ts` that moves one of them moves the ink of every
-   * lattice drawing in the library. Stepping may get faster; it may not get
+   * digests below are the bits the retired `lat.steps` produced on
+   * 2026-09-20, and the same rule as one `set` per step of `t.steps` lands
+   * on them bit for bit: `set` reads the frozen cells, sums the Laplacian in
+   * the same order, and writes Float32 as the batch did. Any change to
+   * `lattice.ts` that moves one of them moves the ink of every lattice
+   * drawing in the library. Stepping may get faster; it may not get
    * different. */
   const FENCE = {
     cols: 88,
@@ -272,15 +262,10 @@ describe('the coral fence, value for value', () => {
     const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
     const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
       Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
-    const grown = seeded.steps(300, (cur, next) => {
-      for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
-        if (!cur.inside(i, j)) continue;
-        const a = cur.at('a', i, j), b = cur.at('b', i, j);
-        const abb = a * b * b;
-        next.set('a', i, j, a + Du * cur.laplacian('a', i, j) - abb + feed * (1 - a));
-        next.set('b', i, j, b + Dv * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
-      }
-    });
+    const grown = t.steps(300, seeded, (l) => l.set({
+      a: (c) => c.a + Du * c.laplacian('a') - c.a * c.b * c.b + feed * (1 - c.a),
+      b: (c) => c.b + Dv * c.laplacian('b') + c.a * c.b * c.b - (feed + kill) * c.b,
+    }));
     expect([grown.cols, grown.rows, grown.n]).toEqual([FENCE.cols, FENCE.rows, FENCE.n]);
     for (const [idx, a, b] of FENCE.spots) {
       expect(grown.values.a[idx]).toBe(a);
@@ -339,7 +324,7 @@ describe('degenerate input draws nothing and never throws', () => {
       expect(lat.cols).toBe(0);
       expect(lat.field()(50, 50)).toBe(0);
       expect(lat.sample('a', 0, 0)).toBe(0);
-      expect(lat.steps(10, (_cur, next) => next.decay('a', 0.5)).n).toBe(0);
+      expect(t.steps(10, lat, (l) => l.set('a', (c) => c.a * 0.5)).n).toBe(0);
       expect(lat.add([50, 50], 1).n).toBe(0);
     }
   });
@@ -355,11 +340,12 @@ describe('degenerate input draws nothing and never throws', () => {
 });
 
 describe('the value never mutates', () => {
-  it('leaves the source alone through steps and add', () => {
+  it('leaves the source alone through t.steps and add', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 5 }, () => 1);
     const before = Array.from(lat.values.a);
-    const stepped = lat.steps(5, (_cur, next) => { next.decay('a', 0.5); next.diffuse('a', 0.2); });
+    const pass = (l: Lattice) => l.set('a', (c) => c.a * 0.5).set('a', (c) => c.a + 0.2 * c.laplacian('a'));
+    const stepped = t.steps(5, lat, pass);
     const deposited = lat.add([50, 50], 7);
     expect(Array.from(lat.values.a)).toEqual(before);
     expect(stepped.values.a).not.toBe(lat.values.a);
@@ -367,6 +353,6 @@ describe('the value never mutates', () => {
     expect(stepped.sample('a', 3, 3)).toBeCloseTo(1 / 32, 5);
     expect(lat.sample('a', 3, 3)).toBe(1);
     // A second run off the same source repeats, so nothing carried over.
-    expect(Array.from(lat.steps(5, (_cur, next) => { next.decay('a', 0.5); next.diffuse('a', 0.2); }).values.a)).toEqual(Array.from(stepped.values.a));
+    expect(Array.from(t.steps(5, lat, pass).values.a)).toEqual(Array.from(stepped.values.a));
   });
 });

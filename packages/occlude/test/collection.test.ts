@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { append, connect, curve, distanceTo, force, material, mm, polygon, strokes, type Material } from '../src/index.js';
+import { append, connect, curve, distanceTo, force, material, mm, point, polygon, strokes, type Material } from '../src/index.js';
 
 /** A Y: 0–1–2 trunk with branches 1–3 and 1–4, plus a loner 5. */
 const Y = (): Material =>
   material([[0, 0], [10, 0], [20, 0], [10, 10], [10, -10], [50, 50]], { edges: [[0, 1], [1, 2], [1, 3], [1, 4]], age: [0, 1, 2, 3, 4, 5] })
-    .edgeAttribute('level', (e) => (e.index < 2 ? 1 : 2));
+    .edges.set('level', (e) => (e.index < 2 ? 1 : 2));
 
 describe('geometry collections: points and edges', () => {
   it('iterate, length, at, map to an array, find; filter keeps source order and filters again', () => {
@@ -49,17 +49,14 @@ describe('geometry collections: points and edges', () => {
   it('edits scope by selection, and a selection from an earlier state re-binds', () => {
     const m = Y();
     const earlier = m.points.filter((p) => p.age >= 3);
-    const moved = m.steps(1, (cur, next) => {
-      const tips = cur.points.filter((p) => p.adjacent.length === 1 && p.age > 0);
-      next.move(tips, () => [0, 1]);
-      next.set(tips, () => ({ age: 9 }));
-    });
+    const tips = m.points.filter((p) => p.adjacent.length === 1 && p.age > 0);
+    const moved = m.move([0, 1], tips).points.set('age', 9, tips);
     expect(moved.y[2]).toBe(1);
     expect(moved.attrs.age[3]).toBe(9);
     expect(moved.y[0]).toBe(0); // degree 1 but age 0
-    // A selection made before the step names the same points afterwards:
+    // A selection made before the writes names the same points afterwards:
     // the verb finds them by identity instead of refusing the selection.
-    const again = moved.steps(1, (_cur, next) => next.move(earlier, () => [1, 0]));
+    const again = moved.move([1, 0], earlier);
     for (const i of earlier.indices) expect(again.x[i]).toBe(moved.x[i] + 1);
   });
 });
@@ -67,10 +64,9 @@ describe('geometry collections: points and edges', () => {
 describe('selections as boundaries', () => {
   it('a ring picked out of a branching network is an area; a branching subset is not', () => {
     // A square ring with a spur off one corner.
-    const net = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).steps(1, (cur, next) => {
-      const spur = next.addPoint([20, 20], {});
-      next.connect(cur.points.at(2), spur);
-    });
+    const square = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
+    const spur = point([20, 20]);
+    const net = square.points.add(spur).edges.add([square.points.at(2), spur]);
     expect(() => distanceTo(net)).toThrow(/branches/);
     const ring = net.edges.filter((e) => e.index < 4);
     expect(distanceTo(ring)(5, 5)).toBeCloseTo(5, 9);
@@ -145,7 +141,7 @@ describe('groupBy', () => {
 
   it('edge groups are boundaries and draw directly; face groups keep their faces', () => {
     const two = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true }))
-      .edgeAttribute('level', (e) => (e.index < 4 ? 0.2 : 0.4));
+      .edges.set('level', (e) => (e.index < 4 ? 0.2 : 0.4));
     const levels = two.edges.groupBy((e) => e.attrs.level);
     expect(levels.map((g) => g.key)).toEqual([0.2, 0.4]);
     expect(distanceTo(levels[1])(25, 5)).toBe(5);

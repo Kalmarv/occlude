@@ -41,6 +41,7 @@ describe('radial provenance', () => {
     // A displacement in any direction keeps the record, because radiality is
     // re-proved from the triangles and never assumed.
     expect(ball.displace(() => [0.1, 0, 0]).radialCentre).toEqual([0, 0, 0]);
+    expect(ball.points.set('z', (p) => p.z + 0.1).faces.set('k', 1).radialCentre).toEqual([0, 0, 0]);
     expect(ball.style({ creaseAngle: 180 }).radialCentre).toEqual([0, 0, 0]);
     expect(ball.withKey('ball').radialCentre).toEqual([0, 0, 0]);
   });
@@ -48,7 +49,6 @@ describe('radial provenance', () => {
   it('is dropped by an edit that can move the shell off its centre', () => {
     const ball = geodesic(1, { frequency: 3 });
     expect(ball.subdivide(1).radialCentre).toBeUndefined();
-    expect(ball.steps(1, { move: () => [0, 0, 0] as Vec3 }).radialCentre).toBeUndefined();
   });
 
   it('re-proves radiality from the triangles, whatever the record says', () => {

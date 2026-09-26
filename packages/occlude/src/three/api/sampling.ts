@@ -1,10 +1,11 @@
 import {surfaceLocation3,rebindSurfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
 import {sameAttachmentTopology3} from '../geometry/topology.js';
 import type {RotationInput,Axis3} from '../rotation.js';
-import {Mesh,PointGeometry,evaluate,captureAttributeFields,pointSteps,type PointSnapshot,type PointRule,type StepsOptions,type StepAttributes,type AttributeFields,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions,type StepShorthand} from './mesh.js';
+import {Mesh,PointGeometry,evaluate,writePoints3,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions} from './mesh.js';
 import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
-import {Collection} from './collection.js';
-import {surface3,assembleSurface3,type Attributes3,type Surface3,type SurfacePoint3,type Attribute3} from '../geometry/surface.js';
+import {Collection,type Where3} from './collection.js';
+import type {AttributeFields,PointColumns3,PointFields3} from './columns.js';
+import {surface3,assembleSurface3,type Attribute3,type Attributes3,type Surface3,type SurfacePoint3} from '../geometry/surface.js';
 import {sub3,mul3,cross3,type Vec3} from '../math.js';
 import {emptySize,sampleValue} from '../degenerate.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
@@ -26,6 +27,13 @@ interface SampleState<P extends Attributes3,F extends Attributes3,C extends Attr
 const states=new WeakMap<object,SampleState<any,any,any,any>>();
 /** Ordinary point geometry plus captured surface interpretation. Moving a point
  * preserves its original sample reference, rather than silently reprojecting. */
+/** The sampled points, and their one write, as point geometry's; a write
+ * keeps each point's captured sample. */
+export class SurfaceSamplePoints<P extends Attributes3,F extends Attributes3,C extends Attributes3,Q extends Attributes3> extends Collection<SurfaceSampleRow<P,F,C,Q>,SurfaceSamples<P,F,C,Q>> {
+  set<Name extends string,V extends Attribute3>(column:Name,value:Field<SurfaceSampleRow<P,F,C,Q>,V>,where?:Where3<SurfaceSampleRow<P,F,C,Q>>):SurfaceSamples<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,F,C,Q>;
+  set<A extends Attributes3>(values:AttributeFields<SurfaceSampleRow<P,F,C,Q>,A>,where?:Where3<SurfaceSampleRow<P,F,C,Q>>):SurfaceSamples<PointFields3<P,NoInfer<A>>,F,C,Q>;
+  set(...args:unknown[]):unknown{return this.write(args);}
+}
 export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C extends Attributes3={},Q extends Attributes3={}> extends PointGeometry<P> {
   constructor(geometry:PointGeometry<P>,target:Mesh<Q,any,F,C>,samples:ReadonlyMap<string,SurfaceSample<F,C,Q>>,generation:SamplingGeneration){
     super(geometry.surface,geometry);
@@ -36,29 +44,23 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C 
   get target():Mesh<Q,any,F,C>{return this.state.target;}
   /** Statistics of the original generation, also retained after selection/edit. */
   get generation():SamplingGeneration{return this.state.generation;}
-  get points():Collection<SurfaceSampleRow<P,F,C,Q>,SurfaceSamples<P,F,C,Q>>{
-    return new Collection(this.surface,'point',this.state.rows,indices=>{
+  /** The sampled points, and their one write (see `SurfaceSamplePoints`). */
+  get points():SurfaceSamplePoints<P,F,C,Q>{
+    return new SurfaceSamplePoints<P,F,C,Q>(this.surface,'point',this.state.rows,indices=>{
       const selected=new Set(indices),geometry=super.points.filter(p=>selected.has(p.index)).extract();
       return this.changed(geometry);
-    });
+    },undefined,undefined,write=>write.rows.length?this.changed(new PointGeometry<P>(writePoints3(this.surface,write),{...this})):this);
   }
   private changed<A extends Attributes3>(geometry:PointGeometry<A>):SurfaceSamples<A,F,C,Q>{return new SurfaceSamples(geometry,this.target,this.state.samples,this.generation);}
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<SurfaceSampleRow<P,F,C,Q>,Value>):SurfaceSamples<Omit<P,Name>&Record<Name,Value>,F,C,Q>{return this.changed(super.attribute(name,p=>evaluate(field,this.state.rows[p.index])));}
-  attributes<A extends Attributes3>(fields:AttributeFields<SurfaceSampleRow<P,F,C,Q>,A>):SurfaceSamples<Omit<P,keyof A>&A,F,C,Q>{
-    const values=captureAttributeFields(this.state.rows,fields);
-    const surface=assembleSurface3(this.surface.points.map((p,i)=>({...p,attributes:{...p.attributes,...values[i]}})),[],[]);
-    return this.changed(new PointGeometry<Omit<P,keyof A>&A>(surface,{key:this.key,iteration:this.iteration,history:[]}));
-  }
   displace(field:Field<SurfaceSampleRow<P,F,C,Q>,Vec3|number>,options:DisplaceOptions={}):SurfaceSamples<P,F,C,Q>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
   translate(offset:Vec3):SurfaceSamples<P,F,C,Q>{return this.changed(super.translate(offset));}
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):SurfaceSamples<P,F,C,Q>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):SurfaceSamples<P,F,C,Q>;
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):SurfaceSamples<P,F,C,Q>{return this.changed((super.rotate as (...args:unknown[])=>PointGeometry<P>)(a,b,c));}
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):SurfaceSamples<P,F,C,Q>{return this.changed(super.scale(scale,pivot));}
-  get history():readonly PointSnapshot<P,SurfaceSamples<P,F,C,Q>>[]{return super.history as readonly PointSnapshot<P,SurfaceSamples<P,F,C,Q>>[];}
-  steps(count:number,rule:PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepShorthand<SurfaceSampleRow<StepAttributes<P>,F,C,Q>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepsOptions)[]):SurfaceSamples<StepAttributes<P>,F,C,Q>{
-    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history,dropped)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history,dropped})));
-  }
+  get history():readonly SurfaceSamples<P,F,C,Q>[]{return super.history as readonly SurfaceSamples<P,F,C,Q>[];}
+  /** @internal These samples with the states `t.steps` kept. */
+  withHistory(history:readonly unknown[]):SurfaceSamples<P,F,C,Q>{return this.changed(super.withHistory(history));}
   /** Put points back on their retained source attachments on a new revision.
    * Point columns remain captured state; sample domain fields refresh. */
   rebind<Q2 extends Attributes3,E2 extends EdgeAttributes,F2 extends Attributes3,C2 extends Attributes3>(target:Mesh<Q2,E2,F2,C2>,options:SurfaceCoordinateOptions={}):SurfaceSamples<P,F2,C2,Q2>{

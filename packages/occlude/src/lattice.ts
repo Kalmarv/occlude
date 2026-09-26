@@ -10,13 +10,15 @@
  * sketch.
  *
  * `t.lattice` is that substrate: named channels on a cell grid over an
- * area, a rule that steps them (the shape `Material.steps` already uses —
- * a frozen `cur`, a `next` that starts as its copy, and the step number),
- * and `field(channel)` back out, so everything that reads a field
- * — `isolines`, `scatter`, a fill, `decimate` — reads a lattice too.
+ * area, one table of cells with the write `set` (every function reads the
+ * cells as they were, so a pass over the whole grid is one instant), a
+ * run that steps it (`t.steps(n, lat, (l) => l.set(…))`), and
+ * `field(channel)` back out, so everything that reads a field —
+ * `isolines`, `scatter`, a fill, `decimate` — reads a lattice too. A
+ * cell answers its `laplacian`, which is what diffusion is written with.
  *
  * Recipes stay recipes. There is no `reactionDiffusion()` and no
- * `physarum()`: those are four lines of rule each, written in the sketch.
+ * `physarum()`: those are four lines of a pass each, written in the sketch.
  *
  * Conventions follow the rest of the raster code. Cell `(i, j)` has its
  * centre at `bounds.x + (i + ½)·spacing`, row-major, exactly as
@@ -24,7 +26,7 @@
  * — a lattice is a picture of a quantity, not a coordinate, and half the
  * memory means twice the grid.
  *
- * The value never mutates: `steps` and `add` return a new lattice, and the
+ * The value never mutates: `set` and `add` return a new lattice, and the
  * one it came from still reads what it read before.
  */
 
@@ -54,55 +56,13 @@ export interface LatticeOpts {
   /** Cell size in user units (`mm(0.8)` allowed). */
   spacing: L;
   /** The area the lattice covers, default the drawable. Cells whose centre
-   * lies outside it are not part of the lattice: they hold nothing, a rule
-   * cannot write them, and the boundary is zero-flux. A shape is lowered by
+   * lies outside it are not part of the lattice: they hold nothing, a write
+   * cannot reach them, and the boundary is zero-flux. A shape is lowered by
    * the toolkit, where the sketch frame exists. */
   area?: AreaInput | ShapeValue;
   /** Channel names, default `['a']`. The first is what `field()` reads. */
   channels?: readonly string[];
 }
-
-/** The frozen state a rule reads. */
-export interface LatticeState {
-  readonly cols: number;
-  readonly rows: number;
-  readonly spacing: number;
-  readonly bounds: Bounds;
-  /** Is this cell part of the lattice (in the grid and inside the area)? */
-  inside(i: number, j: number): boolean;
-  /** A channel's value at one cell; 0 outside the lattice. */
-  at(channel: string, i: number, j: number): number;
-  /** The five-point Laplacian, `Σ(neighbour − centre)`, zero-flux at the
-   * area boundary: a neighbour outside the lattice contributes nothing, so
-   * nothing leaves through the edge. */
-  laplacian(channel: string, i: number, j: number): number;
-  /** The in-lattice four-neighbourhood of a cell, as `[i, j]` pairs. */
-  neighbours(i: number, j: number): [number, number][];
-  /** The cells of the lattice, as `[i, j]` pairs, row-major: the
-   * collection a per-cell rule walks, so the walk is the lattice's and the
-   * rule is the arithmetic. */
-  readonly cells: Iterable<[number, number]>;
-}
-
-/** The edits a rule batches for the next state. It starts as a copy of the
- * state the rule reads, so a rule that writes nothing changes nothing. */
-export interface LatticeNext {
-  /** Write one cell. A cell outside the lattice is not written. */
-  set(channel: string, i: number, j: number, value: number): void;
-  /** Add to one cell. A cell outside the lattice is not written. */
-  add(channel: string, i: number, j: number, value: number): void;
-  /** One explicit diffusion pass over the whole channel:
-   * `v += rate · laplacian(v)`, zero-flux, so the channel's total is
-   * unchanged. Above a rate of 0.25 the five-point stencil is unstable and
-   * the values run away; that is arithmetic, not a setting. */
-  diffuse(channel: string, rate: number): void;
-  /** Scale the whole channel by `1 − rate`. */
-  decay(channel: string, rate: number): void;
-}
-
-/** One step of a lattice: read `cur`, write `next`, `k` steps done. The
- * shape `Material.steps` uses, over cells instead of rows. */
-export type LatticeRule = (cur: LatticeState, next: LatticeNext, k: number) => void;
 
 /** A lattice's own numbers, for a sketch that wants the arrays: one
  * `Float32Array` per channel, row-major, `cols × rows` long. Read them; the
@@ -114,8 +74,8 @@ export type LatticeValues = Record<string, Float32Array>;
  * mistake, and either way nothing good comes of allocating for it. */
 
 /**
- * A grid of named channels over an area, and the stepping that makes it
- * worth having. Made by `t.lattice`; every operation returns a new one.
+ * A grid of named channels over an area, and the writes that step it. Made
+ * by `t.lattice`; every operation returns a new one.
  */
 export class Lattice {
   /** Cells across. */
@@ -258,7 +218,8 @@ export class Lattice {
   }
 
   /** @internal The five-point Laplacian of a column at one cell, zero-flux
-   * at the area's edge — the stencil `cur.laplacian` sums, in its order. */
+   * at the area's edge: west, east, south, north, in that order, because
+   * float addition is not associative and the ink depends on the order. */
   laplacianAt(channel: string, idx: number, i: number, j: number): number {
     if (idx < 0) return 0;
     const names = this.channels;
@@ -483,138 +444,6 @@ export class Lattice {
       const v11 = at(i0 + 1, j0 + 1);
       return (v00 * (1 - fx) + v10 * fx) * (1 - fy) + (v01 * (1 - fx) + v11 * fx) * fy;
     };
-  }
-
-  /**
-   * Apply `rule` `n` times and return the result; this lattice is
-   * unchanged. Each step freezes the current values, hands the rule a
-   * `next` that starts as their copy, and commits what the rule wrote.
-   */
-  steps(n: number, rule: LatticeRule): Lattice {
-    const { cols, rows, spacing, mask } = this;
-    const cells = cols * rows;
-    const chans = this.channels.length;
-    if (cells === 0 || chans === 0) return this;
-
-    // Two buffer sets, swapped each step, plus one scratch row for
-    // `diffuse`: allocated once, not once per step.
-    let cur: Float32Array[] = this.buffers.map((b) => Float32Array.from(b));
-    let next: Float32Array[] = this.buffers.map(() => new Float32Array(cells));
-    const scratch = new Float32Array(cells);
-    const names = this.channels;
-
-    // A channel's slot, by name. This runs once per `cur.at`, per
-    // `cur.laplacian` and per `next.set` — of the order of 10^8 times in a
-    // reaction-diffusion run — so the lookup itself has to be nearly free.
-    // A lattice holds a handful of named channels, so the honest structure
-    // is the list of names and a pointer compare each: a rule's `'a'` is
-    // the same interned string on every call, and two compares beat a hash.
-    // The throw lives in `noChannel` so this body stays small enough to
-    // inline into the accessors.
-    const slot = (channel: string): number => {
-      for (let k = 0; k < chans; k++) if (names[k] === channel) return k;
-      return noChannel(names, channel, 'lattice.steps');
-    };
-
-    // The two views the rule sees, built once and re-pointed each step:
-    // one shape, one call site, so the hot loop stays monomorphic.
-    const state: LatticeState = {
-      cols,
-      rows,
-      spacing,
-      bounds: this.bounds,
-      inside(i, j) { return i >= 0 && j >= 0 && i < cols && j < rows && mask[j * cols + i] === 1; },
-      at(channel, i, j) {
-        if (i < 0 || j < 0 || i >= cols || j >= rows) return 0;
-        const idx = j * cols + i;
-        return mask[idx] ? cur[slot(channel)][idx] : 0;
-      },
-      // The five-point stencil, in the order the sum was always taken —
-      // west, east, south, north — because float addition is not
-      // associative and the ink depends on the order.
-      laplacian(channel, i, j) {
-        if (i < 0 || j < 0 || i >= cols || j >= rows) return 0;
-        const idx = j * cols + i;
-        if (!mask[idx]) return 0;
-        const a = cur[slot(channel)];
-        const c = a[idx];
-        let sum = 0;
-        if (i > 0 && mask[idx - 1]) sum += a[idx - 1] - c;
-        if (i + 1 < cols && mask[idx + 1]) sum += a[idx + 1] - c;
-        if (j > 0 && mask[idx - cols]) sum += a[idx - cols] - c;
-        if (j + 1 < rows && mask[idx + cols]) sum += a[idx + cols] - c;
-        return sum;
-      },
-      neighbours(i, j) {
-        const out: [number, number][] = [];
-        if (i < 0 || j < 0 || i >= cols || j >= rows) return out;
-        const idx = j * cols + i;
-        if (i > 0 && mask[idx - 1]) out.push([i - 1, j]);
-        if (i + 1 < cols && mask[idx + 1]) out.push([i + 1, j]);
-        if (j > 0 && mask[idx - cols]) out.push([i, j - 1]);
-        if (j + 1 < rows && mask[idx + cols]) out.push([i, j + 1]);
-        return out;
-      },
-      cells: {
-        *[Symbol.iterator](): Iterator<[number, number]> {
-          for (let j = 0; j < rows; j++) {
-            const row = j * cols;
-            for (let i = 0; i < cols; i++) if (mask[row + i]) yield [i, j];
-          }
-        },
-      },
-    };
-
-    const writable = (i: number, j: number): number => {
-      if (i < 0 || j < 0 || i >= cols || j >= rows) return -1;
-      const idx = j * cols + i;
-      return mask[idx] ? idx : -1;
-    };
-
-    const edits: LatticeNext = {
-      set(channel, i, j, value) {
-        const idx = writable(i, j);
-        if (idx >= 0) next[slot(channel)][idx] = value;
-      },
-      add(channel, i, j, value) {
-        const idx = writable(i, j);
-        if (idx >= 0) next[slot(channel)][idx] += value;
-      },
-      diffuse(channel, rate) {
-        const a = next[slot(channel)];
-        for (let j = 0; j < rows; j++) {
-          const row = j * cols;
-          for (let i = 0; i < cols; i++) {
-            const idx = row + i;
-            if (!mask[idx]) { scratch[idx] = a[idx]; continue; }
-            const c = a[idx];
-            let sum = 0;
-            if (i > 0 && mask[idx - 1]) sum += a[idx - 1] - c;
-            if (i + 1 < cols && mask[idx + 1]) sum += a[idx + 1] - c;
-            if (j > 0 && mask[idx - cols]) sum += a[idx - cols] - c;
-            if (j + 1 < rows && mask[idx + cols]) sum += a[idx + cols] - c;
-            scratch[idx] = c + rate * sum;
-          }
-        }
-        a.set(scratch);
-      },
-      decay(channel, rate) {
-        const a = next[slot(channel)];
-        const keep = 1 - rate;
-        for (let idx = 0; idx < cells; idx++) if (mask[idx]) a[idx] *= keep;
-      },
-    };
-
-    // A count that cannot be walked is no steps at all, exactly as
-    // `Material.steps` reads one.
-    for (let k = 0; k < n; k++) {
-      for (let c = 0; c < chans; c++) next[c].set(cur[c]);
-      rule(state, edits, k);
-      const swap = cur;
-      cur = next;
-      next = swap;
-    }
-    return new Lattice(cols, rows, spacing, this.bounds, this.channels, cur, mask);
   }
 
   /**

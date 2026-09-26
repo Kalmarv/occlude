@@ -15,9 +15,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   // #endregion
   const shore = t.sample(pond, { count: 24 });
-  const nudged = shore.steps(1, (current, next) => {
-    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
-  });
+  const nudged = shore.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true })];
 });
 ```
@@ -116,9 +114,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 The last of the six connections joins the sixth point back to the first; no repeated endpoint is needed for a closed shore.
 
-**Moving points.** Editing means asking for a new material with some points moved. `shore.steps(1, (current, next) => …)` does one edit. Inside, `current` is the material as it is, and `next` is the one being built. `next.move(current.points, (p) => [dx, dy])` calls your function once per point of `current`, and each answer is a displacement, not a destination: `[0, -6]` moves every point up by 6 and leaves `x` alone. Keep `shore`, add the edit, and draw both: `shore` still exists, unchanged, and is drawn in blue behind the moved pond.
+**Moving points.** Editing means asking for a new material with some points moved. `shore.move((p) => [dx, dy])` calls your function once per point of `shore` and returns a new material, and each answer is a displacement, not a destination: `[0, -6]` moves every point up by 6 and leaves `x` alone. Keep `shore`, add the edit, and draw both: `shore` still exists, unchanged, and is drawn in blue behind the moved pond.
 
-```ts live focus=13-16
+```ts live focus=13-14
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
@@ -131,16 +129,14 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   // #endregion
   const shore = t.sample(pond, { count: 6 });
-  const raised = shore.steps(1, (current, next) => {
-    next.move(current.points, (p) => [0, -6]);
-  });
+  const raised = shore.move((p) => [0, -6]);
   return [sky, sun, farHill, nearHill, strokes(shore, { pen: 'stabilo-88-blue' }), polygon(raised, { opaque: true })];
 });
 ```
 
 **Moving some points.** The function sees each point, so it can answer differently for different points. Widen the pond: points left of `x = 140` move left, the others move right. Only the displacement line changes.
 
-```ts live focus=14
+```ts live focus=13
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
@@ -153,16 +149,14 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   // #endregion
   const shore = t.sample(pond, { count: 6 });
-  const wide = shore.steps(1, (current, next) => {
-    next.move(current.points, (p) => [p.x < 140 ? -8 : 8, 0]);
-  });
+  const wide = shore.move((p) => [p.x < 140 ? -8 : 8, 0]);
   return [sky, sun, farHill, nearHill, strokes(shore, { pen: 'stabilo-88-blue' }), polygon(wide, { opaque: true })];
 });
 ```
 
 **A shore with more points, nudged by position.** Six points can only make a six-sided pond. Sample twenty-four instead, then move each by an amount that depends on where it is. `t.noise(x, y)` is a smooth random function of position: it returns a value between about −1 and 1, and nearby inputs give nearby values, so neighbouring shore points move together and the outline bends rather than jitters. Dividing by 12 sets how quickly the value changes across the sheet; `* 2` sets how far a point can move. The sketch gets a `seed` so the noise is the same on every run. Two lines change: the count and the displacement.
 
-```ts live focus=12,14
+```ts live focus=12-13
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
@@ -175,9 +169,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   // #endregion
   const shore = t.sample(pond, { count: 24 });
-  const nudged = shore.steps(1, (current, next) => {
-    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
-  });
+  const nudged = shore.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true })];
 });
 ```
@@ -186,7 +178,7 @@ This is the finished drawing from the top of the page, and chapter 3 starts from
 
 ## Experiments
 
-**Raise the pond onto the far hill.** Predict: in the "moving points" sketch, what happens if `[0, -6]` becomes `[-60, -34]`? Change it. Observe: the pond sits on the far hill and hides that hill's hatch inside it, exactly as it hid the near hill's, and it cuts into the sun's left edge too; the blue original stays where it was. Explain: the displacement applies to every point of `current`, and `shore` was never changed, only used to build `raised`. Hiding is decided by drawing order: the pond still comes last, so it hides hatch and sun alike.
+**Raise the pond onto the far hill.** Predict: in the "moving points" sketch, what happens if `[0, -6]` becomes `[-60, -34]`? Change it. Observe: the pond sits on the far hill and hides that hill's hatch inside it, exactly as it hid the near hill's, and it cuts into the sun's left edge too; the blue original stays where it was. Explain: the displacement applies to every point of `shore`, and `shore` was never changed, only used to build `raised`. Hiding is decided by drawing order: the pond still comes last, so it hides hatch and sun alike.
 
 **Fewer points, larger nudges.** Predict: in the last sketch, what does the shore look like with `{ count: 6 }`, and then with `{ count: 24 }` and `* 12` in both displacements instead of `* 2`? Change one at a time. Observe: six points make a six-sided pond whose sides bend nowhere, because the noise moves the points, not the straight connections between them. Twelve units of movement with twenty-four points folds the outline across itself on this seed, and the area shows the twist. Explain: the outline stays closed either way; what changes is whether it is a simple boundary. Noise gives a smooth displacement, not a safe one.
 
@@ -197,7 +189,7 @@ Move only the pond's western shore, the points with `x < 140`, ten units to the 
 <details>
 <summary>A possible solution</summary>
 
-```ts live focus=14
+```ts live focus=13
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
@@ -210,9 +202,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   // #endregion
   const shore = t.sample(pond, { count: 6 });
-  const west = shore.steps(1, (current, next) => {
-    next.move(current.points, (p) => [p.x < 140 ? -10 : 0, 0]);
-  });
+  const west = shore.move((p) => [p.x < 140 ? -10 : 0, 0]);
   return [sky, sun, farHill, nearHill, strokes(shore, { pen: 'stabilo-88-blue' }), polygon(west, { opaque: true })];
 });
 ```
@@ -223,4 +213,4 @@ A displacement of `[0, 0]` is how a point stays put; every point gets an answer.
 
 ## Where to look things up
 
-`t.material`, `t.sample` and their options are under *Making a material* on [Materials](#/materials); `steps` and the edits `next` accepts are under *Movement and growth*; `t.noise` is on [Fields & variation](#/fields). Next, chapter 3: the shore's points can be picked by where they are. Chapter 3 asks what happens when where they are is no longer what you meant.
+`t.material`, `t.sample` and their options are under *Making a material* on [Materials](#/materials); `move` is under *Movement and growth*; `t.noise` is on [Fields & variation](#/fields). Next, chapter 3: the shore's points can be picked by where they are. Chapter 3 asks what happens when where they are is no longer what you meant.

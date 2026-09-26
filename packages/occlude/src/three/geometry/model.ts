@@ -165,10 +165,3 @@ export function editAttributes3(source:Surface3,patches:AttributePatches3):Surfa
   capturedSurfaces3.add(result);shareTopology3(result,surface);
   return result;
 }
-export function stepsSurface3(initial:Surface3,count:number,pass:(input:Surface3,iteration:number)=>Surface3,options:{history?:number}={}):{surface:Surface3;history:readonly Surface3[]} {
-  const keep=options.history??0;
-  if(!Number.isSafeInteger(count)||count<0||!Number.isSafeInteger(keep)||keep<0)throw new Error('step and history counts must be nonnegative integers');
-  let current=cloneSurface3(initial);const history:Surface3[]=[];
-  for(let i=0;i<count;i++){const input=snapshotSurface3(current);current=cloneSurface3(pass(input,i));if(keep){history.push(snapshotSurface3(current));if(history.length>keep)history.shift();}}
-  return {surface:current,history:Object.freeze(history)};
-}

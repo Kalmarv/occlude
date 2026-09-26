@@ -148,7 +148,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 import { sketch, stroke, circle, segmentRuns, banding, extent } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 38), { count: 60 }).attribute('h', (p) => p.y);
+  const ring = t.sample(circle(50, 50, 38), { count: 60 }).points.set('h', (p) => p.y);
   const [lo, hi] = extent(ring.attrs.h);
   const band = banding({ min: lo, max: hi, count: 3 });
   const pens = ['pigma-05-black', 'stabilo-88-blue', 'stabilo-88-green'];
@@ -184,13 +184,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## m.map()
+## A point map: points.set() on x and y
 
-<include>/_sig/Material.map.mdx</include>
+<include>/_sig/PointSelection.set.mdx</include>
 
-Moves every vertex through a point map. The callback reads a vertex and answers where that vertex lands. It gives a position, not a displacement, and that is what marks it apart from `.steps(1, { move })`.
+Moves every vertex through a point map. `x` and `y` are columns, so one write of the two columns puts each vertex where the map says. Both functions read the vertex as it was before the write. The write gives a position, not a displacement, and that is what marks it apart from `m.move`.
 
-Nothing else changes. The rows keep their order, their ids and their point, edge and face columns. A projection, a fold about a line, a plain shift and a transform of the hyperbolic disk are all this one verb.
+Nothing else changes. The rows keep their order, their ids and their point, edge and face columns. A projection, a fold about a line, a plain shift and a transform of the hyperbolic disk are all this one write.
 
 Only the vertices move, so a straight edge between two of them stays straight. Resample first (`m.resample({ spacing })`) when the map bends what the two ends cannot show. Below, one band of straight bars at 120 samples each goes round a whirlpool.
 
@@ -200,10 +200,7 @@ import { sketch, strokes, line, append, add, mul, fromAngle } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const b = t.bounds();
   const bars = append(...t.times(28, (k, u) => t.sample(line(0, u * 100, 100, u * 100), { count: 120 })));
-  return strokes(bars.map((p) => {
-    const a = (p.x / 100) * 5.6 + (p.y / 100) * 2.2 - 2.8;
-    const r = 5 + p.y * 0.4;
-    return add([b.cx, b.cy], mul(fromAngle(a), r));
-  }));
+  const whirl = (p) => add([b.cx, b.cy], mul(fromAngle((p.x / 100) * 5.6 + (p.y / 100) * 2.2 - 2.8), 5 + p.y * 0.4));
+  return strokes(bars.points.set({ x: (p) => whirl(p)[0], y: (p) => whirl(p)[1] }));
 });
 ```

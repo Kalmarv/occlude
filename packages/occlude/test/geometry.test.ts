@@ -27,8 +27,7 @@ const ring = () => connect.ring(material([[10, 10], [60, 10], [60, 60], [10, 60]
 const openChain = () => connect.chain(material([[10, 10], [60, 10], [60, 60]]));
 
 function cellsOf(): Faces {
-  return connect.ring(material([[10, 10], [60, 10], [60, 60], [10, 60]]))
-    .withEdges([[0, 1], [1, 2], [2, 3], [3, 0], [0, 2]])
+  return material([[10, 10], [60, 10], [60, 60], [10, 60]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [0, 2]] })
     .planarize()
     .faces();
 }

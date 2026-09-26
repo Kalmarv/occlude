@@ -226,7 +226,7 @@ describe('G3-31 · G6-25 · a 2D chain is a profile', () => {
   const path = curve([[0, 0, 0], [0, 0, 1], [0.5, 0, 1.5]]);
   it('sweeps a 2D material as an XY profile, ids and columns kept', () => {
     // FRICTION G3-31: sweep(star, path)
-    const tube = sweep(ring.attribute('k', (p) => p.index), path);
+    const tube = sweep(ring.points.set('k', (p) => p.index), path);
     const lifted = sweep(curve(ring.points.map((p) => [p.x, p.y, 0] as [number, number, number]), { closed: true }), path);
     expect(tube.points.map((p) => [p.x, p.y, p.z])).toEqual(lifted.points.map((p) => [p.x, p.y, p.z]));
     expect(tube.points.map((p) => p.k)).toEqual(lifted.points.map((_, i) => i % 4));
@@ -261,7 +261,7 @@ describe('G3-33 · curve builds from positions, as in 2D', () => {
 
 describe('G3-34 · G5-15 · a 2D point is a 3D point at z = 0', () => {
   it('places instances on 2D points, columns kept', () => {
-    const flat = material([[0, 0], [1, 2], [3, 1]]).attribute('size', (p) => p.index + 1);
+    const flat = material([[0, 0], [1, 2], [3, 1]]).points.set('size', (p) => p.index + 1);
     // FRICTION G3-34: instanceOnPoints(cone(…), flat.points)
     const copies = instanceOnPoints(cone(0.2, 0.5), flat.points, { scale: (p) => p.size });
     expect(copies.rows.map((r) => r.transform.translate)).toEqual([[0, 0, 0], [1, 2, 0], [3, 1, 0]]);

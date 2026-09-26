@@ -30,7 +30,7 @@ function options(value:CoordinateOptions,fallback:string):{origin:Vec3;chart:str
   return {origin,chart};
 }
 function capture<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,values:readonly (readonly (readonly [number,number])[])[],chart:string):Mesh<P,E,F,Coordinates<C>> {
-  return new Mesh(chartSurface3(mesh.surface,(f,c)=>({uv:values[f][c],chart})),{...mesh,history:[],cornerTransfers:{...mesh.cornerTransfers,uv:'interpolate',chart:'nearest'}});
+  return new Mesh(chartSurface3(mesh.surface,(f,c)=>({uv:values[f][c],chart})),{...mesh,cornerTransfers:{...mesh.cornerTransfers,uv:'interpolate',chart:'nearest'}});
 }
 /** Store a planar projection in ordinary uv/chart corner columns. Re-evaluate
  * explicitly after moving the mesh for a world-fixed projection instead. */

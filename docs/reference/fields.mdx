@@ -11,7 +11,7 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the area is calculated one time and kept. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field, and it goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
+The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the library calculates the area one time and keeps it. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field. It goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
 
 `polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.edges`, `m.n` and `m.edgeCount` count the level lines only. The closing edges belong to the area: `m.faces()` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
 
@@ -385,23 +385,21 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 <include>/_sig/Toolkit.lattice.mdx</include>
 
-A grid of named channels over an area, and a rule that steps it. `spacing` sets the cell size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each cell from its centre.
+A grid of named channels over an area. `spacing` sets the cell size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each cell from its centre.
 
-`lat.steps(n, rule)` returns a new lattice. The rule is `(cur, next, k) => …`, as for `m.steps`. `cur.cells` is the cells of the lattice as `[i, j]` pairs, so a rule that does arithmetic on each cell walks `for (const [i, j] of cur.cells)`. `cur.at(channel, i, j)` reads a cell, `cur.laplacian(channel, i, j)` is the five-point stencil, and `cur.neighbours(i, j)` lists the cells beside one. `next.set` and `next.add` write one cell. `next.diffuse(channel, rate)` and `next.decay(channel, rate)` work on the whole channel. A `diffuse` rate above 0.25 runs away.
+A lattice is one table of cells, and `lat.set(channel, value, where?)` writes a channel. A cell answers `x` and `y` (its centre), every channel by name, `c.laplacian(channel)` (the five-point stencil) and `c.adjacent`. `t.steps(n, lat, pass)` runs a pass over it. A diffusion is one write: `lat.set('a', (c) => c.a + rate * c.laplacian('a'))`. A rate above 0.25 runs away. A decay is `lat.set('a', (c) => c.a * (1 - rate))`. The [steps](/docs/reference/steps) page tells more about the lattice as one table.
 
 `lat.add(points, amount, channel?)` puts an amount into the cell under each point. `lat.field(channel)` reads a channel back as a field. `lat.values`, `lat.cols`, `lat.rows` and `lat.cell(x, y)` give the raw numbers. Every operation returns a new value.
 
-Below, ink drops at a few points and spreads. Each step diffuses the channel and forgets a little of it.
+Below, ink drops at a few points and spreads. Each step diffuses the channel and then forgets a little of it.
 
 ```ts live
 import { sketch, strokes, dots, mm, pen } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.25), color: '#23252B' }), drop: pen({ width: mm(1.2), color: '#2457D6' }) } }, (t) => {
   const drops = t.throw({ count: 12 });
-  const ink = t.lattice({ spacing: 1 }).add(drops, 60).steps(90, (cur, next) => {
-    next.diffuse('a', 0.22);
-    next.decay('a', 0.01);
-  });
+  const spread = (l) => l.set('a', (c) => c.a + 0.22 * c.laplacian('a')).set('a', (c) => c.a * 0.99);
+  const ink = t.steps(90, t.lattice({ spacing: 1 }).add(drops, 60), spread);
   return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])), dots(drops, { pen: 'drop' })];
 });
 ```

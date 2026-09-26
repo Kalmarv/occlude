@@ -3,8 +3,8 @@ import { append, curve, distance, material, type Material } from '../src/materia
 
 // Off-centre on purpose: its bounds centre is [3, 5], not the origin.
 const src = (): Material => curve([[1, 2], [5, 2], [5, 8], [1, 8]], { closed: true, age: [1, 2, 3, 4] })
-  .attribute('kind', 7, { transfer: 'nearest' })
-  .edgeAttribute('w', (e) => e.index + 1, { transfer: 'distribute' });
+  .points.set('kind', 7, { transfer: 'nearest' })
+  .edges.set('w', (e) => e.index + 1, { transfer: 'distribute' });
 
 const close = (got: readonly (readonly number[])[], want: readonly (readonly number[])[]) => {
   expect(got).toHaveLength(want.length);
@@ -157,7 +157,7 @@ describe('the four verbs are map underneath', () => {
     it(`${name} keeps ids, columns and transfer policies, and a selection rebinds`, () => {
       const m = src();
       const moved = verb(m);
-      const mapped = m.map((p) => [p.x, p.y]);
+      const mapped = m.points.set({ x: (p) => p.x, y: (p) => p.y });
       expect(moved).not.toBe(m);
       expect(m.pts).toEqual([[1, 2], [5, 2], [5, 8], [1, 8]]);
       expect([...moved.points].map((p) => p.id)).toEqual([...m.points].map((p) => p.id));

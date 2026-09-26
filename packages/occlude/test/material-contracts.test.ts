@@ -10,25 +10,26 @@ import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
 import { neighbours } from '../src/forces.js';
 import { query } from '../src/query.js';
+import { toolkit } from './helpers/run.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
 describe('ownership: derived states copy, the public arrays stay writable', () => {
   it('a derived material never shares a column with its source', () => {
     const m = square();
-    const d = m.attribute('a', 1);
-    const e = m.withEdges([[0, 2]]);
+    const d = m.points.set('a', 1);
+    const e = m.edges.add([m.points.at(0), m.points.at(2)]);
     m.x[0] = 100;
     expect(d.x[0]).toBe(0);
     expect(e.x[0]).toBe(0);
     expect(d.edgeList).not.toBe(m.edgeList);
     // and a derivation made AFTER the write reads the written value
-    expect(m.attribute('b', 2).x[0]).toBe(100);
+    expect(m.points.set('b', 2).x[0]).toBe(100);
   });
 
-  it('steps: the result, its snapshots and the input own their columns', () => {
-    const m = square().attribute('age', 0);
-    const r = m.steps(2, (prev, next) => next.move(prev.points, [1, 0]), { every: 1 });
+  it('t.steps: the result, its snapshots and the input own their columns', () => {
+    const m = square().points.set('age', 0);
+    const r = toolkit({ seed: 1 }).steps(2, m, (g) => g.move([1, 0]), { every: 1 });
     const snap0 = r.history[0];
     r.x[0] = 500;
     expect(m.x[0]).toBe(0);

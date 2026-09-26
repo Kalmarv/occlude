@@ -37,30 +37,26 @@ describe('vector vocabulary: dot, cross, fromAngle, angleOf', () => {
   });
 });
 
-describe('extend with inherit', () => {
+describe('extrude: the child names its columns', () => {
   const seed = () => material([[0, 0]], { active: 1, heading: -1.5, depth: 3 });
-  it('a child starts from its parent and overrides apply; without inherit every column is still required', () => {
-    const grown = seed().steps(1, (cur, next) => {
-      next.extrude(cur.points, (p) => ({ position: [0, -4], attributes: { heading: p.heading + 0.2 } }), { inherit: true });
-    });
+  it('a child that starts from its parent takes the parent\'s columns by name; every declared column is still required', () => {
+    const m = seed();
+    const p = m.points.at(0);
+    const grown = m.extrude(p, [0, -4], { active: p.active, depth: p.depth, heading: p.heading + 0.2 });
     expect(grown.n).toBe(2);
     expect(grown.attrs.active[1]).toBe(1);
     expect(grown.attrs.depth[1]).toBe(3);
     expect(grown.attrs.heading[1]).toBeCloseTo(-1.3, 12);
     expect(grown.attrs.heading[0]).toBeCloseTo(-1.5, 12); // the parent is untouched
-    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: 0 } })))).toThrow(/must give 'active'/);
-    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4] }), { inherit: true }))).not.toThrow();
-    // an unknown override is refused; a non-finite one drops the child and its join
-    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { colour: 1 } }), { inherit: true }))).toThrow(/no attribute 'colour'/);
-    const nan = seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: NaN } }), { inherit: true }));
+    expect(() => m.extrude(p, [0, -4], { heading: 0 })).toThrow(/must give 'active'/);
+    // a column that is not finite skips the child and its join
+    const nan = m.extrude(p, [0, -4], { active: 1, depth: 3, heading: NaN });
     expect(nan.n).toBe(1);
-    expect(nan.dropped.map((d) => [d.edit.op, d.reason])).toEqual([['addPoint', 'not-finite'], ['connect', 'gone']]);
+    expect(nan.edgeCount).toBe(0);
   });
-  it('a join to an existing vertex leaves that vertex as it was, inherit or not', () => {
+  it('a join to an existing vertex leaves that vertex as it was', () => {
     const two = material([[0, 0], [10, 0]], { active: [1, 0], heading: [0, 2], depth: [0, 9] });
-    const joined = two.steps(1, (cur, next) => {
-      next.extrude(cur.points.filter((p) => p.index === 0), () => ({ to: cur.points.at(1) }), { inherit: true });
-    });
+    const joined = two.edges.add([two.points.at(0), two.points.at(1)]);
     expect(joined.n).toBe(2);
     expect(joined.edgeCount).toBe(1);
     expect(Array.from(joined.attrs.heading)).toEqual([0, 2]);
@@ -69,33 +65,36 @@ describe('extend with inherit', () => {
   });
 });
 
-describe('plural attributes', () => {
-  it('every initializer reads the original state; the singular form is the plural with one key', () => {
+describe('the record form of set', () => {
+  it('every function reads the original state; the one-column form is the record with one key', () => {
     const m = material([[0, 0], [10, 0], [20, 0]], { a: [1, 2, 3] });
-    const both = m.attributes({ a: () => 5, b: (p) => p.a * 10, c: (p) => p.x });
+    const both = m.points.set({ a: () => 5, b: (p) => p.a * 10, c: (p) => p.x });
     expect(Array.from(both.attrs.a)).toEqual([5, 5, 5]);
     expect(Array.from(both.attrs.b)).toEqual([10, 20, 30]); // the old a, not the new
     expect(Array.from(both.attrs.c)).toEqual([0, 10, 20]);
     expect(Array.from(m.attrs.a)).toEqual([1, 2, 3]); // the source is untouched
-    const one = m.attribute('b', (p) => p.a * 10);
-    expect(Array.from(one.attrs.b)).toEqual(Array.from(m.attributes({ b: (p) => p.a * 10 }).attrs.b));
+    const one = m.points.set('b', (p) => p.a * 10);
+    expect(Array.from(one.attrs.b)).toEqual(Array.from(m.points.set({ b: (p) => p.a * 10 }).attrs.b));
   });
-  it('transfer policies are per column, kept on update, and must name a column being set', () => {
+  it('a transfer policy is declared by the write that names the column, and kept on update', () => {
     const m = curve([[0, 0], [10, 0]], { closed: false, age: [0, 10], kind: [1, 2] });
-    const declared = m.attributes({ age: (p) => p.age, kind: (p) => p.kind }, { transfer: { kind: 'nearest' } });
-    const split = declared.steps(1, (cur, next) => next.splitEdges(cur.edges.filter(() => true), { at: 0.25 }));
+    const declared = m.points.set('kind', (p) => p.kind, { transfer: 'nearest' });
+    expect(declared.transfers).toEqual({ kind: 'nearest' });
+    const split = declared.split(declared.edges, 0.25);
     const inserted = split.points.filter((p) => p.x === 2.5).at(0);
     expect(inserted.age).toBeCloseTo(2.5, 12); // interpolated
     expect([1, 2]).toContain(inserted.kind); // nearest: one end's value, never a mean
-    const updated = declared.attributes({ kind: 7 });
+    const updated = declared.points.set({ kind: 7 });
     expect(updated.transfers.kind).toBe('nearest');
-    const reset = declared.attributes({ kind: 7 }, { transfer: { kind: 'interpolate' } });
+    const reset = declared.points.set({ kind: 7 }, { transfer: 'interpolate' });
     expect(reset.transfers.kind).toBeUndefined();
-    expect(() => m.attributes({ age: 1 }, { transfer: { kind: 'nearest' } })).toThrow(/not being set/);
+    // The record form declares one policy for every column it names.
+    const both = m.points.set({ age: 1, kind: 2 }, { transfer: 'nearest' });
+    expect(both.transfers).toEqual({ age: 'nearest', kind: 'nearest' });
   });
-  it('plural edge attributes read the same edges and keep policies', () => {
-    const m = curve([[0, 0], [10, 0], [10, 10]], { closed: false }).edgeAttribute('rest', (e) => e.length);
-    const both = m.edgeAttributes({ rest: () => 1, half: (e) => e.attrs.rest / 2, long: (e) => (e.length > 5 ? 1 : 0) }, { transfer: { half: 'distribute' } });
+  it('the record form over edges reads the same edges and keeps policies', () => {
+    const m = curve([[0, 0], [10, 0], [10, 10]], { closed: false }).edges.set('rest', (e) => e.length);
+    const both = m.edges.set({ rest: () => 1, half: (e) => e.attrs.rest / 2, long: (e) => (e.length > 5 ? 1 : 0) }).edges.set('half', (e) => e.attrs.half, { transfer: 'distribute' });
     expect(Array.from(both.edgeAttrs.rest)).toEqual([1, 1]);
     expect(Array.from(both.edgeAttrs.half)).toEqual([5, 5]); // from the old rest
     expect(Array.from(both.edgeAttrs.long)).toEqual([1, 1]);
@@ -119,7 +118,7 @@ describe('append with missing columns', () => {
     expect(Array.from(append(a, c, { fill: { active: 0, heading: 0 } }).attrs.active)).toEqual([1, 1, 4]);
   });
   it('a filled column keeps the declaring side\'s policy; a column both declare must agree', () => {
-    const kinded = material([[0, 0]], { kind: 1 }).attribute('kind', 1, { transfer: 'nearest' });
+    const kinded = material([[0, 0]], { kind: 1 }).points.set('kind', 1, { transfer: 'nearest' });
     const plain = material([[3, 0]]);
     expect(append(kinded, plain, { fill: { kind: 0 } }).transfers.kind).toBe('nearest');
     expect(append(plain, kinded, { fill: { kind: 0 } }).transfers.kind).toBe('nearest');
@@ -127,7 +126,7 @@ describe('append with missing columns', () => {
     expect(() => append(kinded, interpolating)).toThrow(/transfer 'nearest' on one side and 'interpolate'/);
   });
   it('edge columns follow the same rule through edgeFill', () => {
-    const chain = curve([[0, 0], [10, 0]], { closed: false }).edgeAttribute('rest', 10, { transfer: 'distribute' });
+    const chain = curve([[0, 0], [10, 0]], { closed: false }).edges.set('rest', 10, { transfer: 'distribute' });
     const bare = curve([[20, 0], [30, 0]], { closed: false });
     expect(() => append(chain, bare)).toThrow(/edge column 'rest'.*edgeFill/);
     const joined = append(chain, bare, { edgeFill: { rest: 5 } });

@@ -79,8 +79,8 @@ packages/occlude/src/
   points, distance      spaced streamlines, scatter/relax/settle, signed
                         distance); shaper: knot curves as functions
   material, vec, views, the material vocabulary: vertices with attribute
-  steps, forces,          columns and an edge list (material), vectors,
-  relation, query,        view identity, the edit batch, force recipes,
+  tables, forces,         columns and an edge list (material), vectors,
+  relation, query,        view identity, the three writes, force recipes,
   faces                   selections and extraction, spatial edge queries,
                           planarization and faces
   plan, motion          the DrawingPlan as a value (selection, resolveDraw,
@@ -327,8 +327,10 @@ refuses a selection from another revision even when the IDs match; explicit
 extraction is what makes an ownership change visible. Derived topology uses
 compact deterministic IDs and records immediate parent IDs as provenance, so
 allocation order, wall time and model RNG are irrelevant to identity.
-Frozen passes (`.steps(n, (current, next, k), { every })`) read a frozen
-input and accumulate edits exactly as 2D `Material.steps` does.
+A 3D run is the one run: `t.steps(n, mesh, (m) => m.points.set(…))`. The
+writes are `set` on the typed collections (`mesh.points`, `mesh.edges`,
+`mesh.faces`, `mesh.corners`), each returning a new revision, and `history`
+is a plain list of states.
 
 **Budget before allocation.** Every count and byte budget is validated and
 throws before its first allocation, and **capacity options default to
@@ -549,11 +551,10 @@ declarations as extra libs and loads nested source modules by relative path
 and the editor diagnostics, not only direct TypeScript imports in unit
 tests.
 
-One ergonomic decision worth not rediscovering: a bare callback is
-deliberately *not* a `steps` shorthand. TypeScript cannot discriminate a
-one-parameter point field from a `(current, next)` rule — both overload
-orders and the union form were tried, and either the rule or the field loses
-its parameter types.
+One ergonomic decision worth not rediscovering: a pass of `t.steps` has
+one parameter, `(value) => value`, and `t.steps` refuses a function with
+more. There is no step count `k` and no shorthand record; a pass that needs
+the count writes a counter column of its own.
 
 ### Blender as a reference, never a source
 
@@ -606,10 +607,11 @@ clip regions the engine tests before it samples.
 
 `material.ts` holds vertices as typed columns (`x`, `y`, declared
 attributes) plus an edge list with its own columns. Every operation
-returns a new material; `steps()` freezes the current state, collects the
-batch of edits described against `next` (moves, attribute writes, splits,
-removals, connections, extensions), validates conflicts and ownership,
-and publishes one new state, optionally recording history. Forces are
+returns a new material. `tables.ts` holds the three writes on a table —
+add a row, remove a row, set a column — on `points` and `edges`, the one
+write `set` on `faces()`, and the recipes over them (`extrude`, `split`,
+`replace`, `move`). `t.steps` folds passes `(g) => g2` over a state,
+optionally recording history. Forces are
 prepared per state (spatial index built once, and kept on the state by `points.near`) and
 evaluated per point. `relation.ts` is selections, extraction,
 `components` and `meanBy`; `query.ts` prepares a grid
@@ -628,8 +630,8 @@ nothing in a sketch may rely on it.
 
 ### Materials: ownership and identity
 
-*Where:* `material.ts` (`Material`, its constructor, `attribute`,
-`withEdges`, `resample`, `steps`), `views.ts` (`viewProto`, `viewKind`,
+*Where:* `material.ts` (`Material`, its constructor, `resample`),
+`tables.ts` (the writes), `views.ts` (`viewProto`, `viewKind`,
 `ownedBy`), `relation.ts` (`PointSelection`, `EdgeSelection`), pinned by
 `test/material-contracts.test.ts` and `test/material.test.ts`.
 
@@ -640,9 +642,9 @@ nothing in a sketch may rely on it.
   `y`, `index` are reserved point names; `a`, `b`, `length`, `index` are
   reserved edge names. The constructor checks lengths and edge ranges.
 - **Ownership on construction.** The constructor *adopts* the arrays it
-  is given; every library operation that derives a state (`attribute`,
-  `edgeAttribute`, `withEdges`, `resample`, `append`, `withinMaterial`,
-  `steps`, `extract`, `planarize`) copies its columns first, so no two
+  is given; every library operation that derives a state (the writes and
+  their recipes, `resample`, `append`, `withinMaterial`, `extract`,
+  `planarize`) copies its columns first, so no two
   materials the library made share an array. The object, its column
   records, policies and history are `Object.freeze`d; typed-array
   *contents* are not freezable, so `m.x[i] = …` from a sketch writes into
@@ -659,16 +661,20 @@ nothing in a sketch may rely on it.
   thereafter. Nothing invalidates on a write. Sketches should treat
   states as immutable; the library does.
 - **Identity.** State identity is the `Material` object. Row indices are
-  positions within one state, never identities across states: every
-  structural edit renumbers. A vertex or edge *view* is a plain object
-  whose prototype carries the owner and kind as non-enumerable symbols
-  (`views.ts`); `ownedBy(view, m)` is the only identity test, and a spread
-  or JSON copy is unowned. Selections (`m.points.filter`) bind to the
-  exact source state and combine only with selections of the same state.
-- **Lineage.** `iteration` counts `steps()` transitions; `attribute`,
-  `withEdges`, `resample` and `withinMaterial` keep it, `append`,
-  `extract` and `planarize` start a new one at 0. `history` is written by
-  one `steps({ every })` call and never touched again.
+  positions within one state, never identities across states: a removal
+  renumbers. Every point and edge row carries a minted `id`, and the id
+  is what names a row across states. A vertex or edge *view* is a plain
+  object whose prototype carries the owner and kind as non-enumerable
+  symbols (`views.ts`); `ownedBy(view, m)` tests whether a view is of this
+  state, and a spread or JSON copy is unowned. Selections
+  (`m.points.filter`) bind to their source state; a selection of another
+  state of the same lineage is resolved in this one by id (`sel.in(state)`),
+  and one of an unrelated material is refused.
+- **Lineage.** The internal `iteration` counts the steps of `t.steps`,
+  which is what `force.drift` turns with; the writes, `resample` and
+  `withinMaterial` keep it, `append`, `extract` and `planarize` start a
+  new one at 0. `history` is written by one `t.steps(…, { every })` call
+  and never touched again; a write returns a state with no history.
 
 **Future** (not implemented): a backend that uploads a state must key its
 copy on an explicit upload snapshot or a backend-owned versioned value,
@@ -676,51 +682,52 @@ not on `Material` object identity, because a sketch can write the arrays
 after upload. A cached derived structure that a backend produces needs
 the same treatment.
 
-### Passes and edits
+### The run and the writes
 
-*Where:* `Material.steps` (the loop, snapshots), `steps.ts` (`Next`,
-`stepOnce`, `StepKit`), pinned by `test/step-passes.test.ts`,
-`test/transfer.test.ts` and the `steps` block of `test/material.test.ts`.
+*Where:* `steps` in `api.ts` (the loop, history), `tables.ts` (the writes
+and the recipes), pinned by `test/steps.test.ts`, `test/tables.test.ts`
+and `test/transfer.test.ts`.
 
-- **Frozen input, described output.** A pass `(prev, next, k)` reads
-  `prev` — frozen — and describes edits on `next`. No edit changes what a
-  later callback in the same pass reads. `stepOnce` starts from a copy of
-  every column, records the batch, then commits it as one new state.
-- **Several passes per iteration** run in order; each receives the
-  previous pass's committed output as its `prev`. All passes of an
-  iteration share `k`. A selection, view or handle belongs to the pass it
-  was taken in: the next pass must select again from its own input
-  (`steps: selection is of another state`). A pass that throws publishes
-  nothing; the input state is untouched.
-- **Iteration and history.** Iteration `this.iteration + k + 1` is the
-  number of the state a completed iteration produces; `steps()` continues
-  the count of its input. With `{ every }`, `history` holds the input
-  state (labelled with its iteration), every `every`-th completed
-  iteration, and the final one, each once, oldest first; passes within an
-  iteration are never captured.
-- **Order of resolution** inside one batch (`stepOnce`): moves and
-  attribute writes first (moves add up; the last write of a field wins),
-  on the copy; then the *moved* state is built and split transfer
-  callbacks read it; conflicts are checked (a removed vertex that was
-  also moved or set, a split edge that is disconnected or loses an
-  endpoint, an edge set and disconnected); splits are resolved per
-  original edge — sorted by parameter, equal parameters merged, one
-  child-edge definition per edge, point columns inherited from the moved
-  endpoints by the column's declared policy then overridden explicitly;
-  rows are compacted — survivors in order, each edge's split vertices
-  right after the edge's start row, added points last; edges are emitted
-  — survivors (split into chains, edge columns copied or distributed by
-  the child's share), then new connections in request order, an existing
-  pair left as it is; finally the new state. A `split` at 0 or 1 creates
-  nothing and returns the existing endpoint. `extrude` is `addPoint` +
-  `connect` per child, in selection order.
-- **Handles** are opaque, batch-bound, and refused by any other batch
-  (`that handle belongs to another edit batch`).
-
-The repository also carries an *experimental* ordered/live editing
-prototype (`bench/ordered-steps/`, `test/ordered-steps.test.ts`). It is a
-study, not the production contract; nothing above applies to it and
-nothing in it applies here.
+- **One run.** `t.steps(n, start, ...passes, { every? })` folds the passes
+  over `start` `n` times. The passes of one step run in order, each on
+  what the one before returned. A pass is `(value) => value` with one
+  parameter; a function with more is refused, and a pass that returns
+  nothing throws. `start` is any value: a material, a lattice, a mesh,
+  point or curve geometry, or a plain object that holds several.
+- **History.** With `{ every }`, a value that answers the internal
+  `withHistory(states)` keeps its start, every `every`-th state and the
+  last one, each once, oldest first; a kept state carries no history of
+  its own, and passes within a step are never captured. A plain object
+  keeps none.
+- **Three writes on a table.** `points` and `edges` answer `add`,
+  `remove` and `set`; `faces()` answers `set` alone, keyed by the walls a
+  face is made of. Each write returns a new state. The callbacks of one
+  write all read the state as it was, so the record form
+  `set({ a: …, b: … })` is one instant. A trailing `{ transfer }` (and
+  `fallback` on a face column) declares the column's policy; setting a
+  value keeps it, and declaring the default restores it.
+- **The call judges the program, the table judges the data.** A wrong
+  program throws: a reserved name, a new row that leaves out a declared
+  column, a selection of an unrelated material, the wrong kind of member.
+  Data that cannot land is skipped in silence: a write given nothing, an
+  edge row that names a point that is gone, a pair that is already an
+  edge, one point twice, a value that is not finite.
+- **Identity.** A new row gets a minted id and goes at the end of its
+  table — split points too. `point(xy, cols)` and `edge(a, b, cols)` mint
+  the id when they are made, so the value names its row in every later
+  state. A view, value or selection from an earlier state of the same
+  lineage is resolved by id, never by row.
+- **Recipes.** `extrude(from, offset, cols?)` is `points.add` then
+  `edges.add`. `split(edges, at?)` adds the point (its columns by their
+  transfer policy), removes the edge and adds the two children, which
+  keep the parent's lineage root and copy or distribute its columns; an
+  `at` at or past an end cuts nothing. `replace(edges, motif, { flip })`
+  swaps each edge for the motif's one open chain, and a motif point that
+  lands within 1e-9 of the edge's length of a point already there is that
+  point. `move(...displacements, where?)` moves each point by the sum of
+  the displacements, each read on the state as it was; a sum that is not
+  finite leaves the point, and in a curved space the point walks the
+  geodesic.
 
 ### Geometry queries
 

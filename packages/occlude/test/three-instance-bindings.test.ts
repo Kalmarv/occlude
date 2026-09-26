@@ -13,7 +13,7 @@ describe('instance surface binding ownership',()=>{
     const row=instances.rows[1];
     const selected=instances.instances.filter(candidate=>candidate.index===1).extract();
     const keyed=selected.withKey('selected');
-    const edited=keyed.attribute('tag','kept');
+    const edited=keyed.instances.set('tag','kept');
     const binding=instanceSurfaceBinding3(instances,row);
     expect(instanceSurfaceBinding3(selected,selected.rows[0])).toBe(binding);
     expect(instanceSurfaceBinding3(keyed,keyed.rows[0])).toBe(binding);

@@ -55,7 +55,7 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   const heights=new Set(moved.surface.points.map(p=>p.position[2]));
   expect(heights).toEqual(new Set([0,1]));
   // One unusable level leaves the others drawing.
-  const field=plane(2).subdivide(2).attributes({h:p=>p.x});
+  const field=plane(2).subdivide(2).points.set({h:p=>p.x});
   expect(new Set(isolines(field,'h',[0,Number.NaN,.25]).edges.map(e=>e.level))).toEqual(new Set([0,.25]));
  });
 

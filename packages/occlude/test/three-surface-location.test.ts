@@ -8,9 +8,9 @@ import {sameAttachmentTopology3} from '../src/three/geometry/topology.js';
 import {dot3,cross3,sub3,unit3,type Vec3} from '../src/three/math.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const triangle=()=>mesh([[0,0,0],[2,0,0],[0,3,0]],[[0,1,2]])
-  .attributes({heat:p=>p.x+2*p.y,label:p=>p.index},{transfer:{label:'nearest'}})
-  .faceAttributes({group:'sheet'})
-  .cornerAttributes({uv:c=>[c.point.x/2,c.point.y/3] as const,chart:'island'});
+  .points.set({heat:p=>p.x+2*p.y,label:p=>p.index},{transfer:{label:'nearest'}})
+  .faces.set({group:'sheet'})
+  .corners.set({uv:c=>[c.point.x/2,c.point.y/3] as const,chart:'island'});
 const close=(a:Vec3,b:Vec3)=>a.forEach((v,i)=>expect(v).toBeCloseTo(b[i],12));
 describe('owned surface locations',()=>{
  it('captures affine source data, distinct domains and chart derivatives',()=>{
@@ -25,7 +25,7 @@ describe('owned surface locations',()=>{
   expect(()=>{(p.position as unknown as number[])[0]=99;}).toThrow();
  });
  it('keeps different chart values at the same geometric vertex',()=>{
-  const model=box().cornerAttributes({uv:c=>[c.face.index,c.localIndex] as const,chart:c=>`face-${c.face.index}`});
+  const model=box().corners.set({uv:c=>[c.face.index,c.localIndex] as const,chart:c=>`face-${c.face.index}`});
   const vertex=0,locations=model.surface.triangles.flatMap((t,i)=>{
     const corner=t.vertices.indexOf(vertex);return corner<0?[]:[surfaceLocation3(model.surface,i,[0,1,2].map(k=>k===corner?1:0) as unknown as Vec3)];
   });
@@ -77,10 +77,10 @@ describe('owned surface locations',()=>{
  });
  it('reports missing and degenerate charts and rejects incomplete or mixed chart data',()=>{
   const plain=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0]],[[0,1,2,3]]);expect(surfaceLocation3(plain.surface,0,[1,0,0]).chartStatus).toBe('missing');
-  const flat=plain.cornerAttributes({uv:[0,0] as const});
+  const flat=plain.corners.set({uv:[0,0] as const});
   const p=surfaceLocation3(flat.surface,0,[.2,.3,.5]);expect(p.chartStatus).toBe('degenerate');expect(p.frame).toBeUndefined();expect(p.uv).toEqual([0,0]);
-  expect(()=>surfaceLocation3(plain.cornerAttributes({uv:[0,0,0]}).surface,0,[1,0,0])).toThrow('finite pair');
-  expect(()=>surfaceLocation3(plain.cornerAttributes({chart:c=>c.localIndex}).surface,0,[1,0,0])).toThrow('chart identities');
+  expect(()=>surfaceLocation3(plain.corners.set({uv:[0,0,0]}).surface,0,[1,0,0])).toThrow('finite pair');
+  expect(()=>surfaceLocation3(plain.corners.set({chart:c=>c.localIndex}).surface,0,[1,0,0])).toThrow('chart identities');
   expect(()=>surfaceLocation3(plain.surface,0,[-.1,.5,.6])).toThrow('barycentric');
   expect(()=>surfaceLocation3(plain.surface,99,[1,0,0])).toThrow('valid source triangle');
  });
@@ -99,30 +99,30 @@ describe('surface sample rebinding',()=>{
   const before=samples.points.at(0)!;
   expectTypeOf(before.sample.cornerAttributes.uv).toEqualTypeOf<readonly [number,number]>();
   expectTypeOf(before.sample.pointAttributes.heat).toEqualTypeOf<number>();
-  const edited=samples.attribute('heat','captured').translate([0,0,10]);
-  expectTypeOf(edited.points.at(0)!.heat).toEqualTypeOf<'captured'>();
+  const edited=samples.points.set('heat','captured').translate([0,0,10]);
+  expectTypeOf(edited.points.at(0)!.heat).toEqualTypeOf<string>();
   expectTypeOf(edited.points.at(0)!.sample.pointAttributes.heat).toEqualTypeOf<number>();
   expect(edited.points.at(0)!.sample).toBe(before.sample);
-  const bent=rest.displace(p=>[0,0,p.x+2*p.y]).attributes({heat:'new source'}).cornerAttributes({extra:7});
+  const bent=rest.displace(p=>[0,0,p.x+2*p.y]).points.set({heat:'new source'}).corners.set({extra:7});
   const rebound=edited.rebind(bent),row=rebound.points.at(0)!;
-  expectTypeOf(row.sample.cornerAttributes.extra).toEqualTypeOf<7>();
-  expectTypeOf(row.sample.pointAttributes.heat).toEqualTypeOf<'new source'>();
-  expectTypeOf(row.heat).toEqualTypeOf<'captured'>();
+  expectTypeOf(row.sample.cornerAttributes.extra).toEqualTypeOf<number>();
+  expectTypeOf(row.sample.pointAttributes.heat).toEqualTypeOf<string>();
+  expectTypeOf(row.heat).toEqualTypeOf<string>();
   expect(row.heat).toBe('captured');expect(row.sample.pointAttributes.heat).toBe('new source');
   expect(row.z).toBeCloseTo(row.x+2*row.y,14);expect(row.sample.position).toEqual([row.x,row.y,row.z]);
   expect(row.sample.source).toBe(bent.surface);expect(row.sample.cornerAttributes.uv).toEqual(before.sample.cornerAttributes.uv);
   expect(rebound.points.map(p=>p.id)).toEqual(samples.points.map(p=>p.id));
-  expect(rebound.generation).toEqual(samples.generation);expect(rebound.history).toEqual([]);expect(rebound.iteration).toBe(0);
+  expect(rebound.generation).toEqual(samples.generation);expect(rebound.history).toEqual([]);
   const selected=edited.points.filter(p=>p.index<2).extract().rebind(bent);expect(selected.points.length).toBe(2);
   expect(()=>samples.rebind(rest.subdivide())).toThrow('regenerate');
   expect(()=>sampleSurfacePoints(rest,{count:0},{rnd:()=>.5}).rebind(triangle())).toThrow('authoring lineage');
  });
  it('selects custom coordinate columns and refuses nearest-only chart coordinates',()=>{
-  const rest=plane(2).cornerAttributes({tex:c=>[c.point.x/2+.5,c.point.y/2+.5] as const,island:'custom'});
+  const rest=plane(2).corners.set({tex:c=>[c.point.x/2+.5,c.point.y/2+.5] as const,island:'custom'});
   const samples=sampleSurfacePoints(rest,{count:1,uvAttribute:'tex',chartAttribute:'island'},{rnd:()=>.25});
   const p=samples.points.at(0)!;expect(p.sample.chart).toBe('custom');expect(p.sample.uv).toEqual(p.sample.cornerAttributes.tex);
   expect(p.sample.frame).toBeDefined();expect(samples.rebind(rest.translate([0,0,1])).points.at(0)!.sample.uv).toEqual(p.sample.uv);
-  const discrete=triangle().cornerAttribute('uv',c=>c.uv,{transfer:'nearest'});
+  const discrete=triangle().corners.set('uv',c=>c.uv,{transfer:'nearest'});
   expect(()=>sampleSurfacePoints(discrete,{count:1},{rnd:()=>.25})).toThrow('interpolated corner values');
  });
  it('exposes the richer context through the bound toolkit',()=>{

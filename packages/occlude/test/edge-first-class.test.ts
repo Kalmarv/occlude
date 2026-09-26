@@ -54,7 +54,7 @@ describe('e.adjacent', () => {
   });
 
   it('a loose edge has no neighbours', () => {
-    const lone = material([[0, 0], [1, 0], [5, 5], [6, 5]]).withEdges([[0, 1], [2, 3]]);
+    const lone = material([[0, 0], [1, 0], [5, 5], [6, 5]], { edges: [[0, 1], [2, 3]] });
     expect(lone.edges.at(0).adjacent.length).toBe(0);
   });
 });
@@ -70,7 +70,7 @@ describe('edges.edges', () => {
 
 describe('force.tension with a rest per edge', () => {
   it('reads the edge, not either end', () => {
-    const m = chain().edgeAttribute('rest', (e) => (e.index === 0 ? 5 : 100));
+    const m = chain().edges.set('rest', (e) => (e.index === 0 ? 5 : 100));
     const pull = tension(m, { rest: (e: Edge) => e.attrs.rest });
     // Vertex 1 sits 20 from each neighbour. Its left edge rests at 5, so it
     // is pulled 15 toward vertex 0; its right edge rests at 100 and is
@@ -103,7 +103,7 @@ describe('edges.near', () => {
     // One long wall. A place 1 away from its middle is 1 away from the
     // wall, though it is 50 from either end and would fail a midpoint-only
     // or endpoint-only test at a small radius.
-    const long = material([[0, 0], [100, 0]]).withEdges([[0, 1]]);
+    const long = material([[0, 0], [100, 0]], { edges: [[0, 1]] });
     expect(long.edges.near([50, 1], { radius: 2 }).length).toBe(1);
     expect(long.edges.near([50, 3], { radius: 2 }).length).toBe(0);
     // Past the end it is the end that answers, not the infinite line.
@@ -112,7 +112,7 @@ describe('edges.near', () => {
   });
 
   it('is strict at the bound, as points.near is', () => {
-    const long = material([[0, 0], [100, 0]]).withEdges([[0, 1]]);
+    const long = material([[0, 0], [100, 0]], { edges: [[0, 1]] });
     expect(long.edges.near([50, 2], { radius: 2 }).length).toBe(0);
   });
 

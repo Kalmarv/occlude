@@ -3,6 +3,7 @@
 import { finiteCount, usableLength } from './guard.js';
 import type { IsoContour } from './isolines.js';
 import { Material, material } from './material.js';
+import { writeFaces } from './tables.js';
 import type { Face, Faces } from './faces.js';
 import type { L } from './units.js';
 import { vx, vy, type XY } from './vec.js';
@@ -390,10 +391,10 @@ function cellMaterial(cells: Cell[], r: Rect, name: string): CellMaterial {
     return best;
   };
   try {
-    return m.faceAttributes({
-      i: (f) => nearest(f.centroid[0], f.centroid[1]).i,
-      j: (f) => nearest(f.centroid[0], f.centroid[1]).j,
-    }) as CellMaterial;
+    return writeFaces(m.faces(), [{
+      i: (f: Face) => nearest(f.centroid[0], f.centroid[1]).i,
+      j: (f: Face) => nearest(f.centroid[0], f.centroid[1]).j,
+    }]) as CellMaterial;
   } catch (err) {
     throw new Error(`${name}: ${(err as Error).message}`);
   }

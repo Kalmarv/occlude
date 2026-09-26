@@ -3,12 +3,12 @@ title: Tangle
 description: A nest of strands grown by a rule, wobbled, and told which one is on top.
 ---
 
-Three operations, and none of them knows about the others. Each strand is a tip with a heading. A rule extrudes the tip one step at a time and turns it toward the curl of a noise field. The rule does not keep a strand away from the others, so the strands cross. A tip that reaches the edge of the frame stops. `oscillate` adds a wobble to each strand. `interlace` looks at every crossing. It decides the strand on top and breaks the other one.
+Three operations, and none of them knows about the others. Each strand is a tip with a heading. A pass grows the tip one step at a time: a new point, and an edge to it. The pass turns the tip toward the curl of a noise field. It does not keep a strand away from the others, so the strands cross. A tip that reaches the edge of the frame stops. `oscillate` adds a wobble to each strand. `interlace` looks at every crossing. It decides the strand on top and breaks the other one.
 
-Uses: `steps` with `extrude`, `curl`, `oscillate`, `interlace`.
+Uses: `t.steps` with `point`, `points.add` and `edges.add`, `curl`, `oscillate`, `interlace`.
 
 ```ts live
-import { sketch, strokes, material, curl, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, material, point, curl, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const flow = curl((x, y) => t.noise(x / 40, y / 40));
@@ -16,15 +16,16 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     t.times(26, (k) => { const a = (k / 26) * Math.PI * 2; return [100 + Math.cos(a) * 44, 50 + Math.sin(a) * 24]; }),
     { heading: t.times(26, (k) => (k / 26) * Math.PI * 2 + Math.PI), tip: 1 },
   );
-  const grown = seeds.steps(150, (cur, next) => {
-    const tips = cur.points.filter((p) => p.tip === 1 && p.x > 3 && p.x < 197 && p.y > 3 && p.y < 97);
-    next.extrude(tips, (p) => {
+  const grow = (g) => {
+    const tips = g.points.filter((p) => p.tip === 1 && p.x > 3 && p.x < 197 && p.y > 3 && p.y < 97);
+    const shoots = tips.map((p) => {
       const [dx, dy] = flow(p.x, p.y);
       const heading = p.heading * 0.75 + Math.atan2(dy, dx) * 0.25;
-      return { position: add(p, mul(fromAngle(heading), 1.1)), attributes: { heading, tip: 1 } };
+      return [p, point(add(p, mul(fromAngle(heading), 1.1)), { heading, tip: 1 })];
     });
-    next.set(tips, { tip: 0 });
-  });
+    return tips.set('tip', 0).points.add(shoots.map(([, q]) => q)).edges.add(shoots);
+  };
+  const grown = t.steps(150, seeds, grow);
   const wobbled = grown.oscillate({ wavelength: 13, amplitude: 1.6 });
   return strokes(wobbled.interlace({ gap: 2.2 }));
 });

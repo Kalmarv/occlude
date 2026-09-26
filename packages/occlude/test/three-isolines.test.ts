@@ -24,7 +24,7 @@ function chains(curves:Curves):{closed:boolean;length:number}[] {
 
 describe('isolines',()=>{
   it('contours a numeric point attribute and a callback identically',()=>{
-    const sheet=plane(2).subdivide(3).attributes({h:p=>p.x}),levels=[-.3,.1,.55];
+    const sheet=plane(2).subdivide(3).points.set({h:p=>p.x}),levels=[-.3,.1,.55];
     const byName=isolines(sheet,'h',levels),byField=isolines(sheet,c=>c.point.x,levels);
     expect(byName.edges.length).toBe(byField.edges.length);
     for(const [li,level] of levels.entries()){
@@ -59,7 +59,7 @@ describe('isolines',()=>{
     expect(wrap.edges.length).toBe(0);
   });
   it('handles a level through vertices with the half-open rule and no zero-length pieces',()=>{
-    const sheet=plane(2).subdivide(2).attributes({h:p=>p.x}),lines=isolines(sheet,'h',[0,.5]);
+    const sheet=plane(2).subdivide(2).points.set({h:p=>p.x}),lines=isolines(sheet,'h',[0,.5]);
     expect(lines.network.segments.every(s=>s.length>0)).toBe(true);
     const rows=chains(lines);expect(rows).toHaveLength(2);
     expect(rows.map(r=>r.length).every(l=>Math.abs(l-2)<1e-10)).toBe(true);
@@ -67,7 +67,7 @@ describe('isolines',()=>{
     expect(incident(lines)).toBe(true);
   });
   it('resolves count and spacing level specifications',()=>{
-    const sheet=plane(2).subdivide(2).attributes({h:p=>p.x});
+    const sheet=plane(2).subdivide(2).points.set({h:p=>p.x});
     expect(new Set(isolines(sheet,'h',{count:3}).edges.map(e=>e.level))).toEqual(new Set([-.5,0,.5]));
     expect(new Set(isolines(sheet,'h',{spacing:.4,offset:.1}).edges.map(e=>e.level)).size).toBe(5);
     expect(isolines(sheet,'h',[]).edges.length).toBe(0);
@@ -78,7 +78,7 @@ describe('isolines',()=>{
     expect(()=>isolines(sheet,'missing',[0])).toThrow('missing');
   });
   it('enforces budgets and validates inputs',()=>{
-    const sheet=plane(2).subdivide(3).attributes({h:p=>p.x});
+    const sheet=plane(2).subdivide(3).points.set({h:p=>p.x});
     // The mesh, the options and the field are read at the call, so a mistake
     // in them is reported there. A capacity is a fact about the network, and
     // the network is built when something asks for it — the same place
@@ -90,7 +90,7 @@ describe('isolines',()=>{
   });
   it('renders through view as ordinary supported curves',async()=>{
     const run=await compileSketchAsync(sketchAsync({seed:1,pens:{ink:pen({width:mm(.2)})}},async()=>{
-      const model=plane(2).subdivide(3).displace(p=>[0,0,.4*Math.sin(p.x*2)]).attributes({h:p=>p.z});
+      const model=plane(2).subdivide(3).displace(p=>[0,0,.4*Math.sin(p.x*2)]).points.set({h:p=>p.z});
       return view([model,isolines(model,'h',{count:4})],{camera:orthographic({eye:[5,7,6],span:4}),pen:'ink'});
     }));
     const scene=[...run.scenes3.values()][0];

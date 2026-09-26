@@ -6,6 +6,7 @@ import {sampleSurfaceCurves} from '../src/three/api/curveSampling.js';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {surfaceBinding3,surfaceCurveNetwork3} from '../src/three/curves/network.js';
 import {surfaceLocation3,rebindSurfaceLocation3} from '../src/three/geometry/location.js';
+import {toolkit} from './helpers/run.js';
 
 const source=()=>mesh([[0,0,0],[10,0,0],[0,10,0]],[[0,1,2]]);
 const binding=()=>surfaceBinding3(source().surface);
@@ -47,13 +48,14 @@ describe('surface curve sampling',()=>{
   expect(row.sample.tangent).toEqual([1,0,0]);expect(row.sample.on(a)).toHaveLength(1);expect(row.sample.on(b)).toHaveLength(1);
  });
 
- it('preserves sample provenance through edits, selection, extraction, attributes, and steps',()=>{
+ it('preserves sample provenance through edits, selection, extraction, columns, and runs',()=>{
   const curves=graph([{id:'a',point:point([0,0,0])},{id:'b',point:point([4,0,0])}],[{id:'edge',a:'a',b:'b'}]);
   const samples=sampleSurfaceCurves(curves,{count:3}),rows=[...samples.points];
   expect([...samples.translate([1,2,0]).points][1].sample.exact).toEqual(rows[1].sample.exact);
-  expect([...samples.attribute('mark',p=>p.index).points][1].sample.edgeId).toBe(rows[1].sample.edgeId);
+  expect([...samples.points.set('mark',p=>p.index).points][1].sample.edgeId).toBe(rows[1].sample.edgeId);
   expect(samples.points.filter(p=>p.index>0).extract().points).toHaveLength(2);
-  const stepped=samples.attribute('mark','initial').steps(1,(current,edit)=>edit.set(current.points.at(0)!,()=>({mark:'step'})));
+  const initial=samples.points.set('mark','initial'),stepped=toolkit().steps(1,initial,s=>s.points.set('mark','step',s.points.at(0)!));
+  expect([...stepped.points].map(p=>p.mark)).toEqual(['step','initial','initial']);
   expect([...stepped.points][0].sample.locations).toHaveLength(1);
  });
 

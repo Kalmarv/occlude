@@ -246,7 +246,7 @@ for (const [name, cfg] of SPACES) {
       const m = t.material(ngon(50, 50, 6, 30));
       // A new edge that does not name it is a coordinate edge; the kept
       // walls keep theirs.
-      const joined = m.withEdges([...m.edges.map((e) => [e.a.index, e.b.index] as [number, number]), [0, 3]]);
+      const joined = m.edges.add([m.points.at(0), m.points.at(3)]);
       expect(Array.from(joined.edgeAttrs.geodesic)).toEqual([1, 1, 1, 1, 1, 1, 0]);
       // Appending a flat material fills its side with 0.
       const piled = append(m, material([[0, 0], [5, 5]], { edges: [[0, 1]] }));
@@ -260,7 +260,7 @@ for (const [name, cfg] of SPACES) {
       }
       expect(Array.from(cut.edgeAttrs.cut).some((v) => v === 1)).toBe(true);
       // A split edge's children are pieces of the same geodesic.
-      const split = m.steps(1, (cur, next) => next.split(cur.edge(0)));
+      const split = m.split(m.edge(0));
       expect(Array.from(split.edgeAttrs.geodesic).every((v) => v === 1)).toBe(true);
     });
   });

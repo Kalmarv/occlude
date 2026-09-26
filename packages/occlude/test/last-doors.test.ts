@@ -108,7 +108,7 @@ describe('O2 · G5-1, G3-32 · scatter and sample take a face selection and a 3D
 
 describe('O3 · G7-12 · an edge column reads as a property of the row', () => {
   it('answers e.level beside e.attrs.level', () => {
-    const m = material([[0, 0], [10, 0], [10, 10]], { edges: [[0, 1], [1, 2]] }).edgeAttribute('level', (e) => e.index + 1);
+    const m = material([[0, 0], [10, 0], [10, 10]], { edges: [[0, 1], [1, 2]] }).edges.set('level', (e) => e.index + 1);
     // FRICTION G7-12: outer.edges.filter((e) => e.level === sparse[2])
     expect(m.edges.map((e) => e.level)).toEqual([1, 2]);
     expect(m.edges.map((e) => e.attrs.level)).toEqual([1, 2]);
@@ -118,7 +118,7 @@ describe('O3 · G7-12 · an edge column reads as a property of the row', () => {
   it('refuses a column named for a field the edge already has', () => {
     const m = material([[0, 0], [10, 0]], { edges: [[0, 1]] });
     for (const name of ['center', 'root', 'id', 'attrs', 'faces', 'adjacent']) {
-      expect(() => m.edgeAttribute(name, 1)).toThrow(`'${name}' is a reserved edge field`);
+      expect(() => m.edges.set(name, 1)).toThrow(`'${name}' is a reserved field of an edge`);
     }
   });
 });

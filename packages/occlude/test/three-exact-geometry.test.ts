@@ -79,7 +79,7 @@ describe('shared exact surface constructions',()=>{
   expect(hiddenWorldInterval3(raised,basis)).toEqual([0,1]);
  });
  it('evaluates placed locations from represented world vertices, not a rounded model point',()=>{
-  const model=mesh([[0,0,0],[3,0,0],[0,3,0]],[[0,1,2]]).cornerAttributes({uv:c=>[c.point.x/3,c.point.y/3]});
+  const model=mesh([[0,0,0],[3,0,0],[0,3,0]],[[0,1,2]]).corners.set({uv:c=>[c.point.x/3,c.point.y/3]});
   const p=surfaceLocation3(model.surface,0,[.05,.9,.05],{placement:{id:'far',transform:{translate:[1e16,0,0]}}});
   expect(p.modelPosition).toEqual([2.7,.15000000000000002,0]);
   expect(p.position[0]).toBe(1e16+4);expect(p.modelFrame!.du).toEqual([3,0,0]);expect(p.frame!.du).toEqual([4,0,0]);

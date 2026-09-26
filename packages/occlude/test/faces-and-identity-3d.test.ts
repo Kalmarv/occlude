@@ -49,11 +49,11 @@ describe('G3-29 3D selections resolve by id',()=>{
     expect(()=>nextA.union(m.points as never)).toThrow('same domain');
   });
   it('G3-29 a single stale row edits the row with its id, not the one at its old index',()=>{
-    const block=box(2).subdivide(1).faceAttribute('tone',0);
+    const block=box(2).subdivide(1).faces.set('tone',0);
     const solid=block.subtract(sphere(0.9,{segments:20,rings:10}).translate([1,1,1]));
     const row=block.faces.find(f=>{const now=solid.faces.find(g=>g.id===f.id);return now&&now.index!==f.index;})!;
     expect(row).toBeDefined();
-    const out=solid.steps(1,(_,next)=>next.setFace(row as never,{tone:1}));
+    const out=solid.faces.set('tone',1,row as never);
     expect(out.faces.filter(f=>f.tone===1).map(f=>f.id)).toEqual([row.id]);
     expect(solid.faces.rows(row as never).map(f=>f.id)).toEqual([row.id]);
   });

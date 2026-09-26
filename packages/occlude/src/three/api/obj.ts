@@ -113,8 +113,8 @@ export function obj(text:string,options:ObjOptions={}):Mesh<{},{},{object?:strin
   const mesh=new Mesh(ownSurface3(surface3(positions,polygons)),geometry);
   const named=faces.some(f=>f.object!==undefined),grouped=faces.some(f=>f.group!==undefined);
   if(!named&&!grouped)return mesh as Mesh<{},{},{object?:string;group?:string},{}>;
-  return mesh.faceAttributes(row=>{
-    const f=faces[row.index];
-    return {...(named?{object:f.object??''}:{}),...(grouped?{group:f.group??''}:{})};
+  return mesh.faces.set({
+    ...(named?{object:(row:{index:number})=>faces[row.index].object??''}:{}),
+    ...(grouped?{group:(row:{index:number})=>faces[row.index].group??''}:{}),
   }) as unknown as Mesh<{},{},{object?:string;group?:string},{}>;
 }

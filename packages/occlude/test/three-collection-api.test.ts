@@ -3,7 +3,7 @@ import {plane,box,pointCloud,instanceOnPoints} from 'occlude/3d';
 
 describe('source-bound collection selection algebra',()=>{
   it('uses source order for sets and complements, even inside a group',()=>{
-    const source=plane().subdivide(2).attribute('value',p=>p.index);
+    const source=plane().subdivide(2).points.set('value',p=>p.index);
     const all=source.points,a=all.filter(p=>p.index%2===0),b=all.filter(p=>p.index%3===0);
     const ids=(s:typeof all)=>s.map(p=>p.index);
     expect(ids(b.union(a))).toEqual(ids(all.filter(p=>p.index%2===0||p.index%3===0)));
@@ -27,7 +27,7 @@ describe('source-bound collection selection algebra',()=>{
     expect(points.filter(()=>false).some(()=>true)).toBe(false);
   });
   it('recognizes owned rows across fresh collection access, rejecting copied IDs',()=>{
-    const source=box().faceAttribute('label','side');
+    const source=box().faces.set('label','side');
     const selected=source.faces.filter(f=>f.index===0);
     expect(selected.has(source.faces.at(0)!)).toBe(true);
     expect(selected.has(source.faces.at(1)!)).toBe(false);

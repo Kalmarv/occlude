@@ -15,7 +15,7 @@
  * resamples and plots like anything else. Nothing about occlusion changed, and
  * nothing here consults it.
  *
- * A cut is a SPLIT, as `splitEdges` is. A vertex the cut leaves in place is
+ * A cut is a SPLIT, as `g.split` is. A vertex the cut leaves in place is
  * the vertex it was: its id and its columns. A cut end is a new vertex, its
  * columns read off the edge under it by each column's transfer. Every piece
  * of an edge keeps that edge's lineage root and its columns; a piece that
@@ -34,8 +34,7 @@
  * coordinates, as `thicken` and `oscillate` take theirs.
  */
 
-import { Material, material as makeMaterial, mintIds } from './material.js';
-import { inheritEdge } from './steps.js';
+import { Material, material as makeMaterial, mintIds, inheritEdge } from './material.js';
 import { pairKey } from './views.js';
 
 /** One place two strands cross, as `over` sees it. */

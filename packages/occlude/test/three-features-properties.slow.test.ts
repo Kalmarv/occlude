@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   circle, sdf, initOcclude, material, mm, polygon, primLength, rect, render, shader, sketch,
-  type Edge, type Material, type Next, type SketchDef, type StrokeInk,
+  type Edge, type Material, type SketchDef, type StrokeInk,
 } from '../src/index.js';
+import { toolkit } from './helpers/run.js';
 import { decodePlanBuffer } from '../src/plan.js';
 import { planBuffer } from '../src/render.js';
 import { isolinesOf } from '../src/isolines.js';
@@ -116,10 +117,10 @@ describe('rule invariants, over many random patterns', () => {
       const before = m.points.length;
       const by: [number, number] = [next() * 2 - 1, next() * 2 - 1];
       const longer = next() * 4;
-      const grown = m.steps(1 + Math.floor(next() * 3), [
-        (cur, nxt) => nxt.move(cur.points, by),
-        (cur, nxt) => nxt.splitEdges(cur.edges.filter((e: Edge) => e.length > longer)),
-      ]);
+      const grown = toolkit().steps(1 + Math.floor(next() * 3), m,
+        (cur) => cur.move(by),
+        (cur) => cur.split(cur.edges.filter((e: Edge) => e.length > longer)),
+      );
       // Points are only ever added by a split, never lost.
       expect(grown.points.length).toBeGreaterThanOrEqual(before);
       for (const p of grown.points) {
@@ -170,14 +171,15 @@ describe('degenerate input draws nothing, and the sketch keeps rendering', () =>
   });
 
   it('takes a pass over a material with nothing in it', () => {
-    const move = (cur: Material, next: Next) => next.move(cur.points, [1, 1]);
-    const split = (cur: Material, next: Next) => next.splitEdges(cur.edges);
+    const t = toolkit();
+    const move = (cur: Material) => cur.move([1, 1]);
+    const split = (cur: Material) => cur.split(cur.edges);
     const empty = material([] as [number, number][]);
-    expect(() => empty.steps(3, move)).not.toThrow();
-    expect(empty.steps(3, move).points.length).toBe(0);
-    expect(() => empty.steps(2, split)).not.toThrow();
+    expect(() => t.steps(3, empty, move)).not.toThrow();
+    expect(t.steps(3, empty, move).points.length).toBe(0);
+    expect(() => t.steps(2, empty, split)).not.toThrow();
     // One lonely point has no edges to match, and that is not an error.
     const lonely = material([[5, 5]] as [number, number][]);
-    expect(lonely.steps(2, [move, split]).points.length).toBe(1);
+    expect(t.steps(2, lonely, move, split).points.length).toBe(1);
   });
 })

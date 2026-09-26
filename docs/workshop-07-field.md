@@ -76,7 +76,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 
 Two controls, two different kinds of change. `noise scale` changes the landscape: at 12 it is a rough field of small hills, at 80 a few broad ones. `levels` changes only how finely the same landscape is read: more contours, the same hills. Where the contours crowd the ground is steep. Look for the closed rings: each is a summit or a hollow, and nothing on the page says which.
 
-**Work on the result.** `t.isolines` returns material, the same kind chapters 2 to 6 edited and selected, with every connection carrying its `level` as an attribute. So a level can be picked out, `contours.edges.filter((e) => e.level === 0.5)`, and all of them grouped, `contours.edges.groupBy((e) => e.level)`, each group a selection `strokes` accepts. Here every other level goes in blue; the geometry is untouched.
+**Work on the result.** `t.isolines` returns material, the same kind chapters 2 to 6 edited and selected, with every connection carrying its `level` as a column. So a level can be picked out, `contours.edges.filter((e) => e.level === 0.5)`, and all of them grouped, `contours.edges.groupBy((e) => e.level)`, each group a selection `strokes` accepts. Here every other level goes in blue; the geometry is untouched.
 
 ```ts live focus=8-10
 import { sketch, strokes, ui } from 'occlude';

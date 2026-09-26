@@ -1,20 +1,20 @@
 /**
- * Material: positions, connections and attributes you can hold, step,
+ * Material: positions, connections and columns you can hold, write,
  * connect, resample and reinterpret.
  *
  * A `Material` is a set of vertices — `x`, `y` and any named attribute
  * columns — plus an edge list. A ring, an open chain, a branching tree
  * and an unconnected cloud are all materials; a `Curve` is the chain a material
  * hands back for drawing. Materials are values: every operation returns a
- * new one and leaves its input intact, so an evolution can be kept and
- * any iteration chosen later. Indices are rows of one state, not
+ * new one and leaves its input intact, so a run can be kept and any step
+ * of it chosen later. Indices are rows of one state, not
  * identities: insertion renumbers later states.
  *
  * Four layers, kept apart:
  *   material   `material()` / `curve()` / `t.sample()`; `connect.*`;
- *              `.attribute()`, `.resample()`
+ *              the writes `points.set`, `edges.set`, `faces().set`; `.resample()`
  *   numbers    add sub mul length distance unit limit perp sum sumBy
- *   rules      `.steps(n, (current, next, k) => …)` with collection edits;
+ *   passes     `(g) => g2` over the writes and recipes, run by `t.steps`;
  *              forces PREPARED once, EVALUATED at a point to a vector
  *   drawing    `.curves()`, `segmentRuns`, `extent`, `banding`
  *
@@ -42,8 +42,8 @@ import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
 import { trails as makeTrails, type TrailsOpts } from './trails.js';
 // Same-world transforms: a material in, a material out. They are methods on
-// Material and the kernels stay in their own files, the way `steps` already
-// delegates. The import cycle is safe because every use is at call time.
+// Material and the kernels stay in their own files. The import cycle is
+// safe because every use is at call time.
 import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
 import { warp as warpKernel, type WarpOpts } from './warp.js';
 import { oscillate as oscillateKernel, type OscillateOpts } from './oscillate.js';
@@ -54,31 +54,24 @@ import { snap as snapKernel, type SnapField, type SnapOpts } from './snap.js';
 import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
-import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type Dropped, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
 import type { EdgeQuery } from './query.js';
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
 // is safe, as it is for the kernels above.
-import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, type Displacement, type EdgeEnd, type PointEnd } from './tables.js';
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, setPoints, setEdges, addEdgeRows, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
 
 // The vocabulary this module was one file with, re-exported so its
 // importers keep one door: vectors (vec.ts), view identity (views.ts) and
-// the edit contract (steps.ts). Forces live in forces.ts and depend on
-// this module, so they are not re-exported here.
+// the column sharing of a split (tables.ts). Forces live in forces.ts and
+// depend on this module, so they are not re-exported here.
 export {
   add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
 } from './vec.js';
 export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
-export { inheritEdge } from './steps.js';
-import { oneBatch } from './rules.js';
+export { inheritEdge } from './tables.js';
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
-export type {
-  ChildSpec, ChildInterval, SplitOpts, StepRule, StepShorthand, StepsOptions, Next, StepKit,
-  Edit, PointRef, EdgeRef, FaceKey, DropReason, Dropped,
-  MoveEdit, SetEdit, SetEdgeEdit, SetFaceEdit, AddPointEdit, ConnectEdit, DisconnectEdit, RemoveEdit, SplitEdit,
-} from './steps.js';
 
 // ---- the material --------------------------------------------------------------------
 
@@ -358,8 +351,8 @@ export type Transfer =
   | ((a: Vertex, b: Vertex, t: number) => number);
 
 /** Column transfer policies a material remembers for its point columns
- * (`attribute(name, value, { transfer })`), used as the default by `split`
- * and `resample`; a per-operation override wins. */
+ * (`points.set(name, value, { transfer })`), used as the default by
+ * `split`, `replace` and `resample`; a per-operation override wins. */
 export type TransferPolicy = 'interpolate' | 'nearest';
 
 /** How an EDGE column carries over when an edge is subdivided (split,
@@ -434,7 +427,7 @@ export const RESERVED_EDGE_FIELDS: readonly string[] = [
  * - **Keep.** A rebuild that carries a row forward carries its id: every
  *   column copy, every survivor of a step, every extracted selection.
  * - **Retire.** A split ends the parent and both children are new. After
- *   `splitEdges`, `cur.edge(parentId)` finds nothing, which is the same
+ *   `g.split(edges)`, `g.edgeOf(parentId)` finds nothing, which is the same
  *   rule as "rows that are gone are skipped". The alternative — the first
  *   child inherits — is equally defensible and would silently change what
  *   `has` answers after a growth step, so it is written here rather than
@@ -447,9 +440,6 @@ export const RESERVED_EDGE_FIELDS: readonly string[] = [
  */
 export type PointId = number & { readonly __pointId: unique symbol };
 export type EdgeId = number & { readonly __edgeId: unique symbol };
-
-/** The `dropped` of every material no `steps` call made. */
-const NOTHING_DROPPED: readonly Dropped[] = Object.freeze([]);
 
 /** The run's id counter. Reset at the start of every execution. */
 let nextId = 1;
@@ -481,17 +471,18 @@ export class Material {
   /** Attribute columns by name, each `n` long. */
   readonly attrs: Readonly<Record<string, Float64Array>>;
   /** Edge list, stored order, `[a0, b0, a1, b1, …]`. Undirected for
-   * connectivity; the stored direction is what `edges`, `splitEdges`
-   * (`at`) and `segmentRuns` (`a`, `b`) see. */
+   * connectivity; the stored direction is what `edges`, `split` (`at`)
+   * and `segmentRuns` (`a`, `b`) see. */
   readonly edgeList: Uint32Array;
-  /** How many `steps()` iterations produced this state (0 for fresh
-   * material); `steps()` continues the count. */
+  /** @internal How many steps of `t.steps` produced this state (0 for
+   * fresh material); a run continues the count. It is what `force.drift`
+   * turns with, and nothing a sketch names. */
   readonly iteration: number;
-  /** States captured by the `steps()` call that made this material — empty
-   * unless it asked for `{ every }`. Iteration 0 of that call, every
-   * `every`-th after it, and the final one, each once, oldest first. Each
-   * entry is a material of its own, which says its `iteration`, and
-   * carries no history of its own; nothing a later step does touches it. */
+  /** States kept by the `t.steps` run that made this material — empty
+   * unless it asked for `{ every }`: the start, every `every`-th state
+   * after it, and the last one, each once, oldest first. Each entry is a
+   * material of its own and carries no history of its own; nothing a later
+   * step does touches it. */
   readonly history: readonly Material[];
   /** Edge attribute columns by name, each `edgeCount` long. */
   readonly edgeAttrs: Readonly<Record<string, Float64Array>>;
@@ -527,7 +518,7 @@ export class Material {
   readonly areaBox: { make: (() => Material) | null; material: Material | null };
   /** One id per vertex row, and one per edge row. Outside `attrs` on
    * purpose: a column would be interpolated at every split (a mean of two
-   * ids is a forged id), would be demanded of every `addPoint` caller, and
+   * ids is a forged id), would be demanded of every `points.add` caller, and
    * would appear as a plain number on a vertex view — the opposite of
    * opaque. */
   readonly pointIds: Float64Array;
@@ -549,25 +540,14 @@ export class Material {
   /**
    * The space these coordinates belong to: the sketch's own `Space`,
    * stamped by the toolkit word that made the material, and carried by
-   * every verb that rebuilds it. `m.steps` walks a move in it and the
-   * forces measure with it. Absent on the pure `material(points)`, whose
+   * every verb that rebuilds it. `move` walks in it and the forces
+   * measure with it. Absent on the pure `material(points)`, whose
    * coordinates are flat numbers and walk flat.
    *
    * Non-enumerable, as `Frame.space` is: a space is a record of closures,
    * and a material compared or copied as data is compared by its rows.
    */
   declare readonly space: Space | undefined;
-  /**
-   * The records the `steps` call that made this material did not land,
-   * each with its reason and the step `k` — empty on every other material,
-   * as `history` is. A reference that is gone, a join of a point to
-   * itself, a second ask for what already is, an ask about a point or an
-   * edge the same batch removes, two splits that disagree, a value that is
-   * not finite: the fold drops each and says so here. It never draws.
-   *
-   * Non-enumerable, as `space` is: a record may hold a callback.
-   */
-  declare readonly dropped: readonly Dropped[];
   /** id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -576,7 +556,7 @@ export class Material {
 
   /** @internal Use `material()`/`curve()`/`t.sample()`. Columns are
    * adopted by the constructor but no two materials ever share one: every
-   * derived material (attribute, connect, steps, resample, append) copies,
+   * derived material (a write, connect, resample, append) copies,
    * and the library never writes to a column after construction. So a
    * snapshot or a source cannot change under you. What remains: typed
    * arrays cannot be frozen, so `m.x[i] = …` from a sketch does write —
@@ -614,8 +594,6 @@ export class Material {
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
-      /** What the `steps` call that made this state dropped (see `dropped`). */
-      dropped?: readonly Dropped[];
     } = {},
   ) {
     const {
@@ -682,7 +660,6 @@ export class Material {
     }
     this.faceAttrs = faceAttrs;
     Object.defineProperty(this, 'space', { value: carry.space, enumerable: false });
-    Object.defineProperty(this, 'dropped', { value: carry.dropped === undefined ? NOTHING_DROPPED : Object.freeze(carry.dropped), enumerable: false });
     this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
@@ -1109,187 +1086,12 @@ export class Material {
       }
       cur = next;
     }
-    return onPoints ? src.attribute(name, (p) => cur[p.index]) : src.edgeAttribute(name, (e) => cur[e.index]);
-  }
-
-  /** A new material with a column set: a constant, or one value per vertex. */
-  attribute(name: string, value: number | ((p: Vertex) => number), opts: { transfer?: TransferPolicy } = {}): Material {
-    return this.attributes({ [name]: value }, opts.transfer ? { transfer: { [name]: opts.transfer } } : {});
-  }
-
-  /** A new material with several point columns set at once. Every
-   * initializer reads THIS state: a callback sees the vertex as it is here,
-   * so no column can read another's newly computed value, and the order of
-   * the keys does not matter. `transfer` declares policies per column; a
-   * value update keeps a column's declared policy, and an explicit
-   * `'interpolate'` restores the default. */
-  attributes(values: Record<string, number | ((p: Vertex) => number)>, opts: { transfer?: Record<string, TransferPolicy> } = {}): Material {
-    const cols: Record<string, Float64Array> = {};
-    for (const name of Object.keys(values)) {
-      const value = values[name];
-      const col = new Float64Array(this.n);
-      if (typeof value === 'number') col.fill(value);
-      else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
-      cols[name] = col;
-    }
-    const transfers = { ...this.transfers };
-    for (const [name, policy] of Object.entries(opts.transfer ?? {})) {
-      if (!(name in values)) throw new Error(`attributes: transfer names '${name}', which is not being set`);
-      if (policy === 'interpolate') delete transfers[name];
-      else transfers[name] = policy;
-    }
-    // Setting a column changes no row, so every identity carries.
-    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
-  }
-
-  /**
-   * A new material with a FACE column set: a constant, or one value per
-   * face from its view (`f => f.area`).
-   *
-   * A face is not a row — it is whatever the walls enclose — so the values
-   * are keyed by the face's walls rather than by an index, and they follow
-   * the material through anything that leaves those walls alone. When a
-   * boundary does change, a new face takes the value of the old face it
-   * shares the most walls with (`'nearest'`, the default), or the column
-   * stops there (`'drop'`). A face that shares no wall with any old face
-   * starts from `fallback`.
-   *
-   * A face column is SPARSE, and the type says so (`number | undefined`).
-   * A write names the faces it writes and passes the rest by; a face with
-   * nothing to inherit and no `fallback` simply does not carry the column.
-   * Give the column a `fallback` when every face must answer.
-   */
-  faceAttribute(name: string, value: number | ((f: Face) => number), opts: { transfer?: FaceTransfer; fallback?: number } = {}): Material {
-    return this.faceAttributes({ [name]: value }, opts);
-  }
-
-  /** Several face columns at once; every initializer reads THIS state's
-   * faces, so one face's new value cannot be read by another's. */
-  faceAttributes(
-    values: Record<string, number | ((f: Face) => number)>,
-    opts: { transfer?: FaceTransfer; fallback?: number } = {},
-  ): Material {
-    const cells = this.faces();
-    const keys = cells.keys();
-    const next: Record<string, FaceColumn> = { ...this.faceAttrs };
-    for (const [name, value] of Object.entries(values)) {
-      if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`faceAttributes: '${name}' is a reserved face field`);
-      const map = new Map<string, number>();
-      for (let i = 0; i < cells.length; i++) {
-        const v = typeof value === 'function' ? value(cells.at(i)) : value;
-        if (!Number.isFinite(v)) throw new Error(`faceAttributes: '${name}' for face ${i} is not a finite number`);
-        map.set(keys[i], v);
-      }
-      next[name] = {
-        values: map,
-        transfer: opts.transfer ?? this.faceAttrs[name]?.transfer ?? 'nearest',
-        fallback: opts.fallback ?? this.faceAttrs[name]?.fallback,
-        seen: new Set(keys),
-      };
-    }
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), {
-      iteration: this.iteration,
-      edgeAttrs: copyAttrs(this.edgeAttrs),
-      transfers: { ...this.transfers },
-      edgeTransfers: { ...this.edgeTransfers },
-      ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) },
-      faceAttrs: next,
-      space: this.space,
-    });
+    return onPoints ? setPoints(src, null, [name, (p: Vertex) => cur[p.index]]) : setEdges(src, null, [name, (e: Edge) => cur[e.index]]);
   }
 
   /** The face columns this material declares. */
   get faceAttrNames(): string[] {
     return Object.keys(this.faceAttrs);
-  }
-
-  /** A new material with an EDGE column set: a constant, or one value per
-   * edge from its view (`e => e.length`). Each edge has its own row — a
-   * junction's three edges can carry three different rest lengths.
-   * `transfer` declares how the column subdivides (`'copy'` default,
-   * `'distribute'` for a length-proportional quantity); a value update
-   * keeps the declared policy, an explicit `'copy'` restores the default. */
-  edgeAttribute(name: string, value: number | ((e: Edge) => number), opts: { transfer?: EdgeTransfer } = {}): Material {
-    return this.edgeAttributes({ [name]: value }, opts.transfer ? { transfer: { [name]: opts.transfer } } : {});
-  }
-
-  /** A new material with several edge columns set at once; every
-   * initializer reads THIS state's edges, so a decision about a wall can
-   * be written in one pass next to another decision about the same wall,
-   * and neither sees the other's result. `transfer` is per column, as for
-   * `edgeAttribute`. */
-  edgeAttributes(values: Record<string, number | ((e: Edge) => number)>, opts: { transfer?: Record<string, EdgeTransfer> } = {}): Material {
-    const cols: Record<string, Float64Array> = {};
-    for (const name of Object.keys(values)) {
-      const value = values[name];
-      const col = new Float64Array(this.edgeCount);
-      if (typeof value === 'number') col.fill(value);
-      else for (let e = 0; e < this.edgeCount; e++) col[e] = value(this.edge(e));
-      cols[name] = col;
-    }
-    const edgeTransfers = { ...this.edgeTransfers };
-    for (const [name, policy] of Object.entries(opts.transfer ?? {})) {
-      if (!(name in values)) throw new Error(`edgeAttributes: transfer names '${name}', which is not being set`);
-      if (policy === 'copy') delete edgeTransfers[name];
-      else edgeTransfers[name] = policy;
-    }
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
-  }
-
-  /** A new material with exactly these edges (undirected, in the order
-   * given; a repeated pair and a pair whose ends are one vertex are
-   * dropped). The vertices and their columns stay as they are. A pair that
-   * was already an edge keeps its id and its columns; an edge not in the
-   * list is retired; a new pair is minted. When edge columns are declared,
-   * `edgeAttributes` must give every column for the new edges. To keep an
-   * old edge, name its pair in the list. */
-  withEdges(pairs: readonly (readonly [number, number])[], given: Record<string, number> = {}): Material {
-    const old = new Map<number, number>();
-    for (let e = 0; e < this.edgeCount; e++) old.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
-    const names = this.edgeAttrNames;
-    const edgeAttributes = withAbsentEdge(given, names);
-    // The same contract as adding: unknown columns and non-finite values
-    // are always an error, endpoints are validated for every pair, and the
-    // declared columns are demanded only when a pair is new.
-    checkAttrs(edgeAttributes, names, 'a new edge', { complete: false });
-    for (const [a, b] of pairs) {
-      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= this.n || b >= this.n) throw new Error(`withEdges: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
-    }
-    if (pairs.some(([a, b]) => a !== b && !old.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
-    const list: number[] = [];
-    const ids: number[] = [];
-    const roots: number[] = [];
-    const cols: Record<string, number[]> = {};
-    for (const name of names) cols[name] = [];
-    const seen = new Set<number>();
-    let added = 0;
-    for (const [a, b] of pairs) {
-      if (a === b) continue;
-      const k = pairKey(a, b);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const e = old.get(k);
-      if (e === undefined) {
-        list.push(a, b);
-        ids.push(-1);
-        roots.push(-1);
-        for (const name of names) cols[name].push(edgeAttributes[name]);
-        added++;
-      } else {
-        // The edge it was, kept as stored (its direction included).
-        list.push(this.edgeList[2 * e], this.edgeList[2 * e + 1]);
-        ids.push(this.edgeIds[e]);
-        roots.push(this.edgeRoots[e]);
-        for (const name of names) cols[name].push(this.edgeAttrs[name][e]);
-      }
-    }
-    const fresh = mintIds(added);
-    for (let i = 0, f = 0; i < ids.length; i++) {
-      if (ids[i] === -1) { ids[i] = fresh[f]; roots[i] = fresh[f]; f++; }
-    }
-    const edgeAttrs: Record<string, Float64Array> = {};
-    for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: Float64Array.from(ids), edgeRoots: Float64Array.from(roots) }, faceAttrs: this.faceAttrs, space: this.space });
   }
 
   /**
@@ -2064,36 +1866,6 @@ export class Material {
   // history, and the kernel of each still lives in its own file.
 
   /**
-   * Every vertex through a point map: `m.map(p => [p.x, -p.y])`.
-   *
-   * THE point-wise transform. It reads a vertex and answers where that
-   * vertex goes — a position, not a displacement, which is what separates
-   * it from `.steps(1, { move })`. Nothing else changes: the same rows in
-   * the same order, the same ids, the same point, edge and face columns.
-   * A projection, a Möbius transform of the disk, a fold about a line and
-   * a plain shift are all this one verb.
-   *
-   * Only the vertices move, so a straight edge between two of them stays
-   * straight. Resample first (`m.resample({ spacing })`) when the map
-   * bends what the two ends do not show.
-   */
-  map(fn: (p: Vertex) => XY): Material {
-    const nx = new Float64Array(this.n);
-    const ny = new Float64Array(this.n);
-    for (let i = 0; i < this.n; i++) {
-      const q = fn(this.vertex(i));
-      const x = vx(q);
-      const y = vy(q);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`map: vertex ${i} maps to [${x}, ${y}], which is not a point`);
-      nx[i] = x;
-      ny[i] = y;
-    }
-    // Moving a vertex retires nothing and joins nothing: every identity
-    // and every column carries.
-    return new Material(nx, ny, copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
-  }
-
-  /**
    * This material through an ISOMETRY of the space: the same curves, moved.
    * A transform record — `{ translate, rotate, scale, origin }`, one of
    * `t.symmetry(…)` — moves it with exactly `group`'s meaning instead (see
@@ -2133,7 +1905,7 @@ export class Material {
     }
     const placement = op;
     const door = placement.door;
-    if (door.sign === 0) return this.map((p) => placement.point([p.x, p.y]));
+    if (door.sign === 0) return mapPositions(this, (p) => placement.point([p.x, p.y]), 'm.transform');
     const move = (x: number, y: number): Vec => placement.point([x, y]);
     // A sphere's coordinates name a point more than once, so the chord is
     // named the way the ink names it: the far end the short way round, a
@@ -2289,7 +2061,7 @@ export class Material {
     const [kx, ky] = typeof k === 'number' ? [k, k] : [k[0], k[1]];
     if (!Number.isFinite(kx) || !Number.isFinite(ky)) throw new Error(`m.scale: [${kx}, ${ky}] is not a scale factor`);
     const [ox, oy] = this.pivot('m.scale', opts.origin);
-    return this.map((p) => [ox + (p.x - ox) * kx, oy + (p.y - oy) * ky]);
+    return mapPositions(this, (p) => [ox + (p.x - ox) * kx, oy + (p.y - oy) * ky], 'm.scale');
   }
 
   /**
@@ -2303,11 +2075,11 @@ export class Material {
     const a = radians(degrees);
     const c = Math.cos(a);
     const s = Math.sin(a);
-    return this.map((p) => {
+    return mapPositions(this, (p) => {
       const dx = p.x - ox;
       const dy = p.y - oy;
       return [ox + c * dx - s * dy, oy + s * dx + c * dy];
-    });
+    }, 'm.rotate');
   }
 
   /** Every vertex moved by `by`. It is `map` underneath, so every id and
@@ -2316,7 +2088,7 @@ export class Material {
     const dx = vx(by);
     const dy = vy(by);
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error(`m.translate: [${dx}, ${dy}] is not an offset`);
-    return this.map((p) => [p.x + dx, p.y + dy]);
+    return mapPositions(this, (p) => [p.x + dx, p.y + dy], 'm.translate');
   }
 
   /**
@@ -2330,13 +2102,13 @@ export class Material {
    * honestly say "not a place" at a boundary, and that is not a mistake.
    */
   deform(field: VectorFieldFn): Material {
-    return this.map((p) => {
+    return mapPositions(this, (p) => {
       const d = field(p.x, p.y);
       const dx = d?.[0];
       const dy = d?.[1];
       if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [p.x, p.y];
       return [p.x + dx, p.y + dy];
-    });
+    }, 'm.deform');
   }
 
   /** The pivot `scale` and `rotate` read: the user origin when unset,
@@ -2439,8 +2211,9 @@ export class Material {
    * the point. Point columns cross by their transfer policy; the two new
    * edges keep the parent's lineage root and take its columns, a
    * `'distribute'` one by each part's share. `at` may be a function of the
-   * edge; one that is not finite skips that edge. `edges` is a selection,
-   * an edge value or an edge view.
+   * edge; one that is not finite skips that edge, and one outside 0…1 is
+   * read as the nearer end, where a cut makes nothing. `edges` is a
+   * selection, an edge value or an edge view.
    */
   split(edges: EdgeSelection<unknown> | EdgeEnd | undefined, at?: number | ((e: Edge) => number)): Material {
     return splitRecipe(this, edges, at);
@@ -2449,77 +2222,39 @@ export class Material {
   /**
    * Every point moved by the SUM of the displacements, in one instant:
    * each is read on this state. A displacement is a vector, a function of
-   * the point `(p, k) => [dx, dy]` (`k` is `iteration`), or a force made
-   * without its state — `force.tension({ rest })` — which the move prepares
-   * from this material once. A last argument that is a point selection, a
-   * point value or a vertex says which points move. A move that is not
-   * finite leaves that point where it is; in a curved space a point walks
-   * the geodesic.
+   * the point `(p) => [dx, dy]`, or a force made without its state —
+   * `force.tension({ rest })` — which the move prepares from this material
+   * once. A last argument that is a point selection, a point value or a
+   * vertex says which points move. A move that is not finite leaves that
+   * point where it is; in a curved space a point walks the geodesic. To
+   * put a point at a position rather than move it by a step, set its `x`
+   * and `y`: `g.points.set({ x: …, y: … })`.
    */
   move(...args: [...Displacement[]] | [...Displacement[], PointSelection<unknown> | PointEnd | undefined]): Material {
     return moveRecipe(this, args);
   }
 
-  // ---- the iteration verb ----
-
   /**
-   * THE iteration operation. Run one or more passes per iteration and return the final
-   * material, ready for further operations. `rule(current, next, k)` reads
-   * `current` (frozen) and describes `next`, which starts as a copy; see
-   * `Next` for the edits. `k` counts from 0 within this call. Growth,
-   * relaxation, deformation and erosion are different rules for this one
-   * verb; `.steps(1, rule)` is a single transition. Additional callbacks run
-   * in order within each iteration: each receives the completed output of
-   * the previous pass. All passes share k. A new point's record names it
-   * only in its own batch; an id or a vertex names a point in every state
-   * that still has it. Optional history settings are the final argument,
-   * and capture only completed iterations.
-   *
-   * The batch is a list of edit records (`next.edits`), and a pass that
-   * returns a list makes that list the batch. The fold drops what cannot
-   * land and gives a reason; the result's `dropped` lists them.
-   *
-   * By default only the final state is kept. `{ every: m }` also captures
-   * iteration 0, every m-th iteration, and the final one (no duplicates)
-   * on the result's `history`, each labelled with its iteration number.
-   * Nothing a later step does can disturb an earlier snapshot.
-   *
-   * The everyday step is shorter: `.steps(n, { move: p => [dx, dy] })` moves
-   * every point by a field and `set` writes attributes in the same pass.
+   * Every edge of `edges` swapped for a motif: the edge goes, and the
+   * motif's one open chain takes its place between the same two points,
+   * scaled and turned to the edge. Point columns cross by their transfer
+   * policy and edge columns are shared as a split's children share them. A
+   * motif point that lands on a point already there — a corner, or the tip
+   * another edge's motif put in the same place — IS that point, so motifs
+   * that meet share a vertex. `flip` mirrors the motif across the edge, for
+   * every edge or for those a test of the edge picks. A Koch curve is one
+   * motif and four steps: `t.steps(4, tri, (g) => g.replace(g.edges, motif))`.
    */
-  steps(n: number, rule: StepRule | StepShorthand | readonly StepRule[], ...passesAndOptions: StepRule[] | [...StepRule[], StepsOptions]): Material {
-    // A list of rules is ONE batch: they all match the frozen state, and
-    // they all edit the same next one. Separate arguments stay separate
-    // passes, where a later pass sees what an earlier one committed.
-    if (Array.isArray(rule)) rule = oneBatch(rule as readonly StepRule[]);
-    else if (isStepShorthand(rule as StepRule | StepShorthand)) rule = stepRuleOf(rule as StepShorthand);
-    const last = passesAndOptions[passesAndOptions.length - 1];
-    const opts: StepsOptions = typeof last === 'object' ? last : {};
-    const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
-    const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
-    const snaps: Material[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
-    if (every) snaps.push(base);
-    let cur = base;
-    // What every step of this call drops, handed to the state it returns:
-    // the last step's state, or the copy that carries the history.
-    const dropped: Dropped[] = [];
-    for (let k = 0; k < n; k++) {
-      for (let i = 0; i < passes.length; i++) {
-        const last = !every && k === n - 1 && i === passes.length - 1;
-        cur = stepOnce(cur, k, passes[i], this.iteration + k + 1, KIT, dropped, last);
-      }
-      if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push(cur);
-    }
-    if (every && n > 0) snaps.push(cur);
-    return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) }, faceAttrs: cur.faceAttrs, space: cur.space, dropped })
-      : cur;
+  replace(edges: EdgeSelection<unknown> | EdgeEnd | undefined, motif: Material, opts?: ReplaceOpts): Material {
+    return replaceRecipe(this, edges, motif, opts);
+  }
+
+  /** @internal This material with the states a `t.steps` run kept: what
+   * the run returns when it is asked for `{ every }`. */
+  withHistory(states: readonly Material[]): Material {
+    return restamp(this, this.iteration, states);
   }
 }
-
-/** The classes `stepOnce` must recognise and construct (see steps.ts). */
-const KIT: StepKit = { Material, PointSelection, EdgeSelection };
 
 /** Sampling options shared by `t.sample`, `resample` and `along`: exactly
  * one of `count` or `spacing`, and a count in whole samples — a missing,
@@ -3199,7 +2934,7 @@ export function material(
 ): Material {
   if (points instanceof Material) {
     if (Object.keys(opts).length > 0) {
-      throw new Error('material: options on an existing Material are not supported; use attributes() or withEdges()');
+      throw new Error('material: options on an existing Material are not supported; write its columns with points.set() or edges.set(), and its edges with edges.add()');
     }
     return points;
   }
@@ -3275,8 +3010,8 @@ export function curve(
  * `t.symmetry` answers and `group` takes — with exactly `group`'s
  * meaning: scale, then rotate, both about `origin` (the user origin when
  * it is unset), then translate. A mirror is a negative scale. It moves
- * the coordinates, as `m.rotate` does, so it is `map` underneath and
- * every id and column carries. A material has no frame, so every length
+ * the coordinates, as `m.rotate` does, so it is `mapPositions`
+ * underneath and every id and column carries. A material has no frame, so every length
  * is a number in its own units, and `origin` is the one `Origin` of every
  * pivot: a point, or `'center'`/`'centroid'` of the material itself.
  */
@@ -3309,58 +3044,38 @@ function transformByRecord(m: Material, op: TransformRecord): Material {
     mat = mulMat(mat, scaleMat(num(sx, 'scale'), num(sy, 'scale')));
   }
   if (pivot) mat = mulMat(mat, translateMat(-pivot[0], -pivot[1]));
-  return m.map((p) => applyMat(mat, p.x, p.y));
+  return mapPositions(m, (p) => applyMat(mat, p.x, p.y), who);
+}
+
+/**
+ * @internal Every vertex through a point map: the position each vertex
+ * goes to, not a step from where it is. Nothing else changes: the same
+ * rows in the same order, the same ids, the same point, edge and face
+ * columns. The engine's door for the affine and projective maps; a sketch
+ * sets `x` and `y` with `g.points.set`.
+ */
+export function mapPositions(m: Material, fn: (p: Vertex) => XY, who: string): Material {
+  const nx = new Float64Array(m.n);
+  const ny = new Float64Array(m.n);
+  for (let i = 0; i < m.n; i++) {
+    const q = fn(m.vertex(i));
+    const x = vx(q);
+    const y = vy(q);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${who}: vertex ${i} maps to [${x}, ${y}], which is not a point`);
+    nx[i] = x;
+    ny[i] = y;
+  }
+  return new Material(nx, ny, copyAttrs(m.attrs), copyEdges(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyAttrs(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: copy(m.pointIds), edges: copy(m.edgeIds), edgeRoots: copy(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space });
 }
 
 // ---- connections ----------------------------------------------------------------
 
-/** @internal A new material with these edges added to the ones it has
- * (undirected; an existing pair is left as it is) — what every `connect`
- * pattern does. When edge columns are declared, `edgeAttributes` must give
- * every column for the new edges. */
+/** A new material with these edges added to the ones it has — what every
+ * `connect` pattern does: the table write `edges.add` over rows, one
+ * record of columns for every new edge. An existing pair is left as it is,
+ * and a pair of one vertex is no edge. */
 function addEdges(m: Material, pairs: readonly (readonly [number, number])[], given: Record<string, number> = {}): Material {
-  const list = Array.from(m.edgeList);
-  const seen = new Set<number>();
-  for (let e = 0; e < list.length; e += 2) seen.add(pairKey(list[e], list[e + 1]));
-  const names = m.edgeAttrNames;
-  const edgeAttributes = withAbsentEdge(given, names);
-  const cols: Record<string, number[]> = {};
-  for (const name of names) cols[name] = Array.from(m.edgeAttrs[name]);
-  // Contract: unknown columns and non-finite values are always an error;
-  // every declared column must be given as soon as ONE edge would be
-  // added (one record serves every new edge); endpoints are validated
-  // for every pair; existing pairs are left as they are; a call that
-  // adds nothing needs no attributes.
-  checkAttrs(edgeAttributes, names, 'a new edge', { complete: false });
-  for (const [a, b] of pairs) {
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= m.n || b >= m.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${m.n - 1}`);
-  }
-  // A pair whose ends are the same vertex is no edge; it is dropped, the
-  // way an existing pair is left as it is.
-  if (pairs.some(([a, b]) => a !== b && !seen.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
-  let added = 0;
-  for (const [a, b] of pairs) {
-    if (a === b) continue;
-    const k = pairKey(a, b);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    list.push(a, b);
-    for (const name of names) cols[name].push(edgeAttributes[name]);
-    added++;
-  }
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
-  // Every point stays the point it was and every edge that existed stays
-  // the edge it was: only the new pairs are new. Minting the lot would
-  // retire ids nothing retired and drop the face columns keyed by them.
-  const fresh = mintIds(added);
-  const edgeIds = new Float64Array(m.edgeIds.length + added);
-  edgeIds.set(m.edgeIds);
-  edgeIds.set(fresh, m.edgeIds.length);
-  const edgeRoots = new Float64Array(m.edgeRoots.length + added);
-  edgeRoots.set(m.edgeRoots);
-  edgeRoots.set(fresh, m.edgeRoots.length);
-  return new Material(copy(m.x), copy(m.y), copyAttrs(m.attrs), Uint32Array.from(list), { iteration: m.iteration, history: [], edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: copy(m.pointIds), edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs, space: m.space });
+  return addEdgeRows(m, pairs, pairs.map(() => given), null, 'connect');
 }
 
 function chainEdges(n: number, closed: boolean): [number, number][] {

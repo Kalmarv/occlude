@@ -239,12 +239,12 @@ function logRow(space: Space, p: XY, np: Model, frame: readonly [Model, Model], 
  */
 export class GraphForce {
   /** @internal Use the `force.*` words without a state. */
-  constructor(private readonly make: (g: Material) => (p: Vertex, k: number) => XY) {
+  constructor(private readonly make: (g: Material) => (p: Vertex) => XY) {
     Object.freeze(this);
   }
 
-  /** The force prepared from `g`: `(p, k) => [dx, dy]`. */
-  prepare(g: Material): (p: Vertex, k: number) => XY {
+  /** The force prepared from `g`: `(p) => [dx, dy]`. */
+  prepare(g: Material): (p: Vertex) => XY {
     if (!(g instanceof Material)) throw new Error('force.prepare: a force is prepared from a material');
     return this.make(g);
   }
@@ -582,21 +582,27 @@ function radialIn(m: Material, radius: number, excludeConnected: boolean, streng
 
 /**
  * Drift: a direction read from a noise function, `amount` long, turning
- * slowly with the iteration. Pure — pass the toolkit's seeded `t.noise`
- * in: `drift(t.noise, { amount })`, then `wander(p, k)`. `frequency`
- * scales position into the noise (default 0.08), `rate` the iteration
- * into its third axis (default 0.0004): angle = noise(x·f, y·f, k·rate) · 2π.
- * The default rate is small because the toolkit's noise folds z onto
- * shifted 2D slices about thirty times steeper than x and y: at 0.01 per
- * iteration the direction re-rolls every step and a trail is a random
- * walk; at 0.0004 it turns.
+ * slowly from one step of a run to the next. Pure — pass the toolkit's
+ * seeded `t.noise` in: `g.move(force.drift(t.noise, { amount }))`.
+ * `frequency` scales position into the noise (default 0.08), `rate` the
+ * step into its third axis (default 0.0004): angle = noise(x·f, y·f,
+ * step·rate) · 2π. The step is the one the point's own material has
+ * reached in `t.steps` — a vertex knows its material, and the material
+ * counts its steps — so a drift read at a vertex turns from step to step
+ * however it is wrapped (`mul(push(p), 0.2)`), and one read at a plain
+ * position is the drift of step 0. The default rate is small because the
+ * toolkit's noise folds z onto shifted 2D slices about thirty times
+ * steeper than x and y: at 0.01 per step the direction re-rolls every step
+ * and a trail is a random walk; at 0.0004 it turns.
  */
 export function drift(
   noise: (x: number, y: number, z: number) => number,
   opts: { amount: number; frequency?: number; rate?: number },
-): (p: XY, k: number) => Vec {
+): (p: XY) => Vec {
   const { amount, frequency = 0.08, rate = 0.0004 } = opts;
-  return (p, k) => {
+  return (p) => {
+    const owner = typeof p === 'object' && p !== null && !Array.isArray(p) ? ownerOf(p) : undefined;
+    const k = owner instanceof Material ? owner.iteration : 0;
     const a = noise(vx(p) * frequency, vy(p) * frequency, k * rate) * Math.PI * 2;
     return [Math.cos(a) * amount, Math.sin(a) * amount];
   };
@@ -758,17 +764,16 @@ export function relax(m?: Material | { amount?: number }, opts: { amount?: numbe
   };
 }
 
-/** Prepared forces summed into one: `(p, k) => vector`. Every force gets
- * `p` and the iteration `k` (those that do not turn ignore it), so a
- * rule reads `next.move(prev.points, (p) => mul(push(p, k), speed))` with the speed
- * still the author's number. Prepare the members against `cur` each
- * step as before — nothing here binds a state. */
-export function sumForces(...forces: readonly ((p: Vertex, k: number) => XY)[]): (p: Vertex, k?: number) => Vec {
-  return (p, k = 0) => {
+/** Prepared forces summed into one: `(p) => vector`, for one `move`:
+ * `g.move(force.sum(force.tension(g, { rest }), force.drift(t.noise, { amount })))`.
+ * Prepare the members against the graph the move reads — nothing here
+ * binds a state. */
+export function sumForces(...forces: readonly ((p: Vertex) => XY)[]): (p: Vertex) => Vec {
+  return (p) => {
     let x = 0;
     let y = 0;
     for (const f of forces) {
-      const v = f(p, k);
+      const v = f(p);
       x += vx(v);
       y += vy(v);
     }

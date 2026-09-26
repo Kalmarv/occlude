@@ -47,7 +47,7 @@ export function trails(m: Material, opts: TrailsOpts = {}): Material {
   const src = makeMaterial(m);
   const E = src.edgeCount;
   const ends = (e: number): [number, number] => [src.edgeList[2 * e], src.edgeList[2 * e + 1]];
-  if (E === 0) return src.withEdges([], opts.edgeAttributes);
+  if (E === 0) return src;
 
   // Adjacency over real edges, in row order so the result is deterministic.
   const adj: number[][] = Array.from({ length: src.n }, () => []);

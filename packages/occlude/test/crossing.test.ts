@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { append, connect, curve, initOcclude, material, type Material } from '../src/index.js';
+import { toolkit } from './helpers/run.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -94,16 +95,19 @@ describe('edges.crossing', () => {
     // the first wall it would go through. The walls are the ink already
     // laid, so nothing ever crosses anything.
     const seeds = material([[10, 50], [30, 50], [50, 50], [70, 50], [90, 50]]);
-    const grown = seeds.steps(30, (cur, next, k) => {
+    // A pass that needs the step counts it itself, beside the graph.
+    const grown = toolkit({ seed: 1 }).steps(30, { g: seeds, k: 0 }, ({ g: cur, k }) => {
+      let g = cur;
       for (const p of cur.points) {
         if (p.adjacent.indices.length > 1) continue; // only a tip grows
         const dx = Math.cos(p.index * 1.1 + k * 0.25) * 4;
         const dy = Math.sin(p.index * 1.1 + k * 0.25) * 4;
         const to: [number, number] = [p.x + dx, p.y + dy];
         if (cur.edges.crossing(p, to).indices.length > 0) continue;
-        next.extrude(p, () => ({ position: to }));
+        g = g.extrude(p, [dx, dy]);
       }
-    });
+      return { g, k: k + 1 };
+    }).g;
     expect(grown.n).toBeGreaterThan(seeds.n);
     // Nothing the run laid down crosses anything else it laid down.
     for (const e of grown.edges) {

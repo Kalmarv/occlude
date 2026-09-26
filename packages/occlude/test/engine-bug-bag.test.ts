@@ -16,7 +16,7 @@ import { runGeometryJob3 } from '../src/three/geometry/job.js';
 import { surfaceBinding3 } from '../src/three/curves/network.js';
 import { traceBoth3, traceEnvironment3 } from '../src/three/surface/trace.js';
 import { surfaceLocation3 } from '../src/three/geometry/location.js';
-import { add, append, assetTable, circle, curl, curve, dots, evalPrim, exportPng, exportSvg, fill, fromAngle, group, initOcclude, line, material, mm, mul, ngon, pen, polygon, query, rect, render, sketch, strokes } from '../src/index.js';
+import { add, append, assetTable, circle, curl, curve, dots, evalPrim, exportPng, exportSvg, fill, fromAngle, group, initOcclude, line, material, mm, mul, ngon, pen, polygon, query, rect, render, sketch, strokes, type Material } from '../src/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -33,28 +33,28 @@ describe('G3-1 curve is open unless closed: true', () => {
     const t = toolkit();
     const motif = curve([[0, 0], [1 / 3, 0], [0.5, 0.25], [2 / 3, 0], [1, 0]]);
     const seed = t.sample(circle(50, 50, 30), { count: 6 });
-    const bent = seed.steps(3, (cur, next) => next.replace(cur.edges, motif));
+    const bent = t.steps(3, seed, (g) => g.replace(g.edges, motif));
     expect(bent.edgeCount).toBe(6 * 4 ** 3);
   });
 });
 
-describe('G4-2 withEdges replaces the edge list', () => {
-  it('withEdges([]) leaves the samples as a loose cloud (examples-tangle-1)', () => {
+describe('G4-2 the edge list is rewritten by edges.remove and edges.add', () => {
+  it('edges.remove(g.edges) leaves the samples as a loose cloud (examples-tangle-1)', () => {
     const t = toolkit();
     const ring = t.sample(circle([100, 50], 20), { count: 26 });
     expect(ring.edgeCount).toBe(26);
-    const loose = ring.withEdges([]);
+    const loose = ring.edges.remove(ring.edges);
     expect(loose.edgeCount).toBe(0);
     expect(loose.n).toBe(26);
     expect(Array.from(loose.pointIds)).toEqual(Array.from(ring.pointIds));
   });
-  it('keeps the id and columns of a pair it names again, and mints the rest', () => {
-    const m = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1], [1, 2]] }).edgeAttribute('w', (e) => e.index + 1);
-    const out = m.withEdges([[2, 0], [1, 0]], { w: 9 });
+  it('an edge that stays keeps its id and columns, and a new one is minted', () => {
+    const m = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1], [1, 2]] }).edges.set('w', (e) => e.index + 1);
+    const out = m.edges.remove(m.edge(1)).edges.add([m.points.at(2), m.points.at(0)], { w: 9 });
     expect(out.edgeCount).toBe(2);
-    expect(Array.from(out.edgeAttrs.w)).toEqual([9, 1]);
-    expect(out.edgeIds[1]).toBe(m.edgeIds[0]);
-    expect(m.edgeIds).not.toContain(out.edgeIds[0]);
+    expect(Array.from(out.edgeAttrs.w)).toEqual([1, 9]);
+    expect(out.edgeIds[0]).toBe(m.edgeIds[0]);
+    expect(m.edgeIds).not.toContain(out.edgeIds[1]);
   });
 });
 
@@ -63,18 +63,26 @@ describe('G4-17 G7-8 planarize gives a crossing the first edge\'s columns', () =
     const t = toolkit({ seed: 7 });
     const rock = t.sample(circle(100, 46, 16), { count: 40 });
     const seeds = material(t.times(9, (i, u) => [14 + u * 172, 96]), { active: 1, heading: -Math.PI / 2 });
-    const paths = append(rock, seeds, { fill: { active: 0, heading: 0 } }).steps(40, (current, next, k) => {
+    // A pass that needs the step counts it itself, beside the graph.
+    const paths = t.steps(40, { g: append(rock, seeds, { fill: { active: 0, heading: 0 } }), k: 0 }, ({ g: current, k }) => {
       const lines = query.edges(current);
       const tips = current.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
-      next.extrude(tips, (p) => {
+      let g = current;
+      for (const p of tips) {
         const h = p.heading + t.noise(p.x / 10, p.y / 10, k) * 0.5;
         const hit = lines.firstHit(p, add(p, mul(fromAngle(h), 2.2)), { excludeIncident: p });
-        if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h } }) };
+        if (hit) {
+          // Meet the wall: cut it where the tip hits, and join the tip to the cut.
+          const before = g.n;
+          g = g.split(hit.edge, hit.t);
+          if (g.n > before) g = g.points.set({ active: 0, heading: h }, g.points.at(before)).edges.add([p, g.points.at(before)]);
+          continue;
+        }
         const headings = t.chance(0.08) ? [h - 0.6, h + 0.6] : [h];
-        return headings.map((hh) => ({ position: add(p, mul(fromAngle(hh), 2.2)), attributes: { heading: hh } }));
-      }, { inherit: true });
-      next.set(tips, { active: 0 });
-    });
+        for (const hh of headings) g = g.extrude(p, mul(fromAngle(hh), 2.2), { active: 1, heading: hh });
+      }
+      return { g: g.points.set('active', 0, tips), k: k + 1 };
+    }).g;
     const regions = paths.planarize().faces();
     expect(regions.length).toBeGreaterThan(0);
   });
@@ -104,7 +112,7 @@ describe('G7-4 a history entry is a material', () => {
   it('draws with strokes as it is, and says its iteration (workshop-04-1)', () => {
     const t = toolkit();
     const square = t.sample(rect(40, 40, 20, 20), { count: 40 });
-    const grown = square.steps(12, (current, next) => next.move(current.points, [0.5, 0]), { every: 6 });
+    const grown = t.steps(12, square, (g) => g.move([0.5, 0]), { every: 6 });
     expect(grown.history.map((h) => h.iteration)).toEqual([0, 6, 12]);
     for (const h of grown.history) expect(strokes(h)).toHaveLength(1);
     expect(grown.history[2].x[0]).toBe(grown.x[0]);
@@ -117,7 +125,7 @@ describe('G5-11 replace welds a motif point onto a point already there', () => {
     const h = Math.sqrt(3) / 6;
     const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
     const cells = t.hexes({ spacing: mm(45) });
-    const grown = cells.steps(2, (cur, next) => next.replace(cur.edges, motif));
+    const grown = t.steps<Material>(2, cells, (g) => g.replace(g.edges, motif));
     expect(grown.faces().length).toBeGreaterThan(0);
     const at = new Set<string>();
     for (let i = 0; i < grown.n; i++) at.add(`${grown.x[i].toFixed(9)},${grown.y[i].toFixed(9)}`);
@@ -127,7 +135,7 @@ describe('G5-11 replace welds a motif point onto a point already there', () => {
     // Two walls meeting at a right angle; each motif's tip lands on (5, 5).
     const walls = material([[0, 10], [0, 0], [10, 0]], { edges: [[0, 1], [1, 2]], age: [1, 2, 3] });
     const tent = curve([[0, 0], [0.5, 0.5], [1, 0]]);
-    const out = walls.steps(1, (cur, next) => next.replace(cur.edges, tent));
+    const out = walls.replace(walls.edges, tent);
     expect(out.n).toBe(4);
     expect([out.x[3], out.y[3]]).toEqual([5, 5]);
     // Both tents run from the corner to (5, 5): one wall, drawn once.

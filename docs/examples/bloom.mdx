@@ -3,9 +3,9 @@ title: Bloom
 description: A ring that grows into a coral by differential growth, with its growth rings drawn on top.
 ---
 
-A small ring grows until it fills a dish. Four forces act on every vertex at each step. `separation` keeps a vertex away from every other part of the ring. `tension` pulls it toward its two chain neighbours. `relax` keeps the chain smooth. `boundary` keeps it inside the dish. The growth is a rule on the edges. An edge can split only when no other part of the ring is near its middle. This is the check with `points.near` and `adjacent`. The check is what keeps the ring from crossing itself, so the final ring is one area. A hatch fills that area, and the area is opaque. `history` keeps the ring every forty steps. The drawing puts those rings on top as growth rings.
+A small ring grows until it fills a dish. Each step runs two passes. In the first, `push`, four forces act on every vertex. `separation` keeps a vertex away from every other part of the ring. `tension` pulls it toward its two chain neighbours. `relax` keeps the chain smooth. `boundary` keeps it inside the dish. The second pass, `grow`, is a rule on the edges. An edge can split only when no other part of the ring is near its middle. This is the check with `points.near` and `adjacent`. The check is what keeps the ring from crossing itself, so the final ring is one area. A hatch fills that area, and the area is opaque. `history` keeps the ring every forty steps. The drawing puts those rings on top as growth rings.
 
-Uses: `t.sample`, `steps` with `every`, `force.sum` of four forces, `points.near`, `adjacent`, `next.splitEdges` with `t.chance`, `history`, `polygon` with `opaque` and a `fill`.
+Uses: `t.sample`, `t.steps` with two passes and `every`, `force.sum` of four forces, `move`, `points.near`, `adjacent`, `split` with `t.chance`, `history`, `polygon` with `opaque` and a `fill`.
 
 :::note
 Growth that ignores the room around an edge runs away. The vertex count doubles every few steps and the ring folds through itself. Test a growth rule with a small step count first.
@@ -16,20 +16,23 @@ import { sketch, strokes, circle, force, mul, polygon, fill, mm } from 'occlude'
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const ring = t.sample(circle(50, 50, 10), { count: 40 });
   const dish = t.material(circle(50, 50, 44));
-  const grown = ring.steps(240, (cur, next) => {
-    const push = force.sum(
-      force.separation(cur, { radius: 3, excludeConnected: true }),
-      force.tension(cur, { rest: 1.2 }),
-      force.relax(cur, { amount: 0.6 }),
+  const push = (g) => {
+    const f = force.sum(
+      force.separation(g, { radius: 3, excludeConnected: true }),
+      force.tension(g, { rest: 1.2 }),
+      force.relax(g, { amount: 0.6 }),
       force.boundary(dish, { radius: 8 }),
     );
-    next.move(cur.points, (p) => mul(push(p), 0.2));
-    const room = cur.edges.filter((e) => {
+    return g.move((p) => mul(f(p), 0.2));
+  };
+  const grow = (g) => {
+    const room = g.edges.filter((e) => {
       const own = e.a.adjacent.union(e.b.adjacent);
-      return cur.points.near(e.center, { radius: 2.5 }).subtract(own).length === 0;
+      return g.points.near(e.center, { radius: 2.5 }).subtract(own).length === 0;
     });
-    next.splitEdges(room.filter(() => t.chance(0.3)));
-  }, { every: 40 });
+    return g.split(room.filter(() => t.chance(0.3)));
+  };
+  const grown = t.steps(240, ring, push, grow, { every: 40 });
   const rings = grown.history.slice(1, -1).map((h) => strokes(h, { pen: 'pigma-005-black' }));
   return [
     polygon(grown, { opaque: true, fill: fill('hatch', { angle: 60, spacing: mm(1.1) }), pen: 'pigma-05-black' }),

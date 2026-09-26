@@ -366,12 +366,12 @@ import { sketch, circle, mul, sub } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const tone = (x, y) => Math.max(0, 1 - Math.hypot(x - 100, (y - 50) * 1.6) / 70) * (0.6 + 0.4 * t.noise(x / 20, y / 20));
-  const seeds = t.scatter(tone, { spacing: 3 }).attribute('side', (p) => (p.x < 100 ? 0 : 1));
+  const seeds = t.scatter(tone, { spacing: 3 }).points.set('side', (p) => (p.x < 100 ? 0 : 1));
   const settled = t.settle(seeds, { density: tone, spacing: 3, iterations: 20 });
-  const nudged = settled.steps(2, (current, next) => {
-    const cells = t.voronoi(current);
+  const nudged = t.steps(2, settled, (g) => {
+    const cells = t.voronoi(g);
     const measured = cells.faces().measure(tone, { step: 1 });
-    next.move(current.points, (p) => {
+    return g.move((p) => {
       const face = cells.cellOf(p);
       const target = face ? measured.forFace(face).weightedCentroid : null;
       return target ? mul(sub(target, p), 0.3) : [0, 0];
@@ -387,9 +387,10 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 
 | Layer | Vocabulary |
 |---|---|
-| making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.attribute()`, `.resample()` |
+| making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.resample()` |
 | vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
-| rules | `.steps(n, (current, next, k) => …)` with the collection edits, or the shorthand `.steps(n, { move: p => [dx, dy], set })` over every point; forces prepared once and evaluated at a point |
+| writes | `points.set`, `edges.set`, `faces().set` write columns; `points.add`, `edges.add`, `points.remove`, `edges.remove` add and remove rows; `move`, `split`, `extrude`, `replace` are recipes over them |
+| rules | `t.steps(n, start, (g) => g2)` runs passes of writes; forces prepared once and evaluated at a point |
 | collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.adjacent()`, `.connected()`, `.components()`; `.extract()` for independent material; `meanBy` |
 | areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaryEdges` and `contours()` outline a union as walls or as loops |
 | drawing | `.curves()`, `.along()` for stations to place things at, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
@@ -398,7 +399,7 @@ All are pure imports except `t.sample`, which reads the paper. Shapes stay exact
 
 ### Making a material
 
-Two conversions take a shape into material. `t.material(shape, …, { tolerance? })` keeps each boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm); several shapes become several outlines of one material, so `t.material(...circles).planarize().faces()` are the pieces their overlaps cut. `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes an open chain from positions, or a ring with `closed: true`. `material(existingMaterial)` returns that value unchanged; nonempty constructor options with an existing material are rejected. Use `.attributes(...)` or `.withEdges(...)` to edit it. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
+Two conversions take a shape into material. `t.material(shape, …, { tolerance? })` keeps each boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm); several shapes become several outlines of one material, so `t.material(...circles).planarize().faces()` are the pieces their overlaps cut. `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes an open chain from positions, or a ring with `closed: true`. `material(existingMaterial)` returns that value unchanged; nonempty constructor options with an existing material are rejected. Use the writes (`m.points.set(…)`, `m.edges.add(…)`, `m.edges.remove(…)`) to edit it. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
 
 A hexagon's corners pulled toward the centre by an amount that alternates around the ring. Nothing is computed by hand: the corners are the material's rows, and the drawing is the polygon of the result.
 
@@ -407,14 +408,12 @@ import { sketch, ngon, polygon, strokes, sub, mul } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const corners = t.material(ngon(100, 50, 6, 40));
-  const star = corners.steps(1, (cur, next) => {
-    next.move(cur.points, (p) => mul(sub([100, 50], p), p.index % 2 ? 0.45 : 0));
-  });
+  const star = corners.move((p) => mul(sub([100, 50], p), p.index % 2 ? 0.45 : 0));
   return [strokes(corners, { pen: 'pigma-005-black' }), polygon(star, { pen: 'stabilo-88-blue' })];
 });
 ```
 
-`m.attribute(name, constant | p => value, { transfer? })` adds a point column and returns a new material; `m.attributes({ a: …, b: … }, { transfer?: { a: … } })` adds several at once, every initializer reading the material as it is, so no column sees another's new value. `m.edgeAttribute(name, constant | e => value)` and `m.edgeAttributes({ … })` do the same for edge columns, each edge its own row. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `p.adjacent` on a vertex view, `m.edges` and `m.curves()`.
+`m.points.set(name, constant | p => value, where?, { transfer? })` writes a point column and returns a new material; a column written for the first time is declared, 0 on every row the write does not reach. `m.points.set({ a: …, b: … }, where?, { transfer? })` writes several at once, every value reading the material as it was, so no column sees another's new value. `m.edges.set(…)` does the same for edge columns, each edge its own row, and `m.faces().set(…)` for face columns. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `p.adjacent` on a vertex view, `m.edges` and `m.curves()`.
 
 ```ts live
 import { sketch, circle, material } from 'occlude';
@@ -425,7 +424,7 @@ import { sketch, circle, material } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const cloud = t.scatter((x, y) => 1 - Math.hypot(x - 50, y - 50) / 60, { spacing: 6 })
     .points.filter((p) => p.x < 98).extract()
-    .attribute('far', (p) => Math.hypot(p.x - 50, p.y - 50) > 28 ? 1 : 0);
+    .points.set('far', (p) => Math.hypot(p.x - 50, p.y - 50) > 28 ? 1 : 0);
   return [
     cloud.points.map((p) => circle(p.x, p.y, 0.6 + p.density * 2)),
     cloud.points.filter((p) => p.far).map((p) => circle(p.x + 100, p.y, 3)),
@@ -670,7 +669,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   for (let k = 0; k < order.length; k++) for (const w of rivers.points.at(order[k]).adjacent.indices) if (!seen[w]) { seen[w] = 1; parent[w] = order[k]; order.push(w); }
   const drains = new Float64Array(rivers.n).fill(1);
   for (let k = order.length - 1; k > 0; k--) drains[parent[order[k]]] += drains[order[k]];
-  const measured = rivers.attribute('drains', (p) => drains[p.index]);
+  const measured = rivers.points.set('drains', (p) => drains[p.index]);
   return [
     polygon(measured.thicken({ radius: (p) => 0.14 + Math.pow(p.drains, 0.42) * 0.3 }), {
       fill: fill('hatch', { angle: 30, spacing: mm(0.5) }),
@@ -1110,7 +1109,7 @@ A selection is consumed where its domain makes sense: `strokes(edges)` draws the
 | `edges.points` | the endpoints, each once, in source order, as a point selection |
 | `edges.curves()` | the selected edges as chains, each edge once; junctions and ends are those of the selected graph |
 
-Extracted material is a fresh evolution at iteration 0 with no history and its rows compacted in source order. Nothing is merged, welded or interpolated on the way. Inside a rule, filter `current` and pass the selection as `where`; a selection of another state is refused there.
+Extracted material is a fresh value with no history and its rows compacted in source order. Nothing is merged, welded or interpolated on the way. Inside a pass, filter `g` and pass the selection as the `where` of a write; a selection of an earlier state of `g` names its rows by identity.
 
 ```ts live
 import { sketch, strokes, circle, connect, ui } from 'occlude';
@@ -1138,12 +1137,12 @@ import { sketch, strokes, circle, group, force, mul, ui } from 'occlude';
 // (translated groups), not the material's.
 export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
   const cut = ui(48, { min: 20, max: 80, step: 1 });
-  const ring = t.sample(circle(50, 50, 34), { count: 48 }).steps(1, (_, next) => next.move(_.points, () => [t.rnd(-4, 4), t.rnd(-4, 4)]));
+  const ring = t.sample(circle(50, 50, 34), { count: 48 }).move(() => [t.rnd(-4, 4), t.rnd(-4, 4)]);
   const arc = ring.edges.filter((e) => e.a.y < cut && e.b.y < cut);
   const piece = arc.extract();
-  const smooth = piece.steps(60, (cur, next) => {
-    const relax = force.relax(cur);
-    next.move(cur.points.filter((p) => p.adjacent.length === 2), (p) => mul(relax(p), 0.5));
+  const smooth = t.steps(60, piece, (g) => {
+    const relax = force.relax(g);
+    return g.move((p) => mul(relax(p), 0.5), g.points.filter((p) => p.adjacent.length === 2));
   });
   const ends = (m) => m.points.filter((p) => p.adjacent.length === 1).map((p) => circle(p.x, p.y, 1.2));
   const faint = { pen: 'pigma-005-black' };
@@ -1169,8 +1168,8 @@ import { sketch, strokes, circle, group, connect, meanBy } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const mesh = connect.triangulate(t.grid({ cols: 9, rows: 8 }).map((c) => [c.cx * 0.48 + t.rnd(-2.4, 2.4), c.cy + t.rnd(-2.8, 2.8)]));
   const hot = [12, 39, 61];
-  const raw = mesh.attribute('hot', (p) => (hot.includes(p.index) ? 1 : 0));
-  const warm = raw.attribute('warmth', (p) => meanBy(p.adjacent, (q) => q.hot));
+  const raw = mesh.points.set('hot', (p) => (hot.includes(p.index) ? 1 : 0));
+  const warm = raw.points.set('warmth', (p) => meanBy(p.adjacent, (q) => q.hot));
   const halo = warm.edges.filter((e) => e.a.warmth > 0 && e.b.warmth > 0);
   const marks = (m) => m.points.filter((p) => p.hot === 1).map((p) => circle(p.x, p.y, 2.2, { pen: 'stabilo-88-blue' }));
   return [
@@ -1195,7 +1194,7 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   all = append(all, material([[100, 44], [176, 84], [60, 92], [184, 40]]));
   const pieceOf = new Map();
   all.points.components().forEach((piece) => { for (const i of piece.indices) pieceOf.set(i, piece.key); });
-  const labelled = all.attribute('piece', (p) => pieceOf.get(p.index), { transfer: 'nearest' });
+  const labelled = all.points.set('piece', (p) => pieceOf.get(p.index), { transfer: 'nearest' });
   const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
   return [
     segmentRuns(labelled, (e) => e.a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
@@ -1220,7 +1219,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const disc = t.sample(circle(136, 54, 22), { spacing: 2 });
   const edges = query.edges(append(box, disc));
   const grid = material(t.times(33 * 16, (i) => [5 + (i % 33) * 6, 5 + Math.floor(i / 33) * 6]));
-  const measured = grid.attribute('distance', (p) => edges.nearest(p, { within })?.distance ?? within);
+  const measured = grid.points.set('distance', (p) => edges.nearest(p, { within })?.distance ?? within);
   return [
     stroke(box.contour), stroke(disc.contour),
     measured.points.filter((p) => p.distance > 1.2).map((p) => circle(p.x, p.y, 0.3 + 2.3 * (p.distance / within))),
@@ -1232,47 +1231,39 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 
 ### steps
 
-`m.steps(n, pass, ...morePasses, { every? })` runs one or more edit passes per iteration and returns the final material. Each pass receives `(prev, next, k)`: `prev` is frozen, and `next` batches edits to a copy. A completed pass becomes the following pass's input. All passes receive the same `k` within an iteration; only then does the sequence repeat. Most sketches need one pass.
+`t.steps(n, start, pass, ...morePasses, { every? })` runs the passes over `start` `n` times and returns the last value. A pass is `(g) => g2`: it takes one value and returns the next. The passes of one step run in order, each on what the one before returned. Most sketches need one pass. The value can be a material, a lattice, 3D geometry, or a plain object that holds several.
 
-Selections are explicit targets. Use `prev.points` or `prev.edges` for all elements, or `.filter(...)` for a subset. A selection belongs to one pass: select again from the next pass's input, rather than carrying references across resolved edits.
+Inside a pass the geometry is a value like any other, and the writes make the next one. Each write returns a new material and reads the material it is called on, so a callback reads every row as it was before the write.
 
-| Edit | Meaning |
+| Write | Meaning |
 |---|---|
-| `next.move(points, vectorOrCallback)`, `next.move(ref, vector)` | displacement; several moves add up |
-| `next.set(points, attrsOrCallback)`, `next.set(ref, attrs)` | write point attributes; the last write of a field wins |
-| `next.setEdges(edges, attrsOrCallback)`, `next.setEdge(edge, attrs)` | write edge attributes |
-| `next.addPoint(position, attributes)` → record | a new vertex; its record names it within this pass |
-| `next.connect(a, b, edgeAttributes?)` | one undirected edge between views, ids or new-point records |
-| `next.disconnect(edgesOrEdge)` | remove edges; their points stay |
-| `next.remove(pointsOrRef)` | delete points and their incident edges; neighbours are never joined |
-| `next.split(edge, { at?, point?, edges? })` → reference | replace an edge with two through a new vertex; endpoint cuts return the existing endpoint |
-| `next.splitEdges(edges, { at?, point?, edges? })` | split an explicit selection of input edges |
-| `next.extrude(points, p => spec \| spec[], { inherit? })` | add children `{ position, attributes }` or connect to existing targets `{ to }`; `[]` adds none; `inherit: true` starts new children from their parents' attributes |
+| `g.points.set(column, value, where?, { transfer? })`, `g.points.set({ column: value, … }, where?, …)` | write point columns; a value is a number or `(p) => number`; `x` and `y` are the position |
+| `g.edges.set(column, value, where?, { transfer? })` | write edge columns |
+| `g.faces().set(column, value, where?, { transfer?, fallback? })` | write face columns; a face keeps its column through later changes of its walls |
+| `g.points.add(position \| point(xy, columns))` | add a point; a new point gives every declared column |
+| `g.edges.add([a, b], columns?)` | add an edge between two points: views, or point values |
+| `g.points.remove(points)`, `g.edges.remove(edges)` | remove points with their edges, or edges without their points; neighbours are never joined |
+| `g.move(...displacements, where?)` | move the points of `where` (default all) by the sum of vectors, `(p) => [dx, dy]` functions and forces |
+| `g.split(edges, at?)` | cut each edge in two through a new point `at` of the way along (default 0.5) |
+| `g.extrude(from, offset, columns?)` | add a point at `from + offset` and the edge from `from` to it |
+| `g.replace(edges, motif, { flip? })` | swap each edge for a motif chain |
 
-To inspect completed movement before splitting, use two passes:
+To look at completed movement before splitting, write the two in order:
 
 ```ts
-const grown = ring.steps(
-  40,
-  (prev, next) => {
-    const push = force.attract(prev, { radius: 10, strength: 0.5 });
-    next.move(prev.points, push);
-  },
-  (prev, next) => {
-    next.splitEdges(prev.edges.filter(e => e.length > 5));
-  },
-);
+const grown = t.steps(40, ring, (g) => {
+  const moved = g.move(force.attract(g, { radius: 10, strength: 0.5 }));
+  return moved.split(moved.edges.filter((e) => e.length > 5));
+});
 ```
 
-Filtering `prev.edges` in the first pass would inspect the original lengths, even if the filter follows `next.move`. The second pass inspects moved lengths. Multiple tips hitting the same edge should stay in one pass: their split requests are resolved together, so they can share the same frozen query and edge references.
+`moved.edges` are the moved lengths; `g.edges` would be the lengths before the move.
 
-Migration: `extend` is now `extrude(points, spec, options)`. Callback-first edits, `{ where }`, and predicate arguments to `remove`, `disconnect`, and `splitEdges` have been removed. Move the condition into `.filter(...)`. Code that relied on the old after-movement `splitEdges(predicate)` behavior needs a following pass, as above.
+A reference is a view or a value from `point(…)` or `edge(…)`. A selection or a view of an earlier state names its rows by identity, so it still reaches them in a later state, and a row that is gone is skipped. New rows go at the end of their table. A split point takes its columns by each column's transfer policy, and the two new edges share the parent's edge columns.
 
-A reference is a row of the current state, a vertex view of it, or a handle from this batch. Views are checked for ownership: a view of another material or a handle from another step is an error even when its row exists. A new point or edge must name every declared column. A split has a source, so the inserted vertex inherits by each column's transfer policy and the child edges copy the parent's edge attributes, with `point` and `edges` overrides on top.
+A pass takes one argument. A pass that needs the step count keeps a count of its own: a column (`g.points.set('age', (p) => p.age + 1)`), or a generation that each new point takes from its parent. `force.drift` knows the step, so it turns without one.
 
-Within a batch: callbacks read the frozen state; moves and attribute writes apply first; removals, disconnections, splits, added points and connections resolve and rows compact once. Conflicting edits (removing a point that is also moved or connected, splitting and disconnecting one edge) throw and publish nothing.
-
-By default only the final state is kept. `{ every: m }` also records the initial state, every m-th complete iteration and the final one after all its passes finish, on the result's `history`. Each entry is a material of its own, and its `iteration` says which state it is. Each sketch run recomputes from the start, so scrubbing an iteration control re-runs the growth to that point.
+By default only the final state is kept. `{ every: m }` also records the start, every m-th step and the final state on the result's `history`. Each entry is a value of its own. A material, a lattice and 3D geometry keep a history; a plain object keeps none. Each sketch run computes from the start again, so scrubbing a step control runs the growth again to that point.
 
 ### forces
 
@@ -1283,7 +1274,7 @@ const repel = (p) => sumBy(sources.points.near(p, { radius }), (q) => {
   const delta = sub(p, q);
   return mul(unit(delta), radius - length(delta));
 });
-next.move(prev.points, (p) => mul(repel(p), speed));
+g.move((p) => mul(repel(p), speed));
 ```
 
 `sources` is any material: the one being moved, or obstacles that stay put. A vertex is never its own neighbour, and a point of another state is just a position. `.subtract(p.adjacent)` leaves out the points `p` is joined to; the recipes say `excludeConnected: true` for the same thing. The named recipes are short functions on this mechanism:
@@ -1293,12 +1284,12 @@ next.move(prev.points, (p) => mul(repel(p), speed));
 | `force.tension(m, { rest })` | the state; reads connections | toward each connected neighbour by the gap beyond `rest` (slack, not a spring) |
 | `force.separation(sources, { radius, excludeConnected? })` | any points | away from every source within the radius, linearly to zero at the edge |
 | `force.attract(sources, { radius, strength?, excludeConnected? })` | any points | toward each source, `strength` when touching, zero at the radius |
-| `force.drift(noise, { amount, frequency?, rate? })` | a noise function (pass `t.noise`) | a direction read from the noise, turning slowly with the iteration |
+| `force.drift(noise, { amount, frequency?, rate? })` | a noise function (pass `t.noise`) | a direction read from the noise, turning slowly from step to step |
 | `force.boundary(boundary, { radius, strength? })` | a boundary: loops, contour records or a chain material (see Fields & variation) | inward within `radius` of the edge and everywhere outside |
 | `force.vortex(centre, { strength, falloff? })` | a point | tangential around the centre, fading with distance |
 | `force.field(vectorField, { strength? })` | a `grad`, `curl` or hand-written field | the field at p |
 | `force.relax(m, { amount? })` | the state; reads connections | toward the mean of the connected neighbours (Laplacian smoothing) |
-| `force.sum(...forces)` | prepared forces | their sum; the iteration `k` is handed to each |
+| `force.sum(...forces)` | prepared forces | their sum |
 
 ### Growth
 
@@ -1309,12 +1300,12 @@ import { sketch, stroke, circle, force, mul } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const wander = force.drift(t.noise, { amount: 0.24, frequency: 0.05 });
-  const grown = t.sample(circle(100, 50, 8), { count: 24 }).attribute('age', 0).steps(150, (cur, next, k) => {
-    const push = force.sum(force.tension(cur, { rest: 1.6 }), force.separation(cur, { radius: 4, excludeConnected: true }), wander);
-    next.move(cur.points, (p) => mul(push(p, k), 0.15));
-    next.set(cur.points, (p) => ({ age: p.age + 1 }));
-  }, (cur, next, k) => {
-    next.splitEdges(cur.edges.filter((e) => e.length > 1.8 && t.chance(0.3)), { point: { age: 0 } });
+  const grown = t.steps(150, t.sample(circle(100, 50, 8), { count: 24 }).points.set('age', 0), (g) => {
+    const push = force.sum(force.tension(g, { rest: 1.6 }), force.separation(g, { radius: 4, excludeConnected: true }), wander);
+    return g.move((p) => mul(push(p), 0.15)).points.set('age', (p) => p.age + 1);
+  }, (g) => {
+    const cut = g.split(g.edges.filter((e) => e.length > 1.8 && t.chance(0.3)));
+    return cut.points.set('age', 0, cut.points.without(g.points));
   });
   return stroke(grown.contour);
 });
@@ -1332,12 +1323,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
     return mul(unit(delta), (18 - length(delta)) * 0.9);
   });
   const wander = force.drift(t.noise, { amount: 0.2 });
-  const grown = t.sample(circle(100, 50, 8), { count: 30 }).steps(210, (cur, next, k) => {
-    const push = force.sum(force.tension(cur, { rest: 2 }), force.separation(cur, { radius: 4.4, excludeConnected: true }), shove, wander);
-    next.move(cur.points, (p) => mul(push(p, k), 0.18));
-  }, (cur, next, k) => {
-    next.splitEdges(cur.edges.filter((e) => e.length > 2.2 && t.chance(0.3)));
-  });
+  const grown = t.steps(210, t.sample(circle(100, 50, 8), { count: 30 }), (g) => {
+    const push = force.sum(force.tension(g, { rest: 2 }), force.separation(g, { radius: 4.4, excludeConnected: true }), shove, wander);
+    return g.move((p) => mul(push(p), 0.18));
+  }, (g) => g.split(g.edges.filter((e) => e.length > 2.2 && t.chance(0.3))));
   return [posts.points.map((q) => circle(q.x, q.y, 4)), stroke(grown.contour)];
 });
 ```
@@ -1350,9 +1339,9 @@ import { sketch, stroke, curve, force, mul } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const zigzag = t.times(21, (i) => [16 + i * 8.4, 50 + (i % 2 ? 18 : -18) + t.rnd(-4, 4)]);
   const chain = curve(zigzag, { closed: false });
-  const pulled = chain.steps(48, (cur, next) => {
-    const pull = force.tension(cur, { rest: 6 });
-    next.move(cur.points, (p) => mul(pull(p), 0.05));
+  const pulled = t.steps(48, chain, (g) => {
+    const pull = force.tension(g, { rest: 6 });
+    return g.move((p) => mul(pull(p), 0.05));
   }, { every: 8 });
   return pulled.history.map((h) => stroke(h.contour));
 });
@@ -1370,7 +1359,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const anchors = [[0.22 * b.w, 0.6 * b.h], [0.54 * b.w, 0.24 * b.h], [0.82 * b.w, 0.72 * b.h]];
   const toward = force.attract(anchors, { radius: 0.34 * b.w, strength: 1 });
   const marks = material(t.grid({ cols: 24, rows: 12 }).map((c) => [c.cx, c.cy]));
-  const gathered = marks.steps(90, (cur, next) => next.move(cur.points, (p) => mul(toward(p), 0.16)), { every: 1 });
+  const gathered = t.steps(90, marks, (g) => g.move((p) => mul(toward(p), 0.16)), { every: 1 });
   const trail = (i) => gathered.history.map((h) => [h.x[i], h.y[i]]);
   return [
     anchors.map(([x, y]) => circle(x, y, 3.2, { pen: 'stabilo-88-blue' })),
@@ -1388,8 +1377,8 @@ import { sketch, stroke, circle, material, force } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const b = t.bounds();
   const drifts = [0.004, 0.02, 0.12].map((frequency) => force.drift(t.noise, { amount: 0.32, frequency }));
-  const marks = material(t.grid({ cols: 18, rows: 6 }).map((c) => [c.cx, c.cy])).attribute('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
-  const wandered = marks.steps(55, (cur, next, k) => next.move(cur.points, (p) => drifts[p.band](p, k)), { every: 1 });
+  const marks = material(t.grid({ cols: 18, rows: 6 }).map((c) => [c.cx, c.cy])).points.set('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
+  const wandered = t.steps(55, marks, (g) => g.move((p) => drifts[p.band](p)), { every: 1 });
   const trail = (i) => wandered.history.map((h) => [h.x[i], h.y[i]]);
   return [marks.points.map((p) => stroke(trail(p.index))), marks.points.map((p) => circle(p.x, p.y, 0.6))];
 });
@@ -1402,13 +1391,11 @@ import { sketch, stroke, circle, material, curl, force, sum, mul } from 'occlude
 
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const cloud = material(t.scatter({ spacing: 4 }).points.map((p) => [p.x / 5 + 4, p.y]))
-    .attribute('mobility', (p) => 0.6 + 0.4 * t.noise(p.y / 12));
+    .points.set('mobility', (p) => 0.6 + 0.4 * t.noise(p.y / 12));
   const wall = t.sample(circle(92, 50, 16), { spacing: 1.6 });
   const avoid = force.separation(wall, { radius: 18 });
   const gusts = force.field(curl((x, y) => t.noise(x / 50, y / 50) * 8));
-  const moved = cloud.steps(160, (cur, next) => {
-    next.move(cur.points, (p) => mul(sum(avoid(p), gusts(p), [4, 0]), p.mobility * 0.18));
-  });
+  const moved = t.steps(160, cloud, (g) => g.move((p) => mul(sum(avoid(p), gusts(p), [4, 0]), p.mobility * 0.18)));
   return [stroke(wall.contour), moved.points.map((p) => circle(p.x, p.y, 0.7))];
 });
 ```
@@ -1426,9 +1413,9 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     const r = 36 + t.rnd(-10, 10);
     return [100 + Math.cos(a) * r * 1.6, 50 + Math.sin(a) * r];
   }), { closed: true });
-  const settled = rough.steps(24, (cur, next) => {
-    const smooth = force.relax(cur, { amount: 0.5 });
-    next.move(cur.points, (p) => mul(smooth(p), 1));
+  const settled = t.steps(24, rough, (g) => {
+    const smooth = force.relax(g, { amount: 0.5 });
+    return g.move((p) => mul(smooth(p), 1));
   }, { every: 6 });
   const at = (i) => settled.history[i].contour;
   return [stroke(at(0), { pen: 'pigma-005-black' }), stroke(at(1), { pen: 'stabilo-88-green' }), stroke(at(4), { pen: 'stabilo-88-blue' })];
@@ -1437,25 +1424,25 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 
 ### Branching
 
-Branching through ordinary edits. The frontier is a selection of the current state that drives both edits: the tips extend along their heading, bent by noise and pulled back toward up, fork now and then, and hand their activity to their children. Junctions are vertices with three edges; `strokes()` walks each arm once.
+Branching through ordinary writes. The frontier is a selection of the current state that drives both writes: the tips extend along their heading, bent by noise and pulled back toward up, fork now and then, and hand their activity to their children. Junctions are vertices with three edges; `strokes()` walks each arm once.
 
 ```ts live
-import { sketch, strokes, circle, material, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, circle, material, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
-  const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
-  const tree = seed.steps(30, (cur, next, k) => {
-    const tips = cur.points.filter((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
-    next.extrude(tips, (p) => {
-      const turn = t.noise(p.x / 14, p.y / 14, k) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
+  const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0, generation: 0 });
+  const tree = t.steps(30, seed, (g) => {
+    const tips = g.points.filter((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
+    let grown = g;
+    for (const p of tips) {
+      const turn = t.noise(p.x / 14, p.y / 14, p.generation) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
       const fork = p.depth < 4 && t.chance(0.3);
       const headings = fork ? [p.heading - 0.5 + turn, p.heading + 0.5 + turn] : [p.heading + turn];
-      return headings.map((h) => ({
-        position: add(p, mul(fromAngle(h), 3.2)),
-        attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
-      }));
-    });
-    next.set(tips, { active: 0 });
+      for (const h of headings) {
+        grown = grown.extrude(p, mul(fromAngle(h), 3.2), { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0), generation: p.generation + 1 });
+      }
+    }
+    return grown.points.set('active', 0, tips);
   });
   return [strokes(tree), tree.points.filter((p) => p.active).map((p) => circle(p.x, p.y, 1))];
 });
@@ -1467,18 +1454,26 @@ Growing tips that join what they meet: each tip looks one step ahead with `first
 import { sketch, strokes, circle, material, query, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
-  const seeds = material(t.times(7, (i) => [24 + i * 25, 94]), { active: 1, heading: -Math.PI / 2 });
-  const web = seeds.steps(34, (cur, next, k) => {
-    const edges = query.edges(cur);
-    const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
-    next.extrude(tips, (p) => {
-      const h = p.heading + t.noise(p.x / 16, p.y / 16, k * 0.01) * 0.7;
-      const target = add(p, mul(fromAngle(h), 3));
-      const hit = edges.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
-      return { position: target, attributes: { active: 1, heading: h } };
-    });
-    next.set(tips, { active: 0 });
+  const seeds = material(t.times(7, (i) => [24 + i * 25, 94]), { active: 1, heading: -Math.PI / 2, generation: 0 });
+  const web = t.steps(34, seeds, (g) => {
+    const edges = query.edges(g);
+    const tips = g.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
+    let grown = g;
+    for (const p of tips) {
+      const h = p.heading + t.noise(p.x / 16, p.y / 16, p.generation * 0.01) * 0.7;
+      const reach = mul(fromAngle(h), 3);
+      const hit = edges.firstHit(p, add(p, reach), { excludeIncident: p });
+      if (!hit) {
+        grown = grown.extrude(p, reach, { active: 1, heading: h, generation: p.generation + 1 });
+        continue;
+      }
+      // Split the wall it meets, and join the tip to the new point.
+      const cut = grown.split(hit.edge, hit.t);
+      if (cut.n === grown.n) continue;
+      const joint = cut.points.at(-1);
+      grown = cut.points.set({ active: 0, heading: 0 }, joint).edges.add([p, joint]);
+    }
+    return grown.points.set('active', 0, tips);
   });
   return [strokes(web), web.points.filter((p) => p.active).map((p) => circle(p.x, p.y, 1))];
 });
@@ -1493,22 +1488,22 @@ The listing follows variable names, so a name assigned twice keeps its last valu
 The question this answers here: which points are still active tips after thirty steps, and where did the tree stop growing? Choose `tree`, colour points by `active`, and the tips light up; click one to see its heading and depth.
 
 ```ts live
-import { sketch, strokes, material, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, material, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
-  const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
-  const tree = seed.steps(30, (cur, next, k) => {
-    const tips = cur.points.filter((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
-    next.extrude(tips, (p) => {
-      const turn = t.noise(p.x / 14, p.y / 14, k) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
+  const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0, generation: 0 });
+  const tree = t.steps(30, seed, (g) => {
+    const tips = g.points.filter((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
+    let grown = g;
+    for (const p of tips) {
+      const turn = t.noise(p.x / 14, p.y / 14, p.generation) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
       const fork = p.depth < 4 && t.chance(0.3);
       const headings = fork ? [p.heading - 0.5 + turn, p.heading + 0.5 + turn] : [p.heading + turn];
-      return headings.map((h) => ({
-        position: add(p, mul(fromAngle(h), 3.2)),
-        attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
-      }));
-    });
-    next.set(tips, { active: 0 });
+      for (const h of headings) {
+        grown = grown.extrude(p, mul(fromAngle(h), 3.2), { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0), generation: p.generation + 1 });
+      }
+    }
+    return grown.points.set('active', 0, tips);
   });
   return strokes(tree);   // no dots for the tips: the inspector shows them
 });
@@ -1516,40 +1511,37 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 
 ### Editing a structure
 
-Structural helpers are ordinary functions over the edit interface:
+Structural helpers are ordinary functions over the writes:
 
 ```ts
 // prune: drop the tips older than a lifespan, edges and all
-next.remove(prev.points.filter(p => p.adjacent.length === 1 && p.age > lifespan));
+const pruned = g.points.remove(g.points.filter((p) => p.adjacent.length === 1 && p.age > lifespan));
 
 // replace an edge with a bend through a new junction
-function fork(next, edge, position) {
-  next.disconnect(edge);
-  const junction = next.addPoint(position, { age: 0 });
-  next.connect(edge.a, junction, { rest: edge.rest / 2 });
-  next.connect(junction, edge.b, { rest: edge.rest / 2 });
-  return junction;
+function fork(g, edge, position) {
+  const junction = point(position, { age: 0 });
+  return g.edges.remove(edge).points.add(junction)
+    .edges.add([edge.a, junction], { rest: edge.rest / 2 })
+    .edges.add([junction, edge.b], { rest: edge.rest / 2 });
 }
 ```
 
-A grown ring, faint, and over it what survives two edits after growth: every edge stretched past a breaking length is disconnected and every vertex younger than four steps is removed. The gaps are the decision.
+A grown ring, faint, and over it what survives two writes after growth: every edge stretched past a breaking length is removed and every vertex younger than four steps is removed. The gaps are the decision.
 
 ```ts live
 import { sketch, stroke, strokes, circle, force, mul } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const wander = force.drift(t.noise, { amount: 0.24, frequency: 0.05 });
-  const grown = t.sample(circle(100, 50, 10), { count: 30 }).attribute('age', 0).steps(200, (cur, next, k) => {
-    const push = force.sum(force.tension(cur, { rest: 1.8 }), force.separation(cur, { radius: 4.4, excludeConnected: true }), wander);
-    next.move(cur.points, (p) => mul(push(p, k), 0.15));
-    next.set(cur.points, (p) => ({ age: p.age + 1 }));
-  }, (cur, next, k) => {
-    next.splitEdges(cur.edges.filter((e) => e.length > 2.2 && t.chance(0.3)), { point: { age: 0 } });
+  const grown = t.steps(200, t.sample(circle(100, 50, 10), { count: 30 }).points.set('age', 0), (g) => {
+    const push = force.sum(force.tension(g, { rest: 1.8 }), force.separation(g, { radius: 4.4, excludeConnected: true }), wander);
+    return g.move((p) => mul(push(p), 0.15)).points.set('age', (p) => p.age + 1);
+  }, (g) => {
+    const cut = g.split(g.edges.filter((e) => e.length > 2.2 && t.chance(0.3)));
+    return cut.points.set('age', 0, cut.points.without(g.points));
   });
-  const cut = grown.steps(1, (cur, next) => {
-    next.disconnect(cur.edges.filter((e) => e.length > 2.1));
-    next.remove(cur.points.filter((p) => p.age < 4));
-  });
+  const cut = grown.edges.remove(grown.edges.filter((e) => e.length > 2.1))
+    .points.remove(grown.points.filter((p) => p.age < 4));
   // survivors first: ink coinciding with earlier ink is dropped, so the faint ring comes after
   return [strokes(cut, { pen: 'stabilo-88-blue' }), stroke(grown.contour, { pen: 'pigma-005-black' })];
 });
@@ -1817,7 +1809,7 @@ export default sketch({ seed: 11, pens: {
 
 ### Editable cellular drawing
 
-Voronoi cells as ordinary material. The large cells are selected; their internal walls are the edges the selection has that are not on its boundary, and one structural edit disconnects them, so the rooms open into each other. The edited material draws like any other; it is no longer anyone's Voronoi cell, and asking it for a site is an error by design.
+Voronoi cells as ordinary material. The large cells are selected; their internal walls are the edges the selection has that are not on its boundary, and one write removes them, so the rooms open into each other. The edited material draws like any other; it is no longer anyone's Voronoi cell, and asking it for a site is an error by design.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm } from 'occlude';
@@ -1827,7 +1819,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const cells = t.voronoi(sites);
   const rooms = cells.faces().filter((f) => f.area > 260);
   const internal = rooms.edges.subtract(rooms.boundaryEdges());
-  const opened = cells.steps(1, (_cur, next) => next.disconnect(internal));
+  const opened = cells.edges.remove(internal);
   // The boundary goes down first: ink laid on ink already there is dropped,
   // so the black walls yield to the blue boundary where they coincide.
   return [
@@ -1846,23 +1838,31 @@ Trunks grow up from the bottom edge and now and then throw a side branch; a tip 
 import { sketch, strokes, polygon, fill, mm, material, query, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
-  const seeds = material(t.times(9, (i) => [16 + i * 21, 94]), { active: 1, heading: -Math.PI / 2 });
-  const web = seeds.steps(50, (cur, next, k) => {
-    const edges = query.edges(cur);
-    const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
-    next.extrude(tips, (p) => {
-      const h = p.heading + t.noise(p.x / 16, p.y / 16, k * 0.01) * 0.5;
+  const seeds = material(t.times(9, (i) => [16 + i * 21, 94]), { active: 1, heading: -Math.PI / 2, generation: 0 });
+  const web = t.steps(50, seeds, (g) => {
+    const edges = query.edges(g);
+    const tips = g.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
+    let grown = g;
+    for (const p of tips) {
+      const h = p.heading + t.noise(p.x / 16, p.y / 16, p.generation * 0.01) * 0.5;
       const headings = t.chance(0.08) ? [h, h + (t.chance(0.5) ? 1.2 : -1.2)] : [h];
-      return headings.map((hh) => {
-        const target = add(p, mul(fromAngle(hh), 3));
-        const hit = edges.firstHit(p, target, { excludeIncident: p });
-        if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
-        return { position: target, attributes: { active: 1, heading: hh } };
-      });
-    });
-    next.set(tips, { active: 0 });
+      for (const hh of headings) {
+        const reach = mul(fromAngle(hh), 3);
+        const hit = edges.firstHit(p, add(p, reach), { excludeIncident: p });
+        if (!hit) {
+          grown = grown.extrude(p, reach, { active: 1, heading: hh, generation: p.generation + 1 });
+          continue;
+        }
+        // Split the wall it meets, and join the tip to the new point.
+        const cut = grown.split(hit.edge, hit.t);
+        if (cut.n === grown.n) continue;
+        const joint = cut.points.at(-1);
+        grown = cut.points.set({ active: 0, heading: 0 }, joint).edges.add([p, joint]);
+      }
+    }
+    return grown.points.set('active', 0, tips);
   });
-  const planar = web.planarize({ point: () => ({ active: 0, heading: 0 }) });
+  const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, generation: Math.max(...ev.candidates.map((c) => c.attrs.generation)) }) });
   const enclosed = planar.faces();
   if (enclosed.length === 0) return strokes(web);
   const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 70, y - 40) / 90);
@@ -1908,9 +1908,7 @@ import { sketch, stroke, circle, rect, force, mul } from 'occlude';
 // right resampled at 3 units.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const swirl = force.vortex({ x: 50, y: 50 }, { strength: 10, falloff: 12 });
-  const bent = t.sample(rect(20, 20, 60, 60), { spacing: 6 }).steps(30, (cur, next) => {
-    next.move(cur.points, (p) => mul(swirl(p), 0.3));
-  });
+  const bent = t.steps(30, t.sample(rect(20, 20, 60, 60), { spacing: 6 }), (g) => g.move((p) => mul(swirl(p), 0.3)));
   const even = bent.resample({ spacing: 3 });
   return [
     stroke(bent.contour), bent.points.map((p) => circle(p.x, p.y, 0.7)),
@@ -1931,10 +1929,8 @@ import { sketch, circle, polygon, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const ring = t.sample(circle(100, 50, 30), { count: 64 })
-    .attribute('weight', (p) => 0.5 + 0.5 * Math.sin(Math.atan2(p.y - 50, p.x - 100) * 2))
-    .steps(1, (cur, next) => {
-      next.move(cur.points, (p) => [Math.sin(p.y / 6) * 9, Math.cos(p.x / 7) * 5]);
-    });
+    .points.set('weight', (p) => 0.5 + 0.5 * Math.sin(Math.atan2(p.y - 50, p.x - 100) * 2))
+    .move((p) => [Math.sin(p.y / 6) * 9, Math.cos(p.x / 7) * 5]);
   const stamps = ring.along({ spacing: 5 }).map((st) => {
     const size = 1.5 + 3 * st.attrs.weight;
     return st.place(rect(-size / 2, -size / 2, size, size, { opaque: true }));
@@ -1961,16 +1957,16 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 Attributes carry across operations by a policy declared once on the column and honoured everywhere; a per-operation option overrides for that call.
 
-| Operation | Point columns | Edge columns | Rows and iteration |
+| Operation | Point columns | Edge columns | Rows |
 |---|---|---|---|
-| `attribute`, `edgeAttribute` with `{ transfer? }` | `'interpolate'` (default) or `'nearest'` for categorical values | `'copy'` (default) or `'distribute'` for a quantity shared by length | rows and iteration kept, history dropped |
-| `connect.*`, `next.connect` | | every declared column must be given for a new edge | kept |
-| `append(a, b, { fill, edgeFill })` | columns must match or be filled | same | b's rows after a's; iteration 0 |
-| `split`, `splitEdges`, `extrude`, `addPoint` | a split vertex inherits by the policy, then `point` overrides; a new point must give every column | children copy or share the parent, then `edges(parent, child)` overrides | iteration +1 per step |
-| `resample` | by the policy, or a per-call `transfer: { col: 'nearest' \| constant \| fn }` | `'copy'` takes the source edge under the new edge's midpoint; `'distribute'` sums each covered source edge's share | rows renumbered; iteration kept |
+| `points.set(col, v, where?, { transfer })`, `edges.set(col, v, where?, { transfer })` | `'interpolate'` (default) or `'nearest'` for categorical values | `'copy'` (default) or `'distribute'` for a quantity shared by length | rows kept, history dropped |
+| `connect.*`, `edges.add` | | every declared column must be given for a new edge | kept; new edges at the end |
+| `append(a, b, { fill, edgeFill })` | columns must match or be filled | same | b's rows after a's |
+| `split`, `extrude`, `points.add` | a split vertex inherits by the policy; a new point must give every column | children copy or share the parent | new rows at the end |
+| `resample` | by the policy, or a per-call `transfer: { col: 'nearest' \| constant \| fn }` | `'copy'` takes the source edge under the new edge's midpoint; `'distribute'` sums each covered source edge's share | rows renumbered |
 | `along` | into each station's `attrs` by the policy, or a per-call `transfer` | into `edgeAttrs`: `'copy'` takes the edge under the station; `'distribute'` sums the share of chain nearer this station than its neighbours | no rows: stations are plain data; the material is untouched |
-| `planarize` | candidates from every edge through the event; disagreeing ones need `point(event)` | children copy or share, then `edges(parent, child)` | iteration 0 |
-| `extract()` | copied | copied | rows compacted in source order; iteration 0 |
+| `planarize` | candidates from every edge through the event; disagreeing ones need `point(event)` | children copy or share, then `edges(parent, child)` | rows renumbered |
+| `extract()` | copied | copied | rows compacted in source order |
 
 ### Runs and bands
 
@@ -1983,13 +1979,13 @@ import { sketch, stroke, circle, force, sum, mul, segmentRuns, extent, banding }
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const wander = force.drift(t.noise, { amount: 0.2, frequency: 0.05 });
-  const last = t.sample(circle(100, 50, 10), { count: 24 }).attribute('age', 0).steps(150, (cur, next, k) => {
-    const pull = force.tension(cur, { rest: 1.6 });
-    const repel = force.separation(cur, { radius: 4, excludeConnected: true });
-    next.move(cur.points, (p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
-    next.set(cur.points, (p) => ({ age: p.age + 1 }));
-  }, (cur, next, k) => {
-    next.splitEdges(cur.edges.filter((e) => e.length > 1.8 && t.chance(0.3)), { point: { age: 0 } });
+  const last = t.steps(150, t.sample(circle(100, 50, 10), { count: 24 }).points.set('age', 0), (g) => {
+    const pull = force.tension(g, { rest: 1.6 });
+    const repel = force.separation(g, { radius: 4, excludeConnected: true });
+    return g.move((p) => mul(sum(pull(p), repel(p), wander(p)), 0.15)).points.set('age', (p) => p.age + 1);
+  }, (g) => {
+    const cut = g.split(g.edges.filter((e) => e.length > 1.8 && t.chance(0.3)));
+    return cut.points.set('age', 0, cut.points.without(g.points));
   });
   const [young, old] = extent(last.attrs.age);
   const band = banding({ min: young, max: old, count: 2 });
@@ -2007,19 +2003,26 @@ import { sketch, stroke, strokes, circle, polygon, fill, mm, group, material, qu
 
 export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const seeds = material(t.times(8, (i) => [8 + i * 4.8, 44]), { active: 1, heading: -Math.PI / 2, age: 0 });
-  const web = seeds.steps(30, (cur, next, k) => {
-    const edges = query.edges(cur);
-    const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 5 && p.x < 45);
-    next.extrude(tips, (p) => {
-      const h = p.heading + t.noise(p.x / 8, p.y / 8, k * 0.01) * 0.7;
-      const target = add(p, mul(fromAngle(h), 1.2));
-      const hit = edges.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0, age: k } }) };
-      const kids = [{ position: target, attributes: { active: 1, heading: h, age: k } }];
-      if (t.chance(0.14)) kids.push({ position: add(p, mul(fromAngle(h + 0.8), 1.2)), attributes: { active: 1, heading: h + 0.8, age: k } });
-      return kids;
-    });
-    next.set(tips, { active: 0 });
+  const web = t.steps(30, seeds, (g) => {
+    const edges = query.edges(g);
+    const tips = g.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 5 && p.x < 45);
+    let grown = g;
+    for (const p of tips) {
+      const h = p.heading + t.noise(p.x / 8, p.y / 8, p.age * 0.01) * 0.7;
+      const reach = mul(fromAngle(h), 1.2);
+      const hit = edges.firstHit(p, add(p, reach), { excludeIncident: p });
+      if (hit) {
+        // Split the wall it meets, and join the tip to the new point.
+        const cut = grown.split(hit.edge, hit.t);
+        if (cut.n === grown.n) continue;
+        const joint = cut.points.at(-1);
+        grown = cut.points.set({ active: 0, heading: 0, age: p.age + 1 }, joint).edges.add([p, joint]);
+        continue;
+      }
+      grown = grown.extrude(p, reach, { active: 1, heading: h, age: p.age + 1 });
+      if (t.chance(0.14)) grown = grown.extrude(p, mul(fromAngle(h + 0.8), 1.2), { active: 1, heading: h + 0.8, age: p.age + 1 });
+    }
+    return grown.points.set('active', 0, tips);
   });
   const band = banding.over(web.attrs.age, { count: 3 });
   const pens = ['pigma-01-black', 'stabilo-88-green', 'stabilo-88-blue'];
@@ -2061,12 +2064,12 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-A cut vertex takes its columns by the column's declared policy — `'interpolate'` by default, `'nearest'` for a category — exactly as `split` and `resample` do, an edge column is copied or (declared `'distribute'`) given its share of the source edge, `iteration` is kept and history is dropped. A point lying exactly on the boundary counts as **outside**, the rule the engine's own clip uses, so a run lying along the edge does not survive.
+A cut vertex takes its columns by the column's declared policy — `'interpolate'` by default, `'nearest'` for a category — exactly as `split` and `resample` do, an edge column is copied or (declared `'distribute'`) given its share of the source edge, and history is dropped. A point lying exactly on the boundary counts as **outside**, the rule the engine's own clip uses, so a run lying along the edge does not survive.
 
 | `x` | What comes back |
 |---|---|
 | a Material | a new Material, edges cut at the boundary and the outside dropped (rows renumbered, columns kept) |
-| a point selection | a **selection** of the points inside, of the same source: it chains with `.filter` and can be passed directly to edits such as `next.move(selection, displacement)` |
+| a point selection | a **selection** of the points inside, of the same source: it chains with `.filter` and can be passed directly to writes such as `g.move(displacement, selection)` |
 | a face collection | the faces lying entirely inside — nothing is clipped, so a face that the boundary cuts through is not kept |
 | a field | the field, absent outside (the original meaning) |
 
@@ -2343,11 +2346,11 @@ nothing keeping the strands apart, so they are allowed to run over one another;
 wobbled by `oscillate`; and only then told which of them is on top.
 
 ```ts live
-import { sketch, strokes, material, curl, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, material, curl, mul, fromAngle } from 'occlude';
 
 // Composed: a tangle that was grown, not drawn. Each strand is a tip with a
 // heading, extruded one step at a time and steered toward the curl of a noise
-// field — the rule is four lines of `steps`, and nothing in it keeps a strand
+// field — the rule is a few lines of `t.steps`, and nothing in it keeps a strand
 // off another, so for once they run over one another. `oscillate` gives each
 // a wobble; `interlace` then decides, at every one of the crossings that made,
 // which strand is on top. Three operations that know nothing about each
@@ -2358,14 +2361,15 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     t.times(26, (k) => { const a = (k / 26) * Math.PI * 2; return [100 + Math.cos(a) * 44, 50 + Math.sin(a) * 24]; }),
     { heading: t.times(26, (k) => (k / 26) * Math.PI * 2 + Math.PI), tip: 1 },
   );
-  const grown = seeds.steps(150, (cur, next) => {
-    const tips = cur.points.filter((p) => p.tip === 1);
-    next.extrude(tips, (p) => {
+  const grown = t.steps(150, seeds, (g) => {
+    const tips = g.points.filter((p) => p.tip === 1);
+    let out = g;
+    for (const p of tips) {
       const [dx, dy] = flow(p.x, p.y);
       const heading = p.heading * 0.75 + Math.atan2(dy, dx) * 0.25;
-      return { position: add(p, mul(fromAngle(heading), 1.1)), attributes: { heading, tip: 1 } };
-    });
-    next.set(tips, { tip: 0 });
+      out = out.extrude(p, mul(fromAngle(heading), 1.1), { heading, tip: 1 });
+    }
+    return out.points.set('tip', 0, tips);
   });
   const wobbled = grown.oscillate({ wavelength: 13, amplitude: 1.6 });
   return strokes(wobbled.interlace({ gap: 2.2 }));
@@ -2485,7 +2489,7 @@ import { sketch, circle, polygon, fill, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 30 })
-    .attribute('radius', (p) => 2 + 2.8 * (1 + Math.cos(6 * Math.atan2(p.y - 50, p.x - 50))) / 2);
+    .points.set('radius', (p) => 2 + 2.8 * (1 + Math.cos(6 * Math.atan2(p.y - 50, p.x - 50))) / 2);
   const body = (source) => polygon(source.thicken({ radius: (p) => p.radius }), {
     fill: fill('hatch', { angle: 45, spacing: mm(0.65) }),
   });
@@ -2505,7 +2509,7 @@ import { sketch, curl, rect, polygon, strokes, fill, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const flow = t.within(curl((x, y) => t.noise(x / 55, y / 55)), rect(6, 6, 188, 88));
   const threads = t.streamlines(flow, { spacing: 9, step: 2 })
-    .attribute('tone', (p) => (1 + Math.sin(p.x / 13 + p.y / 19)) / 2);
+    .points.set('tone', (p) => (1 + Math.sin(p.x / 13 + p.y / 19)) / 2);
   const ribbons = threads.thicken({
     radius: (p) => 0.45 + 2.3 * p.tone,
     point: ({ candidates }) => ({ tone: Math.max(...candidates.map((c) => c.attrs.tone)) }),

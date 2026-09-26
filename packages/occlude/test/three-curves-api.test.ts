@@ -6,6 +6,7 @@ import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import {snapshotSurface3,transformSurface3} from '../src/three/geometry/model.js';
 import {initOcclude,sketch,compileSketchAsync,commitCamera3,exportSvg,pen,mm} from '../src/index.js';
+import {toolkit} from './helpers/run.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[0,0,5],up:[0,1,0],span:5});
 describe('owned 3D curve geometry',()=>{
@@ -19,12 +20,12 @@ describe('owned 3D curve geometry',()=>{
   expect(curve([[0,0,0],[1,0,0],[1,1,0]],{closed:true}).surface).toEqual(path.surface);
  });
  it('preserves typed attributes, IDs and topology through extraction and transformations',()=>{
-  const source=box().attribute('height',p=>p.z).edgeAttribute('tag',e=>e.index);
+  const source=box().points.set('height',p=>p.z).edges.set('tag',e=>e.index);
   const path=source.edges.filter(e=>e.a.z>0&&e.b.z>0).extract();
   expect(path.points.length).toBe(4);expect(path.surface.faces.length).toBe(0);
   expect(path.edges.map(e=>e.tag)).toEqual(source.edges.filter(e=>e.a.z>0&&e.b.z>0).map(e=>e.tag));
   expectTypeOf(path.points.at(0)!.height).toEqualTypeOf<number>();
-  const changed=path.attribute('gain',2).displace(p=>[0,0,p.gain]).rotate([0,0,90]).scale([-2,3,1]).translate([0,0,1]).edgeAttribute('lengthCopy',e=>e.length);
+  const changed=path.points.set('gain',2).displace(p=>[0,0,p.gain]).rotate([0,0,90]).scale([-2,3,1]).translate([0,0,1]).edges.set('lengthCopy',e=>e.length);
   expect(changed.edges.map(e=>e.id)).toEqual(path.edges.map(e=>e.id));
   expect(changed.points.map(p=>p.z)).toEqual([3.5,3.5,3.5,3.5]);
   expect(changed.edges.map(e=>e.lengthCopy).sort()).toEqual([2,2,3,3]);
@@ -33,16 +34,15 @@ describe('owned 3D curve geometry',()=>{
   const selected=changed.edges.filter(e=>e.lengthCopy>2).extract();expect(selected.edges.length).toBe(2);expect(selected.points.length).toBe(4);
   expect(transformSurface3(path.surface,{translate:[0,0,1]}).edges.length).toBe(4);
  });
- it('uses frozen edit passes, rejects foreign selections and retains history',()=>{
-  const original=curve([[0,0,0],[1,0,0]]).attribute('gain',2);
-  let escaped:any;
-  const result=original.steps(3,(current,next)=>{escaped=next;next.move(current.points,p=>[0,0,p.gain+ p.z]);next.move(current.points,p=>[0,0,p.z]);},{every:2});
+ it('runs passes over a curve, reads an earlier revision by id and retains history',()=>{
+  const t=toolkit();
+  const original=curve([[0,0,0],[1,0,0]]).points.set('gain',2);
+  const result=t.steps(3,original,c=>c.displace(p=>[0,0,p.gain+2*p.z]),{every:2});
   expect(result.points.map(p=>p.z)).toEqual([26,26]);expect(original.points.map(p=>p.z)).toEqual([0,0]);
-  expect(result.history.map(row=>row.iteration)).toEqual([0,2,3]);expect(result.edges.length).toBe(1);
-  expect(result.steps(1,()=>{}).iteration).toBe(4);
-  expect(()=>escaped.move(result.points,[0,0,1])).toThrow('closed');
-  expect(original.steps(1,(_,next)=>next.move(original.points,[0,0,1])).points.map(p=>p.z)).toEqual(original.points.map(p=>p.z+1));
-  expect(()=>original.steps(1,(async()=>{}) as never)).toThrow('synchronous');
+  expect(result.history.map(c=>c.points.at(0)!.z)).toEqual([0,8,26]);expect(result.edges.length).toBe(1);
+  expect(result.history.every(c=>c.edges.length===1)).toBe(true);
+  expect(original.points.set('z',p=>p.z+1,original.displace([0,0,0]).points).points.map(p=>p.z)).toEqual(original.points.map(p=>p.z+1));
+  expect(()=>original.points.set('z',(async()=>1) as never)).toThrow('synchronous');
  });
  it('samples functions once and rejects oversized work before invoking callbacks',()=>{
   const parameters:number[]=[];const path=parametricCurve(t=>{parameters.push(t);return [t,t*t,t*t*t];},{segments:4});
@@ -53,12 +53,12 @@ describe('owned 3D curve geometry',()=>{
   expect(curve([[0,0,0],[0,0,0],[1,0,0]]).segments.length).toBe(1);
   expect(curve([[0,0,0],[1,0,0],[0,0,0]],{closed:true}).segments.length).toBe(2);
   expect(()=>curve([[0,0,0],[Infinity,0,0]])).toThrow();
-  expect(()=>path.attribute('index',1)).toThrow('reserved');
+  expect(()=>path.points.set('index',1)).toThrow('reserved');
   const ring=circle(2,{segments:12});expect(ring.points.length).toBe(12);expect(ring.edges.length).toBe(12);
   for(const p of ring.points)expect(Math.hypot(p.x,p.y)).toBeCloseTo(2,14);
  });
  it('uses the existing visibility engine with analytic wire/box intervals and no curve occluders',()=>{
-  const path=curve([[-2,0,-1],[2,0,-1]]).edgeAttribute('ink','wire').withKey('path');
+  const path=curve([[-2,0,-1],[2,0,-1]]).edges.set('ink','wire').withKey('path');
   const drawing=view([box(),path],{camera});
   const snap=featureSnapshot3(drawing.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100}));
   const classified=classifySceneCpu3(snap),wire=classified.features.find(r=>r.feature.objectId==='path')!;

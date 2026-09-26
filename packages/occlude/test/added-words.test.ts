@@ -116,9 +116,9 @@ describe('a face knows its chart', () => {
     expect(walls.length).toBe(8);
   });
 
-  it('a cornerAttribute that changes a corner chart leaves the face column', () => {
+  it('a corner write that changes a corner chart leaves the face column', () => {
     const can = cylinder(1, 2, { segments: 8 });
-    const changed = can.cornerAttribute('chart', (c) => (c.index === 0 ? 'moved' : c.chart));
+    const changed = can.corners.set('chart', (c) => (c.index === 0 ? 'moved' : c.chart));
     expect(changed.corners.some((c) => c.chart === 'moved')).toBe(true);
     expect(changed.faces.map((f) => (f as { chart?: unknown }).chart)).toEqual(can.faces.map((f) => (f as { chart?: unknown }).chart));
   });

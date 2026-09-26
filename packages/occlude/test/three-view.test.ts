@@ -25,7 +25,7 @@ it('replaces default emission with readable interval collections and honors grou
  const svg=exportSvg(colored);expect(svg).toContain('#a84932');expect(svg).not.toContain('#112233');
 });
 it('captures hatch eligibility once on the owned revision and keeps multiple views independent',async()=>{
- let selected=0;const geometry=box().faceAttribute('height',1);
+ let selected=0;const geometry=box().faces.set('height',1);
  const a=view(geometry,{camera,hatch:{spacing:mm(4),select:f=>{selected++;return f.height>.7;}}});
  const b=view(geometry,{camera:orthographic({eye:[-5,7,6],span:4})});
  expect(selected).toBe(6);expect(a.scene.objects[0].surface).toBe(b.scene.objects[0].surface);

@@ -56,7 +56,7 @@ const onRectEdge = (x: number, y: number, x0: number, y0: number, x1: number, y1
 
 describe('a lattice cut to a rect', () => {
   const [x0, y0, x1, y1] = [13, 17, 74, 64];
-  const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 }).attributes({ w: (p) => p.x * 2 + p.y });
+  const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 }).points.set({ w: (p) => p.x * 2 + p.y });
   const out = t.within(src, rect(x0, y0, x1 - x0, y1 - y0));
   const cells = out.faces();
   const srcFaces = src.faces();
@@ -173,8 +173,8 @@ describe('the closure decides', () => {
     const edges: [number, number][] = [];
     for (let k = 0; k < 12; k++) { pts.push([-10 + k * 9, -5], [10 + k * 9, 105]); edges.push([2 * k, 2 * k + 1]); }
     for (let k = 0; k < 4; k++) { const i = pts.length; pts.push([30 + k * 10, 30], [40 + k * 10, 90], [30 + k * 10, 40]); edges.push([i, i + 1], [i + 2, i + 1]); }
-    let hatch = material(pts, { edges }).attributes({ w: (p) => p.x * 0.5 + p.y });
-    hatch = hatch.edgeAttributes({ len: 1, tone: (e) => e.index + 0.25 }, { transfer: { len: 'distribute' } });
+    let hatch = material(pts, { edges }).points.set({ w: (p) => p.x * 0.5 + p.y });
+    hatch = hatch.edges.set('len', 1, { transfer: 'distribute' }).edges.set('tone', (e) => e.index + 0.25);
     const cut = t.within(hatch, rect(20, 15, 60, 50));
     const g = golden.hatch;
     expect([...cut.x]).toEqual(g.x);
@@ -186,7 +186,7 @@ describe('the closure decides', () => {
     expect(cut.edgeAttrNames.sort()).toEqual(Object.keys(g.edgeAttrs).sort());
     expect([...cut.pointIds].map((id) => [...hatch.pointIds].indexOf(id))).toEqual(g.keptIds);
     // an open chain's own cut column is just a column: it travels as one
-    const own = t.within(hatch.edgeAttributes({ cut: 3 }), rect(20, 15, 60, 50));
+    const own = t.within(hatch.edges.set({ cut: 3 }), rect(20, 15, 60, 50));
     expect([...own.edgeAttrs.cut].every((c) => c === 3)).toBe(true);
   });
 
@@ -204,7 +204,7 @@ describe('the closure decides', () => {
 
   it('an existing cut column is kept: its marks OR the closing marks', () => {
     const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 });
-    const marked = src.edgeAttributes({ cut: 1 });
+    const marked = src.edges.set({ cut: 1 });
     const area = circle(50, 50, 30);
     const plain = t.within(src, area);
     const out = t.within(marked, area);
@@ -213,7 +213,7 @@ describe('the closure decides', () => {
     expect(out.edgeAttrs.cut.every((c) => c === 1)).toBe(true);
     expect(out.edgeCount).toBe(plain.edgeCount);
     // A source with an unmarked column gets exactly the closing marks.
-    const zero = t.within(src.edgeAttributes({ cut: 0 }), area);
+    const zero = t.within(src.edges.set({ cut: 0 }), area);
     expect([...zero.edgeAttrs.cut]).toEqual([...plain.edgeAttrs.cut]);
   });
 });

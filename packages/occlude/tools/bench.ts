@@ -176,7 +176,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
   { name: 'travelTime', size: '100x100 at step 0.5 + isolines', load: fence('fields.md', 't.travelTime({ fromPoints: [[W * 0.78') },
   { name: 'spacefill ivy', size: 'spacing 0.4 mm', load: fence('images.md', 't.spacefill(circle(50, 50, 44)') },
   { name: 'residual portrait', size: '12000 candidate steps', load: fence('images.md', 't.residual(tone, { spacing: mm(0.7) })') },
-  { name: 'lattice gray-scott', size: '5000 steps, spacing 1', load: fence('fields.md', 'seeded.steps(5000') },
+  { name: 'lattice gray-scott', size: '5000 steps, spacing 1', load: fence('fields.md', 't.steps(5000, seeded') },
   { name: 'lattice physarum', size: '60 ticks', load: fence('reference/fields.mdx', 'SENSE = 5') },
   {
     name: 'palette/regions',

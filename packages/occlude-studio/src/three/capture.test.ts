@@ -23,7 +23,7 @@ describe('saved 3D input capture',()=>{
     expect(captured.scriptJs).toBe(context.scriptJs);
   });
   it('preserves seamed corner data through committed scene capture and JSON reopening',async()=>{
-    const model=box().cornerAttributes({uv:c=>[c.localIndex/3,c.face.index] as const});
+    const model=box().corners.set({uv:c=>[c.localIndex/3,c.face.index] as const});
     const scene=view(model,{camera:orthographic({eye:[3,4,5],target:[0,0,0],span:3}),pen:'ink'});
     const run=await compileSketchAsync(sketch({seed:42,pens:{ink:pen({width:mm(.3),color:'#000'})}},()=>scene));
     const captured=captureThree3(run,context)!;

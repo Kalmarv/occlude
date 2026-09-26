@@ -302,7 +302,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
       const t = make();
       // A long straight run, far from the centre, carried a long way: its
       // coordinate segment does not stay one.
-      const m = t.material(rect(20, 22, 40, 6)).attribute('w', (p) => p.x);
+      const m = t.material(rect(20, 22, 40, 6)).points.set('w', (p) => p.x);
       const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(80, 90, 2, t.space));
       const moved = m.transform(P);
       expect(moved.n).toBeGreaterThan(m.n);
@@ -399,7 +399,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
 
   it('shares a distributed edge column over the children by their share', () => {
     const t = disk();
-    const m = t.material(rect(20, 22, 40, 6)).edgeAttribute('len', () => 1, { transfer: 'distribute' });
+    const m = t.material(rect(20, 22, 40, 6)).edges.set('len', () => 1, { transfer: 'distribute' });
     const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(80, 90, 2, t.space));
     const moved = m.transform(P);
     expect(moved.edgeCount).toBeGreaterThan(m.edgeCount);

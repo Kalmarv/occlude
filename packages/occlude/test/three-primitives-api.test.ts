@@ -1,6 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {sphere,cylinder,cone,torus,type Mesh} from '../src/three/api/index.js';
 import {cross3,dot3,sub3} from '../src/three/math.js';
+import {toolkit} from './helpers/run.js';
 function manifold(s:Mesh,chi:number){
   expect(s.surface.edges.every(e=>e.faces.length===2)).toBe(true);
   expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
@@ -25,8 +26,8 @@ describe('common mesh primitive catalog',()=>{
  it('uses ordinary immutable attributes, frozen edits and shape-preserving subdivision',()=>{
   for(const source of [sphere(1,{segments:8,rings:4}),cylinder(1,2,{segments:8}),cone(1,2,{segments:8}),torus(1,.2,{segments:8,tubeSegments:4})]){
     const before=source.points.map(p=>[p.x,p.y,p.z]);
-    const refined=source.attribute('mobility',p=>p.z).faceAttribute('material','ink').subdivide().steps(2,(current,next)=>next.move(current.points,p=>[0,0,p.mobility*.1]));
-    expect(refined.faces.map(f=>f.material).every(v=>v==='ink')).toBe(true);expect(refined.iteration).toBe(2);expect(source.points.map(p=>[p.x,p.y,p.z])).toEqual(before);
+    const refined=toolkit().steps(2,source.points.set('mobility',p=>p.z).faces.set('material','ink').subdivide(),m=>m.displace(p=>[0,0,p.mobility*.1]));
+    expect(refined.faces.map(f=>f.material).every(v=>v==='ink')).toBe(true);expect(source.points.map(p=>[p.x,p.y,p.z])).toEqual(before);
     expect(source.surface).toEqual(source.scale(1).surface);
   }
  });

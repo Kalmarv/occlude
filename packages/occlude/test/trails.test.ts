@@ -9,7 +9,7 @@ const grid = (C: number, R: number, S = 10) => {
     if (i + 1 < C) edges.push([j * C + i, j * C + i + 1]);
     if (j + 1 < R) edges.push([j * C + i, (j + 1) * C + i]);
   }
-  return material(pts).withEdges(edges);
+  return material(pts, { edges });
 };
 const oddCount = (m: Material) => {
   const d = new Int32Array(m.n);
@@ -63,8 +63,8 @@ describe('trails', () => {
   it('a network with no odd vertex is one closed loop', () => {
     // A figure of eight: two loops sharing ONE vertex, which is therefore
     // degree 4 while every other vertex is degree 2.
-    const eight = material([[0, 0], [10, 0], [10, 10], [0, 10], [20, 10], [20, 20], [10, 20]])
-      .withEdges([[0, 1], [1, 2], [2, 3], [3, 0], [2, 4], [4, 5], [5, 6], [6, 2]]);
+    const eight = material([[0, 0], [10, 0], [10, 10], [0, 10], [20, 10], [20, 20], [10, 20]],
+      { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [2, 4], [4, 5], [5, 6], [6, 2]] });
     expect(oddCount(eight)).toBe(0);
     const t = eight.trails();
     expect(t.curves().length).toBe(1);
@@ -75,11 +75,11 @@ describe('trails', () => {
   });
 
   it('counts each component on its own, and leaves isolated rows out', () => {
-    const two = grid(3, 3).withEdges([[0, 1], [1, 2], [3, 4], [4, 5]]).trails();
+    const two = material(grid(3, 3).pts, { edges: [[0, 1], [1, 2], [3, 4], [4, 5]] }).trails();
     expect(components(two)).toBe(2);
     expect(two.curves().length).toBe(2);
     // A lone point is in no trail, exactly as the chain walk leaves it out.
-    const lonely = material([[0, 0], [5, 0], [50, 50]]).withEdges([[0, 1]]);
+    const lonely = material([[0, 0], [5, 0], [50, 50]], { edges: [[0, 1]] });
     const t = lonely.trails();
     expect(t.curves().length).toBe(1);
     expect(t.edgeCount).toBe(1);

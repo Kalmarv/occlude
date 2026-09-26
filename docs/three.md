@@ -1,6 +1,6 @@
 # 3D line art
 
-Ordinary sketches import their 3D vocabulary from `occlude/3d`: `plane`, `box`, `sphere`, `cylinder`, `cone`, `torus`, `mesh`, `sweep`, `revolve` and point `grid` build geometry; `subdivide`, `displace`, `steps`, `extrude` and attribute fields edit it as immutable values; `instanceOnPoints` repeats it; `intersections`, `mapSurface`, `isolines`, `trace` and `t.hatch` derive supported curves on it; `view` projects everything through a camera into the sketch's drawable frame, where ordinary `strokes`, clips, masks, labels and named pens apply. Nothing draws itself: geometry and marks stay inspectable data until a view interprets them. Hidden lines are computed by the exact geometric classifier on the CPU, in Studio's worker as in headless rendering, so both produce the same strokes; Studio's WebGPU device serves surface evaluation and the construction viewport. The strokes go through the same pen, preview, planning and export pipeline as 2D drawings. The explicit scene stages (`lineArt3`, feature masks, classification) remain available for advanced work at the end of this page.
+Ordinary sketches import their 3D vocabulary from `occlude/3d`: `plane`, `box`, `sphere`, `cylinder`, `cone`, `torus`, `mesh`, `sweep`, `revolve` and point `grid` build geometry; `subdivide`, `displace`, `extrude` and the `set` of each collection edit it as immutable values, and `t.steps` runs passes of them; `instanceOnPoints` repeats it; `intersections`, `mapSurface`, `isolines`, `trace` and `t.hatch` derive supported curves on it; `view` projects everything through a camera into the sketch's drawable frame, where ordinary `strokes`, clips, masks, labels and named pens apply. Nothing draws itself: geometry and marks stay inspectable data until a view interprets them. Hidden lines are computed by the exact geometric classifier on the CPU, in Studio's worker as in headless rendering, so both produce the same strokes; Studio's WebGPU device serves surface evaluation and the construction viewport. The strokes go through the same pen, preview, planning and export pipeline as 2D drawings. The explicit scene stages (`lineArt3`, feature masks, classification) remain available for advanced work at the end of this page.
 
 ## Procedural mesh values
 
@@ -8,9 +8,9 @@ Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = 
 
 `subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
 
-Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `attribute(name, field)` preserves types in later fields; `{ transfer: 'nearest' }` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Parent IDs remain available as provenance. Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
+Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `points.set(name, field)` writes a typed column and preserves its type in later fields; `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Parent IDs remain available as provenance. Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
 
-`displace(field)` is one immutable displacement pass: a triple per point, or a number along the vertex normal (`{ along: 'z' }` or a triple picks another direction). `steps(count, (current, next, k) => …, { every })` accumulates edits while reads remain frozen; the everyday step is the shorthand `steps(count, { move: p => [dx, dy, dz], set })` (a numeric move follows the vertex normal), which desugars to that rule over every point. Select from `current.points` inside each pass; a prior revision's selection is rejected. History includes the initial state, every requested completed iteration and the final state, with continuing `.iteration` counts. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
+`displace(field)` is one immutable displacement pass: a triple per point, or a number along the vertex normal (`{ along: 'z' }` or a triple picks another direction). A run is the 2D one: `t.steps(count, mesh, (m) => m.displace(…).points.set(…), { every })`. A pass takes the geometry and returns the next; a field in a write reads the rows as they were before that write. With `{ every }`, `history` is a plain list of the initial state, every requested step and the final state. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
 
 ```ts live
 import { sketch, paper, pen, mm, inch } from 'occlude';
@@ -20,12 +20,12 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
   ink: pen({ width: mm(0.3), color: '#18202A' }),
   shade: pen({ width: mm(0.18), color: '#A84932' }),
 } }, t => {
-  const terrain = plane(5, 5).subdivide(3)
-    .attribute('mobility', p => Math.max(0, 1 - Math.hypot(p.x, p.y) / 3))
-    .displace(p => [0, 0, t.noise(p.x * 0.7, p.y * 0.7) * 0.7])
-    .steps(4, (current, next, k) => {
-      next.move(current.points, p => [0, 0, Math.sin(p.x + k * 0.1) * p.mobility * 0.03]);
-    });
+  const rest = plane(5, 5).subdivide(3)
+    .points.set({ mobility: p => Math.max(0, 1 - Math.hypot(p.x, p.y) / 3), phase: 0 })
+    .displace(p => [0, 0, t.noise(p.x * 0.7, p.y * 0.7) * 0.7]);
+  const terrain = t.steps(4, rest, m => m
+    .displace(p => [0, 0, Math.sin(p.x + p.phase) * p.mobility * 0.03])
+    .points.set('phase', p => p.phase + 0.1));
   return view([terrain, box([0.9, 0.9, 1.8]).translate([0, 0, 1])], {
     camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0], span: 10 }),
     pen: 'ink',
@@ -36,7 +36,7 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
 
 `view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default, or on an object to give it its own threshold: `torus(1.2, 0.1, { creaseAngle: 180 })` or `mesh.style({ creaseAngle: 60 })`; instances take their prototype's. 180 never draws an object's creases (smooth shading), 0 draws every fold. An object can likewise carry its own pen, `sphere(7, { pen: 'fine' })` or `mesh.style({ pen: 'fine' })`: the default drawing uses it for that object's lines and for its hatch where the recipe names no pen, and the view's `pen` covers the rest. `style(geometry, { pen, fillPen, creaseAngle })` is the one place to say how things are drawn: on a value or a list of them (`style(rings, { fillPen: 'red', creaseAngle: 180 })` returns the styled list), setting the fields named and keeping the rest, so styles compose. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
-Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
+Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faces.set` stores face fields and `edges.set` edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
 
 ## Interpreting projected intervals
 
@@ -83,7 +83,7 @@ lies in XY. Its radius measures the tube centerline, so its outer radius is
 radius; self-intersecting and pinched tori are not accepted.
 
 These are ordinary polygon meshes. They support the same attributes,
-selections, transforms, frozen steps and subdivision as imported geometry.
+selections, transforms, `t.steps` and subdivision as imported geometry.
 Increasing construction resolution samples the curved form more closely;
 `.subdivide()` preserves the existing polygon surface and does not round it.
 Seams share points and render triangulation does not add authoring edges.
@@ -114,10 +114,10 @@ explicit Letter paper.
 import {sketch,paper,pen,mm,inch} from 'occlude';
 import {plane,sphere,view,orthographic} from 'occlude/3d';
 export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),color:'#F5F0E6'}),margin:5,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},t=>{
-  const terrain=plane(6,6).subdivide(5)
-    .attribute('mobility',p=>Math.max(0,1-Math.hypot(p.x,p.y)/3))
-    .displace(p=>[0,0,t.noise(p.x*.7,p.y*.7)*.8])
-    .steps(8,(current,next,k)=>next.move(current.points,p=>[0,0,Math.sin(p.x+k*.1)*p.mobility*.01]));
+  const rest=plane(6,6).subdivide(5)
+    .points.set({mobility:p=>Math.max(0,1-Math.hypot(p.x,p.y)/3),phase:0})
+    .displace(p=>[0,0,t.noise(p.x*.7,p.y*.7)*.8]);
+  const terrain=t.steps(8,rest,m=>m.displace(p=>[0,0,Math.sin(p.x+p.phase)*p.mobility*.01]).points.set('phase',p=>p.phase+.1));
   return view([terrain,sphere(.8).translate([0,0,1.6])],{
     camera:orthographic({eye:[6,8,5],target:[0,0,0],span:12}),pen:'ink',
     hatch:{spacing:mm(1.4),angle:35,pen:'shade'},
@@ -136,7 +136,7 @@ source rows. No prototype topology is copied while placing or editing instances.
 
 Use `.instances` for `map`, `filter`, `groupBy` and `extract`. Each row contains
 `id`, `index`, `source`, `transform`, an attribute map, and flattened attributes
-copied from its source point. `.attribute(name, field)` adds or replaces a typed
+copied from its source point. `.instances.set(name, field, where?)` adds or replaces a typed
 instance column. `.transform(field)` replaces the supplied `translate`,
 `rotate` or `scale` components and retains omitted components; `.translate(field)`
 adds a world-space displacement. Scale, then rotation, then translation apply
@@ -168,7 +168,7 @@ import {sketch,pen,mm} from 'occlude';
 import {grid,cone,instanceOnPoints,view,perspective} from 'occlude/3d';
 export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},t=>{
   const sites=grid({cols:6,rows:6,spacing:1.2})
-    .attribute('height',()=>t.rnd(.5,1.8));
+    .points.set('height',()=>t.rnd(.5,1.8));
   const forms=instanceOnPoints(cone(.4,1),sites.points,{scale:p=>[1,1,p.height]});
   return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),pen:'ink'});
 });
@@ -217,7 +217,7 @@ revision causes preparation again. Diagnostics report `targetCacheHit` and
 not manage GPU buffers or device lifetime.
 
 Reusable `force` recipes are ordinary CPU fields evaluated against each
-iteration's current points:
+step's current points:
 
 - `force.attract(target, {strength = 1})` moves toward a world point;
 - `force.plane({origin, normal, side, strength = 1})` corrects violations of
@@ -225,10 +225,10 @@ iteration's current points:
   distance). Normal magnitude is irrelevant; strength lies between 0 and 1;
 - `force.project(preparedQuery, {strength = 1, within?})` moves toward the
   nearest surface, returning zero for a miss;
-- `force.sum(...forces)` adds displacements and forwards the iteration number.
+- `force.sum(...forces)` adds displacements.
 
-Use separate frozen passes when a constraint must observe another force's
-committed move. Summing forces evaluates all of them on the same input.
+Use separate passes when a constraint must observe another force's
+move. Summing forces evaluates all of them on the same input.
 Arbitrary JavaScript force functions are not compiled or reevaluated on the GPU.
 The advanced module retains packed deformation/query access for that purpose.
 
@@ -243,17 +243,17 @@ import {plane,query,force,view,orthographic} from 'occlude/3d';
 export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},async t=>{
   const pull=force.attract([0,0,.4],{strength:.015});
   const ceiling=force.plane({origin:[0,0,.8],normal:[0,0,1],side:'below'});
-  let terrain=plane(4,4).subdivide(4).displace(p=>[0,0,t.noise(p.x,p.y)*.9])
-    .steps(4,(current,next)=>next.move(current.points,pull),(current,next)=>next.move(current.points,ceiling));
-  const roof=plane(3,3).rotate([0,15,0]).translate([0,0,.4]).faceAttribute('roof',true);
+  let terrain=t.steps(4,plane(4,4).subdivide(4).displace(p=>[0,0,t.noise(p.x,p.y)*.9]),
+    m=>m.displace(pull),m=>m.displace(ceiling));
+  const roof=plane(3,3).rotate([0,15,0]).translate([0,0,.4]).faces.set('roof',true);
   const target=query(roof),batch=target.batch(t);
   const roofHits=await batch.rays(terrain.points,{origin:p=>[p.x,p.y,3],direction:[0,0,-2]});
   const nearby=await batch.nearest(terrain.points,{within:.35});
-  const captured = terrain.attributes({
+  const captured = terrain.points.set({
     ceiling: roofHits.field((_, hit) => hit?.position[2] ?? 2),
     nearRoof: nearby.field((_, hit) => hit !== null),
   }).displace(p => [0, 0, Math.min(0, p.ceiling - p.z)]);
-  const drawing = captured.faceAttribute('shade', f => f.points.some(p => p.nearRoof));
+  const drawing = captured.faces.set('shade', f => f.points.some(p => p.nearRoof));
   return view(drawing,{camera:orthographic({eye:[6,8,5],target:[0,0,.2],span:7.5}),pen:'ink',hatch:{spacing:mm(1.8),angle:35,pen:'shade',select:f=>f.shade}});
 });
 ```
@@ -274,9 +274,9 @@ sampling or topology allocation. Adjacent duplicate points and malformed or non-
 rejected. A circle has at least three segments. Geometry coordinates are world
 units; `view` handles camera projection into the explicit paper frame.
 
-Curves expose `.points`, `.edges`, typed `.attribute` / `.edgeAttribute`, selection
-and extraction, `.translate`, `.rotate`, `.scale`, `.displace` and frozen `.steps`.
-Their point passes and history follow mesh semantics. Curve edits keep point and
+Curves expose `.points` and `.edges` with their typed `set`, selection
+and extraction, `.translate`, `.rotate`, `.scale` and `.displace`, and run in
+`t.steps` as meshes do, history included. Curve edits keep point and
 edge IDs and attributes; extracted mesh edges retain those same IDs while
 becoming independent curve geometry. Curves have no face domain. Extracting
 points removes connectivity; extracting edges retains only their used points.
@@ -293,7 +293,7 @@ import { box, circle, curve, parametricCurve, view, orthographic } from 'occlude
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
-} }, () => {
+} }, t => {
   const block = box([1.6, 1.6, 2]);
   const spiral = parametricCurve(t => [
     1.5 * Math.cos(t * Math.PI * 6),
@@ -301,9 +301,8 @@ export default sketch({ seed: 42, pens: {
     (t - 0.5) * 3.5,
   ], { segments: 180 });
   const ring = circle(1.2, { segments: 64 }).translate([0, 0, 2.1]);
-  const path = curve([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
-    .attribute('lift', p => p.index === 1 ? 0.25 : 0)
-    .steps(3, { move: p => [0, 0, p.lift] });
+  const path = t.steps(3, curve([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
+    .points.set('lift', p => p.index === 1 ? 0.25 : 0), c => c.displace(p => [0, 0, p.lift]));
   const frame = box([4.4, 4.4, 4.4]).edges
     .filter(e => e.a.z < 0 && e.b.z < 0).extract();
   return view([block, spiral, ring, path, frame], {
@@ -342,8 +341,8 @@ once. `twist` is a total angle in degrees distributed along path length; closed
 paths require whole turns. `caps: true` closes the two ends of an open path with
 a closed profile. Closed paths share their seam; an open profile stays a ribbon.
 
-Both operations return ordinary meshes. Subdivision, displacement, frozen
-steps, queries, face selection, hatching, instancing and the normal view all
+Both operations return ordinary meshes. Subdivision, displacement,
+`t.steps`, queries, face selection, hatching, instancing and the normal view all
 continue to work. Revolve copies profile point attributes and transfers profile
 edge attributes to side faces. Sweep combines path and profile point columns
 and transfers both edge domains to side faces; profile columns win name
@@ -374,12 +373,12 @@ export default sketch({ seed: 42, pens: {
     [0, 0, -1.3], [0.8, 0, -1.3], [1, 0, -0.6],
     [0.7, 0, 0.3], [0.45, 0, 0.7], [0.5, 0, 1.3],
   ]), { segments: 40 }).translate([-1.7, 0, 0])
-    .faceAttribute('shade', f => f.normal[2] > 0);
+    .faces.set('shade', f => f.normal[2] > 0);
   const route = parametricCurve(t => [
     0.7 * Math.cos(t * Math.PI * 4),
     0.7 * Math.sin(t * Math.PI * 4),
     (t - 0.5) * 3,
-  ], { segments: 64 }).attribute('radius', p => 0.8 + 0.2 * Math.cos(p.z * 2));
+  ], { segments: 64 }).points.set('radius', p => 0.8 + 0.2 * Math.cos(p.z * 2));
   const tube = sweep(circle(0.16, { segments: 16 }), route, {
     caps: true, scale: p => p.radius,
   }).translate([1.4, 0, 0]);
@@ -458,11 +457,11 @@ export default sketch({ seed: 42, pens: {
 } }, t => {
   const terrain = plane(5).subdivide(4)
     .displace(p => [0, 0, 0.6 * t.noise(p.x * 0.5, p.y * 0.5)])
-    .faceAttribute('ground', true);
+    .faces.set('ground', true);
   const sites = t.scatter(terrain, {
     spacing: 0.45, maxPoints: 70, maxAttempts: 4000,
     weight: f => f.normal[2] > 0.85 ? 1 : 0,
-  }).attribute('height', p => 0.8 + 0.4 * t.noise(p.x, p.y));
+  }).points.set('height', p => 0.8 + 0.4 * t.noise(p.x, p.y));
   const trees = instanceOnPoints(cone(0.14, 0.7, { segments: 8 }).translate([0, 0, 0.35]), sites.points, {
     scale: p => [1, 1, p.height],
     rotate: p => alignAxis('z', p.sample.normal),
@@ -517,7 +516,7 @@ export default sketch({ seed: 42, pens: {
   section: pen({ width: mm(0.25), color: '#A84932' }),
 } }, () => {
   const model = box([2.4, 1.8, 2.8])
-    .faceAttribute('spacing', f => f.normal[2] > 0 ? 2 : 3);
+    .faces.set('spacing', f => f.normal[2] > 0 ? 2 : 3);
   return view(model, {
     camera: orthographic({ eye: [5, 7, 6], span: 5 }), pen: 'ink',
     hatch: [
@@ -603,7 +602,7 @@ This relief uses one batched roof query. The resulting field reads each source
 point and its captured hit directly; points outside the roof keep their original
 height. Query fields work with ordinary geometry fields and do not submit GPU
 work when evaluated. To retain a measurement through later motion, first call
-`mesh.attribute('restDistance', hits.field((point, hit) => hit?.distance ?? 10))`,
+`mesh.points.set('restDistance', hits.field((point, hit) => hit?.distance ?? 10))`,
 then transform that returned mesh. The attribute is intentionally a stored
 measurement; it does not become a fresh spatial query after the move.
 
@@ -634,28 +633,28 @@ export default sketchAsync({ seed: 42, pens: {
 });
 ```
 
-### Evolving attributes in frozen passes
+### Evolving attributes in passes
 
-Initialize several columns with `.attributes({ name: field, ... })`. Every field
-reads the same incoming geometry, including when it replaces an existing column.
-Meshes and curves also have `.edgeAttributes`; meshes have `.faceAttributes`.
-Mesh point transfer policies can be set with
-`.attributes(fields, { transfer: { category: 'nearest' } })` and survive later
-attribute replacement unless explicitly changed.
+Write several columns at once with `.points.set({ name: field, ... })`. Every
+field reads the same incoming geometry, including when it replaces an existing
+column. Edges, faces and corners have the same write: `mesh.edges.set`,
+`mesh.faces.set` and `mesh.corners.set`. A mesh point column declares its
+transfer policy with a trailing record, `.points.set('category', field, { transfer: 'nearest' })`,
+or `{ transfer: { category: 'nearest' } }` after the record form; a later value
+keeps the declared policy.
 
-Within `.steps`, `next.set(points, field)` merges a partial attribute record into
-selected points. It also accepts a single point row. `next.setEdges` and
-`next.setFaces` update their corresponding domains; `next.setEdge` and
-`next.setFace` accept single rows. Initialize columns before stepping: edits
-preserve each column's value kind and numeric-vector dimension. Literal values
-such as `0` widen to `number` in the evolving state.
+A run is `t.steps(n, mesh, (m) => …)`, and a pass writes with the same `set`. A
+`where` after the value writes only some rows: a selection, one row, or a test
+of the row. A column keeps its value kind and numeric-vector dimension; a
+literal such as `0` widens to `number`. A value that is not finite leaves its
+row as it was.
 
-All reads in a pass see its incoming state. Moves accumulate; the last write to
-each attribute wins. Separate passes observe the preceding pass's committed
-state. Callbacks must be synchronous, and an editor cannot escape its pass.
-Point clouds and surface samples also support `.steps`, rotation and scaling.
-Samples retain their captured surface interpretation in fields and history;
-moving a sample point does not reproject its original surface location.
+Each write reads the geometry it is called on, so a chain of writes sees every
+write before it, and a pass sees the result of the pass before it. Callbacks
+must be synchronous. Point clouds and surface samples also run in `t.steps` and
+support rotation and scaling. Samples retain their captured surface
+interpretation in fields and history; moving a sample point does not reproject
+its original surface location.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -663,13 +662,12 @@ import { plane, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
-} }, () => {
-  const sheet = plane(4).subdivide(3)
-    .attributes({ age: 0, velocity: p => 0.08 * Math.cos(p.x) * Math.cos(p.y) })
-    .steps(6, (current, next) => {
-      next.set(current.points, p => ({ age: p.age + 1, velocity: p.velocity * 0.9 }));
-      next.move(current.points, p => [0, 0, p.velocity]);
-    });
+} }, t => {
+  const start = plane(4).subdivide(3)
+    .points.set({ age: 0, velocity: p => 0.08 * Math.cos(p.x) * Math.cos(p.y) });
+  const sheet = t.steps(6, start, m => m
+    .displace(p => [0, 0, p.velocity])
+    .points.set({ age: p => p.age + 1, velocity: p => p.velocity * 0.9 }));
   return view(sheet, {
     camera: orthographic({ eye: [5, 7, 5], target: [0, 0, 0], span: 6 }),
     pen: 'ink',
@@ -777,7 +775,7 @@ from `occlude/3d` creates centered point geometry in model coordinates. A scalar
 spacing applies to every axis; an XYZ triple sets each axis separately. One
 layer gives an XY grid. Counts are nonnegative integers, spacing is positive,
 and the point budget is checked before allocation. A zero count gives an empty
-grid. Use ordinary `.translate`, `.rotate`, `.scale`, `.attributes` and `.steps`
+grid. Use ordinary `.translate`, `.rotate`, `.scale`, `.points.set` and `t.steps`
 to place and edit the result.
 
 Each point has `i`, `j` and `k` attributes for its column, row and layer. X varies
@@ -791,23 +789,21 @@ A corner is a point as used by one polygon. A box has eight geometric points
 and 24 corners, so neighboring faces can keep different values at a shared
 point. Corners do not duplicate or move geometric points.
 
-Use `.cornerAttributes({ name: valueOrField })` or
-`.cornerAttribute(name, valueOrField)` to initialize columns. A corner exposes
+Use `.corners.set({ name: valueOrField })` or
+`.corners.set(name, valueOrField, where?)` to write columns. A corner exposes
 `point`, `face`, `localIndex`, and the ordinary row identity and attributes.
 `face.corners` and `point.corners` are owned collections; face and point
 selections also provide `.corners()`. A corner selection can recover `.points`
 and `.faces()`. Its `.extract()` returns readonly corner rows, since corners
 alone do not define a mesh.
 
-`next.setCorner(row, patch)` and `next.setCorners(selection, patchOrField)`
-update initialized columns in frozen `.steps` passes. Every field reads the
-incoming revision, including fields reached through another domain. As with
-point and face state, assignments merge by column and the last assignment wins.
+The same `corners.set` writes columns in the passes of `t.steps`. Every field
+reads the incoming revision, including fields reached through another domain.
 
 Transforms, face extraction and realization preserve corner values and their
 provenance. Subdivision interpolates numeric columns within each parent face;
 it never averages across a seam. Categorical columns use a deterministic
-source, and `{ transfer: { label: 'nearest' } }` preserves numeric labels.
+source, and `corners.set('label', field, { transfer: 'nearest' })` preserves numeric labels.
 If a quad's numeric corner field is not affine, subdivision refines its fixed
 triangles to preserve the field across the original diagonal. Missing columns
 remain missing. Corner attributes store data; drawing remains explicit.
@@ -823,18 +819,15 @@ import { plane, view, orthographic } from 'occlude/3d';
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
   warm: pen({ width: mm(0.2), color: '#A84932' }),
-} }, () => {
-  const sheet = plane(4, 4).subdivide(3)
-    .cornerAttributes({
-      heat: c => Math.max(0, 1 - Math.hypot(c.face.centroid[0] + 0.7, c.point.y) / 2),
-    })
-    .steps(4, (current, next) => {
-      next.setCorners(current.corners, c => ({
-        heat: 0.5 * meanBy(c.point.corners, p => p.heat)
-          + 0.5 * meanBy(c.face.corners, p => p.heat),
-      }));
-    })
-    .faceAttributes({ heat: f => meanBy(f.corners, c => c.heat) })
+} }, t => {
+  const start = plane(4, 4).subdivide(3).corners.set({
+    heat: c => Math.max(0, 1 - Math.hypot(c.face.centroid[0] + 0.7, c.point.y) / 2),
+  });
+  const sheet = t.steps(4, start, m => m.corners.set({
+    heat: c => 0.5 * meanBy(c.point.corners, p => p.heat)
+      + 0.5 * meanBy(c.face.corners, p => p.heat),
+  }))
+    .faces.set({ heat: f => meanBy(f.corners, c => c.heat) })
     .displace(p => [0, 0, meanBy(p.corners, c => c.heat)]);
   return view(sheet, {
     camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.3], span: 5.5 }),
@@ -894,7 +887,7 @@ import { plane, box, instanceOnPoints, alignAxis, view, orthographic } from 'occ
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
 } }, t => {
-  const rest = plane(2.6, 2.6).subdivide(3).cornerAttributes({
+  const rest = plane(2.6, 2.6).subdivide(3).corners.set({
     uv: c => [(c.point.x + 1.3) / 2.6, (c.point.y + 1.3) / 2.6],
     chart: 'sheet',
   });
@@ -1018,7 +1011,7 @@ export default sketchAsync({ seed: 42, pens: {
 ```
 
 The result is ordinary editable point geometry: select, capture attributes,
-transform, run frozen steps, issue spatial queries from its points, or instance
+transform, run `t.steps`, issue spatial queries from its points, or instance
 another mesh on them. Each point's `sample` retains its curve chain, source
 parameter, world tangent and exact position. Spacing uses a floating arc-length
 metric; each resulting attachment is constructed exactly on its support triangles.
@@ -1090,7 +1083,7 @@ export default sketch({ seed: 42, pens: {
   const sites = t.sample(rest, { count: 320 }).points
     .filter(p => Math.floor(p.sample.cornerAttributes.uv[0] * 8) % 2 === 0).extract();
   const sheet = rest.displace(p => [0, 0, 0.45 * Math.sin(p.x * 1.8) * Math.cos(p.y)]);
-  const marks = instanceOnPoints(box([0.04, 0.04, 0.08]).faceAttribute('mark', true), sites.rebind(sheet).points, {
+  const marks = instanceOnPoints(box([0.04, 0.04, 0.08]).faces.set('mark', true), sites.rebind(sheet).points, {
     rotate: p => alignAxis('z', p.sample.normal),
   });
   return [
@@ -1108,7 +1101,7 @@ export default sketch({ seed: 42, pens: {
 Custom meshes use the same corner columns:
 
 ```ts
-const charted = model.cornerAttributes({
+const charted = model.corners.set({
   uv: c => [c.point.x / 4, c.point.y / 3] as const,
   chart: 'sheet',
 });
@@ -1444,8 +1437,8 @@ remains the advanced `extrudeFaces3`. Walls carry a side chart
 `key:side:<component>` with `uv = [loop fraction, 0|1]`, so surface patterns
 on the result can address caps and walls separately through `chart`.
 
-Attributes evolve in frozen passes first: here a face field is diffused with
-`next.setFaces` over several steps, the warm region is selected with ordinary
+Attributes evolve in passes first: here a face field is diffused with
+`faces.set` over several steps of `t.steps`, the warm region is selected with ordinary
 collections, extruded as one region, and shaded through the same surface
 fields as any other mesh.
 
@@ -1457,13 +1450,11 @@ export default sketchAsync({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
   shade: pen({ width: mm(0.18), color: '#56626A' }),
 } }, async t => {
-  const sheet = plane(4, 4).subdivide(3)
-    .faceAttributes({ heat: f => Math.exp(-3 * (f.centroid[0] ** 2 + f.centroid[1] ** 2)) })
-    .steps(4, (current, next) => {
-      next.setFaces(current.faces, f => ({
-        heat: 0.5 * f.heat + 0.5 * meanBy(f.adjacent, a => a.heat),
-      }));
-    });
+  const start = plane(4, 4).subdivide(3)
+    .faces.set({ heat: f => Math.exp(-3 * (f.centroid[0] ** 2 + f.centroid[1] ** 2)) });
+  const sheet = t.steps(4, start, m => m.faces.set({
+    heat: f => 0.5 * f.heat + 0.5 * meanBy(f.adjacent, a => a.heat),
+  }));
   const warm = sheet.faces.filter(f => f.heat > 0.2);
   const model = sheet.extrude(warm, { distance: 0.7 }, { key: 'plateau' });
   const marks = await t.hatch(model, {

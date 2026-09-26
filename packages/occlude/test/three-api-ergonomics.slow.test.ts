@@ -1,12 +1,13 @@
 import {describe,expect,it} from 'vitest';
 import {plane,box,sphere,cylinder,torus,mesh,curve,pointCloud,style,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,perspective,axisAngle} from '../src/three/api/index.js';
 import {lightTone3,lightRecipe3} from '../src/three/surface/tone.js';
-import {sketch,sketchAsync,compileSketch,compileSketchAsync,material,pen,mm,strokes,isSketchAsync,exportSvg,initOcclude} from '../src/index.js';
+import {sketch,sketchAsync,compileSketch,compileSketchAsync,pen,mm,strokes,isSketchAsync,exportSvg,initOcclude} from '../src/index.js';
 import {readFileSync} from 'node:fs';
 import {beforeAll} from 'vitest';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 import type {ProjectedLines} from '../src/three/api/projected.js';
 import type {Vec3} from '../src/three/math.js';
+import {toolkit} from './helpers/run.js';
 
 const near=(a:readonly number[],b:readonly number[],eps=1e-9)=>a.every((v,i)=>Math.abs(v-b[i])<eps);
 const centroid=(g:{readonly points:Iterable<{x:number;y:number;z:number}>}):Vec3=>{const rows=[...g.points];return rows.reduce<Vec3>((s,p)=>v3.add(s,[p.x,p.y,p.z]),[0,0,0]).map(v=>v/rows.length) as unknown as Vec3;};
@@ -43,7 +44,7 @@ describe('projected curve shorthands and pens',()=>{
 
 describe('isolines',()=>{
   it('take one of count, spacing or levels and read point coordinates and attributes on the row',()=>{
-    const sheet=plane(2,2).subdivide(3).displace(p=>p.x).attributes({h:p=>p.z*2});
+    const sheet=plane(2,2).subdivide(3).displace(p=>p.x).points.set({h:p=>p.z*2});
     const a=isolines(sheet,p=>p.z,{count:4}),b=isolines(sheet,'h',{spacing:.5}),c=isolines(sheet,c=>c.uv[0],[.5]);
     expect(a.edges.length).toBeGreaterThan(0);expect(b.edges.length).toBeGreaterThan(0);expect(c.edges.length).toBeGreaterThan(0);
     expect(()=>isolines(sheet,p=>p.z,{} as never)).toThrow('one of { count } or { spacing }');
@@ -119,27 +120,27 @@ describe('object origin and rotation',()=>{
 });
 
 describe('mesh editing shorthands',()=>{
-  it('faces is a getter, displace takes a scalar along the normal, steps takes {move,set}',()=>{
+  it('faces is a getter, displace takes a scalar along the normal, a run takes one-argument passes',()=>{
     const s=sphere(1,{segments:8,rings:4});
     expect(s.faces.length).toBeGreaterThan(0);
     const puffed=s.displace(.5),radii=[...puffed.points].map(p=>Math.hypot(p.x,p.y,p.z));
     expect(Math.max(...radii.map(r=>Math.abs(r-1.5)))).toBeLessThan(.05);
     const lifted=plane(1,1).displace(2,{along:'z'});
     expect(lifted.points.every(p=>Math.abs(p.z-2)<1e-12)).toBe(true);
-    const stepped=plane(1,1).steps(3,{move:_p=>[0,0,1]});
+    const t=toolkit();
+    const stepped=t.steps(3,plane(1,1),m=>m.displace([0,0,1]));
     expect(stepped.points.every(p=>Math.abs(p.z-3)<1e-12)).toBe(true);
-    const set=plane(1,1).attributes({n:()=>0}).steps(2,{set:p=>({n:p.attributes.n+1}),move:p=>[0,0,p.attributes.n]});
-    // set runs before move within a step: z climbs 0 then 1 → 1 total; n reaches 2.
+    const set=t.steps(2,plane(1,1).points.set('n',0),m=>m.points.set('n',p=>p.n+1),m=>m.displace(p=>[0,0,p.n-1]));
+    // The passes of one step run in order: n reaches 1 before the first move, so z climbs 0 then 1.
     expect(set.points.every(p=>p.attributes.n===2&&Math.abs(p.z-1)<1e-12)).toBe(true);
-    // Point and curve geometry take the same shorthand; a scalar has no normal to follow there.
-    const line=curve([[0,0,0],[1,0,0]]).steps(2,{move:p=>[0,0,p.x]});
+    // Point and curve geometry run the same way; a scalar has no normal to follow there, and moves nothing.
+    const line=t.steps(2,curve([[0,0,0],[1,0,0]]),c=>c.displace(p=>[0,0,p.x]));
     expect([...line.points].map(p=>p.z)).toEqual([0,2]);
-    expect(()=>curve([[0,0,0],[1,0,0]]).steps(1,{move:_p=>1})).toThrow('vertex normal');
-    expect(()=>plane(1,1).steps(1,{})).toThrow('move field');
-    expect([...pointCloud([[0,0,0]]).steps(1,{move:_p=>[1,1,1]}).points][0].x).toBe(1);
+    expect([...curve([[0,0,0],[1,0,0]]).displace(1).points].map(p=>p.z)).toEqual([0,0]);
+    expect([...t.steps(1,pointCloud([[0,0,0]]),g=>g.displace([1,1,1])).points][0].x).toBe(1);
   });
   it('collections reduce numeric attributes and smooth averages neighbours',()=>{
-    const sheet=plane(2,2).subdivide(2).attributes({h:p=>p.x>0?1:0});
+    const sheet=plane(2,2).subdivide(2).points.set({h:p=>p.x>0?1:0});
     expect(sheet.points.sum('h')).toBeGreaterThan(0);expect(sheet.points.max('h')).toBe(1);expect(sheet.points.min('h')).toBe(0);
     expect(sheet.points.mean('h')).toBeCloseTo(sheet.points.sum('h')/sheet.points.length);
     const soft=sheet.smooth('h',{steps:4});
@@ -209,17 +210,17 @@ describe('per-object pen',()=>{
     const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
     const pens={ink:pen({width:mm(.2),color:'#111111'}),fine:pen({width:mm(.1),color:'#22aa22'}),red:pen({width:mm(.3),color:'#aa2222'})};
     const svg=(geometry:Parameters<typeof view>[0],options:Partial<Parameters<typeof view>[1]>={})=>compileSketchAsync(sketch({seed:1,pens},()=>view(geometry as never,{camera,pen:'ink',...options} as never))).then(run=>exportSvg(run));
-    const ball=sphere(.8,{segments:12,rings:6,pen:'fine'}).faceAttribute('h',true),cube=box(1).translate([2,0,0]);
+    const ball=sphere(.8,{segments:12,rings:6,pen:'fine'}).faces.set('h',true),cube=box(1).translate([2,0,0]);
     const plain=await svg([cube,ball]);
     expect(plain).toContain('#111111');expect(plain).toContain('#22aa22');expect(plain).not.toContain('#aa2222');
     const hatched=await svg([cube,ball],{hatch:[{spacing:mm(2),angle:0,select:(f:any)=>f.h===true},{spacing:mm(3),angle:90,pen:'red',select:(f:any)=>f.h===true}]});
     // Hatch without a pen follows the object; a recipe pen wins.
     expect(hatched).toContain('#aa2222');
     // A recipe pen may be a field over the face: tagged faces in another pen, one recipe.
-    const tagged=await svg([cube.faceAttribute('ring',true),sphere(.8,{segments:12,rings:6}).faceAttribute('h',true)],{hatch:{spacing:mm(2),angle:0,pen:(f:any)=>f.ring?'red':'fine',select:(f:any)=>f.ring===true||f.h===true}});
+    const tagged=await svg([cube.faces.set('ring',true),sphere(.8,{segments:12,rings:6}).faces.set('h',true)],{hatch:{spacing:mm(2),angle:0,pen:(f:any)=>f.ring?'red':'fine',select:(f:any)=>f.ring===true||f.h===true}});
     expect(tagged).toContain('#aa2222');expect(tagged).toContain('#22aa22');
     // An object fillPen takes hatch recipes that name no pen; the outline keeps the view's pen.
-    const filled=await svg([cube,sphere(.8,{segments:12,rings:6,fillPen:'red'}).faceAttribute('h',true)],{hatch:{spacing:mm(2),angle:0,select:(f:any)=>f.h===true}});
+    const filled=await svg([cube,sphere(.8,{segments:12,rings:6,fillPen:'red'}).faces.set('h',true)],{hatch:{spacing:mm(2),angle:0,select:(f:any)=>f.h===true}});
     expect(filled).toContain('#aa2222');expect(filled).toContain('#111111');expect(filled).not.toContain('#22aa22');
     expect(sphere(1).style({fillPen:'red'}).translate([1,0,0]).fillPen).toBe('red');
     const viewOnly=await svg([cube,sphere(.8,{segments:12,rings:6})]);
@@ -274,15 +275,7 @@ describe('vector helpers and light floor',()=>{
   });
 });
 
-describe('2D steps shorthand and toolkit noise',()=>{
-  it('material.steps takes {move,set}',()=>{
-    const m=material([{x:0,y:0},{x:1,y:0}]);
-    const moved=m.steps(2,{move:_p=>[0,1]});
-    expect(moved.y.every(y=>Math.abs(y-2)<1e-12)).toBe(true);
-    const both=m.attribute('n',()=>0).steps(2,{set:p=>({n:p.n+1}),move:p=>[p.n,0]});
-    expect(both.x[0]).toBeCloseTo(1);expect(both.attrs.n[0]).toBe(2);
-    expect(()=>m.steps(1,{} as never)).toThrow('move field');
-  });
+describe('toolkit noise',()=>{
   it('t.noise takes a point row or triple with wavelength and amount',()=>{
     let seen:number[]=[];
     compileSketch(sketch({seed:7},t=>{

@@ -17,18 +17,18 @@ describe('transported profile sweeps',()=>{
   expect(solid.surface).toEqual(sweep(profile,path,{caps:true,normal:[1,0,0]}).surface);
  });
  it('captures typed path fields and merges attributes with explicit profile precedence',()=>{
-  const profile=circle(.5,{segments:8}).attribute('tag','profile').attribute('weight',2).edgeAttribute('material','ink');
-  const path=curve([[0,0,0],[0,0,1],[0,0,2]]).attribute('tag','path').attribute('height',p=>p.index+1).edgeAttribute('section',e=>e.index);
+  const profile=circle(.5,{segments:8}).points.set('tag','profile').points.set('weight',2).edges.set('material','ink');
+  const path=curve([[0,0,0],[0,0,1],[0,0,2]]).points.set('tag','path').points.set('height',p=>p.index+1).edges.set('section',e=>e.index);
   let calls=0;
   const solid=sweep(profile,path,{normal:[1,0,0],twist:90,scale:p=>{calls++;expect(p).toBe(path.points.at(p.index));return p.height;},caps:true});
-  expect(calls).toBe(3);expectTypeOf(solid.points.at(0)!.height).toEqualTypeOf<number>();expectTypeOf(solid.points.at(0)!.weight).toEqualTypeOf<2>();
+  expect(calls).toBe(3);expectTypeOf(solid.points.at(0)!.height).toEqualTypeOf<number>();expectTypeOf(solid.points.at(0)!.weight).toEqualTypeOf<number>();
   expect(solid.points.map(p=>p.tag)).toEqual(Array(24).fill('profile'));
   expect(solid.points.at(0)).toMatchObject({x:.5,y:0,z:0,height:1});
   expect(solid.points.at(8)!.x).toBeCloseTo(Math.SQRT1_2,12);expect(solid.points.at(8)!.y).toBeCloseTo(Math.SQRT1_2,12);
   expect(solid.points.at(16)!.x).toBeCloseTo(0,12);expect(solid.points.at(16)!.y).toBeCloseTo(1.5,12);
   expect(solid.points.at(8)!.provenance!.parents).toEqual([profile.points.at(0)!.id,path.points.at(1)!.id]);
   expect(solid.faces.at(0)).toMatchObject({material:'ink',section:0});expect(solid.faces.at(-1)!.material).toBeUndefined();
-  const before=volume(solid),changed=solid.subdivide().displace(p=>[0,0,p.weight]).steps(1,(current,next)=>next.move(current.points,[0,0,1]));manifold(changed);expect(volume(changed)).toBeCloseTo(before,10);
+  const before=volume(solid),changed=solid.subdivide().displace(p=>[0,0,p.weight]).displace([0,0,1]);manifold(changed);expect(volume(changed)).toBeCloseTo(before,10);
   expect(path.points.at(0)!.z).toBe(0);
  });
  it('shares both closed seams and has the independent polygonal torus volume',()=>{

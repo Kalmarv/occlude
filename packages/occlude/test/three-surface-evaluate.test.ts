@@ -67,7 +67,7 @@ describe('CPU surface evaluation reference',()=>{
     const surface=box(1).surface;
     expect(()=>evaluateSurfaceCpu3({surface},{triangle:new Uint32Array([99]),weights:new Float32Array([1,0,0])})).toThrow('missing triangle');
     expect(()=>evaluateSurfaceCpu3({surface},{triangle:new Uint32Array([0]),weights:new Float32Array([0.5,0.5,0.5])})).toThrow('sum to one');
-    const plain=box(1).cornerAttributes({label:'x'}).surface,stripped={...plain,faces:plain.faces.map(f=>({...f,corners:f.corners!.map(c=>({...c,attributes:{label:'x'}}))}))};
+    const plain=box(1).corners.set({label:'x'}).surface,stripped={...plain,faces:plain.faces.map(f=>({...f,corners:f.corners!.map(c=>({...c,attributes:{label:'x'}}))}))};
     const packed=packSurfaceTarget3({surface:stripped});expect(packed.uv).toBeUndefined();
     const recipe:ImageRecipe3={kind:'image',name:'c',pixels:checkerboard(2,2),channel:'lum',origin:'bottom-left',wrap:'clamp',area:0,uvAttribute:'uv'};
     expect(evaluateSurfaceCpu3({surface:stripped},{triangle:new Uint32Array([0]),weights:new Float32Array([1,0,0])},recipe).tone![0]).toBe(0);

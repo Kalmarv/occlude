@@ -1,6 +1,7 @@
-import {Collection} from './collection.js';
-import {Mesh,PointGeometry,CurveGeometry,type PointRow,type EdgeRow,type FaceRow,type CornerRow,type EdgeAttributes} from './mesh.js';
-import {assembleSurface3,type Attributes3} from '../geometry/surface.js';
+import {Collection,type Where3} from './collection.js';
+import type {Field,AttributeFields,SetOptions3,SetManyOptions3,Widen3,Widened3,PointColumns3,PointFields3} from './columns.js';
+import {Mesh,PointGeometry,CurveGeometry,writeMesh3,type PointRow,type EdgeRow,type FaceRow,type CornerRow,type EdgeAttributes} from './mesh.js';
+import {assembleSurface3,type Attribute3,type Attributes3} from '../geometry/surface.js';
 import {faceGeometry3} from '../geometry/model.js';
 import {topology3,topologyConnected,topologyComponents,type SurfaceTopology3} from '../geometry/topology.js';
 import {sub3,add3,mul3} from '../math.js';
@@ -75,8 +76,20 @@ function context<P extends Attributes3,E extends EdgeAttributes,F extends Attrib
 const selectionContexts=new WeakMap<object,Context<any,any,any,any>>();
 export class MeshPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> extends Collection<MeshPointRow<P,E,F,C>,PointGeometry<P>> {
   constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){
-    super(ctx.mesh.surface,'point',ctx.points,ids=>new PointGeometry<P>(assembleSurface3(ids.map(i=>ctx.mesh.surface.points[i]),[],[])),indices,key);selectionContexts.set(this,ctx);
+    super(ctx.mesh.surface,'point',ctx.points,ids=>new PointGeometry<P>(assembleSurface3(ids.map(i=>ctx.mesh.surface.points[i]),[],[])),indices,key,write=>writeMesh3(ctx.mesh,'point',write));selectionContexts.set(this,ctx);
   }
+  /** The mesh with point columns set on these points, or on those `where`
+   * names among them: `set(column, value, where?, { transfer? })`, or
+   * `set({ column: value, … }, where?, { transfer: { column: policy } })`.
+   * A value is a number, string, boolean or numeric vector, or a function of
+   * the point; the record form reads every point as it was before the write.
+   * `x`, `y` and `z` are the position. `transfer` declares how the column
+   * refines (`'interpolate'`, the default, or `'nearest'`); setting a value
+   * keeps the declared policy. A value that is not finite leaves that point
+   * as it was, and a `where` that names nothing writes nothing. */
+  set<Name extends string,V extends Attribute3>(column:Name,value:Field<MeshPointRow<P,E,F,C>,V>,where?:Where3<MeshPointRow<P,E,F,C>>|SetOptions3,opts?:SetOptions3):Mesh<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,E,F,C>;
+  set<A extends Attributes3>(values:AttributeFields<MeshPointRow<P,E,F,C>,A>,where?:Where3<MeshPointRow<P,E,F,C>>|SetManyOptions3,opts?:SetManyOptions3):Mesh<PointFields3<P,NoInfer<A>>,E,F,C>;
+  set(...args:unknown[]):unknown{return this.write(args);}
   private get context():Context<P,E,F,C>{return selectionContexts.get(this)!;}
   protected derive(indices:readonly number[],key:unknown=this.key):this{return new MeshPoints(this.context,indices,key) as this;}
   get edges():MeshEdges<P,E,F,C>{return new MeshEdges(this.context,this.indices.flatMap(i=>this.context.topology.pointEdges[i]));}
@@ -99,8 +112,14 @@ export class MeshPoints<P extends Attributes3,E extends EdgeAttributes,F extends
 }
 export class MeshEdges<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> extends Collection<MeshEdgeRow<E,P,F,C>,CurveGeometry<P,E>> {
   constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){
-    super(ctx.mesh.surface,'edge',ctx.edges,ids=>new CurveGeometry<P,E>(ctx.mesh.surface,ids),indices,key);selectionContexts.set(this,ctx);
+    super(ctx.mesh.surface,'edge',ctx.edges,ids=>new CurveGeometry<P,E>(ctx.mesh.surface,ids),indices,key,write=>writeMesh3(ctx.mesh,'edge',write));selectionContexts.set(this,ctx);
   }
+  /** The mesh with edge columns set on these edges, or on those `where`
+   * names among them, as `points.set` writes points. Subdivision copies an
+   * edge's columns to its two halves, so an edge column has no transfer. */
+  set<Name extends string,V extends Attribute3>(column:Name,value:Field<MeshEdgeRow<E,P,F,C>,V>,where?:Where3<MeshEdgeRow<E,P,F,C>>):Mesh<P,Omit<E,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>,F,C>;
+  set<A extends Attributes3>(values:AttributeFields<MeshEdgeRow<E,P,F,C>,A>,where?:Where3<MeshEdgeRow<E,P,F,C>>):Mesh<P,Omit<E,keyof NoInfer<A>>&Widened3<NoInfer<A>>,F,C>;
+  set(...args:unknown[]):unknown{return this.write(args);}
   private get context():Context<P,E,F,C>{return selectionContexts.get(this)!;}
   protected derive(indices:readonly number[],key:unknown=this.key):this{return new MeshEdges(this.context,indices,key) as this;}
   get points():MeshPoints<P,E,F,C>{return new MeshPoints(this.context,this.indices.flatMap(i=>this.context.mesh.surface.edges[i].vertices));}
@@ -123,7 +142,13 @@ export class MeshEdges<P extends Attributes3,E extends EdgeAttributes,F extends 
   components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.edgeNeighbors).map(ids=>this.derive(ids)));}
 }
 export class MeshFaces<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> extends Collection<MeshFaceRow<F,P,E,C>,Mesh<P,E,F,C>> {
-  constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){super(ctx.mesh.surface,'face',ctx.faces,ids=>extractFaces(ctx.mesh,ids),indices,key);selectionContexts.set(this,ctx);}
+  constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){super(ctx.mesh.surface,'face',ctx.faces,ids=>extractFaces(ctx.mesh,ids),indices,key,write=>writeMesh3(ctx.mesh,'face',write));selectionContexts.set(this,ctx);}
+  /** The mesh with face columns set on these faces, or on those `where`
+   * names among them, as `points.set` writes points. Child faces inherit
+   * their parent's columns, so a face column has no transfer. */
+  set<Name extends string,V extends Attribute3>(column:Name,value:Field<MeshFaceRow<F,P,E,C>,V>,where?:Where3<MeshFaceRow<F,P,E,C>>):Mesh<P,E,Omit<F,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>,C>;
+  set<A extends Attributes3>(values:AttributeFields<MeshFaceRow<F,P,E,C>,A>,where?:Where3<MeshFaceRow<F,P,E,C>>):Mesh<P,E,Omit<F,keyof NoInfer<A>>&Widened3<NoInfer<A>>,C>;
+  set(...args:unknown[]):unknown{return this.write(args);}
   private get context():Context<P,E,F,C>{return selectionContexts.get(this)!;}
   protected derive(indices:readonly number[],key:unknown=this.key):this{return new MeshFaces(this.context,indices,key) as this;}
   get points():MeshPoints<P,E,F,C>{return new MeshPoints(this.context,this.indices.flatMap(i=>this.context.mesh.surface.faces[i].vertices));}
@@ -136,7 +161,13 @@ export class MeshFaces<P extends Attributes3,E extends EdgeAttributes,F extends 
   components():readonly this[]{return Object.freeze(topologyComponents(this.indices,this.context.topology.faceNeighbors).map(ids=>this.derive(ids)));}
 }
 export class MeshCorners<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3> extends Collection<MeshCornerRow<C,P,E,F>,readonly MeshCornerRow<C,P,E,F>[]> {
-  constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){super(ctx.mesh.surface,'corner',ctx.corners,ids=>Object.freeze(ids.map(i=>ctx.corners[i])),indices,key);selectionContexts.set(this,ctx);}
+  constructor(ctx:Context<P,E,F,C>,indices?:readonly number[],key?:unknown){super(ctx.mesh.surface,'corner',ctx.corners,ids=>Object.freeze(ids.map(i=>ctx.corners[i])),indices,key,write=>writeMesh3(ctx.mesh,'corner',write));selectionContexts.set(this,ctx);}
+  /** The mesh with corner columns set on these corners, or on those `where`
+   * names among them, with a declared `transfer`, as `points.set` writes
+   * points. A corner's columns are its face's view of the point: `uv`. */
+  set<Name extends string,V extends Attribute3>(column:Name,value:Field<MeshCornerRow<C,P,E,F>,V>,where?:Where3<MeshCornerRow<C,P,E,F>>|SetOptions3,opts?:SetOptions3):Mesh<P,E,F,Omit<C,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>>;
+  set<A extends Attributes3>(values:AttributeFields<MeshCornerRow<C,P,E,F>,A>,where?:Where3<MeshCornerRow<C,P,E,F>>|SetManyOptions3,opts?:SetManyOptions3):Mesh<P,E,F,Omit<C,keyof NoInfer<A>>&Widened3<NoInfer<A>>>;
+  set(...args:unknown[]):unknown{return this.write(args);}
   private get context():Context<P,E,F,C>{return selectionContexts.get(this)!;}
   protected derive(indices:readonly number[],key:unknown=this.key):this{return new MeshCorners(this.context,indices,key) as this;}
   get points():MeshPoints<P,E,F,C>{return new MeshPoints(this.context,this.map(c=>c.point.index));}

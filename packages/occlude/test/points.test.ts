@@ -75,9 +75,9 @@ describe('relax and settle as explicit operations', () => {
     let ring: Material | null = null;
     let ringRelaxed: Material | null = null;
     run((t) => {
-      cloud = t.scatter(field, { spacing: 4 }).attribute('tag', (p) => p.index);
+      cloud = t.scatter(field, { spacing: 4 }).points.set('tag', (p) => p.index);
       relaxed = t.relax(cloud, { iterations: 3, density: field });
-      ring = square(20, 20, 40).attribute('age', 7);
+      ring = square(20, 20, 40).points.set('age', 7);
       ringRelaxed = t.relax(ring, { iterations: 2 });
     }, 11);
     expect(relaxed!.n).toBe(cloud!.n);
@@ -99,7 +99,7 @@ describe('relax and settle as explicit operations', () => {
     let out: Material | null = null;
     let src: Material | null = null;
     run((t) => {
-      src = material(t.grid({ cols: 12, rows: 12 }).map((c) => [c.cx, c.cy] as [number, number])).attribute('tag', (p) => p.index).attribute('mass', 1);
+      src = material(t.grid({ cols: 12, rows: 12 }).map((c) => [c.cx, c.cy] as [number, number])).points.set('tag', (p) => p.index).points.set('mass', 1);
       out = t.settle(src, { density: field, spacing: 4.8, iterations: 8 });
       expect(() => t.settle(square(0, 0, 10), { density: field, spacing: 4 })).toThrow(/point-only material.*extract/);
       expect(() => t.settle(src!, { spacing: 4 } as never)).toThrow(/density/);
@@ -224,7 +224,7 @@ describe('voronoi as material', () => {
     expect(() => cells.cellOf(other.vertex(0))).toThrow(/not a site of this diagram/);
     const otherCells = voronoi(other, { x: 0, y: 0, w: 100, h: 100 });
     expect(() => cells.siteOf(otherCells.faces().at(0))).toThrow(/another material/);
-    const moved = cells.steps(1, (cur, next) => next.move(cur.points, () => [1, 0]));
+    const moved = cells.move([1, 0]);
     expect(() => moved.cellOf(sites.vertex(0))).toThrow(/no Voronoi correspondence.*edited or extracted/);
     expect(() => cells.edges.extract().siteOf(cells.faces().at(0))).toThrow(/no Voronoi correspondence/);
     // Selections of the result still work through the result.
@@ -427,7 +427,7 @@ describe('review of fe26c3f', () => {
   });
 
   it('2. sites given as a point collection or selection keep their source: correspondence answers for that material', () => {
-    const m = material([[10, 10], [80, 20], [40, 70], [90, 90]]).attribute('tag', (p) => p.index);
+    const m = material([[10, 10], [80, 20], [40, 70], [90, 90]]).points.set('tag', (p) => p.index);
     const all = voronoi(m.points, B);
     expect(all.faces().length).toBe(4);
     expect(all.cellOf(m.vertex(0))).toBeDefined();
@@ -451,7 +451,7 @@ describe('review of fe26c3f', () => {
 
   it('3. settle: a point hook overrides inherited child attributes; a record or a callback of the parent; bounded to declared columns', () => {
     run((t) => {
-      const src = material(t.grid({ cols: 6, rows: 6 }).map((c) => [c.cx, c.cy] as [number, number])).attribute('species', (p) => p.index % 3).attribute('age', 9);
+      const src = material(t.grid({ cols: 6, rows: 6 }).map((c) => [c.cx, c.cy] as [number, number])).points.set('species', (p) => p.index % 3).points.set('age', 9);
       // demand 1 on the left splits every cell there; 0.2 on the right keeps its points as they are
       const dense = (x: number) => (x < 50 ? 1 : 0.2);
       const plain = t.settle(src, { density: dense, spacing: 12, iterations: 6 });

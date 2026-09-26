@@ -5,7 +5,13 @@
 import { performance } from 'node:perf_hooks';
 import { scatterPoints, relaxMaterial, settleMaterial, type PointsEnv } from '../src/points.js';
 import { voronoiOf } from '../src/voronoi.js';
-import { material, type Material } from '../src/index.js';
+import { material, Execution, bindToolkit, type Material } from '../src/index.js';
+
+// A bare toolkit, bound to a fresh 200 × 200 execution, so `tk.steps` works
+// outside a sketch function.
+const exec = new Execution({ paper: { w: 200, h: 200 } });
+exec.begin({});
+const tk = bindToolkit(exec);
 
 const med = (label: string, f: () => unknown, runs = 3) => {
   const ms: number[] = [];
@@ -48,10 +54,10 @@ for (const [name, field] of [['flat', flat], ['tonal', tone]] as const) {
     // The custom path: one round of "move to the weighted centroid" written
     // with the public ingredients, against the kernel's round.
     med(`  custom round: voronoi + measure + move`, () =>
-      base.steps(1, (cur, next) => {
+      tk.steps(1, base, (cur) => {
         const c = voronoiOf(cur, env.bounds);
         const m = c.faces().measure(field, { bounds: env.bounds });
-        next.move(cur.points, (p) => {
+        return cur.move((p) => {
           const f = c.cellOf(p);
           const w = f ? m.forFace(f).weightedCentroid : null;
           return w ? [w[0] - p.x, w[1] - p.y] : [0, 0];

@@ -79,7 +79,7 @@ import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, inSpace, isStations, stationAt, stationsMaterial,
-  withinMaterial, areaCentroid, append, areaView, type PointsLike, type Station, type Transfer, type Vertex,
+  withinMaterial, areaCentroid, append, areaView, type Edge, type PointsLike, type Station, type Transfer, type Vertex,
 } from './material.js';
 import { PointSelection, EdgeSelection } from './relation.js';
 
@@ -96,7 +96,7 @@ import { textOf, type TextOpts } from './strokeFont.js';
 import { hersheySimplex } from './fonts/hersheySimplex.js';
 import { distanceTo, distanceToPoints, type DistanceField } from './distance.js';
 import { attractIn, attractOf, boundaryIn, force, isOptionsOnly, separationIn, separationOf, sourcePoints, vortexIn, type GraphForce, type SeparationOpts, type Sources } from './forces.js';
-import { restamp } from './tables.js';
+import { restamp, setEdges } from './tables.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
   vectorField as vectorFieldMark, within as withinField, fieldMeta, pointField, type BoundEnv, type Prepared, type PointField,
@@ -2088,8 +2088,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * size, `area` defaults to the drawable, `channels` defaults to `['a']`,
    * and `init` fills each cell from its centre. `lat.field(channel)` hands
    * it back as an ordinary field, absent outside the area, so `isolines`,
-   * `scatter` and the fills read it like any other. `lat.steps(n, rule)`
-   * and `lat.add(points, amount)` return a NEW lattice.
+   * `scatter` and the fills read it like any other. `lat.set(…)` and
+   * `lat.add(points, amount)` return a NEW lattice, and `t.steps` runs it.
    */
   /** `force.separation`, taking a shape where it takes points; said with no
    * sources it is a force the graph a move runs on pushes itself with. */
@@ -2149,13 +2149,14 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * object holding several — and the passes of one step run in order, each
    * on what the one before returned. A pass takes one argument: a pass that
    * needs the step count writes a counter column of its own. The last
-   * argument may be `{ every }`: a material or a lattice then keeps its
+   * argument may be `{ every }`: a value that keeps a history — a
+   * material, a lattice, a mesh, point or curve geometry — then keeps its
    * start, every `every`-th state and the last one on `history`. A plain
    * object keeps none.
    *
    * On the toolkit because passes draw (`t.pick`, `t.rnd`, `t.chance`),
-   * and the toolkit is what draws. A material's `iteration` counts the
-   * steps, so a force that turns with the step (`force.drift`) turns.
+   * and the toolkit is what draws. A material counts its steps inside, so
+   * a force that turns with the step (`force.drift`) turns.
    */
   function steps<T>(n: number, start: T, ...passes: Pass<T>[]): T;
   function steps<T>(n: number, start: T, ...passes: [...Pass<T>[], { every?: number }]): T;
@@ -2175,21 +2176,25 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const base = start instanceof Material ? start.iteration : 0;
     const snaps: T[] = [];
     let value = start;
-    if (every) snaps.push(value);
+    // A value keeps a history when it can say so: `withHistory(states)` is
+    // the one internal door, and a plain object, which has none, keeps none.
+    const keeps = (v: T): v is T & { withHistory(states: readonly T[]): T } =>
+      typeof v === 'object' && v !== null && typeof (v as { withHistory?: unknown }).withHistory === 'function';
+    // A kept state carries no history of its own: the start of a run may
+    // come from an earlier run that kept one.
+    if (every) snaps.push(keeps(value) ? value.withHistory([]) : value);
     for (let k = 0; k < count; k++) {
       for (let i = 0; i < run.length; i++) {
         value = run[i](value);
         if (value === undefined) throw new Error(`t.steps: pass ${i + 1} returned nothing at step ${k} — a pass returns the value the next one reads`);
       }
-      // A material counts its steps, the way `m.steps` does.
+      // A material counts its steps: what `force.drift` turns with.
       if (value instanceof Material) value = restamp(value, base + k + 1) as T;
       if (every && (k + 1) % every === 0 && k + 1 < count) snaps.push(value);
     }
     if (every && count > 0) snaps.push(value);
     if (!every) return value;
-    if (value instanceof Material) return restamp(value, value.iteration, snaps as Material[]) as T;
-    if (value instanceof Lattice) return value.withHistory(snaps as Lattice[]) as T;
-    return value;
+    return keeps(value) ? value.withHistory(snaps) : value;
   }
 
   function lattice(opts: LatticeOpts, init?: LatticeInit): Lattice {
@@ -2325,7 +2330,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
    * Lefer) as one material of open chains — `strokes(m)` draws them, and
-   * `.attribute()`/`.steps()` work on them like any material. `spacing` is a
+   * the writes and `t.steps` work on them as on any material. `spacing` is a
    * length or a scalar field of lengths: density as tone, direction as flow.
    * Lines stop at the drawable edge, at a `t.within()` bound, and half a
    * spacing from ink already laid. Deterministic, no seed. */
@@ -2468,7 +2473,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
     }
     const m = materialOf(pts, { edges });
-    return spaced(curved ? m.edgeAttribute('geodesic', (e) => geodesic[e.index]) : m);
+    return spaced(curved ? setEdges(m, null, ['geodesic', (e: Edge) => geodesic[e.index]]) : m);
   }
 
   /**
@@ -2479,7 +2484,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * is a ring (no duplicate seam), an open one a chain from end to end;
    * several outlines are separate chains in one material. Sampling does not
    * keep the shape's own vertices — `t.material(shape)` does. Positions and
-   * connectivity only — attributes come from `.attribute()`.
+   * connectivity only — columns come from `points.set()`.
    */
   function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|MeshFaces<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;

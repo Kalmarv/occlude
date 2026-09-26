@@ -162,7 +162,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### isolines
 
-`t.isolines(field, at, { step? })` traces the areas where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A region that leaves the drawable closes along its edge, through every corner it passes, and so does a region cut by the field's `t.within` bound; the closing edges carry `cut` = 1, so `strokes(m)` draws whole rings and `strokes(m.edges.filter((e) => !e.cut))` draws the level line alone. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
+`t.isolines(field, at, { step? })` traces the areas where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.level)` splits them all; and `t.steps`, `points.set`, `edges.set` and the rest of Materials apply as they do to any material. A region that leaves the drawable closes along its edge, through every corner it passes, and so does a region cut by the field's `t.within` bound; the closing edges carry `cut` = 1, so `strokes(m)` draws whole rings and `strokes(m.edges.filter((e) => !e.cut))` draws the level line alone. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -190,10 +190,8 @@ import { sketch, strokes, polygon, fill, force, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.3, 0.5], { step: 1 });
   const [low, mid, high] = contours.edges.groupBy((e) => e.level);
-  const softened = high.extract().steps(12, (cur, next) => {
-    const smooth = force.relax(cur, { amount: 0.5 });
-    next.move(cur.points.filter((p) => p.edges.length === 2), smooth);
-  });
+  const soften = (g) => g.move(force.relax(g, { amount: 0.5 }), g.points.filter((p) => p.edges.length === 2));
+  const softened = t.steps(12, high.extract(), soften);
   return [
     polygon(low, { fill: fill('hatch', { angle: 30, spacing: mm(2.4) }), stroke: false }),
     strokes(mid, { pen: 'pigma-005-black' }),
@@ -582,9 +580,9 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
 A field answers from a formula. A lattice remembers.
 
-`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of cells over an area and fills each one from its centre. `lat.steps(n, rule)` applies a local rule `n` times and returns a new lattice. The rule reads the frozen state with `cur.at`, `cur.laplacian` and `cur.neighbours`, and writes the next one with `next.set`, `next.add`, `next.diffuse` and `next.decay`. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
+`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of cells over an area and fills each one from its centre. `lat.set(channel, value)` writes a channel and returns a new lattice. The value is a number or a function of the cell: a cell reads its channels by name, and `c.laplacian(channel)` sums the differences to its four neighbours. One `set` with a record `{ a: …, b: … }` is one instant, so every function reads the lattice as it was. `t.steps(n, lat, pass)` runs a pass `n` times. A diffusion is `l.set('a', (c) => c.a + rate * c.laplacian('a'))`, and a decay is `l.set('a', (c) => c.a * (1 - r))`. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
 
-Two numbers to keep in mind. `cur.laplacian` counts in cells, not in drawing units. A `diffuse` rate above 0.25 is unstable, and the values run away.
+Two numbers to keep in mind. `c.laplacian` counts in cells, not in drawing units. A diffusion rate above 0.25 is unstable, and the values run away.
 
 The drawing below is a Gray-Scott reaction inside a disc. One channel feeds the other, the two spread at different rates, and that difference is the whole pattern. No word in the library knows the name of that reaction. The rule lives in the sketch, and the lattice only holds the numbers.
 
@@ -592,21 +590,17 @@ The drawing below is a Gray-Scott reaction inside a disc. One channel feeds the 
 import { sketch, strokes, circle } from 'occlude';
 
 // `a` is the substrate and `b` eats it. Feed replaces `a`, kill removes `b`,
-// and `a` spreads twice as fast as `b`. 5000 steps of four lines of rule.
+// and `a` spreads twice as fast as `b`. 5000 steps of a rule of two lines.
 export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
   const disc = circle(50, 50, 44);
   const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
   const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
     Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
-  const grown = seeded.steps(5000, (cur, next) => {
-    for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
-      if (!cur.inside(i, j)) continue;
-      const a = cur.at('a', i, j), b = cur.at('b', i, j);
-      const abb = a * b * b;
-      next.set('a', i, j, a + Du * cur.laplacian('a', i, j) - abb + feed * (1 - a));
-      next.set('b', i, j, b + Dv * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
-    }
+  const react = (l) => l.set({
+    a: (c) => c.a + Du * c.laplacian('a') - c.a * c.b * c.b + feed * (1 - c.a),
+    b: (c) => c.b + Dv * c.laplacian('b') + c.a * c.b * c.b - (feed + kill) * c.b,
   });
+  const grown = t.steps(5000, seeded, react);
   return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 }).edges.filter((e) => !e.cut)), disc];
 });
 ```

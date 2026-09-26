@@ -1,6 +1,6 @@
 export {mesh,plane,box,pointCloud,parametric} from './mesh.js';
 export type {ParametricOptions} from './mesh.js';
-export type {Mesh,PointGeometry,PointEdit,PointRule,PointSnapshot,CurveGeometry,CurveRule,CurveEdit,CurveSnapshot,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,AttributeOptions,StepAttributes,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot,Edit3,Dropped3} from './mesh.js';
+export type {Mesh,PointGeometry,CurveGeometry,GeometryPoints,CurvePoints,CurveEdges,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,GeometryOptions,SetOptions3,SetManyOptions3,Transfer3,Where3} from './mesh.js';
 export {view,orthographic,perspective,oblique} from './view.js';
 export type {ViewOptions,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
@@ -16,7 +16,7 @@ export {isosurface} from './isosurface.js';
 export type {IsosurfaceOptions} from './isosurface.js';
 export type {SphereOptions,GeodesicOptions,GeodesicBase,RadialOptions,TorusOptions} from './primitives.js';
 export {instanceOnPoints} from './instances.js';
-export type {Instances,InstanceRow,InstanceTransform,InstanceTransformInput,InstanceOnPointsOptions,RealizeOptions} from './instances.js';
+export type {Instances,InstanceRows,InstanceRow,InstanceTransform,InstanceTransformInput,InstanceOnPointsOptions,RealizeOptions} from './instances.js';
 export {query} from './query.js';
 export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,QueryResults,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
 export {force} from './force.js';
@@ -27,7 +27,7 @@ export {revolve} from './revolve.js';
 export type {RevolveOptions} from './revolve.js';
 export {sweep} from './sweep.js';
 export type {SweepOptions} from './sweep.js';
-export type {SurfaceSamples,SurfaceSample,SurfaceSampleRow,SurfaceCoordinateOptions,SurfaceSamplingOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
+export type {SurfaceSamples,SurfaceSamplePoints,SurfaceSample,SurfaceSampleRow,SurfaceCoordinateOptions,SurfaceSamplingOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
 
 export type {MeshPointRow,MeshEdgeRow,MeshFaceRow,MeshCornerRow,MeshPoints,MeshEdges,MeshFaces,MeshCorners} from './topology.js';
 
@@ -39,7 +39,7 @@ export type {GridOptions} from './grid.js';
 export type {SurfaceCurves,SurfaceCurvePoint,SurfaceCurveEdge} from './supported.js';
 export {intersections} from './intersections.js';
 export type {IntersectionInput,IntersectionOptions,IntersectionAttributes} from './intersections.js';
-export type {CurveSamples,CurveSample,CurveSampleRow,CurveSamplingOptions} from './curveSampling.js';
+export type {CurveSamples,CurveSamplePoints,CurveSample,CurveSampleRow,CurveSamplingOptions} from './curveSampling.js';
 
 export type {SurfaceUV,SurfaceChart} from '../geometry/coordinates.js';
 export {planarUV,cylindricalUV} from './coordinates.js';

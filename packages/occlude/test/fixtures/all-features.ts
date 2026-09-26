@@ -41,7 +41,7 @@ import {
   add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
   force, sumForces, meanBy, query,
   areaLoops, numericLoops, ui,
-  type Station, type Tree,
+  type Station, type Tree, type Vertex,
 } from 'occlude';
 
 export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
@@ -145,27 +145,26 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   scene.push(ellipse(28, 92, 11, 5, 30, { opaque: true, origin: [28, 92], rotate: 40 }));
   scene.push(polygon([[4, 46], [14, 46], [9, 54]], { opaque: true }));
 
-  // ---- a material grown from a ring: steps, columns, forces, runs --------
+  // ---- a material grown from a ring: t.steps, columns, forces, runs ------
   const ringPts = t.times(12, (k, u): [number, number] => {
     const d = mul(fromAngle(u * Math.PI * 2), 9);
     return [116 + d[0], 36 + d[1]];
   });
   const ring = curve(ringPts, { closed: true })
-    .attribute('age', 0)
-    .attribute('tag', (p) => p.index % 2, { transfer: 'nearest' })
-    .edgeAttribute('tick', (e) => e.length)
-    .edgeAttributes({ span: (e) => e.length * 2 });
-  const grown = ring.steps(2, (cur, next, k) => {
+    .points.set('age', 0)
+    .points.set('tag', (p) => p.index % 2, { transfer: 'nearest' })
+    .edges.set('tick', (e) => e.length)
+    .edges.set({ span: (e) => e.length * 2 });
+  // A pass that needs the step counts it itself, beside the graph.
+  const grown = t.steps(2, { g: ring, k: 0 }, ({ g, k }) => {
     // Forces are prepared against the state they act on, once per step.
     const pull = sumForces(
-      force.tension(cur, { rest: 2.6 }),
-      force.separation(cur, { radius: 4.5, excludeConnected: true }),
+      force.tension(g, { rest: 2.6 }),
+      force.separation(g, { radius: 4.5, excludeConnected: true }),
     );
-    next.move(cur.points, (p) => mul(pull(p, k), 0.4));
-    next.set(cur.points.filter((p) => p.index % 3 === 0), () => ({ age: k }));
-  }, (cur, next, k) => {
-    next.splitEdges(cur.edges.filter((e) => e.length > 4.6), { at: 0.5 });
-  });
+    const every3rd = g.points.filter((p) => p.index % 3 === 0);
+    return { g: g.move((p: Vertex) => mul(pull(p), 0.4)).points.set('age', k, every3rd), k };
+  }, ({ g, k }) => ({ g: g.split(g.edges.filter((e) => e.length > 4.6), 0.5), k: k + 1 })).g;
 
   const runs = segmentRuns(grown, (e) => Math.round((e.a.age + e.b.age) / 2));
   const band = banding.over(grown.attrs.age, { count: 2 });
@@ -173,7 +172,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const parts = grown.points.components();
   const partOf = new Map<number, number>();
   parts.forEach((piece, k) => { for (const i of piece.indices) partOf.set(i, k); });
-  const tagged = grown.attribute('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
+  const tagged = grown.points.set('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
   const meanAge = meanBy(grown.points, (p) => p.age);
   const sumX = sumBy(grown.points, (p) => [p.x, 0])[0];
   const firstPt = grown.points.length > 0 ? grown.points.at(0) : undefined;

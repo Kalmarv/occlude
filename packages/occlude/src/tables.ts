@@ -1,17 +1,18 @@
 /**
  * Tables: a graph is two tables of rows with minted ids — points, and
  * edges whose rows name two point ids — and there are three writes on a
- * table: add a row, remove a row, set a column. Every verb is a few of
- * them. `g.points` and `g.edges` answer the three writes and return the new
- * material; `extrude`, `split` and `move` are recipes over them.
+ * table: add a row, remove a row, set a column. Faces are a third domain
+ * with one write, `set`: a face is not a row, so its columns are keyed by
+ * the walls it is made of. Every verb is a few of these writes.
+ * `g.points`, `g.edges` and `g.faces()` answer them and return the new
+ * material; `extrude`, `split`, `replace` and `move` are recipes over them.
  *
- * The contract is the step batch's, said about one write: the call judges
- * the program and the table judges the data. A wrong program (an undeclared
- * column a new row leaves out, a reserved name, a selection of an unrelated
- * material, the wrong kind of member) throws. Data that cannot land is
- * skipped in silence: a write given nothing, an edge row naming a point
- * that is not there (`gone`), one point twice (`self`) or a pair that is
- * already an edge (`already`), and a value that is not finite.
+ * The call judges the program and the table judges the data. A wrong
+ * program (an undeclared column a new row leaves out, a reserved name, a
+ * selection of an unrelated material, the wrong kind of member) throws.
+ * Data that cannot land is skipped in silence: a write given nothing, an
+ * edge row naming a point that is not there, one point twice or a pair
+ * that is already an edge, and a value that is not finite.
  *
  * Nothing here mutates: each write builds a new material from the old
  * one's columns and keeps every identity it does not retire.
@@ -22,12 +23,13 @@
  * every later state and in every write: add it, and the row it becomes is
  * the one a later write reaches through it. A reference is always a value
  * or a view — a bare position names nothing, and a write refuses it by
- * name. Adding a value the geometry holds already is `already`, and a value
- * the geometry does not hold, used as a reference, is `gone`: both skip.
+ * name. Adding a value the geometry holds already skips, and so does a
+ * value the geometry does not hold, used as a reference.
  */
 
-import { Material, mintIds, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId } from './material.js';
+import { Material, mintIds, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, RESERVED_FACE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
 import { PointSelection, EdgeSelection, onState } from './relation.js';
+import { FaceSelection, type Face } from './faces.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
 import { ownedBy, pairKey, viewKind } from './views.js';
@@ -57,9 +59,20 @@ export type EdgeWhere = EdgeSelection<unknown> | EdgeEnd | ((e: Edge) => unknown
 /** A column value: one number for every row, or one per row from its view. */
 export type ColumnValue<V> = number | ((row: V) => number);
 
-/** What a displacement in `move` may be: a vector, a function of the point
- * (and the step count), or a force that the move prepares from the graph. */
-export type Displacement = XY | ((p: Vertex, k: number) => XY) | GraphForce;
+/** What a displacement in `move` may be: a vector, a function of the point,
+ * or a force that the move prepares from the graph. */
+export type Displacement = XY | ((p: Vertex) => XY) | GraphForce;
+
+/** How a point column crosses a split, a resample or a replace: the
+ * trailing options record of `points.set`. */
+export interface PointSetOpts { readonly transfer?: TransferPolicy }
+/** How an edge column is shared by the children of a split edge: the
+ * trailing options record of `edges.set`. */
+export interface EdgeSetOpts { readonly transfer?: EdgeTransfer }
+/** How a face column follows a change of walls, and what a face that
+ * shares no wall with an old one starts from: the trailing options record
+ * of `faces().set`. */
+export interface FaceSetOpts { readonly transfer?: FaceTransfer; readonly fallback?: number }
 
 /** The names a point view owns; `x` and `y` are columns a write may set. */
 const RESERVED_POINT_FIELDS: readonly string[] = ['index', 'adjacent', 'edges', 'id'];
@@ -97,17 +110,26 @@ function partsOf(m: Material): Parts {
   };
 }
 
+/** What a write hands on besides the rows: by default `m`'s own. */
+interface Carry {
+  iteration?: number;
+  history?: readonly Material[];
+  transfers?: Record<string, TransferPolicy>;
+  edgeTransfers?: Record<string, EdgeTransfer>;
+  faceAttrs?: Record<string, FaceColumn>;
+}
+
 /** The new state: `m`'s policies, face columns, space and iteration, with
  * these rows. */
-function make(m: Material, p: Parts, carry: { iteration?: number; history?: readonly Material[] } = {}): Material {
+function make(m: Material, p: Parts, carry: Carry = {}): Material {
   return new Material(p.x, p.y, p.attrs, p.edgeList, {
     iteration: carry.iteration ?? m.iteration,
     history: carry.history ?? [],
     edgeAttrs: p.edgeAttrs,
-    transfers: { ...m.transfers },
-    edgeTransfers: { ...m.edgeTransfers },
+    transfers: carry.transfers ?? { ...m.transfers },
+    edgeTransfers: carry.edgeTransfers ?? { ...m.edgeTransfers },
     ids: { points: p.pointIds, edges: p.edgeIds, edgeRoots: p.edgeRoots },
-    faceAttrs: m.faceAttrs,
+    faceAttrs: carry.faceAttrs ?? m.faceAttrs,
     space: m.space,
   });
 }
@@ -394,13 +416,32 @@ function keepRows(m: Material, points: readonly number[], edges: readonly number
   };
 }
 
+/** The transfer policies a write declares, checked against the domain:
+ * `undefined` when the write declares none. */
+function declaredTransfer(opts: Readonly<Record<string, unknown>> | undefined, domain: 'points' | 'edges', names: readonly string[], who: string): string | undefined {
+  if (opts === undefined) return undefined;
+  for (const key of Object.keys(opts)) {
+    if (key === 'transfer') continue;
+    if (key === 'fallback') throw new Error(`${who}: 'fallback' is an option of a face column — a ${domain === 'points' ? 'point' : 'n edge'} row always has a value`);
+    throw new Error(`${who}: unknown option '${key}' — the options record of a write is { transfer }`);
+  }
+  const t = opts.transfer;
+  if (t === undefined) return undefined;
+  const allowed = domain === 'points' ? ['interpolate', 'nearest'] : ['copy', 'distribute'];
+  if (typeof t !== 'string' || !allowed.includes(t)) throw new Error(`${who}: transfer is ${allowed.map((a) => `'${a}'`).join(' or ')} — got ${typeof t === 'string' ? `'${t}'` : typeof t}`);
+  if (domain === 'points') for (const name of names) if (name === 'x' || name === 'y') throw new Error(`${who}: '${name}' is a position, and a position has no transfer policy`);
+  return t;
+}
+
 /** @internal Set columns over `rows` (null: every row), one instant: every
- * callback reads `m` as it was. */
+ * callback reads `m` as it was. `transfer`, when given, is the policy every
+ * named column is declared with; the default policy is stored as none. */
 function setRows<V>(
   m: Material,
   domain: 'points' | 'edges',
   values: Readonly<Record<string, ColumnValue<V>>>,
   rows: readonly number[] | null,
+  opts: Readonly<Record<string, unknown>> | undefined,
   who: string,
 ): Material {
   if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
@@ -411,7 +452,10 @@ function setRows<V>(
     const v = values[name];
     if (typeof v !== 'number' && typeof v !== 'function') throw new Error(`${who}: the value of '${name}' is a number or a function of the row — got ${typeof v}`);
   }
-  if (rows !== null && rows.length === 0) return m;
+  const transfer = declaredTransfer(opts, domain, names, who);
+  // A write that reaches no row still declares its policy: the declaration
+  // is about the column, not about the rows it writes.
+  if (rows !== null && rows.length === 0 && transfer === undefined) return m;
   const p = partsOf(m);
   const count = domain === 'points' ? m.n : m.edgeCount;
   const cols = domain === 'points' ? p.attrs : p.edgeAttrs;
@@ -435,17 +479,47 @@ function setRows<V>(
   };
   if (rows === null) for (let i = 0; i < count; i++) write(i);
   else for (const i of rows) write(i);
-  return make(m, p);
+  if (transfer === undefined) return make(m, p);
+  // Setting a value keeps a column's declared policy; declaring the default
+  // restores it, which is stored as no entry at all.
+  const policies: Record<string, string> = domain === 'points' ? { ...m.transfers } : { ...m.edgeTransfers };
+  const fallback = domain === 'points' ? 'interpolate' : 'copy';
+  for (const name of names) {
+    if (transfer === fallback) delete policies[name];
+    else policies[name] = transfer;
+  }
+  return domain === 'points'
+    ? make(m, p, { transfers: policies as Record<string, TransferPolicy> })
+    : make(m, p, { edgeTransfers: policies as Record<string, EdgeTransfer> });
 }
 
-/** @internal `points.set` / `edges.set` arguments, read: the values, and
- * whether a `where` was given at all (an `undefined` one is nothing). */
-function readSet<V>(args: readonly unknown[], who: string): { values: Record<string, ColumnValue<V>>; given: boolean; where: unknown } {
+/** A plain record — never a `where`: a `where` is a selection, a value, a
+ * view or a function, and none of those is a plain object. */
+const isOptionsRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+
+/** @internal `set` arguments, read: the values, whether a `where` was given
+ * at all (an `undefined` one is nothing), and the options record. A plain
+ * record in the `where` place is the options, so `set(col, v, opts)` needs
+ * no `undefined` between them. */
+function readSet<V>(args: readonly unknown[], who: string): { values: Record<string, ColumnValue<V>>; given: boolean; where: unknown; opts: Readonly<Record<string, unknown>> | undefined } {
+  let values: Record<string, ColumnValue<V>>;
+  let rest: readonly unknown[];
   if (typeof args[0] === 'string') {
     if (args.length < 2) throw new Error(`${who}: '${args[0]}' needs a value — a number, or a function of the row`);
-    return { values: { [args[0]]: args[1] as ColumnValue<V> }, given: args.length > 2, where: args[2] };
+    values = { [args[0]]: args[1] as ColumnValue<V> };
+    rest = args.slice(2);
+  } else {
+    values = args[0] as Record<string, ColumnValue<V>>;
+    rest = args.slice(1);
   }
-  return { values: args[0] as Record<string, ColumnValue<V>>, given: args.length > 1, where: args[1] };
+  if (rest.length > 0 && isOptionsRecord(rest[0])) {
+    if (rest.length > 1) throw new Error(`${who}: the options record { transfer } comes last, after the where`);
+    return { values, given: false, where: undefined, opts: rest[0] };
+  }
+  if (rest.length > 1 && rest[1] !== undefined && !isOptionsRecord(rest[1])) throw new Error(`${who}: the last argument is the options record { transfer } — got ${describe(rest[1])}`);
+  if (rest.length > 2) throw new Error(`${who}: a write takes a value, a where and an options record — got ${rest.length + 1} arguments after the column`);
+  return { values, given: rest.length > 0, where: rest[0], opts: rest[1] as Readonly<Record<string, unknown>> | undefined };
 }
 
 // ---- the writes, as the selections answer them --------------------------------------
@@ -494,9 +568,9 @@ export function removePoints(m: Material, what: unknown): Material {
 /** `points.set`, over `members` (null: the whole table). */
 export function setPoints(m: Material, members: readonly number[] | null, args: readonly unknown[]): Material {
   const who = 'points.set';
-  const { values, given, where } = readSet<Vertex>(args, who);
+  const { values, given, where, opts } = readSet<Vertex>(args, who);
   const rows = whereOf(m, members, m.n, (i) => m.vertex(i), given, where, pointRowsOf, who);
-  return setRows(m, 'points', values, rows, who);
+  return setRows(m, 'points', values, rows, opts, who);
 }
 
 /** One edge row a write asks for: its ends, the id it names (NaN: mint
@@ -627,9 +701,93 @@ export function removeEdges(m: Material, what: unknown): Material {
 /** `edges.set`, over `members` (null: the whole table). */
 export function setEdges(m: Material, members: readonly number[] | null, args: readonly unknown[]): Material {
   const who = 'edges.set';
-  const { values, given, where } = readSet<Edge>(args, who);
+  const { values, given, where, opts } = readSet<Edge>(args, who);
   const rows = whereOf(m, members, m.edgeCount, (e) => m.edge(e), given, where, edgeRowsOf, who);
-  return setRows(m, 'edges', values, rows, who);
+  return setRows(m, 'edges', values, rows, opts, who);
+}
+
+// ---- the face write ------------------------------------------------------------------
+
+/** The face rows `where` names among `members`, ascending. */
+function faceRowsWhere(sel: FaceSelection<unknown>, members: readonly number[], where: unknown, who: string): number[] {
+  const cells = sel.collection;
+  if (where === undefined || where === null) return [];
+  let rows: readonly number[];
+  if (typeof where === 'function') {
+    const pick = where as (f: Face) => unknown;
+    return members.filter((f) => pick(cells.faces[f]));
+  }
+  if (where instanceof FaceSelection) {
+    rows = where.collection === cells ? where.indices : where.in(sel.source).indices;
+  } else if (viewKind(where) === 'face') {
+    const f = where as Face;
+    const row = ownedBy(f, cells) ? f.index : cells.rowOfFace(f.id);
+    rows = row < 0 ? [] : [row];
+  } else {
+    throw new Error(`${who}: a where is a face selection, one face, or a test of the face — got ${describe(where)}`);
+  }
+  const inside = new Set(members);
+  return rows.filter((r) => inside.has(r));
+}
+
+/** A face column's options, checked. */
+function faceOptions(opts: Readonly<Record<string, unknown>> | undefined, who: string): { transfer?: FaceTransfer; fallback?: number; clearsFallback: boolean } {
+  if (opts === undefined) return { clearsFallback: false };
+  for (const key of Object.keys(opts)) {
+    if (key !== 'transfer' && key !== 'fallback') throw new Error(`${who}: unknown option '${key}' — the options record of a face write is { transfer, fallback }`);
+  }
+  const t = opts.transfer;
+  if (t !== undefined && t !== 'nearest' && t !== 'drop') throw new Error(`${who}: transfer is 'nearest' or 'drop' — got ${typeof t === 'string' ? `'${t}'` : typeof t}`);
+  const f = opts.fallback;
+  if (f !== undefined && (typeof f !== 'number' || !Number.isFinite(f))) throw new Error(`${who}: fallback is a finite number — got ${String(f)}`);
+  return { transfer: t as FaceTransfer | undefined, fallback: f as number | undefined, clearsFallback: 'fallback' in opts && f === undefined };
+}
+
+/**
+ * @internal `faces().set`, over the faces `sel` holds: the columns keyed by
+ * wall lineage. Every face of the state keeps what it carries of a column
+ * (its own value, or the one it inherited) and the faces written take
+ * their new values, all read from the faces as they were; the column is
+ * then written against THIS state's faces, so only a face that appears
+ * later inherits.
+ */
+export function writeFaces(sel: FaceSelection<unknown>, args: readonly unknown[]): Material {
+  const who = 'faces.set';
+  const { values, given, where, opts } = readSet<Face>(args, who);
+  if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
+  const names = Object.keys(values);
+  for (const name of names) {
+    if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a face, not a column`);
+    const v = values[name];
+    if (typeof v !== 'number' && typeof v !== 'function') throw new Error(`${who}: the value of '${name}' is a number or a function of the face — got ${typeof v}`);
+  }
+  const { transfer, fallback, clearsFallback } = faceOptions(opts, who);
+  const m = sel.source;
+  const cells = sel.collection;
+  const rows = given ? faceRowsWhere(sel, sel.indices, where, who) : sel.indices;
+  if (rows.length === 0 && opts === undefined) return m;
+  const keys = cells.keys();
+  const views = cells.faces;
+  // Every value is worked out before any lands: one instant.
+  const written = names.map((name) => {
+    const v = values[name];
+    return rows.map((f) => (typeof v === 'number' ? v : v(views[f])));
+  });
+  const next: Record<string, FaceColumn> = { ...m.faceAttrs };
+  names.forEach((name, k) => {
+    const was = m.faceAttrs[name];
+    const map = new Map<string, number>();
+    const held = cells.carried.get(name);
+    if (held) held.forEach((v, f) => { if (v !== undefined) map.set(keys[f], v); });
+    rows.forEach((f, i) => { if (Number.isFinite(written[k][i])) map.set(keys[f], written[k][i]); });
+    next[name] = {
+      values: map,
+      transfer: transfer ?? was?.transfer ?? 'nearest',
+      fallback: fallback !== undefined ? fallback : clearsFallback ? undefined : was?.fallback,
+      seen: new Set(keys),
+    };
+  });
+  return make(m, partsOf(m), { faceAttrs: next });
 }
 
 // ---- recipes -------------------------------------------------------------------------
@@ -666,7 +824,8 @@ export function extrude(m: Material, from: PointEnd | undefined, offset: XY, col
  * edges through the new point, which keep the parent's lineage root and
  * share its columns (`'copy'` or `'distribute'`). `at` is a number or a
  * function of the edge, default 0.5; one that is not finite skips that
- * edge.
+ * edge, and one outside 0…1 is read as the nearer end, where a cut makes
+ * nothing.
  */
 export function split(m: Material, edges: unknown, at: number | ((e: Edge) => number) = 0.5): Material {
   const who = 'split';
@@ -676,8 +835,12 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
   const enames = m.edgeAttrNames;
   const cut: { e: number; t: number }[] = [];
   for (const e of rows) {
-    const t = typeof at === 'number' ? at : at(m.edge(e));
-    if (!Number.isFinite(t)) continue;
+    const asked = typeof at === 'number' ? at : at(m.edge(e));
+    if (!Number.isFinite(asked)) continue;
+    // A place past an end is read as that end, and a cut at an end cuts
+    // nothing: the end is already a point.
+    const t = Math.min(Math.max(asked, 0), 1);
+    if (t === 0 || t === 1) continue;
     const a = m.edgeList[2 * e];
     const b = m.edgeList[2 * e + 1];
     const x = m.x[a] + (m.x[b] - m.x[a]) * t;
@@ -715,7 +878,7 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     const parent: Record<string, number> = {};
     for (const name of enames) parent[name] = m.edgeAttrs[name][e];
     pairs.push([a, mid], [mid, b]);
-    childCols.push(share(m, parent, t), share(m, parent, 1 - t));
+    childCols.push(inheritEdge(m, parent, t), inheritEdge(m, parent, 1 - t));
     roots.push(m.edgeRoots[e], m.edgeRoots[e]);
   });
   return addEdgeRows(without, pairs, childCols, roots, who);
@@ -723,21 +886,176 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
 
 /** A child edge's columns: a `'copy'` column the parent's value, a
  * `'distribute'` one the parent's value times the child's share. */
-function share(m: Material, parent: Readonly<Record<string, number>>, fraction: number): Record<string, number> {
+export function inheritEdge(m: Material, parent: Readonly<Record<string, number>>, fraction: number): Record<string, number> {
   const out: Record<string, number> = {};
   for (const name in parent) out[name] = m.edgeTransfers[name] === 'distribute' ? parent[name] * fraction : parent[name];
   return out;
+}
+
+/** How a motif lands on an edge in `replace`. */
+export interface ReplaceOpts {
+  /** Mirror the motif across the edge: for every edge, or for the edges a
+   * test of the edge picks. Which side is "outward" depends on the winding
+   * of the edges the motif lands on. */
+  flip?: boolean | ((e: Edge) => boolean);
+}
+
+/** How close, as a fraction of the replaced edge's length, a motif point
+ * must land on a point already there to be that point. Rounding in the
+ * motif's frame is some 1e-14 of it; a distance a sketch means is not
+ * below 1e-9 of it. */
+const WELD = 1e-9;
+
+/** The places `replace` has landed on: the state's own points first, then
+ * every motif point it adds, each by its row in the result. Looked up in a
+ * grid of cells sized to the state's shortest edge, so a weld is a handful
+ * of compares. */
+class Landing {
+  private readonly cells = new Map<string, { x: number; y: number; row: number }[]>();
+  private readonly size: number;
+
+  constructor(m: Material) {
+    let shortest = Infinity;
+    for (let e = 0; e < m.edgeCount; e++) {
+      const a = m.edgeList[2 * e];
+      const b = m.edgeList[2 * e + 1];
+      const d = Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a]);
+      if (d > 0 && d < shortest) shortest = d;
+    }
+    this.size = Number.isFinite(shortest) ? shortest : 1;
+    for (let i = 0; i < m.n; i++) this.add(m.x[i], m.y[i], i);
+  }
+
+  add(x: number, y: number, row: number): void {
+    const k = `${Math.floor(x / this.size)},${Math.floor(y / this.size)}`;
+    const cell = this.cells.get(k);
+    if (cell) cell.push({ x, y, row });
+    else this.cells.set(k, [{ x, y, row }]);
+  }
+
+  /** The first place within `tol` of (x, y), oldest first; -1 for none. */
+  find(x: number, y: number, tol: number): number {
+    const ci = Math.floor(x / this.size);
+    const cj = Math.floor(y / this.size);
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        for (const held of this.cells.get(`${i},${j}`) ?? []) {
+          if (Math.hypot(held.x - x, held.y - y) <= tol) return held.row;
+        }
+      }
+    }
+    return -1;
+  }
+}
+
+/**
+ * `g.replace(edges, motif, opts?)`: every edge swapped for a motif. The
+ * edge goes, and the motif's one open chain takes its place between the
+ * same two points, scaled and turned to the edge: remove the edge rows,
+ * add the motif's inner points, add the edges along the chain. Point
+ * columns cross by their transfer policy and edge columns are shared as a
+ * split's children share them, each piece taking an equal share. A motif
+ * point that lands on a point already there — a corner, or the tip another
+ * edge's motif put in the same place — IS that point, so motifs that meet
+ * share a vertex. This is the substitution an L-system is made of: a Koch
+ * curve is one motif and four steps.
+ */
+export function replace(m: Material, edges: unknown, motif: Material, opts: ReplaceOpts = {}): Material {
+  const who = 'replace';
+  if (!(motif instanceof Material)) throw new Error(`${who}: a motif is a material — one open chain — got ${describe(motif)}`);
+  const flip = opts.flip;
+  if (flip !== undefined && typeof flip !== 'boolean' && typeof flip !== 'function') throw new Error(`${who}: flip is true, false, or a test of the edge — got ${typeof flip}`);
+  // The motif's CHAIN, not its rows. A material's row order is an accident
+  // of how it was built, so threading rows would silently draw a different
+  // motif than the one on screen.
+  const chains = motif.curves();
+  if (chains.length !== 1) throw new Error(`${who}: a motif is one open chain, and this one has ${chains.length === 0 ? 'none' : String(chains.length)}. Give the motif's points the edges that join them in order.`);
+  if (chains[0].closed) throw new Error(`${who}: a motif is an open chain, and this one is closed`);
+  const pts = chains[0].pts;
+  if (pts.length < 2) throw new Error(`${who}: a motif needs at least two points`);
+  const [mx0, my0] = pts[0];
+  const [mx1, my1] = pts[pts.length - 1];
+  const mdx = mx1 - mx0;
+  const mdy = my1 - my0;
+  const span = mdx * mdx + mdy * mdy;
+  if (!(span > 0)) throw new Error(`${who}: a motif must start and end at different points`);
+  // The motif in its own frame: along the line from first to last, and
+  // across it, both as fractions of the motif's own span, so the shape
+  // rides any edge at any length and any angle.
+  const local = pts.slice(1, -1).map(([px, py]) => {
+    const ux = px - mx0;
+    const uy = py - my0;
+    return [(ux * mdx + uy * mdy) / span, (ux * -mdy + uy * mdx) / span] as const;
+  });
+  const rows = edgeRowsOf(m, edges, who);
+  if (rows.length === 0) return m;
+  const names = m.attrNames;
+  const enames = m.edgeAttrNames;
+  const landed = new Landing(m);
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const cols: Record<string, number>[] = [];
+  const pairs: [number, number][] = [];
+  const pairCols: Record<string, number>[] = [];
+  const gone: number[] = [];
+  for (const row of rows) {
+    const e = m.edge(row);
+    const ex = e.b.x - e.a.x;
+    const ey = e.b.y - e.a.y;
+    const across = (typeof flip === 'function' ? flip(e) : flip === true) ? -1 : 1;
+    const places = local.map(([along, off]) => [e.a.x + along * ex - off * across * ey, e.a.y + along * ey + off * across * ex] as const);
+    // An edge whose motif does not land on finite places is left as it is.
+    if (!places.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))) continue;
+    gone.push(row);
+    // A motif point stands between the edge's ends, so it takes their
+    // columns the way a split point does.
+    const inherit = (at: number): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const name of names) {
+        const va = e.a[name];
+        const vb = e.b[name];
+        out[name] = m.transfers[name] === 'nearest' ? (at <= 0.5 ? va : vb) : va + (vb - va) * at;
+      }
+      return out;
+    };
+    const child = enames.length > 0 ? inheritEdge(m, e.attrs, 1 / (local.length + 1)) : {};
+    // Two positions this close are one place worked out twice: the motifs
+    // of two walls that meet at a tip, or a tip on a corner.
+    const tol = WELD * Math.hypot(ex, ey);
+    let from = e.a.index;
+    places.forEach(([x, y], k) => {
+      let at = landed.find(x, y, tol);
+      if (at < 0) {
+        at = m.n + xs.length;
+        xs.push(x);
+        ys.push(y);
+        cols.push(inherit(local[k][0]));
+        landed.add(x, y, at);
+      }
+      if (at !== from) {
+        pairs.push([from, at]);
+        pairCols.push(child);
+      }
+      from = at;
+    });
+    if (from !== e.b.index) {
+      pairs.push([from, e.b.index]);
+      pairCols.push(child);
+    }
+  }
+  if (gone.length === 0) return m;
+  const withPoints = addPointRows(removeEdgeRows(m, gone), xs, ys, cols, null, who);
+  return addEdgeRows(withPoints, pairs, pairCols, null, who);
 }
 
 /**
  * `g.move(...displacements, where?)`: every point of `where` (default all)
  * moved by the SUM of the displacements, in one instant — each is read on
  * the graph as it was. A displacement is a vector, a function of the point
- * `(p, k) => [dx, dy]` (`k` is the material's iteration, which is how
- * `force.drift` turns), or a force such as `force.tension({ rest })`, which
+ * `(p) => [dx, dy]`, or a force such as `force.tension({ rest })`, which
  * the move prepares from the graph once. A trailing selection, point value
- * or vertex says which points move. A move that is not
- * finite skips that point. In a curved space the point walks the geodesic.
+ * or vertex says which points move. A move that is not finite skips that
+ * point. In a curved space the point walks the geodesic.
  */
 export function move(m: Material, args: readonly unknown[]): Material {
   const who = 'move';
@@ -749,13 +1067,9 @@ export function move(m: Material, args: readonly unknown[]): Material {
     rows = pointRowsOf(m, last, who);
   }
   if (parts.length === 0 || (rows !== null && rows.length === 0)) return m;
-  const k = m.iteration;
   const fns = parts.map((d, i): ((p: Vertex) => XY) => {
-    if (isGraphForce(d)) {
-      const f = d.prepare(m);
-      return (p) => f(p, k);
-    }
-    if (typeof d === 'function') return (p) => (d as (p: Vertex, k: number) => XY)(p, k);
+    if (isGraphForce(d)) return d.prepare(m);
+    if (typeof d === 'function') return d as (p: Vertex) => XY;
     if (isPosition(d)) {
       const c: Vec = [vx(d), vy(d)];
       return () => c;

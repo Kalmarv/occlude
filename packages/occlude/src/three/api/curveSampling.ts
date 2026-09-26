@@ -1,6 +1,7 @@
-import {Collection} from './collection.js';
+import {Collection,type Where3} from './collection.js';
+import type {AttributeFields,PointColumns3,PointFields3} from './columns.js';
 import {emptySize} from '../degenerate.js';
-import {Mesh,PointGeometry,captureAttributeFields,evaluate,pointSteps,type PointRow,type Field,type AttributeFields,type GeometryOptions,type PointRule,type StepAttributes,type StepsOptions,type PointSnapshot,type StepShorthand} from './mesh.js';
+import {Mesh,PointGeometry,evaluate,writePoints3,type PointRow,type Field,type GeometryOptions} from './mesh.js';
 import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {SurfaceCurves} from './supported.js';
@@ -52,6 +53,13 @@ function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fra
   },
  });
 }
+/** The sampled points, and their one write, as point geometry's; a write
+ * keeps each point's attachment. */
+export class CurveSamplePoints<P extends Attributes3,A extends Attributes3> extends Collection<CurveSampleRow<P>,CurveSamples<P,A>> {
+ set<Name extends string,V extends Attribute3>(column:Name,value:Field<CurveSampleRow<P>,V>,where?:Where3<CurveSampleRow<P>>):CurveSamples<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,A>;
+ set<Q extends Attributes3>(values:AttributeFields<CurveSampleRow<P>,Q>,where?:Where3<CurveSampleRow<P>>):CurveSamples<PointFields3<P,NoInfer<Q>>,A>;
+ set(...args:unknown[]):unknown{return this.write(args);}
+}
 /** Ordinary editable point geometry retaining its original curve interpretation.
  * Moving points edits their positions; explicit rebind refreshes attachments. */
 export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> extends PointGeometry<P> {
@@ -67,17 +75,13 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
  }
  private get state(){return states.get(this)!;}
  get target():SurfaceCurves<A>{return this.state.target;}
- get points():Collection<CurveSampleRow<P>,CurveSamples<P,A>> {
-  return new Collection(this.surface,'point',this.state.rows as readonly CurveSampleRow<P>[],indices=>{
+ /** The sampled points, and their one write (see `CurveSamplePoints`). */
+ get points():CurveSamplePoints<P,A> {
+  return new CurveSamplePoints<P,A>(this.surface,'point',this.state.rows as readonly CurveSampleRow<P>[],indices=>{
    const selected=new Set(indices);return this.changed(super.points.filter(p=>selected.has(p.index)).extract());
-  });
+  },undefined,undefined,write=>write.rows.length?this.changed(new PointGeometry<P>(writePoints3(this.surface,write),{...this})):this);
  }
  private changed<Q extends Attributes3>(geometry:PointGeometry<Q>):CurveSamples<Q,A>{return new CurveSamples(geometry,this.target,this.state.attachments);}
- attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<CurveSampleRow<P>,Value>):CurveSamples<Omit<P,Name>&Record<Name,Value>,A>{return this.changed(super.attribute(name,p=>evaluate(field,this.state.rows[p.index])));}
- attributes<Q extends Attributes3>(fields:AttributeFields<CurveSampleRow<P>,Q>):CurveSamples<Omit<P,keyof Q>&Q,A>{
-  const values=captureAttributeFields(this.state.rows,fields);
-  return this.changed(new PointGeometry<Omit<P,keyof Q>&Q>(assembleSurface3(this.surface.points.map((p,i)=>({...p,attributes:{...p.attributes,...values[i]}})),[],[]),{key:this.key}));
- }
  displace(field:Field<CurveSampleRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveSamples<P,A>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
  translate(offset:Vec3):CurveSamples<P,A>{return this.changed(super.translate(offset));}
  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveSamples<P,A>;
@@ -85,10 +89,9 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveSamples<P,A>{return this.changed((super.rotate as (...args:unknown[])=>PointGeometry<P>)(a,b,c));}
  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveSamples<P,A>{return this.changed(super.scale(scale,pivot));}
  withKey(key:string):CurveSamples<P,A>{return this.changed(super.withKey(key));}
- get history():readonly PointSnapshot<P,CurveSamples<P,A>>[]{return super.history as readonly PointSnapshot<P,CurveSamples<P,A>>[];}
- steps(count:number,rule:PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepShorthand<CurveSampleRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepsOptions)[]):CurveSamples<StepAttributes<P>,A>{
-  return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history,dropped)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history,dropped})));
- }
+ get history():readonly CurveSamples<P,A>[]{return super.history as readonly CurveSamples<P,A>[];}
+ /** @internal These samples with the states `t.steps` kept. */
+ withHistory(history:readonly unknown[]):CurveSamples<P,A>{return this.changed(super.withHistory(history));}
  rebind(target:SurfaceCurves<A>):CurveSamples<P,A>{
   if(!(target instanceof SurfaceCurves))throw new Error('curve samples rebind to regenerated or rebound source curves');
   const previous=this.target.network.reference??this.target.network,next=target.network.reference??target.network;

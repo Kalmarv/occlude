@@ -127,7 +127,7 @@ describe('connected-region extrusion',()=>{
     expect(refined.corners.every(c=>Array.isArray(c.uv)&&typeof c.chart==='string')).toBe(true);
   });
   it('copies attributes to walls and edges without adding label columns',()=>{
-    const model=plane(2,2).subdivide(1).faceAttributes({tone:(f:{centroid:Vec3})=>f.centroid[0]<0?0.7:0.2}).edgeAttributes({marked:1});
+    const model=plane(2,2).subdivide(1).faces.set({tone:(f:{centroid:Vec3})=>f.centroid[0]<0?0.7:0.2}).edges.set({marked:1});
     const region=model.faces.filter(f=>f.centroid[0]<0);
     const out=model.extrude(region,[0,0,1]);
     const walls=out.surface.faces.filter(f=>f.provenance?.operation==='extrude');

@@ -211,7 +211,7 @@ describe('transform', () => {
 
   it('moves a mesh by point, keeps ids and columns, and rewinds a mirror', () => {
     const h = honeycomb(5, 3, 4, { depth: 1 });
-    const cell = h.cell.faceAttribute('tag', (f) => f.index * 2);
+    const cell = h.cell.faces.set('tag', (f) => f.index * 2);
     const flip = h.placements[1];
     expect(flip.orientation).toBe(-1);
     const moved = cell.transform(flip);

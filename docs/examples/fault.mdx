@@ -11,7 +11,7 @@ A fracture has junctions, and `trim` works on chains. A single material refuses 
 
 The cells shade by their distance from it. A cell a crack runs through is dark. `adjacent()` gives the ring around those, and one more `adjacent()` gives the ring around that. Each ring is a ring and nothing more, because `adjacent()` leaves its members out.
 
-Uses: `t.voronoi`, `t.relax`, and `edgeAttribute` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `subtract` and `has`. Then `edges.curves()`, `connect.chain`, `m.trim`, `faces()`, and `polygon` with a hatch fill.
+Uses: `t.voronoi`, `t.relax`, and `edges.set` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `subtract` and `has`. Then `edges.curves()`, `connect.chain`, `m.trim`, `faces()`, and `polygon` with a hatch fill.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm, map, material, connect } from 'occlude';
@@ -19,7 +19,7 @@ import { sketch, strokes, polygon, fill, mm, map, material, connect } from 'occl
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const b = t.bounds();
   const web = t.voronoi(t.relax(t.scatter({ spacing: 0.055 * b.h }), { iterations: 3 }))
-    .edgeAttribute('strength', (e) => 0.5 + 0.5 * t.noise(e.center[0] / 26, e.center[1] / 26));
+    .edges.set('strength', (e) => 0.5 + 0.5 * t.noise(e.center[0] / 26, e.center[1] / 26));
   let crack = web.edges.near([0.3 * b.w, 0.32 * b.h], { radius: 0.03 * b.h });
   for (let k = 0; k < 58; k++) {
     const limit = map(k, 0, 57, 0.08, 0.5);

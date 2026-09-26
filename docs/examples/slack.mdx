@@ -9,7 +9,7 @@ That second step is what makes this a drawing. The raw field gives neighbouring 
 
 The threads with the most slack take a heavier pen. You can then see where they run. The hem is the result: it dips where the slack gathers.
 
-Uses: `material` with `withEdges`, `edgeAttribute` reading `e.center`, and `m.smooth` on an EDGE column. Then `steps` with `next.move` over a selection, `force.tension` with a rest for each edge, `force.sum`, `extent`, `edges.subtract` and `strokes`.
+Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, `force.tension` with a rest for each edge, `force.sum`, `extent`, `edges.subtract` and `strokes`.
 
 ```ts live
 import { sketch, strokes, circle, material, force, mul, extent } from 'occlude';
@@ -28,13 +28,14 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     if (r > 0) edges.push([i - cols, i]);
   }
   const nails = new Set([0, (cols / 2) | 0, cols - 1]);
-  const net = material(pts).withEdges(edges)
-    .edgeAttribute('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
+  const net = material(pts, { edges })
+    .edges.set('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
     .smooth('rest', { steps: 14 });
-  const hung = net.steps(300, (cur, next) => {
-    const pull = force.sum(force.tension(cur, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
-    next.move(cur.points.filter((p) => !nails.has(p.index)), (p) => mul(pull(p), 0.1));
-  });
+  const hang = (g) => {
+    const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
+    return g.move((p) => mul(pull(p), 0.1), g.points.filter((p) => !nails.has(p.index)));
+  };
+  const hung = t.steps(300, net, hang);
   const [lo, hi] = extent(hung.edgeAttrs.rest);
   const slack = hung.edges.filter((e) => e.rest > lo + 0.62 * (hi - lo));
   return [

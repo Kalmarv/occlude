@@ -71,7 +71,7 @@ describe('merge', () => {
 
   it('edge columns: distribute is scaled by the span, everything else is copied', () => {
     const src = append(seg([0, 0], [10, 0]), seg([5, 0], [15, 0]))
-      .edgeAttributes({ load: 10, tag: (e) => e.index + 1 }, { transfer: { load: 'distribute' } });
+      .edges.set('load', 10, { transfer: 'distribute' }).edges.set('tag', (e) => e.index + 1);
     const m = src.merge();
     const byLow = [...m.edges].sort((p, q) => Math.min(p.a.x, p.b.x) - Math.min(q.a.x, q.b.x));
     expect(byLow.map((e) => m.edgeAttrs.load[e.index])).toEqual([5, 5, 5]);

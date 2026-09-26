@@ -2,7 +2,8 @@ import {rotation3,alignAxis,type RotationInput} from '../rotation.js';
 import {pointCloud} from './mesh.js';
 import {points2} from './lift.js';
 import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow,type Style3} from './mesh.js';
-import {Collection} from './collection.js';
+import {Collection,type Where3} from './collection.js';
+import type {AttributeFields,Widen3,Widened3} from './columns.js';
 import {identity} from './identity.js';
 import {assembleSurface3,type Attribute3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceEdge3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {transformSurface3} from '../geometry/model.js';
@@ -46,6 +47,14 @@ function ownAttributes<A extends Attributes3>(attributes:A):Readonly<A>{
 }
 function budget(n:number,limit:number,label:string):void{if(!(limit===Infinity||Number.isSafeInteger(limit))||limit<0)throw new Error(`realize ${label} budget must be a nonnegative integer`);if(!Number.isSafeInteger(n)||n>limit)throw new Error(`instance realization exceeds ${label} budget (${limit})`);}
 
+/** The instances, and their one write: `set(column, value, where?)` or the
+ * record form answers new instances, every placement kept. `transform` is
+ * not a column: `transform(field)` places them. */
+export class InstanceRows<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends InstanceSource,C extends Attributes3> extends Collection<InstanceRow<A,S,R>,Instances<P,E,F,A,S,R,C>> {
+  set<Name extends string,V extends Attribute3>(column:Name,value:Field<InstanceRow<A,S,R>,V>,where?:Where3<InstanceRow<A,S,R>>):Instances<P,E,F,Omit<A,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>,S,R,C>;
+  set<B extends Attributes3>(values:AttributeFields<InstanceRow<A,S,R>,B>,where?:Where3<InstanceRow<A,S,R>>):Instances<P,E,F,Omit<A,keyof NoInfer<B>>&Widened3<NoInfer<B>>,S,R,C>;
+  set(...args:unknown[]):unknown{return this.write(args);}
+}
 /** One shared mesh prototype plus owned per-instance data. Rendering may expand
  * transformed coordinates, but authoring topology is duplicated only by realize. */
 export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},A extends Attributes3={},S extends Attributes3={},R extends InstanceSource=PointRow<S>,C extends Attributes3={}> {
@@ -64,15 +73,21 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     Object.freeze(this);
   }
   get length():number{return this.rows.length;}
-  get instances():Collection<InstanceRow<A,S,R>,Instances<P,E,F,A,S,R,C>>{return new Collection(this,'instance',this.rows,ids=>new Instances<P,E,F,A,S,R,C>(this.prototype,ids.map(i=>this.rows[i]),this));}
+  /** The instances, and their one write (see `InstanceRows`). */
+  get instances():InstanceRows<P,E,F,A,S,R,C>{
+    return new InstanceRows<P,E,F,A,S,R,C>(this,'instance',this.rows,ids=>new Instances<P,E,F,A,S,R,C>(this.prototype,ids.map(i=>this.rows[i]),this),undefined,undefined,write=>{
+      const named=Object.keys(write.transfer);
+      if(named.length)throw new Error(`${write.who}: instance columns carry no transfer policy — nothing refines them ('${named[0]}')`);
+      if(write.values.some(v=>Object.hasOwn(v,'transform')))throw new Error(`${write.who}: 'transform' is not a column — transform(field) places the instances`);
+      if(!write.rows.length)return this;
+      const patch=new Map(write.rows.map((row,k)=>[row,write.values[k]]));
+      const rows=this.rows.map(row=>{const p=patch.get(row.index);return p?retainPlacement(row,{...row,attributes:{...(row.attributes as Readonly<A>),...p}}):row;});
+      return new Instances<P,E,F,A,S,R,C>(this.prototype,rows,this);
+    });
+  }
   withKey(value:string):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype,this.rows,{key:value});}
   /** Instances are drawn like their prototype: style it. */
   style(style:Style3):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype.style(style),this.rows,this);}
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<InstanceRow<A,S,R>,Value>):Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R,C>{
-    attributeName(name);if(name==='transform')throw new Error('reserved instance attribute name: transform');
-    const rows=this.rows.map(row=>retainPlacement(row,{...row,attributes:{...(row.attributes as Readonly<A>),[name]:attributeValue(evaluate(field,row))}}));
-    return new Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R,C>(this.prototype,rows as unknown as InstanceData<Omit<A,Name>&Record<Name,Value>,S,R>[],this);
-  }
   /** Replace supplied S/R/T components; omitted components retain their values.
    * Rotation accepts XYZ Euler degrees or a rotation value about the prototype origin. */
   transform(field:Field<InstanceRow<A,S,R>,InstanceTransformInput>):Instances<P,E,F,A,S,R,C>{

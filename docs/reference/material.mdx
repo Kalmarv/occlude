@@ -6,7 +6,7 @@ description: Points with columns and an edge list. The editable form of geometry
 A material is a set of vertices and an edge list. Each vertex has `x`, `y` and any number of named columns. A ring, an open chain, a tree and a cloud of loose points are all materials. Every operation returns a new material and changes nothing, so you can keep any state and come back to it.
 
 :::note
-A row index belongs to one state. After a step adds or removes vertices, the rows get new numbers. Hold a value, not an index.
+A row index belongs to one state. After a write adds or removes vertices, the rows get new numbers. Hold a value, not an index.
 :::
 
 ## material()
@@ -168,9 +168,9 @@ export default sketch({ aspect: [3, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 Every vertex and every edge has an `id` for as long as it exists. An id is opaque: you cannot do arithmetic with it, and it is equal only to itself. It is never reused.
 
-New geometry mints new ids. A step that moves or sets keeps them. A split retires the edge it cut and gives both halves ids of their own, so `edgeOf(parentId)` finds nothing afterwards.
+New geometry mints new ids. A write that moves or sets keeps them. A split retires the edge it cut and gives both halves ids of their own, so `edgeOf(parentId)` finds nothing afterwards.
 
-A selection can then outlive the state that made it. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
+A selection can then outlive the state that made it. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A write takes a selection from an earlier state and finds the rows itself.
 
 Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state. An id and a row are both numbers. The two have different names, and neither guesses.
 
@@ -183,10 +183,11 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 12 });
   const held = ring.points.filter((p) => p.index % 4 === 0);
   const anchorId = ring.points.at(2).id;
-  const grown = ring.steps(
+  const grown = t.steps(
     3,
-    (cur, next) => next.splitEdges(cur.edges, { at: 0.5 }),
-    (cur, next) => next.move(cur.points, (p) => [t.noise(p.x / 16, p.y / 16) * 5, t.noise(p.y / 16, p.x / 16) * 5]),
+    ring,
+    (g) => g.split(g.edges),
+    (g) => g.move((p) => [t.noise(p.x / 16, p.y / 16) * 5, t.noise(p.y / 16, p.x / 16) * 5]),
   );
   const anchor = grown.pointOf(anchorId);
   return [
@@ -197,12 +198,14 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 });
 ```
 
-## attribute() · attributes()
+## Set a column
 
-<include>/_sig/Material.attribute.mdx</include>
-<include>/_sig/Material.attributes.mdx</include>
+<include>/_sig/PointSelection.set.mdx</include>
+<include>/_sig/EdgeSelection.set.mdx</include>
 
-Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. A second call sees the first call's columns, because by then they are part of the material. `transfer` says what a column does at a new vertex, after a split or a resample. `'interpolate'` (the default) blends the two values. `'nearest'` copies the nearer one.
+`m.points.set` writes a column on the vertices and returns the new material. `m.edges.set` writes a column on the edges. Each domain has this one write. The value is a number, or a function of the row. A column that does not exist yet starts with 0 on every other row. The record form writes several columns at once. Each function in the record reads the material as it was, so a new column never sees another new column. A second call sees the first call's columns, because by then they are part of the material. A `where` names the rows that the write changes. The [steps](/docs/reference/steps) page has the full contract.
+
+The last argument can be `{ transfer }`. It says what a column does at a new row, after a split or a resample. A point column is `'interpolate'` (the default) or `'nearest'`. `'interpolate'` blends the two values, and `'nearest'` copies the nearer one. An edge column is `'copy'` (the default) or `'distribute'`. `'distribute'` shares a quantity over the parts of a split edge.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -210,18 +213,13 @@ import { sketch, strokes, circle } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t
     .sample(circle(50, 50, 40), { count: 36 })
-    .attribute('lift', (p) => (p.y < 50 ? 1 : 0))
-    .attributes({ reach: (p) => 0.6 + p.x / 40, side: (p) => (p.x < 50 ? 0 : 1) });
+    .points.set('lift', (p) => (p.y < 50 ? 1 : 0))
+    .points.set({ reach: (p) => 0.6 + p.x / 40, side: (p) => (p.x < 50 ? 0 : 1) });
   return [strokes(ring), ring.points.filter((p) => p.lift === 1).map((p) => circle(p, p.reach, { pen: p.side === 1 ? 'stabilo-88-blue' : undefined }))];
 });
 ```
 
-## edgeAttribute() · edgeAttributes()
-
-<include>/_sig/Material.edgeAttribute.mdx</include>
-<include>/_sig/Material.edgeAttributes.mdx</include>
-
-The same for edges: one value for each edge, read from the edge view. `transfer` for an edge column is `'copy'` (the default) or `'distribute'`. `'distribute'` shares a quantity over the parts of a split edge.
+The same for edges: one value for each edge, read from the edge view.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -229,8 +227,8 @@ import { sketch, strokes, circle } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t
     .sample(circle(50, 50, 40), { count: 40 })
-    .edgeAttribute('long', (e) => (e.a.x > 50 ? 1 : 0))
-    .edgeAttributes({ high: (e) => (e.a.y < 50 ? 1 : 0) });
+    .edges.set('long', (e) => (e.a.x > 50 ? 1 : 0))
+    .edges.set({ high: (e) => (e.a.y < 50 ? 1 : 0) });
   return [
     strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 1), { pen: 'stabilo-88-green' }),
     strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 0), { pen: 'stabilo-88-blue' }),
@@ -256,7 +254,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const b = t.bounds();
   const half = rect(0, 0, 0.47 * b.w, b.h);
   const cloud = connect.nearest(t.scatter({ spacing: 0.05 * b.h, within: half }), { count: 3 })
-    .attribute('tone', (p) => 0.55 + 0.35 * t.noise(p.x / 20, p.y / 20) + 0.6 * (t.rnd() - 0.5));
+    .points.set('tone', (p) => 0.55 + 0.35 * t.noise(p.x / 20, p.y / 20) + 0.6 * (t.rnd() - 0.5));
   const marks = (m) => m.points.map((p) => circle(p, 0.004 * b.h + 0.024 * b.h * Math.max(0, p.tone)));
   return [marks(cloud), group({ translate: [0.53 * b.w, 0] }, marks(cloud.smooth('tone', { steps: 6 })))];
 });
@@ -268,7 +266,7 @@ A column belongs to the material that declares it. An operation that makes a new
 
 | operation | point columns | edge columns | transfer policies |
 |---|---|---|---|
-| `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, `withEdges`, `steps` | kept | kept | kept |
+| `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, the writes and recipes, `t.steps` | kept | kept | kept |
 | `oscillate` | kept | kept, and each new span reads the source edge it starts on | kept |
 | `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
 
@@ -280,24 +278,22 @@ Below, a ring carries a size column through `warp`. The bent ring still reads it
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 30), { count: 24 }).attribute('r', (p) => 0.8 + (p.index % 3));
+  const ring = t.sample(circle(50, 50, 30), { count: 24 }).points.set('r', (p) => 0.8 + (p.index % 3));
   const bent = ring.warp({ from: [[10, 10], [90, 10], [90, 90], [10, 90]], to: [[10, 10], [90, 22], [78, 90], [22, 78]] });
   return [strokes(bent), bent.points.map((p) => circle(p, p.r, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
-## withEdges()
+## Change the edges
 
-<include>/_sig/Material.withEdges.mdx</include>
-
-Replaces the edge list. Give pairs of row numbers. The vertices and their columns stay as they are. A pair that was an edge before keeps its id and its columns. An edge that is not in the list goes away, so name an old pair to keep it.
+`m.edges.remove(sel)` removes edges and keeps their vertices. `m.edges.add([a, b])` adds an edge between two vertices, and a list of pairs adds several. The vertices and their columns stay as they are. An edge that you do not remove keeps its id and its columns. Below, a ring loses its edges and gets a star in their place.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 42), { count: 12 });
-  const star = ring.withEdges(t.times(12, (k) => [k, (k + 5) % 12]));
+  const star = ring.edges.remove(ring.edges).edges.add(t.times(12, (k) => [ring.points.at(k), ring.points.at((k + 5) % 12)]));
   return strokes(star);
 });
 ```
@@ -343,9 +339,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`, an `Origin`: the same pivot type as a shape, a group, a lattice and a field. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. `'center'` is the middle of the material's own bounds, as it is on a shape and on a group. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points. For the middle of the drawable, give the point `[t.bounds().cx, t.bounds().cy]`.
 
-`deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement, and `m.map()` is always a position.
+`deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement. `m.points.set({ x, y })` writes a position.
 
-The four are `m.map()` with a fixed formula, so the rows, the ids and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
+The four are a position write with a fixed formula, so the rows, the ids and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
 
 Below, each whole cell of a hex lattice is its own outline, scaled about its own centroid. The scale follows a noise field, so the cells open and close across the sheet. The inner ring turns with the scale. A small displacement field then moves the corners of each ring.
 

@@ -92,7 +92,7 @@ describe('spline', () => {
   });
 
   it('keeps a junction; refuses a tension outside 0 to 1 and a step count below one', () => {
-    const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]]).withEdges([[0, 1], [1, 2], [1, 3]]);
+    const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]], { edges: [[0, 1], [1, 2], [1, 3]] });
     const fork = [...tee.spline().points].filter((p) => p.edges.length === 3);
     expect(fork.map((p) => [p.x, p.y, p.id])).toEqual([[10, 0, tee.points.at(1).id]]);
     expect(() => zigzag().spline({ tension: 2 })).toThrow('tension');
@@ -116,9 +116,9 @@ describe('spline', () => {
 
   it('reads a new vertex\'s columns by the transfer policy, and shares a distributed edge column', () => {
     const src = zigzag()
-      .attribute('age', (p) => p.index, { transfer: 'nearest' })
-      .attribute('warm', (p) => p.x)
-      .edgeAttribute('ink', (e) => e.a.index + 1, { transfer: 'distribute' });
+      .points.set('age', (p) => p.index, { transfer: 'nearest' })
+      .points.set('warm', (p) => p.x)
+      .edges.set('ink', (e) => e.a.index + 1, { transfer: 'distribute' });
     const out = src.spline({ steps: 4 });
     // 'nearest' is a choice, not a mean: every age is one of the originals.
     for (const p of out.points) expect(Number.isInteger(p.age)).toBe(true);

@@ -88,16 +88,16 @@ describe('coil', () => {
     expect(() => src.coil({ radius: mm(1) as never, pitch: 10 })).toThrow('coordinates');
     expect(() => src.coil({ radius: 3, pitch: 10, steps: 2 })).toThrow('steps');
     expect(() => src.coil({ radius: 3, pitch: 10, phase: NaN })).toThrow('phase');
-    const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]]).withEdges([[0, 1], [1, 2], [1, 3]]);
+    const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]], { edges: [[0, 1], [1, 2], [1, 3]] });
     expect(() => tee.coil({ radius: 2, pitch: 5 })).toThrow('junction');
   });
 
   it('carries the point columns and refuses a distributed edge column', () => {
-    const src = line(0, 50, 100, 50).attribute('heat', (p) => p.x / 100);
+    const src = line(0, 50, 100, 50).points.set('heat', (p) => p.x / 100);
     const out = src.coil({ radius: 2, pitch: 10 });
     expect(out.attrNames).toEqual(['heat']);
     for (const p of out.points) expect(p.heat).toBeGreaterThanOrEqual(0);
-    const shared = src.edgeAttribute('ink', () => 1, { transfer: 'distribute' });
+    const shared = src.edges.set('ink', () => 1, { transfer: 'distribute' });
     expect(() => shared.coil({ radius: 2, pitch: 10 })).toThrow('distribute');
   });
 });

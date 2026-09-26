@@ -101,7 +101,7 @@ export function onState<S extends { source: Material; in(state: Material): S }>(
 
 import { groupRows } from './groupRows.js';
 import { neighbours } from './forces.js';
-import { addPoints, removePoints, setPoints, addEdges, removeEdges, setEdges, withoutRows, fromEnd, type ColumnValue, type EdgeEnd, type EdgeRowSpec, type PointEnd, type PointWhere, type EdgeWhere } from './tables.js';
+import { addPoints, removePoints, setPoints, addEdges, removeEdges, setEdges, withoutRows, fromEnd, type ColumnValue, type EdgeEnd, type EdgeRowSpec, type PointEnd, type PointWhere, type EdgeWhere, type PointSetOpts, type EdgeSetOpts } from './tables.js';
 import { vx, vy, type XY } from './vec.js';
 import { edges as buildEdgeQuery, type EdgeQuery } from './query.js';
 import { orient2d } from 'robust-predicates';
@@ -335,15 +335,22 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   /**
    * The material with columns set on this selection's points — every one,
    * or those `where` names: a selection, one point value or vertex, or a
-   * predicate. A
-   * value is a number or a function of the point; the record form sets
-   * several columns in ONE instant, every function reading the points as
-   * they were. A column not declared yet is declared, 0 elsewhere; `x` and
-   * `y` are columns too. A value that is not finite leaves that row as it
-   * was, and a `where` that names nothing writes nothing.
+   * predicate. A value is a number or a function of the point; the record
+   * form sets several columns in ONE instant, every function reading the
+   * points as they were. A column not declared yet is declared, 0
+   * elsewhere; `x` and `y` are columns too, so setting them puts a point
+   * at a position. A value that is not finite leaves that row as it was,
+   * and a `where` that names nothing writes nothing.
+   *
+   * The options record comes last: `{ transfer }` declares how the
+   * columns cross a split, a replace or a resample — `'interpolate'`
+   * between the two ends (the default) or `'nearest'`, the nearer end's
+   * value. A write without it keeps what the column declared.
    */
-  set(column: string, value: ColumnValue<Vertex>, where?: PointWhere): Material;
-  set(values: Record<string, ColumnValue<Vertex>>, where?: PointWhere): Material;
+  set(column: string, value: ColumnValue<Vertex>, where?: PointWhere, opts?: PointSetOpts): Material;
+  set(column: string, value: ColumnValue<Vertex>, opts: PointSetOpts): Material;
+  set(values: Record<string, ColumnValue<Vertex>>, where?: PointWhere, opts?: PointSetOpts): Material;
+  set(values: Record<string, ColumnValue<Vertex>>, opts: PointSetOpts): Material;
   set(...args: unknown[]): Material {
     return setPoints(this.source, this.memberRows, args);
   }
@@ -833,9 +840,14 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   }
 
   /** The material with edge columns set on this selection's edges, or
-   * those `where` names — the same contract as `points.set`. */
-  set(column: string, value: ColumnValue<Edge>, where?: EdgeWhere): Material;
-  set(values: Record<string, ColumnValue<Edge>>, where?: EdgeWhere): Material;
+   * those `where` names — the same contract as `points.set`. The options
+   * record `{ transfer }` declares how a split shares the columns among
+   * the children: `'copy'` the parent's value to each (the default), or
+   * `'distribute'` it by each child's share of the parent's length. */
+  set(column: string, value: ColumnValue<Edge>, where?: EdgeWhere, opts?: EdgeSetOpts): Material;
+  set(column: string, value: ColumnValue<Edge>, opts: EdgeSetOpts): Material;
+  set(values: Record<string, ColumnValue<Edge>>, where?: EdgeWhere, opts?: EdgeSetOpts): Material;
+  set(values: Record<string, ColumnValue<Edge>>, opts: EdgeSetOpts): Material;
   set(...args: unknown[]): Material {
     return setEdges(this.source, this.memberRows, args);
   }

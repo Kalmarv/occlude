@@ -16,11 +16,11 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const cells = diagram.faces();
   const beside = (e) => e.faces;
   const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const marked = diagram.edgeAttributes({
+  const marked = diagram.edges.set({
     open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
     border: (e) => (contrast(e) > ratio ? 1 : 0),
   });
-  const cleared = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.open === 1)));
+  const cleared = marked.edges.remove(marked.edges.filter((e) => e.open === 1));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
@@ -49,14 +49,14 @@ Before dragging: which walls will change when the fourth site moves, and which c
 
 ## Follow the correspondence
 
-The diagram remembers which site made which cell. `diagram.cellOf(site)` gives the face of a site's territory, and `diagram.siteOf(face)` the site of a face; both take views of the exact materials involved, the site material and the diagram's faces. Here the third site's cell is hatched through `cellOf`, and every cell is labelled with its site's row through `siteOf`, which is how a category on the sites becomes a drawing of the cells: `kind` is an attribute on the sites, and the hatch reads it through the correspondence.
+The diagram remembers which site made which cell. `diagram.cellOf(site)` gives the face of a site's territory, and `diagram.siteOf(face)` the site of a face; both take views of the exact materials involved, the site material and the diagram's faces. Here the third site's cell is hatched through `cellOf`, and every cell is labelled with its site's row through `siteOf`, which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, polygon, fill, mm, label, material } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[40, 30], [150, 26], [70, 72], [96, 50], [170, 74], [120, 86], [24, 90]])
-    .attribute('kind', (p) => (p.x < 100 ? 0 : 1));
+    .points.set('kind', (p) => (p.x < 100 ? 0 : 1));
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
   const third = diagram.cellOf(sites.points.at(2));
@@ -101,19 +101,19 @@ This is a relationship of any planar network, not a Voronoi convenience: chapter
 
 ## Remove a wall on purpose
 
-Two neighbouring sites of the same kind are one region; the wall between them is a wall the map does not need. Removing it is an edit, and an edit happens in `steps`, on a copy of the diagram that has no correspondence, so the decision is made first, on the diagram that has it, and written onto the walls as an edge attribute: `same` is 1 where both cells beside a wall have the same kind. The rule then reads only that number. After the edit, `faces()` is asked again, and the merged regions are the faces of the new material.
+Two neighbouring sites of the same kind are one region; the wall between them is a wall the map does not need. Removing it is a write, `edges.remove`, and like every write it returns new material that has no correspondence. So the decision is made first, on the diagram that has it, and written onto the walls as an edge column: `diagram.edges.set('same', …)` sets `same` to 1 where both cells beside a wall have the same kind. The removal then reads only that number. After it, `faces()` is asked again, and the merged regions are the faces of the new material.
 
 ```ts live focus=8-11
 import { sketch, strokes, circle, polygon, fill, mm, material, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[20, 30], [70, 26], [35, 72], [56, 50], [85, 74], [60, 90], [14, 90], [88, 12]])
-    .attribute('kind', (p) => (p.x + p.y < 110 ? 0 : 1));
+    .points.set('kind', (p) => (p.x + p.y < 110 ? 0 : 1));
   const diagram = t.voronoi(sites, { within: { x: 0, y: 0, w: 100, h: 100 } });
   const cells = diagram.faces();
   const kind = (face) => diagram.siteOf(face).kind;
-  const marked = diagram.edgeAttribute('same', (e) => { const [a, b] = e.faces; return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
-  const merged = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.same === 1)));
+  const marked = diagram.edges.set('same', (e) => { const [a, b] = e.faces; return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
+  const merged = marked.edges.remove(marked.edges.filter((e) => e.same === 1));
   const regions = merged.faces();
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-05-black' })),
@@ -182,7 +182,7 @@ At a ratio of 1.2 nearly every wall is a border and the emphasis means nothing; 
 
 Now go back to the previous sketch and set `edge sharpness` to 1, then imagine this rule on that town. With a gentle hill of density, neighbouring cells differ by a fifth or so in area and no wall anywhere passes a ratio of 2; the rule finds nothing, and it is right to find nothing. A border by contrast needs an edge to exist. The decision about the town's shape and the decision about its border were one decision.
 
-**Remove what is not needed.** The countryside is still drawn as cells, and its walls say nothing: two large cells side by side are two fields, and the drawing does not need the fence between them. The walls between two large cells go, by the same route as before: decided on the diagram as an edge attribute, removed in one edit. `countryside above area` is the area above which a cell counts as country. What remains is the town, the ring of walls where small cells meet large, and the sheet's edge.
+**Remove what is not needed.** The countryside is still drawn as cells, and its walls say nothing: two large cells side by side are two fields, and the drawing does not need the fence between them. The walls between two large cells go, by the same route as before: decided on the diagram as an edge column, removed in one write. `countryside above area` is the area above which a cell counts as country. What remains is the town, the ring of walls where small cells meet large, and the sheet's edge.
 
 ```ts live focus=9-11
 import { sketch, strokes, distance, ui } from 'occlude';
@@ -194,8 +194,8 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const open = diagram.edgeAttribute('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
-  const cleared = open.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.open === 1)));
+  const open = diagram.edges.set('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
+  const cleared = open.edges.remove(open.edges.filter((e) => e.open === 1));
   return strokes(cleared);
 });
 ```
@@ -220,8 +220,8 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const hatch = fill('hatch', { angle: 20, spacing: mm(4.2) });
   const country = left.cells.filter((f) => f.area > 90);
   const town = left.cells.filter((f) => f.area <= 90);
-  const open = right.diagram.edgeAttribute('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
-  const cleared = open.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.open === 1)));
+  const open = right.diagram.edges.set('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
+  const cleared = open.edges.remove(open.edges.filter((e) => e.open === 1));
   return [
     polygon(country.contours(), { fill: hatch, stroke: false }),
     town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
@@ -250,11 +250,11 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const cells = diagram.faces();
   const beside = (e) => e.faces;
   const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const marked = diagram.edgeAttributes({
+  const marked = diagram.edges.set({
     open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
     border: (e) => (contrast(e) > ratio ? 1 : 0),
   });
-  const cleared = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.open === 1)));
+  const cleared = marked.edges.remove(marked.edges.filter((e) => e.open === 1));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
@@ -264,7 +264,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 });
 ```
 
-Both decisions are written in one pass with `edgeAttributes`, each reading the diagram's own walls and faces, so neither needs the other to exist first. Both then ride through the clearing, so the heavy walls are still the ones the ratio chose, on the material that no longer has the fences. That is the reason to write a decision down as data before an edit: it survives the edit, and the edit does not have to know about it.
+Both decisions are written in one `set` with a record, and every function in the record reads the diagram's own walls and faces as they were before the write, so neither needs the other to exist first. Both then ride through the clearing, so the heavy walls are still the ones the ratio chose, on the material that no longer has the fences. That is the reason to write a decision down as data before an edit: it survives the edit, and the edit does not have to know about it.
 
 ## On your own
 
@@ -279,4 +279,4 @@ Two densities add: `Math.max` of two hills is two towns. For the road, a wall ha
 
 ## Where to look things up
 
-`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges` under *Faces and boundaries*; `edgeAttribute` and `disconnect` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.
+`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges` under *Faces and boundaries*; `edges.set` and `edges.remove` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.

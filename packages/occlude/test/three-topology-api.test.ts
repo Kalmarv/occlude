@@ -5,23 +5,23 @@ import {surface3} from '../src/three/geometry/surface.js';
 
 describe('owned mesh topology relationships',()=>{
   it('exposes typed incident rows without triangulation diagonals',()=>{
-    const model=box().attributes({weight:2}).edgeAttributes({ink:'outline'}).faceAttributes({tone:0.5});
-    const vectorFace=model.faceAttribute('vector',[1,2]).faces.at(0)!;
+    const model=box().points.set({weight:2}).edges.set({ink:'outline'}).faces.set({tone:0.5});
+    const vectorFace=model.faces.set('vector',[1,2]).faces.at(0)!;
     expect(Object.isFrozen(vectorFace.attributes.vector)).toBe(true);
     expect(()=>{(vectorFace.attributes.vector as number[])[0]=9;}).toThrow();
     const face=model.faces.at(0)!;
     expect(face.points.length).toBe(4);expect(face.edges.length).toBe(4);expect(face.adjacent.length).toBe(4);
     expect(face.points.every(p=>p.weight===2&&p.faces.length===3&&p.edges.length===3&&p.adjacent.length===3)).toBe(true);
     expect(face.edges.every(e=>e.ink==='outline'&&e.faces.length===2&&e.points.has(e.a)&&e.points.has(e.b))).toBe(true);
-    expectTypeOf(face.points.at(0)!.weight).toEqualTypeOf<2>();
-    expectTypeOf(face.edges.at(0)!.faces.at(0)!.tone).toEqualTypeOf<0.5>();
+    expectTypeOf(face.points.at(0)!.weight).toEqualTypeOf<number>();
+    expectTypeOf(face.edges.at(0)!.faces.at(0)!.tone).toEqualTypeOf<number>();
     expect(()=>JSON.stringify(face)).not.toThrow();
     expect(Object.keys(face)).not.toContain('points');
     expect(model.faces.boundaryEdges().length).toBe(0);
     expect('faces' in pointCloud([[0,0,0]]).points).toBe(false);
   });
   it('preserves relationship capabilities through selection algebra and groups',()=>{
-    const model=plane(2).subdivide(1).faceAttribute('group',f=>f.centroid[0]<0?'left':'right');
+    const model=plane(2).subdivide(1).faces.set('group',f=>f.centroid[0]<0?'left':'right');
     const left=model.faces.filter(f=>f.group==='left');
     expect(left.length).toBe(2);expect(left.points.length).toBe(6);expect(left.edges.length).toBe(7);expect(left.boundaryEdges().length).toBe(6);
     expect(left.complement().union(left).connected().length).toBe(4);
@@ -40,7 +40,7 @@ describe('owned mesh topology relationships',()=>{
   });
   it('keeps adjacency cached through motion/state edits, but measurements and ownership fresh',()=>{
     const model=plane(2).subdivide(1),before=topology3(model.surface);
-    const moved=model.displace(p=>[0,0,p.x*p.y]).attributes({age:0}).steps(1,(current,next)=>next.set(current.points,p=>({age:p.faces.length})));
+    const moved=model.displace(p=>[0,0,p.x*p.y]).points.set({age:0}).points.set({age:p=>p.faces.length});
     expect(topology3(moved.surface)).toBe(before);
     expect(moved.points.at(0)!.z).not.toBe(model.points.at(0)!.z);
     expect(moved.faces.at(0)!.area).toBeGreaterThan(model.faces.at(0)!.area);
@@ -52,12 +52,10 @@ describe('owned mesh topology relationships',()=>{
     expect(Object.isFrozen(before.faceNeighbors[0])).toBe(true);
   });
   it('evaluates rich relationships in attribute and displacement fields against frozen input',()=>{
-    const model=plane(2).subdivide(1).attributes({mass:1}).faceAttributes({total:f=>f.points.map(p=>p.mass).reduce((a,b)=>a+b,0)})
-      .attribute('degree',p=>p.adjacent.length).edgeAttributes({touch:e=>e.faces.length})
-      .steps(1,(current,next)=>{
-        next.setFaces(current.faces,f=>({total:f.points.map(p=>p.mass).reduce((a,b)=>a+b,0)+1}));
-        next.move(current.points,p=>[0,0,p.faces.length]);
-      });
+    const model=plane(2).subdivide(1).points.set({mass:1}).faces.set({total:f=>f.points.map(p=>p.mass).reduce((a,b)=>a+b,0)})
+      .points.set('degree',p=>p.adjacent.length).edges.set({touch:e=>e.faces.length})
+      .faces.set({total:f=>f.points.map(p=>p.mass).reduce((a,b)=>a+b,0)+1})
+      .displace(p=>[0,0,p.faces.length]);
     expect(model.faces.every(f=>f.total===5)).toBe(true);
     expect(model.points.find(p=>p.x===0&&p.y===0)!.z).toBe(4);
     expect(model.edges.some(e=>e.touch===2)).toBe(true);

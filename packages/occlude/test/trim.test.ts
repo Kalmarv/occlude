@@ -58,14 +58,14 @@ describe('m.trim', () => {
   });
 
   it('columns blend at a new end, and carry verbatim at an old one', () => {
-    const m = chain().attribute('t', (p) => p.index * 10);
+    const m = chain().points.set('t', (p) => p.index * 10);
     const out = m.trim({ start: 5, end: 5 });
     // The new head sits halfway along edge 0: (0 + 10) / 2.
     expect([...out.attrs.t]).toEqual([5, 10, 20, 30, 35]);
   });
 
   it('an edge column comes across from the edge each piece sits on', () => {
-    const m = chain().edgeAttribute('w', (e) => e.index);
+    const m = chain().edges.set('w', (e) => e.index);
     expect([...m.trim({ start: 5, end: 5 }).edgeAttrs.w]).toEqual([0, 1, 2, 3]);
   });
 

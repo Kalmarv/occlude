@@ -11,7 +11,7 @@ The drawing is not the threads. It is the cells between them.
 
 The darkest hatch stays at 0.4 mm, twice the nib. Below that the fill lands as solid black and a fold stops reading as a fold.
 
-Uses: `material` with `withEdges`, `edgeAttribute` reading `e.center`, and `m.smooth` on an EDGE column. Then `steps` with `next.move` over a selection, and `force.tension` with a rest for each edge. Then `faces()`, `Face.area`, `measure` for orientation, `polygon` with a hatch fill, and `map`.
+Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, and `force.tension` with a rest for each edge. Then `faces()`, `Face.area`, `measure` for orientation, `polygon` with a hatch fill, and `map`.
 
 ```ts live
 import { sketch, polygon, fill, mm, map, material, force, mul } from 'occlude';
@@ -29,13 +29,14 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     if (r > 0) edges.push([i - cols, i]);
   }
   const nails = new Set([0, (cols / 2) | 0, cols - 1]);
-  const net = material(pts).withEdges(edges)
-    .edgeAttribute('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
+  const net = material(pts, { edges })
+    .edges.set('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
     .smooth('rest', { steps: 14 });
-  const hung = net.steps(300, (cur, next) => {
-    const pull = force.sum(force.tension(cur, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
-    next.move(cur.points.filter((p) => !nails.has(p.index)), (p) => mul(pull(p), 0.1));
-  });
+  const hang = (g) => {
+    const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
+    return g.move((p) => mul(pull(p), 0.1), g.points.filter((p) => !nails.has(p.index)));
+  };
+  const hung = t.steps(300, net, hang);
   const cells = hung.faces();
   const m = cells.measure();
   return cells.map((f) => {

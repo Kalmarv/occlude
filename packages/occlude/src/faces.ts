@@ -34,7 +34,8 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Curve, type Edge, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type Curve, type Edge, type FaceColumn, type PointsLike } from './material.js';
+import { writeFaces, type FaceSetOpts } from './tables.js';
 import type { XY } from './vec.js';
 import { groupRows, onState, EdgeSelection, PointSelection } from './relation.js';
 import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type FaceMeasurements, type MeasureOpts } from './measure.js';
@@ -67,8 +68,10 @@ export interface PlanarizeOpts {
    * row). A column the record leaves out keeps the default. */
   point?: (event: PlanarEvent) => Record<string, number>;
   /** Edge attributes for each child interval, merged over the parent's;
-   * called once per final child, an unsplit edge with fraction 1. */
-  edges?: (parent: Edge, child: ChildInterval) => Record<string, number>;
+   * called once per final child, an unsplit edge with fraction 1. The
+   * interval is `from` → `to` along the parent as stored, and `fraction`
+   * is its share of the parent. */
+  edges?: (parent: Edge, child: { from: number; to: number; fraction: number }) => Record<string, number>;
 }
 
 interface Seg { a: number; b: number; ax: number; ay: number; bx: number; by: number; row: number }
@@ -578,10 +581,10 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
       else { minted.push(eids.length); eids.push(0); }
       eroots.push(m.edgeRoots[e]);
       if (!carries) continue;
-      const child: ChildInterval = { from: stops[k].t, to: stops[k + 1].t, fraction: stops[k + 1].t - stops[k].t };
+      const child = { from: stops[k].t, to: stops[k + 1].t, fraction: stops[k + 1].t - stops[k].t };
       const extra = opts.edges ? opts.edges(parentView, child) : {};
       for (const name in extra) {
-        if (!enames.includes(name)) throw new Error(`planarize: no edge attribute '${name}' — declare it with edgeAttribute()`);
+        if (!enames.includes(name)) throw new Error(`planarize: no edge column '${name}' — declare it with edges.set()`);
         if (!Number.isFinite(extra[name])) throw new Error(`planarize: '${name}' for a child edge is not a finite number`);
       }
       const inherited = inheritEdge(m, parentAttrs, child.fraction);
@@ -1118,6 +1121,10 @@ export function faceKeyOf(roots: Iterable<number>): string {
  */
 export type FaceId = string & { readonly __faceId: unique symbol };
 
+/** Which faces a face write names: a face selection (of this state or an
+ * earlier one), one face, or a predicate over the faces. */
+export type FaceWhere = FaceSelection<unknown> | Face | ((f: Face) => unknown) | undefined;
+
 /**
  * A selection of faces of one planar state: the rows a filter picked, or
  * every face (`Faces`, which is this with nothing left out).
@@ -1138,7 +1145,7 @@ export class FaceSelection<K = undefined, F extends Face = Face> implements Iter
   /** The classification that made this group; undefined otherwise. */
   readonly key: K;
   private readonly memberRows: readonly number[] | null;
-  private readonly set: Set<number> | null;
+  private readonly rowSet: Set<number> | null;
 
   /** @internal Use `material.faces()` and `filter`. `rows` null means every face. */
   constructor(collection: Faces | null, rows: Iterable<number> | null, key?: K, source?: Material) {
@@ -1147,7 +1154,7 @@ export class FaceSelection<K = undefined, F extends Face = Face> implements Iter
     this.collection = collection ?? (this as unknown as Faces);
     this.source = collection ? collection.source : source!;
     this.memberRows = rows === null ? null : Object.freeze(Array.from(new Set(rows)).sort((p, q) => p - q));
-    this.set = this.memberRows === null ? null : new Set(this.memberRows);
+    this.rowSet = this.memberRows === null ? null : new Set(this.memberRows);
     this.key = key as K;
     if (new.target === FaceSelection) Object.freeze(this);
   }
@@ -1399,6 +1406,32 @@ export class FaceSelection<K = undefined, F extends Face = Face> implements Iter
     return out;
   }
 
+  /**
+   * The material with face columns set on this selection's faces — every
+   * one, or those `where` names: a face selection, one face, or a
+   * predicate. A value is a number or a function of the face; the record
+   * form sets several columns in ONE instant, every function reading the
+   * faces as they were.
+   *
+   * A face is not a row, so a face column is keyed by the walls a face is
+   * made of, and it follows the material through anything that leaves
+   * those walls alone. It is SPARSE: a face this write passes by keeps
+   * what it had, and a face nothing ever reached has no value. When the
+   * walls change, a new face takes the value of the old face it shares the
+   * most walls with (`transfer: 'nearest'`, the default) or the column
+   * stops there (`'drop'`); a face that shares no wall with any old face
+   * starts from `fallback`. The options record `{ transfer, fallback }`
+   * comes last; a write without it keeps what the column declared. A
+   * value that is not finite leaves that face as it was.
+   */
+  set(column: string, value: number | ((f: F) => number), where?: FaceWhere, opts?: FaceSetOpts): Material;
+  set(column: string, value: number | ((f: F) => number), opts: FaceSetOpts): Material;
+  set(values: Record<string, number | ((f: F) => number)>, where?: FaceWhere, opts?: FaceSetOpts): Material;
+  set(values: Record<string, number | ((f: F) => number)>, opts: FaceSetOpts): Material;
+  set(...args: unknown[]): Material {
+    return writeFaces(this as FaceSelection<unknown>, args);
+  }
+
   /** Independent material of the selected faces: their edges and corners,
    * every point and edge column, the face columns, and the ids — an
    * extracted face is the face it was, so its columns and its id carry. */
@@ -1417,7 +1450,7 @@ export class FaceSelection<K = undefined, F extends Face = Face> implements Iter
 
   /** @internal Does this selection hold that face row? */
   holds(row: number): boolean {
-    return row >= 0 && (this.set === null ? row < this.collection.faces.length : this.set.has(row));
+    return row >= 0 && (this.rowSet === null ? row < this.collection.faces.length : this.rowSet.has(row));
   }
 }
 
@@ -1433,6 +1466,10 @@ export class Faces<F extends Face = Face> extends FaceSelection<undefined, F> {
   /** One key per face, built the first time a face column is read; the
    * ids and the row of each id, the first time an id is asked for. */
   private readonly keyBox: { keys: string[] | null; ids: FaceId[] | null; rowOf: Map<string, number> | null; all: readonly number[] | null };
+  /** @internal What each face carries of each face column, before the
+   * column's `fallback`: its own value, or the one it inherited. A face the
+   * column never reached has none. What a face write keeps of a column. */
+  readonly carried: ReadonlyMap<string, readonly (number | undefined)[]>;
 
   /**
    * @internal Use `material.faces()`, or `facesFromCycles` for geometry
@@ -1597,6 +1634,9 @@ export class Faces<F extends Face = Face> extends FaceSelection<undefined, F> {
     // values are keyed by the face's walls, so they are found once the
     // keys are known, and then baked onto the frozen view.
     const columns = Object.entries(m.faceAttrs);
+    const carried = new Map<string, (number | undefined)[]>();
+    for (const [name] of columns) carried.set(name, new Array<number | undefined>(views.length).fill(undefined));
+    this.carried = carried;
     if (columns.length > 0) {
       const keys = this.keys();
       // A face whose walls are unchanged finds its value by key. A face
@@ -1654,6 +1694,7 @@ export class Faces<F extends Face = Face> extends FaceSelection<undefined, F> {
               }
             }
           }
+          carried.get(name)![f] = value;
           const settled = value ?? column.fallback;
           if (settled === undefined) continue; // a face this column never reached
           Object.defineProperty(views[f], name, { value: settled, enumerable: true });

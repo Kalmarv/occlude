@@ -410,10 +410,9 @@ describe('the lattice as one table', () => {
     expect(c.v).toBe(11);
     expect(c.laplacian('v')).toBe((4 + 2) + (16 + 2) + (9 + 1) + (9 + 3) - 4 * 11);
     expect(c.adjacent.indices).toEqual([13, 22, 24, 33]);
-    // The same stencil `cur.laplacian` sums.
-    let fromRule = 0;
-    l.steps(1, (cur) => { fromRule = cur.laplacian('v', 3, 2); });
-    expect(c.laplacian('v')).toBe(fromRule);
+    // The five-point stencil, zero-flux: west, east, south, north.
+    const at = (i: number, j: number) => l.values.v[j * l.cols + i];
+    expect(c.laplacian('v')).toBe((at(2, 2) - 11) + (at(4, 2) - 11) + (at(3, 1) - 11) + (at(3, 3) - 11));
     // Off the lattice: a cell that reads 0 and that no write reaches.
     const off = l.cell([-5, 2])!;
     expect(off.v).toBe(0);
@@ -450,6 +449,29 @@ describe('t.steps', () => {
     expect(both.g.x[0]).toBe(2);
     expect('history' in both).toBe(false);
     expect(() => t.steps(1, chain(), (() => undefined) as never)).toThrow(/returned nothing/);
+  });
+
+  it('history reaches any value that answers withHistory, and a kept state carries none of its own', () => {
+    const t = toolkit({ seed: 1 });
+    class Tally {
+      constructor(readonly v: number, readonly history: readonly Tally[] = []) {}
+      withHistory(states: readonly Tally[]): Tally { return new Tally(this.v, states); }
+    }
+    const tally = t.steps(3, new Tally(0), (x) => new Tally(x.v + 1), { every: 1 });
+    expect(tally.v).toBe(3);
+    expect(tally.history.map((x) => x.v)).toEqual([0, 1, 2, 3]);
+    // A material run from a state that kept a history: the start is kept bare.
+    const first = t.steps(2, chain(), (g) => g.move([1, 0]), { every: 1 });
+    const second = t.steps(1, first, (g) => g.move([1, 0]), { every: 1 });
+    expect(second.history.map((h) => h.x[0])).toEqual([2, 3]);
+    expect(second.history.every((h) => h.history.length === 0)).toBe(true);
+    // A lattice likewise.
+    const l1 = t.steps(2, lattice(), (x) => x.set('a', (c) => c.a + 1), { every: 1 });
+    const l2 = t.steps(1, l1, (x) => x.set('a', (c) => c.a + 1), { every: 1 });
+    expect(l2.history.map((h) => h.values.a[0])).toEqual([2, 3]);
+    expect(l2.history.every((h) => h.history.length === 0)).toBe(true);
+    // Without { every }, nothing is kept.
+    expect(t.steps(2, lattice(), (x) => x).history).toEqual([]);
   });
 
   it('a pass is (value) => value: no step count; a counter column is how a pass counts', () => {

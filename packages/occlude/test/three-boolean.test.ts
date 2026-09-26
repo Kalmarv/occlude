@@ -93,8 +93,8 @@ describe('mesh booleans',()=>{
   expect(()=>box(2).unite(box(2).translate([2,2,0]))).toThrow('unite: the result is not a manifold surface');
  });
  it('carries identity and columns across the cut',()=>{
-  const cube=box(2).faceAttribute('wall',f=>f.index).attribute('h',p=>p.z);
-  const ball=sphere(1.2,{segments:12,rings:6}).translate([0.9,0.8,0.7]).faceAttribute('wall',()=>99);
+  const cube=box(2).faces.set('wall',f=>f.index).points.set('h',p=>p.z);
+  const ball=sphere(1.2,{segments:12,rings:6}).translate([0.9,0.8,0.7]).faces.set('wall',()=>99);
   const bitten=cube.subtract(ball);
   // An untouched face of the first solid keeps its own identity.
   expect(bitten.faces.some(f=>f.id==='f0')).toBe(true);

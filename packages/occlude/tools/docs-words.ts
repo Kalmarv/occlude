@@ -44,7 +44,7 @@ for (const page of DOC_PAGES.filter((p) => p.live)) {
   const code = fences.join('\n');
 
   for (const [, sig] of text.matchAll(INCLUDE)) {
-    // `Material.faceAttribute` is used as `.faceAttribute(`; `dots` as
+    // `Material.extrude` is used as `.extrude(`; `dots` as
     // `dots(`; a value word such as `t.cx` as `.cx`. A numbered overload
     // (`strokes.2`) is the same word.
     const word = sig.replace(/\.\d+$/, '');

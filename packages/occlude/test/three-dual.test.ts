@@ -39,7 +39,7 @@ describe('the dual of a mesh',()=>{
   closed(chiral,2);
  });
  it('carries columns across and names them for their source',()=>{
-  const dome=geodesic(1,{frequency:2}).attribute('height',p=>p.z).faceAttribute('tilt',f=>f.normal[2]);
+  const dome=geodesic(1,{frequency:2}).points.set('height',p=>p.z).faces.set('tilt',f=>f.normal[2]);
   const goldberg=dome.dual({project:1});
   expect(goldberg.points.every(p=>typeof p.tilt==='number')).toBe(true);
   expect(goldberg.faces.every(f=>typeof f.height==='number')).toBe(true);
