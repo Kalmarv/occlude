@@ -328,6 +328,9 @@ describe('a material carries the space its coordinates belong to', () => {
     planarize: () => m.planarize(),
     merge: () => m.merge(),
     extract: () => m.points.extract(),
+    extrude: () => m.extrude(m.points.at(0), [0.1, 0]),
+    split: () => m.split(m.edges),
+    move: () => m.move([0.1, 0]),
   });
   let stationOf: (sp: Space) => ReturnType<ReturnType<typeof toolkit>['station']>;
   const toolkitStation = (sp: Space) => stationOf(sp);

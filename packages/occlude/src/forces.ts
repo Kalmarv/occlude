@@ -3,7 +3,8 @@
  * once, EVALUATE at a point to a vector. Nothing here moves anything — a
  * rule sums the vectors and decides (see `Material.steps`). Depends on the
  * material module (a force takes any point list through `material()`);
- * the material module never depends on this one.
+ * the material module reaches this one only through `m.move`, at call
+ * time, where a force said without its state is prepared.
  */
 
 import { material, Material, type PointsLike, type Vertex, type Edge } from './material.js';
@@ -228,6 +229,51 @@ function logRow(space: Space, p: XY, np: Model, frame: readonly [Model, Model], 
 }
 
 // ---- forces -----------------------------------------------------------------------
+
+/**
+ * A force said without its state: `force.tension({ rest })` rather than
+ * `force.tension(g, { rest })`. It is a value that says how to prepare
+ * itself from the graph a move runs on — `g.move(force.tension({ rest }))`
+ * prepares it from `g`, once, and reads it at every point. `prepare(g)` is
+ * the same kernel the state-first form returns.
+ */
+export class GraphForce {
+  /** @internal Use the `force.*` words without a state. */
+  constructor(private readonly make: (g: Material) => (p: Vertex, k: number) => XY) {
+    Object.freeze(this);
+  }
+
+  /** The force prepared from `g`: `(p, k) => [dx, dy]`. */
+  prepare(g: Material): (p: Vertex, k: number) => XY {
+    if (!(g instanceof Material)) throw new Error('force.prepare: a force is prepared from a material');
+    return this.make(g);
+  }
+}
+
+/** How much of a force a move takes: a number, or one per point. */
+export type Amount = number | ((p: Vertex) => number);
+
+/** An `amount`, checked: absent is all of it. */
+function amountOf(amount: unknown, who: string): Amount {
+  if (amount === undefined) return 1;
+  if (typeof amount !== 'number' && typeof amount !== 'function') throw new Error(`${who}: { amount } must be a number, or a function of the point — got ${String(amount)}`);
+  return amount as Amount;
+}
+
+/** A prepared force times its amount; all of it is the force itself. */
+function scaled(f: (p: Vertex) => Vec, amount: Amount): (p: Vertex) => Vec {
+  if (amount === 1) return f;
+  return typeof amount === 'number' ? (p) => mul(f(p), amount) : (p) => mul(f(p), amount(p));
+}
+
+/** True for a force said without its state. */
+export const isGraphForce = (v: unknown): v is GraphForce => v instanceof GraphForce;
+
+/** @internal An options record in the place a state-first force takes its
+ * sources: a plain object that is no geometry and no shape. */
+export const isOptionsOnly = (a: unknown, b: unknown): boolean =>
+  b === undefined && typeof a === 'object' && a !== null && Object.getPrototypeOf(a) === Object.prototype
+  && !('points' in a) && !('contours' in a) && !('pts' in a) && !('__occludeShape' in a) && !('__occludeGroup' in a);
 //
 // One shape: PREPARE with the source geometry once per state, then EVALUATE
 // at a point to get a vector. Nothing here moves anything — the rule sums
@@ -301,8 +347,18 @@ export function spaceOfSources(sources: unknown): Space | undefined {
  * finite length is no rest at all, so that edge pulls from zero and a
  * degenerate column slackens the chain instead of tearing it.
  */
-export function tension(m: Material, opts: { rest: number | ((e: Edge) => number) }): (p: Vertex) => Vec {
-  const { rest } = opts;
+export function tension(opts: { rest: number | ((e: Edge) => number); amount?: Amount }): GraphForce;
+export function tension(m: Material, opts: { rest: number | ((e: Edge) => number) }): (p: Vertex) => Vec;
+export function tension(m: Material | { rest: number | ((e: Edge) => number); amount?: Amount }, opts?: { rest: number | ((e: Edge) => number) }): GraphForce | ((p: Vertex) => Vec) {
+  if (!(m instanceof Material) && opts === undefined) {
+    const said = m as { rest: number | ((e: Edge) => number); amount?: Amount } | undefined;
+    const rest = said?.rest;
+    if (typeof rest !== 'number' && typeof rest !== 'function') throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
+    const amount = amountOf(said?.amount, 'force.tension');
+    return new GraphForce((g) => scaled(tension(g, { rest }), amount));
+  }
+  const { rest } = opts!;
+  m = m as Material;
   const space = curved(m.space);
   if (space) {
     // In a space the pull is along the geodesic to each neighbour, by the
@@ -358,8 +414,28 @@ export function tension(m: Material, opts: { rest: number | ((e: Edge) => number
  * radius among the sources, and a query walks as many rings as its own
  * reach needs.
  */
-export function separation(sources: Sources, opts: { radius: number | ((p: Vertex) => number); excludeConnected?: boolean }): (p: Vertex) => Vec {
-  return separationIn(sources, opts, undefined);
+export function separation(opts: SeparationOpts & { amount?: Amount }): GraphForce;
+export function separation(sources: Sources, opts: SeparationOpts): (p: Vertex) => Vec;
+export function separation(sources: Sources | (SeparationOpts & { amount?: Amount }), opts?: SeparationOpts): GraphForce | ((p: Vertex) => Vec) {
+  if (isOptionsOnly(sources, opts)) return separationOf(sources as SeparationOpts & { amount?: Amount }, undefined);
+  return separationIn(sources as Sources, opts!, undefined);
+}
+
+/** `separation`'s options. */
+export interface SeparationOpts {
+  radius: number | ((p: Vertex) => number);
+  excludeConnected?: boolean;
+}
+
+/**
+ * @internal The state-free separation: the graph pushes on itself, and
+ * `amount` — a number, or a function of the point — scales the push, so a
+ * force can be strong in one part of a drawing and nothing in another.
+ */
+export function separationOf(said: SeparationOpts & { amount?: Amount }, space: Space | undefined): GraphForce {
+  const { amount, ...opts } = said;
+  const much = amountOf(amount, 'force.separation');
+  return new GraphForce((g) => scaled(separationIn(g, opts, space), much));
 }
 
 /** @internal `separation` measuring in `space` when the sources carry none
@@ -532,11 +608,19 @@ export function drift(
  * separation's mirror. Sources may be the material itself (`excludeConnected`
  * as for separation) or anchor points.
  */
+export function attract(opts: { radius: number; strength?: number; excludeConnected?: boolean }): GraphForce;
+export function attract(sources: Sources, opts: { radius: number; strength?: number; excludeConnected?: boolean }): (p: Vertex) => Vec;
 export function attract(
-  sources: Sources,
-  opts: { radius: number; strength?: number; excludeConnected?: boolean },
-): (p: Vertex) => Vec {
-  return attractIn(sources, opts, undefined);
+  sources: Sources | { radius: number; strength?: number; excludeConnected?: boolean },
+  opts?: { radius: number; strength?: number; excludeConnected?: boolean },
+): GraphForce | ((p: Vertex) => Vec) {
+  if (isOptionsOnly(sources, opts)) return attractOf(sources as { radius: number; strength?: number; excludeConnected?: boolean }, undefined);
+  return attractIn(sources as Sources, opts!, undefined);
+}
+
+/** @internal The state-free attraction: the graph pulls on itself. */
+export function attractOf(opts: { radius: number; strength?: number; excludeConnected?: boolean }, space: Space | undefined): GraphForce {
+  return new GraphForce((g) => attractIn(g, opts, space));
 }
 
 /** @internal `attract` measuring in `space` when the sources carry none of
@@ -633,7 +717,13 @@ export function field(vf: VectorFieldFn, opts: { strength?: number } = {}): (p: 
  * smoothing as a force, the growth-free counterpart of tension. A vertex
  * with fewer than two neighbours (an open end, an isolated point) stays.
  */
-export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) => Vec {
+export function relax(opts?: { amount?: number }): GraphForce;
+export function relax(m: Material, opts?: { amount?: number }): (p: Vertex) => Vec;
+export function relax(m?: Material | { amount?: number }, opts: { amount?: number } = {}): GraphForce | ((p: Vertex) => Vec) {
+  if (!(m instanceof Material)) {
+    const said = m ?? {};
+    return new GraphForce((g) => relax(g, said));
+  }
   const { amount = 1 } = opts;
   const space = curved(m.space);
   if (space) {

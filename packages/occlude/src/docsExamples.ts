@@ -53,6 +53,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'reference-faces', title: 'Reference: Faces', file: 'reference/faces.mdx', live: true, group: 'topics' },
   { slug: 'reference-transforms', title: 'Reference: Transforms', file: 'reference/transforms.mdx', live: true, group: 'topics' },
   { slug: 'reference-steps', title: 'Reference: Steps and forces', file: 'reference/steps.mdx', live: true, group: 'topics' },
+  { slug: 'reference-tables', title: 'Reference: Tables', file: 'reference/tables.mdx', live: true, group: 'topics' },
   { slug: 'reference-geometry', title: 'Reference: Geometry', file: 'reference/geometry.mdx', live: true, group: 'topics' },
   { slug: 'reference-synth', title: 'Reference: Synth', file: 'reference/synth.mdx', live: true, group: 'topics' },
   { slug: 'reference-plotting', title: 'Reference: Plotting', file: 'reference/plotting.mdx', live: true, group: 'topics' },

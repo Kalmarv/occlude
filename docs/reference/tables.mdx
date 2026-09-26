@@ -1,0 +1,379 @@
+---
+title: Tables
+description: A graph is two tables with ids, and a step is a pass over a value.
+---
+
+A graph is two tables of rows. The points table holds `x`, `y` and the columns you declare. The edges table holds rows that name two points. Every row has an id. The library mints an id one time and never uses it again. A lattice is one table with fixed rows, and the stencil relates each cell to the cells beside it.
+
+A table takes three writes. You add a row, you remove a row, or you set a column. Every verb on this page is a few of these writes. A selection is the query that names the rows. A run folds passes over a value.
+
+This page is an experiment. `m.steps` and `next` on the [steps](/docs/reference/steps) page stay as they are.
+
+## The two tables
+
+`g.points` and `g.edges` are selections of the whole tables. Each write on them returns a new material. The material you had does not change.
+
+| Write | Points | Edges |
+|---|---|---|
+| add a row | `g.points.add(xy, cols?)`, `g.points.add([xy, …], cols?)` | `g.edges.add([a, b], cols?)`, `g.edges.add([[a, b], …], cols?)`, `g.edges.add(e)` |
+| remove a row | `g.points.remove(sel)`: also the edges that name the points | `g.edges.remove(sel)`: the points stay |
+| set a column | `g.points.set('h', value, where?)`, `g.points.set({ h, k }, where?)` | `g.edges.set('w', value, where?)` |
+
+An end of an edge row is a point value or a vertex. A position is not an end, and the write stops with an error that tells you to use `point(…)`.
+
+A new point must give every declared column. A value is a number, or a function of the row. The record form of `set` is one instant: every function reads the table as it was before the write. A chain of `set` calls is a sequence. A write to a column that is not declared declares it, with 0 on every other row. `x` and `y` are columns too.
+
+`where` is a selection, one member, or a test of the row. It names the rows that the write changes. A `set` on a filtered selection writes only its own members.
+
+## What a write skips
+
+A write skips data that cannot land. It does not throw, and it does not warn. It throws for a wrong program, for example a missing column on a new point or a reserved name.
+
+| The write skips | When |
+|---|---|
+| everything | it gets nothing: an empty selection, or `undefined` from an empty `pick` |
+| a row, `gone` | a value or an end names no row in this state |
+| an edge row, `self` | the two ends name one point |
+| a row, `already` | the geometry has the value already, the pair is an edge already, or it comes two times in one write |
+| one row | a position or a value is not a finite number |
+
+## A value is a name
+
+`point(xy, cols?)` and `edge(a, b, cols?)` make a point and an edge that have a name from the start. A value that you hold, or a view from a state, names its row in each later state and in each write. A write skips a value that the geometry has already, and a reference to a value that the geometry does not have.
+
+```ts live
+import { sketch, circle, strokes, add, polar, point } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const start = t.sample(circle([50, 50], 10), { count: 12 });
+  const web = (g) => {
+    const fresh = point(add(t.pick(g.points), polar(3, t.rnd(2 * Math.PI))));
+    return g.points.add(fresh).edges.add([fresh, g.points.near(fresh, { radius: 6 }).at(0)]);
+  };
+  return strokes(t.steps(500, start, web));
+});
+```
+
+## Queries
+
+A selection answers `filter`, `near`, `without`, `at`, `slice` and `map`. `at(-1)` is the last member. `without` takes a selection or one member. `t.pick(sel)` gives one member, or `undefined` when the selection is empty. `t.pick(sel, 5)` gives five members as a selection. `t.pick(sel, 0.1)` gives a tenth of them. A choice for each member is a pick, then two verbs. The picked members go one way, and `without` gives the rest.
+
+## Recipes
+
+A recipe is a few writes with one name. You can write the recipe, or you can write its writes.
+
+| Recipe | The writes |
+|---|---|
+| `g.extrude(p, offset, cols?)` | add a point at `p` plus `offset`, then add the edge from `p` to it |
+| `g.split(edges, at?)` | for each edge: add a point along it, remove the edge, add two edges |
+| `g.move(by, where?)` | set `x` and `y` in one instant |
+
+`extrude` takes an offset, not a position. `polar(r, angle)` is an offset of length `r` at an angle in radians. In a curved sketch, an offset is a step along the geodesic. `extrude` of `undefined` gives back the material. To name the new point in a later write, write the two writes with a point value.
+
+`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. A point column goes to the new point by its transfer policy. The two new edges keep the lineage root of the old edge.
+
+`move` adds the sum of its displacements to each point. A displacement is a vector, a function of the point, or a force. A last argument that is a selection, a point value or a vertex names the points that move.
+
+## Forces as values
+
+`force.tension({ rest, amount? })`, `force.separation({ radius, excludeConnected?, amount? })`, `force.relax({ amount })` and `force.attract({ radius })` are forces with no state. `g.move` prepares each from `g` one time and adds them. `move` adds each force at its full length. `amount` on `tension` and on `separation` scales the force, and it is a number or a function of the point. A small amount is a slow, calm move. At full strength, `separation` can push a point as far as its radius in one step. `force.drift`, `force.boundary`, `force.vortex` and `force.field` are functions of the point already, so `move` reads them as they are. The forms that take a state first, as in `force.tension(g, { rest })`, stay.
+
+## t.steps()
+
+`t.steps(n, start, ...passes, { every? })` runs the passes `n` times. A pass is a function `(value) => value`, and the value can be a material, a lattice or an object that holds several. The passes of one step run in order. Each pass reads what the pass before it returned. A pass has one argument. To count the steps, a pass writes a counter column. With `{ every }`, a material or a lattice keeps its start, every `every`-th state and the last state on `history`. An object keeps no history. `t.steps` is on the toolkit because passes draw with `t.pick`, `t.rnd` and `t.chance`.
+
+## The lattice as one table
+
+`l.cells` is a selection of the cells. `l.set(...)` is `l.cells.set(...)`, because a lattice has one table. A cell answers `x` and `y` (its centre), `index`, `i`, `j`, every column by name, `c.laplacian(column)` and `c.adjacent`. `l.cell(p)` is the cell under a position or a point. The `where` of a lattice write can also be points, and then it names the cells under them. A cell off the lattice reads 0, and no write gets to it. A lattice cannot add or remove a cell, so `l.cells.add` and `l.cells.remove` refuse by name. `l.field(column)` gives a column back as a field.
+
+## 1. Ring growth, and the slipped copy
+
+A ring grows sprouts from its rim and joins two points in each step. The copy on the right sometimes joins to the first point, so it gathers toward one place.
+
+```ts live
+import { sketch, circle, strokes, polar, distance } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const { pick, rnd, chance } = t;
+  const center = [25, 50];
+  const ring = t.sample(circle(center, 12), { count: 60 });
+  const first = ring.points.at(0);
+  const rim = (g) => g.points.filter((p) => distance(p, center) > 10);
+
+  const sprout = (g) => g.extrude(pick(rim(g)), polar(2, rnd(2 * Math.PI)));
+  const join = (g) => g.edges.add([pick(g.points), pick(g.points)]);
+  const joinToFirst = (g) => g.edges.add([pick(g.points), chance(0.05) ? first : pick(g.points)]);
+
+  const grown = t.steps(400, ring, sprout, join);
+  const slipped = t.steps(400, ring, sprout, joinToFirst);
+  return [strokes(grown), strokes(slipped.translate([50, 0]), { pen: 'stabilo-88-blue' })];
+});
+```
+
+## 2. Growth under forces, and a flaw that heals
+
+Forces settle a ring, and each long edge splits. On the right, a few long edges break in place of a split.
+
+```ts live
+import { sketch, circle, strokes, force } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const { pick } = t;
+  const seed = t.sample(circle([25, 50], 8), { count: 24 });
+
+  const settle = (g) => g.move(
+    force.tension({ rest: 1.6 }),
+    force.separation({ radius: 4, excludeConnected: true, amount: 0.05 }),
+    force.relax({ amount: 0.4 }),
+    force.drift(t.noise, { amount: 0.24, frequency: 0.05 }),
+  );
+  const stretched = (g) => g.edges.filter((e) => e.length > 1.8);
+  const cut = (g) => g.split(stretched(g));
+  const cutOrBreak = (g) => {
+    const s = stretched(g), broken = pick(s, 1 / 50);
+    return g.edges.remove(broken).split(s.without(broken));
+  };
+
+  const clean = t.steps(150, seed, settle, cut);
+  const flawed = t.steps(150, seed, settle, cutOrBreak);
+  return [strokes(clean), strokes(flawed.translate([50, 0]), { pen: 'stabilo-88-blue' })];
+});
+```
+
+## 3. Order to chaos on one sheet
+
+A mesh of triangles pushes itself apart and loses points. The push and the loss grow from left to right.
+
+```ts live
+import { sketch, strokes, connect, force } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
+  const { chance } = t;
+  const b = t.bounds();
+  const chaos = (p) => ((p.x - b.x) / b.w) ** 2;
+  const grid = connect.triangulate(t.grid({ cols: 45, rows: 30 }).map((c) => [c.cx, c.cy]));
+
+  const settle = (g) => g.move(force.separation({ radius: 5, amount: (p) => 0.3 * chaos(p) }));
+  const erode = (g) => g.points.remove(g.points.filter((p) => chance(0.02 * chaos(p))));
+
+  return strokes(t.steps(40, grid, settle, erode));
+});
+```
+
+## 4. Rain, and faster rain
+
+Drops of ink fall on random cells, spread and fade. The right half spreads faster.
+
+```ts live
+import { sketch, strokes, rect } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const { pick } = t;
+  const b = t.bounds();
+  const sky = t.lattice({ spacing: 1, area: rect(b.x, b.y, b.w / 2, b.h) }).set('ink', 0);
+
+  const rain = (rate) => (l) => l
+    .set('ink', (c) => c.ink + 40, pick(l.cells))
+    .set('ink', (c) => c.ink + rate * c.laplacian('ink'))
+    .set('ink', (c) => c.ink * 0.99);
+
+  const slow = t.steps(90, sky, rain(0.1));
+  const fast = t.steps(90, sky, rain(0.22));
+  const levels = [0.02, 0.04, 0.08, 0.16, 0.32, 0.64];
+  return [
+    strokes(t.isolines(slow.field('ink'), levels)),
+    strokes(t.isolines(fast.field('ink'), levels).translate([b.w / 2, 0]), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
+## 5. A wave on a pond
+
+Three stones fall into a pond. Each step pushes the speed by the Laplacian of the height, and then the height by the speed.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const pond = t.lattice({ spacing: 1 }).set({ h: 0, v: 0 }).set('h', 5, t.throw({ count: 3 }));
+
+  const push = (l) => l.set('v', (c) => c.v + 0.2 * c.laplacian('h'));
+  const flow = (l) => l.set('h', (c) => c.h + c.v);
+
+  return strokes(t.isolines(t.steps(120, pond, push, flow).field('h'), { count: 8 }));
+});
+```
+
+## 6. Lines, walkers, and a web
+
+Five lines cross. Walkers leave from the crossings and from every point. The black web joins each point to the neighbours that nothing stands between.
+
+```ts live
+import { sketch, strokes, connect, polar } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const { pick, rnd, chance } = t;
+  const lines = connect.pairs(t.throw({ count: 5 }), t.throw({ count: 5 })).planarize().resample({ spacing: 2 });
+  const crossings = lines.points.filter((p) => p.edges.length === 4);
+
+  const wander = (g) => g.extrude(chance(0.3) ? pick(crossings) : pick(g.points), polar(1.5, rnd(2 * Math.PI)));
+
+  const walked = t.steps(3000, lines, wander);
+  return [strokes(walked, { pen: 'stabilo-88-blue' }), strokes(connect.neighbourhood(walked.points))];
+});
+```
+
+## 7. A verb of your own: each new point joins two points near it
+
+A pass is a function, so a verb of your own is a pass. Each new point joins two points near it.
+
+```ts live
+import { sketch, circle, strokes, add, polar, point } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const { pick, rnd } = t;
+  const start = t.sample(circle([50, 50], 10), { count: 12 });
+
+  const web = (g) => {
+    const q = point(add(pick(g.points), polar(3, rnd(2 * Math.PI))));
+    return g.points.add(q).edges.add(g.points.near(q, { radius: 6 }).slice(0, 2).map((p) => [q, p]));
+  };
+
+  return strokes(t.steps(500, start, web));
+});
+```
+
+## 8. A tree that branches from its tips
+
+Each step grows one tip on in its heading. Sometimes a branch leaves the point behind a tip.
+
+```ts live
+import { sketch, strokes, material, polar, angleTo } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const { pick, rnd, chance } = t;
+  const trunk = material([[50, 95], [50, 85]], { edges: [[0, 1]] });
+  const tips = (g) => g.points.filter((p) => p.edges.length === 1 && p.y < 90);
+  const heading = (v) => angleTo(v.adjacent.at(0), v);
+
+  const grow = (g) => { const v = pick(tips(g)); return g.extrude(v, polar(2, heading(v) + rnd(-0.4, 0.4))); };
+  const fork = (g) => { const v = pick(tips(g)); return chance(0.15) ? g.extrude(v.adjacent.at(0), polar(2, heading(v) + (chance(0.5) ? 0.7 : -0.7))) : g; };
+
+  return strokes(t.steps(600, trunk, grow, fork));
+});
+```
+
+## 9. Age on a column, and pruning by it
+
+Every point gets older in each step. Old tips fall off, and the drawing shows only the young edges.
+
+```ts live
+import { sketch, strokes, circle, polar } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
+  const { pick, rnd } = t;
+  const ring = t.sample(circle([50, 50], 6), { count: 20 }).points.set('age', 0);
+
+  const age = (g) => g.points.set('age', (p) => p.age + 1);
+  const sprout = (g) => g.extrude(pick(g.points), polar(2.5, rnd(2 * Math.PI)), { age: 0 });
+  const prune = (g) => g.points.remove(g.points.filter((p) => p.age > 40 && p.edges.length === 1));
+
+  const alive = t.steps(300, ring, age, sprout, prune);
+  return strokes(alive.edges.filter((e) => e.a.age < 20 || e.b.age < 20));
+});
+```
+
+## 10. Space colonisation: growth pulled by attractors
+
+Each step, one point grows toward the food near it. The blue dots are the food that no branch got to.
+
+```ts live
+import { sketch, strokes, dots, circle, material, add, sub, unit, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
+  const { pick } = t;
+  const food = t.throw(circle([50, 45], 35), { count: 400 });
+  const root = material([[50, 92]]);
+
+  const reach = (g) => {
+    const v = pick(g.points);
+    const pull = food.points.near(v, { radius: 12 }).map((f) => unit(sub(f, v))).reduce(add, [0, 0]);
+    return g.extrude(v, mul(unit(pull), 2));
+  };
+
+  const grown = t.steps(1500, root, reach);
+  return [strokes(grown), dots(food.points.filter((f) => grown.points.near(f, { radius: 2 }).length === 0), { pen: 'stabilo-88-blue' })];
+});
+```
+
+## 11. Gray-Scott on the lattice, as the equations
+
+The two columns `a` and `b` react and diffuse. One `set` with a record is one instant, so `b` reads the old `a`.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+  const dish = t.lattice({ spacing: 0.5 })
+    .set({ a: 1, b: 0 })
+    .set('b', 1, (c) => Math.abs(c.x - 50) < 4 && Math.abs(c.y - 50) < 4);
+
+  const react = (l) => l.set({
+    a: (c) => c.a + 0.2 * c.laplacian('a') - c.a * c.b * c.b + 0.055 * (1 - c.a),
+    b: (c) => c.b + 0.1 * c.laplacian('b') + c.a * c.b * c.b - 0.117 * c.b,
+  });
+
+  return strokes(t.isolines(t.steps(4000, dish, react).field('b'), [0.15, 0.25]));
+});
+```
+
+## 12. Graph and lattice together
+
+The value of the run is an object that holds a graph and a lattice. The graph grows only where the ink is thin, and each new point puts ink down.
+
+```ts live
+import { sketch, strokes, circle, add, polar, point } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const { pick, rnd } = t;
+  const start = { web: t.sample(circle([50, 50], 5), { count: 12 }), ink: t.lattice({ spacing: 1 }).set('v', 0) };
+
+  const grow = ({ web, ink }) => {
+    const from = pick(web.points.filter((p) => ink.cell(p).v < 0.3));
+    const fresh = point(add(from, polar(2, rnd(2 * Math.PI))));
+    return {
+      web: web.points.add(fresh).edges.add([from, fresh]),
+      ink: ink.set('v', (c) => c.v + 1, ink.cell(fresh)).set('v', (c) => c.v + 0.1 * c.laplacian('v')),
+    };
+  };
+
+  const { web } = t.steps(800, start, grow);
+  return strokes(web);
+});
+```
+
+## 13. Three flaws of one growth on one sheet
+
+One growth and three flaws. The second sometimes splits a tenth of all edges. The third joins a few long edges to random points. The fourth sometimes kicks a point away.
+
+```ts live
+import { sketch, strokes, circle, polar, force } from 'occlude';
+
+export default sketch({ aspect: [3, 1], seed: 6 }, (t) => {
+  const { pick, rnd, chance } = t;
+  const seed = t.sample(circle([0, 0], 6), { count: 20 });
+  const settle = (g) => g.move(force.tension({ rest: 1.5 }), force.separation({ radius: 3.5, amount: 0.05 }), force.relax({ amount: 0.3 }));
+  const stretched = (g) => g.edges.filter((e) => e.length > 1.7);
+
+  const cut = (g) => g.split(stretched(g));
+  const cutTenth = (g) => g.split(chance(1 / 40) ? pick(g.edges, 0.1) : stretched(g));
+  const cutOrJoin = (g) => {
+    const s = stretched(g), j = pick(s, 1 / 40);
+    return g.split(s.without(j)).edges.add(j.map((e) => [e.a, pick(g.points)]));
+  };
+  const cutAndWander = (g) => g.split(stretched(g)).move((p) => (chance(0.01) ? polar(1, rnd(2 * Math.PI)) : [0, 0]));
+
+  const runs = [cut, cutTenth, cutOrJoin, cutAndWander].map((flaw) => t.steps(200, seed, settle, flaw));
+  return runs.map((r, i) => strokes(r.translate([15 + i * 30, 17])));
+});
+```
