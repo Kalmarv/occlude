@@ -102,11 +102,11 @@ describe('t.pick', () => {
       const [a, b] = t.pick(some);
       expect(distance(a, b)).toBeLessThan(10.5);
       expect(t.pick([7, 7, 7])).toBe(7);
-      // Nothing to pick from is nothing to pick from, whichever spelling:
-      // an array would quietly answer undefined and a selection's own `at`
-      // would refuse with a different word.
-      expect(() => t.pick([])).toThrow(/nothing to pick from/);
-      expect(() => t.pick(m.points.filter(() => false))).toThrow(/nothing to pick from/);
+      // Nothing to pick from gives no member, whichever spelling (spec 71:
+      // a write given `undefined` writes nothing, so an empty pick is data,
+      // not a mistake).
+      expect(t.pick([])).toBeUndefined();
+      expect(t.pick(m.points.filter(() => false))).toBeUndefined();
       return [];
     }), { paper: 'Square20' });
   });

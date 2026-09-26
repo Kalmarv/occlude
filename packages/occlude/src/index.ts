@@ -62,9 +62,14 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion, FillParams, B
 export {
   material, curve, append, connect, Material, segmentRuns, extent, banding,
 } from './material.js';
-export { add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy, turn, lerp, reflect, angleBetween } from './vec.js';
+export { add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, polar, angleTo, sum, sumBy, turn, lerp, reflect, angleBetween } from './vec.js';
 export { ownedBy } from './views.js';
-export { force, sumForces } from './forces.js';
+export { force, sumForces, GraphForce } from './forces.js';
+export type { Amount, SeparationOpts } from './forces.js';
+// The value you hold is the name: a point or an edge made here names the
+// row it becomes in every later state and every write.
+export { point, edge } from './tables.js';
+export type { PointValue, EdgeValue, PointEnd, EdgeEnd, EdgeRowSpec, PointWhere, EdgeWhere, ColumnValue, Displacement } from './tables.js';
 export { query } from './query.js';
 export { inheritEdge } from './steps.js';
 export type { EdgeRef, StepRule, StepsOptions } from './steps.js';
@@ -158,7 +163,8 @@ export type { FaceMeasure, MeasureOpts } from './measure.js';
 export type { IsoContour, IsoOpts, IsoLevels } from './isolines.js';
 // A grid of values you can step: the stateful counterpart of a field. The
 // door is `t.lattice` — it reads the drawable and the seeded init.
-export type { Lattice, LatticeOpts, LatticeInit, LatticeRule, LatticeState, LatticeNext, LatticeValues } from './lattice.js';
+export type { Lattice, LatticeOpts, LatticeInit, LatticeRule, LatticeState, LatticeNext, LatticeValues, Cell, CellWhere } from './lattice.js';
+export { CellSelection } from './lattice.js';
 // Ink as a budget: the tone a drawing still owes, paid down by the marks it
 // makes. The door is `t.residual` — it reads the drawable and the nib.
 export type { Residual, ResidualOpts, SpendMarks, SpendOpts } from './residual.js';

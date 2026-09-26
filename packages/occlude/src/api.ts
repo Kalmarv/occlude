@@ -73,15 +73,21 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
    * through the ordinary area door. Give this or `fromPoints`, not both. */
   fromArea?: Area;
 }
-import { latticeOf, type Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
+import { latticeOf, Lattice, CellSelection, type LatticeInit, type LatticeOpts } from './lattice.js';
 import { residualOf, type Residual, type ResidualOpts } from './residual.js';
 import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, inSpace, isStations, stationAt, stationsMaterial,
-  withinMaterial, areaCentroid, append, areaView, type PointsLike, type Station, type Transfer,
+  withinMaterial, areaCentroid, append, areaView, type PointsLike, type Station, type Transfer, type Vertex,
 } from './material.js';
 import { PointSelection, EdgeSelection } from './relation.js';
+
+/** A pass of `t.steps`: the value in, the next value out. One argument. */
+type Pass<T> = (value: T) => T;
+
+/** What an empty collection gives `t.pick`: one draw, and no member. */
+const NO_MEMBER: Pickable<undefined> = Object.freeze([undefined]);
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoiOf } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
@@ -89,7 +95,8 @@ import { spacefill, type SpacefillOpts } from './spacefill.js';
 import { textOf, type TextOpts } from './strokeFont.js';
 import { hersheySimplex } from './fonts/hersheySimplex.js';
 import { distanceTo, distanceToPoints, type DistanceField } from './distance.js';
-import { attractIn, boundaryIn, force, separationIn, sourcePoints, vortexIn, type Sources } from './forces.js';
+import { attractIn, attractOf, boundaryIn, force, isOptionsOnly, separationIn, separationOf, sourcePoints, vortexIn, type GraphForce, type SeparationOpts, type Sources } from './forces.js';
+import { restamp } from './tables.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
   vectorField as vectorFieldMark, within as withinField, fieldMeta, pointField, type BoundEnv, type Prepared, type PointField,
@@ -2084,6 +2091,107 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `scatter` and the fills read it like any other. `lat.steps(n, rule)`
    * and `lat.add(points, amount)` return a NEW lattice.
    */
+  /** `force.separation`, taking a shape where it takes points; said with no
+   * sources it is a force the graph a move runs on pushes itself with. */
+  function separationTk(opts: SeparationOpts & { amount?: number | ((p: Vertex) => number) }): GraphForce;
+  function separationTk(sources: Sources | ShapeValue, opts: SeparationOpts): (p: Vertex) => Vec;
+  function separationTk(sources: Sources | ShapeValue | (SeparationOpts & { amount?: number | ((p: Vertex) => number) }), opts?: SeparationOpts): GraphForce | ((p: Vertex) => Vec) {
+    if (isOptionsOnly(sources, opts)) return separationOf(sources as SeparationOpts, exec.space);
+    return separationIn(pointSources(sources as Sources | ShapeValue, 'force.separation'), opts!, exec.space);
+  }
+
+  /** `force.attract`, taking a shape where it takes points; said with no
+   * sources it is a force the graph a move runs on pulls itself with. */
+  function attractTk(opts: { radius: number; strength?: number; excludeConnected?: boolean }): GraphForce;
+  function attractTk(sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }): (p: Vertex) => Vec;
+  function attractTk(sources: Sources | ShapeValue | { radius: number; strength?: number; excludeConnected?: boolean }, opts?: { radius: number; strength?: number; excludeConnected?: boolean }): GraphForce | ((p: Vertex) => Vec) {
+    if (isOptionsOnly(sources, opts)) return attractOf(sources as { radius: number; strength?: number; excludeConnected?: boolean }, exec.space);
+    return attractIn(pointSources(sources as Sources | ShapeValue, 'force.attract'), opts!, exec.space);
+  }
+
+  /**
+   * One member, drawn from the seed: `pick(items)`. An empty collection
+   * has no member and answers `undefined` — the draw is still taken, so
+   * the stream does not depend on what is in the collection.
+   *
+   * `pick(items, n)` with `n` of 1 or more is `n` distinct members (all of
+   * them when there are fewer), and `pick(items, share)` with a share
+   * between 0 and 1 is that share of them, rounded: a selection of a
+   * selection, a list of a list, in the collection's own order. One draw
+   * per member picked.
+   */
+  function pick<T>(items: Pickable<T>): T;
+  function pick<S extends PointSelection<unknown> | EdgeSelection<unknown> | CellSelection>(items: S, count: number): S;
+  function pick<T>(items: readonly T[], count: number): T[];
+  function pick<T>(items: Pickable<T>, count?: number): unknown {
+    if (count === undefined) return items.length === 0 ? exec.pick(NO_MEMBER) : exec.pick(items);
+    const len = items.length;
+    const k = !(count > 0) ? 0 : count < 1 ? Math.round(count * len) : Math.min(Math.floor(count), len);
+    // A partial shuffle of the positions: the first k are the picks.
+    const order = Array.from({ length: len }, (_, i) => i);
+    for (let i = 0; i < k; i++) {
+      const j = i + exec.rndInt(len - i);
+      const swap = order[i];
+      order[i] = order[j];
+      order[j] = swap;
+    }
+    const chosen = new Set(order.slice(0, k));
+    const withFilter = items as unknown as { filter?: (fn: (m: T, i: number) => boolean) => unknown };
+    if (typeof withFilter.filter === 'function') return withFilter.filter((_, i) => chosen.has(i));
+    const out: T[] = [];
+    for (let i = 0; i < len; i++) if (chosen.has(i)) out.push(items.at(i) as T);
+    return out;
+  }
+
+  /**
+   * THE run: `start` and the passes folded over it `n` times. A pass is
+   * `(value) => value` — graph in, graph out, or a lattice, or a plain
+   * object holding several — and the passes of one step run in order, each
+   * on what the one before returned. A pass takes one argument: a pass that
+   * needs the step count writes a counter column of its own. The last
+   * argument may be `{ every }`: a material or a lattice then keeps its
+   * start, every `every`-th state and the last one on `history`. A plain
+   * object keeps none.
+   *
+   * On the toolkit because passes draw (`t.pick`, `t.rnd`, `t.chance`),
+   * and the toolkit is what draws. A material's `iteration` counts the
+   * steps, so a force that turns with the step (`force.drift`) turns.
+   */
+  function steps<T>(n: number, start: T, ...passes: Pass<T>[]): T;
+  function steps<T>(n: number, start: T, ...passes: [...Pass<T>[], { every?: number }]): T;
+  function steps<T>(n: number, start: T, ...passes: (Pass<T> | { every?: number })[]): T {
+    const last = passes[passes.length - 1];
+    const opts = typeof last === 'object' && last !== null ? (last as { every?: number }) : {};
+    const run = passes.filter((p, i): p is Pass<T> => {
+      if (typeof p === 'function') {
+        if (p.length > 1) throw new Error(`t.steps: pass ${i + 1} takes ${p.length} arguments — a pass is (value) => value; a pass that needs the step count writes a counter column of its own`);
+        return true;
+      }
+      if (i === passes.length - 1 && typeof p === 'object' && p !== null) return false;
+      throw new Error(`t.steps: pass ${i + 1} is ${p === null ? 'null' : typeof p} — a pass is a function (value) => value, and only the last argument may be { every }`);
+    });
+    const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    const every = opts.every !== undefined && Number.isFinite(opts.every) ? Math.max(1, Math.floor(opts.every)) : 0;
+    const base = start instanceof Material ? start.iteration : 0;
+    const snaps: T[] = [];
+    let value = start;
+    if (every) snaps.push(value);
+    for (let k = 0; k < count; k++) {
+      for (let i = 0; i < run.length; i++) {
+        value = run[i](value);
+        if (value === undefined) throw new Error(`t.steps: pass ${i + 1} returned nothing at step ${k} — a pass returns the value the next one reads`);
+      }
+      // A material counts its steps, the way `m.steps` does.
+      if (value instanceof Material) value = restamp(value, base + k + 1) as T;
+      if (every && (k + 1) % every === 0 && k + 1 < count) snaps.push(value);
+    }
+    if (every && count > 0) snaps.push(value);
+    if (!every) return value;
+    if (value instanceof Material) return restamp(value, value.iteration, snaps as Material[]) as T;
+    if (value instanceof Lattice) return value.withHistory(snaps as Lattice[]) as T;
+    return value;
+  }
+
   function lattice(opts: LatticeOpts, init?: LatticeInit): Lattice {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
@@ -2572,7 +2680,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
      * `mean`, a few far out, and no bound at all — the jitter that has a
      * typical size rather than a range. `t.rnd(a, b)` is the flat one. */
     gaussian: (mean = 0, sd = 1): number => exec.gaussian(mean, sd),
-    pick: <T,>(items: Pickable<T>): T => exec.pick(items),
+    pick,
+    steps,
     chance: (p: number): boolean => exec.chance(p),
     prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
     noise,
@@ -2665,10 +2774,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
        */
       boundary: (area: Area, opts: { radius: number; strength?: number }) =>
         boundaryIn(lowerShape(exec, area, 'force.boundary') as AreaInput, opts, exec.space),
-      separation: (sources: Sources | ShapeValue, opts: { radius: number; excludeConnected?: boolean }) =>
-        separationIn(pointSources(sources, 'force.separation'), opts, exec.space),
-      attract: (sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }) =>
-        attractIn(pointSources(sources, 'force.attract'), opts, exec.space),
+      separation: separationTk,
+      attract: attractTk,
       /** A turn about a centre: a centre is a bare point, so the toolkit
        * hands it the sketch's space. */
       vortex: (centre: XY, opts: { strength: number; falloff?: number }) => vortexIn(centre, opts, exec.space),

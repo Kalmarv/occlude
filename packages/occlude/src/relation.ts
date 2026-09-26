@@ -101,6 +101,7 @@ export function onState<S extends { source: Material; in(state: Material): S }>(
 
 import { groupRows } from './groupRows.js';
 import { neighbours } from './forces.js';
+import { addPoints, removePoints, setPoints, addEdges, removeEdges, setEdges, withoutRows, fromEnd, type ColumnValue, type EdgeEnd, type EdgeRowSpec, type PointEnd, type PointWhere, type EdgeWhere } from './tables.js';
 import { vx, vy, type XY } from './vec.js';
 import { edges as buildEdgeQuery, type EdgeQuery } from './query.js';
 import { orient2d } from 'robust-predicates';
@@ -125,7 +126,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   /** The classification that made this group; undefined otherwise. */
   readonly key: K;
   private readonly memberRows: readonly number[] | null;
-  private readonly set: Set<number> | null;
+  private readonly memberSet: Set<number> | null;
   /** The lazily built full row list lives in a box, so the selection itself is frozen. */
   private readonly cache: { indices: readonly number[] | null } = { indices: null };
 
@@ -133,7 +134,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   constructor(source: Material, rows: Iterable<number> | null, key?: K) {
     this.source = source;
     this.memberRows = rows === null ? null : rowsOf(rows);
-    this.set = this.memberRows === null ? null : new Set(this.memberRows);
+    this.memberSet = this.memberRows === null ? null : new Set(this.memberRows);
     this.key = key as K;
     Object.freeze(this);
   }
@@ -148,10 +149,13 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return this.memberRows === null ? this.source.n : this.memberRows.length;
   }
 
-  /** The member at position `i` of this collection (a view of the source). */
+  /** The member at position `i` of this collection (a view of the
+   * source); a negative `i` counts back from the end, so `at(-1)` is the
+   * last. */
   at(i: number): Vertex {
-    const row = this.memberRows === null ? i : this.memberRows[i];
-    if (!Number.isInteger(i) || i < 0 || row === undefined || row >= this.source.n) throw new Error(`points.at: no member ${i} (${this.length} members)`);
+    const k = fromEnd(i, this.length);
+    const row = this.memberRows === null ? k : this.memberRows[k];
+    if (!Number.isInteger(k) || k < 0 || row === undefined || row >= this.source.n) throw new Error(`points.at: no member ${i} (${this.length} members)`);
     return this.source.vertex(row);
   }
 
@@ -238,7 +242,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     const rows = index(p);
     // The index covers the whole state. A selection of part of it answers
     // with its own members only.
-    return new PointSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.set!.has(r)));
+    return new PointSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.memberSet!.has(r)));
   }
 
   has(view: Vertex): boolean {
@@ -250,7 +254,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     // answer a foreign vertex gets.
     const row = ownedBy(view, this.source) ? view.index : this.source.rowOfPoint(view.id);
     if (row < 0) return false;
-    return this.set === null ? row < this.source.n : this.set.has(row);
+    return this.memberSet === null ? row < this.source.n : this.memberSet.has(row);
   }
 
   /**
@@ -293,10 +297,61 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return new PointSelection(this.source, this.indices.filter((i) => !theirs.holds(i)), this.key);
   }
 
+  /** The members that `other` does not name: a selection, a point value or
+   * one vertex, of this state or an earlier one of the same evolution.
+   * Nothing (an empty pick) takes nothing away. */
+  without(other: PointSelection<unknown> | PointEnd | undefined): PointSelection<K> {
+    return new PointSelection(this.source, withoutRows(this.source, this.indices, other, 'points'), this.key);
+  }
+
+  /** The members at positions `start` up to `end` (not included), read as
+   * an array's `slice` reads them: a negative position counts from the end. */
+  slice(start?: number, end?: number): PointSelection<K> {
+    return new PointSelection(this.source, this.indices.slice(start, end), this.key);
+  }
+
+  // ---- the three writes (see tables.ts) ----
+
+  /**
+   * The material with new point rows: one point, or a list of them, each
+   * with `cols` — every declared column, and any new one, which is
+   * declared with 0 on the rows already there. A position makes a row with
+   * a new id. A point value (`point(xy, cols?)`) or a view makes the row it
+   * names, with its own columns, so it names that row in every later write;
+   * one this material holds already is skipped. A position that is not
+   * finite, or nothing at all, adds nothing.
+   */
+  add(at: XY | PointEnd | Iterable<XY | PointEnd> | undefined, cols?: Record<string, number>): Material {
+    return addPoints(this.source, at, cols);
+  }
+
+  /** The material without these points and without every edge that names
+   * one of them. A selection, a point value or one vertex, of this state or
+   * an earlier one; one that is gone, or nothing, removes nothing. */
+  remove(what: PointSelection<unknown> | PointEnd | undefined): Material {
+    return removePoints(this.source, what);
+  }
+
+  /**
+   * The material with columns set on this selection's points — every one,
+   * or those `where` names: a selection, one point value or vertex, or a
+   * predicate. A
+   * value is a number or a function of the point; the record form sets
+   * several columns in ONE instant, every function reading the points as
+   * they were. A column not declared yet is declared, 0 elsewhere; `x` and
+   * `y` are columns too. A value that is not finite leaves that row as it
+   * was, and a `where` that names nothing writes nothing.
+   */
+  set(column: string, value: ColumnValue<Vertex>, where?: PointWhere): Material;
+  set(values: Record<string, ColumnValue<Vertex>>, where?: PointWhere): Material;
+  set(...args: unknown[]): Material {
+    return setPoints(this.source, this.memberRows, args);
+  }
+
   /** Every point of the source that is NOT selected. */
   complement(): PointSelection {
     const out: number[] = [];
-    for (let i = 0; i < this.source.n; i++) if (!(this.set === null || this.set.has(i))) out.push(i);
+    for (let i = 0; i < this.source.n; i++) if (!(this.memberSet === null || this.memberSet.has(i))) out.push(i);
     return new PointSelection(this.source, out);
   }
 
@@ -424,7 +479,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
 
   /** @internal Does this selection hold that source row? */
   private holds(row: number): boolean {
-    return this.set === null || this.set.has(row);
+    return this.memberSet === null || this.memberSet.has(row);
   }
 
   /** The chains through these points: the chains of the edges among them.
@@ -440,7 +495,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   get edges(): EdgeSelection {
     const m = this.source;
     const rows: number[] = [];
-    const inside = (i: number) => this.set === null || this.set.has(i);
+    const inside = (i: number) => this.memberSet === null || this.memberSet.has(i);
     for (let e = 0; e < m.edgeCount; e++) {
       if (inside(m.edgeList[2 * e]) && inside(m.edgeList[2 * e + 1])) rows.push(e);
     }
@@ -474,7 +529,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   readonly source: Material;
   readonly key: K;
   private readonly memberRows: readonly number[] | null;
-  private readonly set: Set<number> | null;
+  private readonly memberSet: Set<number> | null;
   /** The lazily built full row list lives in a box, so the selection itself is frozen. */
   private readonly cache: { indices: readonly number[] | null } = { indices: null };
 
@@ -482,7 +537,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   constructor(source: Material, rows: Iterable<number> | null, key?: K) {
     this.source = source;
     this.memberRows = rows === null ? null : rowsOf(rows);
-    this.set = this.memberRows === null ? null : new Set(this.memberRows);
+    this.memberSet = this.memberRows === null ? null : new Set(this.memberRows);
     this.key = key as K;
     Object.freeze(this);
   }
@@ -497,9 +552,11 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     return this.memberRows === null ? this.source.edgeCount : this.memberRows.length;
   }
 
+  /** The member at position `i`; a negative `i` counts back from the end. */
   at(i: number): Edge {
-    const row = this.memberRows === null ? i : this.memberRows[i];
-    if (!Number.isInteger(i) || i < 0 || row === undefined || row >= this.source.edgeCount) throw new Error(`edges.at: no member ${i} (${this.length} members)`);
+    const k = fromEnd(i, this.length);
+    const row = this.memberRows === null ? k : this.memberRows[k];
+    if (!Number.isInteger(k) || k < 0 || row === undefined || row >= this.source.edgeCount) throw new Error(`edges.at: no member ${i} (${this.length} members)`);
     return this.source.edge(row);
   }
 
@@ -554,7 +611,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
       // evolution; an edge that a split retired is not a member.
       const row = ownedBy(view, this.source) ? view.index : this.source.rowOfEdge(view.id);
       if (row < 0) return false;
-      return this.set === null ? row < this.source.edgeCount : this.set.has(row);
+      return this.memberSet === null ? row < this.source.edgeCount : this.memberSet.has(row);
     }
     if (isVertexView(view)) throw new Error('selection.has: this is an edge selection; a vertex view cannot be a member');
     throw new Error('selection.has: expected an edge view');
@@ -648,7 +705,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
       : edgesNearInSpace(this.source, space, p, opts.radius);
     // The grid covers the whole state. A selection of part of it answers
     // with its own members only.
-    return new EdgeSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.set!.has(r)));
+    return new EdgeSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.memberSet!.has(r)));
   }
 
   /**
@@ -684,7 +741,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     const rows = edgeQuery(m).within([(ax + bx) / 2, (ay + by) / 2], half * (1 + 1e-9) + 1e-12);
     const out: number[] = [];
     for (const e of rows) {
-      if (this.set !== null && !this.set.has(e)) continue;
+      if (this.memberSet !== null && !this.memberSet.has(e)) continue;
       const p = m.edgeList[2 * e];
       const q = m.edgeList[2 * e + 1];
       const px = m.x[p];
@@ -745,10 +802,48 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     return new EdgeSelection(this.source, this.indices.filter((e) => !theirs.holds(e)), this.key);
   }
 
+  /** The members that `other` does not name: a selection, an edge value or
+   * one edge, of this state or an earlier one. Nothing takes nothing away. */
+  without(other: EdgeSelection<unknown> | EdgeEnd | undefined): EdgeSelection<K> {
+    return new EdgeSelection(this.source, withoutRows(this.source, this.indices, other, 'edges'), this.key);
+  }
+
+  /** The members at positions `start` up to `end`, as an array's `slice`. */
+  slice(start?: number, end?: number): EdgeSelection<K> {
+    return new EdgeSelection(this.source, this.indices.slice(start, end), this.key);
+  }
+
+  // ---- the three writes (see tables.ts) ----
+
+  /**
+   * The material with new edge rows: one pair `[a, b]`, one edge value
+   * (`edge(a, b, cols?)`) or view, or a list of them, each with `cols`. An
+   * end is a point value or a vertex, of this state or any other; a bare
+   * position names nothing and is refused by name. A row that names a
+   * point that is not there, one point twice, or a pair or an edge value
+   * that is already here adds nothing.
+   */
+  add(rows: EdgeRowSpec | EdgeEnd | readonly (EdgeRowSpec | EdgeEnd)[] | undefined, cols?: Record<string, number>): Material {
+    return addEdges(this.source, rows, cols);
+  }
+
+  /** The material without these edges; their points stay. */
+  remove(what: EdgeSelection<unknown> | EdgeEnd | undefined): Material {
+    return removeEdges(this.source, what);
+  }
+
+  /** The material with edge columns set on this selection's edges, or
+   * those `where` names — the same contract as `points.set`. */
+  set(column: string, value: ColumnValue<Edge>, where?: EdgeWhere): Material;
+  set(values: Record<string, ColumnValue<Edge>>, where?: EdgeWhere): Material;
+  set(...args: unknown[]): Material {
+    return setEdges(this.source, this.memberRows, args);
+  }
+
   /** Every edge of the source that is NOT selected. */
   complement(): EdgeSelection {
     const out: number[] = [];
-    for (let e = 0; e < this.source.edgeCount; e++) if (!(this.set === null || this.set.has(e))) out.push(e);
+    for (let e = 0; e < this.source.edgeCount; e++) if (!(this.memberSet === null || this.memberSet.has(e))) out.push(e);
     return new EdgeSelection(this.source, out);
   }
 
@@ -882,7 +977,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
 
   /** @internal Does this selection hold that source row? */
   private holds(row: number): boolean {
-    return this.set === null || this.set.has(row);
+    return this.memberSet === null || this.memberSet.has(row);
   }
 
   /** @internal Highest vertex degree within the selected edges. The area

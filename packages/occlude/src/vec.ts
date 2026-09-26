@@ -138,6 +138,18 @@ export function angleOf(v: XY): number {
   return Math.atan2(vy(v), vx(v));
 }
 
+/** The step of length `r` at `angle` radians, `[r cos a, r sin a]`: an
+ * offset said as how far and which way. `fromAngle(a)` is `polar(1, a)`. */
+export function polar(r: number, angle: number): Vec {
+  return [r * Math.cos(angle), r * Math.sin(angle)];
+}
+
+/** The angle in radians of the way from `a` to `b` — the angle of
+ * `b − a`, from +x toward +y, in (−π, π]. Two equal points give 0. */
+export function angleTo(a: XY, b: XY): number {
+  return Math.atan2(vy(b) - vy(a), vx(b) - vx(a));
+}
+
 /** Component-wise sum of any number of vectors, left to right. */
 export function sum(...vs: readonly XY[]): Vec {
   let x = 0;

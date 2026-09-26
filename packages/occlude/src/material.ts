@@ -56,6 +56,10 @@ import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
 import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type Dropped, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
 import type { EdgeQuery } from './query.js';
+// The table writes and the recipes over them live in tables.ts; the
+// methods here are their doors. Every use is at call time, so the cycle
+// is safe, as it is for the kernels above.
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, type Displacement, type EdgeEnd, type PointEnd } from './tables.js';
 
 // The vocabulary this module was one file with, re-exported so its
 // importers keep one door: vectors (vec.ts), view identity (views.ts) and
@@ -2414,6 +2418,48 @@ export class Material {
     return makeTrails(this, opts);
   }
 
+  // ---- recipes over the table writes (see tables.ts) ----
+
+  /**
+   * A new point at `from` plus `offset`, joined to `from` by a new edge:
+   * add a point row, add an edge row. The offset is a step from the point,
+   * so in a curved space it walks the geodesic. `cols` are the new point's
+   * columns — every declared one. `from` is a point value or a view. Given
+   * nothing (an empty pick) or a point that is gone, it returns this
+   * material. To name the new point later, write the two writes with a
+   * point value: `g.points.add(q).edges.add([from, q])`.
+   */
+  extrude(from: PointEnd | undefined, offset: XY, cols?: Record<string, number>): Material {
+    return extrudeRecipe(this, from, offset, cols);
+  }
+
+  /**
+   * Each edge cut at `at` of the way along it (a → b as stored), default
+   * the middle: add the point, remove the edge, add the two edges through
+   * the point. Point columns cross by their transfer policy; the two new
+   * edges keep the parent's lineage root and take its columns, a
+   * `'distribute'` one by each part's share. `at` may be a function of the
+   * edge; one that is not finite skips that edge. `edges` is a selection,
+   * an edge value or an edge view.
+   */
+  split(edges: EdgeSelection<unknown> | EdgeEnd | undefined, at?: number | ((e: Edge) => number)): Material {
+    return splitRecipe(this, edges, at);
+  }
+
+  /**
+   * Every point moved by the SUM of the displacements, in one instant:
+   * each is read on this state. A displacement is a vector, a function of
+   * the point `(p, k) => [dx, dy]` (`k` is `iteration`), or a force made
+   * without its state — `force.tension({ rest })` — which the move prepares
+   * from this material once. A last argument that is a point selection, a
+   * point value or a vertex says which points move. A move that is not
+   * finite leaves that point where it is; in a curved space a point walks
+   * the geodesic.
+   */
+  move(...args: [...Displacement[]] | [...Displacement[], PointSelection<unknown> | PointEnd | undefined]): Material {
+    return moveRecipe(this, args);
+  }
+
   // ---- the iteration verb ----
 
   /**
@@ -3992,6 +4038,19 @@ export const connect = {
     return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges.flat()), { space });
   },
 
+  /**
+   * The relative neighbourhood graph: an edge for each pair of points with
+   * no third point closer to both of them than they are to each other.
+   * The web a set of points draws when each joins only the neighbours
+   * nothing stands between. Coincident rows are read as `triangulate`
+   * reads them: the first at a place takes part, the later ones stay
+   * isolated. Refused by name above 20 000 points.
+   */
+  neighbourhood(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
+    const mm = material(m);
+    if (mm.n > NEIGHBOURHOOD_LIMIT) throw new Error(`connect.neighbourhood: ${mm.n} points — the neighbourhood graph is built for up to ${NEIGHBOURHOOD_LIMIT}; thin the points first`);
+    return addEdges(mm, neighbourhoodPairs(mm), edgeAttributes);
+  },
   /** Delaunay triangulation edges over the vertices. */
   /** Delaunay edges over the rows, by index. Coincident rows: the FIRST
    * row at a position takes part in the triangulation and its edges; later
@@ -4023,6 +4082,84 @@ export const connect = {
     return addEdges(mm, pairs, edgeAttributes);
   },
 };
+
+/** The most points `connect.neighbourhood` takes. */
+const NEIGHBOURHOOD_LIMIT = 20000;
+
+/**
+ * The pairs of the relative neighbourhood graph. Every one of them is a
+ * Delaunay edge — the lune of an empty pair holds its diametral disk — so
+ * the candidates are the triangulation's edges, and each is kept when no
+ * row lies strictly inside the lune: nearer both ends than they are to
+ * each other. Points on one line have no triangulation; there the graph
+ * is each place joined to the next along the line.
+ */
+function neighbourhoodPairs(m: Material): [number, number][] {
+  const firstAt = new Map<string, number>();
+  const unique: number[] = [];
+  for (let i = 0; i < m.n; i++) {
+    const k = `${m.x[i]},${m.y[i]}`;
+    if (firstAt.has(k)) continue;
+    firstAt.set(k, i);
+    unique.push(i);
+  }
+  if (unique.length < 2) return [];
+  const [u0, u1] = unique;
+  const line = unique.length < 3 || unique.every((row) => orient2d(m.x[u0], m.y[u0], m.x[u1], m.y[u1], m.x[row], m.y[row]) === 0);
+  if (line) {
+    const dx = m.x[u1] - m.x[u0];
+    const dy = m.y[u1] - m.y[u0];
+    const along = [...unique].sort((a, b) => (m.x[a] - m.x[b]) * dx + (m.y[a] - m.y[b]) * dy);
+    const out: [number, number][] = [];
+    for (let k = 1; k < along.length; k++) out.push([along[k - 1], along[k]]);
+    return out;
+  }
+  const tri = Delaunay.from(unique.map((row) => [m.x[row], m.y[row]] as [number, number])).triangles;
+  const seen = new Set<number>();
+  const candidates: [number, number][] = [];
+  for (let k = 0; k + 2 < tri.length; k += 3) {
+    for (const [p, q] of [[tri[k], tri[k + 1]], [tri[k + 1], tri[k + 2]], [tri[k + 2], tri[k]]]) {
+      const a = unique[p];
+      const b = unique[q];
+      const key = pairKey(a, b);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      candidates.push(a < b ? [a, b] : [b, a]);
+    }
+  }
+  candidates.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const grid = pointGrid(m.x, m.y, Math.max(1, Math.ceil(Math.sqrt(m.n))));
+  const out: [number, number][] = [];
+  for (const [a, b] of candidates) {
+    const ax = m.x[a];
+    const ay = m.y[a];
+    const bx = m.x[b];
+    const by = m.y[b];
+    const d2 = (bx - ax) ** 2 + (by - ay) ** 2;
+    const d = Math.sqrt(d2);
+    // Everything inside the lune is nearer `a` than `d`.
+    const i0 = grid.col(ax - d);
+    const i1 = grid.col(ax + d);
+    const j0 = grid.row(ay - d);
+    const j1 = grid.row(ay + d);
+    let empty = true;
+    for (let j = j0; j <= j1 && empty; j++) {
+      for (let i = i0; i <= i1 && empty; i++) {
+        for (const r of grid.at(i, j)) {
+          if (r === a || r === b) continue;
+          const ra = (m.x[r] - ax) ** 2 + (m.y[r] - ay) ** 2;
+          const rb = (m.x[r] - bx) ** 2 + (m.y[r] - by) ** 2;
+          if (ra < d2 && rb < d2) {
+            empty = false;
+            break;
+          }
+        }
+      }
+    }
+    if (empty) out.push([a, b]);
+  }
+  return out;
+}
 
 /** Two materials as one: b's rows after a's, b's edges re-based. Both must
  * have the same columns, or `fill` must give the value a column takes on
