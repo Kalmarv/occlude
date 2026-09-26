@@ -3,7 +3,7 @@
  *
  *   pnpm --filter occlude docs:signatures
  *
- * Walks the public surface (`src/index.ts` exports, the members of the
+ * Walks the public surface (`src/index.ts` and `src/host.ts` exports, the members of the
  * value classes and row views, the toolkit, and the `connect`/`force`/
  * `field` namespaces) and writes one MDX partial per word under `docs/_sig/`,
  * e.g. `_sig/Material.planarize.mdx` holding
@@ -27,6 +27,9 @@ const out = join(docs, '_sig');
 const entry = join(pkg, 'src/index.ts');
 /** The 3D vocabulary is its own module, `occlude/3d`; its words are keyed `3d.<name>`. */
 const entry3d = join(pkg, 'src/three/api/index.ts');
+/** The host words, `occlude/host`, keyed bare like the root's: the two
+ * entry points never share a name. */
+const entryHost = join(pkg, 'src/host.ts');
 
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
@@ -53,7 +56,7 @@ const PAGE: Record<string, string> = {
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
 
-const program = ts.createProgram([entry, entry3d], {
+const program = ts.createProgram([entry, entry3d, entryHost], {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
   strict: true, skipLibCheck: true, noEmit: true,
 });
@@ -200,6 +203,19 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
   }
   if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) {
     callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, name, decl);
+  }
+}
+
+const sfHost = program.getSourceFile(entryHost);
+const modHost = sfHost && checker.getSymbolAtLocation(sfHost);
+if (modHost) {
+  for (let sym of checker.getExportsOfModule(modHost)) {
+    const name = sym.getName();
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) {
+      callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, name, decl);
+    }
   }
 }
 

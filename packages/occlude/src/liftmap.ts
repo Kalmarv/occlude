@@ -184,7 +184,7 @@ export function curveMs(curve: SettlePoint[], pulse: number): number {
 }
 
 /** Hard physical floor: below this the servo has not moved at all (ms). */
-export const SETTLE_FLOOR_MS = 150;
+const SETTLE_FLOOR_MS = 150;
 
 /**
  * THE settle for one pen cycle at one lift — driver and estimator both call

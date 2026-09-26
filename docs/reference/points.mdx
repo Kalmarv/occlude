@@ -82,20 +82,19 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 });
 ```
 
-## m.snap()
+## Snap to a field
 
-<include>/_sig/Material.snap.mdx</include>
-
-<AutoTypeTable path="../occlude/src/snap.ts" name="SnapOpts" />
-
-Moves each point to the best of `samples` places tried inside the disc of `radius` around it, judged by the field. A point that is already at that place stays. Edges, columns and row order stay. To seek the least, negate the field.
+To move each point to the best place within reach, try places around it and `move` it by the best offset: `m.move((p) => best(p))`. A spiral of offsets over a disc looks around evenly. The point's own place is one of the offers, so a point at the best place stays. Edges, columns and row order stay. To seek the least, negate the field.
 
 ```ts live
 import { sketch, circle, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const ring = (x, y) => -Math.abs(distance([x, y], [50, 50]) - 30);
-  const snapped = t.scatter({ spacing: 7 }).snap(ring, { radius: 6 });
+  // 48 offsets on a golden-angle spiral over a disc of radius 6.
+  const around = t.times(48, (k) => { const r = 6 * Math.sqrt((k + 0.5) / 48); const a = k * Math.PI * (3 - Math.sqrt(5)); return [Math.cos(a) * r, Math.sin(a) * r]; });
+  const best = (p) => around.reduce((b, o) => (ring(p.x + o[0], p.y + o[1]) > ring(p.x + b[0], p.y + b[1]) ? o : b), [0, 0]);
+  const snapped = t.scatter({ spacing: 7 }).move(best);
   return [circle(50, 50, 30, { pen: 'stabilo-88-blue' }), snapped.points.map((p) => circle(p, 1))];
 });
 ```

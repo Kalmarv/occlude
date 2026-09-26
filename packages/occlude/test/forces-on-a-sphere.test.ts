@@ -26,7 +26,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { toolkit } from './helpers/run.js';
-import { circle, docsPaper, force, initOcclude, material, paperSize, spaceOf, type Edge, type Material, type Space, type Vertex } from '../src/index.js';
+import {
+  circle, force, material, spaceOf, type Edge, type Material, type Space, type Vertex,
+} from '../src/index.js';
+import { docsPaper, initOcclude, paperSize } from '../src/host.js';
 import { neighbours } from '../src/forces.js';
 import { length, mul, sub, sumBy, unit } from '../src/vec.js';
 

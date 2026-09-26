@@ -17,7 +17,8 @@ import { bindingTriangle3 } from '../src/three/curves/network.js';
 import { runGeometryJob3 } from '../src/three/geometry/job.js';
 import { point } from '../src/three/geometry/exact.js';
 import type { Vec3 } from '../src/three/math.js';
-import { DEFAULT_PENS, compileSketchAsync, mm, paperSize, pen, sketch } from '../src/index.js';
+import { mm, pen, sketch } from '../src/index.js';
+import { DEFAULT_PENS, compileSketchAsync, paperSize } from '../src/host.js';
 import { geodesic } from '../src/three/api/index.js';
 import { surfaceBinding3, type SurfaceBinding3 } from '../src/three/curves/network.js';
 

@@ -1,5 +1,5 @@
 // fork of contours @ e622931
-import { sketch, image } from 'occlude';
+import { sketch, image, fill, group, map } from 'occlude';
 
 export default sketch({ aspect: [1, 3], margin: 5, seed: 42 }, (t) => {
   const { circle, bounds, noise, ui, polygon, isolines, distanceTo, deform } = t;
@@ -15,10 +15,10 @@ export default sketch({ aspect: [1, 3], margin: 5, seed: 42 }, (t) => {
 
   // One field sampling for ALL levels: isolines() samples once and marches
   // each cutoff. Calling it per level re-sampled the same field every time.
-  const levels = t.times(9, (i, k) => t.map(k, 0, 1, minLine, maxLine));
+  const levels = t.times(9, (i, k) => map(k, 0, 1, minLine, maxLine));
   const __iso = isolines(isoField, levels, isoOpts);
-  const repeat = levels.map((cs, i) => polygon(__iso.edges.filter((e) => e.attrs.level === cs), {
-        fill: i % 2 === 0 ? t.fill('stipple') : t.fill('solid'),
+  const repeat = levels.map((cs, i) => polygon(__iso.edges.filter((e) => e.level === cs), {
+        fill: i % 2 === 0 ? fill('stipple') : fill('solid'),
       }));
 
   const center = circle(50, 50, 27, { opaque: true });
@@ -40,7 +40,7 @@ export default sketch({ aspect: [1, 3], margin: 5, seed: 42 }, (t) => {
     return [(dx / d) * push, (dy / d) * push];
   };
 
-  return [t.group({ pen: 'sakura-jelly' }, deform(warp, repeat))];
+  return [group({ pen: 'sakura-jelly', modifiers: [deform(warp)] }, repeat)];
 });
 
 // 1627492744

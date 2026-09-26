@@ -26,8 +26,6 @@ export const h = (n: number): Len => new Len('h', n);
  * s(100 × short/long).
  */
 export const s = (n: number): Len => new Len('long', n);
-/** Alias of `s(n)`. */
-export const long = (n: number): Len => new Len('long', n);
 /** Real millimetres — for anything physical. */
 export const mm = (n: number): Len => new Len('mm', n);
 /** An imperial length: `inch(8.5)` is 215.9 mm. Resolves to mm once, like `mm`. */

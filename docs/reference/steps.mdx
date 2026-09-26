@@ -67,6 +67,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 `points.add` adds one point or a list of points. A new point must give every declared column. `edges.add` adds one edge `[a, b]`, an edge value, or a list of them. An end of an edge row is a point value or a vertex. A position is not an end, and the write stops with an error that tells you to use `point(…)`. To add a point and an edge to it, make the point with `point(xy, cols)`. Add the point, and then add the edge.
 
+:::note
+**Pairs in a write.** `m.edges.add(pairs)` adds one edge for each pair. A pair that is an edge already adds nothing. A pair that comes two times adds one edge. Each pair names rows of the state as it was before the write.
+:::
+
 Below, each tip of a tree grows one shoot in its heading. At every fifth depth, a tip grows two shoots. The pass adds the new tips as point values, and then it adds the stems that join them to their parents.
 
 ```ts live
@@ -111,7 +115,9 @@ import { sketch, circle, strokes, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cloud = t.scatter({ spacing: 12 });
-  const joined = cloud.edges.add(cloud.points.pairs(cloud.points, (a, b) => distance(a, b) < 16, { radius: 16 }));
+  // Each pair once: the neighbours of a point that come after it by row.
+  const pairs = [...cloud.points].flatMap((a) => [...cloud.points.near(a, { radius: 16 })].filter((b) => b.index > a.index && distance(a, b) < 16).map((b) => [a, b]));
+  const joined = cloud.edges.add(pairs);
   const trimmed = joined.edges.remove(joined.edges.filter((e) => e.a.x < 50 && e.b.x < 50));
   return [strokes(trimmed), cloud.points.map((p) => circle(p, 0.8))];
 });
@@ -246,18 +252,17 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/force.tension.mdx</include>
 <include>/_sig/force.separation.mdx</include>
-<include>/_sig/force.attract.mdx</include>
 <include>/_sig/force.drift.mdx</include>
 <include>/_sig/force.boundary.mdx</include>
 <include>/_sig/force.vortex.mdx</include>
 <include>/_sig/force.field.mdx</include>
 <include>/_sig/force.relax.mdx</include>
 
-A force gives a vector at a point. Nothing moves until a pass gives the force to `move`. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function. It turns slowly from one step of the run to the next. A vertex knows its material, and the material counts its steps. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` and `neighbours` read the sources' `points`.
+A force gives a vector at a point. Nothing moves until a pass gives the force to `move`. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`, and a negative `amount` turns it round, so it pulls toward the sources. `drift` reads a direction from a noise function. It turns slowly from one step of the run to the next. A vertex knows its material, and the material counts its steps. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` and `neighbours` read the sources' `points`.
 
 ## Forces as values
 
-`force.tension({ rest, amount? })`, `force.separation({ radius, excludeConnected?, amount? })`, `force.relax({ amount })` and `force.attract({ radius })` are forces with no state. `g.move` prepares each from `g` one time and adds them. `move` adds each force at its full length. `amount` on `tension` and on `separation` scales the force, and it is a number or a function of the point. A small amount is a slow, calm move. At full strength, `separation` can push a point as far as its radius in one step. `force.drift`, `force.boundary`, `force.vortex` and `force.field` are functions of the point already, so `move` reads them as they are.
+`force.tension({ rest, amount? })`, `force.separation({ radius, excludeConnected?, amount? })` and `force.relax({ amount })` are forces with no state. `g.move` prepares each from `g` one time and adds them. `move` adds each force at its full length. `amount` on `tension` and on `separation` scales the force, and it is a number or a function of the point. The forms that take sources take `amount` too. A small amount is a slow, calm move. At full strength, `separation` can push a point as far as its radius in one step. `force.drift`, `force.boundary`, `force.vortex` and `force.field` are functions of the point already, so `move` reads them as they are.
 
 The forms that take a state first, as in `force.tension(g, { rest })`, prepare the force from that state. They give a function of the point, and you scale it yourself. Here is one force alone. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
 
@@ -322,7 +327,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 });
 ```
 
-The other three forces pull toward something. `attract` pulls toward its sources. `vortex` turns around a centre. `field` reads a vector field. This field is the curl of a noise. A curl runs along the contours of the noise, and not across them. `force.sum` adds all three forces. `{ every: 1 }` keeps every state, so the sketch draws each dot's full path from `history`.
+The other three forces pull toward something. A separation with a negative `amount` pulls toward its sources. An amount of `-1 / radius` pulls with a strength of 1 when touching, and fades to zero at the radius. `vortex` turns around a centre. `field` reads a vector field. This field is the curl of a noise. A curl runs along the contours of the noise, and not across them. `force.sum` adds all three forces. `{ every: 1 }` keeps every state, so the sketch draws each dot's full path from `history`.
 
 ```ts live
 import { sketch, stroke, circle, material, force, curl, mul } from 'occlude';
@@ -331,13 +336,13 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const b = t.bounds();
   const posts = [[0.28 * b.w, 0.7 * b.h], [0.74 * b.w, 0.3 * b.h]];
   const push = force.sum(
-    force.attract(posts, { radius: 0.3 * b.w, strength: 1 }),
+    force.separation(posts, { radius: 0.3 * b.w, amount: -1 / (0.3 * b.w) }),
     force.vortex([0.5 * b.w, 0.5 * b.h], { strength: 1, falloff: 0.2 * b.w }),
     force.field(curl((x, y) => t.noise(x / 50, y / 50) * 8)),
   );
   const seeds = material(t.grid({ cols: 34, rows: 17 }).map((c) => [c.cx, c.cy]));
   const flown = t.steps(80, seeds, (g) => g.move((p) => mul(push(p), 0.3)), { every: 1 });
-  const trail = (i) => flown.history.map((h) => [h.x[i], h.y[i]]);
+  const trail = (i) => flown.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
   return [
     seeds.points.map((p) => stroke(trail(p.index))),
     posts.map((p) => circle(p, 3, { pen: 'stabilo-88-blue' })),
@@ -347,7 +352,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 
 ## t.force
 
-The toolkit carries the same forces as `t.force`. `t.force.boundary`, `t.force.separation` and `t.force.attract` also take a shape, because the toolkit can change a shape into geometry. The pure `force.boundary(rect(…))` refuses a shape, and its message names `t.force`. In a sketch with a `space`, the `t.force` words measure in that space. Below, dots start over all of the page, and `t.force.boundary` pushes them into a square frame.
+The toolkit carries the same forces as `t.force`. `t.force.boundary` and `t.force.separation` also take a shape, because the toolkit can change a shape into geometry. The pure `force.boundary(rect(…))` refuses a shape, and its message names `t.force`. In a sketch with a `space`, the `t.force` words measure in that space. Below, dots start over all of the page, and `t.force.boundary` pushes them into a square frame.
 
 ```ts live
 import { sketch, circle, rect, mul } from 'occlude';

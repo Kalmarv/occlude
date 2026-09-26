@@ -138,11 +138,6 @@ export class Tiling extends Material {
     return (this.facesBox.faces ??= facesFromCycles(this, this.cycles)) as Faces as Faces<TilingFace>;
   }
 
-  /** The face of the identity placement: the cell itself, where a motif is
-   * written before the placements carry it everywhere else. */
-  get seed(): TilingFace {
-    return this.faces().faces[0];
-  }
 }
 
 /** `(p − 2)(q − 2)` against 4 is the whole test, of a symbol that is one:

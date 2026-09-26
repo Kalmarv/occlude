@@ -1,12 +1,16 @@
 import {beforeAll,describe,it,expect,expectTypeOf} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {curve,parametricCurve,circle,box,view,orthographic,perspective} from 'occlude/3d';
+import {curve,parametricCurve,box,view,orthographic,perspective} from 'occlude/3d';
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import {snapshotSurface3,transformSurface3} from '../src/three/geometry/model.js';
-import {initOcclude,sketch,compileSketchAsync,commitCamera3,exportSvg,pen,mm} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {toolkit} from './helpers/run.js';
+
+/** The 3D profile circle, as the parametric curve it always was. */
+const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[0,0,5],up:[0,1,0],span:5});
 describe('owned 3D curve geometry',()=>{

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { connect, curve, material, type Material } from '../src/index.js';
+import { xy } from './helpers/xy.js';
 
 const grid = (C: number, R: number, S = 10) => {
   const pts: [number, number][] = [];
@@ -75,7 +76,7 @@ describe('trails', () => {
   });
 
   it('counts each component on its own, and leaves isolated rows out', () => {
-    const two = material(grid(3, 3).pts, { edges: [[0, 1], [1, 2], [3, 4], [4, 5]] }).trails();
+    const two = material(grid(3, 3).points.map(xy), { edges: [[0, 1], [1, 2], [3, 4], [4, 5]] }).trails();
     expect(components(two)).toBe(2);
     expect(two.curves().length).toBe(2);
     // A lone point is in no trail, exactly as the chain walk leaves it out.
@@ -89,7 +90,7 @@ describe('trails', () => {
   });
 
   it('carries the columns, and is deterministic', () => {
-    const ring = connect.ring(material([[0, 0], [10, 0], [10, 10], [0, 10]], { weight: 3 }));
+    const ring = curve(material([[0, 0], [10, 0], [10, 10], [0, 10]], { weight: 3 }), { closed: true });
     const t = ring.trails();
     expect(Object.keys(t.attrs)).toEqual(['weight']);
     expect([...t.attrs.weight].every((v) => v === 3)).toBe(true);

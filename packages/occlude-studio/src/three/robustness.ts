@@ -1,4 +1,6 @@
-import { initOcclude, compileSketchAsync, exportSvg, sketchAsync, lineArt3, box3, pen, mm, type Camera3, type ExecutionInputs, type SceneCompute3 } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
+import { initOcclude, compileSketchAsync, exportSvg, type ExecutionInputs } from 'occlude/host';
+import { lineArt3, box3, type Camera3, type SceneCompute3 } from 'occlude/3d/advanced';
 import { GpuIntervals3 } from 'occlude/src/compute/webgpu/interval.js';
 import { GpuSceneCompute3 } from 'occlude/src/compute/webgpu/scene.js';
 import { candidatePairs3 } from 'occlude/src/three/visibility/scene.js';
@@ -69,7 +71,7 @@ export async function robustness3(){
     const make=(index:number,gate?:ReturnType<typeof barrier>)=>{
       const camera:Camera3={...(index%2?{kind:'perspective' as const,fovDegrees:48+index}:{kind:'orthographic' as const,span:4+index}),eye:[4+index,6,5],target:[0,0,0],near:.1,far:40};
       const inputs:ExecutionInputs={paper:{w:140+index*17,h:180-index*11},seed:42+index,library:[{...pen({width:mm(.2+index*.03),color:['#18202A','#A84932','#267652','#553388'][index]}),name:'ink'}],assets:new Map([['offset.txt',{kind:'text' as const,text:String(.2+index*.15)}]])};
-      const definition=sketchAsync({margin:0},async t=>{
+      const definition=sketch({margin:0},async t=>{
         const height=t.rnd(.4,1.4),offset=Number(t.asset('offset.txt'));
         const scene=lineArt3({id:'shared-name',camera,objects:[{id:'model',surface:box3([1+index*.1,1,height],[offset,0,0])}],lineSets:[{id:'edges',stroke:'ink'}]});
         gate?.entered.release();
@@ -90,7 +92,7 @@ export async function robustness3(){
     const original=await compileSketchAsync(originalSource.definition,originalSource.inputs,{compute3:host});
     const originalSvg=exportSvg(original);
     const failedReason=new Error('generation failed after GPU work');
-    const failed=compileSketchAsync(sketchAsync({},async t=>{
+    const failed=compileSketchAsync(sketch({},async t=>{
       await t.classify3(lineArt3({camera:{kind:'orthographic',span:4,eye:[4,6,5],target:[0,0,0],near:.1,far:30},objects:[{id:'failed',surface:box3([1,1,1])}],lineSets:[{id:'edges',stroke:'ink'}]}));
       throw failedReason;
     }),originalSource.inputs,{compute3:host}).then(()=>false,error=>error===failedReason);

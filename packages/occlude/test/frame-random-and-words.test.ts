@@ -8,10 +8,11 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
-  circle, compileSketch, ellipse, initOcclude, label, material, ngon, rect, render, sdf, sketch, stroke,
-  type Material, type Toolkit, type Execution,
+  circle, ellipse, label, material, ngon, rect, sdf, sketch, stroke, type Material, type Toolkit,
 } from '../src/index.js';
+import { compileSketch, initOcclude, render, type Execution } from '../src/host.js';
 import { sphere, view, orthographic } from '../src/three/api/index.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -76,7 +77,7 @@ describe('P10 · frame words read the frame the config names (G1-2, G1-1, G3-11)
     const t = toolkit({ aspect: [3, 2], origin: 'center', yUp: true });
     const b = t.bounds();
     expect({ x: b.x, y: b.y, w: b.w, h: b.h, cx: b.cx, cy: b.cy }).toEqual({ x: -75, y: -50, w: 150, h: 100, cx: 0, cy: 0 });
-    expect([t.width, t.height, t.cx, t.cy]).toEqual([150, 100, 0, 0]);
+    expect([t.bounds().w, t.bounds().h, t.bounds().cx, t.bounds().cy]).toEqual([150, 100, 0, 0]);
     // The top-left frame is the one it always was.
     const flat = toolkit({ aspect: [3, 2] }).bounds();
     expect([flat.x, flat.y, flat.w, flat.h, flat.cx, flat.cy]).toEqual([0, 0, 150, 100, 75, 50]);
@@ -222,7 +223,7 @@ describe('N3 · point forms on the rest', () => {
     const t = toolkit({ aspect: [1, 1] });
     const pts = t.scatter({ spacing: 20 });
     const records = stroke(pts.points);
-    const pairs = stroke(pts.pts);
+    const pairs = stroke(pts.points.map(xy));
     expect(JSON.stringify(records.geom)).toBe(JSON.stringify(pairs.geom));
     expect(JSON.stringify(stroke([[0, 0], { x: 10, y: 5 }]).geom)).toBe(JSON.stringify(stroke([[0, 0], [10, 5]]).geom));
     expect(() => stroke([[0, 0], 5] as never)).toThrow('stroke: entry 1 is not a point');
@@ -235,7 +236,7 @@ describe('N3 · point forms on the rest', () => {
       // sketches/fields-2.ts:14, sketches/examples-squall-1.ts:16
       const a = t.streamlines(flow, { spacing: 6, seeds });
       const b = t.streamlines(flow, { spacing: 6, seeds: seeds.points });
-      const c = t.streamlines(flow, { spacing: 6, seeds: seeds.pts });
+      const c = t.streamlines(flow, { spacing: 6, seeds: seeds.points.map(xy) });
       expect(coords(a)).toBe(coords(c));
       expect(coords(b)).toBe(coords(c));
     });
@@ -340,11 +341,12 @@ describe('sweep · the space words', () => {
 
 describe('strokes3 clips to the view frame (as the callback does)', () => {
   it('a run that leaves the frame is cut at it', async () => {
-    const { compileSketchAsync, sketchAsync } = await import('../src/index.js');
-    const exec = await compileSketchAsync(sketchAsync({ aspect: [1, 1] }, async (t) => {
+    const { sketch } = await import('../src/index.js');
+    const { compileSketchAsync } = await import('../src/host.js');
+    const exec = await compileSketchAsync(sketch({ aspect: [1, 1] }, async (t) => {
       const scene = view(sphere(3), { camera: orthographic({ eye: [4, 5, 3], span: 3 }) }).scene;
       const cls = await t.classify3(scene);
-      const { constructStrokes3 } = await import('../src/index.js');
+      const { constructStrokes3 } = await import('../src/three/api/advanced.js');
       return t.strokes3(constructStrokes3(cls, [{ id: 'all', stroke: 'pigma-005-black' }]));
     }), SQ);
     const out = render(exec);

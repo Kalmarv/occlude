@@ -13,7 +13,7 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the library calculates the area one time and keeps it. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field. It goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
 
-`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.edges`, `m.n` and `m.edgeCount` count the level lines only. The closing edges belong to the area: `m.faces()` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
+`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.points` and `m.edges` count the level lines only. The closing edges belong to the area: `m.faces()` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -48,12 +48,13 @@ import { sketch, strokes, escape, complex, rect, pen, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 21, pens: {
   fine: pen({ width: mm(0.3), color: '#23252B' }),
 } }, (t) => {
+  const b = t.bounds();
   const field = escape((z, c) => complex.add(complex.mul(z, z), c), { input: 'c', iterations: 60, bailout: 1e6 });
   // The sheet as the c-plane, as in the escape() example: x = 64 is c = 0.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   // The same contours at two grid pitches, each kept on its own side of c = 0.
   const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }), area), { pen: 'fine' });
-  return [side(rect(0, 0, 64, t.height), undefined), side(rect(64, 0, t.width - 64, t.height), mm(0.25))];
+  return [side(rect(0, 0, 64, b.h), undefined), side(rect(64, 0, b.w - 64, b.h), mm(0.25))];
 });
 ```
 
@@ -76,7 +77,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 
 <include>/_sig/distanceTo.mdx</include>
 
-A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` record. This is true for `t.distanceTo`, `t.travelTime`, `t.noiseField`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material. `distanceTo` reads the boundary's `contours()`.
+A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` record. This is true for `t.distanceTo`, `t.travelTime`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material. `distanceTo` reads the boundary's `contours()`.
 
 ```ts live
 import { sketch, strokes, ngon, distanceTo } from 'occlude';
@@ -87,20 +88,16 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## distanceToPoints()
-
-<include>/_sig/distanceToPoints.mdx</include>
-
-The distance to the nearest of a cloud of sites, with the sign `distanceTo` uses. The value is zero at a site and negative everywhere else, so no part of the field lies inside. `t.isolines(d, -3)` is the ring three units out from every site. Two rings that reach each other join, and the join runs along the wall between those two sites. The sites are points, so no lowering happens. A `t.scatter` result, a material's `points`, or a plain array of pairs all go straight in. Pure: the field reads no seed and no paper.
+Points have no inside. A point selection or a material of points alone is points. Of points, `distanceTo` is the distance to the nearest point, with the same sign. The value is zero at a point and negative everywhere else, so no part of the field lies inside. `t.isolines(d, -3)` is the ring three units out from every site. Two rings that reach each other join, and the join runs along the wall between those two sites. A `t.scatter` result or a material's `points` goes straight in. A plain array of pairs is a loop, so `material(pairs)` makes it points. Pure: the field reads no seed and no paper.
 
 Dried mud. Close levels near the merge depth make plates, and the gaps left between the plates are the cracks.
 
 ```ts live
-import { sketch, strokes, distanceToPoints } from 'occlude';
+import { sketch, strokes, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
-  const d = distanceToPoints(sites);
+  const d = distanceTo(sites);
   return [
     strokes(t.isolines(d, [-6.9]), { pen: 'pigma-05-black' }),
     strokes(t.isolines(d, [-6.4, -5.6]), { pen: 'pigma-005-black' }),
@@ -195,9 +192,10 @@ import { sketch, strokes } from 'occlude';
 // rings still leave the seed together; they bunch up over the slow ground
 // and stretch where the going is easy.
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const b = t.bounds();
   const going = (x, y) => 0.2 + 0.8 * (0.5 + 0.5 * t.noise(x / 24, y / 24));
-  const arrival = t.travelTime({ fromPoints: [[t.cx, t.cy]], speed: going, step: 0.5 });
-  return strokes(t.isolines(arrival, { spacing: t.width / 16 }));
+  const arrival = t.travelTime({ fromPoints: [[b.cx, b.cy]], speed: going, step: 0.5 });
+  return strokes(t.isolines(arrival, { spacing: b.w / 16 }));
 });
 ```
 

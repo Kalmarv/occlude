@@ -6,7 +6,7 @@
  */
 import {describe,expect,it} from 'vitest';
 import {plane,box,pointCloud,curve,grid,instanceOnPoints,type Mesh} from '../src/three/api/index.js';
-import {sampleSurfacePoints} from '../src/three/api/advanced.js';
+import {scatterSurface} from '../src/three/api/sampling.js';
 import {toolkit} from './helpers/run.js';
 
 const sheet=()=>plane(2,2).subdivide(2);
@@ -180,7 +180,7 @@ describe('point and curve geometry set',()=>{
   });
   it('samples keep their captured sample through a write',()=>{
     let i=0;const rnd=()=>((i++*0.618034)%1);
-    const s=sampleSurfacePoints(plane(2,2),{count:5},{rnd});
+    const s=scatterSurface(plane(2,2),{count:5},{rnd});
     const out=s.points.set('h',(p)=>p.sample.face.index).points.set('z',1);
     expect(out.points.every(p=>p.h===p.sample.face.index&&p.z===1)).toBe(true);
     expect(out.target).toBe(s.target);
@@ -209,7 +209,7 @@ describe('history through withHistory',()=>{
     expect(q.history).toEqual([p]);
     const c=curve([[0,0,0],[1,0,0]]),d=c.withHistory([c]);
     expect(d.history).toEqual([c]);expect(d.edges.length).toBe(1);
-    let i=0;const s=sampleSurfacePoints(plane(1,1),{count:2},{rnd:()=>((i++*0.37)%1)});
+    let i=0;const s=scatterSurface(plane(1,1),{count:2},{rnd:()=>((i++*0.37)%1)});
     const kept=s.withHistory([s]);
     expect(kept.constructor).toBe(s.constructor);
     expect(kept.history).toEqual([s]);

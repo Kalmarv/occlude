@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { InspectionPayload } from 'occlude';
+import type { InspectionPayload } from 'occlude/host';
 import { InspectorModel, colorFor, columnRange, incidentEdges, otherEnd, pickEdge, pickPoint, prepare, ramp } from './inspectorModel.js';
 
 const identity = (x: number, y: number): [number, number] => [x, y];

@@ -10,7 +10,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { compileSketchAsync, dash, exportSvg, initOcclude, mm, paperSize, pen, sketch, strokes } from '../src/index.js';
+import { dash, mm, pen, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, exportSvg, initOcclude, paperSize } from '../src/host.js';
 import { SurfaceCurves } from '../src/three/api/supported.js';
 import { geodesic, isolines, orthographic, perspective, plane, sphere, view } from '../src/three/api/index.js';
 import { cameraFrame3 } from '../src/three/camera.js';

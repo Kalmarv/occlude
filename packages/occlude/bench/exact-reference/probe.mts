@@ -1,10 +1,5 @@
-import {
-  append,
-  sketch,
-  compileSketch,
-  setPaperHint,
-  type Material,
-} from '../../src/index.js';
+import { append, sketch, setPaperHint, type Material } from '../../src/index.js';
+import { compileSketch } from '../../src/host.js';
 import {
   analyticalUnion,
   type Envelope,

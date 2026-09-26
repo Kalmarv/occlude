@@ -40,7 +40,7 @@ export function cameraFrame3(camera: Camera3, paper: PaperFrame3): CameraFrame3 
     if (!(camera.span > 0) || !Number.isFinite(camera.span)) throw new Error('orthographic span must be positive and finite');
   } else if (camera.kind === 'perspective' || camera.kind === 'oblique') {
     if (!(camera.fovDegrees > 0 && camera.fovDegrees < 180)) throw new Error('perspective FOV must be between 0 and 180 degrees');
-    if (camera.kind === 'oblique' && (camera.shift.length !== 2 || !camera.shift.every(Number.isFinite))) throw new Error('oblique shift must be two finite fractions of the frame');
+    if (camera.kind === 'oblique' && (camera.shift.length !== 2 || !camera.shift.every(Number.isFinite))) throw new Error('perspective shift must be two finite fractions of the frame');
   } else throw new Error('unknown camera projection');
   if (![paper.x, paper.y, paper.width, paper.height].every(Number.isFinite) || !(paper.width > 0 && paper.height > 0)) throw new Error('camera paper frame must be finite with positive size');
   const back = unit3(sub3(camera.eye, camera.target));

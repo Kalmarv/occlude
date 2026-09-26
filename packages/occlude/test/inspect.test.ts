@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  Execution, circle, compileSketch, inspectHook, material, sketch, stroke,
-  userUnitsToPaper,
-} from '../src/index.js';
+import { circle, material, sketch, stroke } from '../src/index.js';
+import { Execution, compileSketch, inspectHook, userUnitsToPaper } from '../src/host.js';
 import { makeFrame } from '../src/record.js';
 import { A4 } from './helpers/run.js';
 
@@ -10,12 +8,11 @@ const ON = { ...A4, inspect: true };
 
 const two = () => material([[10, 10], [30, 10], [30, 30]], { edges: [[0, 1], [1, 2]], active: 1 });
 
-describe('t.inspect: the debug registry', () => {
-  it('registers nothing while the host has inspection off, and validates its arguments anyway', () => {
+describe('t.probe of a material: the debug registry', () => {
+  it('registers nothing while the host has inspection off, and hands the value back', () => {
     const exec = compileSketch(sketch({ seed: 1 }, (t) => {
-      t.inspect('a', two());
-      expect(() => t.inspect('', two())).toThrow(/label/);
-      expect(() => t.inspect('bad', [[1, 2]] as never)).toThrow(/expected a Material/);
+      const m = two();
+      expect(t.probe('a', m)).toBe(m);
       return circle(50, 50, 10);
     }), A4);
     expect(exec.inputs.inspect).toBe(false);
@@ -23,13 +20,24 @@ describe('t.inspect: the debug registry', () => {
     expect(exec.inspectionPayload('a')).toBeNull();
   });
 
+  it('a number is counted, a material inspected: one word, two readings', () => {
+    const exec = compileSketch(sketch({ seed: 1 }, (t) => {
+      t.probe('n', 3);
+      t.probe('m', two());
+      return circle(50, 50, 10);
+    }), ON);
+    expect(exec.getInspectionIndex().map((e) => e.name)).toEqual(['m']);
+    expect(exec.probes.has('n')).toBe(true);
+    expect(exec.probes.has('m')).toBe(false);
+  });
+
   it('keeps registration order, replaces a reused label in place, and resets per compile', () => {
     const exec = compileSketch(sketch({ seed: 1 }, (t) => {
       const a = two();
-      t.inspect('source', a);
-      t.inspect('grown', a.points.set('age', 3));
-      t.inspect('source', a.edges.add([a.points.at(0), a.points.at(2)]));  // replaced, stays first
-      return stroke(a.contour);
+      t.probe('source', a);
+      t.probe('grown', a.points.set('age', 3));
+      t.probe('source', a.edges.add([a.points.at(0), a.points.at(2)]));  // replaced, stays first
+      return stroke(a.curves()[0]);
     }), ON);
     const index = exec.getInspectionIndex();
     expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
@@ -47,10 +55,9 @@ describe('t.inspect: the debug registry', () => {
       const ring = t.sample(circle(50, 50, 20), { count: 8 });
       const stations = ring.along({ count: 4 });
       hook('stations', stations);
-      t.inspect('named', stations);
+      t.probe('named', stations);
       hook('nothing', [1, 2, 3]);
-      expect(() => t.inspect('bad', [] as never)).toThrow(/expected a Material/);
-      return stroke(ring.contour);
+      return stroke(ring.curves()[0]);
     }), exec);
     {
       expect(exec.getInspectionIndex().map((e) => e.name)).toEqual(['stations', 'named']);
@@ -64,10 +71,10 @@ describe('t.inspect: the debug registry', () => {
   it('inspecting inside a step keeps the last state, not every iteration', () => {
     const exec = compileSketch(sketch({ seed: 1 }, (t) => {
       const grown = t.steps(5, two(), (g) => {
-        t.inspect('step', g);
+        t.probe('step', g);
         return g.move([1, 0]);
       });
-      return stroke(grown.contour);
+      return stroke(grown.curves()[0]);
     }), ON);
     const p = exec.inspectionPayload('step')!;
     expect(p.iteration).toBe(4); // `cur` of the last step
@@ -79,7 +86,7 @@ describe('t.inspect: the debug registry', () => {
       let held: ReturnType<typeof two> | null = null;
       const exec = compileSketch(sketch({ seed: 1 }, (t) => {
         held = two().points.set('w', (p) => p.x).edges.set('rest', 2);
-        t.inspect('m', held);
+        t.probe('m', held);
         return circle(50, 50, 10);
       }), ON);
       const p = exec.inspectionPayload('m')!;
@@ -103,7 +110,7 @@ describe('t.inspect: the debug registry', () => {
     const run = (on: boolean) => {
       const exec = compileSketch(sketch({ seed: 7 }, (t) => {
         const m = material(t.times(20, () => [t.rnd(100), t.rnd(100)]));
-        t.inspect('m', m);
+        t.probe('m', m);
         return m.points.map((p) => circle(p.x, p.y, t.rnd(1, 3)));
       }), { ...A4, inspect: on });
       // `float()` is the public witness of the stream position: it consumes

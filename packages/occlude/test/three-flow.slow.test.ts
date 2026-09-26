@@ -1,7 +1,8 @@
 import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
-import {initOcclude,sketchAsync,compileSketchAsync,pen,mm} from '../src/index.js';
-import {sphere,box,cylinder,view,orthographic,curl3,grad3,type Vec3} from 'occlude/3d';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync } from '../src/host.js';
+import {sphere,box,cylinder,view,orthographic,curl3,grad,type Vec3} from 'occlude/3d';
 import {streamlines3} from '../src/three/api/flow.js';
 const env={rnd:()=>0.5};
 const stream=()=>{let state=1;return ()=>{state=(state*1103515245+12345)%2147483648;return state/2147483648;};};
@@ -70,31 +71,33 @@ describe('streamlines of a 3D field',()=>{
 
 describe('curl and gradient of a 3D field',()=>{
  it('reads the slope of a scalar field',()=>{
-  const g=grad3((x,y)=>x*x+2*y);
+  // An inline field of space names its parameters' types: TypeScript reads a
+  // lambda by the first overload, which is the surface field's.
+  const g=grad((x:number,y:number)=>x*x+2*y);
   expect(g(1,0,0)[0]).toBeCloseTo(2,6);
   expect(g(1,0,0)[1]).toBeCloseTo(2,6);
   expect(g(1,0,0)[2]).toBeCloseTo(0,6);
   // A field with no value there has no slope: zero, not NaN.
-  expect(grad3(()=>Number.NaN)(0,0,0)).toEqual([0,0,0]);
+  expect(grad((_x:number,_y:number,_z:number)=>Number.NaN)(0,0,0)).toEqual([0,0,0]);
  });
  it('reads the turn of a vector field',()=>{
   const c=curl3((x,y)=>[-y,x,0]);
   const value=c(0.3,-0.2,1);
   expect(value[0]).toBeCloseTo(0,5);expect(value[1]).toBeCloseTo(0,5);expect(value[2]).toBeCloseTo(2,5);
   // The curl of a gradient is zero: the identity that makes it a flow word.
-  const none=curl3(grad3((x,y,z)=>x*y+z*z))(.5,.5,.5);
+  const none=curl3(grad((x:number,y:number,z:number)=>x*y+z*z))(.5,.5,.5);
   expect(Math.hypot(...none)).toBeLessThan(1e-3);
  });
 });
 
-describe('streamlines3 on the toolkit',()=>{
+describe('t.streamlines of a field of space',()=>{
  beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
  it('is seeded by the sketch and drawn through a view',async()=>{
   const config={seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'})}};
   const run=async()=>{
     let count=0;
-    const execution=await compileSketchAsync(sketchAsync(config,async t=>{
-      const flow=t.streamlines3(curl3((x,y)=>[0,0,Math.sin(x)*Math.cos(y)]),{seeds:{count:8,within:sphere(1.2)},spacing:.15,step:.04,maxLength:6,key:'flow'});
+    const execution=await compileSketchAsync(sketch(config,async t=>{
+      const flow=t.streamlines(curl3((x,y)=>[0,0,Math.sin(x)*Math.cos(y)]),{seeds:{count:8,within:sphere(1.2)},spacing:.15,step:.04,maxLength:6,key:'flow'});
       count=flow.length;
       return view([...flow,box(.4).translate([0,0,1.4])],{camera:orthographic({eye:[4,6,3],span:5}),pen:'ink'});
     }));

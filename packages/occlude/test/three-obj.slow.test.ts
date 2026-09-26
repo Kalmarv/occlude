@@ -3,7 +3,8 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {obj,view,orthographic,type Mesh} from '../src/three/api/index.js';
 import {cross3,dot3} from '../src/three/math.js';
-import {sketch,compileSketchAsync,renderAsync,pen,mm,initOcclude,exportSvg} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { compileSketchAsync, renderAsync, initOcclude, exportSvg } from '../src/host.js';
 
 beforeAll(async()=>{
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));

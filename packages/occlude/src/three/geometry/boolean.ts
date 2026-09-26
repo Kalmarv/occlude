@@ -11,7 +11,7 @@ import {worldBounds3,type WorldBounds3} from './bounds.js';
 /** The three solid operations, named by what they answer, not by a branded
  * algorithm: what is in either solid, what is in the first and not the second,
  * what is in both. */
-export type BooleanOperation3='unite'|'subtract'|'common';
+export type BooleanOperation3='union'|'subtract'|'intersect';
 
 /** Where a patch of one solid sits with respect to the other: outside it,
  * inside it, or lying on its boundary with the two outward normals agreeing
@@ -23,8 +23,8 @@ type Placement=typeof OUTSIDE|typeof INSIDE|typeof ON_SAME|typeof ON_OPPOSITE;
  * solid's kept faces are turned inside out for `subtract`: the bite's wall
  * faces into the hole it leaves. */
 const KEEP:Record<BooleanOperation3,readonly [readonly Placement[],readonly Placement[]]>={
-  unite:[[OUTSIDE,ON_SAME],[OUTSIDE]],
-  common:[[INSIDE,ON_SAME],[INSIDE]],
+  union:[[OUTSIDE,ON_SAME],[OUTSIDE]],
+  intersect:[[INSIDE,ON_SAME],[INSIDE]],
   subtract:[[OUTSIDE,ON_OPPOSITE],[INSIDE]],
 };
 
@@ -80,7 +80,7 @@ function toSegment(p:Vec3,a:Vec3,b:Vec3):number {
  *
  * KNOWN LIMIT: the result is checked for edge manifoldness and closure, not for
  * vertex manifoldness. Two solids that touch at a single VERTEX — two boxes
- * corner to corner — unite to a closed surface that is pinched at that vertex,
+ * corner to corner — union to a closed surface that is pinched at that vertex,
  * and that surface is returned instead of refused. Two solids that touch along
  * an EDGE are caught, because the edge then carries four faces. */
 export function booleanSurface3(operation:BooleanOperation3,first:Surface3,second:Surface3):Surface3 {

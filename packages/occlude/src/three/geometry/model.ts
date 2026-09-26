@@ -5,16 +5,6 @@ import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
 import { assembleSurface3,surface3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3,type Attributes3 } from './surface.js';
 import {emptyCount,emptySize,sampleValue} from '../degenerate.js';
 
-export function grid3(columns:number,rows:number,size:readonly[number,number]=[1,1]):Surface3 {
-  // No cells or no extent is nothing to draw, not a fault; the face cap is a
-  // real budget and still throws.
-  if(emptyCount(columns,1,'grid columns')||emptyCount(rows,1,'grid rows')||emptySize(...size))return surface3([],[]);
-  if(columns*rows>1_000_000)throw new Error('grid needs positive cell counts and dimensions (at most one million faces)');
-  const positions:Vec3[]=[],faces:number[][]=[];
-  for(let y=0;y<=rows;y++)for(let x=0;x<=columns;x++)positions.push([(x/columns-.5)*size[0],(y/rows-.5)*size[1],0]);
-  for(let y=0;y<rows;y++)for(let x=0;x<columns;x++){const p=y*(columns+1)+x;faces.push([p,p+1,p+columns+2,p+columns+1]);}
-  return surface3(positions,faces);
-}
 export interface FaceMeasure3 { readonly source:Surface3;readonly index:number;readonly id:string;readonly normal:Vec3;readonly center:Vec3;readonly area:number;readonly attributes:Readonly<Attributes3>;readonly adjacent:readonly number[] }
 export interface FaceGeometry3 {readonly normals:readonly Vec3[];readonly centers:readonly Vec3[];readonly areas:readonly number[]}
 // Captured surfaces freeze their positions, so the identity of the points and
@@ -41,55 +31,13 @@ export function measureFaces3(surface:Surface3):readonly FaceMeasure3[] {
   const neighbors=topology3(surface).faceNeighbors,{normals,centers,areas}=faceGeometry3(surface);
   return Object.freeze(surface.faces.map((f,i)=>Object.freeze({source:surface,index:i,id:f.id,normal:normals[i],center:centers[i],area:areas[i],attributes:Object.freeze(structuredClone(f.attributes)),adjacent:neighbors[i]})));
 }
-export class FaceSelection3 implements Iterable<FaceMeasure3> {
-  private readonly measures:readonly FaceMeasure3[];
-  readonly indices:readonly number[];
-  constructor(readonly source:Surface3,indices:readonly number[]=source.faces.map((_,i)=>i)) {
-    if(indices.some(i=>!Number.isInteger(i)||i<0||i>=source.faces.length))throw new Error('invalid face selection index');
-    this.indices=Object.freeze([...new Set(indices)].sort((a,b)=>a-b));this.measures=measureFaces3(source);Object.freeze(this);
-  }
-  *[Symbol.iterator](){for(const i of this.indices)yield this.measures[i];}
-  get length(){return this.indices.length;}
-  filter(fn:(f:FaceMeasure3)=>boolean){return new FaceSelection3(this.source,this.indices.filter(i=>fn(this.measures[i])));}
-  map<T>(fn:(f:FaceMeasure3)=>T):T[]{return this.indices.map(i=>fn(this.measures[i]));}
-  groupBy<K>(fn:(f:FaceMeasure3)=>K){return groupRows(this.indices,i=>i,i=>fn(this.measures[i])).map(g=>({key:g.key,selection:new FaceSelection3(this.source,g.rows)}));}
-  /** Neighbouring faces, MEMBERS EXCLUDED: one hop out. */
-  adjacent(){const held=new Set(this.indices);return new FaceSelection3(this.source,this.indices.flatMap(i=>this.measures[i].adjacent).filter(i=>!held.has(i)));}
+/** What the explicit stage reads: a surface, or a mesh value from
+ * `occlude/3d`, whose surface is read — as a scene object's `surface` is. */
+export type StageSurface3=Surface3|{readonly surface:Surface3};
+export function stageSurface3(input:StageSurface3):Surface3 {
+  return Array.isArray((input as Surface3).points)?input as Surface3:(input as {surface:Surface3}).surface;
 }
 export function cloneSurface3(surface:Surface3):Surface3 {return assembleSurface3(surface.points,surface.faces,surface.triangles,surface);}
-
-/** Independent extrusion replaces each selected cap, retaining its old boundary
- * through side faces. Neighboring selected faces are rejected in the MVP so no
- * coincident side walls are silently discarded. Negative distances recess.
- * Zero distances create no topology. Fixed cap triangulations survive folds. */
-export function extrudeFaces3(surface:Surface3,selection:FaceSelection3,distance:number|((face:FaceMeasure3)=>number),options:{operation:string;extensiveFaceAttributes?:readonly string[]}):Surface3 {
-  if(selection.source!==surface)throw new Error('face selection belongs to another surface state');
-  if(!options.operation)throw new Error('extrusion requires a stable operation ID');
-  surface=snapshotSurface3(surface);
-  const measures=measureFaces3(surface),distances=new Map<number,number>();
-  for(const i of selection.indices){const d=sampleValue(typeof distance==='function'?distance(measures[i]):distance,0);if(d!==0)distances.set(i,d);}
-  for(const e of surface.edges)if(e.faces.filter(f=>distances.has(f)).length>1)throw new Error('independent extrusion requires nonadjacent selected faces; select a separated set per pass');
-  const points=surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)})),faces:SurfaceFace3[]=[],triangles:SurfaceTriangle3[]=[];
-  const capPoints=new Map<number,Map<number,number>>(),parents=new Map<number,number>();
-  const id=(...parts:(string|number)[])=>JSON.stringify(['extrude',options.operation,...parts]);
-  const byFace=surface.faces.map(()=>[] as SurfaceTriangle3[]);surface.triangles.forEach(t=>byFace[t.face].push(t));
-  const add=(face:SurfaceFace3,parts:readonly(readonly[number,number,number])[],parent:number)=>{const i=faces.length;faces.push(face);parents.set(i,parent);for(const vertices of parts)triangles.push({face:i,vertices});};
-  surface.faces.forEach((f,i)=>{
-    const d=distances.get(i);
-    if(d===undefined){add({...f},byFace[i].map(t=>t.vertices),i);return;}
-    const mapping=new Map<number,number>();capPoints.set(i,mapping);
-    for(const v of f.vertices){mapping.set(v,points.length);const p=surface.points[v];points.push({id:id(f.id,'point',p.id),position:add3(p.position,mul3(measures[i].normal,d)),attributes:{...structuredClone(p.attributes),parentPoint:p.id}});}
-    add({id:id(f.id,'cap'),vertices:f.vertices.map(v=>mapping.get(v)!),corners:f.corners?.map(c=>({...c,id:id(f.id,'corner',c.id),provenance:{operation:'extrude',parents:[c.id]}})),attributes:{...structuredClone(f.attributes),parentFace:f.id,role:'cap'}},byFace[i].map(t=>t.vertices.map(v=>mapping.get(v)!) as [number,number,number]),i);
-    f.vertices.forEach((a,j)=>{const b=f.vertices[(j+1)%f.vertices.length],c=mapping.get(b)!,e=mapping.get(a)!;add({id:id(f.id,'side',j),vertices:[a,b,c,e],attributes:{...structuredClone(f.attributes),parentFace:f.id,role:'side'}},[[a,b,c],[a,c,e]],i);});
-  });
-  const result=assembleSurface3(points,faces,triangles,surface);
-  // Copied labels/scalars are intensive by default. Explicit extensive face
-  // quantities are distributed by resulting area, conserving each parent's sum.
-  if(options.extensiveFaceAttributes?.length){const measured=measureFaces3(result),totals=new Map<number,number>();measured.forEach((f,i)=>{const p=parents.get(i)!;totals.set(p,(totals.get(p)??0)+f.area);});result.faces.forEach((f,i)=>{const p=parents.get(i)!;for(const name of options.extensiveFaceAttributes!){const value=surface.faces[p].attributes[name];if(typeof value!=='number'||!Number.isFinite(value))throw new Error(`extensive face attribute ${name} must be finite numeric`);f.attributes[name]=value*measured[i].area/totals.get(p)!;}});}
-  const edgeKey=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`,capEdges=new Map(result.edges.map(e=>[edgeKey(...e.vertices),e]));
-  for(const edge of surface.edges)for(const f of edge.faces){const mapping=capPoints.get(f);if(!mapping)continue;const cap=capEdges.get(edgeKey(mapping.get(edge.vertices[0])!,mapping.get(edge.vertices[1])!));if(cap)cap.attributes={...structuredClone(edge.attributes),parentEdge:edge.id};}
-  return result;
-}
 
 /** Apply already validated affine settings with the same operation order used
  * for represented mesh vertices and surface bindings. */

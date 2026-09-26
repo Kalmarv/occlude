@@ -12,7 +12,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { circle, curve, initOcclude, material, mm } from '../src/index.js';
+import { circle, curve, material, mm } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -38,7 +39,6 @@ describe('the surface a field asks for', () => {
     // The debt is the area's own: a disc of radius 20 in cells of 1.
     expect(r.total()).toBeGreaterThan(Math.PI * 400 * 0.97);
     expect(r.total()).toBeLessThan(Math.PI * 400 * 1.03);
-    expect(r.peek(50, 50)).toBe(r(50, 50));
   });
 
   it('reads the field at cell centres, clamped to 0…1', () => {
@@ -170,7 +170,7 @@ describe('the ledger', () => {
     r.spend([[50, 50]], { width: 20 });
     // The owed ground is an area closed along the paper's edge (those edges
     // are cut); the hole is the level line, a ring of its own.
-    const rings = t.isolines(r, 0.5).edges.filter((e) => !e.attrs.cut).curves().filter((c) => c.closed);
+    const rings = t.isolines(r, 0.5).edges.filter((e) => !e.cut).curves().filter((c) => c.closed);
     expect(rings.length).toBe(1);
     const ring = rings[0];
     for (const [x, y] of ring.pts) expect(Math.hypot(x - 50, y - 50)).toBeGreaterThan(9);

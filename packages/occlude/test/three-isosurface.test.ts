@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
-import {initOcclude,sketch,compileSketchAsync,render,pen,mm} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, render } from '../src/host.js';
 import {sdf3,isosurface,view,orthographic,type Mesh} from '../src/three/api/index.js';
 import {cross3,dot3,sub3} from '../src/three/math.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -30,46 +31,46 @@ const cube=(half:number):[readonly [number,number,number],readonly [number,numbe
 describe('sdf3, the distance algebra in space',()=>{
  it('is positive inside, exact on its primitives, and identical to the 2D algebra in shape',()=>{
   // The sign is the one `distanceTo` and `sdf` use: inside is positive.
-  expect(sdf3.sphere(1)(0,0,0)).toBe(1);expect(sdf3.sphere(1)(1,0,0)).toBe(0);expect(sdf3.sphere(1)(3,0,0)).toBe(-2);
-  expect(sdf3.sphere(1,[2,0,0])(2,0,0)).toBe(1);
-  expect(sdf3.box(2)(0,0,0)).toBe(1);expect(sdf3.box([2,4,6])(0,0,0)).toBe(1);
-  expect(sdf3.box(2)(2,2,2)).toBeCloseTo(-Math.sqrt(3),12);expect(sdf3.box(2)(0,0,2)).toBe(-1);
-  expect(sdf3.capsule([-1,0,0],[1,0,0],.5)(0,0,0)).toBe(.5);
-  expect(sdf3.capsule([-1,0,0],[1,0,0],.5)(2,0,0)).toBeCloseTo(-.5,12);
-  expect(sdf3.torus(1,.25)(1,0,0)).toBe(.25);expect(sdf3.torus(1,.25)(0,0,0)).toBeCloseTo(-.75,12);
+  expect(sdf3.sphere([0,0,0],1)(0,0,0)).toBe(1);expect(sdf3.sphere([0,0,0],1)(1,0,0)).toBe(0);expect(sdf3.sphere([0,0,0],1)(3,0,0)).toBe(-2);
+  expect(sdf3.sphere([2,0,0],1)(2,0,0)).toBe(1);
+  expect(sdf3.box([0,0,0],2)(0,0,0)).toBe(1);expect(sdf3.box([0,0,0],[2,4,6])(0,0,0)).toBe(1);
+  expect(sdf3.box([0,0,0],2)(2,2,2)).toBeCloseTo(-Math.sqrt(3),12);expect(sdf3.box([0,0,0],2)(0,0,2)).toBe(-1);
+  expect(sdf3.segment([-1,0,0],[1,0,0],.5)(0,0,0)).toBe(.5);
+  expect(sdf3.segment([-1,0,0],[1,0,0],.5)(2,0,0)).toBeCloseTo(-.5,12);
+  expect(sdf3.torus([0,0,0],1,.25)(1,0,0)).toBe(.25);expect(sdf3.torus([0,0,0],1,.25)(0,0,0)).toBeCloseTo(-.75,12);
   // The normal points OUT of the solid, so the half space below it is inside.
   expect(sdf3.plane([0,0,2],1)(0,0,0)).toBe(1);expect(sdf3.plane([0,0,1],1)(0,0,3)).toBe(-2);
   expect(sdf3.plane([0,0,0])(0,0,0)).toBe(-Infinity);
  });
  it('combines fields with the same identities and refusals as the 2D algebra',()=>{
-  const a=sdf3.sphere(1,[-.5,0,0]),b=sdf3.sphere(1,[.5,0,0]);
+  const a=sdf3.sphere([-.5,0,0],1),b=sdf3.sphere([.5,0,0],1);
   expect(sdf3.union()( 0,0,0)).toBe(-Infinity);expect(sdf3.intersect()(0,0,0)).toBe(Infinity);
   expect(sdf3.union(a,b)(1.4,0,0)).toBeCloseTo(.1,12);expect(sdf3.intersect(a,b)(1.4,0,0)).toBeCloseTo(-.9,12);
   expect(sdf3.subtract(a,b)(-1.4,0,0)).toBeCloseTo(.1,12);expect(sdf3.subtract(a,b)(0,0,0)).toBeLessThan(0);
   // A fillet only ever adds material, and only near the joint.
   for(const p of [[0,.9,0],[0,0,.9],[1.2,0,0]] as const)expect(sdf3.blend(a,b,.3)(p[0],p[1],p[2])).toBeGreaterThanOrEqual(sdf3.union(a,b)(p[0],p[1],p[2])-1e-12);
   expect(sdf3.blend(a,b,0)(0,.9,0)).toBe(sdf3.union(a,b)(0,.9,0));
-  expect(sdf3.translate(sdf3.sphere(1),[3,0,0])(3,0,0)).toBe(1);
-  expect(sdf3.repeat(sdf3.sphere(.25),2)(4,0,0)).toBe(.25);expect(sdf3.repeat(sdf3.sphere(.25),2)(1,0,0)).toBeCloseTo(-.75,12);
-  for(const make of [()=>sdf3.union(3 as never),()=>sdf3.subtract(3 as never),()=>sdf3.blend(sdf3.sphere(1),null as never,1)])expect(make).toThrow('function of (x, y, z)');
+  expect(sdf3.torus([0,0,1],1,.25)(1,0,1)).toBe(.25);
+  expect(sdf3.repeat(sdf3.sphere([0,0,0],.25),2)(4,0,0)).toBe(.25);expect(sdf3.repeat(sdf3.sphere([0,0,0],.25),2)(1,0,0)).toBeCloseTo(-.75,12);
+  for(const make of [()=>sdf3.union(3 as never),()=>sdf3.subtract(3 as never),()=>sdf3.blend(sdf3.sphere([0,0,0],1),null as never,1)])expect(make).toThrow('function of (x, y, z)');
  });
 });
 
 describe('isosurface, the field made a mesh',()=>{
  it('closes a sphere on the grid, with every point on the radius and the volume it should have',()=>{
   const cells=24,span=3,size=span/cells;
-  const ball=isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:span/cells});
+  const ball=isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:span/cells});
   const volume=manifold(ball,2);
   expect(components(ball)).toBe(1);
   for(const p of ball.points)expect(Math.abs(Math.hypot(p.x,p.y,p.z)-1)).toBeLessThan(size);
   expect(volume).toBeCloseTo(4*Math.PI/3,1);
   // The same field at the same step is the same mesh, point for point.
-  const again=isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:span/cells});
+  const again=isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:span/cells});
   expect(again.points.map(p=>[p.x,p.y,p.z])).toEqual(ball.points.map(p=>[p.x,p.y,p.z]));
   expect(again.surface.faces.map(f=>f.vertices)).toEqual(ball.surface.faces.map(f=>f.vertices));
  });
  it('joins a union into one closed piece and keeps a smoothed surface closed',()=>{
-  const pair=sdf3.union(sdf3.sphere(.8,[-.5,0,0]),sdf3.sphere(.8,[.5,0,0]));
+  const pair=sdf3.union(sdf3.sphere([-.5,0,0],.8),sdf3.sphere([.5,0,0],.8));
   const welded=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],step:3.4/28});
   manifold(welded,2);expect(components(welded)).toBe(1);
   const eased=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],step:3.4/28,smooth:3});
@@ -80,32 +81,32 @@ describe('isosurface, the field made a mesh',()=>{
  });
  it('changes the genus when a solid is cut through, and counts the pieces a lattice makes',()=>{
   // A box with a tunnel bored through it is genus one: chi = 2 - 2g = 0.
-  const bored=isosurface(sdf3.subtract(sdf3.box(2),sdf3.capsule([0,0,-3],[0,0,3],.5)),{bounds:cube(1.5),step:3/24});
+  const bored=isosurface(sdf3.subtract(sdf3.box([0,0,0],2),sdf3.segment([0,0,-3],[0,0,3],.5)),{bounds:cube(1.5),step:3/24});
   manifold(bored,0);expect(components(bored)).toBe(1);
   // A hollow ring is genus one too, and it reads the three counts itself.
-  const ring=isosurface(sdf3.torus(1,.35),{bounds:[[-1.6,-1.6,-.6],[1.6,1.6,.6]],step:0.1});
+  const ring=isosurface(sdf3.torus([0,0,0],1,.35),{bounds:[[-1.6,-1.6,-.6],[1.6,1.6,.6]],step:0.1});
   manifold(ring,0);expect(components(ring)).toBe(1);
   // Repetition folds space: twenty-seven balls on the lattice inside the box.
-  const balls=isosurface(sdf3.repeat(sdf3.sphere(.25),1),{bounds:cube(1.5),step:3/36});
+  const balls=isosurface(sdf3.repeat(sdf3.sphere([0,0,0],.25),1),{bounds:cube(1.5),step:3/36});
   manifold(balls,2*27);expect(components(balls)).toBe(27);
  });
  it('draws nothing for a degenerate box or step, and refuses a step it cannot answer',()=>{
   for(const make of [
-    ()=>isosurface(sdf3.sphere(1),{bounds:[[0,0,0],[0,0,0]],step:3/8}),
-    ()=>isosurface(sdf3.sphere(1),{bounds:[[1,1,1],[-1,-1,-1]],step:3/8}),
-    ()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:0}),
+    ()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:[[0,0,0],[0,0,0]],step:3/8}),
+    ()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:[[1,1,1],[-1,-1,-1]],step:3/8}),
+    ()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:0}),
     // Nowhere inside, and a field that answers with nothing at all, each draw nothing.
     ()=>isosurface(sdf3.union(),{bounds:cube(1.5),step:3/8}),
     ()=>isosurface((()=>Number.NaN) as never,{bounds:cube(1.5),step:3/8}),
-    ()=>isosurface(sdf3.sphere(9),{bounds:cube(1.5),step:3/8}),
+    ()=>isosurface(sdf3.sphere([0,0,0],9),{bounds:cube(1.5),step:3/8}),
   ])expect(make().surface.faces.length).toBe(0);
-  expect(()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),resolution:8} as never)).toThrow('resolution is now step');
-  expect(()=>isosurface(sdf3.sphere(1),{bounds:cube(1.5),step:3/200})).toThrow('budget');
+  expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),resolution:8} as never)).toThrow('resolution is now step');
+  expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:3/200})).toThrow('budget');
   expect(()=>isosurface(null as never,{bounds:cube(1.5),step:3/8})).toThrow('function of (x, y, z)');
-  expect(()=>isosurface(sdf3.sphere(1),{bounds:[[0,0,0]] as never,step:3/8})).toThrow('bounds');
+  expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:[[0,0,0]] as never,step:3/8})).toThrow('bounds');
  });
  it('goes through view and draws',async()=>{
-  const solid=isosurface(sdf3.blend(sdf3.sphere(.9,[-.5,0,0]),sdf3.sphere(.9,[.5,0,0]),.4),{bounds:[[-1.8,-1.2,-1.2],[1.8,1.2,1.2]],step:3.6/24});
+  const solid=isosurface(sdf3.blend(sdf3.sphere([-.5,0,0],.9),sdf3.sphere([.5,0,0],.9),.4),{bounds:[[-1.8,-1.2,-1.2],[1.8,1.2,1.2]],step:3.6/24});
   const drawing=view(solid,{camera:orthographic({eye:[5,7,6],span:5}),pen:'ink',creaseAngle:180});
   expect(drawing.scene.objects.length).toBe(1);
   const execution=await compileSketchAsync(sketch({seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'})}},()=>drawing));

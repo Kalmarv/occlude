@@ -26,7 +26,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   return [
     strokes(t.voronoi(settled, { within: half })),
     group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.5)), still.map((p) => circle(p.x, p.y, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
-    label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 104, 97, 2.6),
+    label(`${iterations} rounds, ${sites.points.length} sites, ${took} ms`, 104, 97, 2.6),
   ];
 });
 ```
@@ -231,7 +231,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   return [
     strokes(t.voronoi(settled, { within: half })),
     group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.5)), still.map((p) => circle(p.x, p.y, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
-    label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 104, 97, 2.6),
+    label(`${iterations} rounds, ${sites.points.length} sites, ${took} ms`, 104, 97, 2.6),
   ];
 });
 ```

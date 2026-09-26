@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  distanceTo, material, curve, polygon, strokes, numericLoops,
-  sketch, compileSketch, append,
-  type Material, type Vertex,
+  distanceTo, material, curve, polygon, rect, strokes, sketch, append, type Material, type Vertex,
 } from '../src/index.js';
+import { compileSketch } from '../src/host.js';
+import { numericLoops } from '../src/boundary.js';
 
 import { exactEnvelopeOracle } from './helpers/envelope-oracle.js';
 
@@ -759,10 +759,10 @@ describe('thicken: overlapping recursive rectangles', () => {
       compileSketch(sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
         const b = t.bounds();
         let size = initialSize;
-        let m = t.material(t.rect(b.cx - size / 2, b.cy - size / 2, size, size));
+        let m = t.material(rect(b.cx - size / 2, b.cy - size / 2, size, size));
         for (let generation = 0; generation <= level; generation++) {
           const shapes = m.along(spacing === undefined ? undefined : { spacing }).map(p =>
-            t.rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2));
+            rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2));
           m = shapes.reduce((acc, shape) => append(acc, t.material(shape)), m);
           size /= 2;
         }

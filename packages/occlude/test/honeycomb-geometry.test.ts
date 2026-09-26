@@ -10,8 +10,10 @@
 
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { honeycomb, observer, isPlacement3, view, perspective, type Honeycomb, type Placement3, type Vec3 } from 'occlude/3d';
-import { clip, compileSketchAsync, initOcclude, mm, pen, rect, render, sketchAsync, strokes } from '../src/index.js';
+import { honeycomb, observer, view, perspective, type Honeycomb, type Placement3, type Vec3 } from 'occlude/3d';
+import { isPlacement3 } from '../src/three/api/placement3.js';
+import { clip, mm, pen, rect, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, initOcclude, render } from '../src/host.js';
 import { identity } from '../src/placement.js';
 import { spaceOf } from '../src/space.js';
 
@@ -252,7 +254,7 @@ describe('the {5, 3, 4} fence', () => {
     expect(got).toEqual(want);
 
     // The docs fence body, as it stands on the geometry page.
-    const definition = sketchAsync({ aspect: [1, 1], pens: {
+    const definition = sketch({ aspect: [1, 1], pens: {
       ink: pen({ width: mm(0.18), color: '#46505C' }),
       room: pen({ width: mm(0.38), color: '#18202A' }),
     } }, async (t) => {

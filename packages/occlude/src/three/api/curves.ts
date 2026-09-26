@@ -1,7 +1,7 @@
 import {finite3,sub3,type Vec3} from '../math.js';
 import {surface3,type Surface3} from '../geometry/surface.js';
 import {CurveGeometry,emptyCurve,type GeometryOptions} from './mesh.js';
-import {emptyCount,emptySize} from '../degenerate.js';
+import {emptyCount} from '../degenerate.js';
 import {chain2,isChain2,type Lifted2} from './lift.js';
 export interface PolylineOptions extends GeometryOptions {readonly closed?:boolean;readonly maxPoints?:number}
 export interface CurveOptions extends PolylineOptions {readonly segments?:number}
@@ -55,11 +55,6 @@ export function parametricCurve(position:(t:number)=>Vec3,options:CurveOptions={
   if(emptyCount(segments,1,'curve segments'))return emptyCurve(options);
   if(count(points,options))return emptyCurve(options);
   return path(Array.from({length:points},(_,i)=>{const p=position(i/segments);finite3(p);return [...p] as Vec3;}),options);
-}
-/** Counterclockwise polygonal circle profile in XY, centered at the origin. */
-export function circle(radius=1,options:Omit<CurveOptions,'closed'>={}):CurveGeometry {
-  if(emptySize(radius))return emptyCurve(options);
-  return parametricCurve(t=>[radius*Math.cos(2*Math.PI*t),radius*Math.sin(2*Math.PI*t),0],{...options,closed:true});
 }
 /** A profile as the construction verbs take it: a 3D curve as it is, or
  * the one chain of a 2D value — laid in XY at z = 0 for `sweep`, or in the

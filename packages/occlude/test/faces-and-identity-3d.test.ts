@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
-import {initOcclude} from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import {box,sphere,plane,mesh} from '../src/three/api/index.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));

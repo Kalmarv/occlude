@@ -1,6 +1,6 @@
 import {describe,it,expect,expectTypeOf} from 'vitest';
 import {plane,pointCloud,query} from 'occlude/3d';
-import {prepareSurfaceQueries3} from '../src/three/queries/surface.js';
+import {prepareSurfaceQueries3,QUERY_HOST3} from '../src/three/queries/surface.js';
 import type {QueryHost} from '../src/three/api/query.js';
 
 describe('captured source-bound query fields',()=>{
@@ -38,7 +38,7 @@ describe('captured source-bound query fields',()=>{
   });
   it('does not dispatch new GPU queries while fields and source selections are consumed',async()=>{
     let calls=0;
-    const host:QueryHost={async querySurface3(surface,input){calls++;const prepared=prepareSurfaceQueries3(surface);return {nearest:prepared.nearest(input.nearest??[]),rays:prepared.rays(input.rays??[]),segments:prepared.segments(input.segments??[])};}};
+    const host:QueryHost={async [QUERY_HOST3](surface,input){calls++;const prepared=prepareSurfaceQueries3(surface);return {nearest:prepared.nearest(input.nearest??[]),rays:prepared.rays(input.rays??[]),segments:prepared.segments(input.segments??[])};}};
     const points=pointCloud([[0,0,1],[3,0,1]]),batch=query(plane(2)).batch(host);
     for(const hits of [await batch.nearest(points.points,{within:1.5}),await batch.rays(points.points,{direction:[0,0,-1]}),await batch.segments(points.points,{to:p=>[p.x,p.y,0]})]){
       expect(points.points.map(hits.field((_,hit)=>hit?.distance??-1))).toEqual([1,-1]);

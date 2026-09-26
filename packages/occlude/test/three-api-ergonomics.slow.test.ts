@@ -1,7 +1,8 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,sphere,cylinder,torus,mesh,curve,pointCloud,style,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,perspective,axisAngle} from '../src/three/api/index.js';
+import {plane,box,sphere,cylinder,torus,mesh,curve,pointCloud,style,instanceOnFaces,instanceOnPoints,isolines,intersections,light,view,orthographic,perspective,axisAngle} from '../src/three/api/index.js';
 import {lightTone3,lightRecipe3} from '../src/three/surface/tone.js';
-import {sketch,sketchAsync,compileSketch,compileSketchAsync,pen,mm,strokes,isSketchAsync,exportSvg,initOcclude} from '../src/index.js';
+import { sketch, pen, mm, strokes } from '../src/index.js';
+import { compileSketch, compileSketchAsync, exportSvg, initOcclude } from '../src/host.js';
 import {readFileSync} from 'node:fs';
 import {beforeAll} from 'vitest';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -10,12 +11,11 @@ import type {Vec3} from '../src/three/math.js';
 import {toolkit} from './helpers/run.js';
 
 const near=(a:readonly number[],b:readonly number[],eps=1e-9)=>a.every((v,i)=>Math.abs(v-b[i])<eps);
-const centroid=(g:{readonly points:Iterable<{x:number;y:number;z:number}>}):Vec3=>{const rows=[...g.points];return rows.reduce<Vec3>((s,p)=>v3.add(s,[p.x,p.y,p.z]),[0,0,0]).map(v=>v/rows.length) as unknown as Vec3;};
+const centroid=(g:{readonly points:Iterable<{x:number;y:number;z:number}>}):Vec3=>{const rows=[...g.points];return rows.reduce<Vec3>((s,p)=>[s[0]+p.x,s[1]+p.y,s[2]+p.z],[0,0,0]).map(v=>v/rows.length) as unknown as Vec3;};
 
 describe('sketch functions',()=>{
   it('sketch() accepts an async function and the sync compiler refuses a promise',async()=>{
     const def=sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async()=>view(box(1),{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),pen:'ink'}));
-    expect(isSketchAsync(def)).toBe(true);
     expect(()=>compileSketch(def)).toThrow('compileSketchAsync');
     const run=await compileSketchAsync(def);expect(run.scenes3.size).toBe(1);
     const thenable=sketch({seed:1},()=>Promise.resolve(null) as never);
@@ -104,7 +104,7 @@ describe('object origin and rotation',()=>{
     const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
     let seen:ProjectedLines|undefined;
     await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async t=>{
-      const cube=box(1),other=box(1).translate([.5,0,0]),seams=await t.intersections([gone,cube,other]);
+      const cube=box(1),other=box(1).translate([.5,0,0]),seams=intersections([gone,cube,other]);
       expect(seams.sources.length).toBe(3);expect(seams.edges.length).toBeGreaterThan(0);
       return view([gone,cube,other,seams],{camera,pen:'ink'},lines=>{seen=lines;return [];});
     }));
@@ -255,16 +255,7 @@ describe('per-object crease threshold',()=>{
   });
 });
 
-describe('vector helpers and light floor',()=>{
-  it('v3 takes triples or {x,y,z}; falloff ramps to zero at the radius',()=>{
-    expect(near(v3.add([1,2,3],{x:1,y:1,z:1}),[2,3,4])).toBe(true);
-    expect(v3.length(v3.cross([1,0,0],[0,1,0]))).toBe(1);
-    expect(v3.dot([1,2,3],[4,5,6])).toBe(32);
-    expect(near(v3.lerp([0,0,0],[2,2,2],.5),[1,1,1])).toBe(true);
-    expect(falloff([1,0,0],{radius:2})).toBeCloseTo(.5);expect(falloff([3,0,0],{radius:2})).toBe(0);
-    expect(falloff({x:0,y:0,z:0},{center:[0,0,1],radius:1,ease:t=>t*t})).toBe(0);
-    expect(falloff([0,0,0],{radius:0})).toBe(0);
-  });
+describe('light floor',()=>{
   it('a light floor keeps a minimum tone on lit faces and named directions resolve',()=>{
     const plain=lightRecipe3({direction:'up'}),floored=lightRecipe3({direction:[0,0,1],ambient:0,floor:.2});
     expect(lightTone3([0,0,1],plain)).toBeCloseTo(0);

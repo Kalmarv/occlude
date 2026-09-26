@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { compileSketchAsync, sketch, lineArt3, box3, section3, hatch3, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
+import { compileSketchAsync } from 'occlude/host';
+import { lineArt3, box3, section3, hatch3 } from 'occlude/3d/advanced';
 import { box, view, orthographic, mesh } from 'occlude/3d';
 import {SurfaceCurves,surfaceBinding3,surfaceCurveNetwork3} from 'occlude/3d/advanced';
 import { captureThree3 } from './capture.js';

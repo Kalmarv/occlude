@@ -12,9 +12,10 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  circle, line, connect, distanceToPoints, dots, material, polygon, space, strokes, force, mul, append, sdf,
+  circle, line, connect, curve, distanceTo, dots, material, polygon, space, strokes, force, mul, append, sdf,
   type Face, type Material, type Vertex,
 } from '../src/index.js';
+import { xy } from './helpers/xy.js';
 
 const DISC = circle(50, 50, 34);
 
@@ -40,13 +41,12 @@ describe('P5 · a face collection is a selection', () => {
     expect(walls.thicken({ radius: 1 }).n).toBeGreaterThan(0);
   });
 
-  it('G1-21 · faces.subtract(big) is the cells that are not big, and faces.complement() exists', () => {
+  it('G1-21 · faces.subtract(big) is the cells that are not big', () => {
     const { faces } = web(1, 14);
     const big = faces.filter((f) => f.area > 220);
     const rest = faces.subtract(big);
     expect(rest.indices).toEqual(faces.filter(() => true).subtract(big).indices);
-    expect(big.complement().indices).toEqual(rest.indices);
-    expect(faces.complement().length).toBe(0);
+    expect(faces.subtract(faces).length).toBe(0);
     expect(rest.length + big.length).toBe(faces.length);
   });
 
@@ -96,14 +96,13 @@ describe('P5 · a face collection is a selection', () => {
     const t = toolkit({ aspect: [1, 1], seed: 2 });
     const hex = t.steps<Material>(3, t.hexes({ spacing: 10 }), (g) => g.split(g.edges));
     const inside = t.within(hex.faces(), circle(50, 50, 28));
-    const ripple = (x: number, y: number) => Math.sin(Math.hypot(x - 50, y - 50) / 2);
-    const bent = hex.snap(ripple, { radius: 1.5, where: inside });
-    const workaround = hex.snap(ripple, { radius: 1.5, where: inside.points });
-    expect([...bent.x]).toEqual([...workaround.x]);
-    expect([...bent.y]).toEqual([...workaround.y]);
+    const cage = { from: [[0, 0], [100, 0], [100, 100], [0, 100]] as [number, number][], to: [[0, 0], [100, 0], [110, 105], [0, 100]] as [number, number][] };
+    const bent = hex.warp({ ...cage, where: inside });
+    const workaround = hex.warp({ ...cage, where: inside.points });
+    expect(bent.points.map(xy)).toEqual(workaround.points.map(xy));
     // One face reads the same way.
     const one = inside.at(0);
-    expect([...hex.snap(ripple, { radius: 1.5, where: one }).x]).toEqual([...hex.snap(ripple, { radius: 1.5, where: one.points }).x]);
+    expect(hex.warp({ ...cage, where: one }).points.map(xy)).toEqual(hex.warp({ ...cage, where: one.points }).points.map(xy));
     // An edge method reads its edges: a ring's one face names every edge.
     const ring = t.material(circle(50, 50, 20));
     expect(ring.resample({ spacing: 2, where: ring.faces().at(0) }).n).toBe(ring.resample({ spacing: 2, where: ring.edges }).n);
@@ -173,19 +172,20 @@ describe('P5 · a face collection is a selection', () => {
   it('G6-4 · a face collection is its centroids for every point consumer', () => {
     const { faces: cells } = web(7, 6);
     const split = cells.filter((f) => f.centroid[0] < 40);
-    const hubs = distanceToPoints(split);
-    const workaround = distanceToPoints(split.map((f) => f.centroid));
+    // distanceTo is an area consumer too, so a face collection names which
+    // it means there: material(cells) is its centroids as points.
+    const hubs = distanceTo(material(split));
+    const workaround = distanceTo(material(split.map((f) => f.centroid)));
     for (const [x, y] of [[10, 10], [50, 50], [90, 30]]) expect(hubs(x, y)).toBe(workaround(x, y));
-    // material(), connect.* and the forces read the same points.
+    expect(() => distanceTo(split)).toThrow(/face collection is several areas/);
+    // material(), curve() and the forces read the same points.
     expect([...material(split).x]).toEqual(split.map((f) => f.centroid[0]));
-    expect(connect.chain(split).edgeCount).toBe(split.length - 1);
+    expect(curve(split).edgeCount).toBe(split.length - 1);
     const probe = material([[12, 12]]).points.at(0);
     const push = force.separation(split, { radius: 5 });
     expect(push(probe)).toEqual(force.separation(split.map((f) => f.centroid), { radius: 5 })(probe));
     // faces.points stays the corners.
     expect(split.points.length).toBeGreaterThan(split.length);
-    // containing() reads a face collection as its centroids too.
-    expect(cells.containing(split).indices).toEqual(split.indices);
   });
 
   it('G6-38 · dots(cells) taps each cell once, at its centroid', () => {
@@ -203,12 +203,12 @@ describe('P5 · a face collection is a selection', () => {
     expect(() => polygon(block)).not.toThrow();
   });
 
-  it('G6-8 · Faces takes union/intersect/subtract; a face selection takes complement()', () => {
+  it('G6-8 · Faces takes union/intersect/subtract', () => {
     const { faces: cells } = web(7, 7);
     const east = cells.filter((f) => f.centroid[0] > 50);
     const west = cells.subtract(east);
     expect(west.boundaryEdges().indices).toEqual(cells.filter((f) => !east.has(f)).boundaryEdges().indices);
-    expect(east.complement().indices).toEqual(west.indices);
+    expect(cells.subtract(west).indices).toEqual(east.indices);
     expect(cells.intersect(east).indices).toEqual(east.indices);
     expect(cells.union(east).length).toBe(cells.length);
   });
@@ -220,7 +220,7 @@ describe('P5 · a face collection is a selection', () => {
       .edges.set('rest', (e) => e.length * (1 + 0.6 * t.noise(e.center[0] / 30, e.center[1] / 30)));
     const nails = net.points.filter((p) => p.y < 2);
     const hung = t.steps(10, net, (g) => {
-      const pull = force.sum(force.tension(g, { rest: (e) => e.attrs.rest }), () => [0, 0.08 * gap]);
+      const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.08 * gap]);
       return g.move((p: Vertex) => mul(pull(p), 0.1), g.points.subtract(nails));
     });
     const cells = hung.faces();
@@ -291,10 +291,10 @@ describe('P5 · a face collection is a selection', () => {
 });
 
 describe('P6 · identity survives every verb', () => {
-  it('G2-19 · connect.chain(sel) keeps the members: their ids, rows and columns', () => {
+  it('G2-19 · curve(sel) keeps the members: their ids, rows and columns', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5 });
     const upper = t.scatter({ spacing: 6 }).points.filter((p) => p.y < 30);
-    const snake = connect.chain(upper);
+    const snake = curve(upper);
     expect(snake.n).toBe(upper.length);
     expect(upper.in(snake).length).toBe(upper.length);
     expect(snake.rowOfPoint(upper.at(0).id)).toBe(0);
@@ -347,7 +347,7 @@ describe('P6 · identity survives every verb', () => {
     const nails = net.points.filter((p) => p.y < 11 && (p.index % 6 === 0 || p.index === cols - 1));
     const t = toolkit({ seed: 1 });
     const hang = (by: (cur: Material) => ReturnType<Material['points']['filter']>) => t.steps(20, net, (g) => {
-      const pull = force.sum(force.tension(g, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
+      const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
       return g.move((p: Vertex) => mul(pull(p), 0.1), by(g));
     });
     const stale = hang((cur) => cur.points.subtract(nails));
@@ -391,11 +391,6 @@ describe('F10 / F11 · relations read the material\'s space', () => {
         expect(got).toEqual(want);
       }
     }
-    // pairs reads the same neighbourhood.
-    const rungs = cloud.points.pairs(cloud.points, () => true, { radius: 8 });
-    for (const [a, b] of rungs) expect(sp.distance(a, b)).toBeLessThan(8);
-    const brute = cloud.points.pairs(cloud.points, (a, b) => sp.distance(a, b) < 8);
-    expect(rungs.length).toBe(brute.length);
   });
 
   it('F11 · points.near in the flat plane is the literal old arithmetic', () => {
@@ -427,7 +422,7 @@ describe('F10 / F11 · relations read the material\'s space', () => {
     }
   });
 
-  it('F10 · t.distanceTo(points) measures with space.distance; flat is distanceToPoints', () => {
+  it('F10 · t.distanceTo(points) measures with space.distance; flat is the pure distanceTo of points', () => {
     const hyp = toolkit({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 45 }) });
     const sites = hyp.scatter({ spacing: 11 });
     const field = hyp.distanceTo(sites.points);
@@ -440,7 +435,7 @@ describe('F10 / F11 · relations read the material\'s space', () => {
     expect(hyp.distanceTo(sites)(50, 50)).toBe(field(50, 50));
     const flat = toolkit({ aspect: [1, 1], seed: 4 });
     const flatSites = flat.scatter({ spacing: 11 });
-    const pure = distanceToPoints(flatSites);
+    const pure = distanceTo(flatSites);
     const tk = flat.distanceTo(flatSites.points);
     for (const q of [[50, 50], [10, 90]] as [number, number][]) expect(tk(q[0], q[1])).toBe(pure(q[0], q[1]));
   });

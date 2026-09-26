@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { PLANE_GROUPS, fill, material, polygon, symmetry, type PlaneGroup } from '../src/index.js';
+import { fill, material, polygon, type PlaneGroup } from '../src/index.js';
 import type { TransformOp } from '../src/execution.js';
 import { grid, hexes, triangles } from '../src/layout.js';
-import { placements } from '../src/symmetry.js';
+import { PLANE_GROUPS, placements } from '../src/symmetry.js';
+
+/** The placements over a `cols × rows` block of cells from the origin:
+ * the kernel `t.symmetry` sizes to the drawable. */
+const symmetry = (g: PlaneGroup, o: { cell: number | readonly [number, number]; cols: number; rows: number }): TransformOp[] =>
+  placements(g, o.cell, 0, o.cols, 0, o.rows);
 import { toolkit } from './helpers/run.js';
 
 const env = { bounds: { w: 100, h: 100 }, len: (l: number) => l as number };
@@ -218,7 +223,7 @@ const HEXGROUP: readonly PlaneGroup[] = ['p3', 'p3m1', 'p31m', 'p6', 'p6m'];
 const cellFor = (g: PlaneGroup): number | [number, number] =>
   HEXGROUP.includes(g) ? 12 : g === 'p4' || g === 'p4m' || g === 'p4g' ? [12, 12] : [12, 9];
 
-describe('symmetry()', () => {
+describe('the wallpaper placements', () => {
   it('names the seventeen groups, in IUC order', () => {
     expect(PLANE_GROUPS).toEqual(['p1', 'p2', 'pm', 'pg', 'cm', 'pmm', 'pmg', 'pgg', 'cmm', 'p4', 'p4m', 'p4g', 'p3', 'p3m1', 'p31m', 'p6', 'p6m']);
   });

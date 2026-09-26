@@ -18,7 +18,8 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
-import * as occlude from '../src/index.js';
+import * as occlude from '../src/host.js';
+import type { SketchDef } from '../src/index.js';
 import { inputsFor, requireFor, penLibrary, paperLibrary } from './inputs.js';
 
 // `--migrate` compiles the store as the STORE MIGRATION would rewrite it, in
@@ -55,7 +56,7 @@ for (const file of files) {
       module,
     );
     const def = (module.exports.default ?? Object.values(module.exports).find(occlude.isSketch)) as
-      | occlude.SketchDef
+      | SketchDef
       | undefined;
     if (!def) throw new Error('no sketch export');
     occlude.compileSketch(def, inputsFor(js, { paper: { paper: { w: 200, h: 100 } }, seed: 42, marginPct: 5 }));

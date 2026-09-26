@@ -1,13 +1,13 @@
 /**
  * Four small words the docs audit could not write around: `t.seed`, `rows`
- * taking the views a sketch holds, `distance`/`length` from `occlude/3d`,
+ * taking the views a sketch holds, `distance`/`length` on 3D rows,
  * and the face column `chart`.
  */
 
 import { describe, expect, it } from 'vitest';
 import { toolkit, SQ } from './helpers/run.js';
-import { connect } from '../src/index.js';
-import { box, cone, cylinder, distance, length, plane, sphere, torus, v3 } from '../src/three/api/index.js';
+import { curve, distance, length } from '../src/index.js';
+import { box, cone, cylinder, plane, sphere, torus } from '../src/three/api/index.js';
 
 describe('t.seed', () => {
   it('is the configured number', () => {
@@ -31,7 +31,7 @@ describe('t.seed', () => {
 });
 
 describe('rows takes views', () => {
-  const m = connect.chain([[0, 0], [10, 0], [10, 10], [0, 10], [0, 20]]);
+  const m = curve([[0, 0], [10, 0], [10, 10], [0, 10], [0, 20]]);
 
   it('takes one vertex view, a list of views, and views mixed with indices', () => {
     const [a, b, c] = m.points;
@@ -51,7 +51,7 @@ describe('rows takes views', () => {
   });
 
   it('refuses a view of another material by name', () => {
-    const other = connect.chain([[0, 0], [5, 0], [5, 5]]);
+    const other = curve([[0, 0], [5, 0], [5, 5]]);
     const [p] = other.points, [e] = other.edges;
     expect(() => m.points.rows(p)).toThrow(/points\.rows: that vertex view belongs to another material/);
     expect(() => m.edges.rows([0, e])).toThrow(/edges\.rows: that edge view belongs to another material/);
@@ -65,23 +65,19 @@ describe('rows takes views', () => {
   });
 });
 
-describe('distance and length from occlude/3d', () => {
+// One pair of words for the plane and for space: the root's.
+describe('distance and length on triples and 3D rows', () => {
   const hypot = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
   it('measure triples', () => {
-    expect(distance([1, 2, 3], [4, 6, 15])).toBe(hypot([1, 2, 3], [4, 6, 15]));
-    expect(length([3, 4, 12])).toBe(Math.hypot(3, 4, 12));
+    expect(distance([1, 2, 3], [4, 6, 15])).toBeCloseTo(hypot([1, 2, 3], [4, 6, 15]), 12);
+    expect(length([3, 4, 12])).toBe(13);
   });
 
   it('measure mesh point rows directly', () => {
     const [p, q] = box([1, 2, 3]).points;
-    expect(distance(p, q)).toBe(hypot([p.x, p.y, p.z], [q.x, q.y, q.z]));
-    expect(length(p)).toBe(Math.hypot(p.x, p.y, p.z));
-  });
-
-  it('are the same functions as v3.distance and v3.length', () => {
-    expect(distance).toBe(v3.distance);
-    expect(length).toBe(v3.length);
+    expect(distance(p, q)).toBeCloseTo(hypot([p.x, p.y, p.z], [q.x, q.y, q.z]), 12);
+    expect(length(p)).toBeCloseTo(Math.hypot(p.x, p.y, p.z), 12);
   });
 });
 

@@ -2,7 +2,8 @@
 // fixed; medians of 5 unless a row says otherwise. Ordinary sizes first, then
 // the demanding ones.
 import { performance } from 'node:perf_hooks';
-import { curve, material, mul, force, Execution, bindToolkit } from '../src/index.js';
+import { curve, material, mul, force } from '../src/index.js';
+import { Execution, bindToolkit } from '../src/host.js';
 // `neighbours` is the internal machinery behind `points.near`; not on the
 // public surface (the vocabulary word is `points.near`), but a bench
 // profiling the primitive itself imports it directly.

@@ -1,8 +1,8 @@
 /** Headless CPU reference: each workload twice in one process (cold, then warm). */
 import {readFileSync,writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import * as occlude from '../../src/index.js';
-import {compileSketchAsync,initOcclude,liveExampleToJs,exportSvg} from '../../src/index.js';
+import * as occlude from '../../src/host.js';
+import { compileSketchAsync, initOcclude, liveExampleToJs, exportSvg } from '../../src/host.js';
 import {requireFor} from '../../tools/inputs.js';
 import {workloads} from './workloads.mjs';
 const root=fileURLToPath(new URL('../../../../',import.meta.url));
@@ -17,7 +17,7 @@ for(const {name,src} of workloads){
     const run=await compileSketchAsync(module.exports.default as never,{paper:{w:210,h:297},seed:42,library:occlude.DEFAULT_PENS} as never);
     const compileMs=performance.now()-started,svgStarted=performance.now(),svg=exportSvg(run,{} as never),svgMs=performance.now()-svgStarted;
     const scenes=[...run.scenes3.values()].map(s=>({features:s.features.length,candidates:s.stats.candidates,wallMs:Math.round(s.stats.wallMs)}));
-    runs.push({pass,compileMs:Math.round(compileMs),svgMs:Math.round(svgMs),svgBytes:svg.length,modeling:run.modeling3.map(m=>({operation:m.operation,backend:m.backend,wallMs:Math.round(m.timings?.wallMs??0),segments:m.hatch?.segments??m.mapping?.outputSegments??m.intersections?.outputSegments,traces:m.hatch?.traces,toneLocations:m.hatch?.tone.locations,toneBackend:m.hatch?.tone.backend})),scenes});
+    runs.push({pass,compileMs:Math.round(compileMs),svgMs:Math.round(svgMs),svgBytes:svg.length,modeling:run.modeling3.map(m=>({operation:m.operation,backend:m.backend,wallMs:Math.round(m.timings?.wallMs??0),segments:m.hatch?.segments,traces:m.hatch?.traces,toneLocations:m.hatch?.tone.locations,toneBackend:m.hatch?.tone.backend})),scenes});
   }
   rows.push({name,runs});console.log(name,JSON.stringify(runs.map(r=>[r.pass,r.compileMs,r.modeling.map(m=>`${m.operation}:${m.wallMs}ms/${m.segments}`).join(' ')])));
 }

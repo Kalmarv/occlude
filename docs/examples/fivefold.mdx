@@ -35,9 +35,8 @@ Uses: `polygon` with a hatch `fill`, `clip`, `circle`, `line`, `t.bounds`, `t.rn
 // figure is there, and the drawing only lets you have it in pieces. The
 // small star at the heart is the same construction at the one place
 // where nothing covers it.
-import { sketch, polygon, line, circle, fill, mm, clip, distance } from 'occlude';
+import { sketch, polygon, line, circle, fill, mm, clip, distance, lerp } from 'occlude';
 const PHI = (1 + Math.sqrt(5)) / 2;
-const lerp = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
 const dist = distance;
 function subdivide(tris) {
     const out = [];

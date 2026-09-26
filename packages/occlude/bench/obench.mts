@@ -11,7 +11,8 @@ import { performance } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
-import { circle, fill, initOcclude, line, rect, render, setPenLibrary, sketch, type Shape } from '../src/index.js';
+import { circle, fill, line, rect, setPenLibrary, sketch, type Shape } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 
 await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 void core;

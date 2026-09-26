@@ -10,9 +10,13 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
 import {
-  circle, compileSketch, decodePlanBuffer, encodeScene, fill, fillAsset, initOcclude, line, mm, pen, planBuffer, polygon, rect,
-  render, renderEncoded, rulings, sdf, shader, sketch, w, type FillCtx, type SketchDef, type L, type LengthField, type WasmModule,
+  circle, fill, fillAsset, line, mm, pen, polygon, rect, rulings, sdf, shader, sketch, w, type FillCtx,
+  type SketchDef, type L, type LengthField,
 } from '../src/index.js';
+import {
+  compileSketch, decodePlanBuffer, encodeScene, initOcclude, planBuffer, render, renderEncoded,
+  type WasmModule,
+} from '../src/host.js';
 import { checkFillOpaque } from '../src/fills.js';
 import { checkPlanOptions } from '../src/plan.js';
 import { checkInputFits } from '../src/wasmRender.js';

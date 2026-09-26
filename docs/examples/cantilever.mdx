@@ -17,8 +17,9 @@ import { sketch, polygon, fill, mm } from 'occlude';
 const DX = 0.55;
 const DY = -0.34;
 export default sketch({ aspect: [3, 4], seed: 3 }, (t) => {
-    const W = t.width;
-    const H = t.height;
+    const b = t.bounds();
+    const W = b.w;
+    const H = b.h;
     const SKY = 46;
     const slab = (s) => {
         const ox = s.z * DX, oy = s.z * DY;

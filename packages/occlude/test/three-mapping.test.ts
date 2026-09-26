@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,cylinder,mesh,pointCloud,instanceOnPoints,mapSurface,planarUV,view,orthographic} from '../src/three/api/index.js';
-import {curve,compileSketchAsync,initOcclude,pen,mm,sketch,sketchAsync,strokes} from '../src/index.js';
+import {plane,box,cylinder,mesh,pointCloud,instanceOnPoints,mapSurface,view,orthographic} from '../src/three/api/index.js';
+import { curve, pen, mm, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, initOcclude } from '../src/host.js';
 import {sampleSurfaceCurves} from '../src/three/api/curveSampling.js';
 import {decodePoint,triangleWeights} from '../src/three/geometry/exact.js';
 import {bindingTriangle3} from '../src/three/curves/network.js';
@@ -93,7 +94,7 @@ describe('mapSurface',()=>{
 
   it('assigns overlap layers when one physical sheet folds onto itself in chart space',()=>{
     // A sheet folded back over itself along x=1: both faces project onto the same square.
-    const folded=planarUV(mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[0,1,1]],[[0,1,2,3],[2,1,4,5]]));
+    const folded=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[0,1,1]],[[0,1,2,3],[2,1,4,5]]).corners.set({uv:c=>[c.point.x,c.point.y] as const,chart:'planar'});
     const marks=mapSurface(folded,curve([[.5,-.5],[.5,1.5]],{closed:false}));
     expect(marks.edges.length).toBe(4);
     const chains=new Set(marks.edges.map(e=>e.chainId));expect(chains.size).toBe(2);
@@ -122,22 +123,6 @@ describe('mapSurface',()=>{
     expect(()=>mapSurface(sheet,stripe(.5),{budget:{maxNodes:1}})).toThrow('node budget');
     expect(()=>mapSurface(sheet,[] as never)).toThrow('resolved numeric materials');
     expect(()=>mapSurface(sheet,stripe(.5),{uv:'missing'})).toThrow();
-  });
-
-  it('runs through the async toolkit with stats, and cancels before adoption',async()=>{
-    let marks!:ReturnType<typeof mapSurface>;
-    const run=await compileSketchAsync(sketchAsync({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
-      const sheet=plane(2).subdivide(3);
-      marks=await t.mapSurface(sheet,t.times(8,(_,u)=>stripe((u+.5)/8)));
-      return view([sheet,marks],{camera:orthographic({eye:[5,7,6],span:4}),pen:'ink'});
-    }));
-    expect(run.modeling3[0].operation).toBe('mapSurface');
-    expect(run.modeling3[0].mapping?.outputSegments).toBe(marks.edges.length);
-    expect(marks.edges.length).toBeGreaterThan(8);
-    const controller=new AbortController();
-    await expect(compileSketchAsync(sketchAsync({seed:42},async t=>{
-      const pending=t.mapSurface(plane(2).subdivide(4),t.times(64,(_,u)=>stripe((u+.5)/64)));setTimeout(()=>controller.abort(),0);await pending;return null;
-    }),undefined,{signal:controller.signal})).rejects.toThrow();
   });
 
   it('draws mapped marks as ordinary strokes, hidden by the rest of the surface',async()=>{

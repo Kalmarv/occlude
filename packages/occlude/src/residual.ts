@@ -101,8 +101,6 @@ export interface Residual {
   /** What is still owed over the whole surface, in the same cell-area
    * units — the number a stopping test watches. */
   total(): number;
-  /** What is owed at one place: the same as calling the residual. */
-  peek(x: number, y: number): number;
   /** A frozen copy of the surface as a plain field. Later spends do not
    * change it — this is the immutable door out of the ledger. */
   snapshot(): FieldFn2;
@@ -252,8 +250,6 @@ export function residualOf(env: ResidualEnv, field: FieldFn2, opts: ResidualOpts
     for (let idx = 0; idx < cells; idx++) if (mask[idx]) sum += owed[idx];
     return sum;
   };
-
-  residual.peek = (x: number, y: number): number => read(x, y);
 
   residual.snapshot = (): FieldFn2 => reader(Float32Array.from(owed), cols, rows, spacing, bounds, mask);
 

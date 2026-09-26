@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { surface3, lineArt3 } from 'occlude';
+import { surface3, lineArt3 } from 'occlude/3d/advanced';
 import { cameraFrame3, toCamera3, toPaper3, type Camera3 } from 'occlude/src/three/camera.js';
 import { ConstructionScene3 } from './construction.js';
 import { orbitCamera3, zoomCamera3 } from './orbit.js';

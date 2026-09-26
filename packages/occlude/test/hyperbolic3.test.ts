@@ -11,7 +11,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { mesh, view, perspective, honeycomb as honeycomb3, observer, geodesic3 } from 'occlude/3d';
-import { clip, compileSketchAsync, evalPrim, initOcclude, mm, pen, rect, render, sketchAsync, strokes } from '../src/index.js';
+import { clip, mm, pen, rect, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, evalPrim, initOcclude, render } from '../src/host.js';
 import {
   lorentz, boost, rotation, reflection, apply, compose, inverse, distance, geodesic, polyhedron, honeycomb, camera,
   type Lorentz,
@@ -265,7 +266,7 @@ describe('camera', () => {
 
 describe('a honeycomb on paper', () => {
   it('renders a depth-1 {4, 3, 5} through the 3D view, cut to its drawable', async () => {
-    const definition = sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25) }) } }, async (t) => {
+    const definition = sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25) }) } }, async (t) => {
       const h = honeycomb3(4, 3, 5, { depth: 1 });
       const seen = observer([0.05, -0.08, 0.1], [0.8, 0, 0]);
       const b = t.bounds();

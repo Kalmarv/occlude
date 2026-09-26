@@ -5,22 +5,19 @@ description: The ways to put edges between points.
 
 Every builder takes points, a material or a selection of one, and returns a material with new edges. Most builders keep the rows, their order and their columns, and change only the edge list. `connect.pairs` joins the rows of two materials. `trails` is a method on the material, and it adds a pass-through vertex at each junction. `edgeAttributes` gives every new edge the same columns.
 
-## connect.chain() · connect.ring()
+## In the order given
 
-<include>/_sig/connect.chain.mdx</include>
-<include>/_sig/connect.ring.mdx</include>
-
-Join the rows in the order given. `ring` also joins the last row to the first. Below, seven points on a circle, taken three steps apart. `chain` is on the left, and `ring` on the right adds one closing edge.
+The rows in the order given are one chain: [`curve(points)`](/docs/reference/material#curve). `closed: true` also joins the last row to the first. A selection keeps the ids of its members. Below, seven points on a circle, taken three steps apart. The open chain is on the left, and the ring on the right adds one closing edge.
 
 ```ts live
-import { sketch, strokes, circle, connect } from 'occlude';
+import { sketch, strokes, circle, curve } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const order = (cx) => {
     const pts = t.sample(circle(cx, 50, 38), { count: 7 }).points;
     return pts.map((p, k) => pts.at((k * 3) % 7));
   };
-  return [strokes(connect.chain(order(50))), strokes(connect.ring(order(150)), { pen: 'stabilo-88-blue' })];
+  return [strokes(curve(order(50))), strokes(curve(order(150), { closed: true }), { pen: 'stabilo-88-blue' })];
 });
 ```
 

@@ -7,7 +7,7 @@
  * and the sketch's literal is rewired. Never a prompt, never an overwrite.
  */
 
-import { isBuiltinFill, scanFillNames } from 'occlude';
+import { isBuiltinFill, scanFillNames } from 'occlude/host';
 
 export interface EmbeddedFill {
   name: string;

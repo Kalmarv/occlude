@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
+import { xy } from './helpers/xy.js';
 
 const chain = () => curve([[0, 0], [10, 0], [20, 0], [30, 0], [40, 0]], { closed: false });
 
@@ -53,7 +54,7 @@ describe('m.smooth', () => {
     const out = m.smooth('t', { steps: 3 });
     expect([...out.pointIds]).toEqual([...m.pointIds]);
     expect([...out.edgeIds]).toEqual([...m.edgeIds]);
-    expect(out.pts).toEqual(m.pts);
+    expect(out.points.map(xy)).toEqual(m.points.map(xy));
   });
 
   it('keeps a declared transfer policy', () => {

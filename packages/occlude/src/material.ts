@@ -16,7 +16,7 @@
  *   numbers    add sub mul length distance unit limit perp sum sumBy
  *   passes     `(g) => g2` over the writes and recipes, run by `t.steps`;
  *              forces PREPARED once, EVALUATED at a point to a vector
- *   drawing    `.curves()`, `segmentRuns`, `extent`, `banding`
+ *   drawing    `.curves()`, `segmentRuns`, `extent`
  *
  * Everything here is pure — no seed, no paper. A rule that wants seeded
  * randomness or noise closes over the toolkit (`t.chance`, `t.noise`);
@@ -35,7 +35,7 @@ import { walkChains } from './chains.js';
 import { planarize, faces, boxGrid, faceLocator, faceCentroids, FaceSelection, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
-import type { Origin, VectorFieldFn } from './shapes.js';
+import type { Origin } from './shapes.js';
 import { distanceTo } from './distance.js';
 import { numericLoops, type AreaInput } from './boundary.js';
 import { Delaunay } from 'd3-delaunay';
@@ -47,10 +47,8 @@ import { trails as makeTrails, type TrailsOpts } from './trails.js';
 import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
 import { warp as warpKernel, type WarpOpts } from './warp.js';
 import { oscillate as oscillateKernel, type OscillateOpts } from './oscillate.js';
-import { coil as coilKernel, type CoilOpts } from './coil.js';
 import { envelope as envelopeKernel } from './envelope.js';
 import { interlace as interlaceKernel, type InterlaceOpts } from './interlace.js';
-import { snap as snapKernel, type SnapField, type SnapOpts } from './snap.js';
 import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
@@ -65,7 +63,7 @@ import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, rep
 // the column sharing of a split (tables.ts). Forces live in forces.ts and
 // depend on this module, so they are not re-exported here.
 export {
-  add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
+  add, sub, mul, length, distance, unit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
 } from './vec.js';
 export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
@@ -97,8 +95,7 @@ export type Vertex = {
 } & Record<string, number>;
 
 /** An edge view. Its columns read as properties of the row (`e.level`), as
- * a vertex's do and as 3D rows' do; `attrs` is the same columns as one
- * record (`e.attrs.level`), for a spread or a lookup by name. */
+ * a vertex's do and as 3D rows' do. */
 export type Edge = {
   /** Vertex views at the edge's ends, in stored order (a → b). */
   a: Vertex;
@@ -134,9 +131,6 @@ export type Edge = {
   /** The edges that share a vertex with this one, this edge excluded —
    * what `p.adjacent` is for a vertex, in the edge's own world. */
   readonly adjacent: EdgeSelection;
-  /** This edge's columns as one record: `edge.attrs.rest`, which is
-   * `edge.rest`. */
-  attrs: Record<string, number>;
   /** The faces on this edge's two sides, from the material's `faces()`:
    * two for a wall between cells, one for an outer wall or a spur inside a
    * face, none for an edge no face touches. Reading it on a material that
@@ -404,7 +398,7 @@ export const RESERVED_FACE_FIELDS: readonly string[] = [
 ];
 
 /** The names an edge view already owns, for the same reason: its columns
- * read flat beside them (`e.rest`, with `e.attrs.rest` as the record). */
+ * read flat beside them (`e.rest`). */
 export const RESERVED_EDGE_FIELDS: readonly string[] = [
   'a', 'b', 'length', 'index', 'id', 'root', 'center', 'adjacent', 'attrs', 'faces',
 ];
@@ -465,12 +459,16 @@ const TRANSFORM_TOL = 0.05;
 const TRANSFORM_DEPTH = 12;
 
 export class Material {
+  /** @internal The row count. A sketch reads `m.points.length`. */
   readonly n: number;
+  /** @internal The x column, `n` long. A sketch reads `p.x` on a row. */
   readonly x: Float64Array;
+  /** @internal The y column, `n` long. A sketch reads `p.y` on a row. */
   readonly y: Float64Array;
-  /** Attribute columns by name, each `n` long. */
+  /** @internal Attribute columns by name, each `n` long. A sketch reads a
+   * column on a row: `p.age`. */
   readonly attrs: Readonly<Record<string, Float64Array>>;
-  /** Edge list, stored order, `[a0, b0, a1, b1, …]`. Undirected for
+  /** @internal Edge list, stored order, `[a0, b0, a1, b1, …]`. Undirected for
    * connectivity; the stored direction is what `edges`, `split` (`at`)
    * and `segmentRuns` (`a`, `b`) see. */
   readonly edgeList: Uint32Array;
@@ -484,24 +482,20 @@ export class Material {
    * material of its own and carries no history of its own; nothing a later
    * step does touches it. */
   readonly history: readonly Material[];
-  /** Edge attribute columns by name, each `edgeCount` long. */
+  /** @internal Edge attribute columns by name, each `edgeCount` long. A
+   * sketch reads a column on an edge row: `e.rest`. */
   readonly edgeAttrs: Readonly<Record<string, Float64Array>>;
-  /** Declared transfer policy per point column (default interpolate). */
+  /** @internal Declared transfer policy per point column (default interpolate). */
   readonly transfers: Readonly<Record<string, TransferPolicy>>;
-  /** Declared transfer policy per edge column (default copy). */
+  /** @internal Declared transfer policy per edge column (default copy). */
   readonly edgeTransfers: Readonly<Record<string, EdgeTransfer>>;
-  /** Adjacency is built the first time it is asked for, then kept: a growth
+  /** @internal Adjacency is built the first time it is asked for, then kept: a growth
    * step makes a state per iteration, and most never ask. The box is
    * mutable inside a frozen material. */
   private readonly adjBox: { rows: number[][] | null; edges: number[][] | null };
   /** @internal Spatial indexes for `points.near`, one per radius. The
    * state is frozen, so the cache lives in a box like the adjacency does. */
   readonly nearBox: { byRadius: Map<number, (p: XY) => number[]> } = { byRadius: new Map() };
-  /** @internal The edge midpoints as a material of their own, built the
-   * first time `edges.pairs` asks for a radius and kept: an edge is near
-   * another edge by its middle, and the one spatial index the library has
-   * is over points. */
-  readonly midBox: { material: Material | null } = { material: null };
   /** @internal The edge grid `edges.near` walks, built once per state. One
    * grid for every radius: unlike the point index, which is keyed by radius,
    * this one judges true segment distance per call. */
@@ -516,15 +510,16 @@ export class Material {
    * `areaMaterial(m)` is called, and `material` keeps it. Both null: the
    * material's area is its own closed chains. A box, like the others. */
   readonly areaBox: { make: (() => Material) | null; material: Material | null };
-  /** One id per vertex row, and one per edge row. Outside `attrs` on
+  /** @internal One id per vertex row, and one per edge row. Outside `attrs` on
    * purpose: a column would be interpolated at every split (a mean of two
    * ids is a forged id), would be demanded of every `points.add` caller, and
    * would appear as a plain number on a vertex view — the opposite of
    * opaque. */
   readonly pointIds: Float64Array;
+  /** @internal The edge rows' ids, as `pointIds` is for points. */
   readonly edgeIds: Float64Array;
   /**
-   * The oldest ancestor of each edge — its LINEAGE.
+   * @internal The oldest ancestor of each edge — its LINEAGE.
    *
    * A split retires the parent and mints two children, which keeps ids
    * unique and `edgeOf(id)` unambiguous. But a face whose wall was merely
@@ -534,7 +529,7 @@ export class Material {
    * nothing is its own root.
    */
   readonly edgeRoots: Float64Array;
-  /** Face columns, by name. A face is not a row, so these are keyed by
+  /** @internal Face columns, by name. A face is not a row, so these are keyed by
    * what a face IS — the walls it is made of — and not by an index. */
   readonly faceAttrs: Readonly<Record<string, FaceColumn>>;
   /**
@@ -548,7 +543,7 @@ export class Material {
    * and a material compared or copied as data is compared by its rows.
    */
   declare readonly space: Space | undefined;
-  /** id → row, built the first time an id is looked up. A box, like the
+  /** @internal id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
   private readonly vertexProto: object;
@@ -755,13 +750,13 @@ export class Material {
     return rows;
   }
 
-  /** Names of the attribute columns. */
+  /** @internal Names of the attribute columns. */
   get attrNames(): string[] {
     return Object.keys(this.attrs);
   }
 
   /**
-   * The row an id is at in THIS state, or -1 when it is gone.
+   * @internal The row an id is at in THIS state, or -1 when it is gone.
    *
    * This is how a later step finds what an earlier one marked: store
    * `p.id` in a column, and `m.rowOfPoint(id)` says where it went. The map
@@ -777,7 +772,7 @@ export class Material {
     return map.get(id) ?? -1;
   }
 
-  /** The edge row an id is at in this state, or -1 when it is gone (a
+  /** @internal The edge row an id is at in this state, or -1 when it is gone (a
    * split retires the parent, so its id resolves to nothing). */
   rowOfEdge(id: EdgeId): number {
     let map = this.idBox.edges;
@@ -828,19 +823,12 @@ export class Material {
     return new PointSelection(this, null);
   }
 
-  /** Positions as tuples, row order — what `polygon`, `distanceTo` eat. */
-  get pts(): [number, number][] {
-    const out: [number, number][] = new Array(this.n);
-    for (let i = 0; i < this.n; i++) out[i] = [this.x[i], this.y[i]];
-    return out;
-  }
-
-  /** Number of edges. */
+  /** @internal Number of edges. A sketch reads `m.edges.length`. */
   get edgeCount(): number {
     return this.edgeList.length / 2;
   }
 
-  /** Names of the edge attribute columns. */
+  /** @internal Names of the edge attribute columns. */
   get edgeAttrNames(): string[] {
     return Object.keys(this.edgeAttrs);
   }
@@ -850,17 +838,15 @@ export class Material {
   edge(e: number): Edge {
     const a = this.vertex(this.edgeList[2 * e]);
     const b = this.vertex(this.edgeList[2 * e + 1]);
-    const attrs: Record<string, number> = {};
     const view = Object.create(this.edgeProto) as Record<string, unknown>;
-    // A column is a property of the row, and `attrs` the same columns as a
-    // record: the reserved names keep the two from ever colliding.
-    for (const name in this.edgeAttrs) view[name] = attrs[name] = this.edgeAttrs[name][e];
+    // A column is a property of the row: the reserved names keep a column
+    // from ever shadowing one of the view's own words.
+    for (const name in this.edgeAttrs) view[name] = this.edgeAttrs[name][e];
     view.a = a;
     view.b = b;
     // A length of the material's space; the flat plane keeps the old expression.
     view.length = this.space !== undefined && this.space.kind !== 'euclidean' ? this.space.distance(a, b) : distance(a, b);
     view.index = e;
-    view.attrs = attrs;
     return view as Edge;
   }
 
@@ -981,34 +967,6 @@ export class Material {
     return this.curves().filter((c) => c.closed);
   }
 
-  /** True when the material is one closed chain (a ring). */
-  get closed(): boolean {
-    const cs = this.curves();
-    return cs.length === 1 && cs[0].closed && cs[0].indices.length === this.n;
-  }
-
-  /** The material's single chain as a stampable contour. A material with
-   * several chains has no single one, so this is the longest of them by arc
-   * length (ties: the first in `curves()` order) — the outline of a grown or
-   * cut material, with the crumbs left out. For all of them, see `curves()`. */
-  get contour(): Curve {
-    const cs = this.curves();
-    if (cs.length === 1) return cs[0];
-    if (cs.length === 0) return { pts: this.pts, closed: false, indices: Array.from({ length: this.n }, (_, i) => i) };
-    let best = cs[0];
-    let bestLength = -1;
-    for (const c of cs) {
-      let length = 0;
-      for (let k = 1; k < c.pts.length; k++) length += Math.hypot(c.pts[k][0] - c.pts[k - 1][0], c.pts[k][1] - c.pts[k - 1][1]);
-      if (c.closed && c.pts.length > 2) length += Math.hypot(c.pts[0][0] - c.pts[c.pts.length - 1][0], c.pts[0][1] - c.pts[c.pts.length - 1][1]);
-      if (length > bestLength) {
-        bestLength = length;
-        best = c;
-      }
-    }
-    return best;
-  }
-
   /**
    * The material as chains for drawing: a deterministic, edge-disjoint walk.
    * Chains start at endpoints and junctions (degree ≠ 2), pass through
@@ -1089,7 +1047,7 @@ export class Material {
     return onPoints ? setPoints(src, null, [name, (p: Vertex) => cur[p.index]]) : setEdges(src, null, [name, (e: Edge) => cur[e.index]]);
   }
 
-  /** The face columns this material declares. */
+  /** @internal The face columns this material declares. */
   get faceAttrNames(): string[] {
     return Object.keys(this.faceAttrs);
   }
@@ -2091,31 +2049,9 @@ export class Material {
     return mapPositions(this, (p) => [p.x + dx, p.y + dy], 'm.translate');
   }
 
-  /**
-   * Every vertex moved by a vector field: the material twin of the
-   * `deform` modifier. The field is read as that modifier reads it —
-   * `field(x, y)` at the vertex, in user units — and its answer is ADDED:
-   * a field is always a displacement, where `map` is always a position.
-   * It is `map` underneath, so every id and every column carries. A
-   * sample the field cannot answer — NaN, or infinite — moves the vertex
-   * nowhere, as the `deform` modifier reads such a sample: a field may
-   * honestly say "not a place" at a boundary, and that is not a mistake.
-   */
-  deform(field: VectorFieldFn): Material {
-    return mapPositions(this, (p) => {
-      const d = field(p.x, p.y);
-      const dx = d?.[0];
-      const dy = d?.[1];
-      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [p.x, p.y];
-      return [p.x + dx, p.y + dy];
-    }, 'm.deform');
-  }
-
-  /** The pivot `scale` and `rotate` read: the user origin when unset,
-   * `'center'` this material's bounds centre, `'centroid'` its area
+  /** @internal The pivot `scale` and `rotate` read: the user origin when
+   * unset, `'center'` this material's bounds centre, `'centroid'` its area
    * centroid (see `scale`). An empty material pivots on the origin. */
-  /** @internal The pivot a verb turns or scales about: a point, or this
-   * material's own middle or area centroid. */
   pivot(verb: string, origin: Origin | undefined): Vec {
     if (origin === undefined) return [0, 0];
     if (origin === 'center' || origin === 'centroid') {
@@ -2159,13 +2095,6 @@ export class Material {
     return oscillateKernel(this, opts);
   }
 
-  /** Wind this material's chains into a coil, at a radius and a pitch read
-   * in its own units. A swing crosses the chain; a loop goes round it. See
-   * `CoilOpts`. */
-  coil(opts: CoilOpts): Material {
-    return coilKernel(this, opts);
-  }
-
   /** The outline this material's chains sweep: their envelope. */
   envelope(): Material {
     return envelopeKernel(this);
@@ -2175,11 +2104,6 @@ export class Material {
    * beneath, by `{ gap }` in this material's own coordinates. */
   interlace(opts: InterlaceOpts): Material {
     return interlaceKernel(this, opts);
-  }
-
-  /** Pull this material's points onto a field's zero, within `{ radius }`. */
-  snap(field: SnapField, opts: SnapOpts): Material {
-    return snapKernel(this, field, opts);
   }
 
   /** One pen-down per pass: a junction is split into one degree-2 vertex per
@@ -2847,7 +2771,7 @@ function boundaryMarks(
 
 /** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
  * fields such as a scatter point's `w` become columns), or a material. */
-/** Is this an array of stations, as `along` returns? Empty arrays are not. */
+/** @internal Is this an array of stations, as `along` returns? Empty arrays are not. */
 export function isStations(v: unknown): v is readonly Station[] {
   if (!Array.isArray(v) || v.length === 0) return false;
   const q = v[0] as Record<string, unknown>;
@@ -2856,7 +2780,7 @@ export function isStations(v: unknown): v is readonly Station[] {
 }
 
 /**
- * Stations as a material, for drawing them or for the inspector: a vertex
+ * @internal Stations as a material, for drawing them or for the inspector: a vertex
  * per station in walk order, edges along each chain's walk (wrapping when
  * the chain is closed), and columns `heading`, `s`, `u`, `chain` plus the
  * station's transferred point and edge columns under their own names (a
@@ -2939,7 +2863,7 @@ export function material(
     return points;
   }
   // A point selection is those points: the rows, their columns and their
-  // ids, so a builder handed one (`connect.chain(sel)`) keeps who each
+  // ids, so a builder handed one (`curve(sel)`) keeps who each
   // member is, and `sel.in(result)` finds them again.
   if (points instanceof PointSelection && Object.keys(opts).length === 0) return points.extract();
   // A face collection is points at its faces' centroids.
@@ -2986,23 +2910,29 @@ export function material(
 }
 
 /**
- * A chain from positions — open unless `closed: true` makes it a ring — with
- * optional attribute columns as one constant per vertex or a full column.
- * Sugar for `connect.ring(material(pts))` / `connect.chain(...)`.
+ * A chain through points in their order — open unless `closed: true`
+ * joins the last back to the first. The points are positions (pairs or
+ * `{x, y}` records), a point selection, a material or a face collection,
+ * read as `material()` reads them: a selection keeps its members' ids,
+ * rows and columns, so the chain is those points. Positions may take
+ * point columns, one constant per vertex or a full column; points that
+ * already are rows bring their own. It uses the supplied order and infers
+ * no route.
  */
 export function curve(
-  pts: readonly XY[],
+  points: PointsLike,
   opts: { closed?: boolean } & Record<string, number | ArrayLike<number> | boolean | undefined> = {},
 ): Material {
   const { closed = false, ...rest } = opts;
+  if (typeof closed !== 'boolean') throw new Error(`curve: closed is true or false, got ${String(closed)}`);
   const cols: Record<string, number | ArrayLike<number>> = {};
   for (const [k, v] of Object.entries(rest)) {
     if (v === undefined) continue;
     if (typeof v === 'boolean') throw new Error(`curve: attribute '${k}' must be numeric`);
     cols[k] = v;
   }
-  const m = material(pts, cols);
-  return closed ? connect.ring(m) : connect.chain(m);
+  const m = material(points, cols);
+  return addEdges(m, chainEdges(m.n, closed));
 }
 
 /**
@@ -3230,19 +3160,9 @@ function headedStations(stations: readonly Station[] | PointsLike, who: string):
   return stations as readonly Station[];
 }
 
-/** Common connection patterns; each returns a new material. None infers a
- * route: chain and ring use the supplied row order. */
+/** Common connection patterns; each returns a new material. A chain in
+ * the supplied order is `curve(points, { closed })`. */
 export const connect = {
-  /** Consecutive rows joined, open. */
-  chain(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
-    const mm = material(m);
-    return addEdges(mm, chainEdges(mm.n, false), edgeAttributes);
-  },
-  /** Consecutive rows joined and the last joined back to the first. */
-  ring(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
-    const mm = material(m);
-    return addEdges(mm, chainEdges(mm.n, true), edgeAttributes);
-  },
   /** Each vertex joined to its `count` nearest others (undirected, no
    * duplicates, self excluded; ties broken by lower row). */
   nearest(m: PointsLike, opts: { count: number; edgeAttributes?: Record<string, number> }): Material {
@@ -4029,32 +3949,6 @@ export function extent(values: ArrayLike<number>): [number, number] {
   return [lo, hi];
 }
 
-/**
- * A classifier from a numeric range into `count` equal bands, 0 … count-1:
- * `min` and below is band 0, `max` and above the last; a constant range, or
- * a count with no bands in it, puts everything in band 0. `count` is a whole
- * number of bands.
- */
-export function banding(opts: { min: number; max: number; count: number }): (v: number) => number {
-  const { min, max, count } = opts;
-  if (!Number.isInteger(count)) throw new Error(`banding: count must be a positive integer, got ${count}`);
-  const span = max - min;
-  return (v) => {
-    // No bands to sort into, or no range to sort by: everything is band 0.
-    if (!(count >= 1) || !(span > 0)) return 0;
-    const b = Math.floor(((v - min) / span) * count);
-    return b < 0 ? 0 : b >= count ? count - 1 : b;
-  };
-}
-
-/** A classifier fitted to a column's own extent: `banding.over(m.attrs.age,
- * { count: 3 })` is `banding({ min, max, count })` with `extent` inside.
- * Two columns that must share a range still use `extent` and `banding`. */
-banding.over = (values: ArrayLike<number>, opts: { count: number }): ((v: number) => number) => {
-  const [min, max] = extent(values);
-  return banding({ min, max, count: opts.count });
-};
-
 /** A maximal run of consecutive edges of one chain sharing one key, as a
  * stampable contour (`stroke(run)`), with the key and the vertex rows. */
 export interface SegmentRun<K = number | string> extends IsoContour {
@@ -4073,7 +3967,7 @@ export interface SegmentRun<K = number | string> extends IsoContour {
  *
  * The classifier gets the EDGE, in its stored orientation — `e.a` and
  * `e.b` as it was connected, whatever direction the drawing walk takes.
- * That is the whole edge: its own columns (`e.attrs.level`, which is what
+ * That is the whole edge: its own columns (`e.level`, which is what
  * `isolines` writes), its `length`, its `center`, its `root`. It used to get
  * the two vertex views alone, so an edge column — the one thing that
  * already belongs to an edge, and survives a split — could not classify a

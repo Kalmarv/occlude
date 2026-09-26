@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connect, material, type Material } from '../src/index.js';
+import { connect, curve, material, type Material } from '../src/index.js';
 
 const len = (m: Material) => {
   let s = 0;
@@ -42,7 +42,7 @@ describe('connect.tree', () => {
     expect(Array.from(t.x)).toEqual(Array.from(pts.x));
     // It is the cheapest such tree, so it is shorter than any other spanning
     // structure over the same points.
-    expect(len(t)).toBeLessThan(len(connect.chain(pts)));
+    expect(len(t)).toBeLessThan(len(curve(pts)));
     expect(len(t)).toBeLessThan(len(connect.tour(pts)));
   });
 

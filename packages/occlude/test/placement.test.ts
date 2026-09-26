@@ -17,15 +17,16 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  circle, line, rect, space, spaceOf, group, strokes,
-  type Execution, type ShapeValue, type Toolkit,
+  circle, line, rect, space, spaceOf, group, strokes, type ShapeValue, type Toolkit,
 } from '../src/index.js';
+import { type Execution } from '../src/host.js';
 import { material, stationAt, type Material } from '../src/material.js';
 import { between, identity, isPlacement, reflection, type ModelDoor, type Placement } from '../src/placement.js';
 import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
 import type { Space } from '../src/space.js';
+import { xy } from './helpers/xy.js';
 
 type Kit = Toolkit & { exec: Execution };
 
@@ -238,8 +239,8 @@ describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => 
       const moved = source.transform(P);
       // Every source vertex keeps its row and lands where the placement
       // puts it.
-      for (let i = 0; i < source.n; i++) near(moved.pts[i], P.point(source.pts[i]), 9);
-      for (const q of moved.pts) expect(offCloud(q, movedSource(source, P))).toBeLessThan(0.06);
+      for (let i = 0; i < source.n; i++) near(moved.points.map(xy)[i], P.point(source.points.map(xy)[i]), 9);
+      for (const q of moved.points.map(xy)) expect(offCloud(q, movedSource(source, P))).toBeLessThan(0.06);
       const lowered = placedOutline(t, sv, { placement: P });
       expect(lowered.length).toBe(1);
       expect(lowered[0].closed).toBe(true);

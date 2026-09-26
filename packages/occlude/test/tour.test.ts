@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connect, material, type Material } from '../src/index.js';
+import { connect, curve, material, type Material } from '../src/index.js';
 
 const len = (m: Material) => {
   let s = 0;
@@ -35,7 +35,7 @@ describe('connect.tour', () => {
     expect([...d].filter((v) => v === 1).length).toBe(2);
     expect([...d].filter((v) => v === 2).length).toBe(158);
     // And it is worth doing.
-    expect(len(open)).toBeLessThan(len(connect.chain(pts)) / 4);
+    expect(len(open)).toBeLessThan(len(curve(pts)) / 4);
     // Closed returns to the start: one more edge, every row degree 2.
     const ring = connect.tour(pts, { closed: true });
     expect(ring.edgeCount).toBe(160);
@@ -107,7 +107,7 @@ describe('connect.tour', () => {
       for (let e = 0; e < m.edgeCount; e++) acc += Math.abs(m.attrs.shade[m.edgeList[2 * e]] - m.attrs.shade[m.edgeList[2 * e + 1]]);
       return acc / m.edgeCount;
     };
-    expect(step(sorted)).toBeLessThan(step(connect.chain(material(rows))) / 4);
+    expect(step(sorted)).toBeLessThan(step(curve(material(rows))) / 4);
   });
 
   it('leaves no crossing a 2-opt exchange would remove', () => {

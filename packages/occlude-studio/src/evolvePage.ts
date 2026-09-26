@@ -10,7 +10,8 @@
  */
 import './style.css';
 
-import { formatSeed, liveExampleToJs, parseSeed, type PenDef, type RenderResult } from 'occlude';
+import { type PenDef } from 'occlude';
+import { formatSeed, liveExampleToJs, parseSeed, type RenderResult } from 'occlude/host';
 
 import './wa.js';
 import { iconButton, withIcon } from './icons.js';

@@ -42,9 +42,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const planar = network.planarize();
   const junctions = planar.points.filter((p) => network.pointOf(p.id) === undefined);
   return [
-    strokes(network), label(`${network.edgeCount} connections`, 12, 6, 3.4),
+    strokes(network), label(`${network.edges.length} connections`, 12, 6, 3.4),
     group({ translate: [100, 0] },
-      strokes(planar), label(`${planar.edgeCount} connections`, 12, 6, 3.4),
+      strokes(planar), label(`${planar.edges.length} connections`, 12, 6, 3.4),
       junctions.map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-blue' })),
     ),
   ];

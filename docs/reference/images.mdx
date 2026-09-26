@@ -35,7 +35,7 @@ export default sketch({ aspect: [1, 1] }, (t) => svg(t.asset('church.svg'), { x:
 
 <include>/_sig/Toolkit.image.mdx</include>
 
-Places an image in drawable coordinates and returns a sampler. The sampler takes a position and an optional `area`, a half-size to average over. `lum` is luminance, 0 to 1. `a` is alpha. `bands(x, y, n)` is tone in `n` levels, with 0 the darkest. `edge` is the gradient magnitude and `dir` is its angle. Average over the mark's own footprint when a mark covers more paper than a pixel.
+Places an image in drawable coordinates and returns a sampler. The sampler takes a position and an optional `area`, a half-size to average over. `lum` is luminance, 0 to 1. `a` is alpha. `edge` is the gradient magnitude and `dir` is its angle. Average over the mark's own footprint when a mark covers more paper than a pixel.
 
 ```ts live
 import { sketch, circle } from 'occlude';

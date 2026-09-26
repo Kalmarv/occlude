@@ -13,10 +13,11 @@ Uses: `t.scatter` with a density, `t.settle`, `dots`, `polygon` with `opaque`, `
 import { sketch, dots, stroke, polygon, circle } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 4 }, (t) => {
+  const b = t.bounds();
   // A horizon that wanders, and the hill under it: the same points, closed
   // down the sides, so the hill is an area and can hide what is behind it.
-  const ridge = t.times(80, (k, u) => [u * t.width, 72 + t.noise(u * 2.6, 0) * 15 - 7]);
-  const hill = [...ridge, [t.width, t.height], [0, t.height]];
+  const ridge = t.times(80, (k, u) => [u * b.w, 72 + t.noise(u * 2.6, 0) * 15 - 7]);
+  const hill = [...ridge, [b.w, b.h], [0, b.h]];
 
   const dark = (x, y) => Math.max(0.02, 1 - y / 76) ** 1.6;
   const sky = t.settle(t.scatter(dark, { spacing: 2.6 }), { density: dark, spacing: 2.6, iterations: 12 });

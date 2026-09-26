@@ -4,7 +4,8 @@ import {box,pointCloud,instanceOnPoints,view,orthographic,perspective} from 'occ
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
-import {initOcclude,sketch,compileSketchAsync,commitCamera3,exportSvg,pen,mm} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[5,7,6],span:7});
 describe('shared mesh instances',()=>{

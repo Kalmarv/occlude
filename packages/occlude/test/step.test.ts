@@ -16,9 +16,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
-import {
-  compileSketch, deform, encodeScene, fill, initOcclude, mm, rect, render, sketch, type RenderResult,
-} from '../src/index.js';
+import { decimate, deform, fill, mm, rect, sketch } from '../src/index.js';
+import { compileSketch, encodeScene, initOcclude, render, type RenderResult } from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -93,7 +92,7 @@ describe('engine field grids: step', () => {
   // unit is 2 mm, so field units are half a paper millimetre.
   const dec = (x: number, y: number): number => 0.5 + 0.5 * Math.sin(x / 7) * Math.cos(y / 5);
   const hatched = (step?: ReturnType<typeof mm>, field: (x: number, y: number) => number = dec) =>
-    sketch({ seed: 3 }, () => rect(10, 10, 80, 80, { fill: fill('hatch', { spacing: mm(1) }), decimate: { stroke: 0, fill: field, step } }));
+    sketch({ seed: 3 }, () => rect(10, 10, 80, 80, { fill: fill('hatch', { spacing: mm(1) }), modifiers: [decimate({ stroke: 0, fill: field, step })] }));
   /** [gw, gh, x0, y0, dx, dy] of the first grid. */
   const header = (def: ReturnType<typeof hatched>) => Array.from(encodeScene(compileSketch(def, SQ)).fieldData.slice(0, 6));
 
@@ -120,22 +119,22 @@ describe('engine field grids: step', () => {
 
   it('uses of one field that share a grid take the tightest step', () => {
     const both = sketch({ seed: 3 }, () => [
-      rect(5, 5, 40, 40, { decimate: { stroke: dec, fill: 0, step: mm(0.25) } }),
-      rect(55, 55, 40, 40, { decimate: { stroke: dec, fill: 0 } }),
+      rect(5, 5, 40, 40, { modifiers: [decimate({ stroke: dec, fill: 0, step: mm(0.25) })] }),
+      rect(55, 55, 40, 40, { modifiers: [decimate({ stroke: dec, fill: 0 })] }),
     ]);
     const scene = encodeScene(compileSketch(both, SQ));
     expect(scene.fieldData[4]).toBe(0.125);
     // A coarser step than the default loses to the default use beside it.
     const coarse = sketch({ seed: 3 }, () => [
-      rect(5, 5, 40, 40, { decimate: { stroke: dec, fill: 0, step: mm(4) } }),
-      rect(55, 55, 40, 40, { decimate: { stroke: dec, fill: 0 } }),
+      rect(5, 5, 40, 40, { modifiers: [decimate({ stroke: dec, fill: 0, step: mm(4) })] }),
+      rect(55, 55, 40, 40, { modifiers: [decimate({ stroke: dec, fill: 0 })] }),
     ]);
     expect(encodeScene(compileSketch(coarse, SQ)).fieldData[4]).toBe(0.78125);
   });
 
   it('a vector field takes step too (deform)', () => {
     const field = (x: number, y: number): [number, number] => [Math.sin(y / 9), Math.cos(x / 9)];
-    const def = (step?: ReturnType<typeof mm>) => sketch({ seed: 3 }, () => deform({ field, step }, rect(10, 10, 80, 80)));
+    const def = (step?: ReturnType<typeof mm>) => sketch({ seed: 3 }, () => rect(10, 10, 80, 80, { modifiers: [deform({ field, step })] }));
     expect(header(def())[4]).toBe(0.390625); // 200/256 = 0.78125 paper mm, the vector default on a 200 mm sheet
     expect(header(def(mm(0.25)))[4]).toBe(0.125);
   });

@@ -32,9 +32,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Edge.b.mdx</include>
 <include>/_sig/Edge.length.mdx</include>
 <include>/_sig/Edge.index.mdx</include>
-<include>/_sig/Edge.attrs.mdx</include>
 
-One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length` and its row `index`. Its columns are properties of the row, as the columns of a vertex are: `e.climb`. `attrs` holds the same columns as one record, so `e.attrs.climb` reads the same value as `e.climb`. The example below uses the two forms. A column cannot use the name of a field that the edge has. Here the long edges take a pen from a column: green where the path climbs and blue where it falls. The rest of the path takes the default pen.
+One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length` and its row `index`. Its columns are properties of the row, as the columns of a vertex are: `e.climb`. A column cannot use the name of a field that the edge has. Here the long edges take a pen from a column: green where the path climbs and blue where it falls. The rest of the path takes the default pen.
 
 ```ts live
 import { sketch, curve, strokes } from 'occlude';
@@ -45,7 +44,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return [
     strokes(path.edges.subtract(long)),
     strokes(long.filter((e) => e.climb === 1), { pen: 'stabilo-88-green' }),
-    strokes(long.filter((e) => e.attrs.climb === 0), { pen: 'stabilo-88-blue' }),
+    strokes(long.filter((e) => e.climb === 0), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -111,14 +110,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## union() · intersect() · subtract() · complement()
+## union() · intersect() · subtract()
 
 <include>/_sig/PointSelection.union.mdx</include>
 <include>/_sig/PointSelection.intersect.mdx</include>
 <include>/_sig/PointSelection.subtract.mdx</include>
-<include>/_sig/PointSelection.complement.mdx</include>
 
-Set operations on selections of one material. `complement()` is every row that is not selected. Edge selections and face selections have the same four. The other selection can come from an earlier state, and the operation reads it by id, as `sel.in(state)` does. A selection of a material that shares no id is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
+Set operations on selections of one material. Edge selections and face selections have the same three. Every row that is not selected is the whole collection without the selection: `m.points.without(sel)`. The other selection can come from an earlier state, and the operation reads it by id, as `sel.in(state)` does. A selection of a material that shares no id is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -129,7 +127,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const low = cloud.points.filter((p) => p.y > 45);
   const both = left.intersect(low);
   return [
-    left.union(low).complement().map((p) => circle(p, 0.6)),
+    cloud.points.without(left.union(low)).map((p) => circle(p, 0.6)),
     left.subtract(low).map((p) => circle(p, 2)),
     low.subtract(left).map((p) => circle(p, 2, { pen: 'stabilo-88-blue' })),
     both.map((p) => circle(p, 3.4, { pen: 'stabilo-88-blue' })),
@@ -163,7 +161,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 <include>/_sig/PointSelection.extract.mdx</include>
 <include>/_sig/EdgeSelection.extract.mdx</include>
 
-A new material from the selection. From points: the selected points with every column and no edges. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection. From faces: the edges and corners of the selected faces, with every column and every id. A builder such as `connect.chain(sel)` also keeps the ids of the members, so `sel.in(result)` finds them.
+A new material from the selection. From points: the selected points with every column and no edges. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection. From faces: the edges and corners of the selected faces, with every column and every id. A builder such as `curve(sel)` also keeps the ids of the members, so `sel.in(result)` finds them.
 
 An edge selection also has the chain verbs of a material: `resample`, `trim`, `spline`, `oscillate` and `along`. Each one is `sel.extract()` and then the verb, so you need not extract first. Below, the cells of a hex field lose the walls near a line, and `trim` shortens each wall that stays.
 
@@ -338,22 +336,29 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## query.points()
+## The nearest point
 
-<include>/_sig/query.points.mdx</include>
-
-The same index over the points of one state. `nearest(position, { within })` gives the closest point within a distance, or `null`. A hit has `point` (the vertex view), `position` (a pair) and `distance`. When two points are at the same distance, the lower row wins. A vertex of the state is never its own nearest point, so `nearest(p)` on a member finds a different member. Here each tip turns a little toward the nearest seed.
+The nearest point is the closest member of `points.near(p, { radius })`, or none when `near` is empty. A vertex of the state is never its own neighbour, so on a member it finds a different member. Here each tip turns a little toward the nearest seed.
 
 ```ts live
-import { sketch, circle, strokes, query, material, add, sub, mul, unit, fromAngle } from 'occlude';
+import { sketch, circle, strokes, material, add, sub, mul, unit, fromAngle, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const food = material(t.times(30, () => [10 + t.rnd() * 80, 10 + t.rnd() * 60]));
-  const near = query.points(food);
+  // The closest member of `near`, or undefined when none is in reach.
+  const nearest = (p, radius) => {
+    let best;
+    let bestD = Infinity;
+    for (const q of food.points.near(p, { radius })) {
+      const d = distance(p, q);
+      if (d < bestD) { best = q; bestD = d; }
+    }
+    return best;
+  };
   const path = t.steps(40, material([[50, 95]], { heading: -Math.PI / 2 }), (g) => {
     const tip = g.points.at(-1);
-    const hit = near.nearest(tip, { within: 30 });
-    const dir = hit ? add(mul(fromAngle(tip.heading), 0.6), mul(unit(sub(hit.position, tip)), 0.4)) : fromAngle(tip.heading);
+    const hit = nearest(tip, 30);
+    const dir = hit ? add(mul(fromAngle(tip.heading), 0.6), mul(unit(sub(hit, tip)), 0.4)) : fromAngle(tip.heading);
     const h = Math.atan2(dir[1], dir[0]);
     return g.extrude(tip, mul(fromAngle(h), 2), { heading: h });
   });
@@ -361,36 +366,6 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 });
 ```
 
-## pairs()
-
-<include>/_sig/PointSelection.pairs.mdx</include>
-<include>/_sig/EdgeSelection.pairs.mdx</include>
-
-Every pair of members the predicate accepts, as views: `[a, b]` two at a time. A member is never paired with itself. `radius` takes the candidates from the spatial index. Write that form. Edges are near each other by their MIDDLES. Without a radius this is the full product. The library permits it, and it costs what it sounds like.
-
-When the two selections hold the same rows, each pair appears once, in no order. The predicate sees `(a, b)` with `a` before `b` by row. It never sees `(b, a)`. Two different selections give the ordered product instead.
-
-`t.pick(pairs)` takes one pair at a time, because `t.pick` takes anything with `length` and `at`.
-
-```ts live
-import { sketch, circle, line } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
-  const cloud = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
-  // The relation this drawing is about: two points close enough to see each
-  // other, and level enough to be a rung. The sketch states it; `pairs`
-  // finds it.
-  const rungs = cloud.points.pairs(cloud.points, (a, b) => Math.abs(a.y - b.y) < 5, { radius: 20 });
-  return [
-    cloud.points.map((p) => circle(p, 1.1)),
-    rungs.map(([a, b]) => line(a, b, { pen: 'stabilo-88-blue' })),
-  ];
-});
-```
-
-:::note
-**Pairs in a write.** `m.edges.add(pairs)` adds one edge for each pair. A pair that is an edge already adds nothing. A pair that comes two times adds one edge. Each pair names rows of the state as it was before the write.
-:::
 
 ## where
 
@@ -402,17 +377,21 @@ m.warp({ from, to, where: m.points.filter((p) => p.y > 30) })
 
 It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A face selection or one face gives its corners to a method that moves points. It gives its edges to a method on edges. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
 
-`m.warp` and `m.snap` move points and leave the rest where they are. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region keeps its id.
+`m.warp` moves points and leaves the rest where they are, as `m.move` does with the point selection it takes last. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region keeps its id.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const ring = t.sample(circle(50, 50, 36), { count: 90 });
-  // Only the right-hand half is snapped onto the field's ridges. The left
+  // Only the right-hand half is snapped onto the field's ridges: each of
+  // its points moves to the highest of 48 places within 6 of it. The left
   // half keeps the circle it was, and the two are still one chain.
   const right = ring.points.filter((p) => p.x > 50);
-  const rough = ring.snap((x, y) => Math.sin(x / 4) + Math.sin(y / 4), { radius: 6, where: right });
+  const ridges = (x, y) => Math.sin(x / 4) + Math.sin(y / 4);
+  const around = t.times(48, (k) => { const r = 6 * Math.sqrt((k + 0.5) / 48); const a = k * Math.PI * (3 - Math.sqrt(5)); return [Math.cos(a) * r, Math.sin(a) * r]; });
+  const best = (p) => around.reduce((b, o) => (ridges(p.x + o[0], p.y + o[1]) > ridges(p.x + b[0], p.y + b[1]) ? o : b), [0, 0]);
+  const rough = ring.move(best, right);
   return [strokes(ring, { pen: 'stabilo-88-blue' }), strokes(rough)];
 });
 ```

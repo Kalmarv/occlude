@@ -19,7 +19,11 @@ const hyp3=(a:number,b:number,c:number):number=>Math.sqrt(a*a+b*b+c*c);
  * `offset()`: a solid grown by a tenth is `(x, y, z) => f(x, y, z) + 0.1`,
  * written where it is needed.
  *
- * `sphere`, `box`, `capsule`, `torus` and `plane` are exact. `union` is exact
+ * Every solid takes where it sits first, as the 2D `sdf` does: `sphere(c, r)`,
+ * `box(c, size)`, `segment(a, b, r)`, `torus(c, major, minor)`. A solid
+ * elsewhere is built there, so there is no `translate`.
+ *
+ * `sphere`, `box`, `segment`, `torus` and `plane` are exact. `union` is exact
  * outside the solid and understates depth inside it, because the nearest
  * boundary may belong to the other field; `intersect` is the reverse, and
  * `subtract` is approximate near the cut. Take any of them at level zero and
@@ -43,22 +47,22 @@ const triple=(v:Vec3|number,what:string):Vec3=>{
   return out;
 };
 
-/** A ball of radius `r` about `center`. Exact. */
-const sphereField=(r:number,center:Vec3=[0,0,0]):DistanceField3=>{
+/** A ball of radius `r` about `center`, as the 2D `sdf.circle(c, r)`. Exact. */
+const sphereField=(center:Vec3,r:number):DistanceField3=>{
   const [cx,cy,cz]=triple(center,'sphere');
   return (x,y,z)=>r-hyp3(x-cx,y-cy,z-cz);
 };
 
 /**
  * An axis-aligned box, `size` across (one number for a cube, or a triple),
- * CENTRED on `center`. Exact inside and out, including the rounded distance
- * past an edge or a corner.
+ * CENTRED on `center`, as the 2D `sdf.box(c, w, h)`. Exact inside and out,
+ * including the rounded distance past an edge or a corner.
  *
  * It is `box` and not `rect`, and it is centred always, for the reason the
  * 2D `sdf.box` is: a pure field cannot read the sketch's own rect mode, so
  * one name with two anchors would be a trap.
  */
-const boxField=(size:Vec3|number,center:Vec3=[0,0,0]):DistanceField3=>{
+const boxField=(center:Vec3,size:Vec3|number):DistanceField3=>{
   const [hx,hy,hz]=triple(size,'box').map(v=>Math.abs(v)/2);
   const [cx,cy,cz]=triple(center,'box');
   return (x,y,z)=>{
@@ -71,14 +75,15 @@ const boxField=(size:Vec3|number,center:Vec3=[0,0,0]):DistanceField3=>{
 };
 
 /**
- * A capsule: every point within `r` of the segment from `a` to `b`. Exact.
+ * Every point within `r` of the segment from `a` to `b` — the 2D
+ * `sdf.segment(a, b, r)`, a capsule in space. Exact.
  *
  * `r` is required, and for the reason the 2D `sdf.segment` requires it: a
- * capsule of no radius is never positive, so its surface is empty and the
+ * segment of no radius is never positive, so its surface is empty and the
  * sketch draws nothing at all. A field is a solid, and a solid needs a width.
  */
-const capsuleField=(a:Vec3,b:Vec3,r:number):DistanceField3=>{
-  const [ax,ay,az]=triple(a,'capsule'),[bx,by,bz]=triple(b,'capsule');
+const segmentField=(a:Vec3,b:Vec3,r:number):DistanceField3=>{
+  const [ax,ay,az]=triple(a,'segment'),[bx,by,bz]=triple(b,'segment');
   const dx=bx-ax,dy=by-ay,dz=bz-az,len2=dx*dx+dy*dy+dz*dz;
   return (x,y,z)=>{
     const t=len2>0?Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy+(z-az)*dz)/len2)):0;
@@ -86,10 +91,12 @@ const capsuleField=(a:Vec3,b:Vec3,r:number):DistanceField3=>{
   };
 };
 
-/** A ring of tube radius `minor` about a circle of radius `major`, centred at
- * the origin, standing on the Z axis like `torus()`. Exact. */
-const torusField=(major:number,minor:number):DistanceField3=>
-  (x,y,z)=>minor-hyp2(hyp2(x,y)-major,z);
+/** A ring of tube radius `minor` about a circle of radius `major`, centred on
+ * `center` and standing on the Z axis like `torus()`. Exact. */
+const torusField=(center:Vec3,major:number,minor:number):DistanceField3=>{
+  const [cx,cy,cz]=triple(center,'torus');
+  return (x,y,z)=>minor-hyp2(hyp2(x-cx,y-cy)-major,z-cz);
+};
 
 /**
  * The half space on the far side of a plane: `normal` points OUT of the solid,
@@ -146,12 +153,6 @@ const blendField=(a:DistanceField3,b:DistanceField3,radius:number):DistanceField
   };
 };
 
-/** The same solid, moved by `v`. */
-const translateField=(f:DistanceField3,v:Vec3):DistanceField3=>{
-  const g=asField(f,'translate'),[dx,dy,dz]=triple(v,'translate');
-  return (x,y,z)=>g(x-dx,y-dy,z-dz);
-};
-
 /**
  * The solid repeated forever on a lattice of `period` (one number for a cube
  * of space, or a triple). Space folds into one cell about the origin, so the
@@ -168,13 +169,12 @@ const repeatField=(f:DistanceField3,period:Vec3|number):DistanceField3=>{
 export const sdf3={
   sphere:sphereField,
   box:boxField,
-  capsule:capsuleField,
+  segment:segmentField,
   torus:torusField,
   plane:planeField,
   union:unionField,
   intersect:intersectField,
   subtract:subtractField,
   blend:blendField,
-  translate:translateField,
   repeat:repeatField,
 };

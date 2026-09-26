@@ -3,10 +3,19 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, compileSketch, connect, curve, initOcclude, material, polygon,
-  sketch, strokes, voronoi, type Material, type Toolkit, Execution,
+  append, circle, connect, curve, material, polygon, sketch, strokes, PointSelection, type Material,
+  type PointsLike, type Toolkit,
 } from '../src/index.js';
+import { voronoiOf } from '../src/voronoi.js';
+import type { Bounds } from '../src/points.js';
+
+/** The kernel under `t.voronoi`, over explicit bounds: a selection keeps
+ * its identity as the sites, bare points become a material. */
+const voronoi = (sites: PointsLike, b: Bounds): Material =>
+  voronoiOf(sites instanceof PointSelection ? sites : material(sites), b);
+import { compileSketch, initOcclude, Execution } from '../src/host.js';
 import { densityRaster, accumulateCells } from '../src/points.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -49,7 +58,7 @@ describe('scatter as material', () => {
     run((t) => { b = t.scatter(field, { spacing: 4 }); }, 11);
     expect(a!.edgeCount).toBe(0);
     expect(a!.attrNames).toEqual(['density']);
-    expect(a!.pts).toEqual(b!.pts);
+    expect(a!.points.map(xy)).toEqual(b!.points.map(xy));
     for (let i = 0; i < a!.n; i++) expect(a!.attrs.density[i]).toBeCloseTo(Math.min(1, field(a!.x[i], a!.y[i])), 12);
     // The baseline captured from the old Points API at seed 11: same points, same values (w was the density).
     const base = JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/points-baseline.json', import.meta.url)), 'utf8')) as { scatter: number[][] };

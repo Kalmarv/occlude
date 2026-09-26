@@ -28,7 +28,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/curve.mdx</include>
 
-Builds one chain from positions, in the order given. The chain is open. `closed: true` makes a ring. The other options are columns, as in `material()`.
+Builds one chain through points, in the order given. The points are positions, a point selection, a material or a face collection, read as `material()` reads them. A selection keeps the ids and the columns of its members. The chain is open. `closed: true` makes a ring. For positions, the other options are columns, as in `material()`.
 
 ```ts live
 import { sketch, strokes, curve } from 'occlude';
@@ -87,15 +87,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## material
 
-<include>/_sig/Material.n.mdx</include>
 <include>/_sig/Material.points.mdx</include>
 <include>/_sig/Material.edges.mdx</include>
-<include>/_sig/Material.pts.mdx</include>
-<include>/_sig/Material.attrs.mdx</include>
-<include>/_sig/Material.closed.mdx</include>
 <include>/_sig/Material.space.mdx</include>
 
-The value. `n` is the number of vertices. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `space` is the [space](/docs/reference/geometry) of the coordinates: the space of the sketch on a material from the toolkit, and `undefined` on `material(points)`. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
+The value. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `m.points.length` is the number of vertices. A column is a property of its row: `p.name`. `m.curves()` gives the chains, each with its `closed`. `space` is the [space](/docs/reference/geometry) of the coordinates: the space of the sketch on a material from the toolkit, and `undefined` on `material(points)`. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
 
 ```ts live
 import { sketch, rect, circle, strokes } from 'occlude';
@@ -106,14 +102,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-`pts` is what a `stroke` wants, and `n` is what turns a row number into a fraction of the way round.
+The positions as pairs are what a `stroke` wants, and `points.length` turns a row number into a fraction of the way round.
 
 ```ts live
 import { sketch, stroke, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 26 });
-  return [stroke([...ring.pts, ring.pts[0]]), ring.points.map((p) => circle(p, 0.5 + (3.4 * p.index) / ring.n, { pen: 'stabilo-88-blue' }))];
+  const pts = ring.points.map((p) => [p.x, p.y]);
+  return [stroke([...pts, pts[0]]), ring.points.map((p) => circle(p, 0.5 + (3.4 * p.index) / ring.points.length, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -230,9 +227,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     .edges.set('long', (e) => (e.a.x > 50 ? 1 : 0))
     .edges.set({ high: (e) => (e.a.y < 50 ? 1 : 0) });
   return [
-    strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 1), { pen: 'stabilo-88-green' }),
-    strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 0), { pen: 'stabilo-88-blue' }),
-    strokes(ring.edges.filter((e) => e.attrs.long === 0)),
+    strokes(ring.edges.filter((e) => e.long === 1 && e.high === 1), { pen: 'stabilo-88-green' }),
+    strokes(ring.edges.filter((e) => e.long === 1 && e.high === 0), { pen: 'stabilo-88-blue' }),
+    strokes(ring.edges.filter((e) => e.long === 0)),
   ];
 });
 ```
@@ -266,7 +263,7 @@ A column belongs to the material that declares it. An operation that makes a new
 
 | operation | point columns | edge columns | transfer policies |
 |---|---|---|---|
-| `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, the writes and recipes, `t.steps` | kept | kept | kept |
+| `warp`, `resample`, `trails`, `planarize`, `append`, the writes and recipes, `t.steps` | kept | kept | kept |
 | `oscillate` | kept | kept, and each new span reads the source edge it starts on | kept |
 | `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
 
@@ -330,18 +327,17 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## m.scale() · m.rotate() · m.translate() · m.deform()
+## m.scale() · m.rotate() · m.translate()
 
 <include>/_sig/Material.scale.mdx</include>
 <include>/_sig/Material.rotate.mdx</include>
 <include>/_sig/Material.translate.mdx</include>
-<include>/_sig/Material.deform.mdx</include>
 
 Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`, an `Origin`: the same pivot type as a shape, a group, a lattice and a field. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. `'center'` is the middle of the material's own bounds, as it is on a shape and on a group. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points. For the middle of the drawable, give the point `[t.bounds().cx, t.bounds().cy]`.
 
-`deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement. `m.points.set({ x, y })` writes a position.
+To move every vertex by a vector field, as the `deform` modifier does, give `move` a function of the point: `m.move((p) => field(p.x, p.y))`. A field is always a displacement. `m.points.set({ x, y })` writes a position.
 
-The four are a position write with a fixed formula, so the rows, the ids and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
+The three are a position write with a fixed formula, so the rows, the ids and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
 
 Below, each whole cell of a hex lattice is its own outline, scaled about its own centroid. The scale follows a noise field, so the cells open and close across the sheet. The inner ring turns with the scale. A small displacement field then moves the corners of each ring.
 
@@ -351,7 +347,9 @@ import { sketch, strokes, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const b = t.bounds();
   const cells = t.hexes({ spacing: mm(12), orientation: 'flat' });
-  const drift = t.noiseField(0.008 * b.w, 0.15 * b.w);
+  const amount = 0.008 * b.w;
+  const wavelength = 0.15 * b.w;
+  const drift = (p) => [amount * t.noise(p.x / wavelength, p.y / wavelength), amount * t.noise(p.x / wavelength + 213.7, p.y / wavelength - 118.3)];
   const faces = cells.faces().faces;
   const whole = Math.max(...faces.map((f) => f.area)) * 0.99;
   return faces.filter((f) => f.area > whole).map((f) => {
@@ -359,7 +357,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     const k = 0.2 + 0.75 * (0.5 + 0.5 * t.noise((f.centroid[0] / b.w) * 3, (f.centroid[1] / b.h) * 3));
     const outer = outline.scale(k, { origin: 'centroid' });
     const inner = outline.scale(k * 0.55, { origin: 'centroid' }).rotate(60 * k, { origin: 'centroid' });
-    return [strokes(outer.deform(drift)), strokes(inner.deform(drift))];
+    return [strokes(outer.move(drift)), strokes(inner.move(drift))];
   });
 });
 ```

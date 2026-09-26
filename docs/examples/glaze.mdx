@@ -13,6 +13,7 @@ Uses: `t.voronoi`, `faces().set`, `t.steps` with `split` and `move`, a face colu
 import { sketch, strokes, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
+  const b = t.bounds();
   const cells = t.voronoi(t.relax(t.scatter({ spacing: 24 }), { iterations: 5 }));
 
   // The tone is given once, to the cells as they are now.
@@ -25,7 +26,7 @@ export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
   const wander = (g) => {
     // The outer wall sits on the edge of the paper, so only what is inside
     // wanders: the glaze cracks, the plate does not change shape.
-    const inner = g.points.filter((p) => p.x > 1 && p.x < t.width - 1 && p.y > 1 && p.y < t.height - 1);
+    const inner = g.points.filter((p) => p.x > 1 && p.x < b.w - 1 && p.y > 1 && p.y < b.h - 1);
     return g.move((p) => [t.noise(p.x / 14, p.y / 14) * 2.2, t.noise(p.y / 14, p.x / 14) * 2.2], inner);
   };
   const cracked = t.steps(2, tinted, crack, wander);

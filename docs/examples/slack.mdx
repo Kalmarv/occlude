@@ -36,7 +36,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     return g.move((p) => mul(pull(p), 0.1), g.points.filter((p) => !nails.has(p.index)));
   };
   const hung = t.steps(300, net, hang);
-  const [lo, hi] = extent(hung.edgeAttrs.rest);
+  const [lo, hi] = extent(hung.edges.map((e) => e.rest));
   const slack = hung.edges.filter((e) => e.rest > lo + 0.62 * (hi - lo));
   return [
     strokes(hung.edges.subtract(slack), { pen: 'pigma-005-black' }),

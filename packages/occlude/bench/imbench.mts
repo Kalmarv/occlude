@@ -31,13 +31,13 @@ for (let i = 0; i < N; i++) {
 // area sample of each channel on a fresh sampler
 med('first area sample per channel (builds 4 SATs)', () => {
   const fresh = image('nyx.jpeg', { x: 0, y: 0, width: 100 });
-  return fresh.lum(10, 10, 1) + fresh.a(10, 10, 1) + fresh.rgb(10, 10, 1)[0];
+  return fresh.lum(10, 10, 1) + fresh.a(10, 10, 1) + fresh.field('r', { area: 1 })(10, 10);
 }, 3);
 
 med(`${N} × lum (bilinear)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.lum(xs[i], ys[i]); return a; });
 med(`${N} × lum (area 0.5, summed-area)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.lum(xs[i], ys[i], 0.5); return a; });
-med(`${N} × rgb (three channels)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.rgb(xs[i], ys[i])[1]; return a; });
+const green = img.field('g');
+med(`${N} × g (one colour channel as a field)`, () => { let a = 0; for (let i = 0; i < N; i++) a += green(xs[i], ys[i]); return a; });
 med(`${N} × edge (four lum samples)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.edge(xs[i], ys[i]); return a; });
 med(`${N} × dir (four lum samples)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.dir(xs[i], ys[i]); return a; });
-med(`${N} × bands(4)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.bands(xs[i], ys[i], 4); return a; });
 med(`${N} × lum outside the placed rect (early out)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.lum(-1, ys[i]); return a; });

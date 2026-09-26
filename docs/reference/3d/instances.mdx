@@ -3,11 +3,11 @@ title: Instances and sampling
 description: "Points on a surface, and one prototype placed at every point or face."
 ---
 
-`t.sample` and `t.scatter` put points on a surface. `instanceOnPoints` and `instanceOnFaces` put a prototype mesh at each one. The result goes into `view` like a mesh. `.realize()` makes it one ordinary mesh when you need the mesh operations.
+`t.scatter` puts points on a surface. `instanceOnPoints` and `instanceOnFaces` put a prototype mesh at each one. The result goes into `view` like a mesh. `.realize()` makes it one ordinary mesh when you need the mesh operations.
 
-## t.sample() · t.scatter() on a mesh
+## t.scatter() on a mesh
 
-Both take a mesh and return points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.sample(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both. A face selection is the surface that it names: `t.scatter(mesh.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. Each row keeps the id of its face.
+It takes a mesh and returns points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.scatter(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both forms. A face selection is the surface that it names: `t.scatter(mesh.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. Each row keeps the id of its face.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

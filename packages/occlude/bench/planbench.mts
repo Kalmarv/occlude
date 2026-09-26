@@ -15,7 +15,10 @@ import { transformSync } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
-import { compileSketch, decodeRender, encodeScene, initOcclude, isSketch, render, renderEncoded, pensToJson, type SketchDef } from '../src/index.js';
+import { type SketchDef } from '../src/index.js';
+import {
+  compileSketch, decodeRender, encodeScene, initOcclude, isSketch, render, renderEncoded, pensToJson,
+} from '../src/host.js';
 import * as coreMod from 'occlude-core';
 import { preloadAssetsFromDisk } from '../tools/asset-preload.js';
 import { preloadFillsFromDisk } from '../tools/fill-preload.js';

@@ -38,7 +38,7 @@ import { apply, invert, mul, scale as mscale, translate as mtranslate, type Mat 
 import { fromSheet, type Space } from './space.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec } from './execution.js';
-import { compileSketch, compileSketchAsync, isSketch, isSketchAsync, type SketchDef, type AsyncSketchDef } from './api.js';
+import { compileSketch, compileSketchAsync, isSketch, type SketchDef } from './api.js';
 import { mm, resolveLen, type L } from './units.js';
 
 export interface Fragment {
@@ -754,7 +754,6 @@ function inputsOf(opts: RenderOptions): ExecutionInputs {
 /** The execution an entry point works on: compile the sketch with the
  * options' inputs, or take the one the host compiled. */
 function runOf(a: SketchDef | Execution, opts: RenderOptions): Execution {
-  if (isSketchAsync(a)) throw new Error('async rendering required; use renderAsync');
   return isSketch(a) ? compileSketch(a, inputsOf(opts)) : a;
 }
 
@@ -775,7 +774,7 @@ export function render(a: SketchDef | Execution, b: RenderOptions = {}): RenderR
 /** Await compilation, then use the same vector renderer as synchronous sketches.
  * WASM initialization remains explicit through initOcclude. */
 export async function renderAsync(
-  source: SketchDef | AsyncSketchDef | Execution,
+  source: SketchDef | Execution,
   opts: RenderOptions & { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
 ): Promise<RenderResult> {
   opts.signal?.throwIfAborted();
@@ -902,7 +901,7 @@ export function exportPng(def: SketchDef | Execution, opts: PngOptions = {}): Ui
 
 /** The bridge gap a pen gets under an option: the resolved number the
  * plan's settings record, so the identity says what was bridged. */
-export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number {
+function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number {
   if (bridge === false) return 0;
   if (bridge !== undefined && bridge !== true) return Math.max(0, bridgeMm(bridge));
   return Math.max(pen.width, 0.05) * 0.5;

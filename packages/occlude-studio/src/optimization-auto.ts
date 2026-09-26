@@ -1,13 +1,8 @@
 /** Auto selects by shared ETA, subject to per-pen vector footprint limits. */
 import init, * as core from 'occlude-core';
 import {
-  PLAN_SCHEMA,
-  canonicalJson,
-  decodePlanBuffer,
-  parseToolpath,
-  estimatePlanMs,
-  hashPlan,
-} from 'occlude';
+  PLAN_SCHEMA, canonicalJson, decodePlanBuffer, parseToolpath, estimatePlanMs, hashPlan,
+} from 'occlude/host';
 import type {
   OptimizationRequest,
   OptimizationReply,

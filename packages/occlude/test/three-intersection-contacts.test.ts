@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {mesh,plane,box,sphere,cylinder,cone,torus} from 'occlude/3d';
-import {grid3} from '../src/three/geometry/model.js';
+import {gridSurface as grid3} from './helpers/surfaces.js';
 import {surfaceBinding3} from '../src/three/curves/network.js';
 import {intersectionContacts3,intersectionContactsAsync3} from '../src/three/curves/intersectionContacts.js';
 import {triangulation3} from '../src/three/geometry/triangulation.js';

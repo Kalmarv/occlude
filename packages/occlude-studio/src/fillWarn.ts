@@ -7,7 +7,7 @@
  * copy and stops.
  */
 
-import { FILL_NAME_RE } from 'occlude';
+import { FILL_NAME_RE } from 'occlude/host';
 
 export type WarnChoice = { action: 'clone'; name: string } | { action: 'edit' } | { action: 'cancel' };
 

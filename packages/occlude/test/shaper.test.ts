@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { scanUiControls, shaper } from '../src/index.js';
+import { shaper } from '../src/index.js';
+import { scanUiControls } from '../src/host.js';
 
 describe('shaper', () => {
   it('identity through the corners; inputs outside the domain clamp to its ends', () => {

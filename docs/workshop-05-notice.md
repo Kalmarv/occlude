@@ -350,4 +350,4 @@ Make the tips behave differently on the two halves of the sheet, with one growth
 
 ## Where to look things up
 
-`point`, `edge` and the writes on a table are on [Steps](#/reference-steps), and `append` is under *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*, and `query.points` for the nearest point on [Selections](#/reference-selections); the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.
+`point`, `edge` and the writes on a table are on [Steps](#/reference-steps), and `append` is under *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*, and the nearest point, the closest of `points.near`, on [Selections](#/reference-selections); the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.

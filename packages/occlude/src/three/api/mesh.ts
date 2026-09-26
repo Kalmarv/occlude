@@ -492,8 +492,9 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   }
   /** Connected-region extrusion: one vector per connected component of the
    * selection, a translated cap with retained IDs/corners, and one wall per
-   * region boundary edge (holes and open sheet edges included). Independent
-   * per-face extrusion remains the advanced `extrudeFaces3`. */
+   * region boundary edge (holes and open sheet edges included). Faces that
+   * touch no other selected face are each their own region, so a scattered
+   * selection extrudes face by face. */
   extrude(faces:MeshFaces<P,E,F,C>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
     checkOptions(options);
     if(!(faces instanceof Collection)||faces.domain!=='face')throw new Error('extrude requires a face selection; select from mesh.faces');
@@ -528,13 +529,13 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * is cut along the true intersection curve, and the faces along it answer
    * `cut`. An uncut face of this mesh keeps its identity and its columns; a
    * face of the other mesh keeps its columns under a minted id. */
-  unite(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('unite',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{}});}
+  union(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('union',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{}});}
   /** This solid with the other bitten out of it. The other mesh's kept faces
    * are turned inside out, so the bite's wall faces into the hollow. */
   subtract(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('subtract',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{}});}
   /** Only what lies in both solids. Two solids that never meet have nothing in
    * common, which is an empty mesh: nothing to draw, not a fault. */
-  common(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('common',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{}});}
+  intersect(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('intersect',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{}});}
   /** The dual: one point per face, at its middle, and one face per vertex,
    * walking the faces around it. A cube duals to an octahedron, a geodesic
    * polyhedron to its Goldberg — `geodesic(1, { frequency: [3, 1] }).dual({

@@ -6,7 +6,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { force, initOcclude, material, mul, type Material, type Vertex } from '../src/index.js';
+import { force, material, mul, type Material, type Vertex } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { toolkit } from './helpers/run.js';
 
 beforeAll(async () => {

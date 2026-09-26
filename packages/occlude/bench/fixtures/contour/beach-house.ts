@@ -1,16 +1,6 @@
 // fork of contours-2-multicolor @ 99f6748
 // fork of contours-2 @ da3b470
-import {
-  sketch,
-  image,
-  circle,
-  polygon,
-  fill,
-  distanceTo,
-  deform,
-  group,
-  label,
-} from 'occlude';
+import { sketch, image, circle, polygon, fill, distanceTo, deform, group, label, map, rect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], margin: 5 }, (t) => {
   const { bounds, noise, ui, isolines } = t;
@@ -25,7 +15,7 @@ export default sketch({ aspect: [1, 1], margin: 5 }, (t) => {
     noise(x / noiseScale, y / noiseScale) * bigNoise +
     noise(x / detailScale + 1012, y / detailScale + 1000) * smallNoise;
 
-  const inside = distanceTo(t.material(t.rect(5, 5, 90, 90)));
+  const inside = distanceTo(t.material(rect(5, 5, 90, 90)));
   const envelope = (x,y) => t.ease.expoIn(Math.max(0, Math.min(1, inside(x,y) / 10)));
   const falloffField = (x,y) => envelope(x,y) * field(x,y);
   const minLine = t.rnd(-4.4, 0);
@@ -34,24 +24,22 @@ export default sketch({ aspect: [1, 1], margin: 5 }, (t) => {
   const maxLevels = ui(30);
   const period = Math.round(t.rnd(minLevels, maxLevels));
 
-  const levels = t.times(period, (i, k) => t.map(k, 0, 1, minLine, maxLine));
+  const levels = t.times(period, (i, k) => map(k, 0, 1, minLine, maxLine));
   const contours = isolines(falloffField, levels, { step: 0.5 });
   const center = circle(50, 50, 16, { opaque: true });
   const d = distanceTo(t.material(center));
   const repeat = contours.edges
-    .groupBy((e) => e.attrs.level)
+    .groupBy((e) => e.level)
     .map((cs) =>
-      deform(
-        (x, y) =>
+      polygon(cs, {
+        fill: levels.indexOf(cs.key) % 2 === 0 ? fill('stipple') : fill('contour'),
+        modifiers: [deform((x, y) =>
           warp(
             x,
             y,
-            t.map(cs.key, minLine, maxLine, 0, 1) * ui(0.535, { label: 'Warp amount' }),
-          ),
-        polygon(cs, {
-          fill: levels.indexOf(cs.key) % 2 === 0 ? fill('stipple') : fill('contour'),
-        }),
-      ),
+            map(cs.key, minLine, maxLine, 0, 1) * ui(0.535, { label: 'Warp amount' }),
+          ))],
+      }),
     );
 
 

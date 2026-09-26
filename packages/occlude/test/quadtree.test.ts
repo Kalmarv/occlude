@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { initOcclude, material } from '../src/index.js';
+import { material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { quadtree } from '../src/quadtree.js';
 
 beforeAll(async () => {

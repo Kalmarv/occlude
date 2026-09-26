@@ -1,7 +1,7 @@
 import {Mesh,evaluate,type EdgeAttributes,type FaceRow,type Field,type PointRow} from './mesh.js';
 import {Collection} from './collection.js';
 import type {Attributes3,Surface3} from '../geometry/surface.js';
-import {prepareSurfaceQueries3,validateRay3,validateNearest3,type RayQuery3,type NearestQuery3,type SurfaceHit3} from '../queries/surface.js';
+import {prepareSurfaceQueries3,validateRay3,validateNearest3,QUERY_HOST3,type RayQuery3,type NearestQuery3,type SurfaceHit3} from '../queries/surface.js';
 import type {SurfaceQueryInput3,SurfaceQueryResult3} from '../modeling.js';
 import {finite3,sub3,type Vec3} from '../math.js';
 
@@ -25,7 +25,7 @@ export interface NearestBatchOptions<P extends Attributes3,R extends PointRow<{}
 export interface RayBatchOptions<P extends Attributes3,R extends PointRow<{}>=PointRow<P>> {readonly origin?:Field<R,PointLike3>;readonly direction:Field<R,Vec3>;readonly near?:Field<R,number>;readonly far?:Field<R,number>}
 export interface SegmentBatchOptions<P extends Attributes3,R extends PointRow<{}>=PointRow<P>> {readonly from?:Field<R,PointLike3>;readonly to:Field<R,PointLike3>}
 /** The execution toolkit supplies this host; users pass t to prepared.batch(t). */
-export interface QueryHost {querySurface3(surface:Surface3,input:SurfaceQueryInput3):Promise<SurfaceQueryResult3>}
+export interface QueryHost {[QUERY_HOST3](surface:Surface3,input:SurfaceQueryInput3):Promise<SurfaceQueryResult3>}
 export function position3(point:PointLike3):Vec3{const p=Array.isArray(point)?point:[(point as Position3).x,(point as Position3).y,(point as Position3).z];finite3(p as Vec3);return Object.freeze([...p]) as Vec3;}
 function rows<R extends PointRow<{}>>(selection:Collection<R,unknown>):readonly R[]{if(!(selection instanceof Collection)||selection.domain!=='point')throw new Error('query batches require a point collection');return Object.freeze([...selection]);}
 function results<R extends PointRow<{}>,H,X>(selection:Collection<R,X>,source:readonly R[],hits:readonly(H|null)[]):QueryResults<R,H,X>{
@@ -93,9 +93,9 @@ export class QueryBatch<F extends Attributes3> {
 }
 /** Explicit async boundary: fields are captured before awaiting the execution host. */
 export class AsyncQueryBatch<F extends Attributes3> {
-  constructor(private readonly prepared:PreparedQuery<F>,private readonly host:QueryHost){if(typeof host.querySurface3!=='function')throw new Error('query batch host must be a sketch execution toolkit');Object.freeze(this);}
-  async nearest<R extends PointRow<{}>,X>(selection:Collection<R,X>,options:NearestBatchOptions<R['attributes'],R>={}):Promise<QueryResults<R,SurfaceHit<F>,X>>{const input=nearestInput(selection,options),out=await this.host.querySurface3(this.prepared.target.surface,{nearest:input.queries});return results(input.selection,input.source,convertNearest(this.prepared,out.nearest));}
-  async rays<R extends PointRow<{}>,X>(selection:Collection<R,X>,options:RayBatchOptions<R['attributes'],R>):Promise<QueryResults<R,RayHit<F>,X>>{const input=rayInput(selection,options),out=await this.host.querySurface3(this.prepared.target.surface,{rays:input.queries});return results(input.selection,input.source,convertRays(this.prepared,out.rays,input.queries.map(q=>q.origin)));}
-  async segments<R extends PointRow<{}>,X>(selection:Collection<R,X>,options:SegmentBatchOptions<R['attributes'],R>):Promise<QueryResults<R,RayHit<F>,X>>{const input=segmentInput(selection,options),out=await this.host.querySurface3(this.prepared.target.surface,{segments:input.segments,nearest:input.nearest});return segmentResults(this.prepared,input,out);}
+  constructor(private readonly prepared:PreparedQuery<F>,private readonly host:QueryHost){if(!host||typeof host[QUERY_HOST3]!=='function')throw new Error('query batch host must be a sketch execution toolkit');Object.freeze(this);}
+  async nearest<R extends PointRow<{}>,X>(selection:Collection<R,X>,options:NearestBatchOptions<R['attributes'],R>={}):Promise<QueryResults<R,SurfaceHit<F>,X>>{const input=nearestInput(selection,options),out=await this.host[QUERY_HOST3](this.prepared.target.surface,{nearest:input.queries});return results(input.selection,input.source,convertNearest(this.prepared,out.nearest));}
+  async rays<R extends PointRow<{}>,X>(selection:Collection<R,X>,options:RayBatchOptions<R['attributes'],R>):Promise<QueryResults<R,RayHit<F>,X>>{const input=rayInput(selection,options),out=await this.host[QUERY_HOST3](this.prepared.target.surface,{rays:input.queries});return results(input.selection,input.source,convertRays(this.prepared,out.rays,input.queries.map(q=>q.origin)));}
+  async segments<R extends PointRow<{}>,X>(selection:Collection<R,X>,options:SegmentBatchOptions<R['attributes'],R>):Promise<QueryResults<R,RayHit<F>,X>>{const input=segmentInput(selection,options),out=await this.host[QUERY_HOST3](this.prepared.target.surface,{segments:input.segments,nearest:input.nearest});return segmentResults(this.prepared,input,out);}
 }
 export function query<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>(target:Mesh<P,E,F>):PreparedQuery<F>{return new PreparedQuery(target);}

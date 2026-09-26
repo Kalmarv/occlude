@@ -11,12 +11,15 @@
  */
 
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { box, circle, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus } from 'occlude/3d';
+import { box, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus, parametricCurve } from 'occlude/3d';
 import { chordMiddle, metricGap } from '../src/chord.js';
 import { euclideanSpace, spaceOf, type Space } from '../src/space.js';
 import { space } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
 import type { Collection } from '../src/three/api/collection.js';
+
+/** The 3D profile circle, as the parametric curve it always was. */
+const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 
 describe('a charted face row carries a typed chart', () => {
   const factories = {

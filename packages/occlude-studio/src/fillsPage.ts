@@ -9,10 +9,10 @@
 
 import './style.css';
 import './wa.js';
+import { type PenDef } from 'occlude';
 import {
-  BUILTIN_FILL_NAMES, FILL_NAME_RE, drawFragments, evalPrim, isBuiltinFill,
-  type PenDef, type RenderResult,
-} from 'occlude';
+  BUILTIN_FILL_NAMES, FILL_NAME_RE, drawFragments, evalPrim, isBuiltinFill, type RenderResult,
+} from 'occlude/host';
 import { createEditor, type Editor } from './editor.js';
 import { RenderClient } from './workerClient.js';
 import { deleteFill, fillUses, listFills, loadFill, saveFill } from './fillApi.js';

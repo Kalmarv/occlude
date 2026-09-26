@@ -478,10 +478,3 @@ export function hull(points: PointsLike, opts: { alpha?: number } = {}): IsoCont
   return out;
 }
 
-/** Voronoi cells of any point set clipped to `bounds`, as material with
- * the site correspondence. A material or a point selection of one keeps
- * its identity as the sites (`cellOf` answers for that source's vertices);
- * bare points become a new material that is the sites. */
-export function voronoi(points: PointsLike, bounds: Bounds): Material {
-  return voronoiOf(points instanceof PointSelection ? points : material(points), bounds);
-}

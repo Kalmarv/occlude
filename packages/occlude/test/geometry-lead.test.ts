@@ -10,9 +10,10 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, compileSketch, compileSketchAsync, degrees, evalPrim, initOcclude, line, render, sketch, space,
-  type ShapeOpts, type ShapeValue, type Space, type Station, type Tiling, type Toolkit, type Vec,
+  circle, degrees, line, sketch, space, type ShapeOpts, type ShapeValue, type Space, type Station,
+  type Tiling, type Toolkit, type Vec,
 } from '../src/index.js';
+import { compileSketch, compileSketchAsync, evalPrim, initOcclude, render } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));

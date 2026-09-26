@@ -12,7 +12,7 @@ import { transformSync } from 'esbuild';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, expect, it } from 'vitest';
-import { DEFAULT_PENS, initOcclude } from '../src/index.js';
+import { DEFAULT_PENS, initOcclude } from '../src/host.js';
 import { assetsFromDisk } from '../tools/asset-preload.js';
 import { fillsFromDisk } from '../tools/fill-preload.js';
 import { dumpSceneFiles } from '../tools/scene-dump.js';

@@ -21,7 +21,7 @@ import { transformSync } from 'esbuild';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
-import { initOcclude } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { dumpSceneFiles } from './scene-dump.js';
 import { penLibrary, seedArg } from './inputs.js';
 

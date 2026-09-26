@@ -2,8 +2,9 @@ import {describe,it,expect,beforeAll} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {plane,box,sphere,pointCloud,query,force,view,orthographic} from 'occlude/3d';
 import type {QueryHost} from '../src/three/api/query.js';
-import {prepareSurfaceQueries3} from '../src/three/queries/surface.js';
-import {initOcclude,sketchAsync,compileSketchAsync,pen,mm,commitCamera3} from '../src/index.js';
+import {prepareSurfaceQueries3,QUERY_HOST3} from '../src/three/queries/surface.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, commitCamera3 } from '../src/host.js';
 import {perspective} from 'occlude/3d';
 import {toolkit} from './helpers/run.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -36,13 +37,13 @@ describe('prepared surface query facade',()=>{
  });
  it('captures batch fields before awaiting and rejects result-count mismatches',async()=>{
   const q=query(plane(2)),points=pointCloud([[0,0,1],[3,0,1]]);let release!:()=>void,calls=0;const direction:[number,number,number]=[0,0,-2];
-  const host:QueryHost={async querySurface3(surface,input){await new Promise<void>(r=>release=r);const prepared=prepareSurfaceQueries3(surface);return {rays:prepared.rays(input.rays??[]),segments:prepared.segments(input.segments??[]),nearest:prepared.nearest(input.nearest??[])};}};
+  const host:QueryHost={async [QUERY_HOST3](surface,input){await new Promise<void>(r=>release=r);const prepared=prepareSurfaceQueries3(surface);return {rays:prepared.rays(input.rays??[]),segments:prepared.segments(input.segments??[]),nearest:prepared.nearest(input.nearest??[])};}};
   const pending=q.batch(host).rays(points.points,{direction:()=>{calls++;return direction;}});expect(calls).toBe(2);direction[2]=2;release();const out=await pending;expect(out[0].hit!.distance).toBe(1);expect(out[1].hit).toBeNull();expect(calls).toBe(2);
-  const broken:QueryHost={async querySurface3(){return {rays:[],segments:[],nearest:[]};}};await expect(q.batch(broken).nearest(points.points)).rejects.toThrow('result count');
+  const broken:QueryHost={async [QUERY_HOST3](){return {rays:[],segments:[],nearest:[]};}};await expect(q.batch(broken).nearest(points.points)).rejects.toThrow('result count');
  });
  it('uses the execution async boundary and never reruns query/model work during camera commit',async()=>{
   let models=0,batches=0;let escaped:ReturnType<ReturnType<typeof query>['batch']>|undefined;
-  const definition=sketchAsync({seed:42,pens:{ink:pen({width:mm(.25)})}},async t=>{
+  const definition=sketch({seed:42,pens:{ink:pen({width:mm(.25)})}},async t=>{
     models++;const surface=plane(2).subdivide(2).translate([0,0,1]),q=query(plane(4));const batch=q.batch(t);escaped=batch;
     const hits=await batch.rays(surface.points,{direction:[0,0,-2]});batches++;expect(hits.every(r=>r.hit?.distance===1&&r.hit.t===.5)).toBe(true);
     const segments=await batch.segments(surface.points,{to:p=>[p.x,p.y,0]});batches++;expect(segments.every(r=>r.hit?.t===1)).toBe(true);

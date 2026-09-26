@@ -1,4 +1,4 @@
-import { formatSeed } from 'occlude';
+import { formatSeed } from 'occlude/host';
 import type { Corner } from './drawing.js';
 /** Client for the server-side sketch store (see vite.config.ts). */
 

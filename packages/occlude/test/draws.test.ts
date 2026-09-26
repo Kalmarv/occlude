@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { circle, compileSketch, formatSeed, parseSeed, sketch, tagDraws , Execution, type DrawHook, type Toolkit } from '../src/index.js';
+import { circle, sketch, type Toolkit } from '../src/index.js';
+import { compileSketch, formatSeed, parseSeed, tagDraws, Execution, type DrawHook } from '../src/host.js';
 import { A4 } from './helpers/run.js';
 
 describe('seed with overrides', () => {

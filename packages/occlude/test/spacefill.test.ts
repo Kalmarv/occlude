@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { initOcclude } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { compileRule, hilbertRule, meanderRule, peanoRule, spacefill, type SpacefillEnv, type SpacefillRule } from '../src/spacefill.js';
 
 beforeAll(async () => {

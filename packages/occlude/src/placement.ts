@@ -236,7 +236,7 @@ function transport(door: ModelDoor, m: readonly number[], s: Station): Station {
   return walked(s, vx(q), vy(q), Math.atan2(form(door.sign, mt, f2), form(door.sign, mt, f1)));
 }
 
-/** The isometry that moves nothing. */
+/** @internal The isometry that moves nothing. */
 export function identity(door: ModelDoor): Placement {
   return make(door, ID9);
 }
@@ -289,6 +289,8 @@ function basis(door: ModelDoor, s: Station, mirror: boolean): number[] {
 }
 
 /**
+ * @internal What `station.placement({ from })` is made of.
+ *
  * The one isometry carrying the frame of `from` onto the frame of `to`:
  * `B(to)·B(from)⁻¹`. `station(from)` of it is `to`, point and heading.
  *
@@ -301,7 +303,7 @@ export function between(door: ModelDoor, from: Station, to: Station, opts: { mir
   return make(door, mul9(basis(door, to, false), inv9(basis(door, from, opts.mirror === true))));
 }
 
-/** Is this a placement? Structural, like every other accessor protocol
+/** @internal Is this a placement? Structural, like every other accessor protocol
  * here: a placement is what answers `point`, `station`, `then`, `inverse`
  * and a `door`. It is NOT a function, so `typeof p === 'function'` is
  * false and `group(p, …)` can never be confused with a callback. */

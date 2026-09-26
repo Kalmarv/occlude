@@ -34,8 +34,9 @@ Uses: `stroke`, `mask`, `rect`, `t.noise`, `t.rnd`, `t.chance`, `mm`.
 // Nothing here is erased. A correction only adds.
 import { sketch, stroke, mask, rect, mm } from 'occlude';
 export default sketch({ aspect: [3, 4], seed: 17 }, (t) => {
-    const W = t.width;
-    const H = t.height;
+    const box = t.bounds();
+    const W = box.w;
+    const H = box.h;
     const U = (v) => t.len(v); // millimetres → drawable units
     const FINE = 'pigma-005-black';
     const MID = 'pigma-01-black';

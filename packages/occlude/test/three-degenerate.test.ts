@@ -1,14 +1,16 @@
 import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
-import {initOcclude,sketch,compileSketchAsync,render,exportSvg,pen,mm,decodePlanBuffer} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, render, exportSvg, decodePlanBuffer } from '../src/host.js';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
 import {pensToJson} from '../src/render.js';
-import {box,plane,sphere,cylinder,cone,torus,grid,curve,parametricCurve,circle,mesh,pointCloud,sweep,revolve,isolines,intersections,view,orthographic,instanceOnPoints} from '../src/three/api/index.js';
-import {sampleSurfacePoints} from '../src/three/api/sampling.js';
+import {box,plane,sphere,cylinder,cone,torus,grid,curve,parametricCurve,mesh,pointCloud,sweep,revolve,isolines,intersections,view,orthographic,instanceOnPoints} from '../src/three/api/index.js';
+import {scatterSurface} from '../src/three/api/sampling.js';
 import {emptyCount,emptySize,clampSetting,sampleValue} from '../src/three/degenerate.js';
-import {grid3,transformSurface3} from '../src/three/geometry/model.js';
+import {transformSurface3} from '../src/three/geometry/model.js';
 import {surface3,box3} from '../src/three/geometry/surface.js';
 import {worldBounds3} from '../src/three/geometry/bounds.js';
+
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const config={seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'}),shade:pen({width:mm(.18),color:'#a84932'})}};
@@ -23,12 +25,12 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(emptyCount(2,3,'segments')).toBe(true);expect(emptyCount(3,3,'segments')).toBe(false);
   expect(()=>emptyCount(2.5,3,'segments')).toThrow('integer');
   const faces=(m:{surface:{faces:readonly unknown[]}})=>m.surface.faces.length;
-  for(const made of [box([0,1,1]),plane(0),sphere(0),cylinder(1,0),cone(0,1),torus(0,.2),sphere(1,{rings:1}),grid3(0,2) as never,mesh([],[])])
+  for(const made of [box([0,1,1]),plane(0),sphere(0),cylinder(1,0),cone(0,1),torus(0,.2),sphere(1,{rings:1}),mesh([],[])])
    expect(typeof made==='object'&&'surface'in made?faces(made as never):(made as {faces:readonly unknown[]}).faces.length).toBe(0);
   expect(grid({cols:3,rows:3,spacing:0}).points.length).toBe(0);
-  for(const made of [circle(0),parametricCurve(t=>[t,0,0],{segments:0}),curve([[1,1,1]]),curve([])])expect(made.segments.length).toBe(0);
+  for(const made of [parametricCurve(t=>[t,0,0],{segments:0}),curve([[1,1,1]]),curve([])])expect(made.segments.length).toBe(0);
   // Constructions over an empty curve are empty meshes, not failures.
-  expect(sweep(circle(0),curve([[0,0,0],[0,0,1]])).surface.faces.length).toBe(0);
+  expect(sweep(curve([]),curve([[0,0,0],[0,0,1]])).surface.faces.length).toBe(0);
   expect(revolve(curve([])).surface.faces.length).toBe(0);
  });
 
@@ -73,7 +75,7 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(nothing.surface.points.length).toBe(0);
   expect(worldBounds3([])[0]).toBe(Infinity);
   expect(isolines(nothing,()=>0,[0]).edges.length).toBe(0);
-  expect(sampleSurfacePoints(nothing,{count:5},{rnd:()=>.5}).points.length).toBe(0);
+  expect(scatterSurface(nothing,{count:5},{rnd:()=>.5}).points.length).toBe(0);
   expect(intersections(nothing,real).edges.length).toBe(0);
   expect(intersections([nothing,empty()]).edges.length).toBe(0);
   expect(instanceOnPoints(nothing,pointCloud([[0,0,0],[2,0,0]]).points).length).toBe(2);

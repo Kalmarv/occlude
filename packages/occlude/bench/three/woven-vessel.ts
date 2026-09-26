@@ -1,5 +1,5 @@
 import { sketch, paper, pen, mm, strokes, dash, wobble, label } from 'occlude';
-import { cylinder, torus, sphere, curve, parametricCurve, revolve, circle, sweep, view, orthographic } from 'occlude/3d';
+import { cylinder, torus, sphere, curve, parametricCurve, revolve, sweep, view, orthographic } from 'occlude/3d';
 
 export default sketch(
   {
@@ -15,7 +15,7 @@ export default sketch(
   },
   (t) => {
     const R = 1.55, H = 2.6, ROD = 0.185, TURNS = 3, SEG = 140;
-    const rod = circle(ROD, { segments: 16 });
+    const rod = parametricCurve(u => [ROD * Math.cos(2 * Math.PI * u), ROD * Math.sin(2 * Math.PI * u), 0], { segments: 16, closed: true });
     const weave = [];
     for (const dir of [1, -1]) for (let k = 0; k < 3; k++) {
       const phase = (k * 2 * Math.PI) / 3 + (dir > 0 ? -0.5 : 0.5);

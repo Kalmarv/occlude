@@ -5,7 +5,8 @@
 import { performance } from 'node:perf_hooks';
 import { scatterPoints, relaxMaterial, settleMaterial, type PointsEnv } from '../src/points.js';
 import { voronoiOf } from '../src/voronoi.js';
-import { material, Execution, bindToolkit, type Material } from '../src/index.js';
+import { material, type Material } from '../src/index.js';
+import { Execution, bindToolkit } from '../src/host.js';
 
 // A bare toolkit, bound to a fresh 200 × 200 execution, so `tk.steps` works
 // outside a sketch function.

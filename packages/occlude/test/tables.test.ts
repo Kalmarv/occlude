@@ -12,9 +12,10 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  initOcclude, material, curve, connect, force, polar, angleTo, unit, add, distance, point, edge,
-  Material, PointSelection, type Vertex, type Edge,
+  material, curve, connect, force, polar, angleTo, unit, add, distance, point, edge, Material,
+  PointSelection, type Vertex, type Edge,
 } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { latticeOf, type Cell, type Lattice } from '../src/lattice.js';
 
 beforeAll(async () => {

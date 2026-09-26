@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
+import { xy, oneRing } from './helpers/xy.js';
 
 /** 0 → 40 along x, a vertex every 10. */
 const chain = () => curve([[0, 0], [10, 0], [20, 0], [30, 0], [40, 0]], { closed: false });
@@ -14,18 +15,18 @@ const chain = () => curve([[0, 0], [10, 0], [20, 0], [30, 0], [40, 0]], { closed
 describe('m.trim', () => {
   it('cuts by arc length from each end', () => {
     const out = chain().trim({ start: 5, end: 12 });
-    expect(out.pts).toEqual([[5, 0], [10, 0], [20, 0], [28, 0]]);
+    expect(out.points.map(xy)).toEqual([[5, 0], [10, 0], [20, 0], [28, 0]]);
     expect(out.edgeCount).toBe(3);
   });
 
   it('a cut that lands on a vertex ends there, and does not double it', () => {
     const out = chain().trim({ start: 10, end: 10 });
-    expect(out.pts).toEqual([[10, 0], [20, 0], [30, 0]]);
+    expect(out.points.map(xy)).toEqual([[10, 0], [20, 0], [30, 0]]);
   });
 
   it('one end alone', () => {
-    expect(chain().trim({ start: 7 }).pts[0]).toEqual([7, 0]);
-    expect(chain().trim({ end: 7 }).pts.at(-1)).toEqual([33, 0]);
+    expect(chain().trim({ start: 7 }).points.map(xy)[0]).toEqual([7, 0]);
+    expect(chain().trim({ end: 7 }).points.map(xy).at(-1)).toEqual([33, 0]);
   });
 
   it('nothing left is nothing drawn, not an error', () => {
@@ -36,8 +37,8 @@ describe('m.trim', () => {
   it('a ring has no ends, so it comes through whole', () => {
     const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
     const out = ring.trim({ start: 3, end: 3 });
-    expect(out.pts).toEqual(ring.pts);
-    expect(out.closed).toBe(true);
+    expect(out.points.map(xy)).toEqual(ring.points.map(xy));
+    expect(oneRing(out)).toBe(true);
   });
 
   it('the vertices between the cuts are the SAME vertices', () => {
@@ -75,12 +76,12 @@ describe('m.trim', () => {
       { edges: [[0, 1], [2, 3]] },
     );
     const out = two.trim({ start: 5 });
-    expect(out.pts).toEqual([[5, 0], [40, 0], [5, 20], [20, 20]]);
+    expect(out.points.map(xy)).toEqual([[5, 0], [40, 0], [5, 20], [20, 20]]);
   });
 
   it('zero is the material, and a bad length is refused by name', () => {
     const m = chain();
-    expect(m.trim({}).pts).toEqual(m.pts);
+    expect(m.trim({}).points.map(xy)).toEqual(m.points.map(xy));
     expect(() => m.trim({ start: -1 })).toThrow(/must not be negative/);
     expect(() => m.trim({ start: NaN })).toThrow(/finite length/);
   });

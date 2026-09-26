@@ -29,7 +29,7 @@ describe('geometry collections: points and edges', () => {
     // Views are the source's own: ownership and spellings survive.
     expect(old.has(m.vertex(3))).toBe(true);
     expect(old.has(Y().vertex(3))).toBe(false);
-    expect(m.edges.filter((e) => e.attrs.level === 2).indices).toEqual([2, 3]);
+    expect(m.edges.filter((e) => e.level === 2).indices).toEqual([2, 3]);
     expect(m.edges.at(1).b.index).toBe(2);
     // Nothing moved or copied.
     expect(m.x[3]).toBe(10);
@@ -87,12 +87,15 @@ describe('selections as boundaries', () => {
       expect(distanceTo(all)(x, y)).toBe(distanceTo(m)(x, y));
       expect(distanceTo(all)(x, y)).toBe(distanceTo({ pts: square, closed: true })(x, y));
     }
-    const chain = connect.chain(material([[0, 0], [10, 0], [10, 10]]));
+    const chain = curve(material([[0, 0], [10, 0], [10, 10]]));
     expect(distanceTo(chain.edges)(3, 1)).toBe(distanceTo([[[0, 0], [10, 0], [10, 10]]])(3, 1));
     expect(distanceTo(m.edges.filter(() => false))(1, 1)).toBe(-Infinity);
-    // Points follow their existing connectivity: two selected corners without their edge are no area.
-    expect(distanceTo(m.points.filter((p) => p.index === 0 || p.index === 2))(5, 5)).toBe(-Infinity);
-    expect(distanceTo(m.points)(5, 5)).toBe(5);
+    // Points have no inside: a point selection is measured to its nearest
+    // point. Its members' own edges, `sel.edges`, are the area they bound.
+    expect(distanceTo(m.points.filter((p) => p.index === 0 || p.index === 2))(5, 5)).toBe(-Math.sqrt(50));
+    expect(distanceTo(m.points)(5, 5)).toBe(-Math.sqrt(50));
+    expect(distanceTo(m.points.edges)(5, 5)).toBe(5);
+    expect(distanceTo(m.points.filter((p) => p.index === 0 || p.index === 2).edges)(5, 5)).toBe(-Infinity);
   });
 
   it('faces stay explicit per face', () => {
@@ -142,7 +145,7 @@ describe('groupBy', () => {
   it('edge groups are boundaries and draw directly; face groups keep their faces', () => {
     const two = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true }))
       .edges.set('level', (e) => (e.index < 4 ? 0.2 : 0.4));
-    const levels = two.edges.groupBy((e) => e.attrs.level);
+    const levels = two.edges.groupBy((e) => e.level);
     expect(levels.map((g) => g.key)).toEqual([0.2, 0.4]);
     expect(distanceTo(levels[1])(25, 5)).toBe(5);
     expect(distanceTo(levels[0])(25, 5)).toBe(-15);
@@ -157,7 +160,7 @@ describe('groupBy', () => {
 
   it('extraction is still the explicit step to independent material', () => {
     const m = Y();
-    const branch = m.edges.filter((e) => e.attrs.level === 2);
+    const branch = m.edges.filter((e) => e.level === 2);
     const independent = branch.extract();
     expect(independent.n).toBe(3);
     expect(independent.edgeCount).toBe(2);

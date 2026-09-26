@@ -23,7 +23,7 @@
  * `f(x, y)` and `f(p)`, `p` a pair or an `{ x, y }` record — the spelling
  * the vector arithmetic takes. That is every field verb here (`rotate`,
  * `translate`, `scale`, `within`, `grad`, `curl`, `across`) and the
- * toolkit's field words (`t.distanceTo`, `t.travelTime`, `t.noiseField`).
+ * toolkit's field words (`t.distanceTo`, `t.travelTime`).
  * A field you write answers what you wrote; wrap it in a verb, or call it
  * `f(...p)`. The `sdf.*` words and the pure `distanceTo` are the fast
  * kernels behind these and stay `(x, y)`.
@@ -89,7 +89,7 @@ const numbersOnly: LenResolver = (l) => {
 };
 
 /** Mark a vector-valued field ((x, y) => [dx, dy]) so the transform verbs
- * rotate its arrows. `noiseField` returns pre-marked fields. */
+ * rotate its arrows. */
 export function vectorField(fn: VectorFieldFn): VectorFieldFn {
   FIELD_META.set(fn, { kind: 'vector' });
   return fn;

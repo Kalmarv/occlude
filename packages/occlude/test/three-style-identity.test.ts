@@ -1,12 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
-import { initOcclude, sketchAsync, compileSketchAsync, render, lineArt3, constructStrokes3, pen, mm, decimate, wobble, decodePlanBuffer, evalPrim, type WasmModule } from '../src/index.js';
+import { sketch, pen, mm, decimate, wobble } from '../src/index.js';
+import {
+  initOcclude, compileSketchAsync, render, decodePlanBuffer, evalPrim, type WasmModule,
+} from '../src/host.js';
+import { lineArt3, constructStrokes3 } from '../src/three/api/advanced.js';
 import { pensToJson } from '../src/render.js';
 beforeAll(async()=>{await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));});
 
 const execute=async(reverse:boolean, options:{omit?:boolean;pass?:string;wobbleFirst?:boolean;seed?:number}={})=>{
-    const run=await compileSketchAsync(sketchAsync({seed:options.seed??42,margin:0,pens:{ink:pen({width:mm(.2)})}},async t=>{
+    const run=await compileSketchAsync(sketch({seed:options.seed??42,margin:0,pens:{ink:pen({width:mm(.2)})}},async t=>{
       const classified=await t.classify3(lineArt3({camera:{kind:'orthographic',span:10,eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10},wires:Array.from({length:20},(_,i)=>({id:`wire-${i}`,points:[[-4,-4+i*.4,0],[4,-4+i*.4,0]] as [number,number,number][]})),lineSets:[]}));
       const strokes=constructStrokes3(classified,[{id:'outline',stroke:'ink',select:f=>!options.omit||f.objectId!=='wire-0'}]);
       return t.strokes3(reverse?[...strokes].reverse():strokes,{pass:options.pass,modifiers:[...(options.wobbleFirst?[wobble({amount:mm(.2),wavelength:mm(6)})]:[]),decimate(.5)]});
@@ -31,7 +35,8 @@ it('keys ordered wobble/decimation and explicit passes independently of emitted 
 });
 
 it('validates the source seed on both sides of the ABI and retains legacy source records',async()=>{
-  const {sketch,stroke,compileSketch,encodeScene,renderEncoded}=await import('../src/index.js');
+  const {sketch,stroke}=await import('../src/index.js');
+  const {compileSketch,encodeScene,renderEncoded}=await import('../src/host.js');
   const make=(strokeSeed:number)=>encodeScene(compileSketch(sketch({pens:{ink:pen({width:mm(.2)})}},()=>stroke([[10,10],[90,10]],{stroke:'ink',strokeRanges:[[0,1]],strokeSeed})),{paper:{w:100,h:100}}));
   expect(()=>make(-2)).toThrow('u32');expect(()=>make(2**32)).toThrow('u32');
   const scene=make(123);expect(scene.shapesF64).toHaveLength(6);

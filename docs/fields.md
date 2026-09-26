@@ -61,7 +61,7 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
 
 ## Remapping and easing
 
-`map(v, a, b, c, d)` remaps a value from one range to another, `norm(v, a, b)` to 0 to 1, and `invertRange(v, max, min?)` mirrors a value within a range. The `ease` object holds the standard easing curves (`ease.cubicIn`, `ease.bounceOut`, `ease.backInOut` and the rest). When an eased value drives spacing, the local density is the curve's slope.
+`map(v, a, b, c, d)` remaps a value from one range to another: `map(v, a, b, 0, 1)` is to 0 to 1, and `max + min - v` mirrors a value within a range. The `ease` object holds the standard easing curves (`ease.cubicIn`, `ease.bounceOut`, `ease.backInOut` and the rest). When an eased value drives spacing, the local density is the curve's slope.
 
 ```ts live
 import { sketch, line, ease } from 'occlude';
@@ -123,16 +123,15 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 
 ### Alignment
 
-Every consumer of a field takes `align`. `'paper'` (the default) samples the field in drawable coordinates, so a shape sees whatever part of the field it sits on. `'shape'` anchors the field to the shape: the shape's own centre becomes the field's origin, and the field turns with the shape's transforms, so identical shapes see identical values wherever they land. On a fill it applies to the fill's field parameters and its ruling; on a modifier's parameter object (`decimate: { fill: f, align: 'shape' }`, `wobble: { amount, align }`, `deform({ field, align })`) it applies to that modifier. A thousand shape-aligned uses share one raster; the anchor is a per-use transform.
+Every consumer of a field takes `align`. `'paper'` (the default) samples the field in drawable coordinates, so a shape sees whatever part of the field it sits on. `'shape'` anchors the field to the shape: the shape's own centre becomes the field's origin, and the field turns with the shape's transforms, so identical shapes see identical values wherever they land. On a fill it applies to the fill's field parameters and its ruling; on a modifier's parameter object (`decimate({ fill: f, align: 'shape' })`, `wobble({ amount, align })`, `deform({ field, align })`) it applies to that modifier. A thousand shape-aligned uses share one raster; the anchor is a per-use transform.
 
 A field on a fill's decimate is a halftone. Here `dash` chops the hatch into short cells and a radial field erodes them away from the centre.
 
 ```ts live
-import { sketch, rect, fill, modify, dash, decimate, mm } from 'occlude';
+import { sketch, rect, fill, dash, decimate, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, () =>
-  modify(
-    [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 100, (y - 50) * 2) / 105)],
+  group({ modifiers: [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 100, (y - 50) * 2) / 105)] },
     rect(4, 4, 192, 92, { fill: fill('hatch', { angle: 45, spacing: mm(1.1) }), stroke: false }),
   ),
 );
@@ -141,16 +140,16 @@ export default sketch({ aspect: [2, 1], seed: 5 }, () =>
 The same erosion field used both ways. The left squares sample the page's radial gradient where they sit; the right squares are each eroded from their own centre and turned with their group.
 
 ```ts live
-import { sketch, rect, fill, group, mm } from 'occlude';
+import { sketch, rect, fill, group, decimate, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const erode = (x, y) => Math.min(1, Math.hypot(x, y) / 18);
   const hatch = fill('hatch', { angle: 0, spacing: mm(0.7) });
   const onPaper = (x, y) =>
-    rect(x, y, 28, 28, { fill: hatch, stroke: false, decimate: { fill: (px, py) => erode(px - 100, py - 50), align: 'paper' } });
+    rect(x, y, 28, 28, { fill: hatch, stroke: false, modifiers: [decimate({ fill: (px, py) => erode(px - 100, py - 50), align: 'paper' })] });
   const onShape = (x, y) =>
     group({ rotate: 15 },
-      rect(x, y, 28, 28, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }), stroke: false, decimate: { fill: erode, align: 'shape' } }));
+      rect(x, y, 28, 28, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }), stroke: false, modifiers: [decimate({ fill: erode, align: 'shape' })] }));
   return [
     t.times(3, (k) => onPaper(10 + k * 30, 36)),
     t.times(3, (k) => onShape(112 + k * 26, 8 + k * 6)),
@@ -244,8 +243,9 @@ import { sketch, strokes, rect } from 'occlude';
 // Arrival times from a lamp in the yard. The walls are a speed of zero, so
 // the front walks around them and bends in through the one open door.
 export default sketch({ aspect: [2, 1] }, (t) => {
-  const W = t.width;
-  const H = t.height;
+  const box = t.bounds();
+  const W = box.w;
+  const H = box.h;
   const th = H * 0.04;
   const x0 = W * 0.12;
   const x1 = W * 0.52;
@@ -398,9 +398,10 @@ import { sketch, strokes, distanceTo } from 'occlude';
 // so a crest is kept or dropped whole, on its best stretch and its length.
 // That is the difference between a range and a field of scratches.
 export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
+  const box = t.bounds();
   const shore = (x, y) =>
     t.noise(x / 40, y / 40) + 0.78 -
-    1.45 * Math.hypot((x - t.cx) / (t.width * 0.46), (y - t.cy) / (t.height * 0.44)) ** 2;
+    1.45 * Math.hypot((x - box.cx) / (box.w * 0.46), (y - box.cy) / (box.h * 0.44)) ** 2;
   const coast = t.isolines(shore, 0, { step: 1 });
   const inland = distanceTo(coast);
   const height = (x, y) =>
@@ -433,7 +434,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
 ### One field, three questions
 
 ```ts live paper=180x120
-import { sketch, strokes, polygon, material, connect, append, distanceTo } from 'occlude';
+import { sketch, strokes, polygon, material, append, distanceTo, curve } from 'occlude';
 
 // Stones in a raked bed. One distance field does all three jobs: its level
 // sets are the ripples raked around the stones, its crests inside each stone
@@ -448,7 +449,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
       // one size per stone — drawn once, outside the loop, or every vertex
       // gets its own radius and the stone comes out a star
       const size = 11 + t.rnd(5);
-      return connect.ring(
+      return curve(
         material(
           t.times(64, (k) => {
             const a = (k / 64) * Math.PI * 2;
@@ -458,6 +459,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
             return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r * 0.82 };
           }),
         ),
+        { closed: true },
       );
     })
     .reduce((a, b) => append(a, b));
@@ -547,13 +549,14 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
   water: pen({ width: mm(0.22), color: '#1B4FA0' }),
 } }, (t) => {
+  const b = t.bounds();
   const height = (x, y) =>
     t.noise(x / 48, y / 48) + 0.45 * t.noise(x / 19, y / 19) + 0.14 * t.noise(x / 8, y / 8);
 
   const longest = (m, least) =>
     m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices)).edges.extract();
   // the drawable rectangle onto the chart's unit square: an affine cage
-  const sheet = [[0, 0], [t.width, 0], [t.width, t.height], [0, t.height]];
+  const sheet = [[0, 0], [b.w, 0], [b.w, b.h], [0, b.h]];
   const chart = [[0, 0], [1, 0], [1, 1], [0, 1]];
   const onChart = (m) => m.warp({ from: sheet, to: chart });
 
@@ -562,7 +565,7 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
   const ground = plane(4)
     .subdivide(6)
-    .displace((p) => [0, 0, 0.62 * height(((p.x + 2) / 4) * t.width, ((p.y + 2) / 4) * t.height)])
+    .displace((p) => [0, 0, 0.62 * height(((p.x + 2) / 4) * b.w, ((p.y + 2) / 4) * b.h)])
     .style({ creaseAngle: 180 });
 
   return view(

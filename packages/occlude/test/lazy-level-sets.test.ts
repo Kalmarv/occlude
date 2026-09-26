@@ -9,7 +9,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { initOcclude, areaLoops, polygon, sdf, space, strokes, type Material } from '../src/index.js';
+import { polygon, sdf, space, strokes, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
+import { areaLoops } from '../src/boundary.js';
 import { levelContours, levelMaterial, sampleGrid, type IsoLevels } from '../src/isolines.js';
 import { edgeCells, marchSegments, wallSegments } from '../src/marching.js';
 import { areaMaterial } from '../src/material.js';
@@ -44,7 +46,7 @@ describe('t.isolines computes the lines only', () => {
     // One sample per lattice point, no halving toward the hole.
     expect(sampled).toBe(51 * 51);
     expect(m.edges.length).toBeGreaterThan(0);
-    expect([...m.edges].every((e) => e.attrs.cut === 0)).toBe(true);
+    expect([...m.edges].every((e) => e.cut === 0)).toBe(true);
     // The first area ask finds the hole's wall; the second is the kept answer.
     m.contours();
     expect(calls.n).toBeGreaterThan(sampled);
@@ -61,7 +63,7 @@ describe('t.isolines computes the lines only', () => {
     const levels = [-0.5, 0, 0.5];
     const m = t.isolines(f, levels, { step: 2 });
     const old = eager(t, f, levels, 2);
-    const oldLines = old.edges.filter((e) => e.attrs.cut === 0).extract();
+    const oldLines = old.edges.filter((e) => e.cut === 0).extract();
     expect([...m.x]).toEqual([...oldLines.x]);
     expect([...m.y]).toEqual([...oldLines.y]);
     expect([...m.edgeList]).toEqual([...oldLines.edgeList]);
@@ -91,8 +93,8 @@ describe('the area keeps the lines\' identity', () => {
     const area = areaMaterial(m);
     const lines = m.edges.in(area);
     expect(lines.length).toBe(m.edges.length);
-    expect([...lines].every((e) => e.attrs.cut === 0)).toBe(true);
-    const rims = area.edges.filter((e) => e.attrs.cut === 1);
+    expect([...lines].every((e) => e.cut === 0)).toBe(true);
+    const rims = area.edges.filter((e) => e.cut === 1);
     expect(rims.length).toBe(2);
     for (const e of rims) expect(m.edgeOf(e.id)).toBeUndefined();
     // An edge of the lines knows the faces on its sides: the area's.

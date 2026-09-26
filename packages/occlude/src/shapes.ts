@@ -145,6 +145,7 @@ export class Shape {
   /** Endpoint-join tolerance (unresolved length); undefined = no bridging. */
   bridge?: import('./units.js').L;
   preserveStroke = false;
+  /** @internal Stable source/style/pass key for source-linked modifiers. */
   strokeSeed?: number;
   strokeRanges?: readonly (readonly [number, number])[];
   /** Ordered modifier stack; post-stage entries run after occlusion. */

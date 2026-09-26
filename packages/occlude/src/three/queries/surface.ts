@@ -2,6 +2,9 @@ import {orient2d} from 'robust-predicates';
 import {add3,cross3,dot3,finite3,mul3,sub3,unit3,type Vec3,type Triangle3} from '../math.js';
 import {snapshotSurface3} from '../geometry/model.js';
 import type {Surface3} from '../geometry/surface.js';
+/** The key of the execution's surface-query host on the toolkit, which
+ * `query(mesh).batch(t)` reads. A symbol, so no sketch calls it by name. */
+export const QUERY_HOST3:unique symbol=Symbol('occlude.queryHost3');
 export interface RayQuery3 {readonly origin:Vec3;readonly direction:Vec3;readonly near?:number;readonly far?:number}
 export interface NearestQuery3 {readonly point:Vec3;readonly maxDistance?:number}
 export interface SurfaceHit3 {readonly triangle:number;readonly faceId:string;readonly point:Vec3;readonly normal:Vec3;readonly barycentric:Vec3;/** Ray parameter or nearest Euclidean distance. */readonly distance:number}

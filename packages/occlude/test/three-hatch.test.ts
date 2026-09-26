@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { hatch3, section3, surface3, box3, mm, FeatureKind3, constructStrokes3, lineArt3, type Camera3 } from '../src/index.js';
+import { mm } from '../src/index.js';
+import {
+  hatch3, section3, surface3, box3, FeatureKind3, constructStrokes3, lineArt3, type Camera3,
+} from '../src/three/api/advanced.js';
 import { cameraFrame3, toPaper3, toCamera3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
 import { classifySceneCpu3 } from '../src/three/visibility/scene.js';

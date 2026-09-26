@@ -26,10 +26,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DOC_PAGES, parseLiveMeta, docsPaper } from '../src/docsExamples.js';
-import * as occlude from '../src/index.js';
+import { type SketchDef } from '../src/index.js';
 import {
-  initOcclude, isSketch, isSketchAsync, renderAsync,
-  DEFAULT_PENS, paperSize, type SketchDef, type AsyncSketchDef, DEFAULT_PAPERS } from '../src/index.js';
+  initOcclude, isSketch, renderAsync, evalPrim, DEFAULT_PENS, paperSize, DEFAULT_PAPERS,
+} from '../src/host.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
@@ -78,10 +78,9 @@ for (const [i, { src, meta, page }] of fences.entries()) {
       module.exports,
       module,
     );
-    const isDefinition = (v: unknown): v is SketchDef | AsyncSketchDef => isSketch(v) || isSketchAsync(v);
-    const def = (isDefinition(module.exports.default)
+    const def = (isSketch(module.exports.default)
       ? module.exports.default
-      : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
+      : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
     // The fence's own config, under the space this run asks for. The
     // definition is a plain record, so a copy of it is one too.
@@ -98,14 +97,14 @@ for (const [i, { src, meta, page }] of fences.entries()) {
     const x0 = f.offsetX; const y0 = f.offsetY; const x1 = x0 + f.inner.innerW; const y1 = y0 + f.inner.innerH;
     let off = 0;
     for (const frag of out.frags) {
-      const [ax, ay] = occlude.evalPrim(frag.geom, 0.5);
+      const [ax, ay] = evalPrim(frag.geom, 0.5);
       if (ax < x0 - 0.5 || ax > x1 + 0.5 || ay < y0 - 0.5 || ay > y1 + 0.5) off++;
     }
     const share = off / out.frags.length;
     // and how much of the drawable does the ink's box cover? A drawing
     // that fills a quarter of its frame is framed for a different frame.
     let bx0 = Infinity; let by0 = Infinity; let bx1 = -Infinity; let by1 = -Infinity;
-    for (const frag of out.frags) for (const s of [0, 0.5, 1]) { const [px, py] = occlude.evalPrim(frag.geom, s); bx0 = Math.min(bx0, px); by0 = Math.min(by0, py); bx1 = Math.max(bx1, px); by1 = Math.max(by1, py); }
+    for (const frag of out.frags) for (const s of [0, 0.5, 1]) { const [px, py] = evalPrim(frag.geom, s); bx0 = Math.min(bx0, px); by0 = Math.min(by0, py); bx1 = Math.max(bx1, px); by1 = Math.max(by1, py); }
     const cover = ((Math.min(bx1, x1) - Math.max(bx0, x0)) * (Math.min(by1, y1) - Math.max(by0, y0))) / ((x1 - x0) * (y1 - y0));
     if (share > 0.02) { outside++; console.log(`off #${i + 1} ${page}: ${(share * 100).toFixed(0)}% of the ink lies outside the drawable${times ? ` (${ms.toFixed(0)} ms)` : ''}  ${head.slice(0, 50)}`); }
     else if (cover < 0.4) { outside++; console.log(`small #${i + 1} ${page}: the ink covers ${(cover * 100).toFixed(0)}% of the drawable${times ? ` (${ms.toFixed(0)} ms)` : ''}  ${head.slice(0, 50)}`); }

@@ -54,7 +54,7 @@ import { sphere, trace, style, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
   const ball = sphere(1.3, { segments: 40, rings: 20 });
-  const seeds = t.sample(ball, { count: 24 }).points;
+  const seeds = t.scatter(ball, { count: 24 }).points;
   const paths = trace(ball, seeds, [0, 0, 1], { step: 0.05, maxLength: 2.4 });
   return view([ball, style(paths, { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
@@ -81,13 +81,13 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/Toolkit.hatch.mdx</include>
 
-Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit. It traces the lanes in a background job, so the sketch must be a `sketchAsync` and the call needs `await`. One call is one family. A second call with another direction is a crosshatch.
+Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit. It traces the lanes in a background job, so the sketch function must be `async` and the call needs `await`. One call is one family. A second call with another direction is a crosshatch.
 
 ```ts live
-import { sketchAsync, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
 import { sphere, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
+export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
   const ball = sphere(1.5, { segments: 40, rings: 20 });
   const light = (s) => Math.max(0, s.normal[0] * 0.6 + s.normal[1] * 0.3 + s.normal[2] * 0.75);
   const along = await t.hatch(ball, { direction: (s) => s.tangentU, spacing: 0.14, tone: (s) => 1 - light(s), pen: 'shade' });
@@ -98,7 +98,7 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 
 ## Charts and corner columns
 
-Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `mesh.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead: each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -106,7 +106,7 @@ import { cylinder, sphere, instanceOnPoints, view, orthographic } from 'occlude/
 
 export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const can = cylinder(1, 2.2, { segments: 28 }).corners.set('band', (c) => (c.chart === 'side' && Math.floor(c.uv[0] * 4) % 2 === 0 ? 1 : 0));
-  const banded = t.sample(can, { count: 1400 }).points.filter((p) => p.sample.cornerAttributes.band === 1);
+  const banded = t.scatter(can, { count: 1400 }).points.filter((p) => p.sample.cornerAttributes.band === 1);
   return view([can, instanceOnPoints(sphere(0.025, { segments: 6, rings: 3 }), banded)], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
@@ -121,7 +121,7 @@ import { plane, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d'
 
 export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
   const flat = plane(4, 4).subdivide(3);
-  const pts = t.sample(flat, { count: 70 });
+  const pts = t.scatter(flat, { count: 70 });
   const bent = flat.displace((p) => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1)]);
   const moved = pts.rebind(bent);
   return view([bent, instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), moved.points)], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), pen: 'ink', creaseAngle: 0 });
@@ -149,7 +149,7 @@ export default sketch({ aspect: [1, 1], seed: 2, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/3d.query.mdx</include>
 
-A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `pointCloud(positions)` makes a point set from the hits, for `instanceOnPoints`. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in `sketchAsync` the batch can run on the GPU. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
+A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `pointCloud(positions)` makes a point set from the hits, for `instanceOnPoints`. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in an async sketch the batch can run on the GPU. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

@@ -6,7 +6,7 @@
  * more, and summed-area tables stay small.
  */
 
-import { assetTable, scanAssetNames, type AssetTable } from 'occlude';
+import { assetTable, scanAssetNames, type AssetTable } from 'occlude/host';
 
 const MAX_DIM = 1536;
 

@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, sdf, initOcclude, material, mm, polygon, primLength, rect, render, shader, sketch,
-  type Edge, type Material, type SketchDef, type StrokeInk,
+  circle, sdf, material, mm, polygon, rect, shader, sketch, type Edge, type Material, type SketchDef,
+  type StrokeInk,
 } from '../src/index.js';
+import { initOcclude, primLength, render } from '../src/host.js';
 import { toolkit } from './helpers/run.js';
 import { decodePlanBuffer } from '../src/plan.js';
 import { planBuffer } from '../src/render.js';

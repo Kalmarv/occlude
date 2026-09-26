@@ -6,7 +6,7 @@ description: The regions that a planar material encloses, and what you can read 
 A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
 
 :::note
-On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `in`, `rows`, `complement`, `union`, `intersect`, `subtract`, `adjacent`, `connected`, `components` and `extract`. They have the same meanings as on the [selections](/docs/reference/selections) page.
+On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `in`, `rows`, `union`, `intersect`, `subtract`, `adjacent`, `connected`, `components` and `extract`. They have the same meanings as on the [selections](/docs/reference/selections) page.
 :::
 
 ## planarize
@@ -155,7 +155,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `strokes(cells)` draws those edges, and it draws each wall one time. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
 
-A collection of faces is several areas, so `polygon(cells)` is a type error. Write `polygon(cells.contours())` for the union, or `cells.map((f) => polygon(f))` for each face. As points, a collection of faces is the centroids of its faces: `dots(cells)`, `distanceToPoints(cells)` and `material(cells)` put one point in each face. `cells.points` gives the corners.
+A collection of faces is several areas, so `polygon(cells)` is a type error. Write `polygon(cells.contours())` for the union, or `cells.map((f) => polygon(f))` for each face. As points, a collection of faces is the centroids of its faces: `dots(cells)` and `material(cells)` put one point in each face. `distanceTo(material(cells))` measures to them. `cells.points` gives the corners.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
@@ -188,42 +188,18 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 Below, the small cells fall into towns, and `components()` finds each town. Each town gets its own hatch. `extract()` takes the left town out as a new material, and the sketch draws it again, smaller, in blue.
 
 ```ts live
-import { sketch, polygon, strokes, fill, mm } from 'occlude';
+import { sketch, polygon, strokes, fill, mm, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
   const dense = (x, y) => 0.1 + Math.exp(-((x - 35) ** 2 + (y - 40) ** 2) / 200) + Math.exp(-((x - 68) ** 2 + (y - 66) ** 2) / 150);
   const cells = t.voronoi(t.relax(t.scatter(dense, { spacing: 3 }), { iterations: 2, density: dense })).faces();
   const towns = cells.filter((f) => f.area < 25).components().filter((town) => town.length > 2);
-  const middle = towns.find((town) => town.containing([35, 40]).length > 0) ?? towns[0];
+  // The town with a face under the point: a face's distance is positive inside it.
+  const middle = towns.find((town) => town.some((f) => distanceTo(f)(35, 40) > 0)) ?? towns[0];
   return [
     strokes(cells, { pen: 'pigma-005-black' }),
     towns.map((town) => polygon(town.contours(), { stroke: false, fill: fill('hatch', { angle: 20 + 50 * town.key, spacing: mm(1) }) })),
     strokes(middle.extract().scale(0.5, { origin: 'center' }), { pen: 'stabilo-88-blue' }),
-  ];
-});
-```
-
-## cells.containing()
-
-<include>/_sig/FaceSelection.containing.mdx</include>
-
-The faces the given places fall in. Give one point as `[x, y]` or `{ x, y }`, or give many as an array, a material, or a point selection. A place inside a face picks that face. A place on a wall picks nothing, because a wall is where two faces stop. A place outside every face picks nothing. Two places in the same face still name it once, because a selection is a set. A face with a hole does not hold what sits in the hole. The face of the hole holds it. On a selection the word answers with its own members only.
-
-A tangle of circles and lines, and the one face under each blue mark.
-
-```ts live
-import { sketch, circle, line, strokes, polygon, fill, append, faces, mm } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
-  const marks = [[30, 32], [62, 44], [46, 74]];
-  const tangle = append(
-    ...t.times(6, () => t.material(circle(t.rnd(24, 76), t.rnd(24, 76), t.rnd(14, 28)))),
-    ...t.times(4, () => t.material(line(t.rnd(0, 100), t.rnd(0, 20), t.rnd(0, 100), t.rnd(80, 100)))),
-  ).planarize();
-  return [
-    strokes(tangle),
-    faces(tangle).containing(marks).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 35, spacing: mm(1.2) }) })),
-    marks.map((p) => circle(p, 1.2, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -277,6 +253,7 @@ The last argument can be `{ transfer, fallback }`. `transfer` says what a face d
 import { sketch, strokes, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
+  const b = t.bounds();
   const cells = t.voronoi(t.relax(t.scatter({ spacing: 26 }), { iterations: 4 }));
   // Two columns, given once, to the cells as they are now. A second call
   // sees the first call's column.
@@ -285,7 +262,7 @@ export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
   // new rows with new ids, and each one still names the wall it came from,
   // so every cell keeps the tone it was given.
   const cracked = t.steps(1, tinted, (g) => g.split(g.edges), (g) => {
-    const inner = g.points.filter((p) => p.x > 1 && p.x < t.width - 1 && p.y > 1 && p.y < t.height - 1);
+    const inner = g.points.filter((p) => p.x > 1 && p.x < b.w - 1 && p.y > 1 && p.y < b.h - 1);
     return g.move((p) => [t.noise(p.x / 14, p.y / 14) * 2, t.noise(p.y / 14, p.x / 14) * 2], inner);
   });
   return [

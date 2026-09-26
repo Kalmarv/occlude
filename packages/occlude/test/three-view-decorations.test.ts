@@ -1,7 +1,8 @@
 import {beforeAll,it,expect,expectTypeOf} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {box,view,orthographic,perspective,pointCloud,instanceOnPoints,type ViewHatch} from 'occlude/3d';
-import {initOcclude,sketch,compileSketchAsync,commitCamera3,exportSvg,pen,mm} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';

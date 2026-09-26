@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { scenarios } from '../tools/qa-scenarios.js';
 
 beforeAll(async () => {

@@ -94,7 +94,7 @@ describe('the record form of set', () => {
   });
   it('the record form over edges reads the same edges and keeps policies', () => {
     const m = curve([[0, 0], [10, 0], [10, 10]], { closed: false }).edges.set('rest', (e) => e.length);
-    const both = m.edges.set({ rest: () => 1, half: (e) => e.attrs.rest / 2, long: (e) => (e.length > 5 ? 1 : 0) }).edges.set('half', (e) => e.attrs.half, { transfer: 'distribute' });
+    const both = m.edges.set({ rest: () => 1, half: (e) => e.rest / 2, long: (e) => (e.length > 5 ? 1 : 0) }).edges.set('half', (e) => e.half, { transfer: 'distribute' });
     expect(Array.from(both.edgeAttrs.rest)).toEqual([1, 1]);
     expect(Array.from(both.edgeAttrs.half)).toEqual([5, 5]); // from the old rest
     expect(Array.from(both.edgeAttrs.long)).toEqual([1, 1]);

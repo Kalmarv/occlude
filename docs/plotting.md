@@ -18,8 +18,8 @@ export default sketch({
   margin: inch(0.5),
   seed: 42,
 }, (t) => [
-  t.times(9, (_, u) => line(0, u * t.height, t.width, u * t.height, { stroke: 'heavy' })),
-  t.times(12, () => circle(t.rnd(10, 90), t.rnd(10, t.height - 10), t.rnd(4, 12), { opaque: true })),
+  t.times(9, (_, u) => line(0, u * t.bounds().h, t.bounds().w, u * t.bounds().h, { stroke: 'heavy' })),
+  t.times(12, () => circle(t.rnd(10, 90), t.rnd(10, t.bounds().h - 10), t.rnd(4, 12), { opaque: true })),
 ]);
 ```
 
@@ -84,9 +84,11 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
 
 ## Export
 
-From the studio's Export panel: SVG, G-code per pen, and PNG, all of the current selection. Headless:
+From the studio's Export panel: SVG, G-code per pen, and PNG, all of the current selection. Headless, the host words come from `occlude/host`:
 
 ```ts
+import { initOcclude, render, exportGcode, exportSvg, exportPng } from 'occlude/host';
+
 await initOcclude();                          // once, before the first render
 const out  = render(def, { paper: 'A4' });    // out.frags, out.prims, out.stats
 const jobs = exportGcode(def, { paper: 'A4', profile });   // one job per pen: { pen, penName, gcode, inkMm, travelMm }

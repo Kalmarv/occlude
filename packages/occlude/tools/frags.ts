@@ -10,9 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
-import {
-  initOcclude, isSketch, render,
-  DEFAULT_PENS, DEFAULT_PAPERS } from '../src/index.js';
+import { initOcclude, isSketch, render, DEFAULT_PENS, DEFAULT_PAPERS } from '../src/host.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
 import { requireFor } from './inputs.js';
 

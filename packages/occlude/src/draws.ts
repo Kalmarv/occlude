@@ -2,7 +2,7 @@
  * Addressed random draws: the substrate for evolving a drawing by choosing
  * among variations without touching the source.
  *
- * Every user-facing draw (`rnd`, `pick`, `chance`, `prob`, on the toolkit
+ * Every user-facing draw (`rnd`, `pick`, `chance`, on the toolkit
  * or a named stream) consumes one unit float from its stream. The studio
  * tags each such call in the sketch's compiled code with a SITE id derived
  * from the call's own text (`tagDraws`), so a draw has an address
@@ -65,7 +65,7 @@ export function siteId(text: string): string {
 
 export const DRAW_HOOK = '__occlude_draw';
 
-const DRAW_NAMES = new Set(['rnd', 'pick', 'chance', 'prob']);
+const DRAW_NAMES = new Set(['rnd', 'pick', 'chance']);
 const isIdentStart = (c: string): boolean => /[A-Za-z_$]/.test(c);
 const isIdentChar = (c: string): boolean => /[A-Za-z0-9_$]/.test(c);
 

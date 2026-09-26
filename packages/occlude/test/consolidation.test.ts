@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { connect, curve, material, initOcclude, path, render, sketch, stroke } from '../src/index.js';
+import { connect, curve, material, path, sketch, stroke } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
+import { xy } from './helpers/xy.js';
 
 describe('Stage A repairs (con2)', () => {
   it('A1 a value update keeps the declared transfer policy; explicit interpolate resets it', () => {
@@ -92,23 +94,23 @@ describe('Stage A repairs (con2)', () => {
 });
 
 describe('Stage C helpers (con2)', () => {
-  it('strokes: one stroke per contour from a material, a selection or runs; force.sum sums; banding.over fits; complement', async () => {
-    const { strokes, segmentRuns, banding, force, mul, sum: vsum } = await import('../src/index.js');
+  it('strokes: one stroke per contour from a material, a selection or runs; force.sum sums; without is the rest', async () => {
+    const { strokes, segmentRuns, force, mul, sum: vsum } = await import('../src/index.js');
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 5]], { closed: false, age: [0, 1, 2, 3] });
     expect(strokes(m, { pen: 'a' })).toHaveLength(1);
     expect(strokes(m.edges.filter((e) => e.index !== 1))).toHaveLength(2);
-    const band = banding.over(m.attrs.age, { count: 2 });
+    const band = (age: number) => Math.min(1, Math.floor((age / 3) * 2));
     expect([0, 1, 2, 3].map(band)).toEqual([0, 0, 1, 1]);
     expect(strokes(segmentRuns(m, (e) => band((e.a.age + e.b.age) / 2)))).toHaveLength(2);
-    expect(m.points.filter((p) => p.index < 2).complement().indices).toEqual([2, 3]);
-    expect(m.edges.filter((e) => e.index === 0).complement().indices).toEqual([1, 2]);
+    expect(m.points.without(m.points.filter((p) => p.index < 2)).indices).toEqual([2, 3]);
+    expect(m.edges.without(m.edges.filter((e) => e.index === 0)).indices).toEqual([1, 2]);
     const pull = force.tension(m, { rest: 5 });
     const lift = () => [0, 3] as [number, number];
     const push = force.sum(pull, lift);
     const p = m.vertex(1);
     expect(push(p)).toEqual(mul(vsum(pull(p), [0, 3]), 1));
     // A move reads the sum at every point, in one instant.
-    expect(m.move(push).pts[1]).toEqual(vsum(m.pts[1], vsum(pull(p), [0, 3])));
+    expect(m.move(push).points.map(xy)[1]).toEqual(vsum(m.points.map(xy)[1], vsum(pull(p), [0, 3])));
   });
 });
 

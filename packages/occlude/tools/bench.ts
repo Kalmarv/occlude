@@ -26,10 +26,10 @@ import { findSourceMap, stripTypeScriptTypes } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as core from 'occlude-core';
+import { type SketchDef } from '../src/index.js';
 import {
-  DEFAULT_PAPERS, DEFAULT_PENS, initOcclude, isSketch, isSketchAsync, pensToJson, renderAsync,
-  type AsyncSketchDef, type SketchDef,
-} from '../src/index.js';
+  DEFAULT_PAPERS, DEFAULT_PENS, initOcclude, isSketch, pensToJson, renderAsync,
+} from '../src/host.js';
 import { docsPaper, liveExampleToJs, parseLiveMeta } from '../src/docsExamples.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
@@ -279,8 +279,6 @@ if (profileCase && !args.includes('--child')) {
 const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
 await initOcclude(readFileSync(wasmPath));
 
-const isDefinition = (v: unknown): v is SketchDef | AsyncSketchDef => isSketch(v) || isSketchAsync(v);
-
 interface Row { name: string; size: string; frags: number; ms: number[]; planMs: number[]; error?: string }
 const rows: Row[] = [];
 
@@ -296,9 +294,9 @@ for (const c of chosen) {
       new Function('require', 'exports', 'module', js)(
         requireFor(DEFAULT_PENS, DEFAULT_PAPERS), module.exports, module,
       );
-      const def = (isDefinition(module.exports.default)
+      const def = (isSketch(module.exports.default)
         ? module.exports.default
-        : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
+        : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
       if (!def) throw new Error('no sketch exported');
       const t0 = performance.now();
       const out = await renderAsync(def, {

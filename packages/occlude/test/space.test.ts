@@ -15,9 +15,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
-import { compileSketch, circle, line, rect, sketch, space, type SketchConfig, type ShapeValue, type Toolkit, type Execution, bindToolkit, Execution as Run } from '../src/index.js';
+import {
+  circle, line, rect, sketch, space, type SketchConfig, type ShapeValue, type Toolkit,
+} from '../src/index.js';
+import { compileSketch, type Execution, bindToolkit, Execution as Run } from '../src/host.js';
 import { hyperbolicSpaceOf } from '../src/space.js';
 import { lowerShape } from '../src/record.js';
+import { xy } from './helpers/xy.js';
 
 /** A toolkit on a 100 × 100 drawable, with the config's own space. */
 function tk(cfg: SketchConfig = {}): Toolkit & { exec: Execution } {
@@ -192,7 +196,7 @@ describe('lowering through the space', () => {
     // angles, `|centre|² = r² + 1`. `t.material` keeps a line's two ends
     // (its own vertices); `t.sample` walks the edge between them.
     expect(t.material(line(16, 22, 88, 74)).n).toBe(2);
-    const pts = t.sample(line(16, 22, 88, 74), { count: 24 }).pts;
+    const pts = t.sample(line(16, 22, 88, 74), { count: 24 }).points.map(xy);
     expect(pts.length).toBeGreaterThan(4);
     const model = (p: readonly [number, number]): [number, number] => {
       const z = t.space.toChart(p);
@@ -232,11 +236,11 @@ describe('lowering through the space', () => {
     // A circle away from the base row: every point is `exp(c, r·(cos θ,
     // sin θ))`, what `t.space.circle` draws (spec 57).
     const m = t.material(circle(50, 85, 20));
-    for (const p of m.pts) expect(t.space.distance([50, 85], p)).toBeCloseTo(20, 9);
+    for (const p of m.points.map(xy)) expect(t.space.distance([50, 85], p)).toBeCloseTo(20, 9);
     // Which is NOT the sin/cos circle of the coordinates up there: a step
     // along a row is worth more than a step down a column, so the circle
     // of the space is an oval in the coordinates.
-    const coords = m.pts.map((p) => Math.hypot(p[0] - 50, p[1] - 85));
+    const coords = m.points.map(xy).map((p) => Math.hypot(p[0] - 50, p[1] - 85));
     expect(Math.max(...coords)).toBeGreaterThan(Math.min(...coords) * 1.1);
   });
 
@@ -256,7 +260,7 @@ describe('lowering through the space', () => {
     // starting on the positive x axis.
     const round = t.material(circle(50, 50, 25));
     expect(round.n).toBe(72);
-    expect([...round.pts[0]]).toEqual([75, 50]);
+    expect([...round.points.map(xy)[0]]).toEqual([75, 50]);
     expect(t.exec.space.kind).toBe('euclidean');
     expect(t.exec.frame.space).toBeUndefined();
   });
@@ -268,15 +272,15 @@ describe('the words that read the space', () => {
     const m = t.sample(line(12, 96, 92, 4), { count: 12 });
     expect(m.n).toBe(12);
     const gaps: number[] = [];
-    for (let i = 1; i < m.n; i++) gaps.push(t.space.distance(m.pts[i - 1], m.pts[i]));
+    for (let i = 1; i < m.n; i++) gaps.push(t.space.distance(m.points.map(xy)[i - 1], m.points.map(xy)[i]));
     const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
     for (const g of gaps) expect(g).toBeCloseTo(mean, 4);
     // On the SHEET they are not even at all: the ends are crowded, because
     // the chart has to hold the whole plane inside one disk.
     const flat: number[] = [];
     for (let i = 1; i < m.n; i++) {
-      const a = t.space.project(m.pts[i - 1]);
-      const b = t.space.project(m.pts[i]);
+      const a = t.space.project(m.points.map(xy)[i - 1]);
+      const b = t.space.project(m.points.map(xy)[i]);
       flat.push(Math.hypot(b[0] - a[0], b[1] - a[1]));
     }
     expect(Math.max(...flat) / Math.min(...flat)).toBeGreaterThan(1.3);
@@ -290,13 +294,13 @@ describe('the words that read the space', () => {
     // longer than the numbers on it, so the same spacing takes fewer
     // coordinates up there: the points crowd, read in coordinates.
     const band = (y0: number, y1: number): number =>
-      m.pts.filter((p) => Math.abs(p[1] - 50) >= y0 && Math.abs(p[1] - 50) < y1).length / (2 * (y1 - y0) * 100);
+      m.points.map(xy).filter((p) => Math.abs(p[1] - 50) >= y0 && Math.abs(p[1] - 50) < y1).length / (2 * (y1 - y0) * 100);
     expect(band(35, 50) / band(0, 15)).toBeGreaterThan(1.5);
     // Flat, the same call is even — the ratio is the yardstick, so the
     // bands' own edge effects cancel.
     const flat = tk({ seed: 7 }).scatter({ spacing: 5 });
     const fBand = (y0: number, y1: number): number =>
-      flat.pts.filter((p) => Math.abs(p[1] - 50) >= y0 && Math.abs(p[1] - 50) < y1).length / (2 * (y1 - y0) * 100);
+      flat.points.map(xy).filter((p) => Math.abs(p[1] - 50) >= y0 && Math.abs(p[1] - 50) < y1).length / (2 * (y1 - y0) * 100);
     expect(fBand(35, 50) / fBand(0, 15)).toBeLessThan(1.2);
   });
 });

@@ -20,16 +20,12 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => [
 ]);
 ```
 
-## sketchAsync()
-
-<include>/_sig/sketchAsync.mdx</include>
-
-The same as `sketch`, for a sketch function that uses `await`. Some 3D words, such as `t.hatch`, run a job in the background and return a promise. A sketch that calls them must be a `sketchAsync`.
+The sketch function can be `async` and use `await`. Some 3D words, such as `t.hatch`, run a job in the background and return a promise. A sketch that calls them uses an `async` function: `sketch(config, async (t) => tree)`.
 
 ```ts live
-import { sketchAsync, circle } from 'occlude';
+import { sketch, circle } from 'occlude';
 
-export default sketchAsync({ aspect: [1, 1] }, async (t) => {
+export default sketch({ aspect: [1, 1] }, async (t) => {
   const radius = await Promise.resolve(30);
   return circle(50, 50, radius);
 });
@@ -87,7 +83,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 
 <include>/_sig/Toolkit.probe.mdx</include>
 
-Returns the value and records it under a label. After a render, the studio's controls panel shows the count, the minimum, the mean, the maximum and a histogram for each label. Use it to learn what a field gives before you map it. It changes nothing, and it is free to leave in.
+Returns the value and records it under a label. After a render, the studio's controls panel shows the count, the minimum, the mean, the maximum and a histogram for each label. Use it to learn what a field gives before you map it. A material, or the stations of `along()`, goes to the studio's debug inspector instead. It changes nothing, and it is free to leave in.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -100,7 +96,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, row
 <include>/_sig/Toolkit.bounds.mdx</include>
 <include>/_sig/Toolkit.grid.mdx</include>
 
-`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. `t.width`, `t.height`, `t.cx` and `t.cy` are the same numbers, read directly. Read them when a drawing must fill whatever drawable it lands on. The record is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
+`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. Read it when a drawing must fill whatever drawable it lands on. The record is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
 
 Under `origin: 'center'`, the corner of the drawable is `(-w/2, -h/2)` and its middle is `(0, 0)`. `bounds()` answers in that frame, and every word that covers the drawable (`grid`, `hexes`, `triangles`, `scatter`, `voronoi` and the fields) reads it. Below, the grid covers the drawable of a centred, y-up sketch.
 

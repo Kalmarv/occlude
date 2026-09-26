@@ -71,7 +71,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const ramp = (x, y) => x / 200;
   const grains = t.scatter(ramp, { spacing: 2.4 });
   const relaxed = t.relax(grains, { density: ramp, iterations });
-  return [relaxed.points.map((p) => circle(p.x, p.y, 0.55)), label(`${relaxed.n} points`, 4, 6, 3.4)];
+  return [relaxed.points.map((p) => circle(p.x, p.y, 0.55)), label(`${relaxed.points.length} points`, 4, 6, 3.4)];
 });
 ```
 
@@ -96,7 +96,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const ramp = (x, y) => x / 200;
   const grains = t.scatter(ramp, { spacing: 2.4 });
   const settled = t.settle(grains, { density: ramp, spacing: 2.4, iterations });
-  return [settled.points.map((p) => circle(p.x, p.y, 0.55)), label(`${settled.n} points`, 4, 6, 3.4)];
+  return [settled.points.map((p) => circle(p.x, p.y, 0.55)), label(`${settled.points.length} points`, 4, 6, 3.4)];
 });
 ```
 

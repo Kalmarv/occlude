@@ -6,12 +6,13 @@
 import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(40, { min: 0, max: 60, step: 1 });
   const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
   const every = ui(8, { min: 1, max: 24, step: 1, label: 'draw every' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = t.steps(steps, ring, (g) => {
@@ -38,9 +39,10 @@ Before you drag the slider: the displacement is six percent of the distance from
 import { sketch, circle, strokes, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
   const steps = ui(0, { min: 0, max: 20, step: 1 });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.06);
   const grown = t.steps(steps, ring, (g) => g.move(outward));
   return [
@@ -56,7 +58,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 The ring grows by more each step. The displacement is a fraction of the distance from the centre, and after each step that distance is larger, so the next step is larger too: multiplication, not addition. Twelve steps at six percent is about twice the radius; twenty is about three times. If you want constant speed, make the displacement a fixed length instead of a fraction: `mul(unit(sub(p, centre)), 0.7)`, with `unit` from the same vocabulary, moves every point 0.7 outward whatever its distance.
 
-The other thing to notice is what `move` does with the answer. `[dx, dy]` is added to the point's position; it is not the position. A rule that returns `[t.cx + 30, t.cy]` does not put every point at one place, it moves every point by the same amount. Chapter 2 said this; here it is the difference between a ring that grows and a ring that slides.
+The other thing to notice is what `move` does with the answer. `[dx, dy]` is added to the point's position; it is not the position. A rule that returns `[b.cx + 30, b.cy]` does not put every point at one place, it moves every point by the same amount. Chapter 2 said this; here it is the difference between a ring that grows and a ring that slides.
 
 </details>
 
@@ -68,10 +70,11 @@ A ring that only expands stays a circle. Give each point a second displacement t
 import { sketch, circle, strokes, line, add, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(0, { min: 0, max: 20, step: 1 });
   const wrinkle = ui(1, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = t.steps(steps, ring, (g) => g.move(uneven));
   return [
@@ -136,16 +139,17 @@ Before you look: if the ring is subdivided at the end of a step, and nothing mov
 import { sketch, circle, strokes, label, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
   const steps = ui(12, { min: 0, max: 20, step: 1 });
   const split = ui(true, { label: 'subdivide' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.06);
   const grown = t.steps(steps, ring, (g) => g.move(outward), (g) => (split ? g.split(g.edges.filter((e) => e.length > 5)) : g));
   return [
     strokes(grown),
     grown.points.map((p) => circle(p.x, p.y, 0.6)),
-    label(`${grown.n} points`, 4, 6, 4),
+    label(`${grown.points.length} points`, 4, 6, 4),
   ];
 });
 ```
@@ -165,18 +169,19 @@ The three parts, named: `outward` moves, `uneven` disturbs, `pull` restrains, an
 import { sketch, circle, strokes, force, sum, sub, mul, label, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(30, { min: 0, max: 60, step: 1 });
   const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = t.steps(steps, ring, (g) => {
     const pull = force.tension(g, { rest: 2.5 });
     return g.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
   }, (g) => g.split(g.edges.filter((e) => e.length > 5)));
-  return [strokes(grown), label(`${grown.n} points`, 4, 6, 4)];
+  return [strokes(grown), label(`${grown.points.length} points`, 4, 6, 4)];
 });
 ```
 
@@ -197,12 +202,13 @@ So far only the last state is drawn. `{ every: 8 }` as the last argument to `t.s
 import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(40, { min: 0, max: 60, step: 1 });
   const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
   const every = ui(8, { min: 1, max: 24, step: 1, label: 'draw every' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = t.steps(steps, ring, (g) => {
@@ -227,12 +233,13 @@ The rule is the same; the constants and what is drawn are not. Calm: little wrin
 import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = 60;
   const wrinkle = 0.4;
   const strength = 0.9;
   const every = 6;
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.018);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = t.steps(steps, ring, (g) => {
@@ -249,11 +256,12 @@ Folded: the same constants, a shorter split length so the folds get more points 
 import { sketch, circle, polygon, fill, mm, force, sum, sub, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = 44;
   const wrinkle = 0.9;
   const strength = 0.5;
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = t.steps(steps, ring, (g) => {

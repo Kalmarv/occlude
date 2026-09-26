@@ -280,7 +280,8 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
     }
     return out;
   };
-  const queue: [number, number][] = opts.seeds ? material(opts.seeds).pts.map(([x, y]) => [x, y] as [number, number]) : lattice();
+  const seeds = opts.seeds ? material(opts.seeds) : null;
+  const queue: [number, number][] = seeds ? Array.from({ length: seeds.n }, (_, i) => [seeds.x[i], seeds.y[i]] as [number, number]) : lattice();
   let head = 0;
   while (head < queue.length) {
     const [sx, sy] = queue[head++];

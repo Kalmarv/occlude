@@ -28,11 +28,9 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
 import { inputsFor, seedArg, requireFor, penLibrary, paperLibrary } from './inputs.js';
-import * as occlude from '../src/index.js';
-import {
-  initOcclude, isSketch, paperSize, pensToJson, render,
-  PAPERS, type SketchDef,
-} from '../src/index.js';
+import * as occlude from '../src/host.js';
+import type { PenDef, SketchDef } from '../src/index.js';
+import { initOcclude, isSketch, paperSize, pensToJson, render, PAPERS } from '../src/host.js';
 
 const args = process.argv.slice(2);
 
@@ -404,7 +402,7 @@ const machineOpts = {
   })(opt('profile')),
 };
 
-function analyze(name: string, chains: Chain[], pens: occlude.PenDef[]): Stats {
+function analyze(name: string, chains: Chain[], pens: PenDef[]): Stats {
   let drawMm = 0;
   let travelMm = 0;
   let minutes = 0;

@@ -195,7 +195,7 @@ coordinates and a typed `face` row. Ray/segment hits additionally include `t`.
 Parallel or coplanar rays have no isolated hit. Bounds are inclusive and ties
 choose the earliest triangle in the captured target.
 
-`prepared.batch()` supplies synchronous CPU batches. In `sketchAsync`, use
+`prepared.batch()` supplies synchronous CPU batches. In an async sketch, use
 `prepared.batch(t)` and await its results to use the execution host (WebGPU in
 Studio, explicit CPU execution in the headless renderer). It offers:
 
@@ -230,7 +230,7 @@ step's current points:
 Use separate passes when a constraint must observe another force's
 move. Summing forces evaluates all of them on the same input.
 Arbitrary JavaScript force functions are not compiled or reevaluated on the GPU.
-The advanced module retains packed deformation/query access for that purpose.
+The advanced module retains packed query access for that purpose.
 
 This sketch first applies attraction and a sided plane constraint, then uses
 GPU query batches to clip the relief under a bounded tilted roof and select
@@ -238,9 +238,9 @@ nearby faces for hatch. The roof is query geometry; only the final terrain is
 drawn.
 
 ```ts live
-import {sketchAsync,pen,mm} from 'occlude';
+import {sketch,pen,mm} from 'occlude';
 import {plane,query,force,view,orthographic} from 'occlude/3d';
-export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},async t=>{
+export default sketch({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},async t=>{
   const pull=force.attract([0,0,.4],{strength:.015});
   const ceiling=force.plane({origin:[0,0,.8],normal:[0,0,1],side:'below'});
   let terrain=t.steps(4,plane(4,4).subdivide(4).displace(p=>[0,0,t.noise(p.x,p.y)*.9]),
@@ -259,19 +259,20 @@ export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}
 ```
 
 
-## Curves, paths and circle profiles
+## Curves and paths
 
 `curve(points, { closed? })` owns a piecewise-linear path through 3D vectors.
 A closed path connects its final point to its first: do not repeat the first
 point. `parametricCurve(t => [x, y, z], { segments: 64, closed? })` samples a parameterized
 path uniformly in t, once during modeling. Open paths include both endpoints;
 closed paths omit t=1 and share the seam. These are polygonal curves, not an
-analytic spline representation. `circle(radius = 1, { segments: 64 })` constructs
-a counterclockwise circle profile in XY using the same curve data.
+analytic spline representation. A circle profile is a closed parametric curve:
+`parametricCurve(u => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], { closed: true })`
+is counterclockwise in XY; the word `circle` is the 2D shape.
 
 Curve constructors check an explicit `maxPoints` (unlimited by default) before
 sampling or topology allocation. Adjacent duplicate points and malformed or non-finite inputs are
-rejected. A circle has at least three segments. Geometry coordinates are world
+rejected. A closed curve has at least three points. Geometry coordinates are world
 units; `view` handles camera projection into the explicit paper frame.
 
 Curves expose `.points` and `.edges` with their typed `set`, selection
@@ -289,7 +290,7 @@ A view-wide hatch recipe decorates mesh surfaces and does not fill curve loops.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { box, circle, curve, parametricCurve, view, orthographic } from 'occlude/3d';
+import { box, curve, parametricCurve, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
@@ -300,7 +301,7 @@ export default sketch({ seed: 42, pens: {
     1.5 * Math.sin(t * Math.PI * 6),
     (t - 0.5) * 3.5,
   ], { segments: 180 });
-  const ring = circle(1.2, { segments: 64 }).translate([0, 0, 2.1]);
+  const ring = parametricCurve(u => [1.2 * Math.cos(2 * Math.PI * u), 1.2 * Math.sin(2 * Math.PI * u), 0], { segments: 64, closed: true }).translate([0, 0, 2.1]);
   const path = t.steps(3, curve([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
     .points.set('lift', p => p.index === 1 ? 0.25 : 0), c => c.displace(p => [0, 0, p.lift]));
   const frame = box([4.4, 4.4, 4.4]).edges
@@ -363,7 +364,7 @@ union; a large profile on a tight path can intersect itself.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { curve, parametricCurve, circle, revolve, sweep, view, orthographic } from 'occlude/3d';
+import { curve, parametricCurve, revolve, sweep, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
@@ -379,7 +380,8 @@ export default sketch({ seed: 42, pens: {
     0.7 * Math.sin(t * Math.PI * 4),
     (t - 0.5) * 3,
   ], { segments: 64 }).points.set('radius', p => 0.8 + 0.2 * Math.cos(p.z * 2));
-  const tube = sweep(circle(0.16, { segments: 16 }), route, {
+  const section = parametricCurve(u => [0.16 * Math.cos(2 * Math.PI * u), 0.16 * Math.sin(2 * Math.PI * u), 0], { segments: 16, closed: true });
+  const tube = sweep(section, route, {
     caps: true, scale: p => p.radius,
   }).translate([1.4, 0, 0]);
   const ribbon = sweep(curve([[-0.25, 0, 0], [0.25, 0, 0]]),
@@ -396,15 +398,15 @@ export default sketch({ seed: 42, pens: {
 
 ## Sampling and scattering on surfaces
 
-`t.sample(mesh, { count })` generates independent area-weighted points on the
+`t.scatter(mesh, { count })` generates independent area-weighted points on the
 mesh's represented triangles. `t.scatter(mesh, { spacing })` rejects candidates
 that are too close to previously accepted points. Its spacing is a bare number
 in **world units**, measured by Euclidean distance across all selected surfaces,
 including disconnected or nearby sheets. It is not paper spacing or geodesic
-distance. These mesh overloads coexist with the existing 2D shape sampling and
-scatter methods; 2D behavior is unchanged.
+distance. The mesh forms coexist with the 2D scatter of a field or an area;
+2D behavior is unchanged.
 
-Both accept `weight: face => number` (or a constant): a nonnegative finite
+Both forms accept `weight: face => number` (or a constant): a nonnegative finite
 per-face candidate weight, captured once. Sampling probability is proportional
 to triangle area times that weight; zero excludes a face. Scatter uses the same
 candidate distribution, with fixed minimum spacing. Weight affects candidate
@@ -431,14 +433,14 @@ in point provenance. Instancing and query batches preserve the full point-row ty
 fields, `instance.source` and query `result.source` retain sample normals and
 typed source faces.
 
-Randomness comes from an independent stream of the sketch seed. Repeating the
-same call gives the same points; `key` selects a separate stream when desired
-(otherwise the mesh key, then a default key). Sampling and scatter use separate
-streams. Camera-only commits reuse generated geometry and consume no sampling
+Randomness comes from an independent stream of the sketch seed, drawn in call
+order: a second call gives new points, and the same sketch gives the same points
+on every run. `key` names the stream (otherwise the mesh key, then a default
+key). The `count` and `spacing` forms draw from separate streams. Camera-only commits reuse generated geometry and consume no sampling
 randomness.
 
-Sampling returns exactly `count` points (an explicit `maxPoints` caps it); a
-positive count with no positive weighted area is an error. Scatter has no point
+The `count` form returns exactly `count` points (an explicit `maxPoints` caps it); a
+positive count with no positive weighted area is an error. The `spacing` form has no point
 limit by default and stops after `maxAttempts: 100000` rejected candidates. It stops at the first
 limit, so the point limit is a cap, not a promised count or proof of maximal
 packing. Empty weighted domains produce no scatter points. `.generation` records
@@ -466,7 +468,7 @@ export default sketch({ seed: 42, pens: {
     scale: p => [1, 1, p.height],
     rotate: p => alignAxis('z', p.sample.normal),
   });
-  const marks = t.sample(terrain, { count: 12 });
+  const marks = t.scatter(terrain, { count: 12 });
   const stones = instanceOnPoints(sphere(0.08, { segments: 8, rings: 4 }), marks.points);
   return view([terrain, trees, stones], {
     camera: orthographic({ eye: [6, 8, 6], target: [0, 0, 0.2], span: 9.5 }),
@@ -607,10 +609,10 @@ then transform that returned mesh. The attribute is intentionally a stored
 measurement; it does not become a fresh spatial query after the move.
 
 ```ts live
-import { sketchAsync, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
 import { plane, query, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ seed: 42, pens: {
+export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
   shade: pen({ width: mm(0.18), color: '#A84932' }),
 } }, async t => {
@@ -891,7 +893,7 @@ export default sketch({ seed: 42, pens: {
     uv: c => [(c.point.x + 1.3) / 2.6, (c.point.y + 1.3) / 2.6],
     chart: 'sheet',
   });
-  const sites = t.sample(rest, { count: 70 });
+  const sites = t.scatter(rest, { count: 70 });
   const bent = rest.displace(p => [0, 0, 0.45 * Math.sin(p.x * 2) * Math.cos(p.y)]);
   const attached = sites.rebind(bent);
   const pin = box([0.06, 0.06, 0.25]).translate([0, 0, 0.125]);
@@ -919,16 +921,16 @@ export default sketch({ seed: 42, pens: {
 inputs can also be instance sets. `intersections([a, b, c, ...])` takes a list
 and finds the seams between every two different objects in it, in one value
 with one source per object; instances of one set never meet each other in
-either form. For substantial work, use `await t.intersections(a, b)` or
-`await t.intersections(list)` in an async sketch: it yields to the event loop
-and observes sketch cancellation. Geometry, source attachments and contact
-classification are computed on the CPU before camera interpretation.
+either form. The call returns a description; the view computes only the pairs
+of what it keeps, and a direct read of the curves computes every pair.
+Geometry, source attachments and contact classification are computed on the
+CPU before camera interpretation.
 
 ```ts live
-import { sketchAsync, strokes, label, pen, mm } from 'occlude';
-import { box, view, orthographic } from 'occlude/3d';
+import { sketch, strokes, label, pen, mm } from 'occlude';
+import { box, intersections, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({
+export default sketch({
   seed: 42,
   pens: {
     outline: pen({ width: mm(0.3), color: '#18202A' }),
@@ -937,7 +939,7 @@ export default sketchAsync({
 }, async t => {
   const block = box([2.8, 1.5, 1.6]);
   const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]);
-  const seams = await t.intersections(block, tower);
+  const seams = intersections(block, tower);
   return [
     view([block, tower, seams], {
       camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.4], span: 4.6 }),
@@ -973,7 +975,7 @@ with `intersections` instead of projecting a seam onto a nearby surface.
 
 `maxPairs` limits placement pairs (default 4096). Optional `budget` controls
 contact, arrangement and graph capacities. Capacity errors reject the operation;
-an async sketch adopts only its completed result. Surface generators retain
+a failed read leaves no partial result. Surface generators retain
 exact coordinates and validated supporting triangles internally. The existing
 GPU visibility path refines rational curve candidates on the CPU.
 
@@ -987,15 +989,15 @@ selection gaps remain separate. Isolated contact points are already available
 through `curves.points`; curve sampling samples positive-length paths.
 
 ```ts live
-import { sketchAsync, label, pen, mm } from 'occlude';
-import { box, view, orthographic, instanceOnPoints, alignAxis } from 'occlude/3d';
+import { sketch, label, pen, mm } from 'occlude';
+import { box, intersections, view, orthographic, instanceOnPoints, alignAxis } from 'occlude/3d';
 
-export default sketchAsync({ seed: 42, pens: {
+export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
 } }, async t => {
   const block = box([2.8, 1.5, 1.6]);
   const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]);
-  const seams = await t.intersections(block, tower);
+  const seams = intersections(block, tower);
   const sites = t.sample(seams, { spacing: 0.3 });
   const markers = instanceOnPoints(box([0.08, 0.08, 0.12]), sites.points, {
     rotate: p => alignAxis('z', p.sample.tangent),
@@ -1047,7 +1049,7 @@ use the surface generators above, which maintain this information automatically.
 `plane`, `box`, `sphere`, `cylinder`, `cone`, and `torus` now include typed
 `uv` pairs and `chart` identities on their ordinary corner domain. Geometric
 vertices remain shared: a seam, cap rim or pole can carry different coordinates
-on its incident face corners. `t.sample(model, { count })` exposes the
+on its incident face corners. `t.scatter(model, { count })` exposes the
 interpolated coordinates and tangent frame through `point.sample`.
 
 | Generator | Stored coordinates |
@@ -1080,7 +1082,7 @@ export default sketch({ seed: 42, pens: {
   marks: pen({ width: mm(0.2), color: '#A84932' }),
 } }, t => {
   const rest = plane(4, 3).subdivide(3);
-  const sites = t.sample(rest, { count: 320 }).points
+  const sites = t.scatter(rest, { count: 320 }).points
     .filter(p => Math.floor(p.sample.cornerAttributes.uv[0] * 8) % 2 === 0).extract();
   const sheet = rest.displace(p => [0, 0, 0.45 * Math.sin(p.x * 1.8) * Math.cos(p.y)]);
   const marks = instanceOnPoints(box([0.04, 0.04, 0.08]).faces.set('mark', true), sites.rebind(sheet).points, {
@@ -1098,7 +1100,8 @@ export default sketch({ seed: 42, pens: {
 });
 ```
 
-Custom meshes use the same corner columns:
+Custom meshes, and projections of your own, use the same corner columns. A
+planar projection is a corner write that reads each corner's point:
 
 ```ts
 const charted = model.corners.set({
@@ -1107,18 +1110,14 @@ const charted = model.corners.set({
 });
 ```
 
-`planarUV(model, { origin, u, v, chart })` stores a planar projection. `u` and `v`
-are model vectors spanning one chart unit (defaults +X/+Y), and can be oblique.
-`cylindricalUV(model, { origin, axis, seam, height, chart })` stores one-turn
-angular `u` and axial `v`: defaults are +Z, a +X seam, and one model unit of height.
-It unwraps each face across the seam. Faces spanning half a turn or surrounding
-the projection axis require subdivision or a separate planar cap chart. Primitive
-caps already have appropriate charts. Both helpers replace only `uv` and `chart`,
-retain other columns, and set UV transfer to interpolation.
+A corner also reads its `face`, so a projection that wraps around an axis can
+unwrap each face across its seam from `c.face.corners`. Primitive caps already
+have appropriate charts. The write replaces only `uv` and `chart` and retains
+the other columns.
 
-Projections evaluate the mesh's current coordinates once. Moving/deforming the
-returned mesh preserves those stored values. Calling the helper again after a
-world-space transform intentionally reprojects against that explicit frame.
+A projection evaluates the mesh's current coordinates once. Moving or deforming
+the mesh afterwards preserves those stored values. Writing the columns again
+after a world-space transform reprojects against that explicit frame.
 There is no ambient world frame or automatic per-camera UV regeneration. Existing
 paper-directed `view(..., { hatch })` remains a separate view-dependent tool.
 
@@ -1156,9 +1155,7 @@ material's edge columns; nodes interpolate its point columns. Source phase is
 the pattern's own parameter, so dashes and selections survive splitting into
 surface pieces, chart gaps and occlusion.
 
-`await t.mapSurface(...)` in `sketchAsync` runs the same construction with
-event-loop yields and cancellation for substantial patterns; the synchronous
-form suits ordinary sketches. Budgets (`maxCandidates`, `maxInputSegments`,
+Budgets (`maxCandidates`, `maxInputSegments`,
 `budget.maxNodes`, ...) are unlimited by default; an explicit cap refuses the work
 before allocating it.
 
@@ -1229,8 +1226,9 @@ The ingredients compose rather than preset a look:
 - A plain vector is a world direction projected onto the surface.
 - `s => s.tangentU` follows the chart; `across(field)` turns any direction a
   quarter turn within the tangent plane, which is the natural crosshatch.
-- `gradient(scalar)` is the per-triangle gradient of a scalar field (exact for
-  the linear interpolant of its vertex values).
+- `grad(scalar)` of a surface field, `s => …`, is the per-triangle gradient
+  (exact for the linear interpolant of its vertex values). The same `grad`
+  takes a field of space, `(x, y, z) => …`, by central differences.
 - `curvature('max' | 'min', { smoothing, creaseDegrees, minConfidence })`
   is the estimated principal direction on the represented mesh: an unoriented
   line whose sign follows the trace, `null` at umbilics and flat regions below
@@ -1258,16 +1256,16 @@ parallels run across it, and an explicit light decides where each family is
 dense enough to draw.
 
 ```ts live
-import { sketchAsync, label, pen, mm } from 'occlude';
-import { sphere, gradient, across, light, view, perspective } from 'occlude/3d';
+import { sketch, label, pen, mm } from 'occlude';
+import { sphere, grad, across, light, view, perspective } from 'occlude/3d';
 
-export default sketchAsync({ seed: 42, pens: {
+export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
   warm: pen({ width: mm(0.18), color: '#A84932' }),
   cool: pen({ width: mm(0.18), color: '#2A6F8A' }),
 } }, async t => {
   const ball = sphere(1.6, { segments: 32, rings: 16 });
-  const height = gradient(s => s.position[2]);
+  const height = grad(s => s.position[2]);
   const sun = light({ direction: [-1, -2, 2], ambient: 0.1, ramp: 'smooth' });
   const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: s => 0.25 + 0.75 * sun(s), pen: 'warm' });
   const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6), pen: 'cool' });
@@ -1318,10 +1316,10 @@ density is therefore quantized to those octaves; this is a tonal
 approximation, not calibrated reflectance.
 
 ```ts live
-import { sketchAsync, paper, label, pen, mm, inch } from 'occlude';
+import { sketch, paper, label, pen, mm, inch } from 'occlude';
 import { torus, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({
+export default sketch({
   seed: 42,
   paper: paper({ width: inch(8.5), height: inch(11), color: '#F5F0E6' }),
   pens: { ink: pen({ width: mm(0.2), color: '#18202A' }) },
@@ -1347,10 +1345,10 @@ another pen and appears only in shadow. Where curvature is undecided the
 built-in fallback (the chart direction) takes over.
 
 ```ts live
-import { sketchAsync, label, pen, mm } from 'occlude';
+import { sketch, label, pen, mm } from 'occlude';
 import { plane, curvature, across, light, view, perspective } from 'occlude/3d';
 
-export default sketchAsync({ seed: 42, pens: {
+export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
   shade: pen({ width: mm(0.18), color: '#56626A' }),
   cross: pen({ width: mm(0.18), color: '#A84932' }),
@@ -1371,10 +1369,10 @@ An image drives tone the same way. The ivy photograph's dark channel selects
 lanes on a gently bent sheet; the marks are plotted lines, never a raster.
 
 ```ts live
-import { sketchAsync, label, pen, mm } from 'occlude';
+import { sketch, label, pen, mm } from 'occlude';
 import { plane, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2), color: '#18202A' }) } }, async t => {
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2), color: '#18202A' }) } }, async t => {
   const sheet = plane(6, 4).subdivide(3).displace(p => [0, 0, 0.3 * Math.sin(p.x * 0.9)]);
   const ivy = t.image('ivy.png').surface({ channel: 'dark', area: 0.01 });
   const marks = await t.hatch(sheet, { direction: [1, 0.35, 0], spacing: 0.07, tone: ivy });
@@ -1432,8 +1430,9 @@ boundary edge (open sheet edges and hole loops included) grows one wall.
 `faces`, `normal`, `centroid`, `area`), or `{ distance }` along the region's
 area-weighted mean normal, which is refused when the region's faces cancel.
 Zero vectors and boundary-free closed shells are errors, not silent geometry;
-self-intersecting results are not repaired. Independent per-face extrusion
-remains the advanced `extrudeFaces3`. Walls carry a side chart
+self-intersecting results are not repaired. A selected face that touches no
+other selected face is its own region, so a scattered selection extrudes face
+by face. Walls carry a side chart
 `key:side:<component>` with `uv = [loop fraction, 0|1]`, so surface patterns
 on the result can address caps and walls separately through `chart`.
 
@@ -1443,10 +1442,10 @@ collections, extruded as one region, and shaded through the same surface
 fields as any other mesh.
 
 ```ts live
-import { sketchAsync, label, meanBy, pen, mm } from 'occlude';
+import { sketch, label, meanBy, pen, mm } from 'occlude';
 import { plane, light, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ seed: 42, pens: {
+export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.25), color: '#18202A' }),
   shade: pen({ width: mm(0.18), color: '#56626A' }),
 } }, async t => {
@@ -1515,18 +1514,18 @@ export default sketch({ seed: 42, paper: paper({ width: mm(210), height: mm(148)
 
 ## 2D and 3D words
 
-3D says the 2D word where the meaning is the same: `pen` names a pen on every 3D option, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, a field of space takes `(x, y, z)`, and a 2D point or chain is a 3D one at z = 0. Some words differ because the meaning differs:
+3D says the 2D word where the meaning is the same: `pen` names a pen on every 3D option, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, `distance` and `length` from `occlude` measure triples and 3D rows, `grad` is the gradient, `t.streamlines` and `t.scatter` read what they are given, `union` and `intersect` combine solids as they combine selections, a field of space takes `(x, y, z)`, and a 2D point or chain is a 3D one at z = 0. Some words differ because the meaning differs:
 
-- `circle(radius)` in 3D is a profile at the origin; the 2D `circle(x, y, r)` is a shape. Import one of them with another name when a sketch uses both: `import { circle as circle2 } from 'occlude'`.
 - A mesh step moves points and writes columns. The topology changes between steps, with `subdivide`, `extrude` and the booleans, because a mesh's faces must stay closed polygons.
 - A surface field reads a row (`s.normal`, `p.z`), so it is the sibling of a 2D attribute field, not of a 2D field of the plane.
 
 ## Advanced: explicit scenes and stages
 
-This section exposes `lineArt3` and its explicit stages for advanced work. Ordinary sketches use `view` and the values above; the same renderer, cameras and pens are underneath. The camera projects geometry into the sketch's drawable frame.
+This section exposes `lineArt3` and its explicit stages, imported from `occlude/3d/advanced`, for advanced work. Ordinary sketches use `view` and the values above; the same renderer, cameras and pens are underneath. The camera projects geometry into the sketch's drawable frame.
 
 ```ts live
-import { sketch, lineArt3, box3, label, pen, mm } from 'occlude';
+import { sketch, label, pen, mm } from 'occlude';
+import { lineArt3, box3 } from 'occlude/3d/advanced';
 
 export default sketch({
   seed: 42,
@@ -1546,7 +1545,7 @@ export default sketch({
 ]);
 ```
 
-The explicit stage is its own vocabulary for renderer work, and it takes the ordinary values where the two meet: an object's `surface` can be a mesh from `occlude/3d` (`{ id: 'm', surface: box(1) }`), `view` draws a `Surface3` from `box3` or `surface3` as a mesh, and the rows of `PointSelection3` answer `x`, `y` and `z` as mesh rows do. An ordinary sketch does not need the stage.
+The explicit stage is its own vocabulary for renderer work, and it takes the ordinary values where the two meet: an object's `surface` can be a mesh from `occlude/3d` (`{ id: 'm', surface: box(1) }`), `section3` and `hatch3` read a mesh too, and `view` draws a `Surface3` from `box3` or `surface3` as a mesh. Build and edit the model with the ordinary words — `plane`, `extrude`, `displace`, the `set` of each collection, `t.steps` and `query` — and hand it to the stage. An ordinary sketch does not need the stage.
 
 `surface3(positions, polygons)` constructs a polygon surface. `box3(size, center)` is an editable box factory. A scene captures its input geometry when `lineArt3` is called; later edits to the original surface do not change that drawing. IDs must be unique across objects and wires. Set `lineSource: false` to keep an object only as an occluder, or `occluder: false` to draw its lines without hiding other geometry.
 
@@ -1561,7 +1560,8 @@ A camera's optional `viewport` belongs on the scene and uses absolute paper mill
 Each line set has a unique `id`, named `stroke`, optional `select(feature)`, and `visibility: 'visible' | 'hidden'` (default visible). Higher `priority` owns overlapping source intervals; `overdraw: true` explicitly retains duplicates. Selection callbacks read captured feature rows and must be pure. Features retain object/source IDs, flags, crease angle, edge attributes and incident face attributes. Crease angles are measured in world geometry independently of the camera. Exactly coplanar neighboring triangles have no crease; flat ground-cell seams are omitted by a crease/silhouette/boundary selector, while tower-to-ground folds and outer boundaries remain eligible. Visibility then removes portions hidden by the model.
 
 ```ts live
-import { sketch, lineArt3, box3, FeatureKind3, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
+import { lineArt3, box3, FeatureKind3 } from 'occlude/3d/advanced';
 
 export default sketch({
   pens: { outline: pen({ color: '#18202A', width: mm(0.35) }), hidden: pen({ color: '#A47E6B', width: mm(0.2) }) },
@@ -1583,70 +1583,29 @@ A normal `sketch` can return a deferred scene. Compile it with `compileSketchAsy
 
 Each execution retains its classified scene results in `run.scenes3`. Repeating the same scene value within that execution reuses its visibility calculation. The main Studio 3D viewport retains captured geometry during exploration. Switching projection, orbiting and zooming leave the committed drawing unchanged; Commit view reclassifies the retained model and saves the chosen camera. A fresh sketch execution still rebuilds its model.
 
-### Procedural construction
+### Objects and wires
 
-`grid3(columns, rows, size)` and `surface3` return editable geometry. `FaceSelection3` reads face normal, area, center, adjacency and attributes. `extrudeFaces3(surface, selection, distance, { operation })` independently replaces selected caps and adds side faces while preserving parentage. Positive distance raises a cap along its normal, negative distance recesses it, and zero leaves its topology alone. Select nonadjacent faces; connected-region extrusion is a different operation. The operation name supplies stable IDs for generated elements.
-
-Use `sketchAsync` for modeling batches. `await t.deform3(surface, { iterations, relaxation, displacements, pinned })` returns editable geometry after all passes. Displacements are world-coordinate vectors, one per point per iteration; `pinned` holds point indices fixed. Each pass gathers neighbors from the previous pass. Ordinary JavaScript fields can generate displacement vectors before submission.
-
-`await t.querySurface3(surface, { rays, segments, nearest })` batches queries against one captured surface. It returns matching arrays of hits or nulls. Rays use `{ origin, direction, near?, far? }`, segments use `[start, end]`, and nearest queries use `{ point, maxDistance? }`. A hit includes its source face ID, point, normal, barycentric coordinates and distance. Ray distance is the parameter multiplying its direction; segment distance is in `[0,1]`; nearest distance is Euclidean world distance. Intersections are two-sided; parallel/coplanar rays have no isolated hit.
+Scene objects can share a surface and set individual `transform: { translate, rotate, scale, origin }` values. Those transforms act in world space before projection; rotations are XYZ degrees and mirrored scales preserve winding. A scene captures a shared surface once, so later edits to that source do not alter its instances. A wire is an open polyline through a list of world points: `wires: [{ id, points }]`. An edge column `marked: true` makes the edge a `FeatureKind3.marked` feature, for a line set of its own.
 
 ```ts live
-import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, lineArt3, FeatureKind3, pen, mm } from 'occlude';
-
-export default sketchAsync({ seed: 42, pens: { outline: pen({ width: mm(0.3), color: '#18202A' }) } }, async t => {
-  let surface = grid3(6, 6, [4, 4]);
-  surface.faces.forEach(face => { face.attributes.height = t.rnd(0.4, 1.1); });
-  const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
-  surface = extrudeFaces3(surface, selected, f => Number(f.attributes.height), { operation: 'towers' });
-  surface = await t.deform3(surface, {
-    iterations: 16, relaxation: 0.02,
-    displacements: surface.points.map(p => [0, 0, 0.003 * Math.sin(p.position[0] * 2)]),
-    pinned: surface.points.flatMap((p, i) => Math.abs(p.position[0]) === 2 || Math.abs(p.position[1]) === 2 ? [i] : []),
-  });
-  const ceiling = transformSurface3(grid3(1, 1, [8, 8]), { translate: [0, 0, 0.7] });
-  const hits = await t.querySurface3(ceiling, { nearest: surface.points.map(p => ({ point: p.position })) });
-  surface.points.forEach((point, i) => {
-    const hit = hits.nearest[i];
-    if (hit && point.position[2] > hit.point[2]) point.position = hit.point;
-  });
-  return lineArt3({
-    objects: [{ id: 'relief', surface }],
-    camera: { kind: 'orthographic', span: 6, eye: [5, 7, 6], target: [0, 0, 0.3], near: 0.1, far: 30 },
-    lineSets: [{ id: 'visible', stroke: 'outline', select: f => (f.flags & (FeatureKind3.boundary | FeatureKind3.silhouette)) !== 0 || f.creaseAngle > 25 }],
-  });
-});
-```
-
-Await each batch before making dependent CPU edits. Inputs are captured when submitted; later edits do not change an in-flight batch. The async compiler's signal applies to both modeling and scene resolution. Headless execution uses the CPU reference; Studio supplies the GPU implementation. A GPU failure is reported and does not silently rerun modeling on the CPU. Per-run operation diagnostics are available in `run.modeling3`.
-
-### Points, edges and instances
-
-`PointSelection3(surface)` captures point positions, attributes, original-edge neighbors and boundary status. `EdgeSelection3(surface)` captures original polygon edges with endpoints, center, length, incident faces and attributes; triangulation diagonals are excluded. Both support iteration, `filter`, `map`, `groupBy` and `union`. Derive selections from one captured selection before unioning them. Point `adjacent()` follows original edges; edge `points` selects its endpoints.
-
-`editPoints3(surface, selection, callback)` returns an owned surface with optional position and attribute replacements. `editEdges3(surface, selection, callback)` replaces selected edge attributes. Every callback reads frozen rows from the edit's input; all patches commit after the callbacks finish. Omitted point fields stay unchanged; supplied attribute objects replace that row's attributes, so spread existing attributes to retain them. IDs and fixed triangulation survive these edits. A selection from a previous surface value cannot edit a later value. Selection predicates retain their captured measurements even if the original editable geometry changes.
-
-`pointCloud3(positions)` makes editable point-only data, with no implied edges or faces. Interpret those points explicitly as an open polyline through a scene wire's `points` array. Scene objects can share a surface and set individual `transform: { translate, rotate, scale, origin }` values. Those transforms act in world space before projection; rotations are XYZ degrees and mirrored scales preserve winding. A scene captures a shared surface once, so later edits to that source do not alter its instances.
-
-```ts live
-import { sketch, box3, PointSelection3, EdgeSelection3, editPoints3, editEdges3, pointCloud3, lineArt3, FeatureKind3, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
+import { box } from 'occlude/3d';
+import { lineArt3, FeatureKind3 } from 'occlude/3d/advanced';
 
 export default sketch({ pens: {
   outline: pen({ width: mm(0.3), color: '#18202A' }),
   accent: pen({ width: mm(0.4), color: '#A84932' }),
 } }, t => {
-  let shape = box3([1.3, 1.3, 1.3]);
-  const top = new PointSelection3(shape).filter(p => p.position[2] > 0);
-  shape = editPoints3(shape, top, p => ({ position: [p.position[0] + 0.25, p.position[1], p.position[2] + 0.4] }));
-  const rim = new EdgeSelection3(shape).filter(e => e.center[2] > 1);
-  shape = editEdges3(shape, rim, e => ({ ...e.attributes, marked: true }));
-  const samples = pointCloud3(t.times(25, (_, u) => [6 * u - 3, -0.6, 1.1 + 0.4 * Math.sin(u * Math.PI * 2)]));
+  const shape = box(1.3)
+    .displace(p => p.z > 0 ? [0.25, 0, 0.4] : [0, 0, 0])
+    .edges.set('marked', true, e => e.center[2] > 1);
+  const gesture = t.times(25, (_, u) => [6 * u - 3, -0.6, 1.1 + 0.4 * Math.sin(u * Math.PI * 2)]);
   return lineArt3({
     objects: [
       { id: 'left', surface: shape, transform: { translate: [-1.5, 0, 0] } },
       { id: 'right', surface: shape, transform: { translate: [1.5, 0, 0], rotate: [0, 0, 25], scale: [-1, 1, 1] } },
     ],
-    wires: [{ id: 'gesture', points: samples.points.map(p => p.position) }],
+    wires: [{ id: 'gesture', points: gesture }],
     camera: { kind: 'orthographic', span: 6.5, eye: [4, 7, 6], target: [0, 0, 0.5], near: 0.1, far: 30 },
     lineSets: [
       { id: 'visible', stroke: 'outline' },
@@ -1658,45 +1617,41 @@ export default sketch({ pens: {
 
 ### Reusing visibility and styling strokes
 
-`await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `FeatureSelection3(classified).filter(...)` selects those records; a line set can use that selection directly. Selections from another classified snapshot are rejected.
+In an async sketch, `await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `FeatureSelection3(classified).filter(...)` selects those records; a line set can use that selection directly. Selections from another classified snapshot are rejected.
 
 `constructStrokes3(classified, lineSets, options)` returns inspectable projected stroke data: source parts/parameters, points, cumulative paper arclength, length, closure and break reasons. Use `{ chain: false }` to retain separate segments, or the default source-based chaining. Building another style from the same classified data does not dispatch visibility again. `classified.stats` reports candidates, dispatches, refinements, transferred bytes and wall time. On a GPU with timestamp-query support, optional `gpuMs` records the summed visibility compute-pass time; it excludes upload, readback, CPU refinement and finishing. An absent value means timing is unavailable, while zero can reflect a very short or empty workload. Use total wall time to judge interaction performance.
 
 `t.strokes3(strokes, { modifiers, pass? })` explicitly draws projected data through the current paper frame and the ordinary Occlude modifier stack. Projected coordinates remain physical paper millimetres. Seeded effects derive their key from the source-chain identity, line-set/pen identity and optional nonempty `pass` string, together with the sketch seed. Reordering emitted rows or filtering unrelated sources does not reshuffle decimation or noise. Use distinct pass IDs for deliberately different repeated interpretations; the default pass repeats the same pattern. Changing the selected chain's topology can change its identity. A group transforms the finished 2D drawing, so a second placement can reuse the same classification. The complete selected source chain anchors modifier distances and sampling before visibility cuts. Both `dash → wobble` and `wobble → dash` keep their phase through hidden intervals and paper cropping. `reference.points` and `sourceRanges` retain that relationship alongside each run's visible points. Near/far clipping currently defines the available source anchor; arbitrary source geometry behind the eye is not projected. Topology-changing pre-stage modifiers (`smooth`, `roughen`, `deform`) are not applicable to this source-linked interpretation; edit the model before classifying instead.
 
 ```ts live
-import { sketch, paper, pen, mm, box3, lineArt3, drawing3, FeatureSelection3, FeatureKind3, constructStrokes3, group, label, dash, wobble } from 'occlude';
+import { sketch, paper, pen, mm, group, label, dash, wobble } from 'occlude';
+import { box3, lineArt3, FeatureSelection3, FeatureKind3, constructStrokes3 } from 'occlude/3d/advanced';
 
 export default sketch({
   paper: paper({ width: mm(200), height: mm(200) }), seed: 42,
   pens: { outline: pen({ width: mm(0.3), color: '#18202A' }), hidden: pen({ width: mm(0.2), color: '#A84932' }) },
-}, () => {
-  const scene = lineArt3({
+}, async t => {
+  const classified = await t.classify3(lineArt3({
     objects: [{ id: 'box', surface: box3([1.4, 1.4, 1.4]) }],
     camera: { kind: 'orthographic', span: 3.8, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
     viewport: { x: 10, y: 25, width: 80, height: 140 }, lineSets: [],
-  });
-  return drawing3(scene, (classified, t) => {
-    const features = new FeatureSelection3(classified);
-    const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
-    const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
-    const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
-    return [
-      t.strokes3(visible, { pass: 'expressive', modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
-      t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
-      group({ translate: [mm(100), 0] }, t.strokes3(contour)),
-      label('EDGES / HIDDEN', 5, 95, 3), label('SILHOUETTE', 55, 95, 3),
-    ];
-  });
+  }));
+  const features = new FeatureSelection3(classified);
+  const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
+  const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
+  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
+  return [
+    t.strokes3(visible, { pass: 'expressive', modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
+    t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
+    group({ translate: [mm(100), 0] }, t.strokes3(contour)),
+    label('EDGES / HIDDEN', 5, 95, 3), label('SILHOUETTE', 55, 95, 3),
+  ];
 });
 ```
 
+For headless or host integration, `await commitCamera3(run, scene, camera, { compute3?, signal? })` from `occlude/host` returns a new execution ready for `render(...)`. It never calls the original sketch function: world geometry is shared, the changed scene is classified again, and unaffected scenes reuse their classification. The new run captures the explicit camera, resolved paper and pens. The previous run remains exportable and unchanged. Use a scene from the new run's `scenes3` map for a subsequent commit.
 
-`drawing3(scene, (classified, t) => tree)` retains the paper interpretation as a pure callback. Its `t.strokes3` is bound to the current drawing's paper frame. Build models and consume random draws before this callback; select and style the supplied classified snapshot inside it. Returning ordinary labels, groups, clips and masks preserves paper composition order.
-
-For headless or host integration, `await commitCamera3(run, scene, camera, { compute3?, signal? })` returns a new execution ready for `render(...)`. It never calls the original sketch function: world geometry is shared, the changed scene is classified again, and unaffected scenes reuse their classification. The new run captures the explicit camera, resolved paper and pens. The previous run remains exportable and unchanged. Use a scene from the new run's `scenes3` map for a subsequent commit.
-
-A returned `lineArt3` node is already retained. Eager `t.strokes3(...)` output is fixed projected data tied to its original view; camera commitment rejects such edits for the changed scene. Use `drawing3` when the interpretation should run again for a new view. Callbacks and their captured style functions must remain pure. Studio's **Commit view** control uses this retained composition path.
+A returned `lineArt3` node is retained, and a camera commit classifies it again. Eager `t.strokes3(...)` output is fixed projected data tied to its original view; camera commitment rejects such edits for the changed scene. Use `view` with a drawing callback when the interpretation should run again for a new view. Callbacks and their captured style functions must remain pure. Studio's **Commit view** control uses this retained composition path.
 
 
 ### Phase through hidden intervals
@@ -1704,9 +1659,10 @@ A returned `lineArt3` node is already retained. Eager `t.strokes3(...)` output i
 These three copies share one classification. The rust-colored interval is behind the box; it uses the same source anchor as the visible ink. The second and third rows show that modifier order matters without restarting the pattern at the occluder. The paper adapter carries source selections through the ordinary planner and SVG export, including gaps smaller than the usual bridge tolerance.
 
 ```ts live
-import { sketchAsync, paper, pen, mm, box3, lineArt3, constructStrokes3, group, label, dash, wobble } from 'occlude';
+import { sketch, paper, pen, mm, group, label, dash, wobble } from 'occlude';
+import { box3, lineArt3, constructStrokes3 } from 'occlude/3d/advanced';
 
-export default sketchAsync({
+export default sketch({
   paper: paper({ width: mm(200), height: mm(180) }), margin: 0, seed: 42,
   pens: { ink: pen({ width: mm(0.35), color: '#18202A' }), hidden: pen({ width: mm(0.35), color: '#A84932' }) },
 }, async t => {
@@ -1734,24 +1690,26 @@ export default sketchAsync({
 
 ### Plane-section contours
 
-`section3(surface, planes, { tolerance?, maxSegments? })` intersects fixed mesh triangles with planes `{ id, origin, normal, attributes? }` in the surface's model coordinates. It returns inspectable segments, barycentric source positions, supporting triangle indices and an owned frozen `surface`. Pass that exact surface and the returned `curves` together to a scene object. A later model edit requires new sections; the renderer rejects curves paired with another surface. Object transforms move the captured surface and its curves together. To cut with world-space planes, transform the mesh before generating its sections.
+`section3(mesh, planes, { tolerance?, maxSegments? })` intersects fixed mesh triangles with planes `{ id, origin, normal, attributes? }` in the surface's model coordinates. It returns inspectable segments, barycentric source positions, supporting triangle indices and an owned frozen `surface`. Pass that exact surface and the returned `curves` together to a scene object. A later model edit requires new sections; the renderer rejects curves paired with another surface. Object transforms move the captured surface and its curves together. To cut with world-space planes, transform the mesh before generating its sections.
 
 Select `FeatureKind3.section` to style these curves. Section features carry `sectionPlane`, plane attributes and the supporting faces' attributes. Other faces of the same object can still occlude them. Coplanar patches contribute their boundary, without internal triangulation diagonals; isolated tangent vertices produce no stroke. Folded faces are intersected as their fixed triangles. Source endpoint IDs connect compatible pieces, so a triangulation crossing does not introduce a dash restart.
 
 The default zero-distance tolerance is `64 * Number.EPSILON` times the largest mesh coordinate relative to the plane origin. An explicit `tolerance` uses model units. Vertices inside that tolerance are treated as on-plane; no arbitrary vertex relocation occurs. `maxSegments` bounds intermediate candidate segments (default one million); exceeding it throws instead of dropping curves.
 
 ```ts live
-import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, section3, lineArt3, FeatureKind3, label, pen, mm } from 'occlude';
+import { sketch, label, pen, mm } from 'occlude';
+import { plane } from 'occlude/3d';
+import { section3, lineArt3, FeatureKind3 } from 'occlude/3d/advanced';
 
-export default sketchAsync({ seed: 42, pens: {
+export default sketch({ seed: 42, pens: {
   outline: pen({ width: mm(0.3), color: '#18202A' }),
   sections: pen({ width: mm(0.25), color: '#A84932' }),
-} }, async t => {
-  let surface = grid3(6, 6, [4, 4]);
-  surface.faces.forEach(face => { face.attributes.height = t.rnd(0.5, 1.5); });
-  const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
-  surface = extrudeFaces3(surface, selected, f => Number(f.attributes.height), { operation: 'section-towers' });
-  const curves = section3(surface, [0.2, 0.4, 0.6, 0.8, 1, 1.2].map((height, i) => ({
+} }, t => {
+  // Every other cell of an 8 × 8 sheet, both ways, is a tower of its own height.
+  const cell = v => Math.floor((v + 2) / 0.5) % 2 === 0;
+  const ground = plane(4, 4).subdivide(3).faces.set('height', () => t.rnd(0.5, 1.5));
+  const relief = ground.extrude(ground.faces.filter(f => cell(f.centroid[0]) && cell(f.centroid[1])), { distance: r => r.faces.at(0).height }, { key: 'towers' });
+  const curves = section3(relief, [0.2, 0.4, 0.6, 0.8, 1, 1.2].map((height, i) => ({
     id: `level-${i}`, origin: [0, 0, height], normal: [0, 0, 1], attributes: { height },
   })));
   return [lineArt3({
@@ -1768,7 +1726,7 @@ export default sketchAsync({ seed: 42, pens: {
 
 ### Surface hatch and crosshatch
 
-`hatch3(surface, families, { maxSegments? })` captures a per-face pattern recipe. `families` is an array or a callback from a frozen face measurement to an array; return `[]` to leave a face unhatched. Each family has a unique `id`, `spacing`, paper-space `angle` in clockwise degrees, optional `offset`, and optional attributes. Add a second family for crosshatch. The callback runs once during capture, so model attributes can control density or direction without another callback during camera changes.
+`hatch3(mesh, families, { maxSegments? })` captures a per-face pattern recipe. `families` is an array or a callback from a frozen face measurement to an array; return `[]` to leave a face unhatched. Each family has a unique `id`, `spacing`, paper-space `angle` in clockwise degrees, optional `offset`, and optional attributes. Add a second family for crosshatch. The callback runs once during capture, so model attributes can control density or direction without another callback during camera changes.
 
 Pair `surface: hatch.surface` and `hatch` on the scene object. Generation waits until the camera and drawable paper frame are known. `mm(1)` means one millimetre between paper rulings; bare numbers and other length tags use the ordinary drawable units, even with a custom scene viewport. The pattern is view-dependent and is regenerated from its captured recipe for a different camera. Changing only a selector, pen or stroke modifier reuses classified geometry.
 
@@ -1779,53 +1737,45 @@ Select `FeatureKind3.hatch`. Captured feature records retain `hatchFamily`, `hat
 This example declares its square sheet and margin so its downloaded source uses the same paper mapping when reopened.
 
 ```ts live
-import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, section3, hatch3, lineArt3, drawing3, FeatureKind3, constructStrokes3, clip, rect, mask, label, paper, pen, mm } from 'occlude';
+import { sketch, clip, rect, mask, label, paper, pen, mm } from 'occlude';
+import { plane } from 'occlude/3d';
+import { section3, hatch3, lineArt3, FeatureKind3, constructStrokes3 } from 'occlude/3d/advanced';
 
-export default sketchAsync({ seed: 42, paper: paper({ width: mm(200), height: mm(200) }), margin: 5, pens: {
+export default sketch({ seed: 42, paper: paper({ width: mm(200), height: mm(200) }), margin: 5, pens: {
   outline: pen({ width: mm(0.3), color: '#18202A' }),
   fine: pen({ width: mm(0.18), color: '#56626A' }),
   accent: pen({ width: mm(0.25), color: '#A84932' }),
 } }, async t => {
-  let surface = grid3(6, 6, [4, 4]);
-  surface.faces.forEach(face => {
-    face.attributes.height = t.rnd(0.5, 1.5);
-    face.attributes.spacing = t.rnd(1.5, 2.5);
-  });
-  const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
-  surface = extrudeFaces3(surface, selected, f => Number(f.attributes.height), { operation: 'hatched-towers' });
-  surface = await t.deform3(surface, { iterations: 8, relaxation: 0,
-    displacements: surface.points.map(p => p.position[2] > 0 ? [0.003 * Math.sin(p.position[1]), 0.002 * Math.cos(p.position[0]), 0] : [0, 0, 0]),
-  });
-  const ceiling = transformSurface3(grid3(1, 1, [8, 8]), { translate: [0, 0, 1.1] });
-  const hits = await t.querySurface3(ceiling, { nearest: surface.points.map(p => ({ point: p.position })) });
-  surface.points.forEach((p, i) => { const hit = hits.nearest[i]; if (hit && p.position[2] > hit.point[2]) p.position = hit.point; });
-  const sections = section3(surface, [0.2, 0.4, 0.6, 0.8].map((height, i) => ({ id: `level-${i}`, origin: [0, 0, height], normal: [0, 0, 1] })));
+  const cell = v => Math.floor((v + 2) / 0.5) % 2 === 0;
+  const ground = plane(4, 4).subdivide(3).faces.set({ height: () => t.rnd(0.5, 1.5), spacing: () => t.rnd(1.5, 2.5) });
+  const relief = ground.extrude(ground.faces.filter(f => cell(f.centroid[0]) && cell(f.centroid[1])), { distance: r => r.faces.at(0).height }, { key: 'towers' });
+  const sections = section3(relief, [0.2, 0.4, 0.6, 0.8].map((height, i) => ({ id: `level-${i}`, origin: [0, 0, height], normal: [0, 0, 1] })));
+  // Walls carry the extrusion's side chart; the raised caps sit above the ground.
   const hatch = hatch3(sections.surface, face => {
-    if (face.attributes.role !== 'side' && face.attributes.role !== 'cap') return [];
+    const wall = String(face.attributes.chart).startsWith('towers:side');
+    if (!wall && face.center[2] < 0.1) return [];
     const spacing = Number(face.attributes.spacing);
     return [
       { id: 'shade', spacing: mm(spacing), angle: face.normal[2] > 0.5 ? 35 : -35 },
       ...(face.normal[2] > 0.5 ? [{ id: 'cross', spacing: mm(spacing * 2), angle: -35 }] : []),
     ];
   });
-  const scene = lineArt3({
+  const classified = await t.classify3(lineArt3({
     objects: [{ id: 'relief', surface: hatch.surface, hatch, curves: sections }],
     camera: { kind: 'orthographic', span: 5.5, eye: [5, 7, 6], target: [0, 0, 0.4], near: 0.1, far: 30 }, lineSets: [],
-  });
-  return drawing3(scene, (classified, t) => {
-    const lines = constructStrokes3(classified, [
-      { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
-      { id: 'hatch', stroke: 'fine', select: f => (f.flags & FeatureKind3.hatch) !== 0 },
-      { id: 'sections', stroke: 'accent', select: f => (f.flags & FeatureKind3.section) !== 0 },
-    ]);
-    return [
-      clip(rect(4, 4, 92, 84), t.strokes3(lines)),
-      mask(rect(60, 75, 32, 13)),
-      label('HATCH / SECTIONS', 61, 78, 2.5, { stroke: 'outline' }),
-      label('PAPER SPACING', 61, 83, 2, { stroke: 'outline' }),
-      label('SURFACE STUDY', 8, 94, 4, { stroke: 'outline' }),
-    ];
-  });
+  }));
+  const lines = constructStrokes3(classified, [
+    { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
+    { id: 'hatch', stroke: 'fine', select: f => (f.flags & FeatureKind3.hatch) !== 0 },
+    { id: 'sections', stroke: 'accent', select: f => (f.flags & FeatureKind3.section) !== 0 },
+  ]);
+  return [
+    clip(rect(4, 4, 92, 84), t.strokes3(lines)),
+    mask(rect(60, 75, 32, 13)),
+    label('HATCH / SECTIONS', 61, 78, 2.5, { stroke: 'outline' }),
+    label('PAPER SPACING', 61, 83, 2, { stroke: 'outline' }),
+    label('SURFACE STUDY', 8, 94, 4, { stroke: 'outline' }),
+  ];
 });
 ```
 

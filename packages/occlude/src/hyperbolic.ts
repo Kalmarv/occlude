@@ -5,7 +5,7 @@
  * geometry by naming it on the frame (`space: 'hyperbolic'`), and every
  * word it then writes — `line`, `circle`, `t.tiling`, `t.distanceTo`,
  * `t.scatter` — reads that frame. This file is what those words are made
- * of: the disk's transform as DATA, and the disk's circle.
+ * of: the disk's transform as DATA, and the distance to a geodesic.
  *
  * Every word here works in MODEL coordinates: the unit disk about the
  * origin, where the rim `|z| = 1` is infinitely far away. `space.ts`
@@ -23,11 +23,6 @@ import { vx, vy, type Vec, type XY } from './vec.js';
  * is spelled, because in the disk they are the same thing. */
 export type Complex = readonly [number, number];
 
-export interface CircleOpts {
-  /** Points around the loop. */
-  count?: number;
-}
-
 /**
  * An isometry of the Poincaré disk, as a record.
  *
@@ -35,8 +30,8 @@ export interface CircleOpts {
  * `a·d − b·c = 1` and `d = conj(a)`, `c = conj(b)` — the condition that
  * makes the map send the disk to itself. `mirror` marks the half of the
  * isometries that turn the disk over: the map then reads the CONJUGATE of
- * `z` first, `z ↦ (a·z̄ + b)/(c·z̄ + d)`. `reflection` is the maker that
- * sets it; `translation` and `rotation` leave it false.
+ * `z` first, `z ↦ (a·z̄ + b)/(c·z̄ + d)`. `translation` and `rotation`
+ * leave it false.
  */
 export interface Mobius {
   readonly a: Complex;
@@ -128,70 +123,7 @@ export function rotation(degrees: number): Mobius {
   return make(cExp(half), ZERO, ZERO, cExp(-half), false);
 }
 
-/**
- * The reflection in the geodesic through two points.
- *
- * It turns the disk over, so the record it answers with has `mirror` set.
- * Two distinct points are needed; the same point twice names no line and
- * refuses by name.
- */
-export function reflection(a: XY, b: XY): Mobius {
-  const A = asComplex(a);
-  const B = asComplex(b);
-  if (cAbs(cSub(A, B)) < 1e-15) throw new Error('reflection: the two points are the same — a geodesic needs two distinct points');
-  const centre = orthogonalCentre(A, B);
-  if (!centre) {
-    // The geodesic is a diameter: the reflection is the Euclidean one,
-    // `z ↦ e^{2iφ}·z̄`, in the line through the origin at angle φ.
-    const phi = Math.atan2(B[1] - A[1], B[0] - A[0]);
-    return make(cExp(phi), ZERO, ZERO, cExp(-phi), true);
-  }
-  // Inversion in the circle `(centre, r)` is `z ↦ (C·z̄ − 1)/(z̄ − conj(C))`,
-  // using `|C|² = r² + 1` — the orthogonality condition — to clear the
-  // constant. Divided by `i·r` it is in the normalised disk form.
-  const r = Math.sqrt(cAbs2(centre) - 1);
-  const ir: Complex = [0, r];
-  return make(cDiv(centre, ir), cDiv([-1, 0], ir), cDiv(ONE, ir), cDiv(cScale(cConj(centre), -1), ir), true);
-}
-
 // ---- the geometry --------------------------------------------------------
-
-/** The centre of the circle through `A` and `B` that meets the unit circle
- * at right angles, or null when the three are in a line and the geodesic is
- * a diameter. `|centre|² = r² + 1` is the orthogonality condition, and
- * `2·centre·P = |P|² + 1` puts a point `P` on the circle. */
-function orthogonalCentre(A: Complex, B: Complex): Complex | null {
-  const det = 2 * (A[0] * B[1] - A[1] * B[0]);
-  if (Math.abs(det) < 1e-12) return null;
-  const ka = cAbs2(A) + 1;
-  const kb = cAbs2(B) + 1;
-  const centre: Complex = [(ka * B[1] - kb * A[1]) / det, (kb * A[0] - ka * B[0]) / det];
-  if (!Number.isFinite(centre[0]) || !Number.isFinite(centre[1]) || cAbs2(centre) <= 1) return null;
-  return centre;
-}
-
-/**
- * The hyperbolic circle of hyperbolic radius `r` about `center`, as a
- * closed loop of `count` points.
- *
- * It is a Euclidean circle too — but not about `center`. The hyperbolic
- * centre sits nearer the rim than the Euclidean one, and the further out
- * it is, the further the two drift apart. A radius at or below zero is a
- * point, and draws nothing.
- */
-export function circle(center: XY, r: number, opts: CircleOpts = {}): Vec[] {
-  if (!Number.isFinite(r) || r <= 0) return [];
-  const n = opts.count === undefined ? 64 : Math.floor(opts.count);
-  if (!(n >= 3)) return [];
-  const frame = translation(vx(center), vy(center));
-  const rho = Math.tanh(r / 2);
-  const out: Vec[] = [];
-  for (let k = 0; k < n; k++) {
-    const th = (2 * Math.PI * k) / n;
-    out.push(apply(frame, [rho * Math.cos(th), rho * Math.sin(th)]));
-  }
-  return out;
-}
 
 /**
  * The signed hyperbolic distance to the geodesic through `a` and `b`,

@@ -32,7 +32,7 @@ import { PointSelection, EdgeSelection, onState } from './relation.js';
 import { FaceSelection, type Face } from './faces.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
-import { ownedBy, pairKey, viewKind } from './views.js';
+import { ownedBy, ownerOfView, pairKey, viewKind } from './views.js';
 
 /** A point you hold: a position, its columns, and the id minted when it
  * was made (not enumerable — a spread copy is a plain position). */
@@ -164,6 +164,13 @@ export const isEdgeValue = (v: unknown): v is EdgeValue =>
 
 /** A value's columns: a point value's or a view's own enumerable numbers,
  * less the names the value owns. */
+/** The edge columns of row `e` of `m`, as a record. */
+function edgeColumns(m: Material, e: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const name in m.edgeAttrs) out[name] = m.edgeAttrs[name][e];
+  return out;
+}
+
 function columnsOf(v: object, own: readonly string[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const name of Object.keys(v)) if (!own.includes(name)) out[name] = (v as Record<string, number>)[name];
@@ -590,7 +597,8 @@ function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
     if (isEdgeValue(r)) return { a: r.a, b: r.b, id: r.id, cols: columnsOf(r, []) };
     if (viewKind(r) === 'edge') {
       const e = r as Edge;
-      return { a: e.a, b: e.b, id: e.id, cols: { ...e.attrs } };
+      const owner = ownerOfView(e);
+      return { a: e.a, b: e.b, id: e.id, cols: owner instanceof Material ? edgeColumns(owner, e.index) : {} };
     }
     return null;
   };
@@ -875,8 +883,7 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     const a = m.edgeList[2 * e];
     const b = m.edgeList[2 * e + 1];
     const mid = m.n + k;
-    const parent: Record<string, number> = {};
-    for (const name of enames) parent[name] = m.edgeAttrs[name][e];
+    const parent = edgeColumns(m, e);
     pairs.push([a, mid], [mid, b]);
     childCols.push(inheritEdge(m, parent, t), inheritEdge(m, parent, 1 - t));
     roots.push(m.edgeRoots[e], m.edgeRoots[e]);
@@ -884,7 +891,7 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
   return addEdgeRows(without, pairs, childCols, roots, who);
 }
 
-/** A child edge's columns: a `'copy'` column the parent's value, a
+/** @internal A child edge's columns: a `'copy'` column the parent's value, a
  * `'distribute'` one the parent's value times the child's share. */
 export function inheritEdge(m: Material, parent: Readonly<Record<string, number>>, fraction: number): Record<string, number> {
   const out: Record<string, number> = {};
@@ -1018,7 +1025,7 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
       }
       return out;
     };
-    const child = enames.length > 0 ? inheritEdge(m, e.attrs, 1 / (local.length + 1)) : {};
+    const child = enames.length > 0 ? inheritEdge(m, edgeColumns(m, row), 1 / (local.length + 1)) : {};
     // Two positions this close are one place worked out twice: the motifs
     // of two walls that meet at a tip, or a tip on a corner.
     const tol = WELD * Math.hypot(ex, ey);

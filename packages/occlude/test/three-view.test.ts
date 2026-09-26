@@ -1,6 +1,10 @@
 import {readFileSync} from 'node:fs';
 import {beforeAll,it,expect} from 'vitest';
-import {initOcclude,sketch,sketchAsync,compileSketchAsync,commitCamera3,render,exportSvg,pen,mm,clip,rect,group,label,strokes,dash,lineArt3,box3,decodePlanBuffer,evalPrim} from '../src/index.js';
+import { sketch, pen, mm, clip, rect, group, label, strokes, dash } from '../src/index.js';
+import {
+  initOcclude, compileSketchAsync, commitCamera3, render, exportSvg, decodePlanBuffer, evalPrim,
+} from '../src/host.js';
+import { lineArt3, box3 } from '../src/three/api/advanced.js';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
 import {pensToJson} from '../src/render.js';
 import {plane,box,view,orthographic,perspective} from 'occlude/3d';
@@ -35,7 +39,7 @@ it('captures hatch eligibility once on the owned revision and keeps multiple vie
  expect(()=>view([box(1,{key:'same'}),box(2,{key:'same'})],{camera})).toThrow('unique');
 });
 it('preserves full wire dash phase through interval filtering and actual planned output',async()=>{
- const execution=await compileSketchAsync(sketchAsync(config,async t=>{
+ const execution=await compileSketchAsync(sketch(config,async t=>{
   const classified=await t.classify3(lineArt3({camera:orthographic({eye:[0,0,5],up:[0,1,0],span:10}),objects:[{id:'box',surface:box3(),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
   const lines=projectedLines(classified);
   expect(lines.hidden.length).toBeGreaterThan(0);

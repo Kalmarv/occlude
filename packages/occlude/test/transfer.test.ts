@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { append, connect, curve, material, planarize } from '../src/index.js';
+import { append, connect, curve, material } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
 
 const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
@@ -51,7 +51,7 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(r[1]).toBeCloseTo(10 * (1 / 3) + 30 * (1 / 3), 6);
     // planarize shares too
     const cross = append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0])).edges.set('rest', 8, { transfer: 'distribute' });
-    expect(Array.from(planarize(cross).edgeAttrs.rest)).toEqual([4, 4, 4, 4]);
+    expect(Array.from(cross.planarize().edgeAttrs.rest)).toEqual([4, 4, 4, 4]);
     // a value update keeps the policy; explicit copy restores the default; append compares effective policies
     expect(base.edges.set('rest', 1).edgeTransfers.rest).toBe('distribute');
     expect(base.edges.set('rest', 1, { transfer: 'copy' }).edgeTransfers.rest).toBeUndefined();
@@ -71,10 +71,10 @@ describe('transfer contracts (con2 stage B)', () => {
   it('crossings: agreeing candidates pass, disagreeing ones take the first edge\'s value unless the resolver says, whatever the policy', () => {
     const a = seg([0, 0], [10, 10]).points.set('kind', 1, { transfer: 'nearest' });
     const b = seg([0, 10], [10, 0]).points.set('kind', 1, { transfer: 'nearest' });
-    expect(planarize(append(a, b)).attrs.kind[4]).toBe(1);
+    expect(append(a, b).planarize().attrs.kind[4]).toBe(1);
     const c = seg([0, 10], [10, 0]).points.set('kind', 2, { transfer: 'nearest' });
-    expect(planarize(append(a, c)).attrs.kind[4]).toBe(1);
-    expect(planarize(append(a, c), { point: () => ({ kind: 9 }) }).attrs.kind[4]).toBe(9);
+    expect(append(a, c).planarize().attrs.kind[4]).toBe(1);
+    expect(append(a, c).planarize({ point: () => ({ kind: 9 }) }).attrs.kind[4]).toBe(9);
   });
 
   it('writes take a selection of this state — for points, edges and splits — and re-bind an earlier one', () => {
@@ -111,7 +111,7 @@ describe('transfer contracts (con2 stage B)', () => {
     // A foreign vertex describes its own state now; it does not throw.
     expect(curve([[0, 0], [1, 1]], { closed: false }).points.at(0).adjacent.length).toBe(1);
     expect(() => m.points.at(7).adjacent.length).toThrow(/no member 7/);
-    expect(m.contour.indices).toEqual([0, 1, 2, 3]);
+    expect(m.curves()[0].indices).toEqual([0, 1, 2, 3]);
   });
 
   it('history comes only from t.steps; a write, connect and resample keep the count, append/extract/planarize start one', () => {
@@ -121,9 +121,9 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(g.points.set('a', 1).iteration).toBe(3);
     expect(g.points.set('a', 1).history).toEqual([]);
     expect(g.resample({ count: 6 }).iteration).toBe(3);
-    expect(connect.chain(g).iteration).toBe(3);
+    expect(curve(g).iteration).toBe(3);
     expect(append(g, g).iteration).toBe(0);
     expect(g.edges.filter(() => true).extract().iteration).toBe(0);
-    expect(planarize(g).iteration).toBe(0);
+    expect(g.planarize().iteration).toBe(0);
   });
 });

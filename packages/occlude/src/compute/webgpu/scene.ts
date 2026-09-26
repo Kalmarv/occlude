@@ -7,12 +7,10 @@ import type { SceneCompute3 } from '../../three/scene.js';
 import type { FeatureSnapshot3 } from '../../three/features/snapshot.js';
 import { classifySceneGpu3 } from '../../three/visibility/scene.js';
 import { GpuIntervals3 } from './interval.js';
-import { GpuDeform3 } from './deform.js';
 import { GpuSurfaceQueries3 } from './queries.js';
 import { GpuSurfaceEvaluation3 } from './surfaceEvaluate.js';
 import { packSurfaceTarget3, type PackedSurfaceTarget3, type SurfaceEvaluationTarget3, type SurfaceEvaluationBatch3 } from '../../three/surface/evaluate.js';
 import type { ToneRecipe3 } from '../../three/surface/tone.js';
-import { captureDeform3, type DeformOptions3 } from '../../three/geometry/deform.js';
 import { prepareSurfaceQueries3, type SurfaceQueries3 } from '../../three/queries/surface.js';
 import type { Surface3 } from '../../three/geometry/surface.js';
 import type { SurfaceQueryInput3 } from '../../three/modeling.js';
@@ -23,7 +21,6 @@ export class GpuSceneCompute3 implements SceneCompute3 {
   private session?: GpuIntervals3;
   private creating?: Promise<GpuIntervals3>;
   private closed = false;
-  private deformation?: GpuDeform3;
   private readonly queryTargets=new Map<SurfaceQueries3,GpuSurfaceQueries3>();
   private queryTargetBytes=0;
   private async clearQueryTargets():Promise<void>{for(const target of this.queryTargets.values())await target.dispose();this.queryTargets.clear();this.queryTargetBytes=0;}
@@ -79,7 +76,6 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     if (this.session?.available) return this.session;
     if (!this.creating) {
       this.creating = (async () => {
-        this.deformation = undefined;
         await this.clearQueryTargets();
         await this.clearEvaluationTargets();
         this.preview?.viewport.dispose(); this.preview = undefined;
@@ -119,18 +115,6 @@ export class GpuSceneCompute3 implements SceneCompute3 {
       viewport.draw(frame,triangles,wires);
       return canvas.transferToImageBitmap();
     });
-  }
-  deform(surface: Surface3, options: DeformOptions3) {
-    const timing=new PhaseClock3(),input = timing.measure('captureMs',()=>captureDeform3(surface, options)), signal = options.signal;
-    return this.submit(async () => {
-      signal?.throwIfAborted();
-      const session = await timing.wait('setupMs',()=>this.acquire());
-      this.deformation ??= await timing.wait('setupMs',()=>GpuDeform3.create(session.device));
-      signal?.throwIfAborted();
-      const out=await this.deformation.deform(input.surface, { iterations: input.iterations, relaxation: input.relaxation, displacements: input.displacements, pinned: [...input.pinned], signal });
-      timing.merge(out.stats.timings);
-      return {...out,stats:{...out.stats,timings:timing.finish()}};
-    },timing);
   }
   query(surface: Surface3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal } = {}) {
     const timing=new PhaseClock3(),{source,captured}=timing.measure('captureMs',()=>({source:prepareSurfaceQueries3(surface),captured:structuredClone(queries)})),signal = options.signal;

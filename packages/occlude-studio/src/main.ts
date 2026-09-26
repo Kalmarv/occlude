@@ -20,11 +20,12 @@ import { bundleUserImports, relinkUserImports, scanBundled } from './userEmbed.j
 import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
-import { parseSeed, encodeToolpath, scanUiControls, type EstimateOpts, type PenDef, type PenTiming } from 'occlude';
+import { type PenDef } from 'occlude';
+import { parseSeed, encodeToolpath, scanUiControls, type EstimateOpts, type PenTiming } from 'occlude/host';
 import { type CameraCommitRequest, type RenderDraws, RenderClient, type WorkerError } from './workerClient.js';
 import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
 import { loadResult } from './resultsApi.js';
-import type { RenderResult } from 'occlude';
+import type { RenderResult } from 'occlude/host';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 

@@ -7,7 +7,7 @@
  * switch, which the host wires like the occlusion ghost.
  */
 
-import { userUnitsToPaper, type RenderResult } from 'occlude';
+import { userUnitsToPaper, type RenderResult } from 'occlude/host';
 import { InspectorModel, NEUTRAL, colorFor, incidentEdges, otherEnd, prepare, type ColumnRange, type Selection } from './inspectorModel.js';
 import type { Preview } from './preview.js';
 import type { RenderClient, RenderReply } from './workerClient.js';
@@ -207,7 +207,7 @@ export class Inspector {
     this.nameSel.disabled = names.length === 0;
     const noRegistry = names.length === 0;
     this.hint.hidden = !noRegistry;
-    if (noRegistry) this.hint.textContent = this.status || 'no material in this run — every variable holding a material is listed by name; t.inspect(label, material) names one explicitly';
+    if (noRegistry) this.hint.textContent = this.status || 'no material in this run — every variable holding a material is listed by name; t.probe(label, material) names one explicitly';
     const entry = m.names.find((e) => e.name === m.chosen);
     this.counts.textContent = entry ? `${entry.points} points · ${entry.edges} edges` : '';
     this.pointsBox.checked = m.showPoints;

@@ -3,12 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, areaLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
-  render, sketch, stroke, strokes, mm,
-  type Material, type SketchConfig, type SketchDef, type Toolkit, Execution,
+  append, circle, connect, curve, distanceTo, force, line, material, ngon, path, polygon, rect, sketch,
+  stroke, strokes, mm, type Material, type SketchConfig, type SketchDef, type Toolkit,
 } from '../src/index.js';
+import { compileSketch, initOcclude, render, Execution } from '../src/host.js';
+import { areaLoops } from '../src/boundary.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
+import { xy, oneRing } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -47,18 +49,18 @@ describe('t.material: a shape boundary with its own vertices', () => {
     });
     expect(r!.n).toBe(4);
     expect(r!.edgeCount).toBe(4);
-    expect(r!.closed).toBe(true);
-    expect(r!.pts.map((p) => p.map((v) => +v.toFixed(6)))).toEqual([[10, 10], [70, 10], [70, 50], [10, 50]]);
+    expect(oneRing(r!)).toBe(true);
+    expect(r!.points.map(xy).map((p) => p.map((v) => +v.toFixed(6)))).toEqual([[10, 10], [70, 10], [70, 50], [10, 50]]);
     expect(n!.n).toBe(7);
-    expect(n!.closed).toBe(true);
-    for (const [x, y] of n!.pts) expect(Math.hypot(x - 50, y - 50)).toBeCloseTo(20, 9);
+    expect(oneRing(n!)).toBe(true);
+    for (const [x, y] of n!.points.map(xy)) expect(Math.hypot(x - 50, y - 50)).toBeCloseTo(20, 9);
     // Sampling three points along that rectangle keeps only the start corner.
     let s: Material | null = null;
     run((t) => { s = t.sample(rect(10, 10, 60, 40), { count: 3 }); });
     expect(s!.n).toBe(3);
-    expect(s!.pts[0]).toEqual([10, 10]); // the seam is the start
+    expect(s!.points.map(xy)[0]).toEqual([10, 10]); // the seam is the start
     const corners = new Set(['70,10', '70,50', '10,50']);
-    expect(s!.pts.slice(1).some(([x, y]) => corners.has(`${x},${y}`))).toBe(false);
+    expect(s!.points.map(xy).slice(1).some(([x, y]) => corners.has(`${x},${y}`))).toBe(false);
   });
 
   it('flattens curves at the tolerance and honours transforms, rectMode and the frame', () => {
@@ -73,17 +75,17 @@ describe('t.material: a shape boundary with its own vertices', () => {
       centred = t.material(rect(50, 50, 20, 10, { mode: 'center' }));
     });
     expect(coarse!.n).toBeLessThan(fine!.n);
-    expect(fine!.closed).toBe(true);
-    for (const [x, y] of fine!.pts) expect(Math.hypot(x - 50, y - 50)).toBeCloseTo(20, 1);
-    const xs = turned!.pts.map((p) => +p[0].toFixed(6)).sort((a, b) => a - b);
-    const ys = turned!.pts.map((p) => +p[1].toFixed(6)).sort((a, b) => a - b);
+    expect(oneRing(fine!)).toBe(true);
+    for (const [x, y] of fine!.points.map(xy)) expect(Math.hypot(x - 50, y - 50)).toBeCloseTo(20, 1);
+    const xs = turned!.points.map(xy).map((p) => +p[0].toFixed(6)).sort((a, b) => a - b);
+    const ys = turned!.points.map(xy).map((p) => +p[1].toFixed(6)).sort((a, b) => a - b);
     expect([xs[0], xs[3]]).toEqual([40, 50]); // 10 wide after the turn
     expect([ys[0], ys[3]]).toEqual([50, 70]); // 20 tall
-    expect(centred!.pts.map((p) => +p[0].toFixed(6)).sort((a, b) => a - b)[0]).toBe(40);
+    expect(centred!.points.map(xy).map((p) => +p[0].toFixed(6)).sort((a, b) => a - b)[0]).toBe(40);
     // A 2:1 drawable: units are still percent of the short side.
     let wide: Material | null = null;
     run((t) => { wide = t.material(rect(0, 0, 200, 100)); }, { aspect: [2, 1] });
-    expect(wide!.pts.map((p) => +p[0].toFixed(6)).sort((a, b) => b - a)[0]).toBe(200);
+    expect(wide!.points.map(xy).map((p) => +p[0].toFixed(6)).sort((a, b) => b - a)[0]).toBe(200);
   });
 
   it('keeps a path\'s open and closed subpaths separate, never welding coincident points', () => {
@@ -98,7 +100,7 @@ describe('t.material: a shape boundary with its own vertices', () => {
     expect(ring.pts).toHaveLength(3);            // no duplicate seam vertex
     expect(chain.pts).toEqual([[10, 10], [30, 10]]);
     // Rows keep contour order: the ring's three vertices, then the chain's two.
-    expect(m!.pts).toEqual([[0, 0], [10, 0], [10, 10], [10, 10], [30, 10]]);
+    expect(m!.points.map(xy)).toEqual([[0, 0], [10, 0], [10, 10], [10, 10], [30, 10]]);
     expect(m!.n).toBe(5);                         // (10, 10) exists twice, one per contour
     expect(m!.points.at(2).adjacent.length).toBe(2);
     expect(m!.points.at(3).adjacent.length).toBe(1);
@@ -118,11 +120,11 @@ describe('t.material: a shape boundary with its own vertices', () => {
       bySpacing = t.sample(line(0, 0, 100, 0), { spacing: 10 });
     });
     expect(byCount!.n).toBe(12);
-    expect(byCount!.closed).toBe(true);
-    for (const [x, y] of byCount!.pts) expect(Math.hypot(x - 50, y - 50)).toBeCloseTo(10, 1);
-    expect(bySpacing!.closed).toBe(false);
+    expect(oneRing(byCount!)).toBe(true);
+    for (const [x, y] of byCount!.points.map(xy)) expect(Math.hypot(x - 50, y - 50)).toBeCloseTo(10, 1);
+    expect(oneRing(bySpacing!)).toBe(false);
     expect(bySpacing!.n).toBe(11);
-    expect(bySpacing!.pts[10]).toEqual([100, 0]);
+    expect(bySpacing!.points.map(xy)[10]).toEqual([100, 0]);
   });
 });
 
@@ -146,13 +148,13 @@ describe('isolines and streamlines as material', () => {
     const levels = new Set(Array.from(m!.edgeAttrs.level));
     expect([...levels].sort((a, b) => a - b)).toEqual([10, 25]);
     // Selecting by value takes both rings at level 10.
-    const ten = m!.edges.filter((e) => e.attrs.level === 10);
+    const ten = m!.edges.filter((e) => e.level === 10);
     expect(ten.curves()).toHaveLength(2);
-    expect(m!.edges.filter((e) => e.attrs.level === 25).curves()).toHaveLength(1);
+    expect(m!.edges.filter((e) => e.level === 25).curves()).toHaveLength(1);
     // A scalar level is the same material as a one-element array.
     let single: Material | null = null;
     run((t) => { single = t.isolines(bowl, 25, { step: 1 }); });
-    expect(single!.pts).toEqual(m!.edges.filter((e) => e.attrs.level === 25).extract().pts);
+    expect(single!.points.map(xy)).toEqual(m!.edges.filter((e) => e.level === 25).extract().points.map(xy));
   });
 
   it('subdivision copies the level; an empty result is an empty material', () => {
@@ -242,14 +244,14 @@ describe('one boundary contract', () => {
 
   it('holes, chord closure, isolated points, empties and branching', () => {
     // A ring with a hole from two components of one material.
-    const withHole = connect.ring(material(sq(0, 0, 30)));
-    const hole = connect.ring(material(sq(10, 10, 10)));
+    const withHole = curve(material(sq(0, 0, 30)), { closed: true });
+    const hole = curve(material(sq(10, 10, 10)), { closed: true });
     const both = areaLoops(append(withHole, hole), 'test');
     expect(both).toHaveLength(2);
     const d = distanceTo(both);
     expect(d(15, 15)).toBeCloseTo(-5, 9);
     // An open chain closes with a chord, exactly as the loop did.
-    const open = connect.chain(material([[0, 0], [10, 0], [10, 10]]));
+    const open = curve(material([[0, 0], [10, 0], [10, 10]]));
     expect(distanceTo(open)(3, 1)).toBe(distanceTo([[[0, 0], [10, 0], [10, 10]]])(3, 1));
     // Isolated points contribute nothing; an empty material is an empty boundary.
     expect(areaLoops(material([[4, 4], [5, 5]]), 'test')).toEqual([]);

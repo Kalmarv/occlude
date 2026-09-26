@@ -3,12 +3,13 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, clip, compileSketch, initOcclude, material, path, polygon, rect, render,
-  sketch,
-  type Face, type Faces, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY, Execution,
+  append, circle, clip, material, path, polygon, rect, sketch, type Face, type Faces, type Material,
+  type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY,
 } from '../src/index.js';
+import { compileSketch, initOcclude, render, Execution } from '../src/host.js';
 import type { Loop } from '../src/boundary.js';
 import { scatterPoints } from '../src/points.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -27,7 +28,7 @@ const chord = (x0: number, y0: number, x1: number, y1: number): Material =>
   material([[x0, y0], [x1, y1]], { edges: [[0, 1]] });
 
 const pointsOf = (m: Material): string =>
-  Array.from({ length: m.n }, (_, i) => `${m.pts[i][0]},${m.pts[i][1]}`).sort().join(' ');
+  Array.from({ length: m.n }, (_, i) => `${m.points.map(xy)[i][0]},${m.points.map(xy)[i][1]}`).sort().join(' ');
 
 const ring: Loop = [[10, 10], [90, 10], [90, 90], [10, 90]];
 const hole: Loop = [[40, 40], [60, 40], [60, 60], [40, 60]];
@@ -71,7 +72,7 @@ describe('within: a material inside an area', () => {
     expect(out!.iteration).toBe(2);          // an area edit is not a step
     expect(out!.history.length).toBe(0);
     // Cut at x = 20 and x = 80: v interpolates to 0.2 and 0.8; cat is copied.
-    const rows = Array.from({ length: out!.n }, (_, i) => [out!.pts[i][0], out!.attrs.v[i], out!.attrs.cat[i]]);
+    const rows = Array.from({ length: out!.n }, (_, i) => [out!.points.map(xy)[i][0], out!.attrs.v[i], out!.attrs.cat[i]]);
     expect(rows).toEqual([[20, 0.2, 1], [80, 0.8, 9]]);
   });
 
@@ -189,7 +190,7 @@ describe('within: the point operations', () => {
   // The same rectangle as a bare loop: a rect is an area whatever its spelling.
   const box = [[[20, 20], [80, 20], [80, 80], [20, 80]]] as [number, number][][];
   const coords = (m: Material): string =>
-    Array.from({ length: m.n }, (_, i) => `${m.pts[i][0]},${m.pts[i][1]}`).join(' ');
+    Array.from({ length: m.n }, (_, i) => `${m.points.map(xy)[i][0]},${m.points.map(xy)[i][1]}`).join(' ');
 
   it('relaxes inside a rectangle the same in either spelling, and keeps a circle', () => {
     let byBounds: Material | null = null;
@@ -207,7 +208,7 @@ describe('within: the point operations', () => {
     expect(byCircle!.n).toBeLessThan(byBounds!.n);
     expect(byCircle!.n).toBeGreaterThan(0);
     for (let i = 0; i < byCircle!.n; i++) {
-      const [x, y] = byCircle!.pts[i];
+      const [x, y] = byCircle!.points.map(xy)[i];
       expect(Math.hypot(x - 50, y - 50)).toBeLessThan(30.000001);
     }
   });
@@ -228,7 +229,7 @@ describe('within: the point operations', () => {
     run((t) => { out = t.scatter(() => 1, { spacing: 6, within: circle(50, 50, 25) }); });
     expect(out!.n).toBeGreaterThan(0);
     for (let i = 0; i < out!.n; i++) {
-      const [x, y] = out!.pts[i];
+      const [x, y] = out!.points.map(xy)[i];
       expect(Math.hypot(x - 50, y - 50)).toBeLessThan(25.000001);
     }
   });
@@ -340,7 +341,7 @@ describe('within: the filled region, not the contours', () => {
         let mm = 0;
         for (let e = 0; e < kept.edgeCount; e++) {
           const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
-          mm += Math.abs(kept.pts[b][0] - kept.pts[a][0]);
+          mm += Math.abs(kept.points.map(xy)[b][0] - kept.points.map(xy)[a][0]);
         }
         if (which === 'e') evenoddSpan = mm; else reversedSpan = mm;
       }
@@ -450,7 +451,7 @@ describe('within: holes and winding', () => {
       let mm = 0;
       for (let e = 0; e < kept.edgeCount; e++) {
         const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
-        mm += Math.abs(kept.pts[b][0] - kept.pts[a][0]);
+        mm += Math.abs(kept.points.map(xy)[b][0] - kept.points.map(xy)[a][0]);
       }
       covered = mm;
       pointsKept = t.within(material([[50, 50], [15, 15]]).points, nested).length;

@@ -11,7 +11,9 @@
  * viewport, on the sheet the fence names (Square20 at 5 % by default).
  */
 
-import { DEFAULT_PENS, docsPaper, drawFragments, liveExampleToJs, parseLiveMeta, type LiveMeta } from 'occlude';
+import {
+  DEFAULT_PENS, docsPaper, drawFragments, liveExampleToJs, parseLiveMeta, type LiveMeta,
+} from 'occlude/host';
 import { RenderClient } from './workerClient.js';
 
 interface LiveSource { src: string; meta: LiveMeta }

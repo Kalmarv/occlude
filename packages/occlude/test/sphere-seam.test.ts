@@ -26,10 +26,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { line, rect, space, stroke, strokes, type Execution, type Placement, type ShapeValue, type Toolkit } from '../src/index.js';
+import {
+  line, rect, space, stroke, strokes, type Placement, type ShapeValue, type Toolkit,
+} from '../src/index.js';
+import { type Execution } from '../src/host.js';
 import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
+import { xy } from './helpers/xy.js';
 
 type Kit = Toolkit & { exec: Execution };
 
@@ -114,7 +118,7 @@ describe('a coordinate segment across the tear of the sphere', () => {
     expect(Math.abs(len - want) / want).toBeLessThan(1e-6);
     // `t.material` hands back the same continuous run.
     const m = t.material(stroke([[a, Y], [b, Y]]));
-    for (const d of steps(m.pts as [number, number][])) expect(Math.abs(d)).toBeLessThan(half);
+    for (const d of steps(m.points.map(xy) as [number, number][])) expect(Math.abs(d)).toBeLessThan(half);
   });
 
   it('inks the short arc, near the two ends, and not the long way round the picture', () => {

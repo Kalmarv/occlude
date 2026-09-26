@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, distanceTo, initOcclude, material, mm, polygon, render,
-  sketch, type Face, type SketchDef, type Tree,
+  circle, distanceTo, material, mm, polygon, sketch, type Face, type SketchDef, type Tree,
 } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(

@@ -173,7 +173,7 @@ export default sketch({ aspect: [1, 1] }, (t) =>
 );
 ```
 
-Scaling a drawing about the middle of the sheet is one option, not a compensating translate: `origin: [t.cx, t.cy]` is the pivot every "shrink it to fit" ritual was spelling by hand. The same option works on a single shape. `origin` is a point, or a word for a point of the value itself: `'center'` is the middle of the shape's (or the group's) own bounds, and `'centroid'` its area centroid.
+Scaling a drawing about the middle of the sheet is one option, not a compensating translate: `origin: [b.cx, b.cy]`, with `b = t.bounds()`, is the pivot every "shrink it to fit" ritual was spelling by hand. The same option works on a single shape. `origin` is a point, or a word for a point of the value itself: `'center'` is the middle of the shape's (or the group's) own bounds, and `'centroid'` its area centroid.
 
 ```ts live
 import { sketch, group, circle, rect, line } from 'occlude';
@@ -181,7 +181,7 @@ import { sketch, group, circle, rect, line } from 'occlude';
 export default sketch({ aspect: [2, 1] }, (t) => [
   t.times(9, (k, u) => line(0, u * 100, 200, u * 100)),
   circle(100, 50, 40),
-  group({ scale: 0.5, origin: [t.cx, t.cy] }, rect(20, 20, 160, 60, { rotate: 20 })),
+  group({ scale: 0.5, origin: [t.bounds().cx, t.bounds().cy] }, rect(20, 20, 160, 60, { rotate: 20 })),
 ]);
 ```
 
@@ -231,16 +231,15 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 ]);
 ```
 
-### modify
+### A modifier stack
 
-`modify([...mods], ...children)` applies an ordered modifier stack to a subtree. Stacks compose through nesting: the inner one runs first.
+A group's `modifiers: [...]` applies an ordered modifier stack to its subtree. Stacks compose through nesting: the inner one runs first.
 
 ```ts live
-import { sketch, modify, wobble, decimate, rect, mm } from 'occlude';
+import { sketch, wobble, decimate, rect, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) =>
-  modify(
-    [wobble(mm(0.6)), decimate(0.15)],
+  group({ modifiers: [wobble(mm(0.6)), decimate(0.15)] },
     t.times(9, (k, u) => rect(8 + u * 154, 18, 30, 64, 4)),
   ),
 );
@@ -248,7 +247,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) =>
 
 ## Modifiers
 
-A modifier changes line character. Each exists as a shorthand option on a shape (`{ wobble: mm(1) }`) and as a stack entry (`modify([wobble(mm(1))], …)` or `{ modifiers: [...] }`). Pre-stage modifiers deform the outline before the occlusion solve, so the deformed silhouette is what hides and fills follow it. Post-stage modifiers distress the surviving ink after the solve, so hidden-line logic is unaffected. All are seeded and deterministic.
+A modifier changes line character. It has one spelling: an entry in the `modifiers: [...]` stack of a shape or a group. Pre-stage modifiers deform the outline before the occlusion solve, so the deformed silhouette is what hides and fills follow it. Post-stage modifiers distress the surviving ink after the solve, so hidden-line logic is unaffected. All are seeded and deterministic.
 
 | Modifier | Stage | Parameters (defaults) | Accepts a field |
 |---|---|---|---|
@@ -259,17 +258,17 @@ A modifier changes line character. Each exists as a shorthand option on a shape 
 | `roughen(amount, detail?)` | pre | jitter length; resample step `detail = mm(1.5)` | amount |
 | `deform(field)` | pre | `(x, y) => [dx, dy]` in drawable units, or `{ field, detail: mm(2) }` | the field itself |
 
-Order: a shape's own stack runs first, then `modify()` ancestors inside-out; shorthand options run after any explicit stack (decimate before wobble). Pre-stage modifiers flatten the wrapped shapes' curves into polylines for the solve, which costs more, so wrap only the shapes that need deforming. Fielded parameters and `align` are covered in Fields & variation.
+Order: a shape's own stack runs first, then the stacks of the groups around it, inside-out. Pre-stage modifiers flatten the wrapped shapes' curves into polylines for the solve, which costs more, so wrap only the shapes that need deforming. Fielded parameters and `align` are covered in Fields & variation.
 
 ### wobble
 
 Seeded smooth-noise displacement, like hand tremor. `{ amount, wavelength }` sets the scale.
 
 ```ts live
-import { sketch, line, mm } from 'occlude';
+import { sketch, line, wobble, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) =>
-  t.times(12, (k, u) => line(10, 8 + u * 84, 190, 8 + u * 84, { wobble: mm(u * 1.4) })),
+  t.times(12, (k, u) => line(10, 8 + u * 84, 190, 8 + u * 84, { modifiers: [wobble(mm(u * 1.4))] })),
 );
 ```
 
@@ -281,13 +280,13 @@ The amount may also be a **length-valued field** — `mm(0.3)` per sample, resol
 Drops a fraction of the final strokes, seeded. `{ stroke, fill }` targets outline and fill ink separately. Finishing modifiers apply before duplicate outlines are removed, so a separately drawn intact outline survives alongside a decimated copy.
 
 ```ts live
-import { sketch, circle, fill, mm } from 'occlude';
+import { sketch, circle, decimate, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) =>
   t.times(4, (k, u) =>
     circle(30 + u * 140, 50, 24, {
       fill: fill('hatch', { angle: 45, spacing: mm(0.7) }),
-      decimate: { fill: u * 0.85 }, // erode the texture, keep the outline
+      modifiers: [decimate({ fill: u * 0.85 })], // erode the texture, keep the outline
     }),
   ),
 );
@@ -298,11 +297,10 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) =>
 `dash(len, gap, offset?)` cuts strokes into a dash pattern of physical lengths. It runs after occlusion, so dashes continue through hidden-line cuts.
 
 ```ts live
-import { sketch, modify, dash, circle, mm } from 'occlude';
+import { sketch, dash, circle, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) =>
-  modify(
-    [dash(mm(3), mm(2))],
+  group({ modifiers: [dash(mm(3), mm(2))] },
     t.times(5, (k, u) => circle(100, 50, 8 + u * 38)),
   ),
 );
@@ -313,28 +311,28 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 `smooth(passes)` relaxes corners toward curves; `roughen(amount, detail)` breaks clean edges into jitter. Both deform the contour before the solve.
 
 ```ts live
-import { sketch, modify, smooth, roughen, ngon, mm } from 'occlude';
+import { sketch, smooth, roughen, ngon, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 9 }, () => [
   ngon(35, 50, 5, 30),
-  modify([smooth(3)], ngon(100, 50, 5, 30)),
-  modify([roughen(mm(1.2), mm(3))], ngon(165, 50, 5, 30)),
+  group({ modifiers: [smooth(3)] }, ngon(100, 50, 5, 30)),
+  group({ modifiers: [roughen(mm(1.2), mm(3))] }, ngon(165, 50, 5, 30)),
 ]);
 ```
 
 ### deform
 
-`deform(vectorField)` displaces contours by an `(x, y) => [dx, dy]` field before the solve. `noiseField(amount, wavelength?)` is a ready-made one.
+`deform(vectorField)` displaces contours by an `(x, y) => [dx, dy]` field before the solve. Two readings of the sketch's noise make a tremor field.
 
 ```ts live
-import { sketch, modify, deform, rect } from 'occlude';
+import { sketch, deform, rect, group } from 'occlude';
 
-export default sketch({ aspect: [2, 1], seed: 2 }, (t) =>
-  modify(
-    [deform(t.noiseField(6, 30))],
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const tremor = (x, y) => [6 * t.noise(x / 30, y / 30), 6 * t.noise(x / 30 + 213.7, y / 30 - 118.3)];
+  return group({ modifiers: [deform(tremor)] },
     t.times(8, (k, u) => rect(14 + u * 150, 20, 18, 60)),
-  ),
-);
+  );
+});
 ```
 
 ### bridge
@@ -364,8 +362,7 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or `'center'`. Circles, ellipses and n-gons are always centre-anchored. |
 | `translate`, `rotate`, `scale` | A per-shape transform, the same as wrapping the shape in a group (applied translate, then rotate, then scale). |
 | `origin` | Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or `'center'` for the middle of the drawable. Without it they pivot on the user origin. |
-| `decimate`, `wobble` | Shorthand for the modifiers of the same name: `{ wobble: mm(0.8) }`, `{ decimate: { fill: 0.5 } }`. |
-| `modifiers` | An ordered stack: `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }`, run first to last. |
+| `modifiers` | An ordered stack, the one spelling of a modifier: `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }`, run first to last. |
 | `preserveStroke` | Keep each authored contour and its visibility gaps separate through planning; prevents endpoint merging and pen-down bridging into other strokes. Defaults to `false`. |
 | `bridge` | Pen-down joining across gaps up to this length. Inherited from a group. |
 
@@ -442,21 +439,6 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-### noisyLine
-
-`t.noisyLine(x1, y1, x2, y2, { amplitude?, scale?, points?, offset? })` is a line with organic waver whose endpoints stay exact. Here a horizon of them runs behind an opaque disc.
-
-```ts live
-import { sketch, circle } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 4 }, (t) => [
-  t.times(17, (k, u) =>
-    t.noisyLine(6, 8 + u * 84, 194, 8 + u * 84, { amplitude: 1 + u * 5, offset: k * 7.3 }),
-  ),
-  circle(140, 36, 20, { opaque: true }),
-]);
-```
-
 ### A length that varies
 
 `wobble`'s `amount` takes a length, or a field of lengths: not a number but a
@@ -466,15 +448,15 @@ constants). Combined with `within(...)` that gives a tremor which fades out
 over part of the drawing:
 
 ```ts live
-import { sketch, line, mm, circle } from 'occlude';
+import { sketch, line, mm, circle, wobble } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) => [
   // steady tremor all the way across
-  t.times(6, (k, u) => line(10, 6 + u * 40, 190, 6 + u * 40, { wobble: mm(1.2) })),
+  t.times(6, (k, u) => line(10, 6 + u * 40, 190, 6 + u * 40, { modifiers: [wobble(mm(1.2))] })),
   // and the same lines with the tremor `within` a disc and absent outside it
   t.times(6, (k, u) =>
     line(10, 54 + u * 40, 190, 54 + u * 40, {
-      wobble: { amount: t.within(() => mm(1.2), circle(100, 74, 46)), wavelength: mm(14) },
+      modifiers: [wobble({ amount: t.within(() => mm(1.2), circle(100, 74, 46)), wavelength: mm(14) })],
     }),
   ),
 ]);

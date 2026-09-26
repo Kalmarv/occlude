@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { exportGcode, exportPng, exportSvg, initOcclude, line, render, sketch, type RenderOptions, type SketchDef } from '../src/index.js';
+import { line, sketch, type SketchDef } from '../src/index.js';
+import { exportGcode, exportPng, exportSvg, initOcclude, render, type RenderOptions } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -9,8 +10,8 @@ beforeAll(async () => {
 it.each([render, exportGcode, exportPng, exportSvg])('headless entry point establishes paper before compiling (%#)', (run) => {
   let dimensions: number[] = [];
   const def = sketch({ aspect: 'paper', margin: 10, seed: 1 }, t => {
-    dimensions = [t.width, t.height];
-    return line(0, 0, t.width, t.height);
+    dimensions = [t.bounds().w, t.bounds().h];
+    return line(0, 0, t.bounds().w, t.bounds().h);
   });
   for (const [paper, expected] of [
     ['Square20', [100, 100]],

@@ -8,7 +8,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { append, connect, curve, initOcclude, material, type Material } from '../src/index.js';
+import { append, connect, curve, material, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { toolkit } from './helpers/run.js';
 
 beforeAll(async () => {
@@ -62,7 +63,7 @@ describe('edges.crossing', () => {
     // The result is an edge selection like any other.
     const hit = m.edges.crossing([20, 5], [20, 25]);
     expect(hit.points.indices.length).toBe(4);
-    expect(hit.complement().indices).toEqual([2]);
+    expect(m.edges.without(hit).indices).toEqual([2]);
   });
 
   it('the grid gives the same answer a full scan does', () => {
@@ -73,7 +74,7 @@ describe('edges.crossing', () => {
     for (let i = 0; i < 100; i++) {
       const cx = 5 + (i % 10) * 10;
       const cy = 5 + Math.floor(i / 10) * 10;
-      m = append(m, connect.ring(material([[cx - 3, cy - 3], [cx + 3, cy - 3], [cx + 3, cy + 3], [cx - 3, cy + 3]])));
+      m = append(m, curve(material([[cx - 3, cy - 3], [cx + 3, cy - 3], [cx + 3, cy + 3], [cx - 3, cy + 3]]), { closed: true }));
     }
     const a: [number, number] = [-1, 2];
     const b: [number, number] = [103, 97];

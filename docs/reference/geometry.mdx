@@ -195,19 +195,18 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
 <include>/_sig/Toolkit.station.2.mdx</include>
 <include>/_sig/Station.placement.mdx</include>
 <include>/_sig/reflection.mdx</include>
-<include>/_sig/between.mdx</include>
 <include>/_sig/Material.transform.mdx</include>
 
 A placement is an isometry of the space. It moves a point, a station, a material or a whole drawing, and it keeps every length and every angle. `orientation` is `1` when it keeps the hand of a motif and `-1` when it turns the motif over.
 
-Four ways to get one: `station.placement()` carries the origin station, at `(0, 0)` facing `+x`, to that station. `between(door, from, to)` carries one station onto another, and `{ mirror: true }` turns it over on the way. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.station(s)` moves a station and its heading. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`.
+Four ways to get one: `station.placement()` carries the origin station, at `(0, 0)` facing `+x`, to that station. `b.placement({ from: a })` carries station `a` onto station `b`. To turn the motif over on the way, apply the mirror in the heading line of `a` first. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.station(s)` moves a station and its heading. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`.
 
 A placing group and a deforming group never share a group. Nest them: the inner group holds `translate`, `rotate` or `scale` in the motif's own coordinates, and the outer group holds the placement. The library refuses a group that names both, and the error names the keys.
 
-Below, one arrow motif, written once about the origin. `group(s.placement(), arrow)` puts it at each corner of the cell (black). The blue copies go through `m.transform` and then the mirror in the first side. A mirror turns a motif over, so the barbs lean the other way. The green arrow is the first corner's arrow, carried to the third corner by `between(door, from, to, { mirror: true })`. It stands at that corner turned over, so it points the other way along the side.
+Below, one arrow motif, written once about the origin. `group(s.placement(), arrow)` puts it at each corner of the cell (black). The blue copies go through `m.transform` and then the mirror in the first side. A mirror turns a motif over, so the barbs lean the other way. The green arrow is the first corner's arrow, turned over in the first side. Then `stops[2].placement({ from: stops[0] })` carries it to the third corner. It stands at that corner turned over, so it points the other way along the side.
 
 ```ts live
-import { sketch, group, strokes, line, circle, space, reflection, between } from 'occlude';
+import { sketch, group, strokes, line, circle, space, reflection } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 1 });
@@ -221,7 +220,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
     strokes(tiles, { pen: 'pigma-005-black' }),
     stops.map((s) => group(s.placement(), arrow)),
     stops.map((s) => strokes(motif.transform(s.placement().then(mirror)), { pen: 'stabilo-88-blue' })),
-    strokes(motif.transform(stops[0].placement().then(between(t.space.model, stops[0], stops[2], { mirror: true }))), { pen: 'stabilo-88-green' }),
+    strokes(motif.transform(stops[0].placement().then(mirror).then(stops[2].placement({ from: stops[0] }))), { pen: 'stabilo-88-green' }),
   ];
 });
 ```
@@ -231,13 +230,12 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
 <include>/_sig/Toolkit.tiling.mdx</include>
 <include>/_sig/Tiling.cell.mdx</include>
 <include>/_sig/Tiling.placements.mdx</include>
-<include>/_sig/Tiling.seed.mdx</include>
 
 <AutoTypeTable path="../occlude/src/tiling.ts" name="TilingOpts" />
 
 The regular tiling of `p`-gons, `q` at every corner. The symbol picks the geometry: `(p − 2)(q − 2)` below 4 is the sphere, 4 the plane, and above 4 the hyperbolic disk. `{3, 5}` is the icosahedron, `{4, 4}` the square grid, and `{7, 3}` the heptagonal tiling of the disk. The sketch's `space` must be the geometry of the symbol, and the error names the `space` a symbol needs.
 
-The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces()` gives the cells. `cell` is the first cell's corners, in order. `placements` is one [placement](#placement) for each copy, the identity first, so a motif drawn once in the cell goes to every copy. `tiles.seed` is the first face. Every face carries `generation` (reflections from the first cell), `mirrored` (1 for a copy that turns the plane over) and `placementIndex`.
+The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces()` gives the cells. `cell` is the first cell's corners, in order. `placements` is one [placement](#placement) for each copy, the identity first, so a motif drawn once in the cell goes to every copy. `tiles.faces().at(0)` is the first cell. Every face carries `generation` (reflections from the first cell), `mirrored` (1 for a copy that turns the plane over) and `placementIndex`.
 
 `depth` is generations of reflection across the cell's edges. A spherical tiling is finite and comes back whole. `side` sets the wall length of a flat tiling, and a curved symbol refuses it, because its curvature fixes the side. Below, a `{7, 3}`, with the mirrored cells hatched blue.
 
@@ -268,7 +266,7 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
 
 <include>/_sig/Toolkit.distanceTo.mdx</include>
 
-`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. Points have no inside too. So `t.distanceTo(points)` is zero at each point. At other positions it is minus the distance of the space to the nearest point. The pure `sdf.*` words and `distanceToPoints` stay flat, because a pure kernel reads no frame.
+`t.distanceTo` measures by the metric of the sketch. In a flat sketch it is the straight-line distance, and in a curved one it is the distance of the space. Its field goes to `t.isolines`, `t.scatter`, `t.within` and the `sdf` algebra as any field does. It reads every edge as a geodesic. An open shape has no inside, so `t.distanceTo(line(a, b))` is the signed distance to one geodesic, positive on its left. Points have no inside too. So `t.distanceTo(points)` is zero at each point. At other positions it is minus the distance of the space to the nearest point. The pure `sdf.*` words and the pure `distanceTo` stay flat, because a pure kernel reads no frame.
 
 Below, the cell of a `{7, 3}` inset at three fractions of its depth. One `t.isolines` call makes the insets once, and `m.transform` carries them to every copy.
 
@@ -369,10 +367,10 @@ Four symbols have a compact cell: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5,
 Below, the `{5, 3, 4}` honeycomb, four right-angled dodecahedra around every edge, seen from inside one cell. The honeycomb is its wires, because solid walls would hide every other cell. The heavier pen draws the room the observer stands in. That room is generation 0. The page edge cuts the wires.
 
 ```ts live
-import { sketchAsync, strokes, clip, rect, pen, mm } from 'occlude';
+import { sketch, strokes, clip, rect, pen, mm } from 'occlude';
 import { view, perspective, honeycomb, observer } from 'occlude/3d';
 
-export default sketchAsync({ aspect: [1, 1], pens: {
+export default sketch({ aspect: [1, 1], pens: {
   ink: pen({ width: mm(0.18), color: '#46505C' }),
   room: pen({ width: mm(0.38), color: '#18202A' }),
 } }, async (t) => {
@@ -395,15 +393,16 @@ export default sketchAsync({ aspect: [1, 1], pens: {
 `geodesic3(a, b, { count })` puts `count` steps of equal hyperbolic length along the chord from `a` to `b`. Near the rim of the ball the same length is a shorter chord, so the beads crowd toward the edge. The picture looks straight down the `z` axis, so each chord draws as itself.
 
 ```ts live
-import { sketchAsync, strokes } from 'occlude';
-import { view, orthographic, curve, circle, geodesic3 } from 'occlude/3d';
+import { sketch, strokes } from 'occlude';
+import { view, orthographic, curve, parametricCurve, geodesic3 } from 'occlude/3d';
 
-export default sketchAsync({ aspect: [1, 1] }, async () => {
+export default sketch({ aspect: [1, 1] }, async () => {
   // Two chords of the ball: one through the centre, one off it. Each bead
   // is a short tick across the chord, one per step of equal hyperbolic
   // length.
   const chords = [[[-0.92, 0, 0], [0.92, 0, 0]], [[-0.55, 0.62, 0], [0.74, 0.38, 0]]];
-  const wires = [circle(1)];
+  const rim = parametricCurve((u) => [Math.cos(2 * Math.PI * u), Math.sin(2 * Math.PI * u), 0], { closed: true });
+  const wires = [rim];
   for (const [a, b] of chords) {
     wires.push(curve([a, b]));
     const dx = b[0] - a[0];

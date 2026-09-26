@@ -13,13 +13,32 @@ export type XY = readonly [number, number] | readonly number[] | { x: number; y:
 
 export type Vec = [number, number];
 
+/** A point or vector of space: `[x, y, z]` or an `{x, y, z}` row. Only
+ * `length` and `distance` read the third coordinate; a 2-vector beside a
+ * 3-vector stands at z = 0. */
+export type XYZ = readonly [number, number, number] | { x: number; y: number; z: number };
+
 // Array.isArray does not narrow readonly arrays; a guard does.
 /** @internal */
-export const isArr = (p: XY): p is readonly number[] => Array.isArray(p);
+export const isArr = (p: XY | XYZ): p is readonly number[] => Array.isArray(p);
 /** @internal */
 export const vx = (p: XY): number => (isArr(p) ? p[0] : p.x);
 /** @internal */
 export const vy = (p: XY): number => (isArr(p) ? p[1] : p.y);
+/** The third coordinate: `p[2]` of a triple, `p.z` of a row that has one,
+ * 0 for a 2-vector. */
+const vz = (p: XY | XYZ): number => {
+  if (isArr(p)) return p[2] ?? 0;
+  const z = (p as { z?: unknown }).z;
+  return typeof z === 'number' ? z : 0;
+};
+/** The plane length `|v|`, whatever else the value carries: `unit` is 2D
+ * arithmetic. */
+const planeLength = (v: XY): number => {
+  const x = vx(v);
+  const y = vy(v);
+  return Math.sqrt(x * x + y * y);
+};
 /** @internal */
 export const asXY = (p: XY): [number, number] => [vx(p), vy(p)];
 
@@ -43,26 +62,28 @@ export function mul(v: XY, k: number): Vec {
   return [vx(v) * k, vy(v) * k];
 }
 
-export function length(v: XY): number {
+/** How long a vector is: `[x, y]`, `{x, y}`, or a 3-vector (`[x, y, z]`
+ * or an `{x, y, z}` row), so a mesh point row measures directly. */
+export function length(v: XY | XYZ): number {
   const x = vx(v);
   const y = vy(v);
-  return Math.sqrt(x * x + y * y);
+  const z = vz(v);
+  return Math.sqrt(x * x + y * y + z * z);
 }
 
-export function distance(a: XY, b: XY): number {
-  return length(sub(a, b));
+/** How far apart two points are, in either spelling, in the plane or in
+ * space; a 2-vector beside a 3-vector stands at z = 0. */
+export function distance(a: XY | XYZ, b: XY | XYZ): number {
+  const x = vx(a) - vx(b);
+  const y = vy(a) - vy(b);
+  const z = vz(a) - vz(b);
+  return Math.sqrt(x * x + y * y + z * z);
 }
 
 /** `v / |v|`, or `[0, 0]` when `|v|` is zero. */
 export function unit(v: XY): Vec {
-  const d = length(v);
+  const d = planeLength(v);
   return d > 0 ? [vx(v) / d, vy(v) / d] : [0, 0];
-}
-
-/** `v` shortened to `max` if it is longer; unchanged otherwise. */
-export function limit(v: XY, max: number): Vec {
-  const d = length(v);
-  return d > max && d > 0 ? [(vx(v) / d) * max, (vy(v) / d) * max] : [vx(v), vy(v)];
 }
 
 /** `v` turned a quarter turn counter-clockwise (y down: visually clockwise). */

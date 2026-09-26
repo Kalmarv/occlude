@@ -2,8 +2,8 @@
  * timings. Diagnostic only; the benchmark runners stay the reference. */
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import * as occlude from '../../src/index.js';
-import {compileSketchAsync,initOcclude,liveExampleToJs,exportSvg} from '../../src/index.js';
+import * as occlude from '../../src/host.js';
+import { compileSketchAsync, initOcclude, liveExampleToJs, exportSvg } from '../../src/host.js';
 import {requireFor} from '../../tools/inputs.js';
 import {workloads} from '../benchmark-surface/workloads.mjs';
 const root=fileURLToPath(new URL('../../../../',import.meta.url));
@@ -19,5 +19,5 @@ for(const pass of Array.from({length:passes},(_,i)=>i===0?'cold':'warm')){
   const compileMs=performance.now()-started;
   const svg=exportSvg(run,{} as never);
   const scenes=[...run.scenes3.values()].map(s=>({features:s.features.length,candidates:s.stats.candidates,wallMs:Math.round(s.stats.wallMs),stats:s.stats}));
-  console.log(JSON.stringify({pass,compileMs:Math.round(compileMs),svgBytes:svg.length,modeling:run.modeling3.map(m=>({operation:m.operation,backend:m.backend,wallMs:Math.round(m.timings?.wallMs??0),segments:m.hatch?.segments??m.mapping?.outputSegments??m.intersections?.outputSegments})),scenes},null,2));
+  console.log(JSON.stringify({pass,compileMs:Math.round(compileMs),svgBytes:svg.length,modeling:run.modeling3.map(m=>({operation:m.operation,backend:m.backend,wallMs:Math.round(m.timings?.wallMs??0),segments:m.hatch?.segments})),scenes},null,2));
 }

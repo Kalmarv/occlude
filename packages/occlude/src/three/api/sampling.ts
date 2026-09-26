@@ -82,16 +82,23 @@ export interface SurfaceCoordinateOptions {
   readonly uvAttribute?:string;
   readonly chartAttribute?:string;
 }
-export interface SurfaceSamplingOptions<F extends Attributes3={}> extends GeometryOptions,SurfaceCoordinateOptions {
-  readonly count:number;readonly maxPoints?:number;
+interface SurfaceScatterBase<F extends Attributes3> extends GeometryOptions,SurfaceCoordinateOptions {
+  readonly maxPoints?:number;
   /** Nonnegative per-face candidate weight, captured once; zero excludes a face. */
   readonly weight?:Field<FaceRow<F>,number>;
 }
-export interface SurfaceScatterOptions<F extends Attributes3={}> extends GeometryOptions,SurfaceCoordinateOptions {
-  /** Minimum Euclidean separation in world units, not paper or geodesic units. */
-  readonly spacing:number;readonly maxPoints?:number;readonly maxAttempts?:number;
-  readonly weight?:Field<FaceRow<F>,number>;
-}
+/** `t.scatter` on a mesh: `count` points placed independently, weighted by
+ * area, or points kept at least `spacing` apart. One of the two, as a 2D
+ * `t.sample` takes a count or a spacing. */
+export type SurfaceScatterOptions<F extends Attributes3={}>=SurfaceScatterBase<F>&(
+  |{readonly count:number;readonly spacing?:undefined;readonly maxAttempts?:undefined}
+  |{
+    /** Minimum Euclidean separation in world units, not paper or geodesic units. */
+    readonly spacing:number;readonly count?:undefined;
+    /** Candidates to try before giving up (100 000 by default). */
+    readonly maxAttempts?:number;
+  });
+type CountOptions<F extends Attributes3>=Extract<SurfaceScatterOptions<F>,{readonly count:number}>;
 export interface SurfaceSamplingEnv {readonly rnd:()=>number;readonly signal?:AbortSignal}
 interface Prepared<F extends Attributes3>{readonly faces:readonly FaceRow<F>[];readonly triangles:readonly number[];readonly cumulative:readonly number[];readonly total:number;readonly extent:number;readonly origin:Vec3}
 function nonnegativeInteger(value:number,name:string):void{if(!(value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error(`${name} must be a nonnegative integer or Infinity`);}
@@ -129,8 +136,8 @@ function result<P extends Attributes3,E extends EdgeAttributes,F extends Attribu
   const surface:Surface3={...surface3([],[]),points};
   return new SurfaceSamples(new PointGeometry<Combined<F,P>>(surface,{key:options.key}),target,samples,generation);
 }
-/** Advanced explicit random-source entry; normal sketches call t.sample(mesh). */
-export function sampleSurfacePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
+/** `count` independent area-weighted points. */
+function samplePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:CountOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
   optionsObject(options);env.signal?.throwIfAborted();if(!(target instanceof Mesh))throw new Error('surface sampling requires a mesh');
   const count=options.count,limit=options.maxPoints??Infinity;nonnegativeInteger(count,'surface sample count');nonnegativeInteger(limit,'surface sample point budget');
   if(count>limit)throw new Error('surface sampling exceeds point budget');
@@ -143,7 +150,7 @@ export function sampleSurfacePoints<P extends Attributes3,E extends EdgeAttribut
   return result(target,points,samples,{attempts:count,accepted:points.length,reason:points.length===count?'count':'empty'},options);
 }
 /** Global dart rejection with a bounded sparse world-space neighbor grid. */
-export function scatterSurfacePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
+function spacedPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
   optionsObject(options);env.signal?.throwIfAborted();if(!(target instanceof Mesh))throw new Error('surface scatter requires a mesh');
   const spacing=options.spacing,limit=options.maxPoints??Infinity,budget=options.maxAttempts??100_000;
   if(typeof spacing!=='number')throw new Error('surface scatter spacing must be positive finite world units');
@@ -165,4 +172,14 @@ export function scatterSurfacePoints<P extends Attributes3,E extends EdgeAttribu
     if(points.length===limit)reason='point-limit';
   }else if(!budget&&limit)reason='attempt-limit';
   return result(target,points,samples,{attempts,accepted:points.length,reason},options);
+}
+/** @internal The toolkit's `t.scatter` on a mesh, with the execution's
+ * seeded stream in `env`: `{ count }` places that many points independently,
+ * weighted by area; `{ spacing }` keeps them at least that far apart. */
+export function scatterSurface<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
+  optionsObject(options);
+  const {count,spacing}=options as {count?:unknown;spacing?:unknown};
+  if(count!==undefined&&spacing!==undefined)throw new Error('t.scatter on a mesh takes { count } or { spacing }, not both');
+  if(count===undefined&&spacing===undefined)throw new Error('t.scatter on a mesh requires { count } or { spacing }');
+  return count!==undefined?samplePoints(target,options as CountOptions<F>,env):spacedPoints(target,options,env);
 }

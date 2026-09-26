@@ -6,9 +6,10 @@
  * `isolines` …) outside a sketch function.
  */
 
+import { type Toolkit } from '../../src/index.js';
 import {
-  Execution, bindToolkit, paperSize, type CompileConfig, type ExecutionInputs, type PaperChoice, type Toolkit,
-} from '../../src/index.js';
+  Execution, bindToolkit, paperSize, type CompileConfig, type ExecutionInputs, type PaperChoice,
+} from '../../src/host.js';
 
 export const SQ: ExecutionInputs = { paper: { w: 200, h: 200 } };
 export const A4: ExecutionInputs = { paper: { w: 210, h: 297 } };

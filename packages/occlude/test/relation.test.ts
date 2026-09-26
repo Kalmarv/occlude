@@ -49,7 +49,7 @@ describe('selections', () => {
 
   it('edge selections: views, deduplicated endpoints in source order, domain checks', () => {
     const m = Y();
-    const strong = m.edges.filter((e) => e.attrs.strength >= 3);
+    const strong = m.edges.filter((e) => e.strength >= 3);
     expect(strong.indices).toEqual([2, 3]);
     expect(strong.map((e) => [e.a.index, e.b.index])).toEqual([[2, 3], [2, 4]]);
     expect(strong.points.map((p) => p.index)).toEqual([2, 3, 4]); // 2 once
@@ -176,7 +176,7 @@ describe('selections in edits', () => {
     // A write carries identity, so a selection made before it is still
     // about the same points: `has` answers by who, not by which row.
     expect(outer.has(first.vertex(3))).toBe(true);
-    const strong = m.edges.filter((e) => e.attrs.strength >= 3);
+    const strong = m.edges.filter((e) => e.strength >= 3);
     const moved = first
       .move([0, 5], outer)
       .edges.set('strength', 100, strong)

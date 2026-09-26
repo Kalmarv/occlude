@@ -11,9 +11,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, connect, distanceTo, force, initOcclude, isGeometry, material, polygon, render,
-  sketch, strokes, type Face, type Faces, type SketchDef,
+  circle, connect, curve, distanceTo, force, material, polygon, sketch, strokes, type Face, type Faces,
+  type SketchDef,
 } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
+import { isGeometry } from '../src/boundary.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -23,8 +25,8 @@ beforeAll(async () => {
 const ink = (def: SketchDef): number => render(def, { paper: 'Square20' }).stats.fragments;
 
 /** A closed ring, an open chain, and the collections they make. */
-const ring = () => connect.ring(material([[10, 10], [60, 10], [60, 60], [10, 60]]));
-const openChain = () => connect.chain(material([[10, 10], [60, 10], [60, 60]]));
+const ring = () => curve(material([[10, 10], [60, 10], [60, 60], [10, 60]]), { closed: true });
+const openChain = () => curve(material([[10, 10], [60, 10], [60, 60]]));
 
 function cellsOf(): Faces {
   return material([[10, 10], [60, 10], [60, 60], [10, 60]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [0, 2]] })
@@ -199,7 +201,6 @@ describe('a shape is not geometry until the toolkit lowers it', () => {
       // A point consumer refuses a shape instead: how many points a shape
       // has would be a flattening tolerance's decision, not the sketch's.
       expect(() => t.force.separation(area, { radius: 3 })).toThrow(/not a set of points/);
-      expect(() => t.force.attract(area, { radius: 3 })).toThrow(/t\.sample\(shape, \{ count \}\)/);
       // Given points, they work: the door is explicit.
       const points = t.material(area);
       expect(typeof t.force.separation(points, { radius: 3 })).toBe('function');

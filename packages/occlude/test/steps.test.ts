@@ -7,7 +7,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { add, circle, curve, force, initOcclude, material, mul, render, sketch, type Edge, type Material, type Vertex } from '../src/index.js';
+import {
+  add, circle, curve, force, material, mul, sketch, type Edge, type Material, type Vertex,
+} from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));

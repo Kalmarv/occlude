@@ -1,15 +1,8 @@
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import {
-  append,
-  sketch,
-  compileSketch,
-  setPaperHint,
-  material,
-  type Material,
-  type ThickenOpts,
-} from '../../src/index.js';
+import { append, sketch, setPaperHint, material, type Material, type ThickenOpts } from '../../src/index.js';
+import { compileSketch } from '../../src/host.js';
 /** A thicken implementation: the method under test, or a saved baseline
  * module's free function with the same contract. */
 type ThickenFn = (source: Material, opts: ThickenOpts) => Material;

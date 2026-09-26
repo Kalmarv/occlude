@@ -1,8 +1,9 @@
 /** Local persistence: sketch source, pen library, paper & machine settings. */
 
-import { DEFAULT_PENS, type PenDef, DEFAULT_PAPERS, PAPERS, type PaperDef } from 'occlude';
+import { type PenDef } from 'occlude';
+import { DEFAULT_PENS, DEFAULT_PAPERS, PAPERS, type PaperDef } from 'occlude/host';
 
-import type { LiftMap, SettlePoint, YAxis } from 'occlude';
+import type { LiftMap, SettlePoint, YAxis } from 'occlude/host';
 
 const KEYS = {
   sketch: 'occlude.sketch',
@@ -249,7 +250,7 @@ const sketchConfig = {
 
 export default sketch(sketchConfig, (t) => {
   const art = t.times(12, () =>
-    circle(t.rnd(10, 90), t.rnd(10, t.height - 10), t.rnd(5, 12), {
+    circle(t.rnd(10, 90), t.rnd(10, t.bounds().h - 10), t.rnd(5, 12), {
       opaque: true,
     }),
   );

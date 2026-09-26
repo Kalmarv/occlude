@@ -89,7 +89,7 @@ describe('planarize', () => {
     const seen: number[][] = [];
     const p = cross.planarize({
       point: (ev) => { seen.push(ev.candidates.map((c) => c.edge!)); return { age: 1 }; },
-      edges: (parent, child) => ({ rest: parent.attrs.rest * child.fraction }),
+      edges: (parent, child) => ({ rest: parent.rest * child.fraction }),
     });
     expect(seen).toEqual([[0, 1]]);
     expect(p.attrs.age[4]).toBe(1);
@@ -137,13 +137,13 @@ describe('faces', () => {
   it('empty, isolated, tree, one ring, disjoint rings', () => {
     expect(material([]).faces().length).toBe(0);
     expect(material([[0, 0], [1, 1]]).faces().length).toBe(0);
-    expect(connect.chain([[0, 0], [5, 0], [5, 5], [9, 9]]).faces().length).toBe(0);
+    expect(curve([[0, 0], [5, 0], [5, 5], [9, 9]]).faces().length).toBe(0);
     const one = square();
     expect(areas(one)).toEqual([100]);
     expect(one.faces().faces[0].perimeter).toBe(40);
     expect(one.faces().faces[0].bounds).toEqual({ x: 0, y: 0, w: 10, h: 10 });
     expect(areas(append(square(), square(20, 0)))).toEqual([100, 100]);
-    for (const m of [one, append(square(), square(20, 0)), connect.chain([[0, 0], [5, 0], [5, 5]])]) expect(m.faces().length).toBe(euler(m));
+    for (const m of [one, append(square(), square(20, 0)), curve([[0, 0], [5, 0], [5, 5]])]) expect(m.faces().length).toBe(euler(m));
   });
 
   it('a square with one diagonal has two faces; both diagonals need planarize and give four', () => {

@@ -1,7 +1,7 @@
 export {mesh,plane,box,pointCloud,parametric} from './mesh.js';
 export type {ParametricOptions} from './mesh.js';
 export type {Mesh,PointGeometry,CurveGeometry,GeometryPoints,CurvePoints,CurveEdges,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,GeometryOptions,SetOptions3,SetManyOptions3,Transfer3,Where3} from './mesh.js';
-export {view,orthographic,perspective,oblique} from './view.js';
+export {view,orthographic,perspective} from './view.js';
 export type {ViewOptions,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
 export type {Collection} from './collection.js';
@@ -21,13 +21,13 @@ export {query} from './query.js';
 export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,QueryResults,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
 export {force} from './force.js';
 export type {Force} from './force.js';
-export {curve,parametricCurve,circle} from './curves.js';
+export {curve,parametricCurve} from './curves.js';
 export type {PolylineOptions,CurveOptions} from './curves.js';
 export {revolve} from './revolve.js';
 export type {RevolveOptions} from './revolve.js';
 export {sweep} from './sweep.js';
 export type {SweepOptions} from './sweep.js';
-export type {SurfaceSamples,SurfaceSamplePoints,SurfaceSample,SurfaceSampleRow,SurfaceCoordinateOptions,SurfaceSamplingOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
+export type {SurfaceSamples,SurfaceSamplePoints,SurfaceSample,SurfaceSampleRow,SurfaceCoordinateOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
 
 export type {MeshPointRow,MeshEdgeRow,MeshFaceRow,MeshCornerRow,MeshPoints,MeshEdges,MeshFaces,MeshCorners} from './topology.js';
 
@@ -42,21 +42,19 @@ export type {IntersectionInput,IntersectionOptions,IntersectionAttributes} from 
 export type {CurveSamples,CurveSamplePoints,CurveSample,CurveSampleRow,CurveSamplingOptions} from './curveSampling.js';
 
 export type {SurfaceUV,SurfaceChart} from '../geometry/coordinates.js';
-export {planarUV,cylindricalUV} from './coordinates.js';
-export type {PlanarUVOptions,CylindricalUVOptions} from './coordinates.js';
 export {mapSurface} from './mapping.js';
 export type {SurfaceMappingOptions,SurfaceMappingStats,MappedAttributes,ChartFrame} from './mapping.js';
-export {trace,laneThreshold} from './hatch.js';
-export {v3,falloff,grad3,curl3} from './vec.js';
-/** The 3D twins of `distance` and `length` from `occlude`: triples or `{x, y, z}` rows. */
-export {distance,length} from './vec.js';
+export {trace} from './hatch.js';
+/** `distance` and `length` are the root words from `occlude`, which take a
+ * pair, a triple, or a row with `x`, `y` and optionally `z`. */
+export {grad,curl3} from './vec.js';
 export type {VectorField3,ScalarField3} from './vec.js';
 export type {Seeds3,Streamlines3Options} from './flow.js';
 export {instanceOnFaces} from './instances.js';
 export type {InstanceOnFacesOptions} from './instances.js';
 export type {SurfaceCurveOptions} from './supported.js';
 export type {HatchOptions,HatchFamily,HatchAttributes,HatchStats,HatchInput,TraceOptions,TraceSeed,TraceAttributes} from './hatch.js';
-export {light,lamp,environment,gradient,curvature,across} from '../surface/fields.js';
+export {light,lamp,environment,curvature,across} from '../surface/fields.js';
 export type {DirectionField,DirectionInput,ToneField,ToneInput,LampOptions,LampFalloff,EnvironmentSampler,EnvironmentOptions} from '../surface/fields.js';
 export type {SurfaceLocation3 as SurfaceLocation} from '../geometry/location.js';
 export {isolines} from './isolines.js';
@@ -66,5 +64,4 @@ export {style,type Styleable} from './style.js';
 export type {Style3} from './mesh.js';
 export {honeycomb,observer,geodesic3} from './hyperbolic.js';
 export type {Honeycomb,HoneycombPoint,HoneycombFace,HoneycombEdgeColumns,HoneycombOptions,Geodesic3Options,ObserverOptions} from './hyperbolic.js';
-export {isPlacement3} from './placement3.js';
 export type {Placement3} from './placement3.js';

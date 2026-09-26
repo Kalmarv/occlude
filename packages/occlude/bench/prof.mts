@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import * as O from '../src/index.js';
+import * as H from '../src/host.js';
 // `neighbours` is the internal machinery behind `points.near`; it is not
 // on the public surface (the vocabulary word is `points.near`), but a
 // bench profiling the primitive itself imports it directly.
@@ -70,13 +71,13 @@ t(`  components(tri)`, () => tri.points.components(), 3);
 console.log('\n== plan pipeline (wasm crossings)');
 await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
 const dense = sketch({ aspect: [1, 1], seed: 3 }, (tk) => tk.times(60, (i) => tk.times(60, (j) => circle(2 + i * 1.6, 2 + j * 1.6, 0.6))));
-const r = t(`  render 3600 circles`, () => render(dense, { paper: 'Square20' })) as O.RenderResult;
+const r = t(`  render 3600 circles`, () => render(dense, { paper: 'Square20' })) as H.RenderResult;
 console.log(`     -> ${r.frags.length} frags, raw prims ${r.raw.prims.length} f64, frags ${r.raw.frags.length} f64`);
 const pb = t(`  wasm_plan (merge+tour+bridge, encode)`, () => planBuffer(r)) as ReturnType<typeof planBuffer>;
 console.log(`     -> plan buffer ${pb.buffer.length} f64 = ${(pb.buffer.byteLength / 1024).toFixed(0)} KB`);
 t(`  decodePlanBuffer (JS objects)`, () => decodePlanBuffer(pb.buffer), 3);
 const t0 = performance.now(); const p = await makePlan(pb.buffer, pb.settings); console.log('  makePlan (decode + sha256)'.padEnd(58), (performance.now() - t0).toFixed(2).padStart(9), 'ms');
-const flat = t(`  planToolpath full (wasm flatten + parse)`, () => planToolpath(p, selectAll(p), 0.05)) as O.FlatChain[];
+const flat = t(`  planToolpath full (wasm flatten + parse)`, () => planToolpath(p, selectAll(p), 0.05)) as H.FlatChain[];
 console.log(`     -> ${flat.length} chains, ${flat.reduce((a, c) => a + c.pts.length, 0)} f64`);
-t(`  schedulePlan (JS)`, () => O.schedulePlan(flat, () => ({ feed: 3000, penDelay: 100 }), { travelFeed: 6000, acceleration: 800, travelAcceleration: 1500, junctionDeviation: 0.05, minimumCruiseRatio: 0.5 }), 3);
-t(`  planSvg full`, () => O.planSvg(p, selectAll(p), O.DEFAULT_PENS));
+t(`  schedulePlan (JS)`, () => H.schedulePlan(flat, () => ({ feed: 3000, penDelay: 100 }), { travelFeed: 6000, acceleration: 800, travelAcceleration: 1500, junctionDeviation: 0.05, minimumCruiseRatio: 0.5 }), 3);
+t(`  planSvg full`, () => H.planSvg(p, selectAll(p), H.DEFAULT_PENS));

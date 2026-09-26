@@ -1,9 +1,13 @@
 import {beforeAll,describe,it,expect,expectTypeOf} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {curve,circle,box,revolve,query,view,orthographic,perspective} from 'occlude/3d';
-import {initOcclude,sketch,compileSketchAsync,commitCamera3,exportSvg,pen,mm} from '../src/index.js';
+import {curve,box,revolve,query,view,orthographic,perspective,parametricCurve} from 'occlude/3d';
+import { sketch, pen, mm } from '../src/index.js';
+import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {cross3,dot3} from '../src/three/math.js';
 import type {Mesh} from 'occlude/3d';
+
+/** The 3D profile circle, as the parametric curve it always was. */
+const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 function volume(mesh:Mesh<any,any,any>){return mesh.surface.triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(i=>mesh.surface.points[i].position);return sum+dot3(a,cross3(b,c))/6;},0);}
 function manifold(mesh:Mesh<any,any,any>){expect(mesh.edges.length).toBeGreaterThan(0);expect(mesh.surface.edges.every(e=>e.faces.length===2)).toBe(true);for(const edge of mesh.edges)expect(edge.length).toBeGreaterThan(0);}

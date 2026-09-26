@@ -99,7 +99,7 @@ export interface ClipRecord {
 
 /** One addressed draw: its address, the unit float it returned, and what
  * the call made of it — a number from `rnd`, an index from `pick`, a
- * boolean from `chance`/`prob` — so a frozen sketch can write it back. */
+ * boolean from `chance` — so a frozen sketch can write it back. */
 export interface DrawEntry {
   addr: string;
   f: number;
@@ -203,7 +203,6 @@ export interface RandomStream {
   gaussian(mean?: number, sd?: number): number;
   pick<T>(items: Pickable<T>): T;
   chance(p: number): boolean;
-  prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined;
   noise(x: number, y?: number, z?: number): number;
 }
 
@@ -236,7 +235,7 @@ export interface ExecutionInputs {
   assets?: AssetTable;
   /** Captured custom fill modules the source references, by name. */
   fills?: FillTable;
-  /** Register `t.inspect` materials (the studio's inspector). Default off:
+  /** Register the materials `t.probe` is given (the studio's inspector). Default off:
    * a sketch that inspects then costs the same as one that does not. */
   inspect?: boolean;
 }
@@ -607,11 +606,6 @@ export class Execution {
     return v;
   }
 
-  prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined {
-    if (this.chance(p)) return fn();
-    return elseFn?.();
-  }
-
   noise(x: number, y = 0, z?: number): number {
     return this.rng.noise(x, y, z);
   }
@@ -670,7 +664,6 @@ export class Execution {
       gaussian: gaussianOf,
       pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
-      prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
       noise: (x, y = 0, z?: number) => rng.noise(x, y, z),
     };
   }

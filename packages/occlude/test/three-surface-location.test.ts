@@ -1,7 +1,8 @@
 import {beforeAll,describe,it,expect,expectTypeOf} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {compileSketch,sketch,initOcclude} from 'occlude';
-import {sampleSurfacePoints} from '../src/three/api/sampling.js';
+import { sketch } from 'occlude';
+import { compileSketch, initOcclude } from 'occlude/host';
+import {scatterSurface} from '../src/three/api/sampling.js';
 import {mesh,box,plane} from 'occlude/3d';
 import {surfaceLocation3,rebindSurfaceLocation3} from '../src/three/geometry/location.js';
 import {sameAttachmentTopology3} from '../src/three/geometry/topology.js';
@@ -95,7 +96,7 @@ describe('owned surface locations',()=>{
 describe('surface sample rebinding',()=>{
  it('retains typed corner/source fields through point edits and refreshes them explicitly',()=>{
   const rest=triangle();
-  const samples=sampleSurfacePoints(rest,{count:8},{rnd:()=>.25});
+  const samples=scatterSurface(rest,{count:8},{rnd:()=>.25});
   const before=samples.points.at(0)!;
   expectTypeOf(before.sample.cornerAttributes.uv).toEqualTypeOf<readonly [number,number]>();
   expectTypeOf(before.sample.pointAttributes.heat).toEqualTypeOf<number>();
@@ -115,20 +116,20 @@ describe('surface sample rebinding',()=>{
   expect(rebound.generation).toEqual(samples.generation);expect(rebound.history).toEqual([]);
   const selected=edited.points.filter(p=>p.index<2).extract().rebind(bent);expect(selected.points.length).toBe(2);
   expect(()=>samples.rebind(rest.subdivide())).toThrow('regenerate');
-  expect(()=>sampleSurfacePoints(rest,{count:0},{rnd:()=>.5}).rebind(triangle())).toThrow('authoring lineage');
+  expect(()=>scatterSurface(rest,{count:0},{rnd:()=>.5}).rebind(triangle())).toThrow('authoring lineage');
  });
  it('selects custom coordinate columns and refuses nearest-only chart coordinates',()=>{
   const rest=plane(2).corners.set({tex:c=>[c.point.x/2+.5,c.point.y/2+.5] as const,island:'custom'});
-  const samples=sampleSurfacePoints(rest,{count:1,uvAttribute:'tex',chartAttribute:'island'},{rnd:()=>.25});
+  const samples=scatterSurface(rest,{count:1,uvAttribute:'tex',chartAttribute:'island'},{rnd:()=>.25});
   const p=samples.points.at(0)!;expect(p.sample.chart).toBe('custom');expect(p.sample.uv).toEqual(p.sample.cornerAttributes.tex);
   expect(p.sample.frame).toBeDefined();expect(samples.rebind(rest.translate([0,0,1])).points.at(0)!.sample.uv).toEqual(p.sample.uv);
   const discrete=triangle().corners.set('uv',c=>c.uv,{transfer:'nearest'});
-  expect(()=>sampleSurfacePoints(discrete,{count:1},{rnd:()=>.25})).toThrow('interpolated corner values');
+  expect(()=>scatterSurface(discrete,{count:1},{rnd:()=>.25})).toThrow('interpolated corner values');
  });
  it('exposes the richer context through the bound toolkit',()=>{
   let seen=false;
   compileSketch(sketch({seed:42},t=>{
-    const rest=triangle(),samples=t.sample(rest,{count:4});
+    const rest=triangle(),samples=t.scatter(rest,{count:4});
     expectTypeOf(samples.points.at(0)!.sample.cornerAttributes.uv).toEqualTypeOf<readonly [number,number]>();
     const scattered=t.scatter(rest,{spacing:.5,maxPoints:4,maxAttempts:10});
     expectTypeOf(scattered.points.at(0)!.sample.pointAttributes.heat).toEqualTypeOf<number>();

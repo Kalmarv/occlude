@@ -23,7 +23,7 @@ import { beforeAll, expect, it } from 'vitest';
 import {
   DEFAULT_PENS, estimatePlanMs, exportSvg, hashPlan, initOcclude, plan, planToolpath, render,
   selectAll, type EstimateOpts,
-} from '../src/index.js';
+} from '../src/host.js';
 import { assetsFromDisk } from '../tools/asset-preload.js';
 import allFeatures from './fixtures/all-features.js';
 

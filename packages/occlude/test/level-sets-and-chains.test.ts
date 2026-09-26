@@ -19,7 +19,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { initOcclude, render, sketch, polygon, strokes, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef } from '../src/index.js';
+import {
+  sketch, polygon, strokes, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef,
+} from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 import { levelMaterial, type IsoLevelContours } from '../src/isolines.js';
 
 beforeAll(async () => {
@@ -98,8 +101,8 @@ describe('P2 · a level set is an area', () => {
 
   it('G6-23: an edge-to-edge band fills to the drawable, crest to bottom', () => {
     const t = toolkit({ aspect: [3, 2] });
-    const W = t.width;
-    const H = t.height;
+    const W = t.bounds().w;
+    const H = t.bounds().h;
     // A tilted crest: the band is everything below it.
     const band = t.isolines((x, y) => y / H - 0.2 * (x / W) - 0.4, 0);
     const [ring] = band.contours();
@@ -116,14 +119,14 @@ describe('P2 · a level set is an area', () => {
     const m = t.isolines(sdf.circle(0, 0, b.w * 0.3), 0);
     const onBorder = (x: number, y: number) => Math.abs(x) < 1e-9 || Math.abs(y) < 1e-9;
     const walls = m.faces().at(0)!.edges;
-    const closing = walls.filter((e) => e.attrs.cut === 1);
-    const level = walls.filter((e) => !e.attrs.cut);
+    const closing = walls.filter((e) => e.cut === 1);
+    const level = walls.filter((e) => !e.cut);
     expect(closing.length).toBe(2); // along the top edge, then down the left one
     expect([...closing].every((e) => onBorder(e.a.x, e.a.y) && onBorder(e.b.x, e.b.y))).toBe(true);
     expect([...level].every((e) => Math.abs(Math.hypot(e.center[0], e.center[1]) - b.w * 0.3) < 0.1)).toBe(true);
     expect(walls.length).toBe(closing.length + level.length);
     expect(m.edges.length).toBe(level.length);
-    expect([...m.edges].every((e) => e.attrs.cut === 0)).toBe(true);
+    expect([...m.edges].every((e) => e.cut === 0)).toBe(true);
   });
 
   it('closes along a within bound, through the bound\'s own corners', () => {
@@ -135,7 +138,7 @@ describe('P2 · a level set is an area', () => {
     expect(has(cut, 86, 70)).toBe(true);
     // Both walls that meet there close the region: neither is level line.
     const corner = [...cut.faces().at(0)!.edges.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
-    expect([...corner.edges].map((e) => e.attrs.cut)).toEqual([1, 1]);
+    expect([...corner.edges].map((e) => e.cut)).toEqual([1, 1]);
   });
 
   it('G6-32: a bound field is sampled over its bound\'s box, not the drawable', () => {
@@ -150,7 +153,7 @@ describe('P2 · a level set is an area', () => {
   it('refuses close, a stray option and a stray level key by name', () => {
     const t = toolkit({ aspect: [1, 1] });
     const f = sdf.circle(50, 50, 20);
-    expect(() => t.isolines(f, 0, { close: true } as never)).toThrow(/isolines: \{ close \} is gone.*!e\.attrs\.cut/);
+    expect(() => t.isolines(f, 0, { close: true } as never)).toThrow(/isolines: \{ close \} is gone.*!e\.cut/);
     expect(() => t.isolines(f, 0, { spacing: 2 } as never)).toThrow(/isolines: 'spacing' is not an option — the options are \{ step \}/);
     // Spec 55 found this one silently ignored.
     expect(() => t.isolines(f, { spacing: 5, step: 1 } as never)).toThrow(/isolines: 'step' is not a level key.*\{ step \}/);
@@ -190,12 +193,12 @@ describe('N1 · chain verbs walk the curves() of a network', () => {
     }
   });
 
-  it('G4-1: each verb speaks in its own name; one that cannot keep a junction says so itself', () => {
+  it('G4-1: each verb walks a network junction to junction, a rolled waveform too', () => {
     const t = toolkit({ aspect: [1, 1] });
     const hex = t.hexes({ spacing: 20 });
     expect(() => hex.oscillate({ wavelength: 4, amplitude: 1 })).not.toThrow();
     expect(() => hex.along({ spacing: 2 })).not.toThrow();
-    expect(() => hex.coil({ radius: 1, pitch: 2 })).toThrow(/^coil: vertex \d+ is a junction/);
+    expect(() => hex.oscillate({ wavelength: 2, amplitude: 1, shape: (u) => [Math.sin(2 * Math.PI * u), 1 - Math.cos(2 * Math.PI * u)] })).not.toThrow();
   });
 
   it('along on a network: every chain from junction to junction, each end facing along its chain', () => {
@@ -288,8 +291,8 @@ describe('strokes of a closed level set', () => {
     // One level, so its one region is a face: the walls of that face are
     // the level line and the rim, and a selection of them is drawn as given.
     const walls = t.isolines((x: number, y: number) => x + y, 60).faces().edges;
-    const lines = walls.filter((e) => e.attrs.cut === 0);
-    const rims = walls.filter((e) => e.attrs.cut === 1);
+    const lines = walls.filter((e) => e.cut === 0);
+    const rims = walls.filter((e) => e.cut === 1);
     expect(rims.length).toBeGreaterThan(0);
     expect(strokes(walls).length).toBe(walls.extract().curves().length);
     expect(strokes(rims).length).toBe(rims.extract().curves().length);

@@ -8,7 +8,7 @@ import {
   estimatePlanMs,
   hashPlan,
   parseToolpath,
-} from "occlude";
+} from "occlude/host";
 import type { OptimizationRequest, OptimizationReply } from "./optimization.js";
 
 export async function optimizeRequest(

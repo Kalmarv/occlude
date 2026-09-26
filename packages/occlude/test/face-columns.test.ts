@@ -9,7 +9,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude, material, point, type Material } from '../src/index.js';
+import { material, point, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import { toolkit } from './helpers/run.js';
 
 beforeAll(async () => {

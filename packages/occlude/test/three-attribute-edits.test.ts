@@ -1,7 +1,8 @@
 import {describe,it,expect,expectTypeOf,beforeAll} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {plane,box,curve,pointCloud,query} from 'occlude/3d';
-import {initOcclude,sketch,compileSketch} from '../src/index.js';
+import { sketch } from '../src/index.js';
+import { initOcclude, compileSketch } from '../src/host.js';
 import {toolkit} from './helpers/run.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
@@ -77,7 +78,7 @@ describe('column writes read the incoming revision',()=>{
   it('retains rich sampled rows in multi-column field callbacks',()=>{
     let checked=false;
     compileSketch(sketch({seed:42},t=>{
-      const source=plane(2).faces.set('floor',true),samples=t.sample(source,{count:6});
+      const source=plane(2).faces.set('floor',true),samples=t.scatter(source,{count:6});
       const changed=samples.points.set({height:p=>p.sample.position[2],floor:p=>p.sample.face.floor});
       expect(changed.points.every(p=>p.height===0&&p.floor===true&&p.sample.source===source.surface)).toBe(true);
       expectTypeOf(changed.points.at(0)!.sample.face.floor).toEqualTypeOf<boolean>();checked=true;return [];
@@ -113,7 +114,7 @@ describe('point and sampled point runs',()=>{
     let checked=false;
     compileSketch(sketch({seed:42},t=>{
       const target=plane(2).faces.set('floor',true);
-      const samples=t.sample(target,{count:4}).points.set('age',0);
+      const samples=t.scatter(target,{count:4}).points.set('age',0);
       const result=t.steps(2,samples,s=>{
         expectTypeOf(s.points.at(0)!.sample.face.floor).toEqualTypeOf<boolean>();
         return s.points.set({age:p=>p.age+Number(p.sample.face.floor),z:p=>p.z+p.sample.normal[2]});

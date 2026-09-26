@@ -21,8 +21,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, exportSvg, initOcclude, isSketch, render,
-  DEFAULT_PENS, paperSize, DEFAULT_PAPERS } from '../src/index.js';
+  compileSketch, exportSvg, initOcclude, isSketch, render, DEFAULT_PENS, paperSize, DEFAULT_PAPERS,
+} from '../src/host.js';
 import { transformSync } from 'esbuild';
 import { inputsFor, requireFor } from './inputs.js';
 

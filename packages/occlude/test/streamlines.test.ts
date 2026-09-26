@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { curl, grad, initOcclude, render, sketch, strokes, vectorField, circle } from '../src/index.js';
+import { curl, grad, sketch, strokes, vectorField, circle } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 import type { IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
 

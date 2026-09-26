@@ -21,20 +21,20 @@ export function orthographic(options:CameraOptions&{readonly span?:number}):Extr
   const target=options.target??[0,0,0],span=options.span??6;
   return cameraFrame3({...options,kind:'orthographic',target,span,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target))+2*span)},{x:0,y:0,width:1,height:1}).camera as Extract<Camera3,{kind:'orthographic'}>;
 }
-export function perspective(options:CameraOptions&{readonly fovDegrees?:number}):Extract<Camera3,{kind:'perspective'}>{
-  const target=options.target??[0,0,0];
-  return cameraFrame3({...options,kind:'perspective',target,fovDegrees:options.fovDegrees??45,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target)))},{x:0,y:0,width:1,height:1}).camera as Extract<Camera3,{kind:'perspective'}>;
-}
-/** A perspective camera whose frame is moved off the optical axis. `shift` is
- * a fraction of the frame, right and up: `[0, 0.4]` raises the frame by four
+/** A perspective camera. `shift` moves its frame off the optical axis, as a
+ * fraction of the frame, right and up: `[0, 0.4]` raises the frame by four
  * tenths of its height, so what is drawn moves down the page by the same
  * amount. The eye and the direction of view do not move, so a level camera
  * keeps world verticals parallel while the frame covers what a tilt would
- * otherwise have to reach — the architect's two-point view. `shift: [0, 0]`
- * is `perspective`. */
-export function oblique(options:CameraOptions&{readonly shift:readonly [number,number];readonly fovDegrees?:number}):Extract<Camera3,{kind:'oblique'}>{
-  const target=options.target??[0,0,0];
-  return cameraFrame3({...options,kind:'oblique',target,shift:options.shift,fovDegrees:options.fovDegrees??45,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target)))},{x:0,y:0,width:1,height:1}).camera as Extract<Camera3,{kind:'oblique'}>;
+ * otherwise have to reach — the architect's two-point view. No shift, or
+ * `[0, 0]`, is the centred frame. */
+export function perspective(options:CameraOptions&{readonly fovDegrees?:number;readonly shift?:readonly [number,number]}):Camera3{
+  const target=options.target??[0,0,0],{shift,...rest}=options;
+  const common={...rest,target,fovDegrees:options.fovDegrees??45,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target)))};
+  // A shifted frame is the camera kind the renderer calls oblique; a zero
+  // shift is the centred frame, the same camera as no shift at all.
+  const camera=shift!==undefined&&(shift[0]!==0||shift[1]!==0)?{...common,kind:'oblique' as const,shift}:{...common,kind:'perspective' as const};
+  return cameraFrame3(camera,{x:0,y:0,width:1,height:1}).camera;
 }
 /** Planes are in the mesh/prototype's model coordinates; instances transform
  * the resulting section with their geometry. They are not world cutting planes. */

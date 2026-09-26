@@ -85,7 +85,7 @@ const isContour = (v: unknown): v is IsoContour =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && 'pts' in v && Array.isArray(v.pts);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Whether a value answers any of the three accessors. */
+/** @internal Whether a value answers any of the three accessors. */
 export function isGeometry(v: unknown): v is Geometry {
   return isObj(v) && (typeof v.contours === 'function' || typeof v.curves === 'function' || v.points !== undefined);
 }
@@ -108,7 +108,7 @@ const hasFaces = (v: unknown): v is { faces(): { contours(): IsoContour[] } } =>
  * pictures and the sketch has to say.
  */
 const isFaceCollection = (v: unknown): v is { map(fn: (f: unknown) => unknown): unknown[] } =>
-  isObj(v) && typeof v.contours === 'function' && typeof v.containing === 'function' && typeof v.boundaryEdges === 'function' && typeof v.at === 'function';
+  isObj(v) && typeof v.contours === 'function' && typeof v.measure === 'function' && typeof v.boundaryEdges === 'function' && typeof v.at === 'function';
 /**
  * The highest vertex degree inside a value's own edges, or null for a
  * value that has none. Not part of the protocol: it is how the area
@@ -136,6 +136,7 @@ const loopOf = (loop: Loop, who: string): LoopPoints =>
   });
 
 /**
+ * @internal
  * Resolve an area to loops, in the coordinates given.
  *
  * A value that answers `contours()` is read by it — for a material that is
@@ -216,7 +217,7 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
   throw new Error(`${who}: expected loops of points ([x, y] or { x, y }), contour records or a chain material`);
 }
 
-/** `areaLoops` for a consumer that computes with the coordinates: a
+/** @internal `areaLoops` for a consumer that computes with the coordinates: a
  * length such as `mm(10)` is a drawing unit the sketch must resolve first. */
 export function numericLoops(input: AreaInput, who: string): [number, number][][] {
   const loops = areaLoops(input, who);

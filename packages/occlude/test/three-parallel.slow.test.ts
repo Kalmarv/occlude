@@ -12,7 +12,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { compileSketchAsync, exportSvg, initOcclude, mm, pen, sketch, paperSize } from '../src/index.js';
+import { mm, pen, sketch } from '../src/index.js';
+import { compileSketchAsync, exportSvg, initOcclude, paperSize } from '../src/host.js';
 import { box, geodesic, isolines, orthographic, perspective, view } from '../src/three/api/index.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';

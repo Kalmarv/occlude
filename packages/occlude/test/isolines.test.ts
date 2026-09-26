@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude, render, sketch, strokes } from '../src/index.js';
+import { sketch, strokes, circle, clip, fill, invert, line, mm, polygon } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 import { isolinesOf, levelContours, type IsoContour, type IsoEnv, type LevelContour } from '../src/isolines.js';
-import type { FieldFn, Material, RenderOptions, SketchDef } from '../src/index.js';
+import type { FieldFn, Material, SketchDef } from '../src/index.js';
+import type { RenderOptions } from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -21,7 +23,7 @@ const env: IsoEnv = {
   len: (l) => (typeof l === 'number' ? l : l.value),
 };
 
-const fragLenOf = (f: import('../src/index.js').Fragment): number => {
+const fragLenOf = (f: import('../src/host.js').Fragment): number => {
   const g = f.geom as { t: string; [k: string]: number | string };
   if (g.t === 'arc') return (g.r as number) * Math.abs(g.sweep as number);
   return Math.hypot((g.x1 as number) - (g.x0 as number), (g.y1 as number) - (g.y0 as number));
@@ -198,14 +200,14 @@ describe('isolines: levels', () => {
       sketch({ seed: 4 }, (t) => {
         const ground = (x: number, y: number): number => t.noise(x / 28, y / 28);
         const m = t.isolines(ground, { spacing: 0.1 });
-        keys = m.edges.groupBy((e) => e.attrs.level as number).map((sel) => sel.key as number);
+        keys = m.edges.groupBy((e) => e.level as number).map((sel) => sel.key as number);
         index = t
           .isolines(ground, { spacing: 0.5 })
-          .edges.groupBy((e) => e.attrs.level as number)
+          .edges.groupBy((e) => e.level as number)
           .map((sel) => sel.key as number);
         listed = t
           .isolines(ground, [-0.2, 0, 0.2])
-          .edges.groupBy((e) => e.attrs.level as number)
+          .edges.groupBy((e) => e.level as number)
           .map((sel) => sel.key as number);
         return [strokes(m)];
       }),
@@ -247,7 +249,7 @@ describe('isolines: toolkit + engine integration', () => {
       capture.push(
         t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1),
       );
-      return capture[capture.length - 1].curves().map((c) => t.polygon(c));
+      return capture[capture.length - 1].curves().map((c) => polygon(c));
     });
     sq(def);
     sq(def);
@@ -262,7 +264,7 @@ describe('isolines: toolkit + engine integration', () => {
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.polygon(band, { fill: t.fill('hatch', { angle: 0, spacing: t.mm(1.5) }) })];
+      return [polygon(band, { fill: fill('hatch', { angle: 0, spacing: mm(1.5) }) })];
     });
     const out = sq(def);
     // Paper 200×200mm, user units ×2: band radii 30–70mm around (100,100).
@@ -281,11 +283,11 @@ describe('isolines: toolkit + engine integration', () => {
     // A cutoff above the field's range yields no contours — the empty
     // region is trivially closed: it fills nothing, occludes nothing.
     const def = sketch({ seed: 1 }, (t) => [
-      t.polygon(
+      polygon(
         t.isolines((x, y) => t.noise(x / 20, y / 20), 2),
-        { fill: t.fill('stipple') },
+        { fill: fill('stipple') },
       ),
-      t.circle(50, 50, 10),
+      circle(50, 50, 10),
     ]);
     const out = sq(def);
     const circleInk = out.frags.filter((f) => !f.dot).reduce((s, f) => s + fragLenOf(f), 0);
@@ -297,10 +299,10 @@ describe('isolines: toolkit + engine integration', () => {
   it('clip(invert(polygon)) keeps ink outside; the two polarities tile the ink', () => {
     const mk = (kind: 'in' | 'out' | 'all'): SketchDef =>
       sketch({ seed: 3 }, (t) => {
-        const album = t.grid({ cols: 12, rows: 12 }).map((c) => t.circle(c.cx, c.cy, 2));
+        const album = t.grid({ cols: 12, rows: 12 }).map((c) => circle(c.cx, c.cy, 2));
         if (kind === 'all') return album;
-        const r = t.polygon(t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1));
-        return [kind === 'in' ? t.clip(r, album) : t.clip(t.invert(r), album)];
+        const r = polygon(t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1));
+        return [kind === 'in' ? clip(r, album) : clip(invert(r), album)];
       });
     const ink = (def: SketchDef): number =>
       sq(def).frags.filter((f) => !f.dot).reduce((s, f) => s + fragLenOf(f), 0);
@@ -314,7 +316,7 @@ describe('isolines: toolkit + engine integration', () => {
   });
 
   it('invert() in the tree fails loudly', () => {
-    const def = sketch({ seed: 1 }, (t) => [t.invert(t.circle(50, 50, 10)) as never]);
+    const def = sketch({ seed: 1 }, (t) => [invert(circle(50, 50, 10)) as never]);
     expect(() => sq(def)).toThrow(/invert\(\) is an area, not a drawable/);
   });
 
@@ -326,7 +328,7 @@ describe('isolines: toolkit + engine integration', () => {
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.clip(t.polygon(band), t.line(0, 50, 100, 50))];
+      return [clip(polygon(band), line(0, 50, 100, 50))];
     });
     const out = sq(def);
     const lens = out.frags.filter((f) => !f.dot).map(fragLenOf).sort((a, b) => a - b);

@@ -1,7 +1,8 @@
 import {afterEach,beforeAll,it,expect,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {PhaseClock3,phaseKeys3} from '../src/three/timing.js';
-import {initOcclude,sketchAsync,compileSketchAsync,exportSvg,mm,pen} from '../src/index.js';
+import { sketch, mm, pen } from '../src/index.js';
+import { initOcclude, compileSketchAsync, exportSvg } from '../src/host.js';
 import {plane,box,view,orthographic,query} from 'occlude/3d';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 afterEach(()=>vi.restoreAllMocks());
@@ -16,11 +17,10 @@ it('composes exclusive child phases without counting child wall time twice',asyn
  expect(phaseKeys3.reduce((n,key)=>n+timing[key],timing.unattributedMs)).toBe(timing.wallMs);
 });
 it('reports CPU modeling and classification boundaries without affecting repeatable ink',async()=>{
- const definition=sketchAsync({seed:42,pens:{ink:pen({width:mm(.3)})}},async t=>{
+ const definition=sketch({seed:42,pens:{ink:pen({width:mm(.3)})}},async t=>{
    const target=plane(),points=box().points;
    const hits=await query(target).batch(t).nearest(points);expect(hits).toHaveLength(8);
-   const moved=await t.deform3(target.surface,{iterations:2,relaxation:0,displacements:target.points.map(()=>[0,0,.1] as const)});
-   expect(moved.points.every(p=>p.position[2]===.2)).toBe(true);
+   const rays=await query(target).batch(t).rays(points,{direction:[0,0,-1]});expect(rays).toHaveLength(8);
    return view(box(),{camera:orthographic({eye:[5,7,6]})});
  });
  const first=await compileSketchAsync(definition),second=await compileSketchAsync(definition);

@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { circle, rect, sketch, stroke } from '../src/index.js';
 import {
-  DEFAULT_PENS, circle, rect, sketch, stroke, render, exportSvg, exportGcode, initOcclude, estimatePlanMs, schedulePlan, resolveDraw,
-  plan as planOf, planBuffer, planSvg, planGcode, planToolpath, makePlan, openPlan, hashPlan, canonicalJson,
-  decodePlanBuffer, encodePlanBuffer, parseToolpath, encodeToolpath,
-  selectChains, selectAll, selectProgress, selectTime, selectedFlat, standaloneEstimate, fitDuration,
+  DEFAULT_PENS, render, exportSvg, exportGcode, initOcclude, estimatePlanMs, schedulePlan, resolveDraw,
+  plan as planOf, planBuffer, planSvg, planGcode, planToolpath, makePlan, openPlan, hashPlan,
+  canonicalJson, decodePlanBuffer, encodePlanBuffer, parseToolpath, encodeToolpath, selectChains,
+  selectAll, selectProgress, selectTime, selectedFlat, standaloneEstimate, fitDuration,
   type DrawingPlan, type FlatChain, type PlanChain, type EstimateOpts,
-} from '../src/index.js';
+} from '../src/host.js';
 
 const timing: EstimateOpts = { travelFeed: 6000, acceleration: 800, travelAcceleration: 1500, junctionDeviation: 0.05, minimumCruiseRatio: 0.5 };
 const penOf = (i: number) => {

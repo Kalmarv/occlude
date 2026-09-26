@@ -3,11 +3,13 @@
 // the failing lines come from the audit sketches' `// FRICTION` comments.
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude, renderAsync, sketch, pen, mm, fill, strokes, polygon, material, curve as curve2, box3, PointSelection3, lineArt3, type RenderResult } from '../src/index.js';
+import { sketch, pen, mm, fill, strokes, polygon, material, curve as curve2 } from '../src/index.js';
+import { initOcclude, renderAsync, type RenderResult } from '../src/host.js';
+import { box3, lineArt3 } from '../src/three/api/advanced.js';
 import * as three from '../src/three/api/index.js';
 import {
   box, plane, sphere, cone, view, style, orthographic, isolines, intersections, trace, sweep, revolve,
-  curve, parametricCurve, instanceOnPoints, pointCloud, grad3, curl3, sdf3,
+  curve, parametricCurve, instanceOnPoints, pointCloud, grad, curl3, sdf3,
 } from '../src/three/api/index.js';
 import { sampleSurfaceCurves } from '../src/three/api/curveSampling.js';
 import type { ProjectedLines } from '../src/three/api/projected.js';
@@ -321,14 +323,15 @@ describe('G3-32 · a 3D curve has length, along and resample', () => {
 });
 
 describe('G3-19 · a field of space is (x, y, z), as sdf3 and 2D fields', () => {
-  it('takes sdf3 in grad3 and refuses a one-point function by name', () => {
+  it('takes sdf3 in grad and refuses a one-point function by name', () => {
     // FRICTION G3-19: const up = grad3(sdf3.sphere(0.6));
-    const up = grad3(sdf3.sphere(0.6));
+    const up = grad(sdf3.sphere([0, 0, 0], 0.6));
     // sdf3 is positive inside, so it rises toward the middle.
     const g = up(1, 0, 0);
     expect(g[0]).toBeCloseTo(-1, 6);
     expect(g[1]).toBeCloseTo(0, 6);
-    expect(() => grad3(((p: number[]) => p[0]) as never)).toThrow(/takes \(x, y, z\)/);
+    // A one-argument function is a field of the surface for `grad`, (s) => …,
+    // so the refusal by name is curl3's.
     expect(() => curl3(((p: number[]) => [p[0], 0, 0]) as never)).toThrow(/takes \(x, y, z\)/);
     const swirl = curl3((x, y) => [0, 0, x * x + y * y]);
     expect(swirl(1, 0, 0)[1]).toBeCloseTo(-2, 6);
@@ -336,9 +339,7 @@ describe('G3-19 · a field of space is (x, y, z), as sdf3 and 2D fields', () => 
 });
 
 describe('G3-43 · the advanced stage takes the ordinary values at the joins', () => {
-  it('reads x/y/z on advanced point rows, a mesh in lineArt3 and a Surface3 in view', async () => {
-    // FRICTION G3-43: new PointSelection3(s).filter((p) => p.z > 0)
-    expect(new PointSelection3(box3([1.4, 1.4, 1.4])).filter((p) => p.z > 0).indices).toHaveLength(4);
+  it('takes a mesh in lineArt3 and a Surface3 in view', async () => {
     // FRICTION G3-43: lineArt3({ objects: [{ surface: m }] })
     const scene = lineArt3({ objects: [{ id: 'mesh', surface: box(1) }], camera, lineSets: [{ id: 'visible', stroke: 'ink' }] });
     expect(scene.objects[0].surface.points.length).toBe(8);

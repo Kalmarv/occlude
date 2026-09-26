@@ -1,5 +1,6 @@
 import {describe,expect,it} from 'vitest';
-import {assetTable,compileSketch,sketch} from '../src/index.js';
+import { sketch } from '../src/index.js';
+import { assetTable, compileSketch } from '../src/host.js';
 import {image} from '../src/imageAsset.js';
 import {plane} from '../src/three/api/index.js';
 import {toneRecipe3,imageValue3,prefilterPixels3} from '../src/three/surface/tone.js';

@@ -1,5 +1,6 @@
 import {describe,it,expect} from 'vitest';
-import {grid3,transformSurface3} from '../src/three/geometry/model.js';
+import {transformSurface3} from '../src/three/geometry/model.js';
+import {gridSurface as grid3} from './helpers/surfaces.js';
 import {adjacency3,deformSurfaceCpu3} from '../src/three/geometry/deform.js';
 describe('frozen deformation reference',()=>{
   it('gathers only original neighbors from the prior pass, with exact pins',()=>{

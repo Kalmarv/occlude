@@ -11,7 +11,11 @@
 import type { CapturedThree3 } from './three/capture.js';
 import type { Camera3 } from 'occlude/src/three/camera.js';
 import type { ConstructionInfo3, ConstructionPick3 } from './three/construction.js';
-import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
+import { type DrawRequest, type PenDef } from 'occlude';
+import {
+  decodeRender, pensToJson, type EncodedScene, type InspectionEntry, type InspectionPayload,
+  type PlanSettings, type ProbeSummary, type RenderResult,
+} from 'occlude/host';
 import type { RunConfig } from './runner.js';
 
 /** A run's addressed draws: address, unit float, and what the call made of it. */
@@ -44,7 +48,8 @@ export interface RenderReply {
   draw?: DrawRequest;
   /** Identity of this execution in the worker: what an inspection request names. */
   executionId: number;
-  /** `t.inspect()` registrations (names and sizes), when inspection was on. */
+  /** Material registrations — `t.probe()` of a material and the instrumented
+   * variables — (names and sizes), when inspection was on. */
   inspections: InspectionEntry[];
 }
 

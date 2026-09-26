@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 // @ts-expect-error plain-JS module shared with the studio server
 import { stripFillTypes } from '../../occlude-studio/fill-transpile.mjs';
-import { fillTable, isBuiltinFill, loadFillModule, scanFillNames, type FillTable } from '../src/index.js';
+import { fillTable, isBuiltinFill, loadFillModule, scanFillNames, type FillTable } from '../src/host.js';
 
 const fillsDir = fileURLToPath(new URL('../../occlude-studio/fills/', import.meta.url));
 

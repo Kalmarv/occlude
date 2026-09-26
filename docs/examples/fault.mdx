@@ -11,10 +11,10 @@ A fracture has junctions, and `trim` works on chains. A single material refuses 
 
 The cells shade by their distance from it. A cell a crack runs through is dark. `adjacent()` gives the ring around those, and one more `adjacent()` gives the ring around that. Each ring is a ring and nothing more, because `adjacent()` leaves its members out.
 
-Uses: `t.voronoi`, `t.relax`, and `edges.set` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `subtract` and `has`. Then `edges.curves()`, `connect.chain`, `m.trim`, `faces()`, and `polygon` with a hatch fill.
+Uses: `t.voronoi`, `t.relax`, and `edges.set` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `subtract` and `has`. Then `edges.curves()`, `curve`, `m.trim`, `faces()`, and `polygon` with a hatch fill.
 
 ```ts live
-import { sketch, strokes, polygon, fill, mm, map, material, connect } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, map, material, curve } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const b = t.bounds();
@@ -30,7 +30,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const near = split.adjacent();
   const far = near.adjacent().subtract(split);
   const tone = (f) => (split.has(f) ? 0.72 : near.has(f) ? 1.15 : far.has(f) ? 1.9 : 3.4);
-  const pieces = crack.curves().map((c) => connect.chain(material(c.pts)).trim({ start: 0.004 * b.h, end: 0.004 * b.h }));
+  const pieces = crack.curves().map((c) => curve(material(c.pts)).trim({ start: 0.004 * b.h, end: 0.004 * b.h }));
   return [
     cells.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 50, spacing: mm(tone(f)) }) })),
     strokes(web.edges.subtract(crack), { pen: 'pigma-005-black' }),

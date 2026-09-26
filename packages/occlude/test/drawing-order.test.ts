@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude, render, renderAsync, sketch, line, polygon, rect, fill, strokes, pen, mm, evalPrim, type RenderResult } from '../src/index.js';
+import { sketch, line, polygon, rect, fill, strokes, pen, mm, type Toolkit } from '../src/index.js';
+import { initOcclude, render, renderAsync, evalPrim, type RenderResult } from '../src/host.js';
 import { box, plane, sphere, view, orthographic } from '../src/three/api/index.js';
 import type { ProjectedLines } from '../src/three/api/projected.js';
 
@@ -93,7 +94,7 @@ describe('views', () => {
       return Math.abs(a[0] - cx) < 3 && Math.min(a[1], b[1]) < cy && Math.max(a[1], b[1]) > cy;
     });
   };
-  const grain = (t: { width: number; height: number }) => polygon(rect(0, 0, t.width, t.height), { fill: fill('hatch', { angle: 90, spacing: mm(1) }), stroke: false, pen: 'blue' });
+  const grain = (t: Toolkit) => polygon(rect(0, 0, t.bounds().w, t.bounds().h), { fill: fill('hatch', { angle: 90, spacing: mm(1) }), stroke: false, pen: 'blue' });
   const cube = view(box(2), { camera, pen: 'black' });
   it('hides nothing drawn before a view', async () => {
     const out = await renderAsync(sketch({ aspect: [1, 1], pens }, (t) => [grain(t), cube]), { paper: 'Square20' });

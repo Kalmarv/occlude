@@ -13,9 +13,11 @@ import * as fonts from '../src/fonts/index.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
+import { type PenDef } from '../src/index.js';
 import {
-  DEFAULT_PAPERS, DEFAULT_PENS, paperSize, userModules, type ExecutionInputs, type PaperChoice, type PaperDef, type PenDef,
-} from '../src/index.js';
+  DEFAULT_PAPERS, DEFAULT_PENS, paperSize, userModules, type ExecutionInputs, type PaperChoice,
+  type PaperDef,
+} from '../src/host.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
 

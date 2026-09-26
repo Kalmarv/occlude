@@ -1,25 +1,24 @@
 /**
- * The basket of small words: `distanceToPoints`, `hull`,
- * `faces().containing`, `connect.turns`, `path().arcTo({ large })`, the
+ * The basket of small words: `distanceTo` of points, `hull`,
+ * `connect.turns`, `path().arcTo({ large })`, the
  * four vector helpers, and `gaussian` on the seeded stream.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  angleBetween, append, connect, curve, distanceToPoints, hull, lerp, material, path, reflect,
+  angleBetween, append, connect, curve, distanceTo, hull, lerp, material, path, reflect,
   rotate, stroke, turn, unit, type Material, type Station,
 } from '../src/index.js';
-import { faces } from '../src/faces.js';
 import { toolkit } from './helpers/run.js';
 
 const square = (x = 0, y = 0, s = 10) =>
   curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
 const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
 
-// ---- distanceToPoints ------------------------------------------------------
+// ---- distanceTo of points --------------------------------------------------
 
-describe('distanceToPoints: the nearest site, as a field', () => {
+describe('distanceTo of points: the nearest site, as a field', () => {
   it('is zero at a site and negative everywhere else', () => {
-    const f = distanceToPoints([[10, 10], [30, 10]]);
+    const f = distanceTo(material([[10, 10], [30, 10]]));
     expect(f(10, 10)).toBe(0);
     expect(f(30, 10)).toBe(0);
     expect(f(14, 10)).toBeCloseTo(-4, 12);
@@ -37,7 +36,7 @@ describe('distanceToPoints: the nearest site, as a field', () => {
       return s / 2147483648;
     };
     for (let i = 0; i < 400; i++) sites.push([next() * 100, next() * 100]);
-    const f = distanceToPoints(sites);
+    const f = distanceTo(material(sites));
     const brute = (x: number, y: number) => -Math.min(...sites.map(([sx, sy]) => Math.hypot(x - sx, y - sy)));
     let worst = 0;
     for (let i = 0; i < 40; i++) {
@@ -51,14 +50,18 @@ describe('distanceToPoints: the nearest site, as a field', () => {
 
   it('reads a material and a point selection, and drops non-finite sites', () => {
     const m = material([[4, 4], [40, 40]]);
-    expect(distanceToPoints(m)(4, 4)).toBe(0);
-    expect(distanceToPoints(m.points)(40, 40)).toBe(0);
-    expect(distanceToPoints([[4, 4], [NaN, 3]])(4, 4)).toBe(0);
+    expect(distanceTo(m)(4, 4)).toBe(0);
+    expect(distanceTo(m.points)(40, 40)).toBe(0);
+    expect(distanceTo(material([[4, 4], [NaN, 3]]))(4, 4)).toBe(0);
   });
 
   it('is nowhere inside with no sites at all', () => {
-    expect(distanceToPoints([])(0, 0)).toBe(-Infinity);
-    expect(distanceToPoints([[NaN, NaN]])(0, 0)).toBe(-Infinity);
+    expect(distanceTo(material([]))(0, 0)).toBe(-Infinity);
+    expect(distanceTo(material([[NaN, NaN]]))(0, 0)).toBe(-Infinity);
+  });
+
+  it('a plain array of pairs is a loop, an area with an inside', () => {
+    expect(distanceTo([[0, 0], [10, 0], [10, 10], [0, 10]])(5, 5)).toBeCloseTo(5, 12);
   });
 });
 
@@ -120,58 +123,6 @@ describe('hull: the outline of a cloud', () => {
 
   it('refuses a negative alpha by name', () => {
     expect(() => hull([[0, 0], [1, 0], [0, 1]], { alpha: -1 })).toThrow('hull: alpha');
-  });
-});
-
-// ---- faces().containing ----------------------------------------------------
-
-const split = (): Material => append(square(0, 0, 10), seg([5, 0], [5, 10])).planarize();
-
-describe('faces().containing: the face under a place', () => {
-  it('names the one face a point falls in', () => {
-    const cells = faces(split());
-    expect(cells.length).toBe(2);
-    const left = cells.containing([2, 5]);
-    expect(left.length).toBe(1);
-    expect(left.at(0).area).toBeCloseTo(50, 9);
-    expect(left.at(0).centroid[0]).toBeCloseTo(2.5, 9);
-  });
-
-  it('takes many places at once, and a face named twice is still one member', () => {
-    const cells = faces(split());
-    expect(cells.containing([[2, 5], [8, 5]]).length).toBe(2);
-    expect(cells.containing([[2, 5], [3, 6]]).length).toBe(1);
-    expect(cells.containing(material([[2, 5], [8, 5]])).length).toBe(2);
-    expect(cells.containing({ x: 8, y: 5 }).length).toBe(1);
-  });
-
-  it('a place on a wall, or outside every face, picks nothing', () => {
-    const cells = faces(split());
-    expect(cells.containing([5, 5]).length).toBe(0); // the dividing wall
-    expect(cells.containing([0, 5]).length).toBe(0); // the outer wall
-    expect(cells.containing([20, 20]).length).toBe(0); // outside
-  });
-
-  it('a hole belongs to its own face, not to the ring around it', () => {
-    const ring = append(square(0, 0, 30), square(10, 10, 10)).planarize();
-    const cells = faces(ring);
-    expect(cells.length).toBe(2);
-    const inner = cells.containing([15, 15]);
-    expect(inner.length).toBe(1);
-    expect(inner.at(0).area).toBeCloseTo(100, 9);
-    const outer = cells.containing([5, 5]);
-    expect(outer.at(0).area).toBeCloseTo(800, 9);
-  });
-
-  it('a selection answers with its members only', () => {
-    const cells = faces(split());
-    const left = cells.containing([2, 5]);
-    expect(left.containing([2, 5]).length).toBe(1);
-    expect(left.containing([8, 5]).length).toBe(0);
-  });
-
-  it('refuses something that is not a place', () => {
-    expect(() => faces(split()).containing(42 as never)).toThrow('faces.containing');
   });
 });
 

@@ -40,7 +40,6 @@ const church = svg(t.asset('church.svg'), { width: b.w, bridge: mm(0.7) });
 |---|---|
 | `img.lum(x, y, area?)` | luminance, 0 to 1 |
 | `img.a(x, y, area?)` | alpha, so a transparent PNG masks its subject |
-| `img.bands(x, y, n, area?)` | tone posterized into `n` levels, 0 the darkest |
 | `img.edge(x, y, area?)` | luminance gradient magnitude, high at boundaries |
 | `img.dir(x, y, area?)` | the gradient's angle |
 | `img.field(channel?, { area? })` | a channel as a scalar field: `'lum'` (the default), `'dark'` for `1 − lum`, `'a'`, `'edge'` |
@@ -77,7 +76,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-Layered marks gated by tone band: one mark at the mid level, two at dark, three at the darkest.
+Layered marks gated by tone band: one mark at the mid level, two at dark, three at the darkest. The band is the tone cut into four levels, `Math.min(3, Math.floor(lum * 4))`, 0 the darkest.
 
 ```ts live
 import { sketch, line } from 'occlude';
@@ -88,7 +87,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   for (let y = 2; y < 98; y += 1.4) {
     for (let x = 8; x < 92; x += 1.4) {
       if (img.a(x, y, 0.7) < 0.5) continue;
-      const level = img.bands(x, y, 4, 0.7);
+      const level = Math.min(3, Math.floor(img.lum(x, y, 0.7) * 4));
       if (level <= 2) out.push(line(x, y, x + 1.1, y));
       if (level <= 1) out.push(line(x, y, x, y + 1.1));
       if (level === 0) out.push(line(x, y, x + 0.9, y + 0.9));
@@ -350,17 +349,17 @@ black. `maxSpacing` is the coarsest cell. The palest fur then still folds,
 and it does not lay one long chord across the sheet.
 
 Shape the tone before `spacefill` reads it. Below, the alpha channel cuts the
-background away and `norm` stretches the fur. The white muzzle stays blank
+background away and `map` stretches the fur. The white muzzle stays blank
 paper and the nose fills in solid. Every vertex carries the `level` it
 stopped at, so `m.points` can send the deepest folds to a second pen.
 
 ```ts live
-import { sketch, strokes, circle, mm, norm } from 'occlude';
+import { sketch, strokes, circle, mm, map } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   const dark = img.field('dark', { area: 0.9 });
-  const tone = (x, y) => (img.a(x, y, 0.3) < 0.5 ? 0 : Math.max(0, norm(dark(x, y), 0.15, 0.88)) ** 2.2);
+  const tone = (x, y) => (img.a(x, y, 0.3) < 0.5 ? 0 : Math.max(0, map(dark(x, y), 0.15, 0.88, 0, 1)) ** 2.2);
   const fold = t.spacefill(circle(50, 50, 44), { spacing: mm(0.4), maxSpacing: mm(2.4), field: tone });
   return strokes(fold, { pen: 'pigma-005-black' });
 });
@@ -393,13 +392,13 @@ tone it works against is the photograph's own, with the edges of the picture
 added on top.
 
 ```ts live
-import { sketch, strokes, curve, mm, norm } from 'occlude';
+import { sketch, strokes, curve, mm, map } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const img = t.image('ivy.png', { x: 12, y: 3, width: 76 });
   const dark = img.field('dark', { area: 0.2 });
   const tone = (x, y) => img.a(x, y, 0.3) < 0.5 ? 0
-    : Math.min(1, Math.max(0, norm(dark(x, y), 0.08, 0.95)) ** 1.5 + img.edge(x, y, 0.2));
+    : Math.min(1, Math.max(0, map(dark(x, y), 0.08, 0.95, 0, 1)) ** 1.5 + img.edge(x, y, 0.2));
   const r = t.residual(tone, { spacing: mm(0.7) });
   const stop = r.total() * 0.09;
   // Start where the debt is deepest.

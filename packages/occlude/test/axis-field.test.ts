@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { SQ, toolkit } from './helpers/run.js';
-import { across, axisField, circle, grad, initOcclude, rotate, scale, translate, vectorField } from '../src/index.js';
+import { across, axisField, circle, grad, rotate, scale, translate, vectorField } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 import type { VectorFieldFn } from '../src/shapes.js';
 import { fieldMeta, isAxisField } from '../src/field.js';
 import type { IsoEnv } from '../src/isolines.js';

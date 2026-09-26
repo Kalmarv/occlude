@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { circle, exportPng, initOcclude, line, sketch, type DrawRequest } from '../src/index.js';
+import { circle, line, sketch, type DrawRequest } from '../src/index.js';
+import { exportPng, initOcclude } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));

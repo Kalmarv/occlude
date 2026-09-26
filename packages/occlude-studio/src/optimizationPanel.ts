@@ -5,7 +5,7 @@ import {
   openPlan,
   type DrawingPlan,
   type EstimateOpts,
-} from "occlude";
+} from "occlude/host";
 import type { PanelHooks } from "./panels.js";
 import type {
   OptimizationContext,

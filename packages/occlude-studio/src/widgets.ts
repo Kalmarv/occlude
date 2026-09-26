@@ -1,6 +1,6 @@
 /** Small DOM builders shared by the rail and the Machine page. */
 
-import type { YAxis } from 'occlude';
+import type { YAxis } from 'occlude/host';
 
 /** The three ways a controller can count Y against the paper's. */
 export function yAxisSelect(value: YAxis, onchange: (v: YAxis) => void): HTMLSelectElement {

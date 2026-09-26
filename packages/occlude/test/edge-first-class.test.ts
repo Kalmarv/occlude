@@ -71,7 +71,7 @@ describe('edges.edges', () => {
 describe('force.tension with a rest per edge', () => {
   it('reads the edge, not either end', () => {
     const m = chain().edges.set('rest', (e) => (e.index === 0 ? 5 : 100));
-    const pull = tension(m, { rest: (e: Edge) => e.attrs.rest });
+    const pull = tension(m, { rest: (e: Edge) => e.rest });
     // Vertex 1 sits 20 from each neighbour. Its left edge rests at 5, so it
     // is pulled 15 toward vertex 0; its right edge rests at 100 and is
     // slack, so it pulls nothing.

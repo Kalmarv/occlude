@@ -20,11 +20,11 @@
 import type { PenDef } from 'occlude';
 import { registrationMark } from './diagnostics.js';
 
-import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude';
+import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude/host';
 import {
-  estimatePlanMs, planDurationMs, planPolyline, segmentsToBlocks,
-  type MotionBlock, type PlanEstimate, type Point,
-} from 'occlude';
+  estimatePlanMs, planDurationMs, planPolyline, segmentsToBlocks, type MotionBlock, type PlanEstimate,
+  type Point,
+} from 'occlude/host';
 
 // Minimal Web Serial typings (lib.dom doesn't ship them everywhere).
 interface SerialPortLike {

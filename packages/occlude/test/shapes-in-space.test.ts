@@ -21,11 +21,13 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, compileSketch, ellipse, group, initOcclude, line, material, modify, ngon, polygon, rect, render, sketch, smooth, space, stroke, strokes,
-  type ShapeValue, type SketchConfig,
+  append, circle, ellipse, group, line, material, ngon, polygon, rect, sketch, smooth, space,
+  stroke, strokes, type GroupValue, type ShapeValue, type SketchConfig,
 } from '../src/index.js';
+import { compileSketch, initOcclude, render } from '../src/host.js';
 import { lowerShape } from '../src/record.js';
 import { flattenPrim } from '../src/prims.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -54,7 +56,7 @@ function ink(cfg: SketchConfig, shape: ShapeValue): Pt[][] {
 }
 
 /** The drawn fragments of a whole sketch, as the engine hands them back. */
-function frags(cfg: SketchConfig, tree: () => ShapeValue | ReturnType<typeof modify>): unknown[] {
+function frags(cfg: SketchConfig, tree: () => ShapeValue | GroupValue): unknown[] {
   return render(sketch(cfg, tree), SQ).frags.map((f) => f.geom);
 }
 
@@ -78,12 +80,12 @@ function flatGolden(): Record<string, string> {
     circleInk: hash(ink(FLAT, c)),
     ellipseInk: hash(ink(FLAT, e)),
     ngonInk: hash(ink(FLAT, hex)),
-    circleMaterial: hash(t.material(c).pts),
-    ngonMaterial: hash(t.material(hex).pts),
-    rectMaterial: hash(t.material(rect(10, 12, 60, 30)).pts),
-    circleSample: hash(t.sample(c, { count: 72 }).pts),
-    smoothPentagon: hash(frags(WIDE, () => modify([smooth(3)], pent))),
-    smoothCircle: hash(frags(FLAT, () => modify([smooth(2)], circle(50, 50, 30)))),
+    circleMaterial: hash(t.material(c).points.map(xy)),
+    ngonMaterial: hash(t.material(hex).points.map(xy)),
+    rectMaterial: hash(t.material(rect(10, 12, 60, 30)).points.map(xy)),
+    circleSample: hash(t.sample(c, { count: 72 }).points.map(xy)),
+    smoothPentagon: hash(frags(WIDE, () => group({ modifiers: [smooth(3)] }, pent))),
+    smoothCircle: hash(frags(FLAT, () => group({ modifiers: [smooth(2)] }, circle(50, 50, 30)))),
     bound: hash(bound(FLAT, rect(6, 6, 88, 40), 100, 100)),
     wideBound: hash(bound(WIDE, rect(6, 6, 188, 88), 200, 100)),
   };
@@ -119,7 +121,7 @@ for (const [name, cfg] of SPACES) {
     ])('every sample of circle(%d, %d, %d) is at distance r from its centre', (cx, cy, r) => {
       const m = t.sample(circle(cx, cy, r), { count: 72 });
       expect(m.n).toBe(72);
-      for (const p of m.pts) expect(Math.abs(s.distance([cx, cy], p) - r)).toBeLessThan(1e-9);
+      for (const p of m.points.map(xy)) expect(Math.abs(s.distance([cx, cy], p) - r)).toBeLessThan(1e-9);
     });
 
     it('the ink of a circle is the circle of the space, sheet for sheet', () => {
@@ -138,7 +140,7 @@ for (const [name, cfg] of SPACES) {
       const [cx, cy, rx, ry, rot] = [45, 60, 20, 9, 30];
       const m = t.material(ellipse(cx, cy, rx, ry, rot));
       const a = (rot * Math.PI) / 180;
-      for (const p of m.pts) {
+      for (const p of m.points.map(xy)) {
         // Read the step back and undo the turn: the point is on the flat
         // ellipse of the step's own coordinates.
         const [u, v] = s.log([cx, cy], p);
@@ -151,22 +153,22 @@ for (const [name, cfg] of SPACES) {
     it('an ngon has its corners at distance r and geodesics for edges', () => {
       const c: Pt = [50, 50];
       const m = t.material(ngon(c, 6, 30));
-      for (const p of m.pts) expect(Math.abs(s.distance(c, p) - 30)).toBeLessThan(1e-9);
+      for (const p of m.points.map(xy)) expect(Math.abs(s.distance(c, p) - 30)).toBeLessThan(1e-9);
       // Each corner turns 60° about the centre from the one before it.
       for (let k = 0; k < 6; k++) {
-        const [u0, v0] = s.log(c, m.pts[k]);
-        const [u1, v1] = s.log(c, m.pts[(k + 1) % 6]);
+        const [u0, v0] = s.log(c, m.points.map(xy)[k]);
+        const [u1, v1] = s.log(c, m.points.map(xy)[(k + 1) % 6]);
         const turn = Math.atan2(u0 * v1 - v0 * u1, u0 * u1 + v0 * v1);
         expect(Math.abs(turn - Math.PI / 3)).toBeLessThan(1e-9);
       }
       // The sampled outline of the same ngon lies on the geodesics between
       // those corners.
-      const outline = t.sample(ngon(c, 6, 30), { count: 60 }).pts;
+      const outline = t.sample(ngon(c, 6, 30), { count: 60 }).points.map(xy);
       for (const p of outline) {
         let best = Infinity;
         for (let k = 0; k < 6; k++) {
-          const a = m.pts[k];
-          const b = m.pts[(k + 1) % 6];
+          const a = m.points.map(xy)[k];
+          const b = m.points.map(xy)[(k + 1) % 6];
           best = Math.min(best, s.distance(a, p) + s.distance(p, b) - s.distance(a, b));
         }
         expect(best).toBeLessThan(1e-6);
@@ -180,7 +182,7 @@ for (const [name, cfg] of SPACES) {
     it('six for a hexagon, four for a rect, two for a line', () => {
       expect(t.material(ngon(50, 50, 6, 40)).n).toBe(6);
       expect(t.material(rect(10, 12, 60, 30)).n).toBe(4);
-      const r = t.material(rect(10, 12, 60, 30)).pts;
+      const r = t.material(rect(10, 12, 60, 30)).points.map(xy);
       expect(r).toEqual([[10, 12], [70, 12], [70, 42], [10, 42]]);
     });
 
@@ -194,7 +196,7 @@ for (const [name, cfg] of SPACES) {
     it('a circle keeps its flattening, every vertex on the circle of the space', () => {
       const m = t.material(circle(50, 50, 20));
       expect(m.n).toBeGreaterThan(24);
-      for (const p of m.pts) expect(Math.abs(t.space.distance([50, 50], p) - 20)).toBeLessThan(1e-9);
+      for (const p of m.points.map(xy)) expect(Math.abs(t.space.distance([50, 50], p) - 20)).toBeLessThan(1e-9);
     });
   });
 
@@ -273,7 +275,7 @@ for (const [name, cfg] of SPACES) {
       const c: Pt = [50, 50];
       const t = toolkit(cfg);
       const s = t.space;
-      const drawn = frags(cfg, () => modify([smooth(3)], ngon(c, 5, 30)));
+      const drawn = frags(cfg, () => group({ modifiers: [smooth(3)] }, ngon(c, 5, 30)));
       const exec = compileSketch(sketch(cfg, () => ngon(c, 5, 30)), SQ);
       const f = exec.frame;
       const unit = Math.min(f.inner.innerW, f.inner.innerH) / 100;
@@ -320,10 +322,10 @@ describe('an area keeps the side its winding names', () => {
     // the short way round, as its author drew it between two names.
     const t = toolkit({ aspect: [2, 1], space: { kind: 'spherical', radius: 50 } });
     const period = 2 * Math.PI * t.space.radius;
-    const open = t.material(stroke([[6, 50], [194, 50]])).pts;
+    const open = t.material(stroke([[6, 50], [194, 50]])).points.map(xy);
     expect(open[1][0]).toBeCloseTo(194 - period, 9);
     // The same edge in a closed loop is walked as drawn.
-    const loop = t.material(rect(6, 6, 188, 88)).pts;
+    const loop = t.material(rect(6, 6, 188, 88)).points.map(xy);
     expect(loop.map((p) => p[0])).toEqual([6, 194, 194, 6]);
   });
 });

@@ -19,9 +19,9 @@
 
 import { numericLoops, type AreaInput } from './boundary.js';
 import { vx as pointX, vy as pointY, type XY } from './vec.js';
-import type { PointsLike } from './material.js';
+import { Material } from './material.js';
+import { PointSelection } from './relation.js';
 import { Len } from './units.js';
-import { faceCentroids } from './faces.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -41,6 +41,19 @@ interface Seg {
   by: number;
 }
 
+/** Points with no inside: a point selection, or a material that is points
+ * alone. */
+export type PointSites = PointSelection<unknown> | Material;
+
+/** @internal Is this value points, which `distanceTo` measures to the
+ * nearest of, rather than an area? A point selection, or a material with
+ * no edges. Loops and contour records are areas, and a face collection is
+ * several areas, which must say which it means (`material(cells)` is its
+ * centroids as points). */
+export function isPointSites(v: unknown): v is PointSites {
+  return v instanceof PointSelection || (v instanceof Material && v.edgeCount === 0);
+}
+
 /**
  * Signed distance to the boundary of the area enclosed by `boundary`
  * (even-odd): positive inside, negative outside. The boundary is plain
@@ -50,8 +63,17 @@ interface Seg {
  * usable loops the field is -Infinity everywhere — non-finite samples count
  * as outside, so isolines over an empty field yields no contours rather
  * than throwing.
+ *
+ * Points have no inside. Given points — a point selection, or a material
+ * that is points alone — the field is the distance to the NEAREST point
+ * with the same sign: zero at a point and negative everywhere else. It is −F1 of the Worley family:
+ * `t.isolines(distanceTo(sites), -3)` is the ring three units out from
+ * every site, and where two rings would meet they merge into the
+ * cracked-mud cell wall between the sites. A plain array of pairs is a
+ * loop; `material(pairs)` makes it points.
  */
-export function distanceTo(boundary: AreaInput): DistanceField {
+export function distanceTo(boundary: AreaInput | PointSites): DistanceField {
+  if (isPointSites(boundary)) return distanceToSites(boundary);
   const loops = numericLoops(boundary, 'distanceTo');
   const segs: Seg[] = [];
   let minX = Infinity;
@@ -212,18 +234,11 @@ export function distanceTo(boundary: AreaInput): DistanceField {
  * material answers with its own columns, anything iterable is walked point
  * by point (a point selection yields its vertex views, an array its pairs
  * or records). Non-finite positions are dropped, not drawn to. */
-function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: Float64Array } {
+function sitePositions(sites: PointSites, who: string): { sx: Float64Array; sy: Float64Array } {
   const xs: number[] = [];
   const ys: number[] = [];
   const v = sites as unknown as { x?: ArrayLike<number>; y?: ArrayLike<number>; n?: number };
-  // A face collection is points at its faces' centroids.
-  const centres = faceCentroids(sites);
-  if (centres) {
-    for (const [x, y] of centres) {
-      xs.push(x);
-      ys.push(y);
-    }
-  } else if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
+  if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
     for (let i = 0; i < v.n; i++) {
       xs.push(v.x[i]);
       ys.push(v.y[i]);
@@ -234,7 +249,7 @@ function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: 
       ys.push(pointY(p));
     }
   } else {
-    throw new Error(`${who}: expected points — an array of [x, y] or { x, y }, a point selection, or a material`);
+    throw new Error(`${who}: expected points — a point selection, a material of points, or a face collection`);
   }
   const keep: number[] = [];
   for (let i = 0; i < xs.length; i++) if (Number.isFinite(xs[i]) && Number.isFinite(ys[i])) keep.push(i);
@@ -242,25 +257,16 @@ function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: 
 }
 
 /**
- * Distance to the NEAREST of a cloud of sites, as a field of the same sign
- * convention as `distanceTo`: zero at a site and negative everywhere else,
- * so nowhere is inside. It is −F1 of the Worley family, which is what makes
- * it read as a field: `t.isolines(distanceToPoints(sites), -3)` is the ring
- * three units out from every site, and where two rings would meet they
- * merge into the cracked-mud cell wall between the sites.
- *
- * Pure and deterministic, like `distanceTo`: no seed and no paper. A shape
- * is not points, so there is no lowering to do; `t.scatter(...)`,
- * `m.points` and a plain array of pairs all go straight in. With no usable
- * site the field is −Infinity everywhere, so isolines over it yield no
- * contours rather than throwing.
+ * `distanceTo` of points: the distance to the NEAREST site, zero at a site
+ * and negative everywhere else. With no usable site the field is −Infinity
+ * everywhere, so isolines over it yield no contours rather than throwing.
  *
  * Queries run against a uniform grid built once per call and widened ring
  * by ring, with the exact bound that stops the walk — the same search
  * `distanceTo` makes over its segments.
  */
-export function distanceToPoints(sites: PointsLike): DistanceField {
-  const { sx, sy } = sitePositions(sites, 'distanceToPoints');
+function distanceToSites(sites: PointSites): DistanceField {
+  const { sx, sy } = sitePositions(sites, 'distanceTo');
   const n = sx.length;
   if (n === 0) return () => -Infinity;
 

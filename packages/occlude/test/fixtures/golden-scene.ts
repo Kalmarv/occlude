@@ -1,4 +1,4 @@
-import { sketch, circle, line, path, fill, mm } from 'occlude';
+import { sketch, circle, deform, group, line, path, fill, mm } from 'occlude';
 
 // The Rust golden scene, as a sketch: a horizontal line under everything,
 // an S-curve over it, and three filled circles — two hatch passes and one
@@ -18,12 +18,12 @@ export default sketch({ aspect: 'paper', margin: 0, seed: 1234 }, (t) => [
   // cannot share a grid — the shape that made ring rasterise the whole
   // page 64 times. Nothing else in this fixture registers a field, so
   // without these the raster code is entirely uncovered.
-  t.deform(
-    (x, y) => [t.noise(x / 15, y / 15) * 2.5, t.noise(x / 15 + 40, y / 15 + 40) * 2.5],
+  group(
+    { modifiers: [deform((x, y) => [t.noise(x / 15, y / 15) * 2.5, t.noise(x / 15 + 40, y / 15 + 40) * 2.5])] },
     circle(mm(24), mm(120), mm(13)),
   ),
-  t.deform(
-    (x, y) => [t.noise(x / 9 + 7, y / 9 + 7) * 1.5, t.noise(x / 9 - 7, y / 9 - 7) * 1.5],
+  group(
+    { modifiers: [deform((x, y) => [t.noise(x / 9 + 7, y / 9 + 7) * 1.5, t.noise(x / 9 - 7, y / 9 - 7) * 1.5])] },
     circle(mm(80), mm(118), mm(10)),
   ),
 ]);

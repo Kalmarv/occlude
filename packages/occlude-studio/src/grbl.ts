@@ -43,7 +43,8 @@
  * the plot's duration ($1=255, as the vendor's software does) and the
  * board's own idle delay is put back after.
  */
-import { schedulePlan, type PenDef, type PlanEstimate, type PlanSchedule } from 'occlude';
+import { type PenDef } from 'occlude';
+import { schedulePlan, type PlanEstimate, type PlanSchedule } from 'occlude/host';
 
 import { registrationMark } from './diagnostics.js';
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';

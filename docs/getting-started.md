@@ -33,7 +33,7 @@ sketch({
 }, (t) => tree)
 ```
 
-A fixed aspect is letterboxed onto whatever paper is chosen at render time. The toolkit carries the drawable's size as plain numbers (`t.width`, `t.height`, `t.cx`, `t.cy`), the same values `t.bounds()` returns. `t.bounds()` is the drawable as a rect record, `{ x, y, w, h, cx, cy }`, in the frame the config names: under `origin: 'center'` its corner is `(-w/2, -h/2)` and its middle is `(0, 0)`. It is an area, so `t.within(m, t.bounds())` cuts to the drawable. Every word that covers the drawable by default (`t.grid`, `t.hexes`, `t.voronoi`, `t.scatter`, the fields) reads the same record.
+A fixed aspect is letterboxed onto whatever paper is chosen at render time. `t.bounds()` is the drawable as a rect record, `{ x, y, w, h, cx, cy }`, in the frame the config names: under `origin: 'center'` its corner is `(-w/2, -h/2)` and its middle is `(0, 0)`. It is an area, so `t.within(m, t.bounds())` cuts to the drawable. Every word that covers the drawable by default (`t.grid`, `t.hexes`, `t.voronoi`, `t.scatter`, the fields) reads the same record.
 
 Pure constructors are imports from `'occlude'`: shapes, fills, modifiers, units, `map` and `ease`, `ui`, `svg`, and the material vocabulary. They work in helper files too. Anything that depends on the running sketch lives only on the toolkit: randomness (`rnd`, `noise`, `pick`, `chance`, `stream` read the seed), layout (`bounds`, `grid`, `times` need the resolved paper), and sampling (`scatter`, `sample`, `points`). The toolkit also carries the shape factories, `stroke`, `polygon`, `label`, fills, modifiers, units, `map` and `ease`, so destructuring `({ circle, rnd }) => …` is an equivalent style for those. Import the rest — `strokes`, `dots`, `material`, `curve`, `connect` and the vector arithmetic — from `'occlude'`.
 
@@ -121,17 +121,17 @@ Plotting & saving covers paper and pens, choosing which part of the ordered draw
 
 ## Awaiting construction
 
-Use `sketchAsync(config, async t => tree)` when construction has an explicit asynchronous step. Studio waits for the returned tree before rendering. The toolkit, seed, named pens, and paper behave like those of `sketch`.
+Give `sketch` an `async` function, `sketch(config, async (t) => tree)`, when construction has an explicit asynchronous step. Studio waits for the returned tree before rendering. The toolkit, seed, named pens, and paper behave as they do for any sketch.
 
 ```ts live
-import { sketchAsync, line } from 'occlude';
+import { sketch, line } from 'occlude';
 
-export default sketchAsync({ seed: 42 }, async (t) => {
+export default sketch({ seed: 42 }, async (t) => {
   const positions = await Promise.resolve(t.times(12, () => t.rnd(10, 90)));
   return positions.map((x) => line(x, 10, x, 90));
 });
 ```
 
-Headless hosts use `await compileSketchAsync(def, inputs, { signal })` to get an execution, or `await renderAsync(def, options)` to render it. Initialize WASM with `initOcclude` first, as with synchronous rendering. `renderAsync` also accepts ordinary sketches and compiled executions. Synchronous entry points report that async rendering is required when given an async definition.
+Headless hosts import from `occlude/host`. They use `await compileSketchAsync(def, inputs, { signal })` to get an execution, or `await renderAsync(def, options)` to render it. Initialize WASM with `initOcclude` first, as with synchronous rendering. `renderAsync` also accepts ordinary sketches and compiled executions. Synchronous entry points report that async rendering is required when given a sketch whose function is `async`.
 
 Cancellation prevents recording the returned tree; it cannot forcibly interrupt arbitrary JavaScript. Pass the same signal to asynchronous construction operations that support cancellation. Each execution is single-use, including after failure or cancellation.

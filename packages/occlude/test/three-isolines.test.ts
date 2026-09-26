@@ -1,7 +1,8 @@
 import {describe,expect,it} from 'vitest';
 import {plane,sphere,cylinder,view,orthographic} from '../src/three/api/index.js';
 import {isolines} from '../src/three/api/isolines.js';
-import {compileSketchAsync,initOcclude,pen,mm,sketchAsync} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { compileSketchAsync, initOcclude } from '../src/host.js';
 import {sampleSurfaceCurves} from '../src/three/api/curveSampling.js';
 import {decodePoint,triangleWeights} from '../src/three/geometry/exact.js';
 import {bindingTriangle3} from '../src/three/curves/network.js';
@@ -89,7 +90,7 @@ describe('isolines',()=>{
     expect(()=>isolines({} as never,'h',[0])).toThrow('mesh');
   });
   it('renders through view as ordinary supported curves',async()=>{
-    const run=await compileSketchAsync(sketchAsync({seed:1,pens:{ink:pen({width:mm(.2)})}},async()=>{
+    const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async()=>{
       const model=plane(2).subdivide(3).displace(p=>[0,0,.4*Math.sin(p.x*2)]).points.set({h:p=>p.z});
       return view([model,isolines(model,'h',{count:4})],{camera:orthographic({eye:[5,7,6],span:4}),pen:'ink'});
     }));

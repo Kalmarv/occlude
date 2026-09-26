@@ -27,6 +27,12 @@
  * −1…1. The default is a sine. A triangle, a sawtooth, a square, a clipped
  * sine are all one-liners the caller writes — recipes, not options.
  *
+ * A waveform may also move ALONG the chain: a pair `[along, across]` is
+ * an offset on the tangent and on the normal, both in amplitudes. A circle
+ * rolled along the chain, `(u) => [Math.sin(2πu), 1 − Math.cos(2πu)]`, is
+ * a coil: the loop leaves the chain, goes round and comes back to it once
+ * per wavelength, never crossing it, and the coil is two amplitudes wide.
+ *
  * Pure and deterministic: no seed, no paper. Lengths are resolved material
  * coordinates, so an unresolved `mm(1)` is refused rather than read against
  * global paper, exactly as `thicken` refuses it.
@@ -45,8 +51,10 @@ export interface OscillateOpts {
   /** How far the chain swings to either side. Zero leaves the chain where it
    * is; negative mirrors the waveform. */
   amplitude: OscillateAmount;
-  /** The waveform: phase in [0, 1) to −1…1. Default `sin(2πu)`. */
-  shape?: (u: number) => number;
+  /** The waveform: phase in [0, 1) to −1…1 across the chain, or to a pair
+   * `[along, across]` that also moves along it (a coil is a rolled circle).
+   * Both in amplitudes. Default `sin(2πu)`. */
+  shape?: (u: number) => number | readonly [number, number];
   /** Phase at the start of every chain, in cycles. Default 0. */
   phase?: number;
   /** Samples per wavelength (default 16, minimum 4). More is rounder and
@@ -189,7 +197,7 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
   requireAmount(opts?.wavelength, '{ wavelength }', 'the distance along the chain for one whole cycle');
   requireAmount(opts?.amplitude, '{ amplitude }', 'how far the chain swings to either side');
   const shape = opts.shape ?? ((u: number) => Math.sin(TAU * u));
-  if (typeof shape !== 'function') throw new Error('oscillate: { shape } must be a function of phase in [0, 1) returning -1…1');
+  if (typeof shape !== 'function') throw new Error('oscillate: { shape } must be a function of phase in [0, 1) returning -1…1, or a pair [along, across]');
   const phase0 = opts.phase ?? 0;
   if (!Number.isFinite(phase0)) throw new Error('oscillate: { phase } must be a finite number of cycles');
   const steps = opts.steps ?? 16;
@@ -273,7 +281,22 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
       // sit on, and one whose waveform gives no number has no offset: either
       // way it stays where the chain put it.
       const lam = amountAt(opts.wavelength, st.x, st.y);
-      const swing = lam > 0 ? a * valueAt(shape((((phase0 + cycles[k] * fit) % 1) + 1) % 1), 0) : 0;
+      if (!(lam > 0)) {
+        out.push(st);
+        continue;
+      }
+      const wave = shape((((phase0 + cycles[k] * fit) % 1) + 1) % 1);
+      if (Array.isArray(wave)) {
+        const along = a * valueAt(wave[0], 0);
+        const across = a * valueAt(wave[1], 0);
+        out.push({
+          ...st,
+          x: st.x + st.tangent[0] * along + st.normal[0] * across,
+          y: st.y + st.tangent[1] * along + st.normal[1] * across,
+        });
+        continue;
+      }
+      const swing = a * valueAt(wave, 0);
       out.push({ ...st, x: st.x + st.normal[0] * swing, y: st.y + st.normal[1] * swing });
     }
   }

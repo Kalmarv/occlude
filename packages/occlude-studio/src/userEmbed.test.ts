@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { transformSync } from '../../occlude/node_modules/esbuild/lib/main.js';
-import { DEFAULT_PENS, DEFAULT_PAPERS, assetTable, fillTable } from 'occlude';
+import { DEFAULT_PENS, DEFAULT_PAPERS, assetTable, fillTable } from 'occlude/host';
 import { bundleUserImports, relinkUserImports, scanBundled, scanUserImports } from './userEmbed.js';
 import { runSketch, type RunConfig } from './runner.js';
 

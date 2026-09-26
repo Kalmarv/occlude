@@ -1,7 +1,8 @@
 import {describe,it,expect} from 'vitest';
 import {mesh,view} from 'occlude/3d';
 import {SurfaceCurves} from '../src/three/api/supported.js';
-import {sketch,compileSketchAsync,pen,mm} from 'occlude';
+import { sketch, pen, mm } from 'occlude';
+import { compileSketchAsync } from 'occlude/host';
 import {surfaceBinding3,surfaceCurveNetwork3,selectSurfaceCurveNetwork3,type SurfaceCurveNetwork3} from '../src/three/curves/network.js';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {lineArt3} from '../src/three/scene.js';

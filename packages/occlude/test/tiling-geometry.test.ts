@@ -183,9 +183,9 @@ describe('the faces are the cells', () => {
   it('carries the generation, the hand and the placement of every copy', () => {
     for (const tiles of [square(), heptagons(), icosahedron()]) {
       const cells = tiles.faces();
-      expect(tiles.seed).toBe(cells.faces[0]);
-      expect(tiles.seed.placementIndex).toBe(0);
-      expect(tiles.seed.generation).toBe(0);
+      // The first face is the cell itself, the identity placement's copy.
+      expect(cells.at(0).placementIndex).toBe(0);
+      expect(cells.at(0).generation).toBe(0);
       const seen = new Set<number>();
       for (const f of cells) {
         const i = f.placementIndex!;

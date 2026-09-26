@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 // The page list has no imports of its own: reading it here loads nothing
 // the coverage session needs to see compiled.
 import { DOC_PAGES } from '../src/docsExamples.js';
-import type { AsyncSketchDef, SketchDef } from '../src/index.js';
+import type { SketchDef } from '../src/index.js';
 import {
   CoverageRecorder, findMap, harnessFiles, harnessHash, headCommit, importedBySrc, inkDirty, inkTree, keyList, saveMap,
   selectAffected, withModuleLevel, withoutScriptEdits, workingChanges, type Selection } from './docs-coverage.js';
@@ -83,8 +83,8 @@ if ((mapping || (affected && !found)) && dirty.length) console.log(`no map recor
 const recorder = (mapping || (affected && !found)) && !dirty.length ? await CoverageRecorder.start() : null;
 
 const {
-  exportSvg, compileSketchAsync, initOcclude, isSketch, isSketchAsync, paperSize,
-  DEFAULT_PENS, parseLiveMeta, docsPaper, liveExampleToJs, DEFAULT_PAPERS } = await import('../src/index.js');
+  exportSvg, compileSketchAsync, initOcclude, isSketch, paperSize,
+  DEFAULT_PENS, parseLiveMeta, docsPaper, liveExampleToJs, DEFAULT_PAPERS } = await import('../src/host.js');
 const { assetsFromDisk } = await import('./asset-preload.js');
 const { fillsFromDisk } = await import('./fill-preload.js');
 const { requireFor } = await import('./inputs.js');
@@ -143,10 +143,9 @@ async function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): Promi
     module.exports,
     module,
   );
-  const isDefinition = (v: unknown) => isSketch(v) || isSketchAsync(v);
-  const def = (isDefinition(module.exports.default)
+  const def = (isSketch(module.exports.default)
     ? module.exports.default
-    : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
+    : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
   if (!def) throw new Error('no sketch exported');
   const sheet = docsPaper(meta);
   void paperSize;

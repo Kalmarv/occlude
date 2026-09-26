@@ -14,7 +14,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { circle, curve, initOcclude, material, type Cell, type Lattice } from '../src/index.js';
+import { circle, curve, material, type Cell, type Lattice } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));

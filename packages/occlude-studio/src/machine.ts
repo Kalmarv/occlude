@@ -8,7 +8,8 @@
  * here is the machine's: origins, seat, lift, settle.
  */
 
-import { liftMapFromCounts, parseCounts, refineLiftMap, type LiftMap, type PenDef } from 'occlude';
+import { type PenDef } from 'occlude';
+import { liftMapFromCounts, parseCounts, refineLiftMap, type LiftMap } from 'occlude/host';
 
 import { cellTestPulses, heatColour, liftCells, nudgeCell, RUNG, setCellThreshold, type LiftCell } from './liftGrid.js';
 

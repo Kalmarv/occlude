@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {box,mesh} from 'occlude/3d';
-import {grid3} from '../src/three/geometry/model.js';
+import {gridSurface as grid3} from './helpers/surfaces.js';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {runGeometryJob3} from '../src/three/geometry/job.js';
 import {surfaceBinding3,surfaceCurveNetwork3} from '../src/three/curves/network.js';

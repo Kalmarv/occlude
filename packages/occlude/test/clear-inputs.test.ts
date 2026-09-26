@@ -13,7 +13,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { circle, line, space, type Execution, type ShapeValue, type Toolkit } from '../src/index.js';
+import { circle, line, space, type ShapeValue, type Toolkit } from '../src/index.js';
+import { type Execution } from '../src/host.js';
 
 type Kit = Toolkit & { exec: Execution };
 

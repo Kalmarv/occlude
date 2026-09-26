@@ -12,8 +12,10 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  ellipse, material, ngon, path, polygon, rect, type Execution, type Face, type FaceSelection, type ShapeValue, type Toolkit,
+  ellipse, material, ngon, path, polygon, rect, type Face, type FaceSelection, type ShapeValue,
+  type Toolkit,
 } from '../src/index.js';
+import { type Execution } from '../src/host.js';
 import { hexes, triangles } from '../src/layout.js';
 
 type Kit = Toolkit & { exec: Execution };

@@ -2,9 +2,9 @@ import { robustness3 } from './robustness.js';
 import { precision3 } from './precision.js';
 import { reference3 } from './reference.js';
 import { verifyWorldViewport3 } from './viewportCheck.js';
-import { initOcclude, exportSvg, sketch, paper, pen, mm } from 'occlude';
-import { grid3 } from 'occlude/src/three/geometry/model.js';
-import { box3 } from 'occlude/src/three/geometry/surface.js';
+import { sketch, paper, pen, mm } from 'occlude';
+import { initOcclude, exportSvg } from 'occlude/host';
+import { box3, surface3 } from 'occlude/src/three/geometry/surface.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import { featureSnapshot3, type SurfaceObject3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
@@ -34,8 +34,13 @@ function compare(cpu:ClassifiedScene3,gpu:ClassifiedScene3):number {
   if(error>1e-5)throw new Error(`CPU/GPU parameter error ${error}`);
   return error;
 }
+/** An n × n sheet of quads, 12 across, as a raw surface for the kernels. */
 function grid(n:number):SurfaceObject3[]{
-  const surface=grid3(n,n,[12,12]);
+  const positions:[number,number,number][]=[],faces:number[][]=[];
+  for(let y=0;y<=n;y++)for(let x=0;x<=n;x++)positions.push([(x/n-.5)*12,(y/n-.5)*12,0]);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const p=y*(n+1)+x;faces.push([p,p+1,p+n+2,p+n+1]);}
+  // Triangulated flat, then lifted: the fixed triangles are the flat sheet's.
+  const surface=surface3(positions,faces);
   for(const point of surface.points){const [x,y]=point.position;point.position=[x,y,.15*Math.sin(x*2)*Math.cos(y*2)];}
   return [{id:'grid',surface}];
 }

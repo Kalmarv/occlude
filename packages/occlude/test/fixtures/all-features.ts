@@ -30,19 +30,16 @@
  */
 
 import {
-  sketch, mm, w, h, s, long, degrees, radians,
-  circle, ellipse, rect, line, polygon, ngon, path, stroke, strokes, label, labelWidth,
-  group, clip, invert, mask, modify, dash, smooth, roughen, deform, decimate, wobble,
-  fill, customFill, rulings, isBuiltinFill, resolveFill,
-  rotate, scale, vectorField, grad, curl, distanceTo,
-  map, norm, invertRange, ease,
-  material, curve, append, connect, planarize,
-  segmentRuns, extent, banding,
-  add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
-  force, sumForces, meanBy, query,
-  areaLoops, numericLoops, ui,
-  type Station, type Tree, type Vertex,
+  sketch, mm, w, h, s, degrees, radians, circle, ellipse, rect, line, polygon, ngon, path,
+  stroke, strokes, label, labelWidth, group, clip, invert, mask, dash, smooth, roughen, deform,
+  decimate, wobble, fill, rulings, rotate, scale, vectorField, grad, curl, distanceTo, map,
+  ease, material, curve, append, connect, segmentRuns, extent,
+  add, sub, mul, length, distance, unit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
+  force, meanBy, query, ui, type Station, type Tree, type Vertex,
 } from 'occlude';
+import type { CustomFillFn } from 'occlude';
+import { isBuiltinFill, resolveFill } from 'occlude/host';
+import { areaLoops, numericLoops } from 'occlude/src/boundary.js';
 
 export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   // ---- randomness, through the toolkit -----------------------------------
@@ -51,7 +48,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const r2 = t.rnd(2, 6); // 2…6
   const picked = t.pick([3, 5, 8]);
   const coin = t.chance(0.5) ? 1 : 0;
-  const maybe = t.prob(0.4, () => 1, () => 0) ?? 0;
+  const maybe = t.chance(0.4) ? 1 : 0;
   const n0 = t.noise(12.5, 7.5, 0.25); // -1…1
   const rExtra = t.stream('extras').rnd(1, 9); // an independent stream
 
@@ -59,16 +56,16 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const b = t.bounds();
   const uLen = t.len(mm(3)); // a tagged length as drawable units
   const uBare = t.len(2); // a bare number is already drawable units
-  const uMm = t.len(t.mm(4));
+  const uMm = t.len(mm(4));
   const uW = t.len(w(10));
   const uH = t.len(h(10));
-  const uWTk = t.len(t.w(5));
-  const uHTk = t.len(t.h(5));
+  const uWTk = t.len(w(5));
+  const uHTk = t.len(h(5));
   const uS = t.len(s(10));
-  const uSTk = t.len(t.s(5));
-  const uLong = t.len(long(10));
-  const cx = t.cx;
-  const cy = t.cy;
+  const uSTk = t.len(s(5));
+  const uLong = t.len(s(10));
+  const cx = t.bounds().cx;
+  const cy = t.bounds().cy;
   const deg = degrees(Math.PI / 3);
   const rad = radians(60);
 
@@ -82,8 +79,8 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const flow = vectorField((x, y): [number, number] => [Math.cos(y / 14), Math.sin(x / 14)]);
   const slope = grad(land, 0.5);
   const swirl = curl(land, 0.5);
-  const blended = (x: number, y: number) => norm(land(x, y) + turned(x, y) * 0.5, 0, 1.5);
-  const eased = (x: number, y: number) => ease.sinOut(invertRange(ramp(x, y), 1, 0));
+  const blended = (x: number, y: number) => map(land(x, y) + turned(x, y) * 0.5, 0, 1.5, 0, 1);
+  const eased = (x: number, y: number) => ease.sinOut(1 - ramp(x, y));
   const movedRead = movedField(20, 20);
   const zoomedRead = zoomed(20, 20);
 
@@ -105,9 +102,30 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const imgTone = img.field('lum', { area: 1.2 });
 
   // ---- shapes: repetition, lines, text, fills, masking -------------------
+  // A hand-drawn line: the sketch's noise across a straight one, fading to
+  // nothing at both ends — a path and `t.noise`, no word of its own.
+  const wavy = (x1: number, y1: number, x2: number, y2: number, o: { points: number; amplitude: number; offset: number; scale?: number }) => {
+    const { points, amplitude, offset, scale: sc = 3 } = o;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const p = path();
+    for (let i = 0; i < points; i++) {
+      const u = i / (points - 1);
+      const fade = Math.sin(Math.PI * u) ** 0.5;
+      const n = t.noise(offset + u * sc, offset * 7.31) * amplitude * fade;
+      const px = x1 + dx * u + nx * n;
+      const py = y1 + dy * u + ny * n;
+      if (i === 0) p.moveTo(px, py);
+      else p.lineTo(px, py);
+    }
+    return p.build();
+  };
   const scene: Tree[] = [
-    t.times(4, (k, u) => line(6, 8 + u * 8, 194, 8 + u * 8, { decimate: 0.1 })),
-    t.noisyLine(6, 20, 194, 20, { amplitude: 1.1, points: 20, offset: 2 }),
+    t.times(4, (k, u) => line(6, 8 + u * 8, 194, 8 + u * 8, { modifiers: [decimate(0.1)] })),
+    wavy(6, 20, 194, 20, { amplitude: 1.1, points: 20, offset: 2 }),
     label('KITCHEN SINK', 4, 2, 4),
   ];
 
@@ -116,9 +134,8 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     fill('crosshatch', { angles: [0, 90], spacing: mm(4) }),
     fill('stipple', { density: 0.12, minDist: mm(2.5) }),
     fill('solid', { angle: 45 }),
-    customFill((r, ctx) =>
+    (r: Parameters<CustomFillFn>[0], ctx: Parameters<CustomFillFn>[1]) =>
       rulings(r, { spacing: ctx.penWidth * 3, angle: 15, align: 'shape', anchor: ctx.anchor }),
-    ),
   ];
   const hatchName = isBuiltinFill('hatch') ? 'hatch' : resolveFill('hatch') ? 'hatch' : 'solid';
   scene.push(t.times(5, (k) => circle(24 + k * 16, 36, k === 3 ? 3.5 : 5, { fill: fills[k] })));
@@ -131,12 +148,13 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   scene.push(clip(invert(ellipse(40, 58, 24, 11)), t.times(7, (k, u) => line(16, 48 + u * 20, 64, 48 + u * 20))));
   scene.push(clip(polygon([[40, 48], [64, 58], [40, 68]]), t.times(5, (k, u) => line(20, 50 + u * 16, 60, 50 + u * 16))));
 
-  scene.push(modify([smooth(2), wobble(mm(0.5))], rect(72, 50, 24, 8)));
+  scene.push(rect(72, 50, 24, 8, { modifiers: [smooth(2), wobble(mm(0.5))] }));
   scene.push(rect(72, 62, 24, 8, { modifiers: [dash(mm(2.5), mm(1.5)), roughen(mm(0.4), mm(4))] }));
   scene.push(line(72, 74, 78, 74, { modifiers: [deform({ field: flow, detail: mm(3) })] }));
-  scene.push(line(72, 84, 78, 84, { modifiers: [deform({ field: t.noiseField(3, 30), detail: mm(3) })] }));
-  scene.push(modify([decimate(0.2)], rect(4, 62, 20, 8)));
-  scene.push(ngon(40, 86, 5, 7, 15, { decimate: { stroke: 0.2 } }));
+  const tremor = (x: number, y: number): [number, number] => [3 * t.noise(x / 30, y / 30), 3 * t.noise(x / 30 + 213.7, y / 30 - 118.3)];
+  scene.push(line(72, 84, 78, 84, { modifiers: [deform({ field: tremor, detail: mm(3) })] }));
+  scene.push(rect(4, 62, 20, 8, { modifiers: [decimate(0.2)] }));
+  scene.push(ngon(40, 86, 5, 7, 15, { modifiers: [decimate({ stroke: 0.2 })] }));
   scene.push(
     path({ winding: 'evenodd' })
       .moveTo(4, 74).lineTo(16, 74).lineTo(16, 84).close()
@@ -158,7 +176,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   // A pass that needs the step counts it itself, beside the graph.
   const grown = t.steps(2, { g: ring, k: 0 }, ({ g, k }) => {
     // Forces are prepared against the state they act on, once per step.
-    const pull = sumForces(
+    const pull = force.sum(
       force.tension(g, { rest: 2.6 }),
       force.separation(g, { radius: 4.5, excludeConnected: true }),
     );
@@ -167,7 +185,13 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   }, ({ g, k }) => ({ g: g.split(g.edges.filter((e) => e.length > 4.6), 0.5), k: k + 1 })).g;
 
   const runs = segmentRuns(grown, (e) => Math.round((e.a.age + e.b.age) / 2));
-  const band = banding.over(grown.attrs.age, { count: 2 });
+  // Two equal bands over the column's own extent.
+  const band = (v: number): number => {
+    const [lo, hi] = extent(grown.points.map((p) => p.age));
+    if (!(hi - lo > 0)) return 0;
+    const k = Math.floor(((v - lo) / (hi - lo)) * 2);
+    return k < 0 ? 0 : k >= 2 ? 1 : k;
+  };
   const ageExtent = extent(grown.attrs.age);
   const parts = grown.points.components();
   const partOf = new Map<number, number>();
@@ -188,7 +212,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const selUnion = selA.union(grown.points.filter((p) => p.index < 6));
   const selInter = selA.intersect(grown.points.filter((p) => p.index < 8));
   const selSub = selA.subtract(grown.points.filter((p) => p.index % 2 === 0));
-  const selComp = selA.complement();
+  const selComp = grown.points.without(selA);
   const selHas = firstPt ? selA.has(firstPt) : false;
   const selExtract = selA.extract();
   const keyCount = grown.points.groupBy((p) => Math.round(p.age)).length;
@@ -208,7 +232,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
       t.sample(line(122, 52, 122, 72), { count: 2 }),
     ),
   );
-  const planar = planarize(net);
+  const planar = net.planarize();
   const faceSet = planar.faces();
   const chosen = faceSet.filter((f) => f.area > 80);
   const measured = faceSet.measure(land, { step: 0.8 });
@@ -260,7 +284,10 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const vLen = length([3, 4]);
   const vDist = distance([0, 0], [3, 4]);
   const vUnit = unit([3, 4]);
-  const vLimit = limit([9, 9], 3);
+  const vLimit = ((v: [number, number], max: number): [number, number] => {
+    const d = length(v);
+    return d > max && d > 0 ? [(v[0] / d) * max, (v[1] / d) * max] : v;
+  })([9, 9], 3);
   const vPerp = perp([1, 0]);
   const vDot = dot([1, 2], [3, 4]);
   const vCross = cross([1, 0], [0, 1]);
@@ -272,8 +299,8 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   // ---- helpers that are easy to forget -----------------------------------
   const loops = areaLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
   const numLoops = numericLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
-  const connectRing = connect.ring(material([[0, 0], [4, 0], [2, 4]])).edges.length;
-  const connectChain = connect.chain(material([[0, 0], [4, 0], [2, 4]])).edges.length;
+  const connectRing = curve(material([[0, 0], [4, 0], [2, 4]]), { closed: true }).edges.length;
+  const connectChain = curve(material([[0, 0], [4, 0], [2, 4]])).edges.length;
   const connectNear = connect.nearest(seeds, { count: 2 }).edges.length;
   const connectPairs = connect.pairs(
     material([[0, 0], [4, 0]]),
@@ -284,7 +311,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   // ---- declarative extras: sliders, probes, the plan itself --------------
   const weight = ui(0.6, { min: 0, max: 1, step: 0.05 });
   t.probe('all-features', [r01, r1, r2, n0, uLen, deg, rad, weight]);
-  t.inspect('grown', grown);
+  t.probe('grown', grown);
   t.plan({ optimize: 200, bridge: 0.4 });
   t.draw({ progress: [0, 0.55] });
 
@@ -304,7 +331,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     facePerim, faceEdges, faceOne ? faceOne.mean : 0, faceOne ? faceOne.integral : 0,
     faceOne ? faceOne.centroid[0] : 0, faceOne ? faceOne.samples : 0,
     loops.length, numLoops.length, siteOfFirst ? 1 : 0, cellOfSite ? 1 : 0, cellOne ? cellOne.area : 0,
-    band(0.5), tagged.n, hatchName.length, vLimit[0], vSum[0], vSumBy[1], vFrom[1],
+    band(0.5), tagged.points.length, hatchName.length, vLimit[0], vSum[0], vSumBy[1], vFrom[1],
     near ? near.distance : 0, hit ? hit.along : 0, connectChain, connectPairs, connectTri,
   ].reduce((a, v) => a + v, 0);
   scene.push(label(

@@ -11,6 +11,7 @@ import { curve, material } from '../src/material.js';
 import { neighbours } from '../src/forces.js';
 import { query } from '../src/query.js';
 import { toolkit } from './helpers/run.js';
+import { xy } from './helpers/xy.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
@@ -47,7 +48,7 @@ describe('what a direct write reaches', () => {
     expect(m.vertex(0).x).toBe(100);
     expect(m.edge(0).a.x).toBe(100);
     expect(m.curves()[0].pts[0][0]).toBe(100);
-    expect(m.pts[0][0]).toBe(100);
+    expect(m.points.map(xy)[0][0]).toBe(100);
   });
 
   it('adjacency is topology only: a coordinate write cannot stale it', () => {

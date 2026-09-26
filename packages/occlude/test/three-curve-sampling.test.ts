@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {box,instanceOnPoints,intersections,mesh,pointCloud} from 'occlude/3d';
-import {compileSketch,sketch} from '../src/index.js';
+import { sketch } from '../src/index.js';
+import { compileSketch } from '../src/host.js';
 import {SurfaceCurves} from '../src/three/api/advanced.js';
 import {sampleSurfaceCurves} from '../src/three/api/curveSampling.js';
 import {point,type H} from '../src/three/geometry/exact.js';

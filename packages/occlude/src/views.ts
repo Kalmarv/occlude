@@ -43,7 +43,7 @@ export function ownerOfView(view: object): object | undefined {
   return (view as Record<symbol, object>)[OWNER];
 }
 
-/** True when `view` (a vertex or edge view) came from `m` — this state,
+/** @internal True when `view` (a vertex or edge view) came from `m` — this state,
  * not merely a material with the same shape. */
 export function ownedBy(view: object, m: object): boolean {
   return (view as unknown as Record<symbol, object>)[OWNER] === m;

@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { toolkit } from './helpers/run.js';
-import { circle, material, rect, type Material } from '../src/index.js';
+import { circle, distanceTo, material, rect, type Material } from '../src/index.js';
 
 const golden = JSON.parse(readFileSync(new URL('./within-closes.golden.json', import.meta.url), 'utf8'));
 const t = toolkit({ aspect: [1, 1] });
@@ -132,7 +132,7 @@ describe('a lattice cut to a rect', () => {
     const corner = [...Array(out.n).keys()].find((v) => out.x[v] === x0 && out.y[v] === y0)!;
     expect(corner).toBeDefined();
     expect(new Set(src.pointIds).has(out.pointIds[corner])).toBe(false);
-    const face = cells.containing([x0 + 0.1, y0 + 0.1]).at(0);
+    const face = cells.filter((f) => distanceTo(f)(x0 + 0.1, y0 + 0.1) > 0).at(0);
     expect(face.points.indices).toContain(corner);
     const neighbours: number[] = [];
     for (let e = 0; e < out.edgeCount; e++) {

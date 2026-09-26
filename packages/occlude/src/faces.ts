@@ -819,34 +819,6 @@ function pointInWalk(m: Material, walk: number[], tail: (h: number) => number, p
   return inside;
 }
 
-/** The positions `containing` asks about: one point, or a cloud of them.
- * A pair or a record is ONE place; a material, a point selection or an
- * array of either spelling is many. */
-function queryPoints(where: XY | PointsLike, who: string): [number, number][] {
-  const centres = faceCentroids(where);
-  if (centres) return centres;
-  if (Array.isArray(where) && typeof where[0] === 'number') return [[where[0], where[1] as number]];
-  const one = where as { x?: unknown; y?: unknown };
-  if (typeof one?.x === 'number' && typeof one?.y === 'number') return [[one.x, one.y]];
-  const many = where as { x?: ArrayLike<number>; y?: ArrayLike<number>; n?: number };
-  if (typeof many?.n === 'number' && many.x !== undefined && many.y !== undefined) {
-    const out: [number, number][] = [];
-    for (let i = 0; i < many.n; i++) out.push([many.x[i], many.y[i]]);
-    return out;
-  }
-  if (where !== null && where !== undefined && typeof (where as Iterable<XY>)[Symbol.iterator] === 'function') {
-    const out: [number, number][] = [];
-    for (const p of where as Iterable<XY>) {
-      const pair = p as { x?: unknown; y?: unknown };
-      if (Array.isArray(p)) out.push([p[0] as number, p[1] as number]);
-      else if (typeof pair?.x === 'number' && typeof pair?.y === 'number') out.push([pair.x, pair.y]);
-      else throw new Error(`${who}: a point is [x, y] or { x, y }`);
-    }
-    return out;
-  }
-  throw new Error(`${who}: expected a point ([x, y] or { x, y }) or points — a material, a point selection, or an array of them`);
-}
-
 /**
  * A uniform grid over axis-aligned boxes, four numbers per item
  * (`minx, miny, maxx, maxy`): `near` lists, once each, the items whose box
@@ -893,8 +865,8 @@ export function boxGrid(boxes: Float64Array): { near(minx: number, miny: number,
   };
 }
 
-/** `faces.containing` for many single points: the face index holding
- * (x, y), or −1, by the same rule, with the faces bucketed by their bounds. */
+/** The face index holding (x, y), or −1, by `faceHolding`'s rule, with
+ * the faces bucketed by their bounds. */
 export function faceLocator(cells: Faces): (x: number, y: number) => number {
   const boxes = new Float64Array(4 * cells.faces.length);
   cells.faces.forEach((f, i) => boxes.set([f.bounds.x, f.bounds.y, f.bounds.x + f.bounds.w, f.bounds.y + f.bounds.h], 4 * i));
@@ -1131,7 +1103,7 @@ export type FaceWhere = FaceSelection<unknown> | Face | ((f: Face) => unknown) |
  *
  * It has the words a point or an edge selection has, with the same
  * meanings: iterate, `length`, `at`, `map`, `filter`, `groupBy`; `has`,
- * `in(state)`, `rows`, `complement()`, `union`/`intersect`/`subtract`;
+ * `in(state)`, `rows`, `union`/`intersect`/`subtract`;
  * `adjacent()`, `connected()` and `components()` across shared walls; and
  * `extract()` for independent material. `source` is the material state the
  * faces were read from, as it is for a point or an edge selection. `key`
@@ -1223,25 +1195,6 @@ export class FaceSelection<K = undefined, F extends Face = Face> implements Iter
     return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection<G, F>(this.collection, rows, key));
   }
 
-  /**
-   * The MEMBERS the given places fall in: one point, or a cloud of them.
-   *
-   * A place inside a face selects it; a place ON a wall selects nothing,
-   * because a wall is where two faces stop rather than somewhere either
-   * one holds; a place outside every face selects nothing. Several places
-   * in the same face still name it once — a selection is a set. A face
-   * with a hole does not hold what sits in the hole: the hole's own face
-   * does.
-   */
-  containing(where: XY | PointsLike): FaceSelection<K, F> {
-    const rows: number[] = [];
-    for (const [x, y] of queryPoints(where, 'faces.containing')) {
-      const f = faceHolding(this.collection.faces, x, y);
-      if (f >= 0 && this.holds(f)) rows.push(f);
-    }
-    return new FaceSelection<K, F>(this.collection, rows, this.key);
-  }
-
   /** Every source edge incident to a selected face, once, including
    * internal walls between two selected faces and dangling edges inside
    * a selected face. */
@@ -1323,13 +1276,6 @@ export class FaceSelection<K = undefined, F extends Face = Face> implements Iter
     if (typeof rows === 'number' || viewKind(rows) === 'face') return new FaceSelection(this.collection, [one(rows as number | Face)]);
     if (rows == null || typeof (rows as Iterable<unknown>)[Symbol.iterator] !== 'function') throw new Error('faces.rows: expected a face row, a face view, or a list of them');
     return new FaceSelection(this.collection, Array.from(rows as Iterable<number | Face>, one));
-  }
-
-  /** Every face of the state that is NOT selected. */
-  complement(): FaceSelection {
-    const out: number[] = [];
-    for (let f = 0; f < this.collection.faces.length; f++) if (!this.holds(f)) out.push(f);
-    return new FaceSelection(this.collection, out);
   }
 
   /** The other operand of a set operation, on this state: read by id when
@@ -1865,7 +1811,7 @@ export class Faces<F extends Face = Face> extends FaceSelection<undefined, F> {
  * A face collection read as POINTS: each face's centroid, in row order,
  * a degenerate face (no area, no centroid) left out. The one reading every
  * point consumer gives a face collection or selection — `dots`,
- * `distanceToPoints`, `material`, `connect.*`, the forces — while
+ * `distanceTo`, `material`, `connect.*`, the forces — while
  * `faces.points` stays the word for the corners. Null for anything that
  * is not a face selection.
  */

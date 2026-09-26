@@ -4,10 +4,11 @@
  * outlines occluder bounds, and marks fragment endpoints.
  */
 
+import { type PenDef } from 'occlude';
 import {
-  drawFragments, evalPrim, schedulePlan, tracePrim,
-  type EstimateOpts, type PenDef, type PlanChain as NativeChain, type RenderResult,
-} from 'occlude';
+  drawFragments, evalPrim, schedulePlan, tracePrim, type EstimateOpts, type PlanChain as NativeChain,
+  type RenderResult,
+} from 'occlude/host';
 
 /** A partial selection of the ordered plan to show instead of the raw
  * fragments: the selected chains at nib width, the omitted ones as a

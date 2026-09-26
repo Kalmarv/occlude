@@ -9,11 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, clip, compileSketch, evalPrim, group, initOcclude, invert, line, mask, material, ngon, polygon, rect,
-  render, rotate, scale, sketch, space, strokes, svg, vectorField,
-  type SketchDef, type Toolkit, type Tree,
+  append, circle, clip, group, invert, line, mask, material, ngon, polygon, rect, rotate, scale,
+  sketch, space, strokes, svg, vectorField, type SketchDef, type Toolkit, type Tree,
 } from '../src/index.js';
+import { compileSketch, evalPrim, initOcclude, render } from '../src/host.js';
 import { box } from '../src/three/api/index.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -54,7 +55,7 @@ describe('P1 · one area door', () => {
     const viaFace = t.isolines(t.within(ground, face), [0]);
     const viaPolygon = t.isolines(t.within(ground, polygon(face)), [0]);
     expect(viaFace.n).toBeGreaterThan(0);
-    expect(viaFace.pts).toEqual(viaPolygon.pts);
+    expect(viaFace.points.map(xy)).toEqual(viaPolygon.points.map(xy));
   });
 
   it('G2-2 G3-4 G6-13 G7-13 · a field is bounded by a faced material, a face seed, contours and a vector field', () => {
@@ -81,7 +82,7 @@ describe('P1 · one area door', () => {
     expect(outside(5, 5)).toBe(ground(5, 5));
     const rules = append(...t.times(5, (k, u) => t.sample(line(0, 10 + u * 80, 100, 10 + u * 80), { count: 2 })));
     const cut = t.within(rules, invert(disc));
-    for (const p of cut.pts) expect(Math.hypot(p[0] - 50, p[1] - 50)).toBeGreaterThan(19.99);
+    for (const p of cut.points.map(xy)) expect(Math.hypot(p[0] - 50, p[1] - 50)).toBeGreaterThan(19.99);
     expect(t.within(t.material(rect(0, 0, 100, 100)).planarize().faces(), invert(disc)).length).toBe(0);
     // Twice outside is inside, through the drawable.
     expect(t.within(ground, invert(invert(disc)))(50, 50)).toBe(ground(50, 50));
@@ -124,7 +125,7 @@ describe('P1 · one area door', () => {
   it('G1-15 G7-2 G6-10 · a group is an area through its transform: an svg import, a group({ translate }), a placed shape', () => {
     const t = tk();
     const moved = t.material(group({ translate: [30, 0] }, rect(15, 25, 20, 10)));
-    expect(bbox(moved.pts)).toEqual([45, 25, 65, 35]);
+    expect(bbox(moved.points.map(xy))).toEqual([45, 25, 65, 35]);
     const art = svg('<svg viewBox="0 0 10 10"><path d="M0 5 L10 5"/><path d="M0 8 L10 8"/></svg>', { x: 0, y: 60, width: 100 });
     const waves = t.material(art);
     expect(waves.n).toBeGreaterThan(0);
@@ -268,7 +269,7 @@ describe('P4 · one pivot type', () => {
 
   it("G5-21 · 'center' is the value's own middle on a shape, a group and a material alike", () => {
     same(() => ngon(28, 28, 5, 18, { rotate: 36, origin: 'center' }), (t) => {
-      const b = bbox(t.material(ngon(28, 28, 5, 18)).pts);
+      const b = bbox(t.material(ngon(28, 28, 5, 18)).points.map(xy));
       return ngon(28, 28, 5, 18, { rotate: 36, origin: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] });
     });
     const t = tk();
@@ -276,8 +277,8 @@ describe('P4 · one pivot type', () => {
     const turned = t.material(ngon(28, 28, 5, 18, { rotate: 36, origin: 'center' }));
     const alsoTurned = t.material(plate).rotate(36, { origin: 'center' });
     for (let i = 0; i < turned.n; i++) {
-      expect(turned.pts[i][0]).toBeCloseTo(alsoTurned.pts[i][0], 6);
-      expect(turned.pts[i][1]).toBeCloseTo(alsoTurned.pts[i][1], 6);
+      expect(turned.points.map(xy)[i][0]).toBeCloseTo(alsoTurned.points.map(xy)[i][0], 6);
+      expect(turned.points.map(xy)[i][1]).toBeCloseTo(alsoTurned.points.map(xy)[i][1], 6);
     }
   });
 
@@ -291,8 +292,8 @@ describe('P4 · one pivot type', () => {
 
   it("G2-7 · t.hexes and t.triangles take 'center': the middle of the drawable they cover", () => {
     const t = tk();
-    expect(t.hexes({ spacing: 12, origin: 'center', rotate: 15 }).pts).toEqual(t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 }).pts);
-    expect(t.triangles({ size: 12, origin: 'centroid' }).pts).toEqual(t.triangles({ size: 12, origin: { x: 50, y: 50 } }).pts);
+    expect(t.hexes({ spacing: 12, origin: 'center', rotate: 15 }).points.map(xy)).toEqual(t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 }).points.map(xy));
+    expect(t.triangles({ size: 12, origin: 'centroid' }).points.map(xy)).toEqual(t.triangles({ size: 12, origin: { x: 50, y: 50 } }).points.map(xy));
   });
 
   it('G6-27 · a flat t.tiling takes origin and rotate; a curved one refuses origin by name', () => {
@@ -300,15 +301,15 @@ describe('P4 · one pivot type', () => {
     const plain = t.tiling(4, 4, { side: 10, depth: 1 });
     const moved = t.tiling(4, 4, { side: 10, depth: 1, origin: [60, 50] });
     for (let i = 0; i < plain.n; i++) {
-      expect(moved.pts[i][0]).toBeCloseTo(plain.pts[i][0] + 10, 9);
-      expect(moved.pts[i][1]).toBeCloseTo(plain.pts[i][1], 9);
+      expect(moved.points.map(xy)[i][0]).toBeCloseTo(plain.points.map(xy)[i][0] + 10, 9);
+      expect(moved.points.map(xy)[i][1]).toBeCloseTo(plain.points.map(xy)[i][1], 9);
     }
-    expect(t.tiling(4, 4, { side: 10, depth: 1, origin: 'center' }).pts).toEqual(plain.pts);
+    expect(t.tiling(4, 4, { side: 10, depth: 1, origin: 'center' }).points.map(xy)).toEqual(plain.points.map(xy));
     const turned = t.tiling(4, 4, { side: 10, depth: 1, rotate: 90 });
     for (let i = 0; i < turned.n; i++) {
-      const [x, y] = plain.pts[i];
-      expect(turned.pts[i][0]).toBeCloseTo(50 - (y - 50), 9);
-      expect(turned.pts[i][1]).toBeCloseTo(50 + (x - 50), 9);
+      const [x, y] = plain.points.map(xy)[i];
+      expect(turned.points.map(xy)[i][0]).toBeCloseTo(50 - (y - 50), 9);
+      expect(turned.points.map(xy)[i][1]).toBeCloseTo(50 + (x - 50), 9);
     }
     const disk = toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 45 }) });
     expect(() => disk.tiling(7, 3, { depth: 1, origin: [10, 10] })).toThrow(/tiling: a .* tiling stands on its chart's centre/);

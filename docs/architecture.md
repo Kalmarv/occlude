@@ -51,6 +51,10 @@ crates/occlude-core/src/
                         exports
 
 packages/occlude/src/
+  index, host           the two entry points: `occlude` holds what a sketch
+                        (and a fill file) can use; `occlude/host` holds what
+                        only a host needs — compile, render, plan, export,
+                        the fill and asset registries, papers, pens and docs
   units, matrix         L values (percent/w/h/long/mm), affine transforms
   execution             ONE object per run (no module-level sketch state
                         anywhere): the inputs a host resolved — paper, the
@@ -527,8 +531,7 @@ capture (hidden portions included), then the 3D-visible intervals after
 classification. Segments are paper millimetres, `[x0, y0, x1, y1, …]`,
 uniformly subsampled above 200 000 so a transfer stays bounded. Modeling
 progress rides the separate `onProgress` channel as `ModelingProgress3
-{ operation, done, total?, detail? }` from `t.hatch`, `t.mapSurface` and
-`t.intersections`.
+{ operation, done, total?, detail? }` from `t.hatch`.
 
 **Nothing is recorded from these events.** The result, the plan and the
 exports are identical whether a listener is attached or not, which
@@ -960,7 +963,7 @@ studio's `runner.test.ts`.
   no run. A shape given as an area (`polygon(circle(…))`) is an `area`
   geometry lowered when the drawing is recorded, so it needs no run in
   hand. What reads the run lives on the toolkit: `t.within`,
-  `t.translate` (unit lengths), `t.noiseField`, `t.image`, `t.asset`,
+  `t.translate` (unit lengths), `t.image`, `t.asset`,
   `t.synth`, `t.rnd` …
 - **Inputs are snapshots.** `inputs` is frozen, and the asset and fill
   tables are copied on construction (text by value, pixels as fresh

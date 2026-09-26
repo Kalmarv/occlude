@@ -14,7 +14,8 @@
  * line — under a binding that cannot collide with the sketch's own names.
  */
 
-import { moduleName, type PaperDef, type PenDef } from 'occlude';
+import { type PenDef } from 'occlude';
+import { moduleName, type PaperDef } from 'occlude/host';
 
 const USER_IMPORT_RE = /^[ \t]*import\s*\{([^}]*)\}\s*from\s*(['"])@user\/(pens|papers)\2\s*;?[ \t]*(?:\/\/[^\n]*)?$/gm;
 const OCCLUDE_NAMED_RE = /^[ \t]*import\s*\{([^}]*)\}\s*from\s*(['"])occlude\2\s*;?[ \t]*(?:\/\/[^\n]*)?$/m;

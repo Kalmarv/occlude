@@ -9,9 +9,11 @@
 
 import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
+import { type PenDef, type SketchDef } from '../src/index.js';
 import {
-  compileSketch, isSketch, paperSize,
-  type AssetTable, type FillTable, type PaperChoice, type PenDef, type SketchDef, DEFAULT_PENS, type PaperDef } from '../src/index.js';
+  compileSketch, isSketch, paperSize, type AssetTable, type FillTable, type PaperChoice, DEFAULT_PENS,
+  type PaperDef,
+} from '../src/host.js';
 import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
 import { requireFor, paperLibrary } from './inputs.js';
 

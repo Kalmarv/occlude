@@ -15,10 +15,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
-import {
-  bindToolkit, space, Execution as Run,
-  type Execution, type SketchConfig, type Toolkit,
-} from '../src/index.js';
+import { space, type SketchConfig, type Toolkit } from '../src/index.js';
+import { bindToolkit, Execution as Run, type Execution } from '../src/host.js';
 import type { Space } from '../src/space.js';
 
 /** A toolkit on a 100 × 100 drawable, with the config's own space. */

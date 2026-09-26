@@ -1,5 +1,6 @@
 import {describe,expect,it} from 'vitest';
-import {sketch,compileSketchAsync,pen,mm} from 'occlude';
+import { sketch, pen, mm } from 'occlude';
+import { compileSketchAsync } from 'occlude/host';
 import {cameraFrame3} from '../src/three/camera.js';
 import {cross3,dot3,sub3,unit3,type Vec3} from '../src/three/math.js';
 import {featureSnapshot3,FeatureKind3} from '../src/three/features/snapshot.js';

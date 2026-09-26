@@ -10,14 +10,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { connect, initOcclude, material, type Material } from '../src/index.js';
+import { curve, material, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
   await initOcclude(readFileSync(wasmPath));
 });
 
-const ring = (): Material => connect.ring(material([[0, 0], [10, 0], [10, 10], [0, 10]]));
+const ring = (): Material => curve(material([[0, 0], [10, 0], [10, 10], [0, 10]]), { closed: true });
 const ids = (m: Material): number[] => [...m.points].map((p) => p.id as number);
 
 describe('every vertex and edge has one', () => {

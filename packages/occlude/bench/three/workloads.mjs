@@ -1,46 +1,46 @@
 /** Six final surface-drawing workloads, shared by the headless CPU runner and the served GPU runner. */
 export const workloads=[
-{name:'mapped-plane',src:`import { sketchAsync, curve, pen, mm } from 'occlude';
-import { plane, view, orthographic } from 'occlude/3d';
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
+{name:'mapped-plane',src:`import { sketch, curve, pen, mm } from 'occlude';
+import { plane, mapSurface, view, orthographic } from 'occlude/3d';
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const sheet = plane(4).subdivide(5).displace(p => [0, 0, 0.3 * Math.sin(p.x * 2) * Math.cos(p.y * 2)]);
-  const marks = await t.mapSurface(sheet, t.times(96, (_, u) => curve([[0, u], [1, u]], { closed: false })));
+  const marks = mapSurface(sheet, t.times(96, (_, u) => curve([[0, u], [1, u]], { closed: false })));
   return view([sheet, marks], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), pen: 'ink' });
 });`},
-{name:'primitive-crosshatch',src:`import { sketchAsync, pen, mm } from 'occlude';
+{name:'primitive-crosshatch',src:`import { sketch, pen, mm } from 'occlude';
 import { torus, light, across, view, orthographic } from 'occlude/3d';
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const model = torus(1.4, 0.5, { segments: 48, tubeSegments: 20 }), sun = light({ direction: [-1, -2, 3], ambient: 0.1 });
   const along = await t.hatch(model, { spacing: 0.06, direction: s => s.tangentU, tone: s => 0.3 + 0.7 * sun(s) });
   const crossing = await t.hatch(model, { spacing: 0.06, direction: across(s => s.tangentU), tone: s => Math.max(0, 2 * sun(s) - 1) });
   return view([model, along, crossing], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), pen: 'ink' });
 });`},
-{name:'custom-curvature',src:`import { sketchAsync, pen, mm } from 'occlude';
+{name:'custom-curvature',src:`import { sketch, pen, mm } from 'occlude';
 import { plane, curvature, light, view, perspective } from 'occlude/3d';
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const relief = plane(5, 4).subdivide(5).displace(p => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1) + 0.15 * t.noise(p.x, p.y)]);
   const marks = await t.hatch(relief, { spacing: 0.06, direction: curvature('max'), fallback: s => s.tangentU, tone: light({ direction: [-2, 1, 3], ambient: 0.05 }) });
   return view([relief, marks], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), pen: 'ink' });
 });`},
-{name:'intersection-assembly',src:`import { sketchAsync, pen, mm } from 'occlude';
-import { box, cylinder, sphere, light, view, perspective } from 'occlude/3d';
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
+{name:'intersection-assembly',src:`import { sketch, pen, mm } from 'occlude';
+import { box, cylinder, sphere, intersections, light, view, perspective } from 'occlude/3d';
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const block = box([2.5, 1.5, 1.5]), tube = cylinder(0.65, 2.8, { segments: 32 }).rotate([0, 35, 0]), ball = sphere(0.9, { segments: 32, rings: 16 }).translate([0.8, 0.3, 0.6]);
-  const seams = [await t.intersections(block, tube), await t.intersections(block, ball), await t.intersections(tube, ball)];
+  const seams = [intersections(block, tube), intersections(block, ball), intersections(tube, ball)];
   const marks = await t.hatch(tube, { direction: s => s.tangentV, spacing: 0.08, tone: light({ direction: [-1, -1, 2] }) });
   return view([block, tube, ball, ...seams, marks], { camera: perspective({ eye: [5, 7, 5], target: [0, 0, 0], fovDegrees: 40 }), pen: 'ink' });
 });`},
-{name:'repeated-prototypes',src:`import { sketchAsync, curve, pen, mm } from 'occlude';
-import { box, grid, instanceOnPoints, view, perspective } from 'occlude/3d';
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
+{name:'repeated-prototypes',src:`import { sketch, curve, pen, mm } from 'occlude';
+import { box, grid, mapSurface, instanceOnPoints, view, perspective } from 'occlude/3d';
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const tile = box([0.6, 0.6, 0.25]);
-  const pattern = await t.mapSurface(tile, t.times(12, (_, u) => curve([[0.1 + 0.8 * u, 0.1], [0.1 + 0.8 * u, 0.9]], { closed: false })), { chart: 'f1' });
+  const pattern = mapSurface(tile, t.times(12, (_, u) => curve([[0.1 + 0.8 * u, 0.1], [0.1 + 0.8 * u, 0.9]], { closed: false })), { chart: 'f1' });
   const tiles = instanceOnPoints(tile, grid({ cols: 8, rows: 8, spacing: 0.8 }).points, { rotate: p => [0, 0, (p.i + p.j) * 11] });
   return view([tiles, pattern.place(tiles)], { camera: perspective({ eye: [6, -8, 7], target: [0, 0, 0], fovDegrees: 40 }), pen: 'ink' });
 });`},
-{name:'hatch-density',src:`import { sketchAsync, pen, mm } from 'occlude';
+{name:'hatch-density',src:`import { sketch, pen, mm } from 'occlude';
 import { sphere, light, view, orthographic } from 'occlude/3d';
-export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
+export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const ball = sphere(1.6, { segments: 48, rings: 32 }), sun = light({ direction: [-1, -2, 2], ambient: 0.1 });
   const marks = await t.hatch(ball, { direction: s => s.tangentU, spacing: 0.035, tone: s => 0.2 + 0.8 * sun(s) });
   return view([ball, marks], { camera: orthographic({ eye: [4, -6, 3], span: 4 }), pen: 'ink' });

@@ -16,7 +16,11 @@ import { runGeometryJob3 } from '../src/three/geometry/job.js';
 import { surfaceBinding3 } from '../src/three/curves/network.js';
 import { traceBoth3, traceEnvironment3 } from '../src/three/surface/trace.js';
 import { surfaceLocation3 } from '../src/three/geometry/location.js';
-import { add, append, assetTable, circle, curl, curve, dots, evalPrim, exportPng, exportSvg, fill, fromAngle, group, initOcclude, line, material, mm, mul, ngon, pen, polygon, query, rect, render, sketch, strokes, type Material } from '../src/index.js';
+import {
+  add, append, circle, curl, curve, dots, fill, fromAngle, group, line, material, mm, mul, ngon, pen,
+  polygon, query, rect, sketch, strokes, type Material,
+} from '../src/index.js';
+import { assetTable, evalPrim, exportPng, exportSvg, initOcclude, render } from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -371,7 +375,7 @@ describe('G3-35 a cone base that lies on a sphere facet and crosses its edges un
   });
   const cones=instanceOnPoints(spike(),pointCloud(sites).points,{rotate:p=>alignAxis('z',normals[p.index])}).realize();
   for(const [x,y] of [[ball,cones],[cones,ball]] as const){
-   const united=x.unite(y);
+   const united=x.union(y);
    manifold(united,2);
    // Each cone stands on the ball and hides none of it: nothing is lost or doubled.
    expect(volume(united)).toBeCloseTo(volume(ball)+volume(cones),9);
@@ -385,7 +389,7 @@ describe('G3-35 a cone base that lies on a sphere facet and crosses its edges un
    const ball=sphere(1.2,{segments:32,rings:16});
    const pts=t.scatter(ball,{spacing:0.35,weight:(f)=>(f.normal[2]>0?1:0)});
    const spikes=instanceOnPoints(spike(),pts,{rotate:(p)=>alignAxis('z',p.sample.normal)}).realize();
-   out.ball=ball;out.spikes=spikes;out.united=spikes.unite(ball);out.reversed=ball.unite(spikes);
+   out.ball=ball;out.spikes=spikes;out.united=spikes.union(ball);out.reversed=ball.union(spikes);
    return [];
   }),{paper:'Square20'});
   for(const m of [out.united!,out.reversed!]){

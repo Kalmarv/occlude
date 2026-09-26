@@ -309,7 +309,7 @@ function checkOpts(opts: IsoOpts): void {
     if (key === 'close') {
       throw new Error(
         'isolines: { close } is gone — every level set is an area and closes along the drawable (or its within bound); ' +
-          'the closing edges carry cut = 1, so strokes(m.edges.filter((e) => !e.attrs.cut)) draws the level line alone',
+          'the closing edges carry cut = 1, so strokes(m.edges.filter((e) => !e.cut)) draws the level line alone',
       );
     }
     throw new Error(`isolines: '${key}' is not an option — the options are { step }`);
@@ -693,7 +693,7 @@ function mergeColinear(
  * The rows of a level are its level lines first, in the order and the
  * direction the open march gives them, then the closing runs, which join
  * the lines' own end rows. So the level line alone,
- * `m.edges.filter((e) => !e.attrs.cut)`, walks and draws exactly as the
+ * `m.edges.filter((e) => !e.cut)`, walks and draws exactly as the
  * open level lines did. This is the area `levelSetMaterial` works out when
  * it is asked for.
  */

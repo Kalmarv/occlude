@@ -56,15 +56,6 @@ function sourceRows<V extends { index: number }>(rows: number | V | Iterable<num
   return Array.from(rows as Iterable<number | V>, one);
 }
 
-/** Two selections of one state holding exactly the same rows: the test
- * `pairs` uses to decide that a pair is unordered. */
-function sameMembers(a: readonly number[], b: readonly number[]): boolean {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-}
-
 /**
  * Do two states belong to one evolution? They do when they share any
  * identity at all: a point id, or an edge's lineage root. Every state a
@@ -218,8 +209,8 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
    *
    * The radius is a length of the material's SPACE: in a curved space the
    * test is the space's own distance, so a radius means the same thing at
-   * the rim of the disk as at its middle. `pairs` with a `radius` takes
-   * its candidates here, so it reads the space too.
+   * the rim of the disk as at its middle. The nearest point is the
+   * closest member of `near`.
    *
    * One radius, one grid, kept on the state. A radius that changes from
    * point to point builds a grid for each value, so round it first.
@@ -355,13 +346,6 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return setPoints(this.source, this.memberRows, args);
   }
 
-  /** Every point of the source that is NOT selected. */
-  complement(): PointSelection {
-    const out: number[] = [];
-    for (let i = 0; i < this.source.n; i++) if (!(this.memberSet === null || this.memberSet.has(i))) out.push(i);
-    return new PointSelection(this.source, out);
-  }
-
   /** The selection holding those SOURCE rows — never positions within
    * this selection. The door for a relation the sketch worked out for
    * itself: hand back the rows it decided on, as row indices or as the
@@ -375,39 +359,6 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
       out.push(i);
     }
     return new PointSelection(this.source, out);
-  }
-
-  /**
-   * Every pair (a member of this, a member of `other`) the predicate
-   * accepts, as views. A point is never paired with itself. `radius`
-   * takes the candidates from the spatial index instead of the whole of
-   * `other`; without it this is the full product, which is what it
-   * sounds like and costs what it sounds like.
-   *
-   * When the two selections hold the same rows, a pair is unordered and
-   * appears once: the predicate sees `(a, b)` with `a` before `b` by row,
-   * and never `(b, a)`.
-   */
-  pairs(
-    other: PointSelection<unknown>,
-    predicate: (a: Vertex, b: Vertex) => boolean,
-    opts: { radius?: number } = {},
-  ): [Vertex, Vertex][] {
-    if (!(other instanceof PointSelection)) throw new Error('selection.pairs: a point selection pairs only with a point selection');
-    other = onState(this, other, 'pairs');
-    const m = this.source;
-    const mirror = sameMembers(this.indices, other.indices);
-    const out: [Vertex, Vertex][] = [];
-    for (const i of this.indices) {
-      const a = m.vertex(i);
-      const candidates = opts.radius === undefined ? other.indices : other.near(a, { radius: opts.radius }).indices;
-      for (const j of candidates) {
-        if (i === j || (mirror && j < i)) continue;
-        const b = m.vertex(j);
-        if (predicate(a, b)) out.push([a, b]);
-      }
-    }
-    return out;
   }
 
   /** The positions this selection holds: itself. A point consumer asks
@@ -652,51 +603,11 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   }
 
   /**
-   * Every pair (a member of this, a member of `other`) the predicate
-   * accepts, as views. An edge is never paired with itself. `radius`
-   * takes the candidates from a spatial index over edge MIDDLES — an edge
-   * is near another edge by its middle — instead of the whole of `other`;
-   * without it this is the full product.
-   *
-   * When the two selections hold the same rows, a pair is unordered and
-   * appears once.
-   */
-  pairs(
-    other: EdgeSelection<unknown>,
-    predicate: (a: Edge, b: Edge) => boolean,
-    opts: { radius?: number } = {},
-  ): [Edge, Edge][] {
-    if (!(other instanceof EdgeSelection)) throw new Error('selection.pairs: an edge selection pairs only with an edge selection');
-    other = onState(this, other, 'pairs');
-    const m = this.source;
-    const mirror = sameMembers(this.indices, other.indices);
-    const radius = opts.radius;
-    const mids = radius === undefined ? null : midpoints(m);
-    const theirs = radius === undefined ? null : new Set(other.indices);
-    const out: [Edge, Edge][] = [];
-    for (const e of this.indices) {
-      const a = m.edge(e);
-      const candidates = mids === null
-        ? other.indices
-        : mids.points.near(mids.points.at(e), { radius: radius! }).indices.filter((f) => theirs!.has(f));
-      for (const f of candidates) {
-        if (e === f || (mirror && f < e)) continue;
-        const b = m.edge(f);
-        if (predicate(a, b)) out.push([a, b]);
-      }
-    }
-    return out;
-  }
-
-  /**
    * The edges of this selection CLOSER THAN `radius` to `p`, by the true
    * distance to the segment — so a long wall passing near the place is
    * near it, whichever end it is measured from.
    *
    * Proximity, not topology: `e.adjacent` is the edges that touch this one.
-   * `edges.pairs({ radius })` is a different question again — it takes its
-   * CANDIDATES by midpoint, because a relation between two walls has no
-   * third place to measure from, and its predicate decides the rest.
    *
    * The radius is a length of the material's SPACE, and the distance is
    * to the edge read as a GEODESIC of it; the flat plane is the straight
@@ -852,13 +763,6 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     return setEdges(this.source, this.memberRows, args);
   }
 
-  /** Every edge of the source that is NOT selected. */
-  complement(): EdgeSelection {
-    const out: number[] = [];
-    for (let e = 0; e < this.source.edgeCount; e++) if (!(this.memberSet === null || this.memberSet.has(e))) out.push(e);
-    return new EdgeSelection(this.source, out);
-  }
-
   /** Thickness around what this selection holds, as `Material.thicken`
    * does: the selection is the same material's world, and the outline is
    * taken from the rows it picked. */
@@ -1002,25 +906,6 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     for (let i = 0; i < degree.length; i++) if (degree[i] > best) best = degree[i];
     return best;
   }
-}
-
-/** The edge middles of `m` as a material of their own, row for row, built
- * once and kept on the state: `edges.pairs` with a radius asks the point
- * index about them. */
-function midpoints(m: Material): Material {
-  const box = m.midBox;
-  if (box.material !== null) return box.material;
-  const n = m.edgeCount;
-  const x = new Float64Array(n);
-  const y = new Float64Array(n);
-  for (let e = 0; e < n; e++) {
-    const a = m.edgeList[2 * e];
-    const b = m.edgeList[2 * e + 1];
-    x[e] = (m.x[a] + m.x[b]) / 2;
-    y[e] = (m.y[a] + m.y[b]) / 2;
-  }
-  box.material = new Material(x, y, {}, new Uint32Array(0), { space: m.space });
-  return box.material;
 }
 
 /** Copy the given point rows and edge rows of `m` into a fresh material:

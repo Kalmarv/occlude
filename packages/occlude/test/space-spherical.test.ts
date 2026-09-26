@@ -24,11 +24,11 @@
 import { describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
 import {
-  bindToolkit, circle, compileSketch, line, rect, sketch, space,
-  Execution as Run,
-  type Execution, type ShapeValue, type SketchConfig, type Toolkit,
+  circle, line, rect, sketch, space, type ShapeValue, type SketchConfig, type Toolkit,
 } from '../src/index.js';
+import { bindToolkit, compileSketch, Execution as Run, type Execution } from '../src/host.js';
 import { lowerShape } from '../src/record.js';
+import { xy } from './helpers/xy.js';
 
 /** A toolkit on a 100 × 100 drawable, with the config's own space. */
 function tk(cfg: SketchConfig = {}): Toolkit & { exec: Execution } {
@@ -249,7 +249,7 @@ describe('lowering through the spherical space', () => {
     const t = tk({ space: space.spherical({ radius: R }) });
     // `t.material` keeps a line's two ends; `t.sample` walks the edge.
     expect(t.material(line(16, 22, 88, 74)).n).toBe(2);
-    const pts = t.sample(line(16, 22, 88, 74), { count: 24 }).pts;
+    const pts = t.sample(line(16, 22, 88, 74), { count: 24 }).points.map(xy);
     expect(pts.length).toBeGreaterThan(4);
     // Back on the sphere, every sample sits on ONE plane through the
     // centre: that is what a great circle is.
@@ -284,11 +284,11 @@ describe('lowering through the spherical space', () => {
   it('draws a circle as steps of r from its centre: the circle of the space', () => {
     const t = tk({ space: space.spherical({ radius: R }) });
     const m = t.material(circle(50, 85, 20));
-    for (const p of m.pts) expect(t.space.distance([50, 85], p)).toBeCloseTo(20, 9);
+    for (const p of m.points.map(xy)) expect(t.space.distance([50, 85], p)).toBeCloseTo(20, 9);
     // Which is NOT the sin/cos circle of the coordinates away from the
     // equator: a step along a row up there is worth less than a step down
     // a column, so the circle of the space is an oval in the coordinates.
-    const coords = m.pts.map((p) => Math.hypot(p[0] - 50, p[1] - 85));
+    const coords = m.points.map(xy).map((p) => Math.hypot(p[0] - 50, p[1] - 85));
     expect(Math.max(...coords)).toBeGreaterThan(Math.min(...coords) * 1.2);
   });
 
@@ -334,7 +334,7 @@ describe('lowering through the spherical space', () => {
     const t = tk({ space: space.spherical({ radius: R }), projection: 'orthographic' });
     const quarter = (Math.PI / 2) * R;
     const m = t.material(line(50, 50, 50 + quarter + 20, 50));
-    expect(Math.max(...m.pts.map((p) => p[0]))).toBeCloseTo(50 + quarter + 20, 6);
+    expect(Math.max(...m.points.map(xy).map((p) => p[0]))).toBeCloseTo(50 + quarter + 20, 6);
   });
 });
 
@@ -365,13 +365,13 @@ describe('t.scatter on the sphere', () => {
     const t = tk({ space: space.spherical({ radius: 14 }), seed: 3 });
     const m = t.scatter({ spacing: 6 });
     expect(m.n).toBeGreaterThan(30);
-    expect(closest(m.pts, (a, b) => t.space.distance(a, b))).toBeGreaterThanOrEqual(6 - 1e-9);
+    expect(closest(m.points.map(xy), (a, b) => t.space.distance(a, b))).toBeGreaterThanOrEqual(6 - 1e-9);
   });
 
   it('still keeps it in the flat plane and in the disk', () => {
     const flat = tk({ seed: 3 });
-    expect(closest(flat.scatter({ spacing: 6 }).pts, (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]))).toBeGreaterThanOrEqual(6 - 1e-9);
+    expect(closest(flat.scatter({ spacing: 6 }).points.map(xy), (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]))).toBeGreaterThanOrEqual(6 - 1e-9);
     const disk = tk({ space: space.hyperbolic({ radius: 60 }), seed: 3 });
-    expect(closest(disk.scatter({ spacing: 6 }).pts, (a, b) => disk.space.distance(a, b))).toBeGreaterThanOrEqual(6 - 1e-9);
+    expect(closest(disk.scatter({ spacing: 6 }).points.map(xy), (a, b) => disk.space.distance(a, b))).toBeGreaterThanOrEqual(6 - 1e-9);
   });
 });

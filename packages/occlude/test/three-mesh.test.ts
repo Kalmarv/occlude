@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { grid3, extrudeFaces3, FaceSelection3 } from '../src/three/geometry/model.js';
+import { mesh } from '../src/three/api/index.js';
+import { gridSurface } from './helpers/surfaces.js';
 import { surface3, box3 } from '../src/three/geometry/surface.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { cross3, sub3, type Vec3 } from '../src/three/math.js';
@@ -12,9 +13,8 @@ const frame = (perspective = false) => cameraFrame3({ ...(perspective ? {kind:'p
 
 describe('polygon surfaces and topology features', () => {
   it('keeps flat relief ground edges crease-free across camera views', () => {
-    let surface = grid3(6, 6, [4, 4]);
-    const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
-    surface = extrudeFaces3(surface, selected, 1, { operation: 'ground-regression' });
+    const sheet = mesh(gridSurface(6, 6, [4, 4]));
+    const surface = sheet.extrude(sheet.faces.filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0), { distance: 1 }, { key: 'ground-regression' }).surface;
     const ground = new Set(surface.edges.filter(e => e.faces.length === 2 && e.faces.every(f =>
       surface.faces[f].vertices.every(v => surface.points[v].position[2] === 0))).map(e => e.id));
     expect(ground.size).toBe(30);

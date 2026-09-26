@@ -11,7 +11,13 @@
  * candidates examined vs actual neighbours within the radius, interval
  * ms, and points retained in history (0 without --history).
  */
-import { curve, sub, mul, length, unit, limit, perp, sum, sumBy, type Material, type Vertex, type Vec } from '../src/index.js';
+import { curve, sub, mul, length, unit, perp, sum, sumBy, type Material, type Vertex, type Vec } from '../src/index.js';
+
+/** `v` shortened to `max` if it is longer. */
+const shortened = (v: Vec, max: number): Vec => {
+  const d = length(v);
+  return d > max && d > 0 ? [(v[0] / d) * max, (v[1] / d) * max] : v;
+};
 // The engine's own spatial index, with its counters: this diagnostic exists
 // to report them. A sketch says `cur.points.near(p, { radius })`.
 import { neighbours, type NeighbourStats } from '../src/forces.js';
@@ -87,7 +93,7 @@ const rule = ruleName === 'alt'
           sumBy([prev, nxt], (j) => pull(p, current.points.at(j))),
           sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.points.at(j)))),
         );
-        const step = limit(mul(force, speed), splitAt / 2);
+        const step = shortened(mul(force, speed), splitAt / 2);
         if (length(mul(force, speed)) > splitAt / 2) capped++;
         moves.push(length(step));
         steps.push(step);

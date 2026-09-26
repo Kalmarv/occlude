@@ -1,7 +1,8 @@
 import {describe,it,expect} from 'vitest';
 import {SurfaceQueries3,nearestTriangle3,rayTriangle3} from '../src/three/queries/surface.js';
 import {box3,surface3} from '../src/three/geometry/surface.js';
-import {grid3,transformSurface3} from '../src/three/geometry/model.js';
+import {transformSurface3} from '../src/three/geometry/model.js';
+import {gridSurface as grid3} from './helpers/surfaces.js';
 describe('prepared batched surface queries',()=>{
   it('hits both sides, clips segment parameters, and retains face metadata',()=>{
     const source=box3([2,2,2]),query=new SurfaceQueries3(source);

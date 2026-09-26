@@ -343,7 +343,7 @@ export function spaceOfSources(sources: unknown): Space | undefined {
  * is what a rest length is: a property of the wall, not of either end.
  * The library's own note on `'distribute'` names a rest length as the
  * example of an edge column, and this is the force that reads it:
- * `force.tension(m, { rest: (e) => e.attrs.rest })`. A rest that is not a
+ * `force.tension(m, { rest: (e) => e.rest })`. A rest that is not a
  * finite length is no rest at all, so that edge pulls from zero and a
  * degenerate column slackens the chain instead of tearing it.
  */
@@ -406,6 +406,12 @@ export function tension(m: Material | { rest: number | ((e: Edge) => number); am
  * neighbours when the sources are p's own material (tension owns that
  * spacing); off by default, so say it.
  *
+ * `amount` — a number, or a function of the point — scales the push, and a
+ * negative amount pulls: `force.separation(anchors, { radius, amount: -1 /
+ * radius })` draws each point toward the anchors within `radius`, 1 when
+ * touching and fading to zero at the radius. An attraction is a separation
+ * turned round.
+ *
  * `radius` may instead be a function of the VERTEX, and then each point
  * carries its own — `(p) => p.attrs.r` is discs of different sizes. The
  * radius of a PAIR is the sum of the two, which is what "these two must
@@ -414,17 +420,19 @@ export function tension(m: Material | { rest: number | ((e: Edge) => number); am
  * radius among the sources, and a query walks as many rings as its own
  * reach needs.
  */
-export function separation(opts: SeparationOpts & { amount?: Amount }): GraphForce;
+export function separation(opts: SeparationOpts): GraphForce;
 export function separation(sources: Sources, opts: SeparationOpts): (p: Vertex) => Vec;
-export function separation(sources: Sources | (SeparationOpts & { amount?: Amount }), opts?: SeparationOpts): GraphForce | ((p: Vertex) => Vec) {
-  if (isOptionsOnly(sources, opts)) return separationOf(sources as SeparationOpts & { amount?: Amount }, undefined);
-  return separationIn(sources as Sources, opts!, undefined);
+export function separation(sources: Sources | SeparationOpts, opts?: SeparationOpts): GraphForce | ((p: Vertex) => Vec) {
+  if (isOptionsOnly(sources, opts)) return separationOf(sources as SeparationOpts, undefined);
+  return separationFrom(sources as Sources, opts!, undefined);
 }
 
 /** `separation`'s options. */
 export interface SeparationOpts {
   radius: number | ((p: Vertex) => number);
   excludeConnected?: boolean;
+  /** Scales the push, a number or a function of the point; negative pulls. */
+  amount?: Amount;
 }
 
 /**
@@ -432,10 +440,16 @@ export interface SeparationOpts {
  * `amount` — a number, or a function of the point — scales the push, so a
  * force can be strong in one part of a drawing and nothing in another.
  */
-export function separationOf(said: SeparationOpts & { amount?: Amount }, space: Space | undefined): GraphForce {
+export function separationOf(said: SeparationOpts, space: Space | undefined): GraphForce {
+  return new GraphForce((g) => separationFrom(g, said, space));
+}
+
+/** @internal `separation` from these sources, scaled by its `amount`, in
+ * `space` when the sources carry none of their own. */
+export function separationFrom(sources: Sources, said: SeparationOpts, space: Space | undefined): (p: Vertex) => Vec {
   const { amount, ...opts } = said;
   const much = amountOf(amount, 'force.separation');
-  return new GraphForce((g) => scaled(separationIn(g, opts, space), much));
+  return scaled(separationIn(sources, opts, space), much);
 }
 
 /** @internal `separation` measuring in `space` when the sources carry none
@@ -444,7 +458,7 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
   const { radius, excludeConnected = false } = opts;
   const m = material(sourcePoints(sources));
   const space = curved(spaceOfSources(sources) ?? space0);
-  if (typeof radius === 'number') return radial(m, radius, excludeConnected, radius, -1, space);
+  if (typeof radius === 'number') return radial(m, radius, excludeConnected, space);
   if (typeof radius !== 'function') throw new Error(`force.separation: { radius } must be a distance, or a function of the vertex — got ${String(radius)}`);
   // Each source's own radius, read once against the frozen state, as every
   // force here prepares against it. A radius the function does not answer
@@ -513,15 +527,15 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
   };
 }
 
-/** The fixed-law radial recipes (`separation`, `attract`) on the raw
+/** The fixed-law radial separation on the raw
  * columns: the same neighbours in the same order and the same arithmetic
  * as the generic `nearby` form — so the doubles, and the drawing, are
  * identical — without a vertex view and two tuples per neighbour. Measured
- * 20× on a 5 000-point ring (see the reference). `sign` −1 pushes away
- * from the source, +1 pulls toward it; `strength` is the value when
- * touching, fading linearly to zero at the radius. */
-function radial(m: Material, radius: number, excludeConnected: boolean, strength: number, sign: number, space: Space | null): (p: Vertex) => Vec {
-  if (space) return radialIn(m, radius, excludeConnected, strength, sign, space);
+ * 20× on a 5 000-point ring (see the reference). It pushes away from
+ * the source, `radius` when touching, fading linearly to zero at the
+ * radius. */
+function radial(m: Material, radius: number, excludeConnected: boolean, space: Space | null): (p: Vertex) => Vec {
+  if (space) return radialIn(m, radius, excludeConnected, space);
   const near = neighbours(m, { radius });
   const mx = m.x;
   const my = m.y;
@@ -535,11 +549,11 @@ function radial(m: Material, radius: number, excludeConnected: boolean, strength
     for (const j of near(p)) {
       if (adj && adj.includes(j)) continue;
       // sub(p, q) → unit → mul, spelled out in the same operations
-      const dx = (px - mx[j]) * sign * -1;
-      const dy = (py - my[j]) * sign * -1;
+      const dx = px - mx[j];
+      const dy = py - my[j];
       const d = Math.sqrt(dx * dx + dy * dy); // `length` spells it so; hypot can differ in the last bit
       if (d > 0) {
-        const s = (1 - d / radius) * strength;
+        const s = (1 - d / radius) * radius;
         x += (dx / d) * s;
         y += (dy / d) * s;
       }
@@ -552,7 +566,7 @@ function radial(m: Material, radius: number, excludeConnected: boolean, strength
  * SPACE, each pushing or pulling along the geodesic between the two —
  * direction from `log`, magnitude from the space's distance, the same
  * linear law. */
-function radialIn(m: Material, radius: number, excludeConnected: boolean, strength: number, sign: number, space: Space): (p: Vertex) => Vec {
+function radialIn(m: Material, radius: number, excludeConnected: boolean, space: Space): (p: Vertex) => Vec {
   const index = neighboursIn(m, radius, undefined, space);
   const dists: number[] = [];
   return (p) => {
@@ -571,9 +585,9 @@ function radialIn(m: Material, radius: number, excludeConnected: boolean, streng
       const l = logRow(space, p, np, frame, m, j, index.lifted[j]);
       const ll = Math.hypot(l[0], l[1]);
       if (d > 0 && ll > 0) {
-        const s = (1 - d / radius) * strength * sign;
-        x += (l[0] / ll) * s;
-        y += (l[1] / ll) * s;
+        const s = (1 - d / radius) * radius;
+        x -= (l[0] / ll) * s;
+        y -= (l[1] / ll) * s;
       }
     }
     return [x, y];
@@ -606,38 +620,6 @@ export function drift(
     const a = noise(vx(p) * frequency, vy(p) * frequency, k * rate) * Math.PI * 2;
     return [Math.cos(a) * amount, Math.sin(a) * amount];
   };
-}
-
-/**
- * Attraction: `pull(p)` is the vector toward every source within `radius`,
- * `strength` when touching, fading linearly to zero at the radius —
- * separation's mirror. Sources may be the material itself (`excludeConnected`
- * as for separation) or anchor points.
- */
-export function attract(opts: { radius: number; strength?: number; excludeConnected?: boolean }): GraphForce;
-export function attract(sources: Sources, opts: { radius: number; strength?: number; excludeConnected?: boolean }): (p: Vertex) => Vec;
-export function attract(
-  sources: Sources | { radius: number; strength?: number; excludeConnected?: boolean },
-  opts?: { radius: number; strength?: number; excludeConnected?: boolean },
-): GraphForce | ((p: Vertex) => Vec) {
-  if (isOptionsOnly(sources, opts)) return attractOf(sources as { radius: number; strength?: number; excludeConnected?: boolean }, undefined);
-  return attractIn(sources as Sources, opts!, undefined);
-}
-
-/** @internal The state-free attraction: the graph pulls on itself. */
-export function attractOf(opts: { radius: number; strength?: number; excludeConnected?: boolean }, space: Space | undefined): GraphForce {
-  return new GraphForce((g) => attractIn(g, opts, space));
-}
-
-/** @internal `attract` measuring in `space` when the sources carry none of
- * their own. */
-export function attractIn(
-  sources: Sources,
-  opts: { radius: number; strength?: number; excludeConnected?: boolean },
-  space: Space | undefined,
-): (p: Vertex) => Vec {
-  const { radius, strength = 1, excludeConnected = false } = opts;
-  return radial(material(sourcePoints(sources)), radius, excludeConnected, strength, +1, curved(spaceOfSources(sources) ?? space));
 }
 
 /**
@@ -768,7 +750,7 @@ export function relax(m?: Material | { amount?: number }, opts: { amount?: numbe
  * `g.move(force.sum(force.tension(g, { rest }), force.drift(t.noise, { amount })))`.
  * Prepare the members against the graph the move reads — nothing here
  * binds a state. */
-export function sumForces(...forces: readonly ((p: Vertex) => XY)[]): (p: Vertex) => Vec {
+function sumForces(...forces: readonly ((p: Vertex) => XY)[]): (p: Vertex) => Vec {
   return (p) => {
     let x = 0;
     let y = 0;
@@ -782,4 +764,4 @@ export function sumForces(...forces: readonly ((p: Vertex) => XY)[]): (p: Vertex
 }
 
 export const force = {
-  sum: sumForces, tension, separation, drift, attract, boundary, vortex, field, relax };
+  sum: sumForces, tension, separation, drift, boundary, vortex, field, relax };

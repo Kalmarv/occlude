@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {box,sphere,torus,plane,view,perspective,orthographic,isolines} from '../src/three/api/index.js';
-import {sketch,compileSketchAsync,pen,mm} from '../src/index.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { compileSketchAsync } from '../src/host.js';
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {classifySceneCpuJob3} from '../src/three/visibility/scene.js';
 import {rasterFilter3} from '../src/three/visibility/raster.js';
