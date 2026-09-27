@@ -10,9 +10,7 @@ import {hatch3} from '../curves/hatch.js';
 import {section3} from '../curves/section.js';
 import {mesh,type EdgeAttributes} from './mesh.js';
 import {evaluate} from './columns.js';
-import {hasFaces,surfaceOf} from '../geometry/value.js';
-import {rowName} from '../geometry/value.js';
-import {radialCentreOf} from './words.js';
+import {hasFaces,surfaceOf,rowName} from '../geometry/value.js';
 import {viewKind} from '../../views.js';
 import {prototypeOf,placedOf} from './instances.js';
 import {SurfaceCurves} from './supported.js';
@@ -242,9 +240,9 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
     if(prototype!==undefined){
       for(const copy of placedOf(value)){
         const at=copy.source as {readonly index:number};
-        objects.push({id:JSON.stringify([id,copy.id]),surface:surfaceOf(mesh),...(radialCentreOf(mesh)?{radialCentre:radialCentreOf(mesh)}:{}),...drawing(own),binding:copy.binding,hatch,curves,transform:copy.transform,attributes:copy.attributes,instance:{id:copy.id,pointId:rowName(at,viewKind(at)==='face'?'faces':'points'),pointIndex:at.index,prototypeKey:mesh.key}});
+        objects.push({id:JSON.stringify([id,copy.id]),surface:surfaceOf(mesh),...(mesh.radialCentre?{radialCentre:mesh.radialCentre}:{}),...drawing(own),binding:copy.binding,hatch,curves,transform:copy.transform,attributes:copy.attributes,instance:{id:copy.id,pointId:rowName(at,viewKind(at)==='face'?'faces':'points'),pointIndex:at.index,prototypeKey:mesh.key}});
       }
-    }else objects.push({id,surface:surfaceOf(mesh),hatch,curves,...(radialCentreOf(mesh)?{radialCentre:radialCentreOf(mesh)}:{}),...drawing(own)});
+    }else objects.push({id,surface:surfaceOf(mesh),hatch,curves,...(mesh.radialCentre?{radialCentre:mesh.radialCentre}:{}),...drawing(own)});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});

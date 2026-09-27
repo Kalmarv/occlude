@@ -3,9 +3,10 @@
  *
  * A value in space is a `Material` with a `z` column (geometry/value.ts).
  * The words it shares with a value in the plane are told apart by what they
- * take — `extrude` of a face selection, `translate` by a 3-vector, `rotate`
- * by anything but a number of degrees (or by a number on a value with a
- * `z`), `scale` by three factors (or by one on a value with a `z`),
+ * take — `extrude` of a face selection, `translate` by a 3-vector (or by
+ * a pair on a value with a `z`), `rotate` by anything but a number of
+ * degrees (or by a number on a value with a `z`), `scale` by three factors
+ * (or by one or two on a value with a `z`),
  * `transform` by a placement of space, `smooth` of a face or corner column —
  * and the words only a value in space has (`subdivide`, the booleans,
  * `dual`, `displace`) refuse by name on a value with no faces where they
@@ -39,7 +40,7 @@ import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
 import {dualSurface3,type DualOptions} from '../geometry/dual.js';
 import {booleanSurface3,type BooleanOperation3} from '../geometry/boolean.js';
 import {evaluate,describe3,type Field} from './columns.js';
-import {value3,surfaceOf,kernelOf,hasFaces,mapPositions3,type Carry3,type Kernel3} from '../geometry/value.js';
+import {value3,surfaceOf,frameOf,hasFaces,mapPositions3,type Carry3,type Frame3} from '../geometry/value.js';
 import {alongSurface,resampledSurface} from './curveWalk.js';
 import {samplesOf,rebindSamples} from './sampling.js';
 import {curveSamplesOf,rebindCurveSamples} from './curveSampling.js';
@@ -48,13 +49,14 @@ import {curveSamplesOf,rebindCurveSamples} from './curveSampling.js';
 
 const ORIGIN:Vec3=Object.freeze([0,0,0]) as unknown as Vec3;
 const IDENTITY=rotation3([0,0,0]);
-/** The state a value carries into a result that keeps its rows: its pivot,
- * orientation, radial centre, transfer policies and key. */
+/** The state a value carries into a result that keeps its rows: its
+ * origin, orientation, radial centre, transfer policies and key. */
 function kept(m:Material,more:Partial<Carry3>={}):Carry3 {
-  const k=kernelOf(m);
   return {
-    from:m,origin:k.origin,orientation:k.orientation,
-    ...(k.radialCentre!==undefined?{radialCentre:k.radialCentre}:{}),
+    from:m,
+    ...(m.origin!==undefined?{origin:m.origin}:{}),
+    ...(m.orientation!==undefined?{orientation:m.orientation}:{}),
+    ...(m.radialCentre!==undefined?{radialCentre:m.radialCentre}:{}),
     transfers:m.transfers,
     ...(m.key!==undefined?{key:m.key}:{}),
     // The same faces answer the same source (points and edges carry theirs
@@ -229,7 +231,7 @@ const movedOrigin=(origin:Vec3,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3=>Object.free
 /** A rotation's arguments read: the turn, its pivot, and where it leaves the
  * object's origin and orientation; undefined for a turn by an angle, an
  * axis or a pivot that is not finite, which turns nothing. */
-function rotationArguments(m:Material,k:Kernel3,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions3,c?:RotateOptions3):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3}|undefined {
+function rotationArguments(m:Material,k:Frame3,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions3,c?:RotateOptions3):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3}|undefined {
   let rotate:Rotation,options:RotateOptions3={};
   if(typeof b==='number'){
     if(!Number.isFinite(b))return undefined;
@@ -247,9 +249,9 @@ function rotationArguments(m:Material,k:Kernel3,a:RotationInput|Axis3,b?:number|
   if(origin===undefined)return undefined;
   return {rotate,origin,orientation:k.orientation.then(rotate),moved:movedOrigin(k.origin,origin,v=>rotate.apply(v))};
 }
-/** The state of a moved value: `k` with these in place, a centre that is
+/** The frame of a moved value: `k` with these in place, a centre that is
  * no longer known left out. */
-function movedKernel(k:Kernel3,more:{origin?:Vec3;orientation?:Rotation;radialCentre?:Vec3|undefined}):Kernel3 {
+function movedFrame(k:Frame3,more:{origin?:Vec3;orientation?:Rotation;radialCentre?:Vec3|undefined}):Frame3 {
   const radialCentre='radialCentre' in more?more.radialCentre:k.radialCentre;
   return Object.freeze({origin:more.origin??k.origin,orientation:more.orientation??k.orientation,...(radialCentre!==undefined?{radialCentre}:{})});
 }
@@ -270,15 +272,15 @@ const mirrors=(scale:Vec3):boolean=>scale.filter(n=>n<0).length%2===1;
 export function translate3(m:Material,by:unknown):Material {
   const offset:unknown=Array.isArray(by)?by:[(by as {x:number}).x,(by as {y:number}).y,(by as {z:number}).z];
   if(!finiteTriple(offset))return m;
-  const k=kernelOf(m),settings=affine({translate:offset});
-  return mapPositions3(m,p=>transformPosition3(p,settings),'translate',{kernel:movedKernel(k,{origin:add3(k.origin,offset),radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
+  const k=frameOf(m),settings=affine({translate:offset});
+  return mapPositions3(m,p=>transformPosition3(p,settings),'translate',{frame:movedFrame(k,{origin:add3(k.origin,offset),radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
 }
 /** `rotate(angles | rotation, pivot?)` or `rotate(axis, degrees, { origin, local })`. */
 export function rotate3(m:Material,a:unknown,b?:unknown,c?:unknown):Material {
-  const k=kernelOf(m),r=rotationArguments(m,k,a as RotationInput|Axis3,b as number|Vec3|RotateOptions3|undefined,c as RotateOptions3|undefined);
+  const k=frameOf(m),r=rotationArguments(m,k,a as RotationInput|Axis3,b as number|Vec3|RotateOptions3|undefined,c as RotateOptions3|undefined);
   if(r===undefined)return m;
   const settings=affine({rotate:r.rotate,origin:r.origin});
-  return mapPositions3(m,p=>transformPosition3(p,settings),'rotate',{kernel:movedKernel(k,{orientation:r.orientation,origin:r.moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
+  return mapPositions3(m,p=>transformPosition3(p,settings),'rotate',{frame:movedFrame(k,{orientation:r.orientation,origin:r.moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
 }
 /** `scale(k | [x, y, z], pivot?)`. A zero factor is allowed: a value
  * scaled to nothing keeps its points on the pivot and has no faces or
@@ -286,18 +288,18 @@ export function rotate3(m:Material,a:unknown,b?:unknown,c?:unknown):Material {
 export function scale3(m:Material,by:unknown,b?:unknown):Material {
   const factors=(typeof by==='number'?[by,by,by]:by) as Vec3;
   if(!finiteTriple(factors))return m;
-  const k=kernelOf(m);
+  const k=frameOf(m);
   const origin=pivotOf('scale',Array.isArray(b)?{origin:b as unknown as Vec3}:b as ScaleOptions3|undefined,m,k.origin);
   if(origin===undefined)return m;
   const moved=movedOrigin(k.origin,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]);
   if(factors.some(f=>f===0)){
     // Points alone collapse onto the pivot; anything with edges or faces
     // is nothing to draw.
-    if(m.edgeCount===0&&!hasFaces(m))return mapPositions3(m,p=>add3(origin,sub3(p,origin).map((v,i)=>v*factors[i]) as unknown as Vec3),'scale',{kernel:movedKernel(k,{origin:moved,radialCentre:undefined})});
+    if(m.edgeCount===0&&!hasFaces(m))return mapPositions3(m,p=>add3(origin,sub3(p,origin).map((v,i)=>v*factors[i]) as unknown as Vec3),'scale',{frame:movedFrame(k,{origin:moved,radialCentre:undefined})});
     return value3(ownSurface3(surface3([],[])),kept(m,{origin:moved,radialCentre:undefined}));
   }
   const settings=affine({scale:factors,origin});
-  return mapPositions3(m,p=>transformPosition3(p,settings),'scale',{mirror:mirrors(factors),kernel:movedKernel(k,{origin:moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
+  return mapPositions3(m,p=>transformPosition3(p,settings),'scale',{mirror:mirrors(factors),frame:movedFrame(k,{origin:moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
 }
 /** `transform(placement)` with a placement of space (`observer`, a
  * honeycomb's placements): every point through it, every row and column
@@ -305,8 +307,8 @@ export function scale3(m:Material,by:unknown,b?:unknown):Material {
  * face stays flat; one that turns space over turns every face over. */
 export function transform3(m:Material,placement:Isometry<Vec3>):Material {
   if(!isSpacePlacement(placement))throw new Error('transform takes a placement of 3D space — an observer, or one of a honeycomb\'s placements; a placement of the plane moves sketch points');
-  const k=kernelOf(m);
-  return mapPositions3(m,p=>placement.point(p),'transform',{mirror:placement.orientation<0,kernel:movedKernel(k,{origin:placement.point(k.origin),radialCentre:undefined})});
+  const k=frameOf(m);
+  return mapPositions3(m,p=>placement.point(p),'transform',{mirror:placement.orientation<0,frame:movedFrame(k,{origin:placement.point(k.origin),radialCentre:undefined})});
 }
 
 /** One connected component of an extrusion selection, measured on the input. */
@@ -406,7 +408,7 @@ export function dual3(m:Material,options:DualOptions={}):Material {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
   refuseNoFaces(m,'dual');
   // The dual of a shell star-shaped about a point is star-shaped about it.
-  return derivedValue('dual',m,ownSurface3(dualSurface3(surfaceOf(m),options)),[m],{transfers:{},radialCentre:kernelOf(m).radialCentre});
+  return derivedValue('dual',m,ownSurface3(dualSurface3(surfaceOf(m),options)),[m],{transfers:{},radialCentre:m.radialCentre});
 }
 
 export interface DisplaceOptions {
@@ -490,10 +492,6 @@ export function faceWords3(m:Material,f:number):{readonly normal:Vec3;readonly a
     centroid:Object.freeze(area>0?mul3(center,1/area):places.length?mul3(places.reduce((sum,p)=>add3(sum,p),[0,0,0] as Vec3),1/places.length):[0,0,0]) as Vec3,
   };
 }
-
-/** The recorded radial centre of `m` (see `Kernel3`). */
-export const radialCentreOf=(m:Material):Vec3|undefined=>kernelOf(m).radialCentre;
-export type {Kernel3};
 
 /** `rebind(target)`: points sampled on a surface back on the same places of
  * an edited revision of it; points sampled on surface curves back on the

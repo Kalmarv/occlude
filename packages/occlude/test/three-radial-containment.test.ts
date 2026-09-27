@@ -18,36 +18,35 @@ import { classifySceneCpuJob3 } from '../src/three/visibility/scene.js';
 import { runGeometryJob3 } from '../src/three/geometry/job.js';
 import type { Vec3 } from '../src/three/math.js';
 import { unionIntervals3, type Interval3 } from '../src/three/visibility/interval.js';
-import { radialCentreOf } from '../src/three/api/words.js';
 
 const whole = (rows: readonly Interval3[]) => { const u = unionIntervals3([...rows]); return u.length === 1 && u[0][0] <= 0 && u[0][1] >= 1; };
 
 describe('radial provenance', () => {
   it('is minted by the radial generators and by nothing else', () => {
-    expect(radialCentreOf(geodesic(1, { frequency: 3 }))).toEqual([0, 0, 0]);
-    expect(radialCentreOf(sphere(1))).toEqual([0, 0, 0]);
-    expect(radialCentreOf(geodesic(1, { frequency: 3 }).dual())).toEqual([0, 0, 0]);
+    expect(geodesic(1, { frequency: 3 }).radialCentre).toEqual([0, 0, 0]);
+    expect(sphere(1).radialCentre).toEqual([0, 0, 0]);
+    expect(geodesic(1, { frequency: 3 }).dual().radialCentre).toEqual([0, 0, 0]);
     // The flat solid is not built by pushing points out from a centre, so it
     // claims nothing.
-    expect(radialCentreOf(geodesic(1, { frequency: 3, project: false }))).toBeUndefined();
-    expect(radialCentreOf(plane(2))).toBeUndefined();
+    expect(geodesic(1, { frequency: 3, project: false }).radialCentre).toBeUndefined();
+    expect(plane(2).radialCentre).toBeUndefined();
   });
 
   it('moves with translate, rotate and scale, and is kept by displace and a write', () => {
     const ball = geodesic(1, { frequency: 3 });
-    expect(radialCentreOf(ball.translate([1, 2, 3]))).toEqual([1, 2, 3]);
-    expect(radialCentreOf(ball.scale(0.5))).toEqual([0, 0, 0]);
-    expect(radialCentreOf(ball.translate([2, 0, 0]).scale(0.5, { origin: [0, 0, 0] }))).toEqual([1, 0, 0]);
-    expect(radialCentreOf(ball.translate([2, 0, 0]).rotate([0, 0, 180], [0, 0, 0]))![0]).toBeCloseTo(-2, 12);
+    expect(ball.translate([1, 2, 3]).radialCentre).toEqual([1, 2, 3]);
+    expect(ball.scale(0.5).radialCentre).toEqual([0, 0, 0]);
+    expect(ball.translate([2, 0, 0]).scale(0.5, { origin: [0, 0, 0] }).radialCentre).toEqual([1, 0, 0]);
+    expect(ball.translate([2, 0, 0]).rotate([0, 0, 180], [0, 0, 0]).radialCentre![0]).toBeCloseTo(-2, 12);
     // A displacement in any direction keeps the record, because radiality is
     // re-proved from the triangles and never assumed.
-    expect(radialCentreOf(ball.displace(() => [0.1, 0, 0]))).toEqual([0, 0, 0]);
-    expect(radialCentreOf(ball.points.set('z', (p) => p.z + 0.1).faces.set('k', 1))).toEqual([0, 0, 0]);
+    expect(ball.displace(() => [0.1, 0, 0]).radialCentre).toEqual([0, 0, 0]);
+    expect(ball.points.set('z', (p) => p.z + 0.1).faces.set('k', 1).radialCentre).toEqual([0, 0, 0]);
   });
 
   it('is dropped by an edit that can move the shell off its centre', () => {
     const ball = geodesic(1, { frequency: 3 });
-    expect(radialCentreOf(ball.subdivide(1))).toBeUndefined();
+    expect(ball.subdivide(1).radialCentre).toBeUndefined();
   });
 
   it('re-proves radiality from the triangles, whatever the record says', () => {

@@ -128,7 +128,8 @@ rasters are implementation numbers. They are not tenants.
 - **`origin` is the pivot.** `rotate` and `scale` pivot on `origin`
   (`[x, y]`, or `'center'` for the drawable's middle); on the user origin
   when it is unset. Scaling about the middle is an option, never a
-  compensating translate.
+  compensating translate. A value in space carries its own origin;
+  `rotate` and `scale` pivot on it, and `origin` overrides.
 - Wasm protocol changes (strides, flags, export signatures) land on both
   sides in the same commit. Buffer strides are documented at the top of
   `scene.rs`.

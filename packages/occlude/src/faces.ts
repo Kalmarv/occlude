@@ -733,6 +733,9 @@ function extractStated(table: FaceTable, rows: readonly number[], edgeRows: read
     ...(stated.source !== undefined ? { source: { faces: (k: number) => table.sourceAt(rows[k]) } } : {}),
     space: m.space,
     key: m.key,
+    origin: m.origin,
+    orientation: m.orientation,
+    radialCentre: m.radialCentre,
     transfers: m.transfers,
     edgeTransfers: m.edgeTransfers,
     // A face keeps its walls and their lineage, so its key: the face

@@ -156,7 +156,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## translate() · rotate() · scale()
 
-A value in space is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. Translate then rotate turns the bar where it stands. Rotate then translate turns it first. The blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
+A value in space has its own origin and its own orientation. A primitive starts at the world origin, with no turn. `.rotate` and `.scale` pivot on the origin of the value, and the `origin` option overrides it. `.translate(pairOrTriple)`, `.rotate(degreesTriple)`, `.scale(scalarOrTriple)` and `.transform(placement)` are rigid moves. They return new values, and they move the origin with the points. `.rotate` also adds its turn to the orientation. A pair is a triple at z = 0. A write of the points, for example `displace`, `points.set` or `move`, does not move the origin. Each write and each step keeps the origin, the orientation and the key. Read them as `m.origin`, `m.orientation` and `m.key`. Translate then rotate turns the bar where it stands. Rotate then translate turns it first. The blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

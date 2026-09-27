@@ -189,8 +189,9 @@ export function partsOf(m: Material): Parts {
 }
 
 /** @internal What a new state hands on besides the rows: by default `m`'s
- * own — its policies, face columns, stated faces, space and key — at its
- * iteration, with no history. */
+ * own — its policies, face columns, stated faces and value fields (space,
+ * key, prototype, origin, orientation) — at its iteration, with no
+ * history. */
 export interface Carry {
   iteration?: number;
   history?: readonly Material[];

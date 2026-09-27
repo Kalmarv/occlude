@@ -22,10 +22,11 @@
  * round each loop (`FacePart.triangles`), and every write that keeps the
  * faces keeps them.
  *
- * What is not a row's is kept here, beside what carries it: the object's
- * own pivot and orientation, and a recorded radial centre, beside the point
- * id column — a write that keeps the rows keeps the column, and so keeps
- * them. The key and the prototype are value fields the core carries.
+ * What is not a row's is the value's own, and a value field the core
+ * carries through every write: its key, the prototype it places, its own
+ * origin and orientation, and a recorded radial centre (`m.key`,
+ * `m.prototype`, `m.origin`, `m.orientation`, `m.radialCentre`). A rigid
+ * move gives the moved ones (`Frame3`); nothing else changes them.
  */
 
 import {Column, type AnyColumn} from '../../column.js';
@@ -43,15 +44,13 @@ import {ownerOf} from '../../views.js';
 /** How a point column refines, as `set(…, { transfer })` declares it. */
 export type Transfers3 = Readonly<Record<string, 'interpolate' | 'nearest'>>;
 
-/** @internal What a value in space holds beside its rows: its own pivot,
- * carried by `translate`, and orientation, and a recorded radial centre.
- * (Its key and the prototype it places are value fields, `m.key` and
- * `m.prototype`.) */
-export interface Kernel3 {
-  /** The object's own pivot, carried by `translate`, and its orientation. */
+/** @internal A value's own frame in space, as a rigid move reads and
+ * gives it: its origin and orientation (the user origin and no turn when
+ * unset), and a recorded radial centre, if it has one (see
+ * `Material.origin`). */
+export interface Frame3 {
   readonly origin: Vec3;
   readonly orientation: Rotation;
-  /** A centre the value was generated radially about (see `radialCentre`). */
   readonly radialCentre?: Vec3;
 }
 
@@ -72,22 +71,18 @@ export interface Carry3 {
   readonly pointCols?: Readonly<Record<string, AnyColumn>>;
 }
 
-/** The kernel state, beside the point id column that carries it. */
-const KERNELS = new WeakMap<Column, Kernel3>();
 const ORIGIN: Vec3 = Object.freeze([0, 0, 0]) as unknown as Vec3;
 const IDENTITY = rotation3([0, 0, 0]);
-const NONE: Kernel3 = Object.freeze({origin: ORIGIN, orientation: IDENTITY});
 
-/** @internal The kernel state of `m`: its own, or the one its rows were
- * kept from; the default for a value the 3D layer never made. */
-export function kernelOf(m: Material): Kernel3 {
-  return KERNELS.get(m.store.pointIds) ?? NONE;
+/** @internal The frame of `m`: its own fields, the user origin and no turn
+ * where they are unset. */
+export function frameOf(m: Material): Frame3 {
+  return {
+    origin: m.origin ?? ORIGIN,
+    orientation: m.orientation ?? IDENTITY,
+    ...(m.radialCentre !== undefined ? {radialCentre: m.radialCentre} : {}),
+  };
 }
-const kernelFrom = (carry: Carry3): Kernel3 => Object.freeze({
-  origin: carry.origin ?? ORIGIN,
-  orientation: carry.orientation ?? IDENTITY,
-  ...(carry.radialCentre !== undefined ? {radialCentre: carry.radialCentre} : {}),
-});
 
 /** @internal A kernel's surface as the one geometry. */
 export function value3(surface: Surface3, carry: Carry3 = {}): Material {
@@ -99,8 +94,10 @@ export function value3(surface: Surface3, carry: Carry3 = {}): Material {
     ...(carry.transfers !== undefined ? {transfers: {...carry.transfers}} : {}),
     ...(carry.key !== undefined ? {key: carry.key} : {}),
     ...(carry.prototype !== undefined ? {prototype: carry.prototype} : {}),
+    ...(carry.origin !== undefined ? {origin: carry.origin} : {}),
+    ...(carry.orientation !== undefined ? {orientation: carry.orientation} : {}),
+    ...(carry.radialCentre !== undefined ? {radialCentre: carry.radialCentre} : {}),
   });
-  KERNELS.set(m.store.pointIds, kernelFrom(carry));
   // The view is the kernel's surface row for row and name for name: the
   // surface itself when nothing was filled in, else one read from the
   // value that takes the surface's topology revision, so adjacency and
@@ -166,15 +163,15 @@ declare module '../../material.js' {
 export interface Moved3 {
   /** The motion turns space over: every stated face is turned over too. */
   readonly mirror?: boolean;
-  /** The moved value's own pivot, orientation and radial centre; absent,
-   * `m`'s. */
-  readonly kernel?: Kernel3;
+  /** The moved value's own frame (a rigid move); absent, `m`'s (a write
+   * of the points, `displace`). */
+  readonly frame?: Frame3;
 }
 
 /**
  * @internal `m` with every point moved through `move`: a map over the x,
  * y and z columns that keeps every row, id, kernel name, column and face,
- * and the links its rows answer `source` with. A mirror turns each stated
+ * every value field, and the links its rows answer `source` with. A mirror turns each stated
  * face over — its runs, its fixed triangles and its corners reversed — so
  * it still faces out. A value with no `z` gets one.
  */
@@ -195,9 +192,7 @@ export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, w
     ny[i] = q[1];
     nz[i] = q[2];
   }
-  // The moved value's own state rides beside its own id column: the ids
-  // are the same numbers, in a column of its own.
-  const pointIds = how.kernel === undefined ? s.pointIds : Column.of(Float64Array.from(s.pointIds.flat()));
+  const frame = how.frame;
   const faces = how.mirror === true && m.stated !== undefined ? turnedOver(m.stated) : m.stated;
   const out = carryLinks(m, new Material(nx, ny, {...s.attrs, z: nz}, s.edgeList, {
     iteration: m.iteration,
@@ -205,13 +200,13 @@ export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, w
     edgeAttrs: s.edgeAttrs,
     transfers: {...m.transfers},
     edgeTransfers: {...m.edgeTransfers},
-    ids: {points: pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots},
+    ids: {points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots},
     keys: {points: s.pointKeys, edges: s.edgeKeys},
     faceAttrs: m.faceAttrs,
     from: m,
+    ...(frame !== undefined ? {origin: frame.origin, orientation: frame.orientation, radialCentre: frame.radialCentre} : {}),
     faces,
   }));
-  if (how.kernel !== undefined) KERNELS.set(out.store.pointIds, how.kernel);
   if (faces !== m.stated) out.cache.turnedFrom = m;
   return out;
 }

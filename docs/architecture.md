@@ -377,9 +377,11 @@ builds from the value's parts on first need and keeps on the value
 (`three/geometry/value.ts`; one parts format, `MaterialParts`, both ways in
 `parts.ts`). The rigid words — `translate`, `rotate`, `scale`, `transform`,
 a displacement by vector — are maps over the `x`, `y`, `z` columns and build
-no view. What is not a row's (the object's own pivot and orientation, and a
-radial centre) is kept by `value.ts` beside the point id column, so a write
-that keeps the rows keeps it. Instances are a points material with `rotate`
+no view. What is not a row's — the key, the prototype, the value's own
+origin and orientation (the pivot `rotate` and `scale` turn about), and a
+radial centre — is a value field the core carries through every write and
+every step, as it carries `space`; only a rigid move gives a moved origin
+and orientation. Instances are a points material with `rotate`
 and `scale` columns and a `prototype` value field; `m.realize()` makes the
 copies geometry. A 3D run is the one run: `t.steps(n, mesh, (m) =>
 m.points.set(…))`, with the writes `points.set`, `edges.set`, `faces.set` and

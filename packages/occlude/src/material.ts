@@ -60,6 +60,7 @@ import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, rep
 
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
+import type { Rotation } from './three/rotation.js';
 // The 3D words, called where the core declares them. The import cycle is
 // the same kind as the kernels' above: every read is at call time.
 import { translate3, rotate3, scale3, transform3, extrude3, smooth3, subdivide3, boolean3, dual3, displace3, along3, resample3, rebind3 } from './three/api/words.js';
@@ -758,6 +759,30 @@ export class Material {
    * that keeps the points keeps what they place. Non-enumerable.
    */
   declare readonly prototype: Material | undefined;
+  /**
+   * A value in space's own origin: the point `rotate` and `scale` pivot on
+   * when no `origin` is given. A rigid move — `translate` (by a pair or by
+   * three numbers), `rotate`, `scale`, `transform` — moves it with the
+   * points; a write of the rows (`displace`, `points.set`, `move`, `split`,
+   * a step of `t.steps`) keeps it where it was. Undefined for a value no
+   * rigid move has moved: its origin is then the user origin, `[0, 0, 0]`.
+   * Carried as the key is. Non-enumerable, as `space` is.
+   */
+  declare readonly origin: Vec3 | undefined;
+  /**
+   * A value in space's own orientation: the turn every `rotate` so far has
+   * given it, which `rotate(axis, degrees, { local: true })` reads its axis
+   * in. Undefined for a value nothing turned. Carried as `origin` is.
+   */
+  declare readonly orientation: Rotation | undefined;
+  /**
+   * @internal A centre the value was made star-shaped about (a sphere, a
+   * projected geodesic, their duals), which the visibility pass may use to
+   * prove one shell inside another; every proof checks it again. A rigid
+   * move moves it, a derivation that makes new faces drops it, and a write
+   * of the rows keeps it. Carried as `origin` is.
+   */
+  declare readonly radialCentre: Vec3 | undefined;
 
   /** @internal Use `material()`/`curve()`/`t.sample()`. A column is
    * adopted by the constructor — a typed array as it is, or a persistent
@@ -802,11 +827,21 @@ export class Material {
       key?: string;
       /** The prototype the value's points place (see `Material.prototype`). */
       prototype?: Material;
-      /** The value these rows were made from: the space, the key and the
-       * prototype are taken from it when not given, so a derived material is
-       * in the space of its source, and keeps its name, without a word to
+      /** The value's own origin, orientation and radial centre in space (see
+       * `Material.origin`). Given — undefined included, which unsets it —
+       * each replaces `from`'s: a rigid move gives the ones it moved. */
+      origin?: Vec3 | undefined;
+      orientation?: Rotation | undefined;
+      radialCentre?: Vec3 | undefined;
+      /** The value these rows were made from: the space, the key, the
+       * prototype, the origin, the orientation and the radial centre are
+       * taken from it when not given, so a derived material is in the space
+       * of its source, and keeps its name and its pivot, without a word to
        * say so. */
-      from?: { readonly space?: Space | undefined; readonly key?: string | undefined; readonly prototype?: Material | undefined; readonly epoch?: number };
+      from?: {
+        readonly space?: Space | undefined; readonly key?: string | undefined; readonly prototype?: Material | undefined; readonly epoch?: number;
+        readonly origin?: Vec3 | undefined; readonly orientation?: Rotation | undefined; readonly radialCentre?: Vec3 | undefined;
+      };
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
@@ -899,6 +934,9 @@ export class Material {
     if (key !== undefined && typeof key !== 'string') throw new Error(`material: a key is a string — got ${typeof key}`);
     Object.defineProperty(this, 'key', { value: key, enumerable: false });
     Object.defineProperty(this, 'prototype', { value: carry.prototype ?? carry.from?.prototype, enumerable: false });
+    for (const name of ['origin', 'orientation', 'radialCentre'] as const) {
+      Object.defineProperty(this, name, { value: name in carry ? carry[name] : carry.from?.[name], enumerable: false });
+    }
     Object.defineProperty(this, 'stated', { value: statedFor(carry.faces, list, edgeIds), enumerable: false });
     Object.freeze(this.faceAttrs);
     Object.freeze(this.transfers);
@@ -1688,12 +1726,16 @@ export class Material {
    * on the pivot. The same words as `group({ scale, rotate, translate })`,
    * and like them a deformation of the coordinates, not a placement:
    * `transform` is the word for an isometry. It is `map` underneath, so
-   * every id and every column carries.
+   * every id and every column carries. A value in space pivots on its own
+   * origin when `origin` is unset (see `Material.origin`), and so does
+   * `rotate`.
    */
   scale(k: number | readonly [number, number] | Vec3, opts: { origin?: Origin | Vec3 } = {}): Material {
-    // Three factors scale in space, and so does one on a value in space:
-    // `scale(k)` there is `scale([k, k, k])`.
-    if ((Array.isArray(k) && k.length === 3) || (typeof k === 'number' && inSpace3(this))) return scale3(this, k, opts);
+    // Three factors scale in space, and so does one or two on a value in
+    // space: `scale(k)` there is `scale([k, k, k])` and `scale([kx, ky])`
+    // is `scale([kx, ky, 1])`, about the value's own origin.
+    if (Array.isArray(k) && k.length === 3) return scale3(this, k, opts);
+    if (inSpace3(this)) return scale3(this, typeof k === 'number' ? k : [k[0], k[1], 1], opts);
     const [kx, ky] = typeof k === 'number' ? [k, k] : [k[0], k[1]];
     // A factor or a pivot that is not finite scales nothing, as `move` moves
     // nothing by it.
@@ -1742,6 +1784,9 @@ export class Material {
     if (isVec3(by)) return translate3(this, by);
     const dx = vx(by);
     const dy = vy(by);
+    // In space a pair is the step at z = 0: `translate([x, y])` is
+    // `translate([x, y, 0])`, and moves the value's own origin as it does.
+    if (inSpace3(this)) return translate3(this, [dx, dy, 0]);
     // An offset that is not finite moves nothing, as `move` moves nothing by it.
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return this;
     return mapPositions(this, (p) => [p.x + dx, p.y + dy], 'm.translate');
@@ -4348,6 +4393,11 @@ export interface MaterialParts {
   readonly key?: string;
   /** The prototype the points place (see `Material.prototype`). */
   readonly prototype?: Material;
+  /** The value's own origin, orientation and radial centre in space (see
+   * `Material.origin`). */
+  readonly origin?: Vec3;
+  readonly orientation?: Rotation;
+  readonly radialCentre?: Vec3;
   /** Declared transfer policies, as `points.set(…, { transfer })` keeps them. */
   readonly transfers?: Readonly<Record<string, PointTransfer>>;
   readonly edgeTransfers?: Readonly<Record<string, EdgeTransfer>>;
@@ -4522,6 +4572,9 @@ export function materialFromParts(parts: MaterialParts): Material {
     space: parts.space,
     ...(parts.key !== undefined ? { key: parts.key } : {}),
     ...(parts.prototype !== undefined ? { prototype: parts.prototype } : {}),
+    origin: parts.origin,
+    orientation: parts.orientation,
+    radialCentre: parts.radialCentre,
     faces: stated,
   });
   // Face columns are keyed by the walls each face is made of, as every
