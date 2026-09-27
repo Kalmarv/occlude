@@ -1026,13 +1026,14 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
 ```ts live
 import { sketch, strokes, circle, group, connect } from 'occlude';
 
-// Three vertices carry hot = 1. warmth is the mean of hot over each
-// vertex's connected neighbours, so the edges between warm vertices
-// outline exactly the neighbourhood, derived from the topology.
+// Three vertices carry hot = 1: the ones nearest three spots. warmth is
+// the mean of hot over each vertex's connected neighbours, so the edges
+// between warm vertices outline exactly the neighbourhood, derived from
+// the topology.
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const mesh = connect.triangulate(t.grid({ cols: 9, rows: 8 }).faces.map((f) => [f.bounds.cx * 0.48 + t.rnd(-2.4, 2.4), f.bounds.cy + t.rnd(-2.8, 2.8)]));
-  const hot = [12, 39, 61];
-  const raw = mesh.points.set('hot', (p) => (hot.includes(p.index) ? 1 : 0));
+  const hot = mesh.points.rows([[37, 19], [37, 56], [80, 81]].map((q) => mesh.points.near(q, { radius: 6 }).at(0)));
+  const raw = mesh.points.set('hot', 1, hot);
   const warm = raw.points.set('warmth', (p) => p.adjacent.mean('hot'));
   const halo = warm.edges.filter((e) => e.a.warmth > 0 && e.b.warmth > 0);
   const marks = (m) => m.points.filter((p) => p.hot === 1).map((p) => circle(p.x, p.y, 2.2, { pen: 'stabilo-88-blue' }));
@@ -1223,10 +1224,11 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const toward = force.separation(anchors, { radius: 0.34 * b.w, amount: -1 / (0.34 * b.w) });
   const marks = material(t.grid({ cols: 24, rows: 12 }).faces.map((f) => [f.bounds.cx, f.bounds.cy]));
   const gathered = t.steps(90, marks, (g) => g.move((p) => mul(toward(p), 0.16)), { every: 1 });
-  const trail = (i) => gathered.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
+  // A dot you hold names that dot in every state of the history.
+  const trail = (p) => gathered.history.map((h) => { const q = h.points.rows(p).at(0); return [q.x, q.y]; });
   return [
     anchors.map(([x, y]) => circle(x, y, 3.2, { pen: 'stabilo-88-blue' })),
-    marks.points.map((p) => stroke(trail(p.index))),
+    marks.points.map((p) => stroke(trail(p))),
     marks.points.map((p) => circle(p.x, p.y, 0.6)),
   ];
 });
@@ -1242,8 +1244,8 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const drifts = [0.004, 0.02, 0.12].map((frequency) => force.drift(t.noise, { amount: 0.32, frequency }));
   const marks = material(t.grid({ cols: 18, rows: 6 }).faces.map((f) => [f.bounds.cx, f.bounds.cy])).points.set('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
   const wandered = t.steps(55, marks, (g) => g.move((p) => drifts[p.band](p)), { every: 1 });
-  const trail = (i) => wandered.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
-  return [marks.points.map((p) => stroke(trail(p.index))), marks.points.map((p) => circle(p.x, p.y, 0.6))];
+  const trail = (p) => wandered.history.map((h) => { const q = h.points.rows(p).at(0); return [q.x, q.y]; });
+  return [marks.points.map((p) => stroke(trail(p))), marks.points.map((p) => circle(p.x, p.y, 0.6))];
 });
 ```
 
@@ -1419,11 +1421,11 @@ Stated faces stay through every write that leaves the edges alone: a move, `poin
 | Value | Meaning |
 |---|---|
 | `m.planarize({ point?, edges? })` | independent material with crossings and contacts shared and edges split in order; overlaps, duplicate edges and zero-length edges are errors naming the rows |
-| `point: (event) => columns` | resolves competing point columns at an event; needed only where the candidates disagree |
+| `point: (event) => columns` | resolves competing point columns at an event; needed only where the candidates disagree. A candidate is a row: a vertex that is there (`c.vertex`), or a point read along an edge (`c.edge`, and `c.t` from `edge.a` to `edge.b`), with the point columns read flat (`c.age`). With a `point` resolver, a point column named `vertex`, `edge` or `t` is an error |
 | `edges: (parent, child) => columns` | child edge columns over the parent's |
 | `m.faces` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows and collections read the same way: `face.edges` and `m.faces.edges` |
 | `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds` (a rect record `x`, `y`, `w`, `h`, `cx`, `cy`, an area in its own right), `centroid` (holes respected; field-weighted centres come from `measure()`), `contours()` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); `adjacent`, the faces across its walls as a selection; and its face columns, read flat (`f.height`) |
-| `face.source` | what the face came from: a Voronoi cell's site (a point row of the sites), a tile's placement cell, a quadtree cell's points (a selection of the input); undefined for a derived face |
+| `face.source` | what the face came from: a Voronoi cell's site (a point of the sites), a tile's placement, a quadtree cell's points (a selection of the input); undefined for a face read off the walls |
 | `face.parent`, `face.children`, `face.depth`, `face.leaf` | where the face sits when faces nest: a quadtree states every cell from the root to the leaves, so `parent` is the cell that holds it (undefined for the root), `children` its quadrants as a selection (empty for a leaf), `depth` its steps from the root and `leaf` whether it holds none. A face that does not nest is a root and a leaf |
 | `m.faces.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `without` |
 | `m.faces.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
@@ -1462,7 +1464,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
     group({ translate: [100, 0] },
       cells.map((f, k) => polygon(f, { fill: fill('hatch', { angle: (k * 37) % 180, spacing: mm(1.3) }), stroke: false })),
       strokes(planar),
-      planar.points.filter((p) => p.index >= net.points.length).map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-blue' })),
+      planar.points.filter((p) => !net.points.has(p)).map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-blue' })),
     ),
   ];
 });
@@ -1729,7 +1731,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
     }
     return grown.points.set('active', 0, tips);
   });
-  const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, generation: Math.max(...ev.candidates.map((c) => c.attrs.generation)) }) });
+  const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, generation: Math.max(...ev.candidates.map((c) => c.generation)) }) });
   const enclosed = planar.faces;
   if (enclosed.length === 0) return strokes(web);
   const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 70, y - 40) / 90);
@@ -1897,7 +1899,7 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const band = (v) => Math.min(2, Math.max(0, Math.floor(((v - young) / (old - young)) * 3)));
   const pens = ['pigma-01-black', 'stabilo-88-green', 'stabilo-88-blue'];
   // a crossing's age is a decision, because the two edges' ages disagree
-  const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, age: Math.max(...ev.candidates.map((c) => c.attrs.age)) }) });
+  const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, age: Math.max(...ev.candidates.map((c) => c.age)) }) });
   const cells = planar.faces.filter((f) => f.area > 3);
   return [
     strokes(web),
@@ -2384,7 +2386,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     .points.set('tone', (p) => (1 + Math.sin(p.x / 13 + p.y / 19)) / 2);
   const ribbons = threads.thicken({
     radius: (p) => 0.45 + 2.3 * p.tone,
-    point: ({ candidates }) => ({ tone: Math.max(...candidates.map((c) => c.attrs.tone)) }),
+    point: ({ candidates }) => ({ tone: Math.max(...candidates.map((c) => c.tone)) }),
   });
   return [
     polygon(ribbons, { fill: fill('hatch', { angle: 60, spacing: mm(0.7) }), stroke: false }),
@@ -2393,7 +2395,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 });
 ```
 
-`event.position` is the generated boundary vertex; `event.candidates` names what produced it in the **original** source (or the material the selection was read from): endpoint-cap samples give a vertex row; side samples give the edge row with its recovered `a → b` envelope parameter, normalized to a vertex at `t = 0` or `1`. Attribution uses the boundary approximation budget. Candidate attributes interpolate by each source column's declared policy, independently of the linear computed radius.
+`event.position` is the generated boundary vertex; `event.candidates` names what produced it in the **original** source (or the material the selection was read from): endpoint-cap samples give the vertex (`c.vertex`); side samples give the edge (`c.edge`) with its recovered `a → b` envelope parameter `c.t`, normalized to a vertex at `t = 0` or `1`. Attribution uses the boundary approximation budget. A candidate's point columns read flat (`c.tone`) and interpolate by each source column's declared policy, independently of the linear computed radius. With `point`, a point column named `vertex`, `edge` or `t` is an error.
 
 One distinction worth keeping straight: thickening an already thickened **boundary** is a new band around those boundary edges, not a dilation of the previously filled interior — the boundary has no memory of the fill. Radii are the source's own units; `tolerance` (default `0.05`) is a total approximation budget in material units. It includes polygonal curve approximation and integer-grid rounding. The grid becomes finer for small radii, so an isolated disc is retained even when the requested tolerance exceeds its radius. Invalid sources, options, radii and callback records name the offending row or key with a `thicken:` error, and same values give the same arrays and callback order on a given build.
 

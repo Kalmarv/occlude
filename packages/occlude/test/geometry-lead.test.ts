@@ -14,6 +14,7 @@ import {
   type Material, type Toolkit, type Vec,
 } from '../src/index.js';
 import { firstCell } from './helpers/xy.js';
+import { sourcePlacement } from './helpers/source.js';
 import { compileSketch, compileSketchAsync, evalPrim, initOcclude, render } from '../src/host.js';
 
 beforeAll(async () => {
@@ -61,7 +62,7 @@ describe('the {5, 4} cell', () => {
 
   it('placements[0] is the identity on every cell point', () => {
     for (const v of cell) {
-      const p = til.faces.map((f) => f.source as Placement)[0].point(v);
+      const p = til.faces.map(sourcePlacement)[0].point(v);
       expect(Math.hypot(p[0] - v[0], p[1] - v[1])).toBeLessThan(1e-9);
     }
   });
@@ -92,7 +93,7 @@ describe('the Poincaré fence, end to end', () => {
     const definition = sketch(HYP, (t) => {
       const tiles = t.tiling(5, 4, { depth: 5 });
       const cell = firstCell(tiles);
-      const placements = tiles.faces.map((f) => f.source as Placement);
+      const placements = tiles.faces.map(sourcePlacement);
       const c = t.space.center;
       const ring = (pts: Vec[], opts?: ShapeOpts) => pts.map((v, i) => {
         const w = pts[(i + 1) % pts.length];

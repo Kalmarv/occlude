@@ -26,7 +26,7 @@ import { Material, material as makeMaterial, type Vertex } from '../../../src/ma
 import { isPointSelection, isEdgeSelection, endpointRows } from '../../../src/relation.js';
 import type { Selection } from '../../../src/selection.js';
 import type { Edge } from '../../../src/material.js';
-import type { EventCandidate, PlanarEvent } from '../../../src/faces.js';
+import { eventCandidate, type PlanarEvent } from '../../../src/faces.js';
 import {
   analyticalUnion,
   type Envelope as Shape,
@@ -338,15 +338,10 @@ export function thicken(
       for (const v of loop) {
         const event: PlanarEvent = {
           position: [v.x, v.y],
-          candidates: v.cands.map((c): EventCandidate => {
-            const base: EventCandidate = { attrs: candidateAttrs(c, src) };
-            if (c.vertex !== undefined) base.vertex = c.vertex;
-            else {
-              base.edge = c.edge;
-              base.t = c.t;
-            }
-            return base;
-          }),
+          candidates: v.cands.map((c) => eventCandidate(
+            c.vertex !== undefined ? { vertex: src.vertex(c.vertex) } : { edge: src.edge(c.edge!), t: c.t! },
+            candidateAttrs(c, src),
+          )),
         };
         let record: Record<string, number>;
         try {

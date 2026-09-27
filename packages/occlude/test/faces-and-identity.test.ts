@@ -17,6 +17,7 @@ import {
 } from '../src/index.js';
 import { xy, rec } from './helpers/xy.js';
 import { selectionIn } from '../src/selection.js';
+import { sourceRow } from './helpers/source.js';
 
 const DISC = circle(50, 50, 34);
 
@@ -166,7 +167,7 @@ describe('P5 · a face collection is a selection', () => {
     const diagram = t.voronoi(sites);
     const cut = t.within(diagram, disc);
     expect(cut.faces.every((f) => f.source === undefined)).toBe(true);
-    const inner = diagram.faces.filter((f) => Math.hypot(f.source.x - 50, f.source.y - 50) < 20);
+    const inner = diagram.faces.filter((f) => { const site = sourceRow(sites.points, f); return Math.hypot(site.x - 50, site.y - 50) < 20; });
     const found = selectionIn(inner, cut);
     expect(found.length).toBe(inner.length);
   });
@@ -285,11 +286,12 @@ describe('P5 · a face collection is a selection', () => {
     const sites = t.relax(t.scatter({ spacing: 7 }), { iterations: 3 }).points.set('kind', (p) => (p.index % 3 === 0 ? 1 : 0));
     const diagram = t.voronoi(sites);
     const chosenSites = sites.points.filter((p) => p.kind === 1);
-    const chosenCells = diagram.faces.filter((f) => chosenSites.has(f.source));
-    const byColumn = diagram.faces.filter((f) => f.source.kind === 1);
+    const siteOf = (f: Face) => sourceRow(sites.points, f);
+    const chosenCells = diagram.faces.filter((f) => chosenSites.has(siteOf(f)));
+    const byColumn = diagram.faces.filter((f) => siteOf(f).kind === 1);
     expect(chosenCells.indices).toEqual(byColumn.indices);
     // The cells come in the sites' order, so their sources are the chosen sites that have a cell, in order.
-    expect(chosenCells.map((f) => f.source.index)).toEqual(chosenSites.filter((p) => diagram.faces.some((f) => f.source.index === p.index)).indices);
+    expect(chosenCells.map(siteOf)).toEqual([...chosenSites.filter((p) => diagram.faces.some((f) => f.source === p))]);
   });
 });
 

@@ -30,7 +30,7 @@ import { framePlacement, isPlacement, isSpacePlacement, spaceOfDoor, type Placem
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
 import { chainsOf, curvesOf, chainTangents, chainLengths, isCurveRow, type Curve } from './curves.js';
-import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
+import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type FaceSource, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -4450,7 +4450,7 @@ export interface FacePart {
 export interface PartsSource {
   readonly points?: DomainSpec | ((row: number) => unknown);
   readonly edges?: DomainSpec | ((row: number) => unknown);
-  readonly faces?: (f: number) => unknown;
+  readonly faces?: (f: number) => FaceSource;
 }
 
 /** @internal The parts `materialFromParts` takes. */

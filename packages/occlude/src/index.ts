@@ -83,7 +83,8 @@ export type { MergeOpts } from './merge.js';
 // One selection over every domain: `m.points`, `m.edges`, `m.faces`,
 // `l.faces`, and every part of one a sketch picks out.
 export type { Selection, Keyed } from './selection.js';
-export type { Face, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
+export type { Face, FaceSource, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
+export type { RowSource } from './derivation.js';
 export type { NearestHit, FirstHit } from './query.js';
 export type {
   Vertex, Edge, Transfer, PointTransfer, PointsLike,

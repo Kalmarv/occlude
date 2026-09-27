@@ -49,34 +49,70 @@ import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, ty
 import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
 import { Column, at64, columnOf, kindOf, type AnyColumn, type ColumnLike } from './column.js';
-import { carryLinks, derivation, linkRows, record } from './derivation.js';
+import { carryLinks, derivation, linkRows, record, type RowSource } from './derivation.js';
+import type { Placement } from './placement.js';
 import { cornerIndex, cornersOfFaces, type Corner } from './corners.js';
+
+/** What a face came from, in the shape the word that made it says: a row
+ * or a selection of the input (a Voronoi cell its site, a quadtree cell the
+ * points it holds, a 3D face the face, edge or point it was made from), a
+ * list of those when it came from several inputs, or a tile's placement.
+ * Undefined for a face read off the drawn picture. */
+export type FaceSource = RowSource | Placement;
 
 const EVENT_TOL = 1e-9;
 
 // ---- planarize ----------------------------------------------------------------------
 
-/** One proposed set of point columns at an intersection event. */
-export interface EventCandidate {
-  /** Source vertex row when the candidate IS an existing endpoint. */
-  vertex?: number;
-  /** Source edge row and parameter (stored a → b) when interpolated along an edge. */
-  edge?: number;
-  t?: number;
-  attrs: Record<string, number>;
-}
+/**
+ * One source of a point at an event, a row like every other row: its point
+ * columns read flat (`c.age`), beside its own words. A vertex that is there
+ * already answers `vertex`, and its columns are its own. A point read along
+ * an edge answers `edge` and `t`, its parameter from `edge.a` to `edge.b`,
+ * and its columns are the edge's ends read `t` of the way along, by each
+ * column's transfer. The views are of the value the word read.
+ */
+export type EventCandidate = {
+  readonly vertex?: Vertex;
+  readonly edge?: Edge;
+  readonly t?: number;
+} & { readonly [column: string]: number };
 
 export interface PlanarEvent {
   position: [number, number];
-  /** Deterministic: by source vertex row, then by source edge row. */
+  /** Deterministic: vertices first, in row order, then edges in row order. */
   candidates: EventCandidate[];
+}
+
+/** The words an event candidate answers of its own. A point column of one
+ * of these names would read flat beside it, so `c.t` would mean two things. */
+const CANDIDATE_WORDS: ReadonlySet<string> = new Set(['vertex', 'edge', 't']);
+
+/**
+ * @internal Refuse, by name, a point column that an event candidate would
+ * read beside a word of its own. Asked where candidates are built — where a
+ * `point` resolver is given, whatever the geometry, so one seed does not
+ * pass where another throws. A column named `t` on a value that no resolver
+ * reads is not a mistake.
+ */
+export function checkCandidateColumns(names: Iterable<string>, who: string): void {
+  for (const name of names) {
+    if (CANDIDATE_WORDS.has(name)) throw new Error(`${who}: the point column '${name}' has the name of a word of an event candidate (vertex, edge, t) — a point resolver cannot read it; give the column another name`);
+  }
+}
+
+/** @internal A candidate: its own words, and its columns flat. */
+export function eventCandidate(own: { vertex: Vertex } | { edge: Edge; t: number }, columns: Record<string, number>): EventCandidate {
+  return Object.freeze(Object.assign(columns, own));
 }
 
 export interface PlanarizeOpts {
   /** Point columns at an event: the returned record overrides the
    * default, which is the first candidate's (a surviving vertex keeps its
    * own values; a crossing takes those interpolated along its lowest edge
-   * row). A column the record leaves out keeps the default. */
+   * row). A column the record leaves out keeps the default. A candidate
+   * reads its columns flat (`c.age`) beside `vertex`, `edge` and `t`, so
+   * with a resolver a point column of one of those names is an error. */
   point?: (event: PlanarEvent) => Record<string, number>;
   /** Edge columns for each child interval, merged over the parent's;
    * called once per final child, an unsplit edge with fraction 1. The
@@ -261,10 +297,10 @@ function validate(m: Material, what: string): void {
   if (zero.length) throw new Error(`${what}: zero-length edge${zero.length > 1 ? 's' : ''} ${zero.join(', ')} — remove or move ${zero.length > 1 ? 'them' : 'it'} first (attributes are never dropped silently)`);
 }
 
-/** A candidate's numbers: the numeric point columns of `m` (`names`)
+/** A candidate's columns: the numeric point columns of `m` (`names`)
  * read `t` of the way from row `a` to row `b`, by the rule a split reads
  * them by. */
-function interpolateAttrs(m: Material, names: readonly string[], a: number, b: number, t: number): Record<string, number> {
+function columnsAlong(m: Material, names: readonly string[], a: number, b: number, t: number): Record<string, number> {
   const out: Record<string, number> = {};
   for (const name of names) {
     const col = m.attrs[name];
@@ -331,6 +367,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   const L = m.edgeList;
   // The numeric columns: what a candidate carries and a resolver may set.
   const names = Object.keys(m.attrs);
+  if (opts.point !== undefined) checkCandidateColumns(names, 'planarize');
   const enames = Object.keys(m.edgeAttrs);
 
   // ---- merge exactly coincident endpoints of the network ----
@@ -502,9 +539,9 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   if (resolver) {
     for (const v of Array.from(touched).sort((p, q) => p - q)) {
       const rows = mergedRows.get(v) ?? [v];
-      const candidates: EventCandidate[] = rows.map((i) => ({ vertex: i, attrs: interpolateAttrs(m, names, i, i, 0) }));
+      const candidates: EventCandidate[] = rows.map((i) => eventCandidate({ vertex: m.vertex(i) }, columnsAlong(m, names, i, i, 0)));
       const contacts = rows.flatMap((i) => contactsAt.get(i) ?? []).map((k) => events[k] as Extract<Event, { kind: 'contact' }>).sort((p, q) => p.edge - q.edge);
-      for (const c of contacts) candidates.push({ edge: c.edge, t: c.t, attrs: interpolateAttrs(m, names, segs[c.edge].a, segs[c.edge].b, c.t) });
+      for (const c of contacts) candidates.push(eventCandidate({ edge: m.edge(c.edge), t: c.t }, columnsAlong(m, names, segs[c.edge].a, segs[c.edge].b, c.t)));
       if (candidates.length < 2) continue;
       pointWords.set(v, resolved(names, { position: [X[v], Y[v]], candidates }, resolver));
     }
@@ -552,7 +589,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
       for (const { edge, t } of mentions) {
         if (seen.has(edge)) continue;
         seen.add(edge);
-        candidates.push({ edge, t, attrs: interpolateAttrs(m, names, segs[edge].a, segs[edge].b, t) });
+        candidates.push(eventCandidate({ edge: m.edge(edge), t }, columnsAlong(m, names, segs[edge].a, segs[edge].b, t)));
       }
       pointPatch.set(row, resolved(names, { position: pos, candidates }, resolver));
     }
@@ -831,11 +868,12 @@ export interface Face {
   readonly children: Selection<Face>;
   /**
    * What this face came from, in the shape the word that made it says: a
-   * Voronoi cell's site (a point row of the sites), a quadtree cell's
-   * points (a selection of the input), a tile's placement. Undefined for a
-   * face read off the drawn picture.
+   * Voronoi cell's site (a point of the sites), a quadtree cell's points (a
+   * selection of the input), a tile's placement, a 3D face the face, edge
+   * or point it was made from. Undefined for a face read off the drawn
+   * picture.
    */
-  readonly source: any;
+  readonly source: FaceSource;
   /** Closed contours: the outer boundary with positive signed area
    * (counter-clockwise in a y-up reading), holes negative. Bridges and
    * branches inside the face are not part of them.
@@ -877,7 +915,7 @@ export interface StatedFaces {
   readonly parent?: Int32Array;
   /** What face `f` came from, in the word's own shape; read the first time
    * it is asked for. Absent: nothing. */
-  readonly source?: (f: number) => unknown;
+  readonly source?: (f: number) => FaceSource;
   /** The edge list the faces were stated over. */
   readonly edgeList: ColumnLike<Uint32Array>;
   /** The edge ids the faces were stated over. */
@@ -1730,13 +1768,13 @@ export class FaceTable<F extends Face = Face> {
   private readonly keyBox: {
     keys: string[] | null; ids: FaceId[] | null; rowOf: Map<string, number> | null; all: readonly number[] | null;
     neighbours: readonly (readonly number[])[] | null; children: readonly (readonly number[])[] | null;
-    sources: unknown[] | null; selection?: Selection<Face>;
+    sources: (FaceSource | typeof NO_SOURCE)[] | null; selection?: Selection<Face>;
   };
   /** @internal What each face carries of each face column, before the
    * column's `fallback`: its own value, or the one it inherited. A face the
    * column never reached has none. What a face write keeps of a column. */
   readonly carried: ReadonlyMap<string, readonly unknown[]>;
-  private readonly sourceOf: ((f: number) => unknown) | undefined;
+  private readonly sourceOf: ((f: number) => FaceSource) | undefined;
   /** The half-edge runs of each leaf (null for a face that holds others). */
   private readonly regions: readonly (Region | null)[];
 
@@ -2169,11 +2207,11 @@ export class FaceTable<F extends Face = Face> {
 
   /** @internal What face `f` came from, read once and kept, so two reads
    * of one face's source are the same value. */
-  sourceAt(f: number): unknown {
+  sourceAt(f: number): FaceSource {
     if (this.sourceOf === undefined) return undefined;
-    const box = (this.keyBox.sources ??= new Array<unknown>(this.faces.length).fill(NO_SOURCE));
-    if (box[f] === NO_SOURCE) box[f] = this.sourceOf(f);
-    return box[f];
+    const box = (this.keyBox.sources ??= new Array<FaceSource | typeof NO_SOURCE>(this.faces.length).fill(NO_SOURCE));
+    const kept = box[f];
+    return kept !== NO_SOURCE ? kept : (box[f] = this.sourceOf(f));
   }
 
   /** @internal The rows each face holds one step down, in row order. */
