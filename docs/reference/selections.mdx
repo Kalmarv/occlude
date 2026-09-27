@@ -5,7 +5,7 @@ description: Rows of a material, chosen and combined, and what they know about e
 
 `m.points`, `m.edges`, `m.faces` and `l.faces` are collections of rows. So are the `points`, `edges`, `faces` and `corners` of a mesh. Each one is a selection: one kind of value with the same words for every kind of row. `filter` picks rows from one. It returns a selection bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine when they come from the same material, in this state or in an earlier one.
 
-A kind of row can have words of its own. Only edges have `nearest`, and only faces have `measure`. A word that a kind does not have stops the sketch with a message that names it: `faces.near: faces have no near`.
+A kind of row can have words of its own. Only edges have `nearest`, and only faces have `measure`. A word that a kind does not have stops the sketch with a message that names it: `faces.near: faces have no near`. The faces of a lattice are the one exception: `l.faces.near` measures to the centre of each face.
 
 :::note
 A row number belongs to one state. When a write adds or removes vertices, the rows get new numbers. A selection is more than its rows: a selection made in one state still names the same points in the next. A write, a set operation, `rows` and `has` take a selection or a row of an earlier state. They find the same rows. The members that are gone drop out. Select again when you want to ask the new state a new question. Do not select again to keep hold of the same points.
@@ -367,12 +367,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## sum() · mean() · min() · max()
 
+<include>/_sig/Selection.sum.mdx</include>
 <include>/_sig/Selection.mean.mdx</include>
 <include>/_sig/Selection.min.mdx</include>
+<include>/_sig/Selection.max.mdx</include>
 
 A number from the members: a column by name, or a function of the row. `sum`, `mean`, `min` and `max` take the same two forms. `p.adjacent.mean('age')` is the mean age of the neighbours of `p`. A value that is not a finite number stays out. The sum of nothing is 0, and the mean of nothing is `NaN`. A write of `NaN` leaves the row as it was. A column that is not a number on every member stops the sketch with a message.
 
-Here the points are dense in the middle. Each point gets a ring that grows with the mean length of its edges, `p.edges.mean('length')`. The least and the mean of those values over all the points set the scale.
+Here the points are dense in the middle. Each point gets a ring that grows with the mean length of its edges, `p.edges.mean('length')`. The least of those values and their mean, the sum over the count, set the scale.
 
 ```ts live
 import { sketch, circle, strokes, connect } from 'occlude';
@@ -382,7 +384,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const web = connect.triangulate(t.scatter((x, y) => Math.max(0.15, 1 - Math.hypot(x - 50, y - 50) / 60), { spacing: 4 }));
   const reach = web.points.set('reach', (p) => p.edges.mean('length'));
   const lo = reach.points.min('reach');
-  const mid = reach.points.mean('reach');
+  const mid = reach.points.sum('reach') / reach.points.length;
   return [
     strokes(reach, { pen: 'pigma-005-black' }),
     reach.points.map((p) => circle(p, Math.min(3.5, 0.4 + 2 * (p.reach - lo) / (mid - lo)), { pen: 'stabilo-88-blue' })),

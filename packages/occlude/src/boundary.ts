@@ -38,6 +38,13 @@ export type Loop = readonly XYLike[];
  * `Len`, so a consumer that computes must go through `numericLoops`. */
 export type LoopPoints = [Coord, Coord][];
 
+/** A chain as the protocol reads it: its points in order, and whether it
+ * closes. A curve row is one. */
+export interface CurveLike {
+  readonly points: Iterable<XYLike>;
+  readonly closed: boolean;
+}
+
 /**
  * What a resolved geometry value can say about itself.
  *
@@ -47,13 +54,6 @@ export type LoopPoints = [Coord, Coord][];
  * satisfy it; a shape does not — a shape needs the paper to become
  * geometry, and enters through `t.material` or `t.sample` (the frame rule).
  */
-/** A chain as the protocol reads it: its points in order, and whether it
- * closes. A curve row is one. */
-export interface CurveLike {
-  readonly points: Iterable<XYLike>;
-  readonly closed: boolean;
-}
-
 export interface Geometry {
   /** Areas: closed loops with winding. For a material, its closed chains. */
   contours?(): IsoContour[];
@@ -64,8 +64,6 @@ export interface Geometry {
   points?: Selection<Vertex>;
 }
 
-/** Anything an area consumer takes: a geometry value, or the plain shapes
- * of loops and contour records a sketch can write by hand. */
 /** A rectangle as a record: its corner and its size. */
 export interface RectRecord {
   readonly x: number;
@@ -74,6 +72,8 @@ export interface RectRecord {
   readonly h: number;
 }
 
+/** Anything an area consumer takes: a geometry value, a rect record, or
+ * the plain shapes of loops and contour records a sketch can write by hand. */
 export type AreaInput = Geometry | IsoContour | readonly IsoContour[] | Loop | readonly Loop[] | RectRecord;
 
 const isCoord = (v: unknown): v is Coord => typeof v === 'number' || v instanceof Len;

@@ -2,8 +2,8 @@
  * Material: positions, connections and columns you can hold, write,
  * connect, resample and reinterpret.
  *
- * A `Material` is a set of vertices — `x`, `y` and any named attribute
- * columns — plus an edge list. A ring, an open chain, a branching tree
+ * A `Material` is a set of vertices — `x`, `y` and any named columns —
+ * plus an edge list. A ring, an open chain, a branching tree
  * and an unconnected cloud are all materials; its `curves` are the chains
  * its edges walk, in order (curves.ts). Materials are values: every operation returns a
  * new one and leaves its input intact, so a run can be kept and any step
@@ -68,12 +68,14 @@ import { realize as realize3, type RealizeOptions } from './three/api/instances.
 
 // ---- the material --------------------------------------------------------------------
 
-/** A vertex view: its row `index` in THIS state, position, and every
- * attribute column. A frozen snapshot of the state it came from, one per
- * row of that state, so two reads of a row are the same object — the row is
- * not a persistent identity, but `id` is. `material` (non-enumerable) names
- * that material, so a force can tell "this vertex of these sources" from a
- * foreign point that happens to share an index. */
+/** A vertex view: its row `index` in THIS state, its position, and every
+ * column by name. A frozen snapshot of the state it came from, one per row
+ * of that state, so two reads of a row are the same object. `index` is a
+ * place in this state only; the view itself is the name of its row, and a
+ * later state finds it (`later.points.rows(p)`, `has`). A view knows the
+ * state that owns it (a private field, views.ts), so a force can tell
+ * "this vertex of these sources" from a foreign point that happens to
+ * share an index. */
 export type Vertex = {
   readonly index: number;
   readonly x: number;
@@ -234,8 +236,10 @@ export interface FaceColumn {
  *
  * An id is opaque: the type refuses arithmetic on it, it is equal only to
  * itself, and it is never reused. It is a NUMBER underneath, not a string,
- * for one reason — a sketch stores an id in an ordinary column and looks it
- * up in a later step (`cur.point(id)`), and a column holds numbers.
+ * because the ids are persistent numeric columns like any other (column.ts),
+ * shared leaf by leaf between states. Ids are internal: a sketch never
+ * names one — the view it holds is the name, and the library resolves the
+ * view to its row by its id.
  *
  * THE RULE, in three words: mint, keep, retire.
  *
@@ -247,8 +251,8 @@ export interface FaceColumn {
  * - **Keep.** A rebuild that carries a row forward carries its id: every
  *   column copy, every survivor of a step, every extracted selection.
  * - **Retire.** A split ends the parent and both children are new. After
- *   `g.split(edges)`, `g.edgeOf(parentId)` finds nothing, which is the same
- *   rule as "rows that are gone are skipped". The alternative — the first
+ *   `g.split(edges)`, a view of the parent edge names nothing in the new
+ *   state, which is the same rule as "rows that are gone are skipped". The alternative — the first
  *   child inherits — is equally defensible and would silently change what
  *   `has` answers after a growth step, so it is written here rather than
  *   discovered later.
@@ -301,10 +305,6 @@ export function mintIds(count: number): Float64Array {
   return out;
 }
 
-/** How far, in sketch units, a moved edge's middle may stand from the
- * chord its moved ends draw before `m.transform` samples it, when the
- * placement's door carries no metric `bow` — a space built with no
- * paper. */
 /**
  * @internal A material's columns, as persistent columns (column.ts). Every
  * state of a run shares the leaves it did not write.
@@ -579,6 +579,10 @@ function idMap(ids: Column): Map<number, number> {
   return map;
 }
 
+/** How far, in sketch units, a moved edge's middle may stand from the
+ * chord its moved ends draw before `m.transform` samples it, when the
+ * placement's door carries no metric `bow` — a space built with no
+ * paper. */
 const TRANSFORM_TOL = 0.05;
 /** Halvings of one edge before `m.transform` stops asking. */
 const TRANSFORM_DEPTH = 12;
@@ -1218,10 +1222,10 @@ export class Material {
    * samples between are new. On a
    * network — a hex field, a tiling, a voronoi — a chain runs from one
    * junction to the next, and every junction and loose end stays where it
-   * is and who it is: one vertex, the same id, every chain still meeting
+   * is and who it is: one vertex, the same row, every chain still meeting
    * there. Corners are NOT preserved: a new vertex
    * lands on the old polyline, but a corner between two new vertices is
-   * cut. Attributes carry over per `transfer` (default: linear
+   * cut. Columns carry over per `transfer` (default: linear
    * interpolation for every column; `'nearest'`, a constant, or a function
    * per column to say otherwise — an `age` is a choice, not a mean).
    *
@@ -1267,7 +1271,7 @@ export class Material {
    * same columns. Each new vertex between them is minted, with its columns
    * read by the transfer policies. Every source edge is retired and its
    * children keep its lineage root, as a split's children do, so a face
-   * column still finds its cells. An edge column that is `'distribute'` is
+   * column still finds its faces. An edge column that is `'distribute'` is
    * shared out over the children by their share of the new arc length.
    */
   spline(opts: { tension?: number; steps?: number } = {}): Material {
@@ -2908,8 +2912,6 @@ function boundaryMarks(
 
 // ---- constructors ----------------------------------------------------------------
 
-/** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
- * fields such as a scatter point's `w` become columns), or a material. */
 /**
  * A point with numeric columns beyond `x` and `y` — `{ x, y, w }` from
  * `t.scatter`, or any extra field a sketch carries: every numeric field
@@ -3035,6 +3037,10 @@ export function curve(
   return addEdges(m, chainEdges(m.n, closed));
 }
 
+/** A `group`-style record for a material: the same words, and `origin` the
+ * one `Origin` of every pivot. */
+export type TransformRecord = Omit<TransformOp, 'origin'> & { origin?: Origin | TransformOp['origin'] };
+
 /**
  * `m.transform` of a transform record — `{ translate, rotate, scale, origin }`, as
  * `t.symmetry` answers and `group` takes — with exactly `group`'s
@@ -3045,10 +3051,6 @@ export function curve(
  * is a number in its own units, and `origin` is the one `Origin` of every
  * pivot: a point, or `'center'`/`'centroid'` of the material itself.
  */
-/** A `group`-style record for a material: the same words, and `origin` the
- * one `Origin` of every pivot. */
-export type TransformRecord = Omit<TransformOp, 'origin'> & { origin?: Origin | TransformOp['origin'] };
-
 function transformByRecord(m: Material, op: TransformRecord): Material {
   const who = 'm.transform';
   if (op.placement !== undefined) {
@@ -3824,7 +3826,6 @@ export const connect = {
     return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges.flat()), { space });
   },
 
-  /** Delaunay triangulation edges over the vertices. */
   /** Delaunay edges over the rows, by index. Coincident rows: the FIRST
    * row at a position takes part in the triangulation and its edges; later
    * rows at the same position stay isolated (they are still rows). Fewer
@@ -3858,9 +3859,12 @@ export const connect = {
   },
 };
 
-/** Two materials as one: b's rows after a's, b's edges re-based. Both must
- * have the same columns, or `fill` must give the value a column takes on
- * the side that lacks it — nothing is dropped silently. */
+/** What a side of `append` that lacks a column gets: `fill` for point
+ * columns, `edgeFill` for edge columns. */
+export interface AppendOpts {
+  fill?: Record<string, CellValue>;
+  edgeFill?: Record<string, CellValue>;
+}
 /**
  * One material from several: each one's rows after the last, edges
  * renumbered, in the order given. Every side must have the same point and
@@ -3875,10 +3879,6 @@ export const connect = {
  * last argument when it is a plain object; a material there is one more
  * side. `append(pile, ...children.map((c) => t.material(c)))` piles a list.
  */
-export interface AppendOpts {
-  fill?: Record<string, CellValue>;
-  edgeFill?: Record<string, CellValue>;
-}
 export function append(...materials: Material[]): Material;
 export function append(...args: [...Material[], AppendOpts]): Material;
 export function append(...args: (Material | AppendOpts)[]): Material {

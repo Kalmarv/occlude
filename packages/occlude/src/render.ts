@@ -1020,9 +1020,6 @@ export function planAsBuffers(buffer: Float64Array): { prims: Float64Array<Array
   return { prims: sink.view().slice() as Float64Array<ArrayBuffer>, frags: Float64Array.from(frags) as Float64Array<ArrayBuffer> };
 }
 
-/** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
- * the exact plan bytes and the settings that identify them. Feed
- * `makePlan` for the hashed value, then the `plan*` exporters. */
 /**
  * The gap the engine is told to bridge: `false` never, a number for every
  * pen, and -1 for "each pen's own half nib".
@@ -1054,6 +1051,9 @@ export function planSettings(
   };
 }
 
+/** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
+ * the exact plan bytes and the settings that identify them. Feed
+ * `makePlan` for the hashed value, then the `plan*` exporters. */
 export function planBuffer(result: RenderResult, given: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
   const opts = resolvePlanOptions(given, result.frame.inner);
   let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), tourBudget(opts.optimize), bridgeArg(opts.bridge));

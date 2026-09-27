@@ -56,9 +56,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## t.sample()
 
+<include>/_sig/Toolkit.sample.2.mdx</include>
 <include>/_sig/Toolkit.sample.3.mdx</include>
 
-Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. It takes any `Area`, as `t.material` does, and samples every contour, the holes too. A `clip` is ink, not an area, so the call refuses it by name. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
+Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. It takes any `Area`, as `t.material` does, and samples every contour, the holes too. A `clip` is ink, not an area, so the call refuses it by name. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing. Give a material, and the call resamples its chains as `m.resample` does. An open chain stays open, and the `source` of each sample is an edge of that material.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';
@@ -162,7 +163,7 @@ A curve row has these words:
 | word | what it is |
 | --- | --- |
 | `c.points` | its points in walk order, as a selection. A ring lists each point once. |
-| `c.edges` | its edges in walk order. Edge `k` joins point `k` to point `k + 1`. The closing edge of a ring is last. |
+| `c.edges` | its edges in walk order. Each edge joins a point to the next point of the walk. The closing edge of a ring is last. |
 | `c.closed` | `true` for a ring |
 | `c.length` | its arc length, in the space of the material |
 | `c.contours()` | its area: one contour for a ring, and none for an open chain |
@@ -320,8 +321,8 @@ A column belongs to the material that declares it. An operation that makes a new
 | `oscillate` | kept | kept, and each new span reads the source edge it starts on | kept |
 | `along` | kept, and `s`, `u` and `heading` are added | read at each point, as point columns | kept |
 | `t.settle` | kept: a new point copies the values of its parent, and `demand` is added | none | kept |
-| `envelope` | dropped, and `member` is added | dropped | `member` is `'nearest'` |
-| `thicken` | dropped | dropped | dropped |
+| `envelope` | not kept, and `member` is added | not kept | `member` is `'nearest'` |
+| `thicken` | not kept | not kept | not kept |
 
 These operations keep every kind of column: numbers, booleans, strings, vectors, references and placements. At a new point between two points, a number and a vector interpolate by the policy of the column. The other kinds never interpolate: the new point takes the value of the nearer point. A new edge takes the values of the edge that it comes from, and a `'distribute'` column its part of that value. `t.within` also adds the edge column `cut` to a material that has faces.
 
@@ -428,7 +429,7 @@ Puts new vertices along each chain at even spacing by arc length. Give `spacing`
 
 `where` redistributes part of the material and leaves the rest alone. The eligible region is a set of edges, so a point selection means the edges with both ends in it. Consecutive eligible edges make a **run**, and a run is what gets redistributed. A run keeps the two vertices at its ends, so the result is still one chain. `count` then applies to each run, not to the chain.
 
-Everything outside a run comes through untouched: the same points and the same edges. A value or a selection that you hold still names them. A new vertex inside a run is a new row, and its `source` is the edge of the input under it. A new edge answers the edge under its middle as `source`. A face column still finds its cells. See [where](/docs/reference/selections#where).
+Everything outside a run comes through untouched: the same points and the same edges. A value or a selection that you hold still names them. A new vertex inside a run is a new row, and its `source` is the edge of the input under it. A new edge answers the edge under its middle as `source`. A face column still finds its faces. See [where](/docs/reference/selections#where).
 
 Below, the big rings are the eleven vertices the chain started with. Only the steep edges are eligible. The two level stretches keep their two ends and nothing else. The rises and the falls get a vertex every few millimetres.
 

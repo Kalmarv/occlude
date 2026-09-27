@@ -18,7 +18,7 @@ export interface IsolineOptions extends SurfaceCurveOptions {
 /** `levelIndex` rather than `index`: edge rows already carry their row index. */
 export type IsolineColumns={level:number;levelIndex:number};
 /** The field's row: the corner (uv, chart, `.point`, `.face`) with its point's
- * `x`, `y`, `z` and point attributes merged in, so `p => p.z` and
+ * `x`, `y`, `z` and point columns merged in, so `p => p.z` and
  * `c => c.uv[1]` both read naturally. */
 export type IsolineRow=Corner&{readonly x:number;readonly y:number;readonly z:number};
 export type IsolineField=string|((row:IsolineRow)=>number);
@@ -118,7 +118,7 @@ export function isolineRecipe(captured:CapturedIsolines):SurfaceCurveRecipe3 {
   });
 }
 /** Isolines of a per-corner scalar at the levels `at` (the 2D `t.isolines`
- * spelling): a numeric point attribute by name, or a
+ * spelling): a numeric point column by name, or a
  * callback over mesh corner rows (`c => c.uv[1]` for cross-contours). Values
  * are interpolated linearly inside each represented triangle; a nonlinear
  * field is approximated by its corner samples, so refine the mesh for

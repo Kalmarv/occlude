@@ -4,7 +4,7 @@
  * occluded, hatched, subdivided, styled and plotted like a box.
  *
  * Deliberately not a general OBJ engine: `v` and `f` are read, `o` and `g`
- * become face attributes, and everything else (normals, texture
+ * become face columns, and everything else (normals, texture
  * coordinates, materials, smoothing groups, `l` polylines, free-form
  * curves) is read past. Polygons keep their vertex count; the surface's own
  * ear clipping triangulates them for drawing. Negative (relative) indices

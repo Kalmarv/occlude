@@ -447,9 +447,6 @@ function indexLoops(loops: [number, number][][]): LoopIndex {
   return { ax, ay, bx, by, x0, y0, x1, y1, bandH, nb, start, items };
 }
 
-/** A prepared bound and the frame it was built for. The loops depend on the
- * frame (units, rectMode, origin, yUp), so a shape reused under a different
- * paper rebuilds instead of answering out of the old frame. */
 /** What a sketch-time bound needs of the run: the frame it lowers against
  * and a per-run memo of lowered shapes (one shape bounds many fields). */
 export interface BoundEnv {

@@ -31,7 +31,7 @@ const OWNER = Symbol('material');
 const KIND = Symbol('view');
 
 /** Which kind of view this is — decided by the material that made it,
- * never by the presence of attribute names (an artist may call a column
+ * never by the presence of column names (an artist may call a column
  * `a`, `b` or `x`). `undefined` for anything that is not a view. */
 export function viewKind(view: unknown): 'vertex' | 'edge' | 'face' | 'corner' | undefined {
   return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge' | 'face' | 'corner'>)[KIND] : undefined;

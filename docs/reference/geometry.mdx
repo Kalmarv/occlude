@@ -467,7 +467,7 @@ export default sketch({ aspect: [1, 1] }, async () => {
 
 ## a tiling of the sphere
 
-The same `t.tiling` in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 12 corners, 30 walls and 20 faces. The chart puts the back of the sphere far out, off the sheet. So the sketch draws only the three generations nearest the front. A hatch marks every other generation, and a dot marks the middle of each cell.
+The same `t.tiling` in a spherical sketch. `{3, 5}` is the icosahedron, and it comes back whole: 20 faces that meet at 12 corners along 30 walls. Each wall is a geodesic, so the material holds many points and edges along it. The chart puts the back of the sphere far out, off the sheet. So the sketch draws only the three generations nearest the front. A hatch marks every other generation, and a dot marks the middle of each cell.
 
 ```ts live
 import { sketch, strokes, polygon, dots, fill, pen, mm, space } from 'occlude';

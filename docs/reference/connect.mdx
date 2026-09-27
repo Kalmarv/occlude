@@ -40,7 +40,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/connect.pairs.mdx</include>
 
-Joins the first row of `a` to the first row of `b`, the second to the second, and so on. The result is one material that holds both. The two must have the same number of rows.
+Joins the first row of `a` to the first row of `b`, the second to the second, and so on. The result is one material that holds both. When one of the two has more rows, the extra rows get no edge.
 
 ```ts live
 import { sketch, strokes, circle, connect } from 'occlude';

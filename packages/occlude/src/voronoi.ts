@@ -18,7 +18,7 @@
  * row order, and each face's `source` is its site: a point row of the
  * sites (of a point selection's own material, when the sites are a
  * selection). The inverse is a question for the faces:
- * `cells.faces.find((f) => f.source.index === site.index)`, or for many
+ * `cells.faces.find((f) => f.source === site)`, or for many
  * sites `cells.faces.filter((f) => chosen.has(f.source))`. A write that
  * leaves the walls alone (a move, a column) keeps the cells and their
  * sources; one that changes the walls reads the faces off the picture

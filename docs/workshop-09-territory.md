@@ -49,7 +49,7 @@ Before dragging: which walls will change when the fourth site moves, and which c
 
 ## Follow the correspondence
 
-The diagram remembers which site made which cell. A cell's `source` is its site: the row of the site material it came from, with every column the site carries. The other way is a question you ask of the cells: `cells.find((f) => f.source === sites.points.at(2))` is the cell of the site in row 2. Here the third site's cell is hatched through that `find`, and every cell is labelled with its site's row through `source`, which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
+The diagram remembers which site made which cell. A cell's `source` is its site: the row of the site material it came from, with every column the site carries. The other way is a question you ask of the cells: `cells.find((f) => f.source === sites.points.at(2))` is the cell of the third site. Here that cell is hatched through the `find`, and every cell is labelled with its site's place in the site table (`f.source.index`, a number for the eye, not a name to look the site up by), which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, polygon, fill, mm, label, material } from 'occlude';

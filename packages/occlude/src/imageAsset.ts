@@ -216,7 +216,7 @@ export interface ImageSampler {
    */
   regions(opts?: RegionOpts): ImageRegion[];
   /** The same pixels as a field over surface chart coordinates, for 3D tone,
-   * density or attributes: `tone: img.surface({ channel: 'dark' })`. Chart
+   * density or columns: `tone: img.surface({ channel: 'dark' })`. Chart
    * (0,0) is the image's bottom-left by default (v up); `wrap` clamps or
    * repeats outside [0,1]; `area` is a box half-size in chart units, applied
    * as one prefilter so CPU and GPU evaluation sample identical pixels.

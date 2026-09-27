@@ -159,13 +159,6 @@ export interface InspectionPayload {
  * `length` and `at` — a selection, or the pairs a relation gave back. */
 export type Pickable<T> = { readonly length: number; at(i: number): T | undefined };
 
-/**
- * One draw, one member. The draw is consumed whatever happens, so the seed
- * stream does not depend on what is in the collection; an empty one has no
- * member to give and says so by name, the same for an array and for a
- * selection (whose own `at` would otherwise refuse and an array's would
- * quietly answer `undefined`).
- */
 /** One unit draw to a whole number: `n` values 0 … n−1, or a … b with both
  * ends in. Non-whole bounds tighten inward; an empty range is its lower end
  * (best effort: a degenerate ask draws something, it does not throw). */
@@ -180,6 +173,13 @@ function intFrom(unit: number, a: number, b?: number): number {
   return lo + Math.min(Math.floor(unit * (hi - lo + 1)), hi - lo);
 }
 
+/**
+ * One draw, one member. The draw is consumed whatever happens, so the seed
+ * stream does not depend on what is in the collection; an empty one has no
+ * member to give and says so by name, the same for an array and for a
+ * selection (whose own `at` would otherwise refuse and an array's would
+ * quietly answer `undefined`).
+ */
 function pickFrom<T>(items: Pickable<T>, unit: number, record: (i: number) => void): T {
   const n = items.length;
   if (n === 0) throw new Error('pick: nothing to pick from (0 members)');

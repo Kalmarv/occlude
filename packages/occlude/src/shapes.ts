@@ -47,20 +47,14 @@ export type FieldFn = (x: number, y: number) => number;
 export type LengthFn = (x: number, y: number) => number | L;
 
 /**
- * A vector field: a displacement (in user units) that varies over the page.
- * Drives `deform` — sampled at encode time in user coordinates.
+ * A vector field: two numbers at a point, as a pair — a displacement (in
+ * user units) that varies over the page. Drives `deform`, sampled at encode
+ * time in user coordinates. A field a sketch writes by hand may answer any
+ * array of two numbers — TypeScript reads a literal `[dx, dy]` as
+ * `number[]`, and the library reads its first two entries either way.
  */
-/** A vector field: two numbers at a point, as a pair. A field a sketch
- * writes by hand may answer any array of two numbers — TypeScript reads a
- * literal `[dx, dy]` as `number[]`, and the library reads its first two
- * entries either way. */
 export type VectorFieldFn = (x: number, y: number) => readonly [number, number] | readonly number[];
 
-/**
- * One entry of a shape's modifier stack — a plain value made by the
- * modifier constructors (`decimate(p)`, `wobble(amt)`, …). Post-stage
- * entries run over the shape's final ink after occlusion, in stack order.
- */
 /** Where a modifier's field params are anchored: `'paper'` (default)
  * samples in paper coordinates; `'shape'` anchors the field to the shape —
  * A = G ∘ C: the shape's intrinsic bbox centre is field (0, 0) and the
@@ -72,6 +66,11 @@ export type FieldAlign = 'paper' | 'shape';
  * size — 0.5…2 mm for a scalar field, 0.25…1 mm for a vector field). Uses
  * of one field that share a grid take the tightest step among them. */
 
+/**
+ * One entry of a shape's modifier stack — a plain value made by the
+ * modifier constructors (`decimate(p)`, `wobble(amt)`, …). Post-stage
+ * entries run over the shape's final ink after occlusion, in stack order.
+ */
 export type ModifierValue =
   | {
       readonly __occludeModifier: true;

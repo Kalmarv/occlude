@@ -32,7 +32,7 @@ import { PointRows, EdgeRows, rebuild } from './tables.js';
 import { Column } from './column.js';
 
 export interface TrailsOpts {
-  /** Edge attributes for the rewired edges (the source edge's own columns are
+  /** Edge columns for the rewired edges (the source edge's own columns are
    * carried across; these are added on top). */
   edgeColumns?: Record<string, number>;
 }

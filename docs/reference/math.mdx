@@ -136,7 +136,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/sum.mdx</include>
 <include>/_sig/sumBy.mdx</include>
 
-`sum` adds vectors. `sumBy` reads a vector out of each item and adds those. Two turning vectors added together make one epicycle, and the running total of the steps is the curve it draws. A summed walk does not start at the middle of the page. `sumBy` finds the curve's own mean, and `length` finds how far it reaches. The drawing then puts each curve where it wants it.
+`sum` adds vectors. `sumBy` reads a vector out of each item and adds those. Two turning vectors added together make one epicycle, and the running total of the steps is the curve it draws. A summed walk does not start at the middle of the page. `sumBy` adds the points of the curve. A multiplication by `1 / path.length` makes that sum the mean of the curve, and `length` finds how far the curve reaches. The drawing then puts each curve where it wants it.
 
 ```ts live
 import { sketch, stroke, sum, sumBy, sub, add, mul, fromAngle, length } from 'occlude';
@@ -163,7 +163,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 `polar(r, angle)` is a step of length `r` in the direction `angle`, in radians. `fromAngle(a)` is `polar(1, a)`. `angleTo(a, b)` is the direction of the way from `a` to `b`, the same as `angleOf(sub(b, a))`. Two equal points give 0.
 
-Each stroke starts at the middle of a grid cell and points at the blue eye.
+Each stroke starts at the middle of a grid face and points at the blue eye.
 
 ```ts live
 import { sketch, stroke, circle, add, polar, angleTo, distance } from 'occlude';

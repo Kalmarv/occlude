@@ -2,8 +2,9 @@
  * spacefill: one line that folds until the folds are the tone.
  *
  * A space-filling curve visits every cell of a subdivided square exactly
- * once, and consecutive cells touch, so the whole visit is a single
- * pen-down line. Fold it finer and the paper goes darker; fold it coarser
+ * once, and consecutive cells touch, so the whole visit of the rule's own
+ * square (a side of `spacing` times a power of `n`) is a single pen-down
+ * line. Fold it finer and the paper goes darker; fold it coarser
  * and it goes lighter. That is the whole instrument: tone is fold density,
  * not a different mark.
  *
@@ -31,7 +32,9 @@
  * One vertex per leaf cell, at its centre, carrying `level` — the depth it
  * stopped at — so a sketch can re-pen or `decimate` by depth. Cells whose
  * centre falls outside the area are skipped and the chain breaks there: a
- * gap is a pen-up, and the ordering keeps them rare.
+ * gap is a pen-up. Any area that is not the rule's own square has such
+ * gaps, one wherever the walk leaves the area and comes back (a 60-unit
+ * square at spacing 2 is 43 strokes; the 64-unit one is 1).
  *
  * A Hilbert line has no diagonal in it, and neither has this one. Two cells
  * of one size meet centre to centre along an axis, but a coarse cell and a

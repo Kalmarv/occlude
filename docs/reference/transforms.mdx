@@ -34,7 +34,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Cuts a length off each open chain's two ends, by arc length. This makes gaps where strokes meet. It makes a taper that starts short of a corner, and a hatch that stops before the boundary. Lengths are the material's own coordinates, as `oscillate` and `thicken` take them.
 
-A closed chain has no ends and comes through whole. A chain with nothing left after the cut draws nothing. Junctions are an error, as they are for `along` and `resample`.
+A closed chain has no ends and comes through whole. A chain with nothing left after the cut draws nothing. On a network, the chains go from junction to junction. A junction is not an end, so it stays, with every chain that meets it. The cut takes only the loose ends.
 
 The vertices between the two cuts are the same vertices. Each new end is a fresh vertex, and the transfer policies give it its columns. The edge that it sits on comes from the edge that the cut divided.
 

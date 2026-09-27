@@ -7,7 +7,7 @@ These words derive curves from a surface, or ask it questions. The surface hides
 
 ## intersections()
 
-<include>/_sig/3d.intersections.1.mdx</include>
+<include>/_sig/3d.intersections.mdx</include>
 
 The curve where two surfaces cross. Give two values with faces, or a list. In a list, every pair that can meet gives its curve. Both values must be in the view with it. The curves take the view's pen. A pair in the view's list, `[curves, { pen }]`, gives them a pen of their own, as the example does.
 
@@ -98,7 +98,7 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
 
 ## Charts and corner columns
 
-Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `m.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `m.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `m.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead. Each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `m.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `m.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `m.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead. It writes the corners only, so the `chart` of a face stays the chart of its primitive. Each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -129,6 +129,8 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.
 ```
 
 ## t.sample() on curves
+
+<include>/_sig/Toolkit.sample.1.mdx</include>
 
 `t.sample(curves, { spacing })` or `{ count }` places points along each chain of a supported curve, in world units. Open chains keep both ends. Closed chains omit the seam. The points keep their surface attachment, so they go into `instanceOnPoints` and stay on the surface.
 

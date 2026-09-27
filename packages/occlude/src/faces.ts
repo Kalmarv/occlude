@@ -56,7 +56,7 @@ const EVENT_TOL = 1e-9;
 
 // ---- planarize ----------------------------------------------------------------------
 
-/** One proposed set of point attributes at an intersection event. */
+/** One proposed set of point columns at an intersection event. */
 export interface EventCandidate {
   /** Source vertex row when the candidate IS an existing endpoint. */
   vertex?: number;
@@ -73,12 +73,12 @@ export interface PlanarEvent {
 }
 
 export interface PlanarizeOpts {
-  /** Point attributes at an event: the returned record overrides the
+  /** Point columns at an event: the returned record overrides the
    * default, which is the first candidate's (a surviving vertex keeps its
    * own values; a crossing takes those interpolated along its lowest edge
    * row). A column the record leaves out keeps the default. */
   point?: (event: PlanarEvent) => Record<string, number>;
-  /** Edge attributes for each child interval, merged over the parent's;
+  /** Edge columns for each child interval, merged over the parent's;
    * called once per final child, an unsplit edge with fraction 1. The
    * interval is `from` → `to` along the parent as stored, and `fraction`
    * is its share of the parent. */

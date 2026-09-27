@@ -90,10 +90,10 @@ export interface SettleOpts {
   /** The density raster's cell, a length (default: the bounds' long side
    * / 256). */
   step?: L;
-  /** Point attributes for each child a split inserts, merged over the
+  /** Point columns for each child a split inserts, merged over the
    * inherited ones (a copy of the parent's): a partial record of declared
    * columns, or a callback of the parent as it is when it splits (its
-   * position and attributes, `demand` included). `demand` is computed and
+   * position and columns, `demand` included). `demand` is computed and
    * cannot be given. */
   point?: Record<string, number> | ((parent: SettleParent) => Record<string, number>);
 }
@@ -200,9 +200,9 @@ function isAxisBox(loops: readonly (readonly (readonly [number, number])[])[], b
 
 /** What a `within` area asks of an operation: the box its raster and
  * sampling run over, and the loops to trim to afterwards (`null` when the
- * area IS its own box, where the result already lies inside). */
-/** The toolkit uses this too, for an operation whose cells are clipped to a
- * box (voronoi): a non-null `loops` means the area is not its own box. */
+ * area IS its own box, where the result already lies inside). The toolkit
+ * uses it too, for an operation whose cells are clipped to a box
+ * (voronoi): a non-null `loops` means the area is not its own box. */
 export function withinRegion(
   area: AreaInput | ShapeValue,
   who: string,
@@ -327,7 +327,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts, or
   // Overrides accumulated along a point's line of descent (null: pure inheritance).
   let over: (Record<string, number> | null)[] = Array.from({ length: m.n }, () => null);
   let demand = new Float64Array(m.n);
-  /** The parent as the hook sees it: current position, inherited and overridden attributes, demand. */
+  /** The parent as the hook sees it: current position, inherited and overridden columns, demand. */
   const flats = names.map((name) => m.attrs[name]);
   const parentRecord = (p: number, x: number, y: number, d: number): SettleParent => {
     const r: Record<string, number> = { x, y };

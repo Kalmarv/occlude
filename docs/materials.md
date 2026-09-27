@@ -38,7 +38,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 });
 ```
 
-`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces` are the cells, in the sites' row order. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and each cell knows its site: a face's `source` is its site, a point row of the sites. The other direction is a question for the faces: `cells.faces.find((f) => f.source === site)` is a site's cell, and `cells.faces.filter((f) => chosen.has(f.source))` the cells of a selection of sites. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so a cell's `source` is a row of that source, and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces` are the triangles. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
+`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces` are the cells, in the sites' row order. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and each cell knows its site: a face's `source` is its site, a point row of the sites. The other direction is a question for the faces: `cells.faces.find((f) => f.source === site)` is a site's cell, and `cells.faces.filter((f) => chosen.has(f.source))` the cells of a selection of sites. Sites can be a material, its `points`, or a filtered selection of them: the sites of a selection are rows of the material it selects from, so a cell's `source` is a row of that material, and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces` are the triangles. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
 
 ```ts live
 import { sketch, polygon, fill, mm, strokes, connect } from 'occlude';
@@ -960,7 +960,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 `m.points`, `m.edges` and `m.faces` are geometry collections: iterate them, read `length`, take `at(i)`, `map` to an ordinary array, `find`, `filter` and `groupBy`. `filter` returns a selection: the same kind of collection, bound to the same state, holding the rows the predicate picked in source order, so it filters, iterates, maps and groups again like the whole. Nothing is copied or changed; views are the source's own, with their ownership. `groupBy(classifier)` splits a collection into an array of selections by key, in first-occurrence order, each carrying its `key`; the key is the classification that made the group, not a column, and a later state knows nothing of it. Independent material is made on purpose with `extract()`.
 
-A selection is consumed where its domain makes sense: `strokes(edges)` draws the selected chains, and `polygon`, `distanceTo` and `force.boundary` take an edge selection as a boundary of its own topology, so a ring picked out of a network is an area even though the network is not. A point selection contributes only the edges that already join its members. Faces are areas already: draw them one by one with `cells.map((f) => polygon(f))` or outline their union with `contours()`. A face collection is not one area, so it must say which. The same goes for a shape: `polygon(circle(50, 50, 20))` reads the circle's boundary as an area, so a clip needs no separately named value.
+A selection is consumed where its domain makes sense: `strokes(edges)` draws the selected chains, and `polygon`, `distanceTo` and `force.boundary` take an edge selection as a boundary of its own topology, so a ring picked out of a network is an area even though the network is not. A point selection contributes only the edges that already join its members. Faces are areas already: draw them one by one with `m.faces.map((f) => polygon(f))` or outline their union with `m.faces.contours()`. A face collection is not one area, so it must say which. The same goes for a shape: `polygon(circle(50, 50, 20))` reads the circle's boundary as an area, so a clip needs no separately named value.
 
 | Value | Meaning |
 |---|---|
@@ -1419,20 +1419,20 @@ Stated faces stay through every write that leaves the edges alone: a move, `poin
 | Value | Meaning |
 |---|---|
 | `m.planarize({ point?, edges? })` | independent material with crossings and contacts shared and edges split in order; overlaps, duplicate edges and zero-length edges are errors naming the rows |
-| `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
-| `edges: (parent, child) => attrs` | child edge attributes over the parent's |
-| `m.faces` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows and collections read the same way: `face.edges` and `cells.edges` |
+| `point: (event) => columns` | resolves competing point columns at an event; needed only where the candidates disagree |
+| `edges: (parent, child) => columns` | child edge columns over the parent's |
+| `m.faces` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows and collections read the same way: `face.edges` and `m.faces.edges` |
 | `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds` (a rect record `x`, `y`, `w`, `h`, `cx`, `cy`, an area in its own right), `centroid` (holes respected; field-weighted centres come from `measure()`), `contours()` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); `adjacent`, the faces across its walls as a selection; and its face columns, read flat (`f.height`) |
 | `face.source` | what the face came from: a Voronoi cell's site (a point row of the sites), a tile's placement cell, a quadtree cell's points (a selection of the input); undefined for a derived face |
 | `face.parent`, `face.children`, `face.depth`, `face.leaf` | where the face sits when faces nest: a quadtree states every cell from the root to the leaves, so `parent` is the cell that holds it (undefined for the root), `children` its quadrants as a selection (empty for a leaf), `depth` its steps from the root and `leaf` whether it holds none. A face that does not nest is a root and a leaf |
-| `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `without` |
-| `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
-| `cells.points`, `sel.points` | the endpoints of those edges, once |
+| `m.faces.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `without` |
+| `m.faces.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
+| `m.faces.points`, `sel.points` | the endpoints of those edges, once |
 | `edge.faces` | the faces on the two sides of a source edge, once the material's faces have been read: two for a wall between cells, one for an outer wall or a spur, none for an edge no face touches; the reverse of `face.edges` |
-| `cells.adjacent()`, `sel.adjacent()`, `face.adjacent` | the faces across the walls of the (selected) faces, one hop: neighbours share a wall, not merely a corner, and a selected neighbour is collected too, so `sel.adjacent().without(sel)` is the ring outside |
-| `cells.boundaryEdges()`, `sel.boundaryEdges()` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
-| `cells.contours()`, `sel.contours()` | closed contours around the same union boundary, as loops: what `polygon` reads for the union |
-| `cells.measure(field?, { step?, bounds?, precision? })` | the geometry with the measurements as face columns: `orientation`, `elongation`, the inscribed circle's `inscribedX`, `inscribedY` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean`, `samples` and density-weighted centre `weightedX`, `weightedY`. Read them on the result's `faces`, in the same order (`measured.faces.at(f.index)`); a face the selection left out reads 0 |
+| `m.faces.adjacent()`, `sel.adjacent()`, `face.adjacent` | the faces across the walls of the (selected) faces, one hop: neighbours share a wall, not merely a corner, and the selected faces are left out, so `sel.adjacent()` is the ring outside and `sel.union(sel.adjacent())` the selection grown by it |
+| `m.faces.boundaryEdges()`, `sel.boundaryEdges()` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
+| `m.faces.contours()`, `sel.contours()` | closed contours around the same union boundary, as loops: what `polygon` reads for the union |
+| `m.faces.measure(field?, { step?, bounds?, precision? })` | the geometry with the measurements as face columns: `orientation`, `elongation`, the inscribed circle's `inscribedX`, `inscribedY` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean`, `samples` and density-weighted centre `weightedX`, `weightedY`. Read them on the result's `faces`, in the same order; `measured.faces.rows(f)` holds the face `f`, and a face the selection left out reads 0 |
 
 A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
 
@@ -1493,7 +1493,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ### The shape of a face
 
-Five of a measurement's columns are exact from the contours and need no field, so `cells.measure()` with nothing in it still answers *what shape is this region*.
+Five of a measurement's columns are exact from the contours and need no field, so `faces.measure()` with nothing in it still answers *what shape is this region*.
 
 | Column | Meaning |
 |---|---|

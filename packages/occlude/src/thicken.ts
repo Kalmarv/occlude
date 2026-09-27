@@ -27,7 +27,7 @@ import {
 export interface ThickenOpts {
   /** Required. Radius in the source material's coordinate units: one number
    * for every participating vertex, or a callback read from the vertex view
-   * (its real attributes — `p.radius`, not `p.attrs.radius`). Finite negative
+   * (its columns, read flat on the row: `p.radius`). Finite negative
    * values clamp to zero at source vertices before edge interpolation. */
   radius: number | ((p: Vertex) => number);
 
@@ -35,7 +35,7 @@ export interface ThickenOpts {
    * curve approximation and grid rounding; sub-resolution features may change. */
   tolerance?: number;
 
-  /** Optional creation of output point attributes: called once per final
+  /** Optional creation of output point columns: called once per final
    * output vertex with the boundary position and the source generators that
    * meet there. The returned record is the complete output row. */
   point?: (event: PlanarEvent) => Record<string, number>;
@@ -185,7 +185,7 @@ function checkOpts(opts: ThickenOpts): number {
  * evaluated once per participating vertex in source row order. `tolerance`
  * (default 0.05, source units) bounds the arc tessellation only. Without
  * `point` the result is geometry only; with `point` each final boundary
- * vertex gets the callback's record as its complete attribute row.
+ * vertex gets the callback's record as its complete column row.
  */
 export function thicken(
   source: Material | Selection<Vertex> | Selection<Edge>,

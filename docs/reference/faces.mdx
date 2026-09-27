@@ -112,7 +112,7 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
 
 `source` is what the face came from, in the shape that the word that made it gives. A Voronoi cell's source is its site, a point of the sites. A tile's source is the placement that carried the first cell there. A quadtree cell's source is the points it holds, as a selection of the input. A face that a material reads from its drawing has no source.
 
-Faces can nest. A quadtree states every cell from the root to the leaves. `parent` is the face that holds this one, and `undefined` at a root. `children` is the faces that it holds one step down, and it is empty for a leaf. `depth` counts the steps from the root, 0 at a root. `leaf` is true for a face that holds no other face. The leaves divide the area with no overlap: `faces.filter((f) => f.leaf)`. A face of a material that does not nest is a root and a leaf. Below, the leaves of a quadtree get a hatch that closes with depth, and each leaf dots its own points. The hatch is blue when all the children of the parent are leaves.
+Faces can nest. A quadtree states every cell from the root to the leaves. `parent` is the face that holds this one, and `undefined` at a root. `children` is the faces that it holds one step down, and it is empty for a leaf. `depth` counts the steps from the root, 0 at a root. `leaf` is true for a face that holds no other face. The leaves divide the area with no overlap: `faces.filter((f) => f.leaf)`. A face of a material that does not nest is a root and a leaf. A tiling and a subdivision do not nest. Each face of a tiling is a root, and its `generation` column counts the reflections from the first cell. `subdivide` keeps only the new faces, and the `source` of each new face is the face that it divides. Below, the leaves of a quadtree get a hatch that closes with depth, and each leaf dots its own points. The hatch is blue when all the children of the parent are leaves.
 
 ```ts live
 import { sketch, polygon, strokes, dots, fill, mm } from 'occlude';
@@ -196,16 +196,16 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## cells.edges · points · boundaryEdges() · contours()
+## faces.edges · points · boundaryEdges() · contours()
 
 <include>/_sig/faces.edges.mdx</include>
 <include>/_sig/faces.points.mdx</include>
 <include>/_sig/faces.boundaryEdges.mdx</include>
 <include>/_sig/faces.contours.mdx</include>
 
-The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `strokes(cells)` draws those edges, and it draws each wall one time. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
+The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `strokes(faces)` draws those edges, and it draws each wall one time. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
 
-A collection of faces is several areas, so `polygon(cells)` is a type error. Write `polygon(cells.contours())` for the union, or `cells.map((f) => polygon(f))` for each face. As points, a collection of faces is the centroids of its faces: `dots(cells)` and `material(cells)` put one point in each face. `distanceTo(material(cells))` measures to them. `cells.points` gives the corners.
+A collection of faces is several areas, so `polygon(faces)` is a type error. Write `polygon(faces.contours())` for the union, or `faces.map((f) => polygon(f))` for each face. As points, a collection of faces is the centroids of its faces: `dots(faces)` and `material(faces)` put one point in each face. `distanceTo(material(faces))` measures to them. `faces.points` gives the corners.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
@@ -217,7 +217,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## cells.adjacent()
+## faces.adjacent()
 
 <include>/_sig/Selection.adjacent.mdx</include>
 <include>/_sig/Selection.components.mdx</include>

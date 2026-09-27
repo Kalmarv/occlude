@@ -291,12 +291,12 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
  * A recipe handed no view resolves eagerly and completely: the artist's value
  * is whole, and only a view's own classification is lazy. */
 export interface SurfaceCurveView3 {hiddenTriangles(binding:SurfaceBinding3):Uint8Array|undefined}
-/** One named graph in a scene; its source bindings identify supporting objects. */
 /** Curves described, not yet computed: a view resolves them once it knows
  * which of `bindings` it draws, so seams among culled objects are never made. */
 export interface SurfaceCurveRecipe3 {readonly bindings:readonly SurfaceBinding3[];resolve(keep?:(binding:SurfaceBinding3)=>boolean,view?:SurfaceCurveView3):SurfaceCurveNetwork3}
 /** Curves with their network in hand, as the snapshot holds them. */
 export interface SurfaceCurveGraph3 {readonly id:string;readonly network:SurfaceCurveNetwork3;readonly attributes?:Attributes3}
+/** One named graph in a scene; its source bindings identify supporting objects. */
 export type SurfaceCurveObject3 = {readonly id:string;readonly attributes?:Attributes3}&({readonly network:SurfaceCurveNetwork3;readonly recipe?:undefined}|{readonly recipe:SurfaceCurveRecipe3;readonly network?:undefined});
 
 /** Explicitly reevaluate retained affine attachments. Every support at a shared

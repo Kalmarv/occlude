@@ -25,16 +25,20 @@
  *                levels `t.isolines` traced for `{ count }`); it is an
  *                answer, never part of a key.
  *
- *    The memo (memo.ts) keys a call by `op` + each input — a geometry by
- *    its IDENTITY (a derivation keeps its inputs, and `source` answers rows
- *    of that very value, so equal content from another object must not
- *    hit), plain data and shapes by their content — + `params` + the frame
- *    inputs the op reads (paper, units, space — the execution holds those,
- *    so the node does not) + the run's id counter. It never memoises a
- *    node with a function among its inputs (ruling 1: a closure is not
- *    hashable) or a `seeded` one (ruling 4: skipping a draw moves every
- *    later draw) — `memoisable(node)` says so. A value that is one of its
- *    own inputs (a word that handed its input back) gets no node.
+ *    The one reader of a node in the library is `cloudArea` (api.ts), which
+ *    reads `op` and `params.within` so the next point word defaults to the
+ *    area a cloud was bounded by. The memo (memo.ts) does not read nodes:
+ *    it keys a toolkit call by its own arguments, the frame and the run's
+ *    id counter (see its header). `memoisable(node)` states the same two
+ *    refusals on a node — no function among the inputs or parameters
+ *    (ruling 1: a closure is not hashable), no `seeded` call (ruling 4:
+ *    skipping a draw moves every later draw) — and only tests call it.
+ *    `inputs`, `seeded` and `kept` are read by tests only; `inputs` holds
+ *    every input by reference, so a loop of derivations written by hand
+ *    (`m = t.relax(m)` again and again) keeps every state it passed
+ *    through (kept by the owner's ruling, not by a reader). A value that
+ *    is one of its own inputs (a word that handed its input back) gets no
+ *    node.
  *
  *    A write (`set`, `move`, `add`, …) is a derivation of its own and does
  *    not inherit the node: the node says how THIS value was made.
@@ -66,9 +70,11 @@
  *    layer on a point the split did not touch: -1, NaN or a hole), and that
  *    row, being the same row, answers what it answered before.
  *
- *    Node and links live on the value (`Material.cache`), never in a
- *    global weak map, so they die with it at the first collection that
- *    finds it unreachable.
+ *    A geometry keeps its node and its links in its own cache record
+ *    (`Material.cache`), so they die with it at the first collection that
+ *    finds it unreachable. Only a node of a value that has no cache
+ *    (anything but a geometry) lives in a module weak map (`NODES`);
+ *    links live on a geometry only.
  *
  *    A link holds its input value, and that value its own links: a value
  *    derived from a derived value keeps the whole line of them alive. A

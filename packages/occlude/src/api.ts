@@ -697,20 +697,6 @@ const isRowOfCurve = (v: unknown): boolean =>
   && 'points' in v && typeof (v as { closed?: unknown }).closed === 'boolean';
 
 /**
- * A shape as geometry: its outlines as contour records, in the sketch's own
- * units, with each outline's own closure.
- *
- * This is the one door the frame rule names. A shape is a description in
- * sketch coordinates; it needs the paper, the units and its own transform
- * before it is geometry, so the toolkit lowers it and every `t.` word takes
- * a shape because of this function. A pure kernel never calls it.
- *
- * `polygon` is the deliberate exception and must stay one: it defers the
- * shape into the drawing tree, where it is lowered inside the full transform
- * chain — the paper offset, the user origin, and any enclosing `group`.
- * Lowering it here instead would quietly drop the group's transform.
- */
-/**
  * Is this the `t.travelTime` options record, and not a source handed in
  * where the record goes? A shape, a value that answers the geometry
  * protocol, a contour record and an array are all sources, so none of
@@ -761,11 +747,14 @@ function lowerShape(run: Execution, input: Area, who: string): AreaInput {
  * (the union of the group's shapes; the drawable without the area): the
  * result clips, fills,
  * masks, and stamps as one thing. No geometry is computed; open contours
- * get their closing chord; a branching material is refused. `winding`
- * picks the fill rule; `'evenodd'` (the default) makes every enclosed
- * boundary a hole whatever its orientation, so this reads a ring as an
- * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
- * other spelling: there the geometry's own orientation decides, as in SVG.
+ * get their closing chord; a branching material with faces (a tiling, a
+ * grid, a planarized web) is the union of its faces, and one that encloses
+ * nothing (a tree) is no area and fills nothing. `winding` picks the fill rule; `'evenodd'` (the
+ * default) makes every enclosed boundary a hole whatever its orientation,
+ * so this reads a ring as an annulus and a pentagram as an empty pentagon.
+ * A path carries its own rule (`path()` is `'nonzero'`, as in SVG, unless
+ * `path({ winding })` says otherwise), and `polygon(somePath)` keeps it;
+ * a `winding` given here overrides it.
  */
 export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue | GroupValue | InvertValue>(area: A extends Selection<infer R> ? (R extends Face ? FacesAreSeveralAreas : A) : A, opts: PolygonOpts = {}): ShapeValue {
   const contours = area as AreaInput | Contour | Contour[] | ShapeValue | GroupValue | InvertValue;
@@ -839,23 +828,6 @@ function geodesicSegments(source: unknown): ((a: readonly [unknown, unknown], b:
   return (a, b) => keys.has(`${a[0]},${a[1]},${b[0]},${b[1]}`);
 }
 
-/**
- * The region word, one spelling. `within(field, area)` bounds a field's
- * domain (the field is ABSENT outside — see field.ts). Everything else keeps
- * only what lies INSIDE the area:
- *
- * - a material: its edges cut where they cross the boundary, the outside
- *   dropped, so a chord built long enough to be sure of crossing a frame
- *   ends ON the frame (columns keep their declared transfer policy);
- * - a point, edge or face selection: the members that belong to the area,
- *   whole, as a selection of the same source, so it still chains and still
- *   works as `{ where }` in a step rule.
- *
- * `area` is any `Area`, read through the one toolkit lowering: a shape, a
- * group, a face, loops, contour records, a closed material, a selection, or
- * `invert(area)` for the outside. A selection takes `{ keep }` (see
- * WithinKeep).
- */
 /** How `within` decides that a member of a selection belongs to an area:
  * one vocabulary for points, edges and faces. The boundary is judged with
  * the one ink tolerance (`INK_TOL`, on the sheet): a vertex that close to
@@ -877,6 +849,23 @@ export interface WithinKeep {
   keep?: 'contained' | 'centroid' | 'touching';
 }
 
+/**
+ * The region word, one spelling. `within(field, area)` bounds a field's
+ * domain (the field is ABSENT outside — see field.ts). Everything else keeps
+ * only what lies INSIDE the area:
+ *
+ * - a material: its edges cut where they cross the boundary, the outside
+ *   dropped, so a chord built long enough to be sure of crossing a frame
+ *   ends ON the frame (columns keep their declared transfer policy);
+ * - a point, edge or face selection: the members that belong to the area,
+ *   whole, as a selection of the same source, so it still chains and still
+ *   works as `{ where }` in a step rule.
+ *
+ * `area` is any `Area`, read through the one toolkit lowering: a shape, a
+ * group, a face, loops, contour records, a closed material, a selection, or
+ * `invert(area)` for the outside. A selection takes `{ keep }` (see
+ * WithinKeep).
+ */
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: Area): Prepared<F>;
   (material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
@@ -1570,13 +1559,25 @@ const GEOMETRY_SPACE: Record<Space['kind'], string> = {
   spherical: 'space.spherical({ radius })',
 };
 
-/** A shape's outlines in sketch units through THE lowerer (rectMode, arc
+/**
+ * A shape's outlines in sketch units through THE lowerer (rectMode, arc
  * commands, the shape's own transform opts, curves flattened at
  * `tolerance`), each with its own closure. Shared by `material` and
  * `sample`. `'curves'` keeps every straight edge whole, so the outline's
  * vertices are the shape's own in every space; a circle's or an ellipse's
  * outline in a curved space also carries `curve`, the point of the curve
- * itself between two of its vertices. */
+ * itself between two of its vertices.
+ *
+ * This is the one door the frame rule names. A shape is a description in
+ * sketch coordinates; it needs the paper, the units and its own transform
+ * before it is geometry, so the toolkit lowers it and every `t.` word takes
+ * a shape because of this function. A pure kernel never calls it.
+ *
+ * `polygon` is the deliberate exception and must stay one: it defers the
+ * shape into the drawing tree, where it is lowered inside the full transform
+ * chain — the paper offset, the user origin, and any enclosing `group`.
+ * Lowering it here instead would quietly drop the group's transform.
+ */
 function shapeContours(
   run: Execution, source: ShapeValue, tolerance: L | undefined, refine: 'all' | 'curves' = 'all',
   /** Enclosing groups' ops, outermost first: a shape in a group. */
@@ -1630,12 +1631,6 @@ function boundEnv(run: Execution): BoundEnv {
   return { frame: run.frame, cache: run.boundCache };
 }
 
-/**
- * The toolkit a sketch function receives: every member that reads the run
- * — its seed, paper, frame, captured assets and fills, the recording —
- * closes over THIS execution. The pure module factories (shapes, fills,
- * modifiers, units, map/ease) are the same functions the package exports.
- */
 /** A point for `t.noise`: `{ x, y, z? }` rows or `[x, y, z?]` triples. */
 export type NoisePoint = readonly number[] | { readonly x: number; readonly y: number; readonly z?: number };
 export interface NoiseOptions {
@@ -1651,6 +1646,12 @@ const CLOUD_WORDS: ReadonlySet<string> = new Set(['t.scatter', 't.throw', 't.rel
 /** `t.quadtree` options: the pure ones, with any area for `within`. */
 export type QuadtreeTkOpts = Omit<QuadtreeOpts, 'within'> & { within?: AreaInput | ShapeValue };
 
+/**
+ * The toolkit a sketch function receives: every member that reads the run
+ * — its seed, paper, frame, captured assets and fills, the recording —
+ * closes over THIS execution. The pure module factories (shapes, fills,
+ * modifiers, units, map/ease) are the same functions the package exports.
+ */
 export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean; onProgress?: import('./three/modeling.js').ProgressListener3 }) {
   /** A material this toolkit hands back, in the run's space: its
    * coordinates are sketch coordinates, so it carries `exec.space` — the
@@ -1981,16 +1982,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {} });
   }
 
-  /**
-   * A grid of named channels over an area, and a rule you step it with:
-   * the substrate for reaction-diffusion, trails, erosion — anything whose
-   * next state is a local rule over its current one. `spacing` is the cell
-   * size, `area` defaults to the drawable, `channels` defaults to `['a']`,
-   * and `init` fills each cell from its centre. `lat.field(channel)` hands
-   * it back as an ordinary field, absent outside the area, so `isolines`,
-   * `scatter` and the fills read it like any other. `lat.set(…)` and
-   * `lat.add(points, amount)` return a NEW lattice, and `t.steps` runs it.
-   */
   /** `force.separation`, measuring in the sketch's space; said with no
    * sources it is a force the graph a move runs on pushes itself with (or,
    * with a negative `amount`, pulls itself with). Its sources are points,
@@ -2120,6 +2111,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return keeps(value) ? value.withHistory(snaps) : value;
   }
 
+  /**
+   * A grid of named channels over an area, and a rule you step it with:
+   * the substrate for reaction-diffusion, trails, erosion — anything whose
+   * next state is a local rule over its current one. `spacing` is the face
+   * size, `area` defaults to the drawable, `channels` defaults to `['a']`,
+   * and `init` fills each face from its centre. `lat.field(channel)` hands
+   * it back as an ordinary field, absent outside the area, so `isolines`,
+   * `scatter` and the fills read it like any other. `lat.faces.set(…)`
+   * and `lat.add(points, amount)` return a NEW lattice, and `t.steps` runs it.
+   */
   function lattice(opts: LatticeOpts, init?: LatticeInit): Lattice {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
@@ -2312,25 +2313,21 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * A shape's boundary as material with the boundary's OWN vertices: a
-   * rectangle's four corners, a regular polygon's vertices, a path's points,
-   * with curved portions flattened at `tolerance` (default 0.05 mm). Each
-   * outline is a chain (a ring when closed, without a duplicate seam vertex),
-   * separate outlines stay separate, nothing is welded. `sample` is the other
-   * conversion: it redistributes points along the boundary by arc length and
-   * need not land on a corner. Coordinates are sketch units, before any
-   * drawing transform around the shape.
-   */
-  /**
-   * Shapes as material, keeping their own vertices: one or more shapes, each
-   * outline a ring or chain of the one returned material, in the order
-   * given, welding nothing — `t.material(...circles).planarize()` is the
-   * pile whose `faces` are the pieces the overlaps cut. The options are the
-   * trailing plain object. Points go through the pure `material(points)`.
+   * Shapes as material, keeping their own vertices: a rectangle's four
+   * corners, a regular polygon's vertices, a path's points, with curved
+   * portions flattened at `tolerance` (default 0.05 mm). One or more
+   * shapes, each outline a ring (without a duplicate seam vertex) or a
+   * chain of the one returned material, in the order given, welding
+   * nothing — `t.material(...circles).planarize()` is the pile whose
+   * `faces` are the pieces the overlaps cut. The options are the trailing
+   * plain object. Points go through the pure `material(points)`.
+   * `t.sample` is the other conversion: it redistributes points along the
+   * boundary by arc length and need not land on a corner. Coordinates are
+   * sketch units, before any drawing transform around the shape.
    *
    * Any `Area` enters here, through the one lowering: a group's shapes
    * through its transform (an svg import, a placed shape), a face as its
-   * walls with their ids, loops and contour records one ring or chain each,
+   * walls, loops and contour records one ring or chain each,
    * `invert(area)` as the drawable with the area taken out, and a material
    * as the material it already is.
    */
@@ -2430,7 +2427,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    */
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):Material;
   function sample(area:Area,options:{count?:number;spacing?:L;tolerance?:L}):Material;
-  function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
+  function sample(m:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
     shape: Area | Material | SurfaceCurves<any>,
     options: { count?: number; spacing?: L; tolerance?: L } | CurveSamplingOptions = {},

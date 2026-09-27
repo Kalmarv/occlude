@@ -8,7 +8,7 @@ Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = 
 
 `subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
 
-Point rows answer `index`, `x/y/z` and their columns by name. A column is typed: it holds numbers, booleans, strings, numeric vectors of one length, rows or placements, one kind on every row. `points.set(name, field)` writes a column; a write of another kind to the same column refuses by name. A row a write does not reach holds the kind's default (0, `false`, `''`, a zero vector, no row, no placement): a column has no holes. `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Booleans, strings, rows and placements never blend: a new row takes one parent's value. Child faces inherit their columns, and child boundary edges copy their parent's edge columns. Newly introduced interior edges hold the defaults. Each row of a derived value answers `source`: the row it came from in the input. That is a row when one row made it, and a selection when several did (a subdivided face's middle point has the corners of its parent face as its `source`). Built-in row names—including coordinates, `id`, `index`, `normal`, `area` and `length`—are reserved.
+Point rows answer `index`, `x/y/z` and their columns by name. A column is typed: it holds numbers, booleans, strings, numeric vectors of one length, rows or placements, one kind on every row. `points.set(name, field)` writes a column; a write of another kind to the same column refuses by name. A row a write does not reach holds the kind's default (0, `false`, `''`, a zero vector, no row, no placement): a column has no holes. `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Booleans, strings, rows and placements never blend: a new row takes one parent's value. Child faces inherit their columns, and child boundary edges copy their parent's edge columns. Newly introduced interior edges hold the defaults. Each row of a derived value answers `source`: the row it came from in the input. That is a row when one row made it, and a selection when several did (a subdivided face's middle point has the corners of its parent face as its `source`). Each kind of row reserves the names it answers of its own (`index`, `source`, its relations such as `edges` and `faces`, a face's `area` and `normal`, an edge's `length`, …), so no column can take one.
 
 `displace(field)` is one immutable displacement pass: a triple per point, or a number along the vertex normal (`{ along: 'z' }` or a triple picks another direction). A run is the 2D one: `t.steps(count, mesh, (m) => m.displace(…).points.set(…), { every })`. A pass takes the geometry and returns the next; a field in a write reads the rows as they were before that write. With `{ every }`, `history` is a plain list of the initial state, every requested step and the final state. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
 
@@ -275,8 +275,8 @@ analytic spline representation. A circle profile is a closed parametric curve:
 is counterclockwise in XY; the word `circle` is the 2D shape.
 
 `parametricCurve` checks an explicit `maxPoints` (unlimited by default) before
-sampling. A formula that cannot answer at a sample draws nothing. A closed curve
-has at least three points. Geometry coordinates are world units; `view` handles
+sampling. A formula that cannot answer at a sample draws nothing, and so does
+a closed curve of fewer than three points. Geometry coordinates are world units; `view` handles
 camera projection into the explicit paper frame.
 
 A curve is the one geometry with points and edges and no faces. It answers
@@ -1432,9 +1432,10 @@ that keeps its faces, corners, columns and UVs, and every region
 boundary edge (open sheet edges and hole loops included) grows one wall.
 `offset` is a model vector, a callback over the frozen region (`index`,
 `faces`, `normal`, `centroid`, `area`), or `{ distance }` along the region's
-area-weighted mean normal, which is refused when the region's faces cancel.
-Zero vectors and boundary-free closed shells are errors, not silent geometry;
-self-intersecting results are not repaired. A selected face that touches no
+area-weighted mean normal. A region whose faces cancel (no mean normal), a
+zero offset and a closed shell with no boundary raise nothing, as degenerate
+input does everywhere: that region stays where it is, and the other regions
+still extrude. Self-intersecting results are not repaired. A selected face that touches no
 other selected face is its own region, so a scattered selection extrudes face
 by face. Walls carry a side chart
 `key:side:<component>` with `uv = [loop fraction, 0|1]`, so surface patterns

@@ -99,7 +99,7 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(8, (k, u) => {
 
 <include>/_sig/polygon.mdx</include>
 
-One area from its boundary. Give a loop of pairs, several loops, the list that `contours()` answers, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A tiling or a grid has no closed chain, and its edges branch. Such a material gives the union of its faces. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
+One area from its boundary. Give a loop of pairs, several loops, the list that `contours()` answers, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A tiling or a grid has no closed chain, and its edges branch. Such a material gives the union of its faces. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through. A path keeps its own rule, and the rule of `path()` is `'nonzero'`. Give `winding` to change it.
 
 ```ts live
 import { sketch, polygon, circle, fill, mm } from 'occlude';
@@ -166,7 +166,7 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 <include>/_sig/group.mdx</include>
 
-Applies a transform, a default pen, a default `z` and a stack of modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point, `'center'` or `'centroid'`. A point is a pair or an `{ x, y }` object, so a point of a material goes in as it is. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin, the corner of the drawable. The call refuses a word that is not one of these, and names it.
+Applies a transform, a default pen, a default `z` and a stack of modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point, `'center'` or `'centroid'`. A point is a pair or an `{ x, y }` object, so a point of a material goes in as it is. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin. That is the corner of the drawable, or its middle when the sketch sets `origin: 'center'`. The call refuses a word that is not one of these, and names it.
 
 A group is also an area. `t.material`, `t.within`, `clip`, `polygon` and every other word that takes an area read a group as the union of its shapes. The transform of the group applies to them.
 

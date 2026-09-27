@@ -374,7 +374,6 @@ function densityOver(space: Space, b: { x: number; y: number; w: number; h: numb
   return top;
 }
 
-/** Even-odd containment over a face's contours. */
 /** The x positions where the face's contours cross the horizontal line at
  * `y`, sorted. Even-odd: a point is inside the face exactly when an odd
  * number of crossings lie strictly to its right, i.e. when it sits in

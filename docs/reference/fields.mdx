@@ -183,9 +183,9 @@ A boundary stays exact, and the depth behind it does not. `union` measures corre
 
 <include>/_sig/Toolkit.travelTime.mdx</include>
 
-<AutoTypeTable path="../occlude/src/travel.ts" name="TravelOpts" />
+<AutoTypeTable path="../occlude/src/api.ts" name="TravelTimeOpts" />
 
-The time a front needs to reach each point of the drawable. The front starts at its source at time zero, and the options name the source. Under `fromPoints` every entry is a separate seed, a pair or an `{ x, y }` object. Under `fromArea` the input is one area or a shape. Give one key or the other, and the call refuses both keys at once by name. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `t.distanceTo`. `step` is the pitch of the grid that the front moves on. Its default is the same as the default of `t.isolines`.
+The time a front needs to reach each point of the drawable. The front starts at its source at time zero, and the options name the source. Under `fromPoints` every entry is a separate seed, a pair or an `{ x, y }` object. Under `fromArea` the input is one area or a shape. Give one key or the other, and the call refuses both keys at once by name. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance: the value of `t.distanceTo` without its sign. `t.distanceTo` is negative outside an area. The travel time is not. `step` is the pitch of the grid that the front moves on. Its default is the same as the default of `t.isolines`.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -248,7 +248,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.3.mdx</include>
 <include>/_sig/Toolkit.within.4.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, a list of contours or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. The call refuses a value that is not an area, and names it.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a face becomes a wall of that face. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a face becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, a list of contours or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. The call refuses a value that is not an area, and names it.
 
 A selection cannot clip. A point, an edge and a face come through whole or not at all. The option `keep` decides, with the same three words for points, edges and faces. `{ keep: 'contained' }` is the default. It keeps a member with no point outside the area and no crossing of the boundary. The boundary belongs to the area, so a point on the boundary is in, and a wall along the boundary is in. `'centroid'` keeps a member whose centroid is in the area or on its boundary. The centroid of an edge is its `center`, and the centroid of a point is the point. `'touching'` keeps a member that has a point in common with the area. This includes a face that holds all of the area. The call judges the boundary with the ink tolerance, 0.05 mm on the sheet. A vertex that is nearer than this to the boundary is on the boundary. The call refuses the old option names `faces` and `edges`, and names them. To cut at the boundary instead, give `within` the material.
 
@@ -281,7 +281,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 });
 ```
 
-Below, a circle cuts a lattice of cells. Each cell at the rim is a face, so `polygon` fills it. The walls draw without the rim.
+Below, a circle cuts a hexagon tiling. Each tile at the rim is a face, so `polygon` fills it. The walls draw without the rim.
 
 ```ts live
 import { sketch, strokes, circle, polygon, fill, mm } from 'occlude';
@@ -451,7 +451,7 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: {
 
 <AutoTypeTable path="../occlude/src/spacefill.ts" name="SpacefillOpts" />
 
-One line that folds until the folds fill an area, as one pen-down stroke. It visits every cell of a divided square once. `spacing` is the finest cell. A `field` of tone, 0 to 1, divides a cell again where the tone asks for a finer cell. Tone 0 lifts the pen. `maxSpacing` caps the coarsest cell. Each vertex carries the `level` it stopped at. `area` takes a shape, a face, loops or a contour material.
+One line that folds until the folds fill an area. It visits every cell of a divided square once. The line is one stroke when the area is that square: a side of `spacing` times a power of the rule's `n`. Any other area breaks the stroke where cells fall outside it. `spacing` is the finest cell. A `field` of tone, 0 to 1, divides a cell again where the tone asks for a finer cell. Tone 0 lifts the pen. `maxSpacing` caps the coarsest cell. Each vertex carries the `level` it stopped at. `area` takes a shape, a face, loops or a contour material.
 
 `rule` is the fold as data: how a cell divides, the order of its children, and the turn each one takes. `hilbertRule` is the default. `peanoRule` and `meanderRule` divide in threes. A table that misses a cell refuses by name.
 
@@ -479,7 +479,7 @@ export default sketch({ aspect: [1, 1], seed: 21, pens: {
 } }, (t) => {
   const step = (z, c) => complex.add(complex.mul(z, z), c);
   const field = escape(step, { input: 'c', iterations: 60, bailout: 1e6 });
-  // The sheet as the c-plane: (64, 50) is c = −0.5, and 34 sheet units are one unit of c.
+  // The sheet as the c-plane: (64, 50) is c = 0, and 34 sheet units are one unit of c.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   return [
     strokes(t.isolines(count, { spacing: 1 }), { pen: 'fine' }),

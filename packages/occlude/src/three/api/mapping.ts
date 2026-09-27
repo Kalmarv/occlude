@@ -30,7 +30,7 @@ export interface SurfaceMappingOptions extends SurfaceCurveOptions {
   readonly budget?:SurfaceCurveBudget3;
 }
 /** Every mapped segment names its chart and physical sheet; a pattern column
- * on the source material rides along as a numeric edge attribute. */
+ * on the source material rides along as a numeric edge column. */
 export type MappedColumns={chart:string|number;component:number;pattern:number;layer:number};
 export interface SurfaceMappingStats {
   readonly candidates:number;readonly pointContacts:number;readonly overlapLayers:number;

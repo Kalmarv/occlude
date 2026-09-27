@@ -101,7 +101,7 @@ packages/occlude/src/
   trails, spacefill       geometry page's table says so
   faces, measure        the one face domain, `g.faces` (a property):
                         STATED faces, written by the word that knows its
-                        cells, or DERIVED by planarization and the planar
+                        faces, or DERIVED by planarization and the planar
                         walk on first read; a face row's columns, geometry,
                         `source` and nesting (`parent`, `children`,
                         `depth`, `leaf`); `measure` writes field and shape
@@ -112,7 +112,7 @@ packages/occlude/src/
                           the quadtree (every cell, root to leaves)
   lattice, residual     a regular grid of faces over `Float32Array`
                         columns, topology implicit in `(i, j)`: the same face
-                        words, `set` over the faces as they were, `field()`
+                        words, `faces.set` over the faces as they were, `field()`
                         and `spend`; a residual is a lattice with one column,
                         `owed`
   placement, space      isometries of the sketch's geometry (`t.placement`,
@@ -345,31 +345,45 @@ packages/occlude/src/compute/webgpu/
 ### The four values, and who owns them
 
 Editable geometry, an immutable render snapshot, a classified line drawing,
-and the physical plot plan. Model geometry is CPU-owned f64 data: polygon
-topology, stable semantic IDs, and point/edge/face/corner attributes;
-derived triangulation retains face parentage. A render session owns its
-camera, candidate index, GPU resources and classified intervals. **There is
+and the physical plot plan. Model geometry is CPU-owned f64 data: the one
+geometry of occlude, a `Material` with a `z` column — points, edges, stated
+polygon faces, their corners, and typed columns on each — and each stated
+face's fixed triangulation, which the value keeps as face data. A render
+session owns its camera, candidate index, GPU resources and classified
+intervals. **There is
 no global active scene, camera or GPU job** — the classified result is
 cached on the execution by scene (`exec.scenes3`), so line-set predicates
 and styles reading the same scene never cause a second visibility dispatch.
 Changing geometry, the camera or a candidate generator invalidates only the
 dependent stages.
 
-A mesh is an immutable owned revision. Rows carry a stable `id`, a local
-`index` and a frozen `attributes` map; built-in row names (`id`, `index`,
-`x`/`y`/`z`, `normal`, `center`, `area`, `a`, `b`, `length`, `points`,
-`edges`, `faces`, `corners`, …) are reserved and rejected as attribute names
-(`three/api/mesh.ts`). Selections retain their source revision and an editor
-refuses a selection from another revision even when the IDs match; explicit
-extraction is what makes an ownership change visible. Derived topology uses
-compact deterministic IDs and records immediate parent IDs as internal
-lineage, so allocation order, wall time and model RNG are irrelevant to
-identity. A row reads that lineage as `source`, the rows of the derivation's
-inputs it came from; how a row is drawn lives on the view, never on the value.
-A 3D run is the one run: `t.steps(n, mesh, (m) => m.points.set(…))`. The
-writes are `set` on the typed collections (`mesh.points`, `mesh.edges`,
-`mesh.faces`, `mesh.corners`), each returning a new revision, and `history`
-is a plain list of states.
+A value in space is a `Material` like any 2D one, so the contracts of
+"Materials: ownership and identity" below hold for it unchanged: every
+operation returns a new value; a row's id is minted, internal and never a
+sketch's word; the view a sketch holds is the name of its row, and a view or
+a selection of an earlier state of the same lineage resolves in a later one
+(`later.faces.rows(f)`, `has`, `intersect`, a write's `where`), while one of
+an unrelated value is refused. Columns read flat on the row (`p.mobility`,
+`f.chart`). The names a kind of row answers of its own are reserved: one
+list per row kind in `tables.ts`, asked by every write and constructor
+through `checkColumnName` (and `checkNewColumnName` for the columns a new
+row gives). A derived row reads its lineage as `source`, the rows of the
+inputs it came from; how a row is drawn lives on the view, never on the
+value.
+
+The 3D kernels (subdivide, extrude, the booleans, dual, curvature, the
+curve and hatch builders) work on `Surface3`, a working view the adapter
+builds from the value's parts on first need and keeps on the value
+(`three/geometry/value.ts`; one parts format, `MaterialParts`, both ways in
+`parts.ts`). The rigid words — `translate`, `rotate`, `scale`, `transform`,
+a displacement by vector — are maps over the `x`, `y`, `z` columns and build
+no view. What is not a row's (the object's own pivot and orientation, and a
+radial centre) is kept by `value.ts` beside the point id column, so a write
+that keeps the rows keeps it. Instances are a points material with `rotate`
+and `scale` columns and a `prototype` value field; `m.realize()` makes the
+copies geometry. A 3D run is the one run: `t.steps(n, mesh, (m) =>
+m.points.set(…))`, with the writes `points.set`, `edges.set`, `faces.set` and
+`corners.set`, and `history` a plain list of states.
 
 **Budget before allocation.** Every count and byte budget is validated and
 throws before its first allocation, and **capacity options default to
@@ -534,11 +548,13 @@ seam — different corner values at one vertex, such as a cylinder's `u` seam
 — keeps separate nodes and therefore separate chains.
 
 **Extrusion** takes one vector per connected component
-(`geometry/extrude.ts`). `{ distance }` uses the area-weighted mean normal
-and is refused, naming the region, when that mean's length is below half the
-summed area (faces that cancel, such as a folded strip). The cap is the
-selected faces translated, retaining face IDs, corner IDs, corner attributes
-including UV, face attributes and the fixed triangulation; interior points
+(`geometry/extrude.ts`). `{ distance }` uses the area-weighted mean normal;
+when that mean's length is below half the summed area (faces that cancel,
+such as a folded strip) the region has no direction, and — like a zero
+vector or a closed shell with no boundary — it stays where it is while the
+other regions extrude (`three/api/words.ts`, best effort). The cap is the
+selected faces translated, keeping their kernel names, corner columns
+including UV, face columns and the fixed triangulation; interior points
 move, boundary points are duplicated as `['extrude', key, 'point', pointId]`
 and the original stays with the unselected faces. Walls are one quad per
 region boundary edge, `['extrude', key, 'side', edgeId]`, including open
@@ -703,10 +719,11 @@ nothing in a sketch may rely on it.
   columns by name (each `n` long), an edge list (a Uint32 column,
   `[a0, b0, a1, b1, …]`, stored order, each pair a distinct row and never
   `a === b`), edge columns (each `edgeCount` long), and the internal id
-  columns (point ids, edge ids, edge lineage roots). `x`, `y`, `index`,
-  `id`, `source`, `edges`, `adjacent` are reserved point names; `a`, `b`,
-  `length`, `index` are reserved edge names. The constructor checks
-  lengths and edge ranges.
+  columns (point ids, edge ids, edge lineage roots). The names each kind
+  of row answers of its own are reserved: one list per kind (point, edge,
+  face, corner, lattice face) in `tables.ts`, asked through
+  `checkColumnName`, and `checkNewColumnName` also refuses a new point's
+  `x`/`y` as columns. The constructor checks lengths and edge ranges.
 - **Persistent columns** (`column.ts`, pinned by `test/column.test.ts`).
   Every column is a run of fixed-size leaves (1024 values), and a leaf is
   never written once a column holds it. A write makes a new column that
