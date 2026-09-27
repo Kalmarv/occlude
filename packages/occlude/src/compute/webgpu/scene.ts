@@ -12,7 +12,7 @@ import { GpuSurfaceEvaluation3 } from './surfaceEvaluate.js';
 import { packSurfaceTarget3, type PackedSurfaceTarget3, type SurfaceEvaluationTarget3, type SurfaceEvaluationBatch3 } from '../../three/surface/evaluate.js';
 import type { ToneRecipe3 } from '../../three/surface/tone.js';
 import { prepareSurfaceQueries3, type SurfaceQueries3 } from '../../three/queries/surface.js';
-import type { Surface3 } from '../../three/geometry/surface.js';
+import type { Mesh3 } from '../../three/geometry/mesh3.js';
 import type { SurfaceQueryInput3 } from '../../three/modeling.js';
 
 /** Host-owned, lazy device resource shared explicitly with executions. A lost
@@ -49,7 +49,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     while(this.evaluationTargets.size&&(this.evaluationTargets.size>=4||this.evaluationTargetBytes+bytes>retainedBudget)){
       const [old,target]=this.evaluationTargets.entries().next().value!;await timing.wait('setupMs',()=>target.dispose());this.evaluationTargets.delete(old);this.evaluationTargetBytes-=old.triangles*96;
     }
-    const prepared=await GpuSurfaceEvaluation3.create(device,{surface:packed.source,placement:packed.placement,uvAttribute:packed.uvAttribute},{memoryBudgetBytes:bytes>budget/2?budget:bytes+budget/2});
+    const prepared=await GpuSurfaceEvaluation3.create(device,{mesh:packed.source,placement:packed.placement,uvAttribute:packed.uvAttribute},{memoryBudgetBytes:bytes>budget/2?budget:bytes+budget/2});
     timing.merge(prepared.preparationTimings);
     this.evaluationTargets.set(packed,prepared);this.evaluationTargetBytes+=bytes;return {prepared,cacheHit:false,uploadBytes:prepared.uploadBytes};
   }
@@ -116,8 +116,8 @@ export class GpuSceneCompute3 implements SceneCompute3 {
       return canvas.transferToImageBitmap();
     });
   }
-  query(surface: Surface3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal } = {}) {
-    const timing=new PhaseClock3(),{source,captured}=timing.measure('captureMs',()=>({source:prepareSurfaceQueries3(surface),captured:structuredClone(queries)})),signal = options.signal;
+  query(mesh: Mesh3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal } = {}) {
+    const timing=new PhaseClock3(),{source,captured}=timing.measure('captureMs',()=>({source:prepareSurfaceQueries3(mesh),captured:structuredClone(queries)})),signal = options.signal;
     return this.submit(async () => {
       signal?.throwIfAborted();
       const session = await timing.wait('setupMs',()=>this.acquire());

@@ -1,5 +1,5 @@
-import {cloneSurface3} from './model.js';
-import type {Surface3} from './surface.js';
+import {kinds} from '../../column.js';
+import type {Columns3} from './mesh3.js';
 import type {Vec3} from '../math.js';
 
 /** Ordinary corner columns; chart identity is categorical, UV is interpolated. */
@@ -7,19 +7,23 @@ export type SurfaceUV = {readonly uv:readonly [number,number];readonly chart:str
 /** The face column a charted surface writes: the chart the face was built with. */
 export type SurfaceChart = {readonly chart:string};
 
-/** Attach charts without changing geometric topology, fixed triangles or IDs.
- * The face column `chart` is the chart the face was built with — its first
- * corner's, which every generator gives all of the face's corners — so a
- * face selects by chart without reading its corners. */
-export function chartSurface3(source:Surface3,field:(face:number,corner:number,vertex:number)=>SurfaceUV):Surface3 {
-  const result=cloneSurface3(source);
-  result.faces.forEach((face,f)=>face.corners!.forEach((corner,c)=>{
-    const value=field(f,c,face.vertices[c]);
+/** The chart columns of a set of loops: each corner's `uv` and `chart` from
+ * `field` (face, corner round the loop, point row), and the face column
+ * `chart`, the chart the face was built with — its first corner's, which
+ * every generator gives all of the face's corners — so a face selects by
+ * chart without reading its corners. No loops, no columns. */
+export function chartColumns3(loops:readonly (readonly number[])[],field:(face:number,corner:number,vertex:number)=>SurfaceUV):{readonly corners:Columns3;readonly faces:Columns3} {
+  if(loops.length===0)return {corners:{},faces:{}};
+  let count=0;for(const loop of loops)count+=loop.length;
+  const uv=new Float64Array(2*count),charts:string[]=[],faceCharts:string[]=[];
+  let at=0;
+  loops.forEach((loop,f)=>{for(let c=0;c<loop.length;c++,at++){
+    const value=field(f,c,loop[c]);
     if(value.uv.length!==2||!value.uv.every(Number.isFinite)||typeof value.chart!=='string'||!value.chart)throw new Error('surface chart requires finite UV pairs and a nonempty chart identity');
-    Object.assign(corner.attributes,{uv:[...value.uv],chart:value.chart});
-    if(c===0)face.attributes.chart=value.chart;
-  }));
-  return result;
+    uv[2*at]=value.uv[0];uv[2*at+1]=value.uv[1];charts.push(value.chart);
+    if(c===0)faceCharts.push(value.chart);
+  }});
+  return {corners:{uv:kinds.vector(2).of(uv),chart:kinds.string.of(charts)},faces:{chart:kinds.string.of(faceCharts)}};
 }
 
 /** Parameters on the represented polyline, including the closing edge. */

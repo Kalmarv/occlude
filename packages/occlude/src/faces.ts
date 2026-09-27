@@ -52,6 +52,7 @@ import { Column, at64, columnOf, kindOf, type AnyColumn, type ColumnLike } from 
 import { carryLinks, derivation, linkRows, record, type RowSource } from './derivation.js';
 import type { Placement } from './placement.js';
 import { cornerIndex, cornersOfFaces, type Corner } from './corners.js';
+import { triangulate } from './three/geometry/mesh3.js';
 
 /** What a face came from, in the shape the word that made it says: a row
  * or a selection of the input (a Voronoi cell its site, a quadtree cell the
@@ -898,9 +899,10 @@ export interface Face {
  * before anything is drawn, so they say so: which runs of corners go round
  * which face, in the order they made them, which face holds which, and
  * what each came from. A write that leaves the edges alone keeps them (a
- * move, a column write); a write that changes the edges drops them, and
- * the faces of that state are read off the picture by the planar walk,
- * their columns carried by wall lineage.
+ * move, a column write). In the plane a write that changes the edges drops
+ * them, and the faces of that state are read off the picture by the planar
+ * walk, their columns carried by wall lineage; in space, where the faces
+ * are only what is stated, it keeps each face it still names (`restated`).
  */
 export interface StatedFaces {
   /**
@@ -955,6 +957,201 @@ export function statedFor(stated: StatedFaces | undefined, edgeList: Column<Uint
   if (!columnOf(stated.edgeList).sameValues(edgeList)) return undefined;
   if (!columnOf(stated.edgeIds).sameValues(edgeIds)) return undefined;
   return stated;
+}
+
+/** @internal What a write leaves of the rows a statement of faces names:
+ * the state it read and the new state's rows. */
+export interface Restatement {
+  /** The state the write read, whose rows the statement names. */
+  readonly from: Material;
+  readonly n: number;
+  readonly pointIds: Column;
+  readonly edgeList: Column<Uint32Array>;
+  readonly edgeIds: Column;
+  /** The new state's positions, for the corners a side threads through. */
+  readonly x: Column;
+  readonly y: Column;
+  readonly z: Column;
+}
+
+/**
+ * @internal The faces a statement still names in space, after a write that
+ * changed the edges. In the plane the picture says what the faces are and
+ * a changed edge list drops the statement (`statedFor`). In space the
+ * faces exist only as stated, so a write keeps each one by row identity:
+ * a face whose points and sides are all still there is kept as it was; a
+ * side that a split or a replace swapped for a chain of new points (each
+ * on two edges only) runs through that chain, a corner at each new point,
+ * its fixed triangle fanned across the chain; a face that lost a point or
+ * a side is gone, as a removed row is. The rows it keeps keep their ids,
+ * names, columns and `source`.
+ */
+export function restated(stated: StatedFaces, next: Restatement): StatedFaces | undefined {
+  const from = next.from;
+  const newRow = new Map<number, number>();
+  const ids = next.pointIds.flat();
+  for (let i = 0; i < next.n; i++) newRow.set(ids[i], i);
+  const oldIds = from.store.pointIds.flat();
+  const rowOf = (p: number): number => newRow.get(oldIds[p]) ?? -1;
+  // The points the faces are made of: a side runs from one to another, and
+  // any other point on two edges only is a point a side can run through.
+  const had = new Set<number>();
+  for (const runs of stated.cycles) for (const run of runs) for (const p of run) had.add(oldIds[p]);
+  const list = next.edgeList.flat();
+  const pair = (a: number, b: number): number => (a < b ? a * 0x100000000 + b : b * 0x100000000 + a);
+  const edgeAt = new Set<number>();
+  const around = new Map<number, number[]>();
+  for (let e = 0; e < list.length / 2; e++) {
+    const a = list[2 * e];
+    const b = list[2 * e + 1];
+    edgeAt.add(pair(a, b));
+    for (const [u, v] of [[a, b], [b, a]]) if (!had.has(ids[u])) (around.get(u) ?? around.set(u, []).get(u)!).push(v);
+  }
+  // The points between two corners: a chain of points no face is made of,
+  // each on exactly two edges, from `a` to `b`.
+  const chain = (a: number, b: number): number[] | undefined => {
+    for (let e = 0; e < list.length / 2; e++) {
+      let start = -1;
+      if (list[2 * e] === a) start = list[2 * e + 1];
+      else if (list[2 * e + 1] === a) start = list[2 * e];
+      if (start < 0 || had.has(ids[start])) continue;
+      const out: number[] = [];
+      let prev = a;
+      let at = start;
+      while (!had.has(ids[at])) {
+        const next = around.get(at)!;
+        if (next.length !== 2 || out.length > list.length) break;
+        out.push(at);
+        const step = next[0] === prev ? next[1] : next[0];
+        prev = at;
+        at = step;
+      }
+      if (at === b && out.length > 0) return out;
+    }
+    return undefined;
+  };
+  const x = next.x.flat();
+  const y = next.y.flat();
+  const z = next.z.flat();
+  const length = (a: number, b: number): number => Math.hypot(x[b] - x[a], y[b] - y[a], z[b] - z[a]);
+  // Per kept face: its new runs, and for each of its corners the old corner
+  // it is (t = 0), or the two old corners of the side it sits on and how far
+  // along that side it is.
+  const cornerAt = cornerIndex(stated.cycles);
+  const keptFaces: number[] = [];
+  const cycles: (readonly number[])[][] = [];
+  const cornerFrom: [number, number, number][] = [];
+  const triangles: (readonly number[] | undefined)[] = [];
+  stated.cycles.forEach((runs, f) => {
+    const newRuns: number[][] = [];
+    const corners: [number, number, number][] = [];
+    const place: number[][] = [];
+    let first = cornerAt.start[f];
+    for (const run of runs) {
+      const out: number[] = [];
+      const at: number[] = [];
+      for (let k = 0; k < run.length; k++) {
+        const a = rowOf(run[k]);
+        const b = rowOf(run[(k + 1) % run.length]);
+        if (a < 0 || b < 0) return;
+        at.push(out.length);
+        out.push(a);
+        corners.push([first + k, first + k, 0]);
+        if (edgeAt.has(pair(a, b))) continue;
+        const through = chain(a, b);
+        if (through === undefined) return;
+        const all = [a, ...through, b];
+        let total = 0;
+        for (let q = 1; q < all.length; q++) total += length(all[q - 1], all[q]);
+        let walked = 0;
+        for (let q = 1; q < all.length - 1; q++) {
+          walked += length(all[q - 1], all[q]);
+          out.push(all[q]);
+          corners.push([first + k, first + ((k + 1) % run.length), total > 0 ? walked / total : 0.5]);
+        }
+      }
+      if (out.length < 3 || new Set(out).size !== out.length) return;
+      newRuns.push(out);
+      place.push(at);
+      first += run.length;
+    }
+    keptFaces.push(f);
+    cycles.push(newRuns);
+    for (const corner of corners) cornerFrom.push(corner);
+    triangles.push(fanned(stated.triangles?.[f], stated.cycles[f][0]?.length ?? 0, place[0], newRuns[0], x, y, z));
+  });
+  if (keptFaces.length === 0) return undefined;
+  const corners: Record<string, AnyColumn> | undefined = stated.corners === undefined ? undefined : {};
+  for (const name in stated.corners ?? {}) {
+    const col = stated.corners![name];
+    const values: unknown[] = [];
+    for (let i = 0; i < cornerFrom.length; i++) {
+      const [a, b, t] = cornerFrom[i];
+      values.push(t === 0 ? col.get(a) : cornerBetween(col, a, b, t));
+    }
+    corners![name] = (kindOf(col) as { from(v: readonly unknown[]): AnyColumn }).from(values);
+  }
+  const fresh = cornerFrom.filter(([, , t]) => t !== 0).length;
+  const minted = fresh > 0 ? mintIds(fresh) : undefined;
+  let m = 0;
+  const cornerIds = stated.cornerIds === undefined ? undefined : Float64Array.from(cornerFrom, ([a, , t]) => (t === 0 ? stated.cornerIds![a] : minted![m++]));
+  const faceOf = new Int32Array(stated.cycles.length).fill(-1);
+  keptFaces.forEach((f, i) => { faceOf[f] = i; });
+  const source = stated.source;
+  return {
+    cycles: Object.freeze(cycles.map((runs) => Object.freeze(runs))),
+    ...(stated.parent !== undefined ? { parent: Int32Array.from(keptFaces, (f) => (stated.parent![f] < 0 ? -1 : faceOf[stated.parent![f]])) } : {}),
+    ...(source !== undefined ? { source: (f: number) => source(keptFaces[f]) } : {}),
+    edgeList: next.edgeList,
+    edgeIds: next.edgeIds,
+    ...(corners !== undefined ? { corners: Object.freeze(corners) } : {}),
+    ...(stated.faceIds !== undefined ? { faceIds: Float64Array.from(keptFaces, (f) => stated.faceIds![f]) } : {}),
+    ...(cornerIds !== undefined ? { cornerIds } : {}),
+    ...(stated.faceKeys !== undefined ? { faceKeys: Object.freeze(keptFaces.map((f) => stated.faceKeys![f])) } : {}),
+    ...(stated.cornerKeys !== undefined ? { cornerKeys: Object.freeze(cornerFrom.map(([a, , t]) => (t === 0 ? stated.cornerKeys![a] : ''))) } : {}),
+    ...(stated.triangles !== undefined ? { triangles: Object.freeze(triangles) } : {}),
+  };
+}
+
+/** A face's fixed triangles after its sides took new points: a triangle
+ * with no side threaded stays as it was; one with a threaded side becomes
+ * the polygon of its corners and the new points on its sides, ear clipped
+ * as a new face is. Positions are round the new loop (`at` says where each
+ * old one went). A polygon with no ear leaves the face without fixed
+ * triangles: it is ear clipped whole when read. */
+function fanned(own: readonly number[] | undefined, size: number, at: readonly number[], loop: readonly number[], x: Float64Array, y: Float64Array, z: Float64Array): readonly number[] | undefined {
+  if (own === undefined) return undefined;
+  const count = loop.length;
+  if (count === size) return own;
+  const positions = loop.map((v) => [x[v], y[v], z[v]] as [number, number, number]);
+  const out: number[] = [];
+  for (let k = 0; k + 2 < own.length; k += 3) {
+    const polygon: number[] = [];
+    for (let s = 0; s < 3; s++) {
+      const u = own[k + s];
+      const v = own[k + ((s + 1) % 3)];
+      polygon.push(at[u]);
+      // A side of the loop, run the loop's way: the new points on it.
+      if (v === (u + 1) % size) for (let q = (at[u] + 1) % count; q !== at[v]; q = (q + 1) % count) polygon.push(q);
+    }
+    if (polygon.length === 3) { out.push(...polygon); continue; }
+    let clipped: [number, number, number][];
+    try { clipped = triangulate(positions, polygon); } catch { return undefined; }
+    if (clipped.length !== polygon.length - 2) return undefined;
+    for (const t of clipped) out.push(...t);
+  }
+  return Object.freeze(out);
+}
+
+/** A corner column's value `t` of the way from corner `a` to corner `b`:
+ * numbers and vectors between, any other kind the nearer one's (the first
+ * on a tie), as a split's point takes a point column. */
+function cornerBetween(col: AnyColumn, a: number, b: number, t: number): unknown {
+  const va = col.get(a);
+  const vb = col.get(b);
+  if (typeof va === 'number') return va + ((vb as number) - va) * t;
+  if (Array.isArray(va) && kindOf(col).name === 'vector') return va.map((v, k) => v + ((vb as number[])[k] - v) * t);
+  return t <= 0.5 ? va : vb;
 }
 
 /** One bounded region as the walk or a statement found it: the half-edge

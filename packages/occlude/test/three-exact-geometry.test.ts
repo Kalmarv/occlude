@@ -1,10 +1,10 @@
 import {describe,it,expect} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {point,pointNumber,canonicalPoint,ratioNumber,weightedPoint,integerWeights,triangleWeights,encodePoint,decodePoint,mixPoint,bitLength,filtered4,filteredDotSign,dot,type H} from '../src/three/geometry/exact.js';
 import {mesh} from 'occlude/3d';
 import {hiddenWorldInterval3,type WorldOcclusion3} from '../src/three/visibility/worldInterval.js';
 import type {SegmentBasis3} from '../src/three/visibility/interval.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 describe('shared exact surface constructions',()=>{
 
  it('never certifies a dot sign the exact arithmetic contradicts',()=>{
@@ -81,12 +81,12 @@ describe('shared exact surface constructions',()=>{
  });
  it('evaluates placed locations from represented world vertices, not a rounded model point',()=>{
   const model=mesh([[0,0,0],[3,0,0],[0,3,0]],[[0,1,2]]).corners.set({uv:c=>[c.point.x/3,c.point.y/3]});
-  const p=surfaceLocation3(surfaceOf(model),0,[.05,.9,.05],{placement:{id:'far',transform:{translate:[1e16,0,0]}}});
+  const p=surfaceLocation3(mesh3(model),0,[.05,.9,.05],{placement:{id:'far',transform:{translate:[1e16,0,0]}}});
   expect(p.modelPosition).toEqual([2.7,.15000000000000002,0]);
   expect(p.position[0]).toBe(1e16+4);expect(p.modelFrame!.du).toEqual([3,0,0]);expect(p.frame!.du).toEqual([4,0,0]);
   const thin=mesh([[0,0,0],[1,1,0],[0,2,0]],[[0,1,2]]);
   // A triangle the placement collapses has no direction to report: zero, which
   // every consumer already reads as "no direction here".
-  expect(surfaceLocation3(surfaceOf(thin),0,[.2,.3,.5],{placement:{id:'collapsed',transform:{translate:[1e16,0,0]}}}).normal).toEqual([0,0,0]);
+  expect(surfaceLocation3(mesh3(thin),0,[.2,.3,.5],{placement:{id:'collapsed',transform:{translate:[1e16,0,0]}}}).normal).toEqual([0,0,0]);
  });
 });

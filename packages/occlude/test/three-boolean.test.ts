@@ -4,13 +4,17 @@ import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render } from '../src/host.js';
 import {box,sphere,cylinder,view,orthographic} from '../src/three/api/index.js';
 import {manifold,volume} from './helpers/surfaces.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import type {Material} from '../src/material.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
-/** Closed, edge-manifold, consistently wound, and enclosing a positive volume. */
-const shape=(m:Material)=>JSON.stringify({points:surfaceOf(m).points.map(p=>[p.id,p.position]),faces:surfaceOf(m).faces.map(f=>[f.id,f.vertices,f.attributes])});
+/** Everything a boolean answers that the next run must repeat: each point's
+ * kernel name and place, each face's name, loop and `cut`. */
+const shape=(m:Material)=>{
+  const g=mesh3(m);
+  return JSON.stringify({points:g.names.points.map((name,i)=>[name,g.position(i)]),faces:g.names.faces.map((name,f)=>[name,g.loops[f],m.faces.at(f)!.cut])});
+};
 
 describe('mesh booleans',()=>{
  it('bites one solid out of another and keeps a closed manifold result',()=>{
@@ -87,17 +91,17 @@ describe('mesh booleans',()=>{
   const ball=sphere(1.2,{segments:12,rings:6}).translate([0.9,0.8,0.7]).faces.set('wall',()=>99);
   const bitten=cube.subtract(ball);
   // An untouched face of the first solid keeps its own identity.
-  expect(surfaceOf(bitten).faces.some(f=>f.id==='f0')).toBe(true);
+  expect(mesh3(bitten).names.faces).toContain('f0');
   // Every piece keeps the column of the face it came from, and the pieces of
   // the second solid keep theirs.
   expect(bitten.faces.every(f=>typeof f.wall==='number')).toBe(true);
   expect(bitten.faces.some(f=>f.wall===99)).toBe(true);
-  expect(new Set(surfaceOf(bitten).points.map(p=>p.id)).size).toBe(bitten.points.length);
-  expect(new Set(surfaceOf(bitten).faces.map(f=>f.id)).size).toBe(bitten.faces.length);
+  expect(new Set(mesh3(bitten).names.points).size).toBe(bitten.points.length);
+  expect(new Set(mesh3(bitten).names.faces).size).toBe(bitten.faces.length);
   // A seam point is a new point, with the column blended from the first
   // solid's triangle it was cut on, so a later displacement has a number to
   // read; the second solid's own points keep only the columns they had.
-  const seam=bitten.points.filter(p=>surfaceOf(bitten).points[p.index].id.startsWith(`["subtract",0,"cut"`));
+  const seam=bitten.points.filter(p=>mesh3(bitten).names.points[p.index].startsWith(`["subtract",0,"cut"`));
   expect(seam.length).toBeGreaterThan(0);
   expect(seam.every(p=>Number.isFinite(p.h)&&Math.abs(p.h-p.z)<1e-9)).toBe(true);
   // `cut` accumulates down a chain: the second bite keeps the first bite's

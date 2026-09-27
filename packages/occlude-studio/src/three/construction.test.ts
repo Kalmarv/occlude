@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { surface3, lineArt3 } from 'occlude/3d/advanced';
+import { lineArt3 } from 'occlude/3d/advanced';
+import { mesh } from 'occlude/3d';
 import { cameraFrame3, toCamera3, toPaper3, type Camera3 } from 'occlude/src/three/camera.js';
 import { ConstructionScene3 } from './construction.js';
 import { orbitCamera3, zoomCamera3 } from './orbit.js';
 const camera: Camera3 = {kind:'orthographic',span:4,eye:[0,0,10],target:[0,0,0],up:[0,1,0],near:.1,far:20};
-const sheet = () => surface3([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]],[[0,1,2,3]]);
+const sheet = () => mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]],[[0,1,2,3]]);
 describe('retained construction scene',()=>{
-  it('picks modeled faces with captured attributes, independent of source edits and preview camera',()=>{
-    const surface=sheet();surface.faces[0].attributes.height=3;
+  it('picks modeled faces with their columns, independent of the preview camera',()=>{
+    const surface=sheet().faces.set('height',3);
     const scene=new ConstructionScene3(lineArt3({camera,objects:[{id:'sheet',surface}],lineSets:[]}));
-    surface.points[0].position=[100,100,100];surface.faces[0].attributes.height=9;
     const hit=scene.pick(camera,400,400,.5,.5)!;
     expect(hit.objectId).toBe('sheet');expect(hit.attributes).toEqual({height:3});expect(hit.point).toEqual([0,0,0]);
     const moved=orbitCamera3(camera,.35,.4);

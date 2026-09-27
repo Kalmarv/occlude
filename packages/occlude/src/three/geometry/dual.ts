@@ -1,5 +1,6 @@
-import {add3,centroid3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
-import {assembleSurface3,surface3,type Attributes3,type Surface3,type SurfaceFace3,type SurfacePoint3} from './surface.js';
+import {add3,centroid3,dot3,mul3,type Vec3} from '../math.js';
+import {triangulate,cornerNames3,checkMade3,faceEdges3,kernelColumn,pairKey,type Made3,type Mesh3} from './mesh3.js';
+import {kindOf,type AnyColumn} from '../../column.js';
 import {emptySize} from '../degenerate.js';
 
 export interface DualOptions {
@@ -16,18 +17,27 @@ function areaVector(positions:readonly Vec3[]):Vec3 {
   }
   return normal;
 }
-/** The dual surface: one point per face, one face per vertex.
+/** Nothing: the dual of a value with no ring to walk. */
+const NOTHING:Made3=Object.freeze({x:[],y:[],z:[],names:{points:[],edges:[],faces:[],corners:[]},loops:[],triangles:[],edges:[]});
+/** Each column of `cols` that `keep` accepts, on the rows `rows`. */
+const columnsOn=(cols:Readonly<Record<string,AnyColumn>>,rows:readonly number[],keep:(column:AnyColumn)=>boolean):Record<string,AnyColumn>=>
+  Object.fromEntries(Object.entries(cols).filter(([,column])=>keep(column)).map(([name,column])=>[name,column.keep(rows)]));
+/** A column of numbers or of numeric vectors: what a face column may become
+ * as a point column. */
+const numeric=(column:AnyColumn):boolean=>{const kind=kindOf(column).name;return kind==='number'||kind==='vector';};
+/** The dual: one point per face, one face per vertex.
  *
  * A vertex's dual face walks the faces around it, so a closed surface duals to
  * a closed surface — a cube to an octahedron, a geodesic polyhedron to its
  * Goldberg. A vertex on a boundary has no ring to walk and gets no face, so an
- * open mesh loses its rim rather than failing. */
-export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
-  if(!surface.faces.length)return surface3([],[]);
-  if(options.project!==undefined&&emptySize(options.project))return surface3([],[]);
-  const positions=surface.points.map(p=>p.position);
-  const faceCentre=surface.faces.map(f=>centroid3(f.vertices.map(v=>positions[v])));
-  const faceNormal=surface.faces.map(f=>areaVector(f.vertices.map(v=>positions[v])));
+ * open mesh loses its rim rather than failing. Numeric face columns become
+ * point columns, and point columns face columns. */
+export function dualMesh3(mesh:Mesh3,options:DualOptions={}):Made3 {
+  if(!mesh.faceCount)return NOTHING;
+  if(options.project!==undefined&&emptySize(options.project))return NOTHING;
+  const positions=mesh.positions,loops=mesh.loops;
+  const faceCentre=loops.map(loop=>centroid3(loop.map(v=>positions[v])));
+  const faceNormal=loops.map(loop=>areaVector(loop.map(v=>positions[v])));
   const radius=options.project;
   const placed=faceCentre.map(p=>{
     if(radius===undefined)return p;
@@ -36,25 +46,23 @@ export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
     // stays where it is rather than becoming a non-finite point.
     return length>0?mul3(p,radius/length):p;
   });
-  const edgeAt=new Map<string,number>();
-  surface.edges.forEach((edge,i)=>edgeAt.set(`${edge.vertices[0]}:${edge.vertices[1]}`,i));
-  const key=(a:number,b:number):string=>a<b?`${a}:${b}`:`${b}:${a}`;
-  const around:number[][]=surface.points.map(()=>[]);
-  surface.faces.forEach((face,f)=>{for(const v of face.vertices)around[v].push(f);});
+  const edgeAt=new Map<number,number>();
+  for(let e=0;e<mesh.edgeCount;e++)edgeAt.set(pairKey(mesh.edges[2*e],mesh.edges[2*e+1]),e);
+  const edgeFaces=mesh.edgeFaces,around=mesh.pointFaces;
   const polygons:number[][]=[],owners:number[]=[];
-  for(let v=0;v<surface.points.length;v++){
+  for(let v=0;v<mesh.n;v++){
     const incident=around[v];
     if(incident.length<3)continue;
     const ring:number[]=[];
     let face=incident[0],closed=false;
     for(let step=0;step<=incident.length;step++){
       ring.push(face);
-      const vertices=surface.faces[face].vertices,at=vertices.indexOf(v);
-      const next=vertices[(at+1)%vertices.length],edge=surface.edges[edgeAt.get(key(v,next))!];
+      const vertices=loops[face],at=vertices.indexOf(v);
+      const e=edgeAt.get(pairKey(v,vertices[(at+1)%vertices.length])),faces=e===undefined?undefined:edgeFaces[e];
       // A rim edge has one face: the walk cannot close, so this vertex has no
       // dual face and the rest of the mesh still duals.
-      if(!edge||edge.faces.length!==2)break;
-      face=edge.faces[0]===face?edge.faces[1]:edge.faces[0];
+      if(!faces||faces.length!==2)break;
+      face=faces[0]===face?faces[1]:faces[0];
       if(face===ring[0]){closed=true;break;}
     }
     if(!closed||ring.length!==incident.length)continue;
@@ -64,17 +72,31 @@ export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
     const loop=dot3(areaVector(ring.map(f=>placed[f])),outward)<0?[...ring].reverse():ring;
     polygons.push(loop);owners.push(v);
   }
-  if(!polygons.length)return surface3([],[]);
+  if(!polygons.length)return NOTHING;
   // A face nobody's ring reached contributes no point: an open mesh keeps only
   // the dual it actually has.
   const used=[...new Set(polygons.flat())].sort((a,b)=>a-b);
   const at=new Map(used.map((f,i)=>[f,i]));
-  const numeric=(attributes:Attributes3):Attributes3=>Object.fromEntries(Object.entries(attributes).filter(([,value])=>typeof value==='number'||Array.isArray(value)&&value.every(n=>typeof n==='number')));
-  const points:SurfacePoint3[]=used.map(f=>({id:`dual:${surface.faces[f].id}`,position:placed[f],attributes:numeric(surface.faces[f].attributes),provenance:{operation:'dual',parents:[surface.faces[f].id]}}));
-  const faces:SurfaceFace3[]=polygons.map((loop,i)=>({id:`dual:${surface.points[owners[i]].id}`,vertices:loop.map(f=>at.get(f)!),attributes:{...surface.points[owners[i]].attributes},provenance:{operation:'dual',parents:[surface.points[owners[i]].id]}}));
-  // The ordinary ear clipping decides the triangles, in each face's own average
-  // plane: a projected Goldberg's hexagons are not exactly planar, and they are
-  // drawn as the triangles that plane gives.
-  const triangulated=surface3(points.map(p=>p.position),faces.map(f=>f.vertices));
-  return assembleSurface3(points,faces,triangulated.triangles);
+  const names=mesh.names;
+  const points=used.map(f=>placed[f]);
+  const dualLoops=polygons.map(loop=>loop.map(f=>at.get(f)!));
+  const pointNames=used.map(f=>`dual:${names.faces[f]}`),faceNames=owners.map(v=>`dual:${names.points[v]}`);
+  const edges=faceEdges3(dualLoops,pointNames);
+  const made:Made3={
+    x:points.map(p=>p[0]),y:points.map(p=>p[1]),z:points.map(p=>p[2]),
+    names:{points:pointNames,edges:edges.names,faces:faceNames,corners:cornerNames3(dualLoops,faceNames,pointNames)},
+    loops:dualLoops,
+    // The ordinary ear clipping decides the triangles, in each face's own
+    // average plane: a projected Goldberg's hexagons are not exactly planar,
+    // and they are drawn as the triangles that plane gives.
+    triangles:dualLoops.map(loop=>triangulate(points,loop).flatMap(t=>t.map(v=>loop.indexOf(v)))),
+    edges:edges.edges,
+    cols:{points:columnsOn(mesh.cols.faces,used,numeric),faces:columnsOn(mesh.cols.points,owners,kernelColumn)},
+    lineage:{
+      points:used.map(f=>({operation:'dual',parents:[names.faces[f]]})),
+      faces:owners.map(v=>({operation:'dual',parents:[names.points[v]]})),
+    },
+  };
+  checkMade3(made);
+  return made;
 }

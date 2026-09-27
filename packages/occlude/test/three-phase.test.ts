@@ -3,7 +3,8 @@ import { beforeAll, expect, it } from 'vitest';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
 import { pen, mm, dash, stroke, sketch, smooth } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render, decodePlanBuffer, evalPrim } from '../src/host.js';
-import { lineArt3, box3, constructStrokes3, type Stroke3 } from '../src/three/api/advanced.js';
+import { lineArt3, constructStrokes3, type Stroke3 } from '../src/three/api/advanced.js';
+import { box } from '../src/three/api/index.js';
 import { compileSketch, encodeScene, renderEncoded, type WasmModule } from '../src/host.js';
 import { pensToJson } from '../src/render.js';
 beforeAll(async()=>{await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));});
@@ -12,7 +13,7 @@ const config={margin:0,aspect:'square' as const,pens:{ink:pen({width:mm(.2)})}};
 it('anchors a multi-segment 3D wire through a box occluder and actual planned SVG',async()=>{
   let runs:readonly Stroke3[]=[];
   const execution=await compileSketchAsync(sketch(config,async t=>{
-    const classified=await t.classify3(lineArt3({camera:{kind:'orthographic',span:10,eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10},objects:[{id:'box',surface:box3([1,1,1]),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
+    const classified=await t.classify3(lineArt3({camera:{kind:'orthographic',span:10,eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10},objects:[{id:'box',surface:box([1,1,1]),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
     runs=constructStrokes3(classified,[{id:'visible',stroke:'ink'}]);
     const reversed=constructStrokes3({...classified,features:[...classified.features].reverse()},[{id:'visible',stroke:'ink'}]);
     expect(reversed.map(r=>[r.reference,r.sourceRanges])).toEqual(runs.map(r=>[r.reference,r.sourceRanges]));

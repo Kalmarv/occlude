@@ -1,17 +1,19 @@
 import {Material} from '../../material.js';
 import {type GeometryOptions} from './mesh.js';
-import {surfaceOf} from '../geometry/value.js';
+import {mesh3} from '../geometry/mesh3.js';
 import type {Vertex} from '../../material.js';
 import type {Selection} from '../../selection.js';
 import {isInstances,placedOf} from './instances.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
-import type {SurfaceLocation3} from '../geometry/location.js';
-import type {Attributes3} from '../geometry/surface.js';
+import {locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
+import {placeOf3,type SurfaceSample} from './sampling.js';
+import type {CurveSample} from './curveSampling.js';
+import type {Attributes3} from '../geometry/model.js';
 import {integerWeights,weightedPoint} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
 import {surfaceBinding3,bindingTriangle3,surfaceCurveNetworkJob3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetworkInput3} from '../curves/network.js';
-import {traceEnvironment3,traceBoth3,traceSurface3,traceLocation3,type Trace3,type TraceEnvironment3,type TraceNode3,type TraceOptions3,type TraceStop3} from '../surface/trace.js';
+import {traceEnvironment3,traceBoth3,traceOneWay3,traceLocation3,type Trace3,type TraceEnvironment3,type TraceNode3,type TraceOptions3,type TraceStop3} from '../surface/trace.js';
 import {directionField,toneField,type DirectionInput,type ToneInput,type DirectionField,type ToneField} from '../surface/fields.js';
 import {toneRecipe3,decideTone3,type ToneRecipe3} from '../surface/tone.js';
 import {evaluateSurfaceCpu3,type SurfaceEvaluationResult3,type SurfaceEvaluationStats3} from '../surface/evaluate.js';
@@ -105,7 +107,7 @@ export function captureHatch(input:HatchInput,options:HatchOptions) {
     creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'hatch creaseDegrees'),fallback:directionField(options.fallback??defaultFallback),uv:options.uv,chartAttribute:options.chartAttribute,budget:structuredClone(options.budget??{}),key:options.key,
   };
   for(const name of [settings.uv,settings.chartAttribute])if(name!==undefined&&(typeof name!=='string'||!name))throw new Error('hatch coordinate columns must be nonempty strings');
-  const bindings:{id:string;binding:SurfaceBinding3}[]=isInstances(input)?placedOf(input).map(copy=>({id:copy.id,binding:copy.binding})):[{id:input.key??'mesh',binding:surfaceBinding3(surfaceOf(input))}];
+  const bindings:{id:string;binding:SurfaceBinding3}[]=isInstances(input)?placedOf(input).map(copy=>({id:copy.id,binding:copy.binding})):[{id:input.key??'mesh',binding:surfaceBinding3(mesh3(input))}];
   return {bindings,settings};
 }
 /** Lane thresholds nest: lane 0 draws wherever tone is positive, odd lanes
@@ -155,13 +157,13 @@ class Occupancy {
 }
 const unit=(v:Vec3):Vec3|null=>{const l=Math.hypot(...v);return l>0&&Number.isFinite(l)?mul3(v,1/l):null;};
 function areaTable(env:TraceEnvironment3):{cumulative:Float64Array;total:number} {
-  const cumulative=new Float64Array(env.surface.triangles.length);let total=0;
-  env.surface.triangles.forEach((t,i)=>{const [a,b,c]=t.vertices.map(v=>env.world[v]);total+=Math.hypot(...cross3(sub3(b,a),sub3(c,a)))/2;cumulative[i]=total;});
+  const cumulative=new Float64Array(env.mesh.triangleCount);let total=0;
+  for(let i=0;i<cumulative.length;i++){const [a,b,c]=env.mesh.triangle(i).map(v=>env.world[v]);total+=Math.hypot(...cross3(sub3(b,a),sub3(c,a)))/2;cumulative[i]=total;}
   return {cumulative,total};
 }
 /** Does an accepted lane already reach the centre of this triangle? */
 function reached(env:TraceEnvironment3,occupancy:Occupancy,triangle:number,radius:number):boolean {
-  const [a,b,c]=env.surface.triangles[triangle].vertices.map(v=>env.world[v]);
+  const [a,b,c]=env.mesh.triangle(triangle).map(v=>env.world[v]);
   const centre=mul3(add3(add3(a,b),c),1/3);
   return occupancy.blocked(centre,env.normals[triangle],triangle,radius);
 }
@@ -178,7 +180,7 @@ export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>
   const {settings,bindings}=captured;
   const stats:HatchTraced['stats']={traces:0,accepted:0,steps:0,seedsQueued:0,randomSeeds:0,sweepSeeds:0,occupancyRejections:0,stops:{}};
   let totalSteps=0;const budget=()=>totalSteps++<settings.maxTotalSteps;
-  const envs=bindings.map(b=>traceEnvironment3(b.binding.source,b.binding));yield;
+  const envs=bindings.map(b=>traceEnvironment3(b.binding));yield;
   const families:HatchTraced['families'][number][]=[];
   for(const family of settings.families){
     const surfaces:HatchTraced['families'][number]['surfaces'][number][]=[];
@@ -189,7 +191,7 @@ export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>
       const walk:TraceOptions3={...options,step:spacing/4,maxLength:spacing,maxSteps:Math.max(8,Math.ceil(spacing/(spacing/4))*8),loopDistance:0};
       const occupancy=new Occupancy(spacing,env.topology.components),table=areaTable(env),queue:Seed[]=[];
       const traces:HatchTrace[]=[];let randomUsed=0,seedCounter=0,sweep=0;
-      const triangles=env.surface.triangles.length;
+      const triangles=env.mesh.triangleCount;
       while(traces.length<settings.maxTraces){
         let seed=queue.shift();
         if(!seed&&randomUsed<settings.seeds){randomUsed++;stats.randomSeeds++;const s=randomSeed(env,table,rnd,0);if(s)seed=s;else randomUsed=settings.seeds;}
@@ -222,7 +224,7 @@ export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>
           if(!tangent)continue;
           for(const sign of [1,-1]){
             const side=mul3(cross3(node.normal,tangent),sign);
-            const reached=traceSurface3(env,{triangle:node.triangle,weights:node.weights},(_,previous)=>previous??side,walk,{budget,blind:true});
+            const reached=traceOneWay3(env,{triangle:node.triangle,weights:node.weights},(_,previous)=>previous??side,walk,{budget,blind:true});
             if(reached.length<spacing*0.9)continue;
             const end=reached.nodes[reached.nodes.length-1];
             if(occupancy.blocked(end.position,end.normal,end.triangle,dtest)){stats.occupancyRejections++;continue;}
@@ -238,12 +240,12 @@ export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>
   return {settings,bindings,families,stats};
 }
 export interface HatchTone {readonly values:readonly (Float32Array|undefined)[][];readonly stats:HatchStats['tone']}
-interface ToneWork {readonly family:Family;readonly surface:HatchTraced['families'][number]['surfaces'][number];readonly nodes:readonly TraceNode3[];readonly thresholds:Float32Array;readonly target:{surface:HatchTraced['families'][number]['surfaces'][number]['env']['surface'];placement?:HatchTraced['families'][number]['surfaces'][number]['env']['placement'];uvAttribute?:string;chartAttribute?:string}}
+interface ToneWork {readonly family:Family;readonly surface:HatchTraced['families'][number]['surfaces'][number];readonly nodes:readonly TraceNode3[];readonly thresholds:Float32Array;readonly target:{mesh:HatchTraced['families'][number]['surfaces'][number]['env']['mesh'];placement?:HatchTraced['families'][number]['surfaces'][number]['env']['placement'];uvAttribute?:string;chartAttribute?:string}}
 function toneWork(traced:HatchTraced):ToneWork[][] {
   return traced.families.map(({family,surfaces})=>surfaces.map(surface=>{
     const nodes=surface.traces.flatMap(t=>t.trace.nodes),thresholds=new Float32Array(nodes.length);let k=0;
     for(const t of surface.traces)for(let i=0;i<t.trace.nodes.length;i++)thresholds[k++]=laneThreshold(t.lane);
-    return {family,surface,nodes,thresholds,target:{surface:surface.env.surface,placement:surface.env.placement,uvAttribute:traced.settings.uv,chartAttribute:traced.settings.chartAttribute}};
+    return {family,surface,nodes,thresholds,target:{mesh:surface.env.mesh,placement:surface.env.placement,uvAttribute:traced.settings.uv,chartAttribute:traced.settings.chartAttribute}};
   }));
 }
 function cpuTone(work:ToneWork,settings:Settings,i:number):number {
@@ -357,10 +359,10 @@ export interface TraceOptions extends SurfaceCurveOptions {
   readonly step:number;readonly maxLength?:number;readonly maxSteps?:number;readonly creaseDegrees?:number;
   readonly uv?:string;readonly chartAttribute?:string;readonly budget?:SurfaceCurveBudget3;
 }
-type SeedLocation=Pick<SurfaceLocation3,'triangle'|'barycentric'>&Partial<Pick<SurfaceLocation3,'source'>>;
-/** Where a trace starts: a surface sample, a location, or a curve sample
- * (`t.sample(curves, …)` rows) that lies on the traced mesh. */
-export type TraceSeed={readonly sample:SeedLocation}|{readonly sample:{on(target:Material):readonly SeedLocation[]}}|SeedLocation;
+/** Where a trace starts: a location, a surface sample (a scattered point,
+ * or its `sample`), or a curve sample (a point of `t.sample(curves, …)`)
+ * that lies on the traced mesh. */
+export type TraceSeed=SurfaceLocation3|SurfaceSample|{readonly sample:SurfaceSample|CurveSample};
 export type TraceColumns={trace:number};
 /** Pure tracing from explicit seeds: sampled points, scattered points or
  * surface locations. Both directions from each seed; no spacing control, no
@@ -373,23 +375,24 @@ export function trace(mesh:Material,seeds:Iterable<TraceSeed>|Selection<Vertex>,
   const settings:TraceOptions3={step,maxLength:positive(options.maxLength,step*1000),maxSteps:count(options.maxSteps,Infinity,'maxSteps'),creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'trace creaseDegrees'),loopDistance:step*0.5,uvAttribute:options.uv,chartAttribute:options.chartAttribute};
   // No step and no length are no walk: an empty set of curves.
   const walks=[settings.step,settings.maxLength].every(Number.isFinite);
-  const binding=surfaceBinding3(surfaceOf(mesh)),env=traceEnvironment3(binding.source,binding);
+  const binding=surfaceBinding3(mesh3(mesh)),env=traceEnvironment3(binding);
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   let index=0;
   for(const seed of walks?seeds:[]){
-    const held='sample' in seed?seed.sample:seed;
+    const held:unknown=seed&&typeof seed==='object'&&'sample' in seed?seed.sample:seed;
     // A curve sample keeps its attachment to every surface it lies on; the
-    // one on this mesh is the seed.
-    let location:SeedLocation;
+    // one on this mesh is the seed. A surface sample is the place it was
+    // captured at.
+    let location:SurfaceLocation3|undefined;
     if(typeof (held as {on?:unknown}).on==='function'){
-      const on=(held as {on(target:Material):readonly SeedLocation[]}).on(mesh);
+      const on=(held as CurveSample).on(mesh);
       if(!on.length)throw new Error('trace seed is a curve sample that does not lie on this mesh: sample curves on the traced mesh (intersections with it, its isolines)');
       location=on[0];
-    }else location=held as SeedLocation;
-    if(!location||!Number.isSafeInteger(location.triangle)||!surfaceOf(mesh).triangles[location.triangle]||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
-    // A location knows its surface; a seed sampled on another mesh would be
+    }else location=placeOf3(held);
+    if(!location)throw new Error('trace seeds require a surface sample or location on this mesh');
+    // A place knows its surface; a seed sampled on another mesh would be
     // read as a triangle index on this one and land somewhere else entirely.
-    if(location.source!==undefined&&location.source!==surfaceOf(mesh))throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
+    if(locationMesh3(location)!==binding.source)throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
     const result=traceBoth3(env,{triangle:location.triangle,weights:location.barycentric},field,settings),chain=identity('trace-chain',options.key??mesh.key??'default',index);
     const ids:(string|undefined)[]=[],last=result.nodes.length-1;
     const nodeId=(index:number)=>{

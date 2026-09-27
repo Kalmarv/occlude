@@ -1,4 +1,6 @@
-import type { Attributes3, Surface3 } from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
+import { mesh3, type Mesh3 } from '../geometry/mesh3.js';
+import { Material } from '../../material.js';
 import { finite3, type Vec3 } from '../math.js';
 
 /** Barycentric source position; original vertex indices survive instance transforms. */
@@ -15,14 +17,22 @@ export interface SurfaceCurveSegment3 {
   readonly chainId?:string;
   readonly range?:readonly [number,number];
 }
-/** Draw against this exact owned surface; a new model needs newly generated curves. */
-export interface SurfaceCurves3 { readonly surface:Surface3; readonly segments:readonly SurfaceCurveSegment3[] }
+/** Curves on one value: `surface` is the value they were cut from, which a
+ * scene object pairs with them; another value, even an edit of this one,
+ * needs curves of its own. */
+export interface SurfaceCurves3 { readonly surface:Material; readonly segments:readonly SurfaceCurveSegment3[] }
+/** The value the explicit stage reads (a scene object's `surface`, what
+ * `section3` and `hatch3` cut), refused by name when it is not one. */
+export function stageGeometry3(input:unknown,who:string):Material {
+  if(!(input instanceof Material))throw new Error(`${who}: expected a geometry from occlude/3d — box(), mesh(positions, faces), … — got ${input===null?'null':Array.isArray(input)?'a list':typeof input}`);
+  return input;
+}
 export const freezeCurves3=<T>(value:T):T=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const v of Object.values(value))freezeCurves3(v);Object.freeze(value);}return value;};
 
 /** Validate source ownership before any support IDs can bypass self-occlusion. */
 // Frozen curve sets are validated once per surface: the snapshot and the
 // network builder both check the same object.
-const validated=new WeakMap<SurfaceCurves3,Surface3>();
+const validated=new WeakMap<SurfaceCurves3,Mesh3>();
 /** Two endpoints that share an ID must name the same source position. The
  * comparison is field by field rather than through a rendered key: `finite3`
  * above has already refused anything but finite triples, and `-0` compares
@@ -32,11 +42,11 @@ function sameSourcePoint3(a:SurfaceCurvePoint3,b:SurfaceCurvePoint3):boolean {
   for(let i=0;i<3;i++)if(a.vertices[i]!==b.vertices[i]||a.weights[i]!==b.weights[i]||a.position[i]!==b.position[i])return false;
   return true;
 }
-export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Surface3):void {
-  if(curves.surface!==surface)throw new Error('surface curves belong to a different captured surface; draw curves.surface or regenerate the curves');
+export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Mesh3):void {
+  if(mesh3(curves.surface)!==surface)throw new Error('surface curves belong to a different geometry; draw curves.surface or cut the curves again');
   if(validated.get(curves)===surface)return;
   const ids=new Set<string>(),points=new Map<string,SurfaceCurvePoint3>();
-  const vertexCount=surface.points.length,triangleCount=surface.triangles.length;
+  const vertexCount=surface.n,triangleCount=surface.triangleCount,positions=surface.positions,slot=surface.triangles;
   for(const segment of curves.segments) {
     if(!segment.id||ids.has(segment.id)||!['section','hatch'].includes(segment.kind))throw new Error('surface curves need unique segment IDs and a supported kind');
     ids.add(segment.id);
@@ -48,7 +58,7 @@ export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Surface3):v
         ||!Number.isSafeInteger(v0)||v0<0||v0>=vertexCount||!Number.isSafeInteger(v1)||v1<0||v1>=vertexCount||!Number.isSafeInteger(v2)||v2<0||v2>=vertexCount
         ||w0<0||w0>1||w1<0||w1>1||w2<0||w2>1
         ||Math.abs(0+w0+w1+w2-1)>32*Number.EPSILON)throw new Error('surface curve has invalid barycentric source point');
-      const a0=surface.points[v0].position,a1=surface.points[v1].position,a2=surface.points[v2].position;
+      const a0=positions[v0],a1=positions[v1],a2=positions[v2];
       // `scale` is the max over the nine support coordinates and the three of
       // `position`; every term is an absolute value, so a running max is the
       // number `Math.max(...)` gave, without the flatMap and the two spreads.
@@ -67,8 +77,8 @@ export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Surface3):v
       if(previous!==undefined&&!sameSourcePoint3(previous,p))throw new Error('surface curve endpoint ID refers to different source positions');
       points.set(p.id,p);
       for(const index of segment.triangles) {
-        const t=surface.triangles[index].vertices;
-        if((w0>0&&!t.includes(v0))||(w1>0&&!t.includes(v1))||(w2>0&&!t.includes(v2)))throw new Error('surface curve point is outside its declared triangle support');
+        const t0=slot[3*index],t1=slot[3*index+1],t2=slot[3*index+2],has=(v:number)=>v===t0||v===t1||v===t2;
+        if((w0>0&&!has(v0))||(w1>0&&!has(v1))||(w2>0&&!has(v2)))throw new Error('surface curve point is outside its declared triangle support');
       }
     }
   }

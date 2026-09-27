@@ -1,6 +1,6 @@
 import {chainsOf} from '../../curves.js';
 import {Material} from '../../material.js';
-import {surfaceOf} from '../geometry/value.js';
+import {mesh3,kernelColumn} from '../geometry/mesh3.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {chartIndexJob3} from '../curves/chartIndex.js';
@@ -9,7 +9,7 @@ import {surfaceBinding3,bindingTriangle3,surfaceCurveNetworkJob3,type SurfaceCur
 import {worldBounds3} from '../geometry/bounds.js';
 import {gcd,ratioNumber,type Ratio,type H,type V} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
 
 /** Where pattern coordinates lie in the chart. The default is the unit square:
@@ -54,7 +54,7 @@ export function captureSurfaceMapping(mesh:Material,pattern:Material|readonly Ma
   const settings=structuredClone(options),patterns=pattern instanceof Material?[pattern]:pattern;
   if(!Array.isArray(patterns)||!patterns.length||patterns.some(p=>!(p instanceof Material)))throw new Error('mapSurface requires resolved numeric materials; use t.material or t.sample for frame-dependent shapes');
   const maxPoints=limit(settings.maxInputPoints,Infinity,'input points'),maxSegments=limit(settings.maxInputSegments,Infinity,'input segments');
-  if(surfaceOf(mesh).triangles.length>limit(settings.maxTriangles,Infinity,'triangles'))throw new Error('surface mapping exceeds triangle budget');
+  if(mesh3(mesh).triangleCount>limit(settings.maxTriangles,Infinity,'triangles'))throw new Error('surface mapping exceeds triangle budget');
   limit(settings.maxCandidates,Infinity,'candidate');
   for(const name of [settings.uv??'uv',settings.chartAttribute??'chart'])if(typeof name!=='string'||!name)throw new Error('surface mapping coordinate columns must be nonempty strings');
   if(settings.chart!==undefined&&!(typeof settings.chart==='string'||typeof settings.chart==='number'&&Number.isFinite(settings.chart)))throw new Error('surface mapping chart must be a string or finite number');
@@ -78,13 +78,15 @@ function parameter(edge:number,count:number,t:Ratio):Ratio {
 const sameRatio=(a:Ratio,b:Ratio)=>a[0]*b[1]===b[0]*a[1];
 /** Generator orchestration keeps exact construction and graph adoption atomic. */
 export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapping>,onProgress?:(event:{operation:'mapSurface';done:number;total?:number})=>void) {
-  const {mesh,patterns,settings}=captured,surface=surfaceOf(mesh),binding=surfaceBinding3(surface);
-  const charts=yield*chartIndexJob3(surface,settings.uv,settings.chartAttribute,settings.chart);
+  const {mesh,patterns,settings}=captured,reader=mesh3(mesh),binding=surfaceBinding3(reader);
+  const charts=yield*chartIndexJob3(reader,settings.uv,settings.chartAttribute,settings.chart);
   // A surface whose corners hold no chart place at all has nowhere to map
   // to; a chart the surface does not carry is a mistake, named with the
   // charts it does carry.
-  const uvName=settings.uv??'uv';
-  if(surface.faces.length>0&&!surface.faces.some(f=>f.corners?.some(c=>Array.isArray(c.attributes[uvName]))))throw new Error(`mapSurface: no corner of this surface holds a chart place in '${uvName}' — set one with m.corners.set('${uvName}', …), or map on a primitive, which has a chart`);
+  const uvName=settings.uv??'uv',uv=reader.cols.corners[uvName];
+  let placed=false;
+  if(uv!==undefined&&kernelColumn(uv))for(let c=0;c<reader.cornerCount&&!placed;c++)placed=Array.isArray((uv as {get(i:number):unknown}).get(c));
+  if(reader.faceCount>0&&!placed)throw new Error(`mapSurface: no corner of this surface holds a chart place in '${uvName}' — set one with m.corners.set('${uvName}', …), or map on a primitive, which has a chart`);
   if(settings.chart!==undefined&&charts.charts.length>0&&!charts.charts.includes(settings.chart))throw new Error(`mapSurface: no face has the chart ${JSON.stringify(settings.chart)} — the charts here are ${charts.charts.map(c=>JSON.stringify(c)).join(', ')}`);
   const budget=settings.budget??{},maxNodes=limit(budget.maxNodes,Infinity,'node'),maxSegments=limit(budget.maxSegments,Infinity,'segment'),maxSupports=limit(budget.maxSupports,Infinity,'support'),maxBytes=limit(budget.maxExactBytes,Infinity,'exact byte'),maxBits=limit(budget.maxCoordinateBits,32768,'coordinate bit'),maxCandidates=settings.maxCandidates??Infinity;
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
@@ -97,7 +99,7 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
   function node(chain:string,component:number,triangle:number,weights:V,p:H,t:Ratio,closed:boolean,attributes:Attributes3):string {
     // Actual attachment simplex distinguishes coincident unrelated triangles;
     // a shared position never merges unrelated chains or layers.
-    const simplex=surface.triangles[triangle].vertices.filter((_,i)=>weights[i]!==0n).sort((a,b)=>a-b);
+    const simplex=reader.triangle(triangle).filter((_,i)=>weights[i]!==0n).sort((a,b)=>a-b);
     const seam=closed&&(t[0]===0n||t[0]===t[1]),key=JSON.stringify([chain,component,simplex,p.map(String),seam?'seam':t.map(String)]);
     const previous=nodeIds.get(key);if(previous)return previous;
     if(nodes.length>=maxNodes)throw new Error('surface mapping exceeds node budget');

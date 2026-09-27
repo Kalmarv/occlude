@@ -1,4 +1,5 @@
 import {describe,expect,it} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {box,instanceOnPoints,intersections,mesh,pointCloud} from 'occlude/3d';
 import { sketch } from '../src/index.js';
 import { compileSketch } from '../src/host.js';
@@ -8,10 +9,9 @@ import {point,type H} from '../src/three/geometry/exact.js';
 import {surfaceBinding3,surfaceCurveNetwork3} from '../src/three/curves/network.js';
 import {surfaceLocation3,rebindSurfaceLocation3} from '../src/three/geometry/location.js';
 import {toolkit} from './helpers/run.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const source=()=>mesh([[0,0,0],[10,0,0],[0,10,0]],[[0,1,2]]);
-const binding=()=>surfaceBinding3(surfaceOf(source()));
+const binding=()=>surfaceBinding3(mesh3(source()));
 const graph=(nodes:readonly {id:string;point:H}[],segments:readonly {id:string;a:string;b:string;chainId?:string;range?:readonly [number,number]}[],sources=[{id:'surface',binding:binding()}])=>new SurfaceCurves(surfaceCurveNetwork3({sources,nodes:nodes.map(n=>({...n,supports:[{source:0,triangle:0}]})),segments:segments.map(s=>({...s,kind:'trace' as const,supports:[{source:0,triangle:0}],chainId:s.chainId??'chain',range:s.range??[0,1] as const}))}));
 
 describe('surface curve sampling',()=>{
@@ -42,7 +42,7 @@ describe('surface curve sampling',()=>{
  it('retains exact multi-source incidence, rational weights, tangent, and ownership lookup',()=>{
   const a=source(),b=source();
   const p=[1n,1n,0n,3n] as H,q=[2n,1n,0n,3n] as H;
-  const multi=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'a',binding:surfaceBinding3(surfaceOf(a))},{id:'b',binding:surfaceBinding3(surfaceOf(b))}],nodes:[
+  const multi=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'a',binding:surfaceBinding3(mesh3(a))},{id:'b',binding:surfaceBinding3(mesh3(b))}],nodes:[
    {id:'p',point:p,supports:[{source:0,triangle:0},{source:1,triangle:0}]},{id:'q',point:q,supports:[{source:0,triangle:0},{source:1,triangle:0}]},
   ],segments:[{id:'edge',kind:'trace',a:'p',b:'q',supports:[{source:0,triangle:0},{source:1,triangle:0}]}]}));
   const row=[...sampleSurfaceCurves(multi,{count:3}).points][1],locations=row.sample.locations;
@@ -62,7 +62,7 @@ describe('surface curve sampling',()=>{
  });
 
  it('requires shared construction lineage for explicit rebind and honors budgets',()=>{
-  const model=source(),curves=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'surface',binding:surfaceBinding3(surfaceOf(model))}],nodes:[{id:'a',point:point([0,0,0]),supports:[{source:0,triangle:0}]},{id:'b',point:point([4,0,0]),supports:[{source:0,triangle:0}]}],segments:[{id:'edge',kind:'trace',a:'a',b:'b',supports:[{source:0,triangle:0}]}]}));
+  const model=source(),curves=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'surface',binding:surfaceBinding3(mesh3(model))}],nodes:[{id:'a',point:point([0,0,0]),supports:[{source:0,triangle:0}]},{id:'b',point:point([4,0,0]),supports:[{source:0,triangle:0}]}],segments:[{id:'edge',kind:'trace',a:'a',b:'b',supports:[{source:0,triangle:0}]}]}));
   const samples=sampleSurfaceCurves(curves,{count:3});
   const rebound=curves.rebind(model);expect([...samples.rebind(rebound as never).points][1].sample.locations).toHaveLength(1);
   const unrelated=graph([{id:'a',point:point([0,0,0])},{id:'b',point:point([4,0,0])}],[{id:'edge',a:'a',b:'b'}]);
@@ -72,8 +72,8 @@ describe('surface curve sampling',()=>{
  });
 
  it('reorders exact rational weights when rebinding a mirrored triangle',()=>{
-  const model=source(),location=surfaceLocation3(surfaceOf(model),0,[.2,.3,.5],{exactWeights:[2n,3n,5n]});
-  const mirrored=model.scale([-1,1,1]),rebound=rebindSurfaceLocation3(location,surfaceOf(mirrored));
+  const model=source(),location=surfaceLocation3(mesh3(model),0,[.2,.3,.5],{exactWeights:[2n,3n,5n]});
+  const mirrored=model.scale([-1,1,1]),rebound=rebindSurfaceLocation3(location,mesh3(mirrored));
   expect(rebound.exact).toBeDefined();
   expect(rebound.position).toEqual([-3,5,0]);
   expect(rebound.barycentric).toEqual([.2,.5,.3]);

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { sketch, pen, mm, fill, strokes, polygon, material, curve as curve2 } from '../src/index.js';
 import { initOcclude, renderAsync, type RenderResult } from '../src/host.js';
-import { box3, lineArt3 } from '../src/three/api/advanced.js';
+import { lineArt3 } from '../src/three/api/advanced.js';
 import * as three from '../src/three/api/index.js';
 import {
   box, plane, sphere, cone, view, orthographic, isolines, intersections, trace, sweep, revolve,
@@ -14,7 +14,6 @@ import {
 import { sampleSurfaceCurves } from '../src/three/api/curveSampling.js';
 import type { ProjectedLines } from '../src/three/api/projected.js';
 import { rec } from './helpers/xy.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -343,14 +342,15 @@ describe('G3-19 · a field of space is (x, y, z), as sdf3 and 2D fields', () => 
 });
 
 describe('G3-43 · the advanced stage takes the ordinary values at the joins', () => {
-  it('takes a mesh in lineArt3 and a Surface3 in view', async () => {
+  it('takes the same mesh in lineArt3 and in view, and nothing else', async () => {
     // FRICTION G3-43: lineArt3({ objects: [{ surface: m }] })
-    const scene = lineArt3({ objects: [{ id: 'mesh', surface: box(1) }], camera, lineSets: [{ id: 'visible', stroke: 'ink' }] });
-    expect(scene.objects[0].surface.points.length).toBe(8);
-    // FRICTION G3-43: view(box3([1, 1, 1]), …)
-    const a = await draw(() => view(box3([1, 1, 1]), { camera, pen: 'ink' }));
-    const b = await draw(() => view(box(1), { camera, pen: 'ink' }));
-    expect(a.raw.prims).toEqual(b.raw.prims);
+    const model = box(1);
+    const scene = lineArt3({ objects: [{ id: 'mesh', surface: model }], camera, lineSets: [{ id: 'visible', stroke: 'ink' }] });
+    expect(scene.objects[0].surface).toBe(model);
+    expect(view(model, { camera, pen: 'ink' }).scene.objects[0].surface).toBe(model);
+    // The stage reads values: a record shaped like a surface is refused by name.
+    expect(() => lineArt3({ objects: [{ id: 'raw', surface: { points: [], faces: [] } as never }], camera, lineSets: [] })).toThrow(/lineArt3: object 'raw' surface: expected a geometry from occlude\/3d/);
+    expect(() => view({ points: [], faces: [] } as never, { camera, pen: 'ink' })).toThrow('view requires mesh');
   });
 });
 

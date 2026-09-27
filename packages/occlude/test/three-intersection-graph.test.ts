@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {box,mesh} from 'occlude/3d';
-import {gridSurface as grid3} from './helpers/surfaces.js';
+import {gridMesh} from './helpers/surfaces.js';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {runGeometryJob3} from '../src/three/geometry/job.js';
 import {surfaceBinding3,surfaceCurveNetwork3} from '../src/three/curves/network.js';
@@ -8,10 +9,9 @@ import {intersectionContacts3} from '../src/three/curves/intersectionContacts.js
 import {intersectionAtomsJob3,type IntersectionAtom3} from '../src/three/curves/intersectionAtoms.js';
 import {intersectionGraphInputJob3} from '../src/three/curves/intersectionGraph.js';
 import {intersections3,intersectionsAsync3} from '../src/three/curves/intersections.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const support={source:0,triangle:0};
-const sheet=()=>surfaceBinding3(surfaceOf(mesh([[0,0,0],[4,0,0],[0,4,0]],[[0,1,2]])));
+const sheet=()=>surfaceBinding3(mesh3(mesh([[0,0,0],[4,0,0],[0,4,0]],[[0,1,2]])));
 const p=(x:number,y:number):H=>point([x,y,0]);
 const atom=(a:H,b:H):IntersectionAtom3=>({a,b,partition:'synthetic',contact:'transverse',supports:[support]});
 const build=(segments:readonly IntersectionAtom3[],points:readonly {point:H;partition:string;supports:readonly {source:number;triangle:number}[]}[]=[])=>{
@@ -61,7 +61,7 @@ describe('intersection graph assembly',()=>{
  });
 
  it('builds a validated graph from actual cube contacts',()=>{
-  const a=surfaceBinding3(surfaceOf(box())),b=surfaceBinding3(surfaceOf(box().translate([.3,.4,.2])));
+  const a=surfaceBinding3(mesh3(box())),b=surfaceBinding3(mesh3(box().translate([.3,.4,.2])));
   const contacts=intersectionContacts3(a,b).value;
   const atoms=runGeometryJob3(intersectionAtomsJob3(contacts)).value;
   const input=runGeometryJob3(intersectionGraphInputJob3([a,b],atoms.segments,atoms.points)).value;
@@ -72,12 +72,12 @@ describe('intersection graph assembly',()=>{
  });
 
  it('keeps synchronous and asynchronous complete intersections equivalent',async()=>{
-  const a=surfaceBinding3(surfaceOf(box())),b=surfaceBinding3(surfaceOf(box().translate([.3,.4,.2])));
+  const a=surfaceBinding3(mesh3(box())),b=surfaceBinding3(mesh3(box().translate([.3,.4,.2])));
   const sync=intersections3(a,b).value,asyncResult=await intersectionsAsync3(a,b);
   expect(asyncResult.value.network.segments.map(s=>s.id)).toEqual(sync.network.segments.map(s=>s.id));
   expect(asyncResult.value.network.nodes.map(n=>n.exact)).toEqual(sync.network.nodes.map(n=>n.exact));
   expect(asyncResult.value.stats.outputSegments).toBe(sync.stats.outputSegments);
-  const ca=surfaceBinding3(grid3(40,40,[4,4])),cb=surfaceBinding3(grid3(40,40,[4,4]));
+  const ca=surfaceBinding3(mesh3(gridMesh(40,40,[4,4]))),cb=surfaceBinding3(mesh3(gridMesh(40,40,[4,4])));
   const controller=new AbortController();
   const pending=intersectionsAsync3(ca,cb,{},controller.signal);
   setTimeout(()=>controller.abort(new Error('cancel intersections')),0);

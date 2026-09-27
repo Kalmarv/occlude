@@ -5,7 +5,7 @@
  * must be the same coastline, coordinate for coordinate.
  */
 import { describe, expect, it } from 'vitest';
-import { surfaceOf } from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import type { Material } from '../src/material.js';
 import { orient3d } from 'robust-predicates';
 import { separatedTriangles3 } from '../src/three/curves/contactFilter.js';
@@ -58,7 +58,7 @@ async function globeShells(options: { frequency: number; seed?: number }): Promi
   });
   await compileSketchAsync(def, { paper: { w: size.w, h: size.h }, library: DEFAULT_PENS, seed: options.seed ?? 42, marginPct: 5 });
   if (!captured) throw new Error('the globe sketch did not run');
-  return { water: surfaceBinding3(surfaceOf(captured.water)), terrain: surfaceBinding3(surfaceOf(captured.terrain)) };
+  return { water: surfaceBinding3(mesh3(captured.water)), terrain: surfaceBinding3(mesh3(captured.terrain)) };
 }
 
 describe('the coastline contact filter', () => {

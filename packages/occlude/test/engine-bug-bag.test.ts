@@ -4,6 +4,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import { inflateSync } from 'node:zlib';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
@@ -22,7 +23,6 @@ import {
 } from '../src/index.js';
 import { assetTable, evalPrim, exportPng, exportSvg, initOcclude, render } from '../src/host.js';
 import { rec } from './helpers/xy.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -276,8 +276,8 @@ describe('G2-6 area is a measured size; a share is a fraction', () => {
 const stream = (seed = 1) => { let v = seed >>> 0 || 1; return () => { v ^= v << 13; v >>>= 0; v ^= v >>> 17; v ^= v << 5; v >>>= 0; return v / 4294967296; }; };
 
 describe('G3-40 a location has uv where its face has a chart, as the fields page says', () => {
-  it('reads uv and tangentU on a primitive, and neither on a boolean\'s result', () => {
-    const at = (m: Parameters<typeof surfaceOf>[0]) => surfaceLocation3(surfaceOf(m), 0, [1 / 3, 1 / 3, 1 / 3]);
+  it('reads uv and tangentU on a primitive, and on a boolean\'s result, whose faces keep their corners', () => {
+    const at = (m: Material) => surfaceLocation3(mesh3(m), 0, [1 / 3, 1 / 3, 1 / 3]);
     for (const primitive of [box(2), plane(2), sphere(1)]) {
       const s = at(primitive);
       expect(s.chartStatus).toBe('regular');
@@ -285,9 +285,9 @@ describe('G3-40 a location has uv where its face has a chart, as the fields page
       expect(s.tangentU).toHaveLength(3);
     }
     const cut = at(box(2).subtract(sphere(1.1, { segments: 24, rings: 12 }).translate([1, 1, 1])));
-    expect(cut.chartStatus).toBe('missing');
-    expect(cut.uv).toBeUndefined();
-    expect(cut.tangentU).toBeUndefined();
+    expect(cut.chartStatus).toBe('regular');
+    expect(cut.uv).toHaveLength(2);
+    expect(cut.tangentU).toHaveLength(3);
   });
 });
 
@@ -305,10 +305,11 @@ describe('G3-41 a lane that turns back on itself is a lane, not an assert', () =
   });
   it('returns a loop found walking backward as one closed lane, its distances running forward', () => {
     const sheet = plane(4, 4).subdivide(4);
-    const env = traceEnvironment3(surfaceOf(sheet), surfaceBinding3(surfaceOf(sheet)));
+    const env = traceEnvironment3(surfaceBinding3(mesh3(sheet)));
     // A seed about one unit from the middle, on a field that turns round it.
-    const centre = (t: number) => { const [a, b, c] = surfaceOf(sheet).triangles[t].vertices.map((v) => surfaceOf(sheet).points[v].position); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
-    const triangle = surfaceOf(sheet).triangles.map((_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;
+    const read = mesh3(sheet);
+    const centre = (t: number) => { const [a, b, c] = read.triangle(t).map((v) => read.position(v)); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
+    const triangle = Array.from({ length: read.triangleCount }, (_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;
     const round = (s: { position: readonly number[] }) => [-s.position[1], s.position[0], 0] as [number, number, number];
     // The forward half is stopped at once; the backward half goes round.
     let calls = 0;
@@ -329,9 +330,9 @@ describe('G3-42 t.hatch reaches every face the direction crosses', () => {
   const solid = () => box(2).subtract(sphere(1.1, { segments: 24, rings: 12 }).translate([1, 1, 1]));
   it('hatches the scoop a boolean cut, whatever the random stream (reference-3d-fields-4)', () => {
     const m = solid();
-    const s = surfaceOf(m);
+    const s = mesh3(m);
     const onScoop = (tri: number) => {
-      const c = s.triangles[tri].vertices.map((v) => s.points[v].position).reduce((a, p) => [a[0] + p[0] / 3, a[1] + p[1] / 3, a[2] + p[2] / 3], [0, 0, 0]);
+      const c = s.triangle(tri).map((v) => s.positions[v]).reduce((a, p) => [a[0] + p[0] / 3, a[1] + p[1] / 3, a[2] + p[2] / 3], [0, 0, 0]);
       return Math.abs(Math.hypot(c[0] - 1, c[1] - 1, c[2] - 1) - 1.1) < 0.08;
     };
     for (const seed of [1, 2, 3, 4, 5]) {
@@ -351,21 +352,21 @@ describe('G3-42 t.hatch reaches every face the direction crosses', () => {
 describe('G3-35 a cone base that lies on a sphere facet and crosses its edges unites exactly',()=>{
  /** Closed, edge-manifold, consistently wound: every edge has two faces that walk it in opposite directions. */
  const manifold=(m:Material,chi:number)=>{
-  const s=surfaceOf(m);
-  expect(s.edges.filter(e=>e.faces.length!==2)).toHaveLength(0);
-  expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
+  const s=mesh3(m);
+  expect(s.edgeFaces.filter(f=>f.length!==2)).toHaveLength(0);
+  expect(m.points.length-m.edges.length+m.faces.length).toBe(chi);
   const walk=new Map<string,number>();
-  for(const f of s.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=`${Math.min(a,b)}:${Math.max(a,b)}`;walk.set(key,(walk.get(key)??0)+(a<b?1:-1));}
+  for(const loop of s.loops)for(let i=0;i<loop.length;i++){const a=loop[i],b=loop[(i+1)%loop.length],key=`${Math.min(a,b)}:${Math.max(a,b)}`;walk.set(key,(walk.get(key)??0)+(a<b?1:-1));}
   expect([...walk.values()].every(n=>n===0)).toBe(true);
  };
- const volume=(m:Material)=>{let total=0;const s=surfaceOf(m);for(const t of s.triangles){const [a,b,c]=t.vertices.map(i=>s.points[i].position);total+=dot3(a,cross3(b,c))/6;}return total;};
+ const volume=(m:Material)=>{let total=0;const s=mesh3(m);for(let t=0;t<s.triangleCount;t++){const [a,b,c]=s.triangle(t).map(i=>s.position(i));total+=dot3(a,cross3(b,c))/6;}return total;};
  const spike=()=>cone(0.06,0.3,{segments:8}).translate([0,0,0.15]);
 
  it('unites a few cones stood on facets by the facet normal, near each facet edge in turn',()=>{
-  const ball=sphere(1.2,{segments:32,rings:16}),s=surfaceOf(ball);
+  const ball=sphere(1.2,{segments:32,rings:16}),s=mesh3(ball);
   // Three triangles well apart in the upper hemisphere; each cone sits 0.03
   // from a different edge of its triangle, so its 0.06 base crosses that edge.
-  const upper=s.triangles.map((t,i)=>({i,c:t.vertices.map(v=>s.points[v].position)})).filter(({c})=>c.every(p=>p[2]>0.3&&p[2]<1.0));
+  const upper=Array.from({length:s.triangleCount},(_,i)=>({i,c:s.triangle(i).map(v=>s.position(v))})).filter(({c})=>c.every(p=>p[2]>0.3&&p[2]<1.0));
   const picks=[upper[0],upper[Math.floor(upper.length/3)],upper[Math.floor(2*upper.length/3)]];
   const sites:Vec3[]=[],normals:Vec3[]=[];
   picks.forEach(({c},k)=>{

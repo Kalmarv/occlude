@@ -1,15 +1,13 @@
 import {SurfaceQueries3} from 'occlude/src/three/queries/surface.js';
-import {surfaceOf} from 'occlude/3d/advanced';
 import {GpuSurfaceQueries3} from 'occlude/src/compute/webgpu/queries.js';
-import {surface3} from 'occlude/src/three/geometry/surface.js';
 import {Rng} from 'occlude/src/random.js';
-import {plane} from 'occlude/3d';
-import {deformSurfaceCpu3} from 'occlude/src/three/geometry/deform.js';
+import {box,mesh,plane} from 'occlude/3d';
+import type {Material} from 'occlude/src/material.js';
+import {deformCpu3} from 'occlude/src/three/geometry/deform.js';
+import {mesh3} from 'occlude/src/three/geometry/mesh3.js';
 import {GpuDeform3} from 'occlude/src/compute/webgpu/deform.js';
-import type {Surface3} from 'occlude/src/three/geometry/surface.js';
 import { constructStrokes3 } from 'occlude/src/three/strokes/construct.js';
 import { paperStrokes3 } from 'occlude/src/three/strokes/paper.js';
-import { box3 } from 'occlude/src/three/geometry/surface.js';
 import { featureSnapshot3, FeatureKind3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
 import type { CameraFrame3 } from 'occlude/src/three/camera.js';
@@ -20,6 +18,7 @@ import { lerp3, type Triangle3, type Vec3 } from 'occlude/src/three/math.js';
 import { hiddenInterval3, occlusionVolume3, visibleIntervals3, type Interval3 } from 'occlude/src/three/visibility/interval.js';
 import { GpuIntervals3 } from 'occlude/src/compute/webgpu/interval.js';
 import { ThreeWorkerClient } from './three/client.js';
+import { meshRecord3 } from './three/protocol.js';
 import './three-lab.css';
 
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
@@ -33,35 +32,38 @@ const projection = document.querySelector<HTMLSelectElement>('#projection')!;
 let canvas = document.querySelector<HTMLCanvasElement>('#viewport')!;
 // This dedicated laboratory exposes its kernels for browser conformance checks
 // against the exact production bundle (no Vite /@fs imports required).
-Object.assign(window, { threeLabApi: { createBenchmarkWorker: () => new Worker(new URL('./three/benchmark.ts', import.meta.url), { type: 'module' }), GpuIntervals3, SurfaceQueries3, GpuSurfaceQueries3, surface3, GpuDeform3, deformSurfaceCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
+Object.assign(window, { threeLabApi: { createBenchmarkWorker: () => new Worker(new URL('./three/benchmark.ts', import.meta.url), { type: 'module' }), GpuIntervals3, SurfaceQueries3, GpuSurfaceQueries3, mesh, GpuDeform3, deformCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
 
 let client: ThreeWorkerClient | null = null, svg = '', revision = 0;
 
-const firstBox = box3([2,2,2]); firstBox.edges[0].attributes.marked = true;
-const secondBox = box3([2,1,2],[1,.4,.5]);
-const objects = [{id:'box',surface:firstBox,attributes:{group:'primary'}}];
+const firstBox = box([2,2,2]).edges.set('marked', true, e => e.index === 0);
+const secondBox = box([2,1,2]).translate([1,.4,.5]);
+const objects = [{id:'box',surface:meshRecord3(firstBox),attributes:{group:'primary'}}];
 let meshCache: { drawing: ClassifiedScene3; frame: CameraFrame3; metadata: Record<string, unknown> } | null = null;
 let adoptedMeshDispatches = 0;
-let relief:Surface3|null=null,reliefPending:Promise<Surface3>|null=null,modelBuilds=0,modelStats:unknown=null,queryStats:unknown=null,queryEdits=0;
-async function reliefModel():Promise<Surface3> {
+let relief:Material|null=null,reliefPending:Promise<Material>|null=null,modelBuilds=0,modelStats:unknown=null,queryStats:unknown=null,queryEdits=0;
+async function reliefModel():Promise<Material> {
   if(relief)return relief;
   if(!reliefPending)reliefPending=(async()=>{
     // Every other cell of an 8 × 8 sheet, both ways, raised by its own importance.
     const cell=(v:number)=>Math.floor((v+2)/.5)%2===0;
     const sheet=plane(4,4).subdivide(3).faces.set('importance',f=>new Rng(`relief:42:${f.id}`).float());
     const raisedMesh=sheet.extrude(sheet.faces.filter(f=>cell(f.centroid[0])&&cell(f.centroid[1])),{distance:r=>.3+.9*Math.abs(Number(r.faces.at(0)?.importance))},{key:'relief:42'});
-    const raised=surfaceOf(raisedMesh);
-    const raisedPoints=raised.points.flatMap((p,i)=>p.position[2]>0?[i]:[]);
-    const pinned=raised.points.flatMap((p,i)=>Math.abs(p.position[0])===2||Math.abs(p.position[1])===2?[i]:[]);
-    const displacements=raised.points.map(p=>[0,0,.002*Math.sin(p.position[0]*3+p.position[1]*2)] as Vec3);
-    const result=await client!.deform({surface:raised,deformation:{iterations:24,relaxation:.025,displacements,pinned},geometryRevision:3,cameraRevision:0});
-    const modeled=result.deformation.surface;
+    const view=mesh3(raisedMesh),raised=view.positions;
+    const raisedPoints=raised.flatMap((p,i)=>p[2]>0?[i]:[]);
+    const pinned=raised.flatMap((p,i)=>Math.abs(p[0])===2||Math.abs(p[1])===2?[i]:[]);
+    const displacements=raised.map(p=>[0,0,.002*Math.sin(p[0]*3+p[1]*2)] as Vec3);
+    const result=await client!.deform({mesh:{x:view.x,y:view.y,z:view.z,edges:view.edges},deformation:{iterations:24,relaxation:.025,displacements,pinned},geometryRevision:3,cameraRevision:0});
+    const moved=result.deformation.positions,x=Float64Array.from(moved.x),y=Float64Array.from(moved.y),z=Float64Array.from(moved.z);
     const selectedPoints=raisedPoints;
-    const ceiling=surface3([[-3,-3,.55],[3,-3,1.15],[3,3,1.15],[-3,3,.55]],[[0,1,2,3]]);
-    const queried=await client!.query({querySurface:ceiling,rayQueries:[],nearestQueries:selectedPoints.map(i=>({point:modeled.points[i].position})),geometryRevision:3,cameraRevision:0});
-    queried.queries.nearest.hits.forEach((hit,j)=>{const p=modeled.points[selectedPoints[j]];if(hit&&p.position[2]>hit.point[2]){p.position=hit.point;p.attributes.constraintDistance=hit.distance;queryEdits++;}});
+    const ceiling=mesh([[-3,-3,.55],[3,-3,1.15],[3,3,1.15],[-3,3,.55]],[[0,1,2,3]]);
+    const queried=await client!.query({querySurface:meshRecord3(ceiling),rayQueries:[],nearestQueries:selectedPoints.map(i=>({point:[x[i],y[i],z[i]] as Vec3})),geometryRevision:3,cameraRevision:0});
+    // A point above the ceiling moves onto it and records how far it moved.
+    const constraint=new Map<number,number>();
+    queried.queries.nearest.hits.forEach((hit,j)=>{const i=selectedPoints[j];if(hit&&z[i]>hit.point[2]){[x[i],y[i],z[i]]=hit.point;constraint.set(i,hit.distance);queryEdits++;}});
     queryStats=queried.queries.nearest.stats;
-    modelBuilds++;modelStats=result.deformation.stats;relief=modeled;return relief;
+    const modeled=raisedMesh.points.set({x:p=>x[p.index],y:p=>y[p.index],z:p=>z[p.index]});
+    modelBuilds++;modelStats=result.deformation.stats;relief=constraint.size?modeled.points.set('constraintDistance',p=>constraint.get(p.index)!,p=>constraint.has(p.index)):modeled;return relief;
   })().finally(()=>{reliefPending=null;});
   return reliefPending;
 }
@@ -100,7 +102,7 @@ async function runMesh(): Promise<void> {
     client ??= new ThreeWorkerClient(canvas); await initOcclude(); if(currentRevision!==revision)return;
     const angle=Number(orbit.value)*Math.PI/180;
     const frame=cameraFrame3({...(projectionName==='perspective'?{kind:'perspective' as const,fovDegrees:45}:{kind:'orthographic' as const,span:6}),eye:[7*Math.cos(angle),7*Math.sin(angle),5],target:[0,0,0],near:.1,far:100},{x:0,y:0,width:150,height:100});
-    const sceneObjects=sceneName==='relief'?[{id:'relief',surface:await reliefModel()}]:sceneName==='box'?objects:[...objects,{id:'crossing',surface:secondBox}];
+    const sceneObjects=sceneName==='relief'?[{id:'relief',surface:meshRecord3(await reliefModel())}]:sceneName==='box'?objects:[...objects,{id:'crossing',surface:meshRecord3(secondBox)}];
     if(currentRevision!==revision)return;
     const wires=sceneName!=='overlap'?[]:[{id:'wire',points:[[-3,0,.2],[3,0,.2]] as Vec3[]}];
     const result=await client.renderScene({frame,objects:sceneObjects,wires,geometryRevision:sceneName==='relief'?3:sceneName==='box'?1:2,cameraRevision:currentRevision});

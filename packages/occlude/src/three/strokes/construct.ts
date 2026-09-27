@@ -1,12 +1,13 @@
 import { unionSourceRanges3 } from './ranges.js';
-import { groupRows } from '../../groupRows.js';
 import { toPaper3 } from '../camera.js';
-import type { Feature3 } from '../features/snapshot.js';
+import { FeatureKind3, type Feature3 } from '../features/snapshot.js';
 import { lerp3 } from '../math.js';
 import { unionIntervals3, type Interval3 } from '../visibility/interval.js';
 import type { ClassifiedFeature3, ClassifiedScene3 } from '../visibility/scene.js';
 import {decodePoint,difference,dot3} from '../geometry/exact.js';
 import {collinearExact3} from '../curves/contact.js';
+import {ROW_TYPES,Selection,select,domainKind,isSelectionOf,rowRange,type Domain,type DomainKind,type Types} from '../../selection.js';
+import {describe} from '../../views.js';
 
 type Point = readonly [number, number];
 export type Visibility3 = 'visible' | 'hidden';
@@ -16,7 +17,9 @@ export interface LineSet3 {
   readonly stroke: string;
   readonly priority?: number;
   readonly visibility?: Visibility3;
-  readonly select?: ((feature: Feature3) => boolean) | FeatureSelection3;
+  /** Which features the set draws: a function of the feature, or a
+   * selection of `classifiedFeatures3` of the scene being constructed. */
+  readonly select?: ((feature: Feature3) => boolean) | Selection<ClassifiedFeatureRow3>;
   /** Local clipped segment parameters, intersected with classified visibility. */
   readonly ranges?: (feature: Feature3) => readonly Interval3[];
   readonly overdraw?: boolean;
@@ -52,25 +55,75 @@ export interface Stroke3 {
   readonly closed: boolean;
   readonly breaks: readonly [StrokeBreak3, StrokeBreak3];
 }
-/** Immutable views retain exact source-state ownership, like relation.ts. */
-export class FeatureSelection3 implements Iterable<ClassifiedFeature3> {
-  constructor(readonly source: ClassifiedScene3, private readonly rows: readonly number[] = source.features.map((_,i)=>i)) {
-    if(rows.some(i=>!Number.isSafeInteger(i)||i<0||i>=source.features.length))throw new Error('invalid classified feature selection index');
-    this.rows=Object.freeze([...new Set(rows)]); Object.freeze(this);
+// ─── the features of one classification, as a selection domain ────────
+
+type FeatureKind=keyof typeof FeatureKind3;
+/** @internal What a selection of classified features answers (see
+ * `ROW_TYPES`): the classification it belongs to and the kind words. */
+export type ClassifiedFeatureTypes3=Types<{
+  owner:ClassifiedScene3;
+  kind:(...names:readonly FeatureKind[])=>Selection<ClassifiedFeatureRow3>;except:(...names:readonly FeatureKind[])=>Selection<ClassifiedFeatureRow3>;
+}>;
+/** One classified feature: the classifier's own record — the feature and its
+ * visible and hidden parameter intervals. */
+export type ClassifiedFeatureRow3=ClassifiedFeature3&{readonly [ROW_TYPES]?:ClassifiedFeatureTypes3};
+/**
+ * The features of one classification: the rows `classifiedFeatures3` is a
+ * selection of. A row is the classifier's record, not a copy, and the record
+ * is who the feature is: a classification makes its own records, so a
+ * feature of another snapshot never names a row here.
+ */
+class FeatureRows implements Domain<ClassifiedFeatureRow3> {
+  readonly kind:DomainKind=FEATURES;readonly dense=true;
+  #all:readonly number[]|null=null;
+  #rows:ReadonlyMap<unknown,number>|null=null;
+  constructor(readonly owner:ClassifiedScene3){}
+  get size():number{return this.owner.features.length;}
+  all():readonly number[]{return (this.#all??=rowRange(this.owner.features.length));}
+  valid(r:number):boolean{return Number.isInteger(r)&&r>=0&&r<this.owner.features.length;}
+  row(r:number):ClassifiedFeatureRow3{return this.owner.features[r];}
+  keyOf(r:number):unknown{return this.owner.features[r];}
+  rowOfKey(key:unknown):number{return (this.#rows??=new Map(this.owner.features.map((record,r)=>[record,r]))).get(key)??-1;}
+  /** A record of this classification is its row; a record of another is a
+   * name that names nothing here. */
+  locate(v:unknown,who:string):{domain:FeatureRows;row:number}|{key:unknown}|null{
+    if(v===undefined||v===null)return null;
+    if(!isRecord(v))throw new Error(`${who}: expected a feature of a classified scene, got ${describe(v)}`);
+    const r=this.rowOfKey(v);
+    return r<0?{key:v}:{domain:this,row:r};
   }
-  *[Symbol.iterator]() { for(const i of this.rows) yield this.source.features[i]; }
-  get length() { return this.rows.length; }
-  filter(predicate: (feature: ClassifiedFeature3, i: number)=>boolean): FeatureSelection3 {
-    return new FeatureSelection3(this.source,this.rows.filter((row,i)=>predicate(this.source.features[row],i)));
-  }
-  map<T>(fn: (feature: ClassifiedFeature3, i: number)=>T): T[] { return this.rows.map((row,i)=>fn(this.source.features[row],i)); }
-  groupBy<K>(fn: (feature: ClassifiedFeature3, i: number)=>K): {key:K; selection:FeatureSelection3}[] {
-    return groupRows(this.rows,row=>row,(row,i)=>fn(this.source.features[row],i)).map(g=>({key:g.key,selection:new FeatureSelection3(this.source,g.rows)}));
-  }
-  union(other: FeatureSelection3): FeatureSelection3 {
-    if(other.source!==this.source)throw new Error('3D selections belong to different snapshots');
-    return new FeatureSelection3(this.source,[...new Set([...this.rows,...other.rows])].sort((a,b)=>a-b));
-  }
+  /** Features of one classification. */
+  shares(other:Domain<ClassifiedFeatureRow3>):boolean{return other.owner===this.owner;}
+}
+const isRecord=(v:unknown):v is ClassifiedFeature3=>typeof v==='object'&&v!==null&&typeof (v as ClassifiedFeature3).feature==='object'&&Array.isArray((v as ClassifiedFeature3).visible)&&Array.isArray((v as ClassifiedFeature3).hidden);
+type FeatureSel=Selection<ClassifiedFeatureRow3>;
+const hasKind=(row:ClassifiedFeature3,names:readonly FeatureKind[])=>names.some(name=>(row.feature.flags&FeatureKind3[name])!==0);
+const FEATURES:DomainKind=domainKind('feature','features',{
+  /** Features of any of these kinds (boundary, silhouette, crease, wire, section, hatch, intersection, mapped, trace, isoline, suggestive). */
+  kind:{value(this:FeatureSel,...names:readonly FeatureKind[]):FeatureSel{return this.filter(row=>hasKind(row,names));}},
+  /** Features of none of these kinds. */
+  except:{value(this:FeatureSel,...names:readonly FeatureKind[]):FeatureSel{return this.filter(row=>!hasKind(row,names));}},
+  /** Refused by name: each record holds its own feature. */
+  source:{get(this:FeatureSel):never{throw new Error('features.source: a selection has no source — each row holds its feature (row.feature), and the classification is the one you read it from');}},
+},{
+  set:'features are classified by the view — they hold no columns to set; a feature reads its source\'s',
+  adjacent:'features meet at source endpoints — constructStrokes3 chains them into strokes',
+  connected:'features meet at source endpoints — constructStrokes3 chains them into strokes',
+  components:'features meet at source endpoints — constructStrokes3 chains them into strokes',
+  unrelated:'that feature belongs to another classified scene — the features of one classification name nothing in another',
+});
+const featureSelections=new WeakMap<ClassifiedScene3,FeatureSel>();
+/**
+ * The features of a classified scene, as a selection: `filter`, `kind`,
+ * `groupBy` and the other selection words pick the ones a line set draws
+ * (`select`). Made on the first call and kept, so every call on one
+ * classification answers the same selection.
+ */
+export function classifiedFeatures3(classified:ClassifiedScene3):FeatureSel{
+  if(!classified||typeof classified!=='object'||!Array.isArray((classified as ClassifiedScene3).features))throw new Error(`classifiedFeatures3: expected a classified scene (await t.classify3(scene)), got ${describe(classified)}`);
+  let sel=featureSelections.get(classified);
+  if(!sel){sel=select(new FeatureRows(classified),null);featureSelections.set(classified,sel);}
+  return sel;
 }
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 const distance=(a:Point,b:Point)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
@@ -125,8 +178,9 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
   const claimedBy={visible:new Map<string,Interval3[]>(),hidden:new Map<string,Interval3[]>()};
   for(const set of [...sets].sort((a,b)=>(b.priority??0)-(a.priority??0)||compare(a.id,b.id))) {
     const visibility=set.visibility??'visible';
-    const selection=set.select instanceof FeatureSelection3?set.select:undefined;
-    if(selection && selection.source!==source)throw new Error('line set selection belongs to another classified snapshot');
+    const selection=set.select===undefined||typeof set.select==='function'?undefined:set.select;
+    if(selection&&!isSelectionOf(selection,FEATURES))throw new Error(`line set '${set.id}': select is a function of the feature or a selection of classifiedFeatures3(classified) — got ${describe(selection)}`);
+    if(selection&&selection.owner!==source)throw new Error(`line set '${set.id}': the selection belongs to another classified snapshot — read it with classifiedFeatures3 of the scene you construct`);
     const included=selection?new Set(selection.map(row=>row.feature.id)):undefined;
     const include=(f:Feature3)=>!(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f));
     const selectedChains=new Set<string>();

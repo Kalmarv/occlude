@@ -255,6 +255,7 @@ function build(m: Material, p: Parts, carry: Carry): Material {
     ...(carry.key !== undefined ? { key: carry.key } : {}),
     ...(carry.area !== undefined ? { area: carry.area } : {}),
     faces: carry.faces ?? m.stated,
+    restate: true,
   });
 }
 

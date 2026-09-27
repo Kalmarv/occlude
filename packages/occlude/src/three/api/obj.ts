@@ -19,9 +19,7 @@
  */
 
 import type {Vec3} from '../math.js';
-import {surface3} from '../geometry/surface.js';
-import {ownSurface3} from '../geometry/model.js';
-import {geometry3,emptyMesh,type GeometryOptions} from './mesh.js';
+import {geometry3,polygons3,emptyMesh,type GeometryOptions} from './mesh.js';
 import type {Material} from '../../material.js';
 
 export interface ObjOptions extends GeometryOptions {
@@ -111,7 +109,7 @@ export function obj(text:string,options:ObjOptions={}):Material {
   const use=(v:number):number=>{let i=remap.get(v);if(i===undefined){i=positions.length;remap.set(v,i);positions.push(parsed.positions[v]);}return i;};
   const polygons=faces.map(f=>f.vertices.map(use));
   if(faces.length===0&&!wanted)parsed.positions.forEach((_,v)=>use(v));
-  const mesh=geometry3(ownSurface3(surface3(positions,polygons)),geometry);
+  const mesh=geometry3(polygons3(positions,polygons),geometry);
   const named=faces.some(f=>f.object!==undefined),grouped=faces.some(f=>f.group!==undefined);
   if(!named&&!grouped)return mesh as Material;
   return mesh.faces.set({

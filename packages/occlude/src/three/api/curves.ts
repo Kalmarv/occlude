@@ -1,10 +1,10 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {finite3,sub3,type Vec3} from '../math.js';
-import {surface3,type Surface3} from '../geometry/surface.js';
-import {curveGeometry3,emptyMesh,derived,type GeometryOptions,type Geometry3Options} from './mesh.js';
+import {geometry3,curveMade3,emptyMesh,derived,type GeometryOptions,type Geometry3Options} from './mesh.js';
 import {inSpace3} from '../../material.js';
 import {emptyCount} from '../degenerate.js';
 import {chain2,isChain2,type Lifted2} from './lift.js';
+import {columnsOfRecords3} from '../geometry/model.js';
 import {Material} from '../../material.js';
 export interface PolylineOptions extends GeometryOptions {readonly closed?:boolean;readonly maxPoints?:number}
 export interface CurveOptions extends PolylineOptions {readonly segments?:number}
@@ -23,17 +23,15 @@ function path(positions:readonly Vec3[],options:PolylineOptions&Geometry3Options
   const segments=positions.length-(options.closed?0:1);
   // A repeated point is no segment: drop that edge and keep the rest of the
   // path, the same rule extrusion already uses for a zero distance.
-  const edges=Array.from({length:segments},(_,i)=>{
+  const edges=Array.from({length:segments},(_,i):[number,number]|undefined=>{
     const j=(i+1)%positions.length;
-    if(Math.hypot(...sub3(positions[i],positions[j]))===0)return undefined;
-    return {id:`e:p${i}:p${j}`,vertices:[i,j] as [number,number],faces:[],attributes:{}};
+    return Math.hypot(...sub3(positions[i],positions[j]))===0?undefined:[i,j];
   }).filter(e=>e!==undefined);
-  const base=surface3(positions,[]);
-  // A lifted 2D chain keeps who each vertex is and its columns.
-  const points=rows?base.points.map((p,i)=>({...p,id:rows[i].id,attributes:Object.freeze({...rows[i].attributes})})):base.points;
-  const surface:Surface3={...base,points,edges};
+  // A lifted 2D chain keeps who each vertex is and its columns; the curve
+  // keeps the points its edges join.
+  const names=rows?rows.map(r=>r.id):positions.map((_,i)=>`p${i}`);
   const {closed:_closed,maxPoints:_max,...geometry}=options as PolylineOptions&Geometry3Options&{segments?:number};
-  return curveGeometry3(surface,edges.map((_,i)=>i),geometry);
+  return geometry3(curveMade3(positions,names,edges,edges.map(([i,j])=>`e:p${i}:p${j}`),rows?kept=>columnsOfRecords3(kept.map(i=>rows[i].attributes)):undefined),geometry);
 }
 /** Sample a parameterized path once, at uniformly spaced t in [0,1].
  * Closed paths omit t=1 and connect the final sample to t=0. */

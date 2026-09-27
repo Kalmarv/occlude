@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {axisAngle,alignAxis,pointCloud,box,instanceOnPoints,curve,type Rotation} from 'occlude/3d';
 import {rotation3,rotateVector3} from '../src/three/rotation.js';
 import type {Vec3} from '../src/three/math.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 function near(actual:Vec3,wanted:Vec3,precision=12){actual.forEach((v,i)=>expect(v).toBeCloseTo(wanted[i],precision));}
 describe('rotation values and alignment',()=>{
  it('uses right-handed degrees, explicit composition order and inverse',()=>{
@@ -58,14 +58,16 @@ describe('rotation values and alignment',()=>{
  it('applies pivoted rotations to point, curve and mesh data and mirrored instances',()=>{
    const r=axisAngle('z',90),point=pointCloud([[2,0,0]]).rotate(r,[1,0,0]).points.at(0)!;
    near([point.x,point.y,point.z],[1,1,0]);
-   const line=curve([[0,0,0],[1,0,0]]).rotate(r);near(surfaceOf(line).points[1].position,[0,1,0]);
+   const line=curve([[0,0,0],[1,0,0]]).rotate(r).points.at(1)!;near([line.x,line.y,line.z],[0,1,0]);
    const prototype=box([2,4,6]),instances=instanceOnPoints(prototype,pointCloud([[10,0,0]]).points,{rotate:()=>r,scale:[-2,3,4]});
    // A rotation value is kept as its quaternion.
    expect(instances.points.at(0)!.rotate).toEqual([...r.quaternion]);
    const realized=instances.realize();
-   surfaceOf(prototype).points.forEach((p,i)=>near(surfaceOf(realized).points[i].position,[10-p.position[1]*3,-p.position[0]*2,p.position[2]*4]));
-   expect(surfaceOf(realized).faces[0].vertices).toEqual([...surfaceOf(prototype).faces[0].vertices].reverse());
-   near(surfaceOf(prototype.rotate(r)).points[0].position,[-surfaceOf(prototype).points[0].position[1],surfaceOf(prototype).points[0].position[0],surfaceOf(prototype).points[0].position[2]]);
+   for(const p of prototype.points){const q=realized.points.at(p.index)!;near([q.x,q.y,q.z],[10-p.y*3,-p.x*2,p.z*4]);}
+   // The mirrored instance turns each face over, so it still faces out.
+   expect(mesh3(realized).loops[0]).toEqual([...mesh3(prototype).loops[0]].reverse());
+   const p0=prototype.points.at(0)!,turned=prototype.rotate(r).points.at(0)!;
+   near([turned.x,turned.y,turned.z],[-p0.y,p0.x,p0.z]);
  });
  it('agrees with legacy XYZ rotation without requiring Euler output',()=>{
    for(const angles of [[10,20,30],[0,90,40],[180,-90,240]] as Vec3[]){

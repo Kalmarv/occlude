@@ -1,12 +1,13 @@
 import {SurfaceQueries3} from 'occlude/src/three/queries/surface.js';
 import {GpuSurfaceQueries3} from 'occlude/src/compute/webgpu/queries.js';
 import { GpuDeform3 } from 'occlude/src/compute/webgpu/deform.js';
+import { mesh3 } from 'occlude/src/three/geometry/mesh3.js';
 import { featureSnapshot3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneGpu3 } from 'occlude/src/three/visibility/scene.js';
 import { GpuIntervals3 } from 'occlude/src/compute/webgpu/interval.js';
 import { GpuViewport3 } from 'occlude/src/compute/webgpu/viewport.js';
 import { ThreeJobQueue } from './jobs.js';
-import type { ThreeJobInput, ThreeJobResult, ThreeWorkerRequest, ThreeWorkerResponse } from './protocol.js';
+import { meshOfRecord3, type ThreeJobInput, type ThreeJobResult, type ThreeWorkerRequest, type ThreeWorkerResponse } from './protocol.js';
 
 /** The dedicated construction worker owns both viewport and compute device.
  * Paper output consumes owned CPU intervals on the host after final adoption. */
@@ -36,16 +37,16 @@ class ThreeWorkerHost {
     const deviceReadyMs = performance.now() - started;
     const metadata = { adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter }, geometryRevision: input.geometryRevision, cameraRevision: input.cameraRevision, deviceGeneration: this.generation, deviceReadyMs, cold, worker: true as const };
     if ('querySurface' in input) {
-      const query=await GpuSurfaceQueries3.create(session.device,new SurfaceQueries3(input.querySurface));
+      const query=await GpuSurfaceQueries3.create(session.device,new SurfaceQueries3(mesh3(meshOfRecord3(input.querySurface))));
       try {const rays=await query.rays(input.rayQueries,{signal}),nearest=await query.nearest(input.nearestQueries,{signal});signal.throwIfAborted();return {...metadata,queries:{rays,nearest}};}finally{await query.dispose();}
     }
     if ('deformation' in input) {
       this.deformation ??= await GpuDeform3.create(session.device);
-      const deformation=await this.deformation.deform(input.surface,{...input.deformation,signal});
+      const deformation=await this.deformation.deform(input.mesh,{...input.deformation,signal});
       signal.throwIfAborted();return {...metadata,deformation};
     }
     if ('objects' in input) {
-      const snapshot = featureSnapshot3(input.objects, input.wires, input.frame);
+      const snapshot = featureSnapshot3(input.objects.map(object => ({ ...object, surface: meshOfRecord3(object.surface) })), input.wires, input.frame);
       signal.throwIfAborted();
       this.viewport.draw(input.frame, snapshot.triangles, snapshot.features.map(f=>[f.a,f.b] as const));
       const drawing = await classifySceneGpu3(snapshot, session, { signal });

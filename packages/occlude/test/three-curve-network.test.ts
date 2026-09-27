@@ -1,11 +1,11 @@
 import {describe,it,expect} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {mesh} from 'occlude/3d';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {surfaceBinding3,bindingPoint3,bindingTriangle3,bindingWorld3,surfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3} from '../src/three/curves/network.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 const planes=()=>[
- surfaceBinding3(surfaceOf(mesh([[1,0,0],[0,1,0],[0,0,1]],[[0,1,2]]))),
- surfaceBinding3(surfaceOf(mesh([[0,0,0],[1,1,0],[0,0,1]],[[0,1,2]]))),
+ surfaceBinding3(mesh3(mesh([[1,0,0],[0,1,0],[0,0,1]],[[0,1,2]]))),
+ surfaceBinding3(mesh3(mesh([[0,0,0],[1,1,0],[0,0,1]],[[0,1,2]]))),
 ];
 function seam(){const [a,b]=planes();return {
  sources:[{id:'a',binding:a},{id:'b',binding:b}],
@@ -26,11 +26,11 @@ describe('canonical supported curve graph',()=>{
   expect(()=>surfaceCurveNetwork3(input)).toThrow('not incident');
   const forged=seam();forged.sources[1].binding={...forged.sources[1].binding};
   expect(()=>surfaceCurveNetwork3(forged)).toThrow('owned surface binding');
-  const wrong=seam();wrong.sources[1].binding=surfaceBinding3(surfaceOf(mesh([[0,0,2],[1,0,2],[0,1,2]],[[0,1,2]])));
+  const wrong=seam();wrong.sources[1].binding=surfaceBinding3(mesh3(mesh([[0,0,2],[1,0,2],[0,1,2]],[[0,1,2]])));
   expect(()=>surfaceCurveNetwork3(wrong)).toThrow('not incident');
  });
  it('retains branches and the full source reference when selecting segments',()=>{
-  const binding=surfaceBinding3(surfaceOf(mesh([[0,0,0],[2,0,0],[0,2,0]],[[0,1,2]])));
+  const binding=surfaceBinding3(mesh3(mesh([[0,0,0],[2,0,0],[0,2,0]],[[0,1,2]])));
   const network=surfaceCurveNetwork3({sources:[{id:'sheet',binding}],nodes:[
    {id:'o',point:point([.2,.2,0])},{id:'a',point:point([.8,.2,0])},{id:'b',point:point([.2,.8,0])},{id:'c',point:point([.1,.1,0])},
   ],segments:['a','b','c'].map(id=>({id,kind:'trace',a:'o',b:id,supports:[{source:0,triangle:0}]}))});
@@ -44,7 +44,7 @@ describe('canonical supported curve graph',()=>{
   const input=seam();input.nodes[1].point=input.nodes[0].point;expect(()=>surfaceCurveNetwork3(input)).toThrow('zero-length');
  });
  it('does not weld an exact positive separation that rounds to the same position',()=>{
-  const binding=surfaceBinding3(surfaceOf(mesh([[0,0,0],[1,0,0],[0,1,0]],[[0,1,2]])));
+  const binding=surfaceBinding3(mesh3(mesh([[0,0,0],[1,0,0],[0,1,0]],[[0,1,2]])));
   const network=surfaceCurveNetwork3({sources:[{id:'sheet',binding}],nodes:[{id:'a',point:point([0,0,0])},{id:'b',point:[1n,0n,0n,1n<<1100n]}],segments:[{id:'tiny',kind:'intersection',a:'a',b:'b',supports:[{source:0,triangle:0}]}]});
   expect(network.nodes[0].position).toEqual(network.nodes[1].position);expect(network.nodes[0].exact).not.toEqual(network.nodes[1].exact);
   expect(network.segments.length).toBe(1);expect(network.segments[0].a).not.toBe(network.segments[0].b);
@@ -56,10 +56,10 @@ describe('canonical supported curve graph',()=>{
  });
  it('shares prototype bindings while keeping distinct placement inputs separate',()=>{
   const model=mesh([[0,0,0],[3,0,0],[0,3,0]],[[0,1,2]]),place={id:'placed',transform:{translate:[1e16,0,0] as const}};
-  const binding=surfaceBinding3(surfaceOf(model),place);expect(surfaceBinding3(surfaceOf(model),place)).toBe(binding);
-  expect(surfaceBinding3(surfaceOf(model),structuredClone(place))).not.toBe(binding);
+  const binding=surfaceBinding3(mesh3(model),place);expect(surfaceBinding3(mesh3(model),place)).toBe(binding);
+  expect(surfaceBinding3(mesh3(model),structuredClone(place))).not.toBe(binding);
   expect(bindingTriangle3(binding,0)).toBe(bindingTriangle3(binding,0));
-  const world=bindingWorld3(binding);expect(world.points[1].position[0]).toBe(1e16+4);
+  const world=bindingWorld3(binding);expect(world[1][0]).toBe(1e16+4);
   const p=bindingPoint3(binding,0,[.05,.9,.05]);expect(p[0]).toBeGreaterThan(p[3]*10000000000000000n);
  });
 });

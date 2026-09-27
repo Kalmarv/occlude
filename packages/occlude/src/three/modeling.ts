@@ -1,6 +1,6 @@
 import {PhaseClock3,type PhaseTimings3} from './timing.js';
 import type { Execution } from '../execution.js';
-import type { Surface3 } from './geometry/surface.js';
+import type { Mesh3 } from './geometry/mesh3.js';
 import { prepareSurfaceQueries3, QUERY_HOST3, type RayQuery3, type NearestQuery3, type SurfaceHit3 } from './queries/surface.js';
 import type { Vec3 } from './math.js';
 import type { SceneCompute3 } from './scene.js';
@@ -24,7 +24,7 @@ export interface SurfaceQueryResult3 {
 }
 export interface ModelingStats3 { readonly operation: 'query' | 'hatch'; readonly backend: 'cpu' | 'gpu'; readonly dispatches: number; readonly transferBytes: number; readonly timings?:PhaseTimings3;readonly refinements?:number;readonly targetCacheHit?:boolean;readonly targetUploadBytes?:number;readonly hatch?:HatchStats }
 export interface ModelingCompute3 {
-  query(surface: Surface3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal }): Promise<{ result: SurfaceQueryResult3; stats: { dispatches: number; transferBytes: number; timings?:PhaseTimings3 } }>;
+  query(mesh: Mesh3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal }): Promise<{ result: SurfaceQueryResult3; stats: { dispatches: number; transferBytes: number; timings?:PhaseTimings3 } }>;
 }
 /** One binder for the normal toolkit. Host and cancellation scope are explicit;
  * CPU is the headless reference, never a fallback for a failed GPU operation. */
@@ -57,13 +57,13 @@ export function bindModeling3(exec: Execution, scope?: { signal?: AbortSignal; c
     /** The host a prepared query's `batch(t)` runs on: keyed by a symbol, so
      * it is the protocol between two parts of the library and not a word a
      * sketch can call. */
-    [QUERY_HOST3](surface: Surface3, queries: SurfaceQueryInput3): Promise<SurfaceQueryResult3> {
+    [QUERY_HOST3](mesh: Mesh3, queries: SurfaceQueryInput3): Promise<SurfaceQueryResult3> {
       check();
-      const timing=new PhaseClock3(),{source,captured}=timing.measure('captureMs',()=>({source:prepareSurfaceQueries3(surface),captured:structuredClone(queries)}));
+      const timing=new PhaseClock3(),{source,captured}=timing.measure('captureMs',()=>({source:prepareSurfaceQueries3(mesh),captured:structuredClone(queries)}));
       return (async () => {
         const compute = scope!.compute3;
         if (compute && !compute.query) throw new Error('host does not provide GPU surface queries');
-        const out = compute ? await compute.query!(source.surface, captured, { signal: scope!.signal }) : {
+        const out = compute ? await compute.query!(source.mesh, captured, { signal: scope!.signal }) : {
           result: timing.measure('cpuMs',()=>({ rays: source.rays(captured.rays ?? [], scope!.signal), segments: source.segments(captured.segments ?? [], scope!.signal), nearest: source.nearest(captured.nearest ?? [], scope!.signal) })),
           stats: { dispatches: 0, transferBytes: 0, timings:undefined },
         };

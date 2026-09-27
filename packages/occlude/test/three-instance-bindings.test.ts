@@ -1,4 +1,5 @@
 import {describe,expect,it} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {box,instanceOnPoints,mesh,pointCloud,view,orthographic} from 'occlude/3d';
 import {placedOf} from '../src/three/api/instances.js';
 import {surfaceBinding3} from '../src/three/curves/network.js';
@@ -6,7 +7,6 @@ import {intersections3} from '../src/three/curves/intersections.js';
 import {SurfaceCurves} from '../src/three/api/supported.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {featureSnapshot3,FeatureKind3} from '../src/three/features/snapshot.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 describe('instance surface binding ownership',()=>{
   const bindingOf=(m:ReturnType<typeof instanceOnPoints>,i:number)=>placedOf(m)[i].binding;
@@ -31,7 +31,7 @@ describe('instance surface binding ownership',()=>{
   it('resolves a selected supported seam against the original full surfaces',()=>{
     const horizontal=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]],[[0,1,2,3]],{key:'horizontal'});
     const vertical=mesh([[0,-1,-1],[0,1,-1],[0,1,1],[0,-1,1]],[[0,1,2,3]],{key:'vertical'});
-    const network=intersections3(surfaceBinding3(surfaceOf(horizontal)),surfaceBinding3(surfaceOf(vertical))).value.network;
+    const network=intersections3(surfaceBinding3(mesh3(horizontal)),surfaceBinding3(mesh3(vertical))).value.network;
     expect(network.segments.length).toBeGreaterThan(0);
     const seam=new SurfaceCurves(network).edges.at(0)!;
     const selected=new SurfaceCurves(network).edges.filter(edge=>edge.id===seam.id).extract();

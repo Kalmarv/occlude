@@ -3,6 +3,7 @@ import type { CameraFrame3 } from 'occlude/src/three/camera.js';
 import type { SurfaceObject3, WireObject3 } from 'occlude/src/three/features/snapshot.js';
 import type {SurfaceCurveNetwork3} from 'occlude/src/three/curves/network.js';
 import type { SurfaceCurveSegment3 } from 'occlude/src/three/curves/surface.js';
+import { meshRecord3, type MeshRecord3 } from './protocol.js';
 import type { ModelingStats3 } from 'occlude/src/three/modeling.js';
 
 /** Persist realized data, never callbacks or GPU objects. The saved plan remains
@@ -17,7 +18,9 @@ export interface CapturedThree3 {
   modeling: readonly ModelingStats3[];
   scenes: {
     frame: CameraFrame3;
-    objects: readonly Omit<SurfaceObject3, 'hatch'>[];
+    /** Each object with its realized value as a record, and the segments of
+     * its curves (the curves' value is the object's own). */
+    objects: readonly (Omit<SurfaceObject3, 'hatch' | 'surface' | 'curves'> & { surface: MeshRecord3; curves?: { segments: readonly SurfaceCurveSegment3[] } })[];
     wires: readonly WireObject3[];
     supported?:readonly {objectId:string;network:SurfaceCurveNetwork3}[];
     generated: readonly { objectId: string; curve: SurfaceCurveSegment3 }[];
@@ -30,7 +33,7 @@ export function captureThree3(run: Execution, context: Pick<CapturedThree3,'engi
     modeling: run.modeling3,
     scenes: [...run.scenes3].map(([scene,classified]) => ({
       frame: classified.frame,
-      objects: scene.objects.map(({hatch, ...object}) => object),
+      objects: scene.objects.map(({hatch, surface, curves, ...object}) => ({ ...object, surface: meshRecord3(surface), ...(curves ? { curves: { segments: curves.segments } } : {}) })),
       wires: scene.wires,
       supported:classified.curveGraphs?.map(entry=>({objectId:entry.id,network:entry.network})),
       generated: classified.features.flatMap(({feature}) => feature.curve ? [{objectId:feature.objectId,curve:feature.curve}] : []),

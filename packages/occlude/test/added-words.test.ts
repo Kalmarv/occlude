@@ -68,7 +68,7 @@ describe('rows takes views', () => {
     const [p] = m.points, [e] = m.edges;
     expect(() => m.points.rows(e as never)).toThrow(/points\.rows: expected a point — a vertex view or a point value; make one with point\(…\) — got an edge view; its ends are e\.a and e\.b/);
     expect(() => m.edges.rows(p as never)).toThrow(/edges\.rows: expected an edge — an edge view or an edge value; make one with edge\(…\) — got a vertex view; its edges are p\.edges/);
-    expect(() => m.points.rows(undefined as never)).toThrow(/points\.rows: expected a point row, or a list of them — got nothing \(undefined\)/);
+    expect(m.points.rows(undefined).length).toBe(0);
   });
 });
 

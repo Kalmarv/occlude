@@ -20,7 +20,7 @@ import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 import { unionIntervals3, type Interval3 } from '../src/three/visibility/interval.js';
 import { isolines3 } from '../src/three/curves/isolines.js';
 import type { SurfaceCurveObject3 } from '../src/three/curves/network.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import { mesh3 } from '../src/three/geometry/mesh3.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -61,7 +61,7 @@ describe('the isoline view door', () => {
     let min = Infinity, max = -Infinity;
     for (const v of values) if (Number.isFinite(v)) { min = Math.min(min, v); max = Math.max(max, v); }
     const levels = Array.from({ length: 9 }, (_, i) => min + (max - min) * (i + 1) / 10);
-    const direct = isolines3(surfaceOf(ball), values, levels, {});
+    const direct = isolines3(mesh3(ball), values, levels, {});
     expect(rings.network.segments.length).toBe(direct.network.segments.length);
     expect(rings.network.segments.map((s) => s.id)).toEqual(direct.network.segments.map((s) => s.id));
     expect(rings.network.nodes.map((n) => n.exact.join('/'))).toEqual(direct.network.nodes.map((n) => n.exact.join('/')));

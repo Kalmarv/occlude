@@ -1,8 +1,5 @@
-import {surface3} from '../geometry/surface.js';
-import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
-import {geometry3,emptyMesh,type GeometryOptions} from './mesh.js';
+import {geometry3,polygons3,charted3,emptyMesh,type GeometryOptions} from './mesh.js';
 import {emptyCount,emptySize} from '../degenerate.js';
-import {ownSurface3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
 import {convexHull3} from '../geometry/hull.js';
 import type {Material} from '../../material.js';
@@ -32,7 +29,7 @@ const SOLIDS:Record<'icosahedron'|'octahedron'|'tetrahedron',{points:readonly Ve
   },
 };
 /** A primitive with no extent, or with too few segments to close a surface, is
- * an empty mesh: the same nothing-to-draw `box3` returns for a zero size. The
+ * an empty mesh: the same nothing-to-draw `box` returns for a zero size. The
  * budget below is a real limit and still throws, as does a non-integer count. */
 const empty=(sizes:readonly number[],counts:readonly (readonly [number,number,string])[]):boolean=>
   emptySize(...sizes)||counts.some(([n,min,name])=>emptyCount(n,min,name));
@@ -53,14 +50,14 @@ export function sphere(radius=1,options:SphereOptions={}):Material {
     for(let j=0;j<r-2;j++){const low=1+j*n,high=low+n;faces.push([low+i,low+next,high+next,high+i]);}
     const last=1+(r-2)*n;faces.push([last+i,last+next,top]);
   }
-  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c)=>{
+  return geometry3(charted3(polygons3(points,faces),(f,c)=>{
     const sector=Math.floor(f/r),band=f%r,u=sector/n,next=(sector+1)/n;
     const uv:readonly (readonly [number,number])[]=band===0
       ? [[(u+next)/2,0],[next,1/r],[u,1/r]]
       : band===r-1 ? [[u,(r-1)/r],[next,(r-1)/r],[(u+next)/2,1]]
       : [[u,band/r],[next,band/r],[next,(band+1)/r],[u,(band+1)/r]];
     return {uv:uv[c],chart:'sphere'};
-  })),{...options,radialCentre:ORIGIN});
+  }),{...options,radialCentre:ORIGIN});
 }
 
 export type GeodesicBase='icosahedron'|'octahedron'|'tetrahedron';
@@ -153,7 +150,7 @@ export function geodesic(radius=1,options:GeodesicOptions={}):Material {
   if(!faces.length)return emptyMesh(options);
   const longitude=(p:Vec3):number=>{const value=Math.atan2(p[1],p[0])/TAU;return value<0?value+1:value;};
   const latitude=(p:Vec3):number=>.5+Math.asin(Math.max(-1,Math.min(1,p[2]/radius)))/Math.PI;
-  return geometry3(ownSurface3(chartSurface3(surface3(position,faces),(f,c,v)=>{
+  return geometry3(charted3(polygons3(position,faces),(f,c,v)=>{
     // A corner over a pole has no longitude of its own: it takes the mean of
     // the others, so the triangle's chart stays a triangle.
     const corners=faces[f].map(i=>Math.hypot(sphere[i][0],sphere[i][1])>1e-9*radius?longitude(sphere[i]):null);
@@ -164,7 +161,7 @@ export function geodesic(radius=1,options:GeodesicOptions={}):Material {
     // A projected geodesic is star-shaped about the origin it was pushed out
     // from; the flat solid is not built that way and claims nothing.
     return {uv:[resolved[c],latitude(sphere[v])],chart:'geodesic'};
-  })),project?{...options,radialCentre:ORIGIN}:options);
+  }),project?{...options,radialCentre:ORIGIN}:options);
 }
 
 /** Centered on Z, with shared cap/side rims. */
@@ -178,10 +175,10 @@ export function cylinder(radius=1,height=2,options:RadialOptions={}):Material {
   for(const z of [-height/2,height/2])for(let i=0;i<n;i++){const a=TAU*i/n;points.push([radius*Math.cos(a),radius*Math.sin(a),z]);}
   for(let i=0;i<n;i++){const next=(i+1)%n;faces.push([i,next,n+next,n+i]);}
   if(options.caps??true){faces.push(Array.from({length:n},(_,i)=>n-1-i));faces.push(Array.from({length:n},(_,i)=>n+i));}
-  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c,v)=>{
+  return geometry3(charted3(polygons3(points,faces),(f,c,v)=>{
     if(f<n){const u=f/n,next=(f+1)/n,uv:readonly (readonly [number,number])[]=[[u,0],[next,0],[next,1],[u,1]];return {uv:uv[c],chart:'side'};}
     return {uv:[.5+.5*points[v][0]/radius,.5+.5*points[v][1]/radius],chart:f===n?'bottom':'top'};
-  })),options);
+  }),options);
 }
 
 /** Base at -height/2, one shared apex at +height/2. */
@@ -195,10 +192,10 @@ export function cone(radius=1,height=2,options:RadialOptions={}):Material {
   for(let i=0;i<n;i++){const a=TAU*i/n;points.push([radius*Math.cos(a),radius*Math.sin(a),-height/2]);}
   points.push([0,0,height/2]);for(let i=0;i<n;i++)faces.push([i,(i+1)%n,n]);
   if(options.caps??true)faces.push(Array.from({length:n},(_,i)=>n-1-i));
-  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c,v)=>{
+  return geometry3(charted3(polygons3(points,faces),(f,c,v)=>{
     if(f<n){const uv:readonly (readonly [number,number])[]=[[f/n,0],[(f+1)/n,0],[(f+.5)/n,1]];return {uv:uv[c],chart:'side'};}
     return {uv:[.5+.5*points[v][0]/radius,.5+.5*points[v][1]/radius],chart:'bottom'};
-  })),options);
+  }),options);
 }
 
 /** Ring in XY: radius measures the tube centerline, tubeRadius its section. */
@@ -213,8 +210,8 @@ export function torus(radius=1,tubeRadius=.25,options:TorusOptions={}):Material 
   const points:Vec3[]=[],faces:number[][]=[];
   for(let i=0;i<n;i++)for(let j=0;j<m;j++){const u=TAU*i/n,v=TAU*j/m,r=radius+tubeRadius*Math.cos(v);points.push([r*Math.cos(u),r*Math.sin(u),tubeRadius*Math.sin(v)]);}
   for(let i=0;i<n;i++)for(let j=0;j<m;j++)faces.push([i*m+j,((i+1)%n)*m+j,((i+1)%n)*m+(j+1)%m,i*m+(j+1)%m]);
-  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c)=>{
+  return geometry3(charted3(polygons3(points,faces),(f,c)=>{
     const i=Math.floor(f/m),j=f%m,uv:readonly (readonly [number,number])[]=[[i/n,j/m],[(i+1)/n,j/m],[(i+1)/n,(j+1)/m],[i/n,(j+1)/m]];
     return {uv:uv[c],chart:'torus'};
-  })),options);
+  }),options);
 }

@@ -1,4 +1,4 @@
-import {objectSurfaceBinding3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3,type SurfaceCurveGraph3,type SurfaceCurveView3} from '../curves/network.js';
+import {objectSurfaceBinding3,bindingWorld3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3,type SurfaceCurveGraph3,type SurfaceCurveView3} from '../curves/network.js';
 import {shellCertificate3,type CertificateView3,type ShellCertificate3} from '../visibility/facing.js';
 import { realizeHatch3, validateHatch3, type HatchSource3 } from '../curves/hatch.js';
 import type { UnitCtx } from '../../units.js';
@@ -6,15 +6,18 @@ import { validateSurfaceCurves3, type SurfaceCurves3, type SurfaceCurveSegment3 
 import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, outsideView3, toCamera3, toPaper3, type CameraFrame3, type PaperFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
-import { transformSurface3, transformPosition3 } from '../geometry/model.js';
-import type { Attributes3, Surface3 } from '../geometry/surface.js';
+import {rowColumns3,transformPosition3,validateTransform3,type SurfaceTransform3,type Attributes3} from '../geometry/model.js';
+import { Mesh3, mesh3, type Columns3 } from '../geometry/mesh3.js';
+import type { Material } from '../../material.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
 import { suggestiveSegments3, type SuggestiveEnd3, type SuggestiveOptions3 } from './suggestive.js';
 
 export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64, intersection:128, mapped:256, trace:512, isoline:1024, suggestive:2048 } as const;
 export interface InstanceSource3 {readonly id:string;readonly pointId:string;readonly pointIndex:number;readonly prototypeKey?:string}
-export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly instance?:InstanceSource3; readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3;
+export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly instance?:InstanceSource3; readonly id: string;
+  /** The geometry this object draws: a value from `occlude/3d`. */
+  readonly surface: Material; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: SurfaceTransform3; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3;
   /** The object's own crease threshold in degrees; the view's applies when unset. */
   readonly creaseThreshold?: number;
   /** The object's own pen for the default drawing. */
@@ -112,6 +115,40 @@ export interface FeatureSnapshot3 {
    * the same answers instead of proving them twice. */
   readonly shellCertificate?: (mesh: OccluderMesh3) => ShellCertificate3;
 }
+/** The reader of a surface where `transform` puts it: every point moved as
+ * `transformPosition3` moves it (`world`, when the caller already holds those
+ * positions), and under a mirror every face turned over — its loop reversed,
+ * its triangles wound the other way and its corners in the order of the
+ * reversed loop — so the placed surface still faces out. Names, edges and
+ * columns are the value's own, and so are its faces by lineage. */
+export function placedMesh3(mesh: Mesh3, transform: SurfaceTransform3, world?: readonly Vec3[]): Mesh3 {
+  validateTransform3(transform);
+  const positions = world ?? mesh.positions.map(p => transformPosition3(p, transform));
+  const x = new Float64Array(mesh.n), y = new Float64Array(mesh.n), z = new Float64Array(mesh.n);
+  positions.forEach((p, i) => { x[i] = p[0]; y[i] = p[1]; z[i] = p[2]; });
+  const mirrored = (transform.scale ?? [1, 1, 1]).filter(n => n < 0).length % 2 === 1;
+  const local = mesh.loops.map((_, f) => mesh.localTriangles(f));
+  if (!mirrored) return new Mesh3({ x, y, z, loops: mesh.loops, local, edges: mesh.edges, names: () => mesh.names, cols: () => mesh.cols, topology: mesh.topology });
+  const order: number[] = [];
+  mesh.loops.forEach((loop, f) => { for (let k = loop.length - 1; k >= 0; k--) order.push(mesh.cornerStart[f] + k); });
+  return new Mesh3({
+    x, y, z,
+    loops: mesh.loops.map(loop => Object.freeze([...loop].reverse())),
+    local: local.map((own, f) => {
+      const last = mesh.loops[f].length - 1, out: number[] = [];
+      for (let k = 0; k + 2 < own.length; k += 3) out.push(last - own[k], last - own[k + 2], last - own[k + 1]);
+      return out;
+    }),
+    edges: mesh.edges,
+    names: () => ({ ...mesh.names, corners: order.map(c => mesh.names.corners[c]) }),
+    cols: () => {
+      const corners: Record<string, Columns3[string]> = {};
+      for (const name in mesh.cols.corners) corners[name] = mesh.cols.corners[name].keep(order);
+      return { ...mesh.cols, corners };
+    },
+    topology: mesh.topology,
+  });
+}
 const key = (...parts: (string | number)[]) => JSON.stringify(parts);
 const attributes = (a: Attributes3 = {}): Readonly<Attributes3> => Object.freeze(Object.fromEntries(Object.entries(a).map(([k, v]) => [k, Array.isArray(v) ? Object.freeze([...v]) : v])));
 const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
@@ -164,7 +201,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         Object.freeze([a,b].map(p=>Object.freeze([Object.freeze({point:Object.freeze(toCamera3(frame,p.position)),world:p.position,exactWorld:p.exact,weight:1})]))) as SegmentBasis3;
       const support=[...new Set(segment.supports.map(s=>bindings[s.source].triangleIds[s.triangle]))];
       const faces=new Map<string,Readonly<Attributes3>>();
-      for(const s of segment.supports){const face=network.sources[s.source].binding.source.triangles[s.triangle].face;faces.set(key(s.source,face),bindings[s.source].faceAttrs[face]);}
+      for(const s of segment.supports){const face=network.sources[s.source].binding.source.triangleFace[s.triangle];faces.set(key(s.source,face),bindings[s.source].faceAttrs[face]);}
       add({...(legacy?.object.instance?{instance:Object.freeze({...legacy.object.instance})}:{}),...(legacy?.object.stroke!==undefined?{stroke:legacy.object.stroke}:{}),...(legacy?.object.fillPen!==undefined?{fillPen:legacy.object.fillPen}:{}),id:key(entry.id,segment.id),objectId:entry.id,sourceId:segment.id,flags:FeatureKind3[segment.kind],curve,supportedCurve:Object.freeze({graph,segment:index}),basis,creaseAngle:0,a:position('a'),b:position('b'),endpoints:[key(entry.id,'curve',a.id),key(entry.id,'curve',b.id)],support,attributes:attributes({...entry.attributes,...segment.attributes}),faceAttributes:[...faces.values()]},!selected.has(segment.id));
     });
   };
@@ -173,40 +210,49 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   const needed=new Set<SurfaceBinding3>();
   for(const entry of curves)if(entry.network)for(const source of entry.network.sources)needed.add(source.binding);
   for (const object of objects) {
-    if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
+    const mesh=mesh3(object.surface);
+    if(object.curves)validateSurfaceCurves3(object.curves,mesh);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
-    const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface;
-    const worldPositions=surface.points.map(p=>Object.freeze([...p.position]) as Vec3);
+    // The object where its transform puts it: its placed points, and its
+    // triangles wound as placed (a mirror turns them over).
+    const binding=objectSurfaceBinding3({...object,mesh});
+    const world=object.transform?placedMesh3(mesh,object.transform,bindingWorld3(binding)):mesh;
+    const worldPositions=world.positions,slot=world.triangles,faceOf=world.triangleFace,triangleCount=world.triangleCount,names=mesh.names;
+    const vertices=(t:number):[number,number,number]=>[slot[3*t],slot[3*t+1],slot[3*t+2]];
     const positions=worldPositions.map(p=>Object.freeze(toCamera3(frame,p)));
     // An object wholly outside the view draws nothing and hides nothing: it
     // is skipped before it costs a feature, an occluder or a seam.
-    if(outsideView3(frame,positions,sheet)&&!needed.has(objectSurfaceBinding3(object)))continue;
+    if(outsideView3(frame,positions,sheet)&&!needed.has(binding))continue;
     const edgeBasis=(vertices:readonly [number,number]):SegmentBasis3=>Object.freeze(vertices.map(v=>Object.freeze([Object.freeze({point:positions[v],world:worldPositions[v],weight:1})]))) as SegmentBasis3;
-    const faceAttrs = surface.faces.map(f => attributes(f.attributes));
-    const faceTriangles: number[][] = surface.faces.map(() => []);
-    surface.triangles.forEach((t,i)=>faceTriangles[t.face].push(i));
-    const planar = surface.faces.map((face, i) => {
-      const t=surface.triangles[faceTriangles[i][0]];
-      const [a,b,c]=t.vertices.map(v=>surface.points[v].position);
-      return face.vertices.every(v=>orient3d(...a,...b,...c,...surface.points[v].position)===0);
+    const faceAttrs = world.loops.map((_, f) => attributes(rowColumns3(mesh, 'faces', f)));
+    const faceTriangles: number[][] = world.loops.map(() => []);
+    for (let i = 0; i < triangleCount; i++) faceTriangles[faceOf[i]].push(i);
+    // A face with no triangles is never a feature's support, so it needs no plane.
+    const planar = world.loops.map((loop, i) => {
+      if (!faceTriangles[i].length) return false;
+      const [a,b,c]=vertices(faceTriangles[i][0]).map(v=>worldPositions[v]);
+      return loop.every(v=>orient3d(...a,...b,...c,...worldPositions[v])===0);
     });
-    const originals = new Map(surface.edges.map(e => [edgeKey(...e.vertices), e]));
+    const edgeFaces = mesh.edgeFaces, edgeCols = mesh.cols.edges;
+    const originals = new Map<string, number>();
+    for (let e = 0; e < mesh.edgeCount; e++) originals.set(edgeKey(mesh.edges[2 * e], mesh.edges[2 * e + 1]), e);
     const triangleEdges = new Map<string, { vertices: readonly [number, number]; triangles: number[] }>();
     const worldNormals: Vec3[] = [], facing: number[] = [], triangleIds: string[] = [];
     const objectOccluders: { occluder: number; triangle: number }[] = [];
     // Every triangle of an occluding object must reach the classifier whole
     // for a self-occlusion certificate to name a blocker it holds.
     let complete = object.occluder !== false;
-    surface.triangles.forEach((t, i) => {
-      const triangle = t.vertices.map(v => positions[v]) as unknown as Triangle3;
+    for (let i = 0; i < triangleCount; i++) {
+      const t = vertices(i);
+      const triangle = t.map(v => positions[v]) as unknown as Triangle3;
       const n = unit3(cross3(sub3(triangle[1], triangle[0]), sub3(triangle[2], triangle[0])));
-      const world = Object.freeze(t.vertices.map(v => worldPositions[v])) as unknown as Triangle3;
+      const world = Object.freeze(t.map(v => worldPositions[v])) as unknown as Triangle3;
       const worldVolume=Object.freeze({triangle:world,view:worldView});
       worldNormals.push(unit3(cross3(sub3(world[1], world[0]), sub3(world[2], world[0]))));
       facing.push(frame.camera.kind === 'orthographic' ? n[2] : dot3(n, mul3(triangle[0], -1)));
-      const id = key(object.id, surface.faces[t.face].id, ...t.vertices.map(v => surface.points[v].id)); triangleIds.push(id);
+      const id = key(object.id, names.faces[faceOf[i]], ...t.map(v => names.points[v])); triangleIds.push(id);
       for (let j = 0; j < 3; j++) {
-        const a = t.vertices[j], b = t.vertices[(j + 1) % 3], k = edgeKey(a, b), edge = triangleEdges.get(k);
+        const a = t[j], b = t[(j + 1) % 3], k = edgeKey(a, b), edge = triangleEdges.get(k);
         if (edge) edge.triangles.push(i); else triangleEdges.set(k, { vertices: [a, b], triangles: [i] });
       }
       let pieces = 0;
@@ -218,9 +264,9 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         if (volume) { pieces++; objectOccluders.push({ occluder: occluders.length, triangle: i }); occluders.push({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))), neighbors: [] }); }
       }
       if (pieces !== 1) complete = false;
-    });
+    }
     {
-      const neighborIds = surface.triangles.map(() => [] as string[]);
+      const neighborIds = triangleIds.map(() => [] as string[]);
       for (const edge of triangleEdges.values()) if (edge.triangles.length === 2) { const [a, b] = edge.triangles; neighborIds[a].push(triangleIds[b]); neighborIds[b].push(triangleIds[a]); }
       for (const row of objectOccluders) { const occluder = occluders[row.occluder]; occluders[row.occluder] = Object.freeze({ ...occluder, neighbors: Object.freeze([...neighborIds[row.triangle]]) }); }
     }
@@ -229,38 +275,41 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       // The recorded centre is the object's own; the mesh the certificate
       // reads is in world coordinates, so the centre moves with it.
       const centre = object.radialCentre && (object.transform ? transformPosition3(object.radialCentre, object.transform) : object.radialCentre);
-      occluderMesh = Object.freeze({ objectId: object.id, positions: worldPositions, pointIds: surface.points.map(p => p.id), triangles: surface.triangles.map(t => t.vertices), triangleIds, complete, ...(centre ? { radialCentre: Object.freeze([...centre]) as Vec3 } : {}) });
+      occluderMesh = Object.freeze({ objectId: object.id, positions: worldPositions, pointIds: names.points, triangles: Object.freeze(Array.from({ length: triangleCount }, (_, i) => Object.freeze(vertices(i)) as readonly [number, number, number])), triangleIds, complete, ...(centre ? { radialCentre: Object.freeze([...centre]) as Vec3 } : {}) });
       occluderMeshes.push(occluderMesh);
     }
-    const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs,mesh:occluderMesh};
+    const capture={object,triangleIds,faceAttrs,mesh:occluderMesh};
     const matching=captures.get(binding)??[];matching.push(capture);captures.set(binding,matching);
     if (object.lineSource === false) continue;
     for (const [k, edge] of triangleEdges) {
       const original = originals.get(k), incident = edge.triangles;
       if (incident.length > 2) throw new Error('non-manifold render triangulation');
       const silhouette = incident.length === 2 && (facing[incident[0]] > 0) !== (facing[incident[1]] > 0);
-      if (!original && !silhouette) continue;
+      if (original === undefined && !silhouette) continue;
       let angle = 0;
       if (incident.length === 2) {
         // Creases belong to the model, independent of camera-space roundoff.
         // Exact coplanarity avoids inventing folds; atan2 retains real shallow folds.
         const [left, right] = incident.map(i => worldNormals[i]);
-        const [a, b, c] = surface.triangles[incident[0]].vertices.map(v => surface.points[v].position);
-        const coplanar = surface.triangles[incident[1]].vertices.every(v => orient3d(...a, ...b, ...c, ...surface.points[v].position) === 0);
+        const [a, b, c] = vertices(incident[0]).map(v => worldPositions[v]);
+        const coplanar = vertices(incident[1]).every(v => orient3d(...a, ...b, ...c, ...worldPositions[v]) === 0);
         const cosine = dot3(left, right);
         angle = coplanar && cosine > 0 ? 0 : Math.atan2(Math.hypot(...cross3(left, right)), cosine) * 180 / Math.PI;
       }
-      const sourceId = original?.id ?? key('diagonal', surface.faces[surface.triangles[incident[0]].face].id, ...edge.vertices.map(v => surface.points[v].id));
-      const flags = (original?.faces.length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original && angle > 0 ? FeatureKind3.crease : 0) | (original?.attributes.marked === true ? FeatureKind3.marked : 0);
-      const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
-      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), ...(object.fillPen!==undefined?{fillPen:object.fillPen}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
+      const sourceId = original !== undefined ? names.edges[original] : key('diagonal', names.faces[faceOf[incident[0]]], ...edge.vertices.map(v => names.points[v]));
+      const own = original === undefined ? undefined : rowColumns3(mesh, 'edges', original);
+      const flags = (original !== undefined && edgeFaces[original].length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original !== undefined && angle > 0 ? FeatureKind3.crease : 0) | (original !== undefined && edgeCols.marked !== undefined && mesh.cell('edges', 'marked', original) === true ? FeatureKind3.marked : 0);
+      const support = [...new Set(incident.flatMap(i => { const f=faceOf[i]; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
+      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), ...(object.fillPen!==undefined?{fillPen:object.fillPen}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, names.points[v])) as [string, string], support, attributes: attributes({ ...object.attributes, ...own }), faceAttributes: [...new Set(incident.map(i => faceOf[i]))].map(i => faceAttrs[i]) });
     }
-    for(const edge of surface.edges){
-      if(edge.faces.length)continue;
-      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],basis:edgeBasis(edge.vertices),endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
+    for(let e=0;e<mesh.edgeCount;e++){
+      if(edgeFaces[e].length)continue;
+      const ends=[mesh.edges[2*e],mesh.edges[2*e+1]] as const;
+      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,names.edges[e]),objectId:object.id,sourceId:names.edges[e],flags:FeatureKind3.wire,creaseAngle:0,a:positions[ends[0]],b:positions[ends[1]],basis:edgeBasis(ends),endpoints:ends.map(v=>key(object.id,names.points[v])) as [string,string],support:[],attributes:attributes({...object.attributes,...rowColumns3(mesh,'edges',e)}),faceAttributes:[]});
     }
     // Suggestive contours are a reading of this view, not of the model: they
-    // are traced here beside the silhouettes and classified with them.
+    // are traced here beside the silhouettes and classified with them, on
+    // the object as placed.
     if(object.suggestive){
       const crossing=(end:SuggestiveEnd3)=>{
         const [u,v]=end.vertices;
@@ -269,17 +318,17 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
           terms:Object.freeze([Object.freeze({point:positions[u],world:worldPositions[u],weight:1-end.t}),Object.freeze({point:positions[v],world:worldPositions[v],weight:end.t})]),
           // The crossing parameter names the node: the neighbouring triangle
           // computes the same one on this edge, so the two pieces chain.
-          id:key(object.id,'suggestive',surface.points[u].id,surface.points[v].id,end.t),
+          id:key(object.id,'suggestive',names.points[u],names.points[v],end.t),
         };
       };
-      for(const segment of suggestiveSegments3(surface,frame,object.suggestive)){
-        const [a,b]=segment.ends.map(crossing),triangle=surface.triangles[segment.triangle];
+      for(const segment of suggestiveSegments3(world,frame,object.suggestive)){
+        const [a,b]=segment.ends.map(crossing);
         const sourceId=key('suggestive',triangleIds[segment.triangle]);
-        add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,sourceId),objectId:object.id,sourceId,flags:FeatureKind3.suggestive,creaseAngle:0,a:a.point,b:b.point,basis:Object.freeze([a.terms,b.terms]) as SegmentBasis3,endpoints:[a.id,b.id],support:[triangleIds[segment.triangle]],attributes:attributes({...object.attributes}),faceAttributes:[faceAttrs[triangle.face]]});
+        add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,sourceId),objectId:object.id,sourceId,flags:FeatureKind3.suggestive,creaseAngle:0,a:a.point,b:b.point,basis:Object.freeze([a.terms,b.terms]) as SegmentBasis3,endpoints:[a.id,b.id],support:[triangleIds[segment.triangle]],attributes:attributes({...object.attributes}),faceAttributes:[faceAttrs[faceOf[segment.triangle]]]});
       }
     }
-    const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
-    if(hatch)validateSurfaceCurves3(hatch,object.surface);
+    const hatch=object.hatch?realizeHatch3(object.hatch,{positions:worldPositions,names:names.points,triangles:slot},frame,units):undefined;
+    if(hatch)validateSurfaceCurves3(hatch,mesh);
     for(const source of [object.curves,hatch])if(source){
       const network=legacySurfaceCurveNetwork3(source,binding);
       emitNetwork({id:object.id,network,attributes:object.attributes},[capture],{object,segments:source.segments,positions,worldPositions});

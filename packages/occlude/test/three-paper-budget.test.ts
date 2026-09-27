@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
 import { mm, pen, sketch } from '../src/index.js';
 import { commitCamera3, compileSketchAsync, initOcclude } from '../src/host.js';
-import { box3, lineArt3 } from '../src/three/api/advanced.js';
+import { lineArt3 } from '../src/three/api/advanced.js';
+import { box } from '../src/three/api/index.js';
 import { paperBudget3, intervalTolerance3 } from '../src/three/visibility/precision.js';
 import { precisionFixtures3 } from '../tools/precision-fixtures3.js';
 import { lerp3 } from '../src/three/math.js';
@@ -31,7 +32,7 @@ it('rejects invalid budgets and pen widths, and keeps a positive subnormal toler
 });
 it('passes the narrowest resolved nib budget per execution and retains it on camera commit',async()=>{
   const camera={kind:'orthographic' as const,span:4,eye:[4,6,5] as const,target:[0,0,0] as const,near:.1,far:30};
-  const scene=lineArt3({camera,objects:[{id:'box',surface:box3([1,1,1])}],lineSets:[{id:'edges',stroke:'ink'}]});
+  const scene=lineArt3({camera,objects:[{id:'box',surface:box([1,1,1])}],lineSets:[{id:'edges',stroke:'ink'}]});
   // The budget is the narrowest nib of the execution's resolved pens, and a
   // camera commit keeps the same pens, so it keeps the same budget.
   const seen:number[]=[];

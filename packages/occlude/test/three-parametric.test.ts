@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {parametric,sphere,torus} from '../src/three/api/index.js';
 import {cross3,type Vec3} from '../src/three/math.js';
 import {manifold} from './helpers/surfaces.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import type {Material} from '../src/material.js';
 
 /** The same closed-surface test the primitive catalog uses. */
@@ -32,20 +32,21 @@ describe('parametric surfaces from a formula',()=>{
     const bi=cross3(tangent,normal);
     return [0,1,2].map(k=>centre[k]+.35*(Math.cos(b)*normal[k]+Math.sin(b)*bi[k])) as unknown as Vec3;
   },{cols:64,rows:16,closeU:true,closeV:true});
-  expect(surfaceOf(knot).edges.every(e=>e.faces.length===2)).toBe(true);
+  expect(mesh3(knot).edgeFaces.every(faces=>faces.length===2)).toBe(true);
   expect(knot.points.length).toBe(64*16);
   expect(knot.points.length-knot.edges.length+knot.faces.length).toBe(0);
   const helicoid=parametric((u,v)=>{const a=TAU*u;return [v*Math.cos(a),v*Math.sin(a),.4*a];},{cols:24,rows:8});
-  expect(surfaceOf(helicoid).edges.filter(e=>e.faces.length===1).length).toBeGreaterThan(0);
+  expect(mesh3(helicoid).edgeFaces.filter(faces=>faces.length===1).length).toBeGreaterThan(0);
   expect(helicoid.faces.length).toBe(23*7);
  });
  it('carries the unit square as a chart and winds by du x dv',()=>{
   const sheet=parametric((u,v)=>[u*2-1,v*2-1,0],{cols:5,rows:5});
-  const uv=surfaceOf(sheet).faces.flatMap(f=>f.corners!.map(c=>c.attributes.uv as readonly [number,number]));
+  const uv=sheet.corners.map(c=>c.uv as readonly [number,number]);
+  expect(uv).toHaveLength(4*sheet.faces.length);
   expect(uv.every(p=>p[0]>=0&&p[0]<=1&&p[1]>=0&&p[1]<=1)).toBe(true);
   expect(Math.max(...uv.map(p=>p[0]))).toBeCloseTo(1,12);
   expect(Math.max(...uv.map(p=>p[1]))).toBeCloseTo(1,12);
-  expect(surfaceOf(sheet).faces.every(f=>(f.corners??[]).every(c=>c.attributes.chart==='parametric'))).toBe(true);
+  expect(sheet.corners.every(c=>c.chart==='parametric')).toBe(true);
   // du x dv is +Z for this sheet, so every face normal is +Z.
   expect(sheet.faces.every(f=>f.normal[2]>.999)).toBe(true);
   // Swapping the parameters turns the same sheet inside out.
@@ -66,7 +67,7 @@ describe('parametric surfaces from a formula',()=>{
     ()=>parametric(ball(),{cols:2,rows:8,closeU:true}),
     ()=>parametric((u,v)=>[u,v,1/0],{cols:4,rows:4}),
     ()=>parametric((u,v)=>[u,v,Number.NaN],{cols:4,rows:4}),
-  ])expect(surfaceOf(make()).faces.length).toBe(0);
+  ])expect(make().faces.length).toBe(0);
   expect(()=>parametric(ball(),{cols:4.5,rows:4})).toThrow('integer');
   expect(()=>parametric(ball(),{cols:2000,rows:2000})).toThrow('budget');
   expect(()=>parametric(undefined as never,{cols:4,rows:4})).toThrow('formula');

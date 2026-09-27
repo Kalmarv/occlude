@@ -14,19 +14,20 @@
  * `instanceOnFaces` — and it keeps that row's columns.
  */
 import {rotation3,alignAxis,storedRotation,type Rotation,type RotationInput} from '../rotation.js';
-import {pointCloud,geometry3,derived,type GeometryOptions} from './mesh.js';
+import {pointCloud,geometry3,pointsMade3,kernelRows3,rowsOfColumn3,derived,type GeometryOptions} from './mesh.js';
 import {points2} from './lift.js';
 import {refuseDisplay} from './recipes.js';
 import {evaluate,type Field} from './columns.js';
-import {rowName,rowAttributes,hasFaces,surfaceOf} from '../geometry/value.js';
+import {hasFaces} from '../geometry/value.js';
 import {Material,inSpace3,type Vertex} from '../../material.js';
 import {Selection} from '../../selection.js';
 import {identity} from './identity.js';
-import {assembleSurface3,surface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceEdge3,type SurfaceTriangle3} from '../geometry/surface.js';
-import {ownSurface3,transformSurface3} from '../geometry/model.js';
+import {rowColumns3,transformPosition3,type Attributes3} from '../geometry/model.js';
+import {mesh3,faceEdges3,checkMade3,kernelColumn,type Provenance3,type Mesh3,type Columns3,type Domain3} from '../geometry/mesh3.js';
 import {add3,mul3,type Vec3} from '../math.js';
 import {captureSurfacePlacement3} from '../geometry/location.js';
 import {surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
+import {kinds,type AnyColumn} from '../../column.js';
 import type {Face} from '../../faces.js';
 
 /** How one copy is placed: scale, then rotation, then translation, applied
@@ -91,12 +92,13 @@ export function placedOf(m:Material):readonly Placed3[] {
   if(out!==undefined)return out;
   const prototype=prototypeOf(m);
   if(prototype===undefined)throw new Error('expected instances — a value that places a prototype: instanceOnPoints or instanceOnFaces');
-  const surface=surfaceOf(prototype),rows=[...m.points] as unknown as readonly (Vertex&{readonly z:number;readonly rotate:readonly number[];readonly scale:readonly number[];readonly source:unknown})[];
+  const surface=mesh3(prototype),own=mesh3(m),rows=[...m.points] as unknown as readonly (Vertex&{readonly z:number;readonly rotate:readonly number[];readonly scale:readonly number[];readonly source:unknown})[];
   out=Object.freeze(rows.map((row,index)=>{
-    const id=rowName(row,'points');
+    const id=own.names.points[index];
     const turn=row.rotate.length===3?Object.freeze([row.rotate[0],row.rotate[1],row.rotate[2]]) as Vec3:storedRotation(row.rotate);
     const transform:InstanceTransform=Object.freeze({translate:Object.freeze([row.x,row.y,row.z]) as Vec3,rotate:turn,scale:Object.freeze([row.scale[0],row.scale[1],row.scale[2]]) as Vec3});
-    const {rotate:_r,scale:_s,...attributes}=rowAttributes(row,'points') as Attributes3;
+    const {rotate:_r,scale:_s,...attributes}=rowColumns3(own,'points',index);
+    for(const name in attributes){const v=attributes[name];if(Array.isArray(v))Object.freeze(v);}
     return Object.freeze({id,index,transform,binding:surfaceBinding3(surface,placementOf(surface,m.store.pointIds.get(index),id,transform)),attributes:Object.freeze(attributes),source:row.source});
   }));
   placedCache.set(m,out);
@@ -118,13 +120,20 @@ function placement(who:string,rotate:RotationInput,scale:number|Vec3):{rotate:Ve
 const turns=(given:readonly (Vec3|Rotation)[]):readonly (readonly number[])[]=>
   given.every(r=>Array.isArray(r))?given as readonly Vec3[]:given.map(r=>Array.isArray(r)?rotation3(r).quaternion:(r as Rotation).quaternion);
 /** The instances of `prototype` at these copies: a points value in space,
- * a point a copy, its rows named for the prototype and the row placed at. */
-function instances(prototype:Material,copies:readonly {readonly name:string;readonly translate:Vec3;readonly rotate:Vec3|Rotation;readonly scale:Vec3;readonly attributes:Attributes3}[],source:{of:Material;domain:'points'|'faces';rows:Int32Array},options:GeometryOptions,who:string):Material {
+ * a point a copy, its rows named for the prototype and the row placed at.
+ * Each keeps the columns of its row, then says how it is turned and sized. */
+function instances(prototype:Material,copies:readonly {readonly name:string;readonly translate:Vec3;readonly rotate:Vec3|Rotation;readonly scale:Vec3}[],source:{of:Material;domain:'points'|'faces';rows:Int32Array},options:GeometryOptions,who:string):Material {
   refuseDisplay(options,who);
   const key=checkedKey(options.key,who);
-  const base=surface3(copies.map(c=>c.translate),[]),rotate=turns(copies.map(c=>c.rotate));
-  const points:SurfacePoint3[]=base.points.map((p,i)=>({...p,id:copies[i].name,attributes:{...copies[i].attributes,rotate:rotate[i],scale:copies[i].scale}}));
-  return geometry3(ownSurface3({...base,points}),{...(key!==undefined?{key}:{}),prototype,source:{points:{source:source}}});
+  const cols:Record<string,AnyColumn>={};
+  if(copies.length){
+    Object.assign(cols,kernelRows3(mesh3(source.of).cols[source.domain],source.rows));
+    const rotate=turns(copies.map(c=>c.rotate)),width=rotate[0].length,turn=new Float64Array(copies.length*width),scale=new Float64Array(copies.length*3);
+    copies.forEach((c,i)=>{for(let k=0;k<width;k++)turn[i*width+k]=rotate[i][k];for(let k=0;k<3;k++)scale[i*3+k]=c.scale[k];});
+    cols.rotate=kinds.vector(width).of(turn);cols.scale=kinds.vector(3).of(scale);
+  }
+  const made=pointsMade3(copies.map(c=>c.translate),copies.map(c=>c.name),cols);checkMade3(made);
+  return geometry3(made,{...(key!==undefined?{key}:{}),prototype,source:{points:{source:source}}});
 }
 function checkPrototype(prototype:unknown,who:string):asserts prototype is Material {
   if(!(prototype instanceof Material)||!hasFaces(prototype)&&prototype.n>0)throw new Error(`${who}: the prototype is a value with faces — a mesh, a box, a sphere`);
@@ -144,13 +153,13 @@ export function instanceOnPoints<R extends Vertex>(prototype:Material,input:Sele
   if(!isPoints(points))throw new Error(`${who}: expected points — a point selection, a value of points, or 2D points`);
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error(`${who}: options are a record { scale, rotate, offset, key }`);
   if(points.length>100000)throw new Error('instance count exceeds budget (100000)');
-  const owner=prototype.key??'prototype';
+  const owner=prototype.key??'prototype',names=mesh3(points.owner as Material).names.points;
   const copies=points.map(row=>{
     const offset=evaluate(options.offset??([0,0,0] as Vec3),row);
     if(!finiteTriple(offset))throw new Error(`${who}: offset is a vector [x, y, z] — got ${JSON.stringify(offset)}`);
     const turn=placement(who,evaluate(options.rotate??([0,0,0] as Vec3),row),evaluate(options.scale??1,row));
     const r=row as unknown as Vertex&{z:number};
-    return {name:identity('instance',owner,rowName(row,'points')),translate:add3([r.x,r.y,r.z],offset),...turn,attributes:rowAttributes(row,'points') as Attributes3};
+    return {name:identity('instance',owner,names[row.index]),translate:add3([r.x,r.y,r.z],offset),...turn};
   });
   return instances(prototype,copies,{of:points.owner as Material,domain:'points',rows:Int32Array.from(points.indices)},options,who);
 }
@@ -164,34 +173,80 @@ export function instanceOnFaces<R extends Face>(prototype:Material,faces:Selecti
   checkPrototype(prototype,who);
   if(!(faces instanceof Selection&&faces.domain.kind.name==='face'))throw new Error(`${who}: expected faces — a face selection, such as mesh.faces`);
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error(`${who}: options are a record { scale, rotate, offset, key }`);
-  const owner=prototype.key??'prototype';
+  const owner=prototype.key??'prototype',names=mesh3(faces.owner as Material).names.faces;
   const copies=faces.map(face=>{
     const along=evaluate(options.offset??0,face),offset=typeof along==='number'?mul3(face.normal as Vec3,along):along;
     if(!finiteTriple(offset))throw new Error(`${who}: offset is a distance along the normal or a vector [x, y, z] — got ${JSON.stringify(along)}`);
     const aligned=alignAxis('z',face.normal as Vec3),extra=options.rotate?rotation3(evaluate(options.rotate,face)):undefined;
     const turn=placement(who,extra?aligned.then(extra):aligned,evaluate(options.scale??1,face));
-    return {name:identity('instance',owner,rowName(face,'faces')),translate:add3(face.centroid as Vec3,offset),...turn,attributes:rowAttributes(face,'faces') as Attributes3};
+    return {name:identity('instance',owner,names[face.index]),translate:add3(face.centroid as Vec3,offset),...turn};
   });
   return instances(prototype,copies,{of:faces.owner as Material,domain:'faces',rows:Int32Array.from(faces.indices)},options,who);
 }
 
+/** How a copy lays the prototype's faces: its loops — turned over by a
+ * mirror, as a mirrored value's faces are — each face's triangles round its
+ * loop, the prototype corner at each corner, and the edges the loops make,
+ * each with the prototype edge it is: the sides first, then the loose ones. */
+interface Laid3 {
+  readonly loops:readonly (readonly number[])[];readonly triangles:readonly (readonly number[])[];readonly corners:readonly number[];
+  readonly edges:Uint32Array;readonly names:readonly string[];readonly kept:Int32Array;readonly sides:number;
+}
+function laid(proto:Mesh3,turned:boolean):Laid3 {
+  const loops:(readonly number[])[]=[],triangles:(readonly number[])[]=[],corners:number[]=[],start=proto.cornerStart;
+  proto.loops.forEach((loop,f)=>{
+    const own=proto.localTriangles(f),last=loop.length-1;
+    if(!turned){loops.push(loop);triangles.push(own);for(let k=0;k<=last;k++)corners.push(start[f]+k);return;}
+    const flipped:number[]=[];
+    for(let k=0;k+2<own.length;k+=3)flipped.push(last-own[k],last-own[k+2],last-own[k+1]);
+    loops.push(Object.freeze([...loop].reverse()));triangles.push(Object.freeze(flipped));
+    for(let k=last;k>=0;k--)corners.push(start[f]+k);
+  });
+  const sides=faceEdges3(loops,proto.names.points).names.length,{edges,names,kept}=faceEdges3(loops,proto.names.points,proto);
+  return {loops,triangles,corners,edges,names,kept,sides};
+}
+/** The columns of realized rows: the copy's (its instance row's, but not
+ * `rotate` and `scale`), then the prototype row's — a prototype column wins
+ * over a copy column of its name, where the copy column stands. A prototype
+ * row of -1 reads the kind's default. */
+function realizedColumns(copyCols:Columns3,protoCols:Columns3,copyRows:readonly number[],protoRows:readonly number[]):Columns3 {
+  const out:Record<string,AnyColumn>={};if(!copyRows.length)return out;
+  for(const name in copyCols)out[name]=copyCols[name].keep(copyRows);
+  for(const name in protoCols)if(kernelColumn(protoCols[name]))out[name]=rowsOfColumn3(protoCols[name],protoRows);
+  return out;
+}
 /** One ordinary value from every copy: the prototype's topology repeated,
  * placed as each copy is. Each row's `source` is a list of two: the
  * prototype row it copies, then its instance. */
 export function realize(m:Material,options:RealizeOptions={}):Material {
   const prototype=prototypeOf(m);
   if(prototype===undefined)throw new Error('realize: this value places nothing — instanceOnPoints or instanceOnFaces makes instances to realize');
-  const placed=placedOf(m),surface=surfaceOf(prototype);
-  budget(placed.length*surface.points.length,options.maxPoints??Infinity,'points');budget(placed.length*surface.faces.length,options.maxFaces??Infinity,'faces');
-  const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],edges:SurfaceEdge3[]=[],triangles:SurfaceTriangle3[]=[];
-  for(const copy of placed){
-    const moved=transformSurface3(surface,copy.transform),pointOffset=points.length,faceOffset=faces.length;
-    const metadata=(domain:string,id:string,attrs:Attributes3)=>({id:identity(domain,copy.id,id),attributes:{...copy.attributes,...attrs},provenance:{operation:'realize',parents:[id,copy.id],inputs:[0,1]}});
-    for(const p of moved.points)points.push({...p,...metadata('p',p.id,p.attributes)});
-    for(const f of moved.faces)faces.push({...f,...metadata('f',f.id,f.attributes),vertices:f.vertices.map(v=>v+pointOffset),corners:f.corners?.map(c=>({...c,...metadata('corner',c.id,c.attributes)}))});
-    for(const t of moved.triangles)triangles.push({face:t.face+faceOffset,vertices:t.vertices.map(v=>v+pointOffset) as [number,number,number]});
-    for(const e of moved.edges)edges.push({...e,...metadata('e',e.id,e.attributes),vertices:e.vertices.map(v=>v+pointOffset) as [number,number],faces:e.faces.map(f=>f+faceOffset)});
-  }
+  const placed=placedOf(m),proto=mesh3(prototype),n=proto.n;
+  budget(placed.length*n,options.maxPoints??Infinity,'points');budget(placed.length*proto.faceCount,options.maxFaces??Infinity,'faces');
+  let plain:Laid3|undefined,turned:Laid3|undefined;
+  const lays=placed.map(copy=>copy.transform.scale.filter(v=>v<0).length%2===1?(turned??=laid(proto,true)):(plain??=laid(proto,false)));
+  const x=new Float64Array(placed.length*n),y=new Float64Array(placed.length*n),z=new Float64Array(placed.length*n);
+  const names:Record<Domain3,string[]>={points:[],edges:[],faces:[],corners:[]},rows:Record<Domain3,number[]>={points:[],edges:[],faces:[],corners:[]},copies:Record<Domain3,number[]>={points:[],edges:[],faces:[],corners:[]};
+  const lineage:Record<'points'|'edges'|'faces',Provenance3[]>={points:[],edges:[],faces:[]},loops:(readonly number[])[]=[],triangles:(readonly number[])[]=[],edges:number[]=[];
+  const row=(d:Domain3,copy:Placed3,name:string,at:number):void=>{
+    names[d].push(identity(d==='points'?'p':d==='edges'?'e':d==='faces'?'f':'corner',copy.id,name));rows[d].push(at);copies[d].push(copy.index);
+    if(d!=='corners')lineage[d].push({operation:'realize',parents:[name,copy.id],inputs:[0,1]});
+  };
+  const edge=(copy:Placed3,lay:Laid3,e:number,offset:number):void=>{edges.push(lay.edges[2*e]+offset,lay.edges[2*e+1]+offset);row('edges',copy,lay.names[e],lay.kept[e]);};
+  placed.forEach((copy,c)=>{
+    const lay=lays[c],offset=c*n;
+    for(let i=0;i<n;i++){const p=transformPosition3(proto.position(i),copy.transform);x[offset+i]=p[0];y[offset+i]=p[1];z[offset+i]=p[2];row('points',copy,proto.names.points[i],i);}
+    lay.loops.forEach((loop,f)=>{loops.push(loop.map(v=>v+offset));triangles.push(lay.triangles[f]);row('faces',copy,proto.names.faces[f],f);});
+    for(const at of lay.corners)row('corners',copy,proto.names.corners[at],at);
+    for(let e=0;e<lay.sides;e++)edge(copy,lay,e,offset);
+  });
+  // The loose edges follow every copy's sides, as a surface lists them.
+  placed.forEach((copy,c)=>{const lay=lays[c];for(let e=lay.sides;e<lay.names.length;e++)edge(copy,lay,e,c*n);});
+  const own=mesh3(m),copyCols:Record<string,AnyColumn>={};
+  for(const name in own.cols.points)if(name!=='rotate'&&name!=='scale'&&kernelColumn(own.cols.points[name]))copyCols[name]=own.cols.points[name];
+  const cols={} as Record<Domain3,Columns3>;
+  for(const d of ['points','edges','faces','corners'] as const)cols[d]=realizedColumns(copyCols,proto.cols[d],copies[d],rows[d]);
+  const made={x,y,z,names,loops,triangles,edges:Uint32Array.from(edges),cols,lineage};checkMade3(made);
   const key=m.key;
-  return geometry3(assembleSurface3(points,faces,triangles,{points,faces,edges,triangles}),{...(key!==undefined?{key}:{}),transfers:prototype.transfers,derived:derived('realize',prototype,m)});
+  return geometry3(made,{...(key!==undefined?{key}:{}),transfers:prototype.transfers,derived:derived('realize',prototype,m)});
 }

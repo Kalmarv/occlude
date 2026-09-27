@@ -1,5 +1,4 @@
-import type {Surface3} from '../geometry/surface.js';
-import {snapshotSurface3} from '../geometry/model.js';
+import type {Mesh3} from '../geometry/mesh3.js';
 import {triangleCorners3} from '../geometry/corners.js';
 import {integerWeights,weightedPoint,encodePoint,pointNumber,type H} from '../geometry/exact.js';
 import {surfaceBinding3,bindingTriangle3,surfaceCurveNetwork3,type SurfaceCurveNetworkInput3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3} from './network.js';
@@ -61,17 +60,17 @@ interface DeferredEnd3 {readonly triangle:number;readonly lo:number;readonly hi:
  * share a crossing node only when their corner values agree along the edge; a
  * seam (different corner values at one vertex) keeps its nodes separate.
  *
- * `values` holds one number per corner in face order, then polygon order. */
-export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonly number[],options:IsolineOptions3={}):IsolineResult3 {
-  const surface=snapshotSurface3(input),binding=surfaceBinding3(surface),key=options.key??'isolines';
+ * `values` holds one number per corner row: face order, then loop order. */
+export function isolines3(mesh:Mesh3,values:ArrayLike<number>,levels:readonly number[],options:IsolineOptions3={}):IsolineResult3 {
+  const binding=surfaceBinding3(mesh),key=options.key??'isolines';
   const maxSegments=positiveBudget(options.maxSegments,250000,'segment'),maxNodes=positiveBudget(options.maxNodes,250000,'node');
   const certified=options.hidden;
   if(certified!==undefined&&typeof certified!=='function')throw new Error('isolines hidden certificate must be a predicate');
   // A level that is not a number draws no contour, and its neighbours keep
   // their own level index; no levels at all leaves the network empty rather
   // than breaking the sketch.
-  const offsets:number[]=[];let total=0;for(const face of surface.faces){offsets.push(total);total+=face.vertices.length;}
-  if(values.length!==total)throw new Error('isolines require one value per corner');
+  const offsets=mesh.cornerStart,slot=mesh.triangles,triangleFace=mesh.triangleFace;
+  if(values.length!==mesh.cornerCount)throw new Error('isolines require one value per corner');
   // A corner the field could not answer skips the triangles that touch it.
 
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],nodeIds=new Map<string,string>(),positions=new Map<string,readonly [number,number,number]>();
@@ -106,8 +105,8 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
   };
   levels.forEach((level,li)=>{
     if(!Number.isFinite(level))return;
-    for(let ti=0;ti<surface.triangles.length;ti++){
-      const t=surface.triangles[ti],corners=triangleCorners3(surface,ti),f=corners.map(c=>values[offsets[t.face]+c]);
+    for(let ti=0;ti<mesh.triangleCount;ti++){
+      const vertices=[slot[3*ti],slot[3*ti+1],slot[3*ti+2]],first=offsets[triangleFace[ti]],f=triangleCorners3(mesh,ti).map(c=>values[first+c]);
       if(!f.every(Number.isFinite))continue;
       const above=f.map(v=>v>=level);
       if(above.every(Boolean)||!above.some(Boolean))continue;
@@ -126,12 +125,12 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
         // The key names the ordered world vertices and the parameter, which is
         // everything the affine combination reads; `s` is a finite binary64 in
         // (0, 1], so its decimal form names one double and no other.
-        const ck=`${t.vertices[lo]},${t.vertices[hi]},${s}`;
+        const ck=`${vertices[lo]},${vertices[hi]},${s}`;
         // `s` is 1 exactly when the level IS the far corner's value, which a
         // deferred record has already excluded: a deferred crossing is on the
         // open edge, and its port is the same node an eager run would mint.
-        const slots=s<1?[t.vertices[lo],t.vertices[hi]].sort((a,b)=>a-b):[t.vertices[hi]];
-        const valuesKey=s<1?JSON.stringify(t.vertices[lo]<t.vertices[hi]?[f[lo],f[hi]]:[f[hi],f[lo]]):String(f[hi]);
+        const slots=s<1?[vertices[lo],vertices[hi]].sort((a,b)=>a-b):[vertices[hi]];
+        const valuesKey=s<1?JSON.stringify(vertices[lo]<vertices[hi]?[f[lo],f[hi]]:[f[hi],f[lo]]):String(f[hi]);
         if(defer){
           const port=JSON.stringify([li,slots,valuesKey]);
           if(!deferredEnds.has(port))deferredEnds.set(port,{triangle:ti,lo,hi,s,crossing:ck});
@@ -186,12 +185,15 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
       const total=chain.reduce((sum,c)=>sum+segments[c.segment].length,0);
       let cursor=0,previous=0;
       for(const c of chain){
-        const s=segments[c.segment];const lo=Math.max(cursor/total,previous),hi=Math.max((cursor+s.length)/total,nextUp(lo));cursor+=s.length;
+        // Each record's range starts where the last one ended and moves on
+        // by at least one ulp, but never past 1: a sliver at the end of a
+        // chain (a crossing a rounding away from a vertex) sits at [1, 1].
+        const s=segments[c.segment];const lo=Math.min(1,Math.max(cursor/total,previous)),hi=Math.min(1,Math.max((cursor+s.length)/total,nextUp(lo)));cursor+=s.length;
         // The producer already holds each end's integer weights on this
         // triangle — the same affine combination that built the point — so the
         // network verifies them with multiplications instead of solving the
         // barycentric system again. `a`/`b` follow the chain's direction.
-        if(!s.hidden)rows.push({id:s.id,kind:'isoline',a:c.forward?s.a:s.b,b:c.forward?s.b:s.a,chainId,range:[lo,Math.min(1,hi)>lo?Math.min(1,hi):hi],supports:[{source:0,triangle:s.triangle,a:c.forward?s.wa:s.wb,b:c.forward?s.wb:s.wa}],attributes:{level:s.level,levelIndex:s.index}});
+        if(!s.hidden)rows.push({id:s.id,kind:'isoline',a:c.forward?s.a:s.b,b:c.forward?s.b:s.a,chainId,range:[lo,hi],supports:[{source:0,triangle:s.triangle,a:c.forward?s.wa:s.wb,b:c.forward?s.wb:s.wa}],attributes:{level:s.level,levelIndex:s.index}});
         previous=hi;
       }
     };

@@ -1,14 +1,13 @@
 import {emptySize} from '../degenerate.js';
-import {geometry3,type GeometryOptions} from './mesh.js';
-import {surfaceOf} from '../geometry/value.js';
-import {kinds} from '../../column.js';
+import {geometry3,pointsMade3,type GeometryOptions} from './mesh.js';
+import {kinds,type AnyColumn} from '../../column.js';
 import {Material} from '../../material.js';
 import {isInstances,placedOf} from './instances.js';
-export type {Attributes3};
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
-import {assembleSurface3,type Attributes3,type SurfacePoint3} from '../geometry/surface.js';
-import {surfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
+import {columnsOfRecords3,type Attributes3} from '../geometry/model.js';
+import {surfaceLocation3,locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
+import {mesh3,kernelColumn,checkMade3,type Columns3} from '../geometry/mesh3.js';
 import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeights,ratioNumber,difference,abs,type Ratio,type EncodedPoint3} from '../geometry/exact.js';
 import {bindingTriangle3,sameSurfaceCurveLineage3,type SurfaceCurveNetwork3,type SupportedCurveSegment3} from '../curves/network.js';
 import type {Vec3} from '../math.js';
@@ -48,10 +47,10 @@ function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fra
   on(target:Material){
    if(isInstances(target)){
     const bindings=placedOf(target).map(copy=>copy.binding);
-    return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===row.source&&b.placement===row.placement)));
+    return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===locationMesh3(row)&&b.placement===row.placement)));
    }
    if(!(target instanceof Material))throw new Error('sample.on: expected a mesh or instances');
-   return Object.freeze(rows().filter(row=>row.source===surfaceOf(target)&&!row.placement));
+   return Object.freeze(rows().filter(row=>locationMesh3(row)===mesh3(target)&&!row.placement));
   },
 
  });
@@ -68,11 +67,12 @@ export function curveSamplesOf(m:Material):readonly CurveSample[]|undefined {
 }
 /** Points on surface curves as the one geometry: the segment's columns,
  * `sample` each point's place on the curves, `source` the edge under it. */
-function curvePoints(target:SurfaceCurves<any>,points:readonly SurfacePoint3[],samples:readonly CurveSample[],key:string|undefined,from?:Material):Material {
+function curvePoints(target:SurfaceCurves<any>,names:readonly string[],samples:readonly CurveSample[],cols:Columns3,key:string|undefined,from?:Material):Material {
  const edges=[...target.edges] as readonly {readonly id:string}[];
  const at=new Map(edges.map((e,i)=>[e.id,i]));
  const under=samples.map(s=>at.get(attachments.get(s)!.edgeId));
- return geometry3(assembleSurface3(points,[],[]),{key,...(from?{from}:{}),pointCols:{sample:kinds.placement.from(samples)},source:{points:(i:number)=>{const e=under[i];return e===undefined?undefined:target.edges.at(e);}}});
+ const made=pointsMade3(samples.map(s=>s.position),names,cols);checkMade3(made);
+ return geometry3(made,{key,...(from?{from}:{}),pointCols:{sample:kinds.placement.from(samples)},source:{points:(i:number)=>{const e=under[i];return e===undefined?undefined:target.edges.at(e);}}});
 }
 /** `samples.rebind(curves)`: every point back on its place along curves
  * rebuilt from the same construction (an explicitly rebound curve set). */
@@ -81,16 +81,19 @@ export function rebindCurveSamples(m:Material,target:SurfaceCurves<any>):Materia
  const samples=curveSamplesOf(m);
  if(samples===undefined)throw new Error('rebind: these points carry no curve samples');
  const next=target.network.reference??target.network,segments=new Map(next.segments.map(s=>[s.id,s]));
- const own=surfaceOf(m),fresh:CurveSample[]=[];
- const points=own.points.map((p,i)=>{
-  const a=attachments.get(samples[i])!;
+ const own=mesh3(m),fresh:CurveSample[]=[];
+ for(const s of samples){
+  const a=attachments.get(s)!;
   // Matching string IDs alone never authorize moving to an unrelated graph.
   if(!sameSurfaceCurveLineage3(a.network,next))throw new Error('curve construction changed; regenerate samples');
   const segment=segments.get(a.edgeId);if(!segment)throw new Error('curve edge was not retained; regenerate samples');
-  const sample=context(next,segment,a.fraction);fresh.push(sample);
-  return {...p,position:sample.position};
- });
- return curvePoints(target,points,fresh,m.key,m);
+  fresh.push(context(next,segment,a.fraction));
+ }
+ // The points keep their names and kernel columns; the reference and
+ // placement columns ride across from `m`, the samples over them.
+ const cols:Record<string,AnyColumn>={};
+ if(m.n)for(const name in own.cols.points)if(kernelColumn(own.cols.points[name]))cols[name]=own.cols.points[name];
+ return curvePoints(target,own.names.points,fresh,cols,m.key,m);
 }
 export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):Material {
  const {count,spacing}=options,maxPoints=options.maxPoints??Infinity,maxSupports=options.maxSupports??Infinity;
@@ -99,7 +102,7 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
  // are mistakes; a count below one or a spacing with no length simply asks for
  // no samples.
  if(count!==undefined&&!Number.isSafeInteger(count)||spacing!==undefined&&typeof spacing!=='number'||[maxPoints,maxSupports].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('invalid curve sampling count, spacing or budget');
- if(count!==undefined&&count<1||spacing!==undefined&&emptySize(spacing))return curvePoints(target,[],[],options.key);
+ if(count!==undefined&&count<1||spacing!==undefined&&emptySize(spacing))return curvePoints(target,[],[],{},options.key);
  const network=target.network,groups=new Map<string,SupportedCurveSegment3[]>(),chains:SupportedCurveSegment3[][]=[];
  const degree=new Map<number,number>();for(const segment of network.reference?.segments??network.segments)for(const node of [segment.a,segment.b])degree.set(node,(degree.get(node)??0)+1);
  for(const segment of network.segments){const rows=groups.get(segment.chainId)??[];rows.push(segment);groups.set(segment.chainId,rows);}
@@ -107,14 +110,14 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
   rows.sort((a,b)=>a.range[0]-b.range[0]||a.range[1]-b.range[1]);let chain:SupportedCurveSegment3[]=[];
   for(const row of rows){const last=chain.at(-1);if(last&&(last.b!==row.a||last.range[1]!==row.range[0]||degree.get(row.a)!==2)){chains.push(chain);chain=[];}chain.push(row);}if(chain.length)chains.push(chain);
  }
- const points:SurfacePoint3[]=[],samples:CurveSample[]=[];let supports=0;
+ const names:string[]=[],records:Readonly<Attributes3>[]=[],samples:CurveSample[]=[];let supports=0;
  for(const chain of chains){
   const closed=chain[0].a===chain.at(-1)!.b,length=chain.reduce((sum,s)=>sum+s.length,0);
   // A chain with no length has nowhere to place a sample: skip it and sample
   // the chains that do.
   if(!(length>0)||!Number.isFinite(length))continue;
   const n=count??(spacing===undefined?32:Math.max(closed?1:2,Math.ceil(length/spacing)+(closed?0:1)));
-  if(!Number.isSafeInteger(n)||points.length+n>maxPoints)throw new Error('curve sampling exceeds point budget');
+  if(!Number.isSafeInteger(n)||names.length+n>maxPoints)throw new Error('curve sampling exceeds point budget');
   let edge=0,offset=0;
   for(let i=0;i<n;i++){
    const distance=length*(closed?i/n:n===1?.5:i/(n-1));
@@ -124,8 +127,8 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
    supports+=t===0?network.nodes[segment.a].supports.length:t===1?network.nodes[segment.b].supports.length:segment.supports.length;
    if(supports>maxSupports)throw new Error('curve sampling exceeds support budget');
    const id=identity('curve-sample',segment.chainId,chain[0].id,i,n,options.key??target.key??'default'),sample=context(network,segment,fraction);
-   points.push({id,position:sample.position,attributes:{...segment.attributes},provenance:{operation:'sample',parents:[segment.id]}});samples.push(sample);
+   names.push(id);records.push(segment.attributes);samples.push(sample);
   }
  }
- return curvePoints(target,points,samples,options.key);
+ return curvePoints(target,names,samples,columnsOfRecords3(records),options.key);
 }

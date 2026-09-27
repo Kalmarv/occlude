@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {cameraFrame3} from '../src/three/camera.js';
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {classifySceneCpu3,type ClassifiedScene3} from '../src/three/visibility/scene.js';
-import {constructStrokes3,FeatureSelection3} from '../src/three/strokes/construct.js';
+import {constructStrokes3,classifiedFeatures3} from '../src/three/strokes/construct.js';
 import type {Vec3} from '../src/three/math.js';
 const frame=cameraFrame3({kind:'orthographic',span:10,eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10},{x:0,y:0,width:100,height:100});
 const wire=(points:Vec3[],id='wire')=>classifySceneCpu3(featureSnapshot3([],[{id,points}],frame));
@@ -49,11 +49,30 @@ describe('classified stroke construction',()=>{
     const a=constructStrokes3(loop,sets),b=constructStrokes3({...loop,features:[...loop.features].reverse()},sets);
     expect(a).toHaveLength(1);expect(a[0].closed).toBe(true);expect(a[0].points).toEqual(b[0].points);expect(a[0].id).toBe(b[0].id);
   });
-  it('binds relational selections to the exact classified snapshot',()=>{
-    const source=wire([[0,0,0],[1,0,0],[2,0,0]]),all=new FeatureSelection3(source);
-    expect(all.filter((_,i)=>i===0).union(all.filter((_,i)=>i===1)).length).toBe(2);
-    expect(all.groupBy(f=>f.feature.objectId)[0].selection.map(f=>f.feature.id)).toEqual(source.features.map(f=>f.feature.id));
-    expect(()=>all.union(new FeatureSelection3(wire([[0,0,0],[1,0,0]])))).toThrow(/different snapshots/);
+  it('reads the features of one classification as a selection, bound to that classification',()=>{
+    const source=wire([[0,0,0],[1,0,0],[2,0,0]]),all=classifiedFeatures3(source);
+    expect(classifiedFeatures3(source)).toBe(all);
+    expect([...all]).toEqual(source.features);expect(all.at(-1)).toBe(source.features[1]);
+    const first=all.filter((_,i)=>i===0),second=all.filter((_,i)=>i===1);
+    expect(first.union(second).map(f=>f.feature.id)).toEqual(source.features.map(f=>f.feature.id));
+    expect(second.union(first).map(f=>f.feature.id)).toEqual([...source.features].reverse().map(f=>f.feature.id));
+    expect(all.without(first).has(source.features[0])).toBe(false);expect(all.has(source.features[1])).toBe(true);
+    const groups=all.groupBy(f=>f.feature.objectId);
+    expect(groups).toHaveLength(1);expect(groups[0].key).toBe('wire');expect(groups[0].map(f=>f.feature.id)).toEqual(source.features.map(f=>f.feature.id));
+    expect(all.kind('wire').length).toBe(2);expect(all.except('wire').length).toBe(0);
+    // Another classification's features name nothing here; its selections are refused by name.
+    const other=wire([[0,0,0],[1,0,0]]);
+    expect(all.has(other.features[0])).toBe(false);expect(all.rows([other.features[0]]).length).toBe(0);
+    expect(()=>all.union(classifiedFeatures3(other))).toThrow(/another classified scene/);
+    expect(()=>all.has({x:0,y:0})).toThrow(/expected a feature of a classified scene/);
+    expect(()=>(all as unknown as {set:()=>void}).set()).toThrow(/features.set: features are classified by the view/);
+    expect(()=>all.adjacent()).toThrow(/constructStrokes3 chains them/);
+    expect(()=>all.source).toThrow(/features.source/);
+    expect(()=>classifiedFeatures3({} as ClassifiedScene3)).toThrow(/expected a classified scene/);
+    // Construction draws the members and refuses another classification's.
+    expect(constructStrokes3(source,[{id:'first',stroke:'ink',select:first}],{chain:false}).flatMap(s=>s.parts.map(p=>p.feature.id))).toEqual([source.features[0].feature.id]);
+    expect(()=>constructStrokes3(source,[{id:'wrong',stroke:'ink',select:classifiedFeatures3(other)}])).toThrow(/another classified snapshot/);
+    expect(()=>constructStrokes3(source,[{id:'odd',stroke:'ink',select:[] as never}])).toThrow(/select is a function of the feature or a selection/);
     expect(()=>constructStrokes3(source,[{id:'bad',stroke:'x',ranges:()=>[[0,2]]}])).toThrow(/ranges/);
   });
 });

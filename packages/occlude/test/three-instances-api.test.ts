@@ -7,7 +7,7 @@ import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[5,7,6],span:7});
 describe('shared mesh instances',()=>{
@@ -20,8 +20,8 @@ describe('shared mesh instances',()=>{
   const drawing=view(placed,{camera});
   const classified=classifySceneCpu3(featureSnapshot3(drawing.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100})));
   const copies=placedOf(placed);
-  for(const feature of classified.features){expect(feature.feature.instance).toEqual(drawing.scene.objects.find(o=>o.id===feature.feature.objectId)!.instance);expect(copies.some(c=>c.id===feature.feature.instance!.id&&surfaceOf(sites).points[(c.source as {index:number}).index].id===feature.feature.instance!.pointId)).toBe(true);}
-  expect(new Set(drawing.scene.objects.map(o=>o.surface)).size).toBe(1);expect(drawing.scene.objects[0].surface).toBe(surfaceOf(prototype));
+  for(const feature of classified.features){expect(feature.feature.instance).toEqual(drawing.scene.objects.find(o=>o.id===feature.feature.objectId)!.instance);expect(copies.some(c=>c.id===feature.feature.instance!.id&&mesh3(sites).names.points[(c.source as {index:number}).index]===feature.feature.instance!.pointId)).toBe(true);}
+  expect(new Set(drawing.scene.objects.map(o=>o.surface)).size).toBe(1);expect(drawing.scene.objects[0].surface).toBe(prototype);
   // A write keeps the prototype and every copy's name.
   const group=placed.points.groupBy(r=>r.ink)[0];expect(group.key).toBe('a');const selected=group.extract();
   expect(prototypeOf(selected)).toBe(prototype);expect(placedOf(selected).map(c=>c.id)).toEqual([copies[0].id,copies[2].id]);
@@ -52,11 +52,14 @@ describe('shared mesh instances',()=>{
   const prototype=box().points.set('tag','prototype').edges.set('edgeTag',7).faces.set('faceTag',9);
   const sites=pointCloud([[0,0,0],[2,0,0]]).points.set({tag:'instance',height:2});
   const placed=instanceOnPoints(prototype,sites.points),a=placed.realize(),b=placed.realize();
-  expect(surfaceOf(a)).toEqual(surfaceOf(b));expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(surfaceOf(a).edges.every(e=>e.faces.length===2)).toBe(true);
+  const rows=(m:typeof a)=>({points:m.points.map(p=>[p.x,p.y,p.z,p.tag,p.height]),edges:m.edges.map(e=>[e.a.index,e.b.index,e.edgeTag]),faces:m.faces.map(f=>[...f.points.indices,f.faceTag])});
+  expect(rows(a)).toEqual(rows(b));expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(a.edges.every(e=>e.faces.length===2)).toBe(true);
   expect(a.points.map(p=>p.tag)).toEqual(Array(16).fill('prototype'));expect(a.edges.at(0)!.edgeTag).toBe(7);expect(a.faces.at(0)!.faceTag).toBe(9);expect(a.faces.at(0)!.height).toBe(2);
   // A realized row comes from a prototype row and an instance: its source is the two, in that order.
   const [from,copy]=a.points.at(0)!.source as readonly any[];expect(from).toBe(prototype.points.at(0));expect(copy).toBe(placed.points.at(0));expect(copy.source).toBe(sites.points.at(0));
-  const selected=placed.points.filter(r=>r.index===1).extract().realize();expect(surfaceOf(selected).points.map(p=>p.id)).toEqual(surfaceOf(a).points.map(p=>p.id).slice(8));
+  // One copy realized alone is that copy's part of the whole, row for row.
+  const selected=placed.points.filter(r=>r.index===1).extract().realize();expect(rows(selected).points).toEqual(rows(a).points.slice(8));
+  expect(selected.points.map(p=>(p.source as readonly unknown[])[0])).toEqual(a.points.map(p=>(p.source as readonly unknown[])[0]).slice(8));
   expect(()=>placed.realize({maxPoints:15})).toThrow('points budget');expect(()=>placed.realize({maxFaces:11})).toThrow('faces budget');
   expect(instanceOnPoints(prototype,sites.points.filter(()=>false)).realize().points.length).toBe(0);
   expect(()=>sites.realize()).toThrow('realize: this value places nothing');

@@ -1,6 +1,6 @@
 import type {L} from '../../units.js';
 import type {FillSpec} from '../../fills.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {type Field} from './columns.js';
 import {Selection} from '../../selection.js';
 import type {Face} from '../../faces.js';

@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {plane,sphere,cylinder,view,orthographic} from '../src/three/api/index.js';
+import {plane,sphere,cylinder,torus,view,orthographic} from '../src/three/api/index.js';
 import {isolines} from '../src/three/api/isolines.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { compileSketchAsync, initOcclude } from '../src/host.js';
@@ -88,6 +88,14 @@ describe('isolines',()=>{
     expect(()=>isolines(sheet,'h',[.1],{maxNodes:1}).network).toThrow('node budget');
     expect(()=>isolines(sheet,'h',[.1],{budget:{maxNodes:1}}).network).toThrow();
     expect(()=>isolines({} as never,'h',[0])).toThrow('geometry with faces');
+  });
+  it('draws a chain that ends in a sliver: its last range sits at 1',()=>{
+    // x + y = 0 passes a rounding away from torus points at 135° and 315°:
+    // the crossing there is a segment of about 1e-16, the last of its ring.
+    const rings=isolines(torus(1,.4,{segments:24}),p=>p.x+p.y,[-.5,0,.5]);
+    expect(new Set(rings.edges.map(e=>e.level))).toEqual(new Set([-.5,0,.5]));
+    for(const s of rings.network.segments)expect(0<=s.range[0]&&s.range[0]<=s.range[1]&&s.range[1]<=1).toBe(true);
+    expect(incident(rings)).toBe(true);
   });
   it('renders through view as ordinary supported curves',async()=>{
     const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async()=>{

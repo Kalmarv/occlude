@@ -30,7 +30,7 @@ import { framePlacement, isPlacement, isSpacePlacement, spaceOfDoor, type Placem
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
 import { chainsOf, curvesOf, chainTangents, chainLengths, isCurveRow, type Curve } from './curves.js';
-import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type FaceSource, type StatedFaces } from './faces.js';
+import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, restated, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type FaceSource, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -901,9 +901,12 @@ export class Material {
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
-      /** Faces a word states outright; kept only when these edges are the
+      /** Faces a word states outright; kept whole when these edges are the
        * ones they were stated over (`statedFor`). */
       faces?: StatedFaces;
+      /** This is a write of `from`'s rows: in space it keeps each face of
+       * `from`'s statement that it still names (`restated`). */
+      restate?: boolean;
     } = {},
   ) {
     const {
@@ -995,7 +998,15 @@ export class Material {
     for (const name of ['origin', 'orientation', 'radialCentre'] as const) {
       Object.defineProperty(this, name, { value: name in carry ? carry[name] : carry.from?.[name], enumerable: false });
     }
-    Object.defineProperty(this, 'stated', { value: statedFor(carry.faces, list, edgeIds), enumerable: false });
+    // In space the faces are only what is stated: a write that read a
+    // statement keeps each face it still names (see `restated`).
+    const z = pointCols.z;
+    const read = carry.from instanceof Material ? carry.from : undefined;
+    const kept = statedFor(carry.faces, list, edgeIds)
+      ?? (carry.restate === true && carry.faces !== undefined && read !== undefined && carry.faces === read.stated && z instanceof Column
+        ? restated(carry.faces, { from: read, n, pointIds, edgeList: list, edgeIds, x: xs, y: ys, z })
+        : undefined);
+    Object.defineProperty(this, 'stated', { value: kept, enumerable: false });
     Object.freeze(this.faceAttrs);
     Object.freeze(this.transfers);
     Object.freeze(this.edgeTransfers);
@@ -1977,10 +1988,6 @@ export class Material {
     return displace3(this, field as never, options as never);
   }
 
-  /** @internal The derived views the 3D layer builds from the columns on
-   * first need and keeps here — its working surface (`surfaceOf(m)`),
-   * never a public word. A box, like the others, because the state is
-   * frozen. */
 }
 
 /** A derivation's input as the sketch passed it: the value a source row is

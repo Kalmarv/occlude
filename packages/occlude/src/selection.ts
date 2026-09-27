@@ -368,8 +368,9 @@ export class Selection<Row> implements Iterable<Row> {
 
   /** True when `row` is a member. A row of another state of the same
    * evolution is asked about by identity; one that is gone is not a
-   * member. A row of another kind is refused by name. */
-  has(row: Row | object): boolean {
+   * member, and nothing (`undefined`: the `source` of a row that has none)
+   * is not one either. A row of another kind is refused by name. */
+  has(row: Row | object | undefined): boolean {
     const r = rowOf(this.domain, row, `${this.domain.kind.plural}.has`);
     return r >= 0 && this.holds(r);
   }
@@ -378,17 +379,11 @@ export class Selection<Row> implements Iterable<Row> {
    * views, or values that name rows — one, a list or a selection, in the
    * order given. The door for a relation a sketch worked out for itself. A
    * row of another state is found by identity; one that is gone is
-   * skipped, as every set operation skips it, and a row of an unrelated
-   * geometry is refused by name. A row is never named by its number. */
-  rows(rows: Row | Iterable<Row> | Selection<any>): Selection<Row> {
-    const d = this.domain;
-    const who = `${d.kind.plural}.rows`;
-    if (rows instanceof Selection) return select(d, this.operand(rows, who), undefined, true);
-    if (typeof rows !== 'object' || rows === null) throw new Error(`${who}: expected ${article(d.kind.name)} row, or a list of them — got ${describe(rows)}`);
-    // A list of rows, or one row (a row is not iterable).
-    if (typeof (rows as Iterable<unknown>)[Symbol.iterator] === 'function') return select(d, memberRows(d, Array.from(rows as Iterable<unknown>), who));
-    const r = memberRow(d, rows, who);
-    return select(d, r < 0 ? [] : [r], undefined, true);
+   * skipped, as every set operation skips it, and so is nothing — a hole
+   * in a list, or `undefined` alone; a row of an unrelated geometry is
+   * refused by name. A row is never named by its number. */
+  rows(rows: Row | Iterable<Row | undefined> | Selection<any> | undefined): Selection<Row> {
+    return select(this.domain, this.named(rows, `${this.domain.kind.plural}.rows`), undefined, true);
   }
 
   /** @internal The selection of rows `rows` of this state, by number, in
@@ -399,6 +394,23 @@ export class Selection<Row> implements Iterable<Row> {
     const list = Array.from(rows);
     for (const r of list) if (!d.valid(r)) throw new Error(`${d.kind.plural}.rowsAt: no ${d.kind.name} ${r} in this state (${d.size} rows)`);
     return select(d, list);
+  }
+
+  /** The rows `v` names here, in its order, each once: a selection
+   * (`operand`), one row or a value that names one, or a list of them. A
+   * nothing — `undefined` alone or a hole in a list — and a row that is
+   * gone name none; a row of an unrelated geometry, and anything that is
+   * not a row, are refused by name. What `rows`, `intersect` and `without`
+   * read, so the three take the same operands. */
+  private named(v: unknown, who: string): readonly number[] {
+    const d = this.domain;
+    if (v === undefined || v === null) return [];
+    if (v instanceof Selection) return this.operand(v, who);
+    if (typeof v !== 'object') throw new Error(`${who}: expected ${article(d.kind.name)} row, or a list of them — got ${describe(v)}`);
+    // A list of rows, or one row (a row is not iterable).
+    if (typeof (v as Iterable<unknown>)[Symbol.iterator] === 'function') return memberRows(d, Array.from(v as Iterable<unknown>), who);
+    const r = memberRow(d, v, who);
+    return r < 0 ? [] : [r];
   }
 
   /** @internal The rows another selection names here, in its order; `who`
@@ -434,24 +446,18 @@ export class Selection<Row> implements Iterable<Row> {
     return select(this.domain, out, this.key, true) as S;
   }
 
-  /** The members the other selection also holds, in this order. */
-  intersect<S extends Selection<Row>>(this: S, other: Selection<any>): S {
-    const theirs = new Set(this.operand(other, `${this.domain.kind.plural}.intersect`));
+  /** The members that `other` also names, in this order. `other` is what
+   * `rows` takes — a selection, one row or a value that names one, or a
+   * list of them — of this state or an earlier one; nothing names none. */
+  intersect<S extends Selection<Row>>(this: S, other: Selection<any> | Row | object | Iterable<Row | object | undefined> | undefined): S {
+    const theirs = new Set(this.named(other, `${this.domain.kind.plural}.intersect`));
     return select(this.domain, this.indices.filter((r) => theirs.has(r)), this.key, true) as S;
   }
 
-  /** The members that `other` does not name — a selection, or one row or
-   * value the domain takes as a name, of this state or an earlier one — in
-   * this order. Nothing takes nothing away. */
-  without<S extends Selection<Row>>(this: S, other: Selection<any> | Row | object | undefined): S {
-    if (other === undefined || other === null) return this;
-    let gone: Set<number>;
-    if (other instanceof Selection) gone = new Set(this.operand(other, `${this.domain.kind.plural}.without`));
-    else {
-      const r = rowOf(this.domain, other, `${this.domain.kind.plural}.without`);
-      if (r < 0) return this;
-      gone = new Set([r]);
-    }
+  /** The members that `other` does not name, in this order. `other` is
+   * what `rows` takes; nothing takes nothing away. */
+  without<S extends Selection<Row>>(this: S, other: Selection<any> | Row | object | Iterable<Row | object | undefined> | undefined): S {
+    const gone = new Set(this.named(other, `${this.domain.kind.plural}.without`));
     if (gone.size === 0) return this;
     return select(this.domain, this.indices.filter((r) => !gone.has(r)), this.key, true) as S;
   }

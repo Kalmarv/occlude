@@ -1,14 +1,13 @@
 import {describe,it,expect} from 'vitest';
 import {box,plane,pointCloud,geodesic} from '../src/three/api/index.js';
-import {cross3,dot3,sub3} from '../src/three/math.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
+import {volume} from './helpers/surfaces.js';
 import type {Material} from '../src/material.js';
 
 function closed(s:Material,chi:number){
-  expect(surfaceOf(s).edges.every(e=>e.faces.length===2)).toBe(true);
+  expect(s.edges.every(e=>e.faces.length===2)).toBe(true);
   expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
-  let volume=0;for(const t of surfaceOf(s).triangles){const [a,b,c]=t.vertices.map(i=>surfaceOf(s).points[i].position);volume+=dot3(a,cross3(b,c))/6;}
-  expect(volume).toBeGreaterThan(0);
+  expect(volume(s)).toBeGreaterThan(0);
 }
 
 describe('the dual of a mesh',()=>{
@@ -45,14 +44,17 @@ describe('the dual of a mesh',()=>{
   const goldberg=dome.dual({project:1});
   expect(goldberg.points.every(p=>typeof p.tilt==='number')).toBe(true);
   expect(goldberg.faces.every(f=>typeof f.height==='number')).toBe(true);
-  expect(surfaceOf(goldberg).points[0].id.startsWith('dual:')).toBe(true);
-  expect(surfaceOf(goldberg).faces[0].id.startsWith('dual:')).toBe(true);
+  expect(mesh3(goldberg).names.points.every(name=>name.startsWith('dual:'))).toBe(true);
+  expect(mesh3(goldberg).names.faces.every(name=>name.startsWith('dual:'))).toBe(true);
+  // A point answers the face it stands for, a face the point it walks round.
+  expect(goldberg.points.every(p=>dome.faces.has(p.source))).toBe(true);
+  expect(goldberg.faces.every(f=>dome.points.has(f.source))).toBe(true);
  });
  it('drops a rim it cannot walk around and draws nothing without faces',()=>{
-  expect(surfaceOf(plane(2).dual()).faces.length).toBe(0);
+  expect(plane(2).dual().faces.length).toBe(0);
   expect(plane(2).subdivide(2).dual().faces.length).toBeGreaterThan(0);
-  expect(surfaceOf(pointCloud([[0,0,0],[1,0,0]])).faces.length).toBe(0);
-  expect(surfaceOf(box(1).dual({project:0})).faces.length).toBe(0);
+  expect(pointCloud([[0,0,0],[1,0,0]]).faces.length).toBe(0);
+  expect(box(1).dual({project:0}).faces.length).toBe(0);
   expect(()=>box(1).dual([] as never)).toThrow('object');
  });
  it('is the same mesh every time it is built',()=>{

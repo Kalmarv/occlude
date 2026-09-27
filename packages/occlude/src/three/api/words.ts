@@ -15,32 +15,31 @@
  *
  * A motion of space (`translate`, `rotate`, `scale`, `transform`,
  * `displace`) is a map over the x, y and z columns (`mapPositions3`): every
- * row and column is kept and no working view is read. The derivations read
- * the value's working view (`surfaceOf`), run the kernel they always ran,
- * and hand the kernel's surface back through `value3`: a row the kernel
- * kept keeps its id, and a derivation (subdivide, extrude, a boolean, dual)
- * links each row it made to the rows it came from, which `row.source`
- * answers.
+ * row and column is kept. A derivation (subdivide, extrude, dual, a boolean, the curve
+ * walks) reads the value through its kernels' reader (`mesh3`) and answers
+ * columns (`Made3`), which `made3` makes the next value of: a row the kernel
+ * kept keeps its id, and each row it made is linked to the rows it came
+ * from, which `row.source` answers.
  */
 
 import type {Material,Vertex} from '../../material.js';
-import {selectionIn,select,type Selection} from '../../selection.js';
+import {selectionIn,type Selection} from '../../selection.js';
 import {inSpace3} from '../../material.js';
-import type {Face,FaceSource} from '../../faces.js';
-import {carryLinks,type DomainSpec,type SourceSpec} from '../../derivation.js';
+import type {Face} from '../../faces.js';
+import {carryLinks} from '../../derivation.js';
 import {isSpacePlacement,type Placement as Isometry} from '../../placement.js';
 import {Column} from '../../column.js';
 import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
-import {surface3,triangulate,type Attribute3,type Surface3} from '../geometry/surface.js';
-import {ownSurface3,transformPosition3} from '../geometry/model.js';
+import {transformPosition3,type Attribute3} from '../geometry/model.js';
+import {triangulate,mesh3,made3,kernelColumn,sourceOfMade3,NO_ROWS3,type Made3,type MadeCarry3,type Mesh3,type Columns3} from '../geometry/mesh3.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,unit3,type Vec3} from '../math.js';
 import {sampleValue} from '../degenerate.js';
-import {subdivideSurface,type SubdivisionOptions} from './subdivide.js';
+import {subdivideMesh3,type SubdivisionOptions} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
-import {dualSurface3,type DualOptions} from '../geometry/dual.js';
-import {booleanSurface3,type BooleanOperation3} from '../geometry/boolean.js';
+import {dualMesh3,type DualOptions} from '../geometry/dual.js';
+import {booleanMesh3,type BooleanOperation3} from '../geometry/boolean.js';
 import {evaluate,describe3,type Field} from './columns.js';
-import {value3,surfaceOf,frameOf,hasFaces,mapPositions3,type Carry3,type Frame3} from '../geometry/value.js';
+import {frameOf,hasFaces,mapPositions3,type Frame3} from '../geometry/value.js';
 import {alongSurface,resampledSurface} from './curveWalk.js';
 import {samplesOf,rebindSamples} from './sampling.js';
 import {curveSamplesOf,rebindCurveSamples} from './curveSampling.js';
@@ -51,7 +50,7 @@ const ORIGIN:Vec3=Object.freeze([0,0,0]) as unknown as Vec3;
 const IDENTITY=rotation3([0,0,0]);
 /** The state a value carries into a result that keeps its rows: its
  * origin, orientation, radial centre, transfer policies and key. */
-function kept(m:Material,more:Partial<Carry3>={}):Carry3 {
+function kept(m:Material,more:Partial<MadeCarry3>={}):MadeCarry3 {
   return {
     from:m,
     ...(m.origin!==undefined?{origin:m.origin}:{}),
@@ -71,107 +70,23 @@ function refuseNoFaces(m:Material,who:string):void {
   if(!hasFaces(m))throw new Error(`${who}: this value has no faces — ${who} works on a geometry with faces (plane, box, sphere, a mesh); a value of points or curves has none`);
 }
 
-// ─── source: the rows a derivation read ──────────────────────────────
-
-type Domain='points'|'edges'|'faces'|'corners';
-const DOMAINS:readonly Domain[]=['points','edges','faces','corners'];
-/** @internal An input a derivation read. */
-export type Input3=Material;
-/** name → row, per domain, of an input's working view. */
-const nameIndex=new WeakMap<object,Map<string,{domain:Domain;row:number}>>();
-function rowsByName(input:Input3):Map<string,{domain:Domain;row:number}> {
-  let index=nameIndex.get(input);
-  if(index)return index;
-  index=new Map();
-  // A row's name is its id in the working view.
-  const view=surfaceOf(input);
-  const names:Record<Domain,readonly string[]>={points:view.points.map(p=>p.id),edges:view.edges.map(e=>e.id),faces:view.faces.map(f=>f.id),
-    corners:view.faces.flatMap(f=>f.corners?.map(c=>c.id)??f.vertices.map(v=>JSON.stringify(['corner',f.id,view.points[v].id])))};
-  for(const d of DOMAINS)names[d].forEach((name,row)=>{if(!index!.has(name))index!.set(name,{domain:d,row});});
-  nameIndex.set(input,index);
-  return index;
-}
-/** Rows of one domain of an input, as a sketch reads them: one row, or a
- * selection of several. */
-function rowsOf(input:Input3,domain:Domain,rows:readonly number[]) {
-  const one=<R>(all:Selection<R>):R|Selection<R>=>rows.length===1?all.at(rows[0]):select(all.domain,rows);
-  return domain==='points'?one(input.points):domain==='edges'?one(input.edges):domain==='faces'?one(input.faces):one(input.corners);
-}
-/** Where one row came from: per input it read, the rows of one domain. */
-interface Found {readonly input:number;readonly domain:Domain;readonly rows:number[]}
-/**
- * What each row of a derivation's surface came from, in the inputs it read:
- * a row the derivation made names its parents (its lineage record for this
- * operation); a row it kept as it was is its own row in the first input.
- */
-function foundOf(operation:string,inputs:readonly Input3[],id:string,provenance:{operation:string;parents:readonly string[];inputs?:readonly number[]}|undefined):readonly Found[] {
-  const own=provenance!==undefined&&provenance.operation===operation;
-  const parents=own?provenance!.parents:[id],where=own?provenance!.inputs:undefined;
-  const groups:Found[]=[];
-  parents.forEach((name,k)=>{
-    const tried=where!==undefined?[where[k]]:inputs.map((_,i)=>i);
-    for(const i of tried){
-      const input=inputs[i];if(input===undefined)continue;
-      const found=rowsByName(input).get(name);if(found===undefined)continue;
-      let g=groups.find(x=>x.input===i&&x.domain===found.domain);
-      if(!g)groups.push(g={input:i,domain:found.domain,rows:[]});
-      if(!g.rows.includes(found.row))g.rows.push(found.row);
-      break;
-    }
-  });
-  return groups;
-}
-/** One answer: a row, a selection of one domain of one input, or a list
- * with one of those per input. */
-function answerOf(inputs:readonly Input3[],groups:readonly Found[]) {
-  if(groups.length===0)return undefined;
-  const one=(g:Found)=>rowsOf(inputs[g.input],g.domain,g.rows);
-  return groups.length===1?one(groups[0]):Object.freeze(groups.map(one));
-}
-/** The core's spec for one domain: one spec when every row with an answer
- * names one domain of one input, a list when every row names the same
- * inputs in the same order (a sweep point: a profile point and a path
- * point); corners have no link and are left out. */
-function specOf(inputs:readonly Input3[],rows:readonly (readonly Found[])[]):DomainSpec|undefined {
-  let shape:string|undefined;
-  for(const groups of rows){
-    if(groups.length===0)continue;
-    const s=groups.map(g=>`${g.input}:${g.domain}`).join(',');
-    if(shape===undefined)shape=s;
-    else if(shape!==s)return undefined;
-  }
-  if(shape===undefined)return undefined;
-  const shapes=shape.split(',').map(x=>{const [i,d]=x.split(':');return {input:Number(i),domain:d as Domain};});
-  if(shapes.some(x=>x.domain==='corners'))return undefined;
-  // One parent answers a row and several a selection: rows of both kinds in
-  // one domain are read row by row.
-  const counts=new Set(rows.flatMap(groups=>groups.map(g=>g.rows.length===1)));
-  if(counts.size>1)return undefined;
-  const specs=shapes.map((x,k):SourceSpec=>{
-    const many=rows.map(groups=>groups.length===0?undefined:groups[k].rows);
-    const of=inputs[x.input] as Material,domain=x.domain as 'points'|'edges'|'faces';
-    return many.every(r=>r===undefined||r.length===1)?{of,domain,rows:Int32Array.from(many,r=>r===undefined?-1:r[0])}:{of,domain,many};
-  });
-  return {source:specs.length===1?specs[0]:specs};
-}
-export function sourceOf3(operation:string,surface:Surface3,inputs:readonly Input3[]):NonNullable<Carry3['source']> {
-  const found=(rows:readonly {id:string;provenance?:{operation:string;parents:readonly string[];inputs?:readonly number[]}}[])=>rows.map(r=>foundOf(operation,inputs,r.id,r.provenance));
-  // One shape for the whole domain goes to the core as rows; a shape that
-  // varies row by row (a boolean's point from either solid) is read per row.
-  const spec=(rows:readonly (readonly Found[])[]):DomainSpec|undefined=>specOf(inputs,rows)??(rows.some(g=>g.length>0)?{source:{read:(i:number)=>answerOf(inputs,rows[i])}}:undefined);
-  const points=spec(found(surface.points)),edges=spec(found(surface.edges));
-  // A face answers what its record says, read the first time it is asked.
-  const faceMemo=new Map<number,FaceSource>();
-  const faces=(f:number):FaceSource=>{
-    if(!faceMemo.has(f)){const row=surface.faces[f];faceMemo.set(f,answerOf(inputs,foundOf(operation,inputs,row.id,row.provenance)));}
-    return faceMemo.get(f);
-  };
-  return {...(points?{points}:{}),...(edges?{edges}:{}),faces};
-}
-/** A derivation's surface as the one geometry, its rows linked to its inputs. */
-function derivedValue(operation:string,m:Material,surface:Surface3,inputs:readonly Input3[],more:Partial<Carry3>={}):Material {
+/** A derivation's answer as the one geometry, its rows linked to its inputs. */
+function derivedValue(operation:string,m:Material,made:Made3,inputs:readonly Material[],more:Partial<MadeCarry3>={}):Material {
   // A derivation drops a recorded radial centre unless it says it keeps one.
-  return value3(surface,{...kept(m,{radialCentre:undefined,...more}),source:sourceOf3(operation,surface,inputs)});
+  return made3(made,{...kept(m,{radialCentre:undefined,...more}),inputs,source:sourceOfMade3(operation,made,inputs)});
+}
+/** The columns a kernel reads (no references or placements, which `made3`
+ * carries). */
+const kernelColumns=(cols:Columns3):Columns3=>Object.fromEntries(Object.entries(cols).filter(([,c])=>kernelColumn(c)));
+/** `mesh` answered as it is: a derivation that changed nothing still makes
+ * a value whose rows are its input's. */
+function unchanged(mesh:Mesh3):Made3 {
+  const cols=mesh.cols;
+  return {
+    x:mesh.x,y:mesh.y,z:mesh.z,names:mesh.names,loops:mesh.loops,
+    triangles:mesh.loops.map((_,f)=>mesh.localTriangles(f)),edges:mesh.edges,
+    cols:{points:kernelColumns(cols.points),edges:kernelColumns(cols.edges),faces:kernelColumns(cols.faces),corners:kernelColumns(cols.corners)},
+  };
 }
 
 // ─── pivots and placements ───────────────────────────────────────────
@@ -209,17 +124,17 @@ function pivotOf(verb:string,options:RotateOptions3|ScaleOptions3|undefined,m:Ma
     return [(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2];
   }
   // Area-weighted triangle centroids: the centroid of the surface itself.
-  const surface=surfaceOf(m),pts=surface.points;
+  const mesh=mesh3(m),pts=mesh.positions;
   let area=0;const c=[0,0,0];
-  for(const t of surface.triangles){
-    const [a,b,d]=t.vertices.map(i=>pts[i].position);
+  for(let t=0;t<mesh.triangleCount;t++){
+    const [a,b,d]=mesh.triangle(t).map(i=>pts[i]);
     const u=sub3(b,a),v=sub3(d,a);
     const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
     const w=Math.hypot(n[0],n[1],n[2])/2;
     area+=w;for(let k=0;k<3;k++)c[k]+=w*(a[k]+b[k]+d[k])/3;
   }
   if(area>0)return [c[0]/area,c[1]/area,c[2]/area];
-  for(const p of pts)for(let k=0;k<3;k++)c[k]+=p.position[k];
+  for(const p of pts)for(let k=0;k<3;k++)c[k]+=p[k];
   return [c[0]/pts.length,c[1]/pts.length,c[2]/pts.length];
 }
 function isRotationInput(value:unknown):value is RotationInput {
@@ -296,7 +211,7 @@ export function scale3(m:Material,by:unknown,b?:unknown):Material {
     // Points alone collapse onto the pivot; anything with edges or faces
     // is nothing to draw.
     if(m.edgeCount===0&&!hasFaces(m))return mapPositions3(m,p=>add3(origin,sub3(p,origin).map((v,i)=>v*factors[i]) as unknown as Vec3),'scale',{frame:movedFrame(k,{origin:moved,radialCentre:undefined})});
-    return value3(ownSurface3(surface3([],[])),kept(m,{origin:moved,radialCentre:undefined}));
+    return made3(NO_ROWS3,kept(m,{origin:moved,radialCentre:undefined}));
   }
   const settings=affine({scale:factors,origin});
   return mapPositions3(m,p=>transformPosition3(p,settings),'scale',{mirror:mirrors(factors),frame:movedFrame(k,{origin:moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
@@ -338,9 +253,9 @@ export function extrude3(m:Material,faces:Selection<Face>,offset:unknown,options
   if(typeof off==='number')off={distance:off};
   if(off===undefined||off===null||typeof off!=='function'&&!Array.isArray(off)&&(typeof off!=='object'||!('distance'in off)))throw new Error('extrude offset must be a distance, a vector, a region callback or { distance }');
   const key=opts.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');
-  const surface=surfaceOf(m);
+  const mesh=mesh3(m);
   const components=sel.components().map((component,index)=>{
-    const measure=regionDirection3(surface,component.indices);
+    const measure=regionDirection3(mesh,component.indices);
     const region:ExtrudeRegion=Object.freeze(Object.defineProperty({index,faces:component,normal:measure.normal&&Object.freeze(measure.normal) as Vec3,centroid:Object.freeze(measure.center) as Vec3,area:measure.area},'center',{get:regionCenterRefused,enumerable:false}));
     let vector:Vec3;
     if(Array.isArray(off))vector=off as Vec3;
@@ -357,7 +272,7 @@ export function extrude3(m:Material,faces:Selection<Face>,offset:unknown,options
     // is, as one whose distance the field could not answer does.
     return {index,faces:component.indices,vector:(finiteTriple(vector)?[vector[0],vector[1],vector[2]]:[0,0,0]) as Vec3};
   });
-  return derivedValue('extrude',m,extrudeRegion3(surface,components,key),[m]);
+  return derivedValue('extrude',m,extrudeRegion3(mesh,components,key)??unchanged(mesh),[m]);
 }
 
 /** `smooth(name, { steps })` of a face or a corner column (`domain`, as the
@@ -389,7 +304,8 @@ export function smooth3(m:Material,domain:'faces'|'corners',name:string,options:
  * face and edge columns pass to the children. */
 export function subdivide3(m:Material,levels=1,options:SubdivisionOptions={}):Material {
   refuseNoFaces(m,'subdivide');
-  return derivedValue('subdivide',m,subdivideSurface(surfaceOf(m),levels,options,m.transfers,{}),[m]);
+  const mesh=mesh3(m);
+  return derivedValue('subdivide',m,subdivideMesh3(mesh,levels,options,m.transfers,{})??unchanged(mesh),[m]);
 }
 /** The booleans: both values closed solids; the seam is exact, and the
  * faces along it answer `cut`. An uncut face of the first keeps its row
@@ -398,7 +314,11 @@ export function boolean3(operation:BooleanOperation3):(m:Material,other:Material
   return (m,other)=>{
     if(typeof other!=='object'||other===null||!('cache' in other))throw new Error(`${operation}: the second value is not a mesh — a geometry with faces`);
     refuseNoFaces(m,operation);refuseNoFaces(other,operation);
-    return derivedValue(operation,m,ownSurface3(booleanSurface3(operation,surfaceOf(m),surfaceOf(other))),[m,other],{transfers:{},radialCentre:undefined});
+    const made=booleanMesh3(operation,mesh3(m),mesh3(other));
+    // An edge column keeps the policy of the solid whose edges it came
+    // from: the first's, where both hold it.
+    const edgeTransfers=Object.fromEntries(Object.keys(made.cols?.edges??{}).flatMap(name=>{const t=(name in m.store.edgeAttrs?m:other).edgeTransfers[name];return t===undefined?[]:[[name,t]];}));
+    return derivedValue(operation,m,made,[m,other],{transfers:{},edgeTransfers});
   };
 }
 /** `dual(options?)`: one point per face at its middle, one face per vertex
@@ -408,7 +328,7 @@ export function dual3(m:Material,options:DualOptions={}):Material {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
   refuseNoFaces(m,'dual');
   // The dual of a shell star-shaped about a point is star-shaped about it.
-  return derivedValue('dual',m,ownSurface3(dualSurface3(surfaceOf(m),options)),[m],{transfers:{},radialCentre:m.radialCentre});
+  return derivedValue('dual',m,dualMesh3(mesh3(m),options),[m],{transfers:{},radialCentre:m.radialCentre});
 }
 
 export interface DisplaceOptions {
@@ -417,12 +337,12 @@ export interface DisplaceOptions {
 }
 /** Angle-weighted vertex normals over the fixed triangles; a point with no
  * faces has no normal. */
-function vertexNormals(surface:Surface3):(Vec3|null)[] {
-  const sums=surface.points.map(()=>[0,0,0] as number[]);
-  for(const t of surface.triangles){
-    const p=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(p[1],p[0]),sub3(p[2],p[0]));
+function vertexNormals(mesh:Mesh3):(Vec3|null)[] {
+  const pts=mesh.positions,sums=pts.map(()=>[0,0,0] as number[]);
+  for(let t=0;t<mesh.triangleCount;t++){
+    const vertices=mesh.triangle(t),p=vertices.map(v=>pts[v]),n=cross3(sub3(p[1],p[0]),sub3(p[2],p[0]));
     for(let k=0;k<3;k++){const a=sub3(p[(k+1)%3],p[k]),b=sub3(p[(k+2)%3],p[k]),la=Math.hypot(...a),lb=Math.hypot(...b);
-      const angle=la&&lb?Math.acos(Math.max(-1,Math.min(1,dot3(a,b)/(la*lb)))):0;const s=sums[t.vertices[k]];s[0]+=n[0]*angle;s[1]+=n[1]*angle;s[2]+=n[2]*angle;}
+      const angle=la&&lb?Math.acos(Math.max(-1,Math.min(1,dot3(a,b)/(la*lb)))):0;const s=sums[vertices[k]];s[0]+=n[0]*angle;s[1]+=n[1]*angle;s[2]+=n[2]*angle;}
   }
   return sums.map(s=>{const l=Math.hypot(s[0],s[1],s[2]);return l>0?[s[0]/l,s[1]/l,s[2]/l] as Vec3:null;});
 }
@@ -438,7 +358,7 @@ export function displace3(m:Material,field:Field<unknown,Vec3|number>,options:Di
   const deltas=rows.map((row,i):Vec3=>{
     const value=evaluate(field,row) as unknown;
     if(typeof value==='number'){
-      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(surfaceOf(m)))[i];
+      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(mesh3(m)))[i];
       return direction?mul3(direction,amount):[0,0,0];
     }
     if(!Array.isArray(value)||value.length!==3||!value.every(v=>typeof v==='number'))throw new Error(`displace: the field answered ${describe3(value)} — a number, or a vector [x, y, z]`);
@@ -456,13 +376,13 @@ export function displace3(m:Material,field:Field<unknown,Vec3|number>,options:Di
  * `tangent`, the curve's point columns carried, and `source` the edge
  * under it. A branched curve is refused by name. */
 export function along3(m:Material,opts:{readonly count?:number;readonly spacing?:number}={}):Material {
-  return derivedValue('along',m,alongSurface(surfaceOf(m),opts),[m],{origin:ORIGIN,orientation:IDENTITY,radialCentre:undefined});
+  return derivedValue('along',m,alongSurface(mesh3(m),opts),[m],{origin:ORIGIN,orientation:IDENTITY,radialCentre:undefined});
 }
 /** `resample({ count } | { spacing })` of a value in space: the same path
  * with its points redistributed by arc length; each point's `source` is
  * the edge under it. */
 export function resample3(m:Material,opts:{readonly count?:number;readonly spacing?:number}={}):Material {
-  return derivedValue('resample',m,resampledSurface(surfaceOf(m),opts),[m]);
+  return derivedValue('resample',m,resampledSurface(mesh3(m),opts),[m]);
 }
 
 // ─── row words ───────────────────────────────────────────────────────

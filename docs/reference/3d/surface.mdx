@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.trace.mdx</include>
 
-Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample on the traced surface. `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. The call refuses a curve sample that is not on the traced surface, by name.
+Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample on the traced surface. `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. The call refuses a seed from another mesh, by name. This includes a sample and a curve sample.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

@@ -1,21 +1,25 @@
 import { cameraFrame3, cameraShift3, toCamera3, type Camera3, type CameraFrame3 } from 'occlude/src/three/camera.js';
-import { transformSurface3 } from 'occlude/src/three/geometry/model.js';
+import { rowColumns3 } from 'occlude/src/three/geometry/model.js';
+import { mesh3, type Mesh3 } from 'occlude/src/three/geometry/mesh3.js';
+import { placedMesh3, type SurfaceObject3 } from 'occlude/src/three/features/snapshot.js';
 import { SurfaceQueries3 } from 'occlude/src/three/queries/surface.js';
 import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { add3, mul3, type Triangle3, type Vec3 } from 'occlude/src/three/math.js';
 
+/** An object's surface where its transform puts it. */
+const placed = (object: SurfaceObject3): Mesh3 => object.transform ? placedMesh3(mesh3(object.surface), object.transform) : mesh3(object.surface);
 export interface ConstructionInfo3 { camera: Camera3; objects: number; triangles: number; wires: number; bounds?: { min: Vec3; max: Vec3 }; viewport?: { x: number; y: number; width: number; height: number } }
 /** World bounds over placed vertices and wires, for framing (Blender Home). */
 export function constructionBounds3(scene: LineArtScene3): { min: Vec3; max: Vec3 } | undefined {
   const min = [Infinity,Infinity,Infinity], max = [-Infinity,-Infinity,-Infinity];
   const take = (p: Vec3) => { for (let k = 0; k < 3; k++) { if (p[k] < min[k]) min[k] = p[k]; if (p[k] > max[k]) max[k] = p[k]; } };
-  for (const object of scene.objects) { const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface; for (const point of surface.points) take(point.position); }
+  for (const object of scene.objects) for (const point of placed(object).positions) take(point);
   for (const wire of scene.wires) for (const p of wire.points) take(p);
   return Number.isFinite(min[0]) ? { min: min as unknown as Vec3, max: max as unknown as Vec3 } : undefined;
 }
 export const constructionInfo3 = (scene: LineArtScene3): ConstructionInfo3 => ({
   camera: scene.camera, objects: scene.objects.length,
-  triangles: scene.objects.reduce((n,o)=>n+o.surface.triangles.length,0),
+  triangles: scene.objects.reduce((n,o)=>n+mesh3(o.surface).triangleCount,0),
   wires: scene.objects.reduce((n,o)=>n+o.surface.edges.length,0)+scene.wires.reduce((n,w)=>n+Math.max(0,w.points.length-1),0),
   bounds: constructionBounds3(scene),
 });
@@ -29,11 +33,11 @@ export class ConstructionScene3 {
   readonly info: ConstructionInfo3;
   constructor(scene: LineArtScene3) {
     for (const object of scene.objects) {
-      const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface;
+      const surface = placed(object), positions = surface.positions;
       const query = new SurfaceQueries3(surface);
       this.objects.push({ id: object.id, query });
       for (const tri of query.triangles) this.triangles.push(tri);
-      for (const edge of surface.edges) this.wires.push(edge.vertices.map(i => surface.points[i].position) as unknown as readonly [Vec3, Vec3]);
+      for (let e = 0; e < surface.edgeCount; e++) this.wires.push([positions[surface.edges[2 * e]], positions[surface.edges[2 * e + 1]]]);
     }
     for (const wire of scene.wires) for (let i = 1; i < wire.points.length; i++) this.wires.push([wire.points[i-1], wire.points[i]]);
     this.info = { camera: scene.camera, objects: scene.objects.length, triangles: this.triangles.length, wires: this.wires.length };
@@ -53,8 +57,8 @@ export class ConstructionScene3 {
     for (const object of this.objects) {
       const hit = object.query.rays([ray])[0];
       if (hit && (!best || hit.distance < best.distance)) {
-        const face = object.query.surface.faces[object.query.surface.triangles[hit.triangle].face];
-        best = { objectId: object.id, faceId: hit.faceId, triangle: hit.triangle, point: hit.point, barycentric: hit.barycentric, attributes: structuredClone(face.attributes), distance: hit.distance };
+        const mesh = object.query.mesh;
+        best = { objectId: object.id, faceId: hit.faceId, triangle: hit.triangle, point: hit.point, barycentric: hit.barycentric, attributes: rowColumns3(mesh, 'faces', mesh.triangleFace[hit.triangle]), distance: hit.distance };
       }
     }
     if (!best) return null;

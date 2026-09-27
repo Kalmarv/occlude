@@ -1,11 +1,11 @@
 import {describe,it,expect} from 'vitest';
 import {grid,cone,instanceOnPoints} from 'occlude/3d';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 describe('model-space point grid',()=>{
  it('replaces the original 6 by 6 placement exactly',()=>{
    const sites=grid({cols:6,rows:6,spacing:1.2});
    expect(sites.points.map(p=>[p.x,p.y,p.z])).toEqual(Array.from({length:36},(_,i)=>[((i%6)-2.5)*1.2,(Math.floor(i/6)-2.5)*1.2,0]));
-   expect(surfaceOf(sites).points.map(p=>p.id)).toEqual(Array.from({length:36},(_,i)=>`p${i}`));
+   expect(mesh3(sites).names.points).toEqual(Array.from({length:36},(_,i)=>`p${i}`));
    
    expect(sites.points.every(p=>p.k===0&&p.i===p.index%6&&p.j===Math.floor(p.index/6))).toBe(true);
  });
@@ -20,7 +20,7 @@ describe('model-space point grid',()=>{
  });
  it('handles empty/single grids and rejects invalid dimensions and capacity',()=>{
    expect(grid({cols:0,rows:3}).points.length).toBe(0);
-   expect(surfaceOf(grid({cols:1,rows:1,layers:1})).points[0].position).toEqual([0,0,0]);
+   const single=grid({cols:1,rows:1,layers:1}).points.at(0)!;expect([single.x,single.y,single.z]).toEqual([0,0,0]);
    expect(()=>grid({cols:1.5,rows:2})).toThrow('integer');
    expect(()=>grid({cols:1,rows:-1})).toThrow('integer');
    expect(()=>grid({cols:1000,rows:1000,maxPoints:100_000})).toThrow('budget');

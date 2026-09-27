@@ -2,6 +2,7 @@ import {beforeAll,it,expect} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {box,view,orthographic,perspective,pointCloud,instanceOnPoints,type ViewHatch} from 'occlude/3d';
 import { sketch, pen, mm } from '../src/index.js';
+import { Material } from '../src/material.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {cameraFrame3} from '../src/three/camera.js';
@@ -9,7 +10,6 @@ import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import {section3} from '../src/three/curves/section.js';
 import {hatch3} from '../src/three/curves/hatch.js';
 import {lineArt3} from '../src/three/scene.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[5,7,6],span:5});
 const config={seed:42,pens:{ink:pen({width:mm(.3),color:'#112233'}),shade:pen({width:mm(.18),color:'#445566'}),section:pen({width:mm(.25),color:'#a84932'})}};
@@ -22,11 +22,12 @@ it('captures typed hatch fields once per eligible face, independently of camera 
  const drawing=view(geometry,{camera,hatch:families,sections:[{origin:planeOrigin,normal:[0,0,1],pen:'section'}]});
  families[1]={spacing:mm(100)};planeOrigin[2]=100;
  expect(selects).toBe(6);expect(fields).toBe(1);
- const object=drawing.scene.objects[0];expect(object.surface).toBe(surfaceOf(geometry));expect(object.hatch!.surface).toBe(object.surface);expect(object.curves!.surface).toBe(object.surface);
- const captured=JSON.stringify(object);
+ const object=drawing.scene.objects[0];expect(object.surface).toBe(geometry);expect(object.hatch!.surface).toBe(object.surface);expect(object.curves!.surface).toBe(object.surface);
+ // The value is the scene's own and immutable; everything else is captured data.
+ const record=()=>JSON.stringify(object,(_,v)=>v instanceof Material?'geometry':v),captured=record();
  const execution=await compileSketchAsync(sketch(config,()=>{models++;return drawing;}));
  const before=exportSvg(execution),next=await commitCamera3(execution,drawing.scene,perspective({eye:[5,7,6]}));
- expect(selects).toBe(6);expect(fields).toBe(1);expect(models).toBe(1);expect(JSON.stringify(object)).toBe(captured);
+ expect(selects).toBe(6);expect(fields).toBe(1);expect(models).toBe(1);expect(record()).toBe(captured);expect(object.surface).toBe(geometry);
  expect(exportSvg(next)).not.toBe(before);expect(exportSvg(execution)).toBe(before);
  for(const color of ['#112233','#445566','#a84932'])expect(before).toContain(color);
 });
@@ -34,7 +35,7 @@ it('preserves the exact shared kernel feature/interval result for mixed section 
  const geometry=box(2,{key:'model'}).faces.set('spacing',5),planes=[{id:'level',origin:[0,0,0] as const,normal:[0,0,1] as const,attributes:{height:0}}];
  const families=[{id:'shade',spacing:mm(5),angle:35},{id:'cross',spacing:mm(10),angle:-35}];
  const modern=view(geometry,{camera,hatch:families.map(({id,...r})=>({...r,key:id})),sections:planes.map(({id,attributes,...p})=>({...p,columns:attributes,key:id}))});
- const legacy=lineArt3({camera,objects:[{id:'model',surface:surfaceOf(geometry),hatch:hatch3(surfaceOf(geometry),families),curves:section3(surfaceOf(geometry),planes)}],lineSets:[]});
+ const legacy=lineArt3({camera,objects:[{id:'model',surface:geometry,hatch:hatch3(geometry,families),curves:section3(geometry,planes)}],lineSets:[]});
  for(const projection of [camera,perspective({eye:[5,7,6]})]){
   expect(classifySceneCpu3(snapshot(modern.scene,projection)).features).toEqual(classifySceneCpu3(snapshot(legacy,projection)).features);
  }

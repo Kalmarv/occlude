@@ -1,18 +1,22 @@
 import {describe,it,expect} from 'vitest';
+import {mesh3,meshOfMade3,type Mesh3} from '../src/three/geometry/mesh3.js';
 import {box,mesh,plane} from 'occlude/3d';
 import {surfaceBinding3} from '../src/three/curves/network.js';
 import {intersectionContacts3} from '../src/three/curves/intersectionContacts.js';
 import {intersectionAtomsJob3,triangleSideOccupancy3} from '../src/three/curves/intersectionAtoms.js';
 import {runGeometryJob3,runGeometryJobAsync3} from '../src/three/geometry/job.js';
 import {point,type H} from '../src/three/geometry/exact.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const atoms=(a:any,b:any,options:any={})=>{
- const contacts=intersectionContacts3(surfaceBinding3(surfaceOf(a)),surfaceBinding3(surfaceOf(b))).value;
+ const contacts=intersectionContacts3(surfaceBinding3(mesh3(a)),surfaceBinding3(mesh3(b))).value;
  return runGeometryJob3(intersectionAtomsJob3(contacts,options)).value;
 };
-const atomsFromSurfaces=(a:any,b:any,options:any={})=>runGeometryJob3(intersectionAtomsJob3(
+const atomsFromMeshes=(a:Mesh3,b:Mesh3,options:any={})=>runGeometryJob3(intersectionAtomsJob3(
  intersectionContacts3(surfaceBinding3(a),surfaceBinding3(b)).value,options)).value;
+/** `m` with each face's fixed triangles stated in the reverse order. */
+const reversedTriangles=(m:Mesh3)=>meshOfMade3({x:m.x,y:m.y,z:m.z,names:{...m.names},loops:m.loops,edges:m.edges,triangles:m.loops.map((_,f)=>{
+ const local=m.localTriangles(f),out:number[]=[];for(let k=local.length-3;k>=0;k-=3)out.push(local[k],local[k+1],local[k+2]);return out;
+})});
 const square=(x:number,y:number,w:number,h:number)=>mesh([[x,y,0],[x+w,y,0],[x+w,y+h,0],[x,y+h,0]],[[0,1,2,3]]);
 const p=(x:number,y:number,z:number=0)=>point([x,y,z]);
 describe('intersection atomic seams',()=>{
@@ -54,16 +58,16 @@ describe('intersection atomic seams',()=>{
   expect(result.segments).toHaveLength(8);
  });
  it('preserves coverage when triangle order is permuted',()=>{
-  const a=surfaceOf(square(0,0,2,2)),b=surfaceOf(square(1,0,2,2));
-  const permuted={...a,triangles:Object.freeze([...a.triangles].reverse())};
-  const first=atomsFromSurfaces(a,b),second=atomsFromSurfaces(permuted,b);
+  const a=mesh3(square(0,0,2,2)),b=mesh3(square(1,0,2,2)),permuted=reversedTriangles(a);
+  expect([...permuted.triangles]).not.toEqual([...a.triangles]);
+  const first=atomsFromMeshes(a,b),second=atomsFromMeshes(permuted,b);
   const geometry=(rows:readonly {readonly a:H;readonly b:H}[])=>rows.map(s=>[s.a.join(','),s.b.join(',')].sort().join('|')).sort();
   expect(geometry(first.segments)).toEqual(geometry(second.segments));
  });
  it('uses exact side occupancy and enforces assembly budgets/cancellation',async()=>{
   const tri=[p(0,0),p(2,0),p(0,2)] as unknown as [H,H,H], n=[0n,0n,1n,0n] as H;
   expect(triangleSideOccupancy3(tri,p(1,0),p(0,0),p(2,0),n)).toEqual([true,false]);
-  const contacts=intersectionContacts3(surfaceBinding3(surfaceOf(plane(2,2))),surfaceBinding3(surfaceOf(plane(2,2)))).value;
+  const contacts=intersectionContacts3(surfaceBinding3(mesh3(plane(2,2))),surfaceBinding3(mesh3(plane(2,2)))).value;
   expect(()=>runGeometryJob3(intersectionAtomsJob3(contacts,{maxSegments:0}))).toThrow('raw segment budget');
   expect(()=>runGeometryJob3(intersectionAtomsJob3(contacts,{maxSupportCandidates:0}))).toThrow('support candidate budget');
   const controller=new AbortController(),pending=runGeometryJobAsync3(intersectionAtomsJob3(contacts),controller.signal);controller.abort(new Error('cancel atoms'));

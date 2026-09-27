@@ -2,7 +2,6 @@ import {describe,it,expect} from 'vitest';
 import {plane,pointCloud,query} from 'occlude/3d';
 import {prepareSurfaceQueries3,QUERY_HOST3} from '../src/three/queries/surface.js';
 import type {QueryHost} from '../src/three/api/query.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 describe('captured source-bound query fields',()=>{
   it('preserves misses, source selections and typed extraction',()=>{

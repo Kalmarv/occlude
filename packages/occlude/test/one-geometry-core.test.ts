@@ -273,7 +273,7 @@ describe('stated polygon faces with corners', () => {
     expect(c.corners.slice(0, 4).points.indices).toEqual([0, 1, 2, 3]);
   });
 
-  it('corner columns take any kind and are kept through a move and a set; an edge write drops them', () => {
+  it('corner columns take any kind and are kept through a move and a set; an edge write keeps the faces it still names', () => {
     const c = cube();
     expect(c.corners.at(0).uv).toBeUndefined();
     const lit = c.corners.set({ uv: (q) => [q.index, 0], hard: (q) => q.face.index === 0 });
@@ -288,10 +288,14 @@ describe('stated polygon faces with corners', () => {
     expect(moved.corners.at(3).uv).toEqual([3, 0]);
     // A corner of an earlier state is found by its face and point.
     expect(moved.corners.has(lit.corners.at(7))).toBe(true);
-    // An edge write changes the edges: the statement and its corners go.
-    const cut = lit.edges.remove(lit.edges.at(0));
-    expect(cut.stated).toBeUndefined();
-    expect(cut.corners.length).toBe(0);
+    // An edge write keeps each face it still names: removing a side drops
+    // the two faces on it and their corners; the other faces keep theirs.
+    const side = lit.edges.at(0);
+    const cut = lit.edges.remove(side);
+    expect(cut.faces.length).toBe(4);
+    expect(cut.corners.length).toBe(16);
+    expect([...cut.corners].every((q) => lit.corners.has(q))).toBe(true);
+    expect([...side.faces].some((f) => cut.faces.has(f))).toBe(false);
   });
 
   it('a geometry with no stated faces has no corners: an empty selection', () => {
@@ -654,7 +658,7 @@ describe('a fixed triangulation per stated face', () => {
     expect(stated(cube())!.triangles).toBeUndefined();
   });
 
-  it('is kept by every write that keeps the faces, by extract and by append; an edge write drops it', () => {
+  it('is kept by every write that keeps the faces, by extract and by append; an edge write keeps it on the faces it still names', () => {
     const m = pair();
     const kept = m.move([0, 0, 1]).points.set('w', 1).faces.set('k', 2).corners.set('uv', [0, 0]);
     expect(stated(kept)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined]);
@@ -666,7 +670,10 @@ describe('a fixed triangulation per stated face', () => {
     expect(both.faces.length).toBe(4);
     expect(stated(both)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined, [0, 1, 2, 0, 2, 3], undefined]);
     expect(stated(both)!.loops[2]).toEqual([6, 7, 10, 11]);
-    expect(m.edges.remove(m.edges.at(0)).stated).toBeUndefined();
+    // Removing a side of face 0 drops face 0; face 1 keeps its loop.
+    const cut = m.edges.remove(m.edges.at(0));
+    expect(cut.faces.length).toBe(1);
+    expect(stated(cut)!.triangles).toEqual([undefined]);
   });
 
   it('refuses a wrong triangulation by name', () => {

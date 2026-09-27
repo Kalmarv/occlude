@@ -1531,7 +1531,8 @@ This section exposes `lineArt3` and its explicit stages, imported from `occlude/
 
 ```ts live
 import { sketch, label, pen, mm } from 'occlude';
-import { lineArt3, box3 } from 'occlude/3d/advanced';
+import { box } from 'occlude/3d';
+import { lineArt3 } from 'occlude/3d/advanced';
 
 export default sketch({
   seed: 42,
@@ -1541,8 +1542,8 @@ export default sketch({
   lineArt3({
     id: 'boxes',
     objects: [
-      { id: 'wide', surface: box3([3, 1, 1]) },
-      { id: 'tall', surface: box3([1, 2, 2], [0.3, 0, 0.2]) },
+      { id: 'wide', surface: box([3, 1, 1]) },
+      { id: 'tall', surface: box([1, 2, 2]).translate([0.3, 0, 0.2]) },
     ],
     camera: { kind: 'orthographic', span: 4.5, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
     lineSets: [{ id: 'visible', stroke: 'outline' }],
@@ -1551,9 +1552,9 @@ export default sketch({
 ]);
 ```
 
-The explicit stage is its own vocabulary for renderer work, and it takes the ordinary values where the two meet: an object's `surface` can be a mesh from `occlude/3d` (`{ id: 'm', surface: box(1) }`), `section3` and `hatch3` read a mesh too, and `view` draws a `Surface3` from `box3` or `surface3` as a mesh. Build and edit the model with the ordinary words — `plane`, `extrude`, `displace`, the `set` of each collection, `t.steps` and `query` — and hand it to the stage. An ordinary sketch does not need the stage.
+The explicit stage is a vocabulary for renderer work. It reads the ordinary values. An object's `surface` is a mesh from `occlude/3d` (`{ id: 'm', surface: box(1) }`), and `section3` and `hatch3` also read a mesh. Build and edit the model with the ordinary words — `box`, `mesh(positions, faces)`, `plane`, `extrude`, `displace`, the `set` of each collection, `t.steps` and `query` — and hand it to the stage. An ordinary sketch does not need the stage.
 
-`surface3(positions, polygons)` constructs a polygon surface. `box3(size, center)` is an editable box factory. A scene captures its input geometry when `lineArt3` is called; later edits to the original surface do not change that drawing. IDs must be unique across objects and wires. Set `lineSource: false` to keep an object only as an occluder, or `occluder: false` to draw its lines without hiding other geometry.
+A mesh is a value and does not change, so a scene draws the mesh that you give it. IDs must be unique across objects and wires. Set `lineSource: false` to keep an object only as an occluder, or `occluder: false` to draw its lines without hiding other geometry.
 
 A scene's optional `id` names its camera in `sketch({ cameras3: { [id]: camera } }, ...)`. That configuration overrides the scene's default camera before classification, in both Studio and headless rendering. Scene IDs must be unique and cannot start with `@`. Unnamed scenes receive `@1`, `@2`, and so on in classification-request order; name scenes explicitly when their order can change. The scene value keeps its declared default camera; the classified `frame.camera` is the effective captured view.
 
@@ -1567,12 +1568,13 @@ Each line set has a unique `id`, named `stroke`, optional `select(feature)`, and
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { lineArt3, box3, FeatureKind3 } from 'occlude/3d/advanced';
+import { box } from 'occlude/3d';
+import { lineArt3, FeatureKind3 } from 'occlude/3d/advanced';
 
 export default sketch({
   pens: { outline: pen({ color: '#18202A', width: mm(0.35) }), hidden: pen({ color: '#A47E6B', width: mm(0.2) }) },
 }, () => lineArt3({
-  objects: [{ id: 'box', surface: box3([2, 2, 2]) }],
+  objects: [{ id: 'box', surface: box([2, 2, 2]) }],
   camera: { kind: 'perspective', fovDegrees: 24, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
   lineSets: [
     { id: 'back', stroke: 'hidden', visibility: 'hidden' },
@@ -1591,7 +1593,7 @@ Each execution retains its classified scene results in `run.scenes3`. Repeating 
 
 ### Objects and wires
 
-Scene objects can share a surface and set individual `transform: { translate, rotate, scale, origin }` values. Those transforms act in world space before projection; rotations are XYZ degrees and mirrored scales preserve winding. A scene captures a shared surface once, so later edits to that source do not alter its instances. A wire is an open polyline through a list of world points: `wires: [{ id, points }]`. An edge column `marked: true` makes the edge a `FeatureKind3.marked` feature, for a line set of its own.
+Scene objects can share a mesh and set individual `transform: { translate, rotate, scale, origin }` values. Those transforms act in world space before projection; rotations are XYZ degrees and mirrored scales preserve winding. A wire is an open polyline through a list of world points: `wires: [{ id, points }]`. An edge column `marked: true` makes the edge a `FeatureKind3.marked` feature, for a line set of its own.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -1623,7 +1625,7 @@ export default sketch({ pens: {
 
 ### Reusing visibility and styling strokes
 
-In an async sketch, `await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `FeatureSelection3(classified).filter(...)` selects those records; a line set can use that selection directly. Selections from another classified snapshot are rejected.
+In an async sketch, `await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `classifiedFeatures3(classified)` gives those records as a selection. Use `filter`, `kind`, `groupBy` and the other selection words on it, then give the result to a line set as `select`. A selection of another classified snapshot is refused.
 
 `constructStrokes3(classified, lineSets, options)` returns inspectable projected stroke data: source parts/parameters, points, cumulative paper arclength, length, closure and break reasons. Use `{ chain: false }` to retain separate segments, or the default source-based chaining. Building another style from the same classified data does not dispatch visibility again. `classified.stats` reports candidates, dispatches, refinements, transferred bytes and wall time. On a GPU with timestamp-query support, optional `gpuMs` records the summed visibility compute-pass time; it excludes upload, readback, CPU refinement and finishing. An absent value means timing is unavailable, while zero can reflect a very short or empty workload. Use total wall time to judge interaction performance.
 
@@ -1631,21 +1633,22 @@ In an async sketch, `await t.classify3(scene)` resolves a captured scene to immu
 
 ```ts live
 import { sketch, paper, pen, mm, group, label, dash, wobble } from 'occlude';
-import { box3, lineArt3, FeatureSelection3, FeatureKind3, constructStrokes3 } from 'occlude/3d/advanced';
+import { box } from 'occlude/3d';
+import { lineArt3, classifiedFeatures3, constructStrokes3 } from 'occlude/3d/advanced';
 
 export default sketch({
   paper: paper({ width: mm(200), height: mm(200) }), seed: 42,
   pens: { outline: pen({ width: mm(0.3), color: '#18202A' }), hidden: pen({ width: mm(0.2), color: '#A84932' }) },
 }, async t => {
   const classified = await t.classify3(lineArt3({
-    objects: [{ id: 'box', surface: box3([1.4, 1.4, 1.4]) }],
+    objects: [{ id: 'box', surface: box([1.4, 1.4, 1.4]) }],
     camera: { kind: 'orthographic', span: 3.8, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
     viewport: { x: 10, y: 25, width: 80, height: 140 }, lineSets: [],
   }));
-  const features = new FeatureSelection3(classified);
+  const features = classifiedFeatures3(classified);
   const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
   const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
-  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
+  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.kind('silhouette') }]);
   return [
     t.strokes3(visible, { pass: 'expressive', modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
     t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
@@ -1666,7 +1669,8 @@ These three copies share one classification. The rust-colored interval is behind
 
 ```ts live
 import { sketch, paper, pen, mm, group, label, dash, wobble } from 'occlude';
-import { box3, lineArt3, constructStrokes3 } from 'occlude/3d/advanced';
+import { box } from 'occlude/3d';
+import { lineArt3, constructStrokes3 } from 'occlude/3d/advanced';
 
 export default sketch({
   paper: paper({ width: mm(200), height: mm(180) }), margin: 0, seed: 42,
@@ -1675,7 +1679,7 @@ export default sketch({
   const classified = await t.classify3(lineArt3({
     camera: { kind: 'orthographic', span: 10, eye: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0], near: 0.1, far: 10 },
     viewport: { x: 0, y: -60, width: 200, height: 200 },
-    objects: [{ id: 'blocker', surface: box3([1.6, 1, 1]), lineSource: false }],
+    objects: [{ id: 'blocker', surface: box([1.6, 1, 1]), lineSource: false }],
     wires: [{ id: 'wire', points: [[-4, 0, 0], [0, 0, 0], [4, 0, 0]] }], lineSets: [],
   }));
   const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'ink' }]);
@@ -1696,7 +1700,7 @@ export default sketch({
 
 ### Plane-section contours
 
-`section3(mesh, planes, { tolerance?, maxSegments? })` intersects fixed mesh triangles with planes `{ id, origin, normal, attributes? }` in the surface's model coordinates. It returns inspectable segments, barycentric source positions, supporting triangle indices and an owned frozen `surface`. Pass that exact surface and the returned `curves` together to a scene object. A later model edit requires new sections; the renderer rejects curves paired with another surface. Object transforms move the captured surface and its curves together. To cut with world-space planes, transform the mesh before generating its sections.
+`section3(mesh, planes, { tolerance?, maxSegments? })` intersects fixed mesh triangles with planes `{ id, origin, normal, attributes? }` in the mesh's model coordinates. It returns inspectable segments, barycentric source positions, supporting triangle indices and the mesh it cut as `surface`. Pass that mesh and the returned `curves` together to a scene object. An edit of the mesh is another value and needs new sections. The renderer rejects curves that you pair with another mesh. Object transforms move the mesh and its curves together. To cut with world-space planes, transform the mesh before generating its sections.
 
 Select `FeatureKind3.section` to style these curves. Section features carry `sectionPlane`, plane attributes and the supporting faces' attributes. Other faces of the same object can still occlude them. Coplanar patches contribute their boundary, without internal triangulation diagonals; isolated tangent vertices produce no stroke. Folded faces are intersected as their fixed triangles. Source endpoint IDs connect compatible pieces, so a triangulation crossing does not introduce a dash restart.
 
@@ -1734,11 +1738,11 @@ export default sketch({ seed: 42, pens: {
 
 `hatch3(mesh, families, { maxSegments? })` captures a per-face pattern recipe. `families` is an array or a callback from a frozen face measurement to an array; return `[]` to leave a face unhatched. Each family has a unique `id`, `spacing`, paper-space `angle` in clockwise degrees, optional `offset`, and optional attributes. Add a second family for crosshatch. The callback runs once during capture, so model attributes can control density or direction without another callback during camera changes.
 
-Pair `surface: hatch.surface` and `hatch` on the scene object. Generation waits until the camera and drawable paper frame are known. `mm(1)` means one millimetre between paper rulings; bare numbers and other length tags use the ordinary drawable units, even with a custom scene viewport. The pattern is view-dependent and is regenerated from its captured recipe for a different camera. Changing only a selector, pen or stroke modifier reuses classified geometry.
+Pair `surface: hatch.surface` (the mesh that the recipe reads) and `hatch` on the scene object. Generation waits until the camera and drawable paper frame are known. `mm(1)` means one millimetre between paper rulings; bare numbers and other length tags use the ordinary drawable units, even with a custom scene viewport. The pattern is view-dependent and is regenerated from its captured recipe for a different camera. Changing only a selector, pen or stroke modifier reuses classified geometry.
 
 Rulings share one paper-origin lattice across every face of an object that has the same spacing, angle and offset, and a ruling is one stroke across all of those faces: its pieces meet at the edges between triangles and faces, so the pen stays down along it (a fold that hides part of a ruling still breaks it there). Each piece is lifted onto its supporting triangle with perspective-correct source weights. Folded faces therefore have piecewise surface support; this is not curvature-following hatch. Edge-on projected triangles produce no hatch. Coincident outer boundary strokes are omitted. Rulings are generated only across the sheet's band plus one sheet diagonal of overscan on either side, so a face seen from close by (the inside of a sphere around the camera) costs no more than the paper it covers while styles that reach past the edge keep their anchors. `maxSegments` (default unlimited) caps candidate segments and ruling iterations when set.
 
-Select `FeatureKind3.hatch`. Captured feature records retain `hatchFamily`, `hatchFace`, `hatchLine`, resolved `hatchSpacingMm`, family attributes and source face attributes. A generated feature's `curve` contains inspectable model-space endpoint positions, barycentric weights and supporting triangle indices before camera clipping. Hatch and sections can share the same immutable source: generate sections first, then pass `sections.surface` to `hatch3`. Trusted immutable snapshots are reused rather than copied again.
+Select `FeatureKind3.hatch`. Captured feature records retain `hatchFamily`, `hatchFace`, `hatchLine`, resolved `hatchSpacingMm`, family attributes and source face attributes. A generated feature's `curve` contains inspectable model-space endpoint positions, barycentric weights and supporting triangle indices before camera clipping. Hatch and sections can share the same mesh: generate sections first, then pass `sections.surface` to `hatch3`.
 
 This example declares its square sheet and margin so its downloaded source uses the same paper mapping when reopened.
 

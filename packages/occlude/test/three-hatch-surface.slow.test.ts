@@ -1,4 +1,5 @@
 import {describe,expect,it} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {plane,box,cylinder,sphere,torus,mesh,pointCloud,instanceOnPoints,trace,light,grad,curvature,across,view,orthographic,perspective} from '../src/three/api/index.js';
 import {hatchSurface,captureHatch} from '../src/three/api/hatch.js';
 import {directionField} from '../src/three/surface/fields.js';
@@ -12,7 +13,6 @@ import {bindingTriangle3} from '../src/three/curves/network.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 import type {SurfaceCurves} from '../src/three/api/supported.js';
 import {readFileSync} from 'node:fs';
-import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
@@ -27,7 +27,7 @@ function incident(curves:SurfaceCurves<any>):boolean {
   }));
 }
 const chainLengths=(curves:SurfaceCurves<any>)=>{const totals=new Map<string,number>();for(const e of curves.edges)totals.set(e.chainId,(totals.get(e.chainId)??0)+e.length);return [...totals.values()];};
-const seedAt=(m:Material,triangle:number,w:[number,number,number])=>surfaceLocation3(surfaceOf(m),triangle,w);
+const seedAt=(m:Material,triangle:number,w:[number,number,number])=>surfaceLocation3(mesh3(m),triangle,w);
 
 describe('surface tracing',()=>{
   it('walks straight across a subdivided plane and stops at its boundary',()=>{
@@ -153,7 +153,7 @@ describe('seeded surface hatch',()=>{
     // The top face faces the light: tone 0, so the shaded call draws nothing on it,
     // while the bottom face (tone 0.8) is fully hatched.
     expect(b.some(e=>e.a.z>1-1e-9&&e.b.z>1-1e-9)).toBe(false);expect(b.some(e=>e.a.z<-1+1e-9&&e.b.z<-1+1e-9)).toBe(true);
-    expect(lit(surfaceLocation3(surfaceOf(cube),0,[1/3,1/3,1/3]))).toBeGreaterThanOrEqual(0);
+    expect(lit(surfaceLocation3(mesh3(cube),0,[1/3,1/3,1/3]))).toBeGreaterThanOrEqual(0);
   });
   it('is independent of the camera and repeats prototypes through placement',{timeout:60000},async()=>{
     const model=torus(1.4,.45,{segments:24,tubeSegments:10});
@@ -180,14 +180,18 @@ describe('seeded surface hatch',()=>{
   });
   it('refuses a seed located on another mesh and forgets gradients when a placement turns',()=>{
     const low=plane(2,2).subdivide(2),high=low.translate([0,0,10]);
-    const onHigh=surfaceLocation3(surfaceOf(high),3,[.2,.3,.5]);
+    const onHigh=surfaceLocation3(mesh3(high),3,[.2,.3,.5]);
     expect(()=>trace(low,[onHigh],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
-    expect(()=>trace(low,[{sample:onHigh}],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    // A scattered point knows the surface it was sampled on, as a location does.
+    const scattered=scatterSurface(high,{count:2},{rnd:stream(7)});
+    expect(()=>trace(low,scattered.points,[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    expect(()=>trace(low,[scattered.points.at(0)!.sample],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    expect(trace(high,scattered.points,[1,0,0],{step:.2,maxLength:1}).edges.length).toBeGreaterThan(0);
     expect(trace(high,[onHigh],[1,0,0],{step:.2,maxLength:1}).edges.length).toBeGreaterThan(0);
     // The same instance id with a different transform must not reuse the gradient.
     const field=grad(s=>s.position[2]),sheet=plane(2,2);
-    const flat=surfaceLocation3(surfaceOf(sheet),0,[1/3,1/3,1/3],{placement:{id:'i',transform:{}}});
-    const tilted=surfaceLocation3(surfaceOf(sheet),0,[1/3,1/3,1/3],{placement:{id:'i',transform:{rotate:[90,0,0]}}});
+    const flat=surfaceLocation3(mesh3(sheet),0,[1/3,1/3,1/3],{placement:{id:'i',transform:{}}});
+    const tilted=surfaceLocation3(mesh3(sheet),0,[1/3,1/3,1/3],{placement:{id:'i',transform:{rotate:[90,0,0]}}});
     expect(field(flat)).toBeNull();
     expect(field(tilted)).not.toBeNull();
   });

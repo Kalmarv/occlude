@@ -32,31 +32,30 @@ import { Material, material as makeMaterial } from './material.js';
 import { rebuild } from './tables.js';
 import { Column } from './column.js';
 import { eligibleRows, type Where } from './relation.js';
-
-export type Corner = readonly [number, number];
+import type { Vec } from './vec.js';
 
 export interface WarpOpts {
   /** The cage as it was, one loop of corners. */
-  from: readonly Corner[] | Material;
+  from: readonly Vec[] | Material;
   /** The same cage, moved. Same number of corners, in the same order. */
-  to: readonly Corner[] | Material;
+  to: readonly Vec[] | Material;
   /** Only these points bend; the rest stay where they are, and the edges
    * between a bent point and a still one simply stretch. An edge selection
    * is read as its endpoints. Absent is the whole material. */
   where?: Where;
 }
 
-function corners(v: readonly Corner[] | Material, what: string): [number, number][] {
+function corners(v: readonly Vec[] | Material, what: string): Vec[] {
   if (v && typeof v === 'object' && 'x' in v && 'y' in v && typeof (v as Material).n === 'number') {
     const m = v as Material;
     const X = m.x;
     const Y = m.y;
-    return Array.from({ length: m.n }, (_, i) => [X[i], Y[i]] as [number, number]);
+    return Array.from({ length: m.n }, (_, i) => [X[i], Y[i]] as Vec);
   }
   if (!Array.isArray(v)) throw new Error(`warp: { ${what} } must be a loop of corners, or a material to read one from`);
   return v.map((p, i) => {
     if (!Array.isArray(p) || p.length < 2 || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) throw new Error(`warp: { ${what} } corner ${i} is not a finite [x, y]`);
-    return [p[0], p[1]] as [number, number];
+    return [p[0], p[1]] as Vec;
   });
 }
 

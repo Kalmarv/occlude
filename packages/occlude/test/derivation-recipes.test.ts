@@ -87,7 +87,7 @@ describe('resample and along: the edge under each point, and u', () => {
       expect(onEdge(p, sourceRow(g.edges, p))).toBe(true);
     });
     // A new edge names the edge under its middle.
-    r.edges.forEach((e) => expect(e.source !== undefined && g.edges.has(e.source)).toBe(true));
+    r.edges.forEach((e) => expect(g.edges.has(e.source)).toBe(true));
   });
 
   it('a resample of part of a chain: the run names its edges, a kept vertex keeps what it had', () => {
@@ -109,9 +109,9 @@ describe('resample and along: the edge under each point, and u', () => {
     a.points.forEach((p) => expect(onEdge(p, sourceRow(g.edges, p))).toBe(true));
     const two = g.edges.filter((e) => e.index >= 2);
     const b = two.along({ count: 3 });
-    b.points.forEach((p) => expect(p.source !== undefined && two.has(p.source)).toBe(true));
+    b.points.forEach((p) => expect(two.has(p.source)).toBe(true));
     const c = two.resample({ count: 3 });
-    c.points.forEach((p) => expect(p.source !== undefined && two.has(p.source)).toBe(true));
+    c.points.forEach((p) => expect(two.has(p.source)).toBe(true));
   });
 
   it('t.sample of a material is its resample in the run\'s space: source and u', () => {
@@ -119,7 +119,7 @@ describe('resample and along: the edge under each point, and u', () => {
     const box = t.material(rect(10, 10, 40, 40));
     const s = t.sample(box, { count: 8 });
     expect(s.points.map((p) => p.u)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((k) => k / 8));
-    s.points.forEach((p) => expect(p.source !== undefined && box.edges.has(p.source)).toBe(true));
+    s.points.forEach((p) => expect(box.edges.has(p.source)).toBe(true));
   });
 });
 

@@ -1,4 +1,4 @@
-import { surface3 } from 'occlude/src/three/geometry/surface.js';
+import { mesh } from 'occlude/3d';
 import { cameraFrame3, toPaper3, type Camera3 } from 'occlude/src/three/camera.js';
 import { featureSnapshot3, FeatureKind3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneGpu3 } from 'occlude/src/three/visibility/scene.js';
@@ -13,9 +13,9 @@ export async function reference3(fixtures:Fixture[]) {
     for(const fixture of fixtures){
       const frame=cameraFrame3(fixture.camera,{x:0,y:0,width:100,height:100});
       const objects=fixture.objects.map(source=>{
-        const surface=surface3(source.positions,source.polygons);
-        for(const edge of surface.edges)if(source.marked?.some(([a,b])=>edge.vertices.includes(a)&&edge.vertices.includes(b)))edge.attributes.marked=true;
-        return {id:source.id,surface};
+        const plain=mesh(source.positions,source.polygons),marked=source.marked;
+        const between=(e:{a:{index:number};b:{index:number}})=>marked!.some(([a,b])=>(e.a.index===a&&e.b.index===b)||(e.a.index===b&&e.b.index===a));
+        return {id:source.id,surface:marked?plain.edges.set('marked',true,between):plain};
       });
       const classified=await classifySceneGpu3(featureSnapshot3(objects,[],frame),gpu);
       const flags=fixture.features.reduce((mask,kind)=>mask|FeatureKind3[kind],0);

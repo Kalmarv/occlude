@@ -1,4 +1,3 @@
-import type {Attributes3,Attribute3} from '../geometry/surface.js';
 import {chainRecordOf,chainRecordsOf,isCurveRow,type ChainRecord} from '../../curves.js';
 
 /** 2D values read by the 3D doors. A 2D point is a 3D point at z = 0 and a
@@ -7,8 +6,10 @@ import {chainRecordOf,chainRecordsOf,isCurveRow,type ChainRecord} from '../../cu
  * a pure 3D kernel never lowers a shape: a shape is refused by name with the
  * toolkit door to use. */
 
+/** A 2D row's own value in one of its columns, as a lift reads it. */
+export type Cell2=number|string|boolean;
 /** One vertex of a 2D value, as the 3D side keeps it. */
-export interface Lifted2 {readonly id:string;readonly x:number;readonly y:number;readonly attributes:Attributes3}
+export interface Lifted2 {readonly id:string;readonly x:number;readonly y:number;readonly attributes:Readonly<Record<string,Cell2>>}
 
 const isShape=(v:unknown)=>!!v&&typeof v==='object'&&'__occludeShape' in v;
 function refuseShape(value:unknown,who:string):void {
@@ -17,8 +18,8 @@ function refuseShape(value:unknown,who:string):void {
 /** A 2D id, spelled as a 3D id. */
 const id2=(id:unknown,fallback:number)=>id===undefined?`2d:p${fallback}`:`2d:${String(id)}`;
 /** A 2D row's columns: its own numeric properties other than the position. */
-function columns(row:Record<string,unknown>):Attributes3 {
-  const out:Record<string,Attribute3>={};
+function columns(row:Record<string,unknown>):Record<string,Cell2> {
+  const out:Record<string,Cell2>={};
   for(const [name,value] of Object.entries(row))if(name!=='x'&&name!=='y'&&name!=='index'&&(typeof value==='number'||typeof value==='string'||typeof value==='boolean'))out[name]=value;
   return out;
 }
