@@ -12,8 +12,9 @@
  * The operation remains synchronous and independent of the renderer.
  */
 
-import { Material, type Vertex } from './material.js';
-import { EdgeSelection, PointSelection } from './relation.js';
+import { Material, type Vertex, type Edge } from './material.js';
+import { isPointSelection, isEdgeSelection, endpointRows } from './relation.js';
+import type { Selection } from './selection.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
 import {
   polygonUnion,
@@ -185,7 +186,7 @@ function checkOpts(opts: ThickenOpts): number {
  * vertex gets the callback's record as its complete attribute row.
  */
 export function thicken(
-  source: Material | PointSelection<unknown> | EdgeSelection<unknown>,
+  source: Material | Selection<Vertex> | Selection<Edge>,
   opts: ThickenOpts,
 ): Material {
   const tol = checkOpts(opts);
@@ -201,14 +202,15 @@ export function thicken(
     for (let i = 0; i < source.edgeCount; i++) e.push(i);
     vRows = v;
     eRows = e;
-  } else if (source instanceof PointSelection) {
+  } else if (isPointSelection(source)) {
+    // A selection keeps an order; the kernel reads rows in row order.
     src = source.source;
-    vRows = source.indices;
+    vRows = [...source.indices].sort((a, b) => a - b);
     eRows = source.edges.indices;
-  } else if (source instanceof EdgeSelection) {
+  } else if (isEdgeSelection(source)) {
     src = source.source;
-    vRows = source.endpointRows;
-    eRows = source.indices;
+    vRows = endpointRows(source);
+    eRows = [...source.indices].sort((a, b) => a - b);
   } else {
     throw new Error(
       'thicken: source must be a Material, a point selection or an edge selection',

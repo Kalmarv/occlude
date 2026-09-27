@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { connect, curve, material, path, sketch, stroke } from '../src/index.js';
 import { initOcclude, render } from '../src/host.js';
-import { xy } from './helpers/xy.js';
+import { xy, rec } from './helpers/xy.js';
 
 describe('Stage A repairs (con2)', () => {
   it('A1 a value update keeps the declared transfer policy; explicit interpolate resets it', () => {
@@ -71,7 +71,7 @@ describe('Stage A repairs (con2)', () => {
       let got: string[] = [];
       render(sketch({ aspect: [1, 1], seed: 1 }, (t) => {
         const p = path().moveTo(10, 10).lineTo(30, 10).lineTo(30, 30).lineTo(10, 30).close().moveTo(50, 10).lineTo(50, 40).lineTo(80, 40).build();
-        got = t.sample(p, { count: 8 }).curves().map((c) => (c.closed ? 'closed' : 'open'));
+        got = t.sample(p, { count: 8 }).curves.map(rec).map((c) => (c.closed ? 'closed' : 'open'));
         return stroke([[0, 0], [1, 1]]);
       }), { paper: 'Square20' });
       expect(got.sort()).toEqual(['closed', 'open']); // curves() lists open chains first
@@ -94,14 +94,14 @@ describe('Stage A repairs (con2)', () => {
 });
 
 describe('Stage C helpers (con2)', () => {
-  it('strokes: one stroke per contour from a material, a selection or runs; force.sum sums; without is the rest', async () => {
-    const { strokes, segmentRuns, force, mul, sum: vsum } = await import('../src/index.js');
+  it('strokes: one stroke per curve from a material, a selection or a group; force.sum sums; without is the rest', async () => {
+    const { strokes, force, mul, sum: vsum } = await import('../src/index.js');
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 5]], { closed: false, age: [0, 1, 2, 3] });
     expect(strokes(m, { pen: 'a' })).toHaveLength(1);
     expect(strokes(m.edges.filter((e) => e.index !== 1))).toHaveLength(2);
     const band = (age: number) => Math.min(1, Math.floor((age / 3) * 2));
     expect([0, 1, 2, 3].map(band)).toEqual([0, 0, 1, 1]);
-    expect(strokes(segmentRuns(m, (e) => band((e.a.age + e.b.age) / 2)))).toHaveLength(2);
+    expect(m.edges.groupBy((e) => band((e.a.age + e.b.age) / 2)).flatMap((g) => strokes(g))).toHaveLength(2);
     expect(m.points.without(m.points.filter((p) => p.index < 2)).indices).toEqual([2, 3]);
     expect(m.edges.without(m.edges.filter((e) => e.index === 0)).indices).toEqual([1, 2]);
     const pull = force.tension(m, { rest: 5 });
@@ -116,13 +116,12 @@ describe('Stage C helpers (con2)', () => {
 
 describe('closeout (review of 793e35f)', () => {
   it('the query broad phase includes tolerated contacts across a cell boundary', async () => {
-    const { query } = await import('../src/index.js');
     // many edges so the grid is fine; the point sits 1e-10 left of an edge on x = 5
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
     for (let i = 0; i < 400; i++) { pts.push([i * 0.25, 0], [i * 0.25, 30]); edges.push([2 * i, 2 * i + 1]); }
     const m = material(pts, { edges });
-    const q = query.edges(m);
+    const q = m.edges;
     const hit = q.firstHit([4.9999999999, 10], [4.9999999999, 10]);
     expect(hit).not.toBeNull();
     expect(hit!.edge.a.x).toBe(5);
@@ -130,17 +129,16 @@ describe('closeout (review of 793e35f)', () => {
   });
 
   it('nearest with excludeIncident finds the closest line that is not the vertex\'s own, like firstHit', async () => {
-    const { query } = await import('../src/index.js');
     // a tip at (10, 10) on a stem from (10, 0); a foreign wall along x = 13 and another along y = 20
     const m = material([[10, 0], [10, 10], [13, 0], [13, 30], [0, 20], [30, 20]], { edges: [[0, 1], [2, 3], [4, 5]] });
-    const q = query.edges(m);
+    const q = m.edges;
     expect(q.nearest([10, 9], { within: 10 })!.edge.index).toBe(0); // its own stem is nearest
     const other = q.nearest([10, 9], { within: 10, excludeIncident: m.vertex(1) });
     expect(other!.edge.index).toBe(1);
     expect(other!.distance).toBe(3);
     expect(q.nearest([10, 9], { within: 10, excludeIncident: 1 })!.edge.index).toBe(1);
     expect(q.nearest([10, 9], { within: 2, excludeIncident: 1 })).toBeNull();
-    expect(() => q.nearest([10, 9], { within: 10, excludeIncident: material([[0, 0]]).vertex(0) })).toThrow(/vertex of the queried material/);
+    expect(() => q.nearest([10, 9], { within: 10, excludeIncident: material([[0, 0]]).vertex(0) })).toThrow(/vertex of the material these edges belong to/);
   });
 
   it('distributed resampling stays linear and exact; nearest with count 0 adds nothing and rejects bad counts', () => {

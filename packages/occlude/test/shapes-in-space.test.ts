@@ -234,7 +234,7 @@ for (const [name, cfg] of SPACES) {
 
     it('m.transform carries a geodesic edge exactly: two moved ends, drawn as the placed shape', () => {
       const arrow = line(40, 50, 52, 50);
-      const place = t.station(50, 50).toward([60, 40]).placement();
+      const place = t.placement([50, 50]).toward([60, 40]);
       const moved = t.material(arrow).transform(place);
       expect(moved.n).toBe(2);
       expect(Array.from(moved.edgeAttrs.geodesic)).toEqual([1]);

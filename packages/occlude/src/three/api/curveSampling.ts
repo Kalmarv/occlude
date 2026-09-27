@@ -1,4 +1,5 @@
-import {Collection,type Where3} from './collection.js';
+import {Table3,select3,domainOf,POINTS3,type Where3} from './collection.js';
+import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
 import type {AttributeFields,PointColumns3,PointFields3} from './columns.js';
 import {emptySize} from '../degenerate.js';
 import {Mesh,PointGeometry,evaluate,writePoints3,type PointRow,type Field,type GeometryOptions} from './mesh.js';
@@ -6,7 +7,7 @@ import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
-import {assembleSurface3,type Attributes3,type Attribute3,type SurfacePoint3} from '../geometry/surface.js';
+import {assembleSurface3,type Attributes3,type Attribute3,type SurfacePoint3,type Surface3} from '../geometry/surface.js';
 import {surfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
 import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeights,ratioNumber,difference,abs,type Ratio,type EncodedPoint3} from '../geometry/exact.js';
 import {bindingTriangle3,sameSurfaceCurveLineage3,type SurfaceCurveNetwork3,type SupportedCurveSegment3} from '../curves/network.js';
@@ -27,9 +28,18 @@ export interface CurveSample {
  /** Select actual mesh/placement ownership; multiple face contexts stay explicit. */
  on(target:Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>):readonly SurfaceLocation3[];
 }
-export type CurveSampleRow<P extends Attributes3={}> = PointRow<P>&{readonly sample:CurveSample};
+export type CurveSampleRow<P extends Attributes3={},A extends Attributes3={}> = PointRow<P>&{readonly sample:CurveSample;readonly [ROW_TYPES]?:CurveSampleTypes<P,A>};
+/** @internal What a selection of curve samples answers: the write, as
+ * point geometry's, keeps each point's attachment. */
+export type CurveSampleTypes<P extends Attributes3,A extends Attributes3> = Types<{
+ source:Surface3;points:Selection<CurveSampleRow<P,A>>;extract:()=>CurveSamples<P,A>;
+ set:{
+  <Name extends string,V extends Attribute3>(column:Name,value:Field<CurveSampleRow<P,A>,V>,where?:Where3<CurveSampleRow<P,A>>):CurveSamples<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,A>;
+  <Q extends Attributes3>(values:AttributeFields<CurveSampleRow<P,A>,Q>,where?:Where3<CurveSampleRow<P,A>>):CurveSamples<PointFields3<P,NoInfer<Q>>,A>;
+ };
+}>;
 interface Attachment {readonly edgeId:string;readonly fraction:Ratio}
-interface SampleState {readonly target:SurfaceCurves<any>;readonly attachments:ReadonlyMap<string,Attachment>;readonly rows:readonly CurveSampleRow<any>[]}
+interface SampleState {readonly target:SurfaceCurves<any>;readonly attachments:ReadonlyMap<string,Attachment>;readonly rows:readonly CurveSampleRow<any,any>[]}
 const states=new WeakMap<object,SampleState>();
 function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fraction:Ratio):CurveSample {
  const a=decodePoint(network.nodes[segment.a].exact),b=decodePoint(network.nodes[segment.b].exact),p=mixPoint(a,b,fraction),position=pointNumber(p);
@@ -53,13 +63,6 @@ function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fra
   },
  });
 }
-/** The sampled points, and their one write, as point geometry's; a write
- * keeps each point's attachment. */
-export class CurveSamplePoints<P extends Attributes3,A extends Attributes3> extends Collection<CurveSampleRow<P>,CurveSamples<P,A>> {
- set<Name extends string,V extends Attribute3>(column:Name,value:Field<CurveSampleRow<P>,V>,where?:Where3<CurveSampleRow<P>>):CurveSamples<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,A>;
- set<Q extends Attributes3>(values:AttributeFields<CurveSampleRow<P>,Q>,where?:Where3<CurveSampleRow<P>>):CurveSamples<PointFields3<P,NoInfer<Q>>,A>;
- set(...args:unknown[]):unknown{return this.write(args);}
-}
 /** Ordinary editable point geometry retaining its original curve interpretation.
  * Moving points edits their positions; explicit rebind refreshes attachments. */
 export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> extends PointGeometry<P> {
@@ -69,20 +72,22 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
   const rows=Object.freeze(geometry.points.map(p=>{
    const attachment=attachments.get(p.id),segment=attachment&&segments.get(attachment.edgeId);
    if(!attachment||!segment)throw new Error('curve sample provenance is missing');
-   owned.set(p.id,attachment);return Object.freeze({...p,sample:context(network,segment,attachment.fraction)});
+   owned.set(p.id,attachment);return Object.freeze({...p,sample:context(network,segment,attachment.fraction)}) as unknown as CurveSampleRow<P,A>;
   }));
   states.set(this,{target,attachments:owned,rows});
  }
  private get state(){return states.get(this)!;}
  get target():SurfaceCurves<A>{return this.state.target;}
- /** The sampled points, and their one write (see `CurveSamplePoints`). */
- get points():CurveSamplePoints<P,A> {
-  return new CurveSamplePoints<P,A>(this.surface,'point',this.state.rows as readonly CurveSampleRow<P>[],indices=>{
-   const selected=new Set(indices);return this.changed(super.points.filter(p=>selected.has(p.index)).extract());
-  },undefined,undefined,write=>write.rows.length?this.changed(new PointGeometry<P>(writePoints3(this.surface,write),{...this})):this);
+ /** The sampled points, and their one write (see `CurveSampleTypes`). */
+ get points():Selection<CurveSampleRow<P,A>> {
+  const plain=super.points;
+  return select3(domainOf(this,'samples',()=>new Table3(POINTS3,this.surface,'point',this.state.rows as readonly CurveSampleRow<P,A>[],{
+   extract:indices=>{const selected=new Set(indices);return this.changed(plain.filter(p=>selected.has(p.index)).extract());},
+   write:write=>write.rows.length?this.changed(new PointGeometry<P>(writePoints3(this.surface,write),{...this})):this,
+  }))) as unknown as Selection<CurveSampleRow<P,A>>;
  }
  private changed<Q extends Attributes3>(geometry:PointGeometry<Q>):CurveSamples<Q,A>{return new CurveSamples(geometry,this.target,this.state.attachments);}
- displace(field:Field<CurveSampleRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveSamples<P,A>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
+ displace(field:Field<CurveSampleRow<P,A>,Vec3|number>,options:DisplaceOptions={}):CurveSamples<P,A>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
  translate(offset:Vec3):CurveSamples<P,A>{return this.changed(super.translate(offset));}
  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveSamples<P,A>;
  rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveSamples<P,A>;

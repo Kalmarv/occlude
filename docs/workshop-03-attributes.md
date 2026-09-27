@@ -148,7 +148,7 @@ Thirteen points remember being east; eleven are east now. The two blue dots with
 
 ## A selection belongs to one state
 
-Materials never change; every operation returns a new one, and a selection is taken from one of them. Below, the pond is raised by a plain twelve units so the effect is easy to see, and `eastern` is filtered from `shore`, the material before the move. Its green dots sit on the original ellipse, where those points were, not on the raised pond. The blue dots come from `eastern.in(raised)`: the same points, read in `raised`. A selection reads the state it was taken from; if you want where the eastern points are now, ask the pond as it is now. A write is different. Give `eastern` to a write on `raised`, as in `raised.points.set('reed', 1, eastern)`, and it names the same points there, because a selection knows its points by who they are, not by where they were.
+Materials never change; every operation returns a new one, and a selection is taken from one of them. Below, the pond is raised by a plain twelve units so the effect is easy to see, and `eastern` is filtered from `shore`, the material before the move. Its green dots sit on the original ellipse, where those points were, not on the raised pond. The blue dots come from `raised.points.intersect(eastern)`: the points of `raised` that are also in `eastern`, which are the same points, read in `raised`. A selection reads the state it was taken from; if you want where the eastern points are now, ask the pond as it is now. A write is different. Give `eastern` to a write on `raised`, as in `raised.points.set('reed', 1, eastern)`, and it names the same points there, because a selection knows its points by who they are, not by where they were.
 
 ```ts live focus=14,19-20
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, strokes } from 'occlude';
@@ -170,7 +170,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     polygon(raised, { opaque: true }),
     strokes(shore, { pen: 'stabilo-88-green' }),
     eastern.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-green' })),
-    eastern.in(raised).map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' })),
+    raised.points.intersect(eastern).map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -246,10 +246,10 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 
 `marks` is an array with one array per side; the drawing flattens nesting like any other.
 
-**A shoreline that carries the column.** The points know their side, but the shore is drawn from the connections between points, and a connection has two ends. `segmentRuns(m, (e) => key)` looks at every connection as a whole, with its two points as `e.a` and `e.b`, computes a key, and gathers consecutive connections with equal keys into runs, each drawn as one stroke. The key `a.east + b.east` is 2 where both ends are eastern, 1 where the shore crosses from one side to the other, 0 in the west; `pens[run.key]` turns that into a pen, so the eastern shore is blue and the two crossing connections stay black. The pond keeps hiding the hatch but no longer draws its own outline (`stroke: false`), since the runs draw it.
+**A shoreline that carries the column.** The points know their side, but the shore is drawn from the connections between points, and a connection has two ends. `m.edges.groupBy((e) => key)` looks at every connection as a whole, with its two points as `e.a` and `e.b`, computes a key, and gathers the connections with equal keys into one group, as `groupBy` on the points did above. `strokes` draws a group along its chains. The key `a.east + b.east` is 2 where both ends are eastern, 1 where the shore crosses from one side to the other, 0 in the west; `pens[side.key]` turns that into a pen, so the eastern shore is blue and the two crossing connections stay black. The pond keeps hiding the hatch but no longer draws its own outline (`stroke: false`), since the groups draw it.
 
 ```ts live focus=15-18
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, stroke, segmentRuns } from 'occlude';
+import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #region the landscape from chapter 1 (unchanged)
@@ -264,12 +264,12 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const nudged = shore.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   const reeds = nudged.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
   const pens = ['pigma-005-black', 'pigma-005-black', 'stabilo-88-blue'];
-  const runs = segmentRuns(nudged, (e) => e.a.east + e.b.east);
-  const shoreline = runs.map((run) => stroke(run, { pen: pens[run.key] }));
+  const sides = nudged.edges.groupBy((e) => e.a.east + e.b.east);
+  const shoreline = sides.map((side) => strokes(side, { pen: pens[side.key] }));
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true, stroke: false }), shoreline, reeds];
 });
 ```
 
 ## Where to look things up
 
-`points.set` and `filter` are under *Making a material* and *Collections and selections* on [Materials](#/materials); the debug layer under *Inspecting a material*; `groupBy` and `segmentRuns` under *Collections and selections* and *Runs and bands*. Next, chapter 4 leaves the landscape behind: a bare ring, one small rule, and what happens when the rule acts forty times.
+`points.set` and `filter` are under *Making a material* and *Collections and selections* on [Materials](#/materials); the debug layer under *Inspecting a material*; `groupBy` on points and on edges under *Collections and selections* and *Runs and bands*. Next, chapter 4 leaves the landscape behind: a bare ring, one small rule, and what happens when the rule acts forty times.

@@ -11,7 +11,7 @@ import type { VectorFieldFn } from '../src/shapes.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { SketchDef } from '../src/index.js';
 import type { RenderOptions } from '../src/host.js';
-import { xy, oneRing } from './helpers/xy.js';
+import { xy, oneRing, rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -334,7 +334,7 @@ describe('t.material: any shape as chain material with its own vertices', () => 
       open = t.material(stroke({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
       return circle(0, 0, 1);
     }));
-    expect(circ!.curves()).toHaveLength(1);
+    expect(circ!.curves.map(rec)).toHaveLength(1);
     expect(circ!.n).toBeGreaterThan(50);
     expect(oneRing(circ!)).toBe(true);
     for (const [x, y] of circ!.points.map(xy)) expect(Math.hypot(x - 50, y - 25)).toBeCloseTo(15, 1);

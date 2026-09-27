@@ -46,10 +46,11 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
+import { chainsOf } from './curves.js';
 
 export function envelope(m: Material): Material {
   const src = makeMaterial(m);
-  const curves = src.curves();
+  const curves = chainsOf(src);
   const chains = curves.map((c) => {
     const pts = c.pts.map(([x, y]) => [x, y] as [number, number]);
     // A closed member's last segment returns to its first point.

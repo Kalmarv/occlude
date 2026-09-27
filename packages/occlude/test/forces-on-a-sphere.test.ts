@@ -32,6 +32,7 @@ import {
 import { docsPaper, initOcclude, paperSize } from '../src/host.js';
 import { neighbours } from '../src/forces.js';
 import { length, mul, sub, sumBy, unit } from '../src/vec.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -93,8 +94,8 @@ describe('forces on a sphere', () => {
     // is its own; it still grows, one ring, round the same middle.
     const last = states[19];
     expect(last.n).toBeGreaterThan(30);
-    expect(last.curves()).toHaveLength(1);
-    expect(last.curves()[0].closed).toBe(true);
+    expect(last.curves.map(rec)).toHaveLength(1);
+    expect(last.curves.map(rec)[0].closed).toBe(true);
     let cx = 0;
     for (let r = 0; r < last.n; r++) cx += last.x[r];
     expect(Math.abs(cx / last.n - 100)).toBeLessThan(5);

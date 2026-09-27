@@ -23,8 +23,8 @@ describe('rows', () => {
     const outer = m.points.filter((p) => p.index > 0);
     expect(outer.rows([0, 3]).indices).toEqual([0, 3]); // row 0 is the centre, which `outer` does not hold
     expect(m.points.rows([]).length).toBe(0);
-    expect(() => m.points.rows([7])).toThrow(/no vertex 7/);
-    expect(() => m.points.rows([1.5])).toThrow(/no vertex 1.5/);
+    expect(() => m.points.rows([7])).toThrow(/no point 7/);
+    expect(() => m.points.rows([1.5])).toThrow(/no point 1.5/);
   });
 
   it('edges.rows says the same thing about edge rows', () => {

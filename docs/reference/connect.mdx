@@ -86,20 +86,20 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 
 <include>/_sig/connect.turns.mdx</include>
 
-One run through headed places, turning no tighter than `radius`. Each pair of consecutive stations joins by the shortest Dubins path. That is the shortest route with a turning limit and no reverse. The run leaves each station along its heading and arrives along the next one's heading. `connect.tour` joins places, and this joins directions.
+One run through headed places, turning no tighter than `radius`. Each pair of consecutive places joins by the shortest Dubins path. That is the shortest route with a turning limit and no reverse. The run leaves each place along its heading and arrives along the next one's heading. `connect.tour` joins places, and this joins directions.
 
-The input is stations, as `m.along()` returns them. A plain point has no heading, and the word refuses it by name. The result is a chain material. `closed` joins the last station back to the first. A pair with no route at that radius gets no edge, and the run breaks there.
+Each place of the input has a heading. The points of `m.along()` have a `heading` column, and a [placement](/docs/reference/geometry#placement) has a heading too. A plain point has no heading, and the word refuses it by name. The result is a chain material. `closed` joins the last place back to the first. A pair with no route at that radius gets no edge, and the run breaks there.
 
-Below, the blue ticks are six stations, each with a heading of its own. The black run visits them in order, and every hook is a turn the pen can make.
+Below, the blue ticks are six placements, each with a heading of its own. The black run visits them in order, and every hook is a turn the pen can make.
 
 ```ts live
 import { sketch, strokes, line, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
-  const stations = t.times(6, (k) => t.station(22 + (k % 3) * 28, 32 + Math.floor(k / 3) * 36, { heading: t.rnd(360) }));
+  const places = t.times(6, (k) => t.placement([22 + (k % 3) * 28, 32 + Math.floor(k / 3) * 36], t.rnd(360)));
   return [
-    stations.map((s) => line(s, s.step(7), { pen: 'stabilo-88-blue' })),
-    strokes(connect.turns(stations, { radius: 6 })),
+    places.map((s) => line(s, s.step(7), { pen: 'stabilo-88-blue' })),
+    strokes(connect.turns(places, { radius: 6 })),
   ];
 });
 ```
@@ -133,8 +133,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(grid);
   const routed = web.trails();
   return [
-    strokes(web), label(`${web.curves().length} STROKES`, 25, 62, 4, { align: 'center' }),
-    group({ translate: [50, 0] }, strokes(routed, { pen: 'stabilo-88-blue' }), label(`${routed.curves().length} TRAILS`, 25, 62, 4, { align: 'center', pen: 'stabilo-88-blue' })),
+    strokes(web), label(`${web.curves.length} STROKES`, 25, 62, 4, { align: 'center' }),
+    group({ translate: [50, 0] }, strokes(routed, { pen: 'stabilo-88-blue' }), label(`${routed.curves.length} TRAILS`, 25, 62, 4, { align: 'center', pen: 'stabilo-88-blue' })),
   ];
 });
 ```

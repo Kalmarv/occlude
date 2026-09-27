@@ -12,21 +12,22 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  ellipse, material, ngon, path, polygon, rect, type Face, type FaceSelection, type ShapeValue,
+  ellipse, material, ngon, path, polygon, rect, type Face, type Selection, type ShapeValue,
   type Toolkit,
 } from '../src/index.js';
 import { type Execution } from '../src/host.js';
 import { hexes, triangles } from '../src/layout.js';
+import { rec } from './helpers/xy.js';
 
 type Kit = Toolkit & { exec: Execution };
 
 /** A shape through the material door: every chain's points and closure,
  * the geometry the engine draws. */
-const lowered = (t: Kit, sv: ShapeValue) => t.material(sv).curves().map((c) => ({ pts: c.pts, closed: c.closed }));
+const lowered = (t: Kit, sv: ShapeValue) => t.material(sv).curves.map(rec).map((c) => ({ pts: c.pts, closed: c.closed }));
 
 describe('every shape factory takes a point', () => {
   const t = toolkit({ aspect: [1, 1] });
-  const start = t.station(44, 53);
+  const start = t.placement([44, 53]);
   /** [record form, positional form] — the value and the ink must agree. */
   const CASES: [string, ShapeValue, ShapeValue][] = [
     ['rect', rect([10, 20], 30, 15), rect(10, 20, 30, 15)],
@@ -130,7 +131,7 @@ describe("within keeps what touches", () => {
     { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [1, 4]] },
   );
   const area: [number, number][] = [[7, -5], [30, -5], [30, 25], [7, 25]];
-  const leftOf = (sel: FaceSelection) => sel.map((f) => f.centroid[0] < 10);
+  const leftOf = (sel: Selection<Face>) => sel.map((f) => f.centroid[0] < 10);
 
   it('a face half inside touches, and is neither contained nor centred', () => {
     const cells = two.faces();
@@ -174,12 +175,12 @@ describe('a face collection reads like a point or edge selection', () => {
   const t = toolkit({ aspect: [1, 1] });
   const cells = t.hexes({ spacing: 20 }).faces();
   const whole = (f: Face) => f.adjacent.length === 6;
-  for (const [name, collection] of [['Faces', cells], ['FaceSelection', cells.filter((f) => f.centroid[1] < 60)]] as const) {
+  for (const [name, collection] of [['every face', cells], ['a face selection', cells.filter((f) => f.centroid[1] < 60)]] as const) {
     it(`${name}: map, find, some, every agree with the faces array; filter is a selection`, () => {
-      // The members as a plain array, through iteration: `Faces` also keeps
-      // its `faces` array, which must be that same list.
+      // The members as a plain array, through iteration. A face selection's
+      // faces are itself, as a point selection's points are.
       const members = [...collection];
-      if (collection === cells) expect(cells.faces).toEqual(members);
+      expect(collection.faces).toBe(collection);
       expect(collection.length).toBe(members.length);
       expect(collection.map((f) => f.index)).toEqual(members.map((f) => f.index));
       expect(collection.find(whole)).toBe(members.find(whole));

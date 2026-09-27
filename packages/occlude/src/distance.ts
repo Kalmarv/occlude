@@ -20,7 +20,9 @@
 import { numericLoops, type AreaInput } from './boundary.js';
 import { vx as pointX, vy as pointY, type XY } from './vec.js';
 import { Material } from './material.js';
-import { PointSelection } from './relation.js';
+import { isPointSelection } from './relation.js';
+import type { Selection } from './selection.js';
+import type { Vertex } from './material.js';
 import { Len } from './units.js';
 
 export type DistanceField = (x: number, y: number) => number;
@@ -43,7 +45,7 @@ interface Seg {
 
 /** Points with no inside: a point selection, or a material that is points
  * alone. */
-export type PointSites = PointSelection<unknown> | Material;
+export type PointSites = Selection<Vertex> | Material;
 
 /** @internal Is this value points, which `distanceTo` measures to the
  * nearest of, rather than an area? A point selection, or a material with
@@ -51,7 +53,7 @@ export type PointSites = PointSelection<unknown> | Material;
  * several areas, which must say which it means (`material(cells)` is its
  * centroids as points). */
 export function isPointSites(v: unknown): v is PointSites {
-  return v instanceof PointSelection || (v instanceof Material && v.edgeCount === 0);
+  return isPointSelection(v) || (v instanceof Material && v.edgeCount === 0);
 }
 
 /**

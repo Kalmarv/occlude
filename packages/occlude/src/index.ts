@@ -57,7 +57,7 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion, FillParams, B
 // resample, reinterpret (pure; the toolkit's t.sample turns a shape into
 // material with its outline's connectivity).
 export {
-  material, curve, append, connect, Material, segmentRuns, extent,
+  material, curve, append, connect, Material, extent,
 } from './material.js';
 export { add, sub, mul, length, distance, unit, perp, dot, cross, fromAngle, angleOf, polar, angleTo, sum, sumBy, turn, lerp, reflect, angleBetween } from './vec.js';
 export { force, GraphForce } from './forces.js';
@@ -66,7 +66,6 @@ export type { Amount, SeparationOpts } from './forces.js';
 // row it becomes in every later state and every write.
 export { point, edge } from './tables.js';
 export type { PointValue, EdgeValue, PointEnd, EdgeEnd, EdgeRowSpec, PointWhere, EdgeWhere, ColumnValue, Displacement, ReplaceOpts } from './tables.js';
-export { query } from './query.js';
 export type { EdgeTransfer } from './material.js';
 // Same-world transforms are methods on Material now (`m.thicken(opts)`),
 // so only their options types are exported.
@@ -77,17 +76,20 @@ export { hilbertRule, peanoRule, meanderRule } from './spacefill.js';
 export type { SpacefillOpts, SpacefillRule, SpacefillTurn } from './spacefill.js';
 export type { TrailsOpts } from './trails.js';
 export type { WarpOpts, Corner } from './warp.js';
-export type { RidgeOpts, RidgeContour } from './ridges.js';
+export type { RidgeOpts } from './ridges.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
 export type { MergeOpts } from './merge.js';
-export { PointSelection, EdgeSelection, meanBy } from './relation.js';
-export { Faces, FaceSelection } from './faces.js';
+// One selection over every domain: `m.points`, `m.edges`, `m.faces()`,
+// `l.cells`, and every part of one a sketch picks out.
+export type { Selection, Keyed } from './selection.js';
 export type { Face, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
-export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
+export type { NearestHit, FirstHit } from './query.js';
 export type {
-  Vertex, Edge, Curve, Station, Transfer, TransferPolicy, SegmentRun, PointsLike,
+  Vertex, Edge, Transfer, TransferPolicy, PointsLike,
 } from './material.js';
+// The ordered domain: `g.curves`, a selection of curve rows.
+export type { Curve } from './curves.js';
 export type { NeighbourStats, Sources } from './forces.js';
 export type { Vec, XY, XYZ } from './vec.js';
 
@@ -120,11 +122,10 @@ export { hull, type Sites } from './voronoi.js';
 export type { VoronoiLinks } from './material.js';
 export { FaceMeasurements } from './measure.js';
 export type { FaceMeasure, MeasureOpts } from './measure.js';
-export type { IsoContour, IsoOpts, IsoLevels } from './isolines.js';
+export type { IsoOpts, IsoLevels } from './isolines.js';
 // A grid of values you can step: the stateful counterpart of a field. The
 // door is `t.lattice` — it reads the drawable and the seeded init.
 export type { Lattice, LatticeOpts, LatticeInit, LatticeValues, Cell, CellWhere } from './lattice.js';
-export { CellSelection } from './lattice.js';
 // Ink as a budget: the tone a drawing still owes, paid down by the marks it
 // makes. The door is `t.residual` — it reads the drawable and the nib.
 export type { Residual, ResidualOpts, SpendMarks, SpendOpts } from './residual.js';
@@ -144,9 +145,9 @@ export type { EscapeOpts, EscapeField, EscapeStep } from './escape.js';
 // drawable, and `t.space` is the record every word reads. The isometries
 // of the disk and of the Klein ball are what those words are MADE of, and
 // stay internal (hyperbolic.ts, hyperbolicSpace.ts).
-// ONE isometry value for every door: a station's own frame, a tiling's
-// copies, a mirror in a geodesic. `group(placement, …)` places a drawing,
-// `m.transform(placement)` a material, `placement.station(s)` a walker.
+// ONE isometry value for every door: a walk's frame, a tiling's copies, a
+// mirror in a geodesic. `group(placement, …)` places a drawing,
+// `m.transform(placement)` a material; `step`, `turn` and `toward` walk it.
 // Pure — the toolkit hands it the space's model door.
 export { reflection } from './placement.js';
 export type { Placement, ModelDoor, Model } from './placement.js';

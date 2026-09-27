@@ -4,8 +4,8 @@
  *
  * A `Material` is a set of vertices — `x`, `y` and any named attribute
  * columns — plus an edge list. A ring, an open chain, a branching tree
- * and an unconnected cloud are all materials; a `Curve` is the chain a material
- * hands back for drawing. Materials are values: every operation returns a
+ * and an unconnected cloud are all materials; its `curves` are the chains
+ * its edges walk, in order (curves.ts). Materials are values: every operation returns a
  * new one and leaves its input intact, so a run can be kept and any step
  * of it chosen later. Indices are rows of one state, not
  * identities: insertion renumbers later states.
@@ -16,23 +16,21 @@
  *   numbers    add sub mul length distance unit limit perp sum sumBy
  *   passes     `(g) => g2` over the writes and recipes, run by `t.steps`;
  *              forces PREPARED once, EVALUATED at a point to a vector
- *   drawing    `.curves()`, `segmentRuns`, `extent`
+ *   drawing    `.curves`, `.along()`, `extent`
  *
  * Everything here is pure — no seed, no paper. A rule that wants seeded
  * randomness or noise closes over the toolkit (`t.chance`, `t.noise`);
  * the outline of a shape comes from `t.sample`, which reads the paper.
  */
 
-import { PointSelection, EdgeSelection, whereRows, type Where } from './relation.js';
+import { pointsOf, edgesOf, isPointSelection, isEdgeSelection, whereRows, type Where, type PointTypes, type EdgeTypes } from './relation.js';
+import { ROW_TYPES, selectionIn, type Selection } from './selection.js';
 import { euclideanSpace, type Space } from './space.js';
-import { between, isPlacement, type Placement } from './placement.js';
+import { framePlacement, isPlacement, spaceOfDoor, type Placement } from './placement.js';
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
-import { degrees, radians } from './units.js';
-// Type-only: a placement returns a tree value (the shape `group()` makes).
-// `import type` is erased, so material never depends on api at runtime.
-import type { GroupValue, Tree } from './api.js';
-import { walkChains } from './chains.js';
-import { planarize, faces, boxGrid, faceLocator, faceCentroids, FaceSelection, type PlanarizeOpts, type Faces, type Face } from './faces.js';
+import { radians } from './units.js';
+import { chainsOf, curvesOf, chainTangents, chainLengths, type Curve } from './curves.js';
+import { planarize, faceTable, faceTableOf, isFaceSelection, boxGrid, faceLocator, faceCentroids, type PlanarizeOpts, type FaceTable, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -88,10 +86,22 @@ export type Vertex = {
   /** The vertices an edge joins this one to, in adjacency order. Topology
    * only: no spatial search — `cur.points.near(p, { radius })` is that. An
    * isolated vertex has none. */
-  readonly adjacent: PointSelection;
+  readonly adjacent: Selection<Vertex>;
   /** The edges that meet this vertex, in edge order. `p.edges.length` is
    * the degree; an isolated vertex has none. */
-  readonly edges: EdgeSelection;
+  readonly edges: Selection<Edge>;
+  /** The unit direction of `heading`, for a point that has one — a point
+   * of `m.along()` or of a curve (`c.points`); undefined otherwise. */
+  readonly tangent: Vec;
+  /** `perp(tangent)`: the tangent turned a quarter turn toward `+y`. On a
+   * ring drawn counter-clockwise on the sheet it points out. Undefined
+   * where there is no heading. */
+  readonly normal: Vec;
+  /** The frame at this point, as a placement: here, facing `heading`. A
+   * call, because it makes a new value; a point with no heading refuses
+   * by name. `group(p.placement(), motif)` stands a motif here. */
+  placement(): Placement;
+  readonly [ROW_TYPES]?: PointTypes;
 } & Record<string, number>;
 
 /** An edge view. Its columns read as properties of the row (`e.level`), as
@@ -130,208 +140,15 @@ export type Edge = {
   readonly center: Vec;
   /** The edges that share a vertex with this one, this edge excluded —
    * what `p.adjacent` is for a vertex, in the edge's own world. */
-  readonly adjacent: EdgeSelection;
-  /** The faces on this edge's two sides, from the material's `faces()`:
-   * two for a wall between cells, one for an outer wall or a spur inside a
-   * face, none for an edge no face touches. Reading it on a material that
-   * is not planar throws the same error as `faces()`. */
-  readonly faces: Face[];
+  readonly adjacent: Selection<Edge>;
+  /** The faces on this edge's two sides, from the material's `faces()`, as
+   * a selection: the face on its left, then the one on its right — two for
+   * a wall between cells, one for an outer wall or a spur inside a face,
+   * none for an edge no face touches. Reading it on a material that is not
+   * planar throws the same error as `faces()`. */
+  readonly faces: Selection<Face>;
+  readonly [ROW_TYPES]?: EdgeTypes;
 } & Record<string, number>;
-
-/** A chain of a material for drawing: stampable as-is (`stroke(curve)`), with
- * the vertex rows it walks. */
-export interface Curve extends IsoContour {
-  indices: number[];
-}
-
-/**
- * A place on a chain, read off it by arc length (`along`): plain data that
- * belongs to no state. Position, the unit tangent of the polyline segment
- * under it (a station on a vertex takes the bisector of the segments that
- * meet there), the normal (the tangent turned a quarter turn, `perp`), the heading in
- * radians, arc length `s` from the chain's start, its fraction `u`, the
- * chain's whole `length`, and the chain (an index into `curves()`). Point columns arrive in `attrs` by
- * each column's transfer policy, edge columns in `edgeAttrs` by theirs: a
- * `'copy'` column is the edge under the station, a `'distribute'` column
- * the sum over the run of chain nearer this station than its neighbours,
- * so the stations' shares add up to the chain's total.
- */
-export interface Station {
-  x: number;
-  y: number;
-  tangent: [number, number];
-  normal: [number, number];
-  heading: number;
-  s: number;
-  u: number;
-  /** The whole chain's arc length: the same on every station of the chain. */
-  length: number;
-  chain: number;
-  closed: boolean;
-  attrs: Record<string, number>;
-  edgeAttrs: Record<string, number>;
-  /** Source point-column policies, retained by stationsMaterial. Sampling
-   * overrides affect this read only, just as for Material.resample. */
-  transfers?: Readonly<Record<string, TransferPolicy>>;
-  /** The space the walk moves in: `along` carries its `space` option here,
-   * and `step` and `turn` copy it. Absent is the flat plane. */
-  space?: Space;
-  /** Put `content` here, turned to the station's tangent: the motif-along-
-   * a-spine idiom. The placement frame is
-   * `T(position + tangent·ot + normal·on) · R(heading + rotate) · S(scale)`,
-   * so `offset` is measured in the station's own frame and is unaffected by
-   * the motif's extra rotation. Returns a drawable (a group) and does not
-   * mutate the station. */
-  place(content: Tree, opts?: PlaceOpts): GroupValue;
-  /** A NEW station at `distance` along this one's heading: one step of a
-   * walk. The flat plane adds `distance · (cos heading, sin heading)` and
-   * keeps the heading. A curved space walks the geodesic, and the
-   * geodesic's direction on arrival is the new heading. Position and
-   * heading change; every chain field is carried unchanged. */
-  step(distance: number): Station;
-  /** A NEW station with the heading turned by `degrees` (degrees, as
-   * `rotate`, positive counter-clockwise). The position and every chain
-   * field stay as they are. */
-  turn(degrees: number): Station;
-  /** A NEW station at the same place, facing `q`: the direction of the
-   * geodesic that runs from here to there. A `q` in this very place keeps
-   * the heading; on the sphere a `q` exactly opposite has no one direction
-   * and is refused by name. */
-  toward(q: XY): Station;
-  /**
-   * This station as an ISOMETRY of its space: the one that carries the
-   * origin station — sketch `(0, 0)` facing along `+x` — to here. It is
-   * what `place` uses in a curved sketch, and what puts a motif authored
-   * about the origin anywhere a walk reaches.
-   *
-   * `from` names another source frame instead of the origin.
-   */
-  placement(opts?: { from?: Station }): Placement;
-}
-
-/** Where a station puts content: `offset` is `[alongTangent, alongNormal]`
- * in the material's units; `rotate` is extra degrees, added to the
- * station's heading; `scale` is local, applied before that rotation, and a
- * negative number mirrors. */
-export interface PlaceOpts {
-  offset?: [number, number];
-  rotate?: number;
-  scale?: number | readonly [number, number];
-}
-
-/** Stations share one prototype, so `place` costs each station no property
- * of its own and a station stays plain data: every field is own and
- * enumerable (spread, JSON and `structuredClone` work; a copy loses only
- * the method). The fields are the same ones `Station` declares. */
-const STATION_PROTO = Object.freeze({
-  place(this: Station, content: Tree, opts: PlaceOpts = {}): GroupValue {
-    const [alongTangent, alongNormal] = opts.offset ?? [0, 0];
-    const sc = opts.scale ?? 1;
-    const [sx, sy] = typeof sc === 'number' ? [sc, sc] : sc;
-    const sp = this.space;
-    // A curved space has no affine frame to push: the station's own
-    // ISOMETRY places the motif, and the deforming group nests inside it,
-    // in the source frame where the tangent is `+x`. The motif is authored
-    // about the origin, as it always was.
-    if (sp && sp.kind !== 'euclidean') {
-      return {
-        __occludeGroup: true,
-        opts: { placement: this.placement() },
-        children: [{
-          __occludeGroup: true,
-          opts: { translate: [alongTangent, alongNormal], rotate: opts.rotate ?? 0, scale: [sx, sy] },
-          children: [content],
-        }],
-      };
-    }
-    return {
-      __occludeGroup: true,
-      opts: {
-        translate: [
-          this.x + this.tangent[0] * alongTangent + this.normal[0] * alongNormal,
-          this.y + this.tangent[1] * alongTangent + this.normal[1] * alongNormal,
-        ],
-        rotate: degrees(this.heading) + (opts.rotate ?? 0),
-        scale: [sx, sy],
-      },
-      children: [content],
-    };
-  },
-  step(this: Station, distance: number): Station {
-    const sp = this.space;
-    const dx = distance * Math.cos(this.heading);
-    const dy = distance * Math.sin(this.heading);
-    if (!sp || sp.kind === 'euclidean') return walked(this, this.x + dx, this.y + dy, this.heading);
-    const p: Vec = [this.x, this.y];
-    const q = sp.exp(p, [dx, dy]);
-    // The new heading is the geodesic's direction on arrival: the tangent
-    // at `q` pointing away from the start `p`, which is `log(q, p)`
-    // negated. A zero step arrives where it began and keeps its heading.
-    const back = sp.log(q, p);
-    const h = back[0] === 0 && back[1] === 0 ? this.heading : Math.atan2(-back[1], -back[0]);
-    return walked(this, q[0], q[1], h);
-  },
-  turn(this: Station, degrees: number): Station {
-    return walked(this, this.x, this.y, this.heading + radians(degrees));
-  },
-  toward(this: Station, q: XY): Station {
-    const sp = this.space;
-    const here: Vec = [this.x, this.y];
-    const there: Vec = [vx(q), vy(q)];
-    if (sp && sp.kind === 'spherical') {
-      // Half a turn away every direction is as good as another, and the
-      // station is asked for the one that is not there.
-      const half = Math.PI * sp.radius;
-      if (Math.abs(sp.distance(here, there) - half) < 1e-9 * half) {
-        throw new Error(`station.toward: [${there[0]}, ${there[1]}] is opposite this station and has no one direction — give a heading instead`);
-      }
-    }
-    const v = sp && sp.kind !== 'euclidean' ? sp.log(here, there) : [there[0] - this.x, there[1] - this.y];
-    // The same place names no direction, so the station keeps the one it has.
-    if (!(Math.hypot(v[0], v[1]) > 0)) return walked(this, this.x, this.y, this.heading);
-    return walked(this, this.x, this.y, Math.atan2(v[1], v[0]));
-  },
-  placement(this: Station, opts: { from?: Station } = {}): Placement {
-    const sp = this.space;
-    const door = (sp ?? euclideanSpace()).model;
-    return between(door, opts.from ?? stationAt(0, 0, 0, sp), this);
-  },
-});
-
-/** A station like `from`, at `(x, y)` and turned to `heading`: what `step`
- * and `turn` answer with. Every chain field is carried unchanged — a walked
- * station is still the station it came from, moved. */
-export function walked(
-  from: Pick<Station, 's' | 'u' | 'length' | 'chain' | 'closed' | 'attrs' | 'edgeAttrs' | 'transfers' | 'space'>,
-  x: number,
-  y: number,
-  heading: number,
-): Station {
-  const tangent: [number, number] = [Math.cos(heading), Math.sin(heading)];
-  return Object.assign(Object.create(STATION_PROTO), {
-    x,
-    y,
-    tangent,
-    normal: perp(tangent) as [number, number],
-    heading,
-    s: from.s,
-    u: from.u,
-    length: from.length,
-    chain: from.chain,
-    closed: from.closed,
-    attrs: from.attrs,
-    edgeAttrs: from.edgeAttrs,
-    transfers: from.transfers,
-    space: from.space,
-  });
-}
-
-/** A station at `(x, y)` facing `heading` radians, on `space` (absent is
- * the flat plane): where a walk starts. The toolkit's `t.station` is this
- * with the sketch's own space. */
-export function stationAt(x: number, y: number, heading: number, space?: Space): Station {
-  return walked({ s: 0, u: 0, length: 0, chain: 0, closed: false, attrs: {}, edgeAttrs: {}, space }, x, y, heading);
-}
 
 /** How a column carries over when `resample` places new vertices:
  * `'interpolate'` linearly between the surrounding source vertices (the
@@ -470,7 +287,7 @@ export class Material {
   readonly attrs: Readonly<Record<string, Float64Array>>;
   /** @internal Edge list, stored order, `[a0, b0, a1, b1, …]`. Undirected for
    * connectivity; the stored direction is what `edges`, `split` (`at`)
-   * and `segmentRuns` (`a`, `b`) see. */
+   * and the order of `curves` see. */
   readonly edgeList: Uint32Array;
   /** @internal How many steps of `t.steps` produced this state (0 for
    * fresh material); a run continues the count. It is what `force.drift`
@@ -503,7 +320,14 @@ export class Material {
   /** @internal The face collection of this state, built the first time it
    * is asked for. A box like the others, because the state is frozen — and
    * the one seat a value that knows its own faces (a `Tiling`) fills. */
-  readonly facesBox: { faces: Faces | null };
+  readonly facesBox: { faces: FaceTable | null };
+  /** @internal The point and edge domains of this state (relation.ts),
+   * made the first time a selection of them is: every selection of this
+   * state shares them. A box, like the others. */
+  readonly domainBox: { points: unknown; edges: unknown } = { points: null, edges: null };
+  /** @internal The curves of this state (curves.ts): the walk and its
+   * selection, made the first time `curves` is read. A box, like the others. */
+  readonly curvesBox: { table: unknown; all: unknown } = { table: null, all: null };
   /** @internal The area of a material whose area is worked out when it is
    * asked for (a level set: its lines are the rows, and the closed regions
    * are a material of their own). `make` builds it the first time
@@ -663,7 +487,7 @@ export class Material {
     // is asked for.
     const vertexProto = Object.create(viewProto(this, 'vertex')) as object;
     Object.defineProperty(vertexProto, 'adjacent', {
-      get(this: Vertex) { return new PointSelection(self, self.adjacentRows(this.index)); },
+      get(this: Vertex) { return pointsOf(self, self.adjacentRows(this.index)); },
       enumerable: false,
     });
     // Identity hangs off the view, never on it: a vertex still spreads and
@@ -676,7 +500,26 @@ export class Material {
     // property that pays for `m.isConnected` and `m.maxDegree`: degree is
     // `p.edges.length`, and `p.adjacent.has(q)` is the join test.
     Object.defineProperty(vertexProto, 'edges', {
-      get(this: Vertex) { return new EdgeSelection(self, self.incidentEdgeRows(this.index)); },
+      get(this: Vertex) { return edgesOf(self, self.incidentEdgeRows(this.index), undefined, true); },
+      enumerable: false,
+    });
+    // A point with a heading — a point of `along`, a point of a curve —
+    // has a frame: the unit tangent, the normal (`perp` of it), and the
+    // placement there. Derived from the heading on every read.
+    Object.defineProperty(vertexProto, 'tangent', {
+      get(this: Vertex) { const h = (this as Record<string, number>).heading; return typeof h === 'number' ? [Math.cos(h), Math.sin(h)] as Vec : undefined; },
+      enumerable: false,
+    });
+    Object.defineProperty(vertexProto, 'normal', {
+      get(this: Vertex) { const h = (this as Record<string, number>).heading; return typeof h === 'number' ? [-Math.sin(h), Math.cos(h)] as Vec : undefined; },
+      enumerable: false,
+    });
+    Object.defineProperty(vertexProto, 'placement', {
+      value(this: Vertex): Placement {
+        const h = (this as Record<string, number>).heading;
+        if (typeof h !== 'number') throw new Error('p.placement: this point has no heading — the points of m.along() and of a curve (c.points) have one');
+        return framePlacement((self.space ?? euclideanSpace()).model, { x: this.x, y: this.y, heading: h });
+      },
       enumerable: false,
     });
     this.vertexProto = Object.freeze(vertexProto);
@@ -688,7 +531,7 @@ export class Material {
     // edge is found there by id.
     Object.defineProperty(edgeProto, 'faces', {
       get(this: Edge) {
-        const cells = owner.faces();
+        const cells = faceTableOf(owner.faces());
         return cells.facesOf(cells.source === owner ? this : cells.source.edgeOf(this.id)!);
       },
       enumerable: false,
@@ -704,7 +547,7 @@ export class Material {
         for (const e of owner.incidentEdgeRows(this.a.index)) rows.add(e);
         for (const e of owner.incidentEdgeRows(this.b.index)) rows.add(e);
         rows.delete(this.index);
-        return new EdgeSelection(owner, rows);
+        return edgesOf(owner, [...rows], undefined, true);
       },
       enumerable: false,
     });
@@ -819,8 +662,8 @@ export class Material {
   /** Every vertex, as a geometry collection: iterate, `length`, `at(i)`,
    * `map` (an array), `find`, `filter` (a selection of this state) and
    * `groupBy` (selections by key). Views are made as you read them. */
-  get points(): PointSelection {
-    return new PointSelection(this, null);
+  get points(): Selection<Vertex> {
+    return pointsOf(this);
   }
 
   /** @internal Number of edges. A sketch reads `m.edges.length`. */
@@ -853,8 +696,8 @@ export class Material {
   /** Every edge, stored order, as a geometry collection (see `points`);
    * `filter` gives an edge selection whose chains and boundary are those
    * of the selected edges alone. */
-  get edges(): EdgeSelection {
-    return new EdgeSelection(this, null);
+  get edges(): Selection<Edge> {
+    return edgesOf(this);
   }
 
   /** @internal Rows adjacent to `i`, in edge order. The engine's own door;
@@ -899,10 +742,10 @@ export class Material {
   /** The bounded faces of this state (see faces.ts). A frozen state has one
    * face collection: repeated calls return the same object, so a face view
    * from any call is accepted by every consumer of this material's faces. */
-  faces(): Faces {
+  faces(): Selection<Face> {
     const area = areaMaterial(this);
     if (area !== this) return area.faces();
-    return (this.facesBox.faces ??= faces(this));
+    return (this.facesBox.faces ??= faceTable(this)).all;
   }
 
 
@@ -914,12 +757,12 @@ export class Material {
   /** The cells of several sites at once, as a face selection: a point
    * selection of the sites (`sites.points.filter(…)`) gives the cells of
    * its members, a site with no cell adding nothing. */
-  cellOf(sites: PointSelection<unknown>): FaceSelection;
-  cellOf(site: Vertex | PointSelection<unknown>): Face | FaceSelection | undefined {
+  cellOf(sites: Selection<Vertex>): Selection<Face>;
+  cellOf(site: Vertex | Selection<Vertex>): Face | Selection<Face> | undefined {
     const links = voronoiLinks.get(this);
     if (!links) throw new Error('cellOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
-    if (site instanceof PointSelection) {
-      const sites = site.in(links.sites);
+    if (isPointSelection(site)) {
+      const sites = selectionIn(site, links.sites);
       const rows: number[] = [];
       for (const s of sites.indices) if (links.faceOfSite[s] >= 0) rows.push(links.faceOfSite[s]);
       return links.cells.rows(rows);
@@ -935,11 +778,11 @@ export class Material {
   siteOf(face: Face): Vertex | undefined;
   /** The sites of several cells at once, as a point selection of the
    * sites: a face selection of this diagram's cells gives their sites. */
-  siteOf(cells: FaceSelection<unknown>): PointSelection;
-  siteOf(face: Face | FaceSelection<unknown>): Vertex | PointSelection | undefined {
+  siteOf(cells: Selection<Face>): Selection<Vertex>;
+  siteOf(face: Face | Selection<Face>): Vertex | Selection<Vertex> | undefined {
     const links = voronoiLinks.get(this);
     if (!links) throw new Error('siteOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
-    if (face instanceof FaceSelection) {
+    if (isFaceSelection(face)) {
       if (face.source !== this) throw new Error('siteOf: those faces belong to another material\'s cells');
       const rows: number[] = [];
       for (const f of face.indices) if (links.siteOfFace[f] >= 0) rows.push(links.siteOfFace[f]);
@@ -957,43 +800,34 @@ export class Material {
    * winding. This is what an area consumer reads — `polygon(m)` fills these
    * and `t.within(x, m)` bounds by them. A material whose chains are all
    * open has no area, and the consumer says so rather than drawing nothing.
-   * For every chain, open or closed, see `curves()`. A level set's area is
+   * For every chain, open or closed, see `curves`. A level set's area is
    * its regions, closed along the drawable, a bound and every hole: worked
    * out on this first ask, not by `t.isolines`.
    */
   contours(): IsoContour[] {
     const area = areaMaterial(this);
     if (area !== this) return area.contours();
-    return this.curves().filter((c) => c.closed);
+    const out: IsoContour[] = [];
+    for (const c of chainsOf(this)) {
+      if (!c.closed) continue;
+      const pts = c.pts.map((p) => [p[0], p[1]] as [number, number]);
+      out.push(c.geodesic ? { pts, closed: true, geodesic: c.geodesic } : { pts, closed: true });
+    }
+    return out;
   }
 
   /**
-   * The material as chains for drawing: a deterministic, edge-disjoint walk.
-   * Chains start at endpoints and junctions (degree ≠ 2), pass through
-   * degree-2 vertices, and end at the next endpoint or junction; edges
-   * left over belong to pure cycles, which come back closed. Every edge
-   * is covered once; a junction vertex appears in each chain that meets
-   * it. Chains come in row order of their first vertex, so a material
-   * built from contours keeps contour order. Isolated vertices are not
-   * chains — see `points`.
+   * The curves: the chains the edges walk, as a selection of curve rows
+   * (curves.ts). Read on first ask and kept. A chain starts at an endpoint
+   * or a junction (a point with other than two edges), the first by row, and
+   * runs through the points two edges meet; a ring starts at the start of
+   * its first edge row and runs that edge's way. Every edge is in one curve; a
+   * junction is in each curve that meets it; isolated points are in none.
+   * Curves come in row order of their first point, so a material built from
+   * outlines keeps their order, and every write keeps it.
    */
-  curves(): Curve[] {
-    return walkChains({
-      vertexCount: this.n,
-      edgeRows: this.edgeRowsAll(),
-      endpoints: (e) => [this.edgeList[2 * e], this.edgeList[2 * e + 1]],
-      x: this.x,
-      y: this.y,
-      geodesic: geodesicEdges(this),
-    });
-  }
-
-  /** Every edge row, once per call site that walks them. */
-  private edgeRowsAll(): ArrayLike<number> {
-    const m = this.edgeCount;
-    const rows = new Uint32Array(m);
-    for (let e = 0; e < m; e++) rows[e] = e;
-    return rows;
+  get curves(): Selection<Curve> {
+    return curvesOf(this);
   }
 
   // ---- derived material ----
@@ -1055,7 +889,7 @@ export class Material {
   /**
    * Resample the material's chains evenly by arc length — the explicit,
    * lossy redistribution of sampled material after it has been deformed.
-   * It walks `curves()`: each chain gets `count` vertices, or as many as
+   * It walks `curves`: each chain gets `count` vertices, or as many as
    * fit at `spacing` (at least 2 open, 3 closed); open chains keep both
    * endpoints, closed ones keep their seam at their first vertex. On a
    * network — a hex field, a tiling, a voronoi — a chain runs from one
@@ -1207,7 +1041,7 @@ export class Material {
     // it, so a vertex two pieces share is one row and the ring closes — and
     // a junction several chains share is one row too.
     const rowOf = new Map<number, number>();
-    for (const c of this.curves()) {
+    for (const c of chainsOf(this)) {
       // A chain on a network ends at its junctions and keeps them: it is
       // walked as an open piece, a loop back to its own junction included.
       const pinned = network && (!c.closed || this.adj[c.indices[0]].length > 2);
@@ -1329,7 +1163,7 @@ export class Material {
    * segment (default 8) — the source segment becomes that many edges. An
    * open chain takes its end tangents from its end segments. A chain of
    * fewer than three vertices has no curve to describe and comes through
-   * as it is. On a network each chain of `curves()` bends on its own,
+   * as it is. On a network each chain of `curves` bends on its own,
    * junction to junction: a junction is a vertex like any other, kept, and
    * each chain leaves it along its own end segment.
    *
@@ -1406,7 +1240,7 @@ export class Material {
     };
     // Isolated vertices are not chains: they come through unchanged.
     for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) rowFor(i);
-    for (const c of this.curves()) {
+    for (const c of chainsOf(this)) {
       // A loop that leaves a junction and comes back to it ends there twice,
       // like any chain that ends at a junction: it is walked open.
       const pinned = c.closed && this.adj[c.indices[0]].length > 2;
@@ -1504,11 +1338,11 @@ export class Material {
    *
    * A chain with nothing left after the cut draws nothing, the way every
    * degenerate input here does. So does an isolated vertex, which is not a
-   * chain. On a network the chains are those of `curves()`, junction to
+   * chain. On a network the chains are those of `curves`, junction to
    * junction, and a junction is not an end: it stays, with every chain that
    * meets it, and only a loose end is cut — the tips of a crack, not its
    * forks. `start` is cut from a chain's first vertex, `end` from its last,
-   * in the order `curves()` walks it.
+   * in the order `curves` walks it.
    *
    * The vertices between the two cuts are the SAME vertices: same ids,
    * same positions, same columns. Each new end is a fresh vertex, with its
@@ -1584,7 +1418,7 @@ export class Material {
       eroot.push(sourceEdge);
       for (const name of enames) eattrs[name].push(this.edgeAttrs[name][sourceEdge]);
     };
-    for (const c of this.curves()) {
+    for (const c of chainsOf(this)) {
       const idx = c.indices;
       // A ring has no ends: it comes through as it is.
       if (c.closed) {
@@ -1646,175 +1480,36 @@ export class Material {
   }
 
   /**
-   * Stations along the material's chains, evenly by arc length, without
+   * Points along the material's chains, evenly by arc length, without
    * touching the material — Blender's curve-to-points. Where `t.sample`
    * turns a shape into even vertices and `resample` rebuilds a chain
    * evenly, `along` reads even places off it: for stamping shapes along a
    * curve, dashes, labels, or anything placed by position and direction.
-   * The same sampling rules as `resample`: one of `count` or `spacing`,
-   * or neither for a station at every vertex, in walk order (the chain's
-   * own corners, as `t.material` keeps them); open chains include both ends, closed chains start at the
-   * seam and never repeat it; every chain is walked on its own, in
-   * `curves()` order; isolated vertices give nothing. On a network a chain
-   * runs from junction to junction, so a junction ends every chain that
-   * meets it and gives one station for each, facing along that chain.
-   * Columns come across by their transfer policies (see `Station`),
-   * `transfer` overriding point columns per call as in `resample`. In a
-   * curved space (`space`) a station sits on the geodesic between two
-   * vertices, and its heading, tangent and normal are the direction the
-   * space's `log` gives toward the next vertex — the frame `station.step`
-   * walks in.
+   *
+   * The answer is a material of points and no edges. Each point has the
+   * columns `s` (arc length from its chain's start), `u` (the fraction of
+   * the chain's length) and `heading` (radians), and so the derived
+   * `tangent`, `normal` and `placement()`; and the chain's own columns: a
+   * point column by its transfer policy (`transfer` overrides one per call,
+   * as in `resample`), an edge column by its policy — `'copy'` is the edge
+   * under the point, `'distribute'` the sum over the run of chain nearer
+   * this point than its neighbours, so the shares add up to the chain's
+   * total. A point column and an edge column of one name are refused.
+   *
+   * The same sampling rules as `resample`: one of `count` or `spacing`, or
+   * neither for a point at every vertex, in walk order (the chain's own
+   * corners, as `t.material` keeps them); open chains include both ends,
+   * closed chains start at the seam and never repeat it; every chain is
+   * walked on its own, in `curves` order; isolated vertices give nothing.
+   * On a network a chain runs from junction to junction, so a junction
+   * ends every chain that meets it and gives one point for each, facing
+   * along that chain. In a curved space (`space`) a point sits on the
+   * geodesic between two vertices, and its heading is the direction the
+   * space's `log` gives toward the next vertex — the frame a placement's
+   * `step` walks in.
    */
-  along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; space?: Space } = {}): Station[] {
-    const atVertices = opts.spacing === undefined && opts.count === undefined;
-    // The space the options name, else the one the material carries: a
-    // curved material is walked in its own geometry.
-    const space = opts.space ?? this.space;
-    const curved = space !== undefined && space.kind !== 'euclidean' ? space : null;
-    if (!atVertices && !checkSampling('along', opts)) return [];
-    const names = this.attrNames;
-    const stationTransfers = Object.freeze({ ...this.transfers });
-    const transfer: Record<string, Transfer> = { ...this.transfers, ...(opts.transfer ?? {}) };
-    const enames = this.edgeAttrNames;
-    const storedRow = new Map<number, number>();
-    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
-    const out: Station[] = [];
-    this.curves().forEach((c, chain) => {
-      const idx = c.indices;
-      const pts = idx.map((i) => [this.x[i], this.y[i]] as [number, number]);
-      const segs = c.closed ? idx.length : idx.length - 1;
-      // No sampling option: the chain's own vertices, in walk order.
-      const samples = atVertices
-        ? idx.map((_, k) => (k < segs ? { seg: k, t: 0 } : { seg: segs - 1, t: 1 }))
-        : alongChain(pts, c.closed, { ...opts, space });
-      const cum = chainLengths(pts, c.closed, space);
-      const total = cum[segs];
-      const rowOfSeg = (sg: number) => storedRow.get(pairKey(idx[sg], idx[(sg + 1) % idx.length]))!;
-      const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
-      const dir = (sg: number): [number, number] => {
-        const a = pts[sg];
-        const b = pts[(sg + 1) % idx.length];
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        return len > 0 ? [(b[0] - a[0]) / len, (b[1] - a[1]) / len] : [1, 0];
-      };
-      // The tangent at a vertex is the bisector of the segments meeting
-      // there (an open chain's end has one); elsewhere the segment's own.
-      const tangentAtVertex = (v: number): [number, number] => {
-        const hasPrev = c.closed || v > 0;
-        const hasNext = c.closed || v < segs;
-        const before = hasPrev ? dir((v - 1 + segs) % segs) : null;
-        const after = hasNext ? dir(v % segs) : null;
-        if (!before) return after!;
-        if (!after) return before;
-        const sx = before[0] + after[0];
-        const sy = before[1] + after[1];
-        const len = Math.hypot(sx, sy);
-        return len > 1e-9 ? [sx / len, sy / len] : after; // a hairpin: carry on
-      };
-      const tangentAt = (seg: number, t: number): [number, number] => {
-        if (t <= 1e-9) return tangentAtVertex(seg);
-        if (t >= 1 - 1e-9) return tangentAtVertex(seg + 1);
-        return dir(seg);
-      };
-      // In a curved space a direction belongs to the point it is taken at:
-      // the one `log` answers there, toward the vertex ahead (or away from
-      // the one behind, which is the same geodesic seen from its far end).
-      const unit = (v: readonly number[], sign = 1): [number, number] | null => {
-        const len = Math.hypot(v[0], v[1]);
-        return len > 0 ? [(sign * v[0]) / len, (sign * v[1]) / len] : null;
-      };
-      const logTangentAtVertex = (sp: Space, v: number): [number, number] => {
-        const here = pts[v % idx.length];
-        const hasPrev = c.closed || v > 0;
-        const hasNext = c.closed || v < segs;
-        const before = hasPrev ? unit(sp.log(here, pts[(v - 1 + idx.length) % idx.length]), -1) : null;
-        const after = hasNext ? unit(sp.log(here, pts[(v + 1) % idx.length])) : null;
-        if (!before) return after ?? [1, 0];
-        if (!after) return before;
-        const sx = before[0] + after[0];
-        const sy = before[1] + after[1];
-        const len = Math.hypot(sx, sy);
-        return len > 1e-9 ? [sx / len, sy / len] : after; // a hairpin: carry on
-      };
-      const logTangentAt = (sp: Space, seg: number, t: number, here: readonly [number, number]): [number, number] => {
-        if (t <= 1e-9) return logTangentAtVertex(sp, seg);
-        if (t >= 1 - 1e-9) return logTangentAtVertex(sp, seg + 1);
-        return unit(sp.log(here, pts[(seg + 1) % idx.length])) ?? unit(sp.log(here, pts[seg]), -1) ?? [1, 0];
-      };
-      // The share of chain a station owns for 'distribute' columns: from
-      // half way to the previous station to half way to the next; the ends
-      // of an open chain own their outer half, a closed chain wraps.
-      const owned = (k: number): [number, number] => {
-        const here = at(k);
-        if (c.closed) {
-          const prev = k === 0 ? at(samples.length - 1) - total : at(k - 1);
-          const next = k === samples.length - 1 ? at(0) + total : at(k + 1);
-          return [(prev + here) / 2, (here + next) / 2];
-        }
-        return [k === 0 ? 0 : (at(k - 1) + here) / 2, k === samples.length - 1 ? total : (here + at(k + 1)) / 2];
-      };
-      const shareOver = (name: string, d0: number, d1: number): number => {
-        let sum = 0;
-        const span = (from: number, to: number) => {
-          for (let sg = 0; sg < segs; sg++) {
-            const len = cum[sg + 1] - cum[sg];
-            if (len <= 0) continue;
-            const overlap = Math.min(to, cum[sg + 1]) - Math.max(from, cum[sg]);
-            if (overlap > 0) sum += this.edgeAttrs[name][rowOfSeg(sg)] * (overlap / len);
-          }
-        };
-        // a wrapped range on a closed chain is two plain ranges
-        if (d0 < 0) { span(d0 + total, total); span(0, d1); }
-        else if (d1 > total) { span(d0, total); span(0, d1 - total); }
-        else span(d0, d1);
-        return sum;
-      };
-      samples.forEach(({ seg, t }, k) => {
-        const a = idx[seg];
-        const b = idx[(seg + 1) % idx.length];
-        const onVertexAhead = t >= 1 - 1e-9 && seg + 1 < segs;
-        const at2 = curved ? curved.geodesic(pts[seg], pts[(seg + 1) % idx.length], t) : null;
-        const tangent = curved ? logTangentAt(curved, seg, t, [at2![0], at2![1]]) : tangentAt(seg, t);
-        const attrs: Record<string, number> = {};
-        for (const name of names) {
-          const rule = transfer[name] ?? 'interpolate';
-          const va = this.attrs[name][a];
-          const vb = this.attrs[name][b];
-          if (rule === 'interpolate') attrs[name] = va + (vb - va) * t;
-          else if (rule === 'nearest') attrs[name] = t <= 0.5 ? va : vb;
-          else if (typeof rule === 'number') attrs[name] = rule;
-          else attrs[name] = rule(this.vertex(a), this.vertex(b), t);
-        }
-        const edgeAttrs: Record<string, number> = {};
-        for (const name of enames) {
-          if (this.edgeTransfers[name] === 'distribute') {
-            const [d0, d1] = owned(k);
-            edgeAttrs[name] = shareOver(name, d0, d1);
-          } else {
-            edgeAttrs[name] = this.edgeAttrs[name][rowOfSeg(onVertexAhead ? seg + 1 : seg)];
-          }
-        }
-        const sAt = at(k);
-        const st: Station = Object.assign(Object.create(STATION_PROTO), {
-          x: at2 ? at2[0] : pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
-          y: at2 ? at2[1] : pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
-          tangent,
-          normal: perp(tangent) as [number, number],
-          heading: Math.atan2(tangent[1], tangent[0]),
-          s: sAt,
-          u: total > 0 ? sAt / total : 0,
-          length: total,
-          chain,
-          closed: c.closed,
-          attrs,
-          edgeAttrs,
-          transfers: stationTransfers,
-          space,
-        });
-        out.push(st);
-      });
-    });
-    return out;
+  along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; space?: Space } = {}): Material {
+    return samplesMaterial(alongSamples(this, opts), this, opts.space ?? this.space);
   }
 
   // ---- same-world transforms ----
@@ -1851,13 +1546,13 @@ export class Material {
    * after the source rows. A point column is read at a sample by its
    * transfer policy, an edge column is copied to each child — a
    * `'distribute'` one shared by the child's share of the parameter — and
-   * face columns, keyed by lineage, carry. So `sel.in(moved)` rebinds every
+   * face columns, keyed by lineage, carry. So a selection of the source names every
    * vertex and every unsplit edge, and a face keeps its columns.
    */
   transform(op: Placement | TransformRecord): Material {
     if (!isPlacement(op)) {
       if (typeof op !== 'object' || op === null) {
-        throw new Error('m.transform: expected a placement — station.placement(), one of a tiling\'s placements, or reflection(space.model, a, b) — or a transform record such as one of t.symmetry(…)');
+        throw new Error('m.transform: expected a placement — t.placement(…), p.placement(), one of a tiling\'s placements, or reflection(space.model, a, b) — or a transform record such as one of t.symmetry(…)');
       }
       return transformByRecord(this, op);
     }
@@ -2139,7 +1834,7 @@ export class Material {
    * read as the nearer end, where a cut makes nothing. `edges` is a
    * selection, an edge value or an edge view.
    */
-  split(edges: EdgeSelection<unknown> | EdgeEnd | undefined, at?: number | ((e: Edge) => number)): Material {
+  split(edges: Selection<Edge> | EdgeEnd | undefined, at?: number | ((e: Edge) => number)): Material {
     return splitRecipe(this, edges, at);
   }
 
@@ -2154,7 +1849,7 @@ export class Material {
    * put a point at a position rather than move it by a step, set its `x`
    * and `y`: `g.points.set({ x: …, y: … })`.
    */
-  move(...args: [...Displacement[]] | [...Displacement[], PointSelection<unknown> | PointEnd | undefined]): Material {
+  move(...args: [...Displacement[]] | [...Displacement[], Selection<Vertex> | PointEnd | undefined]): Material {
     return moveRecipe(this, args);
   }
 
@@ -2169,7 +1864,7 @@ export class Material {
    * every edge or for those a test of the edge picks. A Koch curve is one
    * motif and four steps: `t.steps(4, tri, (g) => g.replace(g.edges, motif))`.
    */
-  replace(edges: EdgeSelection<unknown> | EdgeEnd | undefined, motif: Material, opts?: ReplaceOpts): Material {
+  replace(edges: Selection<Edge> | EdgeEnd | undefined, motif: Material, opts?: ReplaceOpts): Material {
     return replaceRecipe(this, edges, motif, opts);
   }
 
@@ -2196,6 +1891,162 @@ export function checkSampling(who: string, opts: { count?: number; spacing?: num
   if (opts.spacing !== undefined && !(opts.spacing > 0)) return false;
   return opts.count === undefined || opts.count >= 2;
 }
+
+/**
+ * @internal A place on a chain, read off it by arc length: the kernel record
+ * `along` reads its points from, and the chain verbs (`oscillate`) walk.
+ * Position, the unit tangent of the polyline under it (on a vertex, the
+ * bisector of the segments that meet there), the normal (`perp`), the
+ * heading, arc length `s` from the chain's start, its fraction `u`, the
+ * chain's whole `length`, the chain (a row of `curves`), and the columns
+ * by their policies: point columns in `attrs`, edge columns in `edgeAttrs`.
+ */
+export interface ChainSample {
+  x: number;
+  y: number;
+  tangent: [number, number];
+  normal: [number, number];
+  heading: number;
+  s: number;
+  u: number;
+  length: number;
+  chain: number;
+  closed: boolean;
+  attrs: Record<string, number>;
+  edgeAttrs: Record<string, number>;
+  /** The source's point-column policies. */
+  transfers?: Readonly<Record<string, TransferPolicy>>;
+  /** The space the chain was walked in; absent is the flat plane. */
+  space?: Space;
+}
+
+export function alongSamples(m: Material, opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; space?: Space } = {}): ChainSample[] {
+  const atVertices = opts.spacing === undefined && opts.count === undefined;
+  // The space the options name, else the one the material carries: a
+  // curved material is walked in its own geometry.
+  const space = opts.space ?? m.space;
+  const curved = space !== undefined && space.kind !== 'euclidean' ? space : null;
+  if (!atVertices && !checkSampling('along', opts)) return [];
+  const names = m.attrNames;
+  const sampleTransfers = Object.freeze({ ...m.transfers });
+  const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
+  const enames = m.edgeAttrNames;
+  const storedRow = new Map<number, number>();
+  for (let e = 0; e < m.edgeCount; e++) storedRow.set(pairKey(m.edgeList[2 * e], m.edgeList[2 * e + 1]), e);
+  const out: ChainSample[] = [];
+  chainsOf(m).forEach((c, chain) => {
+    const idx = c.indices;
+    const pts = idx.map((i) => [m.x[i], m.y[i]] as [number, number]);
+    const segs = c.closed ? idx.length : idx.length - 1;
+    // No sampling option: the chain's own vertices, in walk order.
+    const samples = atVertices
+      ? idx.map((_, k) => (k < segs ? { seg: k, t: 0 } : { seg: segs - 1, t: 1 }))
+      : alongChain(pts, c.closed, { ...opts, space });
+    const cum = chainLengths(pts, c.closed, space);
+    const total = cum[segs];
+    const rowOfSeg = (sg: number) => storedRow.get(pairKey(idx[sg], idx[(sg + 1) % idx.length]))!;
+    const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
+    // The tangent at a vertex is the bisector of the segments meeting
+    // there (an open chain's end has one); elsewhere the segment's own. In
+    // a curved space it is the direction `log` answers at the place.
+    const frames = chainTangents(pts, c.closed, space);
+    // The share of chain a sample owns for 'distribute' columns: from
+    // half way to the previous sample to half way to the next; the ends
+    // of an open chain own their outer half, a closed chain wraps.
+    const owned = (k: number): [number, number] => {
+      const here = at(k);
+      if (c.closed) {
+        const prev = k === 0 ? at(samples.length - 1) - total : at(k - 1);
+        const next = k === samples.length - 1 ? at(0) + total : at(k + 1);
+        return [(prev + here) / 2, (here + next) / 2];
+      }
+      return [k === 0 ? 0 : (at(k - 1) + here) / 2, k === samples.length - 1 ? total : (here + at(k + 1)) / 2];
+    };
+    const shareOver = (name: string, d0: number, d1: number): number => {
+      let sum = 0;
+      const span = (from: number, to: number) => {
+        for (let sg = 0; sg < segs; sg++) {
+          const len = cum[sg + 1] - cum[sg];
+          if (len <= 0) continue;
+          const overlap = Math.min(to, cum[sg + 1]) - Math.max(from, cum[sg]);
+          if (overlap > 0) sum += m.edgeAttrs[name][rowOfSeg(sg)] * (overlap / len);
+        }
+      };
+      // a wrapped range on a closed chain is two plain ranges
+      if (d0 < 0) { span(d0 + total, total); span(0, d1); }
+      else if (d1 > total) { span(d0, total); span(0, d1 - total); }
+      else span(d0, d1);
+      return sum;
+    };
+    samples.forEach(({ seg, t }, k) => {
+      const a = idx[seg];
+      const b = idx[(seg + 1) % idx.length];
+      const onVertexAhead = t >= 1 - 1e-9 && seg + 1 < segs;
+      const at2 = curved ? curved.geodesic(pts[seg], pts[(seg + 1) % idx.length], t) : null;
+      const tangent = frames.at(seg, t, at2 ? [at2[0], at2[1]] : null);
+      const attrs: Record<string, number> = {};
+      for (const name of names) {
+        const rule = transfer[name] ?? 'interpolate';
+        const va = m.attrs[name][a];
+        const vb = m.attrs[name][b];
+        if (rule === 'interpolate') attrs[name] = va + (vb - va) * t;
+        else if (rule === 'nearest') attrs[name] = t <= 0.5 ? va : vb;
+        else if (typeof rule === 'number') attrs[name] = rule;
+        else attrs[name] = rule(m.vertex(a), m.vertex(b), t);
+      }
+      const edgeAttrs: Record<string, number> = {};
+      for (const name of enames) {
+        if (m.edgeTransfers[name] === 'distribute') {
+          const [d0, d1] = owned(k);
+          edgeAttrs[name] = shareOver(name, d0, d1);
+        } else {
+          edgeAttrs[name] = m.edgeAttrs[name][rowOfSeg(onVertexAhead ? seg + 1 : seg)];
+        }
+      }
+      const sAt = at(k);
+      const st: ChainSample = {
+        x: at2 ? at2[0] : pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
+        y: at2 ? at2[1] : pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
+        tangent,
+        normal: perp(tangent) as [number, number],
+        heading: Math.atan2(tangent[1], tangent[0]),
+        s: sAt,
+        u: total > 0 ? sAt / total : 0,
+        length: total,
+        chain,
+        closed: c.closed,
+        attrs,
+        edgeAttrs,
+        transfers: sampleTransfers,
+        space,
+      };
+      out.push(st);
+    });
+  });
+  return out;
+}
+
+/** The points `along` answers: a row per sample, the columns `s`, `u` and
+ * `heading`, and the transferred point and edge columns. No edges. */
+function samplesMaterial(samples: readonly ChainSample[], source: Material, space: Space | undefined): Material {
+  const pointNames = source.attrNames;
+  for (const name of source.edgeAttrNames) {
+    if (pointNames.includes(name)) throw new Error(`m.along: '${name}' is both a point column and an edge column, and a point of along() has one column of that name — rename one first`);
+  }
+  const n = samples.length;
+  const cols: Record<string, Float64Array> = {};
+  // The chain's own columns first; the place on the chain is along's own
+  // and wins over a column of the same name.
+  for (const name of pointNames) cols[name] = Float64Array.from(samples, (q) => q.attrs[name]);
+  for (const name of source.edgeAttrNames) cols[name] = Float64Array.from(samples, (q) => q.edgeAttrs[name]);
+  cols.s = Float64Array.from(samples, (q) => q.s);
+  cols.u = Float64Array.from(samples, (q) => q.u);
+  cols.heading = Float64Array.from(samples, (q) => q.heading);
+  const transfers: Record<string, TransferPolicy> = {};
+  for (const name of pointNames) if (source.transfers[name] && name !== 's' && name !== 'u' && name !== 'heading') transfers[name] = source.transfers[name];
+  return new Material(Float64Array.from(samples, (q) => q.x), Float64Array.from(samples, (q) => q.y), cols, new Uint32Array(0), { transfers, space });
+}
+
 
 /**
  * Even samples along a polyline by arc length: for each sample, the
@@ -2273,11 +2124,6 @@ export function pointGrid(x: Float64Array, y: Float64Array, cellsAcross: number)
   return { cell, cols, rows, maxRing: Math.max(cols, rows), col, row, ring, at };
 }
 
-/** Cumulative arc length along a chain: `cum[s]` is the distance to the
- * start of segment `s`, the last entry the total (closed chains include
- * the seam segment). With a curved `space`, each step is measured by the
- * space's own metric; without one the expression is the literal Euclidean
- * hypotenuse every sketch has always summed. */
 /** True when some vertex joins three or more edges: the material is a
  * network, and a chain verb keeps its junctions where they are. */
 function hasJunction(m: Material): boolean {
@@ -2285,18 +2131,6 @@ function hasJunction(m: Material): boolean {
   return false;
 }
 
-function chainLengths(pts: readonly (readonly [number, number])[], closed: boolean, space?: Space): number[] {
-  const n = pts.length;
-  const segs = closed ? n : n - 1;
-  const cum = [0];
-  const curved = space !== undefined && space.kind !== 'euclidean' ? space : null;
-  for (let s = 0; s < segs; s++) {
-    const a = pts[s];
-    const b = pts[(s + 1) % n];
-    cum.push(cum[s] + (curved ? curved.distance(a, b) : Math.hypot(b[0] - a[0], b[1] - a[1])));
-  }
-  return cum;
-}
 
 const copy = (col: Float64Array) => Float64Array.from(col);
 const copyEdges = (list: Uint32Array) => Uint32Array.from(list);
@@ -2313,7 +2147,7 @@ export interface VoronoiLinks {
   sites: Material;
   siteOfFace: Int32Array;
   faceOfSite: Int32Array;
-  cells: Faces;
+  cells: Selection<Face>;
 }
 const voronoiLinks = new WeakMap<Material, VoronoiLinks>();
 
@@ -2654,7 +2488,7 @@ export function withinMaterial(
 /** The faces a cut can close, or null: a material with no cycle encloses
  * nothing (and is not asked), and one whose edges cross has no faces to
  * read — `within` still cuts it, best-effort, and closes nothing. */
-function readableFaces(m: Material): Faces | null {
+function readableFaces(m: Material): FaceTable | null {
   // A cycle exists exactly when some edge joins two vertices already joined.
   const parent = Int32Array.from({ length: m.n }, (_, i) => i);
   const root = (v: number): number => {
@@ -2669,14 +2503,14 @@ function readableFaces(m: Material): Faces | null {
     else parent[a] = b;
   }
   if (!cyclic) return null;
-  let cells: Faces;
+  let cells: FaceTable;
   try {
-    cells = m.faces();
+    cells = faceTableOf(m.faces());
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('faces:')) return null;
     throw err;
   }
-  return cells.length > 0 ? cells : null;
+  return cells.faces.length > 0 ? cells : null;
 }
 
 type BoundaryMark =
@@ -2771,63 +2605,6 @@ function boundaryMarks(
 
 /** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
  * fields such as a scatter point's `w` become columns), or a material. */
-/** @internal Is this an array of stations, as `along` returns? Empty arrays are not. */
-export function isStations(v: unknown): v is readonly Station[] {
-  if (!Array.isArray(v) || v.length === 0) return false;
-  const q = v[0] as Record<string, unknown>;
-  return typeof q === 'object' && q !== null && Array.isArray(q.tangent) && typeof q.heading === 'number'
-    && typeof q.s === 'number' && typeof q.chain === 'number' && typeof q.attrs === 'object';
-}
-
-/**
- * @internal Stations as a material, for drawing them or for the inspector: a vertex
- * per station in walk order, edges along each chain's walk (wrapping when
- * the chain is closed), and columns `heading`, `s`, `u`, `chain` plus the
- * station's transferred point and edge columns under their own names (a
- * transferred column keeps its name; an intrinsic of the same name gives
- * way). Point/edge name collisions and conflicting point policies are
- * errors: rename the source column before flattening the domains. Point
- * transfer policies survive; promoted edge samples become ordinary vertex
- * values, not conserved edge quantities. Nothing connects back to the source material.
- */
-export function stationsMaterial(stations: readonly Station[]): Material {
-  const pointNames = new Set(stations.flatMap(q => Object.keys(q.attrs)));
-  const policies = new Map<string, TransferPolicy>();
-  for (const q of stations) {
-    for (const name of Object.keys(q.edgeAttrs)) {
-      if (pointNames.has(name)) throw new Error(`stationsMaterial: '${name}' occurs in both point and edge columns — rename one before conversion`);
-    }
-    for (const name of Object.keys(q.attrs)) {
-      const policy = q.transfers?.[name] ?? 'interpolate';
-      if (policies.has(name) && policies.get(name) !== policy) {
-        throw new Error(`stationsMaterial: conflicting transfer policies for '${name}'`);
-      }
-      policies.set(name, policy);
-    }
-  }
-  const cols: Record<string, number[]> = {};
-  const put = (name: string, k: number, v: number) => {
-    (cols[name] ??= new Array(stations.length).fill(NaN))[k] = v;
-  };
-  const edges: [number, number][] = [];
-  let runStart = 0;
-  stations.forEach((q, k) => {
-    for (const name of Object.keys(q.attrs)) put(name, k, q.attrs[name]);
-    for (const name of Object.keys(q.edgeAttrs)) put(name, k, q.edgeAttrs[name]);
-    if (k > 0 && stations[k - 1].chain === q.chain) edges.push([k - 1, k]);
-    const last = k === stations.length - 1 || stations[k + 1].chain !== q.chain;
-    if (k > 0 && stations[k - 1].chain !== q.chain) runStart = k;
-    if (last && q.closed && k > runStart + 1) edges.push([k, runStart]);
-  });
-  for (const name of ['heading', 's', 'u', 'length', 'chain'] as const) {
-    if (name in cols) continue;
-    cols[name] = stations.map((q) => q[name]);
-  }
-  const attrs = Object.fromEntries(Object.entries(cols).map(([name, values]) => [name, Float64Array.from(values)]));
-  const transfers = Object.fromEntries([...policies].filter(([, policy]) => policy !== 'interpolate'));
-  return new Material(Float64Array.from(stations, q => q.x), Float64Array.from(stations, q => q.y), attrs, Uint32Array.from(edges.flat()), { iteration: 0, history: [], edgeAttrs: {}, transfers: transfers, space: stations.find((q) => q.space !== undefined)?.space });
-}
-
 /**
  * A point with numeric columns beyond `x` and `y` — `{ x, y, w }` from
  * `t.scatter`, or any extra field a sketch carries: every numeric field
@@ -2842,7 +2619,7 @@ export interface PointRecord extends Record<string, number> {
 /** Anything a point consumer takes. A face collection or selection reads
  * as its faces' centroids (see `faceCentroids`); `faces.points` is the word
  * for the corners. */
-export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointRecord> | Material | FaceSelection<unknown>;
+export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointRecord> | Material | Selection<Face>;
 
 /**
  * Material from positions. Unconnected unless `edges` are given; extra
@@ -2864,8 +2641,8 @@ export function material(
   }
   // A point selection is those points: the rows, their columns and their
   // ids, so a builder handed one (`curve(sel)`) keeps who each
-  // member is, and `sel.in(result)` finds them again.
-  if (points instanceof PointSelection && Object.keys(opts).length === 0) return points.extract();
+  // member is, and a selection of the source names them again.
+  if (isPointSelection(points) && Object.keys(opts).length === 0) return points.extract();
   // A face collection is points at its faces' centroids.
   const centres = faceCentroids(points);
   // A point collection (m.points, a selection) is a fine source of points.
@@ -2931,7 +2708,16 @@ export function curve(
     if (typeof v === 'boolean') throw new Error(`curve: attribute '${k}' must be numeric`);
     cols[k] = v;
   }
-  const m = material(points, cols);
+  const given = material(points, cols);
+  // A curve is the points and the chain through them, in the order given:
+  // edges the points had where they came from (a selection keeps them on
+  // extract) are not part of it, nor are those edges' columns.
+  const m = given.edgeCount === 0 && given.edgeAttrNames.length === 0 ? given : new Material(given.x, given.y, given.attrs, new Uint32Array(0), {
+    iteration: given.iteration,
+    transfers: { ...given.transfers },
+    ids: { points: given.pointIds },
+    space: given.space,
+  });
   return addEdges(m, chainEdges(m.n, closed));
 }
 
@@ -3146,18 +2932,38 @@ function turnPoints(
   return pts;
 }
 
-/** Stations, or a refusal that names what is missing. */
-function headedStations(stations: readonly Station[] | PointsLike, who: string): readonly Station[] {
-  if (!Array.isArray(stations)) {
-    throw new Error(`${who}: expected the stations m.along() returns — a material or a point cloud has no heading to turn from`);
+/** Headed places, or a refusal that names what is missing: the points of
+ * `m.along()` (a material or a point selection whose rows have a
+ * `heading`), or a list of placements or `{ x, y, heading }` records. The
+ * space is the one the places belong to. */
+function headedPlaces(given: unknown, who: string): { list: { x: number; y: number; heading: number }[]; space: Space | undefined } {
+  const noHeading = `${who}: these points have no heading to turn from — take headed points off a chain with m.along({ spacing }) and pass those`;
+  if (given instanceof Material) {
+    if (given.n > 0 && given.attrs.heading === undefined) throw new Error(noHeading);
+    const h = given.attrs.heading;
+    return { list: Array.from({ length: given.n }, (_, i) => ({ x: given.x[i], y: given.y[i], heading: h[i] })), space: given.space };
   }
-  stations.forEach((q: unknown, i: number) => {
+  if (isPointSelection(given)) {
+    const src = given.source as Material;
+    const list = given.map((p) => {
+      if (typeof p.heading !== 'number') throw new Error(noHeading);
+      return { x: p.x, y: p.y, heading: p.heading };
+    });
+    return { list, space: src.space };
+  }
+  if (typeof given !== 'object' || given === null || typeof (given as Iterable<unknown>)[Symbol.iterator] !== 'function') {
+    throw new Error(`${who}: expected headed places — the points m.along() answers, or placements — got ${given === null ? 'null' : typeof given}`);
+  }
+  let space: Space | undefined;
+  const list = Array.from(given as Iterable<unknown>, (q, i) => {
     const s = q as { x?: unknown; y?: unknown; heading?: unknown };
     if (typeof s?.x !== 'number' || typeof s?.y !== 'number' || typeof s?.heading !== 'number') {
-      throw new Error(`${who}: entry ${i} is a plain point with no heading to turn from — take stations off the chain with m.along({ spacing }) and pass those`);
+      throw new Error(`${who}: entry ${i} is a plain point with no heading to turn from — take headed points off a chain with m.along({ spacing }), or give placements`);
     }
+    if (space === undefined && isPlacement(q)) space = spaceOfDoor(q.door);
+    return { x: s.x, y: s.y, heading: s.heading };
   });
-  return stations as readonly Station[];
+  return { list, space };
 }
 
 /** Common connection patterns; each returns a new material. A chain in
@@ -3609,29 +3415,29 @@ export const connect = {
    *
    * Each consecutive pair is joined by its shortest Dubins path — the
    * shortest route for something that holds a minimum turning radius and
-   * never reverses — so the run leaves each station along its heading and
+   * never reverses — so the run leaves each place along its heading and
    * arrives at the next one along ITS heading. That is what makes it
    * different from `connect.tour`, which joins places; this joins
    * DIRECTIONS, and is how loose fragments of a flow become one continuous
    * line the pen can draw without lifting.
    *
-   * The input is stations, as `m.along()` returns: a plain point has no
-   * heading and is refused by name. The result is a chain material sampled
-   * at its own resolution — arcs cut fine enough that the turn reads as a
-   * curve, straights left as straights — so `strokes(m.curves())` draws it
-   * and `m.resample` re-spaces it.
+   * The input is headed places: the points `m.along()` answers (each has a
+   * `heading`), or placements. A plain point has no heading and is refused
+   * by name. The result is a chain material sampled at its own resolution —
+   * arcs cut fine enough that the turn reads as a curve, straights left as
+   * straights — so `strokes(m)` draws it and `m.resample` re-spaces it.
    *
-   * `closed` joins the last station back to the first. A pair with no
+   * `closed` joins the last place back to the first. A pair with no
    * admissible path at that radius (too tight a turn into too near a
    * place) gets no edge at all: the run breaks there into two chains,
    * rather than cutting a corner it could not drive.
    */
-  turns(stations: readonly Station[] | PointsLike, opts: { radius: number; closed?: boolean }): Material {
+  turns(places: Material | Selection<Vertex> | Iterable<Placement | { x: number; y: number; heading: number }>, opts: { radius: number; closed?: boolean }): Material {
     const r = opts?.radius;
     if (!(typeof r === 'number' && r > 0 && Number.isFinite(r))) {
       throw new Error(`connect.turns: { radius } must be a positive turning radius, got ${String(r)}`);
     }
-    const list = headedStations(stations, 'connect.turns');
+    const { list, space } = headedPlaces(places, 'connect.turns');
     const closed = opts.closed === true;
     const xs: number[] = [];
     const ys: number[] = [];
@@ -3641,7 +3447,7 @@ export const connect = {
       ys.push(p[1]);
       return xs.length - 1;
     };
-    const at = (q: Station): [number, number, number] => [q.x, q.y, q.heading];
+    const at = (q: { x: number; y: number; heading: number }): [number, number, number] => [q.x, q.y, q.heading];
     const last = closed ? list.length : list.length - 1;
     let prevRow = -1;
     let firstRow = -1;
@@ -3653,7 +3459,7 @@ export const connect = {
         prevRow = -1;
         continue;
       }
-      // The pair's first point IS this station: it is a new row only when
+      // The pair's first point IS this place: it is a new row only when
       // the previous pair did not already leave one there.
       let from = prevRow;
       if (from < 0) from = place(pts[0]);
@@ -3668,8 +3474,7 @@ export const connect = {
     }
     // One place and nothing to turn toward is still that place.
     if (xs.length === 0) for (const q of list) place([q.x, q.y]);
-    // Whatever space the stations were walked in, the path is in it too.
-    const space = stations instanceof Material ? stations.space : list.find((q) => q.space !== undefined)?.space;
+    // Whatever space the places were walked in, the path is in it too.
     return new Material(Float64Array.from(xs), Float64Array.from(ys), {}, Uint32Array.from(edges.flat()), { space });
   },
 
@@ -3949,78 +3754,6 @@ export function extent(values: ArrayLike<number>): [number, number] {
   return [lo, hi];
 }
 
-/** A maximal run of consecutive edges of one chain sharing one key, as a
- * stampable contour (`stroke(run)`), with the key and the vertex rows. */
-export interface SegmentRun<K = number | string> extends IsoContour {
-  key: K;
-  /** Row of the run's first vertex; `to` is its last (inclusive). */
-  from: number;
-  to: number;
-}
-
-/**
- * Classify every edge with `key(e)` and gather consecutive edges of equal
- * key into runs, chain by chain (`curves()`): runs end at endpoints and
- * junctions and never split across a closed chain's seam; runs meet end to
- * end, so together they redraw every edge once; a uniform closed chain is
- * one closed run.
- *
- * The classifier gets the EDGE, in its stored orientation — `e.a` and
- * `e.b` as it was connected, whatever direction the drawing walk takes.
- * That is the whole edge: its own columns (`e.level`, which is what
- * `isolines` writes), its `length`, its `center`, its `root`. It used to get
- * the two vertex views alone, so an edge column — the one thing that
- * already belongs to an edge, and survives a split — could not classify a
- * run without rebuilding the edge row from the pair by hand.
- *
- * The classification is still the artist's. A VERTEX attribute needs an
- * interpretation before it can own an edge: `e.a.age`, `e.b.age`, both, or
- * their mean are different drawings.
- */
-export function segmentRuns<K extends number | string>(m: Material, key: (e: Edge) => K): SegmentRun<K>[] {
-  const runs: SegmentRun<K>[] = [];
-  // The classifier sees each edge in its STORED orientation, so the row is
-  // what it is handed, never a pair rebuilt from the walk.
-  const storedRow = new Map<number, number>();
-  for (let e = 0; e < m.edgeCount; e++) {
-    const k = pairKey(m.edgeList[2 * e], m.edgeList[2 * e + 1]);
-    if (!storedRow.has(k)) storedRow.set(k, e);
-  }
-  for (const c of m.curves()) {
-    const idx = c.indices;
-    const segs = c.closed ? idx.length : idx.length - 1;
-    if (segs <= 0) continue;
-    const keys: K[] = [];
-    for (let s = 0; s < segs; s++) {
-      keys.push(key(m.edge(storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!)));
-    }
-    let start = 0;
-    if (c.closed) {
-      // Begin where the first edge's run ends, so that run is drawn whole
-      // from the seam side rather than in two pieces.
-      const change = keys.findIndex((k) => k !== keys[0]);
-      if (change < 0) {
-        runs.push({ key: keys[0], pts: c.pts, closed: true, from: idx[0], to: idx[idx.length - 1] });
-        continue;
-      }
-      start = change;
-    }
-    let cur: SegmentRun<K> | null = null;
-    for (let s = 0; s < segs; s++) {
-      const i = (start + s) % segs;
-      const a = idx[i];
-      const b = idx[(i + 1) % idx.length];
-      if (!cur || cur.key !== keys[i]) {
-        if (cur) runs.push(cur);
-        cur = { key: keys[i], pts: [[m.x[a], m.y[a]]], closed: false, from: a, to: a };
-      }
-      cur.pts.push([m.x[b], m.y[b]]);
-      cur.to = b;
-    }
-    if (cur) runs.push(cur);
-  }
-  return runs;
-}
 
 /**
  * The area centroid of closed contours, as `polygon` fills them: each
@@ -4113,14 +3846,14 @@ export function areaMaterial(m: Material): Material {
  * area, rings with no level line in them included. Anything else is read
  * as it is.
  */
-export function areaView<T>(input: T): T | Material | EdgeSelection {
+export function areaView<T>(input: T): T | Material | Selection<Edge> {
   if (input instanceof Material) return areaMaterial(input);
-  if (!(input instanceof EdgeSelection)) return input;
+  if (!isEdgeSelection(input)) return input;
   const source = input.source;
   const area = areaMaterial(source);
   if (area === source) return input;
   if (input.length === source.edgeCount) return area.edges;
-  const lines = input.in(area);
+  const lines = selectionIn(input, area);
   const cut = area.edgeAttrs.cut;
   if (cut === undefined) return lines;
   const ends = new Set<number>();
@@ -4156,5 +3889,5 @@ export function areaView<T>(input: T): T | Material | EdgeSelection {
   for (let e = 0; e < area.edgeCount; e++) {
     if (cut[e] !== 0 && keep.get(find(area.edgeList[2 * e])) === true) rows.push(e);
   }
-  return new EdgeSelection(area, rows);
+  return edgesOf(area, rows);
 }

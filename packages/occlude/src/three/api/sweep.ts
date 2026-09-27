@@ -1,3 +1,4 @@
+import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
@@ -31,7 +32,7 @@ function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
 /** Carry an XY profile along an unbranched 3D path using transported frames.
  * The profile (and the path) may be a 2D chain, read in XY at z = 0.
  * Closed paths distribute frame-closure twist by arc length. */
-export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(input:CurveGeometry<P,E>|{curves():unknown},along:CurveGeometry<A,B>|{curves():unknown},options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV> {
+export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(input:CurveGeometry<P,E>|{readonly curves:unknown}|Curve2,along:CurveGeometry<A,B>|{readonly curves:unknown}|Curve2,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('sweep options must be an object');
   const profile=profileCurve(input,'xy','sweep') as CurveGeometry<P,E>,path=profileCurve(along,'xy','sweep path') as CurveGeometry<A,B>;
   const section=curvePath(profile),route=curvePath(path),shape=profile.surface,source=path.surface;

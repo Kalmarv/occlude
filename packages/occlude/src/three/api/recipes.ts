@@ -3,7 +3,7 @@ import type {FillSpec} from '../../fills.js';
 import type {Attributes3} from '../geometry/surface.js';
 import type {Field,FaceRow} from './mesh.js';
 import type {MeshFaceRow} from './topology.js';
-import {Collection} from './collection.js';
+import {Selection} from '../../selection.js';
 
 /** The 2D words for a pen, said once for every 3D option record: a record
  * that names a pen names it `pen`. `stroke` is the 2D outline switch; in
@@ -30,7 +30,7 @@ export interface ViewHatch<F extends Attributes3=Attributes3> {
   readonly pen?:Field<HatchRow<F>,string>;
   /** The faces the recipe hatches: a face selection of the mesh, or a test on
    * its face rows. Unset: every face. */
-  readonly select?:Collection<any,unknown>|((face:HatchRow<F>)=>unknown);
+  readonly select?:Selection<any>|((face:HatchRow<F>)=>unknown);
 }
 /** What a `hatch` option takes: a recipe, the 2D `fill('hatch', …)` or
  * `fill('crosshatch', …)`, or a list of them. */
@@ -66,8 +66,8 @@ function recipeOf(value:ViewHatch<any>,who:string):Omit<HatchRecipe,'key'>&{key?
   refuseStroke(value,`${who} recipe`);
   const select=value.select;
   let test:HatchRecipe['select'];
-  if(select instanceof Collection){
-    if(select.domain!=='face')throw new Error(`${who}: select takes a face selection, got a ${select.domain} selection`);
+  if(select instanceof Selection){
+    if(select.domain.kind.name!=='face')throw new Error(`${who}: select takes a face selection, got a ${select.domain.kind.name} selection`);
     test=face=>select.has(face);
   }else if(select!==undefined){
     if(typeof select!=='function')throw new Error(`${who}: select takes a face selection or a test on the face rows`);

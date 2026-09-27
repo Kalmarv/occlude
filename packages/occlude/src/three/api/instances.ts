@@ -2,7 +2,8 @@ import {rotation3,alignAxis,type RotationInput} from '../rotation.js';
 import {pointCloud} from './mesh.js';
 import {points2} from './lift.js';
 import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow,type Style3} from './mesh.js';
-import {Collection,type Where3} from './collection.js';
+import {Table3,select3,domainOf,kind3,isSelection3,type Where3} from './collection.js';
+import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
 import type {AttributeFields,Widen3,Widened3} from './columns.js';
 import {identity} from './identity.js';
 import {assembleSurface3,type Attribute3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceEdge3,type SurfaceTriangle3} from '../geometry/surface.js';
@@ -47,14 +48,21 @@ function ownAttributes<A extends Attributes3>(attributes:A):Readonly<A>{
 }
 function budget(n:number,limit:number,label:string):void{if(!(limit===Infinity||Number.isSafeInteger(limit))||limit<0)throw new Error(`realize ${label} budget must be a nonnegative integer`);if(!Number.isSafeInteger(n)||n>limit)throw new Error(`instance realization exceeds ${label} budget (${limit})`);}
 
-/** The instances, and their one write: `set(column, value, where?)` or the
- * record form answers new instances, every placement kept. `transform` is
- * not a column: `transform(field)` places them. */
-export class InstanceRows<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends InstanceSource,C extends Attributes3> extends Collection<InstanceRow<A,S,R>,Instances<P,E,F,A,S,R,C>> {
-  set<Name extends string,V extends Attribute3>(column:Name,value:Field<InstanceRow<A,S,R>,V>,where?:Where3<InstanceRow<A,S,R>>):Instances<P,E,F,Omit<A,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>,S,R,C>;
-  set<B extends Attributes3>(values:AttributeFields<InstanceRow<A,S,R>,B>,where?:Where3<InstanceRow<A,S,R>>):Instances<P,E,F,Omit<A,keyof NoInfer<B>>&Widened3<NoInfer<B>>,S,R,C>;
-  set(...args:unknown[]):unknown{return this.write(args);}
-}
+/** An instance row as a selection of instances holds it: the row, typed
+ * with what the selection's write answers. */
+export type InstanceSelectionRow<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends InstanceSource,C extends Attributes3> = InstanceRow<A,S,R>&{readonly [ROW_TYPES]?:InstanceTypes<P,E,F,A,S,R,C>};
+/** @internal What a selection of instances answers: its one write,
+ * `set(column, value, where?)` or the record form, answers new instances,
+ * every placement kept. `transform` is not a column: `transform(field)`
+ * places them. */
+export type InstanceTypes<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends InstanceSource,C extends Attributes3> = Types<{
+  source:Instances<P,E,F,A,S,R,C>;extract:()=>Instances<P,E,F,A,S,R,C>;
+  set:{
+    <Name extends string,V extends Attribute3>(column:Name,value:Field<InstanceRow<A,S,R>,V>,where?:Where3<InstanceRow<A,S,R>>):Instances<P,E,F,Omit<A,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>,S,R,C>;
+    <B extends Attributes3>(values:AttributeFields<InstanceRow<A,S,R>,B>,where?:Where3<InstanceRow<A,S,R>>):Instances<P,E,F,Omit<A,keyof NoInfer<B>>&Widened3<NoInfer<B>>,S,R,C>;
+  };
+}>;
+const INSTANCES=kind3('instance');
 /** One shared mesh prototype plus owned per-instance data. Rendering may expand
  * transformed coordinates, but authoring topology is duplicated only by realize. */
 export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},A extends Attributes3={},S extends Attributes3={},R extends InstanceSource=PointRow<S>,C extends Attributes3={}> {
@@ -73,9 +81,9 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     Object.freeze(this);
   }
   get length():number{return this.rows.length;}
-  /** The instances, and their one write (see `InstanceRows`). */
-  get instances():InstanceRows<P,E,F,A,S,R,C>{
-    return new InstanceRows<P,E,F,A,S,R,C>(this,'instance',this.rows,ids=>new Instances<P,E,F,A,S,R,C>(this.prototype,ids.map(i=>this.rows[i]),this),undefined,undefined,write=>{
+  /** The instances, and their one write (see `InstanceTypes`). */
+  get instances():Selection<InstanceSelectionRow<P,E,F,A,S,R,C>>{
+    return select3(domainOf(this,'instances',()=>new Table3(INSTANCES,this,'instance',this.rows,{extract:ids=>new Instances<P,E,F,A,S,R,C>(this.prototype,ids.map(i=>this.rows[i]),this),write:write=>{
       const named=Object.keys(write.transfer);
       if(named.length)throw new Error(`${write.who}: instance columns carry no transfer policy — nothing refines them ('${named[0]}')`);
       if(write.values.some(v=>Object.hasOwn(v,'transform')))throw new Error(`${write.who}: 'transform' is not a column — transform(field) places the instances`);
@@ -83,7 +91,7 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
       const patch=new Map(write.rows.map((row,k)=>[row,write.values[k]]));
       const rows=this.rows.map(row=>{const p=patch.get(row.index);return p?retainPlacement(row,{...row,attributes:{...(row.attributes as Readonly<A>),...p}}):row;});
       return new Instances<P,E,F,A,S,R,C>(this.prototype,rows,this);
-    });
+    }}))) as unknown as Selection<InstanceSelectionRow<P,E,F,A,S,R,C>>;
   }
   withKey(value:string):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype,this.rows,{key:value});}
   /** Instances are drawn like their prototype: style it. */
@@ -124,9 +132,9 @@ export function instanceSurfaceBinding3(instances:Instances<any,any,any,any,any,
 /** 2D points at z = 0: a 2D point collection or selection, a material, or
  * `[x, y]` pairs. */
 export type Points2Input=Iterable<{readonly x:number;readonly y:number}>|{readonly points:Iterable<{readonly x:number;readonly y:number}>}|readonly (readonly [number,number])[];
-export type PointsInput<R extends PointRow<{}>>=Collection<R,unknown>|{readonly points:Collection<R,unknown>}|Points2Input;
+export type PointsInput<R extends PointRow<{}>>=Selection<R>|{readonly points:Selection<R>}|Points2Input;
 export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends PointRow<{}>>(
-  prototype:Mesh<P,E,F,C>,input:Collection<R,unknown>|{readonly points:Collection<R,unknown>},options?:InstanceOnPointsOptions<R['attributes'],R>,
+  prototype:Mesh<P,E,F,C>,input:Selection<R>|{readonly points:Selection<R>},options?:InstanceOnPointsOptions<R['attributes'],R>,
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>;
 /** 2D points stand at z = 0; their columns are numbers. */
 export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(
@@ -136,10 +144,10 @@ export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,
   prototype:Mesh<P,E,F,C>,input:PointsInput<R>,options:InstanceOnPointsOptions<R['attributes'],R>={},
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>{
   if(!(prototype instanceof Mesh))throw new Error('instanceOnPoints requires a mesh prototype');
-  const held=input instanceof Collection?input:input&&typeof input==='object'&&'points'in input?input.points:undefined;
+  const held=isSelection3(input)?input:input&&typeof input==='object'&&'points'in input?input.points:undefined;
   // 2D points stand on the ground plane: z = 0, ids and columns kept.
-  const points=held instanceof Collection?held:points2(input,'instanceOnPoints')?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Collection<R,unknown>:undefined;
-  if(!(points instanceof Collection)||points.domain!=='point')throw new Error('instanceOnPoints requires points: a point collection, sampled points, a mesh, or 2D points');
+  const points=isSelection3(held)?held as Selection<R>:points2(input,'instanceOnPoints')?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Selection<R>:undefined;
+  if(!isSelection3(points,'point'))throw new Error('instanceOnPoints requires points: a point collection, sampled points, a mesh, or 2D points');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('instance options must be an object');
   key(options.key);if(points.length>100000)throw new Error('instance count exceeds budget (100000)');
   return new Instances<P,E,F,R['attributes'],R['attributes'],R,C>(prototype,points.map(source=>{
@@ -160,10 +168,10 @@ export interface InstanceOnFacesOptions<F extends Attributes3,R extends FaceRow<
  * face normal (Blender's Instance on Points after Distribute on Faces, with
  * Align Rotation to Normal). Rows keep the face's attributes. */
 export function instanceOnFaces<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends FaceRow<F>>(
-  prototype:Mesh<P,E,F,C>,faces:Collection<R,unknown>,options:InstanceOnFacesOptions<F,R>={},
+  prototype:Mesh<P,E,F,C>,faces:Selection<R>,options:InstanceOnFacesOptions<F,R>={},
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>{
   if(!(prototype instanceof Mesh))throw new Error('instanceOnFaces requires a mesh prototype');
-  if(!(faces instanceof Collection)||faces.domain!=='face')throw new Error('instanceOnFaces requires a face collection, e.g. mesh.faces');
+  if(!isSelection3(faces,'face'))throw new Error('instanceOnFaces requires a face collection, e.g. mesh.faces');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('instance options must be an object');
   key(options.key);
   return new Instances<P,E,F,R['attributes'],R['attributes'],R,C>(prototype,faces.map(face=>{

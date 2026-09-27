@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { circle, material } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
+import { rec } from './helpers/xy.js';
 
 /** A Square20 toolkit: a 100 × 100 drawable in bare units. */
 const tk = () => toolkit();
@@ -58,8 +59,8 @@ describe('travelTime: arrival times over the drawable', () => {
     expect(T(50, 50)).toBe(Infinity);
     expect(Number.isFinite(T(10, 10))).toBe(true);
     // A level nothing reaches is not an error: it is no contours.
-    expect(t.isolines(T, 1e9).curves()).toHaveLength(0);
-    expect(t.isolines(T, 20).curves().length).toBeGreaterThan(0);
+    expect(t.isolines(T, 1e9).curves.map(rec)).toHaveLength(0);
+    expect(t.isolines(T, 20).curves.map(rec).length).toBeGreaterThan(0);
   });
 
   it('starts at zero over a seed area and grows outward from it', () => {

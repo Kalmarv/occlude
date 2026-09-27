@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { curve, material, type Material } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
+import { selectionIn } from '../src/selection.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -114,7 +115,7 @@ describe('a selection outlives the state it was made in', () => {
     expect(left.length).toBe(2);
     const after = m.points.remove(m.points.filter((p) => p.x < 5 && p.y < 5));
     // One of the two is gone; the other is still the same point.
-    const again = left.in(after);
+    const again = selectionIn(left, after);
     expect(again.length).toBe(1);
     expect(again.at(0).id).toBe(left.at(1).id);
     expect(again.source).toBe(after);
@@ -144,7 +145,7 @@ describe('a selection outlives the state it was made in', () => {
     const m = ring();
     const all = m.edges.filter(() => true);
     const after = m.split(m.edges.at(0));
-    const again = all.in(after);
+    const again = selectionIn(all, after);
     expect(again.length).toBe(m.edgeCount - 1); // the split parent is not there
   });
 });

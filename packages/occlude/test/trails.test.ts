@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { connect, curve, material, type Material } from '../src/index.js';
-import { xy } from './helpers/xy.js';
+import { xy, rec } from './helpers/xy.js';
 
 const grid = (C: number, R: number, S = 10) => {
   const pts: [number, number][] = [];
@@ -50,7 +50,7 @@ describe('trails', () => {
     for (const [C, R] of [[9, 6], [4, 4], [12, 3]] as [number, number][]) {
       const g = grid(C, R);
       const t = g.trails();
-      expect(t.curves().length).toBe(Math.max(1, oddCount(g) / 2));
+      expect(t.curves.map(rec).length).toBe(Math.max(1, oddCount(g) / 2));
       // The same ink, edge for edge: nothing added, nothing dropped, nothing
       // drawn twice.
       expect(inkOf(t)).toEqual(inkOf(g));
@@ -58,7 +58,7 @@ describe('trails', () => {
     }
     // And it is a real improvement on the chain walk, which breaks at junctions.
     const g = grid(9, 6);
-    expect(g.trails().curves().length).toBeLessThan(g.curves().length / 5);
+    expect(g.trails().curves.map(rec).length).toBeLessThan(g.curves.map(rec).length / 5);
   });
 
   it('a network with no odd vertex is one closed loop', () => {
@@ -68,8 +68,8 @@ describe('trails', () => {
       { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [2, 4], [4, 5], [5, 6], [6, 2]] });
     expect(oddCount(eight)).toBe(0);
     const t = eight.trails();
-    expect(t.curves().length).toBe(1);
-    expect(t.curves()[0].closed).toBe(true);
+    expect(t.curves.map(rec).length).toBe(1);
+    expect(t.curves.map(rec)[0].closed).toBe(true);
     expect(inkOf(t)).toEqual(inkOf(eight));
     // The degree-4 vertex became two rows the pen passes through separately.
     expect(t.n).toBeGreaterThan(eight.n);
@@ -78,11 +78,11 @@ describe('trails', () => {
   it('counts each component on its own, and leaves isolated rows out', () => {
     const two = material(grid(3, 3).points.map(xy), { edges: [[0, 1], [1, 2], [3, 4], [4, 5]] }).trails();
     expect(components(two)).toBe(2);
-    expect(two.curves().length).toBe(2);
+    expect(two.curves.map(rec).length).toBe(2);
     // A lone point is in no trail, exactly as the chain walk leaves it out.
     const lonely = material([[0, 0], [5, 0], [50, 50]], { edges: [[0, 1]] });
     const t = lonely.trails();
-    expect(t.curves().length).toBe(1);
+    expect(t.curves.map(rec).length).toBe(1);
     expect(t.edgeCount).toBe(1);
     // Nothing to route is not an error.
     expect(material([[1, 1], [2, 2]]).trails().edgeCount).toBe(0);
@@ -100,7 +100,7 @@ describe('trails', () => {
     expect(Array.from(a.x)).toEqual(Array.from(b.x));
     // A chain that was already one run stays one run and keeps its shape.
     const open = curve([[0, 0], [5, 1], [10, 0], [15, 2]]);
-    expect(open.trails().curves().length).toBe(1);
+    expect(open.trails().curves.map(rec).length).toBe(1);
     expect(inkOf(open.trails())).toEqual(inkOf(open));
   });
 });

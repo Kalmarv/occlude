@@ -5,7 +5,7 @@ import { distanceTo, rect, sketch } from '../src/index.js';
 import { initOcclude, render } from '../src/host.js';
 import type { SketchDef } from '../src/index.js';
 import type { RenderOptions } from '../src/host.js';
-import { xy } from './helpers/xy.js';
+import { xy, rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -87,7 +87,7 @@ describe('distanceTo: signed distance field', () => {
           minX = Math.min(minX, x);
           maxX = Math.max(maxX, x);
         }
-        capture.push({ level, count: cs.curves().length, span: maxX - minX });
+        capture.push({ level, count: cs.curves.map(rec).length, span: maxX - minX });
       }
       return [rect(0, 0, 1, 1)];
     });

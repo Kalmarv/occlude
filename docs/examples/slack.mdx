@@ -9,7 +9,7 @@ That second step is what makes this a drawing. The raw field gives neighbouring 
 
 The threads with the most slack take a heavier pen. You can then see where they run. The hem is the result: it dips where the slack gathers.
 
-Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, `force.tension` with a rest for each edge, `force.sum`, `extent`, `edges.subtract` and `strokes`.
+Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, `force.tension` with a rest for each edge, `force.sum`, `extent`, `edges.without` and `strokes`.
 
 ```ts live
 import { sketch, strokes, circle, material, force, mul, extent } from 'occlude';
@@ -39,7 +39,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const [lo, hi] = extent(hung.edges.map((e) => e.rest));
   const slack = hung.edges.filter((e) => e.rest > lo + 0.62 * (hi - lo));
   return [
-    strokes(hung.edges.subtract(slack), { pen: 'pigma-005-black' }),
+    strokes(hung.edges.without(slack), { pen: 'pigma-005-black' }),
     strokes(slack, { pen: 'pigma-05-black' }),
     [...nails].map((i) => circle(pts[i][0], pts[i][1], 0.012 * b.h, { pen: 'stabilo-88-blue' })),
   ];

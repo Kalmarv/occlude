@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { faceTableOf } from '../src/faces.js';
 import { material, point, type Material } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
 import { toolkit } from './helpers/run.js';
@@ -75,7 +76,7 @@ describe('the key is the walls, not the rows', () => {
   it('gives a face the same key when its walls are the same', () => {
     const m = twoFaces();
     const moved = m.move([0, 1]);
-    expect([...moved.faces().keys()].sort()).toEqual([...m.faces().keys()].sort());
+    expect([...faceTableOf(moved.faces()).keys()].sort()).toEqual([...faceTableOf(m.faces()).keys()].sort());
   });
 
   it('keeps the key when a wall is merely subdivided', () => {

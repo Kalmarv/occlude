@@ -14,7 +14,7 @@ import {
 } from '../src/index.js';
 import { compileSketch, evalPrim, initOcclude, render } from '../src/host.js';
 import { box } from '../src/three/api/index.js';
-import { xy } from './helpers/xy.js';
+import { xy, rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -129,9 +129,9 @@ describe('P1 · one area door', () => {
     const art = svg('<svg viewBox="0 0 10 10"><path d="M0 5 L10 5"/><path d="M0 8 L10 8"/></svg>', { x: 0, y: 60, width: 100 });
     const waves = t.material(art);
     expect(waves.n).toBeGreaterThan(0);
-    expect(waves.curves().length).toBe(2);
-    const st = t.station(50, 50, { heading: 90 });
-    const tag = st.place(rect(-5, -1, 10, 2));
+    expect(waves.curves.map(rec).length).toBe(2);
+    const st = t.placement([50, 50], 90);
+    const tag = group(st, rect(-5, -1, 10, 2));
     // Turned a quarter, the tag stands upright: 2 wide and 10 tall.
     const pts = material(t.times(21, (i) => t.times(21, (j) => [40 + i, 40 + j] as [number, number])).flat());
     const cleared = t.within(pts.points, tag);
@@ -260,7 +260,7 @@ describe('P4 · one pivot type', () => {
 
   it('G7-7 G1-19 · a record and a number[] are points, so a station and a centroid go straight in', () => {
     same(
-      (t) => { const st = t.station(30, 40); return group({ rotate: 30, origin: st }, rect(st, 12, 6)); },
+      (t) => { const st = t.placement([30, 40]); return group({ rotate: 30, origin: st }, rect(st, 12, 6)); },
       () => group({ rotate: 30, origin: [30, 40] }, rect(30, 40, 12, 6)),
     );
     const c: number[] = [30, 40];

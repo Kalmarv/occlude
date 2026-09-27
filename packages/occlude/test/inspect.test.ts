@@ -3,6 +3,7 @@ import { circle, material, sketch, stroke } from '../src/index.js';
 import { Execution, compileSketch, inspectHook, userUnitsToPaper } from '../src/host.js';
 import { makeFrame } from '../src/record.js';
 import { A4 } from './helpers/run.js';
+import { rec } from './helpers/xy.js';
 
 const ON = { ...A4, inspect: true };
 
@@ -37,7 +38,7 @@ describe('t.probe of a material: the debug registry', () => {
       t.probe('source', a);
       t.probe('grown', a.points.set('age', 3));
       t.probe('source', a.edges.add([a.points.at(0), a.points.at(2)]));  // replaced, stays first
-      return stroke(a.curves()[0]);
+      return stroke(a.curves.map(rec)[0]);
     }), ON);
     const index = exec.getInspectionIndex();
     expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
@@ -47,7 +48,7 @@ describe('t.probe of a material: the debug registry', () => {
     expect(compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)), ON).getInspectionIndex()).toEqual([]);
   });
 
-  it('the stations of along() register as a material of their own', () => {
+  it('the points of along() register as the material they are', () => {
     // the studio's instrumentation calls the hook of the run it is about to compile
     const exec = new Execution(ON);
     const hook = inspectHook(exec);
@@ -57,14 +58,14 @@ describe('t.probe of a material: the debug registry', () => {
       hook('stations', stations);
       t.probe('named', stations);
       hook('nothing', [1, 2, 3]);
-      return stroke(ring.curves()[0]);
+      return stroke(ring.curves.map(rec)[0]);
     }), exec);
     {
       expect(exec.getInspectionIndex().map((e) => e.name)).toEqual(['stations', 'named']);
       const p = exec.inspectionPayload('stations')!;
       expect(p.n).toBe(4);
-      expect(p.edges.length / 2).toBe(4); // a closed walk
-      expect(Object.keys(p.attrs).sort()).toEqual(['chain', 'heading', 'length', 's', 'u']);
+      expect(p.edges.length / 2).toBe(0); // points, not a chain
+      expect(Object.keys(p.attrs).sort()).toEqual(['heading', 's', 'u']);
     }
   });
 
@@ -74,7 +75,7 @@ describe('t.probe of a material: the debug registry', () => {
         t.probe('step', g);
         return g.move([1, 0]);
       });
-      return stroke(grown.curves()[0]);
+      return stroke(grown.curves.map(rec)[0]);
     }), ON);
     const p = exec.inspectionPayload('step')!;
     expect(p.iteration).toBe(4); // `cur` of the last step

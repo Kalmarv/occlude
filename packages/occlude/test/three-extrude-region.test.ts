@@ -18,7 +18,7 @@ describe('connected-region extrusion',()=>{
     expect(out.surface.faces.length).toBe(model.surface.faces.length+boundary);
     // Cap faces keep their IDs and rise by the vector; all other faces stay put.
     for(const f of region){const cap=out.surface.faces.find(x=>x.id===f.id)!;expect(cap.vertices.every(v=>out.surface.points[v].position[2]===0.5)).toBe(true);}
-    for(const f of region.complement()){const same=out.surface.faces.find(x=>x.id===f.id)!;expect(same.vertices.every(v=>out.surface.points[v].position[2]===0)).toBe(true);}
+    for(const f of model.faces.without(region)){const same=out.surface.faces.find(x=>x.id===f.id)!;expect(same.vertices.every(v=>out.surface.points[v].position[2]===0)).toBe(true);}
     // The shared centre point moved in place; boundary points were duplicated.
     expect(out.surface.points.length).toBe(model.surface.points.length+8);
     expect(out.surface.points.filter(p=>p.provenance?.operation==='extrude').length).toBe(8);

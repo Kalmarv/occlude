@@ -3,12 +3,12 @@ title: Growing network
 description: Tips that grow upward, sense the lines ahead, steer, and join what they hit.
 ---
 
-Nine tips start at the bottom with a heading. Each step, a tip looks ahead with `query.edges`. If a line is near, it steers away from it, or toward it when `steer` is negative. If its next move would cross a line, it cuts that line with a new point and joins it, and the tip stops. Now and then a tip forks. The tips of one step grow in turn, and each one senses the lines the tips before it drew. Each point keeps the step it grew in, and the noise that bends a tip reads that step. A rock in the middle is a ring of points that the tips treat like any other line.
+Nine tips start at the bottom with a heading. Each step, a tip looks ahead with `edges.nearest` and `edges.firstHit`. If a line is near, it steers away from it, or toward it when `steer` is negative. If its next move would cross a line, it cuts that line with a new point and joins it, and the tip stops. Now and then a tip forks. The tips of one step grow in turn, and each one senses the lines the tips before it drew. Each point keeps the step it grew in, and the noise that bends a tip reads that step. A rock in the middle is a ring of points that the tips treat like any other line.
 
-Uses: `material` with columns, `append` with `fill`, `t.steps` inside a pass, `extrude`, `point` with `points.add`, `edges.remove` and `edges.add`, `query.edges`, `cross`, `ui`.
+Uses: `material` with columns, `append` with `fill`, `t.steps` inside a pass, `extrude`, `point` with `points.add`, `edges.remove` and `edges.add`, `edges.nearest` and `edges.firstHit`, `cross`, `ui`.
 
 ```ts live
-import { sketch, circle, strokes, material, append, point, query, add, mul, polar, fromAngle, cross, ui } from 'occlude';
+import { sketch, circle, strokes, material, append, point, add, mul, polar, fromAngle, cross, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const steps = ui(34, { min: 0, max: 60, step: 1 });
@@ -22,7 +22,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   // One tip grows: the oldest living one. It senses the lines as they are now.
   const grow = (g) => {
     const p = living(g).at(0);
-    const lines = query.edges(g);
+    const lines = g.edges;
     let h = p.heading + t.noise(p.x / 10, p.y / 10, p.step) * 0.35;
     const ahead = add(p, mul(fromAngle(h), sense));
     const near = lines.nearest(ahead, { within: sense, excludeIncident: p });

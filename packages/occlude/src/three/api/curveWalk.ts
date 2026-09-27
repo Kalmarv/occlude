@@ -4,7 +4,7 @@ import {sub3,type Vec3} from '../math.js';
 import {curvePath} from './curveTopology.js';
 import type {CurveGeometry} from './mesh.js';
 
-/** A place on a 3D curve, read off it by arc length: the 2D `Station` in
+/** A place on a 3D curve, read off it by arc length: the 2D `along` point in
  * space. Position, the unit tangent of the segment under it (a station on a
  * vertex takes the mean of the two segments), arc length `s` from the start,
  * its fraction `u`, the curve's whole `length`, and the numeric point

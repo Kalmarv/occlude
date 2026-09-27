@@ -3,7 +3,7 @@ title: Transforms
 description: Operations that take a material and return a changed material.
 ---
 
-Each transform is a method on the material: `m.warp({ from, to })`. It reads the material, in the material's own coordinates, and returns a new material. The numbers on this page are flat numbers, and a curved sketch changes that for four words only. The [geometry](/docs/reference/geometry#space--projection) page holds the table of the words that read the metric. `m.resample`, `m.along` and `m.trim` measure by the metric when the caller hands them a space. `m.transform` moves points by an isometry of one. Most keep the columns. `thicken` returns a new boundary, and `envelope` adds one column. They read no seed and no paper, so the same input always gives the same output. `segmentRuns`, `banding` and `extent` stay imports.
+Each transform is a method on the material: `m.warp({ from, to })`. It reads the material, in the material's own coordinates, and returns a new material. The numbers on this page are flat numbers, and a curved sketch changes that for four words only. The [geometry](/docs/reference/geometry#space--projection) page holds the table of the words that read the metric. `m.resample`, `m.along` and `m.trim` measure by the metric when the caller hands them a space. `m.transform` moves points by an isometry of one. Most keep the columns. `thicken` returns a new boundary, and `envelope` adds one column. They read no seed and no paper, so the same input always gives the same output. `banding` and `extent` stay imports.
 
 ## m.warp()
 
@@ -133,22 +133,21 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 });
 ```
 
-## segmentRuns() · extent()
+## extent()
 
-<include>/_sig/segmentRuns.mdx</include>
 <include>/_sig/extent.mdx</include>
 
-`segmentRuns(m, key)` classifies every edge and gathers consecutive equal keys into runs, chain by chain. Together the runs draw every edge once. The key reads the EDGE, in stored order. It can use the edge's own columns, and also `e.a` and `e.b`. A vertex attribute needs an interpretation before it can own an edge: the start's, the end's or their mean are different drawings. `extent(column)` is `[min, max]`, and a band is the value's place in that range, cut into equal parts.
+To draw the edges of a chain in bands, group them by a key. `m.edges.groupBy(key)` gives one edge selection for each key, and `strokes(g, { pen: pens[g.key] })` draws one group. Together the groups draw every edge once. `g.curves` gives the chains of one group. The key reads the EDGE. It can use the edge's own columns, and also `e.a` and `e.b`. A vertex attribute needs an interpretation before it can own an edge: the start's, the end's or their mean are different drawings. `extent(column)` is `[min, max]`, and a band is the value's place in that range, cut into equal parts.
 
 ```ts live
-import { sketch, stroke, circle, segmentRuns, extent } from 'occlude';
+import { sketch, strokes, circle, extent } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 60 }).points.set('h', (p) => p.y);
   const [lo, hi] = extent(ring.points.map((p) => p.h));
   const band = (v) => Math.min(2, Math.floor(((v - lo) / (hi - lo)) * 3));
   const pens = ['pigma-05-black', 'stabilo-88-blue', 'stabilo-88-green'];
-  return segmentRuns(ring, (e) => band((e.a.h + e.b.h) / 2)).map((run) => stroke(run, { pen: pens[run.key] }));
+  return ring.edges.groupBy((e) => band((e.a.h + e.b.h) / 2)).map((g) => strokes(g, { pen: pens[g.key] }));
 });
 ```
 
@@ -180,7 +179,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## A point map: points.set() on x and y
 
-<include>/_sig/PointSelection.set.mdx</include>
+<include>/_sig/points.set.mdx</include>
 
 Moves every vertex through a point map. `x` and `y` are columns, so one write of the two columns puts each vertex where the map says. Both functions read the vertex as it was before the write. The write gives a position, not a displacement, and that is what marks it apart from `m.move`.
 

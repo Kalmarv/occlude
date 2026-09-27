@@ -12,7 +12,7 @@ Curves are polygonal paths in 3D. On their own they are wires in a view. As prof
 
 `curve` takes points, and `parametricCurve` samples a function of `t` from 0 to 1. A curve in a view is a wire: meshes hide it, and it hides nothing.
 
-`curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too: `curve(m)` puts a material in XY at z = 0 and keeps the ids and the columns of its points. The chain tells if it is closed. A function of `t` is a different input, so it has a different word: `parametricCurve`.
+`curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too. `curve(m)` puts a material in XY at z = 0, and it keeps the ids and the columns of its points. The chain gives its own closure. A function of `t` is a different input, so it has a different word: `parametricCurve`.
 
 A circle profile is a closed `parametricCurve` of the angle: `parametricCurve((u) => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], { closed: true })`. The word `circle` is the 2D shape.
 
@@ -68,7 +68,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives places along the curve by arc length. Each place has `x`, `y`, `z`, the unit `tangent`, the arc length `s`, the fraction `u` and the point columns. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it. `curve.resample({ count }).points.extract()` gives those points as a point set, with the point columns.
 
-Below, beads are put on a helix at equal arc length.
+Below, beads sit on a helix at equal arc length.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -76,8 +76,8 @@ import { parametricCurve, sphere, instanceOnPoints, pointCloud, view, orthograph
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, () => {
   const helix = parametricCurve((u) => [Math.cos(u * 12) * 1.1, Math.sin(u * 12) * 1.1, u * 2.4 - 1.2], { segments: 240 });
-  const stations = helix.along({ spacing: helix.length / 40 });
-  const beads = instanceOnPoints(sphere(0.09, { segments: 10, rings: 5 }), pointCloud(stations.map((s) => [s.x, s.y, s.z])));
+  const places = helix.along({ spacing: helix.length / 40 });
+  const beads = instanceOnPoints(sphere(0.09, { segments: 10, rings: 5 }), pointCloud(places.map((s) => [s.x, s.y, s.z])));
   return view([helix.resample({ count: 80 }), beads], { camera: orthographic({ eye: [4, 6, 3], span: 3.6 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
@@ -86,7 +86,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/Toolkit.streamlines.mdx</include>
 
-`t.streamlines` of a field of space, `(x, y, z) => [vx, vy, vz]`, gives evenly spaced streamlines as open curves. It is the 2D word: the field's parameters say which space it runs in. A view occludes the curves like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
+`t.streamlines` of a field of space, `(x, y, z) => [vx, vy, vz]`, gives evenly spaced streamlines as open curves. It is the 2D word, and the parameters of the field give the space it runs in. A view occludes the curves like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
 
 Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }` to throw that many points into a closed mesh. `within` cuts every line to the runs inside a closed mesh, and interpolates the crossing point.
 

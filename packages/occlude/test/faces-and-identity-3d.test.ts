@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
 import { initOcclude } from '../src/host.js';
 import {box,sphere,plane,mesh} from '../src/three/api/index.js';
+import { selectionIn } from '../src/selection.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
@@ -10,11 +11,11 @@ const sheet=()=>plane(4,4).subdivide(2); // 16 faces, 4 × 4, one unit each
 const cell=(m:ReturnType<typeof sheet>,i:number,j:number)=>m.faces.filter(f=>Math.abs(f.centroid[0]-(-1.5+i))<1e-9&&Math.abs(f.centroid[1]-(-1.5+j))<1e-9);
 
 describe('G3-29 3D selections resolve by id',()=>{
-  it('G3-29 corner.in(solid) after a boolean subtract keeps the top faces that survive, by id',()=>{
+  it('G3-29 corner read on solid after a boolean subtract keeps the top faces that survive, by id',()=>{
     const block=box(2).subdivide(1);
     const corner=block.faces.filter(f=>f.centroid[2]>0.9).groupBy(()=>'top')[0];
     const solid=block.subtract(sphere(0.9,{segments:20,rings:10}).translate([1,1,1]));
-    const stillTop=corner.in(solid);
+    const stillTop=selectionIn(corner, solid);
     const ids=new Set(corner.map(f=>f.id));
     expect(stillTop.source).toBe(solid.surface);
     expect(stillTop.map(f=>f.id)).toEqual(solid.faces.filter(f=>ids.has(f.id)).map(f=>f.id));
@@ -22,11 +23,11 @@ describe('G3-29 3D selections resolve by id',()=>{
     expect(stillTop.length).toBeLessThanOrEqual(corner.length);
     expect(stillTop.key).toBe('top');
     // Reading it back on its own revision is the identity.
-    expect(corner.in(block).indices).toEqual(corner.indices);
+    expect(selectionIn(corner, block).indices).toEqual(corner.indices);
     // Resolving among a selection of the target revision.
-    expect(corner.in(solid.faces.filter(()=>false)).length).toBe(0);
-    expect(()=>corner.in(solid.points as never)).toThrow('expected faces, got points');
-    expect(()=>corner.in({} as never)).toThrow('has no faces');
+    expect(selectionIn(corner, solid.faces.filter(()=>false)).length).toBe(0);
+    expect(()=>selectionIn(corner, solid.points as never)).toThrow('expected faces, got points');
+    expect(()=>selectionIn(corner, {} as never)).toThrow('has no faces');
   });
   it('G3-29 rim.has(e) answers for the edges of an extruded revision by id',()=>{
     const m=sheet(),part=cell(m,1,1);
@@ -36,14 +37,14 @@ describe('G3-29 3D selections resolve by id',()=>{
     expect(kept.length).toBe(rim.length);
     expect(kept.map(e=>e.id).sort()).toEqual(rim.map(e=>e.id).sort());
     expect(out.edges.filter(e=>!rim.has(e)).length).toBe(out.edges.length-rim.length);
-    expect(()=>rim.has(out.faces.at(0) as never)).toThrow('expected edge, received face');
+    expect(()=>rim.has(out.faces.at(0) as never)).toThrow('expected a edge row, got a face row');
     expect(()=>rim.has({...out.edges.at(0)!})).toThrow('expected a edge row');
   });
   it('G3-29 set operations resolve a stale operand by id; a different domain still refuses',()=>{
     const m=sheet(),a=cell(m,0,0).union(cell(m,1,0)),b=cell(m,1,0);
     const next=m.extrude(cell(m,3,3),[0,0,1]);
-    const nextA=a.in(next);
-    expect(nextA.subtract(b).map(f=>f.id)).toEqual(cell(m,0,0).map(f=>f.id));
+    const nextA=selectionIn(a, next);
+    expect(nextA.without(b).map(f=>f.id)).toEqual(cell(m,0,0).map(f=>f.id));
     expect(nextA.intersect(b).map(f=>f.id)).toEqual(b.map(f=>f.id));
     expect(next.faces.filter(()=>false).union(a).map(f=>f.id).sort()).toEqual(a.map(f=>f.id).sort());
     expect(()=>nextA.union(m.points as never)).toThrow('same domain');

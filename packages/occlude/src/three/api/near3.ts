@@ -49,6 +49,16 @@ export function pointsNear3(surface:Surface3,p:Vec3,radius:number):number[] {
   });
   return candidates(grid,p,radius).filter(i=>{const q=surface.points[i].position;return Math.hypot(q[0]-p[0],q[1]-p[1],q[2]-p[2])<radius;});
 }
+/** Distance from `p` to point row `i`. */
+export function pointDistance3(surface:Surface3,p:Vec3,i:number):number {
+  const q=surface.points[i].position;
+  return Math.hypot(q[0]-p[0],q[1]-p[1],q[2]-p[2]);
+}
+/** Distance from `p` to edge row `i`, the whole segment. */
+export function edgeDistance3(surface:Surface3,p:Vec3,i:number):number {
+  const e=surface.edges[i];
+  return segmentDistance(p,surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position);
+}
 /** Distance from `p` to the segment `a`–`b`. */
 function segmentDistance(p:Vec3,a:Vec3,b:Vec3):number {
   const d=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],w=[p[0]-a[0],p[1]-a[1],p[2]-a[2]],l=d[0]*d[0]+d[1]*d[1]+d[2]*d[2];

@@ -15,6 +15,7 @@ import { areaLoops } from '../src/boundary.js';
 import { levelContours, levelMaterial, sampleGrid, type IsoLevels } from '../src/isolines.js';
 import { edgeCells, marchSegments, wallSegments } from '../src/marching.js';
 import { areaMaterial } from '../src/material.js';
+import { selectionIn } from '../src/selection.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -91,7 +92,7 @@ describe('the area keeps the lines\' identity', () => {
     const t = toolkit({ aspect: [1, 1] });
     const m = t.isolines(sdf.circle(0, 0, 30), 0);
     const area = areaMaterial(m);
-    const lines = m.edges.in(area);
+    const lines = selectionIn(m.edges, area);
     expect(lines.length).toBe(m.edges.length);
     expect([...lines].every((e) => e.cut === 0)).toBe(true);
     const rims = area.edges.filter((e) => e.cut === 1);

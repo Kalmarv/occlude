@@ -77,8 +77,8 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## points.set() · faces.set()
 
-<include>/_sig/3d.MeshPoints.set.mdx</include>
-<include>/_sig/3d.MeshFaces.set.mdx</include>
+<include>/_sig/3d.points.set.mdx</include>
+<include>/_sig/3d.faces.set.mdx</include>
 
 `mesh.points.set(column, value, where?, opts?)` writes a point column and returns the new mesh. `mesh.edges.set`, `mesh.faces.set` and `mesh.corners.set` write the other domains. A value is a number, a string, a boolean or a list of numbers. It can also be a function of the row. The record form `set({ column: value, … })` writes several columns. Every function in it reads the rows as they were before the write. `x`, `y` and `z` are the position of a point. `where` is a selection, one row, or a test of the row. It names the rows that the write changes. A value that is not a finite number leaves that row as it was.
 

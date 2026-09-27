@@ -116,9 +116,11 @@ describe('edges.near', () => {
     expect(long.edges.near([50, 2], { radius: 2 }).length).toBe(0);
   });
 
-  it('answers in source order, and with its own members only', () => {
+  it('answers nearest first, ties by row, and with its own members only', () => {
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 0]], { closed: false });
-    expect(m.edges.near([15, 0], { radius: 20 }).indices).toEqual([0, 1, 2]);
+    // Edge 1 runs through (15, 0); edges 0 and 2 are both 5 away: row order.
+    expect(m.edges.near([15, 0], { radius: 20 }).indices).toEqual([1, 0, 2]);
+    expect(m.edges.near([29, 1], { radius: 20 }).indices).toEqual([2, 1, 0]);
     const right = m.edges.filter((e) => e.index >= 1);
     expect(right.near([15, 0], { radius: 20 }).indices).toEqual([1, 2]);
   });

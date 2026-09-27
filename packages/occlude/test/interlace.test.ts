@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { append, curve, material, type Material } from '../src/index.js';
+import { rec } from './helpers/xy.js';
 
 const ink = (m: Material) => {
   let s = 0;
@@ -17,13 +18,13 @@ describe('interlace', () => {
     const x = cross();
     const woven = x.interlace({ gap: 8 });
     // One strand survives whole, the other is in two pieces.
-    expect(woven.curves().length).toBe(3);
+    expect(woven.curves.map(rec).length).toBe(3);
     // The ink lost is the gap, once.
     expect(ink(woven)).toBeCloseTo(ink(x) - 8, 6);
     // A wider gap takes more, and a zero gap takes nothing.
     expect(ink(x.interlace({ gap: 20 }))).toBeCloseTo(ink(x) - 20, 6);
     expect(ink(x.interlace({ gap: 0 }))).toBeCloseTo(ink(x), 6);
-    expect(x.interlace({ gap: 0 }).curves().length).toBe(2);
+    expect(x.interlace({ gap: 0 }).curves.map(rec).length).toBe(2);
   });
 
   it('`over` decides which one, and it is the only thing that does', () => {
@@ -35,8 +36,8 @@ describe('interlace', () => {
     const spanX = (m: Material) => Math.max(...m.x) - Math.min(...m.x);
     // Both keep their full extent; what changes is which one has a hole, so
     // compare the piece counts either side.
-    expect(aOver.curves().length).toBe(3);
-    expect(bOver.curves().length).toBe(3);
+    expect(aOver.curves.map(rec).length).toBe(3);
+    expect(bOver.curves.map(rec).length).toBe(3);
     expect(spanX(aOver)).toBeCloseTo(100, 6);
     expect(spanY(bOver)).toBeCloseTo(100, 6);
     // The two answers are genuinely different drawings.
@@ -50,7 +51,7 @@ describe('interlace', () => {
   it('a strand may cross itself, but never its own next segment', () => {
     // A figure of eight crosses itself once.
     const eight = curve([[0, 0], [40, 40], [40, 0], [0, 40]], { closed: false });
-    expect(eight.interlace({ gap: 6 }).curves().length).toBe(2);
+    expect(eight.interlace({ gap: 6 }).curves.map(rec).length).toBe(2);
     // A plain zig-zag has adjacent segments meeting at every vertex, and not
     // one of those is a crossing.
     const zig = curve([[0, 0], [10, 20], [20, 0], [30, 20], [40, 0]]);
@@ -71,7 +72,7 @@ describe('interlace', () => {
       return [50 + Math.cos(a) * 30, 50 + Math.sin(a) * 30] as [number, number];
     }), { closed: true });
     expect(ink(ring.interlace({ gap: 5 }))).toBeCloseTo(ink(ring), 9);
-    expect(ring.interlace({ gap: 5 }).curves().length).toBe(1);
+    expect(ring.interlace({ gap: 5 }).curves.map(rec).length).toBe(1);
     const box = curve([[0, 0], [30, 0], [30, 30], [0, 30]], { closed: true });
     expect(ink(box.interlace({ gap: 4 }))).toBeCloseTo(ink(box), 9);
     // Two separate closed curves that do not touch keep every millimetre.

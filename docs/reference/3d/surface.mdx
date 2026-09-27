@@ -30,7 +30,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key, pen })`. The call refuses `levels` in the options by name.
 
-The result is a collection of chains. `rings.curves()` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
+The result is a collection of chains. `rings.curves` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -98,7 +98,7 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
 
 ## Charts and corner columns
 
-Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `mesh.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead: each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `mesh.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead. Each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

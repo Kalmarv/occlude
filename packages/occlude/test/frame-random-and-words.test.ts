@@ -267,7 +267,7 @@ describe('N1 slice · chain verbs on an edge selection (G2-10, G5-25)', () => {
     const ring = t.sample(circle(50, 50, 30), { count: 40 });
     const arc = ring.edges.filter((e) => e.a.y < 50 && e.b.y < 50);
     // sketches/reference-material-3.ts:13, sketches/examples-datum-1.ts:15
-    expect(arc.along({ spacing: 5 }).map((s) => [s.x, s.y])).toEqual(arc.extract().along({ spacing: 5 }).map((s) => [s.x, s.y]));
+    expect(arc.along({ spacing: 5 }).points.map((s) => [s.x, s.y])).toEqual(arc.extract().along({ spacing: 5 }).points.map((s) => [s.x, s.y]));
     expect(coords(arc.trim({ start: 2, end: 2 }))).toBe(coords(arc.extract().trim({ start: 2, end: 2 })));
     expect(coords(arc.resample({ spacing: 3 }))).toBe(coords(arc.extract().resample({ spacing: 3 })));
   });

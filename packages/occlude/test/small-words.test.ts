@@ -6,9 +6,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   angleBetween, append, connect, curve, distanceTo, hull, lerp, material, path, reflect,
-  rotate, stroke, turn, unit, type Material, type Station,
+  rotate, stroke, turn, unit, type Material,
 } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
+import { circle as circleShape } from '../src/index.js';
+import { rec } from './helpers/xy.js';
 
 const square = (x = 0, y = 0, s = 10) =>
   curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
@@ -128,20 +130,12 @@ describe('hull: the outline of a cloud', () => {
 
 // ---- connect.turns ---------------------------------------------------------
 
-const station = (x: number, y: number, heading: number): Station => ({
-  x, y, heading, tangent: [Math.cos(heading), Math.sin(heading)],
-  normal: [-Math.sin(heading), Math.cos(heading)],
-  s: 0, u: 0, length: 0, chain: 0, closed: false, attrs: {}, edgeAttrs: {},
-  place: () => { throw new Error('not used'); },
-  step: () => { throw new Error('not used'); },
-  turn: () => { throw new Error('not used'); },
-  toward: () => { throw new Error('not used'); },
-  placement: () => { throw new Error('not used'); },
-});
+/** A headed place, as a record: what `connect.turns` reads of each entry. */
+const station = (x: number, y: number, heading: number): { x: number; y: number; heading: number } => ({ x, y, heading });
 
 /** Walk the chain from row 0 and measure it. */
 const chainOf = (m: Material): { pts: [number, number][]; length: number; maxTurn: number } => {
-  const curves = m.curves();
+  const curves = m.curves.map(rec);
   const pts = curves.flatMap((c) => c.pts as [number, number][]);
   let length = 0;
   let maxTurn = 0;
@@ -166,7 +160,7 @@ describe('connect.turns: the shortest bounded-curvature run', () => {
     for (const [, y] of pts) expect(Math.abs(y)).toBeLessThan(1e-9);
   });
 
-  it('ends where the next station is, facing the way it faces', () => {
+  it('ends where the next place is, facing the way it faces', () => {
     const a = station(0, 0, 0);
     const b = station(30, 20, Math.PI / 2);
     const m = connect.turns([a, b], { radius: 6 });
@@ -199,11 +193,18 @@ describe('connect.turns: the shortest bounded-curvature run', () => {
     const shut = connect.turns(ring, { radius: 8, closed: true });
     expect(shut.edgeCount).toBeGreaterThan(open.edgeCount);
     expect(shut.n).toBe(shut.edgeCount); // every vertex has two neighbours
-    expect(shut.curves()).toHaveLength(1);
-    expect(shut.curves()[0].closed).toBe(true);
+    expect(shut.curves.map(rec)).toHaveLength(1);
+    expect(shut.curves.map(rec)[0].closed).toBe(true);
   });
 
-  it('refuses plain points by name, and says where headings come from', () => {
+  it('takes the points of along() and placements, and refuses plain points by name', () => {
+    const ring = toolkit({ aspect: [1, 1] }).material(circleShape(50, 50, 20));
+    const byPoints = connect.turns(ring.along({ count: 6 }), { radius: 5, closed: true });
+    const byRows = connect.turns(ring.along({ count: 6 }).points, { radius: 5, closed: true });
+    expect(Array.from(byRows.x)).toEqual(Array.from(byPoints.x));
+    const kit = toolkit({ aspect: [1, 1] });
+    const byPlacements = connect.turns([kit.placement([0, 0]), kit.placement([40, 0])], { radius: 5 });
+    expect(chainOf(byPlacements).length).toBeCloseTo(40, 6);
     expect(() => connect.turns([[0, 0], [10, 10]] as never, { radius: 3 }))
       .toThrow(/m\.along/);
     expect(() => connect.turns(material([[0, 0], [1, 1]]), { radius: 3 }))
@@ -212,7 +213,7 @@ describe('connect.turns: the shortest bounded-curvature run', () => {
       .toThrow('connect.turns: { radius }');
   });
 
-  it('is deterministic and holds its stations', () => {
+  it('is deterministic and holds its places', () => {
     const list = [station(0, 0, 0), station(25, 12, 1), station(50, -6, 2.5)];
     const a = connect.turns(list, { radius: 5 });
     const b = connect.turns(list, { radius: 5 });

@@ -319,8 +319,8 @@ describe('a tiling moved so a wall passes a pole', () => {
    * past the pole at distance `d`. */
   const pass = (d: number) => {
     const [A, B] = tiles.cell;
-    const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
-    return t.station([57, TOP + d]).placement({ from });
+    const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
+    return from.inverse().then(t.placement([57, TOP + d]));
   };
   /** The moved SOURCE curve near the pole: every edge's flat segment, read
    * the short way round as the ink reads it, sampled finely, moved. */
@@ -428,8 +428,8 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
     it(d === null ? 'inks the unmoved icosahedron within 0.1 mm of its geodesics' : `inks it within 0.1 mm of its geodesics carried ${d} from the pole`, () => {
       const P = d === null ? null : (() => {
         const [A, B] = tiles.cell;
-        const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
-        return t.station([57, TOP + d]).placement({ from });
+        const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
+        return from.inverse().then(t.placement([57, TOP + d]));
       })();
       const off = index(geodesics(P ?? { point: (p) => p }));
       const ink = inkOn(P);
@@ -449,8 +449,8 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
   for (const d of [0, 0.1, 0.5, 2]) {
     it(`inks it moved by m.transform ${d} from the pole within 0.1 mm of its geodesics`, () => {
       const [A, B] = tiles.cell;
-      const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
-      const P = t.station([57, TOP + d]).placement({ from });
+      const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
+      const P = from.inverse().then(t.placement([57, TOP + d]));
       const off = index(geodesics(P));
       const ink = strokes(tiles.transform(P)).flatMap((sv) => inked(t, sv)).flat()
         .filter((q) => q[0] >= 0 && q[0] <= 100 && q[1] >= 0 && q[1] <= 100);

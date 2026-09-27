@@ -1,5 +1,5 @@
 /**
- * `Placement` — ONE isometry value for groups, materials, stations and
+ * `Placement` — ONE isometry value for groups, materials, walks and
  * tilings.
  *
  * The same eleven blocks run in all three geometries, because the whole
@@ -11,7 +11,8 @@
  * The last blocks check the doors into the library: a placement in a
  * transform chain lowers the same points the material door hands back, a
  * foreign door (another space's model, on a flat sheet) bends the chords
- * and says so by sampling them, and a station answers its own placement.
+ * and says so by sampling them, and a walk is a placement stepped and
+ * turned.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -20,13 +21,14 @@ import {
   circle, line, rect, space, spaceOf, group, strokes, type ShapeValue, type Toolkit,
 } from '../src/index.js';
 import { type Execution } from '../src/host.js';
-import { material, stationAt, type Material } from '../src/material.js';
-import { between, identity, isPlacement, reflection, type ModelDoor, type Placement } from '../src/placement.js';
+import { material, type Material } from '../src/material.js';
+import { between, framePlacement, identity, isPlacement, reflection, type ModelDoor, type Placement } from '../src/placement.js';
 import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
 import type { Space } from '../src/space.js';
 import { xy } from './helpers/xy.js';
+import { selectionIn } from '../src/selection.js';
 
 type Kit = Toolkit & { exec: Execution };
 
@@ -62,6 +64,8 @@ describe.each(WORLDS)('a placement of $name', ({ make }) => {
   const t = make();
   const door: ModelDoor = t.space.model;
   const sp: Space = t.space;
+  /** The placement at a frame: `(x, y)` facing `heading` radians. */
+  const at = (x: number, y: number, heading: number): Placement => framePlacement(door, { x, y, heading });
 
   it('has an identity that moves nothing', () => {
     const I = identity(door);
@@ -87,22 +91,31 @@ describe.each(WORLDS)('a placement of $name', ({ make }) => {
     expect(() => reflection(door, [40, 40], [40, 40])).toThrow(/two distinct points/);
   });
 
-  it('carries one station\'s frame onto another\'s, exactly', () => {
-    const from = stationAt(46, 52, 0.4, sp);
-    const to = stationAt(58, 44, -1.1, sp);
+  it('carries one frame onto another, exactly', () => {
+    const from = at(46, 52, 0.4);
+    const to = at(58, 44, -1.1);
     const P = between(door, from, to);
-    const got = P.station(from);
+    const got = from.then(P);
     near([got.x, got.y], [to.x, to.y], 9);
     sameHeading(got.heading, to.heading, 9);
     expect(P.orientation).toBe(1);
+    // The same isometry, spelled with the two placements alone.
+    for (const p of PTS) near(from.inverse().then(to).point(p), P.point(p), 9);
     const M = between(door, from, to, { mirror: true });
     expect(M.orientation).toBe(-1);
-    near([M.station(from).x, M.station(from).y], [to.x, to.y], 9);
+    near([from.then(M).x, from.then(M).y], [to.x, to.y], 9);
+  });
+
+  it('is the frame it carries the origin to', () => {
+    const P = at(43, 57, 0.8);
+    near(P.point([0, 0]), [P.x, P.y], 9);
+    const Q = reflection(door, MIRROR[0], MIRROR[1]).then(P);
+    near(Q.point([0, 0]), [Q.x, Q.y], 9);
   });
 
   it('composes, inverts, and multiplies its handedness', () => {
     const a = reflection(door, MIRROR[0], MIRROR[1]);
-    const b = between(door, stationAt(50, 50, 0, sp), stationAt(57, 45, 0.7, sp));
+    const b = between(door, at(50, 50, 0), at(57, 45, 0.7));
     for (const p of PTS) near(a.then(b).point(p), b.point(a.point(p)), 9);
     for (const p of PTS) near(a.then(a.inverse()).point(p), p, 9);
     expect(a.then(b).orientation).toBe(-1);
@@ -111,16 +124,16 @@ describe.each(WORLDS)('a placement of $name', ({ make }) => {
     expect(a.inverse().orientation).toBe(-1);
   });
 
-  it('transports a station so the walk commutes with the move', () => {
-    const s = stationAt(47, 53, 0.9, sp);
+  it('moves a walker so the walk commutes with the move', () => {
+    const s = at(47, 53, 0.9);
     const ps: Placement[] = [
       reflection(door, MIRROR[0], MIRROR[1]),
-      between(door, stationAt(50, 50, 0, sp), stationAt(56, 47, -0.5, sp)),
+      between(door, at(50, 50, 0), at(56, 47, -0.5)),
     ];
     for (const P of ps) {
       for (const d of [0, 6, -4]) {
-        const one = P.station(s).step(d);
-        const two = P.station(s.step(d));
+        const one = s.then(P).step(d);
+        const two = s.step(d).then(P);
         near([one.x, one.y], [two.x, two.y], 9);
         sameHeading(one.heading, two.heading, 9);
       }
@@ -129,8 +142,8 @@ describe.each(WORLDS)('a placement of $name', ({ make }) => {
       // carries it to -37. That is what `orientation` IS, so it is the
       // factor the turn takes.
       for (const deg of [37, -90]) {
-        const one = P.station(s).turn(P.orientation * deg);
-        const two = P.station(s.turn(deg));
+        const one = s.then(P).turn(P.orientation * deg);
+        const two = s.turn(deg).then(P);
         near([one.x, one.y], [two.x, two.y], 9);
         sameHeading(one.heading, two.heading, 9);
       }
@@ -157,9 +170,9 @@ describe('two geometries cannot meet', () => {
     expect(() => s.then(h)).toThrow(/hyperbolic/);
   });
 
-  it('refuses a station of another space, by name', () => {
+  it('refuses a walker of another space, by name', () => {
     const h = identity(disk().space.model);
-    expect(() => h.station(stationAt(50, 50, 0, ball().space))).toThrow(/spherical/);
+    expect(() => framePlacement(ball().space.model, { x: 50, y: 50, heading: 0 }).then(h)).toThrow(/spherical/);
   });
 });
 
@@ -227,7 +240,7 @@ function inked(t: Kit, chain: TransformOp[], sv: ShapeValue): [number, number][]
 
 describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => {
   const t = make();
-  const P = between(t.space.model, stationAt(50, 50, 0, t.space), stationAt(57, 46, 0.6, t.space));
+  const P = between(t.space.model, { x: 50, y: 50, heading: 0 }, { x: 57, y: 46, heading: 0.6 });
 
   it('lowers a shape, and moves its material, onto the moved source curve', () => {
     // An isometry carries a geodesic onto a geodesic but not a coordinate
@@ -253,7 +266,7 @@ describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => 
     const m = t.material(circle(50, 50, 20));
     const sel = m.points.rows([0, 1, 2, 3]);
     const moved = m.transform(P);
-    const back = sel.in(moved);
+    const back = selectionIn(sel, moved);
     expect([...back.indices]).toEqual([...sel.indices]);
   });
 
@@ -291,7 +304,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
   it('moves a flat material vertex for vertex: a plane isometry keeps segments', () => {
     const t = flat();
     const m = t.material(rect(30, 30, 20, 10));
-    const P = between(t.space.model, stationAt(40, 35, 0, t.space), stationAt(58, 52, 0.7, t.space));
+    const P = between(t.space.model, { x: 40, y: 35, heading: 0 }, { x: 58, y: 52, heading: 0.7 });
     const moved = m.transform(P);
     expect(moved.n).toBe(m.n);
     expect([...moved.pointIds]).toEqual([...m.pointIds]);
@@ -304,7 +317,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
       // A long straight run, far from the centre, carried a long way: its
       // coordinate segment does not stay one.
       const m = t.material(rect(20, 22, 40, 6)).points.set('w', (p) => p.x);
-      const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(80, 90, 2, t.space));
+      const P = between(t.space.model, { x: 40, y: 25, heading: 0 }, { x: 80, y: 90, heading: 2 });
       const moved = m.transform(P);
       expect(moved.n).toBeGreaterThan(m.n);
       // Every source vertex keeps its row and its id; every sample after
@@ -333,7 +346,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
       }
       // A selection of vertices rebinds by id.
       const sel = m.points.rows([0, 1, 2, 3]);
-      expect([...sel.in(moved).indices]).toEqual([0, 1, 2, 3]);
+      expect([...selectionIn(sel, moved).indices]).toEqual([0, 1, 2, 3]);
     });
   }
 
@@ -355,7 +368,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
       // A column is a geodesic, and a move along the base row carries a
       // column onto a column: the moved chord IS the moved curve.
       const m = material([[44, 36], [44, 64]], { edges: [[0, 1]] });
-      const P = between(t.space.model, stationAt(50, 50, 0, t.space), stationAt(61, 50, 0, t.space));
+      const P = between(t.space.model, { x: 50, y: 50, heading: 0 }, { x: 61, y: 50, heading: 0 });
       const moved = m.transform(P);
       expect(moved.n).toBe(2);
       expect(moved.edgeCount).toBe(1);
@@ -366,7 +379,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
       const t = make();
       const bow = t.space.model.bow!;
       const m = material([[36, 40], [64, 44]], { edges: [[0, 1]] });
-      const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(62, 70, 1.2, t.space));
+      const P = between(t.space.model, { x: 40, y: 25, heading: 0 }, { x: 62, y: 70, heading: 1.2 });
       const moved = m.transform(P);
       expect(moved.edgeCount).toBeGreaterThan(1);
       // The moved source curve, and the metric bow of the chord over a
@@ -401,7 +414,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
   it('shares a distributed edge column over the children by their share', () => {
     const t = disk();
     const m = t.material(rect(20, 22, 40, 6)).edges.set('len', () => 1, { transfer: 'distribute' });
-    const P = between(t.space.model, stationAt(40, 25, 0, t.space), stationAt(80, 90, 2, t.space));
+    const P = between(t.space.model, { x: 40, y: 25, heading: 0 }, { x: 80, y: 90, heading: 2 });
     const moved = m.transform(P);
     expect(moved.edgeCount).toBeGreaterThan(m.edgeCount);
     const sum = [...moved.edgeAttrs.len].reduce((a, b) => a + b, 0);
@@ -416,10 +429,10 @@ describe('the door of another space bends the chords on a flat sheet', () => {
     // flat sketch's, so its isometries are no isometries of the sheet.
     const door = spaceOf({ curvature: -1 / 2500, center: [50, 50], size: 50 }).model;
     // A move of the disk: the isometry taking the centre to an off-centre
-    // station. It is NOT an isometry of the sheet, so a straight line under
+    // frame. It is NOT an isometry of the sheet, so a straight line under
     // it draws as an arc of the picture.
-    const from = stationAt(50, 50, 0, undefined);
-    const to = stationAt(62, 44, 0.5, undefined);
+    const from = { x: 50, y: 50, heading: 0 };
+    const to = { x: 62, y: 44, heading: 0.5 };
     const P = between(door, from, to);
     const sv = line(22, 34, 78, 70);
     const plain = placedOutline(t, sv, {});
@@ -449,32 +462,30 @@ describe('the door of another space bends the chords on a flat sheet', () => {
   });
 });
 
-describe('a station answers its own isometry', () => {
-  it('reads a heading in degrees from the options record, in both spellings', () => {
+describe('a walk is a placement', () => {
+  it('starts at a point with a heading in degrees, in both point spellings', () => {
     const t = disk();
-    const a = t.station(46, 53, { heading: 90 });
-    const b = t.station([46, 53], { heading: 90 });
+    const a = t.placement([46, 53], 90);
+    const b = t.placement({ x: 46, y: 53 }, 90);
     expect(b.x).toBe(a.x);
     expect(b.y).toBe(a.y);
-    // The station's own field stays in radians: every station verb reads it.
+    // The placement's own field is in radians: every walk verb reads it.
     expect(a.heading).toBe(Math.PI / 2);
     expect(b.heading).toBe(Math.PI / 2);
-    expect(t.station(46, 53).heading).toBe(0);
-    expect(t.station({ x: 46, y: 53 }).heading).toBe(0);
-    expect(t.station([46, 53]).space).toBe(t.space);
+    expect(t.placement([46, 53]).heading).toBe(0);
+    expect(t.placement([46, 53]).door).toBe(t.space.model);
   });
 
-  it('refuses a number where the options record goes, and points at it', () => {
+  it('refuses a heading in an options record, and points at the spelling', () => {
     const t = disk();
-    const refusal = /t\.station: the heading goes in the options record, in degrees — t\.station\(x, y, \{ heading: 90 \}\)/;
-    expect(() => t.station(46, 53, Math.PI / 2 as never)).toThrow(refusal);
-    expect(() => t.station([46, 53], 90 as never)).toThrow(refusal);
+    expect(() => t.placement([46, 53], { heading: 90 } as never)).toThrow(/t\.placement\(\[x, y\], 90\)/);
+    expect(() => t.placement(46 as never)).toThrow(/expected a point/);
   });
 
   it('turns toward a place: the next step is nearer it', () => {
     for (const make of [flat, disk]) {
       const t = make();
-      const s = t.station(44, 58);
+      const s = t.placement([44, 58]);
       const target: [number, number] = [61, 43];
       const aimed = s.toward(target);
       const sp = t.space;
@@ -487,50 +498,63 @@ describe('a station answers its own isometry', () => {
 
   it('refuses the place opposite it on the sphere, by name', () => {
     const t = ball();
-    const s = t.station(50, 50);
+    const s = t.placement([50, 50]);
     const anti = t.space.exp([50, 50], [Math.PI * t.space.radius, 0]);
-    expect(() => s.toward(anti)).toThrow(/opposite this station/);
+    expect(() => s.toward(anti)).toThrow(/opposite this place/);
   });
 
-  it('is the isometry that carries the origin station to it', () => {
+  it('is the isometry that carries the origin frame to it', () => {
     for (const make of WORLDS.map((w) => w.make)) {
       const t = make();
-      const s = t.station(43, 57, { heading: 46 });
-      const P = s.placement();
-      const origin = stationAt(0, 0, 0, t.space);
-      const got = P.station(origin);
-      near([got.x, got.y], [s.x, s.y], 9);
-      sameHeading(got.heading, s.heading, 9);
-      // `from` names another source frame.
-      const other = t.station(61, 39, { heading: -17 });
-      near([other.placement({ from: s }).station(s).x, other.placement({ from: s }).station(s).y], [other.x, other.y], 9);
+      const s = t.placement([43, 57], 46);
+      near(s.point([0, 0]), [s.x, s.y], 9);
+      // A walked placement is still the isometry of its frame.
+      const w = s.step(4).turn(30);
+      near(w.point([0, 0]), [w.x, w.y], 9);
+      const ahead = framePlacement(t.space.model, { x: 0, y: 0, heading: 0 }).then(w);
+      sameHeading(ahead.heading, w.heading, 9);
     }
   });
 
   it('places a motif with its +x line along the heading, in a curved sketch', () => {
     const t = disk();
-    const s = t.station(58, 44, { heading: 40 });
-    const g = s.place(line(0, 0, 12, 0));
+    const s = t.placement([58, 44], 40);
+    const g = group(s, line(0, 0, 12, 0));
     expect(isPlacement(g.opts.placement!)).toBe(true);
     const P = g.opts.placement!;
     // The motif is authored about the ORIGIN, and the origin lands on the
-    // station.
+    // placement.
     near(P.point([0, 0]), [s.x, s.y], 9);
-    // The motif's own +x DIRECTION at the origin leaves the station along
-    // its heading. It is the direction and not the far end: a coordinate
-    // row is an equidistant curve, not a geodesic, so it leans away from
-    // the heading the further along it a sketch reads.
+    // The motif's own +x DIRECTION at the origin leaves along the heading.
+    // It is the direction and not the far end: a coordinate row is an
+    // equidistant curve, not a geodesic, so it leans away from the heading
+    // the further along it a sketch reads.
     const tip = P.point([1e-6, 0]);
     const v = t.space.log([s.x, s.y], tip);
     sameHeading(Math.atan2(v[1], v[0]), s.heading, 6);
   });
 
-  it('keeps the flat emission exactly as it was', () => {
+  it('places a motif on the flat sheet where the old station frame did', () => {
     const t = flat();
-    const g = t.station(40, 60, { heading: 17 }).place(circle(0, 0, 3), { offset: [2, 1], rotate: 10, scale: 2 });
-    expect(g.opts.placement).toBeUndefined();
-    expect(g.opts.rotate).toBeCloseTo(17 + 10, 12);
-    expect(g.opts.scale).toEqual([2, 2]);
+    const s = t.placement([40, 60], 17);
+    // offset [2, 1] in the frame, then turned 10 more and scaled 2.
+    const g = group(s, group({ translate: [2, 1], rotate: 10, scale: 2 }, circle(0, 0, 3)));
+    const h = (17 * Math.PI) / 180;
+    const want: [number, number] = [40 + Math.cos(h) * 2 - Math.sin(h) * 1, 60 + Math.sin(h) * 2 + Math.cos(h) * 1];
+    near(s.point([2, 1]), want, 9);
+    expect(isPlacement(g.opts.placement!)).toBe(true);
+  });
+
+  it('p.placement() is the frame at a point that has a heading, and refuses one that has none', () => {
+    const t = flat();
+    const ring = t.material(circle(50, 50, 10));
+    const p = ring.along({ count: 8 }).points.at(2);
+    const P = p.placement();
+    expect([P.x, P.y, P.heading]).toEqual([p.x, p.y, p.heading]);
+    near(P.point([0, 0]), [p.x, p.y], 9);
+    const q = ring.curves.at(0).points.at(3);
+    expect(q.placement().heading).toBe(q.heading);
+    expect(() => ring.points.at(0).placement()).toThrow(/p\.placement: this point has no heading/);
   });
 });
 

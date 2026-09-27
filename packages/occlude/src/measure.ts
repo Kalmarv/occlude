@@ -46,7 +46,8 @@
  * and `elongation` stay chart readings of the coordinates.
  */
 
-import type { Face, Faces } from './faces.js';
+import { faceTableOf, type Face, type FaceTable } from './faces.js';
+import type { Selection } from './selection.js';
 import type { Bounds } from './points.js';
 import type { Space } from './space.js';
 import { ownedBy, viewKind } from './material.js';
@@ -427,13 +428,14 @@ function rowCrossings(f: Face, y: number, out: number[]): number[] {
 }
 
 export class FaceMeasurements implements Iterable<FaceMeasure> {
-  readonly source: Faces;
+  /** Every face of the measured state: the collection the results index. */
+  readonly source: Selection<Face>;
   readonly results: readonly FaceMeasure[];
   private readonly byIndex: Map<number, FaceMeasure>;
 
   /** @internal Use `faces.measure(...)`. */
-  constructor(source: Faces, results: FaceMeasure[]) {
-    this.source = source;
+  constructor(source: FaceTable, results: FaceMeasure[]) {
+    this.source = source.all;
     this.results = Object.freeze(results);
     this.byIndex = new Map(results.map((r) => [r.face.index, r]));
     Object.freeze(this);
@@ -454,14 +456,14 @@ export class FaceMeasurements implements Iterable<FaceMeasure> {
   /** The measurement of `face`, which must be a view of the measured collection and among the measured faces. */
   forFace(face: Face): FaceMeasure {
     if (viewKind(face) !== 'face') throw new Error('measure.forFace: expected a face view');
-    if (!ownedBy(face, this.source)) throw new Error('measure.forFace: that face belongs to another face collection — measure the collection it came from');
+    if (!ownedBy(face, faceTableOf(this.source))) throw new Error('measure.forFace: that face belongs to another face collection — measure the collection it came from');
     const r = this.byIndex.get(face.index);
     if (!r) throw new Error(`measure.forFace: face ${face.index} was not among the measured faces`);
     return r;
   }
 }
 
-export function measureFaces(source: Faces, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): FaceMeasurements {
+export function measureFaces(source: FaceTable, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): FaceMeasurements {
   if ('resolution' in opts) throw new Error('measure: resolution is now step — the raster cell, a length in the material\'s units');
   if (opts.step !== undefined && !(typeof opts.step === 'number' && Number.isFinite(opts.step) && opts.step > 0)) {
     throw new Error(`measure: step must be a positive finite number in the material's units, got ${String(opts.step)} — resolve a length such as mm() with t.len`);

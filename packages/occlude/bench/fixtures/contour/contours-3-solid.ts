@@ -22,7 +22,7 @@ export default sketch({ aspect: [1, 3], margin: 5, seed: 42 }, (t) => {
       }));
 
   const center = circle(50, 50, 27, { opaque: true });
-  const d = distanceTo(t.material(center).curves().map((c) => c.pts));
+  const d = distanceTo(t.material(center));
 
   const density = (x, y) => {
     const s = d(x, y);

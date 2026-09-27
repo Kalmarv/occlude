@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, degrees, line, sketch, space, type ShapeOpts, type ShapeValue, type Space, type Station,
+  circle, degrees, line, sketch, space, type ShapeOpts, type ShapeValue, type Space, type Placement,
   type Tiling, type Toolkit, type Vec,
 } from '../src/index.js';
 import { compileSketch, compileSketchAsync, evalPrim, initOcclude, render } from '../src/host.js';
@@ -67,7 +67,7 @@ describe('the walk of the fence', () => {
   it('lands on cell[1..4] in turn, closes, and comes back turned a quarter turn', () => {
     const side = sp.distance(til.cell[0], til.cell[1]);
     const v = sp.log(til.cell[0], til.cell[1]);
-    let st = fromSketch(HYP, (t) => t.station(til.cell[0], { heading: degrees(Math.atan2(v[1], v[0])) }));
+    let st = fromSketch(HYP, (t) => t.placement(til.cell[0], degrees(Math.atan2(v[1], v[0]))));
     const first = st;
     const landed: Vec[] = [];
     for (let i = 0; i < 5; i++) {
@@ -95,7 +95,7 @@ describe('the Poincaré fence, end to end', () => {
       const around = placements.slice(1).map((f) => ring(cell.map((v) => f.point(v))));
       const side = t.space.distance(cell[0], cell[1]);
       const v = t.space.log(cell[0], cell[1]);
-      let st = t.station(cell[0], { heading: degrees(Math.atan2(v[1], v[0])) });
+      let st = t.placement(cell[0], degrees(Math.atan2(v[1], v[0])));
       const start = st;
       const legs: ShapeValue[] = [];
       for (let i = 0; i < 5; i++) {
@@ -104,7 +104,7 @@ describe('the Poincaré fence, end to end', () => {
         legs.push(line(from.x, from.y, st.x, st.y, { pen: 'stabilo-88-blue' }));
         if (i < 4) st = st.turn(SIGN * 90);
       }
-      const arrow = (s: Station): ShapeValue[] => {
+      const arrow = (s: Placement): ShapeValue[] => {
         const tip = s.step(9);
         return [
           line(s.x, s.y, tip.x, tip.y, { pen: 'stabilo-88-blue' }),

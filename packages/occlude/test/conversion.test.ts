@@ -10,7 +10,7 @@ import { compileSketch, initOcclude, render, Execution } from '../src/host.js';
 import { areaLoops } from '../src/boundary.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
-import { xy, oneRing } from './helpers/xy.js';
+import { xy, oneRing, rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -34,7 +34,7 @@ describe('t.material: a shape boundary with its own vertices', () => {
     expect(pile!.n).toBe(12);
     expect(pile!.edgeCount).toBe(12);
     expect(pile!.planarize().faces().length).toBe(3);
-    expect(coarse!.curves().length).toBe(2);
+    expect(coarse!.curves.map(rec).length).toBe(2);
     // No shapes (a spread of an empty list) is the empty material.
     let none: Material | null = null;
     run((t) => { none = t.material({ tolerance: mm(1) } as never); });
@@ -93,7 +93,7 @@ describe('t.material: a shape boundary with its own vertices', () => {
     run((t) => {
       m = t.material(path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).close().moveTo(10, 10).lineTo(30, 10).build());
     });
-    const cs = m!.curves();
+    const cs = m!.curves.map(rec);
     expect(cs).toHaveLength(2);
     const ring = cs.find((c) => c.closed)!;
     const chain = cs.find((c) => !c.closed)!;
@@ -135,7 +135,7 @@ describe('isolines and streamlines as material', () => {
     let m: Material | null = null;
     run((t) => { m = t.isolines(bowl, [10, 25, 10, 50], { step: 1 }); });
     const raw = isolinesOf(env, bowl, [10, 25, 10, 50], { step: 1 });
-    const cs = m!.curves();
+    const cs = m!.curves.map(rec);
     expect(cs).toHaveLength(3); // 10, 25, 10 again; 50 is empty and adds nothing
     expect(raw[3]).toHaveLength(0);
     expect(cs.map((c) => c.pts)).toEqual([raw[0][0].pts, raw[1][0].pts, raw[2][0].pts]);
@@ -149,8 +149,8 @@ describe('isolines and streamlines as material', () => {
     expect([...levels].sort((a, b) => a - b)).toEqual([10, 25]);
     // Selecting by value takes both rings at level 10.
     const ten = m!.edges.filter((e) => e.level === 10);
-    expect(ten.curves()).toHaveLength(2);
-    expect(m!.edges.filter((e) => e.level === 25).curves()).toHaveLength(1);
+    expect(ten.curves.map(rec)).toHaveLength(2);
+    expect(m!.edges.filter((e) => e.level === 25).curves.map(rec)).toHaveLength(1);
     // A scalar level is the same material as a one-element array.
     let single: Material | null = null;
     run((t) => { single = t.isolines(bowl, 25, { step: 1 }); });
@@ -169,7 +169,7 @@ describe('isolines and streamlines as material', () => {
     expect(Array.from(split!.edgeAttrs.level).every((v) => v === 25)).toBe(true);
     expect(none!.n).toBe(0);
     expect(none!.edgeCount).toBe(0);
-    expect(none!.curves()).toEqual([]);
+    expect(none!.curves.map(rec)).toEqual([]);
     expect(none!.edgeAttrNames).toEqual(['level', 'cut']);
   });
 
@@ -182,7 +182,7 @@ describe('isolines and streamlines as material', () => {
       moved = t.steps(2, m.points.set('h', (p) => p.x), (g) => g.move([1, 0]));
     });
     const raw = streamlinesOf(env, swirl, { spacing: 6 });
-    const cs = m!.curves();
+    const cs = m!.curves.map(rec);
     expect(cs).toHaveLength(raw.length);
     expect(cs.every((c) => !c.closed)).toBe(true);
     expect(cs.map((c) => c.pts)).toEqual(raw.map((c) => c.pts));
@@ -300,8 +300,8 @@ describe('closure is per contour, and the two winding defaults stay put', () => 
     let sampled: Array<{ closed: boolean; n: number }> = [];
     run((t) => {
       const p = mixed();
-      kept = t.material(p).curves().map((c) => ({ closed: c.closed, n: c.pts.length }));
-      sampled = t.sample(p, { count: 8 }).curves().map((c) => ({ closed: c.closed, n: c.pts.length }));
+      kept = t.material(p).curves.map(rec).map((c) => ({ closed: c.closed, n: c.pts.length }));
+      sampled = t.sample(p, { count: 8 }).curves.map(rec).map((c) => ({ closed: c.closed, n: c.pts.length }));
     });
     expect(kept.map((c) => c.closed)).toEqual([true, false]);
     expect(kept.map((c) => c.n)).toEqual([3, 2]);      // corners kept: the ring's 3 + the L's 2

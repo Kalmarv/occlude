@@ -9,7 +9,7 @@ The land is opaque, and its tone is slope alone. The contours crowd and go black
 
 The beacon takes a sight line to the eastern station. The line crosses the water, and the high ground swallows the rest of it. Only occlusion draws that mark.
 
-Uses: `t.isolines` on two fields, `distanceTo`, `t.scatter`, `t.within`, `along`, `extract`, `trim`, `union`, `subtract`, `polygon` with `opaque`, `sdf`, `label` and `labelWidth`, `dash`, `group`.
+Uses: `t.isolines` on two fields, `distanceTo`, `t.scatter`, `t.within`, `along`, `extract`, `trim`, `union`, `without`, `polygon` with `opaque`, `sdf`, `label` and `labelWidth`, `dash`, `group`.
 
 ```ts live
 // KELDA SOUND — one sheet of a survey that was never made.
@@ -219,7 +219,7 @@ export default sketch({ aspect: [4, 5], seed: 17 }, (t) => {
 
   const cutBy = (sel, boxes) => {
     const blocked = boxes.map((r) => t.within(sel, r)).reduce((a, c) => a.union(c));
-    return sel.subtract(blocked).extract().trim({ start: 0.45, end: 0.45 });
+    return sel.without(blocked).extract().trim({ start: 0.45, end: 0.45 });
   };
   const minorOpen = cutBy(minorLines, landBoxes);
   const indexOpen = cutBy(indexLines, landBoxes);

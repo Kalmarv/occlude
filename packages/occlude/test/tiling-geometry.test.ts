@@ -15,9 +15,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { faceTableOf } from '../src/faces.js';
 import { toolkit } from './helpers/run.js';
 import { space, strokes, Material, Tiling } from '../src/index.js';
 import { geodesicBow } from '../src/record.js';
+import { rec } from './helpers/xy.js';
 
 /** The three cases, built once each. */
 const flat = () => toolkit({ aspect: [1, 1] });
@@ -167,14 +169,14 @@ describe('the faces are the cells', () => {
     // Euler on the corners and the walls, not on the sampled rows.
     expect(cornerRows(tiles).length - walls(tiles).length + cells.length).toBe(2);
     // A closed surface has no outside: every half-edge belongs to a face.
-    expect([...cells.faceOf].filter((f) => f < 0).length).toBe(0);
+    expect([...faceTableOf(cells).faceOf].filter((f) => f < 0).length).toBe(0);
   });
 
   it('gives the plane and the disk one face per copy, with a rim', () => {
     for (const tiles of [square(), heptagons()]) {
       const cells = tiles.faces();
       expect(cells.length).toBe(tiles.placements.length);
-      expect([...cells.faceOf].filter((f) => f < 0).length).toBeGreaterThan(0);
+      expect([...faceTableOf(cells).faceOf].filter((f) => f < 0).length).toBeGreaterThan(0);
       // Euler for a patch of the plane: one face short of the closed count.
       expect(cornerRows(tiles).length - walls(tiles).length + cells.length).toBe(1);
     }
@@ -208,7 +210,7 @@ describe('the faces are the cells', () => {
 describe('the drawing words read it', () => {
   it('draws every wall once', () => {
     for (const tiles of [square(), heptagons(), icosahedron()]) {
-      const chains = tiles.curves();
+      const chains = tiles.curves.map(rec);
       // Every edge in exactly one chain, exactly once: no wall retraced.
       let segments = 0;
       const rows = new Set<number>();

@@ -302,7 +302,7 @@ export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
     let material = t.material(rect(cx - 20, 28, 40, 40));
     let size = 40;
     for (let generation = 0; generation < 2; generation++) {
-      const children = material.along().map((p) =>
+      const children = material.along().points.map((p) =>
         rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2),
       );
       material = append(material, t.material(...children));

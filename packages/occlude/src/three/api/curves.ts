@@ -1,3 +1,4 @@
+import type {Curve as Curve2} from '../../curves.js';
 import {finite3,sub3,type Vec3} from '../math.js';
 import {surface3,type Surface3} from '../geometry/surface.js';
 import {CurveGeometry,emptyCurve,type GeometryOptions} from './mesh.js';
@@ -34,10 +35,10 @@ function path(positions:readonly Vec3[],options:PolylineOptions,rows?:readonly L
 /** A piecewise-linear 3D chain from positions, in the order given — the 2D
  * `curve`: open unless `closed: true`, and a closed chain shares its first
  * point at the seam (do not repeat it). A 2D chain (a material, anything
- * that answers `curves()`) is read as an XY profile at z = 0, and says
+ * that answers `curves`, or one curve row) is read as an XY profile at z = 0, and says
  * itself whether it is closed; its ids and columns are kept. No face or
  * implicit fill is constructed. */
-export function curve(positions:readonly Vec3[]|{curves():unknown},options:PolylineOptions={}):CurveGeometry {
+export function curve(positions:readonly Vec3[]|{readonly curves:unknown}|Curve2,options:PolylineOptions={}):CurveGeometry {
   if(typeof positions==='function')throw new Error('curve takes positions, as in 2D; a function of t is parametricCurve(t => [x, y, z], { segments })');
   if(isChain2(positions)){
     if(options.closed!==undefined)throw new Error('curve: a 2D chain says whether it is closed — leave out closed');
@@ -59,7 +60,7 @@ export function parametricCurve(position:(t:number)=>Vec3,options:CurveOptions={
 /** A profile as the construction verbs take it: a 3D curve as it is, or
  * the one chain of a 2D value — laid in XY at z = 0 for `sweep`, or in the
  * XZ meridian (x is the radius, y the height) for `revolve`. */
-export function profileCurve<T extends CurveGeometry<any,any>>(profile:T|{curves():unknown},plane:'xy'|'xz',who:string):T|CurveGeometry {
+export function profileCurve<T extends CurveGeometry<any,any>>(profile:T|{readonly curves:unknown}|Curve2,plane:'xy'|'xz',who:string):T|CurveGeometry {
   if(profile instanceof CurveGeometry)return profile;
   if(!isChain2(profile))throw new Error(`${who}: the profile is a curve — a 3D curve, or a 2D chain such as a material`);
   const chain=chain2(profile,who);

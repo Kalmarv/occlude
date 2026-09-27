@@ -3,9 +3,9 @@
  * itself, and how the area consumers read it.
  *
  * One protocol, three accessors. A value answers the ones it honestly can:
- * `contours()` for areas (closed loops with winding), `curves()` for chains
- * (open or closed, with their points), `points` for positions with identity
- * and columns. Every method is optional; a consumer asks for the one it
+ * `contours()` for areas (closed loops with winding), `curves` for chains
+ * (open or closed, each a row with its `points` in order and `closed`),
+ * `points` for positions with identity and columns. Every accessor is optional; a consumer asks for the one it
  * needs and refuses a value that cannot answer, by name. Nothing is added to
  * a value that it could not already say.
  *
@@ -23,8 +23,10 @@
  */
 
 import type { IsoContour } from './isolines.js';
-import { areaView, type Curve } from './material.js';
-import type { PointSelection } from './relation.js';
+import { areaView } from './material.js';
+import { chainRecordsOf, isCurveSelection } from './curves.js';
+import type { Selection } from './selection.js';
+import type { Vertex } from './material.js';
 import { Len, type L } from './units.js';
 
 /** A coordinate: a number, or a length such as `mm(10)` where the consumer
@@ -41,17 +43,25 @@ export type LoopPoints = [Coord, Coord][];
  *
  * It is a structural interface, not a class and not a marker: a value is
  * geometry because it answers, not because it declares. `Material`,
- * `PointSelection`, `EdgeSelection`, `Faces`, `FaceSelection` and `Face` all
+ * a `Selection` of points, edges or faces, and `Face` all
  * satisfy it; a shape does not — a shape needs the paper to become
  * geometry, and enters through `t.material` or `t.sample` (the frame rule).
  */
+/** A chain as the protocol reads it: its points in order, and whether it
+ * closes. A curve row is one. */
+export interface CurveLike {
+  readonly points: Iterable<XYLike>;
+  readonly closed: boolean;
+}
+
 export interface Geometry {
   /** Areas: closed loops with winding. For a material, its closed chains. */
   contours?(): IsoContour[];
-  /** Chains, open or closed, with their points. */
-  curves?(): Curve[];
+  /** Chains, open or closed: rows with their points in order. A property,
+   * read on first ask. */
+  readonly curves?: Iterable<CurveLike>;
   /** Positions with identity and columns. */
-  points?: PointSelection<unknown>;
+  points?: Selection<Vertex>;
 }
 
 /** Anything an area consumer takes: a geometry value, or the plain shapes
@@ -87,7 +97,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 
 /** @internal Whether a value answers any of the three accessors. */
 export function isGeometry(v: unknown): v is Geometry {
-  return isObj(v) && (typeof v.contours === 'function' || typeof v.curves === 'function' || v.points !== undefined);
+  return isObj(v) && (typeof v.contours === 'function' || 'curves' in v || v.points !== undefined);
 }
 
 /** A rect record: four finite numbers `x, y, w, h`, and nothing that
@@ -97,8 +107,9 @@ export const isRectRecord = (v: unknown): v is RectRecord =>
 
 /** A value that can say where its areas are. */
 const hasContours = (v: unknown): v is { contours(): IsoContour[] } => isObj(v) && typeof v.contours === 'function';
-/** A value that can say where its chains are. */
-const hasCurves = (v: unknown): v is { curves(): IsoContour[] } => isObj(v) && typeof v.curves === 'function';
+/** A value that can say where its chains are: it answers `curves`. Asked
+ * without reading it, because reading it walks the chains. */
+const hasCurves = (v: unknown): v is { readonly curves: Iterable<CurveLike> } => isObj(v) && 'curves' in v;
 /** A value that can find the regions its edges enclose. */
 const hasFaces = (v: unknown): v is { faces(): { contours(): IsoContour[] } } => isObj(v) && typeof v.faces === 'function';
 /**
@@ -108,7 +119,7 @@ const hasFaces = (v: unknown): v is { faces(): { contours(): IsoContour[] } } =>
  * pictures and the sketch has to say.
  */
 const isFaceCollection = (v: unknown): v is { map(fn: (f: unknown) => unknown): unknown[] } =>
-  isObj(v) && typeof v.contours === 'function' && typeof v.measure === 'function' && typeof v.boundaryEdges === 'function' && typeof v.at === 'function';
+  isObj(v) && typeof v.contours === 'function' && typeof v.measure === 'function' && typeof v.boundaryEdges === 'function' && typeof v.at === 'function' && !isCurveSelection(v);
 /**
  * The highest vertex degree inside a value's own edges, or null for a
  * value that has none. Not part of the protocol: it is how the area
@@ -141,7 +152,7 @@ const loopOf = (loop: Loop, who: string): LoopPoints =>
  *
  * A value that answers `contours()` is read by it — for a material that is
  * its closed chains, so `polygon(m)` fills what is closed. A value with no
- * closed chain, and one that answers only `curves()`, is read by its
+ * closed chain, and one that answers only `curves`, is read by its
  * chains, where an open one is a loop the consumer closes with a chord, as
  * it always has for open input. A material with no closed chain whose
  * chains branch is read by its faces: its area is their union. Separate
@@ -193,7 +204,7 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
     // has both is read by what is closed.
     if (areas.length > 0 || !hasCurves(input)) return areas.map((c) => c.pts as LoopPoints);
   }
-  if (hasCurves(input)) return input.curves().map((c) => c.pts as LoopPoints);
+  if (hasCurves(input)) return (chainRecordsOf(input) ?? []).map((c) => c.pts as LoopPoints);
   if (isContour(input)) return [input.pts as LoopPoints];
   // A rect record — `{ x, y, w, h }`, as `t.bounds()` and a grid cell
   // spell a rectangle — is the rectangle's one loop.

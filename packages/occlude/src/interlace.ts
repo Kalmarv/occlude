@@ -21,7 +21,7 @@
  * of an edge keeps that edge's lineage root and its columns; a piece that
  * is the whole edge keeps the edge's id too, and a shorter one is minted.
  * So a column the growth carried (`strand`) still picks a pen after the
- * weave, and `sel.in(woven)` still finds what was not cut away.
+ * weave, and `woven.points.intersect(sel)` still finds what was not cut away.
  *
  * `over` is handed the crossing and returns `true` when strand A is on top.
  * The default alternates: a strand that went under at its last crossing goes
@@ -35,6 +35,7 @@
  */
 
 import { Material, material as makeMaterial, mintIds, inheritEdge } from './material.js';
+import { chainsOf } from './curves.js';
 import { pairKey } from './views.js';
 
 /** One place two strands cross, as `over` sees it. */
@@ -44,7 +45,7 @@ export interface Crossing {
   /** How many crossings strand A had already met, walking its own chain. */
   readonly nthA: number;
   readonly nthB: number;
-  /** Which chain each strand belongs to, in `curves()` order. */
+  /** Which chain each strand belongs to, in `curves` order. */
   readonly chainA: number;
   readonly chainB: number;
   /** How far along its chain each strand is, as a length. */
@@ -79,7 +80,7 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
   const gap = asked > 0 ? asked : 0;
   if (opts.over !== undefined && typeof opts.over !== 'function') throw new Error('interlace: { over } must be a function of the crossing');
 
-  const curves = src.curves();
+  const curves = chainsOf(src);
   const chains = curves.map((c) => c.pts.map(([x, y]) => [x, y] as [number, number]));
   // The source row under each chain point, for the columns and the ids.
   const rowsOf = curves.map((c) => [...c.indices]);

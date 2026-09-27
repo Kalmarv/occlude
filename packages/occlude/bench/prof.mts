@@ -6,7 +6,7 @@ import * as H from '../src/host.js';
 // on the public surface (the vocabulary word is `points.near`), but a
 // bench profiling the primitive itself imports it directly.
 import { neighbours } from '../src/forces.js';
-const { material, curve, connect, force, mul, segmentRuns, initOcclude, sketch, circle, render, planBuffer, decodePlanBuffer, hashPlan, planToolpath, makePlan, selectAll, Execution, bindToolkit } = O;
+const { material, curve, connect, force, mul, initOcclude, sketch, circle, render, planBuffer, decodePlanBuffer, hashPlan, planToolpath, makePlan, selectAll, Execution, bindToolkit } = O;
 const t = (label: string, f: () => unknown, n = 1) => { const t0 = performance.now(); let r; for (let i = 0; i < n; i++) r = f(); const ms = (performance.now() - t0) / n; console.log(label.padEnd(58), ms.toFixed(2).padStart(9), 'ms'); return r; };
 let s = 11; const rnd = (a = 0, b = 1) => ((s = (s * 48271) % 2147483647) / 2147483647) * (b - a) + a;
 const noise = (x: number, y: number, z = 0) => Math.sin(x * 0.7 + z) * Math.cos(y * 0.9 - z);
@@ -46,8 +46,8 @@ for (const N of [500, 2000, 5000]) {
   t(`  neighbours(cur,{radius:2}) build`, () => neighbours(cur, { radius: 2 }), 5);
   t(`  steps(1, move only)`, () => tk.steps(1, cur, (c) => c.move((p) => [0.01, 0])), 3);
   t(`  steps(1, splitEdges all)`, () => tk.steps(1, cur, (c) => { const before = c.n; const cut = c.split(c.edges.filter(() => true)); return cut.points.set('age', 0, cut.points.slice(before)); }), 2);
-  t(`  curves()`, () => cur.curves(), 5);
-  t(`  segmentRuns by age band`, () => segmentRuns(cur, (e) => Math.floor(((e.a.age + e.b.age) / 2) / 5)), 3);
+  t(`  curves`, () => cur.curves, 5);
+  t(`  edges.groupBy by age band, curves`, () => cur.edges.groupBy((e) => Math.floor(((e.a.age + e.b.age) / 2) / 5)).map((g) => g.curves), 3);
   t(`  resample({spacing:1})`, () => cur.resample({ spacing: 1 }), 3);
   t(`  filter + extract half`, () => cur.edges.filter((e) => e.index % 2 === 0).extract(), 3);
 }
@@ -60,7 +60,7 @@ const pn = t(`  planarize 400 chords`, () => net.planarize()) as O.Material;
 console.log(`     -> ${pn.n} vertices ${pn.edgeCount} edges`);
 const fc = t(`  faces of it`, () => pn.faces()) as O.Faces;
 t(`  faces.filter area>1 + contours`, () => fc.filter((f) => f.area > 1).contours());
-t(`  pn.curves()`, () => pn.curves(), 3);
+t(`  pn.curves`, () => pn.curves, 3);
 t(`  pn.edges (views)`, () => pn.edges, 3);
 t(`  query.edges prepare + 1000 firstHit`, () => { const q = O.query.edges(pn); for (let i = 0; i < 1000; i++) q.firstHit([rnd(0, 100), rnd(0, 100)], [rnd(0, 100), rnd(0, 100)]); });
 const tri = connect.triangulate(Array.from({ length: 5000 }, () => [rnd(0, 100), rnd(0, 100)] as [number, number]));

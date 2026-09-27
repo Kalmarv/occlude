@@ -18,9 +18,10 @@ import { traceBoth3, traceEnvironment3 } from '../src/three/surface/trace.js';
 import { surfaceLocation3 } from '../src/three/geometry/location.js';
 import {
   add, append, circle, curl, curve, dots, fill, fromAngle, group, line, material, mm, mul, ngon, pen,
-  polygon, query, rect, sketch, strokes, type Material,
+  polygon, rect, sketch, strokes, type Material,
 } from '../src/index.js';
 import { assetTable, evalPrim, exportPng, exportSvg, initOcclude, render } from '../src/host.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -30,7 +31,7 @@ describe('G3-1 curve is open unless closed: true', () => {
   it('builds a chain by default and a ring on request', () => {
     const pts: [number, number][] = [[0, 0], [1 / 3, 0], [0.5, 0.25], [2 / 3, 0], [1, 0]];
     expect(curve(pts).edgeCount).toBe(4);
-    expect(curve(pts).curves()[0].closed).toBe(false);
+    expect(curve(pts).curves.map(rec)[0].closed).toBe(false);
     expect(curve(pts, { closed: true }).edgeCount).toBe(5);
   });
   it('is a motif replace takes as written (reference-steps-3)', () => {
@@ -69,7 +70,7 @@ describe('G4-17 G7-8 planarize gives a crossing the first edge\'s columns', () =
     const seeds = material(t.times(9, (i, u) => [14 + u * 172, 96]), { active: 1, heading: -Math.PI / 2 });
     // A pass that needs the step counts it itself, beside the graph.
     const paths = t.steps(40, { g: append(rock, seeds, { fill: { active: 0, heading: 0 } }), k: 0 }, ({ g: current, k }) => {
-      const lines = query.edges(current);
+      const lines = current.edges;
       const tips = current.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
       let g = current;
       for (const p of tips) {
@@ -107,7 +108,7 @@ describe('G7-3 strokes refuses a shape by name', () => {
   });
   it('still names one face as an area', () => {
     const t = toolkit();
-    const face = t.material(rect(10, 10, 20, 20)).faces().faces[0];
+    const face = t.material(rect(10, 10, 20, 20)).faces().at(0);
     expect(() => strokes(face as never)).toThrow(/one face is an area/);
   });
 });
@@ -185,7 +186,7 @@ describe('G2-11 a face\'s walls wind one stated way', () => {
     const cells = parts.merge().planarize().rotate(12, { origin: 'centroid' }).faces();
     expect(cells.length).toBeGreaterThan(2);
     for (const f of cells) {
-      const stations = f.extract().along({ spacing: 5 });
+      const stations = f.extract().along({ spacing: 5 }).points;
       expect(stations.length).toBeGreaterThan(4);
       for (const s of stations) {
         const [nx, ny] = s.normal;

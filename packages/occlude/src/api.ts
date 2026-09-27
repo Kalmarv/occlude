@@ -21,7 +21,8 @@
  */
 
 import {Mesh,type CurveGeometry,type EdgeAttributes} from './three/api/mesh.js';
-import {MeshFaces} from './three/api/topology.js';
+import {isSelection3} from './three/api/collection.js';
+import type {MeshFaceRow} from './three/api/topology.js';
 import type {Attributes3} from './three/geometry/surface.js';
 import {scatterSurface,type SurfaceSamples,type SurfaceScatterOptions} from './three/api/sampling.js';
 import {streamlinesInSpace,type Streamlines3Options} from './three/api/flow.js';
@@ -40,7 +41,7 @@ import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
 import { INK_TOL, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
 import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
-import { isPlacement, type Placement } from './placement.js';
+import { framePlacement, isPlacement, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
@@ -69,27 +70,29 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
   within?: Area;
   /** Seeds, one per entry, whatever the spelling: a pair IS a seed here,
    * because the key says so. Give this or `fromArea`, not both. */
-  fromPoints?: PointSelection | readonly XY[];
+  fromPoints?: Selection<Vertex> | readonly XY[];
   /** One area to start from — its whole interior and boundary — read
    * through the ordinary area door. Give this or `fromPoints`, not both. */
   fromArea?: Area;
 }
-import { latticeOf, Lattice, CellSelection, type LatticeInit, type LatticeOpts } from './lattice.js';
+import { latticeOf, Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
 import { residualOf, type Residual, type ResidualOpts } from './residual.js';
 import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
-  Material, material as materialOf, alongChain, checkSampling, inSpace, isStations, stationAt, stationsMaterial,
-  withinMaterial, areaCentroid, append, areaView, type Edge, type PointsLike, type Station, type Transfer, type Vertex,
+  Material, material as materialOf, alongChain, checkSampling, inSpace,
+  withinMaterial, areaCentroid, append, areaView, type Edge, type PointsLike, type Transfer, type Vertex,
 } from './material.js';
-import { PointSelection, EdgeSelection } from './relation.js';
+import { chainRecordOf, chainRecordsOf, isCurveRow, type Curve } from './curves.js';
+import { isPointSelection, isEdgeSelection } from './relation.js';
+import { Selection } from './selection.js';
 
 /** A pass of `t.steps`: the value in, the next value out. One argument. */
 type Pass<T> = (value: T) => T;
 
 /** What an empty collection gives `t.pick`: one draw, and no member. */
 const NO_MEMBER: Pickable<undefined> = Object.freeze([undefined]);
-import { Faces, FaceSelection, type Face } from './faces.js';
+import { isFaceSelection, type Face } from './faces.js';
 import { voronoiOf } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { spacefill, type SpacefillOpts } from './spacefill.js';
@@ -181,8 +184,8 @@ export interface GroupOpts {
    * or `'centroid'` for the area centroid of their union. */
   origin?: Origin<L>;
   /**
-   * An ISOMETRY of the sketch's geometry — a station's own frame, one of a
-   * tiling's placements, a `reflection` — instead of a deformation of the
+   * An ISOMETRY of the sketch's geometry — a walk's frame (`t.placement`,
+   * `p.placement()`), one of a tiling's placements, a `reflection` — instead of a deformation of the
    * sheet. `group(placement, …children)` is the short spelling.
    *
    * It cannot share a group with `translate`, `rotate`, `scale` or
@@ -327,11 +330,12 @@ const isInvertValue = (v: unknown): v is InvertValue =>
 //
 // A shape that names points takes them either way. The FIRST argument
 // decides the form — `isPointArg` below — never the count of arguments,
-// so a station goes straight in and nothing is guessed.
+// so a placement or a point of a curve goes straight in and nothing is
+// guessed.
 
 export function circle(x: L, y: L, r: L, opts?: ShapeOpts): ShapeValue;
 /** The same circle about a point: a pair or an `{ x, y }` record, so
- * `circle(station, 3)` works. The radius is a length as everywhere. */
+ * `circle(p, 3)` works. The radius is a length as everywhere. */
 export function circle(center: XY, r: L, opts?: ShapeOpts): ShapeValue;
 export function circle(a: L | XY, b: L, c?: L | ShapeOpts, d?: ShapeOpts): ShapeValue {
   if (isPointArg(a)) return circle(vx(a), vy(a), b, c as ShapeOpts | undefined);
@@ -369,7 +373,7 @@ export function rect(
 
 export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue;
 /** The same line from two points: pairs or `{ x, y }` records, so
- * `line(start, tip)` works with two stations. */
+ * `line(start, tip)` works with two placements. */
 export function line(a: XY, b: XY, opts?: ShapeOpts): ShapeValue;
 export function line(a: L | XY, b: L | XY, c?: L | ShapeOpts, d?: L, e?: ShapeOpts): ShapeValue {
   if (isPointArg(a)) {
@@ -387,30 +391,25 @@ const STROKES_OF_A_SHAPE = 'strokes: a shape is not geometry yet — draw the sh
 type ShapeIsNotChains = typeof STROKES_OF_A_SHAPE;
 
 /**
- * One stroke per contour, all with the same options — for a material's
- * chains, a selection's, `segmentRuns` output or any contour records:
- * `strokes(m, { pen })`, `strokes(sel, …)`, `strokes(segmentRuns(m, key), …)`.
- * A decision per contour (a pen by run key, a width by chain) stays a
- * `.map`: nothing here assigns pens from keys.
+ * One stroke per curve, all with the same options — for a material's
+ * curves, a selection's, one curve row, or a list of them:
+ * `strokes(m, { pen })`, `strokes(sel, …)`, `strokes(m.curves.filter(…))`,
+ * `m.edges.groupBy(key).map((g) => strokes(g, { pen: pens[g.key] }))`.
+ * A decision per curve (a pen by key, a width by chain) stays a `.map`:
+ * nothing here assigns pens from keys.
  */
 export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
-export function strokes<S extends Geometry | readonly IsoContour[] | ShapeValue>(source: S extends ShapeValue ? ShapeIsNotChains : S, opts?: ShapeOpts): ShapeValue[];
+export function strokes<S extends Geometry | Curve | readonly (IsoContour | Curve)[] | ShapeValue>(source: S extends ShapeValue ? ShapeIsNotChains : S, opts?: ShapeOpts): ShapeValue[];
 export function strokes(
-  source: Geometry | readonly IsoContour[] | ProjectedCurves | ShapeValue,
+  source: Geometry | Curve | readonly (IsoContour | Curve)[] | ProjectedCurves | ShapeValue,
   opts?: ShapeOpts | ProjectedStrokeOptions,
 ): ShapeValue[] | ProjectedStrokes {
   if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
-  if (Array.isArray(source)) return (source as readonly IsoContour[]).map((c) => stroke(c, opts));
+  if (Array.isArray(source)) return (source as readonly (IsoContour | Curve)[]).map((c) => stroke(c, opts));
   // A shape is not geometry until the toolkit lowers it, so it has no
   // chains yet; it is refused by name before any other reading.
   if (isShapeValue(source)) throw new Error(STROKES_OF_A_SHAPE);
-  // A chain consumer reads `curves()`: a face collection answers with its
-  // edges, each wall once. A value that has no chains to draw — one face
-  // is an area — is refused by name.
-  const chains = (source as Geometry).curves;
-  if (typeof chains !== 'function') {
-    throw new Error('strokes: this value has no chains to draw — one face is an area; draw it with polygon(face), or its walls with strokes(face.edges)');
-  }
+  if (isCurveRow(source)) return [stroke(source, opts)];
   // A rim edge — `cut = 1`, the piece of a boundary that `t.within` or
   // `t.isolines` added to close a region — is the area's edge, ink for
   // `polygon`. The chains of a material are its lines; an edge selection
@@ -418,7 +417,14 @@ export function strokes(
   const m = source instanceof Material && source.edgeAttrs.cut !== undefined
     ? source.edges.filter((e) => e.cut === 0).extract()
     : source;
-  return chains.call(m).map((c) => stroke(c, opts));
+  // A chain consumer reads `curves`: a face collection answers with its
+  // walls, each once. A value that has no chains to draw — one face is an
+  // area — is refused by name.
+  const chains = chainRecordsOf(m);
+  if (chains === null) {
+    throw new Error('strokes: this value has no chains to draw — one face is an area; draw it with polygon(face), or its walls with strokes(face.edges)');
+  }
+  return chains.map((c) => stroke(c as IsoContour, opts));
 }
 
 export interface PolygonOpts extends ShapeOpts {
@@ -438,7 +444,7 @@ type FacesAreSeveralAreas = 'polygon: a face collection is several areas — pol
 /**
  * Refuse, by name, a value no area consumer can read: not a shape, a group,
  * an inverted area, loops, a contour record, nor a value that answers
- * `contours()` or `curves()`. A pure word (`clip`, `mask`, `invert`) names
+ * `contours()` or `curves`. A pure word (`clip`, `mask`, `invert`) names
  * itself; a toolkit word is named with its `t.`.
  */
 function refuseNonArea(who: string, v: unknown, pure = false): void {
@@ -448,8 +454,8 @@ function refuseNonArea(who: string, v: unknown, pure = false): void {
   }
   if (isShapeValue(v) || isGroupValue(v) || isInvertValue(v) || Array.isArray(v) || isRectRecord(v)) return;
   if (typeof v === 'object' && v !== null) {
-    const o = v as { contours?: unknown; curves?: unknown; pts?: unknown };
-    if (typeof o.contours === 'function' || typeof o.curves === 'function' || Array.isArray(o.pts)) return;
+    const o = v as { contours?: unknown; pts?: unknown };
+    if (typeof o.contours === 'function' || 'curves' in o || Array.isArray(o.pts)) return;
   }
   throw new Error(`${name}: a ${kindOf(v)} is not an area — give a face, contours, a closed material, a shape or a rect`);
 }
@@ -638,7 +644,7 @@ function treeLeaves(
 const isFace = (v: unknown): v is Face =>
   typeof v === 'object' && v !== null && typeof (v as Face).index === 'number'
   && typeof (v as Face).contours === 'function' && typeof (v as Face).extract === 'function'
-  && (v as { boundaryEdges?: unknown }).boundaryEdges instanceof EdgeSelection;
+  && isEdgeSelection((v as { boundaryEdges?: unknown }).boundaryEdges);
 
 /** Every outline of an area with its own closure, for the words that walk a
  * boundary (`t.material`, `t.sample`): a shape's and a group's shapes' own,
@@ -653,6 +659,11 @@ function areaOutlines(run: Execution, area: Area, who: string, tolerance: L | un
   if (records) return records.map((c) => ({ pts: numericLoops([c.pts as Loop], who)[0], closed: c.closed !== false }));
   return numericLoops(areaLoops(area, who), who).map((pts) => ({ pts, closed: true }));
 }
+/** A row a chain value answers under `curves`: not a list of points, but
+ * a value with its `points` in order and its `closed`. */
+const isRowOfCurve = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && typeof (v as Iterable<unknown>)[Symbol.iterator] !== 'function'
+  && 'points' in v && typeof (v as { closed?: unknown }).closed === 'boolean';
 const isContourRecord = (v: unknown): v is IsoContour =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as IsoContour).pts)
   && typeof (v as { contours?: unknown }).contours !== 'function';
@@ -684,7 +695,7 @@ const isTravelOpts = (v: unknown): v is TravelTimeOpts => {
 
 /** `fromPoints` as one seed per entry: the key says every entry is a point,
  * so a pair and a record mean the same thing here. */
-function seedRecords(from: PointSelection | readonly XY[]): { x: number; y: number }[] {
+function seedRecords(from: Selection<Vertex> | readonly XY[]): { x: number; y: number }[] {
   if (from === null || typeof from !== 'object' || typeof (from as Iterable<XY>)[Symbol.iterator] !== 'function') {
     throw new Error('travelTime: fromPoints expects points — a point selection, or a list of [x, y] pairs or { x, y } records');
   }
@@ -746,7 +757,7 @@ function pointSources(sources: Sources | ShapeValue, who: string): Sources {
  * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
  * other spelling: there the geometry's own orientation decides, as in SVG.
  */
-export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(area: A extends FaceSelection<unknown> ? FacesAreSeveralAreas : A, opts: PolygonOpts = {}): ShapeValue {
+export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(area: A extends Selection<infer R> ? (R extends Face ? FacesAreSeveralAreas : A) : A, opts: PolygonOpts = {}): ShapeValue {
   const contours = area as AreaInput | Contour | Contour[] | ShapeValue;
   const { winding: given, ...rest } = opts;
   // The source is the authority for the fill rule, and a path carries one:
@@ -790,16 +801,17 @@ function loopsPath(
 
 /**
  * The geodesic segments of an area source, as a test on a segment's two
- * ends: the chains the source answers (`curves()`), each segment its
+ * ends: the chains the source answers (`curves`), each segment its
  * `geodesic` flag says is one, keyed by its ends either way round. A
  * loop `areaLoops` reads — a closed chain, a face's rim — is made of those
  * very edges, with the very coordinates. Undefined when nothing is a
  * geodesic, which is every flat source.
  */
 function geodesicSegments(source: unknown): ((a: readonly [unknown, unknown], b: readonly [unknown, unknown]) => boolean) | undefined {
-  if (typeof source !== 'object' || source === null || typeof (source as { curves?: unknown }).curves !== 'function') return undefined;
+  const chains = chainRecordsOf(source);
+  if (chains === null) return undefined;
   const keys = new Set<string>();
-  for (const c of (source as { curves(): IsoContour[] }).curves()) {
+  for (const c of chains) {
     const g = c.geodesic;
     if (!g) continue;
     const n = c.pts.length;
@@ -856,25 +868,21 @@ export interface WithinKeep {
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: Area): Prepared<F>;
   (material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
-  (points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
-  (edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
-  (faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
+  <R extends Vertex | Edge | Face>(selection: Selection<R>, area: Area, opts?: WithinKeep): Selection<R>;
   (lines: ProjectedCurves, area: Area): ProjectedCurves;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: Area): Prepared<F>;
 export function withinAny(run: Execution, material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
-export function withinAny(run: Execution, points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
-export function withinAny(run: Execution, edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
-export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
+export function withinAny<R extends Vertex | Edge | Face>(run: Execution, selection: Selection<R>, area: Area, opts?: WithinKeep): Selection<R>;
 export function withinAny(run: Execution, lines: ProjectedCurves, area: Area): ProjectedCurves;
 
 export function withinAny(
   run: Execution,
-  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection | ProjectedCurves,
+  x: FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | ProjectedCurves,
   area: Area,
   opts: { transfer?: Record<string, Transfer> } & WithinKeep = {},
-): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection | ProjectedCurves {
+): FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | ProjectedCurves {
   // The one area door: a field is bounded by the area as one shape, which
   // the engine receives as exact geometry.
   if (typeof x === 'function') return withinField(x, areaAsShape(run, area, 'within'), boundEnv(run));
@@ -910,7 +918,7 @@ export function withinAny(
   const side = boundarySide(fill, INK_TOL / unitMm(run.frame));
   // A point is its own centroid, and touches the area exactly when it is
   // in or on it: the three questions have one answer.
-  if (x instanceof PointSelection) return x.filter((p) => side(p.x, p.y) >= 0);
+  if (isPointSelection(x)) return x.filter((p) => side(p.x, p.y) >= 0);
   // A wall belongs when no piece of it lies outside: its ends in or on the
   // area, and between any two crossings of the real boundary the middle in
   // or on it too — so a wall that runs along the boundary, crossing it back
@@ -927,12 +935,13 @@ export function withinAny(
   };
   const touches = (ax: number, ay: number, bx: number, by: number): boolean =>
     side(ax, ay) >= 0 || side(bx, by) >= 0 || meetsBoundary(fill.boundary, ax, ay, bx, by);
-  if (x instanceof EdgeSelection) {
+  if (isEdgeSelection(x)) {
     if (keep === 'centroid') return x.filter((e) => side(e.center[0], e.center[1]) >= 0);
     if (keep === 'touching') return x.filter((e) => touches(e.a.x, e.a.y, e.b.x, e.b.y));
     return x.filter((e) => wallIn(e.a.x, e.a.y, e.b.x, e.b.y));
   }
-  const faces: Faces | FaceSelection = x;
+  if (!isFaceSelection(x)) throw new Error(`within: a ${describeValue(x)} is not a field, a material, projected lines or a selection of points, edges or faces`);
+  const faces: Selection<Face> = x;
   const tol = INK_TOL / unitMm(run.frame);
   if (keep === 'centroid') {
     // Geometric centres: no field is measured, so no raster is built.
@@ -995,7 +1004,7 @@ export function withinAny(
     }
     return true;
   };
-  return x instanceof Faces ? x.filter(keepFace) : x.filter(keepFace);
+  return faces.filter(keepFace);
 }
 
 /**
@@ -1115,19 +1124,20 @@ export function ngon(
 
 
 /**
- * Draw along a contour with the pen — `polygon`'s open-minded sibling. A
- * bare `[x, y][]` strokes an OPEN polyline (polygon always closes); an
- * `IsoContour` honors its `closed` flag, so isolines/rings stamp with the
- * right seams and the right open ends in one call; `strokes(material)`
- * does it for every chain of a material.
+ * Draw along a curve with the pen — `polygon`'s open-minded sibling. A
+ * bare `[x, y][]` strokes an OPEN polyline (polygon always closes); a curve
+ * row (`m.curves.at(0)`) honors its `closed`, so rings stamp with the right
+ * seams and chains with the right open ends in one call; `strokes(m)` does
+ * it for every curve of a material.
  */
 export function stroke(
-  contour: IsoContour | Iterable<readonly [L, L] | { readonly x: L; readonly y: L }>,
+  contour: Curve | IsoContour | Iterable<readonly [L, L] | { readonly x: L; readonly y: L }>,
   opts?: ShapeOpts,
 ): ShapeValue {
-  // A contour record keeps its closure; any list of points — pairs,
-  // `{ x, y }` records, a point selection, mixed — is an open polyline.
-  const record = isContourRecord(contour) ? contour : null;
+  // A curve row or a contour record keeps its closure; any list of points
+  // — pairs, `{ x, y }` records, a point selection, mixed — is an open
+  // polyline.
+  const record = isContourRecord(contour) ? contour : isCurveRow(contour) || isRowOfCurve(contour) ? chainRecordOf(contour) as IsoContour : null;
   const pts: [L, L][] = record ? record.pts : Array.from(contour as Iterable<unknown>, (p, i): [L, L] => {
     if (Array.isArray(p) && p.length >= 2) return [p[0] as L, p[1] as L];
     if (typeof p === 'object' && p !== null && 'x' in p && 'y' in p) return [(p as { x: L }).x, (p as { y: L }).y];
@@ -1554,7 +1564,7 @@ const GEOMETRY_SPACE: Record<Space['kind'], string> = {
 
 /** Is this argument a POINT — a pair or an `{x, y}` record — rather than a
  * length? A `Len` is neither an array nor a record of two numbers, so the
- * two spellings of `t.station` never have to guess. */
+ * two spellings of a shape never have to guess. */
 function isPointArg(v: unknown): v is XY {
   if (Array.isArray(v)) return true;
   if (typeof v !== 'object' || v === null) return false;
@@ -1605,13 +1615,12 @@ function shapeContours(
 }
 
 /** The host's automatic form of `inspect`, bound to a run: called for
- * every variable the studio instruments, so it registers materials — and
- * the stations of `along()`, as a material of their own — and ignores
- * everything else without a word. */
+ * every variable the studio instruments, so it registers materials — the
+ * points of `along()` among them — and ignores everything else without a
+ * word. */
 export function inspectHook(run: Execution): (label: string, value: unknown) => void {
   return (label, value) => {
     if (value instanceof Material) run.recordInspection(label, value);
-    else if (isStations(value)) run.recordInspection(label, stationsMaterial(value));
   };
 }
 
@@ -1683,8 +1692,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * came from was bounded by: a point selection is its members, extracted
    * with their columns and ids; anything else that has points is read as
    * points. */
-  function pointOpInput(x: Material | PointSelection | PointsLike): { m: Material; area: [number, number][][] | undefined } {
-    if (x instanceof PointSelection) return { m: x.extract(), area: cloudAreas.get(x.source) };
+  function pointOpInput(x: Material | Selection<Vertex> | PointsLike): { m: Material; area: [number, number][][] | undefined } {
+    if (isPointSelection(x)) return { m: x.extract(), area: cloudAreas.get(x.source) };
     const m = materialOf(x as never);
     return { m, area: cloudAreas.get(x as Material) };
   }
@@ -1697,16 +1706,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Field-modulated Poisson-disk points as point-only material with a
    * `density` column (the field at each point). `t.relax` and `t.settle`
    * refine it; `t.voronoi` reads its cells. */
-  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|MeshFaces<P,E,F,C>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
+  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|Selection<MeshFaceRow<F,P,E,C>>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
   function scatter(area: AreaInput | ShapeValue, opts: Omit<ScatterOpts, 'within'>): Material;
   function scatter(opts: ScatterOpts): Material;
   function scatter(
-    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Mesh<any,any,any> | MeshFaces<any,any,any,any> | undefined,
+    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Mesh<any,any,any> | Selection<MeshFaceRow<any,any,any,any>> | undefined,
     b?: ScatterOpts | Omit<ScatterOpts, 'within'> | SurfaceScatterOptions<any>,
   ): Material | SurfaceSamples<any,any,any,any> {
     // A face selection is the surface it names: its faces, ids kept.
-    if(a instanceof MeshFaces)a=a.extract();
+    if(isSelection3(a,'face'))a=(a as Selection<MeshFaceRow<any,any,any,any>>).extract();
     // One door, two forms; each form draws from its own stream, in call
     // order (the first call reads the plain key, as it always has).
     if(a instanceof Mesh){const options=b as SurfaceScatterOptions<any>;const form=(options as {count?:unknown})?.count!==undefined?'__surface-sample:':'__surface-scatter:';return scatterSurface(a,options,{rnd:exec.freshStream(form+(options?.key??a.key??'default')).rnd,signal:scope?.signal});}
@@ -1741,7 +1750,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * cell, `iterations` times; count, edges and columns kept. `within`
    * defaults to the area the cloud was scattered or thrown in, else the
    * drawable. A point selection relaxes its members, extracted. */
-  function relax(points: Material | PointSelection | PointsLike, opts: RelaxOpts = {}): Material {
+  function relax(points: Material | Selection<Vertex> | PointsLike, opts: RelaxOpts = {}): Material {
     const { m, area } = pointOpInput(points);
     const within = withinLoops(opts.within, 'relax') ?? area;
     const o: RelaxOpts = within === undefined ? opts : { ...opts, within };
@@ -1752,7 +1761,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * relaxation plus population control on point-only material; survivors
    * keep their columns, children copy their parent's, `demand` is written.
    * Split directions come from the sketch's seeded stream. */
-  function settle(points: Material | PointSelection | PointsLike, opts: SettleOpts): Material {
+  function settle(points: Material | Selection<Vertex> | PointsLike, opts: SettleOpts): Material {
     const { m, area } = pointOpInput(points);
     const within = withinLoops(opts?.within, 'settle') ?? area;
     const o: SettleOpts = within === undefined ? opts : { ...opts, within };
@@ -1927,7 +1936,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     // The sites as the pure `voronoi` reads them: a selection stays the
     // sites, anything else becomes a material. The cells are made in the
     // run's space, and their site correspondence lives on that material.
-    const siteSet = sites instanceof PointSelection ? sites : materialOf(sites);
+    const siteSet = isPointSelection(sites) ? sites : materialOf(sites);
     if (opts.within === undefined) return voronoiOf(siteSet, { x: b.x, y: b.y, w: b.w, h: b.h }, exec.space);
     const region = withinRegion(numericAreaLoops(exec, opts.within, 'voronoi'), 'voronoi');
     return voronoiOf(siteSet, region.bounds, exec.space, region.loops ?? undefined);
@@ -2000,7 +2009,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * per member picked.
    */
   function pick<T>(items: Pickable<T>): T;
-  function pick<S extends PointSelection<unknown> | EdgeSelection<unknown> | CellSelection>(items: S, count: number): S;
+  function pick<S extends Selection<any>>(items: S, count: number): S;
   function pick<T>(items: readonly T[], count: number): T[];
   function pick<T>(items: Pickable<T>, count?: number): unknown {
     if (count === undefined) return items.length === 0 ? exec.pick(NO_MEMBER) : exec.pick(items);
@@ -2430,32 +2439,26 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * A station at a point of the sketch, facing `heading` DEGREES (as
-   * `turn` and `rotate`, positive counter-clockwise), 0 by default: where
-   * a walk starts. The space is the sketch's own, so `station.step` and
-   * `station.turn` walk in the geometry the sketch draws in.
+   * A placement at a point of the sketch, facing `heading` DEGREES from
+   * `+x` toward `+y` (as `turn` and `rotate`), 0 by default: where a walk
+   * starts. The space is the sketch's own, so `step`, `turn` and `toward`
+   * walk in the geometry the sketch draws in. `at` is a pair — of numbers
+   * or lengths — or an `{ x, y }` record, so a point or a centroid goes
+   * straight in.
    */
-  function station(x: L, y: L, opts?: { heading?: number }): Station;
-  /** The same station at a point — a pair or an `{x, y}` record, so a
-   * station or a centroid goes straight in. The two spellings are told
-   * apart by the first argument being a point, never by guessing. */
-  function station(point: XY, opts?: { heading?: number }): Station;
-  function station(a: L | XY, b?: L | { heading?: number }, c?: { heading?: number }): Station {
-    const point = isPointArg(a);
-    const opts = (point ? b : c) as unknown;
-    if (opts !== undefined && (typeof opts !== 'object' || opts === null)) {
-      throw new Error('t.station: the heading goes in the options record, in degrees — t.station(x, y, { heading: 90 })');
-    }
-    const heading = radians((opts as { heading?: number } | undefined)?.heading ?? 0);
-    if (point) return stationAt(vx(a), vy(a), heading, exec.space);
-    return stationAt(exec.len(a), exec.len(b as L), heading, exec.space);
+  function placement(at: XY | readonly [L, L], heading: number = 0): Placement {
+    if (!isPointArg(at)) throw new Error('t.placement: expected a point — [x, y] or { x, y } — and then a heading in degrees: t.placement([x, y], 90)');
+    if (typeof heading !== 'number') throw new Error('t.placement: the heading is a number of degrees, after the point — t.placement([x, y], 90)');
+    const x = Array.isArray(at) ? exec.len(at[0] as L) : vx(at as XY);
+    const y = Array.isArray(at) ? exec.len(at[1] as L) : vy(at as XY);
+    return framePlacement(exec.space.model, { x, y, heading: radians(heading) });
   }
 
   /**
    * Show a value in the studio: returns `value` unchanged and records it
    * under `label`. A number is counted — count, min, max, mean, a
-   * histogram of what it actually ran through. A material, or the stations
-   * of `along()`, goes to the debug inspector, where a label used twice
+   * histogram of what it actually ran through. A material — the points of
+   * `along()` among them — goes to the debug inspector, where a label used twice
    * keeps the LAST value (in its first position), so a probe inside a pass
    * shows the final state. Works anywhere in sketch or fill code, draws
    * nothing, consumes no randomness, never changes a value, and costs
@@ -2463,7 +2466,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    */
   function probe<T>(label: string, value: T): T {
     if (value instanceof Material) exec.recordInspection(label, value);
-    else if (isStations(value)) exec.recordInspection(label, stationsMaterial(value));
     else exec.recordProbe(label, value);
     return value;
   }
@@ -2596,7 +2598,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** An area's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, station, probe, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
+    sample, placement, probe, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
     text,
     /**
      * The distance field of an area, taking a shape as well as resolved

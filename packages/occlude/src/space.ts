@@ -47,7 +47,7 @@
  */
 
 import { halfplane as hHalfplane } from './hyperbolic.js';
-import type { Model, ModelDoor } from './placement.js';
+import { bindSpace, type Model, type ModelDoor } from './placement.js';
 import { mm, type L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
@@ -153,7 +153,7 @@ export interface Space {
   /** Are geodesics straight lines on the sheet? */
   straight: boolean;
   /** The model this geometry's isometries are matrices on: what a
-   * `Placement` of THIS space is built over. `t.station(…).placement()`,
+   * `Placement` of THIS space is built over. `t.placement(…)`,
    * a tiling's placements and `reflection(space.model, a, b)` all go
    * through it. */
   model: ModelDoor;
@@ -431,7 +431,7 @@ export function curvedSpaceOf(
     if (r2 > 1) return [NaN, NaN];
     return [cx + (q[0] - cx) / (1 + r2), cy + (q[1] - cy) / (1 + r2)];
   };
-  return {
+  const space: Space = {
     kind: curvature < 0 ? 'hyperbolic' : 'spherical',
     projection,
     curvature,
@@ -520,6 +520,9 @@ export function curvedSpaceOf(
       ...(bow === undefined ? {} : { bow }),
     },
   };
+  // A placement of this door walks in this space (`placement.step`).
+  bindSpace(space.model, space);
+  return space;
 }
 
 /**

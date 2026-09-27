@@ -28,7 +28,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const grow = (g) => {
     const room = g.edges.filter((e) => {
       const own = e.a.adjacent.union(e.b.adjacent);
-      return g.points.near(e.center, { radius: 2.5 }).subtract(own).length === 0;
+      return g.points.near(e.center, { radius: 2.5 }).without(own).length === 0;
     });
     return g.split(room.filter(() => t.chance(0.3)));
   };

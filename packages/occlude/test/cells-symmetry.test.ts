@@ -156,7 +156,7 @@ describe('t.hexes', () => {
     const whole = cells.faces.filter((f) => f.boundaryEdges.length === 6);
     expect(whole.length).toBeGreaterThan(5);
     // Nothing shared: six vertices and six walls per cell, none reused.
-    expect(m.edgeCount).toBe(cells.faces.reduce((n, f) => n + f.edges.length, 0));
+    expect(m.edgeCount).toBe(cells.sum((f) => f.edges.length));
     for (const f of whole) expect(f.area).toBeCloseTo((Math.sqrt(3) / 2) * 16 * 16, 6);
     for (const f of whole) expect(f.adjacent.length).toBe(0);
   });
@@ -205,7 +205,7 @@ describe('t.triangles', () => {
   it('gap separates every cell', () => {
     const m = triangles(env, { size: 20, gap: 2 });
     const cells = m.faces();
-    expect(m.edgeCount).toBe(cells.faces.reduce((n, f) => n + f.edges.length, 0));
+    expect(m.edgeCount).toBe(cells.sum((f) => f.edges.length));
     for (const f of cells.faces) expect(f.adjacent.length).toBe(0);
   });
 

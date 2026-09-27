@@ -84,9 +84,13 @@ packages/occlude/src/
                         distance); shaper: knot curves as functions
   material, vec, views, the material vocabulary: vertices with attribute
   tables, forces,         columns and an edge list (material), vectors,
-  relation, query,        view identity, the three writes, force recipes,
-  faces                   selections and extraction, spatial edge queries,
-                          planarization and faces
+  selection, relation,    view identity, the three writes, force recipes,
+  curves, chains,         selections and extraction, the ordered domain
+  query, faces            (`g.curves`, walked by chains), spatial edge
+                          queries, planarization and faces
+  placement, space      isometries of the sketch's geometry (`t.placement`,
+                        `p.placement()`, the walk verbs `step`/`turn`/
+                        `toward`) and the spaces they walk in
   plan, motion          the DrawingPlan as a value (selection, resolveDraw,
                         encode/decode), estimatePlanMs and the motion model
   boundary, material    the area contract and the trim: `loopCrossings` finds
@@ -616,10 +620,15 @@ write `set` on `faces()`, and the recipes over them (`extrude`, `split`,
 `replace`, `move`). `t.steps` folds passes `(g) => g2` over a state,
 optionally recording history. Forces are
 prepared per state (spatial index built once, and kept on the state by `points.near`) and
-evaluated per point. `relation.ts` is selections, extraction,
-`components` and `meanBy`; `query.ts` prepares a grid
-over a state's edges for `nearest` and `firstHit` with a wide-box fallback
-so long queries stay exact; `faces.ts` planarizes with Shewchuk's
+evaluated per point. `selection.ts` is the one `Selection` every domain
+shares (the words, the order, the relations, `near`, the reductions) over
+a per-state domain; `relation.ts` is the point and edge domains of a
+material and extraction; `curves.ts` is the ordered domain, `g.curves`:
+the walk of `chains.ts` over the edge directions and the row order, each
+curve row answering its points in walk order with the derived `s`, `u`,
+`heading`, `tangent` and `normal`; `query.ts` builds a grid over a state's edges,
+kept on the state, for `edges.nearest` and `edges.firstHit` with a
+wide-box fallback so long queries stay exact; `faces.ts` planarizes with Shewchuk's
 `orient2d` for every orientation decision and reads bounded faces, face
 selections and union boundaries. Attribute transfer (interpolate or
 nearest for points, copy or distribute for edges) is declared per column
@@ -635,7 +644,7 @@ nothing in a sketch may rely on it.
 
 *Where:* `material.ts` (`Material`, its constructor, `resample`),
 `tables.ts` (the writes), `views.ts` (`viewProto`, `viewKind`,
-`ownedBy`), `relation.ts` (`PointSelection`, `EdgeSelection`), pinned by
+`ownedBy`), `selection.ts` (`Selection`), `relation.ts` (the point and edge domains), pinned by
 `test/material-contracts.test.ts` and `test/material.test.ts`.
 
 - **Columns.** A state is `x`, `y` (`Float64Array`, `n` long), point
@@ -653,11 +662,13 @@ nothing in a sketch may rely on it.
   *contents* are not freezable, so `m.x[i] = …` from a sketch writes into
   that one state.
 - **What a direct write reaches** (current behaviour, pinned): views
-  (`vertex`, `edge`), `pts`, `curves()` and every derivation made after
-  the write read the columns live. Adjacency (`connected`, `degree`) is
+  (`vertex`, `edge`) and every derivation made after the write read the
+  columns live. `g.curves` is walked on its first read and kept on the
+  state: a direct write after that read reaches the positions of its point
+  rows, but not the walk or its derived columns (`s`, `u`, `heading`). Adjacency (`connected`, `degree`) is
   built lazily from the edge list only and cannot go stale on a
-  coordinate write. A prepared `query.edges(m)` copied the endpoints
-  and keeps them. A prepared neighbour index (and every force built on
+  coordinate write. The edge index behind `m.edges.nearest` copies the
+  endpoints the first time a state is asked, and keeps them. A prepared neighbour index (and every force built on
   it) keeps its buckets but reads distances live, so a row written away
   drops out of its old cell's answers while a row written near is never
   found. `faces()` is computed once per state and returned from the cache
@@ -671,8 +682,9 @@ nothing in a sketch may rely on it.
   symbols (`views.ts`); `ownedBy(view, m)` tests whether a view is of this
   state, and a spread or JSON copy is unowned. Selections
   (`m.points.filter`) bind to their source state; a selection of another
-  state of the same lineage is resolved in this one by id (`sel.in(state)`),
-  and one of an unrelated material is refused.
+  state of the same lineage is resolved in this one by id when a write or
+  a set operation takes it (`later.points.intersect(sel)`), and one of an
+  unrelated material is refused.
 - **Lineage.** The internal `iteration` counts the steps of `t.steps`,
   which is what `force.drift` turns with; the writes, `resample` and
   `withinMaterial` keep it, `append`, `extract` and `planarize` start a
@@ -734,13 +746,15 @@ and `test/transfer.test.ts`.
 
 ### Geometry queries
 
-*Where:* `query.ts` (`edges`, `EPS`), pinned by the `query.edges` blocks
-of `test/material.test.ts`.
+*Where:* `query.ts` (`edges`, `EPS`), read through `m.edges.nearest` and
+`m.edges.firstHit` (`relation.ts`), pinned by the `edges.nearest and
+edges.firstHit` blocks of `test/material.test.ts` and `test/selection.test.ts`.
 
-- **Preparation and lifetime.** `query.edges(m)` copies the edge
-  endpoints of `m` and builds a uniform grid over their boxes; the
-  returned object is valid for that state and keeps that geometry for as
-  long as it is held (see the ownership rule above). Vertex adjacency for
+- **Preparation and lifetime.** The first `nearest`, `firstHit`, `near`
+  or `crossing` on a state copies the edge endpoints of `m` and builds a
+  uniform grid over their boxes; the state keeps it, and it keeps that
+  geometry (see the ownership rule above). A selection of part of the
+  edges answers with its own members only. Vertex adjacency for
   `excludeIncident` is built on first use.
 - **Coordinates and tolerance.** The material's own coordinates; straight
   segments between sampled vertices; no snapping. `EPS = 1e-9` relative

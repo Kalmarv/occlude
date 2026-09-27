@@ -6,6 +6,7 @@ import { initOcclude, render } from '../src/host.js';
 import { isolinesOf, levelContours, type IsoContour, type IsoEnv, type LevelContour } from '../src/isolines.js';
 import type { FieldFn, Material, SketchDef } from '../src/index.js';
 import type { RenderOptions } from '../src/host.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -249,13 +250,13 @@ describe('isolines: toolkit + engine integration', () => {
       capture.push(
         t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1),
       );
-      return capture[capture.length - 1].curves().map((c) => polygon(c));
+      return capture[capture.length - 1].curves.map(rec).map((c) => polygon(c));
     });
     sq(def);
     sq(def);
     expect(capture).toHaveLength(2);
-    expect(JSON.stringify(capture[0].curves())).toBe(JSON.stringify(capture[1].curves()));
-    expect(capture[0].curves().length).toBeGreaterThan(0);
+    expect(JSON.stringify(capture[0].curves.map(rec))).toBe(JSON.stringify(capture[1].curves.map(rec)));
+    expect(capture[0].curves.map(rec).length).toBeGreaterThan(0);
   });
 
   it('polygon() lifts annulus loops into one evenodd shape whose hole stays empty', () => {

@@ -11,11 +11,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, connect, curve, distanceTo, force, material, polygon, sketch, strokes, type Face, type Faces,
+  circle, connect, curve, distanceTo, force, material, polygon, sketch, strokes, type Face, type Selection,
   type SketchDef,
 } from '../src/index.js';
 import { initOcclude, render } from '../src/host.js';
 import { isGeometry } from '../src/boundary.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -28,7 +29,7 @@ const ink = (def: SketchDef): number => render(def, { paper: 'Square20' }).stats
 const ring = () => curve(material([[10, 10], [60, 10], [60, 60], [10, 60]]), { closed: true });
 const openChain = () => curve(material([[10, 10], [60, 10], [60, 60]]));
 
-function cellsOf(): Faces {
+function cellsOf(): Selection<Face> {
   return material([[10, 10], [60, 10], [60, 60], [10, 60]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [0, 2]] })
     .planarize()
     .faces();
@@ -39,15 +40,15 @@ describe('what each value can say about itself', () => {
     const m = ring();
     expect(isGeometry(m)).toBe(true);
     expect(m.points.length).toBe(4);
-    expect(m.curves()).toHaveLength(1);
+    expect(m.curves.map(rec)).toHaveLength(1);
     expect(m.contours()).toHaveLength(1);
     expect(m.contours()[0].closed).toBe(true);
   });
 
   it('an open material has chains but no areas', () => {
     const m = openChain();
-    expect(m.curves()).toHaveLength(1);
-    expect(m.curves()[0].closed).toBe(false);
+    expect(m.curves.map(rec)).toHaveLength(1);
+    expect(m.curves.map(rec)[0].closed).toBe(false);
     expect(m.contours()).toHaveLength(0);
   });
 
@@ -57,7 +58,7 @@ describe('what each value can say about itself', () => {
     expect(isGeometry(sel)).toBe(true);
     expect(sel.points).toBe(sel);
     expect(sel.edges.length).toBe(1); // the one edge with both ends on the left
-    expect(sel.curves()).toHaveLength(1);
+    expect(sel.curves.map(rec)).toHaveLength(1);
   });
 
   it('an edge selection is its endpoints and its chains', () => {
@@ -65,7 +66,7 @@ describe('what each value can say about itself', () => {
     const sel = m.edges.filter((_, i) => i < 2);
     expect(isGeometry(sel)).toBe(true);
     expect(sel.points.length).toBe(3);
-    expect(sel.curves()).toHaveLength(1);
+    expect(sel.curves.map(rec)).toHaveLength(1);
   });
 
   it('a face collection and a selection answer contours(), and their rows are properties', () => {
@@ -161,7 +162,7 @@ describe('the consumers say what they read', () => {
     // A face collection draws its edges, each wall once (spec 58, G1-22);
     // one face is an area, with no chains of its own.
     const cells = cellsOf();
-    expect(strokes(cells).length).toBe(cells.edges.curves().length);
+    expect(strokes(cells).length).toBe(cells.edges.curves.map(rec).length);
     expect(() => strokes(cells.at(0) as never)).toThrow(/no chains to draw/);
   });
 

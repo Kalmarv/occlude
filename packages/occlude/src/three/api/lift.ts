@@ -1,8 +1,9 @@
 import type {Attributes3,Attribute3} from '../geometry/surface.js';
+import {chainRecordOf,chainRecordsOf,isCurveRow,type ChainRecord} from '../../curves.js';
 
 /** 2D values read by the 3D doors. A 2D point is a 3D point at z = 0 and a
  * 2D chain is an XY profile; each keeps its id and its columns. The doors
- * read the accessor protocol (`curves()` for chains, `points` for rows), so
+ * read the accessor protocol (`curves` for chains, `points` for rows), so
  * a pure 3D kernel never lowers a shape: a shape is refused by name with the
  * toolkit door to use. */
 
@@ -24,18 +25,26 @@ function columns(row:Record<string,unknown>):Attributes3 {
 const isPair=(v:unknown):v is readonly [number,number]=>Array.isArray(v)&&v.length===2&&typeof v[0]==='number'&&typeof v[1]==='number';
 const isRecord2=(v:unknown):v is {x:number;y:number;z?:undefined}=>!!v&&typeof v==='object'&&!Array.isArray(v)&&typeof (v as {x?:unknown}).x==='number'&&typeof (v as {y?:unknown}).y==='number'&&(v as {z?:unknown}).z===undefined;
 
-/** True when `value` is a 2D chain source: it answers `curves()`. */
-export function isChain2(value:unknown):value is {curves():{pts:[number,number][];closed:boolean;indices?:number[]}[]} {
-  return !!value&&typeof value==='object'&&typeof (value as {curves?:unknown}).curves==='function';
+/** True when `value` is a 2D chain source: it answers `curves`, or it is
+ * one curve row. */
+export function isChain2(value:unknown):value is {readonly curves:unknown} {
+  return !!value&&typeof value==='object'&&('curves' in value||isCurveRow(value));
 }
-/** The one chain a 2D value answers with `curves()`, its vertices lifted
- * with ids and columns from the value's `points` rows. */
+/** The one chain a 2D value answers with `curves` (or the one curve row
+ * it is), its vertices lifted with ids and columns from the geometry's
+ * `points` rows. */
 export function chain2(value:unknown,who:string):{readonly points:readonly Lifted2[];readonly closed:boolean} {
   refuseShape(value,who);
-  if(!isChain2(value))throw new Error(`${who}: expected a chain — a 2D value that answers curves(), such as a material`);
-  const chains=value.curves();
-  if(chains.length!==1)throw new Error(`${who}: this value has ${chains.length} chains, and a profile is one — pick one: m.curves()[i] is its points, or split the material first`);
-  const chain=chains[0],rows=(value as {points?:{at?(i:number):unknown}}).points;
+  if(!isChain2(value))throw new Error(`${who}: expected a chain — a 2D value that answers curves, such as a material, or one curve (m.curves.at(i))`);
+  let chain:ChainRecord,rows:{at?(i:number):unknown}|undefined;
+  if(isCurveRow(value)){
+    chain=chainRecordOf(value);
+    rows=(value.points.source as {points?:{at?(i:number):unknown}}).points;
+  }else{
+    const chains=chainRecordsOf(value)??[];
+    if(chains.length!==1)throw new Error(`${who}: this value has ${chains.length} chains, and a profile is one — pick one: m.curves.at(i) is one curve, or split the material first`);
+    chain=chains[0];rows=(value as {points?:{at?(i:number):unknown}}).points;
+  }
   const points=chain.pts.map((p,k)=>{
     const index=chain.indices?.[k],row=index!==undefined&&typeof rows?.at==='function'?rows.at(index) as Record<string,unknown>|undefined:undefined;
     return Object.freeze({id:id2(row?.id,index??k),x:p[0],y:p[1],attributes:row?columns(row):{}});

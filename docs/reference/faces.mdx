@@ -6,7 +6,7 @@ description: The regions that a planar material encloses, and what you can read 
 A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
 
 :::note
-On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `in`, `rows`, `union`, `intersect`, `subtract`, `adjacent`, `connected`, `components` and `extract`. They have the same meanings as on the [selections](/docs/reference/selections) page.
+On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `rows`, `union`, `intersect`, `without`, `adjacent`, `connected`, `components` and `extract`. They have the same meanings as on the [selections](/docs/reference/selections) page.
 :::
 
 ## planarize
@@ -148,10 +148,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## cells.edges · points · boundaryEdges() · contours()
 
-<include>/_sig/FaceSelection.edges.mdx</include>
-<include>/_sig/FaceSelection.points.mdx</include>
-<include>/_sig/FaceSelection.boundaryEdges.mdx</include>
-<include>/_sig/FaceSelection.contours.mdx</include>
+<include>/_sig/faces.edges.mdx</include>
+<include>/_sig/faces.points.mdx</include>
+<include>/_sig/faces.boundaryEdges.mdx</include>
+<include>/_sig/faces.contours.mdx</include>
 
 The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `strokes(cells)` draws those edges, and it draws each wall one time. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
 
@@ -169,8 +169,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## cells.adjacent()
 
-<include>/_sig/FaceSelection.adjacent.mdx</include>
-<include>/_sig/FaceSelection.components.mdx</include>
+<include>/_sig/Selection.adjacent.mdx</include>
+<include>/_sig/Selection.components.mdx</include>
 
 The faces on the other side of the walls of the selected faces, one step out, the selected faces excluded. Two selected faces that share a wall are each other's inside, not each other's neighbour. `sel.union(sel.adjacent())` is the selection grown by a ring, and says so. `connected()` is the selection and every face that you can reach from it across walls. `components()` divides the selected faces into pieces that share walls, and keys them `0, 1, 2 …`. Below, the blue cells are the selection, and the hatch is its ring.
 
@@ -206,7 +206,7 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
 
 ## measure
 
-<include>/_sig/FaceSelection.measure.mdx</include>
+<include>/_sig/faces.measure.mdx</include>
 
 <AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 
@@ -227,7 +227,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Edge.faces.mdx</include>
 
-The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar, and `edge.faces` builds the face map itself. A material that is not planar fails with the same message as `faces()`. Below, the walls with two faces are blue.
+The faces on the two sides of an edge, as a selection of faces. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar, and `edge.faces` builds the face map itself. A material that is not planar fails with the same message as `faces()`. Below, the walls with two faces are blue.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -241,7 +241,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## faces().set()
 
-<include>/_sig/FaceSelection.set.mdx</include>
+<include>/_sig/faces.set.mdx</include>
 
 A value that belongs to what the walls enclose. A face is not a row, so a face column takes the face's own walls as its key. The column then follows the material through any edit that leaves those walls alone. It follows a SPLIT of a wall too, because a child wall remembers its parent.
 

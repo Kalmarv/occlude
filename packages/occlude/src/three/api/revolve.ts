@@ -1,3 +1,4 @@
+import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3} from '../geometry/surface.js';
 import {Mesh,CurveGeometry,emptyMesh,type EdgeAttributes,type GeometryOptions} from './mesh.js';
@@ -15,7 +16,7 @@ export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
 /** Revolve an XZ meridian in x>=0 around Z. A 2D chain is that meridian:
  * its x is the radius and its y the height. Point columns follow the profile;
  * side faces inherit profile edge columns, while angular caps have no columns. */
-export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:CurveGeometry<P,E>|{curves():unknown},options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV> {
+export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:CurveGeometry<P,E>|{readonly curves:unknown}|Curve2,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('revolve options must be an object');
   const profile=profileCurve(input,'xz','revolve') as CurveGeometry<P,E>;
   const path=curvePath(profile),angle=options.angle??360,n=options.segments??32,full=Math.abs(angle)===360;

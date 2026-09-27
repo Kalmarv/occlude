@@ -3,7 +3,7 @@
 **How can a line choose where to go and when to stop?** A point that moves and leaves a trail is a line. Give its newest point a rule, a way to look around, and a decision about what it finds, and the line becomes a path that branches, avoids, or joins. This is the drawing this chapter arrives at: a stand of paths growing up past a rock, branching now and then, each one turning away from its neighbours; and, right after it, the same paths turning toward their neighbours instead. By the end you will be able to write a stop, a join or a turn of your own, and know what the growing tip can and cannot see.
 
 ```ts live
-import { sketch, circle, strokes, material, append, query, point, edge, add, mul, fromAngle, cross, ui } from 'occlude';
+import { sketch, circle, strokes, material, append, point, edge, add, mul, fromAngle, cross, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const steps = ui(34, { min: 0, max: 60, step: 1 });
@@ -14,7 +14,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const seeds = material(t.times(9, (i, u) => [14 + u * 172, 96]), { active: 1, heading: -Math.PI / 2, depth: 0 });
   const side = (heading, toward) => Math.sign(cross(fromAngle(heading), toward)) || 1;
   const paths = t.steps(steps, append(rock, seeds, { fill: { active: 0, heading: 0, depth: 0 } }), (g) => {
-    const lines = query.edges(g);
+    const lines = g.edges;
     const tips = g.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
     const walls = [];
     const twigs = tips.map((p) => {
@@ -120,12 +120,12 @@ A branch point is a point with three connections. `strokes` walks each arm once,
 
 ## Ask about a proposed move
 
-Put something in the way: a bar across the path. It is ordinary material, a chain of two points, and `append` puts it and the seed into one material. Every point of one material has the same columns, and the bar has no `active` and no heading, so `append` is told what its points get: `fill: { active: 0, heading: 0 }` writes those onto the bar's rows and nothing else. Before the tip takes a step, ask the current state a question: if I moved from here to there, what would I cross first? `query.edges(g)` prepares that question for a state, once; `lines.firstHit(from, to, { excludeIncident: p })` answers it for one move, ignoring the connections that touch `p` itself, which would otherwise always be hit first. The answer is `null` or a hit: which connection, where on it (`hit.position`), and how far along it (`hit.t`).
+Put something in the way: a bar across the path. It is ordinary material, a chain of two points, and `append` puts it and the seed into one material. Every point of one material has the same columns, and the bar has no `active` and no heading, so `append` is told what its points get: `fill: { active: 0, heading: 0 }` writes those onto the bar's rows and nothing else. Before the tip takes a step, ask the current state a question: if I moved from here to there, what would I cross first? `g.edges.firstHit(from, to, { excludeIncident: p })` answers it for one move, ignoring the connections that touch `p` itself, which would otherwise always be hit first. The answer is `null` or a hit: which connection, where on it (`hit.position`), and how far along it (`hit.t`).
 
 This sketch grows the path to just before the bar and then asks the question once, outside any step, so you can see it: the proposed move in blue, the hit marked.
 
 ```ts live focus=15-19
-import { sketch, circle, line, strokes, material, append, query, point, edge, add, mul, fromAngle, ui } from 'occlude';
+import { sketch, circle, line, strokes, material, append, point, edge, add, mul, fromAngle, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const stride = ui(6, { min: 2, max: 16, step: 0.5 });
@@ -141,7 +141,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   });
   const tip = path.points.filter((p) => p.active === 1).at(0);
   const target = add(tip, mul(fromAngle(tip.heading), stride));
-  const lines = query.edges(path);
+  const lines = path.edges;
   const hit = lines.firstHit(tip, target, { excludeIncident: tip });
   return [
     strokes(path),
@@ -157,14 +157,14 @@ Shorten `stride` until the blue move no longer reaches the bar. The green mark d
 The query does not decide what happens next; the sketch does. Two answers to a hit, side by side, from the same path and the same bar. Left: stop short. The tip's child is placed a little before the hit and is not active, so the path ends there, touching nothing. Right: join. `meet` is a new point at the hit, and the tip's twig ends there instead of at a new child. The bar is cut at `meet`: the pass keeps the bar in `walls`, `g.edges.rows(walls)` names it and `edges.remove` takes it out, and `edge(hit.edge.a, meet)` and `edge(meet, hit.edge.b)` put its two halves in. The bar now has a point where the path meets it, and that point has three connections.
 
 ```ts live focus=13-19
-import { sketch, circle, line, strokes, material, append, query, point, edge, add, sub, mul, fromAngle, group, ui } from 'occlude';
+import { sketch, circle, line, strokes, material, append, point, edge, add, sub, mul, fromAngle, group, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const join = ui(false, { label: 'join instead of stopping' });
   const bar = t.sample(line(30, 46, 74, 40), { count: 2 });
   const seed = material([[50, 92]], { active: 1, heading: -Math.PI / 2 });
   const grow = (joins) => t.steps(16, append(bar, seed, { fill: { active: 0, heading: 0 } }), (g) => {
-    const lines = query.edges(g);
+    const lines = g.edges;
     const tips = g.points.filter((p) => p.active === 1);
     const walls = [];
     const twigs = tips.map((p) => {
@@ -219,7 +219,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 Now the sensing itself, on one tip and one bar, with the look-ahead point in blue and the nearest position on the bar in green. `steer` is how hard the tip turns, scaled by how close the bar is: nothing at the edge of the sensing distance, the full amount when touching. The sign of `steer` is the whole difference between avoiding and approaching.
 
 ```ts live focus=15-18
-import { sketch, circle, line, strokes, material, append, query, point, edge, add, mul, fromAngle, cross, ui } from 'occlude';
+import { sketch, circle, line, strokes, material, append, point, edge, add, mul, fromAngle, cross, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const steps = ui(10, { min: 0, max: 24, step: 1 });
@@ -230,7 +230,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const side = (heading, toward) => Math.sign(cross(fromAngle(heading), toward)) || 1;
   const marks = [];
   const path = t.steps(steps, append(bar, seed, { fill: { active: 0, heading: 0 } }), (g) => {
-    const lines = query.edges(g);
+    const lines = g.edges;
     const tips = g.points.filter((p) => p.active === 1);
     const twigs = tips.map((p) => {
       let h = p.heading;
@@ -260,7 +260,7 @@ With `steer` negative the path turns toward the bar and runs into it: this rule 
 Nine seeds along the bottom, a rock in the middle made of a sampled circle and appended with a fill, a gentle turning noise so the paths are not straight, a seeded chance of a branch, the sensing rule, and the join. Two tips can meet one wall in the same step, and a wall is cut once in a step: the first tip joins it, and the second stops there with no twig. Each named line of the rule is one of this page's sections: `turn`, `ahead` and `near`, the `side` test, `target` and `hit`, the `headings`. Each child writes its columns out: it is active, it has a heading of its own, and its `depth` is one more than its tip's, which the turning noise reads, so the noise changes along a path; a branch's two children differ in heading and nothing else. The tips are also confined to the sheet by the selection: a tip that reaches the top or the sides stops being chosen.
 
 ```ts live focus=12-31
-import { sketch, circle, strokes, material, append, query, point, edge, add, mul, fromAngle, cross, ui } from 'occlude';
+import { sketch, circle, strokes, material, append, point, edge, add, mul, fromAngle, cross, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const steps = ui(34, { min: 0, max: 60, step: 1 });
@@ -271,7 +271,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const seeds = material(t.times(9, (i, u) => [14 + u * 172, 96]), { active: 1, heading: -Math.PI / 2, depth: 0 });
   const side = (heading, toward) => Math.sign(cross(fromAngle(heading), toward)) || 1;
   const paths = t.steps(steps, append(rock, seeds, { fill: { active: 0, heading: 0, depth: 0 } }), (g) => {
-    const lines = query.edges(g);
+    const lines = g.edges;
     const tips = g.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
     const walls = [];
     const twigs = tips.map((p) => {
@@ -305,13 +305,13 @@ Which drawing is stronger? At this seed, the avoiding stand, because its open sp
 The query is prepared from `g`, the value the pass is given. The twigs the pass makes are not in it: they are in the value the pass returns, and only the next step's query sees them. Two tips whose paths cross: one walking east along `y = 50`, one walking north along `x = 50`. Each asks the index before every step; the index knows the other's trail but not the move it is about to make. Set `stride` to 4 and look at what happens where the paths meet.
 
 ```ts live focus=4,7,12-13
-import { sketch, circle, strokes, material, query, point, edge, add, mul, fromAngle, ui } from 'occlude';
+import { sketch, circle, strokes, material, point, edge, add, mul, fromAngle, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const stride = ui(2, { min: 2, max: 4, step: 2 });
   const pair = material([[32, 50], [50, 69]], { active: 1, heading: [0, -Math.PI / 2] });
   const walked = t.steps(10, pair, (g) => {
-    const lines = query.edges(g);
+    const lines = g.edges;
     const tips = g.points.filter((p) => p.active === 1);
     const walls = [];
     const twigs = tips.map((p) => {
@@ -350,4 +350,4 @@ Make the tips behave differently on the two halves of the sheet, with one growth
 
 ## Where to look things up
 
-`point`, `edge` and the writes on a table are on [Steps](#/reference-steps), and `append` is under *Making a material* on [Materials](#/materials); `query.edges`, `nearest` and `firstHit` under *Spatial queries*, and the nearest point, the closest of `points.near`, on [Selections](#/reference-selections); the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.
+`point`, `edge` and the writes on a table are on [Steps](#/reference-steps), and `append` is under *Making a material* on [Materials](#/materials); `edges.nearest` and `edges.firstHit` under *Spatial queries*, and the nearest point, the closest of `points.near`, on [Selections](#/reference-selections); the branching examples under *Branching*. Next, chapter 6: what the spaces between these lines can become.

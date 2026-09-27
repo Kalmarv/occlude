@@ -16,6 +16,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { circle, curve, material, type Cell, type Lattice } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -309,7 +310,7 @@ describe('a lattice field feeds everything that reads a field', () => {
     const lat = t.lattice({ spacing: 3 }, (x, y) => Math.exp(-((x - 50) ** 2 + (y - 50) ** 2) / 400));
     const iso = t.isolines(lat.field(), 0.3);
     expect(iso.n).toBeGreaterThan(8);
-    expect(iso.curves().length).toBeGreaterThan(0);
+    expect(iso.curves.map(rec).length).toBeGreaterThan(0);
     for (const p of iso.points) {
       expect(Math.hypot(p.x - 50, p.y - 50)).toBeLessThan(30);
     }

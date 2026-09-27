@@ -3,16 +3,18 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, connect, curve, material, polygon, sketch, strokes, PointSelection, type Material,
+  append, circle, connect, curve, material, polygon, sketch, strokes, type Material,
   type PointsLike, type Toolkit,
 } from '../src/index.js';
 import { voronoiOf } from '../src/voronoi.js';
+import { isPointSelection } from '../src/relation.js';
+import { faceTableOf } from '../src/faces.js';
 import type { Bounds } from '../src/points.js';
 
 /** The kernel under `t.voronoi`, over explicit bounds: a selection keeps
  * its identity as the sites, bare points become a material. */
 const voronoi = (sites: PointsLike, b: Bounds): Material =>
-  voronoiOf(sites instanceof PointSelection ? sites : material(sites), b);
+  voronoiOf(isPointSelection(sites) ? sites : material(sites), b);
 import { compileSketch, initOcclude, Execution } from '../src/host.js';
 import { densityRaster, accumulateCells } from '../src/points.js';
 import { xy } from './helpers/xy.js';
@@ -40,7 +42,7 @@ describe('a spacing at or below zero', () => {
         const src = material([[10, 10], [20, 20]]);
         expect(t.settle(src, { density: field, spacing }).n).toBe(src.n);
         expect(curve([[0, 0], [10, 0]]).resample({ spacing }).n).toBe(0);
-        expect(curve([[0, 0], [10, 0]]).along({ spacing })).toEqual([]);
+        expect(curve([[0, 0], [10, 0]]).along({ spacing }).points.length).toBe(0);
       }
       expect(() => t.scatter(field, {} as never)).toThrow(/spacing/);
       expect(() => t.sample(circle(50, 50, 20), {})).toThrow(/exactly one/);
@@ -162,8 +164,8 @@ describe('voronoi as material', () => {
     expect(faces.map((f) => f.area).reduce((a, v) => a + v, 0)).toBeCloseTo(10000, 6);
     // Interior walls appear once: every edge borders one or two faces, never zero or three.
     for (let e = 0; e < cells.edgeCount; e++) {
-      const l = (faces as unknown as { faceOf: Int32Array }).faceOf[2 * e];
-      const r = (faces as unknown as { faceOf: Int32Array }).faceOf[2 * e + 1];
+      const l = faceTableOf(faces).faceOf[2 * e];
+      const r = faceTableOf(faces).faceOf[2 * e + 1];
       expect(l >= 0 || r >= 0).toBe(true);
     }
     expect(faces.boundaryEdges().length).toBeGreaterThanOrEqual(4);
@@ -511,19 +513,19 @@ describe('review of fe26c3f', () => {
     expect(cells.edges.length).toBe(8);
   });
 
-  it('facesOf: the faces on the two sides of an edge, ownership-checked', () => {
+  it('edge.faces: the faces on the two sides of an edge, as a selection of the faces', () => {
     const two = material([[0, 0], [10, 0], [20, 0], [20, 10], [10, 10], [0, 10], [17, 3]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [1, 4], [2, 6]] });
     const cells = two.faces();
-    const shared = cells.facesOf(two.edge(6));
+    const shared = two.edge(6).faces;
     expect(shared.length).toBe(2);
     expect(shared.map((f) => f.bounds.x).sort()).toEqual([0, 10]);
-    expect(cells.facesOf(two.edge(0)).length).toBe(1); // outer wall
-    expect(cells.facesOf(two.edge(7)).length).toBe(1); // the spur: one face on both sides
+    expect(cells.has(shared.at(0))).toBe(true);
+    expect(two.edge(0).faces.length).toBe(1); // outer wall
+    expect(two.edge(7).faces.length).toBe(1); // the spur: one face on both sides
     const lone = material([[30, 30], [40, 30]], { edges: [[0, 1]] });
-    expect(lone.faces().facesOf(lone.edge(0))).toEqual([]);
-    expect(() => cells.facesOf(lone.edge(0))).toThrow(/another state/);
+    expect(lone.edge(0).faces.length).toBe(0);
     // the same edge through a selection view of the source
-    expect(cells.facesOf(two.edges.filter((e) => e.index === 6).at(0)).length).toBe(2);
+    expect(two.edges.filter((e) => e.index === 6).at(0).faces.length).toBe(2);
   });
 
   it('4. measurements are frozen: the record and its coordinate tuples', () => {

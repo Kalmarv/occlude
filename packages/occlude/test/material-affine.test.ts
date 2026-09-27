@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { append, curve, distance, material, type Material } from '../src/material.js';
 import { xy, oneRing } from './helpers/xy.js';
+import { selectionIn } from '../src/selection.js';
 
 // Off-centre on purpose: its bounds centre is [3, 5], not the origin.
 const src = (): Material => curve([[1, 2], [5, 2], [5, 8], [1, 8]], { closed: true, age: [1, 2, 3, 4] })
@@ -56,11 +57,11 @@ describe("origin: 'centroid'", () => {
       }
       for (const k of [0.3, 2]) {
         const moved = outline.scale(k, { origin: 'centroid' });
-        const again = moved.planarize().faces().faces[0];
+        const again = moved.planarize().faces().at(0);
         expect(again.centroid[0]).toBeCloseTo(before[0], 9);
         expect(again.centroid[1]).toBeCloseTo(before[1], 9);
       }
-      const turned = outline.rotate(40, { origin: 'centroid' }).planarize().faces().faces[0];
+      const turned = outline.rotate(40, { origin: 'centroid' }).planarize().faces().at(0);
       expect(turned.centroid[0]).toBeCloseTo(before[0], 9);
       expect(turned.centroid[1]).toBeCloseTo(before[1], 9);
     }
@@ -173,7 +174,7 @@ describe('the four verbs are map underneath', () => {
       expect(oneRing(moved)).toBe(true);
 
       const some = m.points.filter((p) => p.age > 2);
-      const again = some.in(moved);
+      const again = selectionIn(some, moved);
       expect(again.length).toBe(2);
       expect(again.source).toBe(moved);
       expect([...again].map((p) => p.id)).toEqual([...some].map((p) => p.id));

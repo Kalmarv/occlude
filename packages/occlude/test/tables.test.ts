@@ -10,10 +10,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { isPointSelection } from '../src/relation.js';
 import { toolkit } from './helpers/run.js';
 import {
   material, curve, connect, force, polar, angleTo, unit, add, distance, point, edge, Material,
-  PointSelection, type Vertex, type Edge,
+  type Vertex, type Edge,
 } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
 import { latticeOf, type Cell, type Lattice } from '../src/lattice.js';
@@ -383,7 +384,9 @@ describe('the lattice as one table', () => {
     expect(byTest.values.ink[3]).toBe(3.5);
     expect(byTest.values.ink[13]).toBe(0);
     expect(l.set('ink', 3, undefined).values.ink.every((v) => v === 0)).toBe(true);
+    // @ts-expect-error a lattice's cells have no add
     expect(() => l.cells.add()).toThrow(/cells are fixed/);
+    // @ts-expect-error a lattice's cells have no remove
     expect(() => l.cells.remove()).toThrow(/cells are fixed/);
     expect(() => l.set('x', 1)).toThrow(/reserved/);
     // A value that is not finite leaves the cell as it was.
@@ -491,7 +494,7 @@ describe('t.pick by count and by share', () => {
     const m = material(Array.from({ length: 20 }, (_, i) => [i, 0] as [number, number]));
     const a = toolkit({ seed: 7 });
     const five = a.pick(m.points, 5);
-    expect(five).toBeInstanceOf(PointSelection);
+    expect(isPointSelection(five)).toBe(true);
     expect(five.length).toBe(5);
     expect(new Set(five.indices).size).toBe(5);
     expect(a.pick(m.points, 0.25).length).toBe(5);

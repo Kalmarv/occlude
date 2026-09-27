@@ -1,3 +1,4 @@
+import {chainsOf} from '../../curves.js';
 import {Material} from '../../material.js';
 import {Mesh} from './mesh.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
@@ -117,7 +118,7 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
       const a=material.edgeList[e*2],b=material.edgeList[e*2+1];edgeRows.set(`${a}:${b}`,e);if(!edgeRows.has(`${b}:${a}`))edgeRows.set(`${b}:${a}`,e);
       if((e&127)===127)yield;
     }
-    const chains=material.curves();yield;
+    const chains=chainsOf(material);yield;
     const pointColumns=Object.entries(material.attrs);
     for(let ci=0;ci<chains.length;ci++){
       const path=chains[ci],count=path.indices.length-(path.closed?0:1),chain=identity('mapped-chain',settings.key??mesh.key??'default',pi,ci);

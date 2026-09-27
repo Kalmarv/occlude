@@ -9,9 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
 import { neighbours } from '../src/forces.js';
-import { query } from '../src/query.js';
 import { toolkit } from './helpers/run.js';
-import { xy } from './helpers/xy.js';
+import { xy, rec } from './helpers/xy.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
@@ -47,7 +46,7 @@ describe('what a direct write reaches', () => {
     m.x[0] = 100;
     expect(m.vertex(0).x).toBe(100);
     expect(m.edge(0).a.x).toBe(100);
-    expect(m.curves()[0].pts[0][0]).toBe(100);
+    expect(m.curves.map(rec)[0].pts[0][0]).toBe(100);
     expect(m.points.map(xy)[0][0]).toBe(100);
   });
 
@@ -58,9 +57,11 @@ describe('what a direct write reaches', () => {
     expect(m.points.at(0).adjacent.indices).toEqual([1, 3]);
   });
 
-  it('a prepared edge query keeps the geometry it was prepared on', () => {
+  it('the edge index keeps the geometry it was built on', () => {
     const m = square();
-    const q = query.edges(m);
+    const q = m.edges;
+    // The index is built the first time a state is asked, and kept there.
+    expect(q.nearest([1, -1], { within: 2 })).not.toBeNull();
     m.x[0] = 100; // the bottom edge now runs 100→10 in the material...
     const hit = q.nearest([1, -1], { within: 2 });
     expect(hit).not.toBeNull();

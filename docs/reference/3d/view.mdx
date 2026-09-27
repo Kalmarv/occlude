@@ -92,7 +92,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## hatch
 
-`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the mesh, or a test on its face rows. The test gets the mesh's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. A fill that is not parallel lines is refused, and so is a spacing field of the paper. A recipe without a pen uses the object's `fillPen`, then its `pen`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
+`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the mesh, or a test on its face rows. The test gets the mesh's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. The call refuses a fill that is not parallel lines, and a spacing field of the paper. A recipe without a pen uses the object's `fillPen`, then its `pen`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -103,7 +103,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ### A list of recipes
 
-`hatch` also takes a list of recipes, which is several families at once. Two recipes over the same faces, at angles 90° apart, are a crosshatch. Each family keeps its own pen.
+`hatch` also takes a list of recipes, for several families at once. Two recipes over the same faces, at angles 90° apart, are a crosshatch. Each family keeps its own pen.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -125,7 +125,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## The view callback
 
-`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace`, `suggestive` and `mapped`. Each reads the columns of its source as properties, `c.rim`, and `c.attributes` is the same record. `lines.visible.curves()` joins the intervals end to end into chains in drawable units, and `contours()` gives the closed chains. Thus `polygon(lines.visible.kind('silhouette'), { fill })` fills the outline of the object. `lines` holds only the folds that `creaseAngle` keeps, as the default ink does. A flatter fold is not in `lines`. `strokes` accepts them directly. `t.within(lines.hidden, area)` keeps the lines in an area and cuts the other lines at its edge. The result is projected lines again, so `strokes`, `kind` and `filter` read it. Keep the callback pure, because it can run again when the camera changes.
+`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace`, `suggestive` and `mapped`. Each reads the columns of its source as properties, `c.rim`, and `c.attributes` is the same record. `lines.visible.curves` joins the intervals end to end into chains in drawable units, and `contours()` gives the closed chains. So `polygon(lines.visible.kind('silhouette'), { fill })` fills the outline of the object. `lines` holds only the folds that `creaseAngle` keeps, as the default ink does. A flatter fold is not in `lines`. `strokes` accepts them directly. `t.within(lines.hidden, area)` keeps the lines in an area and cuts the other lines at its edge. The result is lines of the view again, so `strokes`, `kind` and `filter` read it. Keep the callback pure, because it can run again when the camera changes.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';

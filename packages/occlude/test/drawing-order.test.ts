@@ -50,7 +50,7 @@ describe('angles are clockwise on the sheet', () => {
     expect(tip(out)[1]).toBeCloseTo(180, 6);
   });
   it('points a station heading of 90 down the page', () => {
-    const out = render(sketch({ aspect: [1, 1] }, (t) => { const s = t.station(50, 50, { heading: 90 }).step(40); return line(50, 50, s.x, s.y); }), { paper: 'Square20' });
+    const out = render(sketch({ aspect: [1, 1] }, (t) => { const s = t.placement([50, 50], 90).step(40); return line(50, 50, s.x, s.y); }), { paper: 'Square20' });
     expect(tip(out)[1]).toBeCloseTo(180, 6);
   });
   it('turns the other way on the paper under yUp', () => {

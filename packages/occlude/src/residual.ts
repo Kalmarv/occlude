@@ -35,8 +35,8 @@
 
 import { areaFill } from './area.js';
 import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
+import { chainRecordsOf } from './curves.js';
 import { usableLength } from './guard.js';
-import type { Curve } from './material.js';
 import type { IsoContour } from './isolines.js';
 import type { Bounds, FieldFn2 } from './points.js';
 import { mm, type L } from './units.js';
@@ -414,7 +414,7 @@ function markLines(marks: SpendMarks): Pt[][] {
   // The protocol first: a value that can say where its chains and points are
   // is read by what it answers, never by a field that looks like a record.
   const g = marks as Geometry;
-  const hasCurves = typeof g === 'object' && typeof g.curves === 'function';
+  const hasCurves = typeof g === 'object' && g !== null && 'curves' in g;
   const hasPoints = typeof g === 'object' && g !== null && g.points !== undefined;
   if (!hasCurves && !hasPoints) {
     if (isContourRecord(marks)) {
@@ -428,8 +428,8 @@ function markLines(marks: SpendMarks): Pt[][] {
   const out: Pt[][] = [];
   const used = new Set<number>();
   if (hasCurves) {
-    for (const c of (g.curves as () => Curve[])()) {
-      for (const i of c.indices) used.add(i);
+    for (const c of chainRecordsOf(g) ?? []) {
+      if (c.indices) for (const i of c.indices) used.add(i);
       const line = contourLine(c);
       if (line.length > 0) out.push(line);
     }

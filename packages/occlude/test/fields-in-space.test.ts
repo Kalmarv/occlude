@@ -315,7 +315,7 @@ describe('a material carries the space its coordinates belong to', () => {
     spline: () => m.spline(),
     trim: () => m.trim({ start: 1 }),
     'points.set x': () => m.points.set('x', (p) => p.x + 1),
-    transform: () => m.transform(toolkitStation(sp).placement()),
+    transform: () => m.transform(toolkitStation(sp)),
     scale: () => m.scale(0.5),
     rotate: () => m.rotate(10),
     translate: () => m.translate([1, 2]),
@@ -335,8 +335,9 @@ describe('a material carries the space its coordinates belong to', () => {
     extrude: () => m.extrude(m.points.at(0), [0.1, 0]),
     split: () => m.split(m.edges),
     move: () => m.move([0.1, 0]),
+    along: () => m.along({ count: 5 }),
   });
-  let stationOf: (sp: Space) => ReturnType<ReturnType<typeof toolkit>['station']>;
+  let stationOf: (sp: Space) => ReturnType<ReturnType<typeof toolkit>['placement']>;
   const toolkitStation = (sp: Space) => stationOf(sp);
 
   /** Two crossing rings: faces, crossings for interlace, chains for the rest. */
@@ -346,7 +347,7 @@ describe('a material carries the space its coordinates belong to', () => {
   it('every verb that answers a material keeps the receiver\'s space', () => {
     for (const cfg of [HYP, SPH, FLAT]) {
       const t = toolkit(cfg);
-      stationOf = () => t.station(50, 50, { heading: 20 });
+      stationOf = () => t.placement([50, 50], 20);
       const m = source(t);
       expect(m.space).toBe(t.space);
       for (const [name, call] of Object.entries(verbs(m, t.space))) {
@@ -362,7 +363,7 @@ describe('a material carries the space its coordinates belong to', () => {
     // Readers, lookups and constructors of other kinds of value.
     const notMaterial = new Set([
       'constructor', 'rowOfPoint', 'rowOfEdge', 'pointOf', 'edgeOf', 'vertex', 'edge', 'adjacentRows', 'incidentEdgeRows',
-      'rowOfVertex', 'faces', 'cellOf', 'siteOf', 'contours', 'curves', 'edgeRowsAll', 'along', 'pivot',
+      'rowOfVertex', 'faces', 'cellOf', 'siteOf', 'contours', 'pivot',
     ]);
     const names = Object.getOwnPropertyNames(Material.prototype).filter((k) => typeof Object.getOwnPropertyDescriptor(Material.prototype, k)?.value === 'function');
     expect(names.filter((k) => !covered.has(k) && !notMaterial.has(k))).toEqual([]);

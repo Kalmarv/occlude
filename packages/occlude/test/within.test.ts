@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, clip, material, path, polygon, rect, sketch, type Face, type Faces, type Material,
-  type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY,
+  append, circle, clip, material, path, polygon, rect, sketch, type Face, type Material,
+  type Selection, type Vertex, type SketchDef, type ShapeValue, type Toolkit, type XY,
 } from '../src/index.js';
 import { compileSketch, initOcclude, render, Execution } from '../src/host.js';
 import type { Loop } from '../src/boundary.js';
@@ -102,7 +102,7 @@ describe('within: points and faces', () => {
     let indices: readonly number[] = [];
     run((t) => {
       const m = material([[10, 10], [50, 50], [70, 70], [95, 95]]).points.set('k', (p) => p.x);
-      const sel: PointSelection = t.within(m.points, rect(20, 20, 60, 60));
+      const sel: Selection<Vertex> = t.within(m.points, rect(20, 20, 60, 60));
       length = sel.length;
       more = sel.filter((p) => p.k > 60).length;
       indices = sel.indices;
@@ -285,7 +285,7 @@ describe('within: the filled region, not the contours', () => {
       .close().build();
   };
 
-  const rectFace = (x0: number, y0: number, x1: number, y1: number): Faces =>
+  const rectFace = (x0: number, y0: number, x1: number, y1: number): Selection<Face> =>
     material([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
       .planarize().faces();
 

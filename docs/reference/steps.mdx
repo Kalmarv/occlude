@@ -40,8 +40,8 @@ Faces are a third domain with one write. A face is not a row, so `g.faces().set(
 
 ## set()
 
-<include>/_sig/PointSelection.set.mdx</include>
-<include>/_sig/EdgeSelection.set.mdx</include>
+<include>/_sig/points.set.mdx</include>
+<include>/_sig/edges.set.mdx</include>
 
 A value is a number, or a function of the row. The record form of `set` is one instant: every function reads the table as it was before the write. A chain of `set` calls is a sequence. A write to a column that is not declared declares it, with 0 on every other row. `x` and `y` are columns too.
 
@@ -62,8 +62,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## add()
 
-<include>/_sig/PointSelection.add.mdx</include>
-<include>/_sig/EdgeSelection.add.mdx</include>
+<include>/_sig/points.add.mdx</include>
+<include>/_sig/edges.add.mdx</include>
 
 `points.add` adds one point or a list of points. A new point must give every declared column. `edges.add` adds one edge `[a, b]`, an edge value, or a list of them. An end of an edge row is a point value or a vertex. A position is not an end, and the write stops with an error that tells you to use `point(…)`. To add a point and an edge to it, make the point with `point(xy, cols)`. Add the point, and then add the edge.
 
@@ -92,8 +92,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## remove()
 
-<include>/_sig/PointSelection.remove.mdx</include>
-<include>/_sig/EdgeSelection.remove.mdx</include>
+<include>/_sig/points.remove.mdx</include>
+<include>/_sig/edges.remove.mdx</include>
 
 `points.remove` deletes points and the edges that touch them. The neighbours of a removed point do not join. `edges.remove` deletes edges and keeps their points. Below, the ring loses every ninth point. A new hub joins four points of the ring, and each spoke is an edge value.
 
@@ -224,7 +224,7 @@ export default sketch({ aspect: [1, 1], margin: 6 }, (t) => {
   const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
   const seed = t.sample(circle(b.w / 2, b.h * 0.56, b.w * 0.42), { count: 3 });
   const flake = t.steps(4, seed, (g) => g.replace(g.edges, motif, { flip: true }));
-  return strokes(flake.curves());
+  return strokes(flake.curves);
 });
 ```
 
@@ -394,7 +394,7 @@ A force of your own is a function, not a word of the library. Sum what you
 want over the points within a radius. `g.points.near(p, { radius })` is
 the neighbourhood, from an index built once for the state, and a vertex is
 never its own neighbour. `sumBy` adds the vectors up. To skip the points at
-the other end of `p`'s edges, subtract them: `.subtract(p.adjacent)`.
+the other end of `p`'s edges, take them out: `.without(p.adjacent)`.
 
 ```ts live
 import { sketch, circle, force, sub, unit, mul, sumBy, distance } from 'occlude';

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { curve, material, mm, type Material } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -78,8 +79,8 @@ describe('oscillate with a rolled circle: a coil', () => {
     })), { closed: true });
     // A pitch that does not divide the circumference: the fit rounds it.
     const out = coil(ring, { radius: 2, pitch: 17 });
-    expect(out.curves().length).toBe(1);
-    expect(out.curves()[0].closed).toBe(true);
+    expect(out.curves.map(rec).length).toBe(1);
+    expect(out.curves.map(rec)[0].closed).toBe(true);
     const first = out.points.at(0);
     const last = out.points.at(-1);
     // The seam closes on itself: the last station is one sample from the

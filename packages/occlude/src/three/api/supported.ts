@@ -1,4 +1,5 @@
-import {Collection} from './collection.js';
+import {Table3,select3,kind3,POINTS3,EDGES3} from './collection.js';
+import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
 import type {Attributes3} from '../geometry/surface.js';
 import {Mesh,type GeometryOptions,type PointRow} from './mesh.js';
 import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,surfaceCurveNetwork3,bindingTriangle3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3,type SurfaceCurveRecipe3} from '../curves/network.js';
@@ -10,9 +11,17 @@ import {refuseStroke} from './recipes.js';
 export interface SurfaceCurvePoint extends PointRow<{}> {
  readonly exact:SurfaceCurveNode3['exact'];readonly supports:SurfaceCurveNode3['supports'];
  readonly attributes:SurfaceCurveNode3['attributes'];
+ readonly [ROW_TYPES]?:SurfaceCurvePointTypes;
 }
+/** @internal What a selection of supported-curve points answers: derived
+ * rows, so no write; `extract()` is the rows themselves. */
+export type SurfaceCurvePointTypes=Types<{source:SurfaceCurveNetwork3;points:Selection<SurfaceCurvePoint>;extract:()=>readonly SurfaceCurvePoint[]}>;
+/** @internal What a selection of supported-curve edges answers: `extract()`
+ * is the curves those edges make. */
+export type SurfaceCurveEdgeTypes<A extends Attributes3>=Types<{source:SurfaceCurveNetwork3;edges:Selection<SurfaceCurveEdge<A>>;extract:()=>SurfaceCurves<A>}>;
 export type SurfaceCurveEdge<A extends Attributes3={}> = Readonly<Omit<A,keyof SupportedCurveSegment3|'index'> & Omit<SupportedCurveSegment3,'a'|'b'> & {
  readonly index:number;readonly a:SurfaceCurvePoint;readonly b:SurfaceCurvePoint;
+ readonly [ROW_TYPES]?:SurfaceCurveEdgeTypes<A>;
 }>;
 const rows=new WeakMap<SurfaceCurveNetwork3,{points:readonly SurfaceCurvePoint[];edges:readonly SurfaceCurveEdge[]}>();
 /** One chain of supported curves: its points in walking order, whether it
@@ -20,9 +29,22 @@ const rows=new WeakMap<SurfaceCurveNetwork3,{points:readonly SurfaceCurvePoint[]
  * edges agrees on (`c.level` on an isoline ring), read as properties like
  * every other row; `attributes` is the same record. */
 export type SurfaceChain<A extends Attributes3={}> = Readonly<Partial<A>&{
- id:string;index:number;points:readonly SurfaceCurvePoint[];closed:boolean;
- edges:Collection<SurfaceCurveEdge<A>,SurfaceCurves<A>>;attributes:Readonly<Partial<A>>;
+ id:string;index:number;points:Selection<SurfaceCurvePoint>;closed:boolean;
+ edges:Selection<SurfaceCurveEdge<A>>;attributes:Readonly<Partial<A>>;
+ readonly [ROW_TYPES]?:SurfaceChainTypes<A>;
 }>;
+/** @internal What a selection of supported-curve chains answers: derived
+ * rows, so no write; `extract()` is the curves they make. */
+export type SurfaceChainTypes<A extends Attributes3>=Types<{source:SurfaceCurveNetwork3;points:Selection<SurfaceCurvePoint>;edges:Selection<SurfaceCurveEdge<A>>;curves:Selection<SurfaceChain<A>>;extract:()=>SurfaceCurves<A>}>;
+type ChainSel=Selection<SurfaceChain<any>>;
+/** The words of a selection of supported-curve chains: its points and its
+ * edges, chain by chain in walking order, and itself as its curves. */
+const whole=new WeakMap<object,{readonly points:Selection<SurfaceCurvePoint>;readonly edges:Selection<SurfaceCurveEdge<any>>}>();
+const CURVES3=kind3('curve',{
+ points:{get(this:ChainSel){return whole.get(this.domain)!.points.rows([...new Set(this.map(c=>c.points.indices).flat())]);}},
+ edges:{get(this:ChainSel){return whole.get(this.domain)!.edges.rows([...new Set(this.map(c=>c.edges.indices).flat())]);}},
+ curves:{get(this:ChainSel){return this;}},
+});
 /** Chains of a network, each a run of segments sharing a `chainId`, walked
  * end to end from an end (or from its first segment when it is a ring). */
 function chainsOf(network:SurfaceCurveNetwork3):{id:string;segments:number[];points:number[];closed:boolean}[] {
@@ -48,12 +70,13 @@ export interface SurfaceCurveOptions extends GeometryOptions {
  readonly pen?:string;
 }
 const isRecipe=(source:SurfaceCurveNetwork3|SurfaceCurveRecipe3):source is SurfaceCurveRecipe3=>typeof (source as SurfaceCurveRecipe3).resolve==='function';
-interface Built<A extends Attributes3> {readonly network:SurfaceCurveNetwork3;readonly points:Collection<SurfaceCurvePoint,readonly SurfaceCurvePoint[]>;readonly edges:Collection<SurfaceCurveEdge<A>,SurfaceCurves<A>>}
+interface Built<A extends Attributes3> {readonly network:SurfaceCurveNetwork3;readonly points:Selection<SurfaceCurvePoint>;readonly edges:Selection<SurfaceCurveEdge<A>>}
 export class SurfaceCurves<A extends Attributes3={}> {
  readonly key?:string;
  readonly pen?:string;
  readonly #source:SurfaceCurveNetwork3|SurfaceCurveRecipe3;
  #built?:Built<A>;
+ #curves?:Selection<SurfaceChain<A>>;
  /** A network is held as is. A recipe (`intersections`) is a description:
   * a view resolves it among the sources it draws, and a direct read of the
   * curves resolves every source, once. */
@@ -78,42 +101,46 @@ export class SurfaceCurves<A extends Attributes3={}> {
   const active=network.reference?[...new Set(network.segments.flatMap(s=>[s.a,s.b]))]:points.map(p=>p.index);
   return this.#built={
    network,
-   points:new Collection(network,'point',points,indices=>Object.freeze(indices.map(i=>points[i])),active),
-   edges:new Collection(network,'edge',edges as readonly SurfaceCurveEdge<A>[],indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices),this)),
+   points:select3(new Table3(POINTS3,network,'point',points,{extract:indices=>Object.freeze(indices.map(i=>points[i]))}),active) as Selection<SurfaceCurvePoint>,
+   edges:select3(new Table3(EDGES3,network,'edge',edges as readonly SurfaceCurveEdge<A>[],{extract:indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices),this)})) as unknown as Selection<SurfaceCurveEdge<A>>,
   };
  }
- /** The chains these curves are made of, in the order they were made. A
-  * computed collection, so it is a call. */
- curves():readonly SurfaceChain<A>[] {
-  const {network,edges}=this.#build(),table=rows.get(network)!;
-  return Object.freeze(chainsOf(network).map((chain,index)=>{
+ /** The chains these curves are made of, in the order they were made: a
+  * selection of chain rows, read on first ask and kept. */
+ get curves():Selection<SurfaceChain<A>> {
+  if(this.#curves)return this.#curves;
+  const {network,points,edges}=this.#build();
+  const chains=Object.freeze(chainsOf(network).map((chain,index)=>{
    const shared:Record<string,unknown>={},first=network.segments[chain.segments[0]].attributes;
    for(const [name,value] of Object.entries(first))if(chain.segments.every(i=>network.segments[i].attributes[name]===value))shared[name]=value;
-   return Object.freeze({...shared,id:chain.id,index,points:Object.freeze(chain.points.map(n=>table.points[n])),closed:chain.closed,edges:edges.rows(chain.segments),attributes:Object.freeze(shared)}) as unknown as SurfaceChain<A>;
+   return Object.freeze({...shared,id:chain.id,index,points:points.rows(chain.points),closed:chain.closed,edges:edges.rows(chain.segments),attributes:Object.freeze(shared)}) as unknown as SurfaceChain<A>;
   }));
+  const table=new Table3(CURVES3,network,'curve',chains,{extract:indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices.flatMap(i=>chains[i].edges.indices)),this)});
+  whole.set(table,{points,edges});
+  return this.#curves=select3(table) as Selection<SurfaceChain<A>>;
  }
  /** The chains a test keeps, as curves a view draws. */
  filter(test:(chain:SurfaceChain<A>,index:number)=>unknown):SurfaceCurves<A> {
-  const kept=this.curves().filter(test);
+  const kept=[...this.curves].filter(test);
   return new SurfaceCurves<A>(selectSurfaceCurveNetwork3(this.network,kept.flatMap(c=>c.edges.indices)),this);
  }
- map<T>(field:(chain:SurfaceChain<A>,index:number)=>T):T[]{return this.curves().map(field);}
- find(test:(chain:SurfaceChain<A>,index:number)=>unknown):SurfaceChain<A>|undefined{return this.curves().find(test);}
- some(test:(chain:SurfaceChain<A>,index:number)=>unknown):boolean{return this.curves().some(test);}
- every(test:(chain:SurfaceChain<A>,index:number)=>unknown):boolean{return this.curves().every(test);}
+ map<T>(field:(chain:SurfaceChain<A>,index:number)=>T):T[]{return this.curves.map(field);}
+ find(test:(chain:SurfaceChain<A>,index:number)=>unknown):SurfaceChain<A>|undefined{return this.curves.find(test);}
+ some(test:(chain:SurfaceChain<A>,index:number)=>unknown):boolean{return this.curves.some(test);}
+ every(test:(chain:SurfaceChain<A>,index:number)=>unknown):boolean{return this.curves.every(test);}
  /** The chains split by key, first-occurrence order: each group's key and
   * its curves, which a view draws. (`key` on the curves themselves is their
   * view identity, so the group key rides beside them.) */
  groupBy<K>(field:(chain:SurfaceChain<A>)=>K):readonly {readonly key:K;readonly curves:SurfaceCurves<A>}[] {
   const groups=new Map<K,number[]>();
-  for(const chain of this.curves()){const k=field(chain),list=groups.get(k)??[];list.push(...chain.edges.indices);groups.set(k,list);}
+  for(const chain of this.curves){const k=field(chain),list=groups.get(k)??[];list.push(...chain.edges.indices);groups.set(k,list);}
   return Object.freeze([...groups].map(([key,indices])=>Object.freeze({key,curves:new SurfaceCurves<A>(selectSurfaceCurveNetwork3(this.network,indices),this)})));
  }
  /** The description behind these curves, when they are not computed yet. */
  get recipe():SurfaceCurveRecipe3|undefined{return isRecipe(this.#source)?this.#source:undefined;}
  get network():SurfaceCurveNetwork3{return this.#build().network;}
- get points():Collection<SurfaceCurvePoint,readonly SurfaceCurvePoint[]>{return this.#build().points;}
- get edges():Collection<SurfaceCurveEdge<A>,SurfaceCurves<A>>{return this.#build().edges;}
+ get points():Selection<SurfaceCurvePoint>{return this.#build().points;}
+ get edges():Selection<SurfaceCurveEdge<A>>{return this.#build().edges;}
  get sources():SurfaceCurveNetwork3['sources']{return this.network.sources;}
  rebind(target:Mesh<any,any,any,any>|readonly Mesh<any,any,any,any>[]):SurfaceCurves<A> {
   const targets=target instanceof Mesh?[target]:target;

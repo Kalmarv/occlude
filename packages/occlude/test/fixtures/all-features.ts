@@ -33,9 +33,9 @@ import {
   sketch, mm, w, h, s, degrees, radians, circle, ellipse, rect, line, polygon, ngon, path,
   stroke, strokes, label, labelWidth, group, clip, invert, mask, dash, smooth, roughen, deform,
   decimate, wobble, fill, rulings, rotate, scale, vectorField, grad, curl, distanceTo, map,
-  ease, material, curve, append, connect, segmentRuns, extent,
+  ease, material, curve, append, connect, extent,
   add, sub, mul, length, distance, unit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
-  force, meanBy, query, ui, type Station, type Tree, type Vertex,
+  force, ui, type Tree, type Vertex,
 } from 'occlude';
 import type { CustomFillFn } from 'occlude';
 import { isBuiltinFill, resolveFill } from 'occlude/host';
@@ -184,7 +184,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     return { g: g.move((p: Vertex) => mul(pull(p), 0.4)).points.set('age', k, every3rd), k };
   }, ({ g, k }) => ({ g: g.split(g.edges.filter((e) => e.length > 4.6), 0.5), k: k + 1 })).g;
 
-  const runs = segmentRuns(grown, (e) => Math.round((e.a.age + e.b.age) / 2));
+  const runs = grown.edges.groupBy((e) => Math.round((e.a.age + e.b.age) / 2));
   // Two equal bands over the column's own extent.
   const band = (v: number): number => {
     const [lo, hi] = extent(grown.points.map((p) => p.age));
@@ -197,11 +197,11 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const partOf = new Map<number, number>();
   parts.forEach((piece, k) => { for (const i of piece.indices) partOf.set(i, k); });
   const tagged = grown.points.set('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
-  const meanAge = meanBy(grown.points, (p) => p.age);
+  const meanAge = grown.points.mean('age');
   const sumX = sumBy(grown.points, (p) => [p.x, 0])[0];
   const firstPt = grown.points.length > 0 ? grown.points.at(0) : undefined;
   const nearby = firstPt ? grown.points.near(firstPt, { radius: 6 }).length : 0;
-  const edgeQ = query.edges(grown);
+  const edgeQ = grown.edges;
   const near = edgeQ.nearest([116, 36], { within: 10 });
   const hit = edgeQ.firstHit([104, 36], [128, 36]);
   const deg0 = grown.points.at(0).adjacent.length;
@@ -211,14 +211,14 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const selA = grown.points.filter((p) => p.age <= 0);
   const selUnion = selA.union(grown.points.filter((p) => p.index < 6));
   const selInter = selA.intersect(grown.points.filter((p) => p.index < 8));
-  const selSub = selA.subtract(grown.points.filter((p) => p.index % 2 === 0));
+  const selSub = selA.without(grown.points.filter((p) => p.index % 2 === 0));
   const selComp = grown.points.without(selA);
   const selHas = firstPt ? selA.has(firstPt) : false;
   const selExtract = selA.extract();
   const keyCount = grown.points.groupBy((p) => Math.round(p.age)).length;
 
   scene.push(strokes(grown));
-  scene.push(runs.map((r) => stroke(r)));
+  scene.push(runs.map((r) => strokes(r)));
   scene.push(grown.points.filter((p) => p.adjacent.length === 1).map((p) => circle(p.x, p.y, 1)));
   scene.push(selExtract.points.map((p) => circle(p.x, p.y, 0.6)));
 
@@ -247,12 +247,12 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   // ---- stations along a spine, and resampling ----------------------------
   const spine = t.material(ellipse(40, 20, 30, 9));
   const evenSpine = spine.resample({ spacing: 6 });
-  const stations: Station[] = spine.along({ spacing: 9 });
-  const st0 = stations.length > 0 ? stations[0] : null;
+  const stations = spine.along({ spacing: 9 }).points;
+  const st0 = stations.length > 0 ? stations.at(0) : null;
   const stHead = st0 ? st0.heading : 0;
   const stTangent = st0 ? angleOf(st0.tangent) : 0;
-  const stAttr = st0 ? Object.keys(st0.attrs).length : 0;
-  scene.push(stations.map((st) => st.place(circle(0, 0, 0.9), { offset: [0, 1.5] })));
+  const stAttr = st0 ? Object.keys(st0).length : 0;
+  scene.push(stations.map((st) => group(st.placement(), group({ translate: [0, 1.5] }, circle(0, 0, 0.9)))));
   scene.push(strokes(evenSpine));
 
   // ---- generators drawn: grid, scatter, relax, settle, voronoi -----------

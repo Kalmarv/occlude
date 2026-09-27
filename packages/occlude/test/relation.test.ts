@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material, type Vertex } from '../src/material.js';
-import { EdgeSelection, PointSelection, meanBy } from '../src/relation.js';
+import { rec } from './helpers/xy.js';
 
 // a Y: 0-1-2 trunk, 2-3 and 2-4 branches, plus an isolated point 5
 const Y = () =>
@@ -29,7 +29,7 @@ describe('selections', () => {
     expect(old.has(Y().vertex(3))).toBe(false);
     // wrong domain
     expect(() => old.has(m.edge(0) as unknown as Vertex)).toThrow(/edge view/);
-    expect(() => old.has(3 as unknown as Vertex)).toThrow(/vertex view/);
+    expect(() => old.has(3 as unknown as Vertex)).toThrow(/a reference must be a point value or a view/);
     calls = 0;
     [...old];
     expect(calls).toBe(0); // no re-evaluation
@@ -59,26 +59,26 @@ describe('selections', () => {
     expect(() => strong.has(m.vertex(2) as never)).toThrow(/vertex view/);
   });
 
-  it('union, intersect, subtract: overlap, empties, incompatible inputs', () => {
+  it('union, intersect, without: overlap, empties, incompatible inputs', () => {
     const m = Y();
     const a = m.points.filter((p) => p.index <= 2);
     const b = m.points.filter((p) => p.index >= 2 && p.index <= 4);
     expect(a.union(b).indices).toEqual([0, 1, 2, 3, 4]);
     expect(a.intersect(b).indices).toEqual([2]);
-    expect(a.subtract(b).indices).toEqual([0, 1]);
-    expect(b.subtract(a).indices).toEqual([3, 4]);
+    expect(a.without(b).indices).toEqual([0, 1]);
+    expect(b.without(a).indices).toEqual([3, 4]);
     expect(a.indices).toEqual([0, 1, 2]); // inputs untouched
     const none = m.points.filter(() => false);
     expect(none.length).toBe(0);
     expect(a.union(none).indices).toEqual(a.indices);
     expect(a.intersect(none).length).toBe(0);
-    expect(none.subtract(a).length).toBe(0);
+    expect(none.without(a).length).toBe(0);
     expect(none.extract().n).toBe(0);
     expect(() => a.union(Y().points.filter(() => true))).toThrow(/unrelated materials/);
     const e = m.edges.filter(() => true);
-    expect(() => a.union(e as unknown as PointSelection)).toThrow(/point selection/);
-    expect(() => e.intersect(a as unknown as EdgeSelection)).toThrow(/edge selection/);
-    expect(e.subtract(m.edges.filter((x) => x.index === 0)).indices).toEqual([1, 2, 3]);
+    expect(() => a.union(e)).toThrow(/point selection/);
+    expect(() => e.intersect(a)).toThrow(/edge selection/);
+    expect(e.without(m.edges.filter((x) => x.index === 0)).indices).toEqual([1, 2, 3]);
   });
 });
 
@@ -152,19 +152,19 @@ describe('extraction', () => {
 describe('drawing selections', () => {
   it('curves of the selected graph: junctions and ends from selected edges only, indices are source rows', () => {
     const m = Y();
-    const all = m.edges.filter(() => true).curves();
+    const all = m.edges.filter(() => true).curves.map(rec);
     expect(all).toHaveLength(3); // trunk, and two branches meeting at the junction 2
-    const noLeft = m.edges.filter((e) => e.index !== 2).curves();
+    const noLeft = m.edges.filter((e) => e.index !== 2).curves.map(rec);
     expect(noLeft).toHaveLength(1);
     expect(noLeft[0].indices).toEqual([0, 1, 2, 4]); // vertex 2 is no longer a junction
     expect(noLeft[0].closed).toBe(false);
-    const ring = curve([[0, 0], [1, 0], [1, 1], [0, 1]], { closed: true }).edges.filter(() => true).curves();
+    const ring = curve([[0, 0], [1, 0], [1, 1], [0, 1]], { closed: true }).edges.filter(() => true).curves.map(rec);
     expect(ring).toHaveLength(1);
     expect(ring[0].closed).toBe(true);
     // each selected edge exactly once across the chains
     const covered = all.flatMap((c) => c.indices.slice(0, -1).map((v, k) => [v, c.indices[k + 1]]));
     expect(covered).toHaveLength(4);
-    expect(m.edges.filter(() => false).curves()).toEqual([]);
+    expect(m.edges.filter(() => false).curves.map(rec)).toEqual([]);
   });
 });
 
@@ -192,7 +192,7 @@ describe('selections in edits', () => {
 });
 
 describe('relational attributes', () => {
-  it('connectedPoints, meanBy, degree as attributes', () => {
+  it('connectedPoints, a mean over the neighbours, degree as attributes', () => {
     const m = Y();
     expect(m.vertex(2).adjacent.map((p) => p.index)).toEqual([1, 3, 4]);
     expect(m.points.at(5).adjacent.indices).toEqual([]);
@@ -201,11 +201,12 @@ describe('relational attributes', () => {
     // The cross-state guard now lives where it matters: the step verbs.
     expect(Y().vertex(2).adjacent.source).not.toBe(m);
     expect(() => m.points.at(9).adjacent).toThrow(/no member/);
-    const marked = m.points.set('neighbourAge', (p) => meanBy(p.adjacent, (q) => q.age));
+    // The mean of nothing is NaN, and a value that is not finite leaves the
+    // row as it was: the isolated point keeps the column's 0.
+    const marked = m.points.set('neighbourAge', (p) => p.adjacent.mean('age'));
     expect(Array.from(marked.attrs.neighbourAge)).toEqual([1, 1, (1 + 3 + 4) / 3, 2, 2, 0]);
-    expect(meanBy([], () => 1)).toBe(0);
-    expect(meanBy([1, NaN], (v) => v)).toBeNaN();
-    expect(meanBy(new Set([2, 4]), (v) => v)).toBe(3);
+    expect(m.points.at(5).adjacent.mean('age')).toBeNaN();
+    expect(m.points.mean((p) => p.age)).toBe(19 / 6);
     const deg = m.points.set('degree', (p) => p.adjacent.length);
     expect(Array.from(deg.attrs.degree)).toEqual([1, 2, 3, 1, 1, 0]);
   });

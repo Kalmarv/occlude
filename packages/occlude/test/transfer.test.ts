@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
+import { rec } from './helpers/xy.js';
 
 const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
 
@@ -111,7 +112,7 @@ describe('transfer contracts (con2 stage B)', () => {
     // A foreign vertex describes its own state now; it does not throw.
     expect(curve([[0, 0], [1, 1]], { closed: false }).points.at(0).adjacent.length).toBe(1);
     expect(() => m.points.at(7).adjacent.length).toThrow(/no member 7/);
-    expect(m.curves()[0].indices).toEqual([0, 1, 2, 3]);
+    expect(m.curves.map(rec)[0].indices).toEqual([0, 1, 2, 3]);
   });
 
   it('history comes only from t.steps; a write, connect and resample keep the count, append/extract/planarize start one', () => {

@@ -17,7 +17,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const tree = t.steps(40, seeded, (g) => {
     const now = 1 + Math.max(...g.points.map((p) => p.when));
     const reach = (p) => g.points.near(p, { radius: 9 }).filter((q) => q.when >= 0);
-    const nearest = (p) => [...reach(p)].reduce((a, b) => (distance(p, b) < distance(p, a) ? b : a));
+    const nearest = (p) => reach(p).at(0);
     const joining = g.points.filter((p) => p.when < 0 && reach(p).length > 0);
     return joining.set('when', now).edges.add(joining.map((p) => [p, nearest(p)]));
   });

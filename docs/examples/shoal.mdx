@@ -53,8 +53,8 @@ export default sketch({
   });
 
   return [
-    strokes(coast.curves(), { pen: 'ink' }),
-    polygon(coast.curves(), { fill: fill('hatch', { angle: 38, spacing: mm(1.5) }), pen: 'fine' }),
+    strokes(coast.curves, { pen: 'ink' }),
+    polygon(coast.curves, { fill: fill('hatch', { angle: 38, spacing: mm(1.5) }), pen: 'fine' }),
   ];
 });
 ```

@@ -30,19 +30,22 @@
 
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
-import { Material, attachVoronoi, material, withinMaterial, type PointsLike } from './material.js';
-import { PointSelection } from './relation.js';
+import { Material, attachVoronoi, material, withinMaterial, type PointsLike, type Vertex } from './material.js';
+import { isPointSelection } from './relation.js';
+import type { Selection } from './selection.js';
 import type { Bounds } from './points.js';
 import type { IsoContour } from './isolines.js';
 import type { Space } from './space.js';
 
 /** Sites for a construction: a material (every row) or a point selection
  * of one (the selected rows, correspondence to that source). */
-export type Sites = Material | PointSelection<unknown>;
+export type Sites = Material | Selection<Vertex>;
 
 /** The source material and the site rows of a construction. */
 function sitesOf(sites: Sites): { source: Material; rows: readonly number[] } {
-  if (sites instanceof PointSelection) return { source: sites.source, rows: sites.indices };
+  // A selection keeps an order; the construction reads its sites in row
+  // order, so the lowest row of coincident sites owns the cell.
+  if (isPointSelection(sites)) return { source: sites.source, rows: [...sites.indices].sort((a, b) => a - b) };
   return { source: sites, rows: Array.from({ length: sites.n }, (_, i) => i) };
 }
 
@@ -397,7 +400,7 @@ function circumradius(ax: number, ay: number, bx: number, by: number, cx: number
 export function hull(points: PointsLike, opts: { alpha?: number } = {}): IsoContour[] {
   const alpha = opts.alpha ?? 0;
   if (!(alpha >= 0)) throw new Error(`hull: alpha must be zero or more, got ${String(opts.alpha)}`);
-  const { source, rows } = sitesOf(points instanceof PointSelection ? points : material(points));
+  const { source, rows } = sitesOf(isPointSelection(points) ? points : material(points));
   // Coincident points are one place, and a place with no area — fewer than
   // three of them, or all of them on one line — has no outline. Decided
   // exactly: d3 would jitter a collinear set into a sliver triangle.

@@ -36,8 +36,8 @@ describe('rows takes views', () => {
   it('takes one vertex view, a list of views, and views mixed with indices', () => {
     const [a, b, c] = m.points;
     expect(m.points.rows(b).indices).toEqual([1]);
-    expect(m.points.rows([c, a]).indices).toEqual([0, 2]);
-    expect(m.points.rows([3, b]).indices).toEqual([1, 3]);
+    expect(m.points.rows([c, a]).indices).toEqual([2, 0]);
+    expect(m.points.rows([3, b]).indices).toEqual([3, 1]);
     expect(m.points.rows(2).indices).toEqual([2]);
     expect(m.points.rows([0, 1]).indices).toEqual([0, 1]);
   });
@@ -45,23 +45,27 @@ describe('rows takes views', () => {
   it('takes one edge view, a list of views, and views mixed with indices', () => {
     const [e0, e1, e2] = m.edges;
     expect(m.edges.rows(e1).indices).toEqual([1]);
-    expect(m.edges.rows([e2, e0]).indices).toEqual([0, 2]);
-    expect(m.edges.rows([3, e1]).indices).toEqual([1, 3]);
+    expect(m.edges.rows([e2, e0]).indices).toEqual([2, 0]);
+    expect(m.edges.rows([3, e1]).indices).toEqual([3, 1]);
     expect(m.edges.rows(0).indices).toEqual([0]);
   });
 
-  it('refuses a view of another material by name', () => {
+  it('reads a view of an earlier state by identity, and refuses one of another material by name', () => {
+    // Ids are minted per run: make both in one.
+    const here = curve([[0, 0], [10, 0], [10, 10], [0, 10], [0, 20]]);
     const other = curve([[0, 0], [5, 0], [5, 5]]);
     const [p] = other.points, [e] = other.edges;
-    expect(() => m.points.rows(p)).toThrow(/points\.rows: that vertex view belongs to another material/);
-    expect(() => m.edges.rows([0, e])).toThrow(/edges\.rows: that edge view belongs to another material/);
+    expect(() => here.points.rows(p)).toThrow(/points\.rows: that point is not in this state/);
+    expect(() => here.edges.rows([0, e])).toThrow(/edges\.rows: that edge is not in this state/);
+    const later = here.points.set('h', 1);
+    expect(later.points.rows(here.points.at(2)).indices).toEqual([2]);
   });
 
   it('refuses a view of the other kind by name', () => {
     const [p] = m.points, [e] = m.edges;
-    expect(() => m.points.rows(e as never)).toThrow(/points\.rows: expected a row index or a vertex view, got an edge view/);
-    expect(() => m.edges.rows(p as never)).toThrow(/edges\.rows: expected a row index or an edge view, got a vertex view/);
-    expect(() => m.points.rows(undefined as never)).toThrow(/points\.rows: expected a row index, a view, or a list of them/);
+    expect(() => m.points.rows(e as never)).toThrow(/points\.rows: expected a vertex view or a point value — got an edge view/);
+    expect(() => m.edges.rows(p as never)).toThrow(/edges\.rows: expected an edge view or an edge value — got a vertex view/);
+    expect(() => m.points.rows(undefined as never)).toThrow(/points\.rows: expected a point row, a row number, or a list of them/);
   });
 });
 

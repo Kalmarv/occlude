@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { initOcclude } from '../src/host.js';
 import { compileRule, hilbertRule, meanderRule, peanoRule, spacefill, type SpacefillEnv, type SpacefillRule } from '../src/spacefill.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -29,8 +30,8 @@ describe('spacefill', () => {
     // cell size: the uniform Hilbert walk and nothing else.
     const m = spacefill(env, square(10, 10, 64), { spacing: 4 });
     expect(m.n).toBe(256);
-    expect(m.curves().length).toBe(1);
-    expect(m.curves()[0].closed).toBe(false);
+    expect(m.curves.map(rec).length).toBe(1);
+    expect(m.curves.map(rec)[0].closed).toBe(false);
     expect(Math.min(...steps(m))).toBeCloseTo(4, 9);
     expect(Math.max(...steps(m))).toBeCloseTo(4, 9);
     // A crossing would make planarize mint a vertex at the intersection.
@@ -45,7 +46,7 @@ describe('spacefill', () => {
     for (let i = 0; i < m.n; i++) (m.x[i] < 50 ? left++ : right++);
     expect(left).toBeGreaterThan(right * 8);
     // Still one line: the walk crosses the tone step without lifting.
-    expect(m.curves().length).toBe(1);
+    expect(m.curves.map(rec).length).toBe(1);
   });
 
   it('stays continuous where the level changes', () => {
@@ -54,7 +55,7 @@ describe('spacefill', () => {
     // of the two cells across its diagonal.
     const tone = (x: number, y: number) => Math.max(0.05, 1 - Math.hypot(x - 40, y - 40) / 30);
     const m = spacefill(env, square(0, 0, 96), { spacing: 1.5, field: tone });
-    expect(m.curves().length).toBe(1);
+    expect(m.curves.map(rec).length).toBe(1);
     const levels = new Set(Array.from(m.attrs.level));
     expect(levels.size).toBeGreaterThan(3);
     // The coarsest cell present, as a length: 96 / 2^level.
@@ -92,7 +93,7 @@ describe('spacefill', () => {
         expect(m.x[a] === m.x[b] || m.y[a] === m.y[b]).toBe(true);
       }
       // The corners add vertices, never breaks.
-      expect(m.curves().length).toBe(1);
+      expect(m.curves.map(rec).length).toBe(1);
     }
   });
 
@@ -100,7 +101,7 @@ describe('spacefill', () => {
     for (const rule of [peanoRule, meanderRule]) {
       const m = spacefill(env, square(0, 0, 81), { spacing: 3, rule });
       expect(m.n).toBe(729);
-      expect(m.curves().length).toBe(1);
+      expect(m.curves.map(rec).length).toBe(1);
       // Nine cells per parent, each visited once, consecutive ones touching.
       expect(Math.max(...steps(m))).toBeCloseTo(3, 9);
     }
@@ -137,7 +138,7 @@ describe('spacefill', () => {
     expect(m.n).toBeGreaterThan(600);
     // A jump is a pen-up. The walk keeps them to a handful of the cells it
     // draws, rather than one per crossing of the outline.
-    expect(m.curves().length).toBeLessThan(m.n / 20);
+    expect(m.curves.map(rec).length).toBeLessThan(m.n / 20);
   });
 
   it('carries the level each cell stopped at', () => {
@@ -155,7 +156,7 @@ describe('spacefill', () => {
     expect(Math.min(...m.attrs.level)).toBeLessThan(3);
     expect(Math.min(...capped.attrs.level)).toBeGreaterThanOrEqual(3);
     expect(capped.n).toBeGreaterThan(m.n);
-    expect(capped.curves().length).toBe(1);
+    expect(capped.curves.map(rec).length).toBe(1);
     // It folds nothing where there is no tone. Half blank stays half blank.
     const half = spacefill(env, square(0, 0, 96), { spacing: 3, maxSpacing: 12, field: (x) => (x < 48 ? 0.3 : 0) });
     for (let i = 0; i < half.n; i++) expect(half.x[i]).toBeLessThan(48);

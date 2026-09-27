@@ -16,7 +16,7 @@ import { chordMiddle, metricGap } from '../src/chord.js';
 import { euclideanSpace, spaceOf, type Space } from '../src/space.js';
 import { space } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
-import type { Collection } from '../src/three/api/collection.js';
+import type { Selection } from '../src/selection.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
 const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
@@ -199,22 +199,23 @@ describe('rows on the 3D collections', () => {
   const m = box().subdivide(1);
 
   it('takes an index, a row, a list, or a mix, as source rows', () => {
-    for (const all of [m.points, m.edges, m.faces] as Collection<{ readonly id: string; readonly index: number }, unknown>[]) {
+    for (const all of [m.points, m.edges, m.faces] as Selection<{ readonly id: string; readonly index: number }>[]) {
       const some = all.filter((r) => r.index % 3 === 1);
       const pick = some.at(2)!;
       expect(all.rows(pick.index).map((r) => r.index)).toEqual([pick.index]);
       expect(all.rows(pick).map((r) => r.index)).toEqual([pick.index]);
-      // Source rows, not positions within the selection; deduped and sorted.
-      expect(some.rows([5, 0, 5]).map((r) => r.index)).toEqual([0, 5]);
-      expect(some.rows([pick, 0, some.at(0)!]).map((r) => r.index)).toEqual([0, some.at(0)!.index, pick.index].sort((a, b) => a - b));
-      expect(all.rows(new Set([3, 2])).map((r) => r.index)).toEqual([2, 3]);
+      // Source rows, not positions within the selection; a repeat keeps its
+      // first place, and the order given is the selection's order.
+      expect(some.rows([5, 0, 5]).map((r) => r.index)).toEqual([5, 0]);
+      expect(some.rows([pick, 0, some.at(0)!]).map((r) => r.index)).toEqual([pick.index, 0, some.at(0)!.index]);
+      expect(all.rows(new Set([3, 2])).map((r) => r.index)).toEqual([3, 2]);
       expect(all.rows([]).length).toBe(0);
     }
   });
 
-  it('keeps the key', () => {
+  it('is the rows of the state, not a part of the group: no key', () => {
     const [group] = m.faces.groupBy((f) => f.chart);
-    expect(group.rows(0).key).toBe(group.key);
+    expect(group.rows(0).key).toBeUndefined();
   });
 
   it('reads a row of another revision by id, and refuses another domain and an index out of range', () => {
@@ -224,11 +225,11 @@ describe('rows on the 3D collections', () => {
     expect(m.points.rows([0, other.points.at(0)!]).length).toBe(1);
     expect(m.edges.rows(other.edges.at(1)!).at(0)!.id).toBe(other.edges.at(1)!.id);
     const gone = box().subdivide(2).faces.find((f) => !m.faces.some((g) => g.id === f.id))!;
-    expect(() => m.faces.rows(gone)).toThrow(/gone from this revision/);
+    expect(() => m.faces.rows(gone)).toThrow(/is not in this state — it is gone/);
     // @ts-expect-error a point row is not a face row
     expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face row, got a point row');
     const n = m.faces.length;
-    expect(() => m.faces.rows(n)).toThrow(`faces.rows: no face ${n} in this revision (${n} rows)`);
+    expect(() => m.faces.rows(n)).toThrow(`faces.rows: no face ${n} in this state (${n} rows)`);
     expect(() => m.points.rows(-1)).toThrow('points.rows: no point -1');
     expect(() => m.edges.rows(1.5)).toThrow('edges.rows: no edge 1.5');
   });

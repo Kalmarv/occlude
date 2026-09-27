@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
 import { xy, oneRing } from './helpers/xy.js';
+import { selectionIn } from '../src/selection.js';
 
 const chain = () => curve([[0, 0], [20, 0], [40, 0], [60, 0], [80, 0], [100, 0]], { closed: false });
 const cage = {
@@ -86,7 +87,7 @@ describe('where, on resample', () => {
     const kept = m.points.filter((p) => p.index <= 3);
     const out = m.resample({ count: 5, where: m.points.filter((p) => p.index >= 3) });
     // Every vertex the resample did not touch answers in the new state.
-    expect(kept.in(out).length).toBe(4);
+    expect(selectionIn(kept, out).length).toBe(4);
     expect([...out.pointIds].slice(0, 4)).toEqual([...m.pointIds].slice(0, 4));
     // …and the run's far end is the same vertex it always was.
     expect(out.pointOf(m.points.at(5).id)).toBeDefined();

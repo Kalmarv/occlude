@@ -19,7 +19,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
   const { cell } = tiles;
   // Five legs of the first cell, each a `step` of the cell's own side.
   const side = t.space.distance(cell[0], cell[1]);
-  let st = t.station(cell[0]).toward(cell[1]);
+  let st = t.placement(cell[0]).toward(cell[1]);
   const legs = [];
   for (let i = 0; i < 5; i++) {
     const from = st;
@@ -41,7 +41,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
   const { cell } = tiles;
   // Five legs of the first cell, each a `step` of the cell's own side.
   const side = t.space.distance(cell[0], cell[1]);
-  let st = t.station(cell[0]).toward(cell[1]);
+  let st = t.placement(cell[0]).toward(cell[1]);
   const legs = [];
   for (let i = 0; i < 5; i++) {
     const from = st;
@@ -138,7 +138,7 @@ A bare length is a length in the space. So `t.scatter({ spacing: 5 })` spaces po
 |---|---|---|
 | `t.sample` | yes | spaces the samples by arc length of the space |
 | `m.resample` | with a space | the toolkit gives `t.sample` one, and a bare call measures flat |
-| `m.along` | with a space | stations sit by arc length of the space, flat without one |
+| `m.along` | with a space | the points sit by arc length of the space, flat without one |
 | `m.trim` | with a space | cuts each end by arc length of the space, flat without one |
 | `t.scatter` | yes | `spacing` is a length of the space, and the density follows the coordinates |
 | `t.throw` | yes | the points are uniform over the area of the space |
@@ -192,18 +192,18 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
 
 ## placement
 
-<include>/_sig/Toolkit.station.2.mdx</include>
-<include>/_sig/Station.placement.mdx</include>
+<include>/_sig/Toolkit.placement.mdx</include>
+<include>/_sig/Vertex.placement.mdx</include>
 <include>/_sig/reflection.mdx</include>
 <include>/_sig/Material.transform.mdx</include>
 
-A placement is an isometry of the space. It moves a point, a station, a material or a whole drawing, and it keeps every length and every angle. `orientation` is `1` when it keeps the hand of a motif and `-1` when it turns the motif over.
+A placement is an isometry of the space. It moves a point, a material or a whole drawing, and it keeps every length and every angle. A placement is also a frame. `x` and `y` are the place where it puts the origin. `heading` is the direction in radians that it turns `+x` to at that place. So a placement goes in where a point goes. `orientation` is `1` when it keeps the hand of a motif and `-1` when it turns the motif over.
 
-Four ways to get one: `station.placement()` carries the origin station, at `(0, 0)` facing `+x`, to that station. `b.placement({ from: a })` carries station `a` onto station `b`. To turn the motif over on the way, apply the mirror in the heading line of `a` first. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.station(s)` moves a station and its heading. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`.
+Four ways to get one: `t.placement([x, y], heading)` carries the origin frame, at `(0, 0)` facing `+x`, to that place and heading. `p.placement()` is the frame at a point that has a `heading`. The points of `m.along()` and of a curve have one. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every id. `placement.point(q)` moves one point. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`. So `a.inverse().then(b)` carries the frame `a` onto the frame `b`. `s.then(placement)` moves the frame `s` with its heading. To turn the motif over on the way, apply the mirror in the heading line of `a` first.
 
 A placing group and a deforming group never share a group. Nest them: the inner group holds `translate`, `rotate` or `scale` in the motif's own coordinates, and the outer group holds the placement. The library refuses a group that names both, and the error names the keys.
 
-Below, one arrow motif, written once about the origin. `group(s.placement(), arrow)` puts it at each corner of the cell (black). The blue copies go through `m.transform` and then the mirror in the first side. A mirror turns a motif over, so the barbs lean the other way. The green arrow is the first corner's arrow, turned over in the first side. Then `stops[2].placement({ from: stops[0] })` carries it to the third corner. It stands at that corner turned over, so it points the other way along the side.
+Below, one arrow motif, written once about the origin. `group(s, arrow)` puts it at each corner of the cell (black). The blue copies go through `m.transform` and then the mirror in the first side. A mirror turns a motif over, so the barbs lean the other way. The green arrow is the first corner's arrow, turned over in the first side. Then `stops[0].inverse().then(stops[2])` carries it to the third corner. It stands at that corner turned over, so it points the other way along the side.
 
 ```ts live
 import { sketch, group, strokes, line, circle, space, reflection } from 'occlude';
@@ -211,17 +211,49 @@ import { sketch, group, strokes, line, circle, space, reflection } from 'occlude
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 1 });
   const { cell } = tiles;
-  const stops = cell.map((v, i) => t.station(v).toward(cell[(i + 1) % cell.length]));
+  const stops = cell.map((v, i) => t.placement(v).toward(cell[(i + 1) % cell.length]));
   const arrow = [line(0, 0, 6, 0), line(6, 0, 3.4, 1.7), line(6, 0, 3.4, -1.7)];
   const motif = t.material(...arrow);
   const mirror = reflection(t.space.model, cell[0], cell[1]);
   return [
     circle(t.space.center, 300),
     strokes(tiles, { pen: 'pigma-005-black' }),
-    stops.map((s) => group(s.placement(), arrow)),
-    stops.map((s) => strokes(motif.transform(s.placement().then(mirror)), { pen: 'stabilo-88-blue' })),
-    strokes(motif.transform(stops[0].placement().then(mirror).then(stops[2].placement({ from: stops[0] }))), { pen: 'stabilo-88-green' }),
+    stops.map((s) => group(s, arrow)),
+    stops.map((s) => strokes(motif.transform(s.then(mirror)), { pen: 'stabilo-88-blue' })),
+    strokes(motif.transform(stops[0].then(mirror).then(stops[0].inverse().then(stops[2]))), { pen: 'stabilo-88-green' }),
   ];
+});
+```
+
+## step() · turn() · toward()
+
+<include>/_sig/Placement.step.mdx</include>
+<include>/_sig/Placement.turn.mdx</include>
+<include>/_sig/Placement.toward.mdx</include>
+
+A walk is a placement, stepped and turned. `t.placement(at, heading)` starts one at any point. `at` is a pair or an `{ x, y }` record, so a point or a centroid goes straight in. The heading is in degrees from `+x`, clockwise on the sheet, and it is 0 when you do not give it. The `heading` field of a placement is in radians, as the `heading` column of a point is.
+
+`placement.step(distance)` gives a new placement that distance along the heading. `placement.turn(degrees)` gives a new placement with the heading turned. `placement.toward(q)` gives a new placement at the same place, facing `q` along the geodesic from here to there. A `q` at this very place keeps the heading. On a sphere, a `q` exactly opposite has no one direction, and the placement refuses it by name.
+
+In the flat plane a step adds `distance · (cos h, sin h)`. In a curved space a step walks the geodesic. A closed walk there brings the walker back turned, and that turn is the holonomy. Below, five equal legs with a quarter turn between them close a pentagon of the hyperbolic plane. The blue ticks are the heading at the start and at the end.
+
+```ts live
+import { sketch, line, circle, space } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
+  const { cell } = t.tiling(5, 4);
+  const side = t.space.distance(cell[0], cell[1]);
+  let st = t.placement(cell[0]).toward(cell[1]);
+  const start = st;
+  const legs = [];
+  for (let i = 0; i < 5; i++) {
+    const from = st;
+    st = st.step(side);
+    legs.push(line(from, st));
+    if (i < 4) st = st.turn(90);
+  }
+  const tick = (s) => line(s, s.step(8), { pen: 'stabilo-88-blue' });
+  return [circle(t.space.center, 400), legs, tick(start), tick(st)];
 });
 ```
 

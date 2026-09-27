@@ -28,8 +28,10 @@
  */
 
 import { Material, mintIds, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, RESERVED_FACE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
-import { PointSelection, EdgeSelection, onState } from './relation.js';
-import { FaceSelection, type Face } from './faces.js';
+import { chainsOf } from './curves.js';
+import { pointDomain, edgeDomain, isPointSelection, isEdgeSelection } from './relation.js';
+import { faceTableOf, type Face } from './faces.js';
+import { Selection, rowsIn } from './selection.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
 import { ownedBy, ownerOfView, pairKey, viewKind } from './views.js';
@@ -52,9 +54,9 @@ export type EdgeEnd = EdgeValue | Edge;
 
 /** Which point rows a `where` names: a point selection (of this state or an
  * earlier one), one point value or vertex, or a predicate over the rows. */
-export type PointWhere = PointSelection<unknown> | PointEnd | ((p: Vertex) => unknown) | undefined;
+export type PointWhere = Selection<Vertex> | PointEnd | ((p: Vertex) => unknown) | undefined;
 /** Which edge rows a `where` names, the same three ways. */
-export type EdgeWhere = EdgeSelection<unknown> | EdgeEnd | ((e: Edge) => unknown) | undefined;
+export type EdgeWhere = Selection<Edge> | EdgeEnd | ((e: Edge) => unknown) | undefined;
 
 /** A column value: one number for every row, or one per row from its view. */
 export type ColumnValue<V> = number | ((row: V) => number);
@@ -242,7 +244,7 @@ const referenceError = (who: string, got: unknown): Error =>
   new Error(`${who}: a reference must be a point value or a view; make one with point(…) — got ${describe(got)}`);
 
 /** The row a point reference names in `m`, or -1 when it names nothing here. */
-function pointRow(m: Material, end: unknown, who: string): number {
+export function pointRow(m: Material, end: unknown, who: string): number {
   if (end === undefined || end === null) return -1;
   if (isPointValue(end)) return m.rowOfPoint(end.id);
   const kind = viewKind(end);
@@ -254,7 +256,7 @@ function pointRow(m: Material, end: unknown, who: string): number {
 }
 
 /** The row an edge reference names in `m`, or -1 when it is gone. */
-function edgeRow(m: Material, e: unknown, who: string): number {
+export function edgeRow(m: Material, e: unknown, who: string): number {
   if (e === undefined || e === null) return -1;
   if (isEdgeValue(e)) return m.rowOfEdge(e.id);
   if (viewKind(e) === 'edge') {
@@ -269,8 +271,7 @@ const describe = (v: unknown): string => {
   if (kind) return `a ${kind} view`;
   if (isPointValue(v)) return 'a point value';
   if (isEdgeValue(v)) return 'an edge value';
-  if (v instanceof PointSelection) return 'a point selection';
-  if (v instanceof EdgeSelection) return 'an edge selection';
+  if (v instanceof Selection) return `a${v.domain.kind.name === 'edge' ? 'n' : ''} ${v.domain.kind.name} selection`;
   if (isPosition(v)) return Array.isArray(v) ? 'a position [x, y]' : 'a position { x, y }';
   if (Array.isArray(v)) return 'a list';
   return typeof v;
@@ -280,11 +281,11 @@ const describe = (v: unknown): string => {
  * selection of an earlier state is read by identity; nothing is none. */
 export function pointRowsOf(m: Material, what: unknown, who: string): number[] {
   if (what === undefined || what === null) return [];
-  if (what instanceof PointSelection) {
+  if (isPointSelection(what)) {
     if (what.length === 0) return [];
-    return [...onState({ source: m }, what, who).indices];
+    return [...rowsIn(pointDomain(m), what, who)];
   }
-  if (what instanceof EdgeSelection) throw new Error(`${who}: expected points — a point selection or a vertex — got an edge selection; its points are sel.points`);
+  if (isEdgeSelection(what)) throw new Error(`${who}: expected points — a point selection or a vertex — got an edge selection; its points are sel.points`);
   const row = pointRow(m, what, who);
   return row < 0 ? [] : [row];
 }
@@ -292,11 +293,11 @@ export function pointRowsOf(m: Material, what: unknown, who: string): number[] {
 /** The edge rows a selection or a member names in `m`, ascending. */
 export function edgeRowsOf(m: Material, what: unknown, who: string): number[] {
   if (what === undefined || what === null) return [];
-  if (what instanceof EdgeSelection) {
+  if (isEdgeSelection(what)) {
     if (what.length === 0) return [];
-    return [...onState({ source: m }, what, who).indices];
+    return [...rowsIn(edgeDomain(m), what, who)];
   }
-  if (what instanceof PointSelection) throw new Error(`${who}: expected edges — an edge selection or an edge — got a point selection; the edges among its points are sel.edges`);
+  if (isPointSelection(what)) throw new Error(`${who}: expected edges — an edge selection or an edge — got a point selection; the edges among its points are sel.edges`);
   const row = edgeRow(m, what, who);
   return row < 0 ? [] : [row];
 }
@@ -716,26 +717,24 @@ export function setEdges(m: Material, members: readonly number[] | null, args: r
 
 // ---- the face write ------------------------------------------------------------------
 
-/** The face rows `where` names among `members`, ascending. */
-function faceRowsWhere(sel: FaceSelection<unknown>, members: readonly number[], where: unknown, who: string): number[] {
-  const cells = sel.collection;
+/** The face rows `where` names among `members`, in the members' order. */
+function faceRowsWhere(sel: Selection<Face>, members: readonly number[], where: unknown, who: string): number[] {
   if (where === undefined || where === null) return [];
   let rows: readonly number[];
   if (typeof where === 'function') {
     const pick = where as (f: Face) => unknown;
-    return members.filter((f) => pick(cells.faces[f]));
+    return members.filter((f) => pick(sel.domain.row(f)));
   }
-  if (where instanceof FaceSelection) {
-    rows = where.collection === cells ? where.indices : where.in(sel.source).indices;
+  if (where instanceof Selection) {
+    rows = sel.operand(where, 'set');
   } else if (viewKind(where) === 'face') {
-    const f = where as Face;
-    const row = ownedBy(f, cells) ? f.index : cells.rowOfFace(f.id);
+    const row = sel.domain.rowOf(where, who);
     rows = row < 0 ? [] : [row];
   } else {
     throw new Error(`${who}: a where is a face selection, one face, or a test of the face — got ${describe(where)}`);
   }
-  const inside = new Set(members);
-  return rows.filter((r) => inside.has(r));
+  const named = new Set(rows);
+  return members.filter((r) => named.has(r));
 }
 
 /** A face column's options, checked. */
@@ -759,7 +758,7 @@ function faceOptions(opts: Readonly<Record<string, unknown>> | undefined, who: s
  * then written against THIS state's faces, so only a face that appears
  * later inherits.
  */
-export function writeFaces(sel: FaceSelection<unknown>, args: readonly unknown[]): Material {
+export function writeFaces(sel: Selection<Face>, args: readonly unknown[]): Material {
   const who = 'faces.set';
   const { values, given, where, opts } = readSet<Face>(args, who);
   if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
@@ -770,8 +769,8 @@ export function writeFaces(sel: FaceSelection<unknown>, args: readonly unknown[]
     if (typeof v !== 'number' && typeof v !== 'function') throw new Error(`${who}: the value of '${name}' is a number or a function of the face — got ${typeof v}`);
   }
   const { transfer, fallback, clearsFallback } = faceOptions(opts, who);
-  const m = sel.source;
-  const cells = sel.collection;
+  const m = sel.source as Material;
+  const cells = faceTableOf(sel);
   const rows = given ? faceRowsWhere(sel, sel.indices, where, who) : sel.indices;
   if (rows.length === 0 && opts === undefined) return m;
   const keys = cells.keys();
@@ -975,7 +974,7 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
   // The motif's CHAIN, not its rows. A material's row order is an accident
   // of how it was built, so threading rows would silently draw a different
   // motif than the one on screen.
-  const chains = motif.curves();
+  const chains = chainsOf(motif);
   if (chains.length !== 1) throw new Error(`${who}: a motif is one open chain, and this one has ${chains.length === 0 ? 'none' : String(chains.length)}. Give the motif's points the edges that join them in order.`);
   if (chains[0].closed) throw new Error(`${who}: a motif is an open chain, and this one is closed`);
   const pts = chains[0].pts;
@@ -1069,7 +1068,7 @@ export function move(m: Material, args: readonly unknown[]): Material {
   let parts = args;
   let rows: number[] | null = null;
   const last = args[args.length - 1];
-  if (args.length > 0 && (last === undefined || last === null || last instanceof PointSelection || last instanceof EdgeSelection || isPointValue(last) || viewKind(last) !== undefined)) {
+  if (args.length > 0 && (last === undefined || last === null || last instanceof Selection || isPointValue(last) || viewKind(last) !== undefined)) {
     parts = args.slice(0, -1);
     rows = pointRowsOf(m, last, who);
   }
@@ -1109,16 +1108,3 @@ export function move(m: Material, args: readonly unknown[]): Material {
   else for (const i of rows) step(i);
   return make(m, p);
 }
-
-// ---- selections ----------------------------------------------------------------------
-
-/** @internal `sel.without(x)`: the members that `x` does not name. */
-export function withoutRows(m: Material, members: readonly number[], what: unknown, domain: 'points' | 'edges'): number[] {
-  const rows = domain === 'points' ? pointRowsOf(m, what, 'without') : edgeRowsOf(m, what, 'without');
-  if (rows.length === 0) return [...members];
-  const out = new Set(rows);
-  return members.filter((r) => !out.has(r));
-}
-
-/** @internal A member position read from the end when negative. */
-export const fromEnd = (i: number, length: number): number => (i < 0 ? length + i : i);

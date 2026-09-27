@@ -43,14 +43,15 @@ import { distanceTo } from './distance.js';
 import { usableLength } from './guard.js';
 import type { IsoEnv } from './isolines.js';
 import type { Space } from './space.js';
-import type { PointSelection } from './relation.js';
+import type { Selection } from './selection.js';
+import type { Vertex } from './material.js';
 import type { FieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
 
 /** Where the front starts, at time zero: an area (its whole interior and
  * boundary) or a set of points. The point atom decides an array —
  * `[{ x, y }, …]` is a set of separate seeds, `[[x, y], …]` is one loop. */
-export type TravelFrom = AreaInput | PointSelection;
+export type TravelFrom = AreaInput | Selection<Vertex>;
 
 export interface TravelOpts {
   /** Distance covered per unit time, as a number or a field (default 1).

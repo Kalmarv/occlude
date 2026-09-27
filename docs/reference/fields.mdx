@@ -242,7 +242,6 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.2.mdx</include>
 <include>/_sig/Toolkit.within.3.mdx</include>
 <include>/_sig/Toolkit.within.4.mdx</include>
-<include>/_sig/Toolkit.within.5.mdx</include>
 
 Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, contour records or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. The call refuses a value that is not an area, and names it.
 
@@ -260,7 +259,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const cut = t.within(web.edges, disc, { keep: 'centroid' });
   return [
     strokes(whole),
-    strokes(cut.subtract(whole), { pen: 'stabilo-88-blue' }),
+    strokes(cut.without(whole), { pen: 'stabilo-88-blue' }),
     circle(50, 50, 30, { pen: 'stabilo-88-green' }),
   ];
 });

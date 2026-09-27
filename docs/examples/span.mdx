@@ -37,7 +37,7 @@ export default sketch({
     }),
   });
   return [
-    strokes(net.curves(), { pen: 'fine' }),
+    strokes(net.curves, { pen: 'fine' }),
     net.points.map((p) => polygon(circle(p, 0.7), { pen: 'ink' })),
   ];
 });

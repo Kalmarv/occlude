@@ -36,7 +36,7 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
 
 `view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default, or on an object to give it its own threshold: `torus(1.2, 0.1, { creaseAngle: 180 })` or `mesh.style({ creaseAngle: 60 })`; instances take their prototype's. 180 never draws an object's creases (smooth shading), 0 draws every fold. An object can likewise carry its own pen, `sphere(7, { pen: 'fine' })` or `mesh.style({ pen: 'fine' })`: the default drawing uses it for that object's lines and for its hatch where the recipe names no pen, and the view's `pen` covers the rest. `style(geometry, { pen, fillPen, creaseAngle })` is the one place to say how things are drawn: on a value or a list of them (`style(rings, { fillPen: 'red', creaseAngle: 180 })` returns the styled list), setting the fields named and keeping the rest, so styles compose. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
-Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faces.set` stores face fields and `edges.set` edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
+Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `without` require the same domain, and read a selection of another revision by id; a selection keeps its order, and `union` appends the other's new members. `mesh.faces.without(sel)` is the remaining rows of the complete domain. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faces.set` stores face fields and `edges.set` edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
 
 ## Interpreting projected intervals
 
@@ -687,14 +687,14 @@ Relations follow polygon edges, without adding triangulation diagonals.
 A face selection has `.points` and `.edges`, plus `.boundaryEdges()`,
 `.adjacent()`, `.connected()` and `.components()`. Point selections have
 `.edges` and `.faces`, plus `.adjacent()`, `.connected()` and `.components()`;
-edge selections have `.points`, `.edges` (themselves), `.faces()`, plus
+edge selections have `.points`, `.edges` (themselves), `.faces`, plus
 `.adjacent()`, `.connected()` and `.components()`. Filtering, grouping and set
 operations preserve these capabilities. Row fields retain attributes across
 every relation.
 
 Distance is a different question from topology. `points.near(p, { radius })`
 and `edges.near(p, { radius })` give the members closer than `radius` to `p`
-(a row, a triple or `{ x, y, z }`), the edges by the true distance to each
+(a row, a triple or `{ x, y, z }`), nearest first, the edges by the true distance to each
 edge, as the 2D words do. A point is never near to itself. A face's middle is
 `centroid`, the 2D face word; an edge's is `center`, as in 2D.
 
@@ -795,8 +795,8 @@ Use `.corners.set({ name: valueOrField })` or
 `.corners.set(name, valueOrField, where?)` to write columns. A corner exposes
 `point`, `face`, `localIndex`, and the ordinary row identity and attributes.
 `face.corners` and `point.corners` are owned collections; face and point
-selections also provide `.corners()`. A corner selection can recover `.points`
-and `.faces()`. Its `.extract()` returns readonly corner rows, since corners
+selections also provide `.corners`. A corner selection can recover `.points`
+and `.faces`. Its `.extract()` returns readonly corner rows, since corners
 alone do not define a mesh.
 
 The same `corners.set` writes columns in the passes of `t.steps`. Every field
@@ -815,7 +815,7 @@ Each pass reads the preceding heat values. The resulting face averages select
 an ordinary paper-directed hatch, while point averages shape the sheet.
 
 ```ts live
-import { sketch, pen, mm, meanBy } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
 import { plane, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
@@ -826,11 +826,11 @@ export default sketch({ seed: 42, pens: {
     heat: c => Math.max(0, 1 - Math.hypot(c.face.centroid[0] + 0.7, c.point.y) / 2),
   });
   const sheet = t.steps(4, start, m => m.corners.set({
-    heat: c => 0.5 * meanBy(c.point.corners, p => p.heat)
-      + 0.5 * meanBy(c.face.corners, p => p.heat),
+    heat: c => 0.5 * c.point.corners.mean('heat')
+      + 0.5 * c.face.corners.mean('heat'),
   }))
-    .faces.set({ heat: f => meanBy(f.corners, c => c.heat) })
-    .displace(p => [0, 0, meanBy(p.corners, c => c.heat)]);
+    .faces.set({ heat: f => f.corners.mean('heat') })
+    .displace(p => [0, 0, p.corners.mean('heat')]);
   return view(sheet, {
     camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.3], span: 5.5 }),
     pen: 'ink',
@@ -1442,7 +1442,7 @@ collections, extruded as one region, and shaded through the same surface
 fields as any other mesh.
 
 ```ts live
-import { sketch, label, meanBy, pen, mm } from 'occlude';
+import { sketch, label, pen, mm } from 'occlude';
 import { plane, light, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
@@ -1452,7 +1452,7 @@ export default sketch({ seed: 42, pens: {
   const start = plane(4, 4).subdivide(3)
     .faces.set({ heat: f => Math.exp(-3 * (f.centroid[0] ** 2 + f.centroid[1] ** 2)) });
   const sheet = t.steps(4, start, m => m.faces.set({
-    heat: f => 0.5 * f.heat + 0.5 * meanBy(f.adjacent, a => a.heat),
+    heat: f => 0.5 * f.heat + 0.5 * f.adjacent.mean('heat'),
   }));
   const warm = sheet.faces.filter(f => f.heat > 0.2);
   const model = sheet.extrude(warm, { distance: 0.7 }, { key: 'plateau' });

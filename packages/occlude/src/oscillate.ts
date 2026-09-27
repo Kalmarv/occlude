@@ -38,7 +38,8 @@
  * global paper, exactly as `thicken` refuses it.
  */
 
-import { Material, material as makeMaterial, mintIds, type Station, type TransferPolicy, type EdgeTransfer } from './material.js';
+import { Material, material as makeMaterial, mintIds, alongSamples, type ChainSample, type TransferPolicy, type EdgeTransfer } from './material.js';
+import { chainsOf } from './curves.js';
 import { valueAt } from './guard.js';
 
 /** A number in the source material's coordinates, or a field read at the sample. */
@@ -80,17 +81,17 @@ function amountAt(v: OscillateAmount, x: number, y: number): number {
 
 /** The swung stations as ordinary Material: the source's own columns and
  * their transfer policies, the chains reconnected in walk order, and rings
- * closed. Deliberately NOT `stationsMaterial`, which also writes `heading`,
- * `s`, `u`, `length` and `chain` as columns for the studio's inspector to
- * colour by — useful there, but station bookkeeping is not part of the
- * drawing, and carrying it would surprise the next operation (planarize
- * asks for a resolver for a `heading` two crossing chains disagree on).
+ * closed. Deliberately NOT what `along` answers, which also writes
+ * `heading`, `s` and `u` as columns — the place of each point on its chain —
+ * but that bookkeeping is not part of the drawing, and carrying it would
+ * surprise the next operation (planarize asks for a resolver for a
+ * `heading` two crossing chains disagree on).
  *
  * On a network, `junctions` names the stations that ARE a source junction
  * (station index → source row): each junction is one vertex, with its own
  * id, that every chain meeting it joins. A verb that has not said where its
  * junctions are cannot keep them, and says so in its own name. */
-export function chainsMaterial(stations: readonly Station[], source: Material, who = 'oscillate', junctions?: ReadonlyMap<number, number>): Material {
+export function chainsMaterial(stations: readonly ChainSample[], source: Material, who = 'oscillate', junctions?: ReadonlyMap<number, number>): Material {
   if (!junctions) {
     for (let i = 0; i < source.n; i++) {
       if (source.adjacentRows(i).length > 2) throw new Error(`${who}: vertex ${i} is a junction — ${who} walks chains only`);
@@ -167,10 +168,10 @@ export function chainsMaterial(stations: readonly Station[], source: Material, w
   return new Material(x, y, cols, Uint32Array.from(edges), { ...carry, ids: { points } });
 }
 
-/** Stations of one chain, in walk order. */
-export function byChain(stations: readonly Station[]): Station[][] {
-  const out: Station[][] = [];
-  let current: Station[] | null = null;
+/** The samples of one chain, in walk order. */
+export function byChain(stations: readonly ChainSample[]): ChainSample[][] {
+  const out: ChainSample[][] = [];
+  let current: ChainSample[] | null = null;
   let chain = -1;
   for (const st of stations) {
     if (st.chain !== chain) {
@@ -186,7 +187,7 @@ export function byChain(stations: readonly Station[]): Station[][] {
 /**
  * Swing `m`'s chains from side to side. Returns new Material and never
  * touches the source. On a network — a hex field, a tiling, a voronoi — it
- * swings each chain of `curves()` on its own, junction to junction: a
+ * swings each chain of `curves` on its own, junction to junction: a
  * junction has no single side to swing to, so it stays where it is, one
  * vertex with its own id, and a chain that ends at one fits a whole number
  * of cycles, as a ring does, so the swing arrives there at the phase it
@@ -209,19 +210,19 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
   // vertices where it is loose. One pass, so the whole material is walked at
   // the finest chain's rate.
   let shortest = Infinity;
-  for (const st of source.along()) {
+  for (const st of alongSamples(source)) {
     const lam = amountAt(opts.wavelength, st.x, st.y);
     if (lam > 0) shortest = Math.min(shortest, lam);
   }
   // Nowhere to swing at all — an empty material, or a wavelength no station
   // can read: the chains come through straight.
-  const chains = source.curves();
+  const chains = chainsOf(source);
   const isJunction = (v: number): boolean => source.adjacentRows(v).length > 2;
   let network = false;
   for (let v = 0; v < source.n && !network; v++) network = isJunction(v);
   // The stations that are a junction: a chain's first, and an open chain's
   // last, when the vertex there is one. A material with none has none.
-  const junctionsOf = (stations: readonly Station[]): Map<number, number> | undefined => {
+  const junctionsOf = (stations: readonly ChainSample[]): Map<number, number> | undefined => {
     if (!network) return undefined;
     const at = new Map<number, number>();
     stations.forEach((st, k) => {
@@ -234,11 +235,11 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
     return at;
   };
   if (!Number.isFinite(shortest)) {
-    const straight = source.along();
+    const straight = alongSamples(source);
     return chainsMaterial(straight, source, 'oscillate', junctionsOf(straight));
   }
-  const out: Station[] = [];
-  for (const fine of byChain(source.along({ spacing: shortest / steps }))) {
+  const out: ChainSample[] = [];
+  for (const fine of byChain(alongSamples(source, { spacing: shortest / steps }))) {
     if (fine.length < 2) continue;
     // Phase by integration, so a wavelength that changes along the chain
     // still advances the swing continuously.

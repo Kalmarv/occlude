@@ -37,6 +37,7 @@ import { Material, material as makeMaterial, type PointsLike } from './material.
 import type { Bounds, FieldFn2 } from './points.js';
 import { vx, vy, type XY } from './vec.js';
 import type { L } from './units.js';
+import { Selection, select, domainKind, isSelectionOf, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
@@ -96,6 +97,8 @@ export class Lattice {
    * first. Empty otherwise. */
   readonly history: readonly Lattice[];
   private cached: LatticeValues | null = null;
+  /** @internal The cells as a domain, made the first time a selection of them is. */
+  private cellBox: CellDomain | null = null;
 
   /** @internal Built by `latticeOf`; a sketch's door is `t.lattice`. */
   constructor(
@@ -167,13 +170,19 @@ export class Lattice {
     return this.cellView(j * this.cols + i);
   }
 
-  // ---- the cells as a table (see CellSelection) ----
+  // ---- the cells as a table ----
 
-  /** Every cell of the lattice as a selection: iterate, `length`, `at`,
-   * `filter`, `near`, `slice`, `map`, `without`, and the write `set`. The
-   * rows are fixed — a lattice's cells are not added or removed. */
-  get cells(): CellSelection {
-    return new CellSelection(this, null);
+  /** Every cell of the lattice as a selection, in row-major order: the
+   * words every selection has, `near` (by the cell's centre), the
+   * relations across the four sides, and the write `set`. The rows are
+   * fixed — a lattice's cells are not added or removed. */
+  get cells(): Selection<Cell> {
+    return select(this.cellDomain(), null);
+  }
+
+  /** @internal The cells as a domain, one per lattice. */
+  cellDomain(): CellDomain {
+    return (this.cellBox ??= new CellDomain(this));
   }
 
   /** `l.cells.set(...)`: a lattice is one table, so it answers the table's
@@ -239,9 +248,15 @@ export class Lattice {
     return sum;
   }
 
-  /** @internal The cells beside one: west, east, north, south in the grid. */
-  adjacentCells(idx: number): CellSelection {
-    if (idx < 0) return new CellSelection(this, []);
+  /** @internal The cells beside one, in row order: north, west, east,
+   * south in the grid. */
+  adjacentCells(idx: number): Selection<Cell> {
+    return select(this.cellDomain(), this.adjacentRows(idx), undefined, true);
+  }
+
+  /** @internal The rows of the cells beside one, in row order. */
+  adjacentRows(idx: number): number[] {
+    if (idx < 0) return [];
     const { cols, rows, mask } = this;
     const i = idx % cols;
     const j = (idx - i) / cols;
@@ -250,7 +265,7 @@ export class Lattice {
     if (i > 0 && mask[idx - 1]) out.push(idx - 1);
     if (i + 1 < cols && mask[idx + 1]) out.push(idx + 1);
     if (j + 1 < rows && mask[idx + cols]) out.push(idx + cols);
-    return new CellSelection(this, out);
+    return out;
   }
 
   /** @internal The cell rows a `where` names among `members` (null: all). */
@@ -266,7 +281,7 @@ export class Lattice {
       return out;
     }
     let rows: readonly number[];
-    if (where instanceof CellSelection) rows = this.ownRows(where.source, who) ? where.indices : [];
+    if (isSelectionOf(where, CELLS)) rows = this.ownRows(where.source as Lattice, who) ? where.indices : [];
     else if (isCell(where)) rows = this.ownRows(where[OWNER], who) && where.index >= 0 ? [where.index] : [];
     else rows = this.cellsUnder(where, who);
     if (members === null) return rows;
@@ -297,7 +312,7 @@ export class Lattice {
 
   /** @internal Is `other` a state of this lattice's table — the same cells
    * of the same grid? Then its cell rows are rows here. */
-  private ownRows(other: Lattice, who: string): boolean {
+  ownRows(other: Lattice, who: string): boolean {
     if (other === this || other.mask === this.mask) return true;
     throw new Error(`${who}: those cells belong to another lattice — a lattice's cells are rows of its own grid`);
   }
@@ -635,12 +650,13 @@ export type Cell = {
    * the lattice: what diffuses. */
   laplacian(column: string): number;
   /** The cells beside this one, in the lattice. */
-  readonly adjacent: CellSelection;
+  readonly adjacent: Selection<Cell>;
+  readonly [ROW_TYPES]?: CellTypes;
 } & Record<string, number>;
 
 /** Which cells a `set` writes: a cell selection, one cell, a test of the
  * cell, or points — the cells they fall in. */
-export type CellWhere = CellSelection | Cell | ((c: Cell) => unknown) | PointsLike | XY | undefined;
+export type CellWhere = Selection<Cell> | Cell | ((c: Cell) => unknown) | PointsLike | XY | undefined;
 
 const CELL_PROTO = Object.freeze(Object.create(Object.prototype, {
   laplacian: {
@@ -649,7 +665,7 @@ const CELL_PROTO = Object.freeze(Object.create(Object.prototype, {
     },
   },
   adjacent: {
-    get(this: Cell & { [OWNER]: Lattice }): CellSelection {
+    get(this: Cell & { [OWNER]: Lattice }): Selection<Cell> {
       return this[OWNER].adjacentCells(this.index);
     },
   },
@@ -672,145 +688,93 @@ function offCell(l: Lattice, i: number, j: number): Cell {
   return c as unknown as Cell;
 }
 
+/** The cell write: a value or a function of the cell, on these cells or
+ * those `where` names — a cell selection, one cell, a test of the cell, or
+ * points, which name the cells they fall in. */
+export interface CellSet {
+  (column: string, value: number | ((c: Cell) => number), where?: CellWhere): Lattice;
+  (values: Record<string, number | ((c: Cell) => number)>, where?: CellWhere): Lattice;
+}
+
+/** @internal What a selection of cells answers (see `ROW_TYPES`). */
+export type CellTypes = Types<{
+  source: Lattice;
+  set: CellSet;
+}>;
+
 /**
- * Cells of one lattice: the whole table (`l.cells`) or the rows a filter
- * picked, in row-major order. It reads like a point selection — iterate,
- * `length`, `at`, `map`, `filter`, `near`, `slice`, `without` — and a
- * lattice's cells are fixed rows, so its writes are `set` alone: `add` and
- * `remove` refuse by name.
+ * The cells of one lattice as a domain: a row is a cell of the mask, in
+ * row-major order. Every state of one lattice shares its mask, so a cell's
+ * row is its identity across them; a cell of another lattice is refused.
  */
-export class CellSelection implements Iterable<Cell> {
-  /** The lattice selected from. */
-  readonly source: Lattice;
-  private readonly memberRows: readonly number[] | null;
-
-  /** @internal Use `l.cells` and `filter`. `rows` null means every cell. */
-  constructor(source: Lattice, rows: readonly number[] | null) {
-    this.source = source;
-    this.memberRows = rows;
-    Object.freeze(this);
+class CellDomain implements Domain<Cell> {
+  readonly kind: DomainKind = CELLS;
+  readonly dense = false;
+  constructor(readonly source: Lattice) {}
+  get size(): number { return this.source.allCells().length; }
+  all(): readonly number[] { return this.source.allCells(); }
+  valid(r: number): boolean { return Number.isInteger(r) && r >= 0 && r < this.source.n && this.source.mask[r] !== 0; }
+  row(r: number): Cell { return this.source.cellView(r); }
+  rowOf(v: unknown, who: string): number {
+    if (!isCell(v)) throw new Error(`${who}: expected a cell — got ${v instanceof Selection ? `a ${v.domain.kind.name} selection` : v === null ? 'null' : typeof v}`);
+    return this.source.ownRows(v[OWNER], who) && v.index >= 0 ? v.index : -1;
   }
-
-  /** The selected cell rows, row-major. */
-  get indices(): readonly number[] {
-    return this.memberRows ?? this.source.allCells();
+  resolve(other: Selection<any>, who: string): number[] {
+    if (other.domain.kind !== CELLS) throw new Error(`${who}: expected cells — a cell selection — got ${other.domain.kind.plural}`);
+    this.source.ownRows(other.source as Lattice, who);
+    return [...other.indices];
   }
-
-  get length(): number {
-    return this.indices.length;
+  on(state: unknown, who: string): Domain<Cell> {
+    if (!(state instanceof Lattice)) throw new Error(`${who}: expected the lattice to read the cells on`);
+    return state.cellDomain();
   }
-
-  /** The member at position `i`; a negative `i` counts back from the end. */
-  at(i: number): Cell {
-    const rows = this.indices;
-    const k = i < 0 ? rows.length + i : i;
-    if (!Number.isInteger(k) || k < 0 || k >= rows.length) throw new Error(`cells.at: no member ${i} (${rows.length} members)`);
-    return this.source.cellView(rows[k]);
-  }
-
-  *[Symbol.iterator](): Iterator<Cell> {
-    for (const idx of this.indices) yield this.source.cellView(idx);
-  }
-
-  map<T>(fn: (c: Cell, i: number) => T): T[] {
-    return this.indices.map((idx, i) => fn(this.source.cellView(idx), i));
-  }
-
-  forEach(fn: (c: Cell, i: number) => void): void {
-    this.indices.forEach((idx, i) => fn(this.source.cellView(idx), i));
-  }
-
-  find(fn: (c: Cell, i: number) => unknown): Cell | undefined {
-    const rows = this.indices;
-    for (let i = 0; i < rows.length; i++) {
-      const c = this.source.cellView(rows[i]);
-      if (fn(c, i)) return c;
-    }
-    return undefined;
-  }
-
-  some(fn: (c: Cell, i: number) => unknown): boolean {
-    return this.find(fn) !== undefined;
-  }
-
-  every(fn: (c: Cell, i: number) => unknown): boolean {
-    const rows = this.indices;
-    for (let i = 0; i < rows.length; i++) if (!fn(this.source.cellView(rows[i]), i)) return false;
-    return true;
-  }
-
-  /** The cells `fn` picks, as a selection of the same lattice. */
-  filter(fn: (c: Cell, i: number) => unknown): CellSelection {
-    const rows = this.indices;
-    const out: number[] = [];
-    for (let i = 0; i < rows.length; i++) if (fn(this.source.cellView(rows[i]), i)) out.push(rows[i]);
-    return new CellSelection(this.source, out);
-  }
-
-  /** The cells of this selection whose centre is CLOSER THAN `radius` to
-   * `p`. */
-  near(p: XY, opts: { radius: number }): CellSelection {
-    const radius = opts.radius;
-    if (!(radius > 0)) throw new Error('near: radius must be a positive distance');
+  neighbours(r: number): number[] { return this.source.adjacentRows(r); }
+  /** The cells whose centre is CLOSER THAN `radius` to `p`. */
+  near(p: unknown, radius: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
+    if (!(typeof radius === 'number' && radius > 0)) throw new Error(`${who}: radius must be a positive distance`);
     const l = this.source;
-    const px = vx(p);
-    const py = vy(p);
-    if (l.n === 0 || !Number.isFinite(px) || !Number.isFinite(py)) return new CellSelection(l, []);
+    const px = vx(p as XY);
+    const py = vy(p as XY);
     const { cols, rows, spacing, bounds } = l;
+    const out: number[] = [];
+    const distances: number[] = [];
+    if (l.n === 0 || !Number.isFinite(px) || !Number.isFinite(py)) return { rows: out, distances };
     const i0 = Math.max(0, Math.floor((px - radius - bounds.x) / spacing));
     const i1 = Math.min(cols - 1, Math.floor((px + radius - bounds.x) / spacing));
     const j0 = Math.max(0, Math.floor((py - radius - bounds.y) / spacing));
     const j1 = Math.min(rows - 1, Math.floor((py + radius - bounds.y) / spacing));
-    const inside = this.memberRows === null ? null : new Set(this.memberRows);
-    const out: number[] = [];
     const r2 = radius * radius;
     for (let j = j0; j <= j1; j++) {
       const dy = py - (bounds.y + (j + 0.5) * spacing);
       for (let i = i0; i <= i1; i++) {
         const idx = j * cols + i;
-        if (!l.mask[idx] || (inside !== null && !inside.has(idx))) continue;
+        if (!l.mask[idx]) continue;
         const dx = px - (bounds.x + (i + 0.5) * spacing);
-        if (dx * dx + dy * dy < r2) out.push(idx);
+        if (dx * dx + dy * dy < r2) {
+          out.push(idx);
+          distances.push(Math.hypot(dx, dy));
+        }
       }
     }
-    return new CellSelection(l, out);
-  }
-
-  /** The members at positions `start` up to `end`, as an array's `slice`. */
-  slice(start?: number, end?: number): CellSelection {
-    return new CellSelection(this.source, this.indices.slice(start, end));
-  }
-
-  /** The members that `other` — a cell selection or one cell — does not
-   * name. Nothing takes nothing away. */
-  without(other: CellSelection | Cell | undefined): CellSelection {
-    const gone = new Set(this.source.cellRowsOf(null, true, other, 'cells.without') ?? []);
-    if (gone.size === 0) return this;
-    return new CellSelection(this.source, this.indices.filter((idx) => !gone.has(idx)));
-  }
-
-  /** A lattice's cells are fixed: there is no row to add. */
-  add(): never {
-    throw new Error("cells.add: a lattice's cells are fixed — set a column instead");
-  }
-
-  /** A lattice's cells are fixed: there is no row to remove. */
-  remove(): never {
-    throw new Error("cells.remove: a lattice's cells are fixed — set a column instead");
-  }
-
-  /**
-   * The lattice with columns set on this selection's cells — every one, or
-   * those `where` names: a cell selection, one cell, a test of the cell,
-   * or points, which name the cells they fall in. A value is a number or a function of the cell; the record form
-   * sets several columns in ONE instant, every function reading the cells
-   * as they were. A column not declared yet is declared, 0 elsewhere. A
-   * value that is not finite leaves that cell as it was, and a `where`
-   * that names nothing writes nothing.
-   */
-  set(column: string, value: number | ((c: Cell) => number), where?: CellWhere): Lattice;
-  set(values: Record<string, number | ((c: Cell) => number)>, where?: CellWhere): Lattice;
-  set(...args: unknown[]): Lattice {
-    return this.source.writeCells(this.memberRows, args);
+    return { rows: out, distances };
   }
 }
+
+const CELLS: DomainKind = domainKind('cell', 'cells', {
+  /**
+   * The lattice with columns set on these cells — every one, or those
+   * `where` names: a cell selection, one cell, a test of the cell, or
+   * points, which name the cells they fall in. A value is a number or a
+   * function of the cell; the record form sets several columns in ONE
+   * instant, every function reading the cells as they were. A column not
+   * declared yet is declared, 0 elsewhere. A value that is not finite
+   * leaves that cell as it was, and a `where` that names nothing writes
+   * nothing.
+   */
+  set: { value(this: Selection<Cell>, ...args: unknown[]): Lattice { return (this.source as Lattice).writeCells(this.members, args); } },
+}, {
+  add: "a lattice's cells are fixed — set a column instead",
+  remove: "a lattice's cells are fixed — set a column instead",
+  extract: "a lattice's cells are rows of its own grid — read what you need with cells.map, or the arrays with l.values",
+});
+

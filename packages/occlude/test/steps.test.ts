@@ -11,6 +11,7 @@ import {
   add, circle, curve, force, material, mul, sketch, type Edge, type Material, type Vertex,
 } from '../src/index.js';
 import { initOcclude, render } from '../src/host.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -56,7 +57,7 @@ describe('g.replace', () => {
       // whole is one closed chain.
       expect(snow.n).toBe(3 * 4 ** n);
       expect([...snow.points].every((p) => p.edges.length === 2)).toBe(true);
-      const rings = snow.curves();
+      const rings = snow.curves.map(rec);
       expect(rings.length).toBe(1);
       expect(rings[0].closed).toBe(true);
       // The corners are the points they were.

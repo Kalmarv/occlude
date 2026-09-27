@@ -23,7 +23,7 @@ function recursive(paper: number, depth: number): Material {
       for (let i = 0; i <= depth; i++) {
         const shapes = m
           .along()
-          .map((p) =>
+          .points.map((p) =>
             t.rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
           );
         m = shapes.reduce((m, s) => append(m, t.material(s)), m);
@@ -85,7 +85,7 @@ for (const [name, source, opts] of fixtures) {
           label,
           inputEdges: source.edgeCount,
           vertices: result!.n,
-          loops: result!.curves().length,
+          loops: result!.curves.length,
           medianMs: times[1],
           maxMs: times[2],
           processPeakRssKiB: process.resourceUsage().maxRSS,

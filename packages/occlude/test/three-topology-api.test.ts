@@ -24,10 +24,10 @@ describe('owned mesh topology relationships',()=>{
     const model=plane(2).subdivide(1).faces.set('group',f=>f.centroid[0]<0?'left':'right');
     const left=model.faces.filter(f=>f.group==='left');
     expect(left.length).toBe(2);expect(left.points.length).toBe(6);expect(left.edges.length).toBe(7);expect(left.boundaryEdges().length).toBe(6);
-    expect(left.complement().union(left).connected().length).toBe(4);
+    expect(model.faces.without(left).union(left).connected().length).toBe(4);
     expect(left.intersect(model.faces).components().map(g=>g.length)).toEqual([2]);
     expect(model.faces.groupBy(f=>f.group).map(g=>[g.key,g.boundaryEdges().length])).toEqual([['left',6],['right',6]]);
-    expect(left.subtract(left).components()).toEqual([]);
+    expect(left.without(left).components()).toEqual([]);
     expect(left.extract().faces.boundaryEdges().length).toBe(6);
     expect(left.points.extract().points.length).toBe(6);
   });

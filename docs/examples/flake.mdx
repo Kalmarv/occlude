@@ -28,8 +28,8 @@ export default sketch({
   const seed = t.sample(circle(b.w / 2, b.h * 0.52, b.w * 0.44), { count: 3 });
   const grown = t.steps(4, seed, (g) => g.replace(g.edges, motif, { flip: true }));
   return [
-    polygon(grown.curves(), { opaque: true, fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), pen: 'fine' }),
-    strokes(grown.curves(), { pen: 'ink' }),
+    polygon(grown.curves, { opaque: true, fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), pen: 'fine' }),
+    strokes(grown.curves, { pen: 'ink' }),
   ];
 });
 ```

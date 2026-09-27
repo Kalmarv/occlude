@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  sketch, pen, mm, strokes, circle, rect, material, distance, grad, rotate, space, type Material, type SketchConfig, type Vertex, type XY,
+  sketch, pen, mm, strokes, circle, rect, group, material, distance, grad, rotate, space, type Material, type SketchConfig, type Vertex, type XY,
 } from '../src/index.js';
 import { initOcclude, renderAsync, render, type RenderResult } from '../src/host.js';
 import { box, plane, sphere, view, orthographic, perspective, curve } from '../src/three/api/index.js';
@@ -207,10 +207,10 @@ describe('spec 64 · a curved space is centred in the frame the sketch names', (
     const ink = (f: SketchConfig): RenderResult => render(sketch({ aspect: [1, 1], ...HYP, ...f }, (t) => {
       const b = t.bounds();
       const down = f.yUp ? -1 : 1;
-      const at = t.station([b.cx + 20, b.cy + 20 * down]);
+      const at = t.placement([b.cx + 20, b.cy + 20 * down]);
       return [
         circle(b.cx + 20, b.cy + 20 * down, 10),
-        at.place(circle(0, 0, 3)),
+        group(at, circle(0, 0, 3)),
         strokes(t.isolines(t.distanceTo(circle(b.cx - 20, b.cy, 8)), 0)),
       ];
     }), SQ);

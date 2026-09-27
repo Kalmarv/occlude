@@ -1,18 +1,37 @@
 /**
  * The one chain walk: a set of edges over source vertex rows becomes
- * chains for drawing. Used by a material (all its edges) and by an edge
- * selection (its selected edges) alike, so a selection's chains follow the
- * selected topology without extracting a temporary material.
+ * chains. Used by a material (all its edges) and by an edge selection (its
+ * selected edges) alike, so a selection's chains follow the selected
+ * topology without extracting a temporary material. The chains are the
+ * rows of the `curves` domain (curves.ts).
  *
  * Chains start at endpoints and junctions (degree ≠ 2 within the given
  * edges), pass through degree-2 vertices, and end at the next endpoint or
  * junction; edges left over belong to pure cycles, which come back closed.
- * Every edge is covered once; a junction vertex appears in each chain that
- * meets it. Chains come in row order of their first vertex (stable), so a
- * material built from contours keeps contour order.
+ * A cycle starts at the stored start of its first edge row (in the order
+ * given) and runs that edge's way. Every edge
+ * is covered once; a junction vertex appears in each chain that meets it.
+ * Chains come in row order of their first vertex (stable), so a material
+ * built from contours keeps contour order.
  */
 
-import type { Curve } from './material.js';
+/**
+ * @internal One chain: the kernel record every chain consumer reads. The
+ * public view of it is a `curves` row (curves.ts).
+ */
+export interface Chain {
+  /** The vertex rows it walks, in walk order; a ring lists each once. */
+  indices: number[];
+  /** The edge rows it walks, in walk order: edge `k` joins vertex `k` to
+   * vertex `k + 1` (a ring's closing edge last). A view of one buffer the
+   * whole walk shares — every edge is walked once. */
+  readonly edges: Uint32Array;
+  closed: boolean;
+  /** The positions of `indices`. */
+  pts: [number, number][];
+  /** Segment by segment: is it a geodesic of the space? Absent when none is. */
+  geodesic?: boolean[];
+}
 
 export interface ChainInput {
   /** Rows of the vertex table (source rows). */
@@ -28,6 +47,26 @@ export interface ChainInput {
   geodesic?: (e: number) => boolean;
 }
 
+/** A chain as the walk makes it: its edges a run of the walk's one buffer,
+ * viewed when asked for. */
+class WalkedChain implements Chain {
+  declare geodesic?: boolean[];
+  constructor(
+    public indices: number[],
+    public closed: boolean,
+    public pts: [number, number][],
+    geodesic: boolean[] | undefined,
+    private readonly walked: Uint32Array,
+    private readonly from: number,
+    private readonly to: number,
+  ) {
+    if (geodesic) this.geodesic = geodesic;
+  }
+  get edges(): Uint32Array {
+    return this.walked.subarray(this.from, this.to);
+  }
+}
+
 /** Vertex degree within the given edges, as a dense count per source row. */
 export function degreesWithin(vertexCount: number, edgeRows: ArrayLike<number>, endpoints: (e: number) => [number, number]): Uint32Array {
   const degree = new Uint32Array(vertexCount);
@@ -39,7 +78,7 @@ export function degreesWithin(vertexCount: number, edgeRows: ArrayLike<number>, 
   return degree;
 }
 
-export function walkChains(input: ChainInput): Curve[] {
+export function walkChains(input: ChainInput): Chain[] {
   const { vertexCount: n, edgeRows, endpoints, x, y, geodesic } = input;
   const m = edgeRows.length;
   if (m === 0) return [];
@@ -59,19 +98,26 @@ export function walkChains(input: ChainInput): Curve[] {
     incident[fill[b]++] = k;
   }
   const used = new Uint8Array(m);
+  // Every edge is walked exactly once, so the walk's edges, chain after
+  // chain, fill one buffer; each chain keeps a view of its run.
+  const walked = new Uint32Array(m);
+  let cursor = 0;
   const other = (k: number, v: number): number => (A[k] === v ? B[k] : A[k]);
   const nextUnused = (v: number): number => {
     for (let s = start[v]; s < start[v + 1]; s++) if (!used[incident[s]]) return incident[s];
     return -1;
   };
-  const out: Curve[] = [];
-  const walk = (from: number, firstEdge: number, stopAtDegree: boolean): Curve => {
+  const out: Chain[] = [];
+  const walk = (from: number, firstEdge: number, stopAtDegree: boolean): Chain => {
     const indices = [from];
+    const first = cursor;
+    let c = cursor;
     const flags: boolean[] = [];
     let v = from;
     let k = firstEdge;
     for (;;) {
       used[k] = 1;
+      walked[c++] = edgeRows[k];
       if (geodesic) flags.push(geodesic(edgeRows[k]));
       v = other(k, v);
       indices.push(v);
@@ -83,9 +129,10 @@ export function walkChains(input: ChainInput): Curve[] {
     }
     const closed = indices.length > 1 && indices[0] === indices[indices.length - 1];
     if (closed) indices.pop();
+    cursor = c;
     const pts = indices.map((i) => [x[i], y[i]] as [number, number]);
     // A closed chain's last edge is its closing segment, as the flags say.
-    return flags.some((g) => g) ? { indices, closed, pts, geodesic: flags } : { indices, closed, pts };
+    return new WalkedChain(indices, closed, pts, flags.some((g) => g) ? flags : undefined, walked, first, c);
   };
   for (let v = 0; v < n; v++) {
     if (degree[v] === 2 || degree[v] === 0) continue;
@@ -94,6 +141,9 @@ export function walkChains(input: ChainInput): Curve[] {
       if (!used[k]) out.push(walk(v, k, true));
     }
   }
+  // What is left is pure cycles. A ring starts at the stored start of its
+  // first edge row and runs that edge's way: the direction of its edges
+  // and the order of their rows decide it.
   for (let k = 0; k < m; k++) {
     if (!used[k]) out.push(walk(A[k], k, false));
   }

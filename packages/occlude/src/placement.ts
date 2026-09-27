@@ -6,7 +6,8 @@
  * carried a point and a heading. None of the four could meet: a tiling's
  * placement could not be inverted, a station's frame could not be pushed
  * onto a drawing, and a curved motif could not be placed at all. A
- * `Placement` is the one value all of them speak.
+ * `Placement` is the one value all of them speak — and a walk is one,
+ * stepped and turned.
  *
  * THE MODEL IS THE WHOLE TRICK. Each geometry has a model in `R³` where an
  * isometry is a plain 3×3 matrix: the hyperboloid below zero curvature, the
@@ -29,8 +30,8 @@
  * Pure: no paper, no seed, no shape lowering. The toolkit hands it a door.
  */
 
-import type { SpaceKind } from './space.js';
-import { walked, type Station } from './material.js';
+import type { Space, SpaceKind } from './space.js';
+import { radians } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
 /**
@@ -77,9 +78,27 @@ export interface ModelDoor {
 }
 
 /**
- * An isometry of one geometry, as a value: apply it to a point, to a
- * station, or to a whole drawing through `group(placement, …)`; compose it
- * with `then`; turn it round with `inverse`.
+ * @internal A frame: a place and the direction it faces, in radians from
+ * `+x` toward `+y`. What a placement carries the origin frame — sketch
+ * `(0, 0)` facing `+x` — to.
+ */
+export interface Frame {
+  readonly x: number;
+  readonly y: number;
+  readonly heading: number;
+}
+
+/**
+ * An isometry of one geometry, as a value: apply it to a point, or to a
+ * whole drawing through `group(placement, …)`; compose it with `then`;
+ * turn it round with `inverse`; walk it with `step`, `turn` and `toward`.
+ *
+ * A placement is also a FRAME: the place it carries the origin to (`x`,
+ * `y`) and the direction it turns `+x` to there (`heading`, radians). So
+ * it stands in for a point (`circle(pl, 3)`, `line(pl, pl.step(8))`), and
+ * a walk is a placement stepped and turned: `t.placement(at, heading)`
+ * starts one, and `p.placement()` is the frame at a point that has a
+ * heading (a point of `m.along()` or of a curve).
  *
  * `orientation` is −1 when the isometry turns the plane over — an odd
  * number of reflections — and +1 when it does not. A motif with a hand to
@@ -89,16 +108,47 @@ export interface Placement {
   readonly door: ModelDoor;
   readonly orientation: 1 | -1;
   /** The 3×3 on model vectors, row-major. Internal: the value a sketch
-   * holds is the four verbs, not these nine numbers. */
+   * holds is the verbs, not these nine numbers. */
   readonly m: readonly number[];
+  /** Where this placement puts the origin. */
+  readonly x: number;
+  readonly y: number;
+  /** The direction it turns `+x` to at `(x, y)`, in radians from `+x`
+   * toward `+y`. */
+  readonly heading: number;
   /** Where this isometry sends a sketch point. */
   point(p: XY): Vec;
-  /** Where it sends a station: the point, and the heading carried to it. */
-  station(s: Station): Station;
   /** Apply this, then `next`. */
   then(next: Placement): Placement;
   /** The isometry that undoes this one. */
   inverse(): Placement;
+  /** A NEW placement `distance` along this one's heading: one step of a
+   * walk. The flat plane adds `distance · (cos heading, sin heading)` and
+   * keeps the heading. A curved space walks the geodesic, and the
+   * geodesic's direction on arrival is the new heading. */
+  step(distance: number): Placement;
+  /** A NEW placement with the heading turned by `degrees` (degrees, as
+   * `rotate`, positive from `+x` toward `+y`). The place stays. */
+  turn(degrees: number): Placement;
+  /** A NEW placement at the same place, facing `q`: the direction of the
+   * geodesic that runs from here to there. A `q` in this very place keeps
+   * the heading; on the sphere a `q` exactly opposite has no one
+   * direction and is refused by name. */
+  toward(q: XY): Placement;
+}
+
+/** The space a door belongs to, for the walk verbs: a curved space binds
+ * its own door when it is built. The flat door walks flat. */
+const spaces = new WeakMap<ModelDoor, Space>();
+
+/** @internal Bind a door to the space it was built for. */
+export function bindSpace(door: ModelDoor, space: Space): void {
+  spaces.set(door, space);
+}
+
+/** @internal The space a door was built for; undefined for the flat door. */
+export function spaceOfDoor(door: ModelDoor): Space | undefined {
+  return spaces.get(door);
 }
 
 // ---- the 3×3, row-major ----------------------------------------------------
@@ -174,18 +224,22 @@ const here = (p: XY): string => `[${vx(p)}, ${vy(p)}]`;
  * A`, and both determinants are +1, so `det A = det M`. The handedness of
  * the isometry is the sign of the determinant of the 3×3 and nothing else.
  */
-function make(door: ModelDoor, m: readonly number[]): Placement {
+function make(door: ModelDoor, m: readonly number[], at?: Frame): Placement {
   const frozen = Object.freeze(m.slice());
   const orientation: 1 | -1 = det9(frozen) < 0 ? -1 : 1;
+  // The frame is the one a walk made, kept exactly; otherwise it is read
+  // off the matrix the first time it is asked for.
+  let frame: Frame | undefined = at;
+  const own = (): Frame => (frame ??= carry(door, frozen, ORIGIN));
   const value: Placement = {
     door,
     orientation,
     m: frozen,
+    get x() { return own().x; },
+    get y() { return own().y; },
+    get heading() { return own().heading; },
     point(p: XY): Vec {
       return door.down(act(frozen, door.up(p)));
-    },
-    station(s: Station): Station {
-      return transport(door, frozen, s);
     },
     then(next: Placement): Placement {
       agree('then', door, next.door);
@@ -195,8 +249,63 @@ function make(door: ModelDoor, m: readonly number[]): Placement {
     inverse(): Placement {
       return make(door, inv9(frozen));
     },
+    step(distance: number): Placement {
+      return framePlacement(door, stepFrame(spaces.get(door), own(), distance));
+    },
+    turn(degrees: number): Placement {
+      const f = own();
+      return framePlacement(door, { x: f.x, y: f.y, heading: f.heading + radians(degrees) });
+    },
+    toward(q: XY): Placement {
+      return framePlacement(door, towardFrame(spaces.get(door), own(), q));
+    },
   };
   return Object.freeze(value);
+}
+
+/** The origin frame: sketch `(0, 0)` facing `+x`. */
+const ORIGIN: Frame = Object.freeze({ x: 0, y: 0, heading: 0 });
+
+/**
+ * @internal The placement that carries the origin frame to `f`, keeping
+ * `f` as its frame exactly: what a walk and `p.placement()` answer.
+ */
+export function framePlacement(door: ModelDoor, f: Frame): Placement {
+  return make(door, mul9(basis(door, f, false), inv9(basis(door, ORIGIN, false))), f);
+}
+
+/** One step of a walk: the flat plane adds the heading's vector; a curved
+ * space walks the geodesic, and its direction on arrival is the heading. */
+function stepFrame(sp: Space | undefined, f: Frame, distance: number): Frame {
+  const dx = distance * Math.cos(f.heading);
+  const dy = distance * Math.sin(f.heading);
+  if (!sp || sp.kind === 'euclidean') return { x: f.x + dx, y: f.y + dy, heading: f.heading };
+  const p: Vec = [f.x, f.y];
+  const q = sp.exp(p, [dx, dy]);
+  // The new heading is the geodesic's direction on arrival: the tangent
+  // at `q` pointing away from the start `p`, which is `log(q, p)`
+  // negated. A zero step arrives where it began and keeps its heading.
+  const back = sp.log(q, p);
+  const h = back[0] === 0 && back[1] === 0 ? f.heading : Math.atan2(-back[1], -back[0]);
+  return { x: q[0], y: q[1], heading: h };
+}
+
+/** The same place, facing `q` along the geodesic from here. */
+function towardFrame(sp: Space | undefined, f: Frame, q: XY): Frame {
+  const here: Vec = [f.x, f.y];
+  const there: Vec = [vx(q), vy(q)];
+  if (sp && sp.kind === 'spherical') {
+    // Half a turn away every direction is as good as another, and the
+    // placement is asked for the one that is not there.
+    const half = Math.PI * sp.radius;
+    if (Math.abs(sp.distance(here, there) - half) < 1e-9 * half) {
+      throw new Error(`placement.toward: [${there[0]}, ${there[1]}] is opposite this place and has no one direction — turn to a heading instead`);
+    }
+  }
+  const v = sp && sp.kind !== 'euclidean' ? sp.log(here, there) : [there[0] - f.x, there[1] - f.y];
+  // The same place names no direction, so the placement keeps the one it has.
+  if (!(Math.hypot(v[0], v[1]) > 0)) return { x: f.x, y: f.y, heading: f.heading };
+  return { x: f.x, y: f.y, heading: Math.atan2(v[1], v[0]) };
 }
 
 /** Two doors are the same door, or the two placements name two geometries
@@ -206,25 +315,12 @@ function agree(who: string, a: ModelDoor, b: ModelDoor): void {
   throw new Error(`placement.${who}: a placement of ${b.kind} space cannot follow one of ${a.kind} space`);
 }
 
-/** A station says which space it walks in, or says nothing; when it says,
- * the door has to be that space's own. */
-function agreeStation(door: ModelDoor, s: Station, who: string): void {
-  const home = s.space?.model;
-  if (!home || home === door || home.id === door.id) return;
-  throw new Error(`placement.${who}: a station of ${home.kind} space cannot be placed by an isometry of ${door.kind} space`);
-}
-
 /**
- * A station through an isometry: the point is the point, and the heading is
- * the direction the station's own tangent lands in, read in the frame at
- * the arrival. Every chain field is carried unchanged, and so is `space`.
- *
- * A reflected placement still answers a station whose `normal` is
- * `perp(tangent)`. A station has no handedness of its own, and this is not
- * the place to give it one.
+ * A frame through an isometry: the point is the point, and the heading is
+ * the direction the frame's own tangent lands in, read in the frame at the
+ * arrival.
  */
-function transport(door: ModelDoor, m: readonly number[], s: Station): Station {
-  agreeStation(door, s, 'station');
+function carry(door: ModelDoor, m: readonly number[], s: Frame): Frame {
   const at: XY = [s.x, s.y];
   const q = door.down(act(m, door.up(at)));
   const [E1, E2] = door.frameAt(at);
@@ -233,7 +329,7 @@ function transport(door: ModelDoor, m: readonly number[], s: Station): Station {
   const t: Model = [E1[0] * ch + E2[0] * sh, E1[1] * ch + E2[1] * sh, E1[2] * ch + E2[2] * sh];
   const mt = act(m, t);
   const [f1, f2] = door.frameAt(q);
-  return walked(s, vx(q), vy(q), Math.atan2(form(door.sign, mt, f2), form(door.sign, mt, f1)));
+  return { x: vx(q), y: vy(q), heading: Math.atan2(form(door.sign, mt, f2), form(door.sign, mt, f1)) };
 }
 
 /** @internal The isometry that moves nothing. */
@@ -269,10 +365,10 @@ export function reflection(door: ModelDoor, a: XY, b: XY): Placement {
   return make(door, m);
 }
 
-/** The frame of a station as a 3×3 whose columns are `e1`, `e2` and the
- * station's own model point. Its determinant is +1 (−1 mirrored), because
+/** A frame as a 3×3 whose columns are `e1`, `e2` and the frame's own
+ * model point. Its determinant is +1 (−1 mirrored), because
  * `[e1 | e2 | P]` is `[P | e1 | e2]` cyclically permuted. */
-function basis(door: ModelDoor, s: Station, mirror: boolean): number[] {
+function basis(door: ModelDoor, s: Frame, mirror: boolean): number[] {
   const at: XY = [s.x, s.y];
   const [E1, E2] = door.frameAt(at);
   const ch = Math.cos(s.heading);
@@ -289,22 +385,18 @@ function basis(door: ModelDoor, s: Station, mirror: boolean): number[] {
 }
 
 /**
- * @internal What `station.placement({ from })` is made of.
- *
- * The one isometry carrying the frame of `from` onto the frame of `to`:
- * `B(to)·B(from)⁻¹`. `station(from)` of it is `to`, point and heading.
+ * @internal The one isometry carrying frame `from` onto frame `to`:
+ * `B(to)·B(from)⁻¹`. It carries `from` to `to`, point and heading.
  *
  * With `mirror` the source frame's second column is turned over first, so
  * the answer reverses handedness and still lands the point.
  */
-export function between(door: ModelDoor, from: Station, to: Station, opts: { mirror?: boolean } = {}): Placement {
-  agreeStation(door, from, 'between');
-  agreeStation(door, to, 'between');
+export function between(door: ModelDoor, from: Frame, to: Frame, opts: { mirror?: boolean } = {}): Placement {
   return make(door, mul9(basis(door, to, false), inv9(basis(door, from, opts.mirror === true))));
 }
 
 /** @internal Is this a placement? Structural, like every other accessor protocol
- * here: a placement is what answers `point`, `station`, `then`, `inverse`
+ * here: a placement is what answers `point`, `step`, `then`, `inverse`
  * and a `door`. It is NOT a function, so `typeof p === 'function'` is
  * false and `group(p, …)` can never be confused with a callback. */
 export function isPlacement(v: unknown): v is Placement {
@@ -312,7 +404,7 @@ export function isPlacement(v: unknown): v is Placement {
   const p = v as Partial<Placement>;
   return (
     typeof p.point === 'function'
-    && typeof p.station === 'function'
+    && typeof p.step === 'function'
     && typeof p.then === 'function'
     && typeof p.inverse === 'function'
     && typeof p.door === 'object' && p.door !== null

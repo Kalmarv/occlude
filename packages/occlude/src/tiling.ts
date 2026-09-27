@@ -25,7 +25,8 @@
  */
 
 import type { Origin } from './shapes.js';
-import { facesFromCycles, faceKeyOf, type Face, type Faces } from './faces.js';
+import { facesFromCycles, faceKeyOf, type Face } from './faces.js';
+import type { Selection } from './selection.js';
 import { Material, mintIds, type FaceColumn } from './material.js';
 import { identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
 import { chordMiddle, metricGap, modelGap } from './chord.js';
@@ -134,8 +135,8 @@ export class Tiling extends Material {
    * planarity. It is the same memo every material keeps, so one collection
    * answers every call.
    */
-  override faces(): Faces<TilingFace> {
-    return (this.facesBox.faces ??= facesFromCycles(this, this.cycles)) as Faces as Faces<TilingFace>;
+  override faces(): Selection<TilingFace> {
+    return (this.facesBox.faces ??= facesFromCycles(this, this.cycles)).all as unknown as Selection<TilingFace>;
   }
 
 }
@@ -440,7 +441,7 @@ function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: 
  *
  * A face column is keyed by the WALLS of its face, so the keys are built
  * here from the edge ids the material is about to be given — the same key
- * `Faces.keys()` reads back.
+ * the face table's `keys()` reads back.
  */
 function columnsOf(
   cycles: readonly (readonly number[])[],
@@ -485,7 +486,7 @@ const CLOSURE = 16;
  * sketch's own coordinates, and `place.door` is the model door of the
  * sketch's space, which is this very geometry. The flood then runs in
  * those coordinates, so every placement that comes back is an isometry a
- * sketch can hand straight to `group`, `m.transform` or a station.
+ * sketch can hand straight to `group`, `m.transform` or a walk.
  * `place.bow` is the bow a wall's stored chords may keep, in the space's
  * metric and in sketch units: the toolkit reads it off the frame, where
  * the chart is widest.

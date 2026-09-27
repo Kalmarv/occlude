@@ -43,7 +43,7 @@ describe('line and circle take points', () => {
 
     it(`takes a station as a point in ${world.name}`, () => {
       const t = world.make();
-      const start = t.station(44, 53);
+      const start = t.placement([44, 53]);
       const tip = start.step(9);
       expect(lowered(t, line(start, tip))).toEqual(lowered(t, line(start.x, start.y, tip.x, tip.y)));
       expect(lowered(t, circle(start, 6))).toEqual(lowered(t, circle(start.x, start.y, 6)));

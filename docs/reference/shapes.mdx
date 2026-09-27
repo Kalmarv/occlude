@@ -3,13 +3,13 @@ title: Shapes
 description: "The drawables: shapes, paths, groups, clips, masks and the modifiers that change a line."
 ---
 
-A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line`, `label` and each point of a `path`. A pair and an `{ x, y }` record are the same point, so a station goes straight in. The first argument decides the form, and the ink is the same ink.
+A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line`, `label` and each point of a `path`. A pair and an `{ x, y }` record are the same point, so a placement or a point of a material goes straight in. The first argument decides the form, and the ink is the same ink.
 
 ## circle
 
 <include>/_sig/circle.mdx</include>
 
-A circle with its centre at `(x, y)` and radius `r`. The centre also goes in as one point. `circle([x, y], r)` and `circle({ x, y }, r)` draw the same circle, so a station goes straight in. The first argument decides the form, and the radius is a length either way.
+A circle with its centre at `(x, y)` and radius `r`. The centre also goes in as one point. `circle([x, y], r)` and `circle({ x, y }, r)` draw the same circle, so a placement or a point of `m.along()` goes straight in. The first argument decides the form, and the radius is a length either way.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -33,7 +33,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [rect(10, 10, 50, 36), rect(60,
 
 <include>/_sig/line.mdx</include>
 
-An open stroke from `(x1, y1)` to `(x2, y2)`. The two ends also go in as points. `line(a, b)` takes a pair or an `{ x, y }` record for each end, so `line(start, tip)` works with two stations. A pair and a record mean the same point, and the ink is the same ink.
+An open stroke from `(x1, y1)` to `(x2, y2)`. The two ends also go in as points. `line(a, b)` takes a pair or an `{ x, y }` record for each end, so `line(start, tip)` works with two placements. A pair and a record mean the same point, and the ink is the same ink.
 
 ```ts live
 import { sketch, line } from 'occlude';
@@ -131,7 +131,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/strokeFont.mdx</include>
 
-A stroke font from the text of a font file. Two formats read the same way, and the content picks between them: an SVG 1.1 font, or a Hershey `.jhf` file. The result is a plain record. `font.glyph(ch)` answers `curves()` in em units with y up. `font.advance(ch)` is the pen step. `font.kern(a, b)` is what to add between a pair. A source in neither format refuses by name. The bundled faces in `occlude/fonts` come through this same door, and each one also exports its source text.
+A stroke font from the text of a font file. Two formats read the same way, and the content picks between them: an SVG 1.1 font, or a Hershey `.jhf` file. The result is a plain record. `font.glyph(ch)` answers `curves` in em units with y up. `font.advance(ch)` is the pen step. `font.kern(a, b)` is what to add between a pair. A source in neither format refuses by name. The bundled faces in `occlude/fonts` come through this same door, and each one also exports its source text.
 
 ```ts live
 import { sketch, strokes, strokeFont, curve, times } from 'occlude';
@@ -166,7 +166,7 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 <include>/_sig/group.mdx</include>
 
-Applies a transform, a default pen, a default `z` and a stack of modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point (a pair or an `{ x, y }` record, so a station goes in as it is), `'center'` or `'centroid'`. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin, the corner of the drawable. The call refuses a word that is not one of these, and names it.
+Applies a transform, a default pen, a default `z` and a stack of modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point, `'center'` or `'centroid'`. A point is a pair or an `{ x, y }` record, so a point of a material goes in as it is. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin, the corner of the drawable. The call refuses a word that is not one of these, and names it.
 
 A group is also an area. `t.material`, `t.within`, `clip` and every other word that takes an area read a group as the union of its shapes. The transform of the group applies to them.
 
@@ -265,7 +265,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/stroke.mdx</include>
 <include>/_sig/strokes.2.mdx</include>
 
-Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves()`. A material never draws itself. These are the words that make ink. A material's rim edges are the ones with `cut = 1`. `t.within` and `t.isolines` add them along a boundary. They are the area's edge, so `polygon` uses them and `strokes(m)` does not. `strokes(m.edges)` draws every edge you give it.
+Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves`. A material never draws itself. These are the words that make ink. A material's rim edges are the ones with `cut = 1`. `t.within` and `t.isolines` add them along a boundary. They are the area's edge, so `polygon` uses them and `strokes(m)` does not. `strokes(m.edges)` draws every edge you give it.
 
 ```ts live
 import { sketch, stroke, strokes, circle } from 'occlude';

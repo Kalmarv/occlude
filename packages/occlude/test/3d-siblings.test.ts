@@ -13,6 +13,7 @@ import {
 } from '../src/three/api/index.js';
 import { sampleSurfaceCurves } from '../src/three/api/curveSampling.js';
 import type { ProjectedLines } from '../src/three/api/projected.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -169,8 +170,9 @@ describe('G3-26 · points.near and edges.near in space', () => {
     const p = m.points.at(5)!;
     // FRICTION G3-26: cur.points.near(top.at(0)!, { radius: 0.5 })
     const near = m.points.near(p, { radius: 0.5 });
-    const brute = m.points.filter((q) => q !== p && dist(p, q) < 0.5);
-    expect(near.indices).toEqual(brute.indices);
+    // Nearest first, ties by row.
+    const brute = m.points.filter((q) => q !== p && dist(p, q) < 0.5).map((q) => q).sort((a, b) => dist(p, a) - dist(p, b) || a.index - b.index);
+    expect(near.indices).toEqual(brute.map((q) => q.index));
     expect(near.has(p)).toBe(false);
     // A position is just a position: the point under it is found.
     expect(m.points.near([p.x, p.y, p.z], { radius: 0.5 }).has(p)).toBe(true);
@@ -209,8 +211,8 @@ describe('G3-25 · projected lines answer curves() and contours()', () => {
     expect(byPen(out).blue).toBeGreaterThan(0);
   });
   it('joins intervals end to end into chains in drawable units', async () => {
-    let chains: ReturnType<ProjectedLines['visible']['curves']> = [];
-    await draw(() => view(plane(2, 2), { camera }, (lines) => { chains = lines.visible.curves(); return strokes(lines.visible, { pen: 'ink' }); }));
+    let chains: ReturnType<typeof rec>[] = [];
+    await draw(() => view(plane(2, 2), { camera }, (lines) => { chains = lines.visible.curves.map(rec); return strokes(lines.visible, { pen: 'ink' }); }));
     expect(chains.length).toBeGreaterThan(0);
     for (const c of chains) for (const [x, y] of c.pts) {
       expect(x).toBeGreaterThanOrEqual(-1e-6); expect(x).toBeLessThanOrEqual(100 + 1e-6);
@@ -279,16 +281,16 @@ describe('G3-37 · supported curves are a collection of chains', () => {
   it('filters, maps and groups isoline rings, each ring its points and level', () => {
     const ball = sphere(1.3, { segments: 40, rings: 20 });
     const rings = isolines(ball, (p) => p.z, { count: 7 });
-    const chains = rings.curves();
+    const chains = [...rings.curves];
     expect(chains.length).toBe(7);
     expect(chains.every((c) => c.closed)).toBe(true);
     // FRICTION G3-37: rings.filter((c) => c.points.every((p) => p.z > 0))
     const upper = rings.filter((c) => c.points.every((p) => p.z > 0));
-    expect(upper.curves().length).toBe(3);
-    expect(upper.curves().every((c) => (c.level ?? 0) > 0)).toBe(true);
+    expect(upper.curves.length).toBe(3);
+    expect(upper.curves.every((c) => (c.level ?? 0) > 0)).toBe(true);
     expect(rings.map((c) => c.level)).toEqual(chains.map((c) => c.attributes.level));
     const halves = rings.groupBy((c) => (c.level ?? 0) > 0);
-    expect(halves.map((g) => g.curves.curves().length).sort()).toEqual([3, 4]);
+    expect(halves.map((g) => g.curves.curves.length).sort()).toEqual([3, 4]);
   });
 });
 

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, append, connect, curve, distance, extent, isStations, length, material, mul, perp, segmentRuns, stationsMaterial, sub, sum, sumBy, unit,
+  add, append, connect, curve, distance, extent, length, material, mul, perp, sub, sum, sumBy, unit,
   type Material, type Vertex, type PointId,
 } from '../src/material.js';
 import { point } from '../src/tables.js';
 import { toolkit } from './helpers/run.js';
 import { force } from '../src/forces.js';
-import { xy, oneRing } from './helpers/xy.js';
+import { xy, oneRing, rec } from './helpers/xy.js';
 const { boundary, drift, field, relax, separation, tension, vortex } = force;
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 0 });
@@ -19,7 +19,7 @@ describe('curve values', () => {
     expect(c.attrNames).toEqual(['age', 'energy']);
     expect(c.points.at(1)).toEqual({ index: 1, x: 10, y: 0, age: 2, energy: 0.5 });
     expect(c.points.map(xy)).toEqual([[0, 0], [10, 0], [10, 10]]);
-    expect(c.curves()).toEqual([{ pts: [[0, 0], [10, 0], [10, 10]], closed: true, indices: [0, 1, 2] }]);
+    expect(c.curves.map(rec)).toEqual([{ pts: [[0, 0], [10, 0], [10, 10]], closed: true, indices: [0, 1, 2] }]);
     expect(Object.isFrozen(c)).toBe(true);
     expect(() => curve([[0, 0]], { closed: true, x: 1 })).toThrow(/reserved/);
   });
@@ -34,7 +34,7 @@ describe('curve values', () => {
     expect(o.points.at(0).adjacent.indices).toEqual([1]);
     expect(o.points.at(2).edges.length).toBe(1);
     expect(o.edges).toHaveLength(2);
-    expect(o.curves()[0].closed).toBe(false);
+    expect(o.curves.map(rec)[0].closed).toBe(false);
   });
 });
 
@@ -121,7 +121,7 @@ describe('forces', () => {
     const c = curve([[0, 0], [1, 0], [2, 0], [10, 10]], { closed: true });
     const count = (p: Vertex) => sumBy(c.points.near(p, { radius: 5 }), () => [1, 0]);
     expect(count(c.points.at(0))).toEqual([2, 0]); // vertices 1 and 2; not itself, not the far one
-    const noChain = (p: Vertex) => sumBy(c.points.near(p, { radius: 5 }).subtract(p.adjacent), () => [1, 0]);
+    const noChain = (p: Vertex) => sumBy(c.points.near(p, { radius: 5 }).without(p.adjacent), () => [1, 0]);
     expect(noChain(c.points.at(0))).toEqual([1, 0]); // 1 is joined; 2 is not adjacent to 0; 3 is far
     expect(noChain(c.points.at(1))).toEqual([0, 0]); // 0 and 2 are its chain neighbours
     // foreign sources: another material, nothing is "self", q carries its index
@@ -142,7 +142,7 @@ describe('forces', () => {
     for (let i = 0; i < 150; i++) pts.push([rnd() * 40, rnd() * 40]);
     const c = curve(pts, { closed: true });
     const repel = separation(c, { radius: 4, excludeConnected: true });
-    const byHand = (p: Vertex) => sumBy(c.points.near(p, { radius: 4 }).subtract(p.adjacent), (q) => {
+    const byHand = (p: Vertex) => sumBy(c.points.near(p, { radius: 4 }).without(p.adjacent), (q) => {
       const d = sub(p, q);
       return mul(unit(d), (1 - length(d) / 4) * 4);
     });
@@ -375,49 +375,49 @@ describe('t.steps over a material', () => {
   });
 });
 
-describe('segmentRuns', () => {
-  it('a uniform closed curve is one closed run', () => {
-    const runs = segmentRuns(square(), () => 'a');
-    expect(runs).toHaveLength(1);
-    expect(runs[0].closed).toBe(true);
-    expect(runs[0].pts).toHaveLength(4);
+describe('edges.groupBy, then curves (what segmentRuns was)', () => {
+  it('a uniform closed curve is one group, one closed curve', () => {
+    const groups = square().edges.groupBy(() => 'a');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].curves).toHaveLength(1);
+    expect(groups[0].curves.at(0).closed).toBe(true);
+    expect(groups[0].curves.at(0).points).toHaveLength(4);
   });
 
-  it('runs meet end to end and never split across the wrap-around', () => {
-    // ages: 0 0 1 1 0 0 → by start vertex: the two 0-runs across the seam
-    // (indices 4,5,0,1) must be ONE run.
+  it('a group across the seam of a ring is one curve, walked from its first row', () => {
+    // ages 0 0 1 1 0 0, keyed by the start of each edge: the 0-edges 4→5,
+    // 5→0, 0→1, 1→2 meet across the seam and are ONE curve.
     const c = curve([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]], { closed: true, age: [0, 0, 1, 1, 0, 0] });
-    const runs = segmentRuns(c, (e) => e.a.age);
-    expect(runs.map((r) => r.key)).toEqual([1, 0]);
-    // 1-run: edges 2→3, 3→4 ; 0-run: edges 4→5, 5→0, 0→1, 1→2
-    expect(runs[0].from).toBe(2);
-    expect(runs[0].to).toBe(4);
-    expect(runs[1].from).toBe(4);
-    expect(runs[1].to).toBe(2);
-    expect(runs[0].pts).toHaveLength(3);
-    expect(runs[1].pts).toHaveLength(5);
-    expect(runs.every((r) => !r.closed)).toBe(true);
+    const groups = c.edges.groupBy((e) => e.a.age);
+    expect(groups.map((g) => g.key)).toEqual([0, 1]);
+    const zero = groups[0].curves;
+    expect(zero).toHaveLength(1);
+    expect(zero.at(0).closed).toBe(false);
+    expect(zero.at(0).points.map((p) => p.index)).toEqual([2, 1, 0, 5, 4]);
+    expect(groups[1].curves.at(0).points.map((p) => p.index)).toEqual([2, 3, 4]);
     // Every edge drawn exactly once.
-    expect(runs.reduce((s, r) => s + r.pts.length - 1, 0)).toBe(c.n);
+    expect(groups.reduce((s, g) => s + g.curves.sum((k) => k.edges.length), 0)).toBe(c.n);
   });
 
   it('the classification is the caller\'s: end-vertex and both-endpoint rules differ', () => {
     const c = curve([[0, 0], [1, 0], [2, 0], [3, 0]], { closed: true, age: [0, 0, 0, 1] });
     // The single age-1 vertex owns its OUTGOING edge under the start rule
     // and its INCOMING edge under the end rule: a different segment inks.
-    const byStart = segmentRuns(c, (e) => e.a.age).find((r) => r.key === 1)!;
-    const byEnd = segmentRuns(c, (e) => e.b.age).find((r) => r.key === 1)!;
-    expect(byStart.from).toBe(3);
-    expect(byEnd.from).toBe(2);
-    const both = segmentRuns(c, (e) => (e.a.age === e.b.age ? e.a.age : 'mixed')).map((r) => r.key);
-    expect(both).toEqual(['mixed', 0]); // edges 2→3 and 3→0 straddle the age change
+    const byStart = c.edges.groupBy((e) => e.a.age).find((g) => g.key === 1)!;
+    const byEnd = c.edges.groupBy((e) => e.b.age).find((g) => g.key === 1)!;
+    expect(byStart.map((e) => [e.a.index, e.b.index])).toEqual([[3, 0]]);
+    expect(byEnd.map((e) => [e.a.index, e.b.index])).toEqual([[2, 3]]);
+    const both = c.edges.groupBy((e) => (e.a.age === e.b.age ? e.a.age : 'mixed')).map((g) => g.key);
+    expect(both).toEqual([0, 'mixed']); // edges 2→3 and 3→0 straddle the age change
   });
 
-  it('open curves run from the first vertex', () => {
-    const c = curve([[0, 0], [1, 0], [2, 0]], { closed: false, age: [0, 1, 1] });
-    const runs = segmentRuns(c, (e) => e.a.age);
-    expect(runs.map((r) => r.key)).toEqual([0, 1]);
-    expect(runs[0].from).toBe(0);
+  it('a group through a junction of the whole graph is one curve when only two of its edges are in it', () => {
+    const y = material([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]], age: [0, 0, 5, 5] });
+    const groups = y.edges.groupBy((e) => ((e.a.age + e.b.age) / 2 > 2 ? 'old' : 'young'));
+    expect(groups.reduce((n, g) => n + g.curves.sum((k) => k.edges.length), 0)).toBe(3);
+    const old = groups.find((g) => g.key === 'old')!;
+    expect(old.curves).toHaveLength(1);
+    expect(old.curves.at(0).points.map((p) => p.index)).toEqual([2, 1, 3]);
   });
 });
 
@@ -427,12 +427,12 @@ describe('material: material beyond one chain', () => {
     expect(cloud.attrNames.sort()).toEqual(['age', 'w']);
     expect(Array.from(cloud.attrs.w)).toEqual([0.5, 1, 2]);
     expect(cloud.edgeCount).toBe(0);
-    expect(cloud.curves()).toEqual([]);
+    expect(cloud.curves.map(rec)).toEqual([]);
     const chain = curve(cloud);
     expect(chain.edgeCount).toBe(2);
-    expect(chain.curves().map((c) => [c.indices, c.closed])).toEqual([[[0, 1, 2], false]]);
+    expect(chain.curves.map(rec).map((c) => [c.indices, c.closed])).toEqual([[[0, 1, 2], false]]);
     const ring = curve(cloud, { closed: true });
-    expect(ring.curves().map((c) => [c.indices, c.closed])).toEqual([[[0, 1, 2], true]]);
+    expect(ring.curves.map(rec).map((c) => [c.indices, c.closed])).toEqual([[[0, 1, 2], true]]);
     expect(oneRing(ring)).toBe(true);
     // nearest: undirected, no duplicates, self excluded, ties by lower row
     const sq = material([[0, 0], [1, 0], [1, 1], [0, 1]]);
@@ -460,7 +460,7 @@ describe('material: material beyond one chain', () => {
     const y = material([[0, 0], [1, 0], [2, 1], [2, -1], [10, 10], [11, 10], [10, 11]], {
       edges: [[0, 1], [1, 2], [1, 3], [4, 5], [5, 6], [6, 4]],
     });
-    const cs = y.curves();
+    const cs = y.curves.map(rec);
     const covered = cs.reduce((n, c) => n + (c.closed ? c.indices.length : c.indices.length - 1), 0);
     expect(covered).toBe(6);
     expect(cs.filter((c) => c.closed)).toHaveLength(1);
@@ -504,7 +504,7 @@ describe('material: material beyond one chain', () => {
     expect(Array.from(grown.attrs.active)).toEqual([0, 0, 1, 1, 0]);
     expect(Array.from(grown.attrs.generation)).toEqual([0, 0, 1, 1, 0]);
     expect(grown.points.at(0).adjacent.has(grown.points.at(4))).toBe(true);
-    expect(grown.curves()).toHaveLength(3); // 4→0→1 is one chain into the junction, then 1→2 and 1→3
+    expect(grown.curves.map(rec)).toHaveLength(3); // 4→0→1 is one chain into the junction, then 1→2 and 1→3
     expect(start.rowOfPoint(7 as PointId)).toBe(-1); // 7 is no id of this state, whatever row 7 would be
     expect(() => start.points.add([0, 0], { active: 0 })).toThrow(/must give 'generation'/);
     // something that is no point at all is a wrong program
@@ -531,7 +531,7 @@ describe('material: material beyond one chain', () => {
     expect(even.points.map(xy)[2]).toEqual([10, 0]); // half of 20 along: the corner, by luck of the count
     expect(Array.from(even.attrs.age)).toEqual([0, 5, 10, 15, 20]);
     expect(Array.from(even.attrs.kind)).toEqual([1, 1, 2, 2, 2]);
-    expect(even.curves()[0].closed).toBe(false);
+    expect(even.curves.map(rec)[0].closed).toBe(false);
     const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 7 });
     const r = ring.resample({ spacing: 5 });
     expect(r.n).toBe(8);
@@ -547,85 +547,73 @@ describe('material: material beyond one chain', () => {
     expect([...fork.points].filter((p) => p.edges.length === 3).map((p) => [p.x, p.y])).toEqual([[1, 0]]);
   });
 
-  it('along: stations by arc length with tangents and transferred columns; the material untouched', () => {
+  it('along: points by arc length with a heading and transferred columns; the material untouched', () => {
     const open = curve([[0, 0], [10, 0], [10, 10]], { closed: false, age: [0, 10, 20], kind: [1, 2, 2] });
     const st = open.along({ count: 5, transfer: { kind: 'nearest' } });
-    expect(st).toHaveLength(5);
+    expect(st.points).toHaveLength(5);
+    expect(st.edges).toHaveLength(0); // points, not a chain
     expect(open.n).toBe(3); // nothing rebuilt
-    expect([st[0].x, st[0].y]).toEqual([0, 0]);
-    expect([st[4].x, st[4].y]).toEqual([10, 10]);
-    expect(st.map((q) => q.attrs.age)).toEqual([0, 5, 10, 15, 20]);
-    expect(st.map((q) => q.attrs.kind)).toEqual([1, 1, 2, 2, 2]);
-    expect(st.map((q) => q.s)).toEqual([0, 5, 10, 15, 20]);
-    expect(st.map((q) => q.u)).toEqual([0, 0.25, 0.5, 0.75, 1]);
-    expect(st.every((q) => q.length === 20)).toBe(true);
-    // tangent follows the segment under the station; on the corner, the bisector
-    expect(st[1].tangent).toEqual([1, 0]);
-    expect(st[2].tangent[0]).toBeCloseTo(Math.SQRT1_2);
-    expect(st[2].tangent[1]).toBeCloseTo(Math.SQRT1_2);
-    expect(st[0].tangent).toEqual([1, 0]); // an open end: its one segment
-    expect(st[3].heading).toBeCloseTo(Math.PI / 2);
-    expect(st[1].normal).toEqual([-0, 1]);
-    expect(st.every((q) => q.chain === 0 && !q.closed)).toBe(true);
+    expect(xy(st.points.at(0))).toEqual([0, 0]);
+    expect(xy(st.points.at(4))).toEqual([10, 10]);
+    expect(st.points.map((q) => q.age)).toEqual([0, 5, 10, 15, 20]);
+    expect(st.points.map((q) => q.kind)).toEqual([1, 1, 2, 2, 2]);
+    expect(st.points.map((q) => q.s)).toEqual([0, 5, 10, 15, 20]);
+    expect(st.points.map((q) => q.u)).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    // tangent follows the segment under the point; on the corner, the bisector
+    const near = (v: readonly number[], w: readonly number[]) => { expect(v[0]).toBeCloseTo(w[0], 12); expect(v[1]).toBeCloseTo(w[1], 12); };
+    near(st.points.at(1).tangent, [1, 0]);
+    near(st.points.at(2).tangent, [Math.SQRT1_2, Math.SQRT1_2]);
+    near(st.points.at(0).tangent, [1, 0]); // an open end: its one segment
+    expect(st.points.at(3).heading).toBeCloseTo(Math.PI / 2);
+    near(st.points.at(1).normal, [0, 1]);
+    // The frame at a point, as a placement.
+    const pl = st.points.at(1).placement();
+    expect([pl.x, pl.y, pl.heading]).toEqual([5, 0, 0]);
   });
 
   it('along: closed chains, several chains, and edge columns by copy and distribute', () => {
     const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 7 })
       .edges.set('side', (e) => (e.a.y === e.b.y ? 1 : 2))
       .edges.set('ink', 10, { transfer: 'distribute' });
-    const st = ring.along({ spacing: 5 });
+    const st = ring.along({ spacing: 5 }).points;
     expect(st).toHaveLength(8);
-    expect([st[0].x, st[0].y]).toEqual([0, 0]); // seam first, never repeated
-    expect(st.every((q) => q.closed && q.attrs.age === 7)).toBe(true);
-    expect(st.map((q) => q.edgeAttrs.side)).toEqual([1, 1, 2, 2, 1, 1, 2, 2]);
-    // every station owns 5 of the 40 units of chain: an eighth of the 40 ink
-    for (const q of st) expect(q.edgeAttrs.ink).toBeCloseTo(5);
-    expect(st.reduce((a, q) => a + q.edgeAttrs.ink, 0)).toBeCloseTo(40);
+    expect(xy(st.at(0))).toEqual([0, 0]); // seam first, never repeated
+    expect(st.every((q) => q.age === 7)).toBe(true);
+    expect(st.map((q) => q.side)).toEqual([1, 1, 2, 2, 1, 1, 2, 2]);
+    // every point owns 5 of the 40 units of chain: an eighth of the 40 ink
+    for (const q of st) expect(q.ink).toBeCloseTo(5);
+    expect(st.sum('ink')).toBeCloseTo(40);
     const two = material([[0, 0], [4, 0], [20, 0], [20, 3]], { edges: [[0, 1], [2, 3]] });
-    const both = two.along({ count: 2 });
-    expect(both.map((q) => q.chain)).toEqual([0, 0, 1, 1]);
-    expect(both.map((q) => q.length)).toEqual([4, 4, 3, 3]);
-    expect(both[3].tangent).toEqual([0, 1]);
+    const both = two.along({ count: 2 }).points;
+    expect(both.map((q) => q.s)).toEqual([0, 4, 0, 3]);
+    expect(both.map((q) => q.u)).toEqual([0, 1, 0, 1]);
+    expect(both.at(3).heading).toBeCloseTo(Math.PI / 2, 12);
     // A junction ends each of the three chains that meet there.
-    expect(material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).along({ spacing: 1 }).map((q) => q.chain)).toEqual([0, 0, 1, 1, 2, 2]);
+    expect(material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).along({ spacing: 1 }).points.map((q) => q.u)).toEqual([0, 1, 0, 1, 0, 1]);
     expect(() => ring.along({ spacing: 5, count: 3 })).toThrow(/exactly one/);
+    // One column name in both domains has no one meaning on a point.
+    expect(() => ring.points.set('side', 0).along({ spacing: 5 })).toThrow(/both a point column and an edge column/);
   });
 
   it('along(): the vertices themselves, exact columns, bisector tangents', () => {
     const sq = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: [1, 2, 3, 4] })
       .edges.set('ink', 10, { transfer: 'distribute' });
-    const st = sq.along();
-    expect(st.map((q) => [q.x, q.y])).toEqual([[0, 0], [10, 0], [10, 10], [0, 10]]);
-    expect(st.map((q) => q.attrs.age)).toEqual([1, 2, 3, 4]);
+    const st = sq.along().points;
+    expect(st.map(xy)).toEqual([[0, 0], [10, 0], [10, 10], [0, 10]]);
+    expect(st.map((q) => q.age)).toEqual([1, 2, 3, 4]);
     expect(st.map((q) => q.s)).toEqual([0, 10, 20, 30]);
-    expect(st[1].tangent[0]).toBeCloseTo(Math.SQRT1_2); // corner: bisector of right and up
-    expect(st[1].tangent[1]).toBeCloseTo(Math.SQRT1_2);
-    for (const q of st) expect(q.edgeAttrs.ink).toBeCloseTo(10); // half of each adjacent edge
+    expect(st.at(1).tangent[0]).toBeCloseTo(Math.SQRT1_2); // corner: bisector of right and up
+    expect(st.at(1).tangent[1]).toBeCloseTo(Math.SQRT1_2);
+    for (const q of st) expect(q.ink).toBeCloseTo(10); // half of each adjacent edge
+    expect(st.at(0).heading).toBeCloseTo(-Math.PI / 4); // seam: bisector of the closing edge (down) and the first (right)
     const open = curve([[0, 0], [10, 0], [10, 10]], { closed: false });
-    const ends = open.along();
+    const ends = open.along().points;
     expect(ends).toHaveLength(3);
-    expect(ends[0].tangent).toEqual([1, 0]);
-    expect(ends[2].tangent).toEqual([0, 1]);
-    expect(ends[2].u).toBe(1);
-  });
-
-  it('stationsMaterial: a vertex per station, the walk as edges, columns by name', () => {
-    const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: [1, 2, 3, 4] })
-      .edges.set('ink', 10, { transfer: 'distribute' });
-    const open = curve([[20, 0], [30, 0]], { closed: false, age: 5 });
-    const both = append(ring, open, { edgeFill: { ink: 0 } });
-    const sm = stationsMaterial(both.along());
-    expect(sm.n).toBe(6);
-    expect(sm.edgeCount).toBe(5); // a closed walk of four, an open walk of two
-    expect(sm.points.map(xy)[4]).toEqual([20, 0]);
-    expect(Array.from(sm.attrs.age)).toEqual([1, 2, 3, 4, 5, 5]);
-    expect(Array.from(sm.attrs.chain)).toEqual([0, 0, 0, 0, 1, 1]);
-    expect(Array.from(sm.attrs.s)).toEqual([0, 10, 20, 30, 0, 10]);
-    expect(sm.attrs.ink[0]).toBeCloseTo(10);
-    expect(sm.attrs.heading[0]).toBeCloseTo(-Math.PI / 4); // seam: bisector of the closing edge (down) and the first (right)
-    expect(isStations(both.along())).toBe(true);
-    expect(isStations([])).toBe(false);
-    expect(isStations(both.points.map(xy))).toBe(false);
+    expect(ends.at(0).tangent[0]).toBeCloseTo(1, 12);
+    expect(ends.at(2).tangent[1]).toBeCloseTo(1, 12);
+    expect(ends.at(2).u).toBe(1);
+    // The same derived columns a curve's own points carry.
+    expect(open.curves.at(0).points.map((p) => [p.s, p.u, p.heading])).toEqual(ends.map((p) => [p.s, p.u, p.heading]));
   });
 
   it('a setting outside its range clamps instead of refusing', () => {
@@ -643,15 +631,6 @@ describe('material: material beyond one chain', () => {
   it('extent', () => {
     expect(extent([3, -1, 7])).toEqual([-1, 7]);
     expect(extent([])).toEqual([0, 0]);
-  });
-
-  it('segmentRuns on a branched material: runs end at junctions and cover each edge once', () => {
-    const y = material([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]], age: [0, 0, 5, 5] });
-    const runs = segmentRuns(y, (e) => (e.a.age + e.b.age) / 2 > 2 ? 'old' : 'young');
-    expect(runs.reduce((n, r) => n + r.pts.length - 1, 0)).toBe(3);
-    expect(runs.every((r) => r.pts.length === 2)).toBe(true);
-    const keys: string[] = runs.map((r) => r.key);
-    expect(keys.sort()).toEqual(['old', 'old', 'young']);
   });
 
   it('relax on a junction pulls toward the mean of all branches; append re-bases edges', () => {
@@ -709,13 +688,6 @@ describe('boundaries (review 2026-09-07)', () => {
     expect(Array.from(again.attrs.age)).toEqual([7, 7, 7]);
     const repel = separation(c.points, { radius: 100 });
     expect(Number.isFinite(repel(c.points.at(0))[0])).toBe(true);
-  });
-
-  it('5. segmentRuns classifies in stored edge orientation whatever the walk direction', () => {
-    const m = material([[0, 0], [1, 0], [2, 0]], { edges: [[1, 0], [1, 2]], age: [0, 5, 9] });
-    const seen: [number, number][] = [];
-    segmentRuns(m, (e) => { seen.push([e.a.index, e.b.index]); return 'k'; });
-    expect(seen.sort()).toEqual([[1, 0], [1, 2]]);
   });
 
   it('6. append refuses to drop a column silently; fill makes the choice explicit', () => {
@@ -851,11 +823,10 @@ describe('structural editing (edges brief)', () => {
   });
 });
 
-describe('query.edges', () => {
+describe('edges.nearest and edges.firstHit (what query.edges was)', () => {
   const sq = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
   it('nearest: within is inclusive, ties go to the earlier edge, zero-length edges are points', async () => {
-    const { query } = await import('../src/query.js');
-    const q = query.edges(sq());
+    const q = sq().edges;
     expect(q.nearest([5, -3], { within: 2 })).toBeNull();
     const hit = q.nearest([5, -3], { within: 3 })!;
     expect(hit.edge.index).toBe(0);
@@ -865,16 +836,15 @@ describe('query.edges', () => {
     const centre = q.nearest([5, 5], { within: 100 })!;
     expect(centre.edge.index).toBe(0); // all four at distance 5: the first wins
     const dot = material([[3, 3], [3, 3]], { edges: [[0, 1]] });
-    const d = query.edges(dot).nearest([4, 3], { within: 5 })!;
+    const d = dot.edges.nearest([4, 3], { within: 5 })!;
     expect(d.t).toBe(0);
     expect(d.distance).toBeCloseTo(1);
     expect(() => q.nearest([0, 0], { within: -1 })).toThrow(/non-negative/);
   });
 
   it('firstHit: miss, crossing, endpoint touch, overlap, equal-hit tie, exclusion, point query', async () => {
-    const { query } = await import('../src/query.js');
     const m = sq();
-    const q = query.edges(m);
+    const q = m.edges;
     expect(q.firstHit([5, 5], [6, 6])).toBeNull();
     const cross = q.firstHit([5, 5], [5, 15])!;
     expect(cross.edge.index).toBe(2);
@@ -896,13 +866,12 @@ describe('query.edges', () => {
   });
 
   it('firstHit respects excludeIncident and refuses foreign vertices', async () => {
-    const { query } = await import('../src/query.js');
     const m = sq();
-    const q = query.edges(m);
+    const q = m.edges;
     // moving from vertex 0 outward must not hit its own edges
     expect(q.firstHit([0, 0], [5, 0], { excludeIncident: m.vertex(0) })).toBeNull();
     expect(q.firstHit([0, 0], [5, 0], { excludeIncident: 0 })).toBeNull();
-    expect(() => q.firstHit([0, 0], [5, 0], { excludeIncident: sq().vertex(0) })).toThrow(/vertex of the queried material/);
+    expect(() => q.firstHit([0, 0], [5, 0], { excludeIncident: sq().vertex(0) })).toThrow(/vertex of the material these edges belong to/);
     const point = q.firstHit([10, 5], [10, 5])!;
     expect(point.kind).toBe('touch');
     expect(point.along).toBe(0);
@@ -910,11 +879,11 @@ describe('query.edges', () => {
     // the index is of the state it was built for: later moves do not change it
     const moved = m.move([100, 0]);
     expect(q.firstHit([5, 5], [5, 15])!.edge.index).toBe(2);
-    expect(query.edges(moved).firstHit([5, 5], [5, 15])).toBeNull();
+    expect(moved.edges.firstHit([5, 5], [5, 15])).toBeNull();
   });
 });
 
-describe('query.edges: pruning keeps the full scan’s answer', () => {
+describe('edges.nearest / firstHit: pruning keeps the full scan’s answer', () => {
   // 21 × 21 lattice of unit-spaced lines: query points and moves land exactly
   // on cell boundaries, and every move spans many grid cells.
   const lattice = () => {
@@ -930,8 +899,7 @@ describe('query.edges: pruning keeps the full scan’s answer', () => {
   const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647);
 
   it('a move across the whole drawing meets the first line it crosses, not a later one', async () => {
-    const { query } = await import('../src/query.js');
-    const q = query.edges(lattice());
+    const q = lattice().edges;
     for (let i = 0; i < 300; i++) {
       // start and end off the lines, so the answer is a clean interior crossing
       const from: [number, number] = [1 + rnd() * 98, 1 + rnd() * 98];
@@ -954,9 +922,8 @@ describe('query.edges: pruning keeps the full scan’s answer', () => {
   });
 
   it('nearest over a wide radius agrees with a full scan, ties to the earlier edge', async () => {
-    const { query } = await import('../src/query.js');
     const m = lattice();
-    const q = query.edges(m);
+    const q = m.edges;
     const scan = (px: number, py: number, within: number) => {
       let bestE = -1;
       let bestD = Infinity;
@@ -985,10 +952,9 @@ describe('query.edges: pruning keeps the full scan’s answer', () => {
   });
 
   it('a long edge beside short ones is still found from far along its length', async () => {
-    const { query } = await import('../src/query.js');
     // the cell is at least the mean edge extent, so the long edge spans many cells
     const m = material([[0, 0], [1000, 3], [1, 1], [1.2, 1], [999, 2], [999.5, 2.4]], { edges: [[0, 1], [2, 3], [4, 5]] });
-    const q = query.edges(m);
+    const q = m.edges;
     const mid = q.nearest([500, 1.5], { within: 1 })!;
     expect(mid.edge.index).toBe(0);
     expect(q.firstHit([500, -10], [500, 10])!.edge.index).toBe(0);
@@ -1043,9 +1009,8 @@ describe('correctness pass (review of 22c9887)', () => {
   });
 
   it('6. firstHit keeps along within [0, 1] for tolerated endpoint contact', async () => {
-    const { query } = await import('../src/query.js');
     const m = material([[10, 0], [20, 0]], { edges: [[0, 1]] });
-    const q = query.edges(m);
+    const q = m.edges;
     // a move ending just short of the edge's start, within tolerance
     const hit = q.firstHit([0, 0], [10 - 1e-12, 0]);
     if (hit) {
@@ -1095,10 +1060,11 @@ describe('view identity: the brand lives off the view, not on it', () => {
     expect(ownedBy(e, c)).toBe(true);
     expect(Object.keys(e)).toEqual(['a', 'b', 'length', 'index']);
     const f = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).faces();
-    expect(viewKind(f.faces[0])).toBe('face');
-    expect(ownedBy(f.faces[0], f)).toBe(true);
-    expect(Object.isFrozen(f.faces[0])).toBe(true);
-    expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'centroid']);
+    const { faceTableOf } = await import('../src/faces.js');
+    expect(viewKind(f.at(0))).toBe('face');
+    expect(ownedBy(f.at(0), faceTableOf(f))).toBe(true);
+    expect(Object.isFrozen(f.at(0))).toBe(true);
+    expect(Object.keys(f.at(0))).toEqual(['index', 'area', 'perimeter', 'bounds', 'centroid']);
   });
 });
 

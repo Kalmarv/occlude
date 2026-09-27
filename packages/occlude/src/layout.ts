@@ -4,7 +4,8 @@ import { finiteCount, usableLength } from './guard.js';
 import type { IsoContour } from './isolines.js';
 import { Material, material } from './material.js';
 import { writeFaces } from './tables.js';
-import type { Face, Faces } from './faces.js';
+import type { Face } from './faces.js';
+import type { Selection } from './selection.js';
 import type { L } from './units.js';
 import { vx, vy, type XY } from './vec.js';
 import type { Origin } from './shapes.js';
@@ -139,7 +140,7 @@ export type CellFace = Face & { i: number; j: number };
 /** What `t.hexes` and `t.triangles` answer: a material whose faces carry
  * `i` and `j` on every face, so a held face reads them as numbers. */
 export interface CellMaterial extends Material {
-  faces(): Faces<CellFace>;
+  faces(): Selection<CellFace>;
 }
 
 /** One cell on the way to a material: its corners and its two indices. */

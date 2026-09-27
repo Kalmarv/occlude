@@ -1,11 +1,12 @@
 import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
-import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow} from './topology.js';
+import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow,type MeshCornerRow} from './topology.js';
 import {assembleSurface3,surface3,box3,type Surface3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
 import {captureSurface3,ownSurface3,editAttributes3,transformSurface3,transformPosition3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
 import {clampSetting,emptyCount,emptySize,sampleValue} from '../degenerate.js';
-import {Collection,type Where3} from './collection.js';
+import {Table3,select3,domainOf,isSelection3,POINTS3,EDGES3,type Where3} from './collection.js';
+import {ROW_TYPES,selectionIn,type Selection,type Types} from '../../selection.js';
 import {attributeName,attributeValue,evaluate,POSITION3,describe3,type Field,type AttributeFields,type ColumnWrite,type Widen3,type Widened3,type PointColumns3,type PointFields3} from './columns.js';
 import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
@@ -17,7 +18,7 @@ import {points2} from './lift.js';
 import {curveLength,alongCurve,resampledSurface,type Station3} from './curveWalk.js';
 /** One connected component of an extrusion selection, measured on the frozen input. */
 export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
-  readonly index:number;readonly faces:MeshFaces<P,E,F,C>;
+  readonly index:number;readonly faces:Selection<MeshFaceRow<F,P,E,C>>;
   /** Unit area-weighted mean normal; undefined when the region's faces cancel. */
   readonly normal?:Vec3;readonly centroid:Vec3;readonly area:number;
 }
@@ -324,29 +325,41 @@ export function writePoints3(surface:Surface3,write:ColumnWrite):Surface3 {
   return writtenSurface(surface,'point',write);
 }
 
-/** The points of point geometry, and their one write: `set(column, value,
- * where?)` or `set({ column: value, … }, where?)` answers the new geometry.
- * A value is a number, string, boolean or numeric vector, or a function of
- * the point; the record form reads every point as it was before the write.
- * `x`, `y` and `z` are the position. A value that is not finite leaves that
- * point as it was, and a `where` that names nothing writes nothing. */
-export class GeometryPoints<P extends Attributes3,R extends PointRow<P>=PointRow<P>> extends Collection<R,PointGeometry<P>> {
-  set<Name extends string,V extends Attribute3>(column:Name,value:Field<R,V>,where?:Where3<R>):PointGeometry<PointColumns3<P,NoInfer<Name>,NoInfer<V>>>;
-  set<A extends Attributes3>(values:AttributeFields<R,A>,where?:Where3<R>):PointGeometry<PointFields3<P,NoInfer<A>>>;
-  set(...args:unknown[]):unknown{return this.write(args);}
-}
-/** The points of curve geometry, and their one write, as `GeometryPoints`. */
-export class CurvePoints<P extends Attributes3,E extends EdgeAttributes> extends Collection<PointRow<P>,PointGeometry<P>> {
-  set<Name extends string,V extends Attribute3>(column:Name,value:Field<PointRow<P>,V>,where?:Where3<PointRow<P>>):CurveGeometry<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,E>;
-  set<A extends Attributes3>(values:AttributeFields<PointRow<P>,A>,where?:Where3<PointRow<P>>):CurveGeometry<PointFields3<P,NoInfer<A>>,E>;
-  set(...args:unknown[]):unknown{return this.write(args);}
-}
-/** The edges of curve geometry, and their one write, as `GeometryPoints`. */
-export class CurveEdges<P extends Attributes3,E extends EdgeAttributes> extends Collection<EdgeRow<E,P>,CurveGeometry<P,E>> {
-  set<Name extends string,V extends Attribute3>(column:Name,value:Field<EdgeRow<E,P>,V>,where?:Where3<EdgeRow<E,P>>):CurveGeometry<P,Omit<E,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>>;
-  set<A extends Attributes3>(values:AttributeFields<EdgeRow<E,P>,A>,where?:Where3<EdgeRow<E,P>>):CurveGeometry<P,Omit<E,keyof NoInfer<A>>&Widened3<NoInfer<A>>>;
-  set(...args:unknown[]):unknown{return this.write(args);}
-}
+/** A point row of point geometry. */
+export type GeometryPointRow<P extends Attributes3={}> = PointRow<P>&{readonly [ROW_TYPES]?:GeometryPointTypes<P>};
+/** @internal What a selection of point geometry's points answers: its one
+ * write, `set(column, value, where?)` or `set({ column: value, … }, where?)`,
+ * answers the new geometry. A value is a number, string, boolean or numeric
+ * vector, or a function of the point; the record form reads every point as
+ * it was before the write. `x`, `y` and `z` are the position. */
+export type GeometryPointTypes<P extends Attributes3> = Types<{
+  source:Surface3;points:Selection<GeometryPointRow<P>>;extract:()=>PointGeometry<P>;
+  set:{
+    <Name extends string,V extends Attribute3>(column:Name,value:Field<GeometryPointRow<P>,V>,where?:Where3<GeometryPointRow<P>>):PointGeometry<PointColumns3<P,NoInfer<Name>,NoInfer<V>>>;
+    <A extends Attributes3>(values:AttributeFields<GeometryPointRow<P>,A>,where?:Where3<GeometryPointRow<P>>):PointGeometry<PointFields3<P,NoInfer<A>>>;
+  };
+}>;
+/** A point row of curve geometry. */
+export type CurvePointRow<P extends Attributes3={},E extends EdgeAttributes={}> = PointRow<P>&{readonly [ROW_TYPES]?:CurvePointTypes<P,E>};
+/** @internal What a selection of curve geometry's points answers: the
+ * write answers the new curve. */
+export type CurvePointTypes<P extends Attributes3,E extends EdgeAttributes> = Types<{
+  source:Surface3;points:Selection<CurvePointRow<P,E>>;extract:()=>PointGeometry<P>;
+  set:{
+    <Name extends string,V extends Attribute3>(column:Name,value:Field<CurvePointRow<P,E>,V>,where?:Where3<CurvePointRow<P,E>>):CurveGeometry<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,E>;
+    <A extends Attributes3>(values:AttributeFields<CurvePointRow<P,E>,A>,where?:Where3<CurvePointRow<P,E>>):CurveGeometry<PointFields3<P,NoInfer<A>>,E>;
+  };
+}>;
+/** An edge row of curve geometry. */
+export type CurveEdgeRow<E extends EdgeAttributes={},P extends Attributes3={}> = EdgeRow<E,P>&{readonly [ROW_TYPES]?:CurveEdgeTypes<P,E>};
+/** @internal What a selection of curve geometry's edges answers. */
+export type CurveEdgeTypes<P extends Attributes3,E extends EdgeAttributes> = Types<{
+  source:Surface3;edges:Selection<CurveEdgeRow<E,P>>;extract:()=>CurveGeometry<P,E>;
+  set:{
+    <Name extends string,V extends Attribute3>(column:Name,value:Field<CurveEdgeRow<E,P>,V>,where?:Where3<CurveEdgeRow<E,P>>):CurveGeometry<P,Omit<E,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>>;
+    <A extends Attributes3>(values:AttributeFields<CurveEdgeRow<E,P>,A>,where?:Where3<CurveEdgeRow<E,P>>):CurveGeometry<P,Omit<E,keyof NoInfer<A>>&Widened3<NoInfer<A>>>;
+  };
+}>;
 
 /** Point geometry has a point domain; it never claims editable mesh faces. */
 export class PointGeometry<P extends Attributes3={}> {
@@ -363,10 +376,12 @@ export class PointGeometry<P extends Attributes3={}> {
   get history():readonly PointGeometry<P>[]{return (histories.get(this)??NO_HISTORY) as readonly PointGeometry<P>[];}
   /** @internal This geometry with the states `t.steps` kept. */
   withHistory(history:readonly unknown[]):PointGeometry<P>{return new PointGeometry<P>(this.surface,{...this,history});}
-  /** The points, and their one write (see `GeometryPoints`). */
-  get points():GeometryPoints<P>{
-    return new GeometryPoints<P>(this.surface,'point',pointRows<P>(this.surface),indices=>new PointGeometry<P>(pointsOnly(this.surface,indices)),undefined,undefined,
-      write=>write.rows.length?new PointGeometry<P>(writePoints3(this.surface,write),{...this}):this);
+  /** The points, and their one write (see `GeometryPointTypes`). */
+  get points():Selection<GeometryPointRow<P>>{
+    return select3(domainOf(this,'points',()=>new Table3(POINTS3,this.surface,'point',pointRows<P>(this.surface),{
+      extract:indices=>new PointGeometry<P>(pointsOnly(this.surface,indices)),
+      write:write=>write.rows.length?new PointGeometry<P>(writePoints3(this.surface,write),{...this}):this,
+    }))) as unknown as Selection<GeometryPointRow<P>>;
   }
   displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):PointGeometry<P>{return new PointGeometry(displaced(this.surface,field,undefined,options),{...this});}
   translate(offset:Vec3):PointGeometry<P>{finite3(offset);return new PointGeometry(transformed(this.surface,{translate:offset}),{...this,origin:add3(this.origin,offset)});}
@@ -400,9 +415,11 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   /** @internal This curve with the states `t.steps` kept. */
   withHistory(history:readonly unknown[]):CurveGeometry<P,E>{return this.changed(this.surface,{history});}
   /** The points, and their one write, as point geometry's (`x`, `y`, `z` are the position). */
-  get points():CurvePoints<P,E>{
-    return new CurvePoints<P,E>(this.surface,'point',pointRows<P>(this.surface),ids=>new PointGeometry<P>(pointsOnly(this.surface,ids)),undefined,undefined,
-      write=>write.rows.length?this.changed(writePoints3(this.surface,write)):this);
+  get points():Selection<CurvePointRow<P,E>>{
+    return select3(domainOf(this,'points',()=>new Table3(POINTS3,this.surface,'point',pointRows<P>(this.surface),{
+      extract:ids=>new PointGeometry<P>(pointsOnly(this.surface,ids)),
+      write:write=>write.rows.length?this.changed(writePoints3(this.surface,write)):this,
+    }))) as unknown as Selection<CurvePointRow<P,E>>;
   }
   /** The whole length, every edge once, in world units — a 2D chain's word. */
   get length():number{return curveLength(this.surface);}
@@ -415,11 +432,15 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   resample(opts:{readonly count?:number;readonly spacing?:number}):CurveGeometry<P,{}>{const surface=resampledSurface(this,opts);return new CurveGeometry<P,{}>(surface,surface.edges.map((_,i)=>i),{key:this.key,pen:this.pen});}
   /** The edges, and their one write: `edges.set(column, value, where?)`
    * or the record form answers the new curve. */
-  get edges():CurveEdges<P,E>{
-    const points=pointRows<P>(this.surface);
-    const rows=this.surface.edges.map((e,index)=>Object.freeze({...e.attributes,id:e.id,index,vertices:e.vertices,a:points[e.vertices[0]],b:points[e.vertices[1]],length:Math.hypot(...sub3(this.surface.points[e.vertices[0]].position,this.surface.points[e.vertices[1]].position)),attributes:e.attributes,provenance:e.provenance})) as unknown as readonly EdgeRow<E,P>[];
-    return new CurveEdges<P,E>(this.surface,'edge',rows,indices=>new CurveGeometry<P,E>(this.surface,indices),undefined,undefined,
-      write=>{noTransfer(write,'a curve\'s edge');return write.rows.length?this.changed(writtenSurface(this.surface,'edge',write)):this;});
+  get edges():Selection<CurveEdgeRow<E,P>>{
+    return select3(domainOf(this,'edges',()=>{
+      const points=pointRows<P>(this.surface);
+      const rows=Object.freeze(this.surface.edges.map((e,index)=>Object.freeze({...e.attributes,id:e.id,index,vertices:e.vertices,a:points[e.vertices[0]],b:points[e.vertices[1]],length:Math.hypot(...sub3(this.surface.points[e.vertices[0]].position,this.surface.points[e.vertices[1]].position)),attributes:e.attributes,provenance:e.provenance})));
+      return new Table3(EDGES3,this.surface,'edge',rows,{
+        extract:indices=>new CurveGeometry<P,E>(this.surface,indices),
+        write:write=>{noTransfer(write,'a curve\'s edge');return write.rows.length?this.changed(writtenSurface(this.surface,'edge',write)):this;},
+      });
+    })) as unknown as Selection<CurveEdgeRow<E,P>>;
   }
   private changed(surface:Surface3,placed:PlacementOptions&{history?:readonly unknown[]}={}):CurveGeometry<P,E>{return new CurveGeometry(surface,surface.edges.map((_,i)=>i),{...this,...placed});}
   displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveGeometry<P,E>{return this.changed(displaced(this.surface,field,undefined,options));}
@@ -462,10 +483,10 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   get history():readonly Mesh<P,E,F,C>[]{return (histories.get(this)??NO_HISTORY) as readonly Mesh<P,E,F,C>[];}
   /** @internal This mesh with the states `t.steps` kept. */
   withHistory(history:readonly unknown[]):Mesh<P,E,F,C>{return new Mesh<P,E,F,C>(this.surface,{...this,history,radialCentre:this.radialCentre});}
-  get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
-  get edges():MeshEdges<P,E,F,C>{return meshEdges(this);}
-  get corners():MeshCorners<P,E,F,C>{return meshCorners(this);}
-  get faces():MeshFaces<P,E,F,C>{return meshFaces(this);}
+  get points():Selection<MeshPointRow<P,E,F,C>>{return meshPoints(this);}
+  get edges():Selection<MeshEdgeRow<E,P,F,C>>{return meshEdges(this);}
+  get corners():Selection<MeshCornerRow<C,P,E,F>>{return meshCorners(this);}
+  get faces():Selection<MeshFaceRow<F,P,E,C>>{return meshFaces(this);}
   /** The centre this mesh's geometry was generated radially about, when a
    * generator minted one and every edit since kept a star-shaped solid star
    * shaped: `geodesic`, `sphere` and their `dual`s mint it; `translate`,
@@ -495,12 +516,12 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * region boundary edge (holes and open sheet edges included). Faces that
    * touch no other selected face are each their own region, so a scattered
    * selection extrudes face by face. */
-  extrude(faces:MeshFaces<P,E,F,C>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
+  extrude(faces:Selection<MeshFaceRow<F,P,E,C>>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
     checkOptions(options);
-    if(!(faces instanceof Collection)||faces.domain!=='face')throw new Error('extrude requires a face selection; select from mesh.faces');
+    if(!isSelection3(faces,'face'))throw new Error('extrude requires a face selection; select from mesh.faces');
     // A selection from an earlier revision is read on this one by id; faces
     // that are gone are skipped.
-    if(faces.source!==this.surface)faces=faces.in(this);
+    if(faces.source!==this.surface)faces=selectionIn(faces,this);
     if(typeof offset==='number')offset={distance:offset};
     if(offset===undefined||offset===null||typeof offset!=='function'&&!Array.isArray(offset)&&(typeof offset!=='object'||!('distance'in offset)))throw new Error('extrude offset must be a distance, a vector, a region callback or { distance }');
     const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');

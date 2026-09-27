@@ -1,8 +1,10 @@
 /**
- * Geometry queries against a material's sampled edges: prepare once for a
- * frozen state, ask many times. Queries return information and never
- * move, split, stop or connect anything; a result is bound to the state
- * it was asked of.
+ * The spatial index over a material's sampled edges: what `edges.near`,
+ * `edges.nearest`, `edges.firstHit` and `edges.crossing` read. It is built
+ * the first time one of them is asked on a state and kept there, so a
+ * sketch never prepares it. Queries return information and never move,
+ * split, stop or connect anything; a result is bound to the state it was
+ * asked of.
  *
  * Edges are straight segments between sampled vertices; nothing here is
  * analytic geometry, and nothing snaps. Coordinates are the material's
@@ -56,25 +58,31 @@ export interface FirstHit {
   kind: 'crossing' | 'touch' | 'overlap';
 }
 
+/** @internal The prepared index of one state. */
 export interface EdgeQuery {
   /** The closest edge within `within` of `position` (inclusive), or null.
    * Ties go to the earlier source edge. `excludeIncident` skips every edge
    * incident to that vertex of the source state, so a tip can sense the
-   * nearest line that is not its own stem. */
-  nearest(position: XY, opts: { within: number; excludeIncident?: Vertex | number }): NearestHit | null;
+   * nearest line that is not its own stem. `accept`, when given, is the
+   * edges a selection holds: the rest are not there. */
+  nearest(position: XY, opts: { within: number; excludeIncident?: Vertex | number; accept?: (edge: number) => boolean }): NearestHit | null;
   /** Every edge CLOSER THAN `radius` to `position`, by true distance to the
    * segment, as source edge rows ascending. The bound is strict, as it is
    * for `points.near`. This is what `edges.near` reads; `nearest` answers
-   * the different question of which ONE is closest. */
-  within(position: XY, radius: number): number[];
+   * the different question of which ONE is closest. Given `distances`, it
+   * pushes each row's distance there, position by position, and leaves the
+   * rows in the order the grid found them. */
+  within(position: XY, radius: number, distances?: number[]): number[];
   /** The first edge a straight move from `from` to `to` would meet, by
    * smallest `along` then source edge order; endpoint contact counts.
    * `excludeIncident` skips every edge incident to that vertex of the
-   * source state. A zero-length move is a contact query at `from`. */
-  firstHit(from: XY, to: XY, opts?: { excludeIncident?: Vertex | number }): FirstHit | null;
+   * source state. A zero-length move is a contact query at `from`.
+   * `accept`, when given, is the edges a selection holds: the rest are not
+   * there. */
+  firstHit(from: XY, to: XY, opts?: { excludeIncident?: Vertex | number; accept?: (edge: number) => boolean }): FirstHit | null;
 }
 
-/** Prepare edge queries for a frozen material. */
+/** @internal Prepare edge queries for a frozen material. */
 export function edges(m: Material): EdgeQuery {
   const E = m.edgeCount;
   const ax = new Float64Array(E);
@@ -227,17 +235,18 @@ export function edges(m: Material): EdgeQuery {
   };
   const incidentRow = (v: Vertex | number): number => {
     if (typeof v === 'number') {
-      if (!Number.isInteger(v) || v < 0 || v >= m.n) throw new Error(`query: no vertex ${v} in the source material`);
+      if (!Number.isInteger(v) || v < 0 || v >= m.n) throw new Error(`edges: no vertex ${v} in the material these edges belong to`);
       return v;
     }
-    if (!ownedBy(v, m)) throw new Error('query: excludeIncident must be a vertex of the queried material');
+    if (!ownedBy(v, m)) throw new Error('edges: excludeIncident must be a vertex of the material these edges belong to');
     return v.index;
   };
 
   return {
     nearest(position, opts) {
       const within = opts.within;
-      if (!Number.isFinite(within) || within < 0) throw new Error('query.nearest: within must be finite and non-negative');
+      const accept = opts.accept;
+      if (!Number.isFinite(within) || within < 0) throw new Error('edges.nearest: within must be finite and non-negative');
       const px = vx(position);
       const py = vy(position);
       let skipStart = -1;
@@ -284,6 +293,7 @@ export function edges(m: Material): EdgeQuery {
         for (; judged < candN; judged++) {
           const e = cand[judged];
           if (skipStart >= 0 && isIncident(e)) continue;
+          if (accept !== undefined && !accept(e)) continue;
           const dx = bx[e] - ax[e];
           const dy = by[e] - ay[e];
           const len2 = dx * dx + dy * dy;
@@ -300,7 +310,7 @@ export function edges(m: Material): EdgeQuery {
       }
       return bestE < 0 ? null : { edge: m.edge(bestE), position: [bestX, bestY], t: bestT, distance: bestD };
     },
-    within(position, radius) {
+    within(position, radius, distances) {
       if (!(radius > 0) || !Number.isFinite(radius)) throw new Error('edges.near: radius must be a positive distance');
       const px = vx(position);
       const py = vy(position);
@@ -335,14 +345,20 @@ export function edges(m: Material): EdgeQuery {
           const len2 = dx * dx + dy * dy;
           let t = 0;
           if (len2 > 0) t = Math.max(0, Math.min(1, ((px - ax[e]) * dx + (py - ay[e]) * dy) / len2));
-          if (Math.hypot(px - (ax[e] + dx * t), py - (ay[e] + dy * t)) < radius) out.push(e);
+          const d = Math.hypot(px - (ax[e] + dx * t), py - (ay[e] + dy * t));
+          if (d < radius) {
+            out.push(e);
+            if (distances) distances.push(d);
+          }
         }
       }
-      // The grid hands them back ring by ring; a selection is source order.
-      out.sort((p, q) => p - q);
+      // The grid hands them back ring by ring. A caller that takes the
+      // distances orders them itself; the others read source order.
+      if (!distances) out.sort((p, q) => p - q);
       return out;
     },
     firstHit(from, to, opts = {}) {
+      const accept = opts.accept;
       const fx = vx(from);
       const fy = vy(from);
       const tx = vx(to);
@@ -371,6 +387,7 @@ export function edges(m: Material): EdgeQuery {
       gatherSegment(fx, fy, tx, ty);
       for (let i = 0; i < candN; i++) {
         const e = cand[i];
+        if (accept !== undefined && !accept(e)) continue;
         if (skipStart >= 0) {
           let incident = false;
           for (let j = skipStart; j < skipEnd; j++) if (vertexEdges![j] === e) { incident = true; break; }
@@ -439,7 +456,3 @@ function pointOnSegment(px: number, py: number, ax: number, ay: number, dx: numb
   const qy = ay + dy * t;
   return Math.hypot(px - qx, py - qy) <= eps ? Math.max(0, Math.min(1, t)) : null;
 }
-
-/** Queries as one namespace: `query.edges(current)`. The nearest point is
- * the closest member of `points.near(p, { radius })`. */
-export const query = { edges };
