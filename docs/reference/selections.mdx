@@ -103,7 +103,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 <include>/_sig/Selection.filter.mdx</include>
 
-The rows that pass the test, as a selection in the same order. The test can return any value, and a truthy value keeps the row, as `Array.filter` does. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. Filter a selection again to narrow it. To filter by an area, use `t.within(sel, area, { keep })`. `keep` has the same three words for points, edges and faces: `'contained'` (the default), `'centroid'` and `'touching'`. The boundary belongs to the area, so a point on the boundary is in (see [Fields](/docs/reference/fields)).
+The rows that pass the test, as a selection in the same order. The test can return any value, and a truthy value keeps the row, as `Array.filter` does. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. `has(undefined)` is false, so you can give `has` the `source` of a row that has none. Filter a selection again to narrow it. To filter by an area, use `t.within(sel, area, { keep })`. `keep` has the same three words for points, edges and faces: `'contained'` (the default), `'centroid'` and `'touching'`. The boundary belongs to the area, so a point on the boundary is in (see [Fields](/docs/reference/fields)).
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -138,7 +138,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Selection.intersect.mdx</include>
 <include>/_sig/Selection.without.mdx</include>
 
-Set operations on selections of one kind of row. `union` takes any number of selections: `a.union(b, c)` is the members of `a`, then the new members of `b`, then those of `c`. `a.intersect(b)` keeps the members of `a` that are also in `b`, and `a.without(b)` keeps the members of `a` that are not. Every row that is not selected is the whole collection without the selection: `m.points.without(sel)`. `without` also takes one row or one point value. The other selection can come from an earlier state, and the operation finds the same rows. A selection of an unrelated material is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
+Set operations on selections of one kind of row. `union` takes any number of selections: `a.union(b, c)` is the members of `a`, then the new members of `b`, then those of `c`. `a.intersect(b)` keeps the members of `a` that are also in `b`, and `a.without(b)` keeps the members of `a` that are not. Every row that is not selected is the whole collection without the selection: `m.points.without(sel)`. `intersect` and `without` also take one row, one point value or a list of rows. `undefined` names no row, alone or in a list. The other selection can come from an earlier state, and the operation finds the same rows. A selection of an unrelated material is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
 
 ```ts live
 import { sketch, circle, rect } from 'occlude';
@@ -161,7 +161,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Selection.rows.mdx</include>
 
-The selection that holds those rows, in the order you give. Give the views themselves, one or a list: `web.edges.rows(wall)` is the selection that holds the edge `wall`. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A view of an earlier state gives the row it became. A row that is gone drops out, as it does in a set operation. A row of an unrelated geometry is an error. The writes of a material take the same list where they take a `where`: `g.points.remove(list)` and `g.move([1, 0], list)` need no `rows`. Every kind of row has `rows`.
+The selection that holds those rows, in the order you give. Give the views themselves, one or a list: `web.edges.rows(wall)` is the selection that holds the edge `wall`. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A view of an earlier state gives the row it became. A row that is gone drops out, as it does in a set operation. An `undefined` in the list drops out too, and `rows(undefined)` is empty. A row of an unrelated geometry is an error. The writes of a material take the same list where they take a `where`: `g.points.remove(list)` and `g.move([1, 0], list)` need no `rows`. Every kind of row has `rows`.
 
 Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
 

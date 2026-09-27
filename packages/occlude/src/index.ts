@@ -75,7 +75,7 @@ export type { QuadtreeOpts } from './quadtree.js';
 export { hilbertRule, peanoRule, meanderRule } from './spacefill.js';
 export type { SpacefillOpts, SpacefillRule, SpacefillTurn } from './spacefill.js';
 export type { TrailsOpts } from './trails.js';
-export type { WarpOpts, Corner } from './warp.js';
+export type { WarpOpts } from './warp.js';
 export type { RidgeOpts } from './ridges.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
@@ -84,6 +84,7 @@ export type { MergeOpts } from './merge.js';
 // `l.faces`, and every part of one a sketch picks out.
 export type { Selection, Keyed } from './selection.js';
 export type { Face, FaceSource, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
+export type { Corner } from './corners.js';
 export type { RowSource } from './derivation.js';
 export type { NearestHit, FirstHit } from './query.js';
 export type {

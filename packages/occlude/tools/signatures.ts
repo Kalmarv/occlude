@@ -49,7 +49,7 @@ const PAGE: Record<string, string> = {
   HatchParams: 'fills', CrosshatchParams: 'fills', SolidParams: 'fills', StippleParams: 'fills', ContourParams: 'fills', BuiltinFillName: 'fills', FillParams: 'fills',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
   Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', TransformOp: 'transforms',
-  Honeycomb: 'geometry', HoneycombFace: 'geometry',
+  Honeycomb: 'geometry', HoneycombFace: 'geometry', Corner: '3d/edits',
   ViewObjectOptions: '3d/view', ViewOptions: '3d/view', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
