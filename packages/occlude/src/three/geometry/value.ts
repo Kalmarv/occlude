@@ -40,6 +40,7 @@ import {partsOfSurface, surfaceOfParts, type Columns3, type Lineage3} from './pa
 import {captureSurface3} from './model.js';
 import {inheritTopology3, shareTopology3} from './topology.js';
 import {ownerOf} from '../../views.js';
+import {turnedOver3} from './mesh3.js';
 
 /** How a point column refines, as `set(…, { transfer })` declares it. */
 export type Transfers3 = Readonly<Record<string, 'interpolate' | 'nearest'>>;
@@ -127,6 +128,7 @@ export function surfaceOf(m: Material): Surface3 {
   if (from === undefined && donor !== undefined && donor.cycles === m.stated?.cycles && donor.pointKeys === m.store.pointKeys && donor.n === m.n) {
     shareTopology3(view, donor.view);
     m.cache.surface = view;
+    VIEW_OWNER.set(view, m);
   } else {
     if (from !== undefined) inheritTopology3(view, surfaceOf(from));
     keepView(m, view);
@@ -139,8 +141,14 @@ export function surfaceOf(m: Material): Surface3 {
  * its edge list. */
 function keepView(m: Material, view: Surface3): void {
   m.cache.surface = view;
+  VIEW_OWNER.set(view, m);
   DONORS.set(m.store.edgeList, {view, cycles: m.stated?.cycles, pointKeys: m.store.pointKeys, n: m.n});
 }
+
+/** Each working view's value. */
+const VIEW_OWNER = new WeakMap<Surface3, Material>();
+/** @internal The value `view` is the working view of, if it is one. */
+export const viewOwner = (view: Surface3): Material | undefined => VIEW_OWNER.get(view);
 
 /** The last view read for an edge list, with what makes its topology: a
  * view of the same edge list, loops, point names and point count shares
@@ -194,6 +202,7 @@ export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, w
   }
   const frame = how.frame;
   const faces = how.mirror === true && m.stated !== undefined ? turnedOver(m.stated) : m.stated;
+  if (faces !== undefined && faces !== m.stated) turnedOver3(m.stated!, faces);
   const out = carryLinks(m, new Material(nx, ny, {...s.attrs, z: nz}, s.edgeList, {
     iteration: m.iteration,
     history: [],

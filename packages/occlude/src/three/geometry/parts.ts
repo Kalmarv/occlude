@@ -62,6 +62,8 @@ import {kindOfValue} from '../../tables.js';
 import {captureSurface3, ownSurface3} from './model.js';
 import {triangulate, type Attribute3, type Attributes3, type Provenance3, type Surface3, type SurfaceCorner3, type SurfaceEdge3, type SurfaceFace3, type SurfacePoint3, type SurfaceTriangle3} from './surface.js';
 import type {Vec3} from '../math.js';
+import {Mesh3} from './mesh3.js';
+import {viewOwner} from './value.js';
 
 /** The domains of the one geometry a 3D value fills. */
 export type Domain3 = 'points' | 'edges' | 'faces' | 'corners';
@@ -397,4 +399,41 @@ export function surfaceOfParts(parts: ViewParts, lineage: Lineage3 = {}): Surfac
     edges.push(withProvenance({id: rows.names.edges[e], vertices: Object.freeze([parts.edges[2 * e], parts.edges[2 * e + 1]] as [number, number]), faces: Object.freeze(incident[e]), attributes: edgeRecords[e]}, lineage.edges?.[e]));
   }
   return captureSurface3(ownSurface3({points: Object.freeze(points), faces: Object.freeze(faces), edges: Object.freeze(edges), triangles: Object.freeze(triangles)}));
+}
+
+/** @internal A reader over a surface (see mesh3.ts), for a kernel that
+ * reads the one geometry while its caller still holds a surface. A
+ * surface that is a value's working view is that value's statement for
+ * attachment. */
+export function meshOfSurface3(surface: Surface3): Mesh3 {
+  const holes = {sparse: false};
+  const corners = surface.faces.flatMap((f) => cornersOf(surface, f));
+  const local = surface.faces.map((): number[] => []);
+  for (const t of surface.triangles) {
+    const loop = surface.faces[t.face].vertices;
+    for (let k = 0; k < 3; k++) local[t.face].push(loop.indexOf(t.vertices[k]));
+  }
+  const edges = new Uint32Array(surface.edges.length * 2);
+  surface.edges.forEach((e, i) => {
+    edges[2 * i] = e.vertices[0];
+    edges[2 * i + 1] = e.vertices[1];
+  });
+  const owner = viewOwner(surface);
+  return new Mesh3({
+    x: Float64Array.from(surface.points, (p) => p.position[0]),
+    y: Float64Array.from(surface.points, (p) => p.position[1]),
+    z: Float64Array.from(surface.points, (p) => p.position[2]),
+    loops: surface.faces.map((f) => f.vertices),
+    local,
+    edges,
+    topology: owner?.stated ?? surface,
+    ...(owner !== undefined ? {value: owner} : {}),
+    names: () => Object.freeze({points: surface.points.map((p) => p.id), edges: surface.edges.map((e) => e.id), faces: surface.faces.map((f) => f.id), corners: corners.map((c) => c.id)}),
+    cols: () => Object.freeze({
+      points: Object.freeze(columnsOf(surface.points.map((p) => p.attributes), holes)),
+      edges: Object.freeze(columnsOf(surface.edges.map((e) => e.attributes), holes)),
+      faces: Object.freeze(columnsOf(surface.faces.map((f) => f.attributes), holes)),
+      corners: Object.freeze(columnsOf(corners.map((c) => c.attributes), holes)),
+    }),
+  });
 }
