@@ -2,7 +2,7 @@ import { identity } from './identity.js';
 import { orient2d, orient3d } from 'robust-predicates';
 import { kindOf, type AnyColumn } from '../../column.js';
 import { cross3, sub3 } from '../math.js';
-import {faceEdges3,kernelColumn,meshOfMade3,checkMade3,pairKey,type Provenance3,type Columns3,type Made3,type Mesh3,type Lineage3} from '../geometry/mesh3.js';
+import {faceEdges3,kernelColumn,meshOfMade3,checkMade3,pairKey,edgeColumns3,type Provenance3,type Columns3,type Made3,type Mesh3,type Lineage3} from '../geometry/mesh3.js';
 import type { PointTransfer } from '../../material.js';
 
 export interface SubdivisionOptions {
@@ -98,11 +98,13 @@ function isQuad(mesh: Mesh3, f: number): boolean {
 /**
  * Every face split round its middle, `levels` times: a convex planar quad
  * into four round its center, any other face's fixed triangles each into
- * four. Point and corner columns refine by their transfer (`interpolated`);
- * face columns pass to the children, and edge columns to the two halves of
- * their edge. Undefined when nothing changes (no levels, no faces).
+ * four. Point and corner columns refine by their transfer (`interpolated`,
+ * the point policies `mesh` holds; corners have none); face columns pass to
+ * the children, and edge columns to the two halves of their edge — a
+ * distributed one half each. Undefined when nothing changes (no levels, no
+ * faces).
  */
-export function subdivideMesh3(mesh: Mesh3, levels = 1, options: SubdivisionOptions = {}, transfers: PointTransfers = {}, cornerTransfers: PointTransfers = {}): Made3 | undefined {
+export function subdivideMesh3(mesh: Mesh3, levels = 1, options: SubdivisionOptions = {}): Made3 | undefined {
   const maxFaces = options.maxFaces ?? Infinity, maxPoints = options.maxPoints ?? Infinity;
   if (!Number.isSafeInteger(levels) || levels < 0) throw new Error('subdivide levels must be a nonnegative integer');
   if (![maxFaces, maxPoints].every((n) => (n === Infinity || Number.isSafeInteger(n)) && n > 0)) throw new Error('subdivide budgets must be positive integers or Infinity');
@@ -123,9 +125,9 @@ export function subdivideMesh3(mesh: Mesh3, levels = 1, options: SubdivisionOpti
   }
   let current = mesh, made: Made3 | undefined;
   for (let level = 0; level < levels; level++) {
-    const next = refine(current, made?.lineage?.points, transfers, cornerTransfers, maxPoints, maxFaces);
+    const next = refine(current, made?.lineage?.points, mesh.policies.points, {}, maxPoints, maxFaces);
     made = made === undefined ? next : throughLevel(made, next);
-    current = meshOfMade3(made);
+    current = meshOfMade3(made, mesh.policies);
   }
   return made;
 }
@@ -219,7 +221,8 @@ function refine(mesh: Mesh3, kept: readonly (Provenance3 | undefined)[] | undefi
     }
   }
   // The edges as assembly derives them; the two halves of a split edge
-  // are its children, named for it and its ends, and hold its columns.
+  // are its children, named for it and its ends, and hold its columns (a
+  // distributed one half of it: the split is at the middle).
   const derived = faceEdges3(loops, pointNames);
   const edgeCount = derived.edges.length / 2, edgeNames = [...derived.names], edgeParent: number[] = [];
   const edgeLineage: (Provenance3 | undefined)[] = [];
@@ -238,7 +241,7 @@ function refine(mesh: Mesh3, kept: readonly (Provenance3 | undefined)[] | undefi
     loops, triangles, edges: derived.edges,
     cols: {
       points: interpolated(mesh.cols.points, mesh.n, names.points, pointParents, transfers),
-      edges: picked(mesh.cols.edges, edgeParent),
+      edges: edgeColumns3(mesh, edgeParent, edgeParent.map((p) => (p < 0 ? 0 : 0.5))),
       faces: picked(mesh.cols.faces, faceParent),
       corners: interpolated(mesh.cols.corners, 0, names.corners, cornerParents, cornerTransfers),
     },

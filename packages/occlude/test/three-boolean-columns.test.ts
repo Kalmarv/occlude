@@ -1,6 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {box,sphere} from '../src/three/api/index.js';
 import type {Material,Vertex,Edge} from '../src/material.js';
+import {kindOf} from '../src/column.js';
 
 /** The edge from a point to the point straight above it, if there is one. */
 const upward=(p:Vertex):Edge|null=>p.edges.find(e=>{const o=e.a===p?e.b:e.a;return o.x===p.x&&o.y===p.y&&(o as unknown as {z:number}).z>(p as unknown as {z:number}).z})??null;
@@ -102,5 +103,76 @@ describe('an edge reference survives a boolean by lineage, as a 2D split',()=>{
   }
   expect(cut).toBeGreaterThan(0);
   expect(whole+gone).toBeGreaterThan(0);
+ });
+});
+
+describe('a boolean carries the reference columns of both solids',()=>{
+ // Each solid names rows of its own: the box a point's first edge, the
+ // sphere a point's first edge and each face's first point; both declare
+ // `r`, the box on its points and the sphere on its points too.
+ const refs=()=>{
+  const a=box(2).points.set('ra',(p:Vertex)=>p.edges.at(0)!).points.set('r',(p:Vertex)=>p.edges.at(0)!);
+  const b=sphere(1.2,{segments:12,rings:6}).translate([0.9,0.8,0.7])
+   .points.set('rb',(p:Vertex)=>p.edges.at(0)!).points.set('r',(p:Vertex)=>p.edges.at(-1)!)
+   .faces.set('rf',(f:{corners:{at(i:number):{point:Vertex}}})=>f.corners.at(0).point);
+  return {a,b};
+ };
+ /** The row of `out` that is `named` of an input: the one row whose source
+  * it is, whole (an edge the same length) — or null, as a split's parent. */
+ const same=(out:Material,named:Edge|Vertex|null):unknown=>{
+  if(named===null)return null;
+  if('length' in named){const whole=out.edges.filter(e=>e.source===named&&Math.abs(e.length-named.length)<1e-12);return whole.length===1?whole.at(0):null;}
+  const found=out.points.filter(p=>p.source===named);return found.length===1?found.at(0):null;
+ };
+ for(const op of OPS) it(`${op}: every surviving row reads the row its own solid named, here`,()=>{
+  const {a,b}=refs(),out=(a[op] as (o:Material)=>Material)(b);
+  type Row=Vertex&{ra:Edge|null;rb:Edge|null;r:Edge|null};
+  const fromA=[...out.points].filter(p=>a.points.some(x=>x===p.source)) as Row[];
+  const fromB=[...out.points].filter(p=>b.points.some(x=>x===p.source)) as Row[];
+  const seam=[...out.points].filter(p=>p.source===undefined) as Row[];
+  expect(fromB.length).toBeGreaterThan(0);expect(seam.length).toBeGreaterThan(0);
+  let named=0,gone=0;
+  for(const p of fromB){
+   const s=p.source as Row;
+   // A point of the sphere reads the sphere's columns, a reference as the
+   // row here that is the row it named; the box's own column is empty there.
+   expect(p.rb).toBe(same(out,s.rb));expect(p.r).toBe(same(out,s.r));expect(p.ra).toBeNull();
+   if(p.rb===null)gone++;else named++;
+  }
+  expect(named).toBeGreaterThan(0);
+  for(const p of fromA){const s=p.source as Row;expect(p.ra).toBe(same(out,s.ra));expect(p.r).toBe(same(out,s.r));expect(p.rb).toBeNull();}
+  // A seam point is new: every reference column reads no row.
+  for(const p of seam)expect([p.ra,p.rb,p.r]).toEqual([null,null,null]);
+  // A face of the sphere, whole or a piece, reads the point its face named.
+  type FaceRow={source:unknown;rf:Vertex|null};
+  let faces=0;
+  for(const f of out.faces as unknown as Iterable<FaceRow>){
+   const s=f.source as FaceRow|undefined;
+   if(s===undefined||!b.faces.some(x=>(x as unknown)===s))continue;
+   expect(f.rf).toBe(same(out,s.rf));faces++;
+  }
+  expect(faces).toBeGreaterThan(0);
+  // A column both solids declare is one column, still of references.
+  expect(kindOf(out.store.attrs.r).name).toBe('reference');
+  if(op!=='intersect')expect(gone+named).toBe(fromB.length);
+ });
+ it('two solids touching at a face: a reference to a point of the second welded onto one of the first names that point',()=>{
+  const z=(p:Vertex)=>(p as unknown as {z:number}).z;
+  const c=box(2).points.set('r',(p:Vertex)=>p.edges.at(0)!),d0=box(2).translate([2,0,0]);
+  // Each point of the second names its twin on the shared face (x = 1).
+  const twin=(p:Vertex)=>[...d0.points].find(q=>q.x===1&&q.y===p.y&&z(q)===z(p))!;
+  const d=d0.points.set('rw',twin);
+  const u=c.union(d);
+  const welded=[...u.points].filter(p=>p.x===1);
+  expect(welded.length).toBe(4);
+  // A welded point is the first solid's, with its columns.
+  for(const p of welded)expect(c.points.some(q=>q===p.source)).toBe(true);
+  const far=[...u.points].filter(p=>p.x===3) as (Vertex&{rw:Vertex|null})[];
+  expect(far.length).toBe(4);
+  for(const p of far){
+   expect(p.rw).not.toBeNull();
+   expect(p.rw!.x).toBe(1);expect(p.rw!.y).toBe(p.y);expect(z(p.rw!)).toBe(z(p));
+   expect(u.points.some(q=>q===p.rw)).toBe(true);
+  }
  });
 });

@@ -123,13 +123,16 @@ function sampledColumns(mesh:Mesh3,faces:readonly number[],samples:readonly Surf
   return out;
 }
 /** The samples as the one geometry: points with the face's and the place's
- * columns, `source` the face, and the `sample` each answers. */
+ * columns, `source` the face, and the `sample` each answers. A point column
+ * of the surface keeps its policy. */
 function result(target:Material,points:Drawn,generation:SamplingGeneration,options:GeometryOptions):Material{
   const stats=Object.freeze({...generation});
   for(const sample of points.samples)generations.set(sample,stats);
   const mesh=mesh3(target),faceNames=mesh.names.faces;
   const lineage=points.faces.map((f):Provenance3=>({operation:'sample',parents:[faceNames[f]]}));
-  return geometry3(pointsMade3(points.positions,points.names,sampledColumns(mesh,points.faces,points.samples),lineage),{key:options.key,derived:derived('sample',target),pointCols:{sample:kinds.placement.from(points.samples)}});
+  const cols=sampledColumns(mesh,points.faces,points.samples);
+  const policies={points:Object.fromEntries(Object.entries(mesh.policies.points).filter(([name])=>Object.hasOwn(cols,name)&&Object.hasOwn(mesh.cols.points,name)))};
+  return geometry3(pointsMade3(points.positions,points.names,cols,lineage),{key:options.key,derived:derived('sample',target),policies,pointCols:{sample:kinds.placement.from(points.samples)}});
 }
 /** `count` independent area-weighted points. */
 function samplePoints(target:Material,options:CountOptions,env:SurfaceSamplingEnv):Material{

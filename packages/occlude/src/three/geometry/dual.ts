@@ -1,5 +1,5 @@
 import {add3,centroid3,dot3,mul3,type Vec3} from '../math.js';
-import {triangulate,cornerNames3,checkMade3,faceEdges3,kernelColumn,pairKey,type Made3,type Mesh3} from './mesh3.js';
+import {triangulate,cornerNames3,checkMade3,edgeColumns3,faceEdges3,kernelColumn,pairKey,type Made3,type Mesh3} from './mesh3.js';
 import {kindOf,type AnyColumn} from '../../column.js';
 import {emptySize} from '../degenerate.js';
 
@@ -31,7 +31,9 @@ const numeric=(column:AnyColumn):boolean=>{const kind=kindOf(column).name;return
  * a closed surface — a cube to an octahedron, a geodesic polyhedron to its
  * Goldberg. A vertex on a boundary has no ring to walk and gets no face, so an
  * open mesh loses its rim rather than failing. Numeric face columns become
- * point columns, and point columns face columns. */
+ * point columns, and point columns face columns; an edge of the dual crosses
+ * one edge, whose columns it keeps (a distributed one whole) and which it
+ * descends from. */
 export function dualMesh3(mesh:Mesh3,options:DualOptions={}):Made3 {
   if(!mesh.faceCount)return NOTHING;
   if(options.project!==undefined&&emptySize(options.project))return NOTHING;
@@ -50,6 +52,8 @@ export function dualMesh3(mesh:Mesh3,options:DualOptions={}):Made3 {
   for(let e=0;e<mesh.edgeCount;e++)edgeAt.set(pairKey(mesh.edges[2*e],mesh.edges[2*e+1]),e);
   const edgeFaces=mesh.edgeFaces,around=mesh.pointFaces;
   const polygons:number[][]=[],owners:number[]=[];
+  // The edge a step of a ring crosses, by the two faces it steps between.
+  const crossing=new Map<number,number>();
   for(let v=0;v<mesh.n;v++){
     const incident=around[v];
     if(incident.length<3)continue;
@@ -62,7 +66,9 @@ export function dualMesh3(mesh:Mesh3,options:DualOptions={}):Made3 {
       // A rim edge has one face: the walk cannot close, so this vertex has no
       // dual face and the rest of the mesh still duals.
       if(!faces||faces.length!==2)break;
-      face=faces[0]===face?faces[1]:faces[0];
+      const next=faces[0]===face?faces[1]:faces[0];
+      if(!crossing.has(pairKey(face,next)))crossing.set(pairKey(face,next),e!);
+      face=next;
       if(face===ring[0]){closed=true;break;}
     }
     if(!closed||ring.length!==incident.length)continue;
@@ -82,6 +88,7 @@ export function dualMesh3(mesh:Mesh3,options:DualOptions={}):Made3 {
   const dualLoops=polygons.map(loop=>loop.map(f=>at.get(f)!));
   const pointNames=used.map(f=>`dual:${names.faces[f]}`),faceNames=owners.map(v=>`dual:${names.points[v]}`);
   const edges=faceEdges3(dualLoops,pointNames);
+  const crossed=Array.from({length:edges.edges.length/2},(_,e)=>crossing.get(pairKey(used[edges.edges[2*e]],used[edges.edges[2*e+1]]))??-1);
   const made:Made3={
     x:points.map(p=>p[0]),y:points.map(p=>p[1]),z:points.map(p=>p[2]),
     names:{points:pointNames,edges:edges.names,faces:faceNames,corners:cornerNames3(dualLoops,faceNames,pointNames)},
@@ -91,9 +98,10 @@ export function dualMesh3(mesh:Mesh3,options:DualOptions={}):Made3 {
     // and they are drawn as the triangles that plane gives.
     triangles:dualLoops.map(loop=>triangulate(points,loop).flatMap(t=>t.map(v=>loop.indexOf(v)))),
     edges:edges.edges,
-    cols:{points:columnsOn(mesh.cols.faces,used,numeric),faces:columnsOn(mesh.cols.points,owners,kernelColumn)},
+    cols:{points:columnsOn(mesh.cols.faces,used,numeric),edges:edgeColumns3(mesh,crossed),faces:columnsOn(mesh.cols.points,owners,kernelColumn)},
     lineage:{
       points:used.map(f=>({operation:'dual',parents:[names.faces[f]]})),
+      edges:crossed.map(e=>e<0?undefined:{operation:'dual',parents:[names.edges[e]]}),
       faces:owners.map(v=>({operation:'dual',parents:[names.points[v]]})),
     },
   };

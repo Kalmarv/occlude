@@ -133,7 +133,10 @@ function instances(prototype:Material,copies:readonly {readonly name:string;read
     cols.rotate=kinds.vector(width).of(turn);cols.scale=kinds.vector(3).of(scale);
   }
   const made=pointsMade3(copies.map(c=>c.translate),copies.map(c=>c.name),cols);checkMade3(made);
-  return geometry3(made,{...(key!==undefined?{key}:{}),prototype,source:{points:{source:source}}});
+  // A point column of the points placed at keeps its policy.
+  const held=source.domain==='points'?mesh3(source.of).policies.points:{};
+  const policies={points:Object.fromEntries(Object.entries(held).filter(([name])=>Object.hasOwn(cols,name)&&name!=='rotate'&&name!=='scale'))};
+  return geometry3(made,{...(key!==undefined?{key}:{}),prototype,policies,source:{points:{source:source}}});
 }
 function checkPrototype(prototype:unknown,who:string):asserts prototype is Material {
   if(!(prototype instanceof Material)||!hasFaces(prototype)&&prototype.n>0)throw new Error(`${who}: the prototype is a value with faces — a mesh, a box, a sphere`);
@@ -248,5 +251,11 @@ export function realize(m:Material,options:RealizeOptions={}):Material {
   for(const d of ['points','edges','faces','corners'] as const)cols[d]=realizedColumns(copyCols,proto.cols[d],copies[d],rows[d]);
   const made={x,y,z,names,loops,triangles,edges:Uint32Array.from(edges),cols,lineage};checkMade3(made);
   const key=m.key;
-  return geometry3(made,{...(key!==undefined?{key}:{}),transfers:prototype.transfers,derived:derived('realize',prototype,m)});
+  // A column keeps its policy: the prototype's for its own columns, the
+  // instances' point policy for a column they give every copy.
+  const policies={
+    points:{...Object.fromEntries(Object.keys(copyCols).flatMap(name=>m.transfers[name]!==undefined?[[name,m.transfers[name]]]:[])),...proto.policies.points},
+    edges:proto.policies.edges,faces:proto.policies.faces,
+  };
+  return geometry3(made,{...(key!==undefined?{key}:{}),policies,derived:derived('realize',prototype,m)});
 }

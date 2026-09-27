@@ -124,6 +124,19 @@ const LINES:DomainKind=domainKind('line','lines',{
 export function isProjectedCurves(value:unknown):value is Selection<ProjectedCurve>{return isSelectionOf(value,LINES);}
 /** The lines of one view, and the numbers of the classification behind them. */
 export interface ProjectedLines {readonly visible:Selection<ProjectedCurve>;readonly hidden:Selection<ProjectedCurve>;readonly stats:ClassifiedScene3['stats']}
+/** A line's share of the columns its edge distributes: over `range` of
+ * the feature, which covers `feature.range` of the edge, it holds that part
+ * of the edge's length. Empty when the edge distributes none. */
+function shares(feature:Feature3,range:Interval3):Readonly<Record<string,unknown>>{
+  const names=feature.distribute;
+  if(names===undefined)return {};
+  const part=(range[1]-range[0])*(feature.range[1]-feature.range[0]),out:Record<string,unknown>={};
+  for(const name of names){
+    const v=feature.attributes[name];
+    out[name]=typeof v==='number'?v*part:Array.isArray(v)?Object.freeze(v.map(x=>(x as number)*part)):v;
+  }
+  return out;
+}
 /** The classified lines of a view. `toUser` is the frame the view is drawn
  * in; lines made without one draw, but cannot answer `curves`. */
 export function projectedLines(source:ClassifiedScene3,toUser?:PaperToUser):ProjectedLines{
@@ -135,7 +148,7 @@ export function projectedLines(source:ClassifiedScene3,toUser?:PaperToUser):Proj
     source.features.forEach((record,index)=>{
       const feature=record.feature;
       for(const range of record[visibility])table.push(Object.freeze({
-        ...feature.attributes,
+        ...feature.attributes,...shares(feature,range),
         index,feature,...(feature.instance?{instance:feature.instance}:{}),kinds:kinds(feature.flags),range,
         a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),
         b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),
@@ -195,7 +208,8 @@ export function withinLines(lines:Selection<ProjectedCurve>,area:AreaInput,cut:P
     const sourceAt=(u:number):number=>r0+(r1-r0)*(u===0||u===1||q===1?u:u/(q-(q-1)*u));
     const paper=(u:number):readonly [number,number]=>Object.freeze([row.a[0]+dx*u,row.a[1]+dy*u] as const);
     own.forEach(([u0,u1],i)=>{
-      table.push(Object.freeze({...row,range:Object.freeze([sourceAt(u0),sourceAt(u1)] as const),a:u0===0?row.a:paper(u0),b:u1===1?row.b:paper(u1)}) as ProjectedCurve);
+      const range=Object.freeze([sourceAt(u0),sourceAt(u1)] as const);
+      table.push(Object.freeze({...row,...shares(f,range),range,a:u0===0?row.a:paper(u0),b:u1===1?row.b:paper(u1)}) as ProjectedCurve);
       from.push(lines.rowAt(k));piece.push(i);
     });
   });

@@ -46,7 +46,8 @@ export interface Geometry3Options extends GeometryOptions {
   readonly radialCentre?:Vec3;
   readonly origin?:Vec3;
   readonly orientation?:Rotation;
-  readonly transfers?:MadeCarry3['transfers'];
+  /** The policies of the columns, said outright (a realized prototype's). */
+  readonly policies?:MadeCarry3['policies'];
   readonly derived?:Derived3;
   /** The value the surface was made from: a row it kept keeps its id. */
   readonly from?:Material;
@@ -91,7 +92,7 @@ export function geometry3(made:Made3,options:Geometry3Options={}):Material {
     ...(options.origin!==undefined?{origin:options.origin}:{}),
     ...(options.orientation!==undefined?{orientation:options.orientation}:{}),
     ...(options.radialCentre!==undefined?{radialCentre:options.radialCentre}:{}),
-    ...(options.transfers!==undefined?{transfers:options.transfers}:{}),
+    ...(options.policies!==undefined?{policies:options.policies}:{}),
     ...(options.from!==undefined?{from:options.from}:{}),
     ...(options.pointCols!==undefined?{pointCols:options.pointCols}:{}),
     ...(options.prototype!==undefined?{prototype:options.prototype}:{}),
