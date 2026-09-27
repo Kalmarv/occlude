@@ -30,7 +30,7 @@ export default sketch(
     const c = t.space.center;
     // The turned square: the middle of each wall, pulled toward the
     // middle of the cell along the geodesic between them.
-    const quad = tiles.cell;
+    const quad = [...tiles.faces.at(0).points.filter((p) => p.corner)];
     const inner = quad.map((v, i) => t.space.geodesic(c, t.space.geodesic(v, quad[(i + 1) % 4], 0.5), 0.72));
     const ring = (pts) => pts.map((v, i) => line(v, pts[(i + 1) % pts.length], { pen: 'faint' }));
     return [

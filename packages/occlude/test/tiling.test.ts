@@ -17,8 +17,9 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { space } from '../src/index.js';
-import { tilingGeometry, type TilingGeometry, type TilingOpts } from '../src/tiling.js';
-import { sphereOfChart } from '../src/space.js';
+import { tilingGeometry, type TilingOpts } from '../src/tiling.js';
+import { sphereOfChart, type SpaceKind } from '../src/space.js';
+import { firstCell } from './helpers/xy.js';
 import { vx, vy, type XY, type Vec } from '../src/vec.js';
 import type { Placement } from '../src/placement.js';
 
@@ -27,7 +28,7 @@ import type { Placement } from '../src/placement.js';
 const FLAT_SIDE = 12;
 
 /** The sketch each geometry's tilings are drawn in. */
-const HOME: Record<TilingGeometry, Parameters<typeof toolkit>[0]> = {
+const HOME: Record<SpaceKind, Parameters<typeof toolkit>[0]> = {
   euclidean: { aspect: [1, 1] },
   hyperbolic: { aspect: [1, 1], space: space.hyperbolic({ radius: 40 }) },
   spherical: { aspect: [1, 1], space: space.spherical({ radius: 30 }) },
@@ -35,7 +36,7 @@ const HOME: Record<TilingGeometry, Parameters<typeof toolkit>[0]> = {
 
 /** A tiling read back in its geometry's OWN model chart. */
 interface ChartTiling {
-  geometry: TilingGeometry;
+  geometry: SpaceKind | undefined;
   cell: Vec[];
   placements: { point(z: XY): Vec }[];
 }
@@ -61,8 +62,8 @@ const chartTiling = (p: number, q: number, opts: TilingOpts = {}): ChartTiling =
   };
   const fromModel = (z: XY): Vec => t.space.fromChart([c[0] + k * vx(z), c[1] + k * vy(z)]);
   return {
-    geometry: tl.geometry,
-    cell: tl.cell.map(toModel),
+    geometry: tl.space?.kind,
+    cell: firstCell(tl).map(toModel),
     placements: tl.faces.map((f) => f.source as Placement).map((f) => ({ point: (z: XY) => toModel(f.point(fromModel(z))) })),
   };
 };
@@ -253,7 +254,7 @@ describe('t.tiling puts the chart on the drawable', () => {
     // is where its model radius is read: the space's own disk, not the
     // fitted one. That disk is drawn at the space's `size`.
     const model = chartTiling(7, 3);
-    const z = t.space.toChart(tl.cell[0]);
+    const z = t.space.toChart(firstCell(tl)[0]);
     expect(t.space.size).toBeCloseTo(50, 12);
     expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(t.space.size * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     // Every placement is an ISOMETRY of the space the sketch draws in.
@@ -268,12 +269,12 @@ describe('t.tiling puts the chart on the drawable', () => {
   it('is the sketch\'s own sphere when the sketch is spherical', () => {
     const t = toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
     const tl = t.tiling(3, 5);
-    expect(tl.geometry).toBe('spherical');
+    expect(tl.space?.kind).toBe('spherical');
     expect(tl.faces.length).toBe(20);
     // The equator is drawn at the space's `size`, and that is where the
     // model chart's unit circle lands.
     const model = chartTiling(3, 5);
-    const z = t.space.toChart(tl.cell[0]);
+    const z = t.space.toChart(firstCell(tl)[0]);
     expect(t.space.size).toBeCloseTo(50, 12);
     expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(t.space.size * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     const probe: [number, number][] = [[50, 50], [62, 47], [41, 58]];
@@ -301,19 +302,20 @@ describe('t.tiling puts the chart on the drawable', () => {
     for (const side of [undefined, 7]) {
       const t = toolkit({ aspect: [1, 1] });
       const tl = t.tiling(4, 4, { side });
-      expect(tl.geometry).toBe('euclidean');
+      expect(tl.space?.kind).toBe('euclidean');
+      const cell = firstCell(tl);
       // A scaled plane tiling is a plane tiling: every copy is rigid on
       // the sheet.
       for (const f of tl.faces.map((c) => c.source as Placement)) {
-        for (let i = 0; i < tl.cell.length; i++) {
-          const a = tl.cell[i];
-          const b = tl.cell[(i + 1) % tl.cell.length];
+        for (let i = 0; i < cell.length; i++) {
+          const a = cell[i];
+          const b = cell[(i + 1) % cell.length];
           expect(Math.hypot(...f.point(b).map((v, k) => v - f.point(a)[k]))).toBeCloseTo(Math.hypot(b[0] - a[0], b[1] - a[1]), 9);
         }
       }
       // The model's unit length is `side`, or half the short side of the
       // drawable.
-      expect(Math.hypot(tl.cell[1][0] - tl.cell[0][0], tl.cell[1][1] - tl.cell[0][1])).toBeCloseTo(side ?? FIT, 9);
+      expect(Math.hypot(cell[1][0] - cell[0][0], cell[1][1] - cell[0][1])).toBeCloseTo(side ?? FIT, 9);
     }
   });
 });

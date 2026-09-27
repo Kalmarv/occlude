@@ -16,7 +16,7 @@ import { sketch, strokes, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 5 });
-  const { cell } = tiles;
+  const cell = [...tiles.faces.at(0).points.filter((p) => p.corner)];
   // Five legs of the first cell, each a `step` of the cell's own side.
   const side = t.space.distance(cell[0], cell[1]);
   let st = t.placement(cell[0]).toward(cell[1]);
@@ -38,7 +38,7 @@ import { sketch, strokes, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }), projection: 'klein' }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 5 });
-  const { cell } = tiles;
+  const cell = [...tiles.faces.at(0).points.filter((p) => p.corner)];
   // Five legs of the first cell, each a `step` of the cell's own side.
   const side = t.space.distance(cell[0], cell[1]);
   let st = t.placement(cell[0]).toward(cell[1]);
@@ -211,7 +211,7 @@ import { sketch, group, strokes, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 1 });
-  const { cell } = tiles;
+  const cell = [...tiles.faces.at(0).points.filter((p) => p.corner)];
   const stops = cell.map((v, i) => t.placement(v).toward(cell[(i + 1) % cell.length]));
   const arrow = [line(0, 0, 6, 0), line(6, 0, 3.4, 1.7), line(6, 0, 3.4, -1.7)];
   const motif = t.material(...arrow);
@@ -242,7 +242,7 @@ In the flat plane a step adds `distance · (cos h, sin h)`. In a curved space a 
 import { sketch, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
-  const { cell } = t.tiling(5, 4);
+  const cell = [...t.tiling(5, 4, { depth: 0 }).points.filter((p) => p.corner)];
   const side = t.space.distance(cell[0], cell[1]);
   let st = t.placement(cell[0]).toward(cell[1]);
   const start = st;
@@ -261,13 +261,12 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
 ## t.tiling()
 
 <include>/_sig/Toolkit.tiling.mdx</include>
-<include>/_sig/Tiling.cell.mdx</include>
 
 <AutoTypeTable path="../occlude/src/tiling.ts" name="TilingOpts" />
 
 The regular tiling of `p`-gons, `q` at every corner. The symbol picks the geometry: `(p − 2)(q − 2)` below 4 is the sphere, 4 the plane, and above 4 the hyperbolic disk. `{3, 5}` is the icosahedron, `{4, 4}` the square grid, and `{7, 3}` the heptagonal tiling of the disk. The sketch's `space` must be the geometry of the symbol, and the error names the `space` a symbol needs.
 
-The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces` gives the cells. The tiling states its faces in the order that it reached them, and `tiles.faces.at(0)` is the first cell. `cell` is the first cell's corners, in order. The `source` of each face is the [placement](#placement) that carried the first cell there. So a motif in the cell goes to every copy: `tiles.faces.map((f) => group(f.source, motif))`. Every face carries `generation` (reflections from the first cell) and `mirrored` (1 for a copy that turns the plane over).
+The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces` gives the cells. The tiling states its faces in the order that it reached them, and `tiles.faces.at(0)` is the first cell. A curved wall is a geodesic, so a curved tiling holds each wall as samples between its two corners. Its point column `corner` is 1 at a corner and 0 at a sample. `tiles.faces.at(0).points.filter((p) => p.corner)` gives the corners of the first cell, in order. The `source` of each face is the [placement](#placement) that carried the first cell there. So a motif in the cell goes to every copy: `tiles.faces.map((f) => group(f.source, motif))`. Every face carries `generation` (reflections from the first cell) and `mirrored` (1 for a copy that turns the plane over).
 
 A curved tiling floods `depth` generations of reflection across the cell's edges. A spherical tiling is finite and comes back whole. Its curvature fixes the side, so it refuses `side`, and it stands on the centre of its chart, so it refuses `origin`. Below, a `{7, 3}`, with the mirrored cells hatched blue.
 
@@ -327,7 +326,7 @@ export default sketch({ aspect: [1, 1], seed: 1, space: space.hyperbolic({ radiu
   inset: pen({ width: mm(0.2), color: '#2457D6' }),
 } }, (t) => {
   const tiles = t.tiling(7, 3, { depth: 3 });
-  const field = t.distanceTo(tiles.cell);
+  const field = t.distanceTo(tiles.faces.at(0));
   // The deepest point of the cell is its centre, and the field reads it there.
   const deep = field(...t.space.center);
   const insets = t.isolines(field, [0.25, 0.5, 0.75].map((u) => deep * u), { step: mm(0.4) });
@@ -379,7 +378,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radiu
 } }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 4 });
   // The field of one cell, in the space: 0 on its walls, negative outside.
-  const near = t.distanceTo(tiles.cell);
+  const near = t.distanceTo(tiles.faces.at(0));
   // Each cell's hatch spacing grows with the cell's distance from that one,
   // measured in the space at the cell's centroid.
   const hatchAt = (f) => fill('hatch', { angle: 30, spacing: mm(0.5 + Math.max(0, -near(...f.centroid)) / 10) });

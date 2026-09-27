@@ -18,9 +18,9 @@ import { describe, expect, it } from 'vitest';
 import type { Placement } from '../src/placement.js';
 import { faceTableOf } from '../src/faces.js';
 import { toolkit } from './helpers/run.js';
-import { space, strokes, Material, Tiling } from '../src/index.js';
+import { space, strokes, Material } from '../src/index.js';
 import { geodesicBow } from '../src/record.js';
-import { rec } from './helpers/xy.js';
+import { firstCell, rec } from './helpers/xy.js';
 
 /** The three cases, built once each. */
 const flat = () => toolkit({ aspect: [1, 1] });
@@ -29,20 +29,20 @@ const ball = () => toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30
 
 // A flat tiling covers the drawable; squares of 20 about the middle,
 // turned square to the sheet, fit it exactly, so no cell is cut.
-const square = (): Tiling => flat().tiling(4, 4, { side: 20, rotate: 45 });
-const heptagons = (): Tiling => disk().tiling(7, 3, { depth: 3 });
-const icosahedron = (): Tiling => ball().tiling(3, 5);
+const square = (): Material => flat().tiling(4, 4, { side: 20, rotate: 45 });
+const heptagons = (): Material => disk().tiling(7, 3, { depth: 3 });
+const icosahedron = (): Material => ball().tiling(3, 5);
 
 /** Rows of the corners (the vertices a cell has an angle at) and of the
  * samples (the interior points of a wall). */
-const cornerRows = (m: Tiling): number[] => (m.attrs.corner ? [...m.attrs.corner].flatMap((v, i) => (v === 1 ? [i] : [])) : Array.from({ length: m.n }, (_, i) => i));
-const sampleCount = (m: Tiling): number => m.n - cornerRows(m).length;
+const cornerRows = (m: Material): number[] => (m.attrs.corner ? [...m.attrs.corner].flatMap((v, i) => (v === 1 ? [i] : [])) : Array.from({ length: m.n }, (_, i) => i));
+const sampleCount = (m: Material): number => m.n - cornerRows(m).length;
 
 /**
  * The walls: each one from corner to corner, through its own samples.
  * A sample has degree 2 and belongs to one wall, so the walk is forced.
  */
-function walls(m: Tiling): { a: number; b: number; through: number[] }[] {
+function walls(m: Material): { a: number; b: number; through: number[] }[] {
   const corner = m.attrs.corner ?? new Float64Array(m.n).fill(1);
   const at: number[][] = Array.from({ length: m.n }, () => []);
   for (let e = 0; e < m.edgeCount; e++) {
@@ -84,11 +84,17 @@ describe('a tiling is a material of shared corners and shared walls', () => {
         expect(seen.has(key)).toBe(false);
         seen.add(key);
       }
-      // A material verb answers a plain material: a warped tiling is no
-      // longer a tiling.
-      const moved = tiles.move([1, 0]);
-      expect(moved).toBeInstanceOf(Material);
-      expect(moved).not.toBeInstanceOf(Tiling);
+    }
+  });
+
+  it('is a plain material: its geometry is its space, its first cell face 0', () => {
+    for (const [tiles, kind] of [[square(), 'euclidean'], [heptagons(), 'hyperbolic'], [icosahedron(), 'spherical']] as const) {
+      expect(Object.getPrototypeOf(tiles)).toBe(Material.prototype);
+      expect(Object.isFrozen(tiles)).toBe(true);
+      expect(tiles.space?.kind).toBe(kind);
+      // Face 0 is the fundamental cell: the identity carries it.
+      const first = tiles.faces.at(0).source as Placement;
+      for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBe(0);
     }
   });
 
@@ -97,9 +103,10 @@ describe('a tiling is a material of shared corners and shared walls', () => {
       // Every corner row is the image of some cell corner, and every image
       // of a cell corner is a corner row.
       const rows = new Set(cornerRows(tiles));
+      const cell = firstCell(tiles);
       let hits = 0;
       for (const place of tiles.faces.map((f) => f.source as Placement)) {
-        for (const v of tiles.cell) {
+        for (const v of cell) {
           const want = place.point(v);
           let best = Infinity;
           for (const row of rows) best = Math.min(best, Math.hypot(tiles.x[row] - want[0], tiles.y[row] - want[1]));
@@ -107,7 +114,7 @@ describe('a tiling is a material of shared corners and shared walls', () => {
           hits++;
         }
       }
-      expect(hits).toBe(tiles.faces.map((f) => f.source as Placement).length * tiles.cell.length);
+      expect(hits).toBe(tiles.faces.length * cell.length);
     }
   });
 
@@ -190,7 +197,7 @@ describe('the faces are the cells', () => {
       const cells = tiles.faces;
       // The first face is the cell itself, the identity placement's copy.
       const first = cells.at(0).source as Placement;
-      for (const v of tiles.cell) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBeLessThan(1e-9);
+      for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBeLessThan(1e-9);
       expect(cells.at(0).generation).toBe(0);
       const seen = new Set<Placement>();
       for (const f of cells) {
@@ -269,19 +276,19 @@ describe('side is the plane\'s own setting', () => {
     expect(() => ball().tiling(3, 5, { side: 4 })).toThrow(/has the side its curvature fixes/);
     // The number it names is the metric side of the cell.
     const t = disk();
-    const cell = t.tiling(7, 3, { depth: 0 }).cell;
+    const cell = firstCell(t.tiling(7, 3, { depth: 0 }));
     const want = t.space.distance(cell[0], cell[1]);
     expect(() => t.tiling(7, 3, { side: 10 })).toThrow(new RegExp(`fixes, ${want.toFixed(2)} here`));
   });
 });
 
-describe('each symbol answers through cell and placements in its own space', () => {
+describe('each symbol answers through its first cell and placements in its own space', () => {
   it('keeps the plane on a flat sheet and the sphere in a spherical sketch', () => {
     for (const [t, p, q, n, opts] of [[flat(), 4, 4, 25, { side: 20, rotate: 45 }], [ball(), 3, 5, 20, { depth: 2 }]] as const) {
       const tiles = t.tiling(p, q, opts);
       expect(tiles.faces.map((f) => f.source as Placement).length).toBe(n);
-      expect(tiles.cell.length).toBe(p);
-      for (const v of tiles.cell) expect(Number.isFinite(v[0]) && Number.isFinite(v[1])).toBe(true);
+      expect(firstCell(tiles).length).toBe(p);
+      for (const v of firstCell(tiles)) expect(Number.isFinite(v[0]) && Number.isFinite(v[1])).toBe(true);
     }
   });
 });

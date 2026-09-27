@@ -33,7 +33,7 @@ import { type Execution } from '../src/host.js';
 import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
-import { xy } from './helpers/xy.js';
+import { firstCell, xy } from './helpers/xy.js';
 
 type Kit = Toolkit & { exec: Execution };
 
@@ -318,7 +318,7 @@ describe('a tiling moved so a wall passes a pole', () => {
    * facing along the parallel: the placement between them lays that wall
    * past the pole at distance `d`. */
   const pass = (d: number) => {
-    const [A, B] = tiles.cell;
+    const [A, B] = firstCell(tiles);
     const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
     return from.inverse().then(t.placement([57, TOP + d]));
   };
@@ -410,7 +410,7 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
   const geodesics = (P: { point: (p: [number, number]) => [number, number] | number[] }): [number, number][] => {
     const out: [number, number][] = [];
     for (const f of tiles.faces.map((f) => f.source as Placement)) {
-      const cell = tiles.cell.map((v) => f.point(v) as [number, number]);
+      const cell = firstCell(tiles).map((v) => f.point(v) as [number, number]);
       for (let k = 0; k < cell.length; k++) {
         const u = P.point(cell[k]) as [number, number];
         const v = P.point(cell[(k + 1) % cell.length]) as [number, number];
@@ -427,7 +427,7 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
   for (const d of [null, 0, 0.1, 0.5, 2]) {
     it(d === null ? 'inks the unmoved icosahedron within 0.1 mm of its geodesics' : `inks it within 0.1 mm of its geodesics carried ${d} from the pole`, () => {
       const P = d === null ? null : (() => {
-        const [A, B] = tiles.cell;
+        const [A, B] = firstCell(tiles);
         const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
         return from.inverse().then(t.placement([57, TOP + d]));
       })();
@@ -448,7 +448,7 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
   // are judged where no placement can change them.
   for (const d of [0, 0.1, 0.5, 2]) {
     it(`inks it moved by m.transform ${d} from the pole within 0.1 mm of its geodesics`, () => {
-      const [A, B] = tiles.cell;
+      const [A, B] = firstCell(tiles);
       const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
       const P = from.inverse().then(t.placement([57, TOP + d]));
       const off = index(geodesics(P));

@@ -27,7 +27,7 @@ import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/rec
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
 import type { Space } from '../src/space.js';
-import { xy } from './helpers/xy.js';
+import { firstCell, xy } from './helpers/xy.js';
 import { selectionIn } from '../src/selection.js';
 
 type Kit = Toolkit & { exec: Execution };
@@ -563,7 +563,7 @@ describe('a tiling hands back placements', () => {
     const t = disk();
     const tl = t.tiling(5, 4, { depth: 2 });
     for (const p of tl.faces.map((f) => f.source as Placement)) expect(isPlacement(p)).toBe(true);
-    for (const v of tl.cell) near(tl.faces.map((f) => f.source as Placement)[0].point(v), v, 9);
+    for (const v of firstCell(tl)) near(tl.faces.map((f) => f.source as Placement)[0].point(v), v, 9);
     // An odd generation turns the plane over, and the placement says so.
     expect(tl.faces.map((f) => f.source as Placement).slice(1, 6).every((p) => p.orientation === -1)).toBe(true);
   });

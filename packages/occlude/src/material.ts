@@ -942,9 +942,7 @@ export class Material {
     Object.freeze(this.transfers);
     Object.freeze(this.edgeTransfers);
     Object.freeze(this.history);
-    // A subclass — a `Tiling` — has its own members to set, so it freezes
-    // itself. Every material a sketch holds is frozen either way.
-    if (new.target === Material) Object.freeze(this);
+    Object.freeze(this);
   }
 
   // ---- the flat columns: the kernels' door ----

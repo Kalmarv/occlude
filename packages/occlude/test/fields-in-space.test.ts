@@ -30,7 +30,7 @@ import { apply, invert, mul, scale as mscale } from '../src/matrix.js';
 import { decodePrim, PRIM_STRIDE } from '../src/sceneBuffers.js';
 import { densityRaster, settleMaterial } from '../src/points.js';
 import { fromSheet, spaceAreaNearest, type Space } from '../src/space.js';
-import { xy } from './helpers/xy.js';
+import { firstCell, xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -414,7 +414,6 @@ describe('a material carries the space its coordinates belong to', () => {
     }
     const hyp = toolkit(HYP);
     expect(hyp.tiling(5, 4, { depth: 1 }).space).toBe(hyp.space);
-    expect(hyp.tiling(5, 4, { depth: 1 }).geometry).toBe('hyperbolic');
   });
 });
 
@@ -504,7 +503,7 @@ describe('forces measure with the space', () => {
     const keep = t.force.boundary(area, { radius: 6, strength: 2 });
     const near = spaceAreaNearest(t.space, area.map((c) => ({ pts: c.pts, closed: true })));
     let checked = 0;
-    const corners = tiles.cell as Pt[];
+    const corners = firstCell(tiles) as Pt[];
     for (let k = 0; k < corners.length; k++) {
       // A point a little way in from the middle of each wall, where that
       // wall is the one nearest.

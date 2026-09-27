@@ -156,8 +156,7 @@ export type { Space, SpaceKind, SpaceSpec, CurvatureSpec, SpaceOption, Projectio
 // geometries: the Schläfli symbol picks the sphere, the plane or the disk,
 // and the answer is a material of shared walls whose faces are the cells,
 // each with its placement as `source`, the same shape in each.
-export { Tiling } from './tiling.js';
-export type { TilingGeometry, TilingOpts } from './tiling.js';
+export type { TilingOpts } from './tiling.js';
 // Seeds → arrival times (fast marching): the distance a walk actually
 // takes, with walls and a slow ground. `t.travelTime` is the word.
 export type { TravelOpts } from './travel.js';

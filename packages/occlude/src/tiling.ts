@@ -8,13 +8,17 @@
  * `{7, 3}` is the heptagonal tiling of the disk, and one word draws all
  * three. Only `p` or `q` below 3 is a mistake.
  *
- * The answer is GEOMETRY: a `Material` whose vertices and walls are
+ * The answer is GEOMETRY: a plain `Material` whose vertices and walls are
  * SHARED, so a wall between two cells is one edge and a plotter draws it
  * once, and whose faces are the cells, STATED in the order the flood
  * reached them. A face knows its `generation` and its hand (`mirrored`),
  * and its `source` is the `Placement` that carried the fundamental polygon
- * (`cell`) there, the identity first, so a sketch maps a motif through the
- * isometries with `tiles.faces.map((f) => group(f.source, motif))`.
+ * there, the identity first, so a sketch maps a motif through the
+ * isometries with `tiles.faces.map((f) => group(f.source, motif))`. The
+ * fundamental polygon is face 0. A curved wall is carried as samples, and
+ * the point column `corner` is 1 at a cell's corners — the first cell's
+ * come first, in order round it — and 0 at the samples. The geometry is
+ * the material's own `space.kind`.
  *
  * A flat symbol — `{4, 4}`, `{3, 6}`, `{6, 3}` — COVERS THE DRAWABLE: the
  * flood runs until every cell that reaches the drawable is found, every
@@ -34,8 +38,8 @@
  */
 
 import type { Origin } from './shapes.js';
-import { statedColumns, type StatedFaces } from './faces.js';
-import { Material, mintIds, type FaceColumn } from './material.js';
+import { statedColumns } from './faces.js';
+import { Material, mintIds } from './material.js';
 import type { Rect } from './layout.js';
 import { act, identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
 import { chordMiddle, metricGap, modelGap } from './chord.js';
@@ -77,53 +81,9 @@ export interface TilingOpts {
   gap?: L;
 }
 
-/** Which geometry a Schläfli symbol demands — the same three words the
- * sketch's own `space` is named by, so `t.tiling(p, q).geometry` and
- * `t.space.kind` are comparable. */
-export type TilingGeometry = SpaceKind;
-
-/**
- * One regular tiling: a `Material` of shared corners and shared walls,
- * whose faces are the cells, and its fundamental polygon.
- *
- * It IS a material, so every material word reads it — `strokes(tiles)`
- * draws each wall ONCE, `tiles.faces` hands back the cells, a point
- * selection picks corners, `t.within` cuts it. A material verb answers a
- * plain `Material`: a warped tiling is no longer a tiling, though a move
- * or a column write keeps its cells.
- */
-export class Tiling extends Material {
-  /** The geometry the symbol belongs to, and the chart `cell` is written
-   * in: a NAME, where `space` — which every material has — is the space
-   * record itself. */
-  readonly geometry: TilingGeometry;
-  /**
-   * The fundamental polygon, `p` vertices in order, one of them on the
-   * positive x axis. Its edges are GEODESICS of that geometry; joined up
-   * straight they are the chords, which is a different picture. The
-   * material's own walls carry the geodesic as samples.
-   */
-  readonly cell: Vec[];
-
-  /** @internal Use `t.tiling(p, q)`. */
-  constructor(
-    x: Float64Array,
-    y: Float64Array,
-    attrs: Record<string, Float64Array>,
-    edgeList: Uint32Array,
-    carry: { ids?: { points?: Float64Array; edges?: Float64Array }; faceAttrs?: Record<string, FaceColumn>; space?: Space; faces?: StatedFaces },
-    tiling: { geometry: TilingGeometry; cell: Vec[] },
-  ) {
-    super(x, y, attrs, edgeList, carry);
-    this.geometry = tiling.geometry;
-    this.cell = Object.freeze(tiling.cell) as Vec[];
-    Object.freeze(this);
-  }
-}
-
 /** `(p − 2)(q − 2)` against 4 is the whole test, of a symbol that is one:
  * whole numbers of 3 or more. */
-export function tilingGeometry(p: number, q: number): TilingGeometry {
+export function tilingGeometry(p: number, q: number): SpaceKind {
   if (!Number.isInteger(p) || !Number.isInteger(q) || p < 3 || q < 3) {
     throw new Error(`tiling: p and q are whole numbers of 3 or more (got ${p}, ${q})`);
   }
@@ -175,7 +135,7 @@ export function tileOps(door: ModelDoor, centre: Model): TileOps<Placement> {
  * sign the geometry itself supplies. The Euclidean case has no such
  * radius — its cells come in every size — so it takes an edge of 1.
  */
-export function modelCell(geometry: TilingGeometry, p: number, q: number): Vec[] {
+export function modelCell(geometry: SpaceKind, p: number, q: number): Vec[] {
   const u = Math.PI / p;
   const v = Math.PI / q;
   const r = geometry === 'euclidean'
@@ -425,7 +385,7 @@ const CLOSURE = 16;
  * tiling is FINITE — there are only ever 4, 6, 8, 12 or 20 cells — so it
  * is returned whole and `depth` is ignored rather than refused.
  *
- * The `Tiling` is built HERE and not in the toolkit: once it has the door
+ * The material is built HERE and not in the toolkit: once it has the door
  * it needs no frame, and a material is the answer rather than a step on
  * the way to one. `side` is resolved before this — it is a length, and a
  * length is the frame's business.
@@ -435,7 +395,7 @@ export function tiling(
   q: number,
   opts: TilingOpts,
   place: { door: ModelDoor; up: (z: XY) => Vec; bow: number; space?: Space },
-): Tiling {
+): Material {
   const geometry = tilingGeometry(p, q);
   const cell = modelCell(geometry, p, q).map(place.up);
   const depth = geometry === 'spherical'
@@ -452,7 +412,7 @@ export function tiling(
   const edges = mintIds(mesh.edgeList.length / 2);
   const cycles = mesh.cycles.map((run) => [run]);
   const placed = mesh.kept.map((k) => flood.tiles[k]);
-  return new Tiling(
+  return new Material(
     mesh.x,
     mesh.y,
     { corner: mesh.corner },
@@ -466,7 +426,6 @@ export function tiling(
       space: place.space,
       faces: { cycles, source: (f) => placed[f], edgeList: mesh.edgeList, edgeIds: edges },
     },
-    { geometry, cell },
   );
 }
 
@@ -479,11 +438,12 @@ export function tiling(
  * Each copy is then shrunk by `gap` (a length in the sketch's units), cut
  * to the drawable and welded to its neighbours, so a wall two cells share
  * is one edge. A flat wall is straight, so there are no samples, and no
- * `corner` column: every point is a corner or where the drawable cuts. The faces come in flood order and carry `generation`,
- * `mirrored`, and the lattice coordinates `i` and `j`: for `{6, 3}` the
- * axial pair, for `{4, 4}` the two edge directions, and for `{3, 6}` the
- * row `j` and the place `i` along it, an even `i` the fundamental cell's
- * way round and an odd one turned. `down` carries a sketch point back to
+ * `corner` column: every point is a corner or where the drawable cuts.
+ * The faces come in flood order and carry `generation`, `mirrored`,
+ * and the lattice coordinates `i` and `j`: for `{6, 3}` the axial pair,
+ * for `{4, 4}` the two edge directions, and for `{3, 6}` the row `j` and
+ * the place `i` along it, an even `i` the fundamental cell's way round
+ * and an odd one turned. `down` carries a sketch point back to
  * the model chart, where the lattice is read.
  */
 export function coverTiling(
@@ -491,7 +451,7 @@ export function coverTiling(
   q: number,
   gap: number,
   place: { door: ModelDoor; up: (z: XY) => Vec; down: (v: Vec) => Vec; side: number; space?: Space; bounds: Rect },
-): Tiling {
+): Material {
   const geometry = tilingGeometry(p, q);
   if (geometry !== 'euclidean') throw new Error(`tiling: {${p}, ${q}} is not a flat tiling`);
   const model = modelCell(geometry, p, q);
@@ -508,7 +468,7 @@ export function coverTiling(
   // A mid-edit zero, a non-finite place, or a gap that eats the cell:
   // nothing to lay out.
   const finite = Number.isFinite(place.side) && cell.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-  if (!finite || !(k > 0) || !(r.w > 0) || !(r.h > 0)) return new Tiling(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: place.space }, { geometry, cell });
+  if (!finite || !(k > 0) || !(r.w > 0) || !(r.h > 0)) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: place.space });
   // The box a copy must reach to be kept: the drawable's, grown to take in
   // the fundamental cell wherever the origin put it.
   let hx0 = bx0;
@@ -602,7 +562,7 @@ export function coverTiling(
   const edgeList = Uint32Array.from(edges);
   const points = mintIds(xs.length);
   const edgeIds = mintIds(edgeList.length / 2);
-  return new Tiling(
+  return new Material(
     Float64Array.from(xs),
     Float64Array.from(ys),
     {},
@@ -618,7 +578,6 @@ export function coverTiling(
       space: place.space,
       faces: { cycles, source: (f) => faces[f].m, edgeList, edgeIds },
     },
-    { geometry, cell },
   );
 }
 

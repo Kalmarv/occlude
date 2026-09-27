@@ -33,7 +33,7 @@ const entryHost = join(pkg, 'src/host.ts');
 
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
-  Material: 'm', Tiling: 'tiles', Face: 'face', Edge: 'edge', Vertex: 'p',
+  Material: 'm', Face: 'face', Edge: 'edge', Vertex: 'p',
   Selection: 'sel', Curve: 'c', Placement: 'placement', Lattice: 'l', Toolkit: 't', '3d.Honeycomb': 'h',
   connect: 'connect', force: 'force', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
@@ -48,7 +48,7 @@ const PAGE: Record<string, string> = {
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   HatchParams: 'fills', CrosshatchParams: 'fills', SolidParams: 'fills', StippleParams: 'fills', ContourParams: 'fills', BuiltinFillName: 'fills', FillParams: 'fills',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
-  Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry', TransformOp: 'transforms',
+  Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', TransformOp: 'transforms',
   Honeycomb: 'geometry', HoneycombFace: 'geometry',
   ViewObjectOptions: '3d/view', ViewOptions: '3d/view', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
@@ -140,21 +140,7 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 /** An owner whose exported name is a type over kinds: the interface of the
  * kind its page documents. */
 const OWNER_KINDS: Record<string, string> = { Placement: 'PlanePlacement' };
-const OWNERS = ['ImageSampler', 'Material', 'Tiling', 'Face', 'Edge', 'Vertex', 'Curve', 'Placement', 'Lattice', 'Toolkit'];
-
-/**
- * A subclass owns only what it adds. `Tiling` is a `Material`, so every
- * word it inherits is already written under `Material.*` on the material
- * page; writing them again under `Tiling.*` would say the same line twice
- * and invite a page to include the wrong one.
- */
-function declaredHere(owner: string, sym: ts.Symbol): boolean {
-  const decl = sym.valueDeclaration ?? sym.declarations?.[0];
-  const parent = decl?.parent;
-  if (!parent || !(ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent))) return true;
-  const from = parent.name?.text;
-  return from === undefined || from === owner || !OWNERS.includes(from);
-}
+const OWNERS = ['ImageSampler', 'Material', 'Face', 'Edge', 'Vertex', 'Curve', 'Placement', 'Lattice', 'Toolkit'];
 const NAMESPACES = ['connect', 'force', 'ease', 'sdf'];
 /** A namespace that holds one of its own: its words are its members, keyed
  * `parent.child.word`. Without this the parent would print the whole
@@ -282,7 +268,7 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
       const kind = file && checker.getSymbolAtLocation(file)?.exports?.get(kinds as ts.__String);
       if (kind) t = checker.getDeclaredTypeOfSymbol(kind);
     }
-    for (const m of checker.getPropertiesOfType(t)) if (declaredHere(name, m)) member(name, m, t);
+    for (const m of checker.getPropertiesOfType(t)) member(name, m, t);
     continue;
   }
   if (NAMESPACES.includes(name) && decl) {

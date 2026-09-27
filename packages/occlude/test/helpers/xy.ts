@@ -20,3 +20,9 @@ export const rec = (c: { readonly points: Iterable<{ readonly x: number; readonl
   if (flags.some((g) => g)) out.geodesic = flags;
   return out;
 };
+
+/** A tiling's first cell, as `tiles.cell` once answered: face 0's corners
+ * round its loop, as pairs — every point of a flat cell, and the points a
+ * curved tiling's `corner` column marks. */
+export const firstCell = (m: { readonly faces: { at(i: number): { readonly corners: Iterable<{ readonly point: { readonly x: number; readonly y: number; readonly [column: string]: unknown } }> } } }): [number, number][] =>
+  Array.from(m.faces.at(0).corners, (c) => c.point).filter((p) => p.corner !== 0).map(xy);

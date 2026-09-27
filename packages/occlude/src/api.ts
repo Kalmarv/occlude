@@ -39,7 +39,7 @@ import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest,
 import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
 import { INK_TOL, carriedSpace, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { modelCell, coverTiling, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
+import { modelCell, coverTiling, tiling as tilingKernel, tilingGeometry, type TilingOpts } from './tiling.js';
 import { framePlacement, isPlacement, reflection as reflectionIn, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
@@ -1811,7 +1811,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /**
    * The regular `{p, q}` tiling, as geometry whose faces are the cells:
    * each face's `source` is the `Placement` that carried the fundamental
-   * cell there, the identity first.
+   * cell there, the identity first. The fundamental cell is face 0. A
+   * curved tiling's point column `corner` is 1 at a cell's corners and 0 at
+   * the samples of its walls.
    *
    * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
    * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
@@ -1829,11 +1831,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * by default). A curved symbol floods `depth` generations from the cell
    * at the chart's centre, its side fixed by the curvature.
    */
-  function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
+  function tilingTk(p: number, q: number, opts: TilingOpts = {}): Material {
     return record(tilingOf(p, q, opts), derivation('t.tiling', [], { p, q, ...opts }));
   }
 
-  function tilingOf(p: number, q: number, opts: TilingOpts): Tiling {
+  function tilingOf(p: number, q: number, opts: TilingOpts): Material {
     const geometry = tilingGeometry(p, q);
     const sp = exec.space;
     if (sp.kind !== geometry) {
