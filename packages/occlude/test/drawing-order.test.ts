@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initOcclude, render, renderAsync, sketch, line, polygon, rect, fill, strokes, pen, mm, evalPrim, type RenderResult } from '../src/index.js';
+import { sketch, line, polygon, rect, fill, strokes, pen, mm, type Toolkit } from '../src/index.js';
+import { initOcclude, render, renderAsync, evalPrim, type RenderResult } from '../src/host.js';
 import { box, plane, sphere, view, orthographic } from '../src/three/api/index.js';
 import type { ProjectedLines } from '../src/three/api/projected.js';
 
@@ -49,7 +50,7 @@ describe('angles are clockwise on the sheet', () => {
     expect(tip(out)[1]).toBeCloseTo(180, 6);
   });
   it('points a station heading of 90 down the page', () => {
-    const out = render(sketch({ aspect: [1, 1] }, (t) => { const s = t.station(50, 50, { heading: 90 }).step(40); return line(50, 50, s.x, s.y); }), { paper: 'Square20' });
+    const out = render(sketch({ aspect: [1, 1] }, (t) => { const s = t.placement([50, 50], 90).step(40); return line(50, 50, s.x, s.y); }), { paper: 'Square20' });
     expect(tip(out)[1]).toBeCloseTo(180, 6);
   });
   it('turns the other way on the paper under yUp', () => {
@@ -93,7 +94,7 @@ describe('views', () => {
       return Math.abs(a[0] - cx) < 3 && Math.min(a[1], b[1]) < cy && Math.max(a[1], b[1]) > cy;
     });
   };
-  const grain = (t: { width: number; height: number }) => polygon(rect(0, 0, t.width, t.height), { fill: fill('hatch', { angle: 90, spacing: mm(1) }), stroke: false, pen: 'blue' });
+  const grain = (t: Toolkit) => polygon(rect(0, 0, t.bounds().w, t.bounds().h), { fill: fill('hatch', { angle: 90, spacing: mm(1) }), stroke: false, pen: 'blue' });
   const cube = view(box(2), { camera, pen: 'black' });
   it('hides nothing drawn before a view', async () => {
     const out = await renderAsync(sketch({ aspect: [1, 1], pens }, (t) => [grain(t), cube]), { paper: 'Square20' });

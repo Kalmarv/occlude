@@ -26,10 +26,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { line, rect, space, stroke, strokes, type Execution, type Placement, type ShapeValue, type Toolkit } from '../src/index.js';
+import {
+  line, rect, space, stroke, strokes, type Placement, type ShapeValue, type Toolkit,
+} from '../src/index.js';
+import { type Execution } from '../src/host.js';
 import { geodesicBow, lowerShape, lowerToUserContours, unitMm } from '../src/record.js';
 import { Shape } from '../src/shapes.js';
 import type { TransformOp } from '../src/execution.js';
+import { firstCell, xy } from './helpers/xy.js';
 
 type Kit = Toolkit & { exec: Execution };
 
@@ -114,7 +118,7 @@ describe('a coordinate segment across the tear of the sphere', () => {
     expect(Math.abs(len - want) / want).toBeLessThan(1e-6);
     // `t.material` hands back the same continuous run.
     const m = t.material(stroke([[a, Y], [b, Y]]));
-    for (const d of steps(m.pts as [number, number][])) expect(Math.abs(d)).toBeLessThan(half);
+    for (const d of steps(m.points.map(xy) as [number, number][])) expect(Math.abs(d)).toBeLessThan(half);
   });
 
   it('inks the short arc, near the two ends, and not the long way round the picture', () => {
@@ -314,9 +318,9 @@ describe('a tiling moved so a wall passes a pole', () => {
    * facing along the parallel: the placement between them lays that wall
    * past the pole at distance `d`. */
   const pass = (d: number) => {
-    const [A, B] = tiles.cell;
-    const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
-    return t.station([57, TOP + d]).placement({ from });
+    const [A, B] = firstCell(tiles);
+    const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
+    return from.inverse().then(t.placement([57, TOP + d]));
   };
   /** The moved SOURCE curve near the pole: every edge's flat segment, read
    * the short way round as the ink reads it, sampled finely, moved. */
@@ -405,8 +409,8 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
    * true geodesic and projected. */
   const geodesics = (P: { point: (p: [number, number]) => [number, number] | number[] }): [number, number][] => {
     const out: [number, number][] = [];
-    for (const f of tiles.placements) {
-      const cell = tiles.cell.map((v) => f.point(v) as [number, number]);
+    for (const f of tiles.faces.map((f) => f.source as Placement)) {
+      const cell = firstCell(tiles).map((v) => f.point(v) as [number, number]);
       for (let k = 0; k < cell.length; k++) {
         const u = P.point(cell[k]) as [number, number];
         const v = P.point(cell[(k + 1) % cell.length]) as [number, number];
@@ -423,9 +427,9 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
   for (const d of [null, 0, 0.1, 0.5, 2]) {
     it(d === null ? 'inks the unmoved icosahedron within 0.1 mm of its geodesics' : `inks it within 0.1 mm of its geodesics carried ${d} from the pole`, () => {
       const P = d === null ? null : (() => {
-        const [A, B] = tiles.cell;
-        const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
-        return t.station([57, TOP + d]).placement({ from });
+        const [A, B] = firstCell(tiles);
+        const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
+        return from.inverse().then(t.placement([57, TOP + d]));
       })();
       const off = index(geodesics(P ?? { point: (p) => p }));
       const ink = inkOn(P);
@@ -444,9 +448,9 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
   // are judged where no placement can change them.
   for (const d of [0, 0.1, 0.5, 2]) {
     it(`inks it moved by m.transform ${d} from the pole within 0.1 mm of its geodesics`, () => {
-      const [A, B] = tiles.cell;
-      const from = t.station(t.space.geodesic(A, B, 0.5)).toward(B);
-      const P = t.station([57, TOP + d]).placement({ from });
+      const [A, B] = firstCell(tiles);
+      const from = t.placement(t.space.geodesic(A, B, 0.5)).toward(B);
+      const P = from.inverse().then(t.placement([57, TOP + d]));
       const off = index(geodesics(P));
       const ink = strokes(tiles.transform(P)).flatMap((sv) => inked(t, sv)).flat()
         .filter((q) => q[0] >= 0 && q[0] <= 100 && q[1] >= 0 && q[1] <= 100);

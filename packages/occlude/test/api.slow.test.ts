@@ -3,13 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  liveExampleToJs,
-  compileSketch,
-  fill,
-  circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
-  line, mask, mm, ngon, polygon, rect, render, sketch, w, material, connect } from '../src/index.js';
-import { evalPrim } from '../src/index.js';
-import type { Fragment, Prim, RenderOptions, SketchDef } from '../src/index.js';
+  fill, circle, clip, ellipse, group, line, mask, mm, ngon, path, polygon, rect, s, sketch, svg, w, material, connect,
+} from '../src/index.js';
+import {
+  liveExampleToJs, compileSketch, exportGcode, exportPng, exportSvg, initOcclude, render,
+} from '../src/host.js';
+import { evalPrim } from '../src/host.js';
+import type { ModifierValue, SketchDef, Toolkit, Tree } from '../src/index.js';
+import type { Fragment, Prim, RenderOptions } from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -47,7 +48,7 @@ describe('occlude declarative api', () => {
   });
 
   it('tree order is draw order; nesting and falsy entries flatten away', () => {
-    const def = sketch({ seed: 1 }, ({ path }) => [
+    const def = sketch({ seed: 1 }, () => [
       line(0, 50, 100, 50),
       false,
       null,
@@ -62,11 +63,11 @@ describe('occlude declarative api', () => {
   });
 
   it('fill on an open path throws at compile', () => {
-    const open = sketch({ seed: 1 }, ({ path }) => [
+    const open = sketch({ seed: 1 }, () => [
       path().moveTo(0, 0).lineTo(10, 10).build({ fill: fill('hatch') }),
     ]);
     expect(() => sq(open)).toThrow(/open/);
-    const closed = sketch({ seed: 1 }, ({ path }) => [
+    const closed = sketch({ seed: 1 }, () => [
       path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).close().build({ fill: fill('hatch') }),
     ]);
     expect(() => sq(closed)).not.toThrow();
@@ -94,7 +95,7 @@ describe('occlude declarative api', () => {
   });
 
   it('clip() restricts children; the region is not drawn', () => {
-    const def = sketch({ seed: 1 }, ({ clip }) =>
+    const def = sketch({ seed: 1 }, () =>
       clip(circle(50, 50, 25), line(0, 50, 100, 50)),
     );
     const out = sq(def);
@@ -130,7 +131,7 @@ describe('occlude declarative api', () => {
   });
 
   it('group() composes transforms', () => {
-    const def = sketch({ seed: 1 }, ({ group }) => [
+    const def = sketch({ seed: 1 }, () => [
       group({ translate: [20, 0] }, group({ translate: [0, 30] }, circle(0, 0, 10))),
       circle(20, 30, 10),
     ]);
@@ -148,7 +149,7 @@ describe('occlude declarative api', () => {
   });
 
   it('rotation pivots around the user origin, not the paper corner', () => {
-    const def = sketch({ aspect: [1, 1], seed: 1, origin: 'center' }, ({ group }) =>
+    const def = sketch({ aspect: [1, 1], seed: 1, origin: 'center' }, () =>
       [0, 30, 45, 137].map((deg) => group({ rotate: deg }, rect(-10, -4, 20, 8))),
     );
     const out = sq(def);
@@ -178,7 +179,7 @@ describe('occlude declarative api', () => {
 
   it('stipples stay inside rotated rounded rects (reported seeds)', () => {
     for (const seed of [556023384, 1026822258, 376656802, 219337517, 2058254706, 600858359, 1592708539, 1788219583, 1635323682, 1718006969, 2056267948]) {
-      const def = sketch({ aspect: [1, 1], seed, origin: 'center', margin: 6 }, ({ group }) =>
+      const def = sketch({ aspect: [1, 1], seed, origin: 'center', margin: 6 }, () =>
         Array.from({ length: 100 }, (_, i) =>
           group({ rotate: i },
             rect(-10, -4, 20, 8, 10, { fill: fill('stipple', { density: 1 }), fillPen: 'stabilo-88-green' })),
@@ -220,7 +221,7 @@ describe('occlude declarative api', () => {
   });
 
   it('units resolve against the right axes; grid tiles the drawable', () => {
-    const def = sketch({ seed: 1 }, ({ s }) => [
+    const def = sketch({ seed: 1 }, () => [
       line(0, 0, w(100), 0),
       line(0, 0, mm(50), 0),
       line(10, 0, 10, s(100)), // s spans the LONG axis (vertical on A4 portrait)
@@ -234,9 +235,9 @@ describe('occlude declarative api', () => {
 
     const gridDef = sketch({ aspect: [2, 1], seed: 1 }, ({ grid, bounds }) => {
       const b = bounds();
-      const cells = grid({ cols: 4, rows: 2 });
-      const maxX = Math.max(...cells.map((c) => c.x + c.w));
-      const maxY = Math.max(...cells.map((c) => c.y + c.h));
+      const cells = grid({ cols: 4, rows: 2 }).faces;
+      const maxX = Math.max(...cells.map((c) => c.bounds.x + c.bounds.w));
+      const maxY = Math.max(...cells.map((c) => c.bounds.y + c.bounds.h));
       expect(maxX).toBeCloseTo(b.w, 9);
       expect(maxY).toBeCloseTo(b.h, 9);
       return line(0, 0, b.w, 0);
@@ -326,7 +327,7 @@ describe('occlude declarative api', () => {
   });
 
   it('path builder: build() snapshots, the builder stays extendable', () => {
-    const def = sketch({ seed: 1 }, ({ path, mask }) => {
+    const def = sketch({ seed: 1 }, () => {
       const crest = path().moveTo(0, 40).lineTo(50, 20).lineTo(100, 45);
       const ridgeLine = crest.build();
       const ridgeMask = mask(crest.lineTo(100, 100).lineTo(0, 100).close().build());
@@ -429,9 +430,9 @@ describe('occlude declarative api', () => {
     expect(box2(1)).toBeCloseTo(100, 6); // corner: left edge at x=50 → 100mm
   });
 
-  it('per-shape transforms match group transforms; toolkit exposes width/height', () => {
+  it('per-shape transforms match group transforms', () => {
     // A rotated rect via shape opts must land exactly where the group form does.
-    const def = sketch({ aspect: [1, 1], seed: 1, origin: 'center' }, ({ group }) => [
+    const def = sketch({ aspect: [1, 1], seed: 1, origin: 'center' }, () => [
       rect(-10, -4, 20, 8, { rotate: 30, translate: [5, 0] }),
       group({ rotate: 30, translate: [5, 0] }, rect(-10, -4, 20, 8)),
     ]);
@@ -440,15 +441,14 @@ describe('occlude declarative api', () => {
     expect(out.frags.every((f) => f.shape === 0)).toBe(true);
     expect(out.frags.length).toBeGreaterThan(0);
 
-    // Toolkit width/height/cx/cy are the same numbers bounds() returns.
+    // The drawable is `t.bounds()`: its size, corner and middle.
     const def2 = sketch({ aspect: [3, 2], seed: 1, margin: 5 }, (t) => {
-      expect(t.width).toBeCloseTo(150, 9);
-      expect(t.height).toBe(100);
-      expect(t.cx).toBeCloseTo(75, 9);
-      expect(t.cy).toBe(50);
       const b = t.bounds();
-      expect([b.w, b.h]).toEqual([t.width, t.height]);
-      return line(0, 0, t.width, 0);
+      expect(b.w).toBeCloseTo(150, 9);
+      expect(b.h).toBe(100);
+      expect(b.cx).toBeCloseTo(75, 9);
+      expect(b.cy).toBe(50);
+      return line(0, 0, b.w, 0);
     });
     const out2 = render(def2, { paper: { paper: { w: 300, h: 200 } } });
     // avail 280×180 after 10mm margins; 3:2 letterboxes to 270×180.
@@ -456,7 +456,7 @@ describe('occlude declarative api', () => {
   });
 
   it('off-paper shapes are culled', () => {
-    const def = sketch({ seed: 1 }, ({ group }) => [
+    const def = sketch({ seed: 1 }, () => [
       circle(50, 50, 10),
       group({ translate: [500, 0] }, circle(50, 50, 10)),
     ]);
@@ -477,8 +477,8 @@ describe('sequence helpers', () => {
     expect(range(3, 0, -1)).toEqual([3, 2, 1]);
 
     // The loop idiom end to end: 12 rects down the sheet.
-    const def = sketch({ aspect: [1, 1], seed: 1 }, ({ times, height }) =>
-      times(12, (_, t) => rect(10, t * (height - 10), 80, 4)),
+    const def = sketch({ aspect: [1, 1], seed: 1 }, (tk) =>
+      times(12, (_, t) => rect(10, t * (tk.bounds().h - 10), 80, 4)),
     );
     const out = sq(def);
     expect(new Set(out.frags.map((f) => f.shape)).size).toBe(12);
@@ -490,7 +490,7 @@ describe('decimate', () => {
     const { decimate } = await import('../src/index.js');
     const make = (p: number) =>
       sketch({ seed: 42 }, ({ times }) =>
-        decimate(p, times(60, (_, t) => line(5, 5 + t * 90, 95, 5 + t * 90))),
+        group({ modifiers: [decimate(p)] }, times(60, (_, t) => line(5, 5 + t * 90, 95, 5 + t * 90))),
       );
     const full = sq(make(0));
     const half = sq(make(0.5));
@@ -504,17 +504,22 @@ describe('decimate', () => {
     // decimate(1) deletes everything.
     expect(sq(make(1)).frags.length).toBe(0);
 
-    // Per-shape opt overrides the combinator default; exports see it too.
-    const mixed = sketch({ seed: 42 }, ({ times }) =>
-      decimate(1, [
-        times(10, (_, t) => line(5, 5 + t * 20, 95, 5 + t * 20)),
-        circle(50, 70, 10, { decimate: 0 }), // opts out
-      ]),
-    );
+    // A group's stack reaches only its own children; exports see it too.
+    const mixed = sketch({ seed: 42 }, ({ times }) => [
+      group({ modifiers: [decimate(1)] }, times(10, (_, t) => line(5, 5 + t * 20, 95, 5 + t * 20))),
+      circle(50, 70, 10),
+    ]);
     const out = sq(mixed);
     expect(out.frags.every((f) => f.shape === 10)).toBe(true);
     const svg = exportSvg(mixed, { paper: 'Square20' });
     expect((svg.match(/A[0-9.]+ /g) ?? []).length).toBeGreaterThan(0); // circle arcs present
+  });
+
+  it('a modifier is one spelling: a stack entry, never a shape or group option', async () => {
+    const { decimate } = await import('../src/index.js');
+    expect(() => rect(0, 0, 1, 1, { decimate: 0.5 } as never)).toThrow(/modifiers: \[decimate/);
+    expect(() => group({ wobble: mm(1) } as never, rect(0, 0, 1, 1))).toThrow(/modifiers: \[wobble/);
+    expect(decimate(0.5)).toMatchObject({ __occludeModifier: true, kind: 'decimate' });
   });
 });
 
@@ -522,7 +527,7 @@ describe('decimate', () => {
     const { decimate } = await import('../src/index.js');
     // fill: 1 → hatch fully erased, outline intact.
     const fillOnly = sketch({ seed: 7 }, () => [
-      rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }), decimate: { fill: 1 } }),
+      rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }), modifiers: [decimate({ fill: 1 })] }),
     ]);
     const out = sq(fillOnly);
     expect(out.frags.filter((f) => f.origin >= 4)).toHaveLength(0); // no fill ink
@@ -530,15 +535,15 @@ describe('decimate', () => {
 
     // stroke: 1 → outline gone, hatch intact.
     const strokeOnly = sketch({ seed: 7 }, () => [
-      rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }), decimate: { stroke: 1 } }),
+      rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }), modifiers: [decimate({ stroke: 1 })] }),
     ]);
     const out2 = sq(strokeOnly);
     expect(out2.frags.filter((f) => f.origin < 4)).toHaveLength(0);
     expect(out2.frags.filter((f) => f.origin >= 4).length).toBeGreaterThan(10);
 
-    // Combinator accepts the object form too.
+    // A group's stack takes the object form too.
     const viaCombinator = sketch({ seed: 7 }, () =>
-      decimate({ fill: 1 }, rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }) })),
+      group({ modifiers: [decimate({ fill: 1 })] }, rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }) })),
     );
     const out3 = sq(viaCombinator);
     expect(out3.frags.filter((f) => f.origin >= 4)).toHaveLength(0);
@@ -549,7 +554,7 @@ describe('wobble', () => {
   it('displaces final strokes deterministically, bounded by amplitude', async () => {
     const { wobble } = await import('../src/index.js');
     const make = () =>
-      sketch({ seed: 5 }, () => wobble(mm(1.5), line(10, 50, 90, 50)));
+      sketch({ seed: 5 }, () => line(10, 50, 90, 50, { modifiers: [wobble(mm(1.5))] }));
     const out = sq(make());
     expect(out.frags.length).toBeGreaterThan(20); // straight line → segments
     let maxDev = 0;
@@ -564,7 +569,7 @@ describe('wobble', () => {
     expect(out2.frags.map((f) => f.geom)).toEqual(out.frags.map((f) => f.geom));
     // Occlusion is computed on exact geometry: a wobbled hidden line stays hidden.
     const hidden = sketch({ seed: 5 }, () =>
-      wobble(mm(1), [line(0, 50, 100, 50), rect(25, 25, 50, 50, { opaque: true })]),
+      group({ modifiers: [wobble(mm(1))] }, [line(0, 50, 100, 50), rect(25, 25, 50, 50, { opaque: true })]),
     );
     const outH = sq(hidden);
     let inkLen = 0;
@@ -578,8 +583,9 @@ describe('wobble', () => {
 });
 
 describe('modifier stack', () => {
-  it('modify() applies an ordered stack; order is authored', async () => {
-    const { modify, decimate, wobble, times } = await import('../src/index.js');
+  it('a group\'s modifiers are an ordered stack; order is authored', async () => {
+    const { decimate, wobble, times } = await import('../src/index.js');
+    const modify = (modifiers: ModifierValue[], ...children: Tree[]) => group({ modifiers }, ...children);
     const lines = () => times(20, (_, t) => line(5, 5 + t * 90, 95, 5 + t * 90));
     // wobble → decimate deletes individual segments: many short survivors.
     const wd = sq(sketch({ seed: 9 }, () => modify([wobble(mm(1)), decimate(0.5)], lines())));
@@ -595,7 +601,8 @@ describe('modifier stack', () => {
   });
 
   it('stacks concatenate through nesting, inner-first; repetition works', async () => {
-    const { modify, wobble } = await import('../src/index.js');
+    const { wobble } = await import('../src/index.js');
+    const modify = (modifiers: ModifierValue[], ...children: Tree[]) => group({ modifiers }, ...children);
     // Two wobbles at different wavelengths layer (multi-octave tremor).
     const layered = sq(sketch({ seed: 3 }, () =>
       modify([wobble({ amount: mm(1), wavelength: mm(40) })],
@@ -621,7 +628,7 @@ describe('fields', () => {
     const { decimate, times } = await import('../src/index.js');
     // Dissolve toward the bottom: p = y/100 (top row y=5 → ~0, bottom → ~0.95).
     const out = sq(sketch({ seed: 11 }, () =>
-      decimate((_x, y) => y / 100, times(40, (_, t) => line(5, 2 + t * 96, 95, 2 + t * 96)))));
+      group({ modifiers: [decimate((_x, y) => y / 100)] }, times(40, (_, t) => line(5, 2 + t * 96, 95, 2 + t * 96)))));
     const yOf = (f: (typeof out.frags)[number]): number =>
       (f.geom as Extract<Prim, { t: 'line' }>).y0;
     const top = out.frags.filter((f) => yOf(f) < 60).length;    // user y < 30
@@ -634,8 +641,7 @@ describe('fields', () => {
     const { wobble } = await import('../src/index.js');
     // Calm left half, wild right half.
     const out = sq(sketch({ seed: 4 }, () =>
-      wobble({ amount: (x) => (x < 50 ? 0 : 3), wavelength: mm(10) },
-        line(5, 50, 95, 50))));
+      line(5, 50, 95, 50, { modifiers: [wobble({ amount: (x) => (x < 50 ? 0 : 3), wavelength: mm(10) })] })));
     let devLeft = 0;
     let devRight = 0;
     for (const f of out.frags) {
@@ -651,10 +657,11 @@ describe('fields', () => {
   });
 
   it('one field function rasterises once and is shared across shapes', async () => {
-    const { encodeScene, compileSketch, times } = await import('../src/index.js');
+    const { times, decimate } = await import('../src/index.js');
+    const { encodeScene, compileSketch } = await import('../src/host.js');
     const f = (_x: number, y: number): number => y / 100;
     const def = sketch({ seed: 1 }, () =>
-      times(10, (k) => line(0, k * 10, 100, k * 10, { decimate: f })));
+      times(10, (k) => line(0, k * 10, 100, k * 10, { modifiers: [decimate(f)] })));
     const exec = compileSketch(def, SQ);
     const scene = encodeScene(exec);
     // One raster header (w,h,x0,y0,dx,dy) + samples — not ten.
@@ -667,13 +674,13 @@ describe('fields', () => {
 describe('phase-3 modifiers', () => {
   it('dash chops final strokes by physical length, curves stay curves', async () => {
     const { dash } = await import('../src/index.js');
-    const out = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), line(0, 50, 100, 50))));
+    const out = sq(sketch({ seed: 2 }, () => line(0, 50, 100, 50, { modifiers: [dash(mm(4), mm(4))] })));
     // 200mm line → 8mm period → 25 dashes of ~4mm.
     expect(out.frags.length).toBe(25);
     expect(totalLen(out.frags)).toBeGreaterThan(90);
     expect(totalLen(out.frags)).toBeLessThan(105);
     // A dashed circle stays made of exact arcs.
-    const c = sq(sketch({ seed: 2 }, () => dash(mm(3), mm(3), circle(50, 50, 30))));
+    const c = sq(sketch({ seed: 2 }, () => circle(50, 50, 30, { modifiers: [dash(mm(3), mm(3))] })));
     expect(c.frags.length).toBeGreaterThan(10);
     expect(c.frags.every((f) => f.geom.t === 'arc')).toBe(true);
   });
@@ -681,7 +688,7 @@ describe('phase-3 modifiers', () => {
   it('smooth rounds corners before the solve (perimeter shrinks)', async () => {
     const { smooth } = await import('../src/index.js');
     const sharp = sq(sketch({ seed: 2 }, () => rect(20, 20, 60, 60)));
-    const smoothed = sq(sketch({ seed: 2 }, () => smooth(3, rect(20, 20, 60, 60))));
+    const smoothed = sq(sketch({ seed: 2 }, () => rect(20, 20, 60, 60, { modifiers: [smooth(3)] })));
     const lenSharp = totalLen(sharp.frags);
     const lenSmooth = totalLen(smoothed.frags);
     expect(lenSmooth).toBeLessThan(lenSharp - 5); // corner cutting shrinks
@@ -690,7 +697,7 @@ describe('phase-3 modifiers', () => {
 
   it('roughen fractures edges deterministically, bounded by amplitude', async () => {
     const { roughen } = await import('../src/index.js');
-    const make = () => sketch({ seed: 8 }, () => roughen(mm(1.2), mm(2), rect(20, 20, 60, 60)));
+    const make = () => sketch({ seed: 8 }, () => rect(20, 20, 60, 60, { modifiers: [roughen(mm(1.2), mm(2))] }));
     const out = sq(make());
     expect(out.frags.length).toBeGreaterThan(50);
     let maxDev = 0;
@@ -710,6 +717,11 @@ describe('phase-3 modifiers', () => {
 
   it('deform changes occlusion (pre-solve); wobble does not', async () => {
     const { deform, wobble } = await import('../src/index.js');
+    // A seeded tremor field: two readings of the sketch's own noise.
+    const tremor = (t: Toolkit, amount: number, wavelength: number) => (x: number, y: number): [number, number] => [
+      amount * t.noise(x / wavelength, y / wavelength),
+      amount * t.noise(x / wavelength + 213.7, y / wavelength - 118.3),
+    ];
     const behind = (def: SketchDef): number =>
       totalLen(sq(def).frags.filter((f) => f.shape === 0));
     // Crisp circle r=15 hides exactly its diameter of the line.
@@ -719,19 +731,19 @@ describe('phase-3 modifiers', () => {
     expect(crisp).toBeCloseTo(200 - 60, 3);
     // Post-wobble: trembling ink, same hidden span.
     const wob = behind(sketch({ seed: 6 }, () => [
-      line(0, 50, 100, 50), wobble(mm(2), circle(50, 50, 15, { opaque: true })),
+      line(0, 50, 100, 50), circle(50, 50, 15, { opaque: true, modifiers: [wobble(mm(2))] }),
     ]));
     expect(wob).toBeCloseTo(crisp, 3);
     // Pre-deform: the deformed silhouette is what hides.
     const def = behind(sketch({ seed: 6 }, (t) => [
       line(0, 50, 100, 50),
-      deform(t.noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
+      circle(50, 50, 15, { opaque: true, modifiers: [deform(tremor(t, 3, 20))] }),
     ]));
     expect(Math.abs(def - crisp)).toBeGreaterThan(0.5);
     // The line itself stays perfectly straight — only the occluder deformed.
     const outD = sq(sketch({ seed: 6 }, (t) => [
       line(0, 50, 100, 50),
-      deform(t.noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
+      circle(50, 50, 15, { opaque: true, modifiers: [deform(tremor(t, 3, 20))] }),
     ]));
     for (const f of outD.frags.filter((f) => f.shape === 0)) {
       const g = f.geom as Extract<Prim, { t: 'line' }>;
@@ -744,7 +756,7 @@ describe('phase-3 modifiers', () => {
 describe('seamless dash', () => {
   it('dashes a circle with uniform lengths and no seam', async () => {
     const { dash } = await import('../src/index.js');
-    const out = sq(sketch({ seed: 2 }, () => dash(mm(3), mm(3), circle(50, 50, 30))));
+    const out = sq(sketch({ seed: 2 }, () => circle(50, 50, 30, { modifiers: [dash(mm(3), mm(3))] })));
     const lens = out.frags.map(fragLen).sort((a, b) => a - b);
     // Period snapped to circumference: every dash the same length, none
     // doubled or halved at the arc seams.
@@ -760,9 +772,9 @@ describe('seamless dash', () => {
     const { dash } = await import('../src/index.js');
     // A dashed line partly hidden by a disc: surviving dashes must sit at
     // the same absolute positions as in the unoccluded render.
-    const bare = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), line(0, 50, 100, 50))));
+    const bare = sq(sketch({ seed: 2 }, () => line(0, 50, 100, 50, { modifiers: [dash(mm(4), mm(4))] })));
     const occ = sq(sketch({ seed: 2 }, () => [
-      dash(mm(4), mm(4), line(0, 50, 100, 50)),
+      line(0, 50, 100, 50, { modifiers: [dash(mm(4), mm(4))] }),
       circle(50, 50, 15, { opaque: true }),
     ]));
     const starts = (frags: typeof bare.frags): number[] =>
@@ -781,8 +793,8 @@ describe('seamless dash', () => {
 
   it('dash offset shifts the pattern', async () => {
     const { dash } = await import('../src/index.js');
-    const a = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), line(0, 50, 100, 50))));
-    const b = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), mm(2), line(0, 50, 100, 50))));
+    const a = sq(sketch({ seed: 2 }, () => line(0, 50, 100, 50, { modifiers: [dash(mm(4), mm(4))] })));
+    const b = sq(sketch({ seed: 2 }, () => line(0, 50, 100, 50, { modifiers: [dash(mm(4), mm(4), mm(2))] })));
     // The first dash may cover s=0 in both; the SECOND dash's start shows
     // the shift.
     const second = (out: typeof a): number =>
@@ -882,14 +894,10 @@ describe('points: scatter / relax / settle / voronoi', () => {
     sq(def);
   });
 
-  it('voronoi is a pure import over bare arrays, returning material with faces', async () => {
-    const { voronoi } = await import('../src/index.js');
+  it('delaunay is a connection between the sites', () => {
     const pts = [[10, 10], [90, 10], [50, 80], [30, 40]] as [number, number][];
-    const cells = voronoi(pts, { x: 0, y: 0, w: 100, h: 100 });
-    expect(cells.faces().length).toBe(4);
-    for (const f of cells.faces()) expect(f.contours()[0].pts.length).toBeGreaterThanOrEqual(3);
-    // Delaunay stays a connection between the sites: one interior point -> 3 triangles.
-    expect(connect.triangulate(pts).faces().length).toBe(3);
+    // One interior point -> 3 triangles.
+    expect(connect.triangulate(pts).faces.length).toBe(3);
   });
 });
 
@@ -964,7 +972,7 @@ describe('ui() tweakable values', () => {
   });
 
   it('scans literal calls with spans, opts, and inferred labels', async () => {
-    const { scanUiControls } = await import('../src/index.js');
+    const { scanUiControls } = await import('../src/host.js');
     const src = [
       "const rows = ui(12);",
       "const amp = ui(0.5, { min: 0, max: 2, step: 0.05 });",
@@ -984,7 +992,7 @@ describe('ui() tweakable values', () => {
   });
 
   it('ignores non-literals, strings, comments, and other identifiers', async () => {
-    const { scanUiControls } = await import('../src/index.js');
+    const { scanUiControls } = await import('../src/host.js');
     const src = [
       "const a = ui(rnd(10));           // computed — not a control",
       "// ui(99) in a comment",
@@ -1016,13 +1024,13 @@ describe('live-coding guards', () => {
     expect(range(0, 3)).toEqual([0, 1, 2]);
     // The layout grid reads the same rule: no cells to lay out, no cells.
     const none = sketch({ aspect: [1, 1] }, (t) => [
-      ...t.grid({ cols: 0, rows: 4 }).map((c) => rect(c.x, c.y, c.w, c.h)),
+      ...t.grid({ cols: 0, rows: 4 }).faces.map((c) => rect(c.bounds.x, c.bounds.y, c.bounds.w, c.bounds.h)),
       circle(50, 50, 10),
     ]);
     expect(sq(none).frags.length).toBeGreaterThan(0);
     // grid needs sketch state for bounds(): validate via a render.
     const def = sketch({ aspect: [1, 1] }, (t) =>
-      t.grid({ cols: 1e6, rows: 1e6 }).map((c) => rect(c.x, c.y, c.w, c.h)),
+      t.grid({ cols: 1e6, rows: 1e6 }).faces.map((c) => rect(c.bounds.x, c.bounds.y, c.bounds.w, c.bounds.h)),
     );
     expect(() => sq(def)).toThrow(/grid.*cap/);
   });
@@ -1055,7 +1063,7 @@ describe('svg() shape source', () => {
   );
 
   it('renders an imported SVG like any other shapes, sized in sketch units', () => {
-    const def = sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { x: 5, y: 5, width: 90 }));
+    const def = sketch({ aspect: [1, 1] }, (t) => svg(fixture, { x: 5, y: 5, width: 90 }));
     const r = sq(def);
     // 77 strokes survive as drawable fragments (nothing occludes them).
     expect(r.frags.length).toBeGreaterThanOrEqual(77);
@@ -1063,33 +1071,33 @@ describe('svg() shape source', () => {
   });
 
   it('composes with modifiers and layer filtering', async () => {
-    const { modify, wobble } = await import('../src/index.js');
-    const def = sketch({ aspect: [1, 1] }, (t) =>
-      modify([wobble(mm(0.4))], t.svg(fixture, { width: 80, layers: ['silhouettes'] })),
+    const { wobble } = await import('../src/index.js');
+    const def = sketch({ aspect: [1, 1] }, () =>
+      group({ modifiers: [wobble(mm(0.4))] }, svg(fixture, { width: 80, layers: ['silhouettes'] })),
     );
     const r = sq(def);
     expect(r.frags.length).toBeGreaterThan(0);
     // A filter that matches no layer draws no shapes, and composes as an
     // empty group like any other.
-    expect(sq(sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { layers: ['nope'] }))).frags.length).toBe(0);
+    expect(sq(sketch({ aspect: [1, 1] }, (t) => svg(fixture, { layers: ['nope'] }))).frags.length).toBe(0);
   });
 
   it('keeps cubic and quadratic Béziers as curves, with S/T reflection and transforms on the control points', () => {
     const cubic = '<svg viewBox="0 0 100 100"><path d="M10 10 C 20 0, 40 0, 50 10 S 80 20, 90 10"/></svg>';
-    const r = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(cubic, { width: 100 })));
+    const r = sq(sketch({ aspect: [1, 1] }, (t) => svg(cubic, { width: 100 })));
     expect(r.frags.map((f) => f.geom.t)).toEqual(['cubic', 'cubic']);
     const g = r.frags[1].geom;
     // S reflects the previous second control point (40,0) about (50,10): (60,20), in paper mm on the 200 mm square.
     if (g.t === 'cubic') { expect(g.c0x).toBeCloseTo(120, 6); expect(g.c0y).toBeCloseTo(40, 6); }
     const quad = '<svg viewBox="0 0 100 100"><g transform="translate(0,50)"><path d="M0 0 Q 10 10 20 0 T 40 0"/></g></svg>';
-    const q = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(quad, { width: 100 })));
+    const q = sq(sketch({ aspect: [1, 1] }, (t) => svg(quad, { width: 100 })));
     expect(q.frags.length).toBe(2);
     expect(q.frags.every((f) => f.geom.t !== 'line')).toBe(true);
   });
 
   it('rejects elliptical arcs loudly', () => {
     const bad = '<svg viewBox="0 0 10 10"><path d="M0 0 A 5 5 0 0 1 10 0"/></svg>';
-    const def = sketch({ aspect: [1, 1] }, (t) => t.svg(bad));
+    const def = sketch({ aspect: [1, 1] }, (t) => svg(bad));
     expect(() => sq(def)).toThrow(/elliptical arcs/);
   });
 
@@ -1097,7 +1105,7 @@ describe('svg() shape source', () => {
   // a square drawable); the fragments come back in paper mm on the 200 mm
   // square, so they are divided by two to read as sketch units.
   const endpoints = (src: string): [number, number, number, number][] => {
-    const r = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100 })));
+    const r = sq(sketch({ aspect: [1, 1] }, (t) => svg(src, { width: 100 })));
     const k = 100 / r.paper.w;
     return r.frags.map((f) => { const g = f.geom; if (g.t !== 'line') throw new Error(g.t); return [g.x0 * k, g.y0 * k, g.x1 * k, g.y1 * k]; });
   };
@@ -1117,13 +1125,13 @@ describe('svg() shape source', () => {
 
   it('keeps layers by top-level group through nesting, and rejects unknown transform functions', () => {
     const src = '<svg viewBox="0 0 100 100"><g id="a"><g transform="translate(1,1)"><line x1="0" y1="0" x2="1" y2="0"/></g><line x1="0" y1="0" x2="2" y2="0"/></g><line x1="0" y1="0" x2="3" y2="0"/></svg>';
-    const all = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100 })));
+    const all = sq(sketch({ aspect: [1, 1] }, (t) => svg(src, { width: 100 })));
     expect(all.stats.shapesIn).toBe(3);
-    const a = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100, layers: ['a'] })));
+    const a = sq(sketch({ aspect: [1, 1] }, (t) => svg(src, { width: 100, layers: ['a'] })));
     expect(a.stats.shapesIn).toBe(2);
-    const un = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100, layers: ['ungrouped'] })));
+    const un = sq(sketch({ aspect: [1, 1] }, (t) => svg(src, { width: 100, layers: ['ungrouped'] })));
     expect(un.stats.shapesIn).toBe(1);
-    expect(() => sq(sketch({ aspect: [1, 1] }, (t) => t.svg('<svg viewBox="0 0 10 10"><g transform="perspective(3)"><line x1="0" y1="0" x2="1" y2="1"/></g></svg>')))).toThrow(/unsupported transform/);
+    expect(() => sq(sketch({ aspect: [1, 1] }, (t) => svg('<svg viewBox="0 0 10 10"><g transform="perspective(3)"><line x1="0" y1="0" x2="1" y2="1"/></g></svg>')))).toThrow(/unsupported transform/);
   });
 });
 
@@ -1133,7 +1141,7 @@ describe('svg() with the generic transform opts', () => {
     // Artwork at its own origin; translate+rotate = corner pivot at (30,10).
     // 90° CW turns the horizontal top edge vertical, running down the page.
     const def = sketch({ aspect: [1, 1] }, (t) =>
-      t.svg(src, { width: 50, translate: [30, 10], rotate: 90 }),
+      svg(src, { width: 50, translate: [30, 10], rotate: 90 }),
     );
     const r = sq(def);
     const line = r.frags[0].geom;
@@ -1147,7 +1155,7 @@ describe('svg() with the generic transform opts', () => {
 
 describe('image assets', () => {
   it('each channel reads its own byte, point-sampled and area-averaged', async () => {
-    const { assetTable } = await import('../src/index.js');
+    const { assetTable } = await import('../src/host.js');
     const { image } = await import('../src/imageAsset.js');
     // every pixel distinct per channel, and none of them equal: a channel
     // read from the wrong byte cannot pass
@@ -1162,7 +1170,7 @@ describe('image assets', () => {
     const at = (px: number, py: number) => [px * 10 + 5, py * 10 + 5] as [number, number];
     for (const [px, py, i] of [[0, 0, 0], [1, 0, 1], [0, 1, 2], [1, 1, 3]] as const) {
       const [x, y] = at(px, py);
-      const [r, g, b] = img.rgb(x, y);
+      const [r, g, b] = (['r', 'g', 'b'] as const).map((c) => img.field(c)(x, y));
       expect(r).toBeCloseTo(data[i * 4] / 255, 6);
       expect(g).toBeCloseTo(data[i * 4 + 1] / 255, 6);
       expect(b).toBeCloseTo(data[i * 4 + 2] / 255, 6);
@@ -1173,7 +1181,7 @@ describe('image assets', () => {
     }
     // the summed-area path over the whole rect: the mean of each channel
     const mean = (off: number) => (data[off] + data[4 + off] + data[8 + off] + data[12 + off]) / 4 / 255;
-    const [ar, ag, ab] = img.rgb(10, 10, 10);
+    const [ar, ag, ab] = (['r', 'g', 'b'] as const).map((c) => img.field(c, { area: 10 })(10, 10));
     expect(ar).toBeCloseTo(mean(0), 6);
     expect(ag).toBeCloseTo(mean(1), 6);
     expect(ab).toBeCloseTo(mean(2), 6);
@@ -1181,8 +1189,8 @@ describe('image assets', () => {
     expect(img.lum(10, 10, 10)).toBeCloseTo(0.2126 * mean(0) + 0.7152 * mean(1) + 0.0722 * mean(2), 6);
   });
 
-  it('samples points, area averages, bands, and edges from registered pixels', async () => {
-    const { assetTable, scanAssetNames } = await import('../src/index.js');
+  it('samples points, area averages and edges from registered pixels', async () => {
+    const { assetTable, scanAssetNames } = await import('../src/host.js');
     const { image, asset } = await import('../src/imageAsset.js');
     // 4×2: left half black, right half white.
     const w = 4, h = 2;
@@ -1203,14 +1211,11 @@ describe('image assets', () => {
     // Outside → 0.
     expect(img.lum(0, 0)).toBe(0);
     expect(img.lum(60, 15)).toBe(0);
-    // Bands: 4 levels → 0 on black, 3 on white.
-    expect(img.bands(15, 15, 4)).toBe(0);
-    expect(img.bands(45, 15, 4)).toBe(3);
     // Edge peaks at the boundary, quiet in flat regions; dir points +x.
     expect(img.edge(30, 15)).toBeGreaterThan(img.edge(15, 15) + 0.1);
     expect(Math.cos(img.dir(30, 15))).toBeGreaterThan(0.7);
-    // rgb/alpha shape.
-    expect(img.rgb(45, 15)).toEqual([1, 1, 1]);
+    // colour/alpha channels.
+    expect((['r', 'g', 'b'] as const).map((c) => img.field(c)(45, 15))).toEqual([1, 1, 1]);
     expect(img.a(45, 15)).toBe(1);
     // Channels as fields: the same numbers as the samplers, with `area`
     // carried, so isolines/scatter/streamlines read the image directly.
@@ -1236,7 +1241,7 @@ describe('image assets', () => {
 describe('bridge opt', () => {
   it('joins opted strokes across gaps; excluded shapes stay separate', async () => {
     // Three parallel 1mm-gapped lines opted in + one border rect NOT opted.
-    const def = sketch({ seed: 1 }, ({ group }) => [
+    const def = sketch({ seed: 1 }, () => [
       group({ bridge: mm(1.5) },
         line(10, 10, 90, 10),
         line(90, 10.6, 10, 10.6),   // ends near line 1's end → joins

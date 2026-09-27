@@ -42,7 +42,7 @@ export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Surface3):v
     ids.add(segment.id);
     if(!segment.triangles.length||segment.triangles.some(i=>!Number.isSafeInteger(i)||i<0||i>=triangleCount))throw new Error('surface curve has invalid triangle support');
     for(const p of [segment.a,segment.b]) {
-      finite3(p.position);finite3(p.weights);
+      finite3(p.position,'surface curve');finite3(p.weights,'surface curve');
       const [v0,v1,v2]=p.vertices,[w0,w1,w2]=p.weights;
       if(!p.id||p.vertices.length!==3
         ||!Number.isSafeInteger(v0)||v0<0||v0>=vertexCount||!Number.isSafeInteger(v1)||v1<0||v1>=vertexCount||!Number.isSafeInteger(v2)||v2<0||v2>=vertexCount

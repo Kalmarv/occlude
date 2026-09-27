@@ -1,8 +1,8 @@
 /**
  * SVG as a shape source: `svg(text, opts)` turns machine-generated line art
  * (splotter et al) into ordinary open-path shapes — placed in sketch units,
- * drawn with library pens, occluded, modifiable (wrap with `modify([...])`
- * for wobble and friends), exported and plotted like anything else.
+ * drawn with library pens, occluded, modifiable (wrap with
+ * `group({ modifiers: [...] }, …)` for wobble and friends), exported and plotted like anything else.
  *
  * Deliberately not a general SVG engine: polylines, lines, and paths made
  * of straight segments and Bézier curves (M/L/H/V/Z, C/S/Q/T, absolute +
@@ -288,7 +288,7 @@ function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height
 /**
  * Parse SVG text into a group of open-path shapes. `opts` beyond
  * placement/size are ordinary ShapeOpts (pen, z, …) applied to every path;
- * wrap the result with `modify([...])` for modifiers, or `mask`/`clip` it —
+ * wrap the result with `group({ modifiers: [...] }, …)` for modifiers, or `mask`/`clip` it —
  * it is a normal subtree.
  */
 export function svg(text: string, opts: SvgShapesOptions = {}): GroupValue {

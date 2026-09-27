@@ -10,7 +10,8 @@ import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import * as jpeg from 'jpeg-js';
-import { assetTable, scanAssetNames, type AssetPixels, type AssetTable } from '../src/index.js';
+import { type AssetPixels } from '../src/index.js';
+import { assetTable, scanAssetNames, type AssetTable } from '../src/host.js';
 
 const assetsDir = fileURLToPath(new URL('../../occlude-studio/assets/', import.meta.url));
 

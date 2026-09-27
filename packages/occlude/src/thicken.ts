@@ -12,8 +12,9 @@
  * The operation remains synchronous and independent of the renderer.
  */
 
-import { Material, type Vertex } from './material.js';
-import { EdgeSelection, PointSelection } from './relation.js';
+import { Material, type Vertex, type Edge } from './material.js';
+import { isPointSelection, isEdgeSelection, endpointRows } from './relation.js';
+import type { Selection } from './selection.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
 import {
   polygonUnion,
@@ -26,7 +27,7 @@ import {
 export interface ThickenOpts {
   /** Required. Radius in the source material's coordinate units: one number
    * for every participating vertex, or a callback read from the vertex view
-   * (its real attributes — `p.radius`, not `p.attrs.radius`). Finite negative
+   * (its columns, read flat on the row: `p.radius`). Finite negative
    * values clamp to zero at source vertices before edge interpolation. */
   radius: number | ((p: Vertex) => number);
 
@@ -34,7 +35,7 @@ export interface ThickenOpts {
    * curve approximation and grid rounding; sub-resolution features may change. */
   tolerance?: number;
 
-  /** Optional creation of output point attributes: called once per final
+  /** Optional creation of output point columns: called once per final
    * output vertex with the boundary position and the source generators that
    * meet there. The returned record is the complete output row. */
   point?: (event: PlanarEvent) => Record<string, number>;
@@ -110,18 +111,20 @@ function canonicalize(loop: OutVert[]): OutVert[] {
 
 function candidateAttrs(c: Cand, source: Material): Record<string, number> {
   const out: Record<string, number> = {};
+  // A candidate carries the numeric columns (`EventCandidate.attrs`).
+  const cols = source.attrs;
   if (c.vertex !== undefined) {
-    for (const name of source.attrNames)
-      out[name] = source.attrs[name][c.vertex];
+    for (const name in cols) out[name] = cols[name][c.vertex];
     return out;
   }
   const e = c.edge!;
   const t = c.t!;
-  const a = source.edgeList[2 * e];
-  const b = source.edgeList[2 * e + 1];
-  for (const name of source.attrNames) {
-    const va = source.attrs[name][a];
-    const vb = source.attrs[name][b];
+  const list = source.edgeList;
+  const a = list[2 * e];
+  const b = list[2 * e + 1];
+  for (const name in cols) {
+    const va = cols[name][a];
+    const vb = cols[name][b];
     out[name] =
       source.transfers[name] === 'nearest'
         ? t <= 0.5
@@ -182,10 +185,10 @@ function checkOpts(opts: ThickenOpts): number {
  * evaluated once per participating vertex in source row order. `tolerance`
  * (default 0.05, source units) bounds the arc tessellation only. Without
  * `point` the result is geometry only; with `point` each final boundary
- * vertex gets the callback's record as its complete attribute row.
+ * vertex gets the callback's record as its complete column row.
  */
 export function thicken(
-  source: Material | PointSelection<unknown> | EdgeSelection<unknown>,
+  source: Material | Selection<Vertex> | Selection<Edge>,
   opts: ThickenOpts,
 ): Material {
   const tol = checkOpts(opts);
@@ -201,27 +204,31 @@ export function thicken(
     for (let i = 0; i < source.edgeCount; i++) e.push(i);
     vRows = v;
     eRows = e;
-  } else if (source instanceof PointSelection) {
-    src = source.source;
-    vRows = source.indices;
+  } else if (isPointSelection(source)) {
+    // A selection keeps an order; the kernel reads rows in row order.
+    src = source.owner;
+    vRows = [...source.indices].sort((a, b) => a - b);
     eRows = source.edges.indices;
-  } else if (source instanceof EdgeSelection) {
-    src = source.source;
-    vRows = source.endpointRows;
-    eRows = source.indices;
+  } else if (isEdgeSelection(source)) {
+    src = source.owner;
+    vRows = endpointRows(source);
+    eRows = [...source.indices].sort((a, b) => a - b);
   } else {
     throw new Error(
       'thicken: source must be a Material, a point selection or an edge selection',
     );
   }
 
-  if (vRows.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
+  if (vRows.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { from: src });
+  const X = src.x;
+  const Y = src.y;
+  const L = src.edgeList;
 
   const radii = new Float64Array(src.n);
   radii.fill(NaN);
   for (const row of vRows) {
-    const x = src.x[row];
-    const y = src.y[row];
+    const x = X[row];
+    const y = Y[row];
     // A vertex with no place, or no radius to give it, is left out of the
     // union: its row keeps the NaN radius, and the edges that meet it are
     // skipped below. The rest of the material still thickens.
@@ -242,8 +249,8 @@ export function thicken(
   const onEdge = new Set<number>();
   const shapes: Shape[] = [];
   for (const e of eRows) {
-    const a = src.edgeList[2 * e];
-    const b = src.edgeList[2 * e + 1];
+    const a = L[2 * e];
+    const b = L[2 * e + 1];
     onEdge.add(a);
     onEdge.add(b);
     const ra = radii[a];
@@ -252,41 +259,41 @@ export function thicken(
     if (!(ra >= 0) || !(rb >= 0)) continue;
     if (!(ra > 0) && !(rb > 0)) continue;
     shapes.push({
-      ax: src.x[a],
-      ay: src.y[a],
-      bx: src.x[b],
-      by: src.y[b],
+      ax: X[a],
+      ay: Y[a],
+      bx: X[b],
+      by: Y[b],
       ra,
       rb,
       va: a,
       vb: b,
       edge: e,
-      minX: Math.min(src.x[a] - ra, src.x[b] - rb),
-      minY: Math.min(src.y[a] - ra, src.y[b] - rb),
-      maxX: Math.max(src.x[a] + ra, src.x[b] + rb),
-      maxY: Math.max(src.y[a] + ra, src.y[b] + rb),
+      minX: Math.min(X[a] - ra, X[b] - rb),
+      minY: Math.min(Y[a] - ra, Y[b] - rb),
+      maxX: Math.max(X[a] + ra, X[b] + rb),
+      maxY: Math.max(Y[a] + ra, Y[b] + rb),
     });
   }
   for (const row of vRows) {
     if (onEdge.has(row) || !(radii[row] > 0)) continue;
     const r = radii[row];
     shapes.push({
-      ax: src.x[row],
-      ay: src.y[row],
-      bx: src.x[row],
-      by: src.y[row],
+      ax: X[row],
+      ay: Y[row],
+      bx: X[row],
+      by: Y[row],
       ra: r,
       rb: r,
       va: row,
       vb: row,
       edge: -1,
-      minX: src.x[row] - r,
-      minY: src.y[row] - r,
-      maxX: src.x[row] + r,
-      maxY: src.y[row] + r,
+      minX: X[row] - r,
+      minY: Y[row] - r,
+      maxX: X[row] + r,
+      maxY: Y[row] + r,
     });
   }
-  if (shapes.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
+  if (shapes.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { from: src });
 
   // A loop that came back with no area cannot be drawn as a boundary at
   // these coordinates; it is left out and the loops that survive are kept.
@@ -386,5 +393,5 @@ export function thicken(
     attrs = cols;
   }
 
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {}, space: src.space });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {}, from: src });
 }

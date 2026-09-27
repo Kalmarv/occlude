@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PENS, assetTable, fillTable, tagDraws } from 'occlude';
+import { DEFAULT_PENS, assetTable, fillTable, tagDraws } from 'occlude/host';
 import { currentDraws, currentSeed, moduleName, runSketch, runSketchAsync, type RunConfig } from './runner.js';
 
 const cfg: RunConfig = {
@@ -77,7 +77,7 @@ exports.default = (0, occlude_1.sketch)({}, (t) => (0, occlude_1.circle)(t.rnd(1
 });
 
 it('awaits async modules with captured libraries and seeded draws', async () => {
-  const js = emitted(`exports.default = occlude_1.sketchAsync({ seed: 42, pens: { blue: pens_1.fineliner() } }, async t => {
+  const js = emitted(`exports.default = occlude_1.sketch({ seed: 42, pens: { blue: pens_1.fineliner() } }, async t => {
     await Promise.resolve();
     return occlude_1.circle(t.rnd(20, 80), 50, 10, { stroke: 'blue' });
   });`);
@@ -88,3 +88,4 @@ it('awaits async modules with captured libraries and seeded draws', async () => 
   expect(currentDraws(a.run!).addrs).toHaveLength(1);
   expect(runSketch(js, cfg, 7, assetTable(), fillTable([])).error).toMatchObject({ message: expect.stringContaining('async rendering required') });
 });
+

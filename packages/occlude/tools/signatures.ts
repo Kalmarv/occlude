@@ -3,7 +3,7 @@
  *
  *   pnpm --filter occlude docs:signatures
  *
- * Walks the public surface (`src/index.ts` exports, the members of the
+ * Walks the public surface (`src/index.ts` and `src/host.ts` exports, the members of the
  * value classes and row views, the toolkit, and the `connect`/`force`/
  * `field` namespaces) and writes one MDX partial per word under `docs/_sig/`,
  * e.g. `_sig/Material.planarize.mdx` holding
@@ -27,32 +27,34 @@ const out = join(docs, '_sig');
 const entry = join(pkg, 'src/index.ts');
 /** The 3D vocabulary is its own module, `occlude/3d`; its words are keyed `3d.<name>`. */
 const entry3d = join(pkg, 'src/three/api/index.ts');
+/** The host words, `occlude/host`, keyed bare like the root's: the two
+ * entry points never share a name. */
+const entryHost = join(pkg, 'src/host.ts');
 
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
-  Material: 'm', Tiling: 'tiles', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
-  PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
-  '3d.CurveGeometry': 'curve', '3d.Honeycomb': 'h', '3d.Placement3': 'place',
-  connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
+  Material: 'm', Face: 'face', Edge: 'edge', Vertex: 'p',
+  Selection: 'sel', Curve: 'c', Placement: 'placement', Lattice: 'l', Toolkit: 't', '3d.Honeycomb': 'h',
+  connect: 'connect', force: 'force', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
 };
 /** Reference page per type name; a link is emitted only when the page exists. */
 const PAGE: Record<string, string> = {
-  Material: 'material', Curve: 'material', IsoContour: 'material',
-  Vertex: 'selections', Edge: 'selections', PointSelection: 'selections', EdgeSelection: 'selections', Station: 'material',
-  Faces: 'faces', FaceSelection: 'faces', Face: 'faces', FaceMeasurements: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
-  Next: 'steps', StepRule: 'steps', StepShorthand: 'steps', StepsOptions: 'steps', FaceRow: 'steps', Rewrite: 'steps',
-  ReplaceOpts: 'steps', ChildSpec: 'steps', SplitOpts: 'steps', Vec: 'material', XY: 'material',
+  Material: 'material', Curve: 'material',
+  Vertex: 'selections', Edge: 'selections', Selection: 'selections', NearestHit: 'selections', FirstHit: 'selections',
+  Face: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
+  PointValue: 'steps', EdgeValue: 'steps', GraphForce: 'steps', ReplaceOpts: 'steps',
+  Lattice: 'steps', LatticeFace: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   HatchParams: 'fills', CrosshatchParams: 'fills', SolidParams: 'fills', StippleParams: 'fills', ContourParams: 'fills', BuiltinFillName: 'fills', FillParams: 'fills',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
-  Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry', TransformOp: 'transforms',
-  Placement3: 'geometry', Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',
-  Mesh: '3d/primitives', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
+  Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', TransformOp: 'transforms',
+  Honeycomb: 'geometry', HoneycombFace: 'geometry',
+  ViewObjectOptions: '3d/view', ViewOptions: '3d/view', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
 
-const program = ts.createProgram([entry, entry3d], {
+const program = ts.createProgram([entry, entry3d, entryHost], {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
   strict: true, skipLibCheck: true, noEmit: true,
 });
@@ -113,7 +115,13 @@ function add(key: string, line: string): void {
 function callable(type: ts.Type, prefix: string, key: string, decl?: ts.Node): boolean {
   const sigs = type.getCallSignatures();
   if (sigs.length === 0) return false;
-  for (const sig of sigs) add(key, `${prefix}${checker.signatureToString(sig, decl, FLAGS, ts.SignatureKind.Call)}`);
+  const lines = sigs.map((sig) => `${prefix}${checker.signatureToString(sig, decl, FLAGS, ts.SignatureKind.Call)}`);
+  // A word the core declares loosely (`unknown`, `object`) and the 3D layer
+  // types by declaration merging reads as its typed forms only.
+  const loose = (line: string): boolean => /: (unknown|object)[,)]/.test(line);
+  const names = (line: string): string => (line.slice(prefix.length).match(/(?:^\(|, )(\w+)\??:/g) ?? []).join('');
+  const kept = lines.filter((line) => !loose(line) || !lines.some((other) => other !== line && !loose(other) && names(other) === names(line)));
+  for (const line of kept) add(key, line);
   return true;
 }
 function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
@@ -129,28 +137,94 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
   void ownerType;
 }
 
-const OWNERS = ['ImageSampler', 'Material', 'Tiling', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
-
-/**
- * A subclass owns only what it adds. `Tiling` is a `Material`, so every
- * word it inherits is already written under `Material.*` on the material
- * page; writing them again under `Tiling.*` would say the same line twice
- * and invite a page to include the wrong one.
- */
-function declaredHere(owner: string, sym: ts.Symbol): boolean {
-  const decl = sym.valueDeclaration ?? sym.declarations?.[0];
-  const parent = decl?.parent;
-  if (!parent || !(ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent))) return true;
-  const from = parent.name?.text;
-  return from === undefined || from === owner || !OWNERS.includes(from);
-}
-const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
+/** An owner whose exported name is a type over kinds: the interface of the
+ * kind its page documents. */
+const OWNER_KINDS: Record<string, string> = { Placement: 'PlanePlacement' };
+const OWNERS = ['ImageSampler', 'Material', 'Face', 'Edge', 'Vertex', 'Curve', 'Placement', 'Lattice', 'Toolkit'];
+const NAMESPACES = ['connect', 'force', 'ease', 'sdf'];
 /** A namespace that holds one of its own: its words are its members, keyed
  * `parent.child.word`. Without this the parent would print the whole
  * object type on one line. */
 const SUBNAMESPACES: string[] = [];
 /** The 3D values whose members a page documents, keyed `3d.<Owner>.<word>`. */
-const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb', 'Placement3'];
+const OWNERS3 = ['Honeycomb'];
+/**
+ * The one selection (selection.ts). Its shared words are written once,
+ * spelled over `Row`, as `sel.<word>`. The words a kind brings — the writes,
+ * `extract`, the protocol words, the faces' and edges' own — are typed by
+ * the row, so each is written once per kind that has it, read off the
+ * collection that holds that kind (`m.points`, `m.edges`, `m.faces`,
+ * `l.cells`) and spelled with that receiver: `points.set(…)`, `faces.measure(…)`.
+ */
+const KIND_WORDS = ['source', 'points', 'edges', 'faces', 'corners', 'contours', 'curves', 'set', 'add', 'remove', 'extract', 'boundaryEdges', 'measure', 'thicken', 'resample', 'trim', 'spline', 'oscillate', 'along'];
+/** Words the class declares for every kind but only edges answer. */
+const EDGE_WORDS = ['nearest', 'firstHit', 'crossing'];
+function exportedType(mod: ts.Symbol, name: string): ts.Type | undefined {
+  for (let sym of checker.getExportsOfModule(mod)) {
+    if (sym.getName() !== name) continue;
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    return checker.getDeclaredTypeOfSymbol(sym);
+  }
+  return undefined;
+}
+function propertyType(t: ts.Type, name: string, call = false): ts.Type | undefined {
+  const p = t.getProperty(name);
+  if (!p) return undefined;
+  const pt = checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration ?? p.declarations?.[0] ?? sf!);
+  if (!call) return pt;
+  const sig = pt.getCallSignatures()[0];
+  return sig && checker.getReturnTypeOfSignature(sig);
+}
+/** `sel.filter<S extends Selection<Row>>(this: S, fn: …): S` reads as
+ * `sel.filter(fn: …): Selection<Row>`: the `this` form is how the type keeps
+ * a group's key, not a word a sketch says. */
+const plainThis = (line: string): string =>
+  line.replace(/<S extends Selection<Row>>\(this: S(, )?/, '(').replace(/\): S$/, '): Selection<Row>');
+/** One kind's word, written under every key given: `Selection.set` holds
+ * every kind's forms, `points.set` one kind's. */
+function kindWord(kt: ts.Type, name: string, recv: string, keys: string[], decl?: ts.Node): void {
+  const p = kt.getProperty(name);
+  if (!p) return;
+  const pt = checker.getTypeOfSymbolAtLocation(p, decl ?? sf!);
+  if (pt.flags & (ts.TypeFlags.Never | ts.TypeFlags.Undefined)) return;
+  for (const key of keys) {
+    if (callable(pt, `${recv}.${name}`, key, decl)) continue;
+    const text = checker.typeToString(pt, decl, FLAGS);
+    // A word left unresolved over type parameters says nothing: skip it.
+    if (!text.includes('RowTypes<')) add(key, `${recv}.${name}: ${text}`);
+  }
+}
+function selectionWords(sym: ts.Symbol): void {
+  const t = checker.getDeclaredTypeOfSymbol(sym);
+  const material = exportedType(moduleSymbol!, 'Material');
+  const lattice = exportedType(moduleSymbol!, 'Lattice');
+  const kinds: [string, ts.Type | undefined][] = [
+    ['points', material && propertyType(material, 'points')],
+    ['edges', material && propertyType(material, 'edges')],
+    ['faces', material && propertyType(material, 'faces')],
+    ['l.faces', lattice && propertyType(lattice, 'faces')],
+  ];
+  for (const m of checker.getPropertiesOfType(t)) {
+    const name = m.getName();
+    if (name.startsWith('_') || name.startsWith('[') || name === 'constructor') continue;
+    const decl = m.valueDeclaration ?? m.declarations?.[0];
+    if (decl && ts.getCombinedModifierFlags(decl as ts.Declaration) & ts.ModifierFlags.Private) continue;
+    if (decl && ts.getJSDocTags(decl).some((tag) => tag.tagName.text === 'internal')) continue;
+    const key = `Selection.${name}`;
+    if (KIND_WORDS.includes(name) || EDGE_WORDS.includes(name)) {
+      for (const [recv, kt] of kinds) {
+        if (!kt || (EDGE_WORDS.includes(name) && recv !== 'edges')) continue;
+        kindWord(kt, name, recv, [key, `${recv}.${name}`], decl);
+      }
+      continue;
+    }
+    const type = checker.getTypeOfSymbolAtLocation(m, decl ?? sf!);
+    const sigs = type.getCallSignatures();
+    if (sigs.length === 0) add(key, `sel.${name}: ${checker.typeToString(type, decl, FLAGS)}`);
+    for (const sig of sigs) add(key, plainThis(`sel.${name}${checker.signatureToString(sig, decl, FLAGS, ts.SignatureKind.Call)}`));
+  }
+}
+
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);
@@ -179,9 +253,22 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
   const name = sym.getName();
   if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
   const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+  if (name === 'Selection') {
+    selectionWords(sym);
+    continue;
+  }
   if (OWNERS.includes(name)) {
-    const t = sym.flags & ts.SymbolFlags.Class ? checker.getDeclaredTypeOfSymbol(sym) : checker.getDeclaredTypeOfSymbol(sym);
-    for (const m of checker.getPropertiesOfType(t)) if (declaredHere(name, m)) member(name, m, t);
+    let t = checker.getDeclaredTypeOfSymbol(sym);
+    // `Placement` is one name over two kinds (`Placement<XY | Vec3>`); the
+    // page documents its default, the plane kind, whose interface holds the
+    // frame and walk words.
+    const kinds = OWNER_KINDS[name];
+    if (kinds) {
+      const file = (sym.declarations?.[0] as ts.Node | undefined)?.getSourceFile();
+      const kind = file && checker.getSymbolAtLocation(file)?.exports?.get(kinds as ts.__String);
+      if (kind) t = checker.getDeclaredTypeOfSymbol(kind);
+    }
+    for (const m of checker.getPropertiesOfType(t)) member(name, m, t);
     continue;
   }
   if (NAMESPACES.includes(name) && decl) {
@@ -199,6 +286,19 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
   }
   if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) {
     callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, name, decl);
+  }
+}
+
+const sfHost = program.getSourceFile(entryHost);
+const modHost = sfHost && checker.getSymbolAtLocation(sfHost);
+if (modHost) {
+  for (let sym of checker.getExportsOfModule(modHost)) {
+    const name = sym.getName();
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) {
+      callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, name, decl);
+    }
   }
 }
 

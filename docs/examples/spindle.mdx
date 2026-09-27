@@ -5,7 +5,7 @@ description: One shape through both doors, and the drift between them is the dra
 
 A shape is not geometry. It becomes geometry at the toolkit, through two doors, and this drawing is both of them at once on one pentagon.
 
-`t.material(plate)` keeps the boundary's own vertices: five corners, exact. The five long ticks stand at those corners. `t.sample(plate, { count })` redistributes along the same boundary by arc length. That gives seventy-five evenly spaced stations, and a station need not land on a corner. The short ticks stand at the stations. They march past each corner and do not stop on it. Every chord runs between two stations, so the web is arc-length work and the outline is corner work, in one picture.
+`t.material(plate)` keeps the boundary's own vertices: five corners, exact. The five long ticks stand at those corners. `t.sample(plate, { count })` redistributes along the same boundary by arc length. That gives seventy-five evenly spaced points, and a point need not land on a corner. The short ticks stand at those points. They march past each corner and do not stop on it. Every chord runs between two of them, so the web is arc-length work and the outline is corner work, in one picture.
 
 Uses: `t.material`, `t.sample`, `points.at`, `t.times`, `strokes`, vector arithmetic (`sub`, `unit`, `mul`, `add`).
 

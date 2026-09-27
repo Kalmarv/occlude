@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { plane } from '../src/three/api/index.js';
 import { isolines3, type IsolineResult3 } from '../src/three/curves/isolines.js';
-import type { Mesh } from '../src/three/api/mesh.js';
+import type { Material } from '../src/material.js';
 import type { SurfaceCurveNetwork3 } from '../src/three/curves/network.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 /** The corner values `isolines` itself builds: one per corner, face order then
  * polygon order. */
-const cornerValues = (mesh: Mesh<any, any, any, any>, field: (p: { x: number; y: number; z: number }) => number): Float64Array =>
+const cornerValues = (mesh: Material, field: (p: { x: number; y: number; z: number }) => number): Float64Array =>
   Float64Array.from([...mesh.corners], (c: any) => field(c.point));
 
-const centroid = (mesh: Mesh<any, any, any, any>, triangle: number): [number, number, number] => {
-  const vs = mesh.surface.triangles[triangle].vertices.map((v) => mesh.surface.points[v].position);
+const centroid = (mesh: Material, triangle: number): [number, number, number] => {
+  const vs = surfaceOf(mesh).triangles[triangle].vertices.map((v) => surfaceOf(mesh).points[v].position);
   return [0, 1, 2].map((k) => (vs[0][k] + vs[1][k] + vs[2][k]) / 3) as [number, number, number];
 };
 
@@ -38,13 +39,13 @@ describe('lazy isolines: certified records keep their topology and skip their co
   // into open chains crossing the whole sheet.
   // Its vertices sit on multiples of 0.375; these levels miss every one of
   // them, so nothing here is a tie until a test asks for one.
-  const sheet = plane(6, 6).subdivide(4) as unknown as Mesh<any, any, any, any>;
+  const sheet = plane(6, 6).subdivide(4) as unknown as Material;
   const values = cornerValues(sheet, (p) => p.x);
   const levels = [-1.7, -0.8, 0.1, 1.2, 2.3];
-  const full = isolines3(sheet.surface, values, levels);
+  const full = isolines3(surfaceOf(sheet), values, levels);
 
   it('a predicate that certifies nothing is the default path, row for row', () => {
-    const none = isolines3(sheet.surface, values, levels, { hidden: () => false });
+    const none = isolines3(surfaceOf(sheet), values, levels, { hidden: () => false });
     expect(rowsOf(none.network)).toEqual(rowsOf(full.network));
     expect(none.stats.chains).toBe(full.stats.chains);
     expect(none.stats.nodes).toBe(full.stats.nodes);
@@ -55,7 +56,7 @@ describe('lazy isolines: certified records keep their topology and skip their co
 
   it('a hidden band of faces: the visible output is the full output, minus the band', () => {
     const band = (t: number) => Math.abs(centroid(sheet, t)[1]) < 1;
-    const lazy = isolines3(sheet.surface, values, levels, { hidden: (_l, t) => band(t) });
+    const lazy = isolines3(surfaceOf(sheet), values, levels, { hidden: (_l, t) => band(t) });
     const gone = dropped(full, lazy);
     expect(gone.length).toBeGreaterThan(0);
     expect(lazy.stats.lazy!.deferred).toBe(gone.length);
@@ -71,7 +72,7 @@ describe('lazy isolines: certified records keep their topology and skip their co
 
   it('a chain that enters the band and returns keeps both visible runs and their phase', () => {
     const band = (t: number) => Math.abs(centroid(sheet, t)[1]) < 1;
-    const lazy = isolines3(sheet.surface, values, levels, { hidden: (_l, t) => band(t) });
+    const lazy = isolines3(surfaceOf(sheet), values, levels, { hidden: (_l, t) => band(t) });
     expect(lazy.stats.lazy!.mixedChains).toBeGreaterThan(0);
     const chains = new Map<string, Row[]>();
     for (const row of rowsOf(lazy.network)) (chains.get(row.chainId) ?? chains.set(row.chainId, []).get(row.chainId)!).push(row);
@@ -91,7 +92,7 @@ describe('lazy isolines: certified records keep their topology and skip their co
   });
 
   it('a fully certified run emits nothing and builds no point', () => {
-    const lazy = isolines3(sheet.surface, values, levels, { hidden: () => true });
+    const lazy = isolines3(surfaceOf(sheet), values, levels, { hidden: () => true });
     expect(lazy.network.segments.length).toBe(0);
     expect(lazy.network.nodes.length).toBe(0);
     expect(lazy.stats.lazy!.points).toBe(0);
@@ -105,9 +106,9 @@ describe('lazy isolines: certified records keep their topology and skip their co
   it('a fully certified closed loop emits nothing while its neighbours are untouched', () => {
     const radial = cornerValues(sheet, (p) => Math.hypot(p.x, p.y));
     const loops = [1, 2];
-    const fullLoops = isolines3(sheet.surface, radial, loops);
+    const fullLoops = isolines3(surfaceOf(sheet), radial, loops);
     const inner = (t: number) => Math.hypot(...centroid(sheet, t).slice(0, 2) as [number, number]) < 1.5;
-    const lazy = isolines3(sheet.surface, radial, loops, { hidden: (_l, t) => inner(t) });
+    const lazy = isolines3(surfaceOf(sheet), radial, loops, { hidden: (_l, t) => inner(t) });
     const gone = dropped(fullLoops, lazy);
     expect(gone.length).toBeGreaterThan(0);
     expect(lazy.stats.lazy!.hiddenChains).toBeGreaterThan(0);
@@ -121,13 +122,13 @@ describe('lazy isolines: certified records keep their topology and skip their co
     // A level ON a grid line: every triangle that crosses it has a corner
     // whose value IS the level.
     const tied = [0.375];
-    const fullTied = isolines3(sheet.surface, values, tied);
-    const lazy = isolines3(sheet.surface, values, tied, { hidden: () => true });
+    const fullTied = isolines3(surfaceOf(sheet), values, tied);
+    const lazy = isolines3(surfaceOf(sheet), values, tied, { hidden: () => true });
     expect(lazy.stats.lazy!.excludedTies).toBeGreaterThan(0);
     expect(lazy.stats.lazy!.deferred).toBe(0);
     expect(rowsOf(lazy.network)).toEqual(rowsOf(fullTied.network));
     // A level that misses every vertex defers in the same call shape.
-    const clear = isolines3(sheet.surface, values, [0.1], { hidden: () => true });
+    const clear = isolines3(surfaceOf(sheet), values, [0.1], { hidden: () => true });
     expect(clear.stats.lazy!.excludedTies).toBe(0);
     expect(clear.network.segments.length).toBe(0);
   });

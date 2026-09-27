@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
+import { circle, fill, fillAsset, line, rulings, sketch } from '../src/index.js';
 import {
-  BUILTIN_FILL_NAMES, circle, compileSketch, encodeScene, fill, fillAsset, fillTable, initOcclude, line,
-  isBuiltinFill, loadFillModule, render, renderEncoded, resolveFill, rulings,
-  scanFillNames, sketch, type WasmModule,
-} from '../src/index.js';
+  BUILTIN_FILL_NAMES, compileSketch, encodeScene, fillTable, initOcclude, isBuiltinFill,
+  loadFillModule, render, renderEncoded, resolveFill, scanFillNames, type WasmModule,
+} from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(

@@ -12,18 +12,19 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deform, initOcclude, mm, pen, renderAsync, sketch, strokes, type SketchDef } from '../src/index.js';
+import { deform, group, mm, pen, sketch, strokes, type SketchDef } from '../src/index.js';
+import { initOcclude, renderAsync } from '../src/host.js';
 import { box, grid, instanceOnPoints, perspective, view } from '../src/three/api/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 });
 
-const drawing = (field: ((x: number, y: number) => number[]) | null) => sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#000000' }) } }, () => {
+const drawing = (field: ((x: number, y: number) => [number, number]) | null) => sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#000000' }) } }, () => {
   const pts = grid({ rows: 2, cols: 2, layers: 2, spacing: 1.2 });
   const boxes = instanceOnPoints(box(), pts.points);
   return view(boxes, { camera: perspective({ eye: [5, 5.3, 2.8], target: [0.6, 0.5, 0], fovDegrees: 45 }) },
-    (lines) => field ? deform(field, strokes(lines.visible, { pen: 'ink' })) : strokes(lines.visible, { pen: 'ink' }));
+    (lines) => field ? group({ modifiers: [deform(field)] }, strokes(lines.visible, { pen: 'ink' })) : strokes(lines.visible, { pen: 'ink' }));
 }) as SketchDef;
 
 const inkOf = (frags: { geom: { t: string; x0?: number; y0?: number; x1?: number; y1?: number } }[]): number =>

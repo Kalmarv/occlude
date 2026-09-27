@@ -40,7 +40,6 @@ const church = svg(t.asset('church.svg'), { width: b.w, bridge: mm(0.7) });
 |---|---|
 | `img.lum(x, y, area?)` | luminance, 0 to 1 |
 | `img.a(x, y, area?)` | alpha, so a transparent PNG masks its subject |
-| `img.bands(x, y, n, area?)` | tone posterized into `n` levels, 0 the darkest |
 | `img.edge(x, y, area?)` | luminance gradient magnitude, high at boundaries |
 | `img.dir(x, y, area?)` | the gradient's angle |
 | `img.field(channel?, { area? })` | a channel as a scalar field: `'lum'` (the default), `'dark'` for `1 − lum`, `'a'`, `'edge'` |
@@ -69,15 +68,16 @@ import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
-  return t.grid({ cols: 36, rows: 42 }).map((c) => {
-    if (img.a(c.cx, c.cy, c.w / 2) < 0.5) return null;
-    const dark = 1 - img.lum(c.cx, c.cy, c.w / 2);
-    return dark > 0.04 ? circle(c.cx, c.cy, dark * c.w * 0.52) : null;
+  return t.grid({ cols: 36, rows: 42 }).faces.map((f) => {
+    const { w, cx, cy } = f.bounds;
+    if (img.a(cx, cy, w / 2) < 0.5) return null;
+    const dark = 1 - img.lum(cx, cy, w / 2);
+    return dark > 0.04 ? circle(cx, cy, dark * w * 0.52) : null;
   });
 });
 ```
 
-Layered marks gated by tone band: one mark at the mid level, two at dark, three at the darkest.
+Layered marks gated by tone band: one mark at the mid level, two at dark, three at the darkest. The band is the tone cut into four levels, `Math.min(3, Math.floor(lum * 4))`, 0 the darkest.
 
 ```ts live
 import { sketch, line } from 'occlude';
@@ -88,7 +88,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   for (let y = 2; y < 98; y += 1.4) {
     for (let x = 8; x < 92; x += 1.4) {
       if (img.a(x, y, 0.7) < 0.5) continue;
-      const level = img.bands(x, y, 4, 0.7);
+      const level = Math.min(3, Math.floor(img.lum(x, y, 0.7) * 4));
       if (level <= 2) out.push(line(x, y, x + 1.1, y));
       if (level <= 1) out.push(line(x, y, x, y + 1.1));
       if (level === 0) out.push(line(x, y, x + 0.9, y + 0.9));
@@ -350,17 +350,17 @@ black. `maxSpacing` is the coarsest cell. The palest fur then still folds,
 and it does not lay one long chord across the sheet.
 
 Shape the tone before `spacefill` reads it. Below, the alpha channel cuts the
-background away and `norm` stretches the fur. The white muzzle stays blank
+background away and `map` stretches the fur. The white muzzle stays blank
 paper and the nose fills in solid. Every vertex carries the `level` it
 stopped at, so `m.points` can send the deepest folds to a second pen.
 
 ```ts live
-import { sketch, strokes, circle, mm, norm } from 'occlude';
+import { sketch, strokes, circle, mm, map } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   const dark = img.field('dark', { area: 0.9 });
-  const tone = (x, y) => (img.a(x, y, 0.3) < 0.5 ? 0 : Math.max(0, norm(dark(x, y), 0.15, 0.88)) ** 2.2);
+  const tone = (x, y) => (img.a(x, y, 0.3) < 0.5 ? 0 : Math.max(0, map(dark(x, y), 0.15, 0.88, 0, 1)) ** 2.2);
   const fold = t.spacefill(circle(50, 50, 44), { spacing: mm(0.4), maxSpacing: mm(2.4), field: tone });
   return strokes(fold, { pen: 'pigma-005-black' });
 });
@@ -368,24 +368,28 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## Ink as a budget
 
-<!-- anchor: ink-as-a-budget (t.residual, r.spend, r.total) -->
+<!-- anchor: ink-as-a-budget (t.residual, r.spend, r.faces.sum) -->
 
 A field says how dark the paper must be. A word then puts marks on that
 paper. Until now nothing measured what those marks paid for, so a second
 pass could not know what the first one had already covered.
-`t.residual(field, { spacing, area })` keeps that account. It holds the
-target tone on a grid of cells. `r.spend(marks, { width })` takes the nib
-footprint of the marks you drew off the grid, and answers with the tone it
-took. `r.total()` is what the drawing still owes, so a loop can stop when
-the debt is small.
+`t.residual(field, { spacing, area })` keeps that account. It is a lattice
+with one column, `owed`: the target tone on a grid of faces.
+`r.spend(marks, { width })` takes the nib footprint of the marks you drew
+off the faces, and returns a new residual. The old one does not change, so
+a ledger is a sequence of values: `r = r.spend(…)`. `width` is a length in
+the drawing's units, so a nib in millimetres goes through `t.len` first:
+`{ width: t.len(mm(0.35)) }`. `r.faces.sum('owed')` is what the drawing
+still owes, so a loop can stop when the debt is small, and what a spend
+took is how far that sum fell.
 
-A residual is also a field, so `t.scatter(r)`, `t.isolines(r, …)` and a
-decimate amount read it like any other. `spend` changes it in place, because
-a ledger must hold what the last stroke paid. `r.snapshot()` gives a frozen
-copy.
+`r.field()` is the debt as a field, so `t.scatter(r.field())`,
+`t.isolines(r.field(), …)` and a decimate amount read it like any other.
+Outside the area the field is absent. An earlier residual is still the
+tone as it was then, and it needs no copy.
 
-The drawing below is one continuous line. It starts at the cell with the
-deepest debt. At each step it looks at twelve short chords, and it takes the
+The drawing below is one continuous line. It starts where the debt is
+deepest. At each step it looks at twelve short chords, and it takes the
 chord with the most tone left along it. It pays for that chord at the width
 of the nib, so the next step sees fresh paper only where no line has been.
 The line stops when the debt falls under a tenth of where it started. The
@@ -393,20 +397,24 @@ tone it works against is the photograph's own, with the edges of the picture
 added on top.
 
 ```ts live
-import { sketch, strokes, curve, mm, norm } from 'occlude';
+import { sketch, strokes, curve, mm, map } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const img = t.image('ivy.png', { x: 12, y: 3, width: 76 });
   const dark = img.field('dark', { area: 0.2 });
   const tone = (x, y) => img.a(x, y, 0.3) < 0.5 ? 0
-    : Math.min(1, Math.max(0, norm(dark(x, y), 0.08, 0.95)) ** 1.5 + img.edge(x, y, 0.2));
-  const r = t.residual(tone, { spacing: mm(0.7) });
-  const stop = r.total() * 0.09;
-  // Start where the debt is deepest.
-  const first = t.grid({ cols: 48, rows: 48 }).reduce((a, c) => (r(c.cx, c.cy) > r(a.cx, a.cy) ? c : a));
+    : Math.min(1, Math.max(0, map(dark(x, y), 0.08, 0.95, 0, 1)) ** 1.5 + img.edge(x, y, 0.2));
+  let r = t.residual(tone, { spacing: mm(0.7) });
+  const stop = r.faces.sum('owed') * 0.09;
+  const nib = t.len(mm(0.35));
+  // Start where the debt is deepest, looked for on a coarse grid.
+  const looks = t.grid({ cols: 48, rows: 48 }).faces.map((f) => f.bounds);
+  const start = r.field();
+  const first = looks.reduce((a, c) => (start(c.cx, c.cy) > start(a.cx, a.cy) ? c : a));
   let at = [first.cx, first.cy];
   const pts = [at];
-  for (let k = 0; k < 12000 && r.total() > stop; k++) {
+  for (let k = 0; k < 12000 && r.faces.sum('owed') > stop; k++) {
+    const owed = r.field();
     let best = null;
     let most = 0;
     for (let c = 0; c < 12; c++) {
@@ -414,11 +422,11 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
       const len = t.rnd(1.2, 5);
       const end = [at[0] + Math.cos(a) * len, at[1] + Math.sin(a) * len];
       let sum = 0;
-      for (let s = 1; s <= 5; s++) sum += r(at[0] + (end[0] - at[0]) * s / 5, at[1] + (end[1] - at[1]) * s / 5);
+      for (let s = 1; s <= 5; s++) sum += owed(at[0] + (end[0] - at[0]) * s / 5, at[1] + (end[1] - at[1]) * s / 5) || 0;
       if (sum > most) { most = sum; best = end; }
     }
     if (!best) break;
-    r.spend([at, best], { width: mm(0.35) });
+    r = r.spend([at, best], { width: nib });
     pts.push(best);
     at = best;
   }

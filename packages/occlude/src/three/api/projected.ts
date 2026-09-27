@@ -8,7 +8,10 @@ import {constructStrokes3} from '../strokes/construct.js';
 import {sourceStrokeShapes3} from '../strokes/paper.js';
 import {toPaper3} from '../camera.js';
 import {lerp3} from '../math.js';
-import {Collection} from './collection.js';
+import {Selection} from '../../selection.js';
+import type {Material} from '../../material.js';
+import type {IsoContour} from '../../isolines.js';
+import {curvesOf,materialOfChains,type Curve} from '../../curves.js';
 export type FeatureKind=keyof typeof FeatureKind3;
 const kindSets=new Map<number,ReadonlySet<FeatureKind>>();
 function kinds(flags:number):ReadonlySet<FeatureKind>{
@@ -24,14 +27,12 @@ export interface ProjectedCurveRow {
   readonly feature:Feature3;readonly kinds:ReadonlySet<FeatureKind>;
   /** Local clipped source parameters; endpoints are physical paper millimeters. */
   readonly range:Interval3;readonly a:readonly [number,number];readonly b:readonly [number,number];
-  readonly attributes:Feature3['attributes'];readonly faceAttributes:Feature3['faceAttributes'];readonly support:Feature3['support'];
+  /** The columns of the faces the line lies on, one record a face. */
+  readonly faceColumns:Feature3['faceAttributes'];readonly support:Feature3['support'];
 }
 /** One classified interval. Its source's columns read as properties
- * (`c.rim`), as on every other row; `attributes` is the same record. */
+ * (`c.rim`), as on every other row. */
 export type ProjectedCurve=ProjectedCurveRow&{readonly [column:string]:unknown};
-/** A chain of projected lines in the sketch's drawable units, the value a
- * chain consumer reads from `curves()`. */
-export interface ProjectedChain {pts:[number,number][];closed:boolean;indices:number[]}
 /** Paper millimetres to the drawable units of the sketch the view is drawn in. */
 export type PaperToUser=(x:number,y:number)=>[number,number];
 /** Classified intervals with their full source retained through filtering. */
@@ -39,6 +40,7 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
   readonly __occludeProjectedCurves=true;
   readonly rows:readonly ProjectedCurve[];readonly key:unknown;
   readonly #toUser?:PaperToUser;
+  #chains?:Material;
   constructor(readonly source:ClassifiedScene3,readonly visibility:'visible'|'hidden',rows?:readonly ProjectedCurve[],key?:unknown,toUser?:PaperToUser){
     this.key=key;this.#toUser=toUser;
     // A row's ID is identity, never content, and most rows are never asked
@@ -55,7 +57,7 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
         index,feature,...(feature.instance?{instance:feature.instance}:{}),kinds:kinds(feature.flags),range,
         a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),
         b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),
-        attributes:feature.attributes,faceAttributes:feature.faceAttributes,support:feature.support,
+        faceColumns:feature.faceAttributes,support:feature.support,
       }) as ProjectedCurve);
     }));
     Object.freeze(this);
@@ -66,16 +68,19 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
   filter(fn:(row:ProjectedCurve,index:number)=>boolean):ProjectedCurves{return new ProjectedCurves(this.source,this.visibility,this.rows.filter(fn),this.key,this.#toUser);}
   /** The lines as chains in drawable units: intervals that meet end to end,
    * two at a point, join into one chain, and a chain that comes back to its
-   * start is closed. A chain consumer (`strokes`, the chain verbs) reads
-   * these; the ink of `strokes(lines)` keeps its source instead. */
-  curves():ProjectedChain[]{
-    const toUser=this.#toUser;
-    if(!toUser)throw new Error('projected lines: these were classified outside a view, so their drawable frame is unknown — read them inside a view callback');
-    return chainRows(this.rows).map(chain=>({pts:chain.points.map(p=>toUser(p[0],p[1])),closed:chain.closed,indices:chain.rows}));
-  }
+   * start is closed. Read on first ask and kept. A chain consumer
+   * (`strokes`, the chain verbs) reads these; the ink of `strokes(lines)`
+   * keeps its source instead. */
+  get curves():Selection<Curve>{return curvesOf(this.#material());}
   /** The closed chains, as areas: a silhouette that goes all the way round
    * is an outline `polygon` and `t.within` can read. */
-  contours():ProjectedChain[]{return this.curves().filter(c=>c.closed);}
+  contours():IsoContour[]{return this.#material().contours();}
+  #material():Material{
+    if(this.#chains)return this.#chains;
+    const toUser=this.#toUser;
+    if(!toUser)throw new Error('projected lines: these were classified outside a view, so their drawable frame is unknown — read them inside a view callback');
+    return this.#chains=materialOfChains(chainRows(this.rows).map(chain=>({pts:chain.points.map(p=>toUser(p[0],p[1])),closed:chain.closed})));
+  }
   /** Lines of any of these kinds (boundary, silhouette, crease, wire, section, hatch, intersection, mapped, trace, isoline, suggestive). */
   kind(...names:readonly FeatureKind[]):ProjectedCurves{return this.filter(row=>names.some(name=>row.kinds.has(name)));}
   /** Lines of none of these kinds. */
@@ -84,7 +89,7 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
 }
 export interface ProjectedLines {readonly visible:ProjectedCurves;readonly hidden:ProjectedCurves}
 /** The classified lines of a view. `toUser` is the frame the view is drawn
- * in; lines made without one draw, but cannot answer `curves()`. */
+ * in; lines made without one draw, but cannot answer `curves`. */
 export function projectedLines(source:ClassifiedScene3,toUser?:PaperToUser):ProjectedLines{return Object.freeze({visible:new ProjectedCurves(source,'visible',undefined,undefined,toUser),hidden:new ProjectedCurves(source,'hidden',undefined,undefined,toUser)});}
 /** Snap a paper point to a key: ends that are the same world point project
  * to the same paper point up to rounding, far below a nib. */
@@ -130,7 +135,7 @@ export interface ProjectedStrokes {readonly __occludeProjectedStrokes:true;reado
 /** Copy value objects while keeping physical-unit prototypes and pure fields. */
 export function captureValue<T>(value:T):T {
   // A selection is already an immutable view of one revision.
-  if(!value||typeof value!=='object'||value instanceof Collection)return value;
+  if(!value||typeof value!=='object'||value instanceof Selection)return value;
   const out=Array.isArray(value)?[]:Object.create(Object.getPrototypeOf(value));
   for(const key of Object.keys(value))Object.defineProperty(out,key,{value:captureValue((value as Record<string,unknown>)[key]),enumerable:true});
   return Object.freeze(out) as T;

@@ -19,10 +19,8 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
-import {
-  compileSketch, initOcclude, isSketch, paperSize,
-  type ExecutionInputs, type SketchDef,
-} from '../src/index.js';
+import { type SketchDef } from '../src/index.js';
+import { compileSketch, initOcclude, isSketch, paperSize, type ExecutionInputs } from '../src/host.js';
 import { inputsFor, seedArg, requireFor, penLibrary, paperLibrary } from './inputs.js';
 import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
 

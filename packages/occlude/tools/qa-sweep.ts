@@ -27,10 +27,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
-import {
-  exportSvg, initOcclude, isSketch, render,
-  type SketchDef,
-} from '../src/index.js';
+import { type SketchDef } from '../src/index.js';
+import { exportSvg, initOcclude, isSketch, render } from '../src/host.js';
 import { scenarios, type Scenario, type Violation } from './qa-scenarios.js';
 import { requireFor, penLibrary, paperLibrary } from './inputs.js';
 

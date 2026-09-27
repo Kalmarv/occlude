@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { decodePlanBuffer, makePlan, encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain, type PlanChain, type PlanSettings } from 'occlude';
+import {
+  decodePlanBuffer, makePlan, encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain,
+  type PlanChain, type PlanSettings,
+} from 'occlude/host';
 import { Drawing, chainsFingerprint, chainsUnder, cornerPoint, registrationRefusal } from './drawing.js';
 import type { RenderClient } from './workerClient.js';
 

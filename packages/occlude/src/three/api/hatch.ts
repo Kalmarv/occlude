@@ -1,5 +1,9 @@
-import {Mesh,type GeometryOptions} from './mesh.js';
-import {Instances,instanceSurfaceBinding3} from './instances.js';
+import {Material} from '../../material.js';
+import {type GeometryOptions} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
+import type {Vertex} from '../../material.js';
+import type {Selection} from '../../selection.js';
+import {isInstances,placedOf} from './instances.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import type {SurfaceLocation3} from '../geometry/location.js';
@@ -14,17 +18,16 @@ import {evaluateSurfaceCpu3,type SurfaceEvaluationResult3,type SurfaceEvaluation
 import type {SceneCompute3} from '../scene.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
 import {clampSetting,sampleValue} from '../degenerate.js';
-import {refuseStroke} from './recipes.js';
+import {refuseStroke,refuseDisplay} from './recipes.js';
 
 /** One direction family of a hatch. Several families over the same surface
- * are crosshatch; each keeps its identity and may name its own pen. */
+ * are crosshatch; each keeps its identity. The view says which pen draws
+ * them (`[marks, { pen }]`). */
 export interface HatchFamily {
   readonly id?:string;
   readonly direction:DirectionInput;
   /** 0 light (no lines) to 1 dark (every lane). Constant or surface field. */
   readonly tone?:ToneInput;
-  /** Named pen for `view`'s default drawing; column `pen` on the lines. */
-  readonly pen?:string;
   /** Surface spacing between neighbouring lanes, model/world units. */
   readonly spacing?:number;
 }
@@ -49,8 +52,8 @@ export interface HatchOptions extends GeometryOptions {
   readonly uv?:string;readonly chartAttribute?:string;
   readonly budget?:SurfaceCurveBudget3;
 }
-export type HatchInput=Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>;
-export type HatchAttributes={family:string;lane:number;threshold:number;seed:number}&Partial<{pen:string}>;
+export type HatchInput=Material;
+export type HatchColumns={family:string;lane:number;threshold:number;seed:number};
 export interface HatchStats {
   readonly families:number;readonly surfaces:number;
   readonly traces:number;readonly accepted:number;readonly segments:number;readonly steps:number;
@@ -60,7 +63,7 @@ export interface HatchStats {
 }
 /** Chart u where a chart exists, else world +X (the tracer projects it). */
 const defaultFallback:DirectionField=s=>s.tangentU??[1,0,0];
-interface Family {readonly id:string;readonly direction:DirectionField;readonly tone:ToneField;readonly constantTone?:number;readonly recipe?:ToneRecipe3;readonly pen?:string;readonly spacing:number}
+interface Family {readonly id:string;readonly direction:DirectionField;readonly tone:ToneField;readonly constantTone?:number;readonly recipe?:ToneRecipe3;readonly spacing:number}
 interface Settings {
   readonly families:readonly Family[];readonly step?:number;readonly maxLength?:number;readonly maxSteps:number;readonly seeds:number;
   readonly maxTraces:number;readonly maxSegments:number;readonly maxTotalSteps:number;readonly creaseDegrees:number;readonly fallback?:DirectionField;
@@ -79,18 +82,17 @@ function count(value:number|undefined,fallback:number,name:string):number {
  * callbacks are retained by reference; scalar options are copied. */
 export function captureHatch(input:HatchInput,options:HatchOptions) {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('hatch requires an options object');
-  if(!(input instanceof Mesh)&&!(input instanceof Instances))throw new Error('hatch requires a mesh or mesh instances');
-  refuseStroke(options,'t.hatch');
-  const rows:readonly HatchFamily[]=[{id:'hatch',direction:options.direction as DirectionInput,tone:options.tone,pen:options.pen,spacing:options.spacing}];
+  if(!(input instanceof Material))throw new Error('t.hatch: expected a mesh or instances');
+  refuseStroke(options,'t.hatch');refuseDisplay(options,'t.hatch');
+  const rows:readonly HatchFamily[]=[{id:'hatch',direction:options.direction as DirectionInput,tone:options.tone,spacing:options.spacing}];
   if(options.direction===undefined)throw new Error('families' in (options as object)?'hatch traces one family per call: give a direction, and call hatch again for a crosshatch family':'hatch requires a direction');
   const families=rows.map((row,i):Family=>{
     if(!row||typeof row!=='object')throw new Error('hatch family must be an object');
     const id=row.id??(rows.length===1?'hatch':`hatch:${i}`);if(typeof id!=='string'||!id)throw new Error('hatch family id must be a nonempty string');
     const direction=row.direction??options.direction;if(direction===undefined)throw new Error(`hatch family ${id} requires a direction`);
     const toneInput=row.tone??options.tone??1,tone=toneField(toneInput);
-    const pen=row.pen??options.pen;if(pen!==undefined&&(typeof pen!=='string'||!pen))throw new Error('hatch pen must be a pen name');
     if(row.spacing===undefined&&options.spacing===undefined)throw new Error('hatch requires a spacing');
-    return {id,direction:directionField(direction),tone,constantTone:typeof toneInput==='number'?toneInput:undefined,recipe:toneRecipe3(toneInput),pen,spacing:positive(row.spacing??options.spacing,NaN)};
+    return {id,direction:directionField(direction),tone,constantTone:typeof toneInput==='number'?toneInput:undefined,recipe:toneRecipe3(toneInput),spacing:positive(row.spacing??options.spacing,NaN)};
   });
   if(new Set(families.map(f=>f.id)).size!==families.length)throw new Error('hatch family ids must be unique');
   // A degenerate step or length stops every family; a degenerate spacing stops
@@ -103,7 +105,7 @@ export function captureHatch(input:HatchInput,options:HatchOptions) {
     creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'hatch creaseDegrees'),fallback:directionField(options.fallback??defaultFallback),uv:options.uv,chartAttribute:options.chartAttribute,budget:structuredClone(options.budget??{}),key:options.key,
   };
   for(const name of [settings.uv,settings.chartAttribute])if(name!==undefined&&(typeof name!=='string'||!name))throw new Error('hatch coordinate columns must be nonempty strings');
-  const bindings:{id:string;binding:SurfaceBinding3}[]=input instanceof Mesh?[{id:input.key??'mesh',binding:surfaceBinding3(input.surface)}]:input.rows.map(row=>({id:row.id,binding:instanceSurfaceBinding3(input,row)}));
+  const bindings:{id:string;binding:SurfaceBinding3}[]=isInstances(input)?placedOf(input).map(copy=>({id:copy.id,binding:copy.binding})):[{id:input.key??'mesh',binding:surfaceBinding3(surfaceOf(input))}];
   return {bindings,settings};
 }
 /** Lane thresholds nest: lane 0 draws wherever tone is positive, odd lanes
@@ -296,7 +298,7 @@ export async function evaluateHatchTone(traced:HatchTraced,compute?:SceneCompute
 /** Stage three: exact graph assembly. A segment is drawn where the tone at
  * both of its ends exceeds its lane's threshold; every drawn piece keeps the
  * full trace as its phase reference. */
-export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<void,{curves:SurfaceCurves<HatchAttributes>;stats:HatchStats}> {
+export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<void,{curves:SurfaceCurves<HatchColumns>;stats:HatchStats}> {
   const {settings,bindings}=traced;
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   let segmentCount=0;
@@ -332,7 +334,7 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
           // cut the chain and left the node before it with no segment.
           const a=trace.nodes[i],b=trace.nodes[i+1];
           if(++segmentCount>settings.maxSegments)throw new Error('hatch exceeds segment budget');
-          const attributes:Attributes3={family:family.id,lane,threshold,seed,...(family.pen?{pen:family.pen}:{})};
+          const attributes:Attributes3={family:family.id,lane,threshold,seed};
           segments.push({id:identity('hatch-segment',chain,i),kind:'trace',a:nodeId(i),b:nodeId(i+1),chainId:chain,range:[a.distance/total,b.distance/total],supports:[{source:surface.binding,triangle:trace.supports[i],a:weightsOn(i,trace.supports[i]),b:weightsOn(i+1,trace.supports[i])}],attributes});
         }
         offset+=trace.nodes.length;
@@ -342,11 +344,11 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
   }
   const network=yield*surfaceCurveNetworkJob3({sources:bindings.map(b=>({id:b.id,binding:b.binding})),nodes,segments},settings.budget);
   const stats:HatchStats={families:traced.families.length,surfaces:bindings.length,traces:traced.stats.traces,accepted:traced.stats.accepted,segments:network.segments.length,steps:traced.stats.steps,seedsQueued:traced.stats.seedsQueued,randomSeeds:traced.stats.randomSeeds,sweepSeeds:traced.stats.sweepSeeds,occupancyRejections:traced.stats.occupancyRejections,stops:traced.stats.stops,tone:tone.stats};
-  return {curves:new SurfaceCurves<HatchAttributes>(network,{key:settings.key}),stats};
+  return {curves:new SurfaceCurves<HatchColumns>(network,{key:settings.key}),stats};
 }
 /** Synchronous hatch with an explicit random source and CPU tone, for headless
  * tools and tests. Ordinary sketches use `await t.hatch(...)`. */
-export function hatchSurface(input:HatchInput,options:HatchOptions,rnd:()=>number):{curves:SurfaceCurves<HatchAttributes>;stats:HatchStats} {
+export function hatchSurface(input:HatchInput,options:HatchOptions,rnd:()=>number):{curves:SurfaceCurves<HatchColumns>;stats:HatchStats} {
   const traced=runGeometryJob3(hatchTraceJob(captureHatch(input,options),rnd)).value;
   return runGeometryJob3(hatchAssembleJob(traced,evaluateHatchToneCpu(traced))).value;
 }
@@ -358,20 +360,20 @@ export interface TraceOptions extends SurfaceCurveOptions {
 type SeedLocation=Pick<SurfaceLocation3,'triangle'|'barycentric'>&Partial<Pick<SurfaceLocation3,'source'>>;
 /** Where a trace starts: a surface sample, a location, or a curve sample
  * (`t.sample(curves, …)` rows) that lies on the traced mesh. */
-export type TraceSeed={readonly sample:SeedLocation}|{readonly sample:{on(target:Mesh<any,any,any,any>):readonly SeedLocation[]}}|SeedLocation;
-export type TraceAttributes={trace:number};
+export type TraceSeed={readonly sample:SeedLocation}|{readonly sample:{on(target:Material):readonly SeedLocation[]}}|SeedLocation;
+export type TraceColumns={trace:number};
 /** Pure tracing from explicit seeds: sampled points, scattered points or
  * surface locations. Both directions from each seed; no spacing control, no
  * tone, no randomness. */
-export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direction:DirectionInput,options:TraceOptions):SurfaceCurves<TraceAttributes> {
-  if(!(mesh instanceof Mesh))throw new Error('trace requires a mesh');
+export function trace(mesh:Material,seeds:Iterable<TraceSeed>|Selection<Vertex>,direction:DirectionInput,options:TraceOptions):SurfaceCurves<TraceColumns> {
+  if(!(mesh instanceof Material))throw new Error('trace requires a mesh');
   if(!options||typeof options!=='object')throw new Error('trace requires options with a step');
-  refuseStroke(options,'trace');
+  refuseStroke(options,'trace');refuseDisplay(options,'trace');
   const step=positive(options.step,NaN),field=directionField(direction);
   const settings:TraceOptions3={step,maxLength:positive(options.maxLength,step*1000),maxSteps:count(options.maxSteps,Infinity,'maxSteps'),creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'trace creaseDegrees'),loopDistance:step*0.5,uvAttribute:options.uv,chartAttribute:options.chartAttribute};
   // No step and no length are no walk: an empty set of curves.
   const walks=[settings.step,settings.maxLength].every(Number.isFinite);
-  const binding=surfaceBinding3(mesh.surface),env=traceEnvironment3(binding.source,binding);
+  const binding=surfaceBinding3(surfaceOf(mesh)),env=traceEnvironment3(binding.source,binding);
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   let index=0;
   for(const seed of walks?seeds:[]){
@@ -380,14 +382,14 @@ export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direc
     // one on this mesh is the seed.
     let location:SeedLocation;
     if(typeof (held as {on?:unknown}).on==='function'){
-      const on=(held as {on(target:Mesh<any,any,any,any>):readonly SeedLocation[]}).on(mesh);
+      const on=(held as {on(target:Material):readonly SeedLocation[]}).on(mesh);
       if(!on.length)throw new Error('trace seed is a curve sample that does not lie on this mesh: sample curves on the traced mesh (intersections with it, its isolines)');
       location=on[0];
     }else location=held as SeedLocation;
-    if(!location||!Number.isSafeInteger(location.triangle)||!mesh.surface.triangles[location.triangle]||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
+    if(!location||!Number.isSafeInteger(location.triangle)||!surfaceOf(mesh).triangles[location.triangle]||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
     // A location knows its surface; a seed sampled on another mesh would be
     // read as a triangle index on this one and land somewhere else entirely.
-    if(location.source!==undefined&&location.source!==mesh.surface)throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
+    if(location.source!==undefined&&location.source!==surfaceOf(mesh))throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
     const result=traceBoth3(env,{triangle:location.triangle,weights:location.barycentric},field,settings),chain=identity('trace-chain',options.key??mesh.key??'default',index);
     const ids:(string|undefined)[]=[],last=result.nodes.length-1;
     const nodeId=(index:number)=>{
@@ -404,5 +406,5 @@ export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direc
     index++;
   }
   const network=runGeometryJob3(surfaceCurveNetworkJob3({sources:[{id:'surface',binding}],nodes,segments},options.budget)).value;
-  return new SurfaceCurves<TraceAttributes>(network,{key:options.key,pen:options.pen});
+  return new SurfaceCurves<TraceColumns>(network,{key:options.key});
 }

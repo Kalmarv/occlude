@@ -6,7 +6,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { force, initOcclude, material, mul, type Material, type Vertex } from '../src/index.js';
+import { force, material, mul, type Material, type Vertex } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
+import { toolkit } from './helpers/run.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -17,7 +19,7 @@ beforeAll(async () => {
 const discs = (): Material => {
   const pts: [number, number][] = [];
   for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) pts.push([20 + i * 7.5, 20 + j * 7.5]);
-  return material(pts).attribute('r', (p) => 2 + (p.index % 3) * 1.5);
+  return material(pts).points.set('r', (p) => 2 + (p.index % 3) * 1.5);
 };
 
 describe('separation with a radius per vertex', () => {
@@ -36,12 +38,12 @@ describe('separation with a radius per vertex', () => {
   });
 
   it('a big disc pushes harder and further than a small one', () => {
-    const m = material([[0, 0], [6, 0]]).attribute('r', (p) => (p.index === 0 ? 5 : 1));
+    const m = material([[0, 0], [6, 0]]).points.set('r', (p) => (p.index === 0 ? 5 : 1));
     const push = force.separation(m, { radius: (p: Vertex) => p.r });
     // The pair reaches 6, which is exactly the gap: touching, so no push.
     expect(Math.hypot(...push(m.points.at(0)))).toBeCloseTo(0, 9);
     // Two small ones at the same gap do not even reach each other.
-    const small = material([[0, 0], [6, 0]]).attribute('r', () => 1);
+    const small = material([[0, 0], [6, 0]]).points.set('r', () => 1);
     expect(Math.hypot(...force.separation(small, { radius: (p: Vertex) => p.r })(small.points.at(0)))).toBe(0);
   });
 
@@ -58,9 +60,9 @@ describe('separation with a radius per vertex', () => {
       return over;
     };
     expect(worst(start)).toBeGreaterThan(0.9);
-    const packed = start.steps(120, (cur, next) => {
-      const push = force.separation(cur, { radius: (p: Vertex) => p.r });
-      next.move(cur.points, (p) => mul(push(p), 0.35));
+    const packed = toolkit({ seed: 1 }).steps(120, start, (g) => {
+      const push = force.separation(g, { radius: (p: Vertex) => p.r });
+      return g.move((p: Vertex) => mul(push(p), 0.35));
     });
     // Every pair is now at least the sum of its two radii apart.
     expect(worst(packed)).toBeLessThan(1e-6);
@@ -70,7 +72,7 @@ describe('separation with a radius per vertex', () => {
   });
 
   it('reads a radius the function cannot answer as no radius, and refuses anything else', () => {
-    const m = material([[0, 0], [2, 0]]).attribute('r', () => 4);
+    const m = material([[0, 0], [2, 0]]).points.set('r', () => 4);
     const sick = force.separation(m, { radius: (p: Vertex) => (p.index === 0 ? NaN : p.r) });
     // The pair is 0 + 4: the two are 2 apart, so they still push.
     expect(Math.hypot(...sick(m.points.at(0)))).toBeGreaterThan(0);

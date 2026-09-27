@@ -134,9 +134,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const paper = fill('hatch', { angle: 45, spacing: mm(1.4) });
   const shape = fill('hatch', { angle: 45, spacing: mm(1.4), align: 'shape' });
   return [
-    t.grid({ cols: 3, rows: 3 }).map((c) => rect(8 + c.i * 27, 8 + c.j * 27, 26, 26, { fill: paper })),
-    t.grid({ cols: 3, rows: 3 }).map((c) =>
-      rect(118 + c.i * 27, 8 + c.j * 27, 26, 26, { fill: shape, rotate: c.i * 15, translate: [131 + c.i * 27, 21 + c.j * 27] }),
+    t.grid({ cols: 3, rows: 3 }).faces.map((f) => rect(8 + f.i * 27, 8 + f.j * 27, 26, 26, { fill: paper })),
+    t.grid({ cols: 3, rows: 3 }).faces.map((f) =>
+      rect(118 + f.i * 27, 8 + f.j * 27, 26, 26, { fill: shape, rotate: f.i * 15, translate: [131 + f.i * 27, 21 + f.j * 27] }),
     ),
   ];
 });
@@ -294,7 +294,7 @@ Rules the library keeps:
 The radius field changes the material being filled; contour spacing changes the marks inside it. The three panels below use the same recursive rectangles with constant, left-to-right, and radial thickening. Decimation breaks up the fill, while a separate outline keeps the silhouette readable. Change the radius expressions or the decimation amount to explore the texture.
 
 ```ts live
-import { sketch, append, rect, polygon, fill, decimate, label } from 'occlude';
+import { sketch, append, rect, polygon, fill, decimate, group, label, map } from 'occlude';
 
 export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
   t.times(3, (panel) => {
@@ -302,7 +302,7 @@ export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
     let material = t.material(rect(cx - 20, 28, 40, 40));
     let size = 40;
     for (let generation = 0; generation < 2; generation++) {
-      const children = material.along().map((p) =>
+      const children = material.along().points.map((p) =>
         rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2),
       );
       material = append(material, t.material(...children));
@@ -311,12 +311,12 @@ export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
     const area = material.thicken({
       radius: (p) => {
         if (panel === 0) return 1.2;
-        if (panel === 1) return t.map(p.x, cx - 35, cx + 35, 0.2, 2.2);
-        return t.map(Math.hypot(p.x - cx, p.y - 48), 0, 50, 0.2, 2.2);
+        if (panel === 1) return map(p.x, cx - 35, cx + 35, 0.2, 2.2);
+        return map(Math.hypot(p.x - cx, p.y - 48), 0, 50, 0.2, 2.2);
       },
     });
     return [
-      decimate(0.45, polygon(area, { stroke: false, fill: fill('contour') })),
+      group({ modifiers: [decimate(0.45)] }, polygon(area, { stroke: false, fill: fill('contour') })),
       polygon(area),
       label(['Constant', 'Across', 'Radial'][panel], cx, 92, 3, { align: 'center' }),
     ];

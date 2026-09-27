@@ -22,17 +22,19 @@
  *
  * The split vertices sit on top of one another, which is exactly what they
  * are: one place the pen passes through twice. That makes the result a
- * DRAWING, not a structure — `faces()` refuses coincident distinct vertices,
+ * DRAWING, not a structure — `faces` refuses coincident distinct vertices,
  * and rightly. Keep the original for asking questions of, and trail the copy
  * for plotting it.
  */
 
 import { Material, material as makeMaterial } from './material.js';
+import { PointRows, EdgeRows, rebuild } from './tables.js';
+import { Column } from './column.js';
 
 export interface TrailsOpts {
-  /** Edge attributes for the rewired edges (the source edge's own columns are
+  /** Edge columns for the rewired edges (the source edge's own columns are
    * carried across; these are added on top). */
-  edgeAttributes?: Record<string, number>;
+  edgeColumns?: Record<string, number>;
 }
 
 /** One pen-down run: the source rows it passes through, in order, and whether
@@ -47,7 +49,7 @@ export function trails(m: Material, opts: TrailsOpts = {}): Material {
   const src = makeMaterial(m);
   const E = src.edgeCount;
   const ends = (e: number): [number, number] => [src.edgeList[2 * e], src.edgeList[2 * e + 1]];
-  if (E === 0) return src.withEdges([], opts.edgeAttributes);
+  if (E === 0) return src;
 
   // Adjacency over real edges, in row order so the result is deterministic.
   const adj: number[][] = Array.from({ length: src.n }, () => []);
@@ -153,29 +155,23 @@ export function trails(m: Material, opts: TrailsOpts = {}): Material {
 
   // Emit: one fresh row per step of each trail, so every vertex the pen passes
   // through twice becomes two rows and the chain walk runs straight through.
-  const names = Object.keys(src.attrs);
-  const edgeNames = Object.keys(src.edgeAttrs);
-  const xs: number[] = [];
-  const ys: number[] = [];
-  const cols: Record<string, number[]> = Object.fromEntries(names.map((k) => [k, []]));
-  const edgeCols: Record<string, number[]> = Object.fromEntries(edgeNames.map((k) => [k, []]));
-  const edges: number[] = [];
+  // Every row is new, with its source vertex's columns of every kind, and
+  // every edge a new one with its source edge's.
+  const points = new PointRows(src, 'trails');
+  const edges = new EdgeRows(src);
   for (const run of out) {
     const rows = run.closed ? run.rows.slice(0, -1) : run.rows;
-    const base = xs.length;
-    for (const v of rows) {
-      xs.push(src.x[v]);
-      ys.push(src.y[v]);
-      for (const k of names) cols[k].push(src.attrs[k][v]);
-    }
+    const base = points.length;
+    for (const v of rows) points.copy(v);
     for (let i = 0; i < run.edges.length; i++) {
       const a = base + i;
       const b = run.closed && i === run.edges.length - 1 ? base : base + i + 1;
-      edges.push(a, b);
-      for (const k of edgeNames) edgeCols[k].push(src.edgeAttrs[k][run.edges[i]]);
+      edges.cover(run.edges[i], a, b, [], 'own');
     }
   }
-  const extra = opts.edgeAttributes ?? {};
-  for (const k of Object.keys(extra)) if (!edgeNames.includes(k)) edgeCols[k] = new Array(edges.length / 2).fill(extra[k]);
-  return new Material(Float64Array.from(xs), Float64Array.from(ys), Object.fromEntries(names.map((k) => [k, Float64Array.from(cols[k])])), Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: Object.fromEntries(Object.keys(edgeCols).map((k) => [k, Float64Array.from(edgeCols[k])])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, space: src.space });
+  const made = { ...points.done(), ...edges.done() };
+  const extra = opts.edgeColumns ?? {};
+  const edgeAttrs = { ...made.edgeAttrs };
+  for (const k of Object.keys(extra)) if (!(k in edgeAttrs)) edgeAttrs[k] = Column.of(new Float64Array(edges.length).fill(extra[k]));
+  return rebuild(src, { ...made, edgeAttrs }, { iteration: 0, faceAttrs: {} });
 }

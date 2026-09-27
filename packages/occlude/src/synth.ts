@@ -10,7 +10,7 @@
  * written out inline, not as `synth.pdiv(...)`.
  *
  * Nothing here rescales, normalises or bounds the result. The shape of the
- * variation IS the point, and `t.map`/negation are one character away.
+ * variation IS the point, and `map`/negation are one character away.
  * `stats` tells the caller what range they are holding.
  */
 

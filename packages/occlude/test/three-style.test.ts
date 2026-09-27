@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { compileSketchAsync, constructStrokes3, FeatureSelection3, lineArt3, sketchAsync, initOcclude, pen, mm, wobble, dash, render, type Toolkit, type ClipValue, type ShapeValue } from '../src/index.js';
+import { sketch, pen, mm, wobble, dash, type Toolkit, type ClipValue, type ShapeValue } from '../src/index.js';
+import { compileSketchAsync, initOcclude, render } from '../src/host.js';
+import { constructStrokes3, FeatureSelection3, lineArt3 } from '../src/three/api/advanced.js';
 const scene = () => lineArt3({ camera: { kind:'orthographic', span:4, eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10 }, wires:[{id:'wire',points:[[-1,0,0],[0,0,0],[1,0,0]]}],lineSets:[] });
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 
@@ -8,7 +10,7 @@ describe('reusable classified line styles', () => {
   it('shares pending and completed visibility across independent styles and uses ordinary modifiers', async () => {
     let calls = 0, toolkit!: Toolkit;
     const value = scene();
-    const run = await compileSketchAsync(sketchAsync({ pens:{ink:pen({width:mm(.3)})} }, async t => {
+    const run = await compileSketchAsync(sketch({ pens:{ink:pen({width:mm(.3)})} }, async t => {
       toolkit = t;
       const [a,b] = await Promise.all([t.classify3(value),t.classify3(value)]);
       expect(a).toBe(b); expect(await t.classify3(value)).toBe(a);
@@ -26,7 +28,7 @@ describe('reusable classified line styles', () => {
     expect(()=>toolkit.classify3(value)).toThrow('active async compilation');
   });
   it('rejects a selection from another classified snapshot and validates row indices', async () => {
-    await compileSketchAsync(sketchAsync({},async t=>{
+    await compileSketchAsync(sketch({},async t=>{
       const a=await t.classify3(scene()),b=await t.classify3(scene());
       expect(()=>constructStrokes3(a,[{id:'wrong',stroke:'ink',select:new FeatureSelection3(b)}])).toThrow('another classified snapshot');
       expect(()=>new FeatureSelection3(a,[99])).toThrow('invalid');
@@ -35,7 +37,7 @@ describe('reusable classified line styles', () => {
   });
   it('releases failed pending requests so an explicit retry can succeed', async () => {
     let calls=0;
-    const run=await compileSketchAsync(sketchAsync({},async t=>{
+    const run=await compileSketchAsync(sketch({},async t=>{
       const value=scene();
       await expect(t.classify3(value)).rejects.toThrow('device lost');
       expect((await t.classify3(value)).features.length).toBe(2);

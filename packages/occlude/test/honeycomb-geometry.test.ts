@@ -1,6 +1,6 @@
 /**
  * The honeycomb is geometry: one cell complex with shared vertices, each
- * wall once and each edge once, its copies as `Placement3` values, and its
+ * wall once and each edge once, its copies as `Placement<Vec3>` values, and its
  * edges as two-point wires that `transform` moves exactly.
  *
  * A honeycomb is a 3-complex, not a surface — `r` walls meet at an edge —
@@ -10,17 +10,23 @@
 
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { honeycomb, observer, isPlacement3, view, perspective, type Honeycomb, type Placement3, type Vec3 } from 'occlude/3d';
-import { clip, compileSketchAsync, initOcclude, mm, pen, rect, render, sketchAsync, strokes } from '../src/index.js';
+import { honeycomb, observer, view, perspective, type Honeycomb, type Vec3 } from 'occlude/3d';
+import { isSpacePlacement } from '../src/placement.js';
+import type { Placement } from '../src/index.js';
+import { clip, mm, pen, rect, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, initOcclude, render } from '../src/host.js';
 import { identity } from '../src/placement.js';
 import { spaceOf } from '../src/space.js';
+import { surfaceOf } from '../src/three/geometry/value.js';
+/** A face's loop of point rows, round it: its corners' points. */
+const loopOf = (f: { corners: { map<T>(fn: (c: { point: { index: number } }) => T): T[] } }): number[] => f.corners.map((c) => c.point.index);
 
 beforeAll(async () => initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 
 const away = (a: readonly number[], b: readonly number[]): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const xyz = (p: { x: number; y: number; z: number }): Vec3 => [p.x, p.y, p.z];
 
-/** Every corner of every copy as an index into `h.points`, found by
+/** Every corner of every copy as a row of `h.wires.points`, found by
  * position and never by the kernel's own key. */
 function corners(h: Honeycomb): number[][] {
   const cell = h.cell.points.map(xyz);
@@ -28,7 +34,7 @@ function corners(h: Honeycomb): number[][] {
     const image = place.point(p);
     let best = -1;
     let d = Infinity;
-    for (const q of h.points) {
+    for (const q of h.wires.points) {
       const e = away(image, xyz(q));
       if (e < d) { d = e; best = q.index; }
     }
@@ -41,7 +47,7 @@ function corners(h: Honeycomb): number[][] {
  * the room over copies that share a wall. */
 function distances(h: Honeycomb, at: number[][]): number[] {
   const walls = new Map<string, number[]>();
-  const loops = h.cell.faces.map((f) => f.vertices);
+  const loops = h.cell.faces.map(loopOf);
   at.forEach((c, k) => {
     for (const f of loops) {
       const key = f.map((j) => c[j]).sort((a, b) => a - b).join(',');
@@ -69,23 +75,24 @@ describe('the {5, 3, 4} honeycomb as a complex', () => {
       const h = honeycomb(5, 3, 4, { depth });
       const want = counts[depth];
       expect(h.placements.length).toBe(want.placements);
-      expect(h.points.length).toBe(want.points);
+      expect(h.wires.points.length).toBe(want.points);
       expect(h.faces.length).toBe(want.faces);
       expect(h.wires.edges.length).toBe(want.edges);
       // A ball-shaped patch of a 3-complex is contractible, so its Euler
       // characteristic V − E + F − C is 1.
-      expect(h.points.length - h.wires.edges.length + h.faces.length - h.placements.length).toBe(1);
+      expect(h.wires.points.length - h.wires.edges.length + h.faces.length - h.placements.length).toBe(1);
 
-      const walls = new Set(h.faces.map((f) => [...f.vertices].sort((a, b) => a - b).join(',')));
+      const loopOfFace = (f: (typeof h.faces)[number]) => [...f.points.indices];
+      const walls = new Set(h.faces.map((f) => loopOfFace(f).sort((a, b) => a - b).join(',')));
       expect(walls.size).toBe(h.faces.length);
-      const pairs = new Set(h.wires.edges.map((e) => [...e.vertices].sort((a, b) => a - b).join(',')));
+      const pairs = new Set(h.wires.edges.map((e) => [e.a.index, e.b.index].sort((a, b) => a - b).join(',')));
       expect(pairs.size).toBe(h.wires.edges.length);
 
       // Every corner of every copy is a shared vertex, to 1e-9.
       const at = corners(h);
-      const faceOf = new Map(h.faces.map((f) => [[...f.vertices].sort((a, b) => a - b).join(','), f]));
+      const faceOf = new Map(h.faces.map((f) => [loopOfFace(f).sort((a, b) => a - b).join(','), f]));
       const gen = distances(h, at);
-      const loops = h.cell.faces.map((f) => f.vertices);
+      const loops = h.cell.faces.map(loopOf);
       const lowest = new Map<string, number>();
       at.forEach((c, k) => {
         for (const f of loops) {
@@ -95,13 +102,15 @@ describe('the {5, 3, 4} honeycomb as a complex', () => {
         }
       });
       for (const f of h.faces) {
-        const key = [...f.vertices].sort((a, b) => a - b).join(',');
-        expect(f.cell).toBe(lowest.get(key));
-        expect(f.generation).toBe(gen[f.cell]);
-        expect(f.mirrored).toBe(h.placements[f.cell].orientation < 0);
+        const key = loopOfFace(f).sort((a, b) => a - b).join(',');
+        // A wall's source is the placement of the first copy that has it.
+        const cell = h.placements.indexOf(f.source);
+        expect(cell).toBe(lowest.get(key));
+        expect(f.generation).toBe(gen[cell]);
+        expect(f.mirrored).toBe(f.source.orientation < 0 ? 1 : 0);
       }
       // A reflection turns space over: odd generations are mirrored.
-      for (const f of h.faces) expect(f.mirrored).toBe(f.generation % 2 === 1);
+      for (const f of h.faces) expect(f.mirrored).toBe(f.generation % 2);
 
       // Each edge's columns are the lowest copy that has it and that copy's
       // generation, which is the lowest generation among its walls.
@@ -115,7 +124,7 @@ describe('the {5, 3, 4} honeycomb as a complex', () => {
         }
       });
       for (const e of h.wires.edges) {
-        const key = [...e.vertices].sort((a, b) => a - b).join(',');
+        const key = [e.a.index, e.b.index].sort((a, b) => a - b).join(',');
         expect(e.cell).toBe(edgeCell.get(key));
         expect(e.generation).toBe(gen[e.cell]);
       }
@@ -132,15 +141,16 @@ describe('the {5, 3, 4} honeycomb as a complex', () => {
     expect(h.cell.edges.length).toBe(30);
   });
 
-  it('draws each edge as one two-point wire, points shared with the complex', () => {
+  it('draws each edge as one two-point wire, and each wall runs round points of the wires', () => {
     const h = honeycomb(5, 3, 4, { depth: 1 });
-    expect(h.wires.points.length).toBe(h.points.length);
-    h.wires.points.map((p, i) => {
-      expect(p.id).toBe(h.points[i].id);
-      expect([p.x, p.y, p.z]).toEqual(xyz(h.points[i]));
-    });
+    for (const f of h.faces) {
+      expect(f.points.length).toBe(5);
+      expect(f.points.every((p) => h.wires.points.has(p))).toBe(true);
+      expect('id' in f || 'vertices' in f || 'cell' in f).toBe(false);
+    }
+    expect(h.faces[0].points).toBe(h.faces[0].points);
     for (const e of h.wires.edges) {
-      expect(e.vertices.length).toBe(2);
+      expect([e.a.index, e.b.index].length).toBe(2);
       expect(Number.isInteger(e.cell) && Number.isInteger(e.generation)).toBe(true);
     }
     expect(h.wires.edges.filter((e) => e.generation === 0).length).toBe(30);
@@ -157,9 +167,9 @@ describe('the {5, 3, 4} honeycomb as a complex', () => {
   });
 });
 
-describe('Placement3', () => {
+describe('Placement<Vec3>', () => {
   const h = honeycomb(4, 3, 5, { depth: 2 });
-  const some: Placement3[] = [h.placements[1], h.placements[5], h.placements[20], observer([0.2, -0.1, 0.05], [0.5, 0.4, 0.1])];
+  const some: Placement<Vec3>[] = [h.placements[1], h.placements[5], h.placements[20], observer([0.2, -0.1, 0.05], [0.5, 0.4, 0.1])];
   const probe: Vec3[] = [[0.1, 0.2, -0.3], [-0.4, 0.05, 0.2], [0.3, -0.3, 0.1]];
 
   it('composes with then, undoes with inverse, multiplies orientation', () => {
@@ -181,10 +191,10 @@ describe('Placement3', () => {
   });
 
   it('is structural, and a 2D placement is not one', () => {
-    for (const a of some) expect(isPlacement3(a)).toBe(true);
-    expect(isPlacement3(identity(spaceOf({ curvature: 0 }).model))).toBe(false);
-    expect(isPlacement3((p: Vec3) => p)).toBe(false);
-    expect(() => some[0].then({ orientation: 1, point: (p: Vec3) => p, then: () => some[0], inverse: () => some[0] })).toThrow('expected a Placement3');
+    for (const a of some) expect(isSpacePlacement(a)).toBe(true);
+    expect(isSpacePlacement(identity(spaceOf({ curvature: 0 }).model))).toBe(false);
+    expect(isSpacePlacement((p: Vec3) => p)).toBe(false);
+    expect(() => some[0].then({ orientation: 1, point: (p: Vec3) => p, then: () => some[0], inverse: () => some[0] } as never)).toThrow('cannot follow one of 3D space');
   });
 
   it('puts the observer eye at the origin and the target on +Y', () => {
@@ -204,39 +214,38 @@ describe('transform', () => {
     const h = honeycomb(5, 3, 4, { depth: 1 });
     const seen = observer([0.05, -0.08, 0.1], [0.8, 0, 0]);
     const moved = h.wires.transform(seen);
-    expect(moved.points.map((p) => p.id)).toEqual(h.wires.points.map((p) => p.id));
+    expect(surfaceOf(moved).points.map((p) => p.id)).toEqual(surfaceOf(h.wires).points.map((p) => p.id));
     h.wires.points.map((p, i) => expect(away(xyz(moved.points.at(i)!), seen.point(xyz(p)))).toBe(0));
-    expect(moved.edges.map((e) => [e.id, e.vertices, e.cell, e.generation])).toEqual(h.wires.edges.map((e) => [e.id, e.vertices, e.cell, e.generation]));
+    expect(moved.edges.map((e) => [e.a.index, e.b.index, e.cell, e.generation])).toEqual(h.wires.edges.map((e) => [e.a.index, e.b.index, e.cell, e.generation]));
   });
 
   it('moves a mesh by point, keeps ids and columns, and rewinds a mirror', () => {
     const h = honeycomb(5, 3, 4, { depth: 1 });
-    const cell = h.cell.faceAttribute('tag', (f) => f.index * 2);
+    const cell = h.cell.faces.set('tag', (f) => f.index * 2);
     const flip = h.placements[1];
     expect(flip.orientation).toBe(-1);
     const moved = cell.transform(flip);
-    expect(moved.points.map((p) => p.id)).toEqual(cell.points.map((p) => p.id));
+    expect(surfaceOf(moved).points.map((p) => p.id)).toEqual(surfaceOf(cell).points.map((p) => p.id));
     cell.points.map((p, i) => expect(away(xyz(moved.points.at(i)!), flip.point(xyz(p)))).toBe(0));
-    expect(moved.faces.map((f) => [f.id, f.tag])).toEqual(cell.faces.map((f) => [f.id, f.tag]));
+    expect(moved.faces.map((f) => [surfaceOf(moved).faces[f.index].id, f.tag])).toEqual(cell.faces.map((f) => [surfaceOf(cell).faces[f.index].id, f.tag]));
     // Turned over, so each loop runs backwards and the solid stays wound
     // outward: every normal points away from the moved cell's centre.
-    cell.faces.map((f, i) => expect(moved.faces.at(i)!.vertices).toEqual([...f.vertices].reverse()));
+    cell.faces.map((f, i) => expect(loopOf(moved.faces.at(i)!)).toEqual([...loopOf(f)].reverse()));
     const middle = flip.point([0, 0, 0]);
     for (const f of moved.faces) {
-      const out = [f.centroid[0] - middle[0], f.centroid[1] - middle[1], f.centroid[2] - middle[2]];
+      const out = [f.centroid[0] - middle[0], f.centroid[1] - middle[1], f.centroid[2]! - middle[2]];
       expect(out[0] * f.normal[0] + out[1] * f.normal[1] + out[2] * f.normal[2]).toBeGreaterThan(0);
     }
     // Rewound faces are reassembled, so edges keep their ids, not their rows.
-    expect(moved.edges.map((e) => e.id).sort()).toEqual(cell.edges.map((e) => e.id).sort());
+    expect(surfaceOf(moved).edges.map((e) => e.id).sort()).toEqual(surfaceOf(cell).edges.map((e) => e.id).sort());
     // A turn that keeps the hand keeps the winding.
     const kept = cell.transform(h.placements[1].then(h.placements[2]));
-    cell.faces.map((f, i) => expect(kept.faces.at(i)!.vertices).toEqual(f.vertices));
+    cell.faces.map((f, i) => expect(loopOf(kept.faces.at(i)!)).toEqual(loopOf(f)));
   });
 
-  it('refuses what is not a Placement3, by name', () => {
+  it('refuses what is not a placement of 3D space, by name', () => {
     const h = honeycomb(5, 3, 4, { depth: 0 });
-    expect(() => h.wires.transform(((p: Vec3) => p) as never)).toThrow('transform takes a Placement3');
-    expect(() => h.cell.transform(identity(spaceOf({ curvature: 0 }).model) as never)).toThrow('transform takes a Placement3');
+    expect(() => h.wires.transform(((p: Vec3) => p) as never)).toThrow('m.transform: expected a placement');
   });
 });
 
@@ -252,19 +261,19 @@ describe('the {5, 3, 4} fence', () => {
     expect(got).toEqual(want);
 
     // The docs fence body, as it stands on the geometry page.
-    const definition = sketchAsync({ aspect: [1, 1], pens: {
+    const definition = sketch({ aspect: [1, 1], pens: {
       ink: pen({ width: mm(0.18), color: '#46505C' }),
       room: pen({ width: mm(0.38), color: '#18202A' }),
     } }, async (t) => {
       const b = t.bounds();
       const c = h.cell.points.at(0)!;
-      const toward = (f: { centroid: Vec3 }): number => f.centroid[0] * c.x + f.centroid[1] * c.y + f.centroid[2] * c.z;
+      const toward = (f: { centroid: readonly number[] }): number => f.centroid[0] * c.x + f.centroid[1] * c.y + f.centroid[2] * c.z;
       const wall = [...h.cell.faces].reduce((f, g) => (toward(f) < toward(g) ? f : g));
-      const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.centroid, { up: [0.26, 0, 0.97] });
+      const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.centroid as Vec3, { up: [0.26, 0, 0.97] });
       const camera = perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 });
       return view(h.wires.transform(seen), { camera, pen: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
-        strokes(lines.visible.filter((w) => (w.attributes.generation as number) > 0), { stroke: 'ink' }),
-        strokes(lines.visible.filter((w) => w.attributes.generation === 0), { stroke: 'room' }),
+        strokes(lines.visible.filter((w) => (w.generation as number) > 0), { stroke: 'ink' }),
+        strokes(lines.visible.filter((w) => w.generation === 0), { stroke: 'room' }),
       ]));
     });
     const out = render(await compileSketchAsync(definition), { paper: { w: 148, h: 148 }, marginPct: 5 });

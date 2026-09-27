@@ -1,11 +1,11 @@
 /** Numeric render context requested lazily. No fill closures cross workers. */
+import type { PenDef } from "occlude";
 import type {
   EncodedScene,
   EstimateOpts,
-  PenDef,
   PlanEstimate,
   PlanSettings,
-} from "occlude";
+} from "occlude/host";
 export type GeometrySnapshot = Pick<
   EncodedScene,
   | "prims"

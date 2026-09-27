@@ -6,18 +6,13 @@
  * `isolines` …) outside a sketch function.
  */
 
+import { type Toolkit } from '../../src/index.js';
 import {
-  Execution, bindToolkit, paperSize, type CompileConfig, type ExecutionInputs, type PaperChoice, type Toolkit,
-} from '../../src/index.js';
+  Execution, bindToolkit, type CompileConfig, type ExecutionInputs,
+} from '../../src/host.js';
 
 export const SQ: ExecutionInputs = { paper: { w: 200, h: 200 } };
 export const A4: ExecutionInputs = { paper: { w: 210, h: 297 } };
-
-/** Inputs on a named paper, with anything else spread over them. */
-export function inputs(paper: PaperChoice | string = 'Square20', extra: Partial<ExecutionInputs> = {}): ExecutionInputs {
-  const { w, h } = paperSize(typeof paper === 'string' ? { paper } : paper);
-  return { paper: { w, h }, ...extra };
-}
 
 /** A toolkit bound to a fresh execution begun with `cfg`, for sketch-time
  * calls made outside a sketch function. */

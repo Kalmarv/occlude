@@ -9,26 +9,37 @@
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
 import { neighbours } from '../src/forces.js';
-import { query } from '../src/query.js';
+import { toolkit } from './helpers/run.js';
+import { xy, rec } from './helpers/xy.js';
+import { square } from './helpers/shapes.js';
 
-const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
-describe('ownership: derived states copy, the public arrays stay writable', () => {
-  it('a derived material never shares a column with its source', () => {
+describe('ownership: derived states share what they did not write', () => {
+  it('a derived material shares every column it did not write, and never writes one it holds', () => {
     const m = square();
-    const d = m.attribute('a', 1);
-    const e = m.withEdges([[0, 2]]);
+    const d = m.points.set('a', 1);
+    const e = m.edges.add([m.points.at(0), m.points.at(2)]);
+    // A column write keeps the rest; an edge write keeps the points: the
+    // same rows, by name, at the same places.
+    for (const g of [d, e]) {
+      expect(g.points.map(xy)).toEqual(m.points.map(xy));
+      for (const p of m.points) expect(g.points.has(p)).toBe(true);
+    }
+    for (const x of m.edges) expect(d.edges.has(x)).toBe(true);
+    expect(d.points.map((p) => p.a)).toEqual([1, 1, 1, 1]);
+    expect(e.edges.length).toBe(5);
+    // ...and the source reads as it did.
+    expect(Object.keys(m.attrs)).toEqual([]);
+    expect(Array.from(m.edgeList)).toEqual([0, 1, 1, 2, 2, 3, 3, 0]);
+    // The flat arrays are the shared storage, read-only by contract: a
+    // direct write reaches every state that shares the column.
     m.x[0] = 100;
-    expect(d.x[0]).toBe(0);
-    expect(e.x[0]).toBe(0);
-    expect(d.edgeList).not.toBe(m.edgeList);
-    // and a derivation made AFTER the write reads the written value
-    expect(m.attribute('b', 2).x[0]).toBe(100);
+    expect(d.x[0]).toBe(100);
   });
 
-  it('steps: the result, its snapshots and the input own their columns', () => {
-    const m = square().attribute('age', 0);
-    const r = m.steps(2, (prev, next) => next.move(prev.points, [1, 0]), { every: 1 });
+  it('t.steps: the result, its snapshots and the input own their columns', () => {
+    const m = square().points.set('age', 0);
+    const r = toolkit({ seed: 1 }).steps(2, m, (g) => g.move([1, 0]), { every: 1 });
     const snap0 = r.history[0];
     r.x[0] = 500;
     expect(m.x[0]).toBe(0);
@@ -45,8 +56,8 @@ describe('what a direct write reaches', () => {
     m.x[0] = 100;
     expect(m.vertex(0).x).toBe(100);
     expect(m.edge(0).a.x).toBe(100);
-    expect(m.curves()[0].pts[0][0]).toBe(100);
-    expect(m.pts[0][0]).toBe(100);
+    expect(m.curves.map(rec)[0].pts[0][0]).toBe(100);
+    expect(m.points.map(xy)[0][0]).toBe(100);
   });
 
   it('adjacency is topology only: a coordinate write cannot stale it', () => {
@@ -56,16 +67,20 @@ describe('what a direct write reaches', () => {
     expect(m.points.at(0).adjacent.indices).toEqual([1, 3]);
   });
 
-  it('a prepared edge query keeps the geometry it was prepared on', () => {
+  it('the edge index keeps the geometry it was built on', () => {
     const m = square();
-    const q = query.edges(m);
+    const q = m.edges;
+    // The index is built the first time a state is asked, and kept there.
+    expect(q.nearest([1, -1], { within: 2 })).not.toBeNull();
     m.x[0] = 100; // the bottom edge now runs 100→10 in the material...
     const hit = q.nearest([1, -1], { within: 2 });
     expect(hit).not.toBeNull();
     expect(hit!.edge.index).toBe(0); // ...but the query still sees it at 0→10
     expect(hit!.distance).toBe(1);
-    // the edge VIEW in the result is a live view of the (written) material
-    expect(hit!.edge.a.x).toBe(100);
+    // the edge VIEW in the result is the state's one view of that row,
+    // made on the first read (before the write) and kept
+    expect(hit!.edge).toBe(m.edge(0));
+    expect(hit!.edge.a.x).toBe(0);
   });
 
   it('a prepared neighbourhood keeps its buckets but judges distance live', () => {
@@ -83,11 +98,11 @@ describe('what a direct write reaches', () => {
 
   it('faces are cached per state: computed once, a later write is not seen', () => {
     const m = square();
-    const f1 = m.faces();
+    const f1 = m.faces;
     const area1 = f1.at(0).area;
     m.x[1] = 20;
     m.x[2] = 20;
-    expect(m.faces()).toBe(f1);
+    expect(m.faces).toBe(f1);
     expect(f1.at(0).area).toBe(area1);
   });
 });

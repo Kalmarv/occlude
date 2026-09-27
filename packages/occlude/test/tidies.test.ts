@@ -10,13 +10,16 @@
  * 4. `rows` on the 3D collections, as `sel.rows` in 2D.
  */
 
-import { describe, expect, expectTypeOf, it } from 'vitest';
-import { box, circle, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus } from 'occlude/3d';
+import { describe, expect, it } from 'vitest';
+import { box, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus, parametricCurve } from 'occlude/3d';
 import { chordMiddle, metricGap } from '../src/chord.js';
 import { euclideanSpace, spaceOf, type Space } from '../src/space.js';
+import { circle3 } from './helpers/surfaces.js';
 import { space } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
-import type { Collection } from '../src/three/api/collection.js';
+import type { Selection } from '../src/selection.js';
+
+/** The 3D profile circle, as the parametric curve it always was. */
 
 describe('a charted face row carries a typed chart', () => {
   const factories = {
@@ -29,25 +32,15 @@ describe('a charted face row carries a typed chart', () => {
     cone: cone(),
     torus: torus(),
     revolve: revolve(curve([[0, 0, 0], [1, 0, 0], [1, 0, 2]]), { segments: 8 }),
-    sweep: sweep(circle(0.2), curve([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
+    sweep: sweep(circle3(0.2), curve([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
   };
 
-  it('types `f.chart` as a string on every factory that charts, and not on a bare mesh', () => {
-    expectTypeOf(plane().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(box().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(factories.parametric.faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(sphere().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(geodesic().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(cylinder().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(cone().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(torus().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(factories.revolve.faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(factories.sweep.faces.at(0)!.chart).toEqualTypeOf<string>();
-    // The verbs that carry `F` carry the chart.
-    expectTypeOf(sphere().subdivide(1).faces.filter((f) => f.chart.length > 0).at(0)!.chart).toEqualTypeOf<string>();
+  it('answers `f.chart` as a string on every factory that charts, and none on a bare mesh', () => {
+    for (const made of Object.values(factories)) expect(typeof made.faces.at(0)!.chart).toBe('string');
+    // A subdivision carries the chart to every child face.
+    expect(sphere().subdivide(1).faces.every((f) => typeof f.chart === 'string' && f.chart.length > 0)).toBe(true);
     const bare = mesh([[0, 0, 0], [1, 0, 0], [0, 1, 0]], [[0, 1, 2]]);
-    // @ts-expect-error a mesh built from positions and faces has no chart
-    void bare.faces.at(0)!.chart;
+    expect(bare.faces.at(0)!.chart).toBeUndefined();
   });
 
   it('writes a non-empty string chart on every face row of every factory', () => {
@@ -195,38 +188,43 @@ describe('a tiling\'s bow in sketch units keeps its rows', () => {
 describe('rows on the 3D collections', () => {
   const m = box().subdivide(1);
 
-  it('takes an index, a row, a list, or a mix, as source rows', () => {
-    for (const all of [m.points, m.edges, m.faces] as Collection<{ readonly id: string; readonly index: number }, unknown>[]) {
+  it('takes a row or a list of rows, as rows of the state — never a row number', () => {
+    for (const all of [m.points, m.edges, m.faces] as Selection<{ readonly id: string; readonly index: number }>[]) {
       const some = all.filter((r) => r.index % 3 === 1);
       const pick = some.at(2)!;
-      expect(all.rows(pick.index).map((r) => r.index)).toEqual([pick.index]);
       expect(all.rows(pick).map((r) => r.index)).toEqual([pick.index]);
-      // Source rows, not positions within the selection; deduped and sorted.
-      expect(some.rows([5, 0, 5]).map((r) => r.index)).toEqual([0, 5]);
-      expect(some.rows([pick, 0, some.at(0)!]).map((r) => r.index)).toEqual([0, some.at(0)!.index, pick.index].sort((a, b) => a - b));
-      expect(all.rows(new Set([3, 2])).map((r) => r.index)).toEqual([2, 3]);
+      // Rows of the state, not members of the selection; a repeat keeps
+      // its first place, and the order given is the selection's order.
+      const [a, b] = [all.at(5)!, all.at(0)!];
+      expect(some.rows([a, b, a]).map((r) => r.index)).toEqual([5, 0]);
+      expect(some.rows([pick, b, some.at(0)!]).map((r) => r.index)).toEqual([pick.index, 0, some.at(0)!.index]);
+      expect(all.rows(new Set([all.at(3)!, all.at(2)!])).map((r) => r.index)).toEqual([3, 2]);
       expect(all.rows([]).length).toBe(0);
+      expect(() => all.rows(pick.index as never)).toThrow(/rows: expected an? \w+ row, or a list of them — got the number/);
     }
   });
 
-  it('keeps the key', () => {
+  it('is the rows of the state, not a part of the group: no key', () => {
     const [group] = m.faces.groupBy((f) => f.chart);
-    expect(group.rows(0).key).toBe(group.key);
+    expect(group.rows(m.faces.at(0)!).key).toBeUndefined();
   });
 
   it('reads a row of another revision by id, and refuses another domain and an index out of range', () => {
-    // Spec 58 (G3-29): a row of another revision resolves by its id.
+    // A row of another state of the same rows resolves to its row here.
+    const later = m.translate([0, 0, 1]);
+    expect(m.faces.rows(later.faces.at(0)!).at(0)!.index).toBe(0);
+    expect(m.points.rows([m.points.at(0)!, later.points.at(0)!]).length).toBe(1);
+    expect(m.edges.rows(later.edges.at(1)!).at(0)!.index).toBe(1);
+    // Another construction of the same box is another geometry: its rows are
+    // not rows of this one.
     const other = box().subdivide(1);
-    expect(m.faces.rows(other.faces.at(0)!).at(0)!.id).toBe(other.faces.at(0)!.id);
-    expect(m.points.rows([0, other.points.at(0)!]).length).toBe(1);
-    expect(m.edges.rows(other.edges.at(1)!).at(0)!.id).toBe(other.edges.at(1)!.id);
-    const gone = box().subdivide(2).faces.find((f) => !m.faces.some((g) => g.id === f.id))!;
-    expect(() => m.faces.rows(gone)).toThrow(/gone from this revision/);
+    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow(/faces\.rows: that face is a row of an unrelated material/);
     // @ts-expect-error a point row is not a face row
-    expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face row, got a point row');
+    expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face view — got a vertex view');
+    // The engine's door by number refuses a number that is not a row.
     const n = m.faces.length;
-    expect(() => m.faces.rows(n)).toThrow(`faces.rows: no face ${n} in this revision (${n} rows)`);
-    expect(() => m.points.rows(-1)).toThrow('points.rows: no point -1');
-    expect(() => m.edges.rows(1.5)).toThrow('edges.rows: no edge 1.5');
+    expect(() => m.faces.rowsAt([n])).toThrow(`faces.rowsAt: no face ${n} in this state (${n} rows)`);
+    expect(() => m.points.rowsAt([-1])).toThrow('points.rowsAt: no point -1');
+    expect(() => m.edges.rowsAt([1.5])).toThrow('edges.rowsAt: no edge 1.5');
   });
 });

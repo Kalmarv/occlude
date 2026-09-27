@@ -10,7 +10,7 @@
  *   t.loops(...)  → t.polylines(...) (a shape's outline as points)
  *
  * 2026-09-07 material-native geometry:
- *   t.polylines(x) → t.material(x).curves().map((c) => c.pts)
+ *   t.polylines(x) → t.material(x).curves.map((c) => c.points.map((p) => [p.x, p.y]))
  * `t.polylines` no longer exists; `t.material(x)` returns a Material, so
  * the rewrite keeps the array shape the caller expected by reading the
  * material's chains back as point arrays. The call is found by balancing
@@ -54,7 +54,7 @@ function closeOfCall(src, open) {
   return -1;
 }
 
-/** `t.polylines(<args>)` → `t.material(<args>).curves().map((c) => c.pts)`,
+/** `t.polylines(<args>)` → `t.material(<args>).curves.map((c) => c.points.map((p) => [p.x, p.y]))`,
  * outside strings and comments; a bare `t.polylines` reference is left
  * for the author. */
 function rewritePolylines(src) {
@@ -73,7 +73,7 @@ function rewritePolylines(src) {
       if (src[open] !== '(') continue;
       const end = closeOfCall(src, open);
       if (end < 0) continue;
-      out += src.slice(last, i) + 't.material' + src.slice(open, end) + '.curves().map((c) => c.pts)';
+      out += src.slice(last, i) + 't.material' + src.slice(open, end) + '.curves.map((c) => c.points.map((p) => [p.x, p.y]))';
       last = end;
       i = end - 1;
     }
@@ -136,14 +136,14 @@ export function strokeChain(producer, steps) {
 }
 
 /** `isolines(…).map((c) => polygon(c.pts, o))` →
- * `….curves().map((c) => polygon(c, o))`: `curves()` is the array of contour
- * records the old result already was. */
+ * `….curves.map((c) => polygon(c, o))`: `curves` holds the chains the old
+ * result's contour records were, and a ring is an area. */
 export function curveChain(producer, steps) {
   if (steps.length !== 1 || steps[0].name !== 'map') return null;
   const m = /^\s*\((\w+)\)\s*=>\s*(t\.)?polygon\(\s*\1\.pts\s*(?:,\s*([\s\S]*?))?\s*\)\s*,?\s*$/.exec(steps[0].args);
   if (!m) return null;
   const [, c, , opts] = m;
-  return { text: `${producer}.curves().map((${c}) => polygon(${c}${opts !== undefined ? `, ${opts}` : ''}))`, consumed: steps[0].end };
+  return { text: `${producer}.curves.map((${c}) => polygon(${c}${opts !== undefined ? `, ${opts}` : ''}))`, consumed: steps[0].end };
 }
 
 /** Scan for `isolines(` / `streamlines(` calls — toolkit-prefixed or bare —
@@ -248,7 +248,7 @@ function rewriteScatterSettle(src) {
  * — so the names bound to a producer are collected first and their uses
  * rewritten: inside a `polygon(...)` the point arrays ARE the material's
  * chains (`blobs.map((c) => c.pts)` → `blobs`), and a per-contour map reads
- * the chain records (`blobs.map(…)` → `blobs.curves().map(…)`). Name-based and
+ * the chain records (`blobs.map(…)` → `blobs.curves.map(…)`). Name-based and
  * word-bounded, so a `blobs` that came from anywhere else is left alone.
  */
 function rewriteBindings(src) {
@@ -263,8 +263,8 @@ function rewriteBindings(src) {
       new RegExp(`((?:t\\.)?polygon\\(\\s*)${n}\\.map\\(\\s*\\(\\w+\\)\\s*=>\\s*\\w+\\.pts\\s*\\)`, 'g'),
       `$1${name}`,
     );
-    out = out.replace(new RegExp(`\\b${n}\\.flat\\(\\)\\.map\\(`, 'g'), `${name}.curves().map(`);
-    out = out.replace(new RegExp(`\\b${n}\\.map\\(`, 'g'), `${name}.curves().map(`);
+    out = out.replace(new RegExp(`\\b${n}\\.flat\\(\\)\\.map\\(`, 'g'), `${name}.curves.map(`);
+    out = out.replace(new RegExp(`\\b${n}\\.map\\(`, 'g'), `${name}.curves.map(`);
   }
   return out;
 }

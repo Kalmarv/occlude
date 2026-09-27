@@ -1,901 +1,97 @@
-import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
-import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
-import {inheritTopology3} from '../geometry/topology.js';
-import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCornerRow,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
-import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
-import {captureSurface3,ownSurface3,cloneSurface3,editAttributes3,transformSurface3,transformPosition3,measureFaces3} from '../geometry/model.js';
-import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
-import {clampSetting,emptyCount,emptySize,sampleValue} from '../degenerate.js';
-import {Collection} from './collection.js';
-import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
-import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
-import {dualSurface3,type DualOptions} from '../geometry/dual.js';
-import {isPlacement3,type Placement3} from './placement3.js';
-import {booleanSurface3} from '../geometry/boolean.js';
-import {refuseStroke,hatchRecipes,type ViewHatchInput} from './recipes.js';
+/**
+ * The 3D factories: a plane, a box, a formula surface, an imported mesh,
+ * points in space. Each answers the one geometry — a `Material` with a `z`
+ * column, stated polygon faces and their corners where it has them — and
+ * the 3D words on it (`subdivide`, `extrude` of faces, the booleans, `dual`,
+ * `displace`, 3D `translate`/`rotate`/`scale`) are its own methods
+ * (words.ts). An empty domain is empty: points have no edges, a curve has
+ * no faces, and a word that needs faces refuses a value with none by name.
+ */
+
+import {chartSurface3} from '../geometry/coordinates.js';
+import {surface3,box3,assembleSurface3,type Surface3,type Attributes3,type Attribute3} from '../geometry/surface.js';
+import {ownSurface3} from '../geometry/model.js';
+import {add3,mul3,sub3,type Vec3} from '../math.js';
+import {emptyCount,emptySize} from '../degenerate.js';
+import {attributeValue} from './columns.js';
+import {refuseStroke,refuseDisplay} from './recipes.js';
 import {points2} from './lift.js';
-import {curveLength,alongCurve,resampledSurface,type Station3} from './curveWalk.js';
-import type {DropReason} from '../../steps.js';
-/** One connected component of an extrusion selection, measured on the frozen input. */
-export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
-  readonly index:number;readonly faces:MeshFaces<P,E,F,C>;
-  /** Unit area-weighted mean normal; undefined when the region's faces cancel. */
-  readonly normal?:Vec3;readonly centroid:Vec3;readonly area:number;
-}
-const regionCenterRefused=():never=>{throw new Error('an extrude region\'s middle is `centroid` (the 2D face word)');};
-export type ExtrudeOffset<R>=number|Vec3|((region:R)=>Vec3)|{readonly distance:Field<R,number>};
-export interface ExtrudeOptions {
-  /** Stable identity for generated points, walls and corners; default 'extrude'. */
-  readonly key?:string;
-}
-export type Field<Row,Value> = Value | ((row:Row)=>Value);
-export type AttributeFields<Row,A extends Attributes3> = {readonly [K in keyof A]:Field<Row,A[K]>};
-type StepValue<V> = V extends number ? number : V extends string ? string : V extends boolean ? boolean : V extends readonly number[] ? {readonly [I in keyof V]:number} : V;
-/** A frozen pass may change values, so literal columns widen to their value kind. */
-export type StepAttributes<A> = {[K in keyof A]:StepValue<A[K]>};
-export interface AttributeOptions {readonly transfer?:PointTransfers}
+import {value3,type Carry3} from '../geometry/value.js';
+import {sourceOf3,type Input3} from './words.js';
+import {Material} from '../../material.js';
+import {Selection} from '../../selection.js';
+import type {Rotation} from '../rotation.js';
+import './words.js';
+
+export type {DisplaceOptions,RotateOptions3 as RotateOptions,ScaleOptions3 as ScaleOptions,Origin3,ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './words.js';
+/** The columns of an edge, by name. */
 export type EdgeAttributes = Record<string,Attribute3|undefined>;
+
 export interface GeometryOptions {
+  /** The name a scatter on this value draws its stream under, and the
+   * value's identity in a view. */
   readonly key?:string;
-  /** The object's own crease threshold in degrees: a fold is drawn as a crease
-   * when its angle reaches it. Unset objects use the view's `creaseAngle`
-   * (30 by default); 180 never draws creases, the smooth-shaded look. */
-  readonly creaseAngle?:number;
-  /** The pen the default drawing uses for this object's lines; the view's
-   * `pen` applies when unset. A hatch recipe's own `pen` still wins. */
-  readonly pen?:string;
-  /** The pen for this object's hatch when the recipe names none (2D `fillPen`). */
-  readonly fillPen?:string;
-  /** Draw this object's suggestive contours, the lines where the surface is
-   * about to turn away. `false` (the default) draws none; `{}` takes the
-   * default threshold, and a larger `threshold` keeps fewer of them. */
-  readonly suggestive?:SuggestiveInput;
 }
-/** Off, or on with the reading's own threshold. */
-export type SuggestiveInput={readonly threshold?:number}|false;
-/** How an object is drawn by the default drawing: its pen, its hatch pen, its
- * crease threshold. `style` sets only the fields named and keeps the rest. */
-export interface Style3 {readonly pen?:string;readonly fillPen?:string;readonly creaseAngle?:number;readonly suggestive?:SuggestiveInput;readonly hatch?:ViewHatchInput}
-function checkedSuggestive(value:SuggestiveInput|undefined):SuggestiveInput|undefined {
-  if(value===undefined||value===false)return value;
-  if(typeof value!=='object'||Array.isArray(value))throw new Error('suggestive must be false or { threshold }');
-  return Object.freeze({...value});
+/** @internal The inputs of the derivation that made a value: its name and
+ * the values it read, which its rows' `source` answers rows of. */
+export interface Derived3 {readonly operation:string;readonly inputs:readonly object[]}
+export const derived=(operation:string,...inputs:object[]):Derived3=>Object.freeze({operation,inputs:Object.freeze(inputs)});
+/** @internal What a factory hands `geometry3` besides the surface. */
+export interface Geometry3Options extends GeometryOptions {
+  readonly radialCentre?:Vec3;
+  readonly origin?:Vec3;
+  readonly orientation?:Rotation;
+  readonly transfers?:Carry3['transfers'];
+  readonly derived?:Derived3;
+  /** The value the surface was made from: a row it kept keeps its id. */
+  readonly from?:Material;
+  /** Point columns a kernel never sees (a sample's placement). */
+  readonly pointCols?:Carry3['pointCols'];
+  /** Where the rows came from, said outright (the core's `source`). */
+  readonly source?:Carry3['source'];
+  /** The prototype the points place (instances.ts). */
+  readonly prototype?:Material;
 }
-function checkedPen(value:string|undefined,name='pen'):string|undefined {
-  if(value!==undefined&&(typeof value!=='string'||!value))throw new Error(`${name} must be a nonempty pen name`);
-  return value;
-}
-function checkedCreaseAngle(value:number|undefined):number|undefined {
-  return value===undefined?undefined:clampSetting(value,0,180,30,'creaseAngle');
-}
-export type PointRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;x:number;y:number;z:number;attributes:Readonly<A>;provenance?:Provenance3}>;
-export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly [number,number];a:PointRow<P>; b:PointRow<P>;length:number;
-  /** The middle of the edge — the same word a face answers, the same word
-   * `EdgeMeasure3` answers, and the same word 2D's `Edge` answers. */
-  center:Vec3;attributes:Readonly<A>;provenance?:Provenance3}>;
-/** `centroid` is the area centroid of the face, the 2D face word. */
-export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;centroid:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
-export type CornerRow<A extends Attributes3={}> = Readonly<A&{id:string;index:number;localIndex:number;attributes:Readonly<A>;provenance?:Provenance3}>;
-const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','centroid','area','a','b','length','source','sample','points','edges','faces','adjacent','corners','face','point','localIndex']);
-export function attributeName(name:string):void {if(!name||reserved.has(name)||name==='__proto__'||name==='constructor'||name==='prototype')throw new Error(`reserved or empty geometry attribute name: ${name}`);}
-export function attributeValue(value:Attribute3):Attribute3 {
-  if(typeof value==='string'||typeof value==='boolean')return value;
-  if(typeof value==='number'&&Number.isFinite(value))return value;
-  if(Array.isArray(value)&&value.every(Number.isFinite))return Object.freeze([...value]);
-  throw new Error('geometry attribute must be a string, boolean, finite number or finite numeric array');
-}
-function attributeRecord(value:unknown):asserts value is Record<string,Attribute3> {
-  if(value&&typeof (value as PromiseLike<unknown>).then==='function'){
-    void Promise.resolve(value).catch(()=>{});
-    throw new Error('attribute fields must be synchronous');
-  }
-  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('attribute edit requires a record');
-}
-export function evaluate<R,V>(field:Field<R,V>,row:R):V{return typeof field==='function'?(field as (row:R)=>V)(row):field;}
-const pointCache=new WeakMap<Surface3,readonly PointRow[]>();
-function pointRows<P extends Attributes3>(surface:Surface3):readonly PointRow<P>[] {
-  let rows=pointCache.get(surface);
-  if(!rows){rows=Object.freeze(surface.points.map((p,index)=>Object.freeze({...p.attributes,id:p.id,index,x:p.position[0],y:p.position[1],z:p.position[2],attributes:p.attributes,provenance:p.provenance})));pointCache.set(surface,rows);}
-  return rows as unknown as readonly PointRow<P>[];
-}
-function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');}
+function checkOptions(options:GeometryOptions&{readonly prototype?:unknown}):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');refuseDisplay(options,'geometry options');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
-// Attribute records are frozen and shared between a surface and every surface
-// derived from it (transforms, subdivisions, further attribute edits), so a
-// record validated once is valid wherever it appears: the check runs per new
-// record, not per new mesh. (A torus with 40k faces edited three times used
-// to validate 120k unchanged records.)
-const validatedAttributes=new WeakSet<object>();
+/** The values a kernel's surface carries are ones a geometry column may
+ * hold; the names are the core's to judge, domain by domain. */
 function validateAttributes(surface:Surface3):void {
   for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows){
-    const record=row.attributes;
-    if(validatedAttributes.has(record))continue;
-    for(const [name,value] of Object.entries(record)){attributeName(name);attributeValue(value);}
-    if(Object.isFrozen(record))validatedAttributes.add(record);
+    for(const value of Object.values(row.attributes))if(value!==undefined)attributeValue(value);
   }
 }
-function pointsOnly(surface:Surface3,indices:readonly number[]):Surface3{return ownSurface3(assembleSurface3(indices.map(i=>surface.points[i]),[],[]));}
-const transformed=(surface:Surface3,options:Parameters<typeof transformSurface3>[1]):Surface3=>ownSurface3(transformSurface3(surface,options));
-/** Recorded radial centres: the point a generator built a star-shaped shell
- * about, in the value's own coordinates. Provenance, not a claim — every
- * certificate that reads one re-proves radiality from the triangles, so a
- * stale centre costs a failed proof and can never grant one.
- *
- * It lives beside the values rather than on them because `{...this}` carries
- * an object's own properties into everything derived from it, and provenance
- * must be DROPPED by default: only the operations that keep a star-shaped
- * solid star-shaped pass it on, and each says so in its own line. */
-const radialCentres=new WeakMap<object,Vec3>();
-function recordRadial(value:object,centre:Vec3|undefined):void {
-  if(!centre)return;finite3(centre);
-  radialCentres.set(value,Object.freeze([centre[0],centre[1],centre[2]]) as unknown as Vec3);
-}
-/** The image of a recorded centre under the same affine edit the points took. */
-const movedCentre=(centre:Vec3|undefined,options:Parameters<typeof transformSurface3>[1]):Vec3|undefined=>
-  centre&&transformPosition3(centre,options);
-/** Every point through a hyperbolic placement, every id and column kept.
- * A Lorentz isometry moves the Klein ball projectively, so a straight
- * segment stays straight and a flat face stays flat: the stored edges and
- * triangles are still exact. A placement that turns space over turns every
- * face over too, as a mirrored `scale` does, so a closed solid stays wound
- * outward. */
-function placedSurface(surface:Surface3,placement:Placement3):Surface3 {
-  if(!isPlacement3(placement))throw new Error('transform takes a Placement3: an observer, or a placement of a honeycomb');
-  const points=surface.points.map(p=>({...p,position:placement.point(p.position)}));
-  if(placement.orientation>0)return ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
-  const faces=surface.faces.map(f=>({...f,vertices:[...f.vertices].reverse(),corners:f.corners&&[...f.corners].reverse()}));
-  const triangles=surface.triangles.map(t=>({...t,vertices:[t.vertices[0],t.vertices[2],t.vertices[1]] as [number,number,number]}));
-  return ownSurface3(assembleSurface3(points,faces,triangles,surface));
-}
-/** The private provenance channel of the geometry constructors. */
-export interface RadialProvenance {readonly radialCentre?:Vec3}
-function setPoints<R extends PointRow<any>>(surface:Surface3,name:string,field:Field<R,Attribute3>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
-  attributeName(name);
-  return editAttributes3(surface,{points:rows.map(row=>({[name]:attributeValue(evaluate(field,row))}))});
-}
-/** All initializers observe the same incoming rows, never newly written columns. */
-export function captureAttributeFields<R,A extends Attributes3>(rows:readonly R[],fields:AttributeFields<R,A>):readonly Attributes3[] {
-  if(!fields||typeof fields!=='object'||Array.isArray(fields))throw new Error('attributes requires a map of named fields');
-  attributeRecord(fields);
-  const entries=Object.entries(fields);entries.forEach(([name])=>attributeName(name));
-  return rows.map(row=>Object.fromEntries(entries.map(([name,field])=>[name,attributeValue(evaluate(field,row))])));
-}
-function setPointFields<R extends PointRow<any>,A extends Attributes3>(surface:Surface3,fields:AttributeFields<R,A>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
-  return editAttributes3(surface,{points:captureAttributeFields(rows,fields)});
-}
-function pointTransfers(previous:PointTransfers,fields:object,options:AttributeOptions):PointTransfers {
-  const result={...previous};
-  for(const [name,policy] of Object.entries(options.transfer??{})){
-    if(!Object.hasOwn(fields,name))throw new Error(`attribute transfer names '${name}', which is not being set`);
-    if(policy!=='nearest'&&policy!=='interpolate')throw new Error('attribute transfer must be nearest or interpolate');
-    result[name]=policy;
-  }
-  return result;
-}
-export interface DisplaceOptions {
-  /** Direction of a scalar displacement: the vertex normal (default), an axis, or a fixed vector. */
-  readonly along?:'normal'|'x'|'y'|'z'|Vec3;
-}
-/** Angle-weighted vertex normals over the represented triangles; a point with
- * no faces has no normal and a scalar displacement there is an error. */
-function vertexNormals(surface:Surface3):(Vec3|null)[] {
-  const sums=surface.points.map(()=>[0,0,0] as number[]);
-  for(const t of surface.triangles){
-    const p=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(p[1],p[0]),sub3(p[2],p[0]));
-    for(let k=0;k<3;k++){const a=sub3(p[(k+1)%3],p[k]),b=sub3(p[(k+2)%3],p[k]),la=Math.hypot(...a),lb=Math.hypot(...b);
-      const angle=la&&lb?Math.acos(Math.max(-1,Math.min(1,dot3(a,b)/(la*lb)))):0;const s=sums[t.vertices[k]];s[0]+=n[0]*angle;s[1]+=n[1]*angle;s[2]+=n[2]*angle;}
-  }
-  return sums.map(s=>{const l=Math.hypot(s[0],s[1],s[2]);return l>0?[s[0]/l,s[1]/l,s[2]/l] as Vec3:null;});
-}
-function displaced<R extends PointRow<any>>(surface:Surface3,field:Field<R,Vec3|number>,rows:readonly R[]=pointRows(surface) as readonly R[],options:DisplaceOptions={}):Surface3 {
-  const along=options.along??'normal';
-  const axis:Vec3|undefined=along==='x'?[1,0,0]:along==='y'?[0,1,0]:along==='z'?[0,0,1]:along==='normal'?undefined:along;
-  if(axis)finite3(axis);
-  let normals:(Vec3|null)[]|undefined;
-  const points=rows.map((row,i)=>{
-    const value=evaluate(field,row);
-    let delta:Vec3;
-    if(typeof value==='number'){
-      // A sample the field could not answer, or a point with no normal to
-      // follow, leaves that point where it is. The rest still move.
-      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(surface))[i];
-      delta=direction?mul3(direction,amount):[0,0,0];
-    }else{delta=value;finite3(delta);}
-    return {...surface.points[i],position:add3(surface.points[i].position,delta)};
+/** The value a derivation read, as a geometry: a selection is read on the
+ * geometry it selects from. */
+const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.owner as Material):v instanceof Material?v:undefined;
+
+/** @internal A kernel's surface as a value in space. */
+export function geometry3(surface:Surface3,options:Geometry3Options={}):Material {
+  checkOptions(options);validateAttributes(surface);
+  const key=checkedKey(options.key);
+  const inputs=options.derived?.inputs.map(inputOf).filter((m):m is Input3=>m!==undefined);
+  return value3(surface,{
+    ...(key!==undefined?{key}:{}),
+    ...(options.origin!==undefined?{origin:options.origin}:{}),
+    ...(options.orientation!==undefined?{orientation:options.orientation}:{}),
+    ...(options.radialCentre!==undefined?{radialCentre:options.radialCentre}:{}),
+    ...(options.transfers!==undefined?{transfers:options.transfers}:{}),
+    ...(options.from!==undefined?{from:options.from}:{}),
+    ...(options.pointCols!==undefined?{pointCols:options.pointCols}:{}),
+    ...(options.prototype!==undefined?{prototype:options.prototype}:{}),
+    ...(options.source!==undefined?{source:options.source}:options.derived&&inputs&&inputs.length?{source:sourceOf3(options.derived.operation,surface,inputs)}:{}),
   });
-  return ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
+}
+/** @internal The edges `indices` of a surface, with the points they join,
+ * as a curve in space: no faces. */
+export function curveGeometry3(surface:Surface3,indices:readonly number[],options:Geometry3Options={}):Material {
+  if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
+  const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
+  const mapping=new Map(used.map((v,i)=>[v,i]));
+  const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
+  return geometry3(source,options);
 }
 
-export interface PointSnapshot<P extends Attributes3,G extends PointGeometry<P>=PointGeometry<P>> {readonly iteration:number;readonly geometry:G}
-export type PointRule<P extends Attributes3,R extends PointRow<P>=PointRow<P>,G extends PointGeometry<P>=PointGeometry<P>>=(current:G,next:PointEdit<P,R>,k:number)=>void|readonly Edit3[];
-const pointHistory=new WeakMap<object,readonly PointSnapshot<any>[]>();
-/** What the `steps` call that made a geometry dropped, kept beside it as its
- * history is: a spread of the geometry, which every derived value is made
- * from, does not carry it, so any other operation starts it empty. */
-const droppedOf=new WeakMap<object,readonly Dropped3[]>();
-const NOTHING_DROPPED:readonly Dropped3[]=Object.freeze([]);
-function recordDropped(owner:object,dropped:readonly Dropped3[]|undefined):void{if(dropped&&dropped.length>0)droppedOf.set(owner,Object.freeze([...dropped]));}
-
-
-/** Where an object turns and scales: its own origin, which primitives are
- * born with at [0,0,0] and which `translate` carries along (Blender's
- * object origin). Rotations accumulate an orientation so `{ local: true }`
- * can turn about the object's own current axes. */
-export interface PlacementOptions {readonly origin?:Vec3;readonly orientation?:RotationInput}
-/** A pivot in 3D, the words `Origin` has in 2D: a point, `'center'` for
- * the middle of the value's own bounds, or `'centroid'` for its area
- * centroid (the mean of its points when it has no triangles). */
-export type Origin3='center'|'centroid'|Vec3;
-export interface RotateOptions {
-  /** Pivot (see `Origin3`); the object's own origin when unset, and the
-   * world's is the point [0, 0, 0]. */
-  readonly origin?:Origin3;
-  /** Read the axis in the object's current frame instead of world axes. */
-  readonly local?:boolean;
-}
-export interface ScaleOptions {
-  /** Pivot (see `Origin3`); the object's own origin when unset. */
-  readonly origin?:Origin3;
-}
-interface Placement {readonly origin:Vec3;readonly orientation:Rotation}
-function placement(options:PlacementOptions):Placement {
-  const origin=options.origin??[0,0,0];finite3(origin);
-  return {origin:Object.freeze([origin[0],origin[1],origin[2]]) as unknown as Vec3,orientation:rotation3(options.orientation??[0,0,0])};
-}
-interface Pivoted extends Placement {readonly surface:Surface3}
-/** The pivot a verb turns or scales about. `about` is the old spelling and
- * is refused by name; an unknown word is refused before it is a NaN. */
-function pivotOf(verb:string,options:RotateOptions|ScaleOptions|undefined,self:Pivoted):Vec3 {
-  if(options&&(options as {about?:unknown}).about!==undefined)throw new Error(`${verb}: 'about' is spelled origin — { origin: [x, y, z] | 'center' | 'centroid' }; the object's own origin is the default and the world's is [0, 0, 0]`);
-  const o=options?.origin;
-  if(o===undefined)return self.origin;
-  if(Array.isArray(o)){finite3(o as Vec3);return o as Vec3;}
-  if(o!=='center'&&o!=='centroid')throw new Error(`${verb}: origin is a point [x, y, z], 'center' or 'centroid' — got ${typeof o==='string'?`'${o}'`:JSON.stringify(o)}`);
-  const pts=self.surface.points;
-  if(pts.length===0)return self.origin;
-  if(o==='center'){
-    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
-    for(const p of pts)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
-    return [(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2];
-  }
-  // Area-weighted triangle centroids: the centroid of the surface itself.
-  let area=0;const c=[0,0,0];
-  for(const t of self.surface.triangles){
-    const [a,b,d]=t.vertices.map(i=>pts[i].position);
-    const u=sub3(b,a),v=sub3(d,a);
-    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
-    const w=Math.hypot(n[0],n[1],n[2])/2;
-    area+=w;for(let k=0;k<3;k++)c[k]+=w*(a[k]+b[k]+d[k])/3;
-  }
-  if(area>0)return [c[0]/area,c[1]/area,c[2]/area];
-  for(const p of pts)for(let k=0;k<3;k++)c[k]+=p.position[k];
-  return [c[0]/pts.length,c[1]/pts.length,c[2]/pts.length];
-}
-function isRotationInput(value:unknown):value is RotationInput {
-  return Array.isArray(value)||(typeof value==='object'&&value!==null&&(value as RotationData).kind==='rotation');
-}
-/** `rotate(angles | rotation, pivot?)` or `rotate(axis, degrees, { about, local })`. */
-/** The object's origin after turning about a pivot: it rides along like every
- * other point, so a later default rotation still turns in place. */
-function movedOrigin(self:Placement,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3{return Object.freeze(add3(pivot,move(sub3(self.origin,pivot)))) as unknown as Vec3;}
-function rotationArguments(self:Pivoted,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3} {
-  let rotate:Rotation,options:RotateOptions={};
-  if(typeof b==='number'){
-    if(!Number.isFinite(b))throw new Error('rotate degrees must be finite');
-    options=c??{};
-    const axis:Axis3=options.local?rotateVector3(typeof a==='string'?(a==='x'?[1,0,0]:a==='y'?[0,1,0]:[0,0,1]):vector3(a as Vec3),self.orientation):a as Axis3;
-    rotate=axisAngle(axis,b);
-  }else{
-    if(!isRotationInput(a))throw new Error('rotate takes Euler degrees, a rotation value, or an axis with degrees');
-    rotate=rotation3(a);
-    if(Array.isArray(b)){finite3(b as Vec3);return {rotate,origin:b as Vec3,orientation:self.orientation.then(rotate),moved:movedOrigin(self,b as Vec3,v=>rotate.apply(v))};}
-    options=(b as RotateOptions|undefined)??{};
-  }
-  const origin=pivotOf('rotate',options,self);
-  return {rotate,origin,orientation:self.orientation.then(rotate),moved:movedOrigin(self,origin,v=>rotate.apply(v))};
-}
-/** A zero factor is allowed at this level: an object scaled to nothing is
- * nothing (`empty`), drawing and occluding nothing, so loops that pass through
- * zero carry on. The exact kernel below still refuses singular transforms. */
-function scaleArguments(self:Pivoted,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3;empty:boolean} {
-  const factors:Vec3=typeof scale==='number'?[scale,scale,scale]:scale;finite3(factors);
-  const origin=Array.isArray(b)?b as Vec3:pivotOf('scale',b as ScaleOptions|undefined,self);if(Array.isArray(b))finite3(origin);
-  return {scale:factors,origin,moved:movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]),empty:factors.some(f=>f===0)};
-}
-/** Points collapsed by a scale with a zero factor: no faces or edges to break, so the points simply move. */
-function collapsedPoints(surface:Surface3,factors:Vec3,origin:Vec3):Surface3 {
-  return ownSurface3(assembleSurface3(surface.points.map(p=>({...p,position:add3(origin,sub3(p.position,origin).map((v,i)=>v*factors[i]) as unknown as Vec3)})),[],[]));
-}
-const emptySurface=():Surface3=>ownSurface3(assembleSurface3([],[],[]));
-
-/** Point geometry has a point domain; it never claims editable mesh faces. */
-export class PointGeometry<P extends Attributes3={}> {
-  readonly surface:Surface3;readonly key?:string;readonly iteration:number;
-  /** The object's own pivot, carried along by `translate`. */
-  readonly origin:Vec3;readonly orientation:Rotation;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly PointSnapshot<P>[];dropped?:readonly Dropped3[]}={}){
-    checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
-    pointHistory.set(this,Object.freeze([...(options.history??[])]));recordDropped(this,options.dropped);Object.freeze(this);
-  }
-  get history():readonly PointSnapshot<P>[]{return pointHistory.get(this)!;}
-  /** The records the `steps` call that made this geometry did not land, as a material's `dropped`. */
-  get dropped():readonly Dropped3[]{return droppedOf.get(this)??NOTHING_DROPPED;}
-  get points():Collection<PointRow<P>,PointGeometry<P>>{return new Collection(this.surface,'point',pointRows<P>(this.surface),indices=>new PointGeometry(pointsOnly(this.surface,indices)));}
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<PointRow<P>,Value>):PointGeometry<Omit<P,Name>&Record<Name,Value>>{return new PointGeometry<Omit<P,Name>&Record<Name,Value>>(setPoints(this.surface,name,field),{...this,history:[]});}
-  attributes<A extends Attributes3>(fields:AttributeFields<PointRow<P>,A>):PointGeometry<Omit<P,keyof A>&A>{return new PointGeometry<Omit<P,keyof A>&A>(setPointFields(this.surface,fields),{...this,history:[]});}
-  displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):PointGeometry<P>{return new PointGeometry(displaced(this.surface,field,undefined,options),{...this,history:[]});}
-  translate(offset:Vec3):PointGeometry<P>{finite3(offset);return new PointGeometry(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
-  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):PointGeometry<P>;
-  rotate(axis:Axis3,degrees:number,options?:RotateOptions):PointGeometry<P>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(r.empty?collapsedPoints(this.surface,r.scale,r.origin):transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
-  withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key,iteration:this.iteration,history:this.history});}
-  steps(count:number,rule:PointRule<StepAttributes<P>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>>|StepsOptions)[]):PointGeometry<StepAttributes<P>>{
-    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history,dropped)=>new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history,dropped}));
-  }
-}
-
-/** Point editors expose only operations meaningful to point geometry. */
-export class PointEdit<P extends Attributes3,R extends PointRow<P>=PointRow<P>> {
-  private active=true;
-  constructor(private readonly rows:Collection<R,unknown>,private readonly input:Mesh<P,{},{}>,private readonly edit:MeshEdit<P,{},{}>){}
-  /** The batch so far, as records; a pass that returns a list replaces it. */
-  get edits():readonly Edit3[]{if(!this.active)throw new Error('point editor is closed');return this.edit.edits;}
-  private bind(selection:Collection<R,unknown>){
-    if(!this.active)throw new Error('point editor is closed');
-    if(!(selection instanceof Collection)||selection.domain!=='point')throw new Error('a point edit needs a point selection');
-    // A selection of another revision is read here by id; what is gone is skipped.
-    const here=selection.source===this.rows.source?selection:rebound(selection,this.rows,'point');
-    const indices=new Set(here.indices),rows=new Map(here.map(p=>[p.index,p]));
-    return {selection:this.input.points.filter(p=>indices.has(p.index)),rows};
-  }
-  move(selection:Collection<R,unknown>,field:Field<R,Vec3>):void{
-    const bound=this.bind(selection);this.edit.move(bound.selection,p=>evaluate(field,bound.rows.get(p.index)!));
-  }
-  set(target:Collection<R,unknown>|R,field:Field<R,Partial<P>>):void{
-    if(!this.active)throw new Error('point editor is closed');
-    let selected:Collection<R,unknown>;
-    if(target instanceof Collection)selected=target;
-    else if(this.rows.has(target))selected=this.rows.rows(target);
-    else return this.edit.set(target as unknown as PointRow<P>,field as Field<PointRow<P>,Partial<P>>);
-    const bound=this.bind(selected);this.edit.set(bound.selection,p=>evaluate(field,bound.rows.get(p.index)!));
-  }
-  close():void{this.active=false;}
-}
-/** Shared point-pass driver lets rich point geometry retain its own row context. */
-export function pointSteps<P extends Attributes3,R extends PointRow<StepAttributes<P>>,G extends PointGeometry<StepAttributes<P>> & {readonly points:Collection<R,unknown>}>(
-  initial:PointGeometry<P>,count:number,rule:PointRule<StepAttributes<P>,R,G>|StepShorthand<R,StepAttributes<P>>,passesAndOptions:readonly (PointRule<StepAttributes<P>,R,G>|StepsOptions)[],
-  create:(surface:Surface3,iteration:number,history?:readonly PointSnapshot<StepAttributes<P>,G>[],dropped?:readonly Dropped3[])=>G,
-):G {
-  if(stepRule<R,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as PointRule<StepAttributes<P>,R,G>;
-  const pass=(rule:PointRule<StepAttributes<P>,R,G>):MeshRule<StepAttributes<P>,{},{}>=>(input,next,k)=>{
-    const current=create(input.surface,input.iteration),edit=new PointEdit<StepAttributes<P>,R>(current.points,input,next);
-    try{return rule(current,edit,k);}finally{edit.close();}
-  };
-  const passes=passesAndOptions.map(p=>typeof p==='function'?pass(p):p);
-  const result=new Mesh<P,{},{}>(initial.surface,{key:initial.key,iteration:initial.iteration}).steps(count,pass(rule as PointRule<StepAttributes<P>,R,G>),...passes);
-  const history=result.history.map(row=>Object.freeze({iteration:row.iteration,geometry:create(row.geometry.surface,row.iteration)}));
-  return create(result.surface,result.iteration,history,result.dropped);
-}
-
-/** Owned polyline/edge-graph data with point and edge domains, never faces. */
-export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}> {
-  readonly surface:Surface3;readonly key?:string;readonly iteration:number;
-  readonly origin:Vec3;readonly orientation:Rotation;
-  readonly history:readonly CurveSnapshot<P,E>[];
-  readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>;readonly provenance?:Provenance3}[];
-  /** Own pen for the default drawing, or undefined for the view's. */
-  readonly pen?:string;
-  constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly CurveSnapshot<P,E>[];dropped?:readonly Dropped3[]}={}) {
-    checkOptions(options);validateAttributes(surface);
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
-    if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
-    const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
-    const mapping=new Map(used.map((v,i)=>[v,i]));
-    const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
-    this.surface=captureSurface3(source);this.key=checkedKey(options.key);this.pen=checkedPen(options.pen);
-    this.iteration=options.iteration??0;this.history=Object.freeze([...(options.history??[])]);
-    this.segments=this.surface.edges as unknown as typeof this.segments;recordDropped(this,options.dropped);Object.freeze(this);
-  }
-  /** The records the `steps` call that made this curve did not land, as a material's `dropped`. */
-  get dropped():readonly Dropped3[]{return droppedOf.get(this)??NOTHING_DROPPED;}
-  get points():Collection<PointRow<P>,PointGeometry<P>>{return new Collection(this.surface,'point',pointRows<P>(this.surface),ids=>new PointGeometry(pointsOnly(this.surface,ids)));}
-  /** The whole length, every edge once, in world units — a 2D chain's word. */
-  get length():number{return curveLength(this.surface);}
-  /** Places along the curve by arc length, `{ count }` or `{ spacing }`, as
-   * a 2D material's `along`: position, tangent, `s`, `u`, `length` and the
-   * point columns. One unbranched curve; a branched one is refused by name. */
-  along(opts:{readonly count?:number;readonly spacing?:number}):Station3[]{return alongCurve(this,opts);}
-  /** The same path with its points redistributed by arc length, `{ count }`
-   * or `{ spacing }`, as a 2D material's `resample`. */
-  resample(opts:{readonly count?:number;readonly spacing?:number}):CurveGeometry<P,{}>{const surface=resampledSurface(this,opts);return new CurveGeometry<P,{}>(surface,surface.edges.map((_,i)=>i),{key:this.key,pen:this.pen});}
-  get edges():Collection<EdgeRow<E,P>,CurveGeometry<P,E>>{
-    const points=pointRows<P>(this.surface);
-    const rows=this.surface.edges.map((e,index)=>Object.freeze({...e.attributes,id:e.id,index,vertices:e.vertices,a:points[e.vertices[0]],b:points[e.vertices[1]],length:Math.hypot(...sub3(this.surface.points[e.vertices[0]].position,this.surface.points[e.vertices[1]].position)),attributes:e.attributes,provenance:e.provenance})) as unknown as readonly EdgeRow<E,P>[];
-    return new Collection(this.surface,'edge',rows,indices=>new CurveGeometry<P,E>(this.surface,indices));
-  }
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<PointRow<P>,Value>):CurveGeometry<Omit<P,Name>&Record<Name,Value>,E>{return new CurveGeometry<Omit<P,Name>&Record<Name,Value>,E>(setPoints(this.surface,name,field),this.surface.edges.map((_,i)=>i),{...this,history:[]});}
-  attributes<A extends Attributes3>(fields:AttributeFields<PointRow<P>,A>):CurveGeometry<Omit<P,keyof A>&A,E>{return new CurveGeometry<Omit<P,keyof A>&A,E>(setPointFields(this.surface,fields),this.surface.edges.map((_,i)=>i),{...this,history:[]});}
-  edgeAttributes<A extends Attributes3>(fields:AttributeFields<EdgeRow<E,P>,A>):CurveGeometry<P,Omit<E,keyof A>&A>{
-    const surface=editAttributes3(this.surface,{edges:captureAttributeFields([...this.edges],fields)});
-    return new CurveGeometry<P,Omit<E,keyof A>&A>(surface,surface.edges.map((_,i)=>i),{...this,history:[]});
-  }
-  edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<EdgeRow<E,P>,Value>):CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>{
-    attributeName(name);const surface=editAttributes3(this.surface,{edges:this.edges.map(row=>({[name]:attributeValue(evaluate(field,row))}))});
-    return new CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>(surface,surface.edges.map((_,i)=>i),{...this,history:[]});
-  }
-  private changed(surface:Surface3,placed:PlacementOptions={}):CurveGeometry<P,E>{return new CurveGeometry(surface,surface.edges.map((_,i)=>i),{...this,history:[],...placed});}
-  displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveGeometry<P,E>{return this.changed(displaced(this.surface,field,undefined,options));}
-  translate(offset:Vec3):CurveGeometry<P,E>{finite3(offset);return this.changed(transformed(this.surface,{translate:offset}),{origin:add3(this.origin,offset)});}
-  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveGeometry<P,E>;
-  rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveGeometry<P,E>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
-  /** Every point through a hyperbolic placement (`observer`, a honeycomb's
-   * `placements`), every id and column kept. A two-point wire stays exact,
-   * because a Klein chord stays a chord. */
-  transform(placement:Placement3):CurveGeometry<P,E>{return this.changed(placedSurface(this.surface,placement),{origin:placement.point(this.origin)});}
-  withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
-  steps(count:number,rule:CurveRule<StepAttributes<P>,StepAttributes<E>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(CurveRule<StepAttributes<P>,StepAttributes<E>>|StepsOptions)[]):CurveGeometry<StepAttributes<P>,StepAttributes<E>>{
-    if(stepRule<PointRow<StepAttributes<P>>,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as CurveRule<StepAttributes<P>,StepAttributes<E>>;
-    const pass=(rule:CurveRule<StepAttributes<P>,StepAttributes<E>>):MeshRule<StepAttributes<P>,StepAttributes<E>,{}>=>(input,next,k)=>{
-      const current=new CurveGeometry<StepAttributes<P>,StepAttributes<E>>(input.surface,input.surface.edges.map((_,i)=>i),{key:this.key,iteration:input.iteration});
-      // Bind the public curve selection to the underlying frozen point pass.
-      const edit=new CurveEdit(current,input,next);
-      try{return rule(current,edit,k);}finally{edit.close();}
-    };
-    const options=passesAndOptions.map(p=>typeof p==='function'?pass(p):p);
-    const result=new Mesh<P,E,{}>(this.surface,{key:this.key,iteration:this.iteration}).steps(count,pass(rule as CurveRule<StepAttributes<P>,StepAttributes<E>>),...options);
-    const convert=(value:Mesh<StepAttributes<P>,StepAttributes<E>,{}>)=>new CurveGeometry<StepAttributes<P>,StepAttributes<E>>(value.surface,value.surface.edges.map((_,i)=>i),{key:this.key,iteration:value.iteration});
-    return new CurveGeometry<StepAttributes<P>,StepAttributes<E>>(result.surface,result.surface.edges.map((_,i)=>i),{key:this.key,iteration:result.iteration,history:result.history.map(row=>Object.freeze({iteration:row.iteration,geometry:convert(row.geometry)})),dropped:result.dropped});
-  }
-
-}
-
-export interface CurveSnapshot<P extends Attributes3,E extends EdgeAttributes>{readonly iteration:number;readonly geometry:CurveGeometry<P,E>}
-export type CurveRule<P extends Attributes3,E extends EdgeAttributes>=(current:CurveGeometry<P,E>,next:CurveEdit<P,E>,k:number)=>void|readonly Edit3[];
-/** Curve edits reuse the same frozen point-edit machinery as mesh steps. */
-export class CurveEdit<P extends Attributes3,E extends EdgeAttributes> {
-  private active=true;
-  constructor(private readonly curve:CurveGeometry<P,E>,private readonly input:Mesh<P,E,{}>,private readonly edit:MeshEdit<P,E,{}>){}
-  /** The batch so far, as records; a pass that returns a list replaces it. */
-  get edits():readonly Edit3[]{if(!this.active)throw new Error('curve editor is closed');return this.edit.edits;}
-  /** The selection read on this curve: its own rows, or another revision's by id. */
-  private here<R extends {readonly id:string;readonly index:number}>(selection:Collection<R,unknown>,rows:Collection<R,unknown>,domain:'point'|'edge'):Collection<R,unknown>{
-    if(!this.active)throw new Error('curve editor is closed');
-    if(!(selection instanceof Collection)||selection.domain!==domain)throw new Error(`a curve edit needs ${domain==='point'?'a point':'an edge'} selection; select from current.${domain}s`);
-    return selection.source===this.curve.surface?selection:rebound(selection,rows,domain);
-  }
-  move(selection:Collection<PointRow<P>,unknown>,field:Field<PointRow<P>,Vec3>):void{
-    const here=this.here(selection,this.curve.points,'point');
-    const indices=new Set(here.indices),rows=new Map(here.map(p=>[p.index,p]));
-    this.edit.move(this.input.points.filter(p=>indices.has(p.index)),p=>evaluate(field,rows.get(p.index)!));
-  }
-  set(target:Collection<PointRow<P>,unknown>|PointRow<P>,field:Field<PointRow<P>,Partial<P>>):void{
-    if(!this.active)throw new Error('curve editor is closed');
-    if(!(target instanceof Collection)&&!this.curve.points.has(target))return this.edit.set(target,field);
-    const here=this.here(target instanceof Collection?target:this.curve.points.rows(target),this.curve.points,'point');
-    const indices=new Set(here.indices),rows=new Map(here.map(p=>[p.index,p]));
-    this.edit.set(this.input.points.filter(p=>indices.has(p.index)),p=>evaluate(field,rows.get(p.index)!));
-  }
-  setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{
-    if(!this.active)throw new Error('curve editor is closed');
-    if(!this.curve.edges.has(row))return this.edit.setEdge(row,attributes);
-    this.setEdges(this.curve.edges.rows(row),attributes);
-  }
-  setEdges(selection:Collection<EdgeRow<E,P>,unknown>,field:Field<EdgeRow<E,P>,Partial<E>>):void{
-    const here=this.here(selection,this.curve.edges,'edge');
-    const indices=new Set(here.indices),rows=new Map(here.map(e=>[e.index,e]));
-    this.edit.setEdges(this.input.edges.filter(e=>indices.has(e.index)),e=>evaluate(field,rows.get(e.index)!));
-  }
-  close():void{this.active=false;}
-}
-
-export interface StepsOptions {readonly every?:number}
-/** The two ordinary rules without the editor: a point field moves every
- * point; `{ move, set }` moves and writes every point. The explicit
- * `(current, next, k)` form remains for selections and other domains. */
-/** The everyday step without the pass ceremony: `{ move, set }` fields over every point.
- * A move is a triple, or a number along the vertex normal. (A bare callback is not a
- * shorthand: TypeScript cannot tell a one-parameter point field from a rule.) */
-export type StepShorthand<Row,P>={readonly move?:Field<Row,Vec3|number>;readonly set?:Field<Row,Partial<P>>};
-export function stepRule<Row extends PointRow<any>,P>(rule:unknown):rule is StepShorthand<Row,P>{return typeof rule==='object'&&rule!==null;}
-/** The shorthand as a rule over point and curve geometry, which have no
- * vertex normals: a scalar move is refused, a triple moves every point. */
-function pointShorthandRule<Row extends PointRow<any>&{readonly id:string;readonly index:number},P>(shorthand:StepShorthand<Row,P>):(current:{readonly points:Collection<Row,unknown>},edit:{move(selection:Collection<Row,unknown>,field:Field<Row,Vec3>):void;set(selection:Collection<Row,unknown>,field:Field<Row,Partial<P>>):void})=>void {
-  const {move,set}=shorthand;
-  if(move===undefined&&set===undefined)throw new Error('a steps shorthand needs a move field, a set field, or both');
-  return (current,edit)=>{
-    if(set!==undefined)edit.set(current.points,set);
-    if(move!==undefined)edit.move(current.points,p=>{const v=evaluate(move,p);if(typeof v==='number')throw new Error('a scalar step moves along the vertex normal, which point and curve geometry lack: return a triple');return v;});
-  };
-}
-export interface MeshSnapshot<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>{readonly iteration:number;readonly geometry:Mesh<P,E,F,C>}
-export type MeshRule<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>=(current:Mesh<P,E,F,C>,next:MeshEdit<P,E,F,C>,k:number)=>void|readonly Edit3[];
-
-/** One common immutable polygon-mesh contract, regardless of its factory. */
-export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
-  readonly surface:Surface3;readonly key?:string;readonly iteration:number;
-  readonly history:readonly MeshSnapshot<P,E,F,C>[];
-  readonly transfers:PointTransfers;readonly cornerTransfers:PointTransfers;
-  /** The object's own pivot, carried along by `translate`; rotations and
-   * scales turn about it unless told otherwise. */
-  readonly origin:Vec3;readonly orientation:Rotation;
-  /** Own crease threshold in degrees, or undefined for the view's. */
-  readonly creaseAngle?:number;
-  /** Own pen for the default drawing, or undefined for the view's. */
-  readonly pen?:string;
-  /** Own pen for hatch recipes that name none. */
-  readonly fillPen?:string;
-  /** Own suggestive-contour reading, or undefined for the view's. */
-  readonly suggestive?:SuggestiveInput;
-  /** Own hatch recipes, or undefined for the view's `hatch`. */
-  readonly hatch?:ViewHatchInput<any>;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&{hatch?:ViewHatchInput<any>;iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers;dropped?:readonly Dropped3[]}={}) {
-    checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.pen=checkedPen(options.pen);this.fillPen=checkedPen(options.fillPen,'fillPen');this.suggestive=checkedSuggestive(options.suggestive);if(options.hatch!==undefined){hatchRecipes(options.hatch,'style');this.hatch=options.hatch;}
-    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});recordRadial(this,options.radialCentre);recordDropped(this,options.dropped);Object.freeze(this);
-  }
-  /** The records the `steps` call that made this mesh did not land, as a
-   * material's `dropped`: a row that is gone from this revision, or a value
-   * that is not finite. Empty on every other mesh. */
-  get dropped():readonly Dropped3[]{return droppedOf.get(this)??NOTHING_DROPPED;}
-  get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
-  get edges():MeshEdges<P,E,F,C>{return meshEdges(this);}
-  get corners():MeshCorners<P,E,F,C>{return meshCorners(this);}
-  get faces():MeshFaces<P,E,F,C>{return meshFaces(this);}
-  /** The centre this mesh's geometry was generated radially about, when a
-   * generator minted one and every edit since kept a star-shaped solid star
-   * shaped: `geodesic`, `sphere` and their `dual`s mint it; `translate`,
-   * `rotate` and `scale` move it with the points; `displace`, `style` and
-   * `withKey` keep it; everything else drops it. Nothing trusts it — the
-   * certificates that read it prove radiality from the triangles. */
-  get radialCentre():Vec3|undefined{return radialCentres.get(this);}
-  /** Replace an attribute by the mean of itself and its neighbours, `steps`
-   * times: points over edges, faces over shared edges, corners over the
-   * corners of their point and face. Numbers and numeric vectors only. */
-  smooth(name:string,options:{readonly steps?:number}={}):Mesh<P,E,F,C>{
-    const steps=options.steps??1;if(!Number.isSafeInteger(steps)||steps<0)throw new Error('smooth steps must be a nonnegative integer');
-    const domain=Object.hasOwn(this.surface.points[0]?.attributes??{},name)?'point':Object.hasOwn(this.surface.faces[0]?.attributes??{},name)?'face':Object.hasOwn(this.surface.faces[0]?.corners?.[0]?.attributes??{},name)?'corner':undefined;
-    if(!domain)throw new Error(`no point, face or corner attribute '${name}' to smooth`);
-    let current:Mesh<P,E,F,C>=this;
-    const mean=(values:readonly Attribute3[]):Attribute3=>{if(values.every(v=>typeof v==='number'))return (values as number[]).reduce((a,b)=>a+b,0)/values.length;if(values.every(v=>Array.isArray(v)&&v.length===(values[0] as number[]).length))return (values[0] as number[]).map((_,k)=>values.reduce<number>((a,v)=>a+(v as number[])[k],0)/values.length);throw new Error(`smooth needs numeric values in '${name}'`);};
-    for(let i=0;i<steps;i++)current=current.steps(1,(now,next)=>{
-      if(domain==='point')next.set(now.points,p=>({[name]:mean([p.attributes[name],...p.adjacent.map(q=>q.attributes[name])])} as never));
-      else if(domain==='face')next.setFaces(now.faces,f=>({[name]:mean([f.attributes[name],...f.adjacent.map(g=>g.attributes[name])])} as never));
-      else next.setCorners(now.corners,c=>({[name]:mean([c.attributes[name],...c.point.corners.map(d=>d.attributes[name]),...c.face.corners.map(d=>d.attributes[name])])} as never));
-    }) as unknown as Mesh<P,E,F,C>;
-    return current;
-  }
-  attributes<A extends Attributes3>(fields:AttributeFields<MeshPointRow<P,E,F,C>,A>,options:AttributeOptions={}):Mesh<Omit<P,keyof A>&A,E,F,C>{
-    const transfers=pointTransfers(this.transfers,fields,options);
-    return new Mesh<Omit<P,keyof A>&A,E,F,C>(setPointFields(this.surface,fields,[...this.points]),{...this,history:[],transfers});
-  }
-  edgeAttributes<A extends Attributes3>(fields:AttributeFields<MeshEdgeRow<E,P,F,C>,A>):Mesh<P,Omit<E,keyof A>&A,F,C>{
-    return new Mesh<P,Omit<E,keyof A>&A,F,C>(editAttributes3(this.surface,{edges:captureAttributeFields([...this.edges],fields)}),{...this,history:[]});
-  }
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshPointRow<P,E,F,C>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<Omit<P,Name>&Record<Name,Value>,E,F,C>{
-    return new Mesh<Omit<P,Name>&Record<Name,Value>,E,F,C>(setPoints(this.surface,name,field,[...this.points]),{...this,history:[],transfers:pointTransfers(this.transfers,{[name]:field},{transfer:{[name]:options.transfer??this.transfers[name]??'interpolate'}})});
-  }
-  edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshEdgeRow<E,P,F,C>,Value>):Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>{
-    attributeName(name);return new Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>(editAttributes3(this.surface,{edges:this.edges.map(row=>({[name]:attributeValue(evaluate(field,row))}))}),{...this,history:[]});
-  }
-  faceAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshFaceRow<F,P,E,C>,Value>):Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>{
-    attributeName(name);return new Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>(editAttributes3(this.surface,{faces:this.faces.map(row=>({[name]:attributeValue(evaluate(field,row))}))}),{...this,history:[]});
-  }
-  faceAttributes<A extends Attributes3>(field:(row:MeshFaceRow<F,P,E,C>)=>A):Mesh<P,E,Omit<F,keyof A>&A,C>;
-  faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E,C>,A>):Mesh<P,E,Omit<F,keyof A>&A,C>;
-  faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E,C>,A>|((row:MeshFaceRow<F,P,E,C>)=>A)):Mesh<P,E,Omit<F,keyof A>&A,C>{
-    const rows=[...this.faces],values=typeof fields==='function'?rows.map(fields):captureAttributeFields(rows,fields);
-    const faces=values.map(attrs=>{attributeRecord(attrs);return Object.fromEntries(Object.entries(attrs).map(([name,value])=>{attributeName(name);return [name,attributeValue(value)];}));});
-    return new Mesh<P,E,Omit<F,keyof A>&A,C>(editAttributes3(this.surface,{faces}),{...this,history:[]});
-  }
-  cornerAttributes<A extends Attributes3>(fields:AttributeFields<MeshCornerRow<C,P,E,F>,A>,options:AttributeOptions={}):Mesh<P,E,F,Omit<C,keyof A>&A>{
-    const surface=editAttributes3(this.surface,{corners:captureAttributeFields([...this.corners],fields)});
-    return new Mesh<P,E,F,Omit<C,keyof A>&A>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,fields,options)});
-  }
-  cornerAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshCornerRow<C,P,E,F>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>{
-    attributeName(name);const surface=editAttributes3(this.surface,{corners:this.corners.map(c=>({[name]:attributeValue(evaluate(field,c))}))});
-    return new Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,{[name]:field},{transfer:{[name]:options.transfer??this.cornerTransfers[name]??'interpolate'}})});
-  }
-  /** Connected-region extrusion: one vector per connected component of the
-   * selection, a translated cap with retained IDs/corners, and one wall per
-   * region boundary edge (holes and open sheet edges included). Independent
-   * per-face extrusion remains the advanced `extrudeFaces3`. */
-  extrude(faces:MeshFaces<P,E,F,C>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
-    checkOptions(options);
-    if(!(faces instanceof Collection)||faces.domain!=='face')throw new Error('extrude requires a face selection; select from mesh.faces');
-    // A selection from an earlier revision is read on this one by id; faces
-    // that are gone are skipped.
-    if(faces.source!==this.surface)faces=faces.in(this);
-    if(typeof offset==='number')offset={distance:offset};
-    if(offset===undefined||offset===null||typeof offset!=='function'&&!Array.isArray(offset)&&(typeof offset!=='object'||!('distance'in offset)))throw new Error('extrude offset must be a distance, a vector, a region callback or { distance }');
-    const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');
-    const components=faces.components().map((component,index)=>{
-      const measure=regionDirection3(this.surface,component.indices);
-      const region:ExtrudeRegion<P,E,F,C>=Object.freeze(Object.defineProperty({index,faces:component,normal:measure.normal&&Object.freeze(measure.normal) as Vec3,centroid:Object.freeze(measure.center) as Vec3,area:measure.area},'center',{get:regionCenterRefused,enumerable:false}));
-      let vector:Vec3;
-      if(Array.isArray(offset))vector=offset as Vec3;
-      else if(typeof offset==='function')vector=offset(region);
-      else {
-        // A region whose faces cancel has no direction to follow, and a
-        // distance the field could not answer is no distance: that region
-        // stays where it is and the others still extrude.
-        const distance=sampleValue(evaluate(offset.distance,region),0);
-        vector=region.normal?[region.normal[0]*distance,region.normal[1]*distance,region.normal[2]*distance]:[0,0,0];
-      }
-      if(!Array.isArray(vector)||vector.length!==3)throw new Error(`extrude offset must produce a 3-vector for region ${index}`);
-      finite3(vector);
-      return {index,faces:component.indices,vector:[vector[0],vector[1],vector[2]] as Vec3};
-    });
-    return new Mesh<P,E,F,C>(extrudeRegion3(this.surface,components,key),{...this,history:[]});
-  }
-  subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F,C>{return new Mesh<P,Partial<E>,F,C>(subdivideSurface(this.surface,levels,options,this.transfers,this.cornerTransfers),{...this,history:[]});}
-  /** Everything in either solid. Both meshes must be closed; an open shell
-   * refuses by name. The seam is exact: every triangle the other solid crosses
-   * is cut along the true intersection curve, and the faces along it answer
-   * `cut`. An uncut face of this mesh keeps its identity and its columns; a
-   * face of the other mesh keeps its columns under a minted id. */
-  unite(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('unite',this.surface,(other as Mesh).surface)),{...this,history:[],transfers:{},cornerTransfers:{}});}
-  /** This solid with the other bitten out of it. The other mesh's kept faces
-   * are turned inside out, so the bite's wall faces into the hollow. */
-  subtract(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('subtract',this.surface,(other as Mesh).surface)),{...this,history:[],transfers:{},cornerTransfers:{}});}
-  /** Only what lies in both solids. Two solids that never meet have nothing in
-   * common, which is an empty mesh: nothing to draw, not a fault. */
-  common(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('common',this.surface,(other as Mesh).surface)),{...this,history:[],transfers:{},cornerTransfers:{}});}
-  /** The dual: one point per face, at its middle, and one face per vertex,
-   * walking the faces around it. A cube duals to an octahedron, a geodesic
-   * polyhedron to its Goldberg — `geodesic(1, { frequency: [3, 1] }).dual({
-   * project: 1 })` is twelve pentagons and the rest hexagons on the sphere.
-   * `project` pushes every dual point out to that radius from the origin.
-   *
-   * Numeric face columns become point columns and point columns become face
-   * columns, keyed `dual:<id>` either way. A vertex on a boundary has no ring
-   * of faces to walk and gets no face, so an open mesh loses its rim; a mesh
-   * with no faces duals to nothing. A projected dual face is not exactly
-   * planar, and is drawn as the triangles its own average plane gives. */
-  dual(options:DualOptions={}):Mesh<F,{},P,{}>{
-    if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
-    // The dual of a shell star-shaped about a point is star-shaped about it.
-    return new Mesh<F,{},P,{}>(ownSurface3(dualSurface3(this.surface,options)),{...this,history:[],transfers:{},cornerTransfers:{},radialCentre:this.radialCentre});
-  }
-  /** Move every point by a vector, or by a scalar along its vertex normal (`along` chooses another direction). */
-  displace(field:Field<MeshPointRow<P,E,F,C>,Vec3|number>,options:DisplaceOptions={}):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points],options),{...this,history:[],radialCentre:this.radialCentre});}
-  translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset),radialCentre:movedCentre(this.radialCentre,{translate:offset})});}
-  /** Turn about the object's origin: Euler degrees or a rotation value
-   * (optionally with an explicit pivot), or an axis and degrees with
-   * `{ about, local }`. */
-  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):Mesh<P,E,F,C>;
-  rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved,radialCentre:movedCentre(this.radialCentre,{rotate:r.rotate,origin:r.origin})});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved,radialCentre:r.empty?undefined:movedCentre(this.radialCentre,{scale:r.scale,origin:r.origin})});}
-  /** Every point through a hyperbolic placement (`observer`, a honeycomb's
-   * `placements`), every id and column kept. Flat faces stay flat, because a
-   * Lorentz isometry moves the Klein ball projectively; a placement that
-   * turns space over rewinds every face so a solid stays wound outward. */
-  transform(placement:Placement3):Mesh<P,E,F,C>{return new Mesh(placedSurface(this.surface,placement),{...this,history:[],origin:placement.point(this.origin)});}
-  withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key,radialCentre:this.radialCentre});}
-  /** The same mesh drawn differently: `style({ pen, fillPen, creaseAngle, hatch })`
-   * sets the fields named and keeps the others. */
-  style(style:Style3):Mesh<P,E,F,C>{refuseStroke(style,'style');return new Mesh(this.surface,{...this,...style,radialCentre:this.radialCentre});}
-  steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
-    if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
-    if(stepRule(rule)){
-      // Shorthand desugars to the ordinary frozen pass over every point.
-      const shorthand=rule as StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>;
-      const {move,set}=shorthand;
-      if(move===undefined&&set===undefined)throw new Error('a steps shorthand needs a move field, a set field, or both');
-      rule=(current,next)=>{if(set)next.set(current.points,set);if(move)next.move(current.points,p=>{const v=evaluate(move,p);if(typeof v==='number'){const n=vertexNormals(current.surface)[p.index];if(!n)throw new Error('a scalar step needs a vertex normal: this point has no faces');return mul3(n,v);}return v;});};
-    }
-    const last=passesAndOptions.at(-1),options=typeof last==='object'?last:{},every=options.every??0;
-    if(!Number.isSafeInteger(every)||every<0)throw new Error('steps history interval must be a nonnegative integer');
-    const passes=[rule as MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,...passesAndOptions.filter((p):p is MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>=>typeof p==='function')];
-    let current=new Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>(this.surface,{...this,history:[]});const history:MeshSnapshot<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>[]=[];
-    if(every)history.push(Object.freeze({iteration:current.iteration,geometry:current}));
-    const dropped:Dropped3[]=[];
-    for(let k=0;k<count;k++){
-      for(const pass of passes){const edit=new MeshEdit(current);try{const result:unknown=(pass as MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>)(current,edit,k);if(result&&typeof (result as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});throw new Error('mesh steps callbacks must be synchronous');}edit.adopt(result);current=edit.finish(this.iteration+k+1,k,dropped);}finally{edit.close();}}
-      if(every&&((k+1)%every===0||k+1===count))history.push(Object.freeze({iteration:current.iteration,geometry:current}));
-    }
-    return new Mesh(current.surface,{...current,history,dropped});
-  }
-}
-
-/**
- * One alteration of a mesh step, as data: a material's words over a mesh's
- * five ops, each naming its row by the row itself or by its string id. A
- * step of a mesh has no topology, so `addPoint`, `connect`, `disconnect`,
- * `remove` and `split` are not edits here.
- */
-export type Edit3 =
-  | {readonly op:'move';readonly point:string|PointRow<any>;readonly by:Vec3}
-  | {readonly op:'set';readonly point:string|PointRow<any>;readonly attrs:Readonly<Record<string,Attribute3>>}
-  | {readonly op:'setEdge';readonly edge:string|EdgeRow<any,any>;readonly attrs:Readonly<Record<string,Attribute3>>}
-  | {readonly op:'setFace';readonly face:string|FaceRow<any>;readonly attrs:Readonly<Record<string,Attribute3>>}
-  | {readonly op:'setCorner';readonly corner:string|CornerRow<any>;readonly attrs:Readonly<Record<string,Attribute3>>};
-/** One record a mesh `steps` call did not land, the reason, and the step `k`. */
-export interface Dropped3 {readonly edit:Edit3;readonly reason:DropReason;readonly k:number}
-
-type Domain3='point'|'edge'|'face'|'corner';
-type Op3=Edit3['op'];
-/** Each op's domain, and the field that names its row. */
-const OPS3:Readonly<Record<Op3,Domain3>>={move:'point',set:'point',setEdge:'edge',setFace:'face',setCorner:'corner'};
-const TOPOLOGY3=new Set(['addPoint','connect','disconnect','remove','split']);
-const isPlainRecord=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null&&!Array.isArray(v);
-const refOf=(edit:Edit3):string|{readonly id:string}=>(edit as unknown as Record<Domain3,string|{readonly id:string}>)[OPS3[edit.op]];
-/** A value that is not finite: a number, or a component of a vector. */
-const notFinite=(value:Attribute3):boolean=>typeof value==='number'?!Number.isFinite(value):Array.isArray(value)&&!value.every(Number.isFinite);
-
-/** A selection of another revision of the same geometry, read on `rows` by
- * id with what is gone left out. One that shares no row with it is of
- * another geometry, or everything it named is gone: a wrong program. */
-function rebound<R extends {readonly id:string;readonly index:number}>(selection:Collection<R,unknown>,rows:Collection<R,unknown>,domain:Domain3):Collection<R,unknown>{
-  const here=selection.in(rows);
-  if(selection.length>0&&here.length===0)throw new Error(`steps: that ${domain} selection names ${selection.length} rows and this revision has none of them — it is of another geometry, or everything it named is gone`);
-  return here;
-}
-
-/** The per-row records of one edit over a selection, kept as columns until
- * something reads `next.edits`. */
-class Run3 {
-  constructor(readonly op:Op3,readonly indices:readonly number[],readonly values:readonly unknown[],private readonly ids:readonly string[]){}
-  record(i:number):Edit3{
-    const id=this.ids[this.indices[i]],v=this.values[i];
-    return Object.freeze(this.op==='move'?{op:'move',point:id,by:v as Vec3}:{op:this.op,[OPS3[this.op]]:id,attrs:Object.freeze({...(v as Record<string,Attribute3>)})}) as Edit3;
-  }
-}
-
-/** An editor is valid only during its frozen pass; all reads use its input.
- * Every call appends records to the batch, and `finish` folds the list: a
- * row that is gone from this revision drops as `gone`, a value that is not
- * finite as `not-finite`. */
-export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> {
-  private active=true;
-  private entries:(Edit3|Run3)[]=[];
-  /** Records this batch made: already judged, so a list that hands them back is not judged again. */
-  private readonly minted=new WeakSet<object>();
-  private idBox?:Record<Domain3,{readonly ids:readonly string[];readonly rows:ReadonlyMap<string,number>}>;
-  constructor(private readonly input:Mesh<P,E,F,C>){}
-  private open():void{if(!this.active)throw new Error('mesh editor is closed');}
-  private rowsOf(domain:Domain3):Collection<{readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>},unknown>{
-    return (domain==='point'?this.input.points:domain==='edge'?this.input.edges:domain==='face'?this.input.faces:this.input.corners) as unknown as Collection<{readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>},unknown>;
-  }
-  /** Each domain's ids in row order, and the row of each id. */
-  private ids(domain:Domain3){
-    this.idBox??={} as Record<Domain3,{readonly ids:readonly string[];readonly rows:ReadonlyMap<string,number>}>;
-    const box=this.idBox[domain];
-    if(box)return box;
-    const ids=this.rowsOf(domain).map(r=>r.id);
-    return this.idBox[domain]={ids,rows:new Map(ids.map((id,i)=>[id,i]))};
-  }
-  /** The batch so far, as records. A pass that returns a list replaces it. */
-  get edits():readonly Edit3[]{
-    this.open();
-    if(this.entries.some(e=>e instanceof Run3)){
-      const out:Edit3[]=[];
-      for(const e of this.entries){
-        if(!(e instanceof Run3)){out.push(e);continue;}
-        for(let i=0;i<e.indices.length;i++){const r=e.record(i);this.minted.add(r);out.push(r);}
-      }
-      this.entries=out;
-    }
-    return Object.freeze(this.entries.slice() as Edit3[]);
-  }
-  /** The selection read on this revision: its own rows, or another revision's by id. */
-  private bind<R extends {readonly id:string;readonly index:number}>(selection:Collection<R,unknown>,domain:Domain3):Collection<R,unknown>{
-    this.open();
-    if(!(selection instanceof Collection)||selection.domain!==domain)throw new Error(`a mesh edit needs a ${domain} selection; select from the current geometry`);
-    return selection.source===this.input.surface?selection:rebound(selection,this.rowsOf(domain) as unknown as Collection<R,unknown>,domain);
-  }
-  /** A patch is a program check: every name initialized, every value of its
-   * initialized kind and dimension. A value that is not finite is data. */
-  private patch(value:unknown,row:{readonly attributes:Readonly<Record<string,Attribute3|undefined>>},domain:Domain3):Record<string,Attribute3>{
-    attributeRecord(value);
-    for(const [name,v] of Object.entries(value)){
-      if(!Object.hasOwn(row.attributes,name))throw new Error(`no ${domain} attribute '${name}'; initialize it before stepping`);
-      const previous=row.attributes[name];
-      if(typeof v!==typeof previous||Array.isArray(v)!==Array.isArray(previous)||(Array.isArray(v)&&v.length!==(previous as readonly number[]).length))throw new Error(`attribute '${name}' must retain its initialized type and vector dimension`);
-      if(Array.isArray(v)&&!v.every(c=>typeof c==='number'))throw new Error('geometry attribute must be a string, boolean, finite number or finite numeric array');
-    }
-    return value;
-  }
-  private by(value:unknown):Vec3{
-    if(!Array.isArray(value)||value.length!==3||!value.every(c=>typeof c==='number'))throw new Error('3D coordinates must be finite triples');
-    return value as unknown as Vec3;
-  }
-  private write<R extends {readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>}>(selection:Collection<R,unknown>,field:Field<R,object>,op:Exclude<Op3,'move'>):void {
-    const domain=OPS3[op],here=this.bind(selection,domain);
-    // Capture and judge the whole operation before any of it joins the batch.
-    const values=here.map(row=>this.patch(evaluate(field,row),row,domain));
-    if(values.length>0)this.entries.push(new Run3(op,here.indices,values,this.ids(domain).ids));
-  }
-  /** One row, of this revision or another: a row gone from this one is kept by id and drops as gone. */
-  private one<R extends {readonly id:string;readonly index:number;readonly attributes:Readonly<Record<string,Attribute3|undefined>>}>(row:R,field:Field<R,object>,op:Exclude<Op3,'move'>):void{
-    const domain=OPS3[op],rows=this.rowsOf(domain) as unknown as Collection<R,unknown>;
-    this.open();
-    if(rows.has(row))return this.write(rows.rows(row),field,op);
-    this.append({op,[domain]:row.id,attrs:this.patch(evaluate(field,row),row,domain)} as unknown as Edit3);
-  }
-  private append(edit:Edit3):void{Object.freeze(edit);this.minted.add(edit);this.entries.push(edit);}
-  move<R extends PointRow<P>>(selection:Collection<R,unknown>,field:Field<R,Vec3>):void{
-    const here=this.bind(selection,'point');
-    const values=here.map(p=>this.by(evaluate(field,p)));
-    if(values.length>0)this.entries.push(new Run3('move',here.indices,values,this.ids('point').ids));
-  }
-  set<R extends PointRow<P>>(target:Collection<R,unknown>|R,field:Field<R,Partial<P>>):void{
-    if(target instanceof Collection)this.write(target,field,'set');
-    else this.one(target,field,'set');
-  }
-  setEdge(row:EdgeRow<E,P>,attributes:Partial<E>):void{this.one(row,attributes,'setEdge');}
-  setEdges<R extends EdgeRow<E,P>>(selection:Collection<R,unknown>,field:Field<R,Partial<E>>):void{this.write(selection,field,'setEdge');}
-  setFace(row:FaceRow<F>,attributes:Partial<F>):void{this.one(row,attributes,'setFace');}
-  setFaces<R extends FaceRow<F>>(selection:Collection<R,unknown>,field:Field<R,Partial<F>>):void{this.write(selection,field,'setFace');}
-  setCorner(row:CornerRow<C>,attributes:Partial<C>):void{this.one(row,attributes,'setCorner');}
-  setCorners<R extends CornerRow<C>>(selection:Collection<R,unknown>,field:Field<R,Partial<C>>):void{this.write(selection,field,'setCorner');}
-  /** @internal A pass's return value: a list becomes the batch, judged as
-   * the calls would judge it; anything else leaves the batch as it is. */
-  adopt(out:unknown):void{
-    if(!Array.isArray(out))return;
-    this.open();
-    out.forEach((r:unknown,i)=>{
-      if(!isPlainRecord(r)||!('op' in r))throw new Error(`steps: a pass returned something that is not an edit record (index ${i})`);
-      if(this.minted.has(r))return;
-      const op=r.op as string;
-      if(TOPOLOGY3.has(op))throw new Error(`steps: a mesh step has no topology edits ('${op}') — change the topology with subdivide, extrude or a boolean between steps`);
-      if(!Object.hasOwn(OPS3,op))throw new Error(`steps: unknown edit op '${String(op)}' (index ${i})`);
-      const domain=OPS3[op as Op3],ref=r[domain];
-      if(typeof ref!=='string'){
-        const rows=this.rowsOf(domain);
-        if(!rows.has(ref as never))throw new Error(`steps: a ${op} record names a ${domain} row gone from this revision; name it by id to let it drop`);
-      }
-      if(op==='move'){this.by(r.by);return;}
-      const id=typeof ref==='string'?ref:(ref as {id:string}).id,row=this.ids(domain).rows.get(id);
-      if(row===undefined){attributeRecord(r.attrs);return;}
-      this.patch(r.attrs,this.rowsOf(domain).at(row)!,domain);
-    });
-    this.entries=out.slice() as Edit3[];
-  }
-  /** Fold the batch into the next mesh; what cannot land joins `dropped`. */
-  finish(iteration:number,k=0,dropped:Dropped3[]=[]):Mesh<P,E,F,C>{
-    this.open();this.active=false;
-    const surface=this.input.surface;
-    const points=surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}));
-    const targets:Record<Domain3,Attributes3[]>={
-      point:points.map(p=>p.attributes),
-      edge:surface.edges.map(e=>structuredClone(e.attributes)),
-      face:surface.faces.map(f=>structuredClone(f.attributes)),
-      corner:surface.faces.flatMap(f=>f.corners!.map(c=>structuredClone(c.attributes))),
-    };
-    const land=(op:Op3,row:number,value:unknown,edit:()=>Edit3):void=>{
-      if(op==='move'){
-        const by=value as Vec3;
-        if(!by.every(Number.isFinite)){dropped.push(Object.freeze({edit:edit(),reason:'not-finite',k}));return;}
-        points[row].position=add3(points[row].position,by);
-        return;
-      }
-      const attrs=value as Record<string,Attribute3>;
-      if(Object.values(attrs).some(notFinite)){dropped.push(Object.freeze({edit:edit(),reason:'not-finite',k}));return;}
-      const target=targets[OPS3[op]][row];
-      for(const [name,v] of Object.entries(attrs))target[name]=attributeValue(v);
-    };
-    for(const e of this.entries){
-      if(e instanceof Run3){
-        for(let i=0;i<e.indices.length;i++)land(e.op,e.indices[i],e.values[i],()=>e.record(i));
-        continue;
-      }
-      const ref=refOf(e),row=this.ids(OPS3[e.op]).rows.get(typeof ref==='string'?ref:ref.id);
-      if(row===undefined){dropped.push(Object.freeze({edit:e,reason:'gone',k}));continue;}
-      land(e.op,row,e.op==='move'?e.by:e.attrs,()=>e);
-    }
-    let corner=0;
-    const faces=surface.faces.map((face,i)=>({...face,corners:face.corners!.map(c=>({...c,attributes:targets.corner[corner++]})),attributes:targets.face[i]}));
-    const previous={...surface,edges:surface.edges.map((edge,i)=>({...edge,attributes:targets.edge[i]}))};
-    inheritTopology3(previous,surface);
-    return new Mesh(ownSurface3(assembleSurface3(points,faces,surface.triangles,previous)),{...this.input,iteration,history:[]});
-  }
-  close():void{this.active=false;}
-}
 function validateImportedSurface(surface:Surface3):void {
   if(!surface||![surface.points,surface.edges,surface.faces,surface.triangles].every(Array.isArray))throw new Error('mesh import requires points, edges, faces and triangles');
   for(const edge of surface.edges)if(edge.vertices.length!==2||edge.vertices.some(v=>!Number.isSafeInteger(v)||v<0||v>=surface.points.length))throw new Error('mesh import has invalid edge vertices');
@@ -919,22 +115,27 @@ function validateImportedSurface(surface:Surface3):void {
     if([...edges.values()].some(n=>n!==0))throw new Error('mesh import triangulation does not match its polygon boundary');
   });
 }
-export function mesh(source:Surface3,options?:GeometryOptions):Mesh<Attributes3,Attributes3,Attributes3,Attributes3>;
-export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options?:GeometryOptions):Mesh;
-export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Mesh<any,any,any,any>{
+/** A geometry with faces from positions and polygon index lists, or from a
+ * `Surface3` of the explicit stage (its ids, columns and fixed triangles
+ * kept). */
+export function mesh(source:Surface3,options?:GeometryOptions):Material;
+export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options?:GeometryOptions):Material;
+export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Material{
   if(Array.isArray(source)){
     if(!Array.isArray(facesOrOptions))throw new Error('mesh positions require polygon index arrays');
-    return new Mesh(ownSurface3(surface3(source,facesOrOptions)),options);
+    return geometry3(ownSurface3(surface3(source,facesOrOptions)),options);
   }
   validateImportedSurface(source as Surface3);
-  return new Mesh(source as Surface3,facesOrOptions as GeometryOptions);
+  // An advanced input may be written after this: its rows are read now.
+  const s=source as Surface3;
+  return geometry3(assembleSurface3(s.points,s.faces,s.triangles,s),facesOrOptions as GeometryOptions);
 }
 /** One quad with a stored unit-square XY chart. Subdivision preserves this chart. */
-export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV>{
+export function plane(width=1,height=width,options:GeometryOptions={}):Material{
   if(emptySize(width,height))return emptyMesh(options);
   const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return new Mesh(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
+  return geometry3(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
 }
 export interface ParametricOptions extends GeometryOptions {
   /** Samples across u and down v. A closed direction needs at least three. */
@@ -956,8 +157,8 @@ export interface ParametricOptions extends GeometryOptions {
  * normal is ∂p/∂u × ∂p/∂v. A formula whose cross product points out of the
  * solid draws as an outward surface; swap u and v to turn it inside out.
  *
- * Too few samples, or a point the formula could not answer, is an empty mesh. */
-export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Mesh<{},{},SurfaceChart,SurfaceUV>{
+ * Too few samples, or a point the formula could not answer, is an empty value. */
+export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Material{
   checkOptions(options);
   if(typeof point!=='function')throw new Error('parametric requires a point formula (u, v) => [x, y, z]');
   for(const [name,value] of [['closeU',options.closeU],['closeV',options.closeV]] as const)if(value!==undefined&&typeof value!=='boolean')throw new Error(`parametric ${name} must be boolean`);
@@ -1008,28 +209,26 @@ export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOpt
     faces.push(kept);charts.push(uv);
   }
   if(!faces.length)return emptyMesh(options);
-  return new Mesh(ownSurface3(chartSurface3(surface3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'}))),options);
+  return geometry3(ownSurface3(chartSurface3(surface3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'}))),options);
 }
 /** Each outward-wound face has its own unit-square chart; vertices stay shared. */
-export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV>{
+export function box(size:number|Vec3=1,options:GeometryOptions={}):Material{
   const source=box3(typeof size==='number'?[size,size,size]:size),uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return new Mesh(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
+  return geometry3(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
 }
 /** Nothing to draw, as a value. A degenerate construction returns one of these
  * rather than failing, and it flows through view, hatch, sampling and the plan
  * like any other geometry. */
-export function emptyMesh(options:GeometryOptions={}):Mesh<any,any,any,any>{return new Mesh(ownSurface3(surface3([],[])),options);}
-export function emptyCurve(options:GeometryOptions={}):CurveGeometry<any,any>{return new CurveGeometry(surface3([],[]),[],options);}
+export function emptyMesh(options:GeometryOptions={}):Material{return geometry3(ownSurface3(surface3([],[])),options);}
 /** Points from positions, or 2D points (a point collection or selection, a
- * material, `[x, y]` pairs) at z = 0 with their ids and columns kept. */
-export function pointCloud(positions:readonly Vec3[],options?:GeometryOptions):PointGeometry;
-export function pointCloud(points:Iterable<{readonly x:number;readonly y:number}>|{readonly points:Iterable<{readonly x:number;readonly y:number}>}|readonly (readonly [number,number])[],options?:GeometryOptions):PointGeometry<Attributes3>;
-export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly points:unknown},options:GeometryOptions={}):PointGeometry<any>{
+ * material, `[x, y]` pairs) at z = 0 with their columns kept; each lifted
+ * point's `source` is the 2D row it stands for. */
+export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly points:unknown},options:GeometryOptions={}):Material{
   const lifted=points2(positions,'pointCloud');
   if(lifted){
     const base=surface3(lifted.map(p=>[p.x,p.y,0] as Vec3),[]);
-    return new PointGeometry(ownSurface3({...base,points:base.points.map((p,i)=>({...p,id:lifted[i].id,attributes:Object.freeze({...lifted[i].attributes})}))}),options);
+    return geometry3(ownSurface3({...base,points:base.points.map((p,i)=>({...p,id:lifted[i].id,attributes:Object.freeze({...lifted[i].attributes})}))}),{...options,...(Array.isArray(positions)?{}:{derived:derived('lift',positions as object)})});
   }
   if(!Array.isArray(positions))throw new Error('pointCloud takes [x, y, z] positions or 2D points');
-  return new PointGeometry(ownSurface3(surface3(positions as readonly Vec3[],[])),options);
+  return geometry3(ownSurface3(surface3(positions as readonly Vec3[],[])),options);
 }

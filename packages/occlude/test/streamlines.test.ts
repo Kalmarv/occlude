@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { curl, grad, initOcclude, render, sketch, strokes, vectorField, circle } from '../src/index.js';
+import { curl, grad, sketch, strokes, vectorField, circle } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 import type { IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
 
@@ -116,18 +117,25 @@ describe('streamlines', () => {
 
   it('grad points uphill and curl runs along the contours', () => {
     const f = (x: number, y: number) => x * x + y * y; // bowl
-    const g = grad(f, 0.5)(3, 4);
+    const g = grad(f, { step: 0.5 })(3, 4);
     expect(g[0]).toBeCloseTo(6, 3);
     expect(g[1]).toBeCloseTo(8, 3);
-    const c = curl(f, 0.5)(3, 4);
+    const c = curl(f, { step: 0.5 })(3, 4);
     // Perpendicular to the gradient, same length.
     expect(c[0] * g[0] + c[1] * g[1]).toBeCloseTo(0, 6);
     expect(Math.hypot(c[0], c[1])).toBeCloseTo(10, 3);
   });
+  it('grad and curl take the step as an option, and refuse it by position', () => {
+    const f = (x: number, y: number) => x * x;
+    expect(grad(f, { step: 1 })(2, 0)[0]).toBeCloseTo(4, 12);
+    expect(grad(f, { step: -1 })(2, 0)).toEqual(grad(f)(2, 0));
+    expect(() => grad(f, 0.5 as never)).toThrow('grad: the step is an option — grad(f, { step: 0.5 })');
+    expect(() => curl(f, 0.5 as never)).toThrow('curl: the step is an option');
+  });
 
   it('streamlines of curl(f) hold f constant — they are isolines of f', () => {
     const f = (x: number, y: number) => Math.hypot(x - 50, y - 50);
-    const lines = streamlinesOf(env, curl(f, 0.25), { spacing: 6, step: 0.5 });
+    const lines = streamlinesOf(env, curl(f, { step: 0.25 }), { spacing: 6, step: 0.5 });
     expect(lines.length).toBeGreaterThan(5);
     for (const c of lines) {
       const vals = c.pts.map(([x, y]) => f(x, y));

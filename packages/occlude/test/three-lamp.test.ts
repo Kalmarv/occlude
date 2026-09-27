@@ -1,22 +1,25 @@
 import {describe,it,expect} from 'vitest';
-import {plane,lamp,environment,axisAngle,v3,type Vec3} from '../src/three/api/index.js';
+import {plane,lamp,environment,axisAngle,type Vec3} from '../src/three/api/index.js';
+const plus=(a:Vec3,b:Vec3):Vec3=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
 import {surfaceLocation3} from '../src/three/geometry/location.js';
-import type {Mesh} from '../src/three/api/index.js';
+import type {} from '../src/three/api/index.js';
 import {toneRecipe3,registerToneRecipe3,type ImageRecipe3} from '../src/three/surface/tone.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 
 /** The middle of a mesh's first triangle, as a surface location. */
-const at=(mesh:Mesh<any,any,any,any>)=>surfaceLocation3(mesh.surface,0,[1/3,1/3,1/3] as unknown as Vec3);
+const at=(mesh:Material)=>surfaceLocation3(surfaceOf(mesh),0,[1/3,1/3,1/3] as unknown as Vec3);
 /** A flat sheet facing +Z. */
 const sheet=()=>at(plane(2,2));
 /** The point a sheet is read at, so a lamp can be put a known way from it. */
-const from=(offset:Vec3):Vec3=>v3.add(sheet().position,offset);
+const from=(offset:Vec3):Vec3=>plus(sheet().position,offset);
 
 describe('lamp',()=>{
  it('is light facing the lamp and dark turned away',()=>{
   const bulb=lamp({position:from([0,0,3]),ambient:.2});
   expect(bulb(sheet())).toBeCloseTo(0,12);
   // The same sheet turned over sees nothing but the ambient light.
-  expect(lamp({position:v3.add(at(plane(2,2).rotate([180,0,0])).position,[0,0,3]),ambient:.2})(at(plane(2,2).rotate([180,0,0])))).toBeCloseTo(.8,12);
+  expect(lamp({position:plus(at(plane(2,2).rotate([180,0,0])).position,[0,0,3]),ambient:.2})(at(plane(2,2).rotate([180,0,0])))).toBeCloseTo(.8,12);
  });
  it('leans with the angle to the lamp',()=>{
   const bulb=lamp({position:from([4,0,4]),ambient:0});

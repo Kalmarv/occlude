@@ -1,4 +1,4 @@
-import {add3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
+import {add3,centroid3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
 import {assembleSurface3,surface3,type Attributes3,type Surface3,type SurfaceFace3,type SurfacePoint3} from './surface.js';
 import {emptySize} from '../degenerate.js';
 
@@ -7,7 +7,6 @@ export interface DualOptions {
    * projected this way is the Goldberg polyhedron. */
   readonly project?:number;
 }
-const centroid=(positions:readonly Vec3[]):Vec3=>mul3(positions.reduce((sum,p)=>add3(sum,p),[0,0,0] as Vec3),1/positions.length);
 /** Newell's normal: the area vector of a polygon, planar or not. */
 function areaVector(positions:readonly Vec3[]):Vec3 {
   let normal:Vec3=[0,0,0];
@@ -27,7 +26,7 @@ export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
   if(!surface.faces.length)return surface3([],[]);
   if(options.project!==undefined&&emptySize(options.project))return surface3([],[]);
   const positions=surface.points.map(p=>p.position);
-  const faceCentre=surface.faces.map(f=>centroid(f.vertices.map(v=>positions[v])));
+  const faceCentre=surface.faces.map(f=>centroid3(f.vertices.map(v=>positions[v])));
   const faceNormal=surface.faces.map(f=>areaVector(f.vertices.map(v=>positions[v])));
   const radius=options.project;
   const placed=faceCentre.map(p=>{
@@ -71,8 +70,8 @@ export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
   const used=[...new Set(polygons.flat())].sort((a,b)=>a-b);
   const at=new Map(used.map((f,i)=>[f,i]));
   const numeric=(attributes:Attributes3):Attributes3=>Object.fromEntries(Object.entries(attributes).filter(([,value])=>typeof value==='number'||Array.isArray(value)&&value.every(n=>typeof n==='number')));
-  const points:SurfacePoint3[]=used.map(f=>({id:`dual:${surface.faces[f].id}`,position:placed[f],attributes:numeric(surface.faces[f].attributes)}));
-  const faces:SurfaceFace3[]=polygons.map((loop,i)=>({id:`dual:${surface.points[owners[i]].id}`,vertices:loop.map(f=>at.get(f)!),attributes:{...surface.points[owners[i]].attributes}}));
+  const points:SurfacePoint3[]=used.map(f=>({id:`dual:${surface.faces[f].id}`,position:placed[f],attributes:numeric(surface.faces[f].attributes),provenance:{operation:'dual',parents:[surface.faces[f].id]}}));
+  const faces:SurfaceFace3[]=polygons.map((loop,i)=>({id:`dual:${surface.points[owners[i]].id}`,vertices:loop.map(f=>at.get(f)!),attributes:{...surface.points[owners[i]].attributes},provenance:{operation:'dual',parents:[surface.points[owners[i]].id]}}));
   // The ordinary ear clipping decides the triangles, in each face's own average
   // plane: a projected Goldberg's hexagons are not exactly planar, and they are
   // drawn as the triangles that plane gives.

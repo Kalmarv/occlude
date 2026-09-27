@@ -4,7 +4,9 @@ import { add3, cross3, finite3, mul3, sub3, type Vec3 } from '../math.js';
 
 export type Attribute3 = number | string | boolean | readonly number[];
 export type Attributes3 = Record<string, Attribute3>;
-export interface Provenance3 { readonly operation: string; readonly parents: readonly string[] }
+/** Internal lineage: the derivation, the ids of the rows it read, and, when
+ * it read more than one value, which of its inputs holds each parent. */
+export interface Provenance3 { readonly operation: string; readonly parents: readonly string[]; readonly inputs?: readonly number[] }
 export interface SurfacePoint3 { readonly provenance?: Provenance3; readonly id: string; position: Vec3; attributes: Attributes3 }
 /** One corner per polygon vertex, in the polygon's winding order. */
 export interface SurfaceCorner3 { readonly id:string; readonly provenance?:Provenance3; attributes:Attributes3 }
@@ -28,7 +30,7 @@ function copyAttributes(attributes:Attributes3):Attributes3 {
   for(const name in attributes){const value=attributes[name];out[name]=Array.isArray(value)?[...value]:value;}
   return out;
 }
-const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenance.operation,parents:[...provenance.parents]});
+const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenance.operation,parents:[...provenance.parents],...(provenance.inputs?{inputs:[...provenance.inputs]}:{})});
 
 /** Deterministic ear clipping of a simple polygon. No fan triangulation of
  * concave faces; robust orientation guards crossings and ear containment.
@@ -40,7 +42,7 @@ const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenanc
  * clip — yields no triangles rather than failing. The face keeps its identity,
  * its corners and its place in the face order (`triangle.face` indices and
  * chart callbacks stay aligned); it simply contributes nothing to draw. */
-function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [number, number, number][] {
+export function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [number, number, number][] {
   const origin = positions[vertices[0]];
   const local = vertices.map(i => sub3(positions[i], origin));
   const extent = Math.max(...local.map(p => Math.hypot(...p)));
@@ -80,7 +82,7 @@ function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [
 
 /** Internal topology assembly keeps fixed triangles after deformation. */
 export function assembleSurface3(points: readonly SurfacePoint3[], faces: readonly SurfaceFace3[], triangles: readonly SurfaceTriangle3[], previous?: Surface3): Surface3 {
-  points.forEach(p=>finite3(p.position));
+  points.forEach(p=>finite3(p.position,'mesh'));
   for (const rows of [points,faces]) if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('surface IDs must be unique within their domain');
   const edges = new Map<string, { vertices: [number, number]; faces: number[]; forward: number }>();
   faces.forEach(({vertices},face)=>{
@@ -131,7 +133,7 @@ export function assembleSurface3(points: readonly SurfacePoint3[], faces: readon
   inheritTopology3(result,previous);return result;
 }
 export function surface3(positions: readonly Vec3[], polygons: readonly (readonly number[])[]): Surface3 {
-  positions.forEach(finite3);
+  positions.forEach(p=>finite3(p,'mesh'));
   const points=positions.map((position,i)=>({id:`p${i}`,position,attributes:{}}));
   const faces=polygons.map((vertices,i)=>({id:`f${i}`,vertices,attributes:{}}));
   const triangles:SurfaceTriangle3[]=[];
@@ -143,16 +145,10 @@ export function surface3(positions: readonly Vec3[], polygons: readonly (readonl
 }
 
 export function box3(size: Vec3 = [1, 1, 1], center: Vec3 = [0, 0, 0]): Surface3 {
-  finite3(size); finite3(center);
+  finite3(size, 'box size'); finite3(center, 'box centre');
   // A box with no extent on some axis is nothing to draw, not a fault: the
   // sketch keeps rendering and this box contributes no faces.
   if (size.some(v => v <= 0)) return surface3([], []);
   const signs: Vec3[] = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
   return surface3(signs.map(p => p.map((v, i) => center[i] + v * size[i] / 2) as unknown as Vec3), [[3,2,1,0],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]]);
-}
-
-/** Editable point-only geometry. Drawing remains explicit through scene wires
- * or a later point interpretation; no implicit connecting edges are created. */
-export function pointCloud3(positions: readonly Vec3[]): Surface3 {
-  return surface3(positions, []);
 }

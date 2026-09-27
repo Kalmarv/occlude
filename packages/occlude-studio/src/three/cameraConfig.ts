@@ -1,4 +1,4 @@
-import type { Camera3 } from 'occlude';
+import type { Camera3 } from 'occlude/3d/advanced';
 
 type Node = { type: string; range: [number, number]; [key: string]: unknown };
 const node = (parent: Node, key: string) => parent[key] as Node | undefined;
@@ -19,7 +19,7 @@ export async function cameraConfigEdit(source: string): Promise<(cameras: Readon
     if (statement.type === 'ImportDeclaration' && node(statement,'source')?.value === 'occlude') {
       for (const spec of nodes(statement,'specifiers')) {
         if (spec.type === 'ImportNamespaceSpecifier') namespaces.add(name(node(spec,'local'))!);
-        else if (['sketch','sketchAsync'].includes(name(node(spec,'imported')) ?? '')) factories.add(name(node(spec,'local'))!);
+        else if (name(node(spec,'imported')) === 'sketch') factories.add(name(node(spec,'local'))!);
       }
     }
     const declaration = statement.type === 'ExportNamedDeclaration' ? node(statement,'declaration') : statement;
@@ -30,7 +30,7 @@ export async function cameraConfigEdit(source: string): Promise<(cameras: Readon
   }
   const isFactory = (call: Node) => {
     const callee = node(call,'callee');
-    return callee?.type === 'Identifier' ? factories.has(name(callee)!) : callee?.type === 'MemberExpression' && namespaces.has(name(node(callee,'object'))!) && ['sketch','sketchAsync'].includes(name(node(callee,'property')) ?? '');
+    return callee?.type === 'Identifier' ? factories.has(name(callee)!) : callee?.type === 'MemberExpression' && namespaces.has(name(node(callee,'object'))!) && name(node(callee,'property')) === 'sketch';
   };
   const findConfig = (input: Node, seen = new Set<string>()): Node | undefined => {
     const value = unwrap(input);

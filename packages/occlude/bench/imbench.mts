@@ -2,10 +2,12 @@
 // per-sample cost a stipple or a flow field pays millions of times.
 // Uses the committed studio asset nyx.jpeg. Medians of 5 unless noted.
 import { performance } from 'node:perf_hooks';
-import { image } from '../src/index.js';
-import { preloadAssetsFromDisk } from '../tools/asset-preload.js';
+import { image as sampler, type ImagePlacement } from '../src/imageAsset.js';
+import { assetsFromDisk } from '../tools/asset-preload.js';
 
-preloadAssetsFromDisk(`image('nyx.jpeg')`);
+// `t.image` in a sketch: the run's captured assets, one sampler per call.
+const assets = assetsFromDisk(`image('nyx.jpeg')`);
+const image = (name: string, place: ImagePlacement) => sampler(assets, name, place);
 
 const med = (label: string, f: () => number, runs = 5) => {
   const ms: number[] = [];
@@ -27,17 +29,18 @@ for (let i = 0; i < N; i++) {
   ys[i] = ((s = (s * 48271) % 2147483647) / 2147483647) * img.height;
 }
 
-// the summed-area table is built lazily, once per channel: time the first
-// area sample of each channel on a fresh sampler
+// the summed-area table is built lazily, once per channel and asset: time
+// the first area sample of each channel on a freshly decoded asset
+const decoded = Array.from({ length: 3 }, () => assetsFromDisk(`image('nyx.jpeg')`));
 med('first area sample per channel (builds 4 SATs)', () => {
-  const fresh = image('nyx.jpeg', { x: 0, y: 0, width: 100 });
-  return fresh.lum(10, 10, 1) + fresh.a(10, 10, 1) + fresh.rgb(10, 10, 1)[0];
+  const fresh = sampler(decoded.pop(), 'nyx.jpeg', { x: 0, y: 0, width: 100 });
+  return fresh.lum(10, 10, 1) + fresh.a(10, 10, 1) + fresh.field('r', { area: 1 })(10, 10);
 }, 3);
 
 med(`${N} × lum (bilinear)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.lum(xs[i], ys[i]); return a; });
 med(`${N} × lum (area 0.5, summed-area)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.lum(xs[i], ys[i], 0.5); return a; });
-med(`${N} × rgb (three channels)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.rgb(xs[i], ys[i])[1]; return a; });
+const green = img.field('g');
+med(`${N} × g (one colour channel as a field)`, () => { let a = 0; for (let i = 0; i < N; i++) a += green(xs[i], ys[i]); return a; });
 med(`${N} × edge (four lum samples)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.edge(xs[i], ys[i]); return a; });
 med(`${N} × dir (four lum samples)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.dir(xs[i], ys[i]); return a; });
-med(`${N} × bands(4)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.bands(xs[i], ys[i], 4); return a; });
 med(`${N} × lum outside the placed rect (early out)`, () => { let a = 0; for (let i = 0; i < N; i++) a += img.lum(-1, ys[i]); return a; });

@@ -26,10 +26,10 @@ import { findSourceMap, stripTypeScriptTypes } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as core from 'occlude-core';
+import { type SketchDef } from '../src/index.js';
 import {
-  DEFAULT_PAPERS, DEFAULT_PENS, initOcclude, isSketch, isSketchAsync, pensToJson, renderAsync,
-  type AsyncSketchDef, type SketchDef,
-} from '../src/index.js';
+  DEFAULT_PAPERS, DEFAULT_PENS, initOcclude, isSketch, pensToJson, renderAsync,
+} from '../src/host.js';
 import { docsPaper, liveExampleToJs, parseLiveMeta } from '../src/docsExamples.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
@@ -176,7 +176,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
   { name: 'travelTime', size: '100x100 at step 0.5 + isolines', load: fence('fields.md', 't.travelTime({ fromPoints: [[W * 0.78') },
   { name: 'spacefill ivy', size: 'spacing 0.4 mm', load: fence('images.md', 't.spacefill(circle(50, 50, 44)') },
   { name: 'residual portrait', size: '12000 candidate steps', load: fence('images.md', 't.residual(tone, { spacing: mm(0.7) })') },
-  { name: 'lattice gray-scott', size: '5000 steps, spacing 1', load: fence('fields.md', 'seeded.steps(5000') },
+  { name: 'lattice gray-scott', size: '5000 steps, spacing 1', load: fence('fields.md', 't.steps(5000, seeded') },
   { name: 'lattice physarum', size: '60 ticks', load: fence('reference/fields.mdx', 'SENSE = 5') },
   {
     name: 'palette/regions',
@@ -223,7 +223,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const boxes = [];
   for (let k = 0; k < 2000; k++) boxes.push(rect(t.rnd(2, 86), t.rnd(2, 86), t.rnd(4, 12), t.rnd(4, 12)));
   const cells = t.material(...boxes).merge().planarize();
-  void cells.faces();
+  void cells.faces;
   return strokes(cells);
 });`),
   },
@@ -279,8 +279,6 @@ if (profileCase && !args.includes('--child')) {
 const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
 await initOcclude(readFileSync(wasmPath));
 
-const isDefinition = (v: unknown): v is SketchDef | AsyncSketchDef => isSketch(v) || isSketchAsync(v);
-
 interface Row { name: string; size: string; frags: number; ms: number[]; planMs: number[]; error?: string }
 const rows: Row[] = [];
 
@@ -296,9 +294,9 @@ for (const c of chosen) {
       new Function('require', 'exports', 'module', js)(
         requireFor(DEFAULT_PENS, DEFAULT_PAPERS), module.exports, module,
       );
-      const def = (isDefinition(module.exports.default)
+      const def = (isSketch(module.exports.default)
         ? module.exports.default
-        : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
+        : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
       if (!def) throw new Error('no sketch exported');
       const t0 = performance.now();
       const out = await renderAsync(def, {

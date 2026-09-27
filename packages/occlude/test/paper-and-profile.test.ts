@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PAPERS, paperSize, DEFAULT_PAPERS } from '../src/index.js';
+import { PAPERS, paperSize, DEFAULT_PAPERS } from '../src/host.js';
 import { profileToJson } from '../src/render.js';
 
 describe('paper presets', () => {

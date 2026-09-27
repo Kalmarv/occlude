@@ -10,7 +10,7 @@
  * step is the ladder rung the card was plotted with (800 by default): a pen
  * that drags in a cell wants that cell one rung lower.
  */
-import type { LiftMap } from 'occlude';
+import type { LiftMap } from 'occlude/host';
 
 /** One rung of the default ladder — the step the ± buttons take. */
 export const RUNG = 800;

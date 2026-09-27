@@ -16,7 +16,12 @@ import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
-import { GpuSceneCompute3, applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planAsBuffers, planSettings, renderEncoded, tourBudget, type Execution, type Frame, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { type PlanOptions } from 'occlude';
+import {
+  applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planAsBuffers, planSettings,
+  renderEncoded, tourBudget, type Execution, type Frame, type PlanSettings, type WasmModule,
+} from 'occlude/host';
+import { GpuSceneCompute3 } from 'occlude/3d/advanced';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';

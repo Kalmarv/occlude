@@ -1,15 +1,19 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,cylinder,sphere,torus,mesh,pointCloud,instanceOnPoints,trace,light,gradient,curvature,across,laneThreshold,view,orthographic,perspective} from '../src/three/api/index.js';
+import {plane,box,cylinder,sphere,torus,mesh,pointCloud,instanceOnPoints,trace,light,grad,curvature,across,view,orthographic,perspective} from '../src/three/api/index.js';
 import {hatchSurface,captureHatch} from '../src/three/api/hatch.js';
 import {directionField} from '../src/three/surface/fields.js';
-import {sampleSurfacePoints} from '../src/three/api/sampling.js';
-import {compileSketchAsync,initOcclude,pen,mm,sketchAsync,assetTable} from '../src/index.js';
+import {scatterSurface} from '../src/three/api/sampling.js';
+import {laneThreshold} from '../src/three/api/hatch.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { compileSketchAsync, initOcclude, assetTable } from '../src/host.js';
 import {image} from '../src/imageAsset.js';
 import {decodePoint,triangleWeights} from '../src/three/geometry/exact.js';
 import {bindingTriangle3} from '../src/three/curves/network.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 import type {SurfaceCurves} from '../src/three/api/supported.js';
 import {readFileSync} from 'node:fs';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 
 await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
 
@@ -23,7 +27,7 @@ function incident(curves:SurfaceCurves<any>):boolean {
   }));
 }
 const chainLengths=(curves:SurfaceCurves<any>)=>{const totals=new Map<string,number>();for(const e of curves.edges)totals.set(e.chainId,(totals.get(e.chainId)??0)+e.length);return [...totals.values()];};
-const seedAt=(m:{surface:import('../src/three/geometry/surface.js').Surface3},triangle:number,w:[number,number,number])=>surfaceLocation3(m.surface,triangle,w);
+const seedAt=(m:Material,triangle:number,w:[number,number,number])=>surfaceLocation3(surfaceOf(m),triangle,w);
 
 describe('surface tracing',()=>{
   it('walks straight across a subdivided plane and stops at its boundary',()=>{
@@ -70,7 +74,7 @@ describe('surface tracing',()=>{
   });
   it('follows gradients and estimated curvature with singularity fallback',()=>{
     const dome=plane(4).subdivide(4).displace(p=>[0,0,1-.25*(p.x*p.x+p.y*p.y)]);
-    const up=trace(dome,[seedAt(dome,3,[.2,.3,.5])],gradient(s=>s.position[2]),{step:.2,maxLength:4});
+    const up=trace(dome,[seedAt(dome,3,[.2,.3,.5])],grad(s=>s.position[2]),{step:.2,maxLength:4});
     const radii=up.points.map(p=>Math.hypot(p.x,p.y));
     expect(radii[0]).toBeGreaterThan(radii[radii.length-1]-1e-9);
     const tube=cylinder(1,3,{segments:24}),seed=seedAt(tube,4,[.3,.3,.4]);
@@ -84,7 +88,7 @@ describe('surface tracing',()=>{
     expect(chainLengths(perpendicular)[0]).toBeCloseTo(3,6);
     // A gradient sink: meridians converge onto the pole vertex and stop there
     // instead of spending the step budget bouncing across the pole fan.
-    const globe=sphere(1,{segments:16,rings:8}),meridian=trace(globe,[seedAt(globe,40,[1/3,1/3,1/3])],gradient(s=>s.position[2]),{step:.1,maxSteps:4096});
+    const globe=sphere(1,{segments:16,rings:8}),meridian=trace(globe,[seedAt(globe,40,[1/3,1/3,1/3])],grad(s=>s.position[2]),{step:.1,maxSteps:4096});
     const top=meridian.points.map(p=>p.z).reduce((a,b)=>Math.max(a,b),-Infinity);
     expect(top).toBeGreaterThan(.95);
     expect(meridian.edges.length).toBeLessThan(120);
@@ -136,23 +140,25 @@ describe('seeded surface hatch',()=>{
     const lanesLeft=new Set(shaded.edges.filter(e=>e.a.x<-.5).map(e=>e.lane)).size,lanesMiddle=new Set(shaded.edges.filter(e=>e.a.x>.2).map(e=>e.lane)).size;
     expect(lanesLeft).toBeGreaterThan(lanesMiddle);
   });
-  it('lights explicitly; crosshatch is two calls with their own pens',()=>{
+  it('lights explicitly; crosshatch is two calls, and the lines hold no pen',()=>{
     const cube=box(2),lit=light({direction:[0,0,1],ambient:.2});
-    const a=hatchSurface(cube,{direction:s=>s.tangentU!,pen:'ink',spacing:.25,step:.125},stream(13)).curves.edges;
-    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,pen:'shade',spacing:.25,step:.125},stream(13));
+    const a=hatchSurface(cube,{direction:s=>s.tangentU!,spacing:.25,step:.125},stream(13)).curves.edges;
+    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,spacing:.25,step:.125},stream(13));
     const b=curves.edges;
     expect(stats.families).toBe(1);expect(stats.tone.backend).toBe('cpu');
     expect(a.length).toBeGreaterThan(0);expect(b.length).toBeGreaterThan(0);
-    expect(a.every(e=>e.pen==='ink')&&b.every(e=>e.pen==='shade')).toBe(true);
+    expect([...a,...b].every(e=>!('pen' in e))).toBe(true);
+    // The view names the pen of each family: [marks, { pen }].
+    expect(()=>hatchSurface(cube,{direction:(s:any)=>s.tangentU!,pen:'ink',spacing:.25,step:.125} as never,stream(13))).toThrow('how the view draws');
     // The top face faces the light: tone 0, so the shaded call draws nothing on it,
     // while the bottom face (tone 0.8) is fully hatched.
     expect(b.some(e=>e.a.z>1-1e-9&&e.b.z>1-1e-9)).toBe(false);expect(b.some(e=>e.a.z<-1+1e-9&&e.b.z<-1+1e-9)).toBe(true);
-    expect(lit(surfaceLocation3(cube.surface,0,[1/3,1/3,1/3]))).toBeGreaterThanOrEqual(0);
+    expect(lit(surfaceLocation3(surfaceOf(cube),0,[1/3,1/3,1/3]))).toBeGreaterThanOrEqual(0);
   });
   it('is independent of the camera and repeats prototypes through placement',{timeout:60000},async()=>{
     const model=torus(1.4,.45,{segments:24,tubeSegments:10});
     let first!:SurfaceCurves<any>,second!:SurfaceCurves<any>;
-    const draw=(camera:Parameters<typeof view>[1]['camera'])=>compileSketchAsync(sketchAsync({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
+    const draw=(camera:Parameters<typeof view>[1]['camera'])=>compileSketchAsync(sketch({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
       const marks=await t.hatch(model,{direction:s=>s.tangentU!,spacing:.15,tone:.6,key:'ring'});
       if(!first)first=marks;else second=marks;
       return view([model,marks],{camera,pen:'ink'});
@@ -165,7 +171,7 @@ describe('seeded surface hatch',()=>{
     const {curves}=hatchSurface(prototype,{direction:[1,0,0],spacing:.2,step:.1},stream(2));
     const placed=curves.place(instances);
     expect(placed.sources.length).toBe(2);expect(placed.edges.length).toBe(curves.edges.length*2);
-    const run=await compileSketchAsync(sketchAsync({seed:1,pens:{ink:pen({width:mm(.2)})}},async t=>{
+    const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async t=>{
       const marks=await t.hatch(instances,{direction:s=>s.tangentV!,spacing:.2});
       expect(marks.sources.length).toBe(2);
       return view([instances,marks],{camera:orthographic({eye:[1,-5,5],span:5}),pen:'ink'});
@@ -174,14 +180,14 @@ describe('seeded surface hatch',()=>{
   });
   it('refuses a seed located on another mesh and forgets gradients when a placement turns',()=>{
     const low=plane(2,2).subdivide(2),high=low.translate([0,0,10]);
-    const onHigh=surfaceLocation3(high.surface,3,[.2,.3,.5]);
+    const onHigh=surfaceLocation3(surfaceOf(high),3,[.2,.3,.5]);
     expect(()=>trace(low,[onHigh],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
     expect(()=>trace(low,[{sample:onHigh}],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
     expect(trace(high,[onHigh],[1,0,0],{step:.2,maxLength:1}).edges.length).toBeGreaterThan(0);
     // The same instance id with a different transform must not reuse the gradient.
-    const field=gradient(s=>s.position[2]),sheet=plane(2,2);
-    const flat=surfaceLocation3(sheet.surface,0,[1/3,1/3,1/3],{placement:{id:'i',transform:{}}});
-    const tilted=surfaceLocation3(sheet.surface,0,[1/3,1/3,1/3],{placement:{id:'i',transform:{rotate:[90,0,0]}}});
+    const field=grad(s=>s.position[2]),sheet=plane(2,2);
+    const flat=surfaceLocation3(surfaceOf(sheet),0,[1/3,1/3,1/3],{placement:{id:'i',transform:{}}});
+    const tilted=surfaceLocation3(surfaceOf(sheet),0,[1/3,1/3,1/3],{placement:{id:'i',transform:{rotate:[90,0,0]}}});
     expect(field(flat)).toBeNull();
     expect(field(tilted)).not.toBeNull();
   });
@@ -198,7 +204,7 @@ describe('seeded surface hatch',()=>{
     const capped=hatchSurface(sheet(),{direction:[1,0,0],spacing:.05,step:.05,maxTotalSteps:50},stream(1));
     expect(capped.stats.stops.budget).toBeGreaterThan(0);
     const controller=new AbortController();
-    await expect(compileSketchAsync(sketchAsync({seed:42},async t=>{
+    await expect(compileSketchAsync(sketch({seed:42},async t=>{
       const pending=t.hatch(plane(2).subdivide(4),{direction:[1,0,0],spacing:.01});setTimeout(()=>controller.abort(),0);await pending;return null;
     }),undefined,{signal:controller.signal})).rejects.toThrow();
   });

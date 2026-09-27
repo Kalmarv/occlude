@@ -8,7 +8,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { append, connect, curve, initOcclude, material, type Material } from '../src/index.js';
+import { append, connect, curve, material, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
+import { toolkit } from './helpers/run.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -61,7 +63,7 @@ describe('edges.crossing', () => {
     // The result is an edge selection like any other.
     const hit = m.edges.crossing([20, 5], [20, 25]);
     expect(hit.points.indices.length).toBe(4);
-    expect(hit.complement().indices).toEqual([2]);
+    expect(m.edges.without(hit).indices).toEqual([2]);
   });
 
   it('the grid gives the same answer a full scan does', () => {
@@ -72,7 +74,7 @@ describe('edges.crossing', () => {
     for (let i = 0; i < 100; i++) {
       const cx = 5 + (i % 10) * 10;
       const cy = 5 + Math.floor(i / 10) * 10;
-      m = append(m, connect.ring(material([[cx - 3, cy - 3], [cx + 3, cy - 3], [cx + 3, cy + 3], [cx - 3, cy + 3]])));
+      m = append(m, curve(material([[cx - 3, cy - 3], [cx + 3, cy - 3], [cx + 3, cy + 3], [cx - 3, cy + 3]]), { closed: true }));
     }
     const a: [number, number] = [-1, 2];
     const b: [number, number] = [103, 97];
@@ -94,16 +96,19 @@ describe('edges.crossing', () => {
     // the first wall it would go through. The walls are the ink already
     // laid, so nothing ever crosses anything.
     const seeds = material([[10, 50], [30, 50], [50, 50], [70, 50], [90, 50]]);
-    const grown = seeds.steps(30, (cur, next, k) => {
+    // A pass that needs the step counts it itself, beside the graph.
+    const grown = toolkit({ seed: 1 }).steps(30, { g: seeds, k: 0 }, ({ g: cur, k }) => {
+      let g = cur;
       for (const p of cur.points) {
         if (p.adjacent.indices.length > 1) continue; // only a tip grows
         const dx = Math.cos(p.index * 1.1 + k * 0.25) * 4;
         const dy = Math.sin(p.index * 1.1 + k * 0.25) * 4;
         const to: [number, number] = [p.x + dx, p.y + dy];
         if (cur.edges.crossing(p, to).indices.length > 0) continue;
-        next.extrude(p, () => ({ position: to }));
+        g = g.extrude(p, [dx, dy]);
       }
-    });
+      return { g, k: k + 1 };
+    }).g;
     expect(grown.n).toBeGreaterThan(seeds.n);
     // Nothing the run laid down crosses anything else it laid down.
     for (const e of grown.edges) {

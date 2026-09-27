@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import * as occlude from 'occlude';
+import * as host from 'occlude/host';
 import { RenderClient } from './workerClient.js';
 import type { RunConfig } from './runner.js';
 
@@ -41,7 +41,7 @@ it('cancels a superseded camera commit without restarting its retained worker', 
 it('discards a late successful render before starting a replacement that fails', async () => {
   vi.stubGlobal('Worker', FakeWorker);
   vi.spyOn(performance, 'now').mockReturnValue(0);
-  const decode = vi.spyOn(occlude, 'decodeRender');
+  const decode = vi.spyOn(host, 'decodeRender');
   const client = new RenderClient();
   try {
     const first = client.render({ js: 'obsolete', cfg: {} as RunConfig });
@@ -58,7 +58,7 @@ it('discards a late successful render before starting a replacement that fails',
 
 it('accepts decoded current results before their exports and rejects an obsolete input revision', async () => {
   vi.stubGlobal('Worker', FakeWorker);
-  vi.spyOn(occlude, 'decodeRender').mockReturnValue({} as ReturnType<typeof occlude.decodeRender>);
+  vi.spyOn(host, 'decodeRender').mockReturnValue({} as ReturnType<typeof host.decodeRender>);
   const client = new RenderClient();
   try {
     const accepted = client.render({ js: 'current', cfg: {} as RunConfig });
@@ -88,7 +88,7 @@ it('cancels work before a debounced replacement exists and discards undecodable 
     client.cancelRender();
     worker.reply({ type: 'render', id });
     expect(await stale).toBeNull();
-    vi.spyOn(occlude, 'decodeRender').mockImplementation(() => { throw new Error('bad reply'); });
+    vi.spyOn(host, 'decodeRender').mockImplementation(() => { throw new Error('bad reply'); });
     const bad = client.render({ js: 'bad', cfg: {} as RunConfig }).catch(error => error);
     const badId = worker.messages.at(-1)!.id;
     worker.reply({ type: 'render', id: badId });

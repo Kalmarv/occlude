@@ -5,6 +5,8 @@
  * must be the same coastline, coordinate for coordinate.
  */
 import { describe, expect, it } from 'vitest';
+import { surfaceOf } from '../src/three/geometry/value.js';
+import type { Material } from '../src/material.js';
 import { orient3d } from 'robust-predicates';
 import { separatedTriangles3 } from '../src/three/curves/contactFilter.js';
 import { triangleContact3 } from '../src/three/curves/contact.js';
@@ -17,7 +19,10 @@ import { bindingTriangle3 } from '../src/three/curves/network.js';
 import { runGeometryJob3 } from '../src/three/geometry/job.js';
 import { point } from '../src/three/geometry/exact.js';
 import type { Vec3 } from '../src/three/math.js';
-import { globeShells } from '../tools/coastline-filter/shells.js';
+import { mm, pen, sketch } from '../src/index.js';
+import { DEFAULT_PENS, compileSketchAsync, paperSize } from '../src/host.js';
+import { geodesic } from '../src/three/api/index.js';
+import { surfaceBinding3, type SurfaceBinding3 } from '../src/three/curves/network.js';
 
 type Tri = readonly [readonly number[], readonly number[], readonly number[]];
 const pack = (t: Tri) => Float64Array.from([...t[0], ...t[1], ...t[2]]);
@@ -32,6 +37,29 @@ function sixSignRejects(a: Tri, b: Tri): boolean {
 }
 const separated = (a: Tri, b: Tri) => separatedTriangles3(pack(a), 0, pack(b), 0);
 const contactOf = (a: Tri, b: Tri) => triangleContact3(exact(a), exact(b));
+
+/** The two globe shells of the bench's 'globe contours' case: the geodesic
+ * dual, the 0.99 water scale and the seeded three-octave noise terrain, with
+ * no isolines, coastline or view — this test needs the two surfaces only.
+ * Built here, from this package's own modules: a surface binding is owned by
+ * the module that minted it, so shells built through another copy of the
+ * library are not bindings this one accepts. */
+async function globeShells(options: { frequency: number; seed?: number }): Promise<{ water: SurfaceBinding3; terrain: SurfaceBinding3 }> {
+  const size = paperSize({ paper: 'Square20' });
+  let captured: { water: Material; terrain: Material } | undefined;
+  const def = sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, async (t) => {
+    const base = geodesic(1, { frequency: [options.frequency, options.frequency] }).dual();
+    const water = base.scale(0.99);
+    const height = (p: { x: number; y: number; z: number }) =>
+      (t.noise(p.x * 2, p.y * 2, p.z * 2) * 0.6 + t.noise(p.x * 4, p.y * 4, p.z * 4) * 0.3 + t.noise(p.x * 10, p.y * 10, p.z * 10) * 0.1) * 0.12;
+    const terrain = base.displace(height);
+    captured = { water, terrain };
+    return [];
+  });
+  await compileSketchAsync(def, { paper: { w: size.w, h: size.h }, library: DEFAULT_PENS, seed: options.seed ?? 42, marginPct: 5 });
+  if (!captured) throw new Error('the globe sketch did not run');
+  return { water: surfaceBinding3(surfaceOf(captured.water)), terrain: surfaceBinding3(surfaceOf(captured.terrain)) };
+}
 
 describe('the coastline contact filter', () => {
   it('rejects the both-straddle counterexample by orientation, never by the six signs', () => {

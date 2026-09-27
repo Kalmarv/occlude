@@ -6,14 +6,14 @@ description: Points with columns and an edge list. The editable form of geometry
 A material is a set of vertices and an edge list. Each vertex has `x`, `y` and any number of named columns. A ring, an open chain, a tree and a cloud of loose points are all materials. Every operation returns a new material and changes nothing, so you can keep any state and come back to it.
 
 :::note
-A row index belongs to one state. After a step adds or removes vertices, the rows get new numbers. Hold a value, not an index.
+A row number belongs to one state. After a write adds or removes vertices, the rows get new numbers. A point or an edge that you hold names its row in each later state. Hold the value, not its number.
 :::
 
 ## material()
 
 <include>/_sig/material.mdx</include>
 
-Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of row numbers. Every other option is a column. A number sets the value on every row. An array sets one value for each row. A number that every point carries, such as the `w` of a scatter point, becomes a column too. A pair carries no columns, so a list of pairs and records keeps only the positions.
+Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of places in the list of points. Every other option is a column. A number sets the value on every row. An array sets one value for each row. A number that every point carries, such as the `w` of a scatter point, becomes a column too. A pair carries no columns, so a list of pairs and objects keeps only the positions.
 
 ```ts live
 import { sketch, circle, strokes, material } from 'occlude';
@@ -28,7 +28,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/curve.mdx</include>
 
-Builds one chain from positions, in the order given. The chain is open. `closed: true` makes a ring. The other options are columns, as in `material()`.
+Builds one chain through points, in the order given. The points are positions, a point selection, a material or a face collection, read as `material()` reads them. A selection keeps its members and their columns, so the points of the chain are the same points. The chain is open. `closed: true` makes a ring. For positions, the other options are columns, as in `material()`.
 
 ```ts live
 import { sketch, strokes, curve } from 'occlude';
@@ -43,7 +43,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.material.mdx</include>
 
-Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them. `t.material` takes any `Area`, not only a shape. A group gives the outlines of its shapes, with the transform of the group applied. So an `svg` import is a material in one call. A face gives its walls, with their ids. Loops and contour records give one ring for each contour. A material comes back as it is.
+Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. It keeps the same vertices in a curved space. There, the edge column `geodesic` is 1 on each geodesic edge. So the material draws as the shape draws. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them. `t.material` takes any `Area`, not only a shape. A group gives the outlines of its shapes, with the transform of the group applied. So an `svg` import is a material in one call. A face gives its walls, and they are the same edges. Loops and a list of contours give one ring for each contour. A material comes back as it is. The rows are the shape's own vertices, not samples along it, so they have no `u` and no `source`. For those, use `t.sample()`.
 
 ```ts live
 import { sketch, rect, ngon, strokes, circle } from 'occlude';
@@ -56,9 +56,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## t.sample()
 
+<include>/_sig/Toolkit.sample.2.mdx</include>
 <include>/_sig/Toolkit.sample.3.mdx</include>
 
-Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. It takes any `Area`, as `t.material` does, and samples every contour, the holes too. A `clip` is ink, not an area, so the call refuses it by name. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
+Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. It takes any `Area`, as `t.material` does, and samples every contour, the holes too. A `clip` is ink, not an area, so the call refuses it by name. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing. Give a material, and the call resamples its chains as `m.resample` does. An open chain stays open, and the `source` of each sample is an edge of that material.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';
@@ -69,11 +70,39 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+Each sample has `u`, its fraction of the arc length along its outline. `u` is 0 at the start of the outline. On an open outline, the last sample has `u` 1. On a ring, the samples stop one gap before 1, because the ring does not repeat its first point. Each outline in the call starts again at 0. So `u` gives a fraction of the way round with no row numbers. A column that you set with the name `u` replaces it. Below, each tick points to the center, and its length grows with `u`.
+
+```ts live
+import { sketch, circle, line, add, sub, mul, unit } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 38), { count: 60 });
+  return [circle(50, 50, 38), ring.points.map((p) => line(p, add(p, mul(unit(sub([50, 50], p)), 2 + 24 * p.u)), { pen: 'stabilo-88-blue' }))];
+});
+```
+
+Give geometry and each sample also has `source`: the edge of the input under the sample. The geometry is a curve row, a selection of curves, edges or points, or a face. `source` is an edge row of the value that you gave. Read `p.source.length`, `p.source.a` or a column of that edge. A sample exactly on a corner names the edge that comes to that corner. `t.sample` reads geometry as an area, so it closes an open chain with a chord. The chord is not an edge, so a sample on it has no `source`. A shape, loops and a rect have no rows, so their samples have no `source`.
+
+`source` has one natural shape for all operations. It is a row when the row came from one input row, and a selection when it came from many. A sample is on one edge, so its `source` is one row. `set` and `move` of the result keep `u` and `source`. A point that you add later has neither. Below, each tooth is perpendicular to the wall under it, and its length is from the length of that wall.
+
+```ts live
+import { sketch, curve, strokes, line, add, sub, mul, unit, perp } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const wall = curve([[14, 20], [80, 12], [88, 70], [40, 88], [18, 60]], { closed: true });
+  const teeth = t.sample(wall.curves.at(0), { count: 72 });
+  return [strokes(wall), teeth.points.map((p) => {
+    const e = p.source;
+    return line(p, add(p, mul(unit(perp(sub(e.b, e.a))), e.length / 6)), { pen: 'stabilo-88-blue' });
+  })];
+});
+```
+
 ## append()
 
 <include>/_sig/append.mdx</include>
 
-Puts several materials in one, in the order given. The rows of each one come after the rows of the one before. The edges get new row numbers. All of them must have the same columns. If one has a column that another does not, `fill` gives the value that the other gets.
+Puts several materials in one, in the order given. The rows of each one come after the rows of the one before. All of them must have the same columns. If one has a column that another does not, `fill` gives the value that the other gets.
 
 ```ts live
 import { sketch, strokes, curve, append, connect, circle } from 'occlude';
@@ -87,15 +116,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## material
 
-<include>/_sig/Material.n.mdx</include>
 <include>/_sig/Material.points.mdx</include>
 <include>/_sig/Material.edges.mdx</include>
-<include>/_sig/Material.pts.mdx</include>
-<include>/_sig/Material.attrs.mdx</include>
-<include>/_sig/Material.closed.mdx</include>
 <include>/_sig/Material.space.mdx</include>
 
-The value. `n` is the number of vertices. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `space` is the [space](/docs/reference/geometry) of the coordinates: the space of the sketch on a material from the toolkit, and `undefined` on `material(points)`. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
+The value. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `m.points.length` is the number of vertices. A column is a property of its row: `p.name`. `m.curves` is the chains, each with its `closed`. `space` is the [space](/docs/reference/geometry) of the coordinates: the space of the sketch on a material from the toolkit, and `undefined` on `material(points)`. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
 
 ```ts live
 import { sketch, rect, circle, strokes } from 'occlude';
@@ -106,35 +131,66 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-`pts` is what a `stroke` wants, and `n` is what turns a row number into a fraction of the way round.
+The positions as pairs are what a `stroke` wants. A sample already carries `u`, its own fraction of the way round.
 
 ```ts live
 import { sketch, stroke, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 26 });
-  return [stroke([...ring.pts, ring.pts[0]]), ring.points.map((p) => circle(p, 0.5 + (3.4 * p.index) / ring.n, { pen: 'stabilo-88-blue' }))];
+  const pts = ring.points.map((p) => [p.x, p.y]);
+  return [stroke([...pts, pts[0]]), ring.points.map((p) => circle(p, 0.5 + 3.4 * p.u, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
-## curves()
+## curves
 
 <include>/_sig/Material.curves.mdx</include>
 
-The chains of the material, each one once, as records that `stroke` and `polygon` accept. A chain runs from an end or a junction to the next one. `strokes(m)` is the same walk with the drawing done for you.
+The chains of the material, each one once, as a selection of curve rows. It is a property: the material makes it the first time you read it, and keeps it. A chain starts at an end or at a junction, where the number of edges is not two. It runs through the points that two edges meet. An open chain goes the way its edges go. When its edges go different ways, it starts at the end with the lower row. A ring starts where its oldest edge starts, and goes the way that edge goes. A split does not move the start of a ring. The curves come in the order of their first points. Every write keeps that order and the direction of each curve. `strokes(m)` is the same walk with the drawing done for you, and `stroke(c)` draws one curve.
 
 ```ts live
 import { sketch, stroke, material } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const y = material([[10, 12], [50, 50], [90, 12], [50, 92]], { edges: [[0, 1], [1, 2], [1, 3]] });
-  return y.curves().map((c, i) => stroke(c, { pen: i === 1 ? 'stabilo-88-blue' : undefined }));
+  return y.curves.map((c, i) => stroke(c, { pen: i === 1 ? 'stabilo-88-blue' : undefined }));
+});
+```
+
+A curve row has these words:
+
+| word | what it is |
+| --- | --- |
+| `c.points` | its points in walk order, as a selection. A ring lists each point once. |
+| `c.edges` | its edges in walk order. Each edge joins a point to the next point of the walk. The closing edge of a ring is last. |
+| `c.closed` | `true` for a ring |
+| `c.length` | its arc length, in the space of the material |
+| `c.contours()` | its area: one contour for a ring of a value in the plane, and none for an open chain |
+| `c.level`, `c.cut`, … | an edge column that all its edges agree on. A column that they do not agree on is absent. |
+
+A point of a curve has five more columns. The curve gives them, and you read them as columns. A point can hold its own column `s`, `u` or `heading`. Then it reads that column on the curve too, so a point has one answer. `s` is the arc length from the start of the curve. `u` is `s` as a fraction of `c.length`. `heading` is the direction of the curve at the point, in radians. `tangent` is the unit vector of the heading. `normal` is the tangent turned a quarter turn toward `+y`, as `perp` turns it. On a ring that goes counter-clockwise on the sheet, the normal points out. `t.sample(circle(…))` goes clockwise on the sheet, so its normal points in. A point of `m.along()` has the same five columns. A point where three or more edges meet is the end of one curve and the start of another. Each curve answers its own view of that point, with its own `s`, `u` and `heading`. `has` and `rows` still recognise it.
+
+Below, each point of a curve gets a tick along its `normal`, and the tick grows with `u`. The ring comes from `t.sample`, so its ticks point in.
+
+```ts live
+import { sketch, strokes, line, circle, curve, add, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const wave = curve(t.times(40, (k, u) => [10 + u * 80, 28 + 12 * Math.sin(u * 9)]));
+  const ring = t.sample(circle(50, 68, 20), { count: 36 });
+  return [wave, ring].map((m) => [
+    strokes(m),
+    m.curves.map((c) => c.points.map((p) => line(p, add(p, mul(p.normal, 1 + 7 * p.u)), { pen: 'stabilo-88-blue' }))),
+  ]);
 });
 ```
 
 ## What a geometry value can say
 
-A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name.
+A value answers `contours()` for areas, `curves` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name.
+
+A value in space (a value with a `z` column) that states no faces answers no `contours()`, as it answers no `faces`. Its x and y are a shadow of it, not an area. So `polygon`, `t.within`, `distanceTo` and `force.boundary` read it as an empty area and draw nothing.
 
 A shape is not geometry until the toolkit lowers it. Every word on `t` takes a shape. The plain import takes geometry. `t.distanceTo(circle(...))` works and `distanceTo(circle(...))` does not, because a shape needs the paper, the units and its own transform before it has points.
 
@@ -142,14 +198,14 @@ A shape enters the point world through two doors only. `t.material(shape)` keeps
 
 | value | answers |
 | --- | --- |
-| material | `contours()`, `curves()`, `points` |
-| point selection | `points`, `curves()` |
-| edge selection | `points`, `curves()` |
+| material | `contours()`, `curves`, `points` |
+| point selection | `points`, `curves` |
+| edge selection | `points`, `curves` |
 | face collection or face selection | `points`, `edges`, `contours()` |
 | one face | `points`, `edges`, `contours()` |
-| contour records and loops | themselves |
+| a list of contours, and loops | themselves |
 
-One material, three answers. From the left, `polygon` reads its `contours()`, `strokes` its `curves()`, and `dots` its `points`.
+One material, three answers. From the left, `polygon` reads its `contours()`, `strokes` its `curves`, and `dots` its `points`.
 
 ```ts live
 import { sketch, circle, polygon, strokes, dots, group, fill, pen, mm } from 'occlude';
@@ -166,43 +222,43 @@ export default sketch({ aspect: [3, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## What a point or an edge is, across states
 
-Every vertex and every edge has an `id` for as long as it exists. An id is opaque: you cannot do arithmetic with it, and it is equal only to itself. It is never reused.
+A point or an edge that you hold is its own name. A row view, a point value, an edge value and a selection name their rows in each later state of the material. A write that moves or sets keeps each row. A split removes the edge that it cuts and adds two new edges. So a view of the old edge names nothing after the split. The first new edge takes the row of the old edge, but not its name.
 
-New geometry mints new ids. A step that moves or sets keeps them. A split retires the edge it cut and gives both halves ids of their own, so `edgeOf(parentId)` finds nothing afterwards.
+A selection can then outlive the state that made it. `state.points.intersect(sel)` reads a selection against a later state and drops the members that are gone. `state.points.rows(p)` is the selection that holds the row of the view `p` in that state. `sel.has(p)` asks the same question of one member. A write takes a selection or a view from an earlier state and finds the rows itself.
 
-A selection can then outlive the state that made it. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
+`m.points.at(i)` and `m.edges.at(i)` ask by place in one state. A place is not a name: after a write adds or removes rows, the same place can hold another row.
 
-Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state. An id and a row are both numbers. The two have different names, and neither guesses.
-
-Here the sketch splits a ring of twelve vertices three times, then pushes it about. The ring ends with ninety-six rows, in a new order. Three vertices held from the first state still answer in the last one. An id kept in a plain variable finds its vertex again.
+Here the sketch splits a ring of twelve vertices three times, then pushes it about. The ring ends with ninety-six rows, in a new order. The points on the top of the first ring still answer in the last one. The ring holds one point in a variable, and it finds that point again.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 12 });
-  const held = ring.points.filter((p) => p.index % 4 === 0);
-  const anchorId = ring.points.at(2).id;
-  const grown = ring.steps(
+  const held = ring.points.filter((p) => p.y < 30);
+  const anchor = ring.points.at(2);
+  const grown = t.steps(
     3,
-    (cur, next) => next.splitEdges(cur.edges, { at: 0.5 }),
-    (cur, next) => next.move(cur.points, (p) => [t.noise(p.x / 16, p.y / 16) * 5, t.noise(p.y / 16, p.x / 16) * 5]),
+    ring,
+    (g) => g.split(g.edges),
+    (g) => g.move((p) => [t.noise(p.x / 16, p.y / 16) * 5, t.noise(p.y / 16, p.x / 16) * 5]),
   );
-  const anchor = grown.pointOf(anchorId);
   return [
     strokes(grown),
-    held.in(grown).map((p) => circle(p, 2.5, { pen: 'stabilo-88-blue' })),
-    circle(anchor, 4.5),
+    grown.points.intersect(held).map((p) => circle(p, 2.5, { pen: 'stabilo-88-blue' })),
+    grown.points.rows(anchor).map((p) => circle(p, 4.5)),
   ];
 });
 ```
 
-## attribute() · attributes()
+## Set a column
 
-<include>/_sig/Material.attribute.mdx</include>
-<include>/_sig/Material.attributes.mdx</include>
+<include>/_sig/points.set.mdx</include>
+<include>/_sig/edges.set.mdx</include>
 
-Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. A second call sees the first call's columns, because by then they are part of the material. `transfer` says what a column does at a new vertex, after a split or a resample. `'interpolate'` (the default) blends the two values. `'nearest'` copies the nearer one.
+`m.points.set` writes a column on the vertices and returns the new material. `m.edges.set` writes a column on the edges. Each domain has this one write. The value is a number, or a function of the row. A column that does not exist yet starts with 0 on every other row. The object form writes several columns at once. Each function in the object reads the material as it was, so a new column never sees another new column. A second call sees the first call's columns, because by then they are part of the material. A `where` names the rows that the write changes. The [steps](/docs/reference/steps) page has the full contract.
+
+The last argument can be `{ transfer }`. It says what a column does at a new row, after a split or a resample. A point column is `'interpolate'` (the default) or `'nearest'`. `'interpolate'` blends the two values, and `'nearest'` copies the nearer one. An edge column is `'copy'` (the default) or `'distribute'`. `'distribute'` shares a quantity over the parts of a split edge.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -210,18 +266,13 @@ import { sketch, strokes, circle } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t
     .sample(circle(50, 50, 40), { count: 36 })
-    .attribute('lift', (p) => (p.y < 50 ? 1 : 0))
-    .attributes({ reach: (p) => 0.6 + p.x / 40, side: (p) => (p.x < 50 ? 0 : 1) });
+    .points.set('lift', (p) => (p.y < 50 ? 1 : 0))
+    .points.set({ reach: (p) => 0.6 + p.x / 40, side: (p) => (p.x < 50 ? 0 : 1) });
   return [strokes(ring), ring.points.filter((p) => p.lift === 1).map((p) => circle(p, p.reach, { pen: p.side === 1 ? 'stabilo-88-blue' : undefined }))];
 });
 ```
 
-## edgeAttribute() · edgeAttributes()
-
-<include>/_sig/Material.edgeAttribute.mdx</include>
-<include>/_sig/Material.edgeAttributes.mdx</include>
-
-The same for edges: one value for each edge, read from the edge view. `transfer` for an edge column is `'copy'` (the default) or `'distribute'`. `'distribute'` shares a quantity over the parts of a split edge.
+The same for edges: one value for each edge, read from the edge view.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -229,12 +280,12 @@ import { sketch, strokes, circle } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t
     .sample(circle(50, 50, 40), { count: 40 })
-    .edgeAttribute('long', (e) => (e.a.x > 50 ? 1 : 0))
-    .edgeAttributes({ high: (e) => (e.a.y < 50 ? 1 : 0) });
+    .edges.set('long', (e) => (e.a.x > 50 ? 1 : 0))
+    .edges.set({ high: (e) => (e.a.y < 50 ? 1 : 0) });
   return [
-    strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 1), { pen: 'stabilo-88-green' }),
-    strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 0), { pen: 'stabilo-88-blue' }),
-    strokes(ring.edges.filter((e) => e.attrs.long === 0)),
+    strokes(ring.edges.filter((e) => e.long === 1 && e.high === 1), { pen: 'stabilo-88-green' }),
+    strokes(ring.edges.filter((e) => e.long === 1 && e.high === 0), { pen: 'stabilo-88-blue' }),
+    strokes(ring.edges.filter((e) => e.long === 0)),
   ];
 });
 ```
@@ -245,7 +296,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Replaces a column by the mean of itself and its neighbours, `steps` times. It finds the domain from the name. A point column averages over the points an edge joins to it. An edge column averages over the edges that share a vertex with it. `mesh.smooth` is the same word in 3D, with the same option.
 
-A tone that comes off an image carries speckle, and speckle in a density column gives banding on paper. `force.relax` smooths positions. This smooths a value and moves nothing, so every id and every position survives. A row with no neighbours is the mean of itself and keeps what it had.
+A tone that comes off an image carries speckle, and speckle in a density column gives bands on paper. `force.relax` smooths positions. This smooths a value and moves nothing, so every row and every position survives. A row with no neighbours is the mean of itself and keeps what it had.
 
 Below, the mark size is the column. The left cloud takes its tone straight from a noisy field. `t.noise` runs from -1 to 1. The sketch centres and scales the tone, so every mark keeps a positive size. The right cloud is the same tone after six passes: the noise's own shape stays, and the speckle goes.
 
@@ -254,9 +305,9 @@ import { sketch, circle, group, rect, connect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const b = t.bounds();
-  const half = rect(0, 0, 0.47 * b.w, b.h);
+  const half = rect(0.02 * b.w, 0.04 * b.h, 0.43 * b.w, 0.92 * b.h);
   const cloud = connect.nearest(t.scatter({ spacing: 0.05 * b.h, within: half }), { count: 3 })
-    .attribute('tone', (p) => 0.55 + 0.35 * t.noise(p.x / 20, p.y / 20) + 0.6 * (t.rnd() - 0.5));
+    .points.set('tone', (p) => 0.55 + 0.35 * t.noise(p.x / 20, p.y / 20) + 0.6 * (t.rnd() - 0.5));
   const marks = (m) => m.points.map((p) => circle(p, 0.004 * b.h + 0.024 * b.h * Math.max(0, p.tone)));
   return [marks(cloud), group({ translate: [0.53 * b.w, 0] }, marks(cloud.smooth('tone', { steps: 6 })))];
 });
@@ -268,11 +319,16 @@ A column belongs to the material that declares it. An operation that makes a new
 
 | operation | point columns | edge columns | transfer policies |
 |---|---|---|---|
-| `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, `withEdges`, `steps` | kept | kept | kept |
+| `warp`, `resample`, `spline`, `trim`, `trails`, `planarize`, `merge`, `interlace`, `append`, the transforms, the writes and recipes, `t.within`, `t.relax`, `t.steps` | kept | kept | kept |
 | `oscillate` | kept | kept, and each new span reads the source edge it starts on | kept |
-| `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
+| `along` | kept, and `s`, `u` and `heading` are added | read at each point, as point columns | kept |
+| `t.settle` | kept: a new point copies the values of its parent, and `demand` is added | none | kept |
+| `envelope` | not kept, and `member` is added | not kept | `member` is `'nearest'` |
+| `thicken` | not kept | not kept | not kept |
 
-The third row makes new vertices that come from no one source row. `thicken` can trace an output vertex back: `{ point: (event) => … }` gets every source candidate for that vertex, and what you return becomes the row. `oscillate` refuses an edge column with the `'distribute'` policy, because the swung chain is longer than its source. To keep a column through the third row, read it off the source and set it again on the result.
+These operations keep every kind of column: numbers, booleans, strings, vectors, references and placements. At a new point between two points, a number and a vector interpolate by the policy of the column. The other kinds never interpolate: the new point takes the value of the nearer point. A new edge takes the values of the edge that it comes from, and a `'distribute'` column its part of that value. `t.within` also adds the edge column `cut` to a material that has faces.
+
+`thicken` and `envelope` make new vertices that come from no one source row. `thicken` can trace an output vertex back: `{ point: (event) => … }` gets every source candidate for that vertex, and what you return becomes the row. `oscillate` refuses an edge column with the `'distribute'` policy, because the swung chain is longer than its source. To keep a column through `thicken` or `envelope`, read it off the source and set it again on the result.
 
 Below, a ring carries a size column through `warp`. The bent ring still reads it.
 
@@ -280,24 +336,22 @@ Below, a ring carries a size column through `warp`. The bent ring still reads it
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 30), { count: 24 }).attribute('r', (p) => 0.8 + (p.index % 3));
-  const bent = ring.warp({ from: [[10, 10], [90, 10], [90, 90], [10, 90]], to: [[10, 10], [90, 22], [78, 90], [22, 78]] });
+  const ring = t.sample(circle(50, 50, 42), { count: 24 }).points.set('r', (p) => 0.8 + (p.index % 3));
+  const bent = ring.warp({ from: [[4, 4], [96, 4], [96, 96], [4, 96]], to: [[4, 4], [96, 18], [82, 96], [18, 82]] });
   return [strokes(bent), bent.points.map((p) => circle(p, p.r, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
-## withEdges()
+## Change the edges
 
-<include>/_sig/Material.withEdges.mdx</include>
-
-Replaces the edge list. Give pairs of row numbers. The vertices and their columns stay as they are. A pair that was an edge before keeps its id and its columns. An edge that is not in the list goes away, so name an old pair to keep it.
+`m.edges.remove(sel)` removes edges and keeps their vertices. `m.edges.add([a, b])` adds an edge between two vertices, and a list of pairs adds several. The vertices and their columns stay as they are. An edge that you do not remove stays the same edge, with its columns. Below, a ring loses its edges and gets a star in their place.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 42), { count: 12 });
-  const star = ring.withEdges(t.times(12, (k) => [k, (k + 5) % 12]));
+  const star = ring.edges.remove(ring.edges).edges.add(t.times(12, (k) => [ring.points.at(k), ring.points.at((k + 5) % 12)]));
   return strokes(star);
 });
 ```
@@ -306,7 +360,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Material.merge.mdx</include>
 
-Resolves coincident ink. Two rectangles snapped edge to edge draw the shared wall twice, and `planarize` refuses a doubled wall. `merge` makes one vertex of every vertex at one position, and it keeps a duplicated edge once. Two collinear edges that overlap become the spans they cover, and each span holds the ink once. `tolerance` is a length in material units, and the default 0 asks for exact coincidence. An edge that nothing touches keeps its id. A span keeps the lineage of its source edge, so a face column still finds its wall.
+Resolves coincident ink. Two rectangles snapped edge to edge draw the shared wall twice, and `planarize` refuses a doubled wall. `merge` makes one vertex of every vertex at one position, and it keeps a duplicated edge once. Two collinear edges that overlap become the spans they cover, and each span holds the ink once. `tolerance` is a length in material units, and the default 0 asks for exact coincidence. An edge that nothing touches stays the same edge. A span comes from its source edge, so a face column still finds its wall.
 
 The screen below is four columns of panes. Each pane is a rectangle of its own, so every inner wall arrives twice. A tall wall also lies along two short ones. One `merge` call resolves both. `planarize` then reads the faces, and each face takes its own hatch angle. The small panes carry the close hatch, so the screen reads as tone.
 
@@ -322,7 +376,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const panes = cols.flatMap(([x0, x1], c) => t.times(rows[c], (k) =>
     t.material(rect(x0 * b.w, top + (k / rows[c]) * tall, (x1 - x0) * b.w, tall / rows[c]))));
   const screen = append(...panes).merge();
-  const cells = screen.planarize().faces();
+  const cells = screen.planarize().faces;
   const biggest = Math.max(...cells.map((f) => f.area));
   return [
     cells.map((f, i) => polygon(f, {
@@ -334,18 +388,17 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## m.scale() · m.rotate() · m.translate() · m.deform()
+## m.scale() · m.rotate() · m.translate()
 
 <include>/_sig/Material.scale.mdx</include>
 <include>/_sig/Material.rotate.mdx</include>
 <include>/_sig/Material.translate.mdx</include>
-<include>/_sig/Material.deform.mdx</include>
 
-Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`, an `Origin`: the same pivot type as a shape, a group, a lattice and a field. It is a pair or an `{ x, y }` record in the material's own units, and `[0, 0]` when you do not give it. `'center'` is the middle of the material's own bounds, as it is on a shape and on a group. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points. For the middle of the drawable, give the point `[t.bounds().cx, t.bounds().cy]`.
+Move every vertex with the words of a group. `scale` takes one factor or `[kx, ky]`, and `rotate` takes degrees, clockwise on the sheet. Both pivot on `origin`, an `Origin`: the same pivot type as a shape, a group, a lattice and a field. It is a pair or an `{ x, y }` object in the material's own units, and `[0, 0]` when you do not give it. `'center'` is the middle of the material's own bounds, as it is on a shape and on a group. `'centroid'` is the area centroid of the closed contours. A material with no closed contour uses the mean of its points. For the middle of the drawable, give the point `[t.bounds().cx, t.bounds().cy]`.
 
-`deform` reads a vector field at each vertex, as the `deform` modifier does, and adds it. A field is always a displacement, and `m.map()` is always a position.
+To move every vertex by a vector field, as the `deform` modifier does, give `move` a function of the point: `m.move((p) => field(p.x, p.y))`. A field is always a displacement. `m.points.set({ x, y })` writes a position.
 
-The four are `m.map()` with a fixed formula, so the rows, the ids and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
+The three are a position write with a fixed formula, so the rows and every column stay. They move the numbers and do not place the curve. In a curved sketch, `m.transform()` is the word for an isometry.
 
 Below, each whole cell of a hex lattice is its own outline, scaled about its own centroid. The scale follows a noise field, so the cells open and close across the sheet. The inner ring turns with the scale. A small displacement field then moves the corners of each ring.
 
@@ -354,16 +407,18 @@ import { sketch, strokes, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const b = t.bounds();
-  const cells = t.hexes({ spacing: mm(12), orientation: 'flat' });
-  const drift = t.noiseField(0.008 * b.w, 0.15 * b.w);
-  const faces = cells.faces().faces;
+  const cells = t.tiling(6, 3, { side: mm(7) });
+  const amount = 0.008 * b.w;
+  const wavelength = 0.15 * b.w;
+  const drift = (p) => [amount * t.noise(p.x / wavelength, p.y / wavelength), amount * t.noise(p.x / wavelength + 213.7, p.y / wavelength - 118.3)];
+  const faces = cells.faces;
   const whole = Math.max(...faces.map((f) => f.area)) * 0.99;
   return faces.filter((f) => f.area > whole).map((f) => {
     const outline = f.boundaryEdges.extract();
     const k = 0.2 + 0.75 * (0.5 + 0.5 * t.noise((f.centroid[0] / b.w) * 3, (f.centroid[1] / b.h) * 3));
     const outer = outline.scale(k, { origin: 'centroid' });
     const inner = outline.scale(k * 0.55, { origin: 'centroid' }).rotate(60 * k, { origin: 'centroid' });
-    return [strokes(outer.deform(drift)), strokes(inner.deform(drift))];
+    return [strokes(outer.move(drift)), strokes(inner.move(drift))];
   });
 });
 ```
@@ -372,11 +427,11 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Material.resample.mdx</include>
 
-Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. A corner between two new vertices does not survive. On a network, such as a hex field, a tiling or a voronoi, a chain runs from one junction to the next. Each junction stays where it is and keeps its id, and every chain still meets there. `trim`, `oscillate`, `spline` and `along` walk a network in the same way.
+Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends, and a closed chain keeps its seam. They stay the same points, so a value that you hold still names them. Only the vertices between them are new rows. A corner between two new vertices does not survive. On a network, such as a tiling, a grid or a voronoi, a chain runs from one junction to the next. Each junction stays where it is and stays the same point, and every chain still meets there. `trim`, `oscillate`, `spline` and `along` walk a network in the same way.
 
 `where` redistributes part of the material and leaves the rest alone. The eligible region is a set of edges, so a point selection means the edges with both ends in it. Consecutive eligible edges make a **run**, and a run is what gets redistributed. A run keeps the two vertices at its ends, so the result is still one chain. `count` then applies to each run, not to the chain.
 
-Everything outside a run comes through untouched and keeps its identity: the same point ids, the same edge ids, the same lineage. A new vertex inside a run gets a new id. A new edge takes the lineage of the edge it came from. A split's children do the same, so a face column still finds its cells. See [where](/docs/reference/selections#where).
+Everything outside a run comes through untouched: the same points and the same edges. A value or a selection that you hold still names them. A new vertex inside a run is a new row, and its `source` is the edge of the input under it. A new edge answers the edge under its middle as `source`. A face column still finds its faces. See [where](/docs/reference/selections#where).
 
 Below, the big rings are the eleven vertices the chain started with. Only the steep edges are eligible. The two level stretches keep their two ends and nothing else. The rises and the falls get a vertex every few millimetres.
 
@@ -412,7 +467,7 @@ A honeycomb is a network. Below, each wall swings from side to side, and the swi
 import { sketch, strokes, circle, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const comb = t.hexes({ spacing: mm(14) });
+  const comb = t.tiling(6, 3, { side: mm(8), rotate: 30 });
   const swing = (x, y) => 1.6 * Math.max(0, 1 - Math.hypot(x - 50, y - 50) / 55);
   const wavy = comb.oscillate({ wavelength: 3, amplitude: swing });
   const forks = comb.points.filter((p) => p.edges.length === 3);
@@ -428,7 +483,7 @@ Draws a curve through the vertices of each chain and returns it as material. The
 
 `tension` scales the tangent at each vertex. 0 is the polyline it started from. 0.5, the default, is the ordinary curve. 1 swings wide and overshoots. `steps` is the number of samples for each source segment, 8 by default. Closure comes from the chain: a ring has no corner at its seam. An open chain takes the tangent at each end from its end segment. A chain of fewer than three vertices has no curve, so it comes through as it is. On a network each chain bends on its own, from junction to junction. A junction stays, and each chain leaves it along its own end segment.
 
-The source vertices keep their ids, their positions and their columns. Each new vertex between them is new, and its columns come from the transfer policies. The call retires every source edge, and its children keep its lineage, so a face column still finds its cells.
+The source vertices stay the same points, with their positions and their columns. Each new vertex between them is new, and its columns come from the transfer policies. Every source edge goes, and the new edges between two source vertices come from it. So a face column still finds its cells.
 
 Below, seven picked positions (blue), the polyline through them (fine), and its spline. The spline passes through every one of them.
 
@@ -446,64 +501,43 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 
 <include>/_sig/Material.along.mdx</include>
 
-Reads stations along each chain and changes nothing. A station is plain data. It has `x` and `y`, the unit `tangent` and `normal` of the chain under it, and the `heading` in radians. It has the arc length `s`, its fraction `u`, and the point columns in `attrs`. With no option, there is one station at each vertex. On a network a junction ends each chain that meets it, so it gives one station for each of those chains. In a curved space the material's own space is the default. A station then sits on the geodesic between two vertices. Its heading is the direction that `log` of the space gives toward the next vertex. `station.step` walks in that direction. Use `resample()` when the material must be even. Use `along()` to put things on it.
+Reads points along each chain and changes nothing. The answer is a material of points, with no edges. Each point has `x`, `y` and three more columns. `s` is the arc length from the start of its chain, and `u` is its fraction of the chain's length. `heading` is the direction in radians. From the heading come the unit `tangent`, the `normal` and `p.placement()`, as on a point of a [curve](#curves). Each point also has the columns of the chain under it. A point column comes by its transfer policy, and an edge column comes by its own policy. With no option, there is one point at each vertex. On a network a junction ends each chain that meets it, so it gives one point for each of those chains. `c.edges.along()` reads one curve only. In a curved space `along` walks the material's own space, and a point then sits on the geodesic between two vertices. Its heading is the direction that `log` of the space gives toward the next vertex. `p.placement().step` walks in that direction. Use `resample()` when the material must be even. Use `along()` to put things on it.
 
 ```ts live
 import { sketch, strokes, circle, line, add, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.material(circle(50, 50, 34));
-  const ticks = ring.along({ spacing: 9 }).map((s) => line(s, add(s, mul(s.normal, 8))));
+  const ticks = ring.along({ spacing: 9 }).points.map((p) => line(p, add(p, mul(p.normal, 8))));
   return [strokes(ring), ticks];
 });
 ```
 
-## station.place()
-
-<include>/_sig/Station.place.mdx</include>
-
-Puts a drawable on a station, turned to the station's heading. `offset: [alongTangent, alongNormal]` moves it in the station's own frame. `rotate` adds degrees to the heading. `scale` comes before the rotation. A negative value mirrors.
-
-A motif sits about the origin, as it always did. A curved space has no flat frame to turn, so `place` is a [placement](/docs/reference/geometry#placement). The station's own isometry carries the motif from the origin to the station.
+Below, the same ring in the hyperbolic plane. The toolkit made the material, so `ring.space` is the space of the sketch, and `along` reads it. Each tick is one `step` of the placement at a point. A step walks the geodesic along the heading. That geodesic leaves the circle on the outside, so each tick bends away from the ring.
 
 ```ts live
-import { sketch, strokes, circle, rect } from 'occlude';
+import { sketch, strokes, circle, line, space } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.material(circle(50, 50, 34));
-  return [strokes(ring), ring.along({ count: 14 }).map((s) => s.place(rect(-4, -2, 8, 4), { offset: [0, 7] }))];
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
+  const ring = t.material(circle(t.space.center, 30));
+  const ticks = ring.along({ count: 18 }).points.map((p) => line(p, p.placement().step(8), { pen: 'stabilo-88-blue' }));
+  return [circle(t.space.center, 300), strokes(ring), ticks];
 });
 ```
 
-## station.step() · station.turn() · station.toward()
+## p.placement()
 
-<include>/_sig/Station.step.mdx</include>
-<include>/_sig/Station.turn.mdx</include>
-<include>/_sig/Station.toward.mdx</include>
-<include>/_sig/Toolkit.station.mdx</include>
+<include>/_sig/Vertex.placement.mdx</include>
 
-`t.station(x, y, { heading })` starts a walk at any point. The heading is in degrees from `+x`, clockwise on the sheet. `t.station(point, { heading })` takes a pair or an `{ x, y }` record, so a station or a centroid goes straight in. The `heading` field of a station stays in radians, because every station verb reads it.
+The frame at a point that has a `heading`, as a [placement](/docs/reference/geometry#placement). `group(p.placement(), motif)` puts a drawable at the point, turned to its heading. A point with no heading refuses by name. To move the motif in the frame of the point, nest a group inside: `group(p.placement(), group({ translate: [alongTangent, alongNormal], rotate, scale }, motif))`. `rotate` adds degrees to the heading. `scale` comes before the rotation, and a negative value mirrors.
 
-`station.step(distance)` gives a new station that distance along the heading. `station.turn(degrees)` gives a new station with the heading turned. `station.toward(q)` gives a new station at the same place, facing `q` along the geodesic from here to there. A `q` at this very place keeps the heading. On a sphere, a `q` exactly opposite has no one direction, and the station refuses it by name.
-
-In the flat plane a step adds `distance · (cos h, sin h)`. In a curved space a step walks the geodesic. A closed walk there brings the walker back turned, and that turn is the holonomy. Below, five equal legs with a quarter turn between them close a pentagon of the hyperbolic plane. The blue ticks are the heading at the start and at the end.
+A motif sits about the origin. In a curved space the placement is an isometry of the space. It carries the motif from the origin to the point, with no flat frame. The walk verbs `step`, `turn` and `toward` are words of the [placement](/docs/reference/geometry#step--turn--toward).
 
 ```ts live
-import { sketch, line, circle, space } from 'occlude';
+import { sketch, strokes, circle, rect, group } from 'occlude';
 
-export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
-  const { cell } = t.tiling(5, 4);
-  const side = t.space.distance(cell[0], cell[1]);
-  let st = t.station(cell[0]).toward(cell[1]);
-  const start = st;
-  const legs = [];
-  for (let i = 0; i < 5; i++) {
-    const from = st;
-    st = st.step(side);
-    legs.push(line(from, st));
-    if (i < 4) st = st.turn(90);
-  }
-  const tick = (s) => line(s, s.step(8), { pen: 'stabilo-88-blue' });
-  return [circle(t.space.center, 400), legs, tick(start), tick(st)];
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.material(circle(50, 50, 34));
+  return [strokes(ring), ring.along({ count: 14 }).points.map((p) => group(p.placement(), group({ translate: [0, 7] }, rect(-4, -2, 8, 4))))];
 });
 ```

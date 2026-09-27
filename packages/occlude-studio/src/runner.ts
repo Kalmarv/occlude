@@ -19,8 +19,13 @@ import * as threeAdvanced from 'occlude/3d/advanced';
  */
 
 import * as occlude from 'occlude';
-import { Execution, inspectHook, moduleName, userModules } from 'occlude';
-import type { AssetTable, EncodedScene, FillTable, PaperDef, PenDef, SketchDef, AsyncSketchDef, SceneCompute3 } from 'occlude';
+import type { PenDef, SketchDef } from 'occlude';
+import {
+  Execution, inspectHook, moduleName, userModules, paperSize, tagDraws, DRAW_HOOK,
+  isSketch, compileSketch, compileSketchAsync, encodeScene, formatSeed,
+  type AssetTable, type EncodedScene, type FillTable, type PaperDef,
+} from 'occlude/host';
+import type { SceneCompute3, StageListener3, ProgressListener3 } from 'occlude/3d/advanced';
 import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
@@ -46,7 +51,7 @@ export interface RunConfig {
   debugGhost?: boolean;
   /** Material inspection on: every variable holding a Material is
    * registered under its name (the emitted JS is instrumented), and
-   * `t.inspect()` registrations are kept. Off: neither costs anything. */
+   * `t.probe()` registrations of a material are kept. Off: neither costs anything. */
   inspect?: boolean;
   /** Seed for 'url'/default-seed sketches. The worker's own URL carries no
    * `?seed=`, so the host passes it explicitly; null/undefined lets the
@@ -61,9 +66,9 @@ export interface RunConfig {
 
 export { moduleName };
 
-function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): { def?: SketchDef | AsyncSketchDef; error?: unknown; run: Execution } {
+function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): { def?: SketchDef; error?: unknown; run: Execution } {
   // Let bounds() see the real paper for aspect-'paper' sketches.
-  const { w, h } = occlude.paperSize({ paper: cfg.paper as never, landscape: cfg.landscape });
+  const { w, h } = paperSize({ paper: cfg.paper as never, landscape: cfg.landscape });
   const run = new Execution({
     paper: { w, h },
     library: cfg.pens,
@@ -87,13 +92,12 @@ function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets
   try {
     // Draw sites are always tagged (cheap, and what makes a seed's
     // overrides land); declarations only when the material layer is on.
-    const tagged = occlude.tagDraws(js).js;
+    const tagged = tagDraws(js).js;
     const code = cfg.inspect === true ? instrumentDeclarations(tagged) : tagged;
-    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, occlude.DRAW_HOOK, code);
+    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, DRAW_HOOK, code);
     fn(require, module.exports, module, inspectHook(run), run.drawAt);
     const exp = module.exports;
-    const isDefinition = (value: unknown): value is SketchDef | AsyncSketchDef => occlude.isSketch(value) || occlude.isSketchAsync(value);
-    const def = isDefinition(exp.default) ? exp.default : Object.values(exp).find(isDefinition);
+    const def = isSketch(exp.default) ? exp.default : Object.values(exp).find(isSketch);
     if (!def) {
       throw new Error(
         "no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`",
@@ -106,15 +110,14 @@ function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets
 }
 
 function encodeRun(run: Execution, cfg: RunConfig): RunOutcome {
-  return { scene: occlude.encodeScene(run, { coarsen: cfg.coarsen, debugGhost: cfg.debugGhost }), error: null, run };
+  return { scene: encodeScene(run, { coarsen: cfg.coarsen, debugGhost: cfg.debugGhost }), error: null, run };
 }
 
 export function runSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): RunOutcome {
   const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
   if (!def) return { scene: null, error, run };
   try {
-    if (occlude.isSketchAsync(def)) throw new Error('async rendering required; use runSketchAsync');
-    occlude.compileSketch(def, run);
+    compileSketch(def, run);
     return encodeRun(run, cfg);
   } catch (error) {
     return { scene: null, error, run };
@@ -122,11 +125,11 @@ export function runSketch(js: string, cfg: RunConfig, seed: number | string, ass
 }
 
 /** The worker awaits the entire sketch before encoding or adopting its run. */
-export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal, compute3?: SceneCompute3, onStage?: occlude.StageListener3, onProgress?: occlude.ProgressListener3): Promise<RunOutcome> {
+export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal, compute3?: SceneCompute3, onStage?: StageListener3, onProgress?: ProgressListener3): Promise<RunOutcome> {
   const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
   if (!def) return { scene: null, error, run };
   try {
-    await occlude.compileSketchAsync(def, run, { signal, compute3, onStage, onProgress });
+    await compileSketchAsync(def, run, { signal, compute3, onStage, onProgress });
     return encodeRun(run, cfg);
   } catch (error) {
     return { scene: null, error, run };
@@ -140,7 +143,7 @@ export function currentSeed(run: Execution): string {
   const r = run.getOverrideReport();
   const hit: Record<string, number> = {};
   for (const k of r.hit) hit[k] = r.overrides[k];
-  return occlude.formatSeed(String(run.seedUsed), hit);
+  return formatSeed(String(run.seedUsed), hit);
 }
 
 /** Which overrides the run used and which it dropped. */

@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
 import init, * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
-import { compileSketch, encodeScene, renderEncoded, sketch, rect, circle, mask, clip, fill, decimate,
-  decodePlanBuffer, encodePlanBuffer, evalPrim, type Tree, type WasmModule } from '../src/index.js';
+import { sketch, rect, circle, mask, clip, fill, decimate, group, type Tree } from '../src/index.js';
+import {
+  compileSketch, encodeScene, renderEncoded, decodePlanBuffer, encodePlanBuffer, evalPrim,
+  type WasmModule,
+} from '../src/host.js';
 beforeAll(async()=>{await init(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));});
 const paper={w:100,h:100};
 const rows=()=>rect(10,10,80,80,{stroke:false,fill:()=>[
@@ -29,7 +32,7 @@ it('joins known same-shape ends and refuses a hole over the entire connector',()
 it('honors nested clips, clipped occluders, post modifiers, pens and protected contour runs',()=>{
   expect(run([rows(),clip(rect(40,60,20,20),mask(rect(49,20,2,60)))]).stats[2]).toBe(1);
   expect(run(clip(rect(10,10,39.5,80),rows())).stats[2]).toBe(0);
-  expect(run(decimate(0,rows())).stats[2]).toBe(0);
+  expect(run(group({modifiers:[decimate(0)]},rows())).stats[2]).toBe(0);
   const native=run(circle(50,50,25,{stroke:false,fill:fill('contour',{spacing:1,connectors:false})}),3);
   expect(native.stats[2]).toBe(0);
   expect(run([rows(),rect(0,0,1,1,{pen:'pigma-05-black'})]).stats[2]).toBe(1);

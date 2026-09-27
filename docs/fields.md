@@ -61,7 +61,7 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
 
 ## Remapping and easing
 
-`map(v, a, b, c, d)` remaps a value from one range to another, `norm(v, a, b)` to 0 to 1, and `invertRange(v, max, min?)` mirrors a value within a range. The `ease` object holds the standard easing curves (`ease.cubicIn`, `ease.bounceOut`, `ease.backInOut` and the rest). When an eased value drives spacing, the local density is the curve's slope.
+`map(v, a, b, c, d)` remaps a value from one range to another: `map(v, a, b, 0, 1)` is to 0 to 1, and `max + min - v` mirrors a value within a range. The `ease` object holds the standard easing curves (`ease.cubicIn`, `ease.bounceOut`, `ease.backInOut` and the rest). When an eased value drives spacing, the local density is the curve's slope.
 
 ```ts live
 import { sketch, line, ease } from 'occlude';
@@ -86,9 +86,10 @@ import { sketch, circle, shaper } from 'occlude';
 // Dot sizes through an S curve: the midtones spread apart.
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const tone = shaper([[0, 0], [0.3, 0.12], [0.7, 0.88], [1, 1]]);
-  return t.grid({ cols: 40, rows: 20 }).map((c) => {
-    const v = tone(t.noise(c.x / 40, c.y / 40) * 0.5 + 0.5);
-    return v > 0.03 ? circle(c.cx, c.cy, v * c.w * 0.48) : null;
+  return t.grid({ cols: 40, rows: 20 }).faces.map((f) => {
+    const { x, y, w, cx, cy } = f.bounds;
+    const v = tone(t.noise(x / 40, y / 40) * 0.5 + 0.5);
+    return v > 0.03 ? circle(cx, cy, v * w * 0.48) : null;
   });
 });
 ```
@@ -123,16 +124,15 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 
 ### Alignment
 
-Every consumer of a field takes `align`. `'paper'` (the default) samples the field in drawable coordinates, so a shape sees whatever part of the field it sits on. `'shape'` anchors the field to the shape: the shape's own centre becomes the field's origin, and the field turns with the shape's transforms, so identical shapes see identical values wherever they land. On a fill it applies to the fill's field parameters and its ruling; on a modifier's parameter object (`decimate: { fill: f, align: 'shape' }`, `wobble: { amount, align }`, `deform({ field, align })`) it applies to that modifier. A thousand shape-aligned uses share one raster; the anchor is a per-use transform.
+Every consumer of a field takes `align`. `'paper'` (the default) samples the field in drawable coordinates, so a shape sees whatever part of the field it sits on. `'shape'` anchors the field to the shape: the shape's own centre becomes the field's origin, and the field turns with the shape's transforms, so identical shapes see identical values wherever they land. On a fill it applies to the fill's field parameters and its ruling; on a modifier's parameter object (`decimate({ fill: f, align: 'shape' })`, `wobble({ amount, align })`, `deform({ field, align })`) it applies to that modifier. A thousand shape-aligned uses share one raster; the anchor is a per-use transform.
 
 A field on a fill's decimate is a halftone. Here `dash` chops the hatch into short cells and a radial field erodes them away from the centre.
 
 ```ts live
-import { sketch, rect, fill, modify, dash, decimate, mm } from 'occlude';
+import { sketch, rect, fill, dash, decimate, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, () =>
-  modify(
-    [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 100, (y - 50) * 2) / 105)],
+  group({ modifiers: [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 100, (y - 50) * 2) / 105)] },
     rect(4, 4, 192, 92, { fill: fill('hatch', { angle: 45, spacing: mm(1.1) }), stroke: false }),
   ),
 );
@@ -141,16 +141,16 @@ export default sketch({ aspect: [2, 1], seed: 5 }, () =>
 The same erosion field used both ways. The left squares sample the page's radial gradient where they sit; the right squares are each eroded from their own centre and turned with their group.
 
 ```ts live
-import { sketch, rect, fill, group, mm } from 'occlude';
+import { sketch, rect, fill, group, decimate, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const erode = (x, y) => Math.min(1, Math.hypot(x, y) / 18);
   const hatch = fill('hatch', { angle: 0, spacing: mm(0.7) });
   const onPaper = (x, y) =>
-    rect(x, y, 28, 28, { fill: hatch, stroke: false, decimate: { fill: (px, py) => erode(px - 100, py - 50), align: 'paper' } });
+    rect(x, y, 28, 28, { fill: hatch, stroke: false, modifiers: [decimate({ fill: (px, py) => erode(px - 100, py - 50), align: 'paper' })] });
   const onShape = (x, y) =>
     group({ rotate: 15 },
-      rect(x, y, 28, 28, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }), stroke: false, decimate: { fill: erode, align: 'shape' } }));
+      rect(x, y, 28, 28, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }), stroke: false, modifiers: [decimate({ fill: erode, align: 'shape' })] }));
   return [
     t.times(3, (k) => onPaper(10 + k * 30, 36)),
     t.times(3, (k) => onShape(112 + k * 26, 8 + k * 6)),
@@ -162,7 +162,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### isolines
 
-`t.isolines(field, at, { step? })` traces the areas where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A region that leaves the drawable closes along its edge, through every corner it passes, and so does a region cut by the field's `t.within` bound; the closing edges carry `cut` = 1, so `strokes(m)` draws whole rings and `strokes(m.edges.filter((e) => !e.cut))` draws the level line alone. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
+`t.isolines(field, at, { step? })` traces the areas where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.level)` splits them all; and `t.steps`, `points.set`, `edges.set` and the rest of Materials apply as they do to any material. A region that leaves the drawable closes along its edge, through every corner it passes, and so does a region cut by the field's `t.within` bound; the closing edges carry `cut` = 1, so `strokes(m)` draws whole rings and `strokes(m.edges.filter((e) => !e.cut))` draws the level line alone. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `at` also takes the two spellings the 3D `isolines` takes, and answers both from the same sampling: `{ count, min?, max? }` spreads `count` levels evenly inside the range the field covers, and `{ spacing, offset? }` takes every multiple of `spacing` (shifted by `offset`) that falls inside it. A count of zero, a spacing of zero and a field with no range all resolve to no levels, and a fractional count is a mistake and says so. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -190,10 +190,8 @@ import { sketch, strokes, polygon, fill, force, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.3, 0.5], { step: 1 });
   const [low, mid, high] = contours.edges.groupBy((e) => e.level);
-  const softened = high.extract().steps(12, (cur, next) => {
-    const smooth = force.relax(cur, { amount: 0.5 });
-    next.move(cur.points.filter((p) => p.edges.length === 2), smooth);
-  });
+  const soften = (g) => g.move(force.relax(g, { amount: 0.5 }), g.points.filter((p) => p.edges.length === 2));
+  const softened = t.steps(12, high.extract(), soften);
   return [
     polygon(low, { fill: fill('hatch', { angle: 30, spacing: mm(2.4) }), stroke: false }),
     strokes(mid, { pen: 'pigma-005-black' }),
@@ -246,8 +244,9 @@ import { sketch, strokes, rect } from 'occlude';
 // Arrival times from a lamp in the yard. The walls are a speed of zero, so
 // the front walks around them and bends in through the one open door.
 export default sketch({ aspect: [2, 1] }, (t) => {
-  const W = t.width;
-  const H = t.height;
+  const box = t.bounds();
+  const W = box.w;
+  const H = box.h;
   const th = H * 0.04;
   const x0 = W * 0.12;
   const x1 = W * 0.52;
@@ -400,9 +399,10 @@ import { sketch, strokes, distanceTo } from 'occlude';
 // so a crest is kept or dropped whole, on its best stretch and its length.
 // That is the difference between a range and a field of scratches.
 export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
+  const box = t.bounds();
   const shore = (x, y) =>
     t.noise(x / 40, y / 40) + 0.78 -
-    1.45 * Math.hypot((x - t.cx) / (t.width * 0.46), (y - t.cy) / (t.height * 0.44)) ** 2;
+    1.45 * Math.hypot((x - box.cx) / (box.w * 0.46), (y - box.cy) / (box.h * 0.44)) ** 2;
   const coast = t.isolines(shore, 0, { step: 1 });
   const inland = distanceTo(coast);
   const height = (x, y) =>
@@ -413,7 +413,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const peak = (crest) => crest.map((p) => p.strength).reduce((a, b) => Math.max(a, b), 0);
     const top = crests.map(peak).reduce((a, b) => Math.max(a, b), 0);
     const kept = crests.filter((crest) => peak(crest) > top * minStrength && crest.length >= minRun);
-    return m.points.rows(kept.flatMap((crest) => crest.indices)).edges;
+    return m.points.rows(kept.flatMap((crest) => [...crest])).edges;
   };
 
   // Two passes at two steps. The step is the scale the derivatives are taken
@@ -435,7 +435,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
 ### One field, three questions
 
 ```ts live paper=180x120
-import { sketch, strokes, polygon, material, connect, append, distanceTo } from 'occlude';
+import { sketch, strokes, polygon, material, append, distanceTo, curve } from 'occlude';
 
 // Stones in a raked bed. One distance field does all three jobs: its level
 // sets are the ripples raked around the stones, its crests inside each stone
@@ -450,7 +450,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
       // one size per stone — drawn once, outside the loop, or every vertex
       // gets its own radius and the stone comes out a star
       const size = 11 + t.rnd(5);
-      return connect.ring(
+      return curve(
         material(
           t.times(64, (k) => {
             const a = (k / 64) * Math.PI * 2;
@@ -460,6 +460,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
             return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r * 0.82 };
           }),
         ),
+        { closed: true },
       );
     })
     .reduce((a, b) => append(a, b));
@@ -473,7 +474,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   // two-vertex ridges, all of them real — does not reach the paper, while the
   // spine does.
   const longRuns = (m, least) =>
-    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices));
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => [...run]));
   const longChannels = longRuns(channels, 40);
   const longSpines = longRuns(spines, 6);
 
@@ -518,7 +519,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 
   const crests = t.ridges(blur, { step: 1 });
   const long = crests.points.rows(
-    crests.points.components().filter((run) => run.length > 10).flatMap((run) => run.indices),
+    crests.points.components().filter((run) => run.length > 10).flatMap((run) => [...run]),
   );
 
   return [
@@ -533,7 +534,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 
 ```ts live paper=180x120
 import { sketch, pen, mm } from 'occlude';
-import { plane, mapSurface, view, perspective, style } from 'occlude/3d';
+import { plane, mapSurface, view, perspective } from 'occlude/3d';
 
 // A landscape whose only lines are the ones the ground has: its crests, its
 // watercourses, and the edge of the block. No contours, no hatch, no drawn
@@ -549,13 +550,14 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
   water: pen({ width: mm(0.22), color: '#1B4FA0' }),
 } }, (t) => {
+  const b = t.bounds();
   const height = (x, y) =>
     t.noise(x / 48, y / 48) + 0.45 * t.noise(x / 19, y / 19) + 0.14 * t.noise(x / 8, y / 8);
 
   const longest = (m, least) =>
-    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices)).edges.extract();
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => [...run])).edges.extract();
   // the drawable rectangle onto the chart's unit square: an affine cage
-  const sheet = [[0, 0], [t.width, 0], [t.width, t.height], [0, t.height]];
+  const sheet = [[0, 0], [b.w, 0], [b.w, b.h], [0, b.h]];
   const chart = [[0, 0], [1, 0], [1, 1], [0, 1]];
   const onChart = (m) => m.warp({ from: sheet, to: chart });
 
@@ -564,14 +566,13 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
   const ground = plane(4)
     .subdivide(6)
-    .displace((p) => [0, 0, 0.62 * height(((p.x + 2) / 4) * t.width, ((p.y + 2) / 4) * t.height)])
-    .style({ creaseAngle: 180 });
+    .displace((p) => [0, 0, 0.62 * height(((p.x + 2) / 4) * b.w, ((p.y + 2) / 4) * b.h)]);
 
   return view(
     [
-      ground,
-      style(mapSurface(ground, crest), { pen: 'ink' }),
-      style(mapSurface(ground, water), { pen: 'water' }),
+      [ground, { creaseAngle: 180 }],
+      [mapSurface(ground, crest), { pen: 'ink' }],
+      [mapSurface(ground, water), { pen: 'water' }],
     ],
     { camera: perspective({ eye: [0.2, -6.4, 2.5], target: [0, 0.15, -0.15], fovDegrees: 32 }), pen: 'ink' },
   );
@@ -582,9 +583,9 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
 A field answers from a formula. A lattice remembers.
 
-`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of cells over an area and fills each one from its centre. `lat.steps(n, rule)` applies a local rule `n` times and returns a new lattice. The rule reads the frozen state with `cur.at`, `cur.laplacian` and `cur.neighbours`, and writes the next one with `next.set`, `next.add`, `next.diffuse` and `next.decay`. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
+`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of square faces over an area and fills each one from its centre. `lat.faces` holds them, and a face answers what the faces of any material answer: `centroid`, `bounds`, `area`, `adjacent`, its place `i` and `j`, and its channels as columns. `lat.face(p)` is the face under a point. `lat.faces.set(channel, value)` writes a channel and returns a new lattice. The value is a number or a function of the face: a face reads its channels by name, and `f.laplacian(channel)` sums the differences to its four neighbours. One `set` with a record `{ a: …, b: … }` is one instant, and every function reads the faces as they were before the write. `t.steps(n, lat, pass)` runs a pass `n` times. A diffusion is `l.faces.set('a', (f) => f.a + rate * f.laplacian('a'))`, and a decay is `l.faces.set('a', (f) => f.a * (1 - r))`, each over the lattice as it was. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
 
-Two numbers to keep in mind. `cur.laplacian` counts in cells, not in drawing units. A `diffuse` rate above 0.25 is unstable, and the values run away.
+Two numbers to keep in mind. `f.laplacian` counts in faces, not in drawing units. A diffusion rate above 0.25 is unstable, and the values run away.
 
 The drawing below is a Gray-Scott reaction inside a disc. One channel feeds the other, the two spread at different rates, and that difference is the whole pattern. No word in the library knows the name of that reaction. The rule lives in the sketch, and the lattice only holds the numbers.
 
@@ -592,21 +593,17 @@ The drawing below is a Gray-Scott reaction inside a disc. One channel feeds the 
 import { sketch, strokes, circle } from 'occlude';
 
 // `a` is the substrate and `b` eats it. Feed replaces `a`, kill removes `b`,
-// and `a` spreads twice as fast as `b`. 5000 steps of four lines of rule.
+// and `a` spreads twice as fast as `b`. 5000 steps of a rule of two lines.
 export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
   const disc = circle(50, 50, 44);
   const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
   const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
     Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
-  const grown = seeded.steps(5000, (cur, next) => {
-    for (let j = 0; j < cur.rows; j++) for (let i = 0; i < cur.cols; i++) {
-      if (!cur.inside(i, j)) continue;
-      const a = cur.at('a', i, j), b = cur.at('b', i, j);
-      const abb = a * b * b;
-      next.set('a', i, j, a + Du * cur.laplacian('a', i, j) - abb + feed * (1 - a));
-      next.set('b', i, j, b + Dv * cur.laplacian('b', i, j) + abb - (feed + kill) * b);
-    }
+  const react = (l) => l.faces.set({
+    a: (f) => f.a + Du * f.laplacian('a') - f.a * f.b * f.b + feed * (1 - f.a),
+    b: (f) => f.b + Dv * f.laplacian('b') + f.a * f.b * f.b - (feed + kill) * f.b,
   });
+  const grown = t.steps(5000, seeded, react);
   return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 }).edges.filter((e) => !e.cut)), disc];
 });
 ```

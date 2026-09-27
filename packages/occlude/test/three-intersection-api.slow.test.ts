@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {box,sphere,intersections,instanceOnPoints,pointCloud,view,orthographic} from '../src/three/api/index.js';
-import {compileSketchAsync,initOcclude,pen,mm,paper,render,sketch,sketchAsync} from '../src/index.js';
+import { pen, mm, paper, sketch } from '../src/index.js';
+import { compileSketchAsync, initOcclude, render } from '../src/host.js';
 import {readFileSync} from 'node:fs';
 
 await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
@@ -44,38 +45,10 @@ describe('public three intersections API',()=>{
     expect(()=>intersections(prototype,prototype,{budget:{graph:{maxNodes:0}}}).edges).toThrow('node/segment budget');
   });
 
-  it('runs through the bound async toolkit and records aggregate stats',async()=>{
-    let curves!:Awaited<ReturnType<typeof intersections>>;
-    const run=await compileSketchAsync(sketchAsync({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
-      const [a,b]=crossing();curves=await t.intersections(a,b);return null;
-    }));
-    expect(curves.edges.length).toBeGreaterThan(0);
-    expect(run.modeling3).toHaveLength(1);
-    expect(run.modeling3[0].operation).toBe('intersections');
-    expect(run.modeling3[0].intersections?.pairs).toBe(1);
-  });
-
-  it('captures options before the async boundary',async()=>{
+  it('captures its options when it is called',()=>{
     const [a,b]=crossing();const options:{key?:string}={key:'captured'};
-    const run=await compileSketchAsync(sketchAsync({seed:42},async t=>{
-      const pending=t.intersections(a,b,options);options.key='mutated';
-      const curves=await pending;expect(curves.key).toBe('captured');return null;
-    }));
-    expect(run.modeling3).toHaveLength(1);
-  });
-
-  it('cancels construction before adopting its result',async()=>{
-    const prototype=box(2),points=pointCloud([[0,0,0],[1,0,0],[0,1,0],[1,1,0]]),instances=instanceOnPoints(prototype,points.points);
-    const controller=new AbortController();
-    await expect(compileSketchAsync(sketchAsync({seed:42},async t=>{
-      const pending=t.intersections(instances,instances);setTimeout(()=>controller.abort(),0);await pending;return null;
-    }),undefined,{signal:controller.signal})).rejects.toThrow();
-  });
-
-  it('rejects a retained toolkit after its execution closes',async()=>{
-    let toolkit!:ReturnType<typeof import('../src/api.js').bindToolkit>;
-    await compileSketchAsync(sketch({},t=>{toolkit=t;return null;}));
-    expect(()=>toolkit.intersections(box(2),box(2))).toThrow('execution has finished');
+    const curves=intersections(a,b,options);options.key='mutated';
+    expect(curves.key).toBe('captured');
   });
 });
 
@@ -87,7 +60,7 @@ describe('intersections resolve in the view, among what the view keeps',()=>{
     expect(curves.recipe).toBeDefined();
     const first=curves.network;
     expect(curves.network).toBe(first);
-    expect(curves.style({pen:'x'}).network).toBe(first); // a styled copy shares the resolution
+    expect(intersections(a,b,{key:'x'}).network).not.toBe(first); // another construction resolves its own
     expect(curves.edges.length).toBeGreaterThan(0);
   });
   it('draws the same seams whether or not off-screen objects are in the list',async()=>{

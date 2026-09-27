@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { append, curve, material, type Material } from '../src/index.js';
+import { seg, square } from './helpers/shapes.js';
 
-const seg = (a: [number, number], b: [number, number], attrs: Record<string, number> = {}) => material([a, b], { edges: [[0, 1]], ...attrs });
-const square = (x = 0, y = 0, s = 10) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
 // Every edge as an unordered pair of rounded positions, sorted — the ink, without the rows.
 const spans = (m: Material) => m.edges
   .map((e) => [[+e.a.x.toFixed(6), +e.a.y.toFixed(6)], [+e.b.x.toFixed(6), +e.b.y.toFixed(6)]].sort() as number[][])
@@ -17,7 +16,7 @@ describe('merge', () => {
     const m = pair.merge();
     expect(m.n).toBe(6);
     expect(m.edgeCount).toBe(7);
-    expect(m.planarize().faces().faces.map((f) => +f.area.toFixed(6))).toEqual([100, 100]);
+    expect(m.planarize().faces.faces.map((f) => +f.area.toFixed(6))).toEqual([100, 100]);
   });
 
   it('partial overlap: three spans over the four vertices there already were', () => {
@@ -71,7 +70,7 @@ describe('merge', () => {
 
   it('edge columns: distribute is scaled by the span, everything else is copied', () => {
     const src = append(seg([0, 0], [10, 0]), seg([5, 0], [15, 0]))
-      .edgeAttributes({ load: 10, tag: (e) => e.index + 1 }, { transfer: { load: 'distribute' } });
+      .edges.set('load', 10, { transfer: 'distribute' }).edges.set('tag', (e) => e.index + 1);
     const m = src.merge();
     const byLow = [...m.edges].sort((p, q) => Math.min(p.a.x, p.b.x) - Math.min(q.a.x, q.b.x));
     expect(byLow.map((e) => m.edgeAttrs.load[e.index])).toEqual([5, 5, 5]);
@@ -127,7 +126,7 @@ describe('merge', () => {
       // 41 x 51 corners, and one wall per shared edge instead of two.
       expect(m.n).toBe(41 * 51);
       expect(m.edgeCount).toBe(40 * 51 + 41 * 50);
-      expect(m.planarize().faces().faces.length).toBe(2000);
+      expect(m.planarize().faces.faces.length).toBe(2000);
     });
 
     it('a T-junction row: wide cells over narrow ones, still one face each', () => {
@@ -139,7 +138,7 @@ describe('merge', () => {
       // 12 cells of width 2 under 8 of width 3: every wall of the lower row
       // meets the middle of a wall in the upper one.
       const m = append(row(0, 4, 2, 12), row(4, 4, 3, 8)).merge().planarize();
-      expect(m.faces().faces.length).toBe(20);
+      expect(m.faces.faces.length).toBe(20);
     });
 
     it('two walls one ulp apart cross a third at points that stay apart', () => {
@@ -182,7 +181,7 @@ describe('merge', () => {
       // inside it, so no length is covered twice.
       const ends = [0, 1].map((e) => [m.x[m.edgeList[2 * e]], m.x[m.edgeList[2 * e + 1]]]);
       expect(ends).toEqual([[4.67047033831994, end], [end, 26.42563261088823]]);
-      expect(() => m.planarize().faces()).not.toThrow();
+      expect(() => m.planarize().faces).not.toThrow();
     });
 
     it('two crossings that round to one parameter are cut in the order they lie', () => {
@@ -202,7 +201,7 @@ describe('merge', () => {
       for (const [a, b] of xs) expect(a).toBeGreaterThan(b);
       expect(xs[0][1]).toBe(7.800000000000002);
       expect(xs[1][1]).toBe(7.800000000000001);
-      expect(() => m.faces()).not.toThrow();
+      expect(() => m.faces).not.toThrow();
     });
   });
 

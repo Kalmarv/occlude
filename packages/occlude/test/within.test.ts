@@ -3,12 +3,13 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, clip, compileSketch, initOcclude, material, path, polygon, rect, render,
-  sketch,
-  type Face, type Faces, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY, Execution,
+  append, circle, clip, material, path, polygon, rect, sketch, type Face, type Material,
+  type Selection, type Vertex, type SketchDef, type ShapeValue, type Toolkit, type XY,
 } from '../src/index.js';
+import { compileSketch, initOcclude, render, Execution } from '../src/host.js';
 import type { Loop } from '../src/boundary.js';
 import { scatterPoints } from '../src/points.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -27,7 +28,7 @@ const chord = (x0: number, y0: number, x1: number, y1: number): Material =>
   material([[x0, y0], [x1, y1]], { edges: [[0, 1]] });
 
 const pointsOf = (m: Material): string =>
-  Array.from({ length: m.n }, (_, i) => `${m.pts[i][0]},${m.pts[i][1]}`).sort().join(' ');
+  Array.from({ length: m.n }, (_, i) => `${m.points.map(xy)[i][0]},${m.points.map(xy)[i][1]}`).sort().join(' ');
 
 const ring: Loop = [[10, 10], [90, 10], [90, 90], [10, 90]];
 const hole: Loop = [[40, 40], [60, 40], [60, 60], [40, 60]];
@@ -63,16 +64,15 @@ describe('within: a material inside an area', () => {
   it('interpolates a cut vertex by the column policy, and keeps iteration', () => {
     let out: Material | null = null;
     run((t) => {
-      const m = material([[0, 50], [100, 50]], { edges: [[0, 1]] })
-        .attribute('v', (p) => p.x / 100)
-        .attribute('cat', (p) => (p.x < 50 ? 1 : 9), { transfer: 'nearest' })
-        .steps(2, () => { /* nothing moves: two iterations, for the count */ });
+      const m = t.steps(2, material([[0, 50], [100, 50]], { edges: [[0, 1]] })
+        .points.set('v', (p) => p.x / 100)
+        .points.set('cat', (p) => (p.x < 50 ? 1 : 9), { transfer: 'nearest' }), (g) => g /* nothing moves: two steps, for the count */);
       out = t.within(m, rect(20, 20, 60, 60));
     });
     expect(out!.iteration).toBe(2);          // an area edit is not a step
     expect(out!.history.length).toBe(0);
     // Cut at x = 20 and x = 80: v interpolates to 0.2 and 0.8; cat is copied.
-    const rows = Array.from({ length: out!.n }, (_, i) => [out!.pts[i][0], out!.attrs.v[i], out!.attrs.cat[i]]);
+    const rows = Array.from({ length: out!.n }, (_, i) => [out!.points.map(xy)[i][0], out!.attrs.v[i], out!.attrs.cat[i]]);
     expect(rows).toEqual([[20, 0.2, 1], [80, 0.8, 9]]);
   });
 
@@ -101,8 +101,8 @@ describe('within: points and faces', () => {
     let more = 0;
     let indices: readonly number[] = [];
     run((t) => {
-      const m = material([[10, 10], [50, 50], [70, 70], [95, 95]]).attribute('k', (p) => p.x);
-      const sel: PointSelection = t.within(m.points, rect(20, 20, 60, 60));
+      const m = material([[10, 10], [50, 50], [70, 70], [95, 95]]).points.set('k', (p) => p.x);
+      const sel: Selection<Vertex> = t.within(m.points, rect(20, 20, 60, 60));
       length = sel.length;
       more = sel.filter((p) => p.k > 60).length;
       indices = sel.indices;
@@ -118,8 +118,8 @@ describe('within: points and faces', () => {
     run((t) => {
       const square = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] });
       const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize();
-      all = grid.faces().length;
-      kept = [...t.within(grid.faces(), rect(10, 10, 50, 50))];
+      all = grid.faces.length;
+      kept = [...t.within(grid.faces, rect(10, 10, 50, 50))];
     });
     // Four 30×30 cells; the frame reaches to 60, so only the one at 20…50
     // is inside it whole.
@@ -135,7 +135,7 @@ describe('within: points and faces', () => {
     let bounds: number[][] = [];
     run((t) => {
       const square = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] });
-      const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize().faces();
+      const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize().faces;
       // A frame whose right and bottom edges cut the far half of the grid,
       // past the centre of the cells they cut.
       const frame = rect(10, 10, 60, 60);
@@ -161,7 +161,7 @@ describe('within: points and faces', () => {
     };
     run((t) => {
       const cells = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-        .planarize().faces();
+        .planarize().faces;
       // Each of these is deliberately the wrong option for its domain (or an
       // unknown rule): `as never` states that the call is meant to throw.
       catchIt(() => t.within(cells, rect(10, 10, 60, 60), { keep: 'nope' } as never));
@@ -190,27 +190,32 @@ describe('within: the point operations', () => {
   // The same rectangle as a bare loop: a rect is an area whatever its spelling.
   const box = [[[20, 20], [80, 20], [80, 80], [20, 80]]] as [number, number][][];
   const coords = (m: Material): string =>
-    Array.from({ length: m.n }, (_, i) => `${m.pts[i][0]},${m.pts[i][1]}`).join(' ');
+    Array.from({ length: m.n }, (_, i) => `${m.points.map(xy)[i][0]},${m.points.map(xy)[i][1]}`).join(' ');
 
   it('relaxes inside a rectangle the same in either spelling, and keeps a circle', () => {
     let byBounds: Material | null = null;
     let byWithin: Material | null = null;
     let byCircle: Material | null = null;
+    let dots: Material | null = null;
     run((t) => {
-      const dots = t.scatter(() => 1, { spacing: 6 });
+      dots = t.scatter(() => 1, { spacing: 6 });
       byBounds = t.relax(dots, { iterations: 3, within: box });
       byWithin = t.relax(dots, { iterations: 3, within: rect(20, 20, 60, 60) });
       byCircle = t.relax(dots, { iterations: 3, within: circle(50, 50, 30) });
     });
     // A rectangle IS its own box, so the two spellings are the same run.
     expect(coords(byWithin!)).toBe(coords(byBounds!));
-    // A circle is not: the box drives the relaxation, then the outside goes.
-    expect(byCircle!.n).toBeLessThan(byBounds!.n);
-    expect(byCircle!.n).toBeGreaterThan(0);
+    // A circle is not: the density outside it is zero. Every point is kept;
+    // one whose cell reaches the disc moves to the centroid of the part
+    // inside it, and one whose cell does not stays where it was.
+    expect(byCircle!.n).toBe(dots!.n);
+    let inside = 0;
     for (let i = 0; i < byCircle!.n; i++) {
-      const [x, y] = byCircle!.pts[i];
-      expect(Math.hypot(x - 50, y - 50)).toBeLessThan(30.000001);
+      const [x, y] = byCircle!.points.map(xy)[i];
+      if (Math.hypot(x - 50, y - 50) < 30) inside++;
+      else expect([x, y]).toEqual(dots!.points.map(xy)[i]);
     }
+    expect(inside).toBeGreaterThan(0);
   });
 
   it('settles inside a rectangle the same in either spelling', () => {
@@ -229,7 +234,7 @@ describe('within: the point operations', () => {
     run((t) => { out = t.scatter(() => 1, { spacing: 6, within: circle(50, 50, 25) }); });
     expect(out!.n).toBeGreaterThan(0);
     for (let i = 0; i < out!.n; i++) {
-      const [x, y] = out!.pts[i];
+      const [x, y] = out!.points.map(xy)[i];
       expect(Math.hypot(x - 50, y - 50)).toBeLessThan(25.000001);
     }
   });
@@ -247,10 +252,10 @@ describe('within: the point operations', () => {
     });
     expect(coords(byWithin!)).toBe(coords(byBounds!));
     // Three cells, each closed along the circle, each still its site's.
-    const cells = byCircle!.faces();
+    const cells = byCircle!.faces;
     expect(cells.length).toBe(3);
     for (const f of cells) {
-      expect(byCircle!.siteOf(f)).toBeDefined();
+      expect(f.source).toBeDefined();
       for (const c of f.contours()) for (const [x, y] of c.pts) expect(Math.hypot(x - 50, y - 50)).toBeLessThan(30.000001);
     }
   });
@@ -268,7 +273,7 @@ describe('within: the point operations', () => {
     // A shape never reaches the pure kernel: the toolkit lowers it first.
     const env = { rnd: () => 0.5, bounds: { x: 0, y: 0, w: 100, h: 100 }, len: () => 5 };
     expect(() => scatterPoints(env, undefined, { spacing: 5, within: circle(50, 50, 20) }))
-      .toThrow(/lowered by the toolkit/);
+      .toThrow(/scatter: a shape is not geometry until the toolkit lowers it — use t\.scatter/);
   });
 });
 
@@ -285,9 +290,9 @@ describe('within: the filled region, not the contours', () => {
       .close().build();
   };
 
-  const rectFace = (x0: number, y0: number, x1: number, y1: number): Faces =>
+  const rectFace = (x0: number, y0: number, x1: number, y1: number): Selection<Face> =>
     material([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-      .planarize().faces();
+      .planarize().faces;
 
   it('counts a point on an interior contour as inside, for a material and a selection', () => {
     let vertices = -1;
@@ -341,7 +346,7 @@ describe('within: the filled region, not the contours', () => {
         let mm = 0;
         for (let e = 0; e < kept.edgeCount; e++) {
           const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
-          mm += Math.abs(kept.pts[b][0] - kept.pts[a][0]);
+          mm += Math.abs(kept.points.map(xy)[b][0] - kept.points.map(xy)[a][0]);
         }
         if (which === 'e') evenoddSpan = mm; else reversedSpan = mm;
       }
@@ -362,7 +367,7 @@ describe('within: the filled region, not the contours', () => {
       const ring = append(
         material(outer, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
         material(holePts, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
-      ).planarize().faces();
+      ).planarize().faces;
       const faces = [...t.within(ring, area, { keep: 'contained' })];
       kept = faces.length;
       contours = faces[0]?.contours().length ?? 0;
@@ -386,7 +391,7 @@ describe('within: holes and winding', () => {
       // material cut above reads a boundary point as outside, as the engine's
       // clip does.
       expect(t.within(points.points, area).indices).toEqual([0, 1]);
-      const face = t.material(rect(60, 45, 20, 20)).planarize().faces();
+      const face = t.material(rect(60, 45, 20, 20)).planarize().faces;
       expect(t.within(face, area).length).toBe(1); // crosses the redundant edge at x=70
     });
   });
@@ -397,7 +402,7 @@ describe('within: holes and winding', () => {
       const solid = polygon([loop, loop], { winding: 'nonzero' });
       const cancelled = polygon([loop, [...loop].reverse()], { winding: 'nonzero' });
       const parity = polygon([loop, loop]);
-      const face = t.material(rect(10, 10, 60, 60)).planarize().faces();
+      const face = t.material(rect(10, 10, 60, 60)).planarize().faces;
       expect(t.within(face, solid).length).toBe(1);
       expect(pointsOf(t.within(chord(0, 20, 100, 20), solid))).toBe('10,20 70,20');
       for (const empty of [cancelled, parity]) {
@@ -416,9 +421,9 @@ describe('within: holes and winding', () => {
     let away = 0;
     run((t) => {
       const spanningFaces = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-        .planarize().faces();
+        .planarize().faces;
       const awayFaces = material([[15, 15], [30, 15], [30, 30], [15, 30]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-        .planarize().faces();
+        .planarize().faces;
       spanning = t.within(spanningFaces, [ring, hole], { keep: 'contained' }).length;
       withoutHole = t.within(spanningFaces, [ring], { keep: 'contained' }).length;
       away = t.within(awayFaces, [ring, hole], { keep: 'contained' }).length;
@@ -451,7 +456,7 @@ describe('within: holes and winding', () => {
       let mm = 0;
       for (let e = 0; e < kept.edgeCount; e++) {
         const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
-        mm += Math.abs(kept.pts[b][0] - kept.pts[a][0]);
+        mm += Math.abs(kept.points.map(xy)[b][0] - kept.points.map(xy)[a][0]);
       }
       covered = mm;
       pointsKept = t.within(material([[50, 50], [15, 15]]).points, nested).length;

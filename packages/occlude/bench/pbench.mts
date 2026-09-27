@@ -6,6 +6,13 @@ import { performance } from 'node:perf_hooks';
 import { scatterPoints, relaxMaterial, settleMaterial, type PointsEnv } from '../src/points.js';
 import { voronoiOf } from '../src/voronoi.js';
 import { material, type Material } from '../src/index.js';
+import { Execution, bindToolkit } from '../src/host.js';
+
+// A bare toolkit, bound to a fresh 200 × 200 execution, so `tk.steps` works
+// outside a sketch function.
+const exec = new Execution({ paper: { w: 200, h: 200 } });
+exec.begin({});
+const tk = bindToolkit(exec);
 
 const med = (label: string, f: () => unknown, runs = 3) => {
   const ms: number[] = [];
@@ -44,16 +51,17 @@ for (const [name, field] of [['flat', flat], ['tonal', tone]] as const) {
     med(`  settle 10 rounds (standard recipe)`, () => settleMaterial(env, base, { iterations: 10, density: field, spacing: sp }));
     med(`  voronoi (material with shared walls)`, () => voronoiOf(base, env.bounds));
     const cells = voronoiOf(base, env.bounds);
-    med(`  faces().measure(field) over those cells`, () => cells.faces().measure(field, { bounds: env.bounds }));
+    med(`  faces.measure(field) over those cells`, () => cells.faces.measure(field, { bounds: env.bounds }));
     // The custom path: one round of "move to the weighted centroid" written
     // with the public ingredients, against the kernel's round.
     med(`  custom round: voronoi + measure + move`, () =>
-      base.steps(1, (cur, next) => {
-        const c = voronoiOf(cur, env.bounds);
-        const m = c.faces().measure(field, { bounds: env.bounds });
-        next.move(cur.points, (p) => {
-          const f = c.cellOf(p);
-          const w = f ? m.forFace(f).weightedCentroid : null;
+      tk.steps(1, base, (cur) => {
+        const measured = voronoiOf(cur, env.bounds).faces.measure(field, { bounds: env.bounds });
+        // Each cell's weighted centre, by the row of its site.
+        const target = new Map<number, [number, number]>();
+        for (const f of measured.faces) if (f.source && Number.isFinite(f.weightedX)) target.set(f.source.index, [f.weightedX, f.weightedY]);
+        return cur.move((p) => {
+          const w = target.get(p.index);
           return w ? [w[0] - p.x, w[1] - p.y] : [0, 0];
         });
       }));

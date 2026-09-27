@@ -16,7 +16,7 @@ import type { EstimateOpts, PenTiming } from './motion.js';
 import { resolveFill, fillParamsUsable, checkFillParams, isNativeFill, type FillSpec } from './fills.js';
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
-import { flattenPrim, subPrim, SNAP_GRID, type Prim } from './prims.js';
+import { evalPrim, flattenPrim, subPrim, SNAP_GRID, type Prim } from './prims.js';
 import { PRIM_STRIDE, FRAG_STRIDE, PrimSink, encodePrim, decodePrim } from './sceneBuffers.js';
 import { buildFieldGrids, paperStep, type FieldKind, type FieldUse } from './fieldGrid.js';
 import type { FillJob } from './fillJobs.js';
@@ -38,7 +38,7 @@ import { apply, invert, mul, scale as mscale, translate as mtranslate, type Mat 
 import { fromSheet, type Space } from './space.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec } from './execution.js';
-import { compileSketch, compileSketchAsync, isSketch, isSketchAsync, type SketchDef, type AsyncSketchDef } from './api.js';
+import { compileSketch, compileSketchAsync, isSketch, type SketchDef } from './api.js';
 import { mm, resolveLen, type L } from './units.js';
 
 export interface Fragment {
@@ -172,6 +172,52 @@ function renderPaper(opts: RenderOptions): PaperSpec {
   const p = opts.paper;
   if (p && typeof p === 'object' && 'w' in p && 'h' in p) return { ...p };
   return paperSize(typeof p === 'string' ? { paper: p } : (p ?? { paper: 'A4' }));
+}
+
+/** Is every number of this primitive finite? */
+function finitePrim(p: Prim): boolean {
+  switch (p.t) {
+    case 'line':
+      return Number.isFinite(p.x0) && Number.isFinite(p.y0) && Number.isFinite(p.x1) && Number.isFinite(p.y1);
+    case 'arc':
+      return Number.isFinite(p.cx) && Number.isFinite(p.cy) && Number.isFinite(p.r) && Number.isFinite(p.start) && Number.isFinite(p.sweep);
+    case 'cubic':
+      return Number.isFinite(p.x0) && Number.isFinite(p.y0) && Number.isFinite(p.c0x) && Number.isFinite(p.c0y)
+        && Number.isFinite(p.c1x) && Number.isFinite(p.c1y) && Number.isFinite(p.x1) && Number.isFinite(p.y1);
+  }
+}
+
+/**
+ * The contours a shape draws, where geometry becomes ink: a primitive with
+ * a non-finite number draws nothing (best effort — one NaN never fails the
+ * render). With `split`, a contour breaks at such a primitive and each
+ * finite run is a contour of its own; without it, any such primitive drops
+ * the whole shape (null). All finite: the very contours given.
+ */
+function finiteContours(contours: Prim[][], split: boolean): Prim[][] | null {
+  if (contours.every((c) => c.every(finitePrim))) return contours;
+  if (!split) return null;
+  const out: Prim[][] = [];
+  for (const c of contours) {
+    const runs: Prim[][] = [];
+    let run: Prim[] = [];
+    for (const p of c) {
+      if (finitePrim(p)) run.push(p);
+      else if (run.length > 0) {
+        runs.push(run);
+        run = [];
+      }
+    }
+    if (run.length > 0) runs.push(run);
+    // A ring broken at one place is one run that passes its seam.
+    if (runs.length > 1 && c[0] === runs[0][0] && c[c.length - 1] === runs[runs.length - 1].at(-1)) {
+      const [ex, ey] = evalPrim(c[c.length - 1], 1);
+      const [sx, sy] = evalPrim(c[0], 0);
+      if (ex === sx && ey === sy) runs[0] = [...runs.pop()!, ...runs[0]];
+    }
+    out.push(...runs);
+  }
+  return out.length > 0 ? out : null;
 }
 
 /**
@@ -378,7 +424,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
         }
         return out;
       });
-    const [cStart, cCount] = pushContours(cs);
+    const [cStart, cCount] = pushContours(finiteContours(cs, false) ?? []);
     const g = bound.shape.geom;
     const winding = (g.kind === 'path' || g.kind === 'area') && g.winding === 'evenodd' ? 4 : 0;
     clipsU32.push(cStart, cCount, winding);
@@ -446,7 +492,9 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
       throw new Error('clip() region must be a closed shape');
     }
     const lowered = lowerShape(clipRec.shape, frame);
-    const [cStart, cCount] = pushContours(lowered.contours);
+    // A clip with a non-finite parameter is no region: what it holds draws
+    // nothing.
+    const [cStart, cCount] = pushContours(finiteContours(lowered.contours, false) ?? []);
     const cgeom = clipRec.shape.geom;
     const cwinding = (cgeom.kind === 'path' || cgeom.kind === 'area') && cgeom.winding === 'evenodd' ? 4 : 0;
     const flags = (lowered.convex ? 2 : 0) | cwinding | (clipRec.invert ? 8 : 0);
@@ -459,7 +507,6 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   const sourceSeedProtocol=state.shapes.some(shape=>shape.strokeSeed!==undefined);
   let shapeIndex = -1;
   for (const shape of state.shapes) {
-    shapeIndex++;
     const lowered = lowerShape(shape, frame);
     // A projected stroke carries its whole source line and the ranges of it
     // that are seen, in the line's own segment units. A pre-stage modifier
@@ -468,14 +515,21 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // in the engine, and the dash phase (the seed) kept across the pieces.
     const ranges = shape.strokeRanges;
     const seed = shape.strokeSeed;
-    const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
+    // Where geometry becomes ink, a non-finite place draws nothing: a path
+    // (a chain, a polygon's loops) breaks at it and keeps the rest; any
+    // other shape — a circle, a rect, a ranged 3D stroke — with a
+    // non-finite parameter is dropped whole.
+    const drawn = finiteContours(lowered.contours, geom.kind === 'path' && !ranges);
+    if (drawn === null) continue;
+    shapeIndex++;
+    const [cStart, cCount] = pushContours(drawn);
     const winding = (geom.kind === 'path' || geom.kind === 'area') && geom.winding === 'evenodd' ? 4 : 0;
     let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding | (shape.preserveStroke || ranges ? 16 : 0);
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
     // Paper footprint of this shape, for shape-aligned grid extents.
     const fp = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
-    for (const c of lowered.contours) {
+    for (const c of drawn) {
       for (const p of c) {
         for (const [x, y] of flattenPrim(p, 0.5)) {
           fp.x0 = Math.min(fp.x0, x); fp.y0 = Math.min(fp.y0, y);
@@ -629,8 +683,8 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // Optional source selection shares the f64 tape, outside modifier instructions.
     const rangeStart=modsBuf.length;
     if(ranges) {
-      if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec)throw new Error('strokeRanges requires one polyline without fill');
-      const count=lowered.contours[0].length;
+      if(cCount!==1 || drawn[0].some(p=>p.t!=='line') || shape.fillSpec)throw new Error('strokeRanges requires one polyline without fill');
+      const count=drawn[0].length;
       let end=0;
       for(const [a,b] of ranges) {
         if(!Number.isFinite(a)||!Number.isFinite(b)||a<end||a>=b||b>count)throw new Error('strokeRanges must be sorted disjoint intervals within the source polyline');
@@ -754,7 +808,6 @@ function inputsOf(opts: RenderOptions): ExecutionInputs {
 /** The execution an entry point works on: compile the sketch with the
  * options' inputs, or take the one the host compiled. */
 function runOf(a: SketchDef | Execution, opts: RenderOptions): Execution {
-  if (isSketchAsync(a)) throw new Error('async rendering required; use renderAsync');
   return isSketch(a) ? compileSketch(a, inputsOf(opts)) : a;
 }
 
@@ -775,7 +828,7 @@ export function render(a: SketchDef | Execution, b: RenderOptions = {}): RenderR
 /** Await compilation, then use the same vector renderer as synchronous sketches.
  * WASM initialization remains explicit through initOcclude. */
 export async function renderAsync(
-  source: SketchDef | AsyncSketchDef | Execution,
+  source: SketchDef | Execution,
   opts: RenderOptions & { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
 ): Promise<RenderResult> {
   opts.signal?.throwIfAborted();
@@ -902,7 +955,7 @@ export function exportPng(def: SketchDef | Execution, opts: PngOptions = {}): Ui
 
 /** The bridge gap a pen gets under an option: the resolved number the
  * plan's settings record, so the identity says what was bridged. */
-export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number {
+function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number {
   if (bridge === false) return 0;
   if (bridge !== undefined && bridge !== true) return Math.max(0, bridgeMm(bridge));
   return Math.max(pen.width, 0.05) * 0.5;
@@ -967,9 +1020,6 @@ export function planAsBuffers(buffer: Float64Array): { prims: Float64Array<Array
   return { prims: sink.view().slice() as Float64Array<ArrayBuffer>, frags: Float64Array.from(frags) as Float64Array<ArrayBuffer> };
 }
 
-/** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
- * the exact plan bytes and the settings that identify them. Feed
- * `makePlan` for the hashed value, then the `plan*` exporters. */
 /**
  * The gap the engine is told to bridge: `false` never, a number for every
  * pen, and -1 for "each pen's own half nib".
@@ -1001,6 +1051,9 @@ export function planSettings(
   };
 }
 
+/** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
+ * the exact plan bytes and the settings that identify them. Feed
+ * `makePlan` for the hashed value, then the `plan*` exporters. */
 export function planBuffer(result: RenderResult, given: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
   const opts = resolvePlanOptions(given, result.frame.inner);
   let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), tourBudget(opts.optimize), bridgeArg(opts.bridge));

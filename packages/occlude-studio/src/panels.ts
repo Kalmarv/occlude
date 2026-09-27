@@ -6,10 +6,11 @@
  * editor (or re-render).
  */
 
+import { type PenDef } from 'occlude';
 import {
-  encodeToolpath, chainsBounds, type FlatChain,
-  estimatePlanMs, profileToJson,
-  type GcodeJob, type PenDef, type RenderResult, type PaperDef , exportCollisions , moduleName } from 'occlude';
+  encodeToolpath, chainsBounds, type FlatChain, estimatePlanMs, profileToJson, type GcodeJob,
+  type RenderResult, type PaperDef, exportCollisions, moduleName,
+} from 'occlude/host';
 import { listSketches, loadSketchByName, loadStudioState, saveSketchByName, saveStudioState } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
@@ -25,7 +26,7 @@ import {
 import { freeze } from './freeze.js';
 import { dualRange } from './rangeSlider.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
-import { canonicalJson } from 'occlude';
+import { canonicalJson } from 'occlude/host';
 import type { RenderDraws, RenderClient } from './workerClient.js';
 import { iconButton, relabel, setIcon, withIcon } from './icons.js';
 import { confirmDialog, notify } from './wa.js';
@@ -33,7 +34,7 @@ import { button, checkbox, el, hint, numberInput, pairInput, row, segmented, pan
 import { buildOptimizationPanel } from './optimizationPanel.js';
 
 export interface PanelHooks {
-  optimizationView(view: { chains: import('occlude').PlanChain[]; before?: import('occlude').PlanChain[]; after?: import('occlude').PlanChain[] } | null): void;
+  optimizationView(view: { chains: import('occlude/host').PlanChain[]; before?: import('occlude/host').PlanChain[]; after?: import('occlude/host').PlanChain[] } | null): void;
   isPlotting?: () => boolean;
   pens: PenDef[];
   /** The paper library (server-shared, like pens); settings.paper names one. */
@@ -678,7 +679,7 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
       // hash), so a save can never mix two renders.
       const final = r.final;
       const captured = { planHash: plan.planHash, from: final.fromChain, to: final.toChain };
-      const { encodePlanBuffer, hashPlan } = await import('occlude');
+      const { encodePlanBuffer, hashPlan } = await import('occlude/host');
       const chains = plan.chains.slice(final.fromChain, final.toChain);
       const bytes = encodePlanBuffer(chains);
       const savedHash = await hashPlan(bytes, plan.settings);

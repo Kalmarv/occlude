@@ -4,6 +4,7 @@ import {surfaceLocation3,type SurfacePlacement3} from '../src/three/geometry/loc
 import {evaluateSurfaceCpu3,ambiguousTone3,packSurfaceTarget3,type SurfaceEvaluationBatch3} from '../src/three/surface/evaluate.js';
 import {lightRecipe3,lightTone3,imageValue3,prefilterPixels3,TONE_QUANTUM,type ImageRecipe3} from '../src/three/surface/tone.js';
 import type {Vec3} from '../src/three/math.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 function lcg(seed:number){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/2**32;};}
 /** Location weights for comparison: the third weight closes the sum exactly. */
@@ -23,7 +24,7 @@ function checkerboard(w:number,h:number){const data=new Uint8ClampedArray(w*h*4)
 describe('CPU surface evaluation reference',()=>{
   for(const [name,mesh] of [['box',box([1,2,3])],['torus',torus(1.4,0.45)]] as const){
     it(`matches surface locations on a placed, mirrored, nonuniformly scaled ${name}`,()=>{
-      const surface=mesh.surface,rnd=lcg(7),batch=batchOf(surface.triangles.length,300,rnd);
+      const surface=surfaceOf(mesh),rnd=lcg(7),batch=batchOf(surface.triangles.length,300,rnd);
       const recipe=lightRecipe3({direction:[1,2,3],ambient:0.2,ramp:'smooth'});
       const out=evaluateSurfaceCpu3({surface,placement},batch,recipe);
       expect(out.stats.backend).toBe('cpu');expect(out.uv).toBeDefined();
@@ -40,7 +41,7 @@ describe('CPU surface evaluation reference',()=>{
     });
   }
   it('computes reference values in double precision before typed output',()=>{
-    const surface=box(2).surface,batch=batchOf(surface.triangles.length,50,lcg(3)),packed=packSurfaceTarget3({surface,placement});
+    const surface=surfaceOf(box(2)),batch=batchOf(surface.triangles.length,50,lcg(3)),packed=packSurfaceTarget3({surface,placement});
     const out=evaluateSurfaceCpu3({surface,placement},batch);
     for(let i=0;i<batch.triangle.length;i++){
       const location=surfaceLocation3(surface,batch.triangle[i],weightsAt(batch,i),{placement});
@@ -50,7 +51,7 @@ describe('CPU surface evaluation reference',()=>{
     }
   });
   it('samples chart images identically to the tone reference, with model-space light',()=>{
-    const surface=torus(1,0.3).surface,batch=batchOf(surface.triangles.length,200,lcg(11));
+    const surface=surfaceOf(torus(1,0.3)),batch=batchOf(surface.triangles.length,200,lcg(11));
     const recipe:ImageRecipe3={kind:'image',name:'checker',pixels:prefilterPixels3(checkerboard(16,9),1,0),channel:'dark',origin:'top-left',wrap:'repeat',area:0.02,uvAttribute:'uv'};
     const out=evaluateSurfaceCpu3({surface,placement},batch,recipe),packed=packSurfaceTarget3({surface,placement});
     const model=evaluateSurfaceCpu3({surface,placement},batch,lightRecipe3({direction:[0,0,1],space:'model'}));
@@ -64,10 +65,10 @@ describe('CPU surface evaluation reference',()=>{
     }
   });
   it('rejects malformed batches and missing charts for image recipes',()=>{
-    const surface=box(1).surface;
+    const surface=surfaceOf(box(1));
     expect(()=>evaluateSurfaceCpu3({surface},{triangle:new Uint32Array([99]),weights:new Float32Array([1,0,0])})).toThrow('missing triangle');
     expect(()=>evaluateSurfaceCpu3({surface},{triangle:new Uint32Array([0]),weights:new Float32Array([0.5,0.5,0.5])})).toThrow('sum to one');
-    const plain=box(1).cornerAttributes({label:'x'}).surface,stripped={...plain,faces:plain.faces.map(f=>({...f,corners:f.corners!.map(c=>({...c,attributes:{label:'x'}}))}))};
+    const plain=surfaceOf(box(1).corners.set({label:'x'})),stripped={...plain,faces:plain.faces.map(f=>({...f,corners:f.corners!.map(c=>({...c,attributes:{label:'x'}}))}))};
     const packed=packSurfaceTarget3({surface:stripped});expect(packed.uv).toBeUndefined();
     const recipe:ImageRecipe3={kind:'image',name:'c',pixels:checkerboard(2,2),channel:'lum',origin:'bottom-left',wrap:'clamp',area:0,uvAttribute:'uv'};
     expect(evaluateSurfaceCpu3({surface:stripped},{triangle:new Uint32Array([0]),weights:new Float32Array([1,0,0])},recipe).tone![0]).toBe(0);
@@ -81,7 +82,7 @@ describe('CPU surface evaluation reference',()=>{
 describe('GPU surface evaluation',()=>{
   it.skipIf(typeof navigator==='undefined'||!(navigator as {gpu?:unknown}).gpu)('agrees with the CPU reference within the tone quantum',async()=>{
     const {GpuSceneCompute3}=await import('../src/compute/webgpu/scene.js');
-    const host=new GpuSceneCompute3((navigator as unknown as {gpu:GPU}).gpu),surface=torus(1.4,0.45).surface,batch=batchOf(surface.triangles.length,5000,lcg(5));
+    const host=new GpuSceneCompute3((navigator as unknown as {gpu:GPU}).gpu),surface=surfaceOf(torus(1.4,0.45)),batch=batchOf(surface.triangles.length,5000,lcg(5));
     const recipe=lightRecipe3({direction:[1,2,3]}),cpu=evaluateSurfaceCpu3({surface,placement},batch,recipe),gpu=await host.evaluateSurface({surface,placement},batch,recipe,{});
     for(let i=0;i<batch.triangle.length;i++)expect(Math.abs(gpu.tone![i]-cpu.tone![i])).toBeLessThan(TONE_QUANTUM);
     await host.dispose();

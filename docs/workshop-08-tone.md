@@ -30,7 +30,7 @@ import { sketch, circle, group, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const ramp = t.within((x, y) => x / 100, rect(0, 0, 100, 100));
-  const sized = t.grid({ cols: 20, rows: 20 }).filter((c) => c.cx < 100).map((c) => circle(c.cx, c.cy, 0.2 + ramp(c.cx, c.cy) * 1.8));
+  const sized = t.grid({ cols: 20, rows: 20 }).faces.filter((f) => f.centroid[0] < 100).map((f) => { const [x, y] = f.centroid; return circle(x, y, 0.2 + ramp(x, y) * 1.8); });
   const placed = t.scatter(ramp, { spacing: 2.4 }).points.map((p) => circle(p.x, p.y, 0.55));
   return [sized, group({ translate: [100, 0] }, placed)];
 });
@@ -71,7 +71,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const ramp = (x, y) => x / 200;
   const grains = t.scatter(ramp, { spacing: 2.4 });
   const relaxed = t.relax(grains, { density: ramp, iterations });
-  return [relaxed.points.map((p) => circle(p.x, p.y, 0.55)), label(`${relaxed.n} points`, 4, 6, 3.4)];
+  return [relaxed.points.map((p) => circle(p.x, p.y, 0.55)), label(`${relaxed.points.length} points`, 4, 6, 3.4)];
 });
 ```
 
@@ -96,7 +96,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const ramp = (x, y) => x / 200;
   const grains = t.scatter(ramp, { spacing: 2.4 });
   const settled = t.settle(grains, { density: ramp, spacing: 2.4, iterations });
-  return [settled.points.map((p) => circle(p.x, p.y, 0.55)), label(`${settled.n} points`, 4, 6, 3.4)];
+  return [settled.points.map((p) => circle(p.x, p.y, 0.55)), label(`${settled.points.length} points`, 4, 6, 3.4)];
 });
 ```
 

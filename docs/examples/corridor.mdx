@@ -31,7 +31,7 @@ Uses: `polygon` with a hatch `fill` whose spacing comes from a function, `mm`, `
 // Everything else is tone, and tone is one function of where you are in the
 // building. Each shape carries a fill that rules lines at a pitch it reads
 // from that function, so the light has no edges, only a rate.
-import { sketch, polygon, modify, wobble, mm } from 'occlude';
+import { sketch, polygon, wobble, mm, group } from 'occlude';
 export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
     const b = t.bounds();
     // --- the pinhole -------------------------------------------------------
@@ -194,6 +194,6 @@ export default sketch({ aspect: [3, 4], seed: 11 }, (t) => {
         const loop = wallLoop(s);
         return polygon(loop, { stroke: false, opaque: true, fill: ruler(bboxOf(loop), 'v', wallTone(s)) });
     });
-    return modify([wobble({ amount: mm(0.06), wavelength: mm(26) })], floor, walls);
+    return group({ modifiers: [wobble({ amount: mm(0.06), wavelength: mm(26) })] }, floor, walls);
 });
 ```

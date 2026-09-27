@@ -1,10 +1,11 @@
 import {surface3} from '../geometry/surface.js';
 import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
-import {Mesh,emptyMesh,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,type GeometryOptions} from './mesh.js';
 import {emptyCount,emptySize} from '../degenerate.js';
 import {ownSurface3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
 import {convexHull3} from '../geometry/hull.js';
+import type {Material} from '../../material.js';
 
 export interface SphereOptions extends GeometryOptions {readonly segments?:number;readonly rings?:number}
 export interface RadialOptions extends GeometryOptions {readonly segments?:number;readonly caps?:boolean}
@@ -39,7 +40,7 @@ function budget(points:number,faces:number):void{if(points>500000||faces>250000)
 function optionsObject(options:unknown):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('primitive options must be an object');}
 
 /** Shared latitude rings and single poles; +Z is the polar axis. */
-export function sphere(radius=1,options:SphereOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
+export function sphere(radius=1,options:SphereOptions={}):Material {
   optionsObject(options);
   const n=options.segments??32,r=options.rings??16;
   if(empty([radius],[[n,3,'sphere segments'],[r,2,'sphere rings']]))return emptyMesh(options);
@@ -52,7 +53,7 @@ export function sphere(radius=1,options:SphereOptions={}):Mesh<{},{},SurfaceChar
     for(let j=0;j<r-2;j++){const low=1+j*n,high=low+n;faces.push([low+i,low+next,high+next,high+i]);}
     const last=1+(r-2)*n;faces.push([last+i,last+next,top]);
   }
-  return new Mesh(ownSurface3(chartSurface3(surface3(points,faces),(f,c)=>{
+  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c)=>{
     const sector=Math.floor(f/r),band=f%r,u=sector/n,next=(sector+1)/n;
     const uv:readonly (readonly [number,number])[]=band===0
       ? [[(u+next)/2,0],[next,1/r],[u,1/r]]
@@ -95,7 +96,7 @@ export interface GeodesicOptions extends GeometryOptions {readonly frequency?:Ge
  * The chart is spherical: u is the longitude around Z, v the latitude, and a
  * triangle that crosses the meridian carries u past 1 rather than folding the
  * chart back on itself. */
-export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
+export function geodesic(radius=1,options:GeodesicOptions={}):Material {
   optionsObject(options);
   const name=options.base??'icosahedron',project=options.project??true;
   if(typeof project!=='boolean')throw new Error('geodesic project must be boolean');
@@ -152,7 +153,7 @@ export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},Surface
   if(!faces.length)return emptyMesh(options);
   const longitude=(p:Vec3):number=>{const value=Math.atan2(p[1],p[0])/TAU;return value<0?value+1:value;};
   const latitude=(p:Vec3):number=>.5+Math.asin(Math.max(-1,Math.min(1,p[2]/radius)))/Math.PI;
-  return new Mesh(ownSurface3(chartSurface3(surface3(position,faces),(f,c,v)=>{
+  return geometry3(ownSurface3(chartSurface3(surface3(position,faces),(f,c,v)=>{
     // A corner over a pole has no longitude of its own: it takes the mean of
     // the others, so the triangle's chart stays a triangle.
     const corners=faces[f].map(i=>Math.hypot(sphere[i][0],sphere[i][1])>1e-9*radius?longitude(sphere[i]):null);
@@ -167,7 +168,7 @@ export function geodesic(radius=1,options:GeodesicOptions={}):Mesh<{},{},Surface
 }
 
 /** Centered on Z, with shared cap/side rims. */
-export function cylinder(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
+export function cylinder(radius=1,height=2,options:RadialOptions={}):Material {
   optionsObject(options);
   const n=options.segments??32;
   if(empty([radius,height],[[n,3,'cylinder segments']]))return emptyMesh(options);
@@ -177,14 +178,14 @@ export function cylinder(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},
   for(const z of [-height/2,height/2])for(let i=0;i<n;i++){const a=TAU*i/n;points.push([radius*Math.cos(a),radius*Math.sin(a),z]);}
   for(let i=0;i<n;i++){const next=(i+1)%n;faces.push([i,next,n+next,n+i]);}
   if(options.caps??true){faces.push(Array.from({length:n},(_,i)=>n-1-i));faces.push(Array.from({length:n},(_,i)=>n+i));}
-  return new Mesh(ownSurface3(chartSurface3(surface3(points,faces),(f,c,v)=>{
+  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c,v)=>{
     if(f<n){const u=f/n,next=(f+1)/n,uv:readonly (readonly [number,number])[]=[[u,0],[next,0],[next,1],[u,1]];return {uv:uv[c],chart:'side'};}
     return {uv:[.5+.5*points[v][0]/radius,.5+.5*points[v][1]/radius],chart:f===n?'bottom':'top'};
   })),options);
 }
 
 /** Base at -height/2, one shared apex at +height/2. */
-export function cone(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
+export function cone(radius=1,height=2,options:RadialOptions={}):Material {
   optionsObject(options);
   const n=options.segments??32;
   if(empty([radius,height],[[n,3,'cone segments']]))return emptyMesh(options);
@@ -194,14 +195,14 @@ export function cone(radius=1,height=2,options:RadialOptions={}):Mesh<{},{},Surf
   for(let i=0;i<n;i++){const a=TAU*i/n;points.push([radius*Math.cos(a),radius*Math.sin(a),-height/2]);}
   points.push([0,0,height/2]);for(let i=0;i<n;i++)faces.push([i,(i+1)%n,n]);
   if(options.caps??true)faces.push(Array.from({length:n},(_,i)=>n-1-i));
-  return new Mesh(ownSurface3(chartSurface3(surface3(points,faces),(f,c,v)=>{
+  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c,v)=>{
     if(f<n){const uv:readonly (readonly [number,number])[]=[[f/n,0],[(f+1)/n,0],[(f+.5)/n,1]];return {uv:uv[c],chart:'side'};}
     return {uv:[.5+.5*points[v][0]/radius,.5+.5*points[v][1]/radius],chart:'bottom'};
   })),options);
 }
 
 /** Ring in XY: radius measures the tube centerline, tubeRadius its section. */
-export function torus(radius=1,tubeRadius=.25,options:TorusOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV> {
+export function torus(radius=1,tubeRadius=.25,options:TorusOptions={}):Material {
   optionsObject(options);
   const n=options.segments??32,m=options.tubeSegments??12;
   if(empty([radius,tubeRadius],[[n,3,'torus segments'],[m,3,'torus tube segments']]))return emptyMesh(options);
@@ -212,7 +213,7 @@ export function torus(radius=1,tubeRadius=.25,options:TorusOptions={}):Mesh<{},{
   const points:Vec3[]=[],faces:number[][]=[];
   for(let i=0;i<n;i++)for(let j=0;j<m;j++){const u=TAU*i/n,v=TAU*j/m,r=radius+tubeRadius*Math.cos(v);points.push([r*Math.cos(u),r*Math.sin(u),tubeRadius*Math.sin(v)]);}
   for(let i=0;i<n;i++)for(let j=0;j<m;j++)faces.push([i*m+j,((i+1)%n)*m+j,((i+1)%n)*m+(j+1)%m,i*m+(j+1)%m]);
-  return new Mesh(ownSurface3(chartSurface3(surface3(points,faces),(f,c)=>{
+  return geometry3(ownSurface3(chartSurface3(surface3(points,faces),(f,c)=>{
     const i=Math.floor(f/m),j=f%m,uv:readonly (readonly [number,number])[]=[[i/n,j/m],[(i+1)/n,j/m],[(i+1)/n,(j+1)/m],[i/n,(j+1)/m]];
     return {uv:uv[c],chart:'torus'};
   })),options);

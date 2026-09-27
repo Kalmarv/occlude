@@ -2,7 +2,7 @@
 // two near-coincident Goldberg shells, the exact classifier's worst case.
 
 import { sketch, pen, mm } from 'occlude';
-import { geodesic, sphere, view, perspective, isolines } from 'occlude/3d';
+import { geodesic, intersections, sphere, view, perspective, isolines } from 'occlude/3d';
 
 export default sketch(
   { aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } },
@@ -15,9 +15,9 @@ export default sketch(
       const noise3 = t.noise(p.x * 10, p.y * 10, p.z * 10);
       return (noise * 0.6 + noise2 * 0.3 + noise3 * 0.1) * 0.12;
     };
-    const terrain = pbase.displace((p) => terrainDisplace(p)).style({ creaseAngle: 180 });
+    const terrain = pbase.displace((p) => terrainDisplace(p));
     const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
-    const coastline = await t.intersections(water, terrain);
+    const coastline = intersections(water, terrain);
     return view([water, terrain, levels, coastline], {
       camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),
       pen: 'ink',

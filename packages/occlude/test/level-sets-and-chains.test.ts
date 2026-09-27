@@ -19,8 +19,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
-import { initOcclude, render, sketch, polygon, strokes, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef } from '../src/index.js';
+import {
+  sketch, polygon, strokes, rect, ngon, sdf, fill, mm, space, type Material, type SketchDef,
+} from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 import { levelMaterial, type IsoLevelContours } from '../src/isolines.js';
+import { rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -60,7 +64,7 @@ describe('P2 · a level set is an area', () => {
     expect(has(corner, 0, 0)).toBe(true);
     // A quarter disc, not the lens between the arc and its chord.
     expect(area(ring.pts)).toBeCloseTo((Math.PI * r * r) / 4, 0);
-    expect(corner.faces().length).toBe(1);
+    expect(corner.faces.length).toBe(1);
   });
 
   it('G2-4: a lone contour cut by the frame is an area that polygon fills', () => {
@@ -98,8 +102,8 @@ describe('P2 · a level set is an area', () => {
 
   it('G6-23: an edge-to-edge band fills to the drawable, crest to bottom', () => {
     const t = toolkit({ aspect: [3, 2] });
-    const W = t.width;
-    const H = t.height;
+    const W = t.bounds().w;
+    const H = t.bounds().h;
     // A tilted crest: the band is everything below it.
     const band = t.isolines((x, y) => y / H - 0.2 * (x / W) - 0.4, 0);
     const [ring] = band.contours();
@@ -115,15 +119,15 @@ describe('P2 · a level set is an area', () => {
     const b = t.bounds();
     const m = t.isolines(sdf.circle(0, 0, b.w * 0.3), 0);
     const onBorder = (x: number, y: number) => Math.abs(x) < 1e-9 || Math.abs(y) < 1e-9;
-    const walls = m.faces().at(0)!.edges;
-    const closing = walls.filter((e) => e.attrs.cut === 1);
-    const level = walls.filter((e) => !e.attrs.cut);
+    const walls = m.faces.at(0)!.edges;
+    const closing = walls.filter((e) => e.cut === 1);
+    const level = walls.filter((e) => !e.cut);
     expect(closing.length).toBe(2); // along the top edge, then down the left one
     expect([...closing].every((e) => onBorder(e.a.x, e.a.y) && onBorder(e.b.x, e.b.y))).toBe(true);
     expect([...level].every((e) => Math.abs(Math.hypot(e.center[0], e.center[1]) - b.w * 0.3) < 0.1)).toBe(true);
     expect(walls.length).toBe(closing.length + level.length);
     expect(m.edges.length).toBe(level.length);
-    expect([...m.edges].every((e) => e.attrs.cut === 0)).toBe(true);
+    expect([...m.edges].every((e) => e.cut === 0)).toBe(true);
   });
 
   it('closes along a within bound, through the bound\'s own corners', () => {
@@ -134,8 +138,8 @@ describe('P2 · a level set is an area', () => {
     // The right corner of the diamond is inside the circle: the ring passes it.
     expect(has(cut, 86, 70)).toBe(true);
     // Both walls that meet there close the region: neither is level line.
-    const corner = [...cut.faces().at(0)!.edges.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
-    expect([...corner.edges].map((e) => e.attrs.cut)).toEqual([1, 1]);
+    const corner = [...cut.faces.at(0)!.edges.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
+    expect([...corner.edges].map((e) => e.cut)).toEqual([1, 1]);
   });
 
   it('G6-32: a bound field is sampled over its bound\'s box, not the drawable', () => {
@@ -150,7 +154,7 @@ describe('P2 · a level set is an area', () => {
   it('refuses close, a stray option and a stray level key by name', () => {
     const t = toolkit({ aspect: [1, 1] });
     const f = sdf.circle(50, 50, 20);
-    expect(() => t.isolines(f, 0, { close: true } as never)).toThrow(/isolines: \{ close \} is gone.*!e\.attrs\.cut/);
+    expect(() => t.isolines(f, 0, { close: true } as never)).toThrow(/isolines: \{ close \} is gone.*!e\.cut/);
     expect(() => t.isolines(f, 0, { spacing: 2 } as never)).toThrow(/isolines: 'spacing' is not an option — the options are \{ step \}/);
     // Spec 55 found this one silently ignored.
     expect(() => t.isolines(f, { spacing: 5, step: 1 } as never)).toThrow(/isolines: 'step' is not a level key.*\{ step \}/);
@@ -164,14 +168,14 @@ describe('N1 · chain verbs walk the curves() of a network', () => {
 
   it('G2-14 / G4-14: resample on t.hexes keeps every junction, where it was and who it was', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const hex = t.hexes({ spacing: mm(10) });
+    const hex = t.tiling(6, 3, { side: mm(10 / Math.sqrt(3)), rotate: 30, origin: [0, 0] });
     const out = hex.resample({ spacing: t.len(mm(1)) });
     expect(byId(out)).toEqual(byId(hex));
-    expect(out.faces().length).toBe(hex.faces().length);
+    expect(out.faces.length).toBe(hex.faces.length);
     // Between the junctions the walls are redistributed.
     expect(out.points.length).toBeGreaterThan(hex.points.length * 3);
     // The honeycomb cut to a wall (examples-vessels): the rim is a network too.
-    const comb = t.within(t.hexes({ spacing: mm(6) }), rect(0, 0, 40, 80));
+    const comb = t.within(t.tiling(6, 3, { side: mm(6 / Math.sqrt(3)), rotate: 30, origin: [0, 0] }), rect(0, 0, 40, 80));
     expect(byId(comb.resample({ spacing: 1 }))).toEqual(byId(comb));
   });
 
@@ -190,27 +194,32 @@ describe('N1 · chain verbs walk the curves() of a network', () => {
     }
   });
 
-  it('G4-1: each verb speaks in its own name; one that cannot keep a junction says so itself', () => {
+  it('G4-1: each verb walks a network junction to junction, a rolled waveform too', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const hex = t.hexes({ spacing: 20 });
+    const hex = t.tiling(6, 3, { side: 20 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     expect(() => hex.oscillate({ wavelength: 4, amplitude: 1 })).not.toThrow();
     expect(() => hex.along({ spacing: 2 })).not.toThrow();
-    expect(() => hex.coil({ radius: 1, pitch: 2 })).toThrow(/^coil: vertex \d+ is a junction/);
+    expect(() => hex.oscillate({ wavelength: 2, amplitude: 1, shape: (u) => [Math.sin(2 * Math.PI * u), 1 - Math.cos(2 * Math.PI * u)] })).not.toThrow();
   });
 
   it('along on a network: every chain from junction to junction, each end facing along its chain', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const hex = t.hexes({ spacing: 20 });
-    const chains = hex.curves();
-    const stations = hex.along({ spacing: 5 });
-    expect(new Set(stations.map((s) => s.chain)).size).toBe(chains.length);
-    for (const s of stations.filter((q) => q.s === 0 && !q.closed)) {
-      const c = chains[s.chain];
+    const hex = t.tiling(6, 3, { side: 20 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
+    const chains = hex.curves.map(rec);
+    const stations = hex.along({ spacing: 5 }).points;
+    // Each curve walked on its own: its own points, the first at s = 0.
+    const perCurve = hex.curves.map((c) => c.edges.along({ spacing: 5 }).points);
+    expect(perCurve.reduce((n, p) => n + p.length, 0)).toBe(stations.length);
+    expect(stations.filter((q) => q.s === 0).length).toBe(chains.length);
+    perCurve.forEach((pts, k) => {
+      const s = pts.at(0);
+      const c = chains[k];
+      expect(s.s).toBe(0);
       const [a, b] = [c.pts[0], c.pts[1]];
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       expect(s.tangent[0]).toBeCloseTo((b[0] - a[0]) / len, 9);
       expect(s.tangent[1]).toBeCloseTo((b[1] - a[1]) / len, 9);
-    }
+    });
   });
 });
 
@@ -219,11 +228,12 @@ describe('sweep · along reads its frame from the space', () => {
     const t = toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
     const sp = t.space;
     const arc = t.material(rect(-20, -10, 40, 25));
-    const stations = arc.along({ spacing: 3 });
+    const stations = arc.along({ spacing: 3 }).points;
     expect(stations.length).toBeGreaterThan(10);
+    expect(arc.curves.length).toBe(1);
     let checked = 0;
     for (const st of stations) {
-      const c = arc.curves()[st.chain];
+      const c = arc.curves.map(rec)[0];
       // The vertex ahead of this station along the ring.
       const s = st.s;
       let acc = 0;
@@ -249,7 +259,7 @@ describe('sweep · along reads its frame from the space', () => {
     }
     expect(checked).toBeGreaterThan(5);
     // A step along the heading stays on the edge's geodesic.
-    const st = stations.find((q) => !arc.curves()[q.chain].pts.some((p) => Math.hypot(p[0] - q.x, p[1] - q.y) < 1e-6))!;
+    const st = stations.find((q) => !arc.curves.map(rec)[0].pts.some((p) => Math.hypot(p[0] - q.x, p[1] - q.y) < 1e-6))!.placement();
     const next = st.step(0.5);
     const back = sp.log([next.x, next.y], [st.x, st.y]);
     expect(Math.hypot(back[0], back[1])).toBeCloseTo(0.5, 6);
@@ -257,7 +267,7 @@ describe('sweep · along reads its frame from the space', () => {
 
   it('flat: the same arithmetic as before (a segment\'s own direction)', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const [st] = t.material(rect(0, 0, 10, 5)).along({ count: 7 }).filter((q) => q.s > 0 && q.s < 10);
+    const [st] = t.material(rect(0, 0, 10, 5)).along({ count: 7 }).points.filter((q) => q.s > 0 && q.s < 10);
     expect(st.tangent).toEqual([1, 0]);
     expect(st.heading).toBe(0);
   });
@@ -283,17 +293,17 @@ describe('strokes of a closed level set', () => {
   it('draws the level lines only; the closing edges belong to polygon; an edge selection is drawn as given', () => {
     const t = toolkit({ aspect: [1, 1] });
     const m = t.isolines((x: number, y: number) => x + y, [60, 120]);
-    expect(strokes(m).length).toBe(m.curves().length);
-    expect(strokes(m.edges).length).toBe(m.curves().length);
+    expect(strokes(m).length).toBe(m.curves.map(rec).length);
+    expect(strokes(m.edges).length).toBe(m.curves.map(rec).length);
     // One level, so its one region is a face: the walls of that face are
     // the level line and the rim, and a selection of them is drawn as given.
-    const walls = t.isolines((x: number, y: number) => x + y, 60).faces().edges;
-    const lines = walls.filter((e) => e.attrs.cut === 0);
-    const rims = walls.filter((e) => e.attrs.cut === 1);
+    const walls = t.isolines((x: number, y: number) => x + y, 60).faces.edges;
+    const lines = walls.filter((e) => e.cut === 0);
+    const rims = walls.filter((e) => e.cut === 1);
     expect(rims.length).toBeGreaterThan(0);
-    expect(strokes(walls).length).toBe(walls.extract().curves().length);
-    expect(strokes(rims).length).toBe(rims.extract().curves().length);
-    expect(strokes(lines).length).toBe(lines.extract().curves().length);
+    expect(strokes(walls).length).toBe(walls.extract().curves.map(rec).length);
+    expect(strokes(rims).length).toBe(rims.extract().curves.map(rec).length);
+    expect(strokes(lines).length).toBe(lines.extract().curves.map(rec).length);
   });
 });
 
@@ -305,7 +315,7 @@ describe('a level line of millions of points', () => {
     // points on one piece. A spread of that many arguments overflows the
     // stack; the joiner walks it.
     const m = t.isolines((x: number, y: number) => y + 45 * Math.sin(x * 3) + 2 * Math.sin(y * 37) * Math.cos(x * 23), 50, { step: 0.05 });
-    const longest = Math.max(...m.curves().map((c) => c.pts.length));
+    const longest = Math.max(...m.curves.map(rec).map((c) => c.pts.length));
     expect(longest).toBeGreaterThan(150_000);
     expect(m.n).toBeGreaterThan(200_000);
   });

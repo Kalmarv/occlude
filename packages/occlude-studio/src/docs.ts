@@ -14,9 +14,9 @@ import { marked } from 'marked';
 import { createEditor, type Editor } from './editor.js';
 import { UiPanel } from './uiPanel.js';
 import {
-  DEFAULT_PENS, DOC_PAGES, decodePlanBuffer, docsPaper, drawFragments, evalPrim, liveExampleToJs, paperSize, parseLiveMeta, planValue, resolveDraw, tracePrim,
-  type LiveMeta,
-} from 'occlude';
+  DEFAULT_PENS, DOC_PAGES, decodePlanBuffer, docsPaper, drawFragments, evalPrim, liveExampleToJs,
+  paperSize, parseLiveMeta, planValue, resolveDraw, tracePrim, type LiveMeta,
+} from 'occlude/host';
 import { RenderClient, type RenderReply } from './workerClient.js';
 
 // Every page's markdown, by file, at build time.

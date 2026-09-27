@@ -1,5 +1,5 @@
-import {Mesh} from './mesh.js';
-import {Instances,instanceSurfaceBinding3} from './instances.js';
+import {surfaceOf} from '../geometry/value.js';
+import {isInstances,prototypeOf,placedOf} from './instances.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {decodePoint} from '../geometry/exact.js';
@@ -8,10 +8,11 @@ import {intersectionsJob3,type IntersectionBudget3} from '../curves/intersection
 import {surfaceBinding3,surfaceCurveNetworkJob3,bindingWorld3,type SurfaceBinding3,type SurfaceCurveNetworkInput3,type SurfaceCurveNetwork3,type SurfaceCurveRecipe3} from '../curves/network.js';
 import {worldBounds3,overlaps3} from '../geometry/bounds.js';
 import type {IntersectionClass3} from '../curves/intersectionAtoms.js';
-import {refuseStroke} from './recipes.js';
-export type IntersectionAttributes={contact:IntersectionClass3};
+import {refuseStroke,refuseDisplay} from './recipes.js';
+import {Material} from '../../material.js';
+export type IntersectionColumns={contact:IntersectionClass3};
 
-export type IntersectionInput=Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>;
+export type IntersectionInput=Material;
 export interface IntersectionOptions extends SurfaceCurveOptions {
  readonly maxPairs?:number;
  /** Optional advanced capacity controls; defaults cover ordinary sketches. */
@@ -28,15 +29,15 @@ export function captureIntersections(...args:IntersectionArguments) {
   ?(()=>{const list=args[0] as readonly IntersectionInput[];return [list,list.map((_,i)=>i),(args[1] as IntersectionOptions|undefined)??{}] as const;})()
   :[[args[0] as IntersectionInput,args[1] as IntersectionInput],[0,1],(args[2] as IntersectionOptions|undefined)??{}] as const;
  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('intersection options must be an object');
- refuseStroke(options,'intersections');
+ refuseStroke(options,'intersections');refuseDisplay(options,'intersections');
  const settings=structuredClone(options),maxPairs=settings.maxPairs??Infinity;
  if(!(maxPairs===Infinity||Number.isSafeInteger(maxPairs))||maxPairs<0)throw new Error('intersection pair budget must be a nonnegative integer');
- const count=(value:IntersectionInput)=>value instanceof Mesh?1:value instanceof Instances?value.length:(()=>{throw new Error('intersections require meshes or mesh instances');})();
+ const count=(value:IntersectionInput)=>isInstances(value)?value.points.length:(value instanceof Material)?1:(()=>{throw new Error('intersections require meshes or mesh instances');})();
  inputs.forEach(count);const budget=settings.budget??{};
- const size=(value:IntersectionInput,kind:'points'|'triangles')=>value instanceof Mesh?value.surface[kind].length:value.length*value.prototype.surface[kind].length;
+ const size=(value:IntersectionInput,kind:'points'|'triangles')=>isInstances(value)?value.points.length*surfaceOf(prototypeOf(value)!)[kind].length:surfaceOf(value)[kind].length;
  const total=(kind:'points'|'triangles')=>inputs.reduce((n,v)=>n+size(v,kind),0);
  const sources:Source[]=[],owner:number[]=[];
- inputs.forEach((value,i)=>{for(const s of value instanceof Mesh?[{id:value.key??'mesh',binding:surfaceBinding3(value.surface)}]:value.rows.map(row=>({id:row.id,binding:instanceSurfaceBinding3(value,row)}))){sources.push(s);owner.push(groups[i]);}});
+ inputs.forEach((value,i)=>{for(const s of isInstances(value)?placedOf(value).map(copy=>({id:copy.id,binding:copy.binding})):[{id:value.key??'mesh',binding:surfaceBinding3(surfaceOf(value))}]){sources.push(s);owner.push(groups[i]);}});
  // Pair sources whose objects differ: left × right for two arguments, every
  // unordered pair of distinct list members for a list.
  // Two sources whose world extents do not overlap cross nowhere: that pair
@@ -111,9 +112,9 @@ export function intersectionRecipe(captured:ReturnType<typeof captureIntersectio
  });
 }
 /** The curves where meshes cross: two meshes, or every pair of a list. */
-export function intersections(a:IntersectionInput,b:IntersectionInput,options?:IntersectionOptions):SurfaceCurves<IntersectionAttributes>;
-export function intersections(objects:readonly IntersectionInput[],options?:IntersectionOptions):SurfaceCurves<IntersectionAttributes>;
-export function intersections(...args:IntersectionArguments):SurfaceCurves<IntersectionAttributes> {
+export function intersections(a:IntersectionInput,b:IntersectionInput,options?:IntersectionOptions):SurfaceCurves<IntersectionColumns>;
+export function intersections(objects:readonly IntersectionInput[],options?:IntersectionOptions):SurfaceCurves<IntersectionColumns>;
+export function intersections(...args:IntersectionArguments):SurfaceCurves<IntersectionColumns> {
  const captured=captureIntersections(...args);
- return new SurfaceCurves<IntersectionAttributes>(intersectionRecipe(captured),{key:captured.settings.key,pen:captured.settings.pen});
+ return new SurfaceCurves<IntersectionColumns>(intersectionRecipe(captured),{key:captured.settings.key});
 }

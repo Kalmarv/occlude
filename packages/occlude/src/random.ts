@@ -230,10 +230,3 @@ export function mapRange(v: number, a: number, b: number, c: number, d: number):
   return c + ((v - a) / (b - a)) * (d - c);
 }
 
-export function normRange(v: number, a: number, b: number): number {
-  return (v - a) / (b - a);
-}
-
-export function invertRange(v: number, max: number, min = 0): number {
-  return max - (v - min);
-}

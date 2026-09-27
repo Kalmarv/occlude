@@ -8,7 +8,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { connect, curve, initOcclude, material, type Material } from '../src/index.js';
+import { connect, curve, material, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
+import { oneRing } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -16,7 +18,7 @@ beforeAll(async () => {
 });
 
 const zigzag = (): Material => curve([[0, 0], [10, 20], [20, 0], [30, 20], [40, 0]], { closed: false });
-const ring = (): Material => connect.ring(material([[0, 0], [20, 0], [20, 20], [0, 20]]));
+const ring = (): Material => curve(material([[0, 0], [20, 0], [20, 20], [0, 20]]), { closed: true });
 const has = (m: Material, x: number, y: number): boolean =>
   Array.from(m.x).some((vx, i) => Math.abs(vx - x) < 1e-9 && Math.abs(m.y[i] - y) < 1e-9);
 /** Distance from q to the segment a–b. */
@@ -48,7 +50,7 @@ describe('spline', () => {
     expect(out.edgeCount).toBe(4 * 6);
     // Every vertex has two edges: the ring is still one ring, seam and all.
     for (const p of out.points) expect(p.edges.length).toBe(2);
-    expect(out.closed).toBe(true);
+    expect(oneRing(out)).toBe(true);
     // A square's corners are still the corners, and the curve bulges out
     // between them the same on every side, because the seam is a segment
     // like the other three.
@@ -92,7 +94,7 @@ describe('spline', () => {
   });
 
   it('keeps a junction; refuses a tension outside 0 to 1 and a step count below one', () => {
-    const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]]).withEdges([[0, 1], [1, 2], [1, 3]]);
+    const tee = material([[0, 0], [10, 0], [20, 0], [10, 10]], { edges: [[0, 1], [1, 2], [1, 3]] });
     const fork = [...tee.spline().points].filter((p) => p.edges.length === 3);
     expect(fork.map((p) => [p.x, p.y, p.id])).toEqual([[10, 0, tee.points.at(1).id]]);
     expect(() => zigzag().spline({ tension: 2 })).toThrow('tension');
@@ -116,9 +118,9 @@ describe('spline', () => {
 
   it('reads a new vertex\'s columns by the transfer policy, and shares a distributed edge column', () => {
     const src = zigzag()
-      .attribute('age', (p) => p.index, { transfer: 'nearest' })
-      .attribute('warm', (p) => p.x)
-      .edgeAttribute('ink', (e) => e.a.index + 1, { transfer: 'distribute' });
+      .points.set('age', (p) => p.index, { transfer: 'nearest' })
+      .points.set('warm', (p) => p.x)
+      .edges.set('ink', (e) => e.a.index + 1, { transfer: 'distribute' });
     const out = src.spline({ steps: 4 });
     // 'nearest' is a choice, not a mean: every age is one of the originals.
     for (const p of out.points) expect(Number.isInteger(p.age)).toBe(true);
@@ -128,8 +130,8 @@ describe('spline', () => {
     // A distributed column is shared over the children of the wall it was on.
     for (const e of src.edges) {
       const root = src.edgeRoots[e.index];
-      const sum = [...out.edges].filter((c) => out.edgeRoots[c.index] === root).reduce((k, c) => k + c.attrs.ink, 0);
-      expect(sum).toBeCloseTo(e.attrs.ink, 9);
+      const sum = [...out.edges].filter((c) => out.edgeRoots[c.index] === root).reduce((k, c) => k + c.ink, 0);
+      expect(sum).toBeCloseTo(e.ink, 9);
     }
   });
 });

@@ -7,7 +7,7 @@ import {
   parseToolpath,
   estimatePlanMs,
   type PlanChain,
-} from "occlude";
+} from "occlude/host";
 import { optimizeRequest } from "./optimization-runner.js";
 import type { OptimizationRequest } from "./optimization.js";
 

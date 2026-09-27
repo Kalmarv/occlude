@@ -11,7 +11,13 @@
  * candidates examined vs actual neighbours within the radius, interval
  * ms, and points retained in history (0 without --history).
  */
-import { curve, sub, mul, length, unit, limit, perp, sum, sumBy, type Material, type Vertex, type Next } from '../src/index.js';
+import { curve, sub, mul, length, unit, perp, sum, sumBy, type Material, type Vertex, type Vec } from '../src/index.js';
+
+/** `v` shortened to `max` if it is longer. */
+const shortened = (v: Vec, max: number): Vec => {
+  const d = length(v);
+  return d > max && d > 0 ? [(v[0] / d) * max, (v[1] / d) * max] : v;
+};
 // The engine's own spatial index, with its counters: this diagnostic exists
 // to report them. A sketch says `cur.points.near(p, { radius })`.
 import { neighbours, type NeighbourStats } from '../src/forces.js';
@@ -74,9 +80,12 @@ const shove = (p: Vertex, q: Vertex) => {
 
 const pull = pullKind === 'spring' ? spring : slackPull;
 const repel = repelKind === 'inverse' ? shove : repelFrom;
+// A pass per rule, `(g, k) => g2`: every step is worked out on the graph as
+// it is, then the moves land at once and the ages count up.
 const rule = ruleName === 'alt'
-  ? (current: Material, next: Next) => {
+  ? (current: Material): Material => {
       const near = neighbours(current, { radius: push, stats });
+      const steps: Vec[] = [];
       for (const p of current.points) {
         const prev = prevRow(current, p.index);
         const nxt = nextRow(current, p.index);
@@ -84,15 +93,16 @@ const rule = ruleName === 'alt'
           sumBy([prev, nxt], (j) => pull(p, current.points.at(j))),
           sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.points.at(j)))),
         );
-        const step = limit(mul(force, speed), splitAt / 2);
+        const step = shortened(mul(force, speed), splitAt / 2);
         if (length(mul(force, speed)) > splitAt / 2) capped++;
         moves.push(length(step));
-        next.move(p, step);
-        next.set(p, { age: p.age + 1 });
+        steps.push(step);
       }
+      return current.move((p: Vertex) => steps[p.index]).points.set('age', (p) => p.age + 1);
     }
-  : (current: Material, next: Next, k: number) => {
+  : (current: Material, k: number): Material => {
       const near = neighbours(current, { radius: push, stats });
+      const steps: Vec[] = [];
       for (const p of current.points) {
         const prev = prevRow(current, p.index);
         const nxt = nextRow(current, p.index);
@@ -111,18 +121,23 @@ const rule = ruleName === 'alt'
         );
         const step = mul(force, speed);
         moves.push(length(step));
-        next.move(p, step);
-        next.set(p, { age: p.age + 1 });
+        steps.push(step);
       }
+      return current.move((p: Vertex) => steps[p.index]).points.set('age', (p) => p.age + 1);
     };
-const subdivide = (current: Material, next: Next) => {
+const subdivide = (current: Material): Material => {
   const edges = current.edges.filter(e => e.length > splitAt && chance(grow));
+  let g = current;
   if (material && ruleName !== 'alt') {
-    // The start vertex's rest halves, and the split callback reads that
-    // written state: the new vertex takes the other half.
-    for (const e of edges) next.set(e.a, { rest: e.a.rest * 0.5 });
-    next.splitEdges(edges, { point: (e) => ({ age: 0, rest: e.a.rest }) });
-  } else next.splitEdges(edges, { point: { age: 0 } });
+    // The start vertex's rest halves, and the new vertex takes the other
+    // half: `rest` crosses the split by the nearer end, which is the start.
+    const starts = new Set(edges.map((e) => e.a.index));
+    g = g.points.set('rest', (p) => p.rest * 0.5, (p) => starts.has(p.index), { transfer: 'nearest' });
+  }
+  const before = g.n;
+  const split = g.split(edges);
+  // A new vertex starts young.
+  return split.points.set('age', 0, (p) => p.index >= before);
 };
 
 console.log(`rule=${ruleName}${material ? ' MATERIAL' : ''} pull=${pullKind} repel=${repelKind} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);
@@ -143,7 +158,7 @@ while (done < iterations) {
   let ran = 0;
   let over = false;
   for (let i = 0; i < n; i++) {
-    out = out.steps(1, rule, subdivide);
+    out = subdivide(rule(out, done + i));
     ran++;
     if (withHistory) historyPts += out.n;
     if (performance.now() - t0 > budgetMs) { over = true; break; }
@@ -161,7 +176,7 @@ while (done < iterations) {
     break;
   }
 }
-console.log(`total ${((performance.now() - t0) / 1000).toFixed(2)} s, final ${cur.n} points, iteration ${cur.iteration}${material ? `, total rest ${Array.from(cur.attrs.rest).reduce((a, b) => a + b, 0).toFixed(3)}` : ''}`);
+console.log(`total ${((performance.now() - t0) / 1000).toFixed(2)} s, final ${cur.n} points, step ${done}${material ? `, total rest ${Array.from(cur.attrs.rest).reduce((a, b) => a + b, 0).toFixed(3)}` : ''}`);
 
 // ---- shape of the final curve: what the pen will see ----
 const pct = (xs: number[], q: number) => { const a = [...xs].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; };

@@ -1,7 +1,7 @@
 /**
  * The seventeen wallpaper groups, as placements.
  *
- * `symmetry(group, …)` answers with plain `TransformOp` records — the same
+ * `t.symmetry(group, { cell })` answers with plain `TransformOp` records — the same
  * `{ translate, rotate, scale, origin }` a `group(…)` takes — one per copy
  * of the motif. The sketch draws the motif once and hands each record to
  * `group`; nothing here draws, and nothing here knows what a motif is.
@@ -30,21 +30,11 @@ export type PlaneGroup =
   | 'p1' | 'p2' | 'pm' | 'pg' | 'cm' | 'pmm' | 'pmg' | 'pgg' | 'cmm'
   | 'p4' | 'p4m' | 'p4g' | 'p3' | 'p3m1' | 'p31m' | 'p6' | 'p6m';
 
-/** Every group name, in IUC order. */
+/** @internal Every group name, in IUC order. */
 export const PLANE_GROUPS: readonly PlaneGroup[] = [
   'p1', 'p2', 'pm', 'pg', 'cm', 'pmm', 'pmg', 'pgg', 'cmm',
   'p4', 'p4m', 'p4g', 'p3', 'p3m1', 'p31m', 'p6', 'p6m',
 ];
-
-export interface SymmetryOptions {
-  /** The cell: `[w, h]` for a rectangular or oblique lattice, one length
-   * for a hexagonal one. A square group takes either, and refuses a
-   * rectangle that is not square. */
-  cell: number | readonly [number, number];
-  /** How many cells across and down. */
-  cols: number;
-  rows: number;
-}
 
 /** One coset representative: a turn or a flip about `p`, then a shift `s`. */
 interface Op {
@@ -76,7 +66,7 @@ const mir = (angle: number, p?: readonly [number, number], s?: readonly [number,
 
 /** The cell as the group reads it: one length for hexagonal and square
  * lattices, two for the rest; a mismatch refuses by name. */
-function cellOf(group: PlaneGroup, cell: number | readonly [number, number]): [number, number] {
+function cellSize(group: PlaneGroup, cell: number | readonly [number, number]): [number, number] {
   const pair = Array.isArray(cell) ? (cell as readonly [number, number]) : null;
   if (HEX.includes(group)) {
     if (pair) throw new Error(`symmetry: ${group} has a hexagonal lattice — cell is ONE length, not [w, h]`);
@@ -165,7 +155,7 @@ export function placements(group: PlaneGroup, cell: number | readonly [number, n
   if (!PLANE_GROUPS.includes(group)) {
     throw new Error(`symmetry: '${String(group)}' is not a plane group — one of ${PLANE_GROUPS.join(' ')}`);
   }
-  const [w, h] = cellOf(group, cell);
+  const [w, h] = cellSize(group, cell);
   // A mid-edit zero or a non-finite cell lays out nothing, the way a zero
   // count does.
   if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return [];
@@ -188,26 +178,10 @@ export function placements(group: PlaneGroup, cell: number | readonly [number, n
   return out;
 }
 
-/**
- * The placements of one wallpaper group over a `cols × rows` block of
- * cells, the first cell's corner on the origin.
- *
- * Hand each record to `group(placement, motif)` and the motif repeats under
- * the group. The count is `cols · rows · n`, where n is the order of the
- * point group: p1 1, p2/pm/pg/cm 2, p3 3, pmm/pmg/pgg/cmm/p4 4, p3m1/p31m/p6
- * 6, p4m/p4g 8, p6m 12.
- *
- * `t.symmetry(group, { cell })` is the same thing with the block sized to
- * cover the drawable.
- */
-export function symmetry(group: PlaneGroup, opts: SymmetryOptions): TransformOp[] {
-  return placements(group, opts.cell, 0, opts.cols, 0, opts.rows);
-}
-
 /** The lattice step of a group's cell: how far one cell reaches across and
  * down, which is what a drawable-sized block is counted in. */
 export function cellStep(group: PlaneGroup, cell: number | readonly [number, number]): [number, number] {
-  const [w, h] = cellOf(group, cell);
+  const [w, h] = cellSize(group, cell);
   const plan = planOf(group, w, h);
   return [plan.ax, plan.by];
 }

@@ -38,7 +38,7 @@ export function bindingPosition3(binding:SurfaceBinding3,index:number):Vec3 {
   const position=binding.source.points[index].position,t=binding.placement?.transform;if(!t)return position;
   let cache=positions.get(binding);if(!cache){cache=new Map();positions.set(binding,cache);}
   const previous=cache.get(index);if(previous)return previous;
-  const value=transformPosition3(position,t);finite3(value);const result=Object.freeze(value);cache.set(index,result);return result;
+  const value=transformPosition3(position,t);finite3(value,'surface curve');const result=Object.freeze(value);cache.set(index,result);return result;
 }
 export function bindingTriangle3(binding:SurfaceBinding3,index:number):readonly [H,H,H] {
   validateSurfaceBinding3(binding);
@@ -244,11 +244,6 @@ export function selectSurfaceCurveNetwork3(network:SurfaceCurveNetwork3,indices:
   const wanted=new Set(indices),segments=Object.freeze(network.segments.filter((_,i)=>wanted.has(i)));
   const result=Object.freeze({...network,segments,reference:network.reference??network});networks.add(result);curveLineages.set(result,curveLineages.get(network)!);return result;
 }
-/** Decode only one endpoint when a construction consumer needs exact weights. */
-export function curveSupportPoint3(network:SurfaceCurveNetwork3,segment:number,end:'a'|'b',support=0):H {
-  validateSurfaceCurveNetwork3(network);const row=network.segments[segment];if(!row?.supports[support])throw new Error('invalid curve support selection');
-  return decodePoint(network.nodes[row[end]].exact);
-}
 
 /** An explicit binding must describe the same captured source and transform as
  * the rendered object. A label or a matching prototype is not enough. */
@@ -296,12 +291,12 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
  * A recipe handed no view resolves eagerly and completely: the artist's value
  * is whole, and only a view's own classification is lazy. */
 export interface SurfaceCurveView3 {hiddenTriangles(binding:SurfaceBinding3):Uint8Array|undefined}
-/** One named graph in a scene; its source bindings identify supporting objects. */
 /** Curves described, not yet computed: a view resolves them once it knows
  * which of `bindings` it draws, so seams among culled objects are never made. */
 export interface SurfaceCurveRecipe3 {readonly bindings:readonly SurfaceBinding3[];resolve(keep?:(binding:SurfaceBinding3)=>boolean,view?:SurfaceCurveView3):SurfaceCurveNetwork3}
 /** Curves with their network in hand, as the snapshot holds them. */
 export interface SurfaceCurveGraph3 {readonly id:string;readonly network:SurfaceCurveNetwork3;readonly attributes?:Attributes3}
+/** One named graph in a scene; its source bindings identify supporting objects. */
 export type SurfaceCurveObject3 = {readonly id:string;readonly attributes?:Attributes3}&({readonly network:SurfaceCurveNetwork3;readonly recipe?:undefined}|{readonly recipe:SurfaceCurveRecipe3;readonly network?:undefined});
 
 /** Explicitly reevaluate retained affine attachments. Every support at a shared

@@ -9,10 +9,10 @@
  */
 
 import {
-  circle, decimate, deform, dash, evalPrim, line, mm, modify, ngon, rect,
-  render, roughen, sketch, smooth, wobble,
-  type Fragment, type ModifierValue, type RenderResult, type SketchDef, type Tree, type VectorFieldFn,
+  circle, decimate, deform, dash, group, line, mm, ngon, rect, roughen, sketch, smooth, wobble,
+  type ModifierValue, type SketchDef, type Tree, type VectorFieldFn,
 } from '../src/index.js';
+import { evalPrim, render, type Fragment, type RenderResult } from '../src/host.js';
 
 export interface Violation {
   rule: string;
@@ -154,7 +154,7 @@ export const preChains: Scenario = (seed) => {
           : kind < 0.66
             ? rect(cx - size, cy - size, size * 2, size * 2, r() < 0.5 ? range(r, 1, 3) : 0)
             : ngon(cx, cy, 3 + Math.floor(r() * 6), size, r() * 360);
-      shapes.push(modify(mods(), shape));
+      shapes.push(group({ modifiers: mods() }, shape));
       count++;
     }
   }
@@ -201,11 +201,11 @@ export const deformConverge: Scenario = (seed) => {
       : rect(range(r, 15, 55), range(r, 15, 55), range(r, 12, 30), range(r, 12, 30));
   const geom = shape();
   const coarse = render(
-    sketch({ seed }, () => deform({ field, detail: mm(2) }, geom)),
+    sketch({ seed }, () => group({ modifiers: [deform({ field, detail: mm(2) })] }, geom)),
     { paper: 'Square20' },
   );
   const fine = render(
-    sketch({ seed }, () => deform({ field, detail: mm(1) }, geom)),
+    sketch({ seed }, () => group({ modifiers: [deform({ field, detail: mm(1) })] }, geom)),
     { paper: 'Square20' },
   );
   const d = hausdorff(fragPts(coarse.frags), fragPts(fine.frags));
@@ -235,7 +235,7 @@ export const identityMods: Scenario = (seed) => {
   const shapes = tree();
   const plain = render(sketch({ seed }, () => shapes), { paper: 'Square20' });
   const noop = render(
-    sketch({ seed }, () => modify([decimate(0), wobble(0)], shapes)),
+    sketch({ seed }, () => group({ modifiers: [decimate(0), wobble(0)] }, shapes)),
     { paper: 'Square20' },
   );
   const v: Violation[] = [];
@@ -246,7 +246,7 @@ export const identityMods: Scenario = (seed) => {
     v.push({ rule: 'identity-noop', detail: 'decimate(0)+wobble(0) changed the output' });
   }
   const dashed = render(
-    sketch({ seed }, () => modify([dash(mm(1e6), mm(0))], shapes)),
+    sketch({ seed }, () => group({ modifiers: [dash(mm(1e6), mm(0))] }, shapes)),
     { paper: 'Square20' },
   );
   const inkA = plain.frags.reduce((a, f) => a + fragLen(f), 0);
@@ -282,7 +282,7 @@ export const occlusionExact: Scenario = (seed) => {
       lines.map(([y, x0, x1]) => line(x0, y, x1, y)),
       discs.map(([cx, cy, rad]) => {
         const c = circle(cx, cy, rad, { opaque: true });
-        return wob ? wobble(mm(1.5), c) : c;
+        return wob ? group({ modifiers: [wobble(mm(1.5))] }, c) : c;
       }),
     ]);
   const out = render(build(false), { paper: 'Square20' });
@@ -378,7 +378,7 @@ export const swirlOracle: Scenario = (seed) => {
     cy = range(r, 20, 80);
     rad = range(r, 6, 12);
   } while (Math.abs(Math.hypot(cx - 50, cy - 50) - rad) < 8);
-  const out = render(sketch({ seed }, () => deform(swirl, circle(cx, cy, rad))), {
+  const out = render(sketch({ seed }, () => group({ modifiers: [deform(swirl)] }, circle(cx, cy, rad))), {
     paper: 'Square20',
   });
   const unit = Math.min(out.frame.inner.innerW, out.frame.inner.innerH) / 100;

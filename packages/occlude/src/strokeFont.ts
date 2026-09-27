@@ -10,7 +10,7 @@
  *   - a Hershey `.jhf` file, the ASCII format of the Usenet distribution.
  *
  * A `Font` is a plain record — no class, no marker — and a `Glyph` answers
- * `curves()` like every other chain value in the library. Glyph geometry
+ * `curves` like every other chain value in the library. Glyph geometry
  * is in em units with y UP and the baseline at zero, which is what both
  * formats mean by their coordinates and what typography means by its own.
  * Turning that into ink is `t.text(...)`: the toolkit holds the paper, the
@@ -19,6 +19,8 @@
 
 import { material as materialOf, Material } from './material.js';
 import type { IsoContour } from './isolines.js';
+import type { Selection } from './selection.js';
+import { chainLengths, chainRecordOf, chainRecordsOf, curvesOfChains, isCurveRow, type ChainRecord, type Curve } from './curves.js';
 import { flattenPrim, type Prim } from './prims.js';
 import { parsePathData, type Chain, type Seg } from './svgin.js';
 import { mm, type L } from './units.js';
@@ -30,12 +32,23 @@ export interface Glyph {
   /** Pen advance in em units, before kerning and tracking. */
   readonly advance: number;
   /**
-   * The glyph's chains in em units, y up, curved portions flattened at
-   * `tolerance` (em units; the default is the em over 500, finer than any
-   * nib at any size a plotter draws). A closed chain comes back closed and
-   * without a repeated seam vertex.
+   * The glyph's chains as curves, in em units, y up, curved portions
+   * flattened at the em over 500 — finer than any nib at any size a
+   * plotter draws. A closed chain comes back a ring, without a repeated
+   * seam point. Read on first ask and kept.
    */
-  curves(opts?: { tolerance?: number }): IsoContour[];
+  readonly curves: Selection<Curve>;
+}
+
+/** A glyph's chains at a tolerance (em units): what `t.text` reads, at the
+ * tolerance the setting asks for. */
+const flattened = new WeakMap<Glyph, (tol: number | undefined) => IsoContour[]>();
+/** @internal The chains of a glyph at `tolerance` em units (the glyph's own
+ * default when absent). */
+export function glyphChains(glyph: Glyph, tolerance?: number): IsoContour[] {
+  const at = flattened.get(glyph);
+  if (at) return at(tolerance);
+  return (chainRecordsOf(glyph) ?? []).map((c) => ({ pts: c.pts.map((p) => [p[0], p[1]] as [number, number]), closed: c.closed }));
 }
 
 /**
@@ -105,18 +118,22 @@ function flattenChain(chain: Chain, tol: number): IsoContour {
  * and again. */
 function glyphOf(chains: Chain[], advance: number, defaultTol: number): Glyph {
   const cache = new Map<number, IsoContour[]>();
-  return {
-    advance,
-    curves(opts = {}) {
-      const tol = opts.tolerance !== undefined && opts.tolerance > 0 ? opts.tolerance : defaultTol;
-      let found = cache.get(tol);
-      if (!found) {
-        found = chains.map((c) => flattenChain(c, tol));
-        cache.set(tol, found);
-      }
-      return found;
-    },
+  const at = (tolerance: number | undefined): IsoContour[] => {
+    const tol = tolerance !== undefined && tolerance > 0 ? tolerance : defaultTol;
+    let found = cache.get(tol);
+    if (!found) {
+      found = chains.map((c) => flattenChain(c, tol));
+      cache.set(tol, found);
+    }
+    return found;
   };
+  let curves: Selection<Curve> | undefined;
+  const glyph: Glyph = {
+    advance,
+    get curves() { return (curves ??= curvesOfChains(at(undefined))); },
+  };
+  flattened.set(glyph, at);
+  return glyph;
 }
 
 /** A straight chain of points, the shape a Hershey stroke arrives in. */
@@ -360,8 +377,8 @@ export interface TextEnv {
 }
 
 /** A chain to set text along: a material, one of its curves, or any value
- * that answers `curves()`. */
-export type ChainSource = Material | IsoContour | { curves(): readonly IsoContour[] };
+ * that answers `curves`. */
+export type ChainSource = Material | Curve | { readonly curves: unknown };
 
 export interface TextOpts {
   /** The face (default: the built-in Hershey roman simplex). */
@@ -387,27 +404,13 @@ export interface TextOpts {
 }
 
 /** The chains of a `ChainSource`, drawable units. */
-function chainsOf(source: ChainSource): readonly IsoContour[] {
-  if (typeof (source as { curves?: unknown }).curves === 'function') {
-    return (source as { curves(): readonly IsoContour[] }).curves();
-  }
-  const c = source as IsoContour;
-  if (Array.isArray(c.pts)) return [c];
-  throw new Error("text: 'along' wants a chain — a material, or one curve of one; this value answers neither curves() nor pts");
-}
-
-/** Cumulative arc length of a chain, the seam segment included when it is
- * a ring: the same walk `along()` makes, read at the distances a line of
- * type asks for rather than at even spacing. */
-function arcLengths(pts: readonly (readonly [number, number])[], closed: boolean): number[] {
-  const segs = closed ? pts.length : pts.length - 1;
-  const cum = [0];
-  for (let s = 0; s < segs; s++) {
-    const a = pts[s];
-    const b = pts[(s + 1) % pts.length];
-    cum.push(cum[s] + Math.hypot(b[0] - a[0], b[1] - a[1]));
-  }
-  return cum;
+function chainsOf(source: ChainSource): readonly ChainRecord[] {
+  if (isCurveRow(source)) return [chainRecordOf(source)];
+  const found = chainRecordsOf(source);
+  if (found) return found;
+  const c = source as unknown as IsoContour;
+  if (c !== null && typeof c === 'object' && Array.isArray(c.pts)) return [c as ChainRecord];
+  throw new Error("text: 'along' wants a chain — a material, or one curve of one (m.curves.at(0)); this value answers no curves");
 }
 
 interface Frame { x: number; y: number; tx: number; ty: number }
@@ -482,7 +485,9 @@ export function textOf(env: TextEnv, str: string, opts: TextOpts): Material {
     const chains = chainsOf(opts.along!).filter((c) => c.pts.length > 1);
     if (chains.length === 0) return undefined;
     const c = chains[0];
-    const cum = arcLengths(c.pts, c.closed);
+    // The same walk `along()` makes, read at the distances a line of type
+    // asks for rather than at even spacing.
+    const cum = chainLengths(c.pts, c.closed);
     return { pts: c.pts, closed: c.closed, cum, total: cum[cum.length - 1] };
   })();
   if (opts.along !== undefined && path === undefined) return materialOf([]);
@@ -506,7 +511,7 @@ export function textOf(env: TextEnv, str: string, opts: TextOpts): Material {
       const f = path === undefined
         ? undefined
         : frameAt(path.pts, path.closed, path.cum, start + place.pen + place.advance / 2);
-      for (const curve of place.glyph.curves({ tolerance: tolEm })) {
+      for (const curve of glyphChains(place.glyph, tolEm)) {
         const first = pts.length;
         for (const [ex, ey] of curve.pts) {
           if (f === undefined) {

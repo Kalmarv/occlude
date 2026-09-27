@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { append, connect, curve, distanceTo, force, material, mm, polygon, strokes, type Material } from '../src/index.js';
+import { append, connect, curve, distanceTo, force, material, mm, point, polygon, strokes, type Material } from '../src/index.js';
 
 /** A Y: 0–1–2 trunk with branches 1–3 and 1–4, plus a loner 5. */
 const Y = (): Material =>
   material([[0, 0], [10, 0], [20, 0], [10, 10], [10, -10], [50, 50]], { edges: [[0, 1], [1, 2], [1, 3], [1, 4]], age: [0, 1, 2, 3, 4, 5] })
-    .edgeAttribute('level', (e) => (e.index < 2 ? 1 : 2));
+    .edges.set('level', (e) => (e.index < 2 ? 1 : 2));
 
 describe('geometry collections: points and edges', () => {
   it('iterate, length, at, map to an array, find; filter keeps source order and filters again', () => {
@@ -21,7 +21,7 @@ describe('geometry collections: points and edges', () => {
     const old = m.points.filter((p) => p.age >= 2);
     expect(old.indices).toEqual([2, 3, 4, 5]);
     expect(old.length).toBe(4);
-    expect(old.source).toBe(m);
+    expect(old.owner).toBe(m);
     const older = old.filter((p) => p.age >= 4);
     expect(older.indices).toEqual([4, 5]);
     expect(older.map((p) => p.age)).toEqual([4, 5]);
@@ -29,7 +29,7 @@ describe('geometry collections: points and edges', () => {
     // Views are the source's own: ownership and spellings survive.
     expect(old.has(m.vertex(3))).toBe(true);
     expect(old.has(Y().vertex(3))).toBe(false);
-    expect(m.edges.filter((e) => e.attrs.level === 2).indices).toEqual([2, 3]);
+    expect(m.edges.filter((e) => e.level === 2).indices).toEqual([2, 3]);
     expect(m.edges.at(1).b.index).toBe(2);
     // Nothing moved or copied.
     expect(m.x[3]).toBe(10);
@@ -49,17 +49,14 @@ describe('geometry collections: points and edges', () => {
   it('edits scope by selection, and a selection from an earlier state re-binds', () => {
     const m = Y();
     const earlier = m.points.filter((p) => p.age >= 3);
-    const moved = m.steps(1, (cur, next) => {
-      const tips = cur.points.filter((p) => p.adjacent.length === 1 && p.age > 0);
-      next.move(tips, () => [0, 1]);
-      next.set(tips, () => ({ age: 9 }));
-    });
+    const tips = m.points.filter((p) => p.adjacent.length === 1 && p.age > 0);
+    const moved = m.move([0, 1], tips).points.set('age', 9, tips);
     expect(moved.y[2]).toBe(1);
     expect(moved.attrs.age[3]).toBe(9);
     expect(moved.y[0]).toBe(0); // degree 1 but age 0
-    // A selection made before the step names the same points afterwards:
+    // A selection made before the writes names the same points afterwards:
     // the verb finds them by identity instead of refusing the selection.
-    const again = moved.steps(1, (_cur, next) => next.move(earlier, () => [1, 0]));
+    const again = moved.move([1, 0], earlier);
     for (const i of earlier.indices) expect(again.x[i]).toBe(moved.x[i] + 1);
   });
 });
@@ -67,10 +64,9 @@ describe('geometry collections: points and edges', () => {
 describe('selections as boundaries', () => {
   it('a ring picked out of a branching network is an area; a branching subset is not', () => {
     // A square ring with a spur off one corner.
-    const net = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).steps(1, (cur, next) => {
-      const spur = next.addPoint([20, 20], {});
-      next.connect(cur.points.at(2), spur);
-    });
+    const square = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
+    const spur = point([20, 20]);
+    const net = square.points.add(spur).edges.add([square.points.at(2), spur]);
     expect(() => distanceTo(net)).toThrow(/branches/);
     const ring = net.edges.filter((e) => e.index < 4);
     expect(distanceTo(ring)(5, 5)).toBeCloseTo(5, 9);
@@ -91,16 +87,19 @@ describe('selections as boundaries', () => {
       expect(distanceTo(all)(x, y)).toBe(distanceTo(m)(x, y));
       expect(distanceTo(all)(x, y)).toBe(distanceTo({ pts: square, closed: true })(x, y));
     }
-    const chain = connect.chain(material([[0, 0], [10, 0], [10, 10]]));
+    const chain = curve(material([[0, 0], [10, 0], [10, 10]]));
     expect(distanceTo(chain.edges)(3, 1)).toBe(distanceTo([[[0, 0], [10, 0], [10, 10]]])(3, 1));
     expect(distanceTo(m.edges.filter(() => false))(1, 1)).toBe(-Infinity);
-    // Points follow their existing connectivity: two selected corners without their edge are no area.
-    expect(distanceTo(m.points.filter((p) => p.index === 0 || p.index === 2))(5, 5)).toBe(-Infinity);
-    expect(distanceTo(m.points)(5, 5)).toBe(5);
+    // Points have no inside: a point selection is measured to its nearest
+    // point. Its members' own edges, `sel.edges`, are the area they bound.
+    expect(distanceTo(m.points.filter((p) => p.index === 0 || p.index === 2))(5, 5)).toBe(-Math.sqrt(50));
+    expect(distanceTo(m.points)(5, 5)).toBe(-Math.sqrt(50));
+    expect(distanceTo(m.points.edges)(5, 5)).toBe(5);
+    expect(distanceTo(m.points.filter((p) => p.index === 0 || p.index === 2).edges)(5, 5)).toBe(-Infinity);
   });
 
   it('faces stay explicit per face', () => {
-    const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true })).faces();
+    const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true })).faces;
     // A selection is several areas at once: it must say which one.
     // Deliberately the wrong input (a selection is several areas): the
     // refusal is the contract.
@@ -126,7 +125,7 @@ describe('groupBy', () => {
     expect(groups[0].filter((p) => p.x > 0).key).toBe(2);
     expect(groups[0].filter((p) => p.x > 0).indices).toEqual([2]);
     expect(groups[0].has(m.vertex(2))).toBe(true);
-    expect(groups[0].source).toBe(m);
+    expect(groups[0].owner).toBe(m);
     // Strings and objects group by identity, not by stringification.
     const a = { name: 'a' };
     const byObject = m.points.groupBy((p) => (p.kind === 3 ? a : { name: 'a' }));
@@ -139,20 +138,20 @@ describe('groupBy', () => {
     // Empty input, empty result.
     expect(m.points.filter(() => false).groupBy((p) => p.kind)).toEqual([]);
     // Nothing written to the geometry.
-    expect(m.attrNames).toEqual(['kind']);
+    expect(Object.keys(m.attrs)).toEqual(['kind']);
     expect(m.edgeCount).toBe(3);
   });
 
   it('edge groups are boundaries and draw directly; face groups keep their faces', () => {
     const two = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true }))
-      .edgeAttribute('level', (e) => (e.index < 4 ? 0.2 : 0.4));
-    const levels = two.edges.groupBy((e) => e.attrs.level);
+      .edges.set('level', (e) => (e.index < 4 ? 0.2 : 0.4));
+    const levels = two.edges.groupBy((e) => e.level);
     expect(levels.map((g) => g.key)).toEqual([0.2, 0.4]);
     expect(distanceTo(levels[1])(25, 5)).toBe(5);
     expect(distanceTo(levels[0])(25, 5)).toBe(-15);
     expect(levels.map((g) => polygon(g, { winding: 'nonzero' }))).toHaveLength(2);
     expect(strokes(levels[0])).toHaveLength(1);
-    const cells = two.faces().groupBy((f) => Math.floor(f.area / 1000));
+    const cells = two.faces.groupBy((f) => Math.floor(f.area / 1000));
     expect(cells).toHaveLength(1);
     expect(cells[0].key).toBe(0);
     expect(cells[0].length).toBe(2);
@@ -161,11 +160,10 @@ describe('groupBy', () => {
 
   it('extraction is still the explicit step to independent material', () => {
     const m = Y();
-    const branch = m.edges.filter((e) => e.attrs.level === 2);
+    const branch = m.edges.filter((e) => e.level === 2);
     const independent = branch.extract();
     expect(independent.n).toBe(3);
     expect(independent.edgeCount).toBe(2);
-    expect(independent.iteration).toBe(0);
     expect(Array.from(independent.edgeAttrs.level)).toEqual([2, 2]);
     expect(branch.points.length).toBe(3);
     expect(m.points.filter((p) => p.age > 4).extract().n).toBe(1);
@@ -180,7 +178,7 @@ describe('groupBy', () => {
     expect(() => { (group as { key: unknown }).key = 'x'; }).toThrow();
     expect(() => { (sel as { source: unknown }).source = Y(); }).toThrow();
     expect(group.key).toBe(0);
-    expect(sel.source).toBe(m);
+    expect(sel.owner).toBe(m);
     expect(all.indices).toEqual([0, 1, 2, 3, 4, 5]);
     expect(all.indices).toBe(all.indices); // cached once
     expect(m.edges.indices).toEqual([0, 1, 2, 3]);

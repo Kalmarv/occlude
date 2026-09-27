@@ -1,25 +1,24 @@
 /**
- * The basket of small words: `distanceToPoints`, `hull`,
- * `faces().containing`, `connect.turns`, `path().arcTo({ large })`, the
+ * The basket of small words: `distanceTo` of points, `hull`,
+ * `connect.turns`, `path().arcTo({ large })`, the
  * four vector helpers, and `gaussian` on the seeded stream.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  angleBetween, append, connect, curve, distanceToPoints, hull, lerp, material, path, reflect,
-  rotate, stroke, turn, unit, type Material, type Station,
+  angleBetween, append, connect, curve, distanceTo, hull, lerp, material, path, reflect,
+  rotate, stroke, turn, unit, type Material,
 } from '../src/index.js';
-import { faces } from '../src/faces.js';
 import { toolkit } from './helpers/run.js';
+import { circle as circleShape } from '../src/index.js';
+import { rec } from './helpers/xy.js';
+import { seg, square } from './helpers/shapes.js';
 
-const square = (x = 0, y = 0, s = 10) =>
-  curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
-const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
 
-// ---- distanceToPoints ------------------------------------------------------
+// ---- distanceTo of points --------------------------------------------------
 
-describe('distanceToPoints: the nearest site, as a field', () => {
+describe('distanceTo of points: the nearest site, as a field', () => {
   it('is zero at a site and negative everywhere else', () => {
-    const f = distanceToPoints([[10, 10], [30, 10]]);
+    const f = distanceTo(material([[10, 10], [30, 10]]));
     expect(f(10, 10)).toBe(0);
     expect(f(30, 10)).toBe(0);
     expect(f(14, 10)).toBeCloseTo(-4, 12);
@@ -37,7 +36,7 @@ describe('distanceToPoints: the nearest site, as a field', () => {
       return s / 2147483648;
     };
     for (let i = 0; i < 400; i++) sites.push([next() * 100, next() * 100]);
-    const f = distanceToPoints(sites);
+    const f = distanceTo(material(sites));
     const brute = (x: number, y: number) => -Math.min(...sites.map(([sx, sy]) => Math.hypot(x - sx, y - sy)));
     let worst = 0;
     for (let i = 0; i < 40; i++) {
@@ -51,14 +50,18 @@ describe('distanceToPoints: the nearest site, as a field', () => {
 
   it('reads a material and a point selection, and drops non-finite sites', () => {
     const m = material([[4, 4], [40, 40]]);
-    expect(distanceToPoints(m)(4, 4)).toBe(0);
-    expect(distanceToPoints(m.points)(40, 40)).toBe(0);
-    expect(distanceToPoints([[4, 4], [NaN, 3]])(4, 4)).toBe(0);
+    expect(distanceTo(m)(4, 4)).toBe(0);
+    expect(distanceTo(m.points)(40, 40)).toBe(0);
+    expect(distanceTo(material([[4, 4], [NaN, 3]]))(4, 4)).toBe(0);
   });
 
   it('is nowhere inside with no sites at all', () => {
-    expect(distanceToPoints([])(0, 0)).toBe(-Infinity);
-    expect(distanceToPoints([[NaN, NaN]])(0, 0)).toBe(-Infinity);
+    expect(distanceTo(material([]))(0, 0)).toBe(-Infinity);
+    expect(distanceTo(material([[NaN, NaN]]))(0, 0)).toBe(-Infinity);
+  });
+
+  it('a plain array of pairs is a loop, an area with an inside', () => {
+    expect(distanceTo([[0, 0], [10, 0], [10, 10], [0, 10]])(5, 5)).toBeCloseTo(5, 12);
   });
 });
 
@@ -123,74 +126,14 @@ describe('hull: the outline of a cloud', () => {
   });
 });
 
-// ---- faces().containing ----------------------------------------------------
-
-const split = (): Material => append(square(0, 0, 10), seg([5, 0], [5, 10])).planarize();
-
-describe('faces().containing: the face under a place', () => {
-  it('names the one face a point falls in', () => {
-    const cells = faces(split());
-    expect(cells.length).toBe(2);
-    const left = cells.containing([2, 5]);
-    expect(left.length).toBe(1);
-    expect(left.at(0).area).toBeCloseTo(50, 9);
-    expect(left.at(0).centroid[0]).toBeCloseTo(2.5, 9);
-  });
-
-  it('takes many places at once, and a face named twice is still one member', () => {
-    const cells = faces(split());
-    expect(cells.containing([[2, 5], [8, 5]]).length).toBe(2);
-    expect(cells.containing([[2, 5], [3, 6]]).length).toBe(1);
-    expect(cells.containing(material([[2, 5], [8, 5]])).length).toBe(2);
-    expect(cells.containing({ x: 8, y: 5 }).length).toBe(1);
-  });
-
-  it('a place on a wall, or outside every face, picks nothing', () => {
-    const cells = faces(split());
-    expect(cells.containing([5, 5]).length).toBe(0); // the dividing wall
-    expect(cells.containing([0, 5]).length).toBe(0); // the outer wall
-    expect(cells.containing([20, 20]).length).toBe(0); // outside
-  });
-
-  it('a hole belongs to its own face, not to the ring around it', () => {
-    const ring = append(square(0, 0, 30), square(10, 10, 10)).planarize();
-    const cells = faces(ring);
-    expect(cells.length).toBe(2);
-    const inner = cells.containing([15, 15]);
-    expect(inner.length).toBe(1);
-    expect(inner.at(0).area).toBeCloseTo(100, 9);
-    const outer = cells.containing([5, 5]);
-    expect(outer.at(0).area).toBeCloseTo(800, 9);
-  });
-
-  it('a selection answers with its members only', () => {
-    const cells = faces(split());
-    const left = cells.containing([2, 5]);
-    expect(left.containing([2, 5]).length).toBe(1);
-    expect(left.containing([8, 5]).length).toBe(0);
-  });
-
-  it('refuses something that is not a place', () => {
-    expect(() => faces(split()).containing(42 as never)).toThrow('faces.containing');
-  });
-});
-
 // ---- connect.turns ---------------------------------------------------------
 
-const station = (x: number, y: number, heading: number): Station => ({
-  x, y, heading, tangent: [Math.cos(heading), Math.sin(heading)],
-  normal: [-Math.sin(heading), Math.cos(heading)],
-  s: 0, u: 0, length: 0, chain: 0, closed: false, attrs: {}, edgeAttrs: {},
-  place: () => { throw new Error('not used'); },
-  step: () => { throw new Error('not used'); },
-  turn: () => { throw new Error('not used'); },
-  toward: () => { throw new Error('not used'); },
-  placement: () => { throw new Error('not used'); },
-});
+/** A headed place, as a record: what `connect.turns` reads of each entry. */
+const station = (x: number, y: number, heading: number): { x: number; y: number; heading: number } => ({ x, y, heading });
 
 /** Walk the chain from row 0 and measure it. */
 const chainOf = (m: Material): { pts: [number, number][]; length: number; maxTurn: number } => {
-  const curves = m.curves();
+  const curves = m.curves.map(rec);
   const pts = curves.flatMap((c) => c.pts as [number, number][]);
   let length = 0;
   let maxTurn = 0;
@@ -215,7 +158,7 @@ describe('connect.turns: the shortest bounded-curvature run', () => {
     for (const [, y] of pts) expect(Math.abs(y)).toBeLessThan(1e-9);
   });
 
-  it('ends where the next station is, facing the way it faces', () => {
+  it('ends where the next place is, facing the way it faces', () => {
     const a = station(0, 0, 0);
     const b = station(30, 20, Math.PI / 2);
     const m = connect.turns([a, b], { radius: 6 });
@@ -248,11 +191,18 @@ describe('connect.turns: the shortest bounded-curvature run', () => {
     const shut = connect.turns(ring, { radius: 8, closed: true });
     expect(shut.edgeCount).toBeGreaterThan(open.edgeCount);
     expect(shut.n).toBe(shut.edgeCount); // every vertex has two neighbours
-    expect(shut.curves()).toHaveLength(1);
-    expect(shut.curves()[0].closed).toBe(true);
+    expect(shut.curves.map(rec)).toHaveLength(1);
+    expect(shut.curves.map(rec)[0].closed).toBe(true);
   });
 
-  it('refuses plain points by name, and says where headings come from', () => {
+  it('takes the points of along() and placements, and refuses plain points by name', () => {
+    const ring = toolkit({ aspect: [1, 1] }).material(circleShape(50, 50, 20));
+    const byPoints = connect.turns(ring.along({ count: 6 }), { radius: 5, closed: true });
+    const byRows = connect.turns(ring.along({ count: 6 }).points, { radius: 5, closed: true });
+    expect(Array.from(byRows.x)).toEqual(Array.from(byPoints.x));
+    const kit = toolkit({ aspect: [1, 1] });
+    const byPlacements = connect.turns([kit.placement([0, 0]), kit.placement([40, 0])], { radius: 5 });
+    expect(chainOf(byPlacements).length).toBeCloseTo(40, 6);
     expect(() => connect.turns([[0, 0], [10, 10]] as never, { radius: 3 }))
       .toThrow(/m\.along/);
     expect(() => connect.turns(material([[0, 0], [1, 1]]), { radius: 3 }))
@@ -261,7 +211,7 @@ describe('connect.turns: the shortest bounded-curvature run', () => {
       .toThrow('connect.turns: { radius }');
   });
 
-  it('is deterministic and holds its stations', () => {
+  it('is deterministic and holds its places', () => {
     const list = [station(0, 0, 0), station(25, 12, 1), station(50, -6, 2.5)];
     const a = connect.turns(list, { radius: 5 });
     const b = connect.turns(list, { radius: 5 });

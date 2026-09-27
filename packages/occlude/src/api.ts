@@ -20,12 +20,14 @@
  *   stays usable — build() snapshots)
  */
 
-import {Mesh,CurveGeometry,type PointGeometry,type EdgeAttributes} from './three/api/mesh.js';
-import {MeshFaces} from './three/api/topology.js';
+import {type EdgeAttributes} from './three/api/mesh.js';
 import type {Attributes3} from './three/geometry/surface.js';
-import {sampleSurfacePoints,scatterSurfacePoints,type SurfaceSamples,type SurfaceSamplingOptions,type SurfaceScatterOptions} from './three/api/sampling.js';
+import {scatterSurface,type SurfaceScatterOptions} from './three/api/sampling.js';
+import {hasFaces} from './three/geometry/value.js';
+import {streamlinesInSpace,seedsInSpace,type Streamlines3Options} from './three/api/flow.js';
+import type {VectorField3} from './three/api/vec.js';
 import {SurfaceCurves} from './three/api/supported.js';
-import {sampleSurfaceCurves,type CurveSamples,type CurveSamplingOptions} from './three/api/curveSampling.js';
+import {sampleSurfaceCurves,type CurveSamplingOptions} from './three/api/curveSampling.js';
 import {ProjectedCurves,type ProjectedCurve,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
@@ -36,21 +38,20 @@ import { resolveTree3, classifyForRun3, strokesForRun3, inFrame3 } from './three
 import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
-import { INK_TOL, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
-import { isPlacement, type Placement } from './placement.js';
+import { INK_TOL, carriedSpace, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
+import { modelCell, coverTiling, tiling as tilingKernel, tilingGeometry, type TilingOpts } from './tiling.js';
+import { framePlacement, isPlacement, reflection as reflectionIn, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
-import { finiteCount } from './guard.js';
+import { finiteCount, isPointArg } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
-import { grid as gridCells, hexes as hexCells, triangles as triangleCells, type Box, type CellMaterial, type GridCell, type GridOptions, type HexOptions, type TriangleOptions } from './layout.js';
+import { grid as gridCells, type Box, type GridOptions } from './layout.js';
 import { placements as symmetryPlacements, cellStep as symmetryCellStep, type PlaneGroup } from './symmetry.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type Origin, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
-import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type RandomStream, type SketchOptions, type TransformOp, type Winding } from './execution.js';
+import { Execution, bindRun, type ExecutionInputs, type PaperSpec, type Pickable, type RandomStream, type SketchOptions, type TransformOp, type Winding } from './execution.js';
 import type { PenDef } from './pens.js';
-import { invertRange, mapRange, normRange } from './random.js';
 import {
   scatterPoints, throwPoints, relaxMaterial, settleMaterial, withinRegion,
   type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts, type ThrowOpts,
@@ -68,34 +69,40 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
   within?: Area;
   /** Seeds, one per entry, whatever the spelling: a pair IS a seed here,
    * because the key says so. Give this or `fromArea`, not both. */
-  fromPoints?: PointSelection | readonly XY[];
+  fromPoints?: Selection<Vertex> | readonly XY[];
   /** One area to start from — its whole interior and boundary — read
    * through the ordinary area door. Give this or `fromPoints`, not both. */
   fromArea?: Area;
 }
-import { latticeOf, Lattice, CellSelection, type LatticeInit, type LatticeOpts } from './lattice.js';
-import { residualOf, type Residual, type ResidualOpts } from './residual.js';
+import { latticeOf, Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
+import { residualOf, type ResidualOpts } from './residual.js';
 import { geodesicBow, unitMm, userPointMm } from './record.js';
-import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
+import { areaLoops, isContourRecord, isGeometry, numericLoops, refuseShape, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
-  Material, material as materialOf, alongChain, checkSampling, inSpace, isStations, stationAt, stationsMaterial,
-  withinMaterial, areaCentroid, append, areaView, type PointsLike, type Station, type Transfer, type Vertex,
+  Material, material as materialOf, alongChain, checkSampling, inSpace, inSpace3, resampleMaterial,
+  withinMaterial, areaCentroid, append, areaView, type Edge, type PointsLike, type Transfer, type Vertex,
 } from './material.js';
-import { PointSelection, EdgeSelection } from './relation.js';
+import { chainLengths, chainRecordOf, chainRecordsOf, isCurveRow, type Curve } from './curves.js';
+import { isPointSelection, isEdgeSelection } from './relation.js';
+import { Selection } from './selection.js';
+// Named here so the toolkit's declaration can say its query-host key.
+import type { QUERY_HOST3 } from './three/queries/surface.js';
+import { describe, ownerOf, viewKind } from './views.js';
+import { beginStep, carryLinks, derivation, endStep, linkRows, nodeOf, record, startLinks } from './derivation.js';
 
 /** A pass of `t.steps`: the value in, the next value out. One argument. */
 type Pass<T> = (value: T) => T;
 
 /** What an empty collection gives `t.pick`: one draw, and no member. */
 const NO_MEMBER: Pickable<undefined> = Object.freeze([undefined]);
-import { Faces, FaceSelection, type Face } from './faces.js';
+import { isFaceSelection, type Face } from './faces.js';
 import { voronoiOf } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { spacefill, type SpacefillOpts } from './spacefill.js';
 import { textOf, type TextOpts } from './strokeFont.js';
 import { hersheySimplex } from './fonts/hersheySimplex.js';
-import { distanceTo, distanceToPoints, type DistanceField } from './distance.js';
-import { attractIn, attractOf, boundaryIn, force, isOptionsOnly, separationIn, separationOf, sourcePoints, vortexIn, type GraphForce, type SeparationOpts, type Sources } from './forces.js';
+import { curvedDistanceField, distanceField, isPointSites, type DistanceField } from './distance.js';
+import { boundaryIn, force, isOptionsOnly, separationFrom, separationOf, sourcePoints, vortexIn, type GraphForce, type SeparationOpts, type Sources } from './forces.js';
 import { restamp } from './tables.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -106,7 +113,7 @@ import { areaFill, interiorPoint } from './area.js';
 import { orient2d } from 'robust-predicates';
 import { ui } from './ui.js';
 import { asset as assetOf, image as imageOf, type ImagePlacement } from './imageAsset.js';
-import { h, long, mm, s, w, radians, resolveLen, Len, type L } from './units.js';
+import { h, mm, w, radians, resolveLen, Len, type L } from './units.js';
 import { synth as synthPure, type SynthOpts } from './synth.js';
 import { isShader } from './shader.js';
 
@@ -128,17 +135,6 @@ export interface ShapeOpts {
   /** rect only: anchor (x, y) at the 'corner' (default) or the 'center'
    * (p5 rectMode). The sketch config's `rectMode` sets the default. */
   mode?: 'corner' | 'center';
-  /** Drop this fraction of the shape's FINAL visible strokes (0…1), after
-   * occlusion and cleanup. Seeded — the distressed-plot modifier. A number
-   * applies to everything; { stroke, fill } sets outline and fill ink
-   * separately (e.g. { fill: 0.5 } erodes the texture, keeps the outline);
-   * `step` is the pitch the engine samples a field amount on. */
-  decimate?: DecimateArg;
-  /** Hand-tremor: displace final strokes with seeded smooth noise, AFTER
-   * occlusion (line quality only). A length (bare units or mm()), or
-   * { amount, wavelength } to also set the noise wavelength (default
-   * mm(25)); `step` is the pitch the engine samples a field amount on. */
-  wobble?: WobbleArg;
   /** Endpoint-join tolerance (a length; mm() recommended): after occlusion,
    * strokes of shapes that OPT IN are joined pen-down across gaps up to
    * this size — hatch rows serpentine into single strokes, trading tiny
@@ -148,7 +144,7 @@ export interface ShapeOpts {
   bridge?: L;
   /** Preserve each authored contour and its visibility gaps through routing. */
   preserveStroke?: boolean;
-  /** Internal stable source/style/pass key for source-linked modifiers. */
+  /** @internal Stable source/style/pass key for source-linked modifiers. */
   strokeSeed?: number;
   /** Select intervals of a source polyline in segment-index + fraction units.
    * Post modifiers evaluate on the full polyline before trimming; gaps remain
@@ -163,10 +159,10 @@ export interface ShapeOpts {
    * coordinates, `'center'` for the middle of this shape's own bounds or
    * `'centroid'` for its area centroid. The user origin when unset. */
   origin?: Origin<L>;
-  /** Ordered modifier stack, applied first-to-last. Stacks compose in
-   * function-application order: this list runs first, then `modify()`
-   * ancestors inside-out; the `decimate`/`wobble` shorthand opts run last,
-   * in that fixed order. */
+  /** Ordered modifier stack, applied first-to-last: `modifiers:
+   * [smooth(2), wobble(mm(1)), decimate(0.2)]`. Stacks compose in
+   * function-application order: this list runs first, then the stacks of
+   * the enclosing groups, inside-out. */
   modifiers?: ModifierValue[];
 }
 
@@ -177,10 +173,6 @@ export interface ShapeValue {
 }
 
 export interface GroupOpts {
-  /** Decimation default for children that don't set their own. */
-  decimate?: DecimateArg;
-  /** Wobble default for children that don't set their own. */
-  wobble?: WobbleArg;
   /** Bridge default for children that don't set their own (opt-in join). */
   bridge?: L;
   /** Modifier stack for the subtree; nesting concatenates in
@@ -195,8 +187,8 @@ export interface GroupOpts {
    * or `'centroid'` for the area centroid of their union. */
   origin?: Origin<L>;
   /**
-   * An ISOMETRY of the sketch's geometry — a station's own frame, one of a
-   * tiling's placements, a `reflection` — instead of a deformation of the
+   * An ISOMETRY of the sketch's geometry — a walk's frame (`t.placement`,
+   * `p.placement()`), one of a tiling's placements, a `reflection` — instead of a deformation of the
    * sheet. `group(placement, …children)` is the short spelling.
    *
    * It cannot share a group with `translate`, `rotate`, `scale` or
@@ -261,18 +253,34 @@ export type Tree =
  * the two lists one list. */
 const SHAPE_OPTION = {
   pen: true, fill: true, fillPen: true, opaque: true, stroke: true, z: true, mode: true,
-  decimate: true, wobble: true, bridge: true, preserveStroke: true, strokeSeed: true,
+  bridge: true, preserveStroke: true, strokeSeed: true,
   strokeRanges: true, translate: true, rotate: true, scale: true, origin: true, modifiers: true,
 } satisfies Record<keyof ShapeOpts, true>;
 
-function shape(geom: ShapeGeom, opts: ShapeOpts = {}): ShapeValue {
-  // An option a shape does not take would be dropped in silence, and the
-  // shape drawn as if it were never written: refused by name instead.
+/** Every option a group takes, kept to the type the same way. */
+const GROUP_OPTION = {
+  bridge: true, modifiers: true, translate: true, rotate: true, scale: true, origin: true,
+  placement: true, pen: true, z: true,
+} satisfies Record<keyof GroupOpts, true>;
+
+/** The modifiers by name: an option spelled as one is told where it goes. */
+const MODIFIER_NAMES = new Set(['wobble', 'decimate', 'dash', 'smooth', 'roughen', 'deform']);
+
+/** An option a shape or a group does not take would be dropped in
+ * silence, and the value drawn as if it were never written: refused by
+ * name instead. A modifier's name is told its one spelling. */
+function refuseUnknownOptions(who: string, opts: object, known: Record<string, true>): void {
   for (const key of Object.keys(opts)) {
-    if (!Object.hasOwn(SHAPE_OPTION, key)) {
-      throw new Error(`a shape has no option '${key}' — it takes ${Object.keys(SHAPE_OPTION).join(', ')}`);
+    if (Object.hasOwn(known, key)) continue;
+    if (MODIFIER_NAMES.has(key)) {
+      throw new Error(`${who} has no option '${key}' — a modifier goes in the stack: { modifiers: [${key}(…)] }`);
     }
+    throw new Error(`${who} has no option '${key}' — it takes ${Object.keys(known).join(', ')}`);
   }
+}
+
+function shape(geom: ShapeGeom, opts: ShapeOpts = {}): ShapeValue {
+  refuseUnknownOptions('a shape', opts, SHAPE_OPTION);
   checkOrigin('shape', opts?.origin);
   return { __occludeShape: true, geom, opts };
 }
@@ -287,27 +295,15 @@ function checkOrigin(who: string, origin: unknown): void {
     const o = origin as { x?: unknown; y?: unknown };
     if (isLen(o.x) && isLen(o.y)) return;
   }
-  throw new Error(`${who}: origin is a point ([x, y] or { x, y }), 'center' or 'centroid' — got ${describeValue(origin)}`);
+  throw new Error(`${who}: origin is a point ([x, y] or { x, y }), 'center' or 'centroid' — got ${describe(origin)}`);
 }
 
-/** How a refusal names a value it was handed. */
-function describeValue(v: unknown): string {
-  if (typeof v === 'string') return `'${v}'`;
-  if (v === null || typeof v !== 'object') return String(v);
-  if (Array.isArray(v)) return `[${v.map((e) => (typeof e === 'object' && e !== null ? '…' : String(e))).join(', ')}]`;
-  return JSON.stringify(v) ?? 'a value';
-}
-
-/** The kind of a value an area consumer refuses, as its refusal says it. */
-function kindOf(v: unknown): string {
-  if (v === null) return 'null';
-  if (v === undefined) return 'undefined';
-  if (typeof v === 'function') return 'function';
-  if (typeof v !== 'object') return typeof v;
-  if ((v as ClipValue).__occludeClip) return 'clip';
-  if ((v as { __occludeModifier?: true }).__occludeModifier) return 'modifier';
-  const name = Object.getPrototypeOf(v)?.constructor?.name;
-  return name && name !== 'Object' ? name : 'record';
+/** What a refusal calls a value in a drawing tree: a clip and a modifier
+ * by their words, anything else as every refusal says it (`describe`). */
+function treeWords(v: unknown): string {
+  if ((v as ClipValue | null)?.__occludeClip) return 'a clip';
+  if ((v as { __occludeModifier?: true } | null)?.__occludeModifier) return 'a modifier';
+  return describe(v);
 }
 
 const isOpts = (v: unknown): v is ShapeOpts =>
@@ -324,15 +320,16 @@ const isInvertValue = (v: unknown): v is InvertValue =>
 // ---- pure shape constructors ----
 //
 // A shape that names points takes them either way. The FIRST argument
-// decides the form — `isPointArg` below — never the count of arguments,
-// so a station goes straight in and nothing is guessed.
+// decides the form — `isPointArg` (guard.ts) — never the count of arguments,
+// so a placement or a point of a curve goes straight in and nothing is
+// guessed.
 
 export function circle(x: L, y: L, r: L, opts?: ShapeOpts): ShapeValue;
 /** The same circle about a point: a pair or an `{ x, y }` record, so
- * `circle(station, 3)` works. The radius is a length as everywhere. */
+ * `circle(p, 3)` works. The radius is a length as everywhere. */
 export function circle(center: XY, r: L, opts?: ShapeOpts): ShapeValue;
 export function circle(a: L | XY, b: L, c?: L | ShapeOpts, d?: ShapeOpts): ShapeValue {
-  if (isPointArg(a)) return circle(vx(a), vy(a), b, c as ShapeOpts | undefined);
+  if (isPointArg(a, 'circle')) return circle(vx(a), vy(a), b, c as ShapeOpts | undefined);
   return shape({ kind: 'circle', x: a, y: b, r: c as L }, d);
 }
 
@@ -344,7 +341,7 @@ export function ellipse(
   e?: number | ShapeOpts,
   f?: ShapeOpts,
 ): ShapeValue {
-  if (isPointArg(a)) return ellipse(vx(a), vy(a), b, c, d as number | ShapeOpts | undefined, e as ShapeOpts | undefined);
+  if (isPointArg(a, 'ellipse')) return ellipse(vx(a), vy(a), b, c, d as number | ShapeOpts | undefined, e as ShapeOpts | undefined);
   const g = { kind: 'ellipse' as const, x: a, y: b, rx: c, ry: d as L };
   if (isOpts(e)) return shape({ ...g, rotation: 0 }, e);
   return shape({ ...g, rotation: e ?? 0 }, f);
@@ -359,7 +356,7 @@ export function rect(
   e?: L | ShapeOpts,
   f?: ShapeOpts,
 ): ShapeValue {
-  if (isPointArg(a)) return rect(vx(a), vy(a), b, c, d, e as ShapeOpts | undefined);
+  if (isPointArg(a, 'rect')) return rect(vx(a), vy(a), b, c, d, e as ShapeOpts | undefined);
   const o = isOpts(e) ? e : f;
   const r = isOpts(e) ? 0 : (e ?? 0);
   return shape({ kind: 'rect', x: a, y: b, w: c, h: d as L, radius: r, anchor: o?.mode }, o);
@@ -367,10 +364,10 @@ export function rect(
 
 export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue;
 /** The same line from two points: pairs or `{ x, y }` records, so
- * `line(start, tip)` works with two stations. */
+ * `line(start, tip)` works with two placements. */
 export function line(a: XY, b: XY, opts?: ShapeOpts): ShapeValue;
 export function line(a: L | XY, b: L | XY, c?: L | ShapeOpts, d?: L, e?: ShapeOpts): ShapeValue {
-  if (isPointArg(a)) {
+  if (isPointArg(a, 'line')) {
     return line(vx(a), vy(a), vx(b as XY), vy(b as XY), c as ShapeOpts | undefined);
   }
   return shape({ kind: 'line', x1: a, y1: b as L, x2: c as L, y2: d as L }, e);
@@ -385,38 +382,41 @@ const STROKES_OF_A_SHAPE = 'strokes: a shape is not geometry yet — draw the sh
 type ShapeIsNotChains = typeof STROKES_OF_A_SHAPE;
 
 /**
- * One stroke per contour, all with the same options — for a material's
- * chains, a selection's, `segmentRuns` output or any contour records:
- * `strokes(m, { pen })`, `strokes(sel, …)`, `strokes(segmentRuns(m, key), …)`.
- * A decision per contour (a pen by run key, a width by chain) stays a
- * `.map`: nothing here assigns pens from keys.
+ * One stroke per curve, all with the same options — for a material's
+ * curves, a selection's, one curve row, or a list of them:
+ * `strokes(m, { pen })`, `strokes(sel, …)`, `strokes(m.curves.filter(…))`,
+ * `m.edges.groupBy(key).map((g) => strokes(g, { pen: pens[g.key] }))`.
+ * A decision per curve (a pen by key, a width by chain) stays a `.map`:
+ * nothing here assigns pens from keys.
  */
 export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
-export function strokes<S extends Geometry | readonly IsoContour[] | ShapeValue>(source: S extends ShapeValue ? ShapeIsNotChains : S, opts?: ShapeOpts): ShapeValue[];
+export function strokes<S extends Geometry | Curve | readonly (IsoContour | Curve)[] | ShapeValue>(source: S extends ShapeValue ? ShapeIsNotChains : S, opts?: ShapeOpts): ShapeValue[];
 export function strokes(
-  source: Geometry | readonly IsoContour[] | ProjectedCurves | ShapeValue,
+  source: Geometry | Curve | readonly (IsoContour | Curve)[] | ProjectedCurves | ShapeValue,
   opts?: ShapeOpts | ProjectedStrokeOptions,
 ): ShapeValue[] | ProjectedStrokes {
   if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
-  if (Array.isArray(source)) return (source as readonly IsoContour[]).map((c) => stroke(c, opts));
+  if (Array.isArray(source)) return (source as readonly (IsoContour | Curve)[]).map((c) => stroke(c, opts));
   // A shape is not geometry until the toolkit lowers it, so it has no
   // chains yet; it is refused by name before any other reading.
   if (isShapeValue(source)) throw new Error(STROKES_OF_A_SHAPE);
-  // A chain consumer reads `curves()`: a face collection answers with its
-  // edges, each wall once. A value that has no chains to draw — one face
-  // is an area — is refused by name.
-  const chains = (source as Geometry).curves;
-  if (typeof chains !== 'function') {
-    throw new Error('strokes: this value has no chains to draw — one face is an area; draw it with polygon(face), or its walls with strokes(face.edges)');
-  }
+  if (isCurveRow(source)) return [stroke(source, opts)];
   // A rim edge — `cut = 1`, the piece of a boundary that `t.within` or
   // `t.isolines` added to close a region — is the area's edge, ink for
   // `polygon`. The chains of a material are its lines; an edge selection
   // is drawn as given.
   const m = source instanceof Material && source.edgeAttrs.cut !== undefined
-    ? source.edges.filter((e) => e.attrs.cut === 0).extract()
+    ? source.edges.filter((e) => e.cut === 0).extract()
     : source;
-  return chains.call(m).map((c) => stroke(c, opts));
+  // A chain consumer reads `curves`: a face collection answers with its
+  // walls, each once. A value that has no chains to draw — one face is an
+  // area — is refused by name.
+  const chains = chainRecordsOf(m);
+  if (chains === null) {
+    if (viewKind(m) === 'face') throw new Error('strokes: one face is an area, not chains — draw it with polygon(face), or its walls with strokes(face.edges)');
+    throw new Error(`strokes: ${describe(m)} is not geometry — give a material, a selection, a curve or a list of curves`);
+  }
+  return chains.map((c) => stroke(c as IsoContour, opts));
 }
 
 export interface PolygonOpts extends ShapeOpts {
@@ -431,12 +431,12 @@ export interface PolygonOpts extends ShapeOpts {
  * What `polygon` says, as a type, to a face collection: it is several
  * areas, and the sketch names which. The refusal at run time says the same.
  */
-type FacesAreSeveralAreas = 'polygon: a face collection is several areas — polygon(cells.contours()) for their union, or cells.map((f) => polygon(f)) for each';
+type FacesAreSeveralAreas = 'polygon: a face collection is several areas — polygon(faces.contours()) for their union, or faces.map((f) => polygon(f)) for each';
 
 /**
  * Refuse, by name, a value no area consumer can read: not a shape, a group,
  * an inverted area, loops, a contour record, nor a value that answers
- * `contours()` or `curves()`. A pure word (`clip`, `mask`, `invert`) names
+ * `contours()` or `curves`. A pure word (`clip`, `mask`, `invert`) names
  * itself; a toolkit word is named with its `t.`.
  */
 function refuseNonArea(who: string, v: unknown, pure = false): void {
@@ -446,10 +446,10 @@ function refuseNonArea(who: string, v: unknown, pure = false): void {
   }
   if (isShapeValue(v) || isGroupValue(v) || isInvertValue(v) || Array.isArray(v) || isRectRecord(v)) return;
   if (typeof v === 'object' && v !== null) {
-    const o = v as { contours?: unknown; curves?: unknown; pts?: unknown };
-    if (typeof o.contours === 'function' || typeof o.curves === 'function' || Array.isArray(o.pts)) return;
+    const o = v as { contours?: unknown; pts?: unknown };
+    if (typeof o.contours === 'function' || 'curves' in o || Array.isArray(o.pts)) return;
   }
-  throw new Error(`${name}: a ${kindOf(v)} is not an area — give a face, contours, a closed material, a shape or a rect`);
+  throw new Error(`${name}: ${treeWords(v)} is not an area — give a face, contours, a closed material, a shape or a rect`);
 }
 
 /** One outline of a lowered area in sketch coordinates, with its own
@@ -583,6 +583,13 @@ function pivotOf(outlines: readonly Outline[], which: 'center' | 'centroid'): [n
  * toolkit meets a word. A `polygon(shape)`'s inner shape is resolved too. */
 function pinShape(run: Execution, sv: ShapeValue): ShapeValue {
   let geom = sv.geom;
+  // A group's or an invert's area (`polygon(group)`): its path, read now
+  // that the run is in hand, under the rule `polygon` was given or the one
+  // the area reads by.
+  if (geom.kind === 'region') {
+    const r = areaRegion(run, geom.area as Area, 'polygon');
+    geom = loopsPath(r.loops, geom.winding ?? r.rule).geom;
+  }
   if (geom.kind === 'area') {
     const inner = pinShape(run, shape(geom.of.geom, geom.of.opts as ShapeOpts));
     if (inner.geom !== geom.of.geom || inner.opts.origin !== geom.of.opts.origin) {
@@ -629,14 +636,14 @@ function treeLeaves(
     return treeLeaves(run, g.children, op ? [...chain, op] : chain, who, tolerance, refine);
   }
   if (isShapeValue(tree)) return [{ shape: tree, outlines: shapeContours(run, tree, tolerance, refine, chain) }];
-  throw new Error(`${who}: a ${kindOf(tree)} in a group is not an area — a group is an area through the shapes it holds`);
+  throw new Error(`${who}: ${treeWords(tree)} in a group is not an area — a group is an area through the shapes it holds`);
 }
 
 /** A face: one area of a face collection, which knows its own walls. */
 const isFace = (v: unknown): v is Face =>
   typeof v === 'object' && v !== null && typeof (v as Face).index === 'number'
   && typeof (v as Face).contours === 'function' && typeof (v as Face).extract === 'function'
-  && (v as { boundaryEdges?: unknown }).boundaryEdges instanceof EdgeSelection;
+  && isEdgeSelection((v as { boundaryEdges?: unknown }).boundaryEdges);
 
 /** Every outline of an area with its own closure, for the words that walk a
  * boundary (`t.material`, `t.sample`): a shape's and a group's shapes' own,
@@ -651,24 +658,43 @@ function areaOutlines(run: Execution, area: Area, who: string, tolerance: L | un
   if (records) return records.map((c) => ({ pts: numericLoops([c.pts as Loop], who)[0], closed: c.closed !== false }));
   return numericLoops(areaLoops(area, who), who).map((pts) => ({ pts, closed: true }));
 }
-const isContourRecord = (v: unknown): v is IsoContour =>
-  typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as IsoContour).pts)
-  && typeof (v as { contours?: unknown }).contours !== 'function';
-
 /**
- * A shape as geometry: its outlines as contour records, in the sketch's own
- * units, with each outline's own closure.
- *
- * This is the one door the frame rule names. A shape is a description in
- * sketch coordinates; it needs the paper, the units and its own transform
- * before it is geometry, so the toolkit lowers it and every `t.` word takes
- * a shape because of this function. A pure kernel never calls it.
- *
- * `polygon` is the deliberate exception and must stay one: it defers the
- * shape into the drawing tree, where it is lowered inside the full transform
- * chain — the paper offset, the user origin, and any enclosing `group`.
- * Lowering it here instead would quietly drop the group's transform.
+ * The edge rows of an area that is geometry — a curve, a selection, a face
+ * — as a lookup from a boundary segment to the edge row it runs along, in
+ * the one material those edges are rows of. Its outlines are read off that
+ * geometry's own vertices, so a segment of an outline is an edge with the
+ * same two ends; a segment no edge makes (a chord that closes an open
+ * chain) answers -1. A shape, loops, records and a rect have no rows:
+ * undefined.
  */
+function geometryEdges(area: unknown): (((x0: number, y0: number, x1: number, y1: number) => number) & { of: Material }) | undefined {
+  if (typeof area !== 'object' || area === null || isShapeValue(area) || isGroupValue(area) || isInvertValue(area)) return undefined;
+  const iterable = (v: unknown): v is Iterable<unknown> => typeof v === 'object' && v !== null && typeof (v as Iterable<unknown>)[Symbol.iterator] === 'function';
+  const first = (v: Iterable<unknown>): unknown => { for (const x of v) return x; return undefined; };
+  let edges: Iterable<unknown> | undefined;
+  if (iterable(area) && viewKind(first(area)) === 'edge') edges = area;
+  else if (isGeometry(area) && 'edges' in area && iterable((area as { edges?: unknown }).edges)) edges = (area as { edges: Iterable<unknown> }).edges;
+  if (edges === undefined) return undefined;
+  let of: Material | undefined;
+  const rows = new Map<string, number>();
+  for (const e of edges as Iterable<Edge>) {
+    const owner = ownerOf(e) as Material | undefined;
+    if (!(owner instanceof Material)) continue;
+    of ??= owner;
+    if (owner !== of) continue;
+    rows.set(`${e.a.x},${e.a.y},${e.b.x},${e.b.y}`, e.index);
+    rows.set(`${e.b.x},${e.b.y},${e.a.x},${e.a.y}`, e.index);
+  }
+  if (of === undefined) return undefined;
+  return Object.assign((x0: number, y0: number, x1: number, y1: number) => rows.get(`${x0},${y0},${x1},${y1}`) ?? -1, { of });
+}
+
+/** A row a chain value answers under `curves`: not a list of points, but
+ * a value with its `points` in order and its `closed`. */
+const isRowOfCurve = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && typeof (v as Iterable<unknown>)[Symbol.iterator] !== 'function'
+  && 'points' in v && typeof (v as { closed?: unknown }).closed === 'boolean';
+
 /**
  * Is this the `t.travelTime` options record, and not a source handed in
  * where the record goes? A shape, a value that answers the geometry
@@ -682,7 +708,7 @@ const isTravelOpts = (v: unknown): v is TravelTimeOpts => {
 
 /** `fromPoints` as one seed per entry: the key says every entry is a point,
  * so a pair and a record mean the same thing here. */
-function seedRecords(from: PointSelection | readonly XY[]): { x: number; y: number }[] {
+function seedRecords(from: Selection<Vertex> | readonly XY[]): { x: number; y: number }[] {
   if (from === null || typeof from !== 'object' || typeof (from as Iterable<XY>)[Symbol.iterator] !== 'function') {
     throw new Error('travelTime: fromPoints expects points — a point selection, or a list of [x, y] pairs or { x, y } records');
   }
@@ -711,41 +737,26 @@ function lowerShape(run: Execution, input: Area, who: string): AreaInput {
 }
 
 /**
- * Points a word may draw a neighbourhood from — and a shape is NOT one.
- *
- * Lowering a shape here would make the answer depend on a flattening
- * tolerance nobody chose: how strongly a circle pushes its neighbours away
- * would be set by how finely it happened to be flattened, and
- * `excludeConnected` would change meaning, because a lowered outline has
- * edges where a list of points has none. So the refusal names the door:
- * `t.material(shape)` keeps the boundary's own vertices and
- * `t.sample(shape, { count })` places the number you ask for. Either choice
- * is the sketch's to make, in the open.
- */
-function pointSources(sources: Sources | ShapeValue, who: string): Sources {
-  if (!isShapeValue(sources)) return sources as Sources;
-  throw new Error(
-    `${who}: a shape is not a set of points — how many it has would be decided by a flattening ` +
-      `tolerance, not by you. Use t.material(shape) for the boundary's own vertices, or ` +
-      `t.sample(shape, { count }) for a number you choose.`,
-  );
-}
-
-/**
  * An area from its boundaries — the engine's Region concept as a value.
  * One loop or several (`[x, y][]`), contour records, a face (its contours
  * are the outer boundary and the holes), a chain material
- * (`t.material(rect(…))`, `t.isolines(…)`), or a shape, whose boundary is
- * taken and whose own drawing options are not: the result clips, fills,
+ * (`t.material(rect(…))`, `t.isolines(…)`), a shape, whose boundary is
+ * taken and whose own drawing options are not, or a group or an
+ * `invert(area)`, which the toolkit reads when the drawing is recorded
+ * (the union of the group's shapes; the drawable without the area): the
+ * result clips, fills,
  * masks, and stamps as one thing. No geometry is computed; open contours
- * get their closing chord; a branching material is refused. `winding`
- * picks the fill rule; `'evenodd'` (the default) makes every enclosed
- * boundary a hole whatever its orientation, so this reads a ring as an
- * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
- * other spelling: there the geometry's own orientation decides, as in SVG.
+ * get their closing chord; a branching material with faces (a tiling, a
+ * grid, a planarized web) is the union of its faces, and one that encloses
+ * nothing (a tree) is no area and fills nothing. `winding` picks the fill rule; `'evenodd'` (the
+ * default) makes every enclosed boundary a hole whatever its orientation,
+ * so this reads a ring as an annulus and a pentagram as an empty pentagon.
+ * A path carries its own rule (`path()` is `'nonzero'`, as in SVG, unless
+ * `path({ winding })` says otherwise), and `polygon(somePath)` keeps it;
+ * a `winding` given here overrides it.
  */
-export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(area: A extends FaceSelection<unknown> ? FacesAreSeveralAreas : A, opts: PolygonOpts = {}): ShapeValue {
-  const contours = area as AreaInput | Contour | Contour[] | ShapeValue;
+export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue | GroupValue | InvertValue>(area: A extends Selection<infer R> ? (R extends Face ? FacesAreSeveralAreas : A) : A, opts: PolygonOpts = {}): ShapeValue {
+  const contours = area as AreaInput | Contour | Contour[] | ShapeValue | GroupValue | InvertValue;
   const { winding: given, ...rest } = opts;
   // The source is the authority for the fill rule, and a path carries one:
   // `polygon(somePath)` keeps it, and `opts.winding` overrides it. Loops and
@@ -753,11 +764,13 @@ export function polygon<A extends AreaInput | Contour | Contour[] | ShapeValue>(
   const fromSource = isShapeValue(contours) && (contours.geom.kind === 'path' || contours.geom.kind === 'area') ? contours.geom.winding : undefined;
   const winding = given ?? fromSource ?? 'evenodd';
   // A shape is an area input; its outline is lowered when the drawing is
-  // recorded, against the run's frame — pure here, no run in hand.
+  // recorded, against the run's frame — pure here, no run in hand. A group
+  // and an invert are areas too, which the toolkit reads the same way.
   if (isShapeValue(contours)) {
     const o = contours.opts;
     return shape({ kind: 'area', of: { geom: contours.geom, opts: { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin } }, winding }, rest);
   }
+  if (isGroupValue(contours) || isInvertValue(contours)) return shape({ kind: 'region', area: contours, winding: given }, rest);
   return areaPath(contours as AreaInput, 'polygon', winding, rest);
 }
 
@@ -788,16 +801,17 @@ function loopsPath(
 
 /**
  * The geodesic segments of an area source, as a test on a segment's two
- * ends: the chains the source answers (`curves()`), each segment its
+ * ends: the chains the source answers (`curves`), each segment its
  * `geodesic` flag says is one, keyed by its ends either way round. A
  * loop `areaLoops` reads — a closed chain, a face's rim — is made of those
  * very edges, with the very coordinates. Undefined when nothing is a
  * geodesic, which is every flat source.
  */
 function geodesicSegments(source: unknown): ((a: readonly [unknown, unknown], b: readonly [unknown, unknown]) => boolean) | undefined {
-  if (typeof source !== 'object' || source === null || typeof (source as { curves?: unknown }).curves !== 'function') return undefined;
+  const chains = chainRecordsOf(source);
+  if (chains === null) return undefined;
   const keys = new Set<string>();
-  for (const c of (source as { curves(): IsoContour[] }).curves()) {
+  for (const c of chains) {
     const g = c.geodesic;
     if (!g) continue;
     const n = c.pts.length;
@@ -813,23 +827,6 @@ function geodesicSegments(source: unknown): ((a: readonly [unknown, unknown], b:
   return (a, b) => keys.has(`${a[0]},${a[1]},${b[0]},${b[1]}`);
 }
 
-/**
- * The region word, one spelling. `within(field, area)` bounds a field's
- * domain (the field is ABSENT outside — see field.ts). Everything else keeps
- * only what lies INSIDE the area:
- *
- * - a material: its edges cut where they cross the boundary, the outside
- *   dropped, so a chord built long enough to be sure of crossing a frame
- *   ends ON the frame (columns keep their declared transfer policy);
- * - a point, edge or face selection: the members that belong to the area,
- *   whole, as a selection of the same source, so it still chains and still
- *   works as `{ where }` in a step rule.
- *
- * `area` is any `Area`, read through the one toolkit lowering: a shape, a
- * group, a face, loops, contour records, a closed material, a selection, or
- * `invert(area)` for the outside. A selection takes `{ keep }` (see
- * WithinKeep).
- */
 /** How `within` decides that a member of a selection belongs to an area:
  * one vocabulary for points, edges and faces. The boundary is judged with
  * the one ink tolerance (`INK_TOL`, on the sheet): a vertex that close to
@@ -851,28 +848,41 @@ export interface WithinKeep {
   keep?: 'contained' | 'centroid' | 'touching';
 }
 
+/**
+ * The region word, one spelling. `within(field, area)` bounds a field's
+ * domain (the field is ABSENT outside — see field.ts). Everything else keeps
+ * only what lies INSIDE the area:
+ *
+ * - a material: its edges cut where they cross the boundary, the outside
+ *   dropped, so a chord built long enough to be sure of crossing a frame
+ *   ends ON the frame (columns keep their declared transfer policy);
+ * - a point, edge or face selection: the members that belong to the area,
+ *   whole, as a selection of the same source, so it still chains and still
+ *   works as `{ where }` in a step rule.
+ *
+ * `area` is any `Area`, read through the one toolkit lowering: a shape, a
+ * group, a face, loops, contour records, a closed material, a selection, or
+ * `invert(area)` for the outside. A selection takes `{ keep }` (see
+ * WithinKeep).
+ */
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: Area): Prepared<F>;
   (material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
-  (points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
-  (edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
-  (faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
+  <R extends Vertex | Edge | Face>(selection: Selection<R>, area: Area, opts?: WithinKeep): Selection<R>;
   (lines: ProjectedCurves, area: Area): ProjectedCurves;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: Area): Prepared<F>;
 export function withinAny(run: Execution, material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
-export function withinAny(run: Execution, points: PointSelection, area: Area, opts?: WithinKeep): PointSelection;
-export function withinAny(run: Execution, edges: EdgeSelection, area: Area, opts?: WithinKeep): EdgeSelection;
-export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Area, opts?: WithinKeep): FaceSelection;
+export function withinAny<R extends Vertex | Edge | Face>(run: Execution, selection: Selection<R>, area: Area, opts?: WithinKeep): Selection<R>;
 export function withinAny(run: Execution, lines: ProjectedCurves, area: Area): ProjectedCurves;
 
 export function withinAny(
   run: Execution,
-  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection | ProjectedCurves,
+  x: FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | ProjectedCurves,
   area: Area,
   opts: { transfer?: Record<string, Transfer> } & WithinKeep = {},
-): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection | ProjectedCurves {
+): FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | ProjectedCurves {
   // The one area door: a field is bounded by the area as one shape, which
   // the engine receives as exact geometry.
   if (typeof x === 'function') return withinField(x, areaAsShape(run, area, 'within'), boundEnv(run));
@@ -884,7 +894,7 @@ export function withinAny(
   }
   const keep = opts.keep ?? 'contained';
   if (keep !== 'contained' && keep !== 'centroid' && keep !== 'touching') {
-    throw new Error(`within: keep must be 'contained', 'centroid' or 'touching', got ${describeValue(opts.keep)}`);
+    throw new Error(`within: keep must be 'contained', 'centroid' or 'touching', got ${describe(opts.keep)}`);
   }
   const region = areaRegion(run, area, 'within');
   const loops = region.loops;
@@ -908,7 +918,7 @@ export function withinAny(
   const side = boundarySide(fill, INK_TOL / unitMm(run.frame));
   // A point is its own centroid, and touches the area exactly when it is
   // in or on it: the three questions have one answer.
-  if (x instanceof PointSelection) return x.filter((p) => side(p.x, p.y) >= 0);
+  if (isPointSelection(x)) return x.filter((p) => side(p.x, p.y) >= 0);
   // A wall belongs when no piece of it lies outside: its ends in or on the
   // area, and between any two crossings of the real boundary the middle in
   // or on it too — so a wall that runs along the boundary, crossing it back
@@ -925,20 +935,17 @@ export function withinAny(
   };
   const touches = (ax: number, ay: number, bx: number, by: number): boolean =>
     side(ax, ay) >= 0 || side(bx, by) >= 0 || meetsBoundary(fill.boundary, ax, ay, bx, by);
-  if (x instanceof EdgeSelection) {
+  if (isEdgeSelection(x)) {
     if (keep === 'centroid') return x.filter((e) => side(e.center[0], e.center[1]) >= 0);
     if (keep === 'touching') return x.filter((e) => touches(e.a.x, e.a.y, e.b.x, e.b.y));
     return x.filter((e) => wallIn(e.a.x, e.a.y, e.b.x, e.b.y));
   }
-  const faces: Faces | FaceSelection = x;
+  if (!isFaceSelection(x)) throw new Error(`within: ${describe(x)} is not a field, a material, projected lines or a selection of points, edges or faces`);
+  const faces: Selection<Face> = x;
   const tol = INK_TOL / unitMm(run.frame);
   if (keep === 'centroid') {
-    // Geometric centres: no field is measured, so no raster is built.
-    const measured = faces.measure();
-    return faces.filter((f) => {
-      const [cx, cy] = measured.forFace(f).centroid;
-      return side(cx, cy) >= 0;
-    });
+    // Geometric centres: the face's own.
+    return faces.filter((f) => side(f.centroid[0], f.centroid[1]) >= 0);
   }
   if (keep === 'touching') {
     // Any shared point: a vertex in or ON the boundary, a wall meeting a real
@@ -956,7 +963,7 @@ export function withinAny(
       }
       if (fill.boundary.length === 0) return false;
       const [ax, ay] = fill.boundary[0];
-      return distanceTo(areas)(ax, ay) >= -tol;
+      return distanceField(areas)(ax, ay) >= -tol;
     });
   }
   // A face is kept whole or not kept at all: nothing of it is clipped. It
@@ -986,14 +993,14 @@ export function withinAny(
     // would cover. Each real segment is tested at its ends and its middle,
     // deeper than the tolerance; a wall the face shares with the boundary is
     // ON it, not in it, and passes.
-    const faceInside = distanceTo(areas);
+    const faceInside = distanceField(areas);
     for (const s of fill.boundary) {
       const [ax, ay, bx, by] = s;
       if (faceInside(ax, ay) > tol || faceInside(bx, by) > tol || faceInside((ax + bx) / 2, (ay + by) / 2) > tol) return false;
     }
     return true;
   };
-  return x instanceof Faces ? x.filter(keepFace) : x.filter(keepFace);
+  return faces.filter(keepFace);
 }
 
 /**
@@ -1065,7 +1072,7 @@ function boundarySide(fill: ReturnType<typeof areaFill>, tol: number): (x: numbe
   return (x, y) => {
     const v = fill.at(x, y);
     if (!(v > 0) && !(v < 0)) return v;
-    near ??= fill.boundary.length === 0 ? () => Infinity : distanceTo(fill.boundary.map(([ax, ay, bx, by]) => [[ax, ay], [bx, by]] as [number, number][]));
+    near ??= fill.boundary.length === 0 ? () => Infinity : distanceField(fill.boundary.map(([ax, ay, bx, by]) => [[ax, ay], [bx, by]] as [number, number][]));
     return Math.abs(near(x, y)) <= tol ? 0 : v;
   };
 }
@@ -1105,7 +1112,7 @@ export function ngon(center: XY, sides: number, r: L, rotation?: number | ShapeO
 export function ngon(
   a: L | XY, b: L, c: number | L, d?: L | number | ShapeOpts, e?: number | ShapeOpts, f?: ShapeOpts,
 ): ShapeValue {
-  if (isPointArg(a)) return ngon(vx(a), vy(a), b as number, c, d as number | ShapeOpts | undefined, e as ShapeOpts | undefined);
+  if (isPointArg(a, 'ngon')) return ngon(vx(a), vy(a), b as number, c, d as number | ShapeOpts | undefined, e as ShapeOpts | undefined);
   const g = { kind: 'ngon' as const, x: a, y: b, sides: c as number, r: d as L };
   if (isOpts(e)) return shape({ ...g, rotation: 0 }, e);
   return shape({ ...g, rotation: e ?? 0 }, f);
@@ -1113,19 +1120,20 @@ export function ngon(
 
 
 /**
- * Draw along a contour with the pen — `polygon`'s open-minded sibling. A
- * bare `[x, y][]` strokes an OPEN polyline (polygon always closes); an
- * `IsoContour` honors its `closed` flag, so isolines/rings stamp with the
- * right seams and the right open ends in one call; `strokes(material)`
- * does it for every chain of a material.
+ * Draw along a curve with the pen — `polygon`'s open-minded sibling. A
+ * bare `[x, y][]` strokes an OPEN polyline (polygon always closes); a curve
+ * row (`m.curves.at(0)`) honors its `closed`, so rings stamp with the right
+ * seams and chains with the right open ends in one call; `strokes(m)` does
+ * it for every curve of a material.
  */
 export function stroke(
-  contour: IsoContour | Iterable<readonly [L, L] | { readonly x: L; readonly y: L }>,
+  contour: Curve | IsoContour | Iterable<readonly [L, L] | { readonly x: L; readonly y: L }>,
   opts?: ShapeOpts,
 ): ShapeValue {
-  // A contour record keeps its closure; any list of points — pairs,
-  // `{ x, y }` records, a point selection, mixed — is an open polyline.
-  const record = isContourRecord(contour) ? contour : null;
+  // A curve row or a contour record keeps its closure; any list of points
+  // — pairs, `{ x, y }` records, a point selection, mixed — is an open
+  // polyline.
+  const record = isContourRecord(contour) ? contour : isCurveRow(contour) || isRowOfCurve(contour) ? chainRecordOf(contour) as IsoContour : null;
   const pts: [L, L][] = record ? record.pts : Array.from(contour as Iterable<unknown>, (p, i): [L, L] => {
     if (Array.isArray(p) && p.length >= 2) return [p[0] as L, p[1] as L];
     if (typeof p === 'object' && p !== null && 'x' in p && 'y' in p) return [(p as { x: L }).x, (p as { y: L }).y];
@@ -1161,7 +1169,7 @@ export function stroke(
  * No points, no ink.
  */
 export function dots(points: Sources, opts: { pen?: string } = {}): ShapeValue[] {
-  const list = materialOf(sourcePoints(points));
+  const list = materialOf(sourcePoints(points, 'dots'));
   const out: ShapeValue[] = [];
   // A dot is an engine stipple mark, and a stipple mark belongs to a
   // region: the marks are supplied for a shape and judged strictly inside
@@ -1199,21 +1207,21 @@ export class PathValue {
   moveTo(x: L, y: L): this;
   moveTo(to: XY): this;
   moveTo(a: L | XY, b?: L): this {
-    if (isPointArg(a)) return this.moveTo(vx(a), vy(a));
+    if (isPointArg(a, 'path.moveTo')) return this.moveTo(vx(a), vy(a));
     this.cmds.push({ op: 'move', x: a, y: b as L });
     return this;
   }
   lineTo(x: L, y: L): this;
   lineTo(to: XY): this;
   lineTo(a: L | XY, b?: L): this {
-    if (isPointArg(a)) return this.lineTo(vx(a), vy(a));
+    if (isPointArg(a, 'path.lineTo')) return this.lineTo(vx(a), vy(a));
     this.cmds.push({ op: 'line', x: a, y: b as L });
     return this;
   }
   bezierTo(c0x: L, c0y: L, c1x: L, c1y: L, x: L, y: L): this;
   bezierTo(c0: XY, c1: XY, to: XY): this;
   bezierTo(a: L | XY, b: L | XY, c: L | XY, d?: L, e?: L, f?: L): this {
-    if (isPointArg(a)) {
+    if (isPointArg(a, 'path.bezierTo')) {
       const [c1, to] = [b as XY, c as XY];
       return this.bezierTo(vx(a), vy(a), vx(c1), vy(c1), vx(to), vy(to));
     }
@@ -1223,7 +1231,7 @@ export class PathValue {
   quadTo(cx: L, cy: L, x: L, y: L): this;
   quadTo(c: XY, to: XY): this;
   quadTo(a: L | XY, b: L | XY, c?: L, d?: L): this {
-    if (isPointArg(a)) return this.quadTo(vx(a), vy(a), vx(b as XY), vy(b as XY));
+    if (isPointArg(a, 'path.quadTo')) return this.quadTo(vx(a), vy(a), vx(b as XY), vy(b as XY));
     this.cmds.push({ op: 'quad', cx: a, cy: b as L, x: c as L, y: d as L });
     return this;
   }
@@ -1238,7 +1246,7 @@ export class PathValue {
   arcTo(x: L, y: L, r: L, opts?: { large?: boolean }): this;
   arcTo(to: XY, r: L, opts?: { large?: boolean }): this;
   arcTo(a: L | XY, b: L, c?: L | { large?: boolean }, d: { large?: boolean } = {}): this {
-    if (isPointArg(a)) return this.arcTo(vx(a), vy(a), b, c as { large?: boolean } | undefined);
+    if (isPointArg(a, 'path.arcTo')) return this.arcTo(vx(a), vy(a), b, c as { large?: boolean } | undefined);
     this.cmds.push({ op: 'arc', x: a, y: b, r: c as L, large: d.large });
     return this;
   }
@@ -1296,6 +1304,7 @@ export function range(a: number, b?: number, step = 1): number[] {
 export function group(opts: GroupOpts | Placement, ...children: Tree[]): GroupValue {
   if (isPlacement(opts)) return { __occludeGroup: true, opts: { placement: opts }, children };
   const o = opts as GroupOpts;
+  if (typeof o === 'object' && o !== null) refuseUnknownOptions('group', o, GROUP_OPTION);
   checkOrigin('group', o?.origin);
   if (o && o.placement !== undefined
     && (o.translate !== undefined || o.rotate !== undefined || o.scale !== undefined || o.origin !== undefined)) {
@@ -1371,27 +1380,24 @@ function wobbleValue(a: WobbleArg): ModifierValue {
 /**
  * Hand-tremor: seeded smooth-noise displacement of final strokes, applied
  * AFTER occlusion so the hidden-line result is exact and only the ink
- * trembles. With children it wraps the subtree; with no children it
- * returns a modifier value for a `modifiers: [...]` stack.
+ * trembles. A length (bare units or mm()), or `{ amount, wavelength }` to
+ * also set the noise wavelength (default mm(25)); `step` is the pitch the
+ * engine samples a field amount on. A modifier value, for a shape's or a
+ * group's `modifiers: [...]` stack.
  */
-export function wobble(amount: WobbleArg): ModifierValue;
-export function wobble(amount: WobbleArg, ...children: [Tree, ...Tree[]]): GroupValue;
-export function wobble(amount: WobbleArg, ...children: Tree[]): GroupValue | ModifierValue {
-  if (children.length === 0) return wobbleValue(amount);
-  return { __occludeGroup: true, opts: { wobble: amount }, children };
+export function wobble(amount: WobbleArg): ModifierValue {
+  return wobbleValue(amount);
 }
 
 /**
  * Drop `p` (0…1) of the final visible strokes — computed AFTER occlusion,
- * seeded by the sketch seed. The distressed-plot modifier. With children
- * it wraps the subtree; with no children it returns a modifier value for a
- * `modifiers: [...]` stack.
+ * seeded by the sketch seed. The distressed-plot modifier. A number
+ * applies to everything; `{ stroke, fill }` sets outline and fill ink
+ * separately (`{ fill: 0.5 }` erodes the texture and keeps the outline).
+ * A modifier value, for a `modifiers: [...]` stack.
  */
-export function decimate(p: DecimateArg): ModifierValue;
-export function decimate(p: DecimateArg, ...children: [Tree, ...Tree[]]): GroupValue;
-export function decimate(p: DecimateArg, ...children: Tree[]): GroupValue | ModifierValue {
-  if (children.length === 0) return decimateValue(p);
-  return { __occludeGroup: true, opts: { decimate: p }, children };
+export function decimate(p: DecimateArg): ModifierValue {
+  return decimateValue(p);
 }
 
 const isLen = (v: unknown): v is L => typeof v === 'number' || v instanceof Len;
@@ -1402,43 +1408,21 @@ const isLen = (v: unknown): v is L => typeof v === 'number' || v instanceof Len;
  * joints never reset it), and on closed shapes the period is snapped to
  * divide the contour length so the pattern meets itself seamlessly.
  * `gap` defaults to `len`; `offset` shifts the pattern. The cuts are
- * exact sub-ranges — curves stay curves. With children it wraps the
- * subtree; alone it returns a modifier value.
+ * exact sub-ranges — curves stay curves. A modifier value, for a
+ * `modifiers: [...]` stack.
  */
-export function dash(len: L, gap?: L, offset?: L): ModifierValue;
-export function dash(len: L, gap: L, ...children: [Tree, ...Tree[]]): GroupValue;
-export function dash(
-  len: L, gap: L, offset: L, ...children: [Tree, ...Tree[]]
-): GroupValue;
-export function dash(
-  len: L,
-  ...rest: (L | Tree)[]
-): GroupValue | ModifierValue {
-  const lens: L[] = [];
-  let i = 0;
-  while (i < rest.length && lens.length < 2 && isLen(rest[i])) {
-    lens.push(rest[i] as L);
-    i++;
-  }
-  const children = rest.slice(i) as Tree[];
-  const value: ModifierValue = {
-    __occludeModifier: true, kind: 'dash', len, gap: lens[0] ?? len, offset: lens[1],
-  };
-  if (children.length === 0) return value;
-  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
+export function dash(len: L, gap?: L, offset?: L): ModifierValue {
+  return { __occludeModifier: true, kind: 'dash', len, gap: gap ?? len, offset };
 }
 
 /**
  * Chaikin corner-rounding on the shape's geometry, BEFORE occlusion — the
  * smoothed outline is what occludes. Each pass rounds every corner; a few
- * passes approach a spline. Curves flatten to polylines here.
+ * passes approach a spline. Curves flatten to polylines here. A modifier
+ * value, for a `modifiers: [...]` stack.
  */
-export function smooth(passes?: number): ModifierValue;
-export function smooth(passes: number, ...children: [Tree, ...Tree[]]): GroupValue;
-export function smooth(passes = 2, ...children: Tree[]): GroupValue | ModifierValue {
-  const value: ModifierValue = { __occludeModifier: true, kind: 'smooth', passes };
-  if (children.length === 0) return value;
-  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
+export function smooth(passes = 2): ModifierValue {
+  return { __occludeModifier: true, kind: 'smooth', passes };
 }
 
 /**
@@ -1450,28 +1434,16 @@ export function smooth(passes = 2, ...children: Tree[]): GroupValue | ModifierVa
  */
 type RoughenArg = L | FieldFn | { amount: L | FieldFn; detail?: L; align?: FieldAlign; step?: L };
 
-export function roughen(amount: RoughenArg, detail?: L): ModifierValue;
-export function roughen(
-  amount: RoughenArg,
-  detail: L | undefined,
-  ...children: [Tree, ...Tree[]]
-): GroupValue;
-export function roughen(
-  amount: RoughenArg,
-  detail?: L,
-  ...children: Tree[]
-): GroupValue | ModifierValue {
+export function roughen(amount: RoughenArg, detail?: L): ModifierValue {
   const cfg =
     typeof amount === 'object' && !(amount instanceof Len) && 'amount' in amount
       ? amount
       : { amount, detail };
-  const value: ModifierValue = {
+  return {
     __occludeModifier: true, kind: 'roughen',
     amount: cfg.amount, detail: cfg.detail ?? detail, align: cfg.align,
     step: cfg.step,
   };
-  if (children.length === 0) return value;
-  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
 }
 
 /**
@@ -1480,46 +1452,17 @@ export function roughen(
  * The conscious-choice stage: wrapped shapes' curves shatter into
  * polylines entering the solve, and only they pay for it. Pass
  * `{ field, detail }` to set the resampling spacing (default mm(2)), and
- * `step` to set the pitch the engine samples the field on.
+ * `step` to set the pitch the engine samples the field on. A modifier
+ * value, for a `modifiers: [...]` stack.
  */
 export function deform(
   field: VectorFieldFn | { field: VectorFieldFn; detail?: L; align?: FieldAlign; step?: L },
-): ModifierValue;
-export function deform(
-  field: VectorFieldFn | { field: VectorFieldFn; detail?: L; align?: FieldAlign; step?: L },
-  ...children: [Tree, ...Tree[]]
-): GroupValue;
-export function deform(
-  field: VectorFieldFn | { field: VectorFieldFn; detail?: L; align?: FieldAlign; step?: L },
-  ...children: Tree[]
-): GroupValue | ModifierValue {
+): ModifierValue {
   const cfg = typeof field === 'function' ? { field } : field;
-  const value: ModifierValue = {
+  return {
     __occludeModifier: true, kind: 'deform',
     field: cfg.field, detail: cfg.detail, align: cfg.align, step: cfg.step,
   };
-  if (children.length === 0) return value;
-  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
-}
-
-/**
- * A ready-made tremor vector field for `deform`: seeded simplex noise,
- * `amount` and `wavelength` in user units.
- */
-function noiseFieldOf(noise: (x: number, y?: number, z?: number) => number, amount: number, wavelength = 25): VectorFieldFn {
-  return vectorFieldMark((x, y) => [
-    amount * noise(x / wavelength, y / wavelength),
-    amount * noise(x / wavelength + 213.7, y / wavelength - 118.3),
-  ]);
-}
-
-/**
- * Apply an ordered modifier stack to the subtree: `modify([smooth(2),
- * wobble(mm(1)), decimate(0.2)], ...shapes)` — entries run first-to-last
- * on each shape's final program; nested stacks compose inner-first.
- */
-export function modify(mods: ModifierValue[], ...children: Tree[]): GroupValue {
-  return { __occludeGroup: true, opts: { modifiers: mods }, children };
 }
 
 /** An area that occludes everything beneath it and draws nothing at all.
@@ -1546,46 +1489,7 @@ function maskTree(tree: Tree): Tree {
   if (!tree) return tree;
   if (Array.isArray(tree)) return tree.map(maskTree);
   if (isShapeValue(tree) || isGroupValue(tree)) return mask(tree);
-  throw new Error(`mask: a ${kindOf(tree)} in a group is not an area — a group is an area through the shapes it holds`);
-}
-
-/** A hand-drawn-looking line built from the sketch's noise stream. */
-function noisyLineValue(
-  noise: (x: number, y?: number, z?: number) => number,
-  x1: L, y1: L, x2: L, y2: L,
-  o: { points?: number; scale?: number; amplitude?: number; offset?: number } = {},
-  shapeOpts?: ShapeOpts,
-): ShapeValue {
-  const { points = 64, scale = 3, amplitude = 1, offset = 0 } = o;
-  const nominal = { innerW: 100, innerH: 100 };
-  const res = (v: L): number => (v instanceof Len ? resolveNominal(v, nominal) : v);
-  const [ax, ay, bx, by] = [res(x1), res(y1), res(x2), res(y2)];
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len = Math.hypot(dx, dy) || 1;
-  const nx = -dy / len;
-  const ny = dx / len;
-  const p = path();
-  for (let i = 0; i < points; i++) {
-    const t = i / (points - 1);
-    const falloff = Math.sin(Math.PI * t) ** 0.5;
-    const n = noise(offset + t * scale, offset * 7.31) * amplitude * falloff;
-    const px = ax + dx * t + nx * n;
-    const py = ay + dy * t + ny * n;
-    if (i === 0) p.moveTo(px, py);
-    else p.lineTo(px, py);
-  }
-  return p.build(shapeOpts);
-}
-
-function resolveNominal(v: Len, ctx: { innerW: number; innerH: number }): number {
-  switch (v.kind) {
-    case 'short': return v.value;
-    case 'w': return (v.value / 100) * ctx.innerW;
-    case 'h': return (v.value / 100) * ctx.innerH;
-    case 'long': return v.value;
-    case 'mm': return v.value;
-  }
+  throw new Error(`mask: ${treeWords(tree)} in a group is not an area — a group is an area through the shapes it holds`);
 }
 
 // ---- the sketch ----
@@ -1620,25 +1524,10 @@ export interface SketchDef {
   readonly fn: (toolkit: Toolkit) => Tree | Promise<Tree>;
 }
 
-/** An explicitly asynchronous sketch; ordinary sketches retain their synchronous contract. */
-export interface AsyncSketchDef {
-  readonly __occludeAsyncSketch: true;
-  readonly config: SketchConfig;
-  readonly fn: (toolkit: Toolkit) => Tree | Promise<Tree>;
-}
-
-/** `sketchAsync` definitions, and `sketch` definitions whose function is
- * `async`: anything on the toolkit may be awaited inside either. */
-export function isSketchAsync(v: unknown): v is AsyncSketchDef {
-  if (typeof v !== 'object' || v === null) return false;
-  if ((v as AsyncSketchDef).__occludeAsyncSketch === true) return true;
-  const fn = (v as SketchDef).__occludeSketch === true ? (v as SketchDef).fn : undefined;
-  return typeof fn === 'function' && fn.constructor?.name === 'AsyncFunction';
-}
-
-export function sketchAsync(config: SketchConfig, fn: AsyncSketchDef['fn']): AsyncSketchDef {
-  if (typeof fn !== 'function') throw new Error('sketchAsync(config, fn): expected a sketch function');
-  return { __occludeAsyncSketch: true, config, fn };
+/** A sketch whose function is `async`: anything on the toolkit may be
+ * awaited inside it, and only an asynchronous compile runs it. */
+function awaits(def: SketchDef): boolean {
+  return def.fn.constructor?.name === 'AsyncFunction';
 }
 
 export function isSketch(v: unknown): v is SketchDef {
@@ -1646,8 +1535,10 @@ export function isSketch(v: unknown): v is SketchDef {
 }
 
 /**
- * Define a sketch (declarative form), or reset the legacy recording state
- * when called with only a config (old-style sketches keep working).
+ * Define a sketch: its config and the function from the toolkit to a tree.
+ * An `async` function may await anything on the toolkit
+ * (`sketch(cfg, async (t) => …)`); a host runs it with the asynchronous
+ * compile.
  */
 export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree | Promise<Tree>): SketchDef {
   if (typeof fn !== 'function') throw new Error('sketch(config, fn): the second argument is the sketch function (toolkit) => tree');
@@ -1667,23 +1558,25 @@ const GEOMETRY_SPACE: Record<Space['kind'], string> = {
   spherical: 'space.spherical({ radius })',
 };
 
-/** Is this argument a POINT — a pair or an `{x, y}` record — rather than a
- * length? A `Len` is neither an array nor a record of two numbers, so the
- * two spellings of `t.station` never have to guess. */
-function isPointArg(v: unknown): v is XY {
-  if (Array.isArray(v)) return true;
-  if (typeof v !== 'object' || v === null) return false;
-  const p = v as { x?: unknown; y?: unknown };
-  return typeof p.x === 'number' && typeof p.y === 'number';
-}
-
-/** A shape's outlines in sketch units through THE lowerer (rectMode, arc
+/**
+ * A shape's outlines in sketch units through THE lowerer (rectMode, arc
  * commands, the shape's own transform opts, curves flattened at
  * `tolerance`), each with its own closure. Shared by `material` and
  * `sample`. `'curves'` keeps every straight edge whole, so the outline's
  * vertices are the shape's own in every space; a circle's or an ellipse's
  * outline in a curved space also carries `curve`, the point of the curve
- * itself between two of its vertices. */
+ * itself between two of its vertices.
+ *
+ * This is the one door the frame rule names. A shape is a description in
+ * sketch coordinates; it needs the paper, the units and its own transform
+ * before it is geometry, so the toolkit lowers it and every `t.` word takes
+ * a shape because of this function. A pure kernel never calls it.
+ *
+ * `polygon` is the deliberate exception and must stay one: it defers the
+ * shape into the drawing tree, where it is lowered inside the full transform
+ * chain — the paper offset, the user origin, and any enclosing `group`.
+ * Lowering it here instead would quietly drop the group's transform.
+ */
 function shapeContours(
   run: Execution, source: ShapeValue, tolerance: L | undefined, refine: 'all' | 'curves' = 'all',
   /** Enclosing groups' ops, outermost first: a shape in a group. */
@@ -1720,13 +1613,12 @@ function shapeContours(
 }
 
 /** The host's automatic form of `inspect`, bound to a run: called for
- * every variable the studio instruments, so it registers materials — and
- * the stations of `along()`, as a material of their own — and ignores
- * everything else without a word. */
+ * every variable the studio instruments, so it registers materials — the
+ * points of `along()` among them — and ignores everything else without a
+ * word. */
 export function inspectHook(run: Execution): (label: string, value: unknown) => void {
   return (label, value) => {
     if (value instanceof Material) run.recordInspection(label, value);
-    else if (isStations(value)) run.recordInspection(label, stationsMaterial(value));
   };
 }
 
@@ -1738,12 +1630,6 @@ function boundEnv(run: Execution): BoundEnv {
   return { frame: run.frame, cache: run.boundCache };
 }
 
-/**
- * The toolkit a sketch function receives: every member that reads the run
- * — its seed, paper, frame, captured assets and fills, the recording —
- * closes over THIS execution. The pure module factories (shapes, fills,
- * modifiers, units, map/ease) are the same functions the package exports.
- */
 /** A point for `t.noise`: `{ x, y, z? }` rows or `[x, y, z?]` triples. */
 export type NoisePoint = readonly number[] | { readonly x: number; readonly y: number; readonly z?: number };
 export interface NoiseOptions {
@@ -1753,22 +1639,27 @@ export interface NoiseOptions {
   readonly amount?: number;
 }
 
-/** The area a toolkit cloud was bounded by — `t.scatter`/`t.throw` with
- * `within`, and what `t.relax`/`t.settle` made of one — as lowered loops.
- * A side table, not a column: the material is the plain value it was, and
- * only the point words read it, as their default `within`. */
-const cloudAreas = new WeakMap<object, [number, number][][]>();
+/** The point words whose cloud keeps the area it was made in. */
+const CLOUD_WORDS: ReadonlySet<string> = new Set(['t.scatter', 't.throw', 't.relax', 't.settle']);
 
 /** `t.quadtree` options: the pure ones, with any area for `within`. */
 export type QuadtreeTkOpts = Omit<QuadtreeOpts, 'within'> & { within?: AreaInput | ShapeValue };
 
+/**
+ * The toolkit a sketch function receives: every member that reads the run
+ * — its seed, paper, frame, captured assets and fills, the recording —
+ * closes over THIS execution. The pure module factories (shapes, fills,
+ * modifiers, units, map/ease) are the same functions the package exports.
+ */
 export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean; onProgress?: import('./three/modeling.js').ProgressListener3 }) {
   /** A material this toolkit hands back, in the run's space: its
    * coordinates are sketch coordinates, so it carries `exec.space` — the
    * flat one too, since a flat material from the toolkit KNOWS it is flat.
    * Every word below that answers a material answers through this. */
   function spaced(m: Material): Material {
-    return inSpace(m, exec.space);
+    // The same rows in another space: whatever they answer as `source`
+    // and `u` they still answer.
+    return carryLinks(m, inSpace(m, exec.space));
   }
 
   /** Environment handed to the points module: a seeded stream of its own
@@ -1787,21 +1678,30 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     };
   }
 
-  /** A toolkit cloud bounded by `within` keeps that area, so the next point
-   * word defaults to it. */
-  function bounded(m: Material, loops: [number, number][][] | undefined): Material {
-    if (loops) cloudAreas.set(m, loops);
-    return m;
+  /** The area a toolkit cloud was bounded by — `t.scatter`/`t.throw` with
+   * `within`, and what `t.relax`/`t.settle` made of one — as lowered loops:
+   * the `within` its derivation kept, which the next point word defaults
+   * to. A write makes a value of its own, which keeps none. */
+  function cloudArea(m: unknown): [number, number][][] | undefined {
+    const node = nodeOf(m);
+    return node !== undefined && CLOUD_WORDS.has(node.op) ? node.params.within as [number, number][][] | undefined : undefined;
   }
 
-  /** The points a relax or settle works on, and the area the cloud they
-   * came from was bounded by: a point selection is its members, extracted
-   * with their columns and ids; anything else that has points is read as
-   * points. */
-  function pointOpInput(x: Material | PointSelection | PointsLike): { m: Material; area: [number, number][][] | undefined } {
-    if (x instanceof PointSelection) return { m: x.extract(), area: cloudAreas.get(x.source) };
+  /** The points a relax or settle works on, the area the cloud they came
+   * from was bounded by, and where each of their rows is in the value the
+   * sketch passed: a point selection is its members, extracted with their
+   * columns and ids, whose rows are rows of the selection's material;
+   * anything else that has points is read as points. */
+  function pointOpInput(x: Material | Selection<Vertex> | PointsLike, who: string): { m: Material; area: [number, number][][] | undefined; origin: { of: Material; rows: Int32Array } } {
+    refuseShape(x, who);
+    if (isPointSelection(x)) {
+      const m = x.extract();
+      const of = x.owner;
+      const ids = m.pointIds;
+      return { m, area: cloudArea(of), origin: { of, rows: Int32Array.from(ids, (id) => of.rowOfPoint(id as Vertex['id'])) } };
+    }
     const m = materialOf(x as never);
-    return { m, area: cloudAreas.get(x as Material) };
+    return { m, area: cloudArea(x), origin: { of: m, rows: Int32Array.from({ length: m.n }, (_, i) => i) } };
   }
 
   /** A point operation's `within`, lowered, or undefined. */
@@ -1812,17 +1712,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Field-modulated Poisson-disk points as point-only material with a
    * `density` column (the field at each point). `t.relax` and `t.settle`
    * refine it; `t.voronoi` reads its cells. */
-  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|MeshFaces<P,E,F,C>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
+  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Material|Selection<Face>,options:SurfaceScatterOptions<F>):Material;
   function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
   function scatter(area: AreaInput | ShapeValue, opts: Omit<ScatterOpts, 'within'>): Material;
   function scatter(opts: ScatterOpts): Material;
   function scatter(
-    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Mesh<any,any,any> | MeshFaces<any,any,any,any> | undefined,
+    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Material | Selection<Face> | undefined,
     b?: ScatterOpts | Omit<ScatterOpts, 'within'> | SurfaceScatterOptions<any>,
-  ): Material | SurfaceSamples<any,any,any,any> {
-    // A face selection is the surface it names: its faces, ids kept.
-    if(a instanceof MeshFaces)a=a.extract();
-    if(a instanceof Mesh){const options=b as SurfaceScatterOptions<any>;return scatterSurfacePoints(a,options,{rnd:exec.stream('__surface-scatter:'+ (options?.key??a.key??'default')).rnd,signal:scope?.signal});}
+  ): Material {
+    // A face selection of a value in space is the surface it names: its
+    // faces, ids kept. (Faces of a value in the plane are an area.)
+    if(a instanceof Selection&&a.domain.kind.name==='face'&&a.owner instanceof Material&&inSpace3(a.owner))a=(a as Selection<Face>).extract() as Material;
+    // One door, two forms; each form draws from its own stream, in call
+    // order (the first call reads the plain key, as it always has).
+    if(a instanceof Material&&inSpace3(a)){const options=b as SurfaceScatterOptions<any>;const form=(options as {count?:unknown})?.count!==undefined?'__surface-sample:':'__surface-scatter:';return scatterSurface(a,options,{rnd:exec.freshStream(form+(options?.key??a.key??'default')).rnd,signal:scope?.signal});}
     const field = typeof a === 'function' ? a : undefined;
     const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
     const raw = (b ?? a) as ScatterOpts;
@@ -1830,7 +1733,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (area !== undefined && raw.within !== undefined) throw new Error('scatter: the area is the first argument — give it there or as within, not both');
     const within = withinLoops(area ?? raw.within, 'scatter');
     const opts: ScatterOpts = within === undefined ? raw : { ...raw, within };
-    return bounded(spaced(scatterPoints(pointsEnv(), field, opts)), within);
+    return record(spaced(scatterPoints(pointsEnv(), field, opts)),
+      derivation('t.scatter', [field ?? area], { spacing: raw.spacing, within }));
   }
 
   /** Independent uniform random points, `count` of them: `t.throw({ count })`
@@ -1847,39 +1751,47 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (!raw || typeof raw !== 'object' || raw.count === undefined) throw new Error('throw: { count } is required');
     const within = withinLoops(area ?? raw.within, 'throw');
     const opts: ThrowOpts = within === undefined ? raw : { ...raw, within };
-    return bounded(spaced(throwPoints(pointsEnv('__throw'), field, opts)), within);
+    return record(spaced(throwPoints(pointsEnv('__throw'), field, opts)),
+      derivation('t.throw', [field ?? area], { count: raw.count, attempts: raw.attempts, within }));
   }
 
   /** Lloyd relaxation: each point to the density-weighted centroid of its
    * cell, `iterations` times; count, edges and columns kept. `within`
    * defaults to the area the cloud was scattered or thrown in, else the
    * drawable. A point selection relaxes its members, extracted. */
-  function relax(points: Material | PointSelection | PointsLike, opts: RelaxOpts = {}): Material {
-    const { m, area } = pointOpInput(points);
+  function relax(points: Material | Selection<Vertex> | PointsLike, opts: RelaxOpts = {}): Material {
+    const { m, area } = pointOpInput(points, 't.relax');
     const within = withinLoops(opts.within, 'relax') ?? area;
     const o: RelaxOpts = within === undefined ? opts : { ...opts, within };
-    return bounded(spaced(relaxMaterial(pointsEnv(), m, o)), within);
+    return record(spaced(relaxMaterial(pointsEnv(), m, o)),
+      derivation('t.relax', [points, opts.density], { iterations: opts.iterations, step: opts.step, within }));
   }
 
   /** Weighted Linde-Buzo-Gray settling toward `density` at `spacing`:
    * relaxation plus population control on point-only material; survivors
    * keep their columns, children copy their parent's, `demand` is written.
    * Split directions come from the sketch's seeded stream. */
-  function settle(points: Material | PointSelection | PointsLike, opts: SettleOpts): Material {
-    const { m, area } = pointOpInput(points);
+  function settle(points: Material | Selection<Vertex> | PointsLike, opts: SettleOpts): Material {
+    const { m, area, origin } = pointOpInput(points, 't.settle');
     const within = withinLoops(opts?.within, 'settle') ?? area;
     const o: SettleOpts = within === undefined ? opts : { ...opts, within };
-    return bounded(spaced(settleMaterial(pointsEnv(), m, o)), within);
+    return record(spaced(settleMaterial(pointsEnv(), m, o, origin)),
+      derivation('t.settle', [points, opts?.density, opts?.point], { spacing: opts?.spacing, iterations: opts?.iterations, step: opts?.step, within }));
   }
 
   /** The subdivision of the drawable that puts detail where the points are:
    * a cell holding more than `capacity` points splits into four, down to
-   * `depth` splits. Returns the lattice as material — planarize it and its
-   * faces are the cells. */
+   * `depth` splits. Returns the lattice as material whose faces are EVERY
+   * cell, the root first and then breadth-first: `parent`, `children`,
+   * `depth` and `leaf` say where each sits, the leaves are the partition,
+   * and each cell's `source` is the points it holds, a selection of the
+   * input. */
   function quadtreeTk(points: PointsLike, opts: QuadtreeTkOpts = {}): Material {
+    refuseShape(points, 't.quadtree');
     const b = exec.bounds();
     const o: QuadtreeOpts = opts.within === undefined ? opts as QuadtreeOpts : { ...opts, within: numericAreaLoops(exec, opts.within, 'quadtree') };
-    return spaced(quadtree(points, { x: b.x, y: b.y, w: b.w, h: b.h }, o));
+    return record(spaced(quadtree(points, { x: b.x, y: b.y, w: b.w, h: b.h }, o)),
+      derivation('t.quadtree', [points], { capacity: o.capacity, depth: o.depth, within: o.within }));
   }
 
   /** One line that folds until it fills an area, as material: a chain of
@@ -1892,12 +1804,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `peanoRule` and `meanderRule` beside it, and a table of your own if you
    * want another fold. Draw it with `strokes`. */
   function spacefillTk(area: Area, opts: SpacefillOpts): Material {
-    return spaced(spacefill({ len: (l: L) => exec.len(l) }, numericAreaLoops(exec, area, 'spacefill'), opts));
+    return record(spaced(spacefill({ len: (l: L) => exec.len(l) }, numericAreaLoops(exec, area, 'spacefill'), opts)),
+      derivation('t.spacefill', [area, opts.field], { ...opts, field: undefined }));
   }
 
   /**
-   * The regular `{p, q}` tiling on the drawable: its cell and one
-   * `Placement` per copy of it, the identity first.
+   * The regular `{p, q}` tiling, as geometry whose faces are the cells:
+   * each face's `source` is the `Placement` that carried the fundamental
+   * cell there, the identity first. The fundamental cell is face 0. A
+   * curved tiling's point column `corner` is 1 at a cell's corners and 0 at
+   * the samples of its walls.
    *
    * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
    * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
@@ -1908,19 +1824,25 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * draws in, and the cell is one cell of it. A symbol of another geometry
    * is refused by name, with the `space` that draws it.
    *
-   * The flat plane fixes no unit of length, so a Euclidean symbol takes
-   * one: `side`, or by default half the short side of the drawable, about
-   * its middle. That is a size, and every placement is still an isometry
-   * of the sheet.
+   * A flat symbol COVERS THE DRAWABLE, every cell cut to it, and each face
+   * carries its lattice `i` and `j`; `gap` parts the cells. The flat plane
+   * fixes no unit of length, so it takes one: `side`, or by default half
+   * the short side of the drawable, about `origin` (the drawable's middle
+   * by default). A curved symbol floods `depth` generations from the cell
+   * at the chart's centre, its side fixed by the curvature.
    */
-  function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
+  function tilingTk(p: number, q: number, opts: TilingOpts = {}): Material {
+    return record(tilingOf(p, q, opts), derivation('t.tiling', [], { p, q, ...opts }));
+  }
+
+  function tilingOf(p: number, q: number, opts: TilingOpts): Material {
     const geometry = tilingGeometry(p, q);
     const sp = exec.space;
     if (sp.kind !== geometry) {
       throw new Error(`tiling: {${p}, ${q}} is a tiling of ${GEOMETRY_NAME[geometry]} and this sketch draws in ${GEOMETRY_NAME[sp.kind]} — set space: ${GEOMETRY_SPACE[geometry]} on the sketch`);
     }
     const side = opts.side === undefined ? undefined : exec.len(opts.side);
-    if (opts.rotate !== undefined && !Number.isFinite(opts.rotate)) throw new Error(`tiling: rotate is an angle in degrees, got ${describeValue(opts.rotate)}`);
+    if (opts.rotate !== undefined && !Number.isFinite(opts.rotate)) throw new Error(`tiling: rotate is an angle in degrees, got ${describe(opts.rotate)}`);
     // The turn about the cell's centre: the identity when there is none, so
     // an unturned tiling is the one it always was.
     // A quarter turn is exact, so a wall that should stand upright does.
@@ -1933,16 +1855,26 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       : (z: XY): Vec => [cos * vx(z) - sin * vy(z), sin * vx(z) + cos * vy(z)];
     const chart = modelChart(sp);
     if (!chart) {
+      if (opts.depth !== undefined) throw new Error('tiling: a flat tiling covers the drawable — depth counts the generations of a curved one; leave it out');
       const b = exec.bounds();
       const k = side ?? Math.min(b.w, b.h) / 2;
+      const gap = opts.gap === undefined ? 0 : exec.len(opts.gap);
       checkOrigin('tiling', opts.origin);
       const [ox, oy] = opts.origin === undefined || opts.origin === 'center' || opts.origin === 'centroid'
         ? [b.cx, b.cy] : [vx(opts.origin as XY), vy(opts.origin as XY)];
-      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => { const t = turn(z); return [ox + k * t[0], oy + k * t[1]]; }, bow: 0, space: sp });
+      const up = (z: XY): Vec => { const t = turn(z); return [ox + k * t[0], oy + k * t[1]]; };
+      // The inverse: shift back, scale back, turn back.
+      const down = (v: Vec): Vec => {
+        const dx = (v[0] - ox) / k;
+        const dy = (v[1] - oy) / k;
+        return deg === 0 ? [dx, dy] : [cos * dx + sin * dy, -sin * dx + cos * dy];
+      };
+      return coverTiling(p, q, gap, { door: sp.model, up, down, side: k, space: sp, bounds: b });
     }
     if (opts.origin !== undefined) {
       throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling stands on its chart's centre — move it with a placement, group(placement, …), not origin`);
     }
+    if (opts.gap !== undefined) throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling's cells share their walls — gap parts the cells of a flat one; leave it out`);
     // A curved symbol takes its unit from its curvature: the model chart
     // is the sketch's own chart, so the model point goes through it and
     // out the other side, into the coordinates everything else speaks.
@@ -1950,7 +1882,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const k = chart.scale;
     const up = (z: XY): Vec => { const t = turn(z); return sp.fromChart([cx + k * t[0], cy + k * t[1]]); };
     if (side !== undefined) {
-      const model = cellOf(geometry, p, q);
+      const model = modelCell(geometry, p, q);
       const fixed = sp.distance(up(model[0]), up(model[1]));
       throw new Error(`tiling: {${p}, ${q}} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
     }
@@ -1970,39 +1902,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * geodesics, and as close as the boundary's own sampling for anything
    * else, so a circle and a tiling cell need no word of their own.
    */
-  /**
-   * `t.distanceTo(points)` in a curved space: zero at a point and minus the
-   * space's distance to the nearest point everywhere else — the sign
-   * `distanceToPoints` has, measured along geodesics. The pure word reads
-   * the chart; this one reads the space, so a ring about every site has
-   * one radius of the space wherever the site is.
-   *
-   * In the disk a space length is never shorter than its coordinate
-   * length, so a site further off in coordinates than the best found so
-   * far cannot win and is skipped unmeasured.
-   */
-  function spaceDistanceToPoints(space: Space, points: PointSelection<unknown> | Material): DistanceField {
-    const m = points instanceof Material ? points : points.extract();
-    const sx: number[] = [];
-    const sy: number[] = [];
-    for (let i = 0; i < m.n; i++) {
-      if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
-      sx.push(m.x[i]);
-      sy.push(m.y[i]);
-    }
-    if (sx.length === 0) return () => -Infinity;
-    const bounded = space.kind === 'hyperbolic';
-    return (x, y) => {
-      let best = Infinity;
-      for (let i = 0; i < sx.length; i++) {
-        if (bounded && Math.hypot(sx[i] - x, sy[i] - y) >= best) continue;
-        const d = space.distance([x, y], [sx[i], sy[i]]);
-        if (d < best) best = d;
-      }
-      return -best;
-    };
-  }
-
   function spaceDistanceTo(space: Space, area: Area): DistanceField {
     // A shape says whether each of its outlines closes; anything else is
     // an area, and an area's boundaries are loops.
@@ -2031,19 +1930,22 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
    * drawable, or cut at a `within` area: any area, the cut cells closed
-   * along its boundary. `cells.cellOf(site)` and `cells.siteOf(face)`
-   * relate the result to its sites; a material or a point selection of one
-   * stays the sites, bare points become one. */
+   * along its boundary. The faces are the cells, one per site that has
+   * one, in the sites' order, and each face's `source` is its site; a
+   * material or a point selection of one stays the sites, bare points
+   * become one. */
   function voronoiTk(sites: PointsLike, opts: { within?: Area } = {}): Material {
+    refuseShape(sites, 't.voronoi');
     if ('bounds' in opts) throw new Error('voronoi: bounds is now within — a rect is an area: { within: rect(…) } or { within: t.bounds() }');
     const b = exec.bounds();
     // The sites as the pure `voronoi` reads them: a selection stays the
     // sites, anything else becomes a material. The cells are made in the
     // run's space, and their site correspondence lives on that material.
-    const siteSet = sites instanceof PointSelection ? sites : materialOf(sites);
-    if (opts.within === undefined) return voronoiOf(siteSet, { x: b.x, y: b.y, w: b.w, h: b.h }, exec.space);
-    const region = withinRegion(numericAreaLoops(exec, opts.within, 'voronoi'), 'voronoi');
-    return voronoiOf(siteSet, region.bounds, exec.space, region.loops ?? undefined);
+    const siteSet = isPointSelection(sites) ? sites : materialOf(sites);
+    if (opts.within === undefined) return record(voronoiOf(siteSet, { x: b.x, y: b.y, w: b.w, h: b.h }, exec.space), derivation('t.voronoi', [sites]));
+    const loops = numericAreaLoops(exec, opts.within, 'voronoi');
+    const region = withinRegion(loops, 'voronoi');
+    return record(voronoiOf(siteSet, region.bounds, exec.space, region.loops ?? undefined), derivation('t.voronoi', [sites], { within: loops }));
   }
 
   /**
@@ -2081,32 +1983,17 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {} });
   }
 
-  /**
-   * A grid of named channels over an area, and a rule you step it with:
-   * the substrate for reaction-diffusion, trails, erosion — anything whose
-   * next state is a local rule over its current one. `spacing` is the cell
-   * size, `area` defaults to the drawable, `channels` defaults to `['a']`,
-   * and `init` fills each cell from its centre. `lat.field(channel)` hands
-   * it back as an ordinary field, absent outside the area, so `isolines`,
-   * `scatter` and the fills read it like any other. `lat.steps(n, rule)`
-   * and `lat.add(points, amount)` return a NEW lattice.
-   */
-  /** `force.separation`, taking a shape where it takes points; said with no
-   * sources it is a force the graph a move runs on pushes itself with. */
-  function separationTk(opts: SeparationOpts & { amount?: number | ((p: Vertex) => number) }): GraphForce;
-  function separationTk(sources: Sources | ShapeValue, opts: SeparationOpts): (p: Vertex) => Vec;
-  function separationTk(sources: Sources | ShapeValue | (SeparationOpts & { amount?: number | ((p: Vertex) => number) }), opts?: SeparationOpts): GraphForce | ((p: Vertex) => Vec) {
+  /** `force.separation`, measuring in the sketch's space; said with no
+   * sources it is a force the graph a move runs on pushes itself with (or,
+   * with a negative `amount`, pulls itself with). Its sources are points,
+   * so a shape is refused by name: how many points a shape has would be a
+   * flattening tolerance's choice, and `t.material(shape)` or
+   * `t.sample(shape, { count })` makes it the sketch's. */
+  function separationTk(opts: SeparationOpts): GraphForce;
+  function separationTk(sources: Sources, opts: SeparationOpts): (p: Vertex) => Vec;
+  function separationTk(sources: Sources | SeparationOpts, opts?: SeparationOpts): GraphForce | ((p: Vertex) => Vec) {
     if (isOptionsOnly(sources, opts)) return separationOf(sources as SeparationOpts, exec.space);
-    return separationIn(pointSources(sources as Sources | ShapeValue, 'force.separation'), opts!, exec.space);
-  }
-
-  /** `force.attract`, taking a shape where it takes points; said with no
-   * sources it is a force the graph a move runs on pulls itself with. */
-  function attractTk(opts: { radius: number; strength?: number; excludeConnected?: boolean }): GraphForce;
-  function attractTk(sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }): (p: Vertex) => Vec;
-  function attractTk(sources: Sources | ShapeValue | { radius: number; strength?: number; excludeConnected?: boolean }, opts?: { radius: number; strength?: number; excludeConnected?: boolean }): GraphForce | ((p: Vertex) => Vec) {
-    if (isOptionsOnly(sources, opts)) return attractOf(sources as { radius: number; strength?: number; excludeConnected?: boolean }, exec.space);
-    return attractIn(pointSources(sources as Sources | ShapeValue, 'force.attract'), opts!, exec.space);
+    return separationFrom(sources as Sources, opts!, exec.space);
   }
 
   /**
@@ -2115,27 +2002,37 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * the stream does not depend on what is in the collection.
    *
    * `pick(items, n)` with `n` of 1 or more is `n` distinct members (all of
-   * them when there are fewer), and `pick(items, share)` with a share
-   * between 0 and 1 is that share of them, rounded: a selection of a
-   * selection, a list of a list, in the collection's own order. One draw
-   * per member picked.
+   * them when there are fewer; one draw per member picked), and
+   * `pick(items, share)` with a share between 0 and 1 is a chance per
+   * member: each member is in with that chance, one draw per member in the
+   * collection's order — so `pick(small, 1 / 50)` can pick one of a few
+   * members, where a rounded share of them would always be none. Either
+   * way the answer is a selection of a selection, a list of a list, in the
+   * collection's own order.
    */
   function pick<T>(items: Pickable<T>): T;
-  function pick<S extends PointSelection<unknown> | EdgeSelection<unknown> | CellSelection>(items: S, count: number): S;
+  function pick<S extends Selection<any>>(items: S, count: number): S;
   function pick<T>(items: readonly T[], count: number): T[];
   function pick<T>(items: Pickable<T>, count?: number): unknown {
     if (count === undefined) return items.length === 0 ? exec.pick(NO_MEMBER) : exec.pick(items);
     const len = items.length;
-    const k = !(count > 0) ? 0 : count < 1 ? Math.round(count * len) : Math.min(Math.floor(count), len);
-    // A partial shuffle of the positions: the first k are the picks.
-    const order = Array.from({ length: len }, (_, i) => i);
-    for (let i = 0; i < k; i++) {
-      const j = i + exec.rndInt(len - i);
-      const swap = order[i];
-      order[i] = order[j];
-      order[j] = swap;
+    let chosen: Set<number>;
+    if (count > 0 && count < 1) {
+      // A share is a chance per member, one draw each, in order.
+      chosen = new Set();
+      for (let i = 0; i < len; i++) if (exec.chance(count)) chosen.add(i);
+    } else {
+      const k = !(count > 0) ? 0 : Math.min(Math.floor(count), len);
+      // A partial shuffle of the positions: the first k are the picks.
+      const order = Array.from({ length: len }, (_, i) => i);
+      for (let i = 0; i < k; i++) {
+        const j = i + exec.rndInt(len - i);
+        const swap = order[i];
+        order[i] = order[j];
+        order[j] = swap;
+      }
+      chosen = new Set(order.slice(0, k));
     }
-    const chosen = new Set(order.slice(0, k));
     const withFilter = items as unknown as { filter?: (fn: (m: T, i: number) => boolean) => unknown };
     if (typeof withFilter.filter === 'function') return withFilter.filter((_, i) => chosen.has(i));
     const out: T[] = [];
@@ -2149,13 +2046,14 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * object holding several — and the passes of one step run in order, each
    * on what the one before returned. A pass takes one argument: a pass that
    * needs the step count writes a counter column of its own. The last
-   * argument may be `{ every }`: a material or a lattice then keeps its
+   * argument may be `{ every }`: a value that keeps a history — a
+   * material, a lattice, a mesh, point or curve geometry — then keeps its
    * start, every `every`-th state and the last one on `history`. A plain
    * object keeps none.
    *
    * On the toolkit because passes draw (`t.pick`, `t.rnd`, `t.chance`),
-   * and the toolkit is what draws. A material's `iteration` counts the
-   * steps, so a force that turns with the step (`force.drift`) turns.
+   * and the toolkit is what draws. A material counts its steps inside, so
+   * a force that turns with the step (`force.drift`) turns.
    */
   function steps<T>(n: number, start: T, ...passes: Pass<T>[]): T;
   function steps<T>(n: number, start: T, ...passes: [...Pass<T>[], { every?: number }]): T;
@@ -2171,27 +2069,59 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       throw new Error(`t.steps: pass ${i + 1} is ${p === null ? 'null' : typeof p} — a pass is a function (value) => value, and only the last argument may be { every }`);
     });
     const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-    const every = opts.every !== undefined && Number.isFinite(opts.every) ? Math.max(1, Math.floor(opts.every)) : 0;
+    // `every` below one, or not a number, keeps no history: the same as no option.
+    const every = opts.every !== undefined && Number.isFinite(opts.every) && opts.every >= 1 ? Math.floor(opts.every) : 0;
     const base = start instanceof Material ? start.iteration : 0;
     const snaps: T[] = [];
     let value = start;
-    if (every) snaps.push(value);
+    // A value keeps a history when it can say so: `withHistory(states)` is
+    // the one internal door, and a plain object, which has none, keeps none.
+    const keeps = (v: T): v is T & { withHistory(states: readonly T[]): T } =>
+      typeof v === 'object' && v !== null && typeof (v as { withHistory?: unknown }).withHistory === 'function';
+    // A kept state carries no history of its own: the start of a run may
+    // come from an earlier run that kept one.
+    if (every) snaps.push(keeps(value) ? value.withHistory([]) : value);
+    // The step the run is making, for `force.drift` (whatever holds the
+    // values); a run inside a pass puts the outer one's back.
+    const outer = exec.step;
     for (let k = 0; k < count; k++) {
-      for (let i = 0; i < run.length; i++) {
-        value = run[i](value);
-        if (value === undefined) throw new Error(`t.steps: pass ${i + 1} returned nothing at step ${k} — a pass returns the value the next one reads`);
+      const step = value instanceof Material ? beginStep(value, start) : null;
+      exec.step = base + k;
+      try {
+        for (let i = 0; i < run.length; i++) {
+          value = run[i](value);
+          if (value === undefined) throw new Error(`t.steps: pass ${i + 1} returned nothing at step ${k} — a pass returns the value the next one reads`);
+        }
+      } finally {
+        exec.step = outer;
       }
-      // A material counts its steps, the way `m.steps` does.
-      if (value instanceof Material) value = restamp(value, base + k + 1) as T;
-      if (every && (k + 1) % every === 0 && k + 1 < count) snaps.push(value);
+      // A material counts its steps. What the step made answers for one
+      // step, over what the start answered (derivation.ts `endStep`).
+      if (value instanceof Material) {
+        value = restamp(value, base + k + 1) as T;
+        if (step) value = endStep(value as Material, step) as T;
+      }
+      // A kept state answers what the start answered: the history holds
+      // its states and nothing between them.
+      if (every && (k + 1) % every === 0 && k + 1 < count) {
+        snaps.push(value instanceof Material ? (step ? startLinks(restamp(value, value.iteration), step) : restamp(value, value.iteration)) as T : value);
+      }
     }
     if (every && count > 0) snaps.push(value);
     if (!every) return value;
-    if (value instanceof Material) return restamp(value, value.iteration, snaps as Material[]) as T;
-    if (value instanceof Lattice) return value.withHistory(snaps as Lattice[]) as T;
-    return value;
+    return keeps(value) ? value.withHistory(snaps) : value;
   }
 
+  /**
+   * A grid of named channels over an area, and a rule you step it with:
+   * the substrate for reaction-diffusion, trails, erosion — anything whose
+   * next state is a local rule over its current one. `spacing` is the face
+   * size, `area` defaults to the drawable, `channels` defaults to `['a']`,
+   * and `init` fills each face from its centre. `lat.field(channel)` hands
+   * it back as an ordinary field, absent outside the area, so `isolines`,
+   * `scatter` and the fills read it like any other. `lat.faces.set(…)`
+   * and `lat.add(points, amount)` return a NEW lattice, and `t.steps` runs it.
+   */
   function lattice(opts: LatticeOpts, init?: LatticeInit): Lattice {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
@@ -2201,23 +2131,14 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /**
    * Ink as a budget: `field` is the tone the drawing owes, 0 to 1, and the
-   * residual holds what is still owed on a grid of cells. `spacing` is the
-   * cell size (default the grid step `t.isolines` uses), and `area` bounds
-   * what owes anything — outside it nothing is owed.
-   *
-   * A residual IS a field: `r(x, y)` is the remaining tone there, so
-   * `t.scatter(r)`, `t.isolines(r, …)` and a decimate amount read it like
-   * any other. `r.spend(marks, { width })` subtracts the nib footprint of
-   * what was drawn and answers with the darkness taken, in cell areas;
-   * `r.total()` is the debt that is left, for the loop's stopping test.
-   *
-   * `spend` mutates, and it is the one value in the library that does: a
-   * ledger has to remember what the last stroke paid, and copying a raster
-   * per stroke would make a long loop quadratic. `r.snapshot()` is the
-   * frozen copy. The seed still decides everything: the ledger is a pure
-   * function of the sequence of spends.
+   * answer is a lattice whose one column, `owed`, holds what is still owed
+   * on a grid of faces. `spacing` is the face size (default the grid step
+   * `t.isolines` uses), and `area` bounds what owes anything — outside it
+   * nothing is owed. `r.spend(marks, { width })` answers a NEW lattice
+   * with the nib footprint of what was drawn taken off; the lattice is a
+   * value, and nothing mutates.
    */
-  function residual(field: FieldFn2, opts: ResidualOpts = {}): Residual {
+  function residual(field: FieldFn2, opts: ResidualOpts = {}): Lattice {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
     const o: ResidualOpts = opts?.area === undefined ? opts : { ...opts, area: numericAreaLoops(exec, opts.area, 'residual') };
@@ -2229,7 +2150,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * its `level`. Its area — each region's boundary a ring, closed along the
    * drawable, the field's `t.within` bound and every hole, through every
    * corner it passes, those closing edges `cut` = 1 — is worked out the first
-   * time `contours()`, `faces()`, `polygon`, `t.within` or any other area
+   * time `contours()`, `faces`, `polygon`, `t.within` or any other area
    * consumer asks, and kept; a selection of the lines is closed by the runs
    * that join its ends. `polygon(m)` fills the regions and `strokes(m)` draws
    * the level lines. Pick levels with `m.edges.filter((e) => e.level ===
@@ -2243,7 +2164,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function isolines(field: FieldFn2, at: IsoLevels, opts: IsoOpts = {}): Material {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(levelSetMaterial(levelLines(env, field, at, opts, boundDomain(field, env.bounds))));
+    const set = levelLines(env, field, at, opts, boundDomain(field, env.bounds));
+    // A `{ count }` or a `{ spacing }` is resolved against the field's own
+    // range: the levels it traced are each edge's `level`.
+    return record(spaced(levelSetMaterial(set)), derivation('t.isolines', [field], { at, step: opts.step }));
   }
 
   /** Where a bound field can exist: the box its `within` bounds share with
@@ -2320,19 +2244,36 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         ei++;
       }
     }
-    return new Material(x, y, { strength, height }, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: { strength: 'interpolate', height: 'interpolate' }, edgeTransfers: {}, space: exec.space });
+    return record(new Material(x, y, { strength, height }, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: { strength: 'interpolate', height: 'interpolate' }, edgeTransfers: {}, space: exec.space }),
+      derivation('t.ridges', [field], { ...opts }));
   }
 
   /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
    * Lefer) as one material of open chains — `strokes(m)` draws them, and
-   * `.attribute()`/`.steps()` work on them like any material. `spacing` is a
+   * the writes and `t.steps` work on them as on any material. `spacing` is a
    * length or a scalar field of lengths: density as tone, direction as flow.
    * Lines stop at the drawable edge, at a `t.within()` bound, and half a
    * spacing from ink already laid. Deterministic, no seed. */
-  function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): Material {
+  function streamlines(field: VectorFieldFn, opts?: StreamOpts): Material;
+  /** In space: seeds in space — `[x, y, z]` places, a value with z, or
+   * `{ count, within }` — trace a field of space, `(x, y, z) => …`, as one
+   * value of chains that a view occludes. */
+  function streamlines(field: VectorField3, opts: Streamlines3Options): Material;
+  function streamlines(field: VectorFieldFn | VectorField3, opts: StreamOpts | Streamlines3Options = {}): Material {
+    // Seeds in space run in space: the seeds say where the lines are.
+    if (seedsInSpace((opts as { seeds?: unknown } | undefined)?.seeds)) return streamlinesInSpace(exec, field as VectorField3, opts as Streamlines3Options);
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(contourMaterial(streamlinesOf(env, field, opts)));
+    const lines = streamlinesOf(env, field as VectorFieldFn, opts as StreamOpts);
+    // Each point's arc-length fraction along its own line, in the space.
+    const u: number[] = [];
+    for (const c of lines) {
+      const cum = chainLengths(c.pts, false, exec.space);
+      const total = cum[cum.length - 1];
+      for (let k = 0; k < c.pts.length; k++) u.push(total > 0 ? cum[k] / total : 0);
+    }
+    const out = linkRows(spaced(contourMaterial(lines)), { points: { params: { u: Float64Array.from(u) } } });
+    return record(out, derivation('t.streamlines', [field], { ...(opts as StreamOpts) }));
   }
 
   /** How long the front takes to reach each point of the drawable, as a
@@ -2371,25 +2312,21 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * A shape's boundary as material with the boundary's OWN vertices: a
-   * rectangle's four corners, a regular polygon's vertices, a path's points,
-   * with curved portions flattened at `tolerance` (default 0.05 mm). Each
-   * outline is a chain (a ring when closed, without a duplicate seam vertex),
-   * separate outlines stay separate, nothing is welded. `sample` is the other
-   * conversion: it redistributes points along the boundary by arc length and
-   * need not land on a corner. Coordinates are sketch units, before any
-   * drawing transform around the shape.
-   */
-  /**
-   * Shapes as material, keeping their own vertices: one or more shapes, each
-   * outline a ring or chain of the one returned material, in the order
-   * given, welding nothing — `t.material(...circles).planarize()` is the
-   * pile whose `faces()` are the pieces the overlaps cut. The options are the
-   * trailing plain object. Points go through the pure `material(points)`.
+   * Shapes as material, keeping their own vertices: a rectangle's four
+   * corners, a regular polygon's vertices, a path's points, with curved
+   * portions flattened at `tolerance` (default 0.05 mm). One or more
+   * shapes, each outline a ring (without a duplicate seam vertex) or a
+   * chain of the one returned material, in the order given, welding
+   * nothing — `t.material(...circles).planarize()` is the pile whose
+   * `faces` are the pieces the overlaps cut. The options are the trailing
+   * plain object. Points go through the pure `material(points)`.
+   * `t.sample` is the other conversion: it redistributes points along the
+   * boundary by arc length and need not land on a corner. Coordinates are
+   * sketch units, before any drawing transform around the shape.
    *
    * Any `Area` enters here, through the one lowering: a group's shapes
    * through its transform (an svg import, a placed shape), a face as its
-   * walls with their ids, loops and contour records one ring or chain each,
+   * walls, loops and contour records one ring or chain each,
    * `invert(area)` as the drawable with the area taken out, and a material
    * as the material it already is.
    */
@@ -2427,7 +2364,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
     }
     flush();
-    return pieces.length === 1 ? pieces[0] : spaced(append(...pieces));
+    return record(pieces.length === 1 ? pieces[0] : spaced(append(...pieces)), derivation('t.material', areas, { tolerance: opts.tolerance }));
   }
 
   /** Outlines as one material, each a ring or a chain, welding nothing. */
@@ -2468,7 +2405,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
     }
     const m = materialOf(pts, { edges });
-    return spaced(curved ? m.edgeAttribute('geodesic', (e) => geodesic[e.index]) : m);
+    return spaced(curved ? m.edges.set('geodesic', (e: Edge) => geodesic[e.index]) : m);
   }
 
   /**
@@ -2479,49 +2416,55 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * is a ring (no duplicate seam), an open one a chain from end to end;
    * several outlines are separate chains in one material. Sampling does not
    * keep the shape's own vertices — `t.material(shape)` does. Positions and
-   * connectivity only — attributes come from `.attribute()`.
+   * connectivity only — columns come from `points.set()`.
+   *
+   * Every sample answers `u`, its arc-length fraction along its outline
+   * (0 at the outline's start; an open chain ends at 1, a ring stops short
+   * of it), and a sample of geometry — a curve, a selection, a face —
+   * answers `source`, the input edge it lies on. Both are kept by a `set`
+   * or a `move` of the result; a point added later has neither.
    */
-  function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|MeshFaces<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
-  function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
-  function sample<P extends Attributes3>(curve:CurveGeometry<P,any>,options:{count?:number;spacing?:number;key?:string}):PointGeometry<P>;
+  function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):Material;
   function sample(area:Area,options:{count?:number;spacing?:L;tolerance?:L}):Material;
-  function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
+  function sample(m:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
-    shape: Area | Material | Mesh<any,any,any> | MeshFaces<any,any,any,any> | SurfaceCurves<any> | CurveGeometry<any,any>,
-    options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions | { count?: number; spacing?: number; key?: string } = {},
-  ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> | PointGeometry<any> {
+    shape: Area | Material | SurfaceCurves<any>,
+    options: { count?: number; spacing?: L; tolerance?: L } | CurveSamplingOptions = {},
+  ): Material {
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
-    // A 3D curve is sampled as a 2D chain is: by arc length, in world units,
-    // through its own `resample`; the samples are its points, columns kept.
-    if(shape instanceof CurveGeometry){
-      const {key,...walk}=options as {count?:number;spacing?:number;key?:string};
-      const points=shape.resample(walk).points.extract();
-      return key===undefined?points:points.withKey(key);
-    }
-    if(shape instanceof MeshFaces)shape=shape.extract();
     // A material is already geometry: redistributing along its chains by arc
     // length is `resample`, the same door in the material's own world. The
     // toolkit form exists so one word means one thing whatever it is given.
     if(shape instanceof Material){
+      // A surface is not a curve: its points come from a scatter.
+      if(inSpace3(shape)&&hasFaces(shape))throw new Error('t.sample: this value has faces, and t.sample walks curves — points on a surface are t.scatter(m, { count }) or t.scatter(m, { spacing })');
       // A length is a drawing unit; the material's own coordinates are what
       // `resample` counts in, so it is resolved through the frame exactly as
       // a shape's spacing is.
       const opts=options as {count?:number;spacing?:L};
       const spacing=opts.spacing===undefined?undefined:resolveLen(opts.spacing,exec.frame.inner)/unitMm(exec.frame);
-      // The space is frame data and a material has no frame, so the toolkit
-      // hands the run's own in with the spacing.
-      return spaced(shape.resample(spacing===undefined?{count:opts.count,space:exec.space}:{spacing,space:exec.space}));
+      // Measured in the run's space: a material the toolkit made is in it
+      // already, and chart data (a pure `material(points)`) is put in it —
+      // the same rows, so each sample's `source` is a row of the value the
+      // sketch passed, not of that copy.
+      const how=spacing===undefined?{count:opts.count}:{spacing};
+      const out=inSpace3(shape)?spaced(shape).resample(how):resampleMaterial(spaced(shape),how,{of:shape,edges:null});
+      return record(spaced(out),derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing }));
     }
-    if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
+    const made = derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing, tolerance: opts.tolerance });
     const frame = exec.frame;
     const unit = unitMm(frame);
     const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
     // A spacing that resolves to nothing, or a count with fewer than two
     // samples in it, samples nothing: an empty material, not a failed sketch.
-    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return spaced(materialOf([]));
+    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return record(spaced(materialOf([])), made);
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
+    // Per sample, the rule's parameter and, for geometry, the edge under it.
+    const u: number[] = [];
+    const under = geometryEdges(shape);
+    const source: number[] = [];
     // Each outline keeps its OWN closure: a path may hold a ring and a chain.
     // A bare `spacing` is a length in the space, so the arc length between
     // two samples is the space's own and a sample between two vertices sits
@@ -2531,10 +2474,15 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     for (const { pts: poly, closed, curve } of areaOutlines(exec, shape, 'sample', opts.tolerance, 'all')) {
       const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU, space: exec.space });
       const first = pts.length;
+      // `alongChain` places sample k at arc length total·k/gaps: its
+      // fraction of the outline is k/gaps exactly.
+      const gaps = closed ? samples.length : samples.length - 1;
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         const [x0, y0] = poly[seg];
         const [x1, y1] = poly[(seg + 1) % poly.length];
+        u.push(gaps > 0 ? k / gaps : 0);
+        if (under) source.push(under(x0, y0, x1, y1));
         // A circle or an ellipse in a curved space: the sample is ON the
         // curve, a step from its centre, and not on a chord of it.
         if (curve) {
@@ -2549,56 +2497,60 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
       if (closed && samples.length > 2) edges.push([first + samples.length - 1, first]);
     }
-    return spaced(materialOf(pts, { edges }));
+    const out = spaced(materialOf(pts, { edges }));
+    linkRows(out, { points: {
+      params: { u: Float64Array.from(u) },
+      source: under ? { of: under.of, domain: 'edges', rows: Int32Array.from(source) } : undefined,
+    } });
+    return record(out, made);
   }
 
   /**
-   * A station at a point of the sketch, facing `heading` DEGREES (as
-   * `turn` and `rotate`, positive counter-clockwise), 0 by default: where
-   * a walk starts. The space is the sketch's own, so `station.step` and
-   * `station.turn` walk in the geometry the sketch draws in.
+   * A placement at a point of the sketch, facing `heading` DEGREES from
+   * `+x` toward `+y` (as `turn` and `rotate`), 0 by default: where a walk
+   * starts. The space is the sketch's own, so `step`, `turn` and `toward`
+   * walk in the geometry the sketch draws in. `at` is a pair — of numbers
+   * or lengths — or an `{ x, y }` record, so a point or a centroid goes
+   * straight in.
    */
-  function station(x: L, y: L, opts?: { heading?: number }): Station;
-  /** The same station at a point — a pair or an `{x, y}` record, so a
-   * station or a centroid goes straight in. The two spellings are told
-   * apart by the first argument being a point, never by guessing. */
-  function station(point: XY, opts?: { heading?: number }): Station;
-  function station(a: L | XY, b?: L | { heading?: number }, c?: { heading?: number }): Station {
-    const point = isPointArg(a);
-    const opts = (point ? b : c) as unknown;
-    if (opts !== undefined && (typeof opts !== 'object' || opts === null)) {
-      throw new Error('t.station: the heading goes in the options record, in degrees — t.station(x, y, { heading: 90 })');
-    }
-    const heading = radians((opts as { heading?: number } | undefined)?.heading ?? 0);
-    if (point) return stationAt(vx(a), vy(a), heading, exec.space);
-    return stationAt(exec.len(a), exec.len(b as L), heading, exec.space);
+  function placement(at: XY | readonly [L, L], heading: number = 0): Placement {
+    if (!isPointArg(at, 't.placement')) throw new Error('t.placement: expected a point — [x, y] or { x, y } — and then a heading in degrees: t.placement([x, y], 90)');
+    if (typeof heading !== 'number') throw new Error('t.placement: the heading is a number of degrees, after the point — t.placement([x, y], 90)');
+    const [x, y] = sketchPoint(at);
+    return framePlacement(exec.space.model, { x, y, heading: radians(heading) });
   }
 
   /**
-   * A variable inspector: returns `value` unchanged and records it under
-   * `label`, so the studio can show what a number actually ran through —
-   * count, min, max, mean, a histogram — after the render. Works anywhere in
-   * sketch or fill code (both run in the same runtime), never changes a
-   * value, costs nothing to leave in.
+   * The mirror in the geodesic through `a` and `b`, in the sketch's own
+   * space: a placement that turns what it places over. `a` and `b` are
+   * points — pairs of numbers or lengths, or `{ x, y }` records — and two
+   * distinct places.
+   */
+  function reflection(a: XY | readonly [L, L], b: XY | readonly [L, L]): Placement {
+    for (const p of [a, b]) if (!isPointArg(p, 't.reflection')) throw new Error('t.reflection: expected two points — [x, y] or { x, y } — the mirror runs through both: t.reflection(a, b)');
+    return reflectionIn(exec.space.model, sketchPoint(a), sketchPoint(b), 't.reflection');
+  }
+
+  /** A point argument in sketch units: a pair of numbers or lengths, or an
+   * `{ x, y }` record. */
+  function sketchPoint(at: XY | readonly [L, L]): Vec {
+    return Array.isArray(at) ? [exec.len(at[0] as L), exec.len(at[1] as L)] : [vx(at as XY), vy(at as XY)];
+  }
+
+  /**
+   * Show a value in the studio: returns `value` unchanged and records it
+   * under `label`. A number is counted — count, min, max, mean, a
+   * histogram of what it actually ran through. A material — the points of
+   * `along()` among them — goes to the debug inspector, where a label used twice
+   * keeps the LAST value (in its first position), so a probe inside a pass
+   * shows the final state. Works anywhere in sketch or fill code, draws
+   * nothing, consumes no randomness, never changes a value, and costs
+   * nothing to leave in.
    */
   function probe<T>(label: string, value: T): T {
-    exec.recordProbe(label, value);
+    if (value instanceof Material) exec.recordInspection(label, value);
+    else exec.recordProbe(label, value);
     return value;
-  }
-
-  /**
-   * Register a material for the studio's debug inspector under `label`. Draws
-   * nothing, changes nothing, consumes no randomness, and leaves the plan
-   * and exports untouched; with inspection off in the host it is a type check
-   * and nothing more. Not history: a label used twice keeps the LAST value
-   * (in its first position), so an inspect inside a step callback shows the
-   * final state, not every iteration.
-   */
-  function inspect(label: string, value: Material | readonly Station[]): void {
-    if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
-    if (value instanceof Material) return exec.recordInspection(label, value);
-    if (isStations(value)) return exec.recordInspection(label, stationsMaterial(value));
-    throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
   }
 
   /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
@@ -2663,15 +2615,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
       return out.length === 1 ? out[0] : out;
     },
-    circle, ellipse, rect, line, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
-    dash, smooth, roughen, deform, label,
-    fill, rulings, ui,
-    map: mapRange, norm: normRange, invert, invertRange, ease,
     times, range,
-    mm, w, h, s, long,
-    polygon,
-    /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
-    noiseField: (amount: number, wavelength = 25): PointField<VectorFieldFn> => pointField(noiseFieldOf(noise, amount, wavelength)),
     rnd,
     /** A whole number from the seeded stream, one draw: `rndInt(n)` is
      * 0 … n−1, `rndInt(a, b)` is a … b with both ends in. */
@@ -2683,8 +2627,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     pick,
     steps,
     chance: (p: number): boolean => exec.chance(p),
-    prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
-    noise,
+    noise: bindRun(noise, exec),
     stream: (name: string) => exec.stream(name),
     /** The seed this run resolved: the config's own, or the host's when
      * the config says `'url'` or names none. Read-only: the run holds it. */
@@ -2698,10 +2641,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** Resolve a length to bare units — for sketch-time math on physical
      * sizes (a bare number comes back unchanged). */
     len: (l: L): number => exec.len(l),
-    width: b0.w,
-    height: b0.h,
-    cx: b0.cx,
-    cy: b0.cy,
     /**
      * The geometry this run draws in, as data: its `kind`, its
      * `projection`, its `curvature` and `radius`, and the metric itself —
@@ -2712,17 +2651,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     get space(): Space {
       return exec.space;
     },
-    /** Cell rectangles covering the whole drawable. */
-    grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
-    /** Hexagonal cells covering the drawable as one material: `m.faces()`
-     * are the cells, a shared wall is ONE edge, and each face carries its
-     * axial `i` and `j`. `gap` shrinks each cell about its centre, and a
-     * gapped cell shares nothing. */
-    hexes: (opts: HexOptions): CellMaterial => spaced(hexCells({ bounds: exec.bounds(), len: (l: L) => exec.len(l) }, opts)) as CellMaterial,
-    /** Triangular cells covering the drawable as one material, read exactly
-     * as `hexes`: each face carries its row `j` and its index `i` along that
-     * row, where an even `i` points up. */
-    triangles: (opts: TriangleOptions): CellMaterial => spaced(triangleCells({ bounds: exec.bounds(), len: (l: L) => exec.len(l) }, opts)) as CellMaterial,
+    /** A grid of cells covering the whole drawable, as one geometry: its
+     * faces are the cells in row-major order, each with its `i` and `j`
+     * and its rectangle as `bounds`; neighbouring cells share one wall. */
+    grid: (opts: GridOptions): Material => record(spaced(gridCells(exec.bounds(), opts)), derivation('t.grid', [], { ...opts })),
     /** The placements of one of the seventeen wallpaper groups, enough of
      * them to cover the drawable: hand each to `group(placement, motif)`
      * and the motif repeats under the group. `cell` is `[w, h]` for a
@@ -2736,30 +2668,35 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       return symmetryPlacements(group, opts.cell, Math.floor(b.x / ax) - 1, Math.ceil((b.x + b.w) / ax) + 2, Math.floor(b.y / by) - 1, Math.ceil((b.y + b.h) / by) + 2);
     },
     tiling: tilingTk,
-    noisyLine: (x1: L, y1: L, x2: L, y2: L, o?: Parameters<typeof noisyLineValue>[5], shapeOpts?: ShapeOpts): ShapeValue => noisyLineValue(noise, x1, y1, x2, y2, o, shapeOpts),
-    svg: svgValue,
     scatter, throw: throwTk, isolines, ridges, streamlines, travelTime,
     lattice,
     residual,
     /** An area's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, station, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
+    sample, placement, reflection, probe, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
     text,
     /**
      * The distance field of an area, taking a shape as well as resolved
      * geometry: inside the sketch the frame is in hand, so the toolkit
-     * lowers the shape and the pure `distanceTo` never has to.
+     * lowers the shape and the pure `distanceTo` never has to. It measures
+     * in the space the geometry carries, and in the sketch's space when it
+     * carries none: plain loops, points and a shape.
      */
     distanceTo: (area: Area): PointField<DistanceField> => {
-      // Points have no inside: a point selection, or a material that is
-      // points alone, is measured to its nearest point.
-      if (area instanceof PointSelection || (area instanceof Material && area.edgeCount === 0)) {
-        return pointField(exec.space.kind === 'euclidean' ? distanceToPoints(area) : spaceDistanceToPoints(exec.space, area));
+      const space = carriedSpace(area) ?? exec.space;
+      // Points have no inside: a point selection, a material that is
+      // points alone, or a face collection is measured to its nearest point.
+      if (isPointSites(area)) {
+        return pointField(space.kind === 'euclidean' ? distanceField(area) : curvedDistanceField(space, area));
       }
-      return pointField(exec.space.kind === 'euclidean'
-        ? distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput)
-        : spaceDistanceTo(exec.space, area));
+      if (space.kind !== 'euclidean') return pointField(spaceDistanceTo(space, area));
+      // An open shape has no inside: as in a curved sketch, each segment
+      // reads as its line, signed positive on its left, so
+      // `t.distanceTo(line(a, b))` is the signed distance to that line.
+      const lowered = lowerShape(exec, area, 'distanceTo');
+      if (isShapeValue(area) && (lowered as SpaceContour[]).some((c) => !c.closed)) return pointField(spaceAreaField(space, lowered as SpaceContour[]));
+      return pointField(distanceField(lowered));
     },
     /**
      * The forces, each taking a shape where it takes an area or points. The
@@ -2775,7 +2712,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       boundary: (area: Area, opts: { radius: number; strength?: number }) =>
         boundaryIn(lowerShape(exec, area, 'force.boundary') as AreaInput, opts, exec.space),
       separation: separationTk,
-      attract: attractTk,
       /** A turn about a centre: a centre is a bare point, so the toolkit
        * hands it the sketch's space. */
       vortex: (centre: XY, opts: { strength: number; falloff?: number }) => vortexIn(centre, opts, exec.space),
@@ -2793,7 +2729,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       (vars: string[], opts: SynthOpts = {}) => synthPure(vars, synthEnv(opts)),
       { warp: (vars: string[], opts: SynthOpts = {}) => synthPure.warp(vars, synthEnv(opts)) },
     ),
-    /** Text of a captured asset (SVGs etc): `t.svg(t.asset('church.svg'), …)`. */
+    /** Text of a captured asset (SVGs etc): `svg(t.asset('church.svg'), …)`. */
     asset: (name: string): string => assetOf(exec.inputs.assets, name),
     /** A captured image as a sampler placed on the drawable. */
     image: (name: string, place: ImagePlacement = {}) => imageOf(exec.inputs.assets, name, place),
@@ -2803,8 +2739,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 interface EmitCtx {
   pen: string | undefined;
   z: number | undefined;
-  decimate: DecimateArg | undefined;
-  wobble: WobbleArg | undefined;
   bridge: L | undefined;
   /** Inherited modifier stack, deepest ancestors first. */
   modifiers: ModifierValue[];
@@ -2823,16 +2757,21 @@ export const DEFAULT_INPUTS: ExecutionInputs = Object.freeze({ paper: { w: 210, 
  * even evaluated. Returns the execution the renderer encodes from.
  */
 export function compileSketch(def: SketchDef, inputs: ExecutionInputs | Execution = DEFAULT_INPUTS): Execution {
-  if (isSketchAsync(def)) throw new Error('compileSketch: async rendering required; use compileSketchAsync or renderAsync');
   if (!isSketch(def)) throw new Error('compileSketch: expected a sketch definition (sketch(config, fn))');
+  if (awaits(def)) throw new Error('compileSketch: async rendering required; use compileSketchAsync or renderAsync');
   const exec = inputs instanceof Execution ? inputs : new Execution(inputs);
   if (compilingAsync.has(exec)) throw new Error('execution already has an asynchronous compile in progress');
   const cfg = def.config;
   exec.begin(cfg);
-  const toolkit = bindToolkit(exec);
-  const result = def.fn(toolkit);
-  if (result && typeof (result as PromiseLike<unknown>).then === 'function') { void Promise.resolve(result).catch(() => {}); throw new Error('compileSketch: the sketch function returned a promise; use compileSketchAsync or renderAsync'); }
-  emit(exec, result as Tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+  // What is made after the run is made outside it (material.ts `mintIds`).
+  try {
+    const toolkit = bindToolkit(exec);
+    const result = def.fn(toolkit);
+    if (result && typeof (result as PromiseLike<unknown>).then === 'function') { void Promise.resolve(result).catch(() => {}); throw new Error('compileSketch: the sketch function returned a promise; use compileSketchAsync or renderAsync'); }
+    emit(exec, result as Tree, { pen: undefined, z: undefined, bridge: undefined, modifiers: [] });
+  } finally {
+    exec.end();
+  }
   return exec;
 }
 
@@ -2849,11 +2788,11 @@ function containsLineArt3(tree: Tree): boolean {
  * it does not forcibly interrupt user JavaScript. GPU operations should also
  * receive the host's signal so they can stop submitting subsequent batches. */
 export async function compileSketchAsync(
-  def: SketchDef | AsyncSketchDef,
+  def: SketchDef,
   inputs: ExecutionInputs | Execution = DEFAULT_INPUTS,
   options: { signal?: AbortSignal; compute3?: SceneCompute3; onStage?: import('./three/resolve.js').StageListener3; onProgress?: import('./three/modeling.js').ProgressListener3 } = {},
 ): Promise<Execution> {
-  if (!isSketch(def) && !isSketchAsync(def)) throw new Error('compileSketchAsync: expected a sketch definition');
+  if (!isSketch(def)) throw new Error('compileSketchAsync: expected a sketch definition');
   options.signal?.throwIfAborted();
   const exec = inputs instanceof Execution ? inputs : new Execution(inputs);
   if (compilingAsync.has(exec)) throw new Error('execution already has an asynchronous compile in progress');
@@ -2868,11 +2807,12 @@ export async function compileSketchAsync(
       ? await resolveTree3(exec, source, scope)
       : source;
     options.signal?.throwIfAborted();
-    emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+    emit(exec, tree, { pen: undefined, z: undefined, bridge: undefined, modifiers: [] });
     return exec;
   } finally {
     open = false;
     compilingAsync.delete(exec);
+    exec.end();
   }
 }
 
@@ -2920,8 +2860,8 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   if ((tree as unknown as ModifierValue).__occludeModifier) {
     const m = tree as unknown as ModifierValue;
     throw new Error(
-      `${m.kind}(…) with no children is a modifier value, not a drawable — ` +
-        `wrap shapes (${m.kind}(…, ...shapes)) or pass it via { modifiers: [...] } / modify()`,
+      `${m.kind}(…) is a modifier value, not a drawable — ` +
+        `put it in a shape's or a group's stack: group({ modifiers: [${m.kind}(…)] }, ...shapes)`,
     );
   }
   if ((tree as GroupValue).__occludeGroup) {
@@ -2929,8 +2869,6 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
     const inner: EmitCtx = {
       pen: g.opts.pen ?? ctx.pen,
       z: g.opts.z ?? ctx.z,
-      decimate: g.opts.decimate ?? ctx.decimate,
-      wobble: g.opts.wobble ?? ctx.wobble,
       bridge: g.opts.bridge ?? ctx.bridge,
       // Function-application order: deeper stacks run before shallower.
       modifiers: g.opts.modifiers ? [...g.opts.modifiers, ...ctx.modifiers] : ctx.modifiers,
@@ -2997,15 +2935,8 @@ function emitShape(exec: Execution, given: ShapeValue, ctx: EmitCtx): void {
   const z = o.z ?? ctx.z;
   if (z !== undefined) sh.z(z);
   // The shape's final program, function-application order: own stack, then
-  // inherited modify() stacks inside-out, then the legacy kind-keyed
-  // shorthand (decimate before wobble — the old fixed pipeline order; the
-  // nearest declaration overrides, exactly as before).
-  const program: ModifierValue[] = [...(o.modifiers ?? []), ...ctx.modifiers];
-  const dec = o.decimate ?? ctx.decimate;
-  if (dec !== undefined) program.push(decimateValue(dec));
-  const wob = o.wobble ?? ctx.wobble;
-  if (wob !== undefined) program.push(wobbleValue(wob));
-  sh.modifiers = program;
+  // the enclosing groups' stacks inside-out.
+  sh.modifiers = [...(o.modifiers ?? []), ...ctx.modifiers];
   sh.preserveStroke = o.preserveStroke ?? false;
   sh.strokeSeed = o.strokeSeed;
   sh.strokeRanges = o.strokeRanges?.map(r => [...r] as [number, number]);

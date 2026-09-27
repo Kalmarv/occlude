@@ -5,28 +5,29 @@ description: Straight chords on a circle, and the curves that nobody drew.
 
 Every chord is straight. The curve inside each band is the envelope, and nobody drew it. Place `n` points on a circle and join point `k` to point `m·k`. The pile of chords is tangent to a curve with `m − 1` cusps, and `envelope` finds that curve. The chords are the lead strips of the glass, and the envelope is the carved stone tracery. Each band goes down first. Then the next ring inward covers it as an opaque disc. One band's leading never crosses the next band's tracery.
 
-Uses: `connect.chain`, `append`, `envelope`, `opaque`.
+Uses: `curve`, `append`, `envelope`, `opaque`.
 
 ```ts live paper=140x140
-import { sketch, strokes, append, material, connect, circle } from 'occlude';
+import { sketch, strokes, append, material, circle, curve } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const box = t.bounds();
   const pile = (cx, cy, R, n, m) => append(...t.times(n, (k) => {
     const a = (k / n) * Math.PI * 2 - Math.PI / 2;
     const b = ((m * k) % n / n) * Math.PI * 2 - Math.PI / 2;
-    return connect.chain(material([{ x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }, { x: cx + R * Math.cos(b), y: cy + R * Math.sin(b) }]));
+    return curve(material([{ x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }, { x: cx + R * Math.cos(b), y: cy + R * Math.sin(b) }]));
   }));
   const band = (R, n, m) => {
-    const fam = pile(t.cx, t.cy, R, n, m);
+    const fam = pile(box.cx, box.cy, R, n, m);
     return [strokes(fam), strokes(fam.envelope(), { pen: 'stabilo-88-blue' })];
   };
   return [
     band(46, 126, 7),
-    circle(t.cx, t.cy, 30.5, { opaque: true }),
+    circle(box.cx, box.cy, 30.5, { opaque: true }),
     band(29, 84, 5),
-    circle(t.cx, t.cy, 15.8, { opaque: true }),
+    circle(box.cx, box.cy, 15.8, { opaque: true }),
     band(15, 54, 3),
-    circle(t.cx, t.cy, 46),
+    circle(box.cx, box.cy, 46),
   ];
 });
 ```

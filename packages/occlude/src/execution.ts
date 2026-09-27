@@ -1,5 +1,5 @@
 import type { ModelingStats3 } from './three/modeling.js';
-import { resetIds } from './material.js';
+import { beginIds, endIds } from './material.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 import type { RetainedDrawing3 } from './three/drawing.js';
@@ -99,7 +99,7 @@ export interface ClipRecord {
 
 /** One addressed draw: its address, the unit float it returned, and what
  * the call made of it — a number from `rnd`, an index from `pick`, a
- * boolean from `chance`/`prob` — so a frozen sketch can write it back. */
+ * boolean from `chance` — so a frozen sketch can write it back. */
 export interface DrawEntry {
   addr: string;
   f: number;
@@ -158,13 +158,6 @@ export interface InspectionPayload {
  * `length` and `at` — a selection, or the pairs a relation gave back. */
 export type Pickable<T> = { readonly length: number; at(i: number): T | undefined };
 
-/**
- * One draw, one member. The draw is consumed whatever happens, so the seed
- * stream does not depend on what is in the collection; an empty one has no
- * member to give and says so by name, the same for an array and for a
- * selection (whose own `at` would otherwise refuse and an array's would
- * quietly answer `undefined`).
- */
 /** One unit draw to a whole number: `n` values 0 … n−1, or a … b with both
  * ends in. Non-whole bounds tighten inward; an empty range is its lower end
  * (best effort: a degenerate ask draws something, it does not throw). */
@@ -179,6 +172,13 @@ function intFrom(unit: number, a: number, b?: number): number {
   return lo + Math.min(Math.floor(unit * (hi - lo + 1)), hi - lo);
 }
 
+/**
+ * One draw, one member. The draw is consumed whatever happens, so the seed
+ * stream does not depend on what is in the collection; an empty one has no
+ * member to give and says so by name, the same for an array and for a
+ * selection (whose own `at` would otherwise refuse and an array's would
+ * quietly answer `undefined`).
+ */
 function pickFrom<T>(items: Pickable<T>, unit: number, record: (i: number) => void): T {
   const n = items.length;
   if (n === 0) throw new Error('pick: nothing to pick from (0 members)');
@@ -203,7 +203,6 @@ export interface RandomStream {
   gaussian(mean?: number, sd?: number): number;
   pick<T>(items: Pickable<T>): T;
   chance(p: number): boolean;
-  prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined;
   noise(x: number, y?: number, z?: number): number;
 }
 
@@ -236,7 +235,7 @@ export interface ExecutionInputs {
   assets?: AssetTable;
   /** Captured custom fill modules the source references, by name. */
   fills?: FillTable;
-  /** Register `t.inspect` materials (the studio's inspector). Default off:
+  /** Register the materials `t.probe` is given (the studio's inspector). Default off:
    * a sketch that inspects then costs the same as one that does not. */
   inspect?: boolean;
 }
@@ -330,6 +329,12 @@ export class Execution {
   /** Sketch-time `within` bounds lowered once per shape for THIS frame. */
   readonly boundCache: WeakMap<object, unknown> = new WeakMap();
 
+  /** The step `t.steps` is making — the start's step count plus the passes
+   * already made — while a run of steps is in progress; undefined outside
+   * one. What `force.drift` turns with, wherever the pass keeps its
+   * values (a material, a plain object holding several, a lattice). */
+  step: number | undefined = undefined;
+
   constructor(inputs: ExecutionInputs) {
     if (!inputs || typeof inputs !== 'object' || !inputs.paper) throw new Error('Execution: inputs.paper is required ({ w, h } in mm)');
     if (!(inputs.paper.w > 0) || !(inputs.paper.h > 0)) throw new Error(`Execution: paper must be positive, got ${inputs.paper.w}×${inputs.paper.h}`);
@@ -351,6 +356,16 @@ export class Execution {
 
   private compiled: boolean;
 
+  /** The run number `begin` took for the values made in it (material.ts
+   * `beginIds`): 0 until it begins. */
+  private run = 0;
+
+  /** The sketch has been recorded: what is made from now on is made
+   * outside any run (a value at module scope, the next import). */
+  end(): void {
+    endIds(this.run);
+  }
+
   /**
    * Fix the run's configuration from the sketch's: aspect and frame
    * conventions, the paper (the sketch's own wins), the margin, the pen
@@ -362,8 +377,8 @@ export class Execution {
     // Identities start over with the run. A counter that survived between
     // runs would show different ids in a warm studio worker than in a cold
     // render for the same sketch and seed — no ink difference, but a broken
-    // promise.
-    resetIds();
+    // promise. What is made from now on belongs to this run (`end`).
+    this.run = beginIds();
     this.cameras3 = Object.freeze(Object.fromEntries(Object.entries(cfg.cameras3 ?? {}).map(([key, camera]) => [key,
       cameraFrame3(camera, { x: 0, y: 0, width: 1, height: 1 }).camera,
     ])));
@@ -607,11 +622,6 @@ export class Execution {
     return v;
   }
 
-  prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined {
-    if (this.chance(p)) return fn();
-    return elseFn?.();
-  }
-
   noise(x: number, y = 0, z?: number): number {
     return this.rng.noise(x, y, z);
   }
@@ -670,8 +680,9 @@ export class Execution {
       gaussian: gaussianOf,
       pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
-      prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
-      noise: (x, y = 0, z?: number) => rng.noise(x, y, z),
+      noise: (x, y = 0, z?: number) => {
+        return rng.noise(x, y, z);
+      },
     };
   }
 
@@ -903,4 +914,20 @@ function uniqueExport(module: string, library: readonly { name: string }[], name
     throw new Error(`${module}: '${name}' and '${clash.join("', '")}' would both export as ${moduleName(name)} — rename one in the library`);
   }
   return moduleName(name);
+}
+
+/** The run a toolkit function belongs to: `t.noise` knows its run, so a
+ * pure word handed it (`force.drift(t.noise, …)`) reads the run's step. */
+const runs = new WeakMap<object, Execution>();
+
+/** @internal Bind a toolkit function to its run (`bindToolkit`). */
+export function bindRun<F extends object>(fn: F, exec: Execution): F {
+  runs.set(fn, exec);
+  return fn;
+}
+
+/** @internal The run a toolkit function belongs to, or undefined for a
+ * function the sketch wrote. */
+export function runOf(fn: object): Execution | undefined {
+  return runs.get(fn);
 }

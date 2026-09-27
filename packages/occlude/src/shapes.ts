@@ -47,20 +47,14 @@ export type FieldFn = (x: number, y: number) => number;
 export type LengthFn = (x: number, y: number) => number | L;
 
 /**
- * A vector field: a displacement (in user units) that varies over the page.
- * Drives `deform` — sampled at encode time in user coordinates.
+ * A vector field: two numbers at a point, as a pair — a displacement (in
+ * user units) that varies over the page. Drives `deform`, sampled at encode
+ * time in user coordinates. A field a sketch writes by hand may answer any
+ * array of two numbers — TypeScript reads a literal `[dx, dy]` as
+ * `number[]`, and the library reads its first two entries either way.
  */
-/** A vector field: two numbers at a point, as a pair. A field a sketch
- * writes by hand may answer any array of two numbers — TypeScript reads a
- * literal `[dx, dy]` as `number[]`, and the library reads its first two
- * entries either way. */
 export type VectorFieldFn = (x: number, y: number) => readonly [number, number] | readonly number[];
 
-/**
- * One entry of a shape's modifier stack — a plain value made by the
- * modifier constructors (`decimate(p)`, `wobble(amt)`, …). Post-stage
- * entries run over the shape's final ink after occlusion, in stack order.
- */
 /** Where a modifier's field params are anchored: `'paper'` (default)
  * samples in paper coordinates; `'shape'` anchors the field to the shape —
  * A = G ∘ C: the shape's intrinsic bbox centre is field (0, 0) and the
@@ -72,6 +66,11 @@ export type FieldAlign = 'paper' | 'shape';
  * size — 0.5…2 mm for a scalar field, 0.25…1 mm for a vector field). Uses
  * of one field that share a grid take the tightest step among them. */
 
+/**
+ * One entry of a shape's modifier stack — a plain value made by the
+ * modifier constructors (`decimate(p)`, `wobble(amt)`, …). Post-stage
+ * entries run over the shape's final ink after occlusion, in stack order.
+ */
 export type ModifierValue =
   | {
       readonly __occludeModifier: true;
@@ -119,7 +118,12 @@ export type ShapeGeom =
   /** The area of another shape (`polygon(circle(…))`): lowered through the
    * same lowerer as the shape itself, at record time, when the run's frame
    * is known — so a shape is an area input anywhere, with no run in hand. */
-  | { kind: 'area'; of: { geom: ShapeGeom; opts: Omit<TransformOp, 'origin'> & { origin?: Origin<L> } }; winding: Winding };
+  | { kind: 'area'; of: { geom: ShapeGeom; opts: Omit<TransformOp, 'origin'> & { origin?: Origin<L> } }; winding: Winding }
+  /** An area only the toolkit can read — a group (the union of its
+   * shapes) or `invert(area)` (the drawable without it): `polygon(group)`
+   * holds it, and the toolkit makes it a path with the run in hand, before
+   * the shape is recorded or read as an area. Never lowered here. */
+  | { kind: 'region'; area: object; winding: Winding | undefined };
 
 /** Is this geometry a closed region? An empty path is the empty region:
  * trivially closed (no boundary), so a generator that produced nothing
@@ -127,7 +131,7 @@ export type ShapeGeom =
  * of throwing. */
 export function geomClosed(g: ShapeGeom): boolean {
   if (g.kind === 'line') return false;
-  if (g.kind === 'points' || g.kind === 'area') return true;
+  if (g.kind === 'points' || g.kind === 'area' || g.kind === 'region') return true;
   if (g.kind === 'path') return g.cmds.length === 0 || g.cmds.some((c) => c.op === 'close');
   return true;
 }
@@ -145,6 +149,7 @@ export class Shape {
   /** Endpoint-join tolerance (unresolved length); undefined = no bridging. */
   bridge?: import('./units.js').L;
   preserveStroke = false;
+  /** @internal Stable source/style/pass key for source-linked modifiers. */
   strokeSeed?: number;
   strokeRanges?: readonly (readonly [number, number])[];
   /** Ordered modifier stack; post-stage entries run after occlusion. */

@@ -15,30 +15,35 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { Placement } from '../src/placement.js';
+import { faceTableOf } from '../src/faces.js';
 import { toolkit } from './helpers/run.js';
-import { space, strokes, Material, Tiling } from '../src/index.js';
+import { space, strokes, Material } from '../src/index.js';
 import { geodesicBow } from '../src/record.js';
+import { firstCell, rec } from './helpers/xy.js';
 
 /** The three cases, built once each. */
 const flat = () => toolkit({ aspect: [1, 1] });
 const disk = () => toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) });
 const ball = () => toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
 
-const square = (): Tiling => flat().tiling(4, 4, { depth: 2 });
-const heptagons = (): Tiling => disk().tiling(7, 3, { depth: 3 });
-const icosahedron = (): Tiling => ball().tiling(3, 5);
+// A flat tiling covers the drawable; squares of 20 about the middle,
+// turned square to the sheet, fit it exactly, so no cell is cut.
+const square = (): Material => flat().tiling(4, 4, { side: 20, rotate: 45 });
+const heptagons = (): Material => disk().tiling(7, 3, { depth: 3 });
+const icosahedron = (): Material => ball().tiling(3, 5);
 
 /** Rows of the corners (the vertices a cell has an angle at) and of the
  * samples (the interior points of a wall). */
-const cornerRows = (m: Tiling): number[] => [...m.attrs.corner].flatMap((v, i) => (v === 1 ? [i] : []));
-const sampleCount = (m: Tiling): number => m.n - cornerRows(m).length;
+const cornerRows = (m: Material): number[] => (m.attrs.corner ? [...m.attrs.corner].flatMap((v, i) => (v === 1 ? [i] : [])) : Array.from({ length: m.n }, (_, i) => i));
+const sampleCount = (m: Material): number => m.n - cornerRows(m).length;
 
 /**
  * The walls: each one from corner to corner, through its own samples.
  * A sample has degree 2 and belongs to one wall, so the walk is forced.
  */
-function walls(m: Tiling): { a: number; b: number; through: number[] }[] {
-  const corner = m.attrs.corner;
+function walls(m: Material): { a: number; b: number; through: number[] }[] {
+  const corner = m.attrs.corner ?? new Float64Array(m.n).fill(1);
   const at: number[][] = Array.from({ length: m.n }, () => []);
   for (let e = 0; e < m.edgeCount; e++) {
     at[m.edgeList[2 * e]].push(e);
@@ -79,11 +84,17 @@ describe('a tiling is a material of shared corners and shared walls', () => {
         expect(seen.has(key)).toBe(false);
         seen.add(key);
       }
-      // A material verb answers a plain material: a warped tiling is no
-      // longer a tiling.
-      const moved = tiles.map((p) => [p.x + 1, p.y]);
-      expect(moved).toBeInstanceOf(Material);
-      expect(moved).not.toBeInstanceOf(Tiling);
+    }
+  });
+
+  it('is a plain material: its geometry is its space, its first cell face 0', () => {
+    for (const [tiles, kind] of [[square(), 'euclidean'], [heptagons(), 'hyperbolic'], [icosahedron(), 'spherical']] as const) {
+      expect(Object.getPrototypeOf(tiles)).toBe(Material.prototype);
+      expect(Object.isFrozen(tiles)).toBe(true);
+      expect(tiles.space?.kind).toBe(kind);
+      // Face 0 is the fundamental cell: the identity carries it.
+      const first = tiles.faces.at(0).source as Placement;
+      for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBe(0);
     }
   });
 
@@ -92,9 +103,10 @@ describe('a tiling is a material of shared corners and shared walls', () => {
       // Every corner row is the image of some cell corner, and every image
       // of a cell corner is a corner row.
       const rows = new Set(cornerRows(tiles));
+      const cell = firstCell(tiles);
       let hits = 0;
-      for (const place of tiles.placements) {
-        for (const v of tiles.cell) {
+      for (const place of tiles.faces.map((f) => f.source as Placement)) {
+        for (const v of cell) {
           const want = place.point(v);
           let best = Infinity;
           for (const row of rows) best = Math.min(best, Math.hypot(tiles.x[row] - want[0], tiles.y[row] - want[1]));
@@ -102,7 +114,7 @@ describe('a tiling is a material of shared corners and shared walls', () => {
           hits++;
         }
       }
-      expect(hits).toBe(tiles.placements.length * tiles.cell.length);
+      expect(hits).toBe(tiles.faces.length * cell.length);
     }
   });
 
@@ -160,21 +172,21 @@ describe('a wall is stored within its bow in the metric', () => {
 describe('the faces are the cells', () => {
   it('counts the icosahedron: 12 corners, 30 walls, 20 faces, and no outside', () => {
     const tiles = icosahedron();
-    const cells = tiles.faces();
+    const cells = tiles.faces;
     expect(cornerRows(tiles).length).toBe(12);
     expect(walls(tiles).length).toBe(30);
     expect(cells.length).toBe(20);
     // Euler on the corners and the walls, not on the sampled rows.
     expect(cornerRows(tiles).length - walls(tiles).length + cells.length).toBe(2);
     // A closed surface has no outside: every half-edge belongs to a face.
-    expect([...cells.faceOf].filter((f) => f < 0).length).toBe(0);
+    expect([...faceTableOf(cells).faceOf].filter((f) => f < 0).length).toBe(0);
   });
 
   it('gives the plane and the disk one face per copy, with a rim', () => {
     for (const tiles of [square(), heptagons()]) {
-      const cells = tiles.faces();
-      expect(cells.length).toBe(tiles.placements.length);
-      expect([...cells.faceOf].filter((f) => f < 0).length).toBeGreaterThan(0);
+      const cells = tiles.faces;
+      expect(cells.length).toBe(tiles.faces.map((f) => f.source as Placement).length);
+      expect([...faceTableOf(cells).faceOf].filter((f) => f < 0).length).toBeGreaterThan(0);
       // Euler for a patch of the plane: one face short of the closed count.
       expect(cornerRows(tiles).length - walls(tiles).length + cells.length).toBe(1);
     }
@@ -182,17 +194,18 @@ describe('the faces are the cells', () => {
 
   it('carries the generation, the hand and the placement of every copy', () => {
     for (const tiles of [square(), heptagons(), icosahedron()]) {
-      const cells = tiles.faces();
-      expect(tiles.seed).toBe(cells.faces[0]);
-      expect(tiles.seed.placementIndex).toBe(0);
-      expect(tiles.seed.generation).toBe(0);
-      const seen = new Set<number>();
+      const cells = tiles.faces;
+      // The first face is the cell itself, the identity placement's copy.
+      const first = cells.at(0).source as Placement;
+      for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBeLessThan(1e-9);
+      expect(cells.at(0).generation).toBe(0);
+      const seen = new Set<Placement>();
       for (const f of cells) {
-        const i = f.placementIndex!;
-        expect(seen.has(i)).toBe(false);
-        seen.add(i);
+        const place = f.source as Placement;
+        expect(seen.has(place)).toBe(false);
+        seen.add(place);
         // The hand comes from the placement, never from a signed area.
-        expect(f.mirrored).toBe(tiles.placements[i].orientation < 0 ? 1 : 0);
+        expect(f.mirrored).toBe(place.orientation < 0 ? 1 : 0);
       }
       // A generation is a flood generation: the seed alone is 0, and every
       // copy after it shares a wall with one of the generation before.
@@ -208,7 +221,7 @@ describe('the faces are the cells', () => {
 describe('the drawing words read it', () => {
   it('draws every wall once', () => {
     for (const tiles of [square(), heptagons(), icosahedron()]) {
-      const chains = tiles.curves();
+      const chains = tiles.curves.map(rec);
       // Every edge in exactly one chain, exactly once: no wall retraced.
       let segments = 0;
       const rows = new Set<number>();
@@ -226,7 +239,7 @@ describe('the drawing words read it', () => {
 
   it('moves through a placement, keeping every vertex and the lineage of every wall', () => {
     const tiles = heptagons();
-    const place = tiles.placements[2];
+    const place = tiles.faces.map((f) => f.source as Placement)[2];
     const moved = tiles.transform(place);
     // Every source vertex keeps its row and its id; a wall piece the move
     // had to sample is retired, and its children keep its lineage root,
@@ -248,7 +261,9 @@ describe('the drawing words read it', () => {
 
 describe('side is the plane\'s own setting', () => {
   it('sets the wall length of a Euclidean tiling', () => {
-    const tiles = flat().tiling(4, 4, { depth: 1, side: 10 });
+    // Squares of 10 turned square to the sheet, standing so the drawable's
+    // edges fall on walls: no cell is cut.
+    const tiles = flat().tiling(4, 4, { side: 10, rotate: 45, origin: [55, 55] });
     expect(sampleCount(tiles)).toBe(0);
     for (const wall of walls(tiles)) {
       const d = Math.hypot(tiles.x[wall.a] - tiles.x[wall.b], tiles.y[wall.a] - tiles.y[wall.b]);
@@ -261,19 +276,19 @@ describe('side is the plane\'s own setting', () => {
     expect(() => ball().tiling(3, 5, { side: 4 })).toThrow(/has the side its curvature fixes/);
     // The number it names is the metric side of the cell.
     const t = disk();
-    const cell = t.tiling(7, 3, { depth: 0 }).cell;
+    const cell = firstCell(t.tiling(7, 3, { depth: 0 }));
     const want = t.space.distance(cell[0], cell[1]);
     expect(() => t.tiling(7, 3, { side: 10 })).toThrow(new RegExp(`fixes, ${want.toFixed(2)} here`));
   });
 });
 
-describe('each symbol answers through cell and placements in its own space', () => {
+describe('each symbol answers through its first cell and placements in its own space', () => {
   it('keeps the plane on a flat sheet and the sphere in a spherical sketch', () => {
-    for (const [t, p, q, n] of [[flat(), 4, 4, 13], [ball(), 3, 5, 20]] as const) {
-      const tiles = t.tiling(p, q, { depth: 2 });
-      expect(tiles.placements.length).toBe(n);
-      expect(tiles.cell.length).toBe(p);
-      for (const v of tiles.cell) expect(Number.isFinite(v[0]) && Number.isFinite(v[1])).toBe(true);
+    for (const [t, p, q, n, opts] of [[flat(), 4, 4, 25, { side: 20, rotate: 45 }], [ball(), 3, 5, 20, { depth: 2 }]] as const) {
+      const tiles = t.tiling(p, q, opts);
+      expect(tiles.faces.map((f) => f.source as Placement).length).toBe(n);
+      expect(firstCell(tiles).length).toBe(p);
+      for (const v of firstCell(tiles)) expect(Number.isFinite(v[0]) && Number.isFinite(v[1])).toBe(true);
     }
   });
 });

@@ -12,9 +12,11 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  circle, line, connect, distanceToPoints, dots, material, polygon, space, strokes, force, mul, append, sdf,
-  type Face, type Material,
+  circle, line, connect, curve, distanceTo, dots, material, polygon, space, strokes, force, mul, append, sdf,
+  type Face, type Material, type Vertex,
 } from '../src/index.js';
+import { xy, rec } from './helpers/xy.js';
+import { selectionIn } from '../src/selection.js';
 
 const DISC = circle(50, 50, 34);
 
@@ -22,7 +24,7 @@ const DISC = circle(50, 50, 34);
 function web(seed = 7, spacing = 10) {
   const t = toolkit({ aspect: [1, 1], seed });
   const cells = t.voronoi(t.relax(t.scatter({ spacing }), { iterations: 3 }));
-  return { t, cells, faces: cells.faces() };
+  return { t, cells, faces: cells.faces };
 }
 
 const idsOf = (m: Material) => [...m.pointIds];
@@ -40,13 +42,12 @@ describe('P5 · a face collection is a selection', () => {
     expect(walls.thicken({ radius: 1 }).n).toBeGreaterThan(0);
   });
 
-  it('G1-21 · faces.subtract(big) is the cells that are not big, and faces.complement() exists', () => {
+  it('G1-21 · faces.without(big) is the cells that are not big', () => {
     const { faces } = web(1, 14);
     const big = faces.filter((f) => f.area > 220);
-    const rest = faces.subtract(big);
-    expect(rest.indices).toEqual(faces.filter(() => true).subtract(big).indices);
-    expect(big.complement().indices).toEqual(rest.indices);
-    expect(faces.complement().length).toBe(0);
+    const rest = faces.without(big);
+    expect(rest.indices).toEqual(faces.filter(() => true).without(big).indices);
+    expect(faces.without(faces).length).toBe(0);
     expect(rest.length + big.length).toBe(faces.length);
   });
 
@@ -57,16 +58,16 @@ describe('P5 · a face collection is a selection', () => {
     const drawn = strokes(big, { pen: 'stabilo-88-blue' });
     expect(drawn.length).toBe(strokes(big.edges).length);
     // Every edge of the selection is in exactly one chain.
-    const seen = big.curves().reduce((k, c) => k + c.indices.length - (c.closed ? 0 : 1), 0);
+    const seen = big.curves.map(rec).reduce((k, c) => k + c.indices.length - (c.closed ? 0 : 1), 0);
     expect(seen).toBe(big.edges.length);
     // strokes(faces) — the whole collection — is the whole web's walls.
-    expect(strokes(faces).length).toBe(faces.edges.curves().length);
+    expect(strokes(faces).length).toBe(faces.edges.curves.map(rec).length);
   });
 
   it('G2-8 · face.extract() is one face as material, so the chain needs no rewrap', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const hex = t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 });
-    const near = t.within(hex.faces(), DISC, { keep: 'touching' });
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), origin: [50, 50], rotate: 45 });
+    const near = t.within(hex.faces, DISC, { keep: 'touching' });
     const shrunk = near.map((f) => f.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     const workaround = near.map((f) => f.boundaryEdges.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     // The same points; `face.extract()` winds its walls the face's way
@@ -81,37 +82,36 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G2-9 · FaceSelection has extract() and in(state)', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const hex = t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 });
-    const near = t.within(hex.faces(), DISC, { keep: 'touching' });
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), origin: [50, 50], rotate: 45 });
+    const near = t.within(hex.faces, DISC, { keep: 'touching' });
     const kept = near.extract().scale(0.5, { origin: 'center' });
     expect(kept.n).toBe(near.edges.extract().n);
     const moved = hex.rotate(10, { origin: [50, 50] });
-    const again = near.in(moved);
-    expect(again.source).toBe(moved);
+    const again = selectionIn(near, moved);
+    expect(again.owner).toBe(moved);
     expect(again.length).toBe(near.length);
     expect(again.map((f) => f.id)).toEqual(near.map((f) => f.id));
   });
 
   it('G2-13 · where takes a face selection: its corners for a point method', () => {
     const t = toolkit({ aspect: [1, 1], seed: 2 });
-    const hex = t.hexes({ spacing: 10 }).steps(3, (cur, next) => next.splitEdges(cur.edges, { at: 0.5 }));
-    const inside = t.within(hex.faces(), circle(50, 50, 28));
-    const ripple = (x: number, y: number) => Math.sin(Math.hypot(x - 50, y - 50) / 2);
-    const bent = hex.snap(ripple, { radius: 1.5, where: inside });
-    const workaround = hex.snap(ripple, { radius: 1.5, where: inside.points });
-    expect([...bent.x]).toEqual([...workaround.x]);
-    expect([...bent.y]).toEqual([...workaround.y]);
+    const hex = t.steps<Material>(3, t.tiling(6, 3, { side: 10 / Math.sqrt(3), rotate: 30 }), (g) => g.split(g.edges));
+    const inside = t.within(hex.faces, circle(50, 50, 28));
+    const cage = { from: [[0, 0], [100, 0], [100, 100], [0, 100]] as [number, number][], to: [[0, 0], [100, 0], [110, 105], [0, 100]] as [number, number][] };
+    const bent = hex.warp({ ...cage, where: inside });
+    const workaround = hex.warp({ ...cage, where: inside.points });
+    expect(bent.points.map(xy)).toEqual(workaround.points.map(xy));
     // One face reads the same way.
     const one = inside.at(0);
-    expect([...hex.snap(ripple, { radius: 1.5, where: one }).x]).toEqual([...hex.snap(ripple, { radius: 1.5, where: one.points }).x]);
+    expect(hex.warp({ ...cage, where: one }).points.map(xy)).toEqual(hex.warp({ ...cage, where: one.points }).points.map(xy));
     // An edge method reads its edges: a ring's one face names every edge.
     const ring = t.material(circle(50, 50, 20));
-    expect(ring.resample({ spacing: 2, where: ring.faces().at(0) }).n).toBe(ring.resample({ spacing: 2, where: ring.edges }).n);
+    expect(ring.resample({ spacing: 2, where: ring.faces.at(0) }).n).toBe(ring.resample({ spacing: 2, where: ring.edges }).n);
   });
 
   it('G3-8 / G6-2 · polygon(faces) is refused by the type and by name', () => {
     const t = toolkit({ aspect: [1, 1], seed: 7 });
-    const cells = t.tiling(4, 4, { depth: 6, side: 6 }).faces();
+    const cells = t.tiling(4, 4, { side: 6 }).faces;
     const odd = cells.filter((f) => (f.generation ?? 0) % 2 === 1);
     // @ts-expect-error — a face collection is several areas: name which
     expect(() => polygon(odd)).toThrow(/a face collection is several areas/);
@@ -125,7 +125,7 @@ describe('P5 · a face collection is a selection', () => {
     const t = toolkit({ aspect: [2, 1], seed: 12 });
     const centre = [74, 52] as const;
     const density = (x: number, y: number) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(Math.hypot(x - centre[0], y - centre[1]) / 34, 6));
-    const cells = t.voronoi(t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density })).faces();
+    const cells = t.voronoi(t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density })).faces;
     const small = cells.filter((f) => f.area < 60);
     const heart = small.find((f) => Math.hypot(f.centroid[0] - centre[0], f.centroid[1] - centre[1]) < 8)!;
     const town = small.components().find((c) => c.has(heart))!;
@@ -136,7 +136,8 @@ describe('P5 · a face collection is a selection', () => {
       if (grown.length === flood.length) break;
       flood = grown;
     }
-    expect(town.indices).toEqual(flood.indices);
+    // The same faces; the flood grew ring by ring, the piece is in row order.
+    expect([...flood.indices].sort((a, b) => a - b)).toEqual(town.indices);
     expect(typeof town.key).toBe('number');
     // Components partition the members.
     expect(small.components().reduce((k, c) => k + c.length, 0)).toBe(small.length);
@@ -150,47 +151,48 @@ describe('P5 · a face collection is a selection', () => {
     const runs = range.points.components().filter((g) => g.length >= 8);
     expect(runs.length).toBeGreaterThan(1);
     const kept = runs.reduce((a, b) => a.union(b));
-    expect(kept.indices).toEqual(range.points.rows(runs.flatMap((g) => g.indices)).indices);
+    expect(kept.indices).toEqual(range.points.rowsAt(runs.flatMap((g) => g.indices)).indices);
     expect(strokes(runs[0]).length).toBeGreaterThan(0);
     expect(strokes(kept).length).toBeGreaterThan(0);
   });
 
-  it('G4-16 · a cut Voronoi material: the cells of sites are found again by id (the within door keeps no site link)', () => {
-    // `t.within` belongs to another branch; the correspondence itself does
-    // not survive the cut. What this spec gives: the cells of the uncut
-    // diagram, read against the cut one by id.
+  it('G4-16 · a cut Voronoi material: the cells of sites are found again by id (the cut faces keep no source)', () => {
+    // The cut changes the walls, so its faces are read off the picture and
+    // have no site. What stays: the cells of the uncut diagram, read
+    // against the cut one by id.
     const t = toolkit({ aspect: [1, 1], seed: 4 });
     const disc = circle(50, 50, 44);
     const sites = t.relax(t.scatter({ spacing: 6, within: disc }), { iterations: 2, within: disc });
     const diagram = t.voronoi(sites);
     const cut = t.within(diagram, disc);
-    expect(() => cut.cellOf(sites.points.at(0))).toThrow(/no Voronoi correspondence/);
-    const inner = diagram.cellOf(sites.points.filter((p) => Math.hypot(p.x - 50, p.y - 50) < 20));
-    const found = inner.in(cut);
+    expect(cut.faces.every((f) => f.source === undefined)).toBe(true);
+    const inner = diagram.faces.filter((f) => Math.hypot(f.source.x - 50, f.source.y - 50) < 20);
+    const found = selectionIn(inner, cut);
     expect(found.length).toBe(inner.length);
   });
 
   it('G6-4 · a face collection is its centroids for every point consumer', () => {
     const { faces: cells } = web(7, 6);
     const split = cells.filter((f) => f.centroid[0] < 40);
-    const hubs = distanceToPoints(split);
-    const workaround = distanceToPoints(split.map((f) => f.centroid));
+    // distanceTo is an area consumer too, so a face collection names which
+    // it means there: material(cells) is its centroids as points.
+    const hubs = distanceTo(material(split));
+    const workaround = distanceTo(material(split.map((f) => f.centroid)));
     for (const [x, y] of [[10, 10], [50, 50], [90, 30]]) expect(hubs(x, y)).toBe(workaround(x, y));
-    // material(), connect.* and the forces read the same points.
+    expect(() => distanceTo(split)).toThrow(/face collection is several areas/);
+    // material(), curve() and the forces read the same points.
     expect([...material(split).x]).toEqual(split.map((f) => f.centroid[0]));
-    expect(connect.chain(split).edgeCount).toBe(split.length - 1);
+    expect(curve(split).edgeCount).toBe(split.length - 1);
     const probe = material([[12, 12]]).points.at(0);
     const push = force.separation(split, { radius: 5 });
     expect(push(probe)).toEqual(force.separation(split.map((f) => f.centroid), { radius: 5 })(probe));
     // faces.points stays the corners.
     expect(split.points.length).toBeGreaterThan(split.length);
-    // containing() reads a face collection as its centroids too.
-    expect(cells.containing(split).indices).toEqual(split.indices);
   });
 
   it('G6-38 · dots(cells) taps each cell once, at its centroid', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5, space: space.hyperbolic({ radius: 50 }) });
-    const cells = t.tiling(4, 5, { depth: 3 }).faces();
+    const cells = t.tiling(4, 5, { depth: 3 }).faces;
     expect(dots(cells).length).toBe(cells.length);
     expect(dots(cells.points).length).toBe(cells.points.length);
   });
@@ -203,12 +205,12 @@ describe('P5 · a face collection is a selection', () => {
     expect(() => polygon(block)).not.toThrow();
   });
 
-  it('G6-8 · Faces takes union/intersect/subtract; a face selection takes complement()', () => {
+  it('G6-8 · Faces takes union/intersect/without', () => {
     const { faces: cells } = web(7, 7);
     const east = cells.filter((f) => f.centroid[0] > 50);
-    const west = cells.subtract(east);
+    const west = cells.without(east);
     expect(west.boundaryEdges().indices).toEqual(cells.filter((f) => !east.has(f)).boundaryEdges().indices);
-    expect(east.complement().indices).toEqual(west.indices);
+    expect(cells.without(west).indices).toEqual(east.indices);
     expect(cells.intersect(east).indices).toEqual(east.indices);
     expect(cells.union(east).length).toBe(cells.length);
   });
@@ -216,36 +218,36 @@ describe('P5 · a face collection is a selection', () => {
   it('G6-26 · f.id is the face\'s identity: the weft pairing across steps, not every cell with cell 0', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
     const gap = 9;
-    const net = t.hexes({ spacing: gap, origin: [50, 10] })
-      .edgeAttribute('rest', (e) => e.length * (1 + 0.6 * t.noise(e.center[0] / 30, e.center[1] / 30)));
+    const net = t.tiling(6, 3, { side: gap / Math.sqrt(3), rotate: 30, origin: [50, 10] })
+      .edges.set('rest', (e) => e.length * (1 + 0.6 * t.noise(e.center[0] / 30, e.center[1] / 30)));
     const nails = net.points.filter((p) => p.y < 2);
-    const hung = net.steps(10, (cur, next) => {
-      const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.08 * gap]);
-      next.move(cur.points.subtract(nails), (p) => mul(pull(p), 0.1));
+    const hung = t.steps(10, net, (g) => {
+      const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.08 * gap]);
+      return g.move((p: Vertex) => mul(pull(p), 0.1), g.points.without(nails));
     });
-    const cells = hung.faces();
-    const rest = net.faces();
+    const cells = hung.faces;
+    const rest = net.faces;
     const partner = cells.map((f) => rest.find((g) => g.id === f.id)!);
     // Every cell finds a partner, and not all the same one: the bug paired
     // every cell with rest cell 0 because `f.id` was undefined.
     expect(partner.every((g) => g !== undefined)).toBe(true);
     expect(new Set(partner.map((g) => g.index)).size).toBe(cells.length);
     expect(new Set(cells.map((f) => f.id)).size).toBe(cells.length);
-    // steps keep the rows here, so the partner is the same row.
+    // moves keep the rows, so the partner is the same row.
     expect(partner.map((g) => g.index)).toEqual(cells.map((f) => f.index));
     // A renumbering does not move an id: a line laid across one corner of
     // the web and planarized splits a few cells and renumbers the rest, and
     // every cell it did not cross keeps its id — and its area.
-    const crossed = append(net, t.material(line(0, 30, 30, 0)).edgeAttribute('rest', 0)).planarize().faces();
+    const crossed = append(net, t.material(line(0, 30, 30, 0)).edges.set('rest', 0)).planarize().faces;
     const byId = new Map(crossed.map((f) => [f.id, f] as const));
     const kept = rest.filter((f) => byId.has(f.id));
     expect(kept.length).toBeLessThan(rest.length);
     // The cells that lost their id are the ones the line crosses.
-    for (const f of rest.subtract(kept)) expect(Math.abs(f.centroid[0] + f.centroid[1] - 30) / Math.SQRT2).toBeLessThan(gap);
+    for (const f of rest.without(kept)) expect(Math.abs(f.centroid[0] + f.centroid[1] - 30) / Math.SQRT2).toBeLessThan(gap);
     for (const f of kept) expect(byId.get(f.id)!.area).toBeCloseTo(f.area, 9);
     // A transform keeps every id; so does a planarize that leaves the walls.
-    expect(net.rotate(20, { origin: [50, 50] }).faces().map((f) => f.id)).toEqual(rest.map((f) => f.id));
-    expect(net.planarize().faces().map((f) => f.id)).toEqual(rest.map((f) => f.id));
+    expect(net.rotate(20, { origin: [50, 50] }).faces.map((f) => f.id)).toEqual(rest.map((f) => f.id));
+    expect(net.planarize().faces.map((f) => f.id)).toEqual(rest.map((f) => f.id));
   });
 
   it('G6-26 · the fivefold ribbon is keyed by id, and ids are unique and never undefined', () => {
@@ -260,9 +262,9 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G6-28 · filter predicates take truthiness, as arrays do', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5 });
-    const tiles = t.tiling(4, 4, { side: 8, depth: 6 });
-    const mirrored = tiles.faces().filter((f) => f.mirrored);
-    expect(mirrored.indices).toEqual(tiles.faces().filter((f) => f.mirrored === 1).indices);
+    const tiles = t.tiling(4, 4, { side: 8 });
+    const mirrored = tiles.faces.filter((f) => f.mirrored);
+    expect(mirrored.indices).toEqual(tiles.faces.filter((f) => f.mirrored === 1).indices);
     expect(tiles.points.filter((p) => p.index % 2).length).toBeGreaterThan(0);
     expect(tiles.edges.filter((e) => e.index % 2).length).toBeGreaterThan(0);
   });
@@ -278,25 +280,26 @@ describe('P5 · a face collection is a selection', () => {
     expect(tide.length).toBe(long.reduce((k, p) => k + p.length, 0));
   });
 
-  it('G7-16 · cellOf(selection) is the cells of those sites; siteOf(cells) the sites', () => {
+  it('G7-16 · the cells of some sites are a filter on the source; the sites of cells are their sources', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const sites = t.relax(t.scatter({ spacing: 7 }), { iterations: 3 }).attribute('kind', (p) => (p.index % 3 === 0 ? 1 : 0));
+    const sites = t.relax(t.scatter({ spacing: 7 }), { iterations: 3 }).points.set('kind', (p) => (p.index % 3 === 0 ? 1 : 0));
     const diagram = t.voronoi(sites);
     const chosenSites = sites.points.filter((p) => p.kind === 1);
-    const chosenCells = diagram.cellOf(chosenSites);
-    const workaround = diagram.faces().filter((f) => diagram.siteOf(f)?.kind === 1);
-    expect(chosenCells.indices).toEqual(workaround.indices);
-    expect(diagram.siteOf(chosenCells).indices).toEqual(chosenSites.filter((p) => diagram.cellOf(p) !== undefined).indices);
+    const chosenCells = diagram.faces.filter((f) => chosenSites.has(f.source));
+    const byColumn = diagram.faces.filter((f) => f.source.kind === 1);
+    expect(chosenCells.indices).toEqual(byColumn.indices);
+    // The cells come in the sites' order, so their sources are the chosen sites that have a cell, in order.
+    expect(chosenCells.map((f) => f.source.index)).toEqual(chosenSites.filter((p) => diagram.faces.some((f) => f.source.index === p.index)).indices);
   });
 });
 
 describe('P6 · identity survives every verb', () => {
-  it('G2-19 · connect.chain(sel) keeps the members: their ids, rows and columns', () => {
+  it('G2-19 · curve(sel) keeps the members: their ids, rows and columns', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5 });
     const upper = t.scatter({ spacing: 6 }).points.filter((p) => p.y < 30);
-    const snake = connect.chain(upper);
+    const snake = curve(upper);
     expect(snake.n).toBe(upper.length);
-    expect(upper.in(snake).length).toBe(upper.length);
+    expect(selectionIn(upper, snake).length).toBe(upper.length);
     expect(snake.rowOfPoint(upper.at(0).id)).toBe(0);
     expect(snake.edgeCount).toBe(upper.length - 1);
     // A builder over two overlapping selections still has unique ids.
@@ -310,16 +313,17 @@ describe('P6 · identity survives every verb', () => {
       t.times(26, (k) => { const a = (k / 26) * Math.PI * 2; return [100 + Math.cos(a) * 44, 50 + Math.sin(a) * 24]; }),
       { heading: t.times(26, (k) => (k / 26) * Math.PI * 2 + Math.PI), tip: 1, strand: t.times(26, (k) => k) },
     );
-    const grown = seeds.steps(60, (cur, next) => {
-      const tips = cur.points.filter((p) => p.tip === 1 && p.x > 3 && p.x < 197 && p.y > 3 && p.y < 97);
-      next.extrude(tips, (p) => {
+    const grown = t.steps(60, seeds, (g) => {
+      const tips = g.points.filter((p) => p.tip === 1 && p.x > 3 && p.x < 197 && p.y > 3 && p.y < 97);
+      let out = g;
+      for (const p of tips) {
         const heading = p.heading + 0.05 * Math.sin(p.strand + p.x / 9);
-        return { position: [p.x + 1.1 * Math.cos(heading), p.y + 1.1 * Math.sin(heading)], attributes: { heading, tip: 1, strand: p.strand } };
-      });
-      next.set(tips, { tip: 0 });
+        out = out.extrude(p, [1.1 * Math.cos(heading), 1.1 * Math.sin(heading)], { heading, tip: 1, strand: p.strand });
+      }
+      return out.points.set('tip', 0, tips);
     }).oscillate({ wavelength: 13, amplitude: 1.6 });
     const woven = grown.interlace({ gap: 2.2 });
-    expect(woven.attrNames).toContain('strand');
+    expect(Object.keys(woven.attrs)).toContain('strand');
     const odd = woven.points.filter((p) => p.strand % 2 === 1);
     expect(odd.length).toBeGreaterThan(0);
     const even = woven.edges.filter((e) => e.a.strand % 2 === 0);
@@ -327,12 +331,12 @@ describe('P6 · identity survives every verb', () => {
     // Every piece is a child of an edge it was cut from.
     for (let e = 0; e < woven.edgeCount; e++) expect(grown.edgeOf(woven.edgeRoots[e] as never)).toBeDefined();
     // A vertex the weave did not touch is the vertex it was.
-    expect(grown.points.in(woven).length).toBeGreaterThan(0.5 * grown.n);
+    expect(selectionIn(grown.points, woven).length).toBeGreaterThan(0.5 * grown.n);
     // The geometry is the weave it always was.
-    expect(woven.curves().length).toBeGreaterThan(3);
+    expect(woven.curves.map(rec).length).toBeGreaterThan(3);
   });
 
-  it('G5-22 / G6-1 · subtract resolves a stale operand by id; an unrelated one is refused by name', () => {
+  it('G5-22 / G6-1 · without resolves a stale operand by id; an unrelated one is refused by name', () => {
     const cols = 12, rows = 6, gap = 6;
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
@@ -342,37 +346,38 @@ describe('P6 · identity survives every verb', () => {
       if (c > 0) edges.push([i - 1, i]);
       if (r > 0) edges.push([i - cols, i]);
     }
-    const net = material(pts).withEdges(edges).edgeAttribute('rest', gap * 1.2);
+    const net = material(pts, { edges }).edges.set('rest', gap * 1.2);
     const nails = net.points.filter((p) => p.y < 11 && (p.index % 6 === 0 || p.index === cols - 1));
-    const hang = (by: (cur: Material) => ReturnType<Material['points']['filter']>) => net.steps(20, (cur, next) => {
-      const pull = force.sum(force.tension(cur, { rest: (e) => e.attrs.rest }), () => [0, 0.42 * gap]);
-      next.move(by(cur), (p) => mul(pull(p), 0.1));
+    const t = toolkit({ seed: 1 });
+    const hang = (by: (cur: Material) => ReturnType<Material['points']['filter']>) => t.steps(20, net, (g) => {
+      const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
+      return g.move((p: Vertex) => mul(pull(p), 0.1), by(g));
     });
-    const stale = hang((cur) => cur.points.subtract(nails));
-    const spelled = hang((cur) => cur.points.subtract(nails.in(cur)));
+    const stale = hang((cur) => cur.points.without(nails));
+    const spelled = hang((cur) => cur.points.without(selectionIn(nails, cur)));
     expect([...stale.x]).toEqual([...spelled.x]);
     expect([...stale.y]).toEqual([...spelled.y]);
     // union / intersect / has read the stale side the same way.
     expect(stale.points.intersect(nails).length).toBe(nails.length);
-    expect(stale.points.filter(() => false).union(nails).indices).toEqual(nails.in(stale).indices);
+    expect(stale.points.filter(() => false).union(nails).indices).toEqual(selectionIn(nails, stale).indices);
     expect(stale.points.has(nails.at(0))).toBe(true);
     // Across lineages there is nothing to resolve.
     const other = material(pts);
-    expect(() => other.points.subtract(nails)).toThrow(/unrelated materials/);
+    expect(() => other.points.without(nails)).toThrow(/unrelated materials/);
   });
 
   it('face selections resolve a stale operand by id too', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const hex = t.hexes({ spacing: 12 });
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30 });
     const moved = hex.translate([1, 0]);
-    const before = hex.faces().filter((f) => f.index % 2 === 0);
-    const now = moved.faces();
-    expect(now.subtract(before).length).toBe(now.length - before.length);
+    const before = hex.faces.filter((f) => f.index % 2 === 0);
+    const now = moved.faces;
+    expect(now.without(before).length).toBe(now.length - before.length);
     expect(now.has(before.at(0))).toBe(true);
     // Ids are minted once per run: an unrelated material of the same run
     // shares none, and is refused.
-    const other = t.voronoi(t.scatter({ spacing: 20 })).faces();
-    expect(() => other.subtract(before)).toThrow(/unrelated materials/);
+    const other = t.voronoi(t.scatter({ spacing: 20 })).faces;
+    expect(() => other.without(before)).toThrow(/unrelated materials/);
   });
 });
 
@@ -385,29 +390,30 @@ describe('F10 / F11 · relations read the material\'s space', () => {
     for (const q of [[50, 50], [20, 80], [85, 12]] as [number, number][]) {
       for (const radius of [6, 15]) {
         const got = cloud.points.near(q, { radius }).indices;
-        const want = cloud.points.filter((p) => sp.distance(q, p) < radius).indices;
+        // Nearest first, ties by row.
+        const want = cloud.points.filter((p) => sp.distance(q, p) < radius).map((p) => p).sort((a, b) => sp.distance(q, a) - sp.distance(q, b) || a.index - b.index).map((p) => p.index);
         expect(got).toEqual(want);
       }
     }
-    // pairs reads the same neighbourhood.
-    const rungs = cloud.points.pairs(cloud.points, () => true, { radius: 8 });
-    for (const [a, b] of rungs) expect(sp.distance(a, b)).toBeLessThan(8);
-    const brute = cloud.points.pairs(cloud.points, (a, b) => sp.distance(a, b) < 8);
-    expect(rungs.length).toBe(brute.length);
   });
 
   it('F11 · points.near in the flat plane is the literal old arithmetic', () => {
     const t = toolkit({ aspect: [1, 1], seed: 9 });
     const cloud = t.scatter({ spacing: 5 });
     const got = cloud.points.near([50, 50], { radius: 12 }).indices;
-    expect(got).toEqual(cloud.points.filter((p) => (p.x - 50) ** 2 + (p.y - 50) ** 2 < 144).indices);
+    const want = cloud.points.filter((p) => (p.x - 50) ** 2 + (p.y - 50) ** 2 < 144);
+    expect([...got].sort((a, b) => a - b)).toEqual(want.indices);
+    // …answered nearest first.
+    const d = got.map((i) => Math.hypot(cloud.x[i] - 50, cloud.y[i] - 50));
+    for (let k = 1; k < d.length; k++) expect(d[k]).toBeGreaterThanOrEqual(d[k - 1]);
   });
 
   it('F11 · edges.near measures to the edge as a geodesic of the space', () => {
     for (const s of [space.spherical({ radius: 30 }), space.hyperbolic({ radius: 45 })]) {
       const t = toolkit({ aspect: [1, 1], seed: 2, space: s });
       const sp = t.space;
-      const hex = t.hexes({ spacing: 14 });
+      // A lattice of the chart: the flat tilings are the plane's own.
+      const hex = t.grid({ cols: 7, rows: 7 });
       const dense = (a: [number, number], b: [number, number], p: [number, number]) => {
         let best = Infinity;
         for (let k = 0; k <= 400; k++) best = Math.min(best, sp.distance(p, sp.geodesic(a, b, k / 400)));
@@ -425,7 +431,7 @@ describe('F10 / F11 · relations read the material\'s space', () => {
     }
   });
 
-  it('F10 · t.distanceTo(points) measures with space.distance; flat is distanceToPoints', () => {
+  it('F10 · t.distanceTo(points) measures with space.distance; flat is the pure distanceTo of points', () => {
     const hyp = toolkit({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radius: 45 }) });
     const sites = hyp.scatter({ spacing: 11 });
     const field = hyp.distanceTo(sites.points);
@@ -438,7 +444,7 @@ describe('F10 / F11 · relations read the material\'s space', () => {
     expect(hyp.distanceTo(sites)(50, 50)).toBe(field(50, 50));
     const flat = toolkit({ aspect: [1, 1], seed: 4 });
     const flatSites = flat.scatter({ spacing: 11 });
-    const pure = distanceToPoints(flatSites);
+    const pure = distanceTo(flatSites);
     const tk = flat.distanceTo(flatSites.points);
     for (const q of [[50, 50], [10, 90]] as [number, number][]) expect(tk(q[0], q[1])).toBe(pure(q[0], q[1]));
   });
@@ -448,10 +454,11 @@ describe('faces as selections: the rest of the words', () => {
   it('rows, in and has by id; Faces is the selection of every face', () => {
     const { cells, faces } = web();
     expect(faces.indices.length).toBe(faces.length);
-    expect(faces.source).toBe(cells);
-    const picked = faces.rows([3, 1, faces.at(5)]);
-    expect(picked.indices).toEqual([1, 3, 5]);
-    expect(() => faces.rows(faces.length)).toThrow(/no face/);
+    expect(faces.owner).toBe(cells);
+    expect(() => faces.source).toThrow(/faces\.source: a selection has no source/);
+    const picked = faces.rows([faces.at(3), faces.at(1), faces.at(5)]);
+    expect(picked.indices).toEqual([3, 1, 5]);
+    expect(() => faces.rows(faces.length as never)).toThrow(/expected a face row/);
     const f: Face = faces.at(2);
     expect(faces.has(f)).toBe(true);
     expect(picked.has(f)).toBe(false);

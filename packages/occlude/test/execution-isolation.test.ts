@@ -10,10 +10,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { circle, fill, fillAsset, line, mm, rulings, sketch, type SketchDef } from '../src/index.js';
 import {
-  DEFAULT_PENS, Execution, assetTable, circle, compileSketch, encodeScene, exportSvg, fill, fillAsset, fillTable, initOcclude, line, mm, plan, render,
-  renderEncoded, rulings, sketch, type ExecutionInputs, type SketchDef, type WasmModule,
-} from '../src/index.js';
+  DEFAULT_PENS, Execution, assetTable, compileSketch, encodeScene, exportSvg, fillTable, initOcclude,
+  plan, render, renderEncoded, type ExecutionInputs, type WasmModule,
+} from '../src/host.js';
 import { requireWasm } from '../src/wasmRender.js';
 
 beforeAll(async () => {
@@ -21,7 +22,7 @@ beforeAll(async () => {
 });
 
 const A: SketchDef = sketch({ aspect: 'paper', margin: 8 }, (t) => [
-  t.times(6, (_, u) => line(0, 5 + u * 90, t.width, 5 + u * 90)),
+  t.times(6, (_, u) => line(0, 5 + u * 90, t.bounds().w, 5 + u * 90)),
   ...t.times(5, () => circle(t.rnd(20, 80), t.rnd(20, 80), t.rnd(5, 14), { fill: fill('hatch', { spacing: mm(1.5) }), stroke: 'fat' })),
   circle(50, 50, 10, { fill: fill('contour', { spacing: mm(1) }) }),
 ]);

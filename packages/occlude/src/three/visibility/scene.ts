@@ -99,9 +99,6 @@ export function refinementTargets3(runs: readonly { interval: Interval3; occlude
   return { refine, closed };
 }
 const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: ClassifiedScene3['stats']): ClassifiedScene3 => Object.freeze({ frame: snapshot.frame, occluders: Object.freeze(snapshot.occluders.map(o => o.triangle)), referenceFeatures:snapshot.referenceFeatures, curveGraphs:snapshot.curveGraphs, features: Object.freeze(snapshot.features.map((feature, i) => { const ranges = unionIntervals3(hidden[i]); return Object.freeze({ feature, hidden: Object.freeze(ranges.map(r=>Object.freeze(r))), visible: Object.freeze(visibleIntervals3(ranges).map(r=>Object.freeze(r))) }); })), stats: Object.freeze({...stats}) });
-/** The exact classifier as a task-yielding job (a checkpoint every 1024
- * candidate pairs), so a worker can cancel it and keep its message loop alive;
- * same result as `classifySceneCpu3`. */
 /** `raster: false` bypasses the certified raster filter (the exact classifier
  * alone), for oracles and for diagnosing a suspected filter fault.
  *
@@ -121,6 +118,9 @@ export function sceneCertificate3(snapshot: FeatureSnapshot3, options: ClassifyO
     && (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.OCCLUDE_CERTIFICATES === '0') return null;
   return facingCertificate3(snapshot);
 }
+/** The exact classifier as a task-yielding job (a checkpoint every 1024
+ * candidate pairs), so a worker can cancel it and keep its message loop alive;
+ * same result as `classifySceneCpu3`. */
 export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3, options: ClassifyOptions3 = {}, certificate?: FacingCertificate3 | null): Generator<void, ClassifiedScene3> {
   const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []); let candidates = 0;
   const filter = options.raster === false ? undefined : rasterFilter3(snapshot);

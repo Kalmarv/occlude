@@ -51,7 +51,11 @@ crates/occlude-core/src/
                         exports
 
 packages/occlude/src/
-  units, matrix         L values (percent/w/h/long/mm), affine transforms
+  index, host           the two entry points: `occlude` holds what a sketch
+                        (and a fill file) can use; `occlude/host` holds what
+                        only a host needs — compile, render, plan, export,
+                        the fill and asset registries, papers, pens and docs
+  units, matrix         L values (w/h/s/mm/inch), affine transforms
   execution             ONE object per run (no module-level sketch state
                         anywhere): the inputs a host resolved — paper, the
                         captured pen library, seed, assets, fills — the
@@ -78,11 +82,42 @@ packages/occlude/src/
   isolines, streamlines, sketch-time generators (marching squares, evenly
   points, distance      spaced streamlines, scatter/relax/settle, signed
                         distance); shaper: knot curves as functions
-  material, vec, views, the material vocabulary: vertices with attribute
-  steps, forces,          columns and an edge list (material), vectors,
-  relation, query,        view identity, the edit batch, force recipes,
-  faces                   selections and extraction, spatial edge queries,
-                          planarization and faces
+  material, vec, views, the material vocabulary: points with named columns
+  tables, forces,         and an edge list (material), vectors, view
+  selection, relation,    identity (one kept view per row of a state), the
+  curves, chains,         three writes, force recipes, the one `Selection`
+  query                   and extraction, the ordered domain (`g.curves`, a
+                          property, walked by chains), spatial edge queries
+  column                persistent columns: the storage under every row a
+                        material or a lattice holds — leaves of 1024 values,
+                        a write copies the leaves it touches and shares the
+                        rest, a kernel reads one joined flat array
+  derivation            what a derived value keeps (the node: operation
+                        and parameters, not the inputs) and the row links
+                        `source` and `u` answer
+  warp, thicken,        the material-to-material methods (`m.warp`,
+  envelope, interlace,    `m.thicken`, …): each reads the material in its
+  oscillate, merge,       own coordinates, or its own space where the
+  trails, spacefill       geometry page's table says so
+  faces, measure        the one face domain, `g.faces` (a property):
+                        STATED faces, written by the word that knows its
+                        faces, or DERIVED by planarization and the planar
+                        walk on first read; a face row's columns, geometry,
+                        `source` and nesting (`parent`, `children`,
+                        `depth`, `leaf`); `measure` writes field and shape
+                        columns onto the faces
+  layout, tiling,       the words with stated faces: `t.grid` (row-major,
+  voronoi, quadtree       `i`/`j`), `t.tiling` (a flat symbol covers the
+                          drawable), Voronoi cells (`source` is the site),
+                          the quadtree (every cell, root to leaves)
+  lattice, residual     a regular grid of faces over `Float32Array`
+                        columns, topology implicit in `(i, j)`: the same face
+                        words, `faces.set` over the faces as they were, `field()`
+                        and `spend`; a residual is a lattice with one column,
+                        `owed`
+  placement, space      isometries of the sketch's geometry (`t.placement`,
+                        `p.placement()`, the walk verbs `step`/`turn`/
+                        `toward`) and the spaces they walk in
   plan, motion          the DrawingPlan as a value (selection, resolveDraw,
                         encode/decode), estimatePlanMs and the motion model
   boundary, material    the area contract and the trim: `loopCrossings` finds
@@ -277,9 +312,11 @@ machinery and the contracts.
 
 ```
 packages/occlude/src/three/
-  api/*                 the public vocabulary: mesh and primitives, curves,
-                        view, hatch, isolines, mapping, intersections,
-                        instances, sampling, prepared queries
+  api/*                 the public vocabulary (`occlude/3d`): mesh and
+                        primitives, curves, view, hatch, isolines, mapping,
+                        intersections, instances, sampling, prepared
+                        queries; `api/advanced` is `occlude/3d/advanced`,
+                        the explicit stage for tools
   geometry/*            model, topology, corners, triangulation, curvature,
                         extrude, deform, location — and exact.ts, the
                         homogeneous BigInt kernel with its f64 sign filter
@@ -308,27 +345,47 @@ packages/occlude/src/compute/webgpu/
 ### The four values, and who owns them
 
 Editable geometry, an immutable render snapshot, a classified line drawing,
-and the physical plot plan. Model geometry is CPU-owned f64 data: polygon
-topology, stable semantic IDs, and point/edge/face/corner attributes;
-derived triangulation retains face parentage. A render session owns its
-camera, candidate index, GPU resources and classified intervals. **There is
+and the physical plot plan. Model geometry is CPU-owned f64 data: the one
+geometry of occlude, a `Material` with a `z` column — points, edges, stated
+polygon faces, their corners, and typed columns on each — and each stated
+face's fixed triangulation, which the value keeps as face data. A render
+session owns its camera, candidate index, GPU resources and classified
+intervals. **There is
 no global active scene, camera or GPU job** — the classified result is
 cached on the execution by scene (`exec.scenes3`), so line-set predicates
 and styles reading the same scene never cause a second visibility dispatch.
 Changing geometry, the camera or a candidate generator invalidates only the
 dependent stages.
 
-A mesh is an immutable owned revision. Rows carry a stable `id`, a local
-`index` and a frozen `attributes` map; built-in row names (`id`, `index`,
-`x`/`y`/`z`, `normal`, `center`, `area`, `a`, `b`, `length`, `points`,
-`edges`, `faces`, `corners`, …) are reserved and rejected as attribute names
-(`three/api/mesh.ts`). Selections retain their source revision and an editor
-refuses a selection from another revision even when the IDs match; explicit
-extraction is what makes an ownership change visible. Derived topology uses
-compact deterministic IDs and records immediate parent IDs as provenance, so
-allocation order, wall time and model RNG are irrelevant to identity.
-Frozen passes (`.steps(n, (current, next, k), { every })`) read a frozen
-input and accumulate edits exactly as 2D `Material.steps` does.
+A value in space is a `Material` like any 2D one, so the contracts of
+"Materials: ownership and identity" below hold for it unchanged: every
+operation returns a new value; a row's id is minted, internal and never a
+sketch's word; the view a sketch holds is the name of its row, and a view or
+a selection of an earlier state of the same lineage resolves in a later one
+(`later.faces.rows(f)`, `has`, `intersect`, a write's `where`), while one of
+an unrelated value is refused. Columns read flat on the row (`p.mobility`,
+`f.chart`). The names a kind of row answers of its own are reserved: one
+list per row kind in `tables.ts`, asked by every write and constructor
+through `checkColumnName` (and `checkNewColumnName` for the columns a new
+row gives). A derived row reads its lineage as `source`, the rows of the
+inputs it came from; how a row is drawn lives on the view, never on the
+value.
+
+The 3D kernels (subdivide, extrude, the booleans, dual, curvature, the
+curve and hatch builders) work on `Surface3`, a working view the adapter
+builds from the value's parts on first need and keeps on the value
+(`three/geometry/value.ts`; one parts format, `MaterialParts`, both ways in
+`parts.ts`). The rigid words — `translate`, `rotate`, `scale`, `transform`,
+a displacement by vector — are maps over the `x`, `y`, `z` columns and build
+no view. What is not a row's — the key, the prototype, the value's own
+origin and orientation (the pivot `rotate` and `scale` turn about), and a
+radial centre — is a value field the core carries through every write and
+every step, as it carries `space`; only a rigid move gives a moved origin
+and orientation. Instances are a points material with `rotate`
+and `scale` columns and a `prototype` value field; `m.realize()` makes the
+copies geometry. A 3D run is the one run: `t.steps(n, mesh, (m) =>
+m.points.set(…))`, with the writes `points.set`, `edges.set`, `faces.set` and
+`corners.set`, and `history` a plain list of states.
 
 **Budget before allocation.** Every count and byte budget is validated and
 throws before its first allocation, and **capacity options default to
@@ -493,11 +550,13 @@ seam — different corner values at one vertex, such as a cylinder's `u` seam
 — keeps separate nodes and therefore separate chains.
 
 **Extrusion** takes one vector per connected component
-(`geometry/extrude.ts`). `{ distance }` uses the area-weighted mean normal
-and is refused, naming the region, when that mean's length is below half the
-summed area (faces that cancel, such as a folded strip). The cap is the
-selected faces translated, retaining face IDs, corner IDs, corner attributes
-including UV, face attributes and the fixed triangulation; interior points
+(`geometry/extrude.ts`). `{ distance }` uses the area-weighted mean normal;
+when that mean's length is below half the summed area (faces that cancel,
+such as a folded strip) the region has no direction, and — like a zero
+vector or a closed shell with no boundary — it stays where it is while the
+other regions extrude (`three/api/words.ts`, best effort). The cap is the
+selected faces translated, keeping their kernel names, corner columns
+including UV, face columns and the fixed triangulation; interior points
 move, boundary points are duplicated as `['extrude', key, 'point', pointId]`
 and the original stays with the unselected faces. Walls are one quad per
 region boundary edge, `['extrude', key, 'side', edgeId]`, including open
@@ -525,8 +584,7 @@ capture (hidden portions included), then the 3D-visible intervals after
 classification. Segments are paper millimetres, `[x0, y0, x1, y1, …]`,
 uniformly subsampled above 200 000 so a transfer stays bounded. Modeling
 progress rides the separate `onProgress` channel as `ModelingProgress3
-{ operation, done, total?, detail? }` from `t.hatch`, `t.mapSurface` and
-`t.intersections`.
+{ operation, done, total?, detail? }` from `t.hatch`.
 
 **Nothing is recorded from these events.** The result, the plan and the
 exports are identical whether a listener is attached or not, which
@@ -549,11 +607,10 @@ declarations as extra libs and loads nested source modules by relative path
 and the editor diagnostics, not only direct TypeScript imports in unit
 tests.
 
-One ergonomic decision worth not rediscovering: a bare callback is
-deliberately *not* a `steps` shorthand. TypeScript cannot discriminate a
-one-parameter point field from a `(current, next)` rule — both overload
-orders and the union form were tried, and either the rule or the field loses
-its parameter types.
+One ergonomic decision worth not rediscovering: a pass of `t.steps` has
+one parameter, `(value) => value`, and `t.steps` refuses a function with
+more. There is no step count `k` and no shorthand record; a pass that needs
+the count writes a counter column of its own.
 
 ### Blender as a reference, never a source
 
@@ -604,19 +661,46 @@ clip regions the engine tests before it samples.
 
 ## Materials
 
-`material.ts` holds vertices as typed columns (`x`, `y`, declared
-attributes) plus an edge list with its own columns. Every operation
-returns a new material; `steps()` freezes the current state, collects the
-batch of edits described against `next` (moves, attribute writes, splits,
-removals, connections, extensions), validates conflicts and ownership,
-and publishes one new state, optionally recording history. Forces are
+`material.ts` holds points as persistent columns (`x`, `y`, declared
+point columns; `column.ts`) plus an edge list with its own columns. Every
+operation returns a new material, and a derived state shares every column
+leaf that its write did not touch. `tables.ts` holds the three writes on a table —
+add a row, remove a row, set a column — on `points` and `edges`, the one
+write `set` on `faces`, and the recipes over them (`extrude`, `split`,
+`replace`, `move`). `t.steps` folds passes `(g) => g2` over a state,
+optionally recording history. Forces are
 prepared per state (spatial index built once, and kept on the state by `points.near`) and
-evaluated per point. `relation.ts` is selections, extraction,
-`components` and `meanBy`; `query.ts` prepares a grid
-over a state's edges for `nearest` and `firstHit` with a wide-box fallback
-so long queries stay exact; `faces.ts` planarizes with Shewchuk's
+evaluated per point. A stateless `tension` or `separation` handed to
+`move` moves a point by half the mean of its pulls, scaled by `amount`,
+so a pass needs no hand-tuned step; the state-first forms keep the sum. `selection.ts` is the one `Selection` every domain
+shares (the words, the order, the relations, `near`, the reductions) over
+a per-state domain; `relation.ts` is the point and edge domains of a
+material and extraction; `curves.ts` is the ordered domain, `g.curves`:
+the walk of `chains.ts` over the edge directions and the row order, each
+curve row answering its points in walk order with the derived `s`, `u`,
+`heading`, `tangent` and `normal`; `query.ts` builds a grid over a state's edges,
+kept on the state, for `edges.nearest` and `edges.firstHit` with a
+wide-box fallback so long queries stay exact; `faces.ts` planarizes with Shewchuk's
 `orient2d` for every orientation decision and reads bounded faces, face
-selections and union boundaries. Attribute transfer (interpolate or
+selections and union boundaries. `g.faces` is one face domain with two
+sources. The words that know their cells STATE them when they build the
+material: `t.grid` in row-major order, `t.tiling` in the order its flood
+reached them, `t.voronoi` in site order, and `t.quadtree` breadth-first
+from the root, every cell of it, nested through `parent` and `children`.
+Any other material DERIVES its faces by the planar walk on the first read.
+A write that changes the edges drops a stated table, and the faces are
+then derived, with each face column carried by the lineage of its walls; a
+write that leaves the edges alone (`move`, `points.set`, `faces.set`)
+keeps it. A face's `source` is the row it came from when there is one (a
+Voronoi cell's site, a tile's placement), a selection when there are many
+(a quadtree cell's points), and `undefined` for a derived face. `measure`
+returns the material with measurement columns on its faces. `lattice.ts`
+is the same face interface over a regular grid: a column is one
+`Float32Array`, the topology is implicit in `(i, j)`, and a face answers
+`laplacian(column)` besides. `set`, `add` and `spend` return a new
+lattice, and a `set` reads the faces as they were before it, so a
+diffusion is one instant. `residual.ts` builds a lattice with one column,
+`owed`, and `spend` is the lattice's own word. Column transfer (interpolate or
 nearest for points, copy or distribute for edges) is declared per column
 and honoured by split, resample, planarize and append.
 
@@ -628,47 +712,60 @@ nothing in a sketch may rely on it.
 
 ### Materials: ownership and identity
 
-*Where:* `material.ts` (`Material`, its constructor, `attribute`,
-`withEdges`, `resample`, `steps`), `views.ts` (`viewProto`, `viewKind`,
-`ownedBy`), `relation.ts` (`PointSelection`, `EdgeSelection`), pinned by
+*Where:* `material.ts` (`Material`, its constructor, `resample`),
+`tables.ts` (the writes), `views.ts` (`viewProto`, `viewKind`,
+`ownedBy`), `selection.ts` (`Selection`), `relation.ts` (the point and edge domains), pinned by
 `test/material-contracts.test.ts` and `test/material.test.ts`.
 
-- **Columns.** A state is `x`, `y` (`Float64Array`, `n` long), point
-  attribute columns by name (each `n` long), an edge list (`Uint32Array`,
+- **Columns.** A state is `x`, `y` (Float64 columns, `n` long), point
+  columns by name (each `n` long), an edge list (a Uint32 column,
   `[a0, b0, a1, b1, …]`, stored order, each pair a distinct row and never
-  `a === b`), and edge attribute columns (each `edgeCount` long). `x`,
-  `y`, `index` are reserved point names; `a`, `b`, `length`, `index` are
-  reserved edge names. The constructor checks lengths and edge ranges.
-- **Ownership on construction.** The constructor *adopts* the arrays it
-  is given; every library operation that derives a state (`attribute`,
-  `edgeAttribute`, `withEdges`, `resample`, `append`, `withinMaterial`,
-  `steps`, `extract`, `planarize`) copies its columns first, so no two
-  materials the library made share an array. The object, its column
-  records, policies and history are `Object.freeze`d; typed-array
-  *contents* are not freezable, so `m.x[i] = …` from a sketch writes into
-  that one state.
-- **What a direct write reaches** (current behaviour, pinned): views
-  (`vertex`, `edge`), `pts`, `curves()` and every derivation made after
-  the write read the columns live. Adjacency (`connected`, `degree`) is
-  built lazily from the edge list only and cannot go stale on a
-  coordinate write. A prepared `query.edges(m)` copied the endpoints
-  and keeps them. A prepared neighbour index (and every force built on
-  it) keeps its buckets but reads distances live, so a row written away
-  drops out of its old cell's answers while a row written near is never
-  found. `faces()` is computed once per state and returned from the cache
-  thereafter. Nothing invalidates on a write. Sketches should treat
-  states as immutable; the library does.
+  `a === b`), edge columns (each `edgeCount` long), and the internal id
+  columns (point ids, edge ids, edge lineage roots). The names each kind
+  of row answers of its own are reserved: one list per kind (point, edge,
+  face, corner, lattice face) in `tables.ts`, asked through
+  `checkColumnName`, and `checkNewColumnName` also refuses a new point's
+  `x`/`y` as columns. The constructor checks lengths and edge ranges.
+- **Persistent columns** (`column.ts`, pinned by `test/column.test.ts`).
+  Every column is a run of fixed-size leaves (1024 values), and a leaf is
+  never written once a column holds it. A write makes a new column that
+  copies the leaves it touches (or the whole column past half of them) and
+  shares the rest, so a state kept on a run's `history` costs the leaves
+  that changed. The constructor *adopts* the arrays it is given
+  (`Column.of`). A kernel reads a column as one flat array, joined on
+  first read and kept (`m.x`, `m.attrs[name]`, `m.edgeList` are internal
+  getters over it); a flat is never written either. The object, its column
+  records, policies and history are `Object.freeze`d.
+- **What a direct write reaches.** Nothing a sketch holds exposes a
+  column: a row reads through its view, and the flat getters are
+  `@internal`, stripped from the declarations. A flat is shared by every
+  state that shares its column, so a write into one from untyped JS
+  reaches all of those states. The library
+  never writes one, and nothing invalidates on such a write. Every derived
+  structure is built on first read and kept on the state: `g.curves` (the
+  walk and its derived columns `s`, `u`, `heading`, `tangent`, `normal`),
+  `g.faces`, adjacency, the edge index behind `m.edges.nearest` and the
+  neighbour index behind `near` and the forces.
 - **Identity.** State identity is the `Material` object. Row indices are
-  positions within one state, never identities across states: every
-  structural edit renumbers. A vertex or edge *view* is a plain object
-  whose prototype carries the owner and kind as non-enumerable symbols
-  (`views.ts`); `ownedBy(view, m)` is the only identity test, and a spread
-  or JSON copy is unowned. Selections (`m.points.filter`) bind to the
-  exact source state and combine only with selections of the same state.
-- **Lineage.** `iteration` counts `steps()` transitions; `attribute`,
-  `withEdges`, `resample` and `withinMaterial` keep it, `append`,
-  `extract` and `planarize` start a new one at 0. `history` is written by
-  one `steps({ every })` call and never touched again.
+  positions within one state, never identities across states: a removal
+  renumbers. Every point and edge row carries a minted `id`, internal and
+  never a sketch's word, and the id is what names a row across states. A
+  state keeps ONE view object per row once the row is read (a map until
+  32 rows are read, then an array), so a view compares by `===` within a
+  state and `f.source === site` holds; the callback of a write or a kernel
+  gets the view of its row. A view's owner is a private field of its class
+  (`views.ts`, `RowView`); `ownedBy(view, m)` tests whether a view is of
+  this state, and a spread or JSON copy is unowned. Selections
+  (`m.points.filter`) bind to their source state; a view, a value or a
+  selection of another state of the same lineage is resolved in this one
+  by id when a write, `rows`, `has` or a set operation takes it
+  (`later.points.intersect(sel)`), and one of an unrelated material is
+  refused.
+- **Lineage.** The internal `iteration` counts the steps of `t.steps`,
+  which is what `force.drift` turns with; the writes, `resample` and
+  `withinMaterial` keep it, `append`, `extract` and `planarize` start a
+  new one at 0. `history` is written by one `t.steps(…, { every })` call
+  and never touched again; a write returns a state with no history.
 
 **Future** (not implemented): a backend that uploads a state must key its
 copy on an explicit upload snapshot or a backend-owned versioned value,
@@ -676,61 +773,98 @@ not on `Material` object identity, because a sketch can write the arrays
 after upload. A cached derived structure that a backend produces needs
 the same treatment.
 
-### Passes and edits
+### The run and the writes
 
-*Where:* `Material.steps` (the loop, snapshots), `steps.ts` (`Next`,
-`stepOnce`, `StepKit`), pinned by `test/step-passes.test.ts`,
-`test/transfer.test.ts` and the `steps` block of `test/material.test.ts`.
+*Where:* `steps` in `api.ts` (the loop, history), `tables.ts` (the writes
+and the recipes), pinned by `test/steps.test.ts`, `test/tables.test.ts`
+and `test/transfer.test.ts`.
 
-- **Frozen input, described output.** A pass `(prev, next, k)` reads
-  `prev` — frozen — and describes edits on `next`. No edit changes what a
-  later callback in the same pass reads. `stepOnce` starts from a copy of
-  every column, records the batch, then commits it as one new state.
-- **Several passes per iteration** run in order; each receives the
-  previous pass's committed output as its `prev`. All passes of an
-  iteration share `k`. A selection, view or handle belongs to the pass it
-  was taken in: the next pass must select again from its own input
-  (`steps: selection is of another state`). A pass that throws publishes
-  nothing; the input state is untouched.
-- **Iteration and history.** Iteration `this.iteration + k + 1` is the
-  number of the state a completed iteration produces; `steps()` continues
-  the count of its input. With `{ every }`, `history` holds the input
-  state (labelled with its iteration), every `every`-th completed
-  iteration, and the final one, each once, oldest first; passes within an
-  iteration are never captured.
-- **Order of resolution** inside one batch (`stepOnce`): moves and
-  attribute writes first (moves add up; the last write of a field wins),
-  on the copy; then the *moved* state is built and split transfer
-  callbacks read it; conflicts are checked (a removed vertex that was
-  also moved or set, a split edge that is disconnected or loses an
-  endpoint, an edge set and disconnected); splits are resolved per
-  original edge — sorted by parameter, equal parameters merged, one
-  child-edge definition per edge, point columns inherited from the moved
-  endpoints by the column's declared policy then overridden explicitly;
-  rows are compacted — survivors in order, each edge's split vertices
-  right after the edge's start row, added points last; edges are emitted
-  — survivors (split into chains, edge columns copied or distributed by
-  the child's share), then new connections in request order, an existing
-  pair left as it is; finally the new state. A `split` at 0 or 1 creates
-  nothing and returns the existing endpoint. `extrude` is `addPoint` +
-  `connect` per child, in selection order.
-- **Handles** are opaque, batch-bound, and refused by any other batch
-  (`that handle belongs to another edit batch`).
+- **One run.** `t.steps(n, start, ...passes, { every? })` folds the passes
+  over `start` `n` times. The passes of one step run in order, each on
+  what the one before returned. A pass is `(value) => value` with one
+  parameter; a function with more is refused, and a pass that returns
+  nothing throws. `start` is any value: a material, a lattice, a mesh,
+  point or curve geometry, or a plain object that holds several.
+- **History.** With `{ every }`, a value that answers the internal
+  `withHistory(states)` keeps its start, every `every`-th state and the
+  last one, each once, oldest first; a kept state carries no history of
+  its own, and passes within a step are never captured. A plain object
+  keeps none.
+- **Three writes on a table.** `points` and `edges` answer `add`,
+  `remove` and `set`; `faces` answers `set` alone, keyed by the face's
+  identity: a stated face its own id, a derived face the walls it is made
+  of. Each write returns a new state. The callbacks of one
+  write all read the state as it was, so the record form
+  `set({ a: …, b: … })` is one instant. A trailing `{ transfer }` (and
+  `fallback` on a face column) declares the column's policy; setting a
+  value keeps it, and declaring the default restores it.
+- **The call judges the program, the table judges the data.** A wrong
+  program throws: a reserved name, a new row that leaves out a declared
+  column, a selection of an unrelated material, the wrong kind of member.
+  Data that cannot land is skipped in silence: a write given nothing, an
+  edge row that names a point that is gone, a pair that is already an
+  edge, one point twice, a value that is not finite.
+- **Identity.** A new row gets a minted id and goes at the end of its
+  table — split points too. A split or a replace retires the edge it
+  swaps and puts its first piece in that edge's row (the rest go at the
+  end), so every other edge keeps its row and a state shares every edge
+  leaf the write does not reach. `point(xy, cols)` and `edge(a, b, cols)`
+  mint the id when they are made, so the value names its row in every
+  later state. A view, value or selection from an earlier state of the
+  same lineage is resolved by id, never by row.
+- **Recipes.** `extrude(from, offset, cols?)` is `points.add` then
+  `edges.add`. `split(edges, at?)` adds the point (its columns by their
+  transfer policy), removes the edge and adds the two children, which
+  keep the parent's lineage root and copy or distribute its columns; an
+  `at` at or past an end cuts nothing. `replace(edges, motif, { flip })`
+  swaps each edge for the motif's one open chain, and a motif point that
+  lands within 1e-9 of the edge's length of a point already there is that
+  point. `move(...displacements, where?)` moves each point by the sum of
+  the displacements, each read on the state as it was; a sum that is not
+  finite leaves the point, and in a curved space the point walks the
+  geodesic.
 
-The repository also carries an *experimental* ordered/live editing
-prototype (`bench/ordered-steps/`, `test/ordered-steps.test.ts`). It is a
-study, not the production contract; nothing above applies to it and
-nothing in it applies here.
+### Derivations
+
+*Where:* `derivation.ts` (the node and the links), the words in `api.ts`
+and `points.ts` that record them, pinned by `test/derivation.test.ts`.
+
+- **A derived value keeps its rule, not its inputs.** A word such as
+  `t.sample`, `t.settle`, `t.streamlines` or `t.voronoi` puts an internal
+  node on the value it returns: the operation and its parameters as plain
+  data. Its one reader is `cloudArea`, which reads the `within` a cloud
+  was bounded by. The node does not hold the input values: that would
+  keep every state of a loop written by hand (`m = t.relax(m)`) alive.
+  The node is never a public word, and a write makes a new value with no
+  node of its own.
+  The methods that make rows from rows link them the same way: `split`
+  and `replace` (the edge they cut), `planarize` (a piece's input edge, a
+  crossing's input edges), `resample` and `along` (the edge under the
+  row). `thicken` links nothing: no output row comes whole from one input
+  row.
+- **The correspondence is ordinary rows.** A derived row answers
+  `source`, the input row it came from, and parameter columns such as
+  `u`. `source` has its natural shape: a row when one input row made the
+  row (a sample's edge, a settled point's parent, a Voronoi cell's site),
+  a selection when many did (a quadtree cell's points), `undefined` when
+  none did. The links are kept by row identity, so a `set` or a `move` of
+  the result still answers them, a removed row finds nothing, and a row
+  added later has none.
+- **Ids are internal.** Links and `source` read the minted
+  ids; a sketch never names one. It holds values and rows, and reaches
+  rows by a rule.
 
 ### Geometry queries
 
-*Where:* `query.ts` (`edges`, `EPS`), pinned by the `query.edges` blocks
-of `test/material.test.ts`.
+*Where:* `query.ts` (`edges`, `EPS`), read through `m.edges.nearest` and
+`m.edges.firstHit` (`relation.ts`), pinned by the `edges.nearest and
+edges.firstHit` blocks of `test/material.test.ts` and `test/selection.test.ts`.
 
-- **Preparation and lifetime.** `query.edges(m)` copies the edge
-  endpoints of `m` and builds a uniform grid over their boxes; the
-  returned object is valid for that state and keeps that geometry for as
-  long as it is held (see the ownership rule above). Vertex adjacency for
+- **Preparation and lifetime.** The first `nearest`, `firstHit`, `near`
+  or `crossing` on a state copies the edge endpoints of `m` and builds a
+  uniform grid over their boxes; the state keeps it, and it keeps that
+  geometry (see the ownership rule above). A selection of part of the
+  edges answers with its own members only. Vertex adjacency for
   `excludeIncident` is built on first use.
 - **Coordinates and tolerance.** The material's own coordinates; straight
   segments between sampled vertices; no snapping. `EPS = 1e-9` relative
@@ -953,7 +1087,7 @@ studio's `runner.test.ts`.
   no run. A shape given as an area (`polygon(circle(…))`) is an `area`
   geometry lowered when the drawing is recorded, so it needs no run in
   hand. What reads the run lives on the toolkit: `t.within`,
-  `t.translate` (unit lengths), `t.noiseField`, `t.image`, `t.asset`,
+  `t.translate` (unit lengths), `t.image`, `t.asset`,
   `t.synth`, `t.rnd` …
 - **Inputs are snapshots.** `inputs` is frozen, and the asset and fill
   tables are copied on construction (text by value, pixels as fresh

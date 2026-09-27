@@ -17,11 +17,15 @@
  * field over a fine isolines grid stays fast for contour-heavy loops.
  */
 
-import { numericLoops, type AreaInput } from './boundary.js';
-import { vx as pointX, vy as pointY, type XY } from './vec.js';
-import type { PointsLike } from './material.js';
+import { numericLoops, refuseShape, type AreaInput } from './boundary.js';
+import { vx, vy, type XY } from './vec.js';
+import { isPointArg } from './guard.js';
+import { Material } from './material.js';
+import { isPointSelection } from './relation.js';
+import type { Selection } from './selection.js';
+import type { Vertex } from './material.js';
 import { Len } from './units.js';
-import { faceCentroids } from './faces.js';
+import { carriedSpace, spaceAreaField, spacePointField, type Space } from './space.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -41,6 +45,19 @@ interface Seg {
   by: number;
 }
 
+/** Points with no inside: a point selection, or a material that is points
+ * alone. */
+export type PointSites = Selection<Vertex> | Material;
+
+/** @internal Is this value points, which `distanceTo` measures to the
+ * nearest of, rather than an area? A point selection, or a material with
+ * no edges. Loops and contour records are areas, and a face collection is
+ * several areas, which must say which it means (`material(cells)` is its
+ * centroids as points). */
+export function isPointSites(v: unknown): v is PointSites {
+  return isPointSelection(v) || (v instanceof Material && v.edgeCount === 0);
+}
+
 /**
  * Signed distance to the boundary of the area enclosed by `boundary`
  * (even-odd): positive inside, negative outside. The boundary is plain
@@ -50,8 +67,45 @@ interface Seg {
  * usable loops the field is -Infinity everywhere — non-finite samples count
  * as outside, so isolines over an empty field yields no contours rather
  * than throwing.
+ *
+ * Points have no inside. Given points — a point selection, or a material
+ * that is points alone — the field is the distance to the NEAREST point
+ * with the same sign: zero at a point and negative everywhere else. It is −F1 of the Worley family:
+ * `t.isolines(distanceTo(sites), -3)` is the ring three units out from
+ * every site, and where two rings would meet they merge into the
+ * cracked-mud cell wall between the sites. A plain array of pairs is a
+ * loop; `material(pairs)` makes it points.
+ *
+ * The distance is measured in the space the value carries: a material the
+ * toolkit made in a hyperbolic or spherical sketch, or a selection or a
+ * face of one, is measured along the space's geodesics, and its edges are
+ * geodesics. Plain loops, points and contour records carry no space: they
+ * are flat numbers and are measured flat. `t.distanceTo` measures those in
+ * the sketch's space, and takes a shape.
  */
-export function distanceTo(boundary: AreaInput): DistanceField {
+export function distanceTo(boundary: AreaInput | PointSites): DistanceField {
+  refuseShape(boundary, 'distanceTo', 't.distanceTo');
+  const space = carriedSpace(boundary);
+  if (space === undefined || space.kind === 'euclidean') return distanceField(boundary);
+  return curvedDistanceField(space, boundary);
+}
+
+/** @internal `distanceTo` in a curved `space`: to the nearest point of
+ * points, and to the geodesic edges of an area's closed loops. The toolkit
+ * word and the pure one measure here. */
+export function curvedDistanceField(space: Space, boundary: AreaInput | PointSites): DistanceField {
+  if (isPointSites(boundary)) {
+    const { sx, sy } = sitePositions(boundary, 'distanceTo');
+    return spacePointField(space, sx, sy);
+  }
+  return spaceAreaField(space, numericLoops(boundary, 'distanceTo').map((pts) => ({ pts, closed: true })));
+}
+
+/** @internal `distanceTo` without the refusal: the flat field of the
+ * coordinates, for the toolkit's flat branch and for the words that read
+ * only its sign (inside or outside is the same in every space). */
+export function distanceField(boundary: AreaInput | PointSites): DistanceField {
+  if (isPointSites(boundary)) return distanceToSites(boundary);
   const loops = numericLoops(boundary, 'distanceTo');
   const segs: Seg[] = [];
   let minX = Infinity;
@@ -212,29 +266,22 @@ export function distanceTo(boundary: AreaInput): DistanceField {
  * material answers with its own columns, anything iterable is walked point
  * by point (a point selection yields its vertex views, an array its pairs
  * or records). Non-finite positions are dropped, not drawn to. */
-function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: Float64Array } {
+function sitePositions(sites: PointSites, who: string): { sx: Float64Array; sy: Float64Array } {
   const xs: number[] = [];
   const ys: number[] = [];
   const v = sites as unknown as { x?: ArrayLike<number>; y?: ArrayLike<number>; n?: number };
-  // A face collection is points at its faces' centroids.
-  const centres = faceCentroids(sites);
-  if (centres) {
-    for (const [x, y] of centres) {
-      xs.push(x);
-      ys.push(y);
-    }
-  } else if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
+  if (typeof v?.n === 'number' && v.x !== undefined && v.y !== undefined) {
     for (let i = 0; i < v.n; i++) {
       xs.push(v.x[i]);
       ys.push(v.y[i]);
     }
   } else if (v !== null && v !== undefined && typeof (v as Iterable<XY>)[Symbol.iterator] === 'function') {
     for (const p of sites as Iterable<XY>) {
-      xs.push(pointX(p));
-      ys.push(pointY(p));
+      xs.push(vx(p));
+      ys.push(vy(p));
     }
   } else {
-    throw new Error(`${who}: expected points — an array of [x, y] or { x, y }, a point selection, or a material`);
+    throw new Error(`${who}: expected points — a point selection, a material of points, or a face collection`);
   }
   const keep: number[] = [];
   for (let i = 0; i < xs.length; i++) if (Number.isFinite(xs[i]) && Number.isFinite(ys[i])) keep.push(i);
@@ -242,25 +289,16 @@ function sitePositions(sites: PointsLike, who: string): { sx: Float64Array; sy: 
 }
 
 /**
- * Distance to the NEAREST of a cloud of sites, as a field of the same sign
- * convention as `distanceTo`: zero at a site and negative everywhere else,
- * so nowhere is inside. It is −F1 of the Worley family, which is what makes
- * it read as a field: `t.isolines(distanceToPoints(sites), -3)` is the ring
- * three units out from every site, and where two rings would meet they
- * merge into the cracked-mud cell wall between the sites.
- *
- * Pure and deterministic, like `distanceTo`: no seed and no paper. A shape
- * is not points, so there is no lowering to do; `t.scatter(...)`,
- * `m.points` and a plain array of pairs all go straight in. With no usable
- * site the field is −Infinity everywhere, so isolines over it yield no
- * contours rather than throwing.
+ * `distanceTo` of points: the distance to the NEAREST site, zero at a site
+ * and negative everywhere else. With no usable site the field is −Infinity
+ * everywhere, so isolines over it yield no contours rather than throwing.
  *
  * Queries run against a uniform grid built once per call and widened ring
  * by ring, with the exact bound that stops the walk — the same search
  * `distanceTo` makes over its segments.
  */
-export function distanceToPoints(sites: PointsLike): DistanceField {
-  const { sx, sy } = sitePositions(sites, 'distanceToPoints');
+function distanceToSites(sites: PointSites): DistanceField {
+  const { sx, sy } = sitePositions(sites, 'distanceTo');
   const n = sx.length;
   if (n === 0) return () => -Infinity;
 
@@ -785,23 +823,19 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
   return tagged(f, { x0: bx0, y0: by0, x1: bx1, y1: by1, peak: r, hi: boxBound(bx0, by0, bx1, by1, r), tight: false });
 };
 
-/** A point argument — a pair or an `{ x, y }` record — as the shape
- * factories take one; a bare number or a length is not. */
-const isPointArg = (v: unknown): v is XY => typeof v === 'object' && v !== null && !(v instanceof Len);
-
 /** `sdf.circle(c, r)` beside `sdf.circle(cx, cy, r)`: the first argument
  * decides, as in `circle`. */
 function circleWord(c: XY, r: number): DistanceField;
 function circleWord(cx: number, cy: number, r: number): DistanceField;
 function circleWord(a: XY | number, b: number, c?: number): DistanceField {
-  return isPointArg(a) ? circleField(pointX(a), pointY(a), b) : circleField(a, b, c as number);
+  return isPointArg(a, 'sdf.circle') ? circleField(vx(a), vy(a), b) : circleField(a, b, c as number);
 }
 
 /** `sdf.box(c, w, h)` beside `sdf.box(cx, cy, w, h)`. */
 function boxWord(c: XY, w: number, h: number): DistanceField;
 function boxWord(cx: number, cy: number, w: number, h: number): DistanceField;
 function boxWord(a: XY | number, b: number, c: number, d?: number): DistanceField {
-  return isPointArg(a) ? boxField(pointX(a), pointY(a), b, c) : boxField(a, b, c, d as number);
+  return isPointArg(a, 'sdf.box') ? boxField(vx(a), vy(a), b, c) : boxField(a, b, c, d as number);
 }
 
 /** `sdf.segment(a, b, r)` beside `sdf.segment(x0, y0, x1, y1, r)`, as
@@ -809,8 +843,8 @@ function boxWord(a: XY | number, b: number, c: number, d?: number): DistanceFiel
 function segmentWord(a: XY, b: XY, r: number): DistanceField;
 function segmentWord(x0: number, y0: number, x1: number, y1: number, r: number): DistanceField;
 function segmentWord(a: XY | number, b: XY | number, c: number, d?: number, e?: number): DistanceField {
-  if (isPointArg(a) && isPointArg(b)) return segmentField(pointX(a), pointY(a), pointX(b), pointY(b), c);
-  if (isPointArg(a) || isPointArg(b)) throw new Error('sdf.segment: give two points and a radius, or four numbers and a radius');
+  if (isPointArg(a, 'sdf.segment') && isPointArg(b, 'sdf.segment')) return segmentField(vx(a), vy(a), vx(b), vy(b), c);
+  if (isPointArg(a, 'sdf.segment') || isPointArg(b, 'sdf.segment')) throw new Error('sdf.segment: give two points and a radius, or four numbers and a radius');
   return segmentField(a, b, c, d as number, e as number);
 }
 

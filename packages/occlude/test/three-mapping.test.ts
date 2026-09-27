@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,cylinder,mesh,pointCloud,instanceOnPoints,mapSurface,planarUV,view,orthographic} from '../src/three/api/index.js';
-import {curve,compileSketchAsync,initOcclude,pen,mm,sketch,sketchAsync,strokes} from '../src/index.js';
+import {plane,box,cylinder,mesh,pointCloud,instanceOnPoints,mapSurface,view,orthographic} from '../src/three/api/index.js';
+import { curve, pen, mm, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, initOcclude } from '../src/host.js';
 import {sampleSurfaceCurves} from '../src/three/api/curveSampling.js';
 import {decodePoint,triangleWeights} from '../src/three/geometry/exact.js';
 import {bindingTriangle3} from '../src/three/curves/network.js';
@@ -70,7 +71,7 @@ describe('mapSurface',()=>{
     expect(closed.points.length).toBe(4);
     // Edge 1 runs from (.7,.2) to (.7,.7) and meets the diagonal at v=.3: w = 1 + .2.
     const crossing=marks.points.find(p=>Math.abs(p.x-.4)<1e-9&&Math.abs(p.y+.4)<1e-9)!;
-    expect(crossing.attributes.w).toBeCloseTo(1.2,9);
+    expect(crossing.w).toBeCloseTo(1.2,9);
     // A corner exactly on the diagonal in decimal is a sliver in binary64: the
     // exact graph still closes, and the sliver's float phase has zero width
     // (its exact interval is narrower than binary64) without any nudging.
@@ -87,13 +88,13 @@ describe('mapSurface',()=>{
     expect(new Set(all.edges.map(e=>e.chart)).size).toBe(6);
     expect(all.edges.length).toBe(12);expect(one.edges.length).toBe(2);
     expect(one.edges.every(e=>e.chart==='f0')).toBe(true);
-    expect(()=>mapSurface(cube,stripe(.5),{chart:'missing'})).not.toThrow();
-    expect(mapSurface(cube,stripe(.5),{chart:'missing'}).edges.length).toBe(0);
+    // A chart the surface does not carry is refused, with the ones it does.
+    expect(()=>mapSurface(cube,stripe(.5),{chart:'missing'})).toThrow('mapSurface: no face has the chart "missing" — the charts here are "f0"');
   });
 
   it('assigns overlap layers when one physical sheet folds onto itself in chart space',()=>{
     // A sheet folded back over itself along x=1: both faces project onto the same square.
-    const folded=planarUV(mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[0,1,1]],[[0,1,2,3],[2,1,4,5]]));
+    const folded=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[0,1,1]],[[0,1,2,3],[2,1,4,5]]).corners.set({uv:c=>[c.point.x,c.point.y] as const,chart:'planar'});
     const marks=mapSurface(folded,curve([[.5,-.5],[.5,1.5]],{closed:false}));
     expect(marks.edges.length).toBe(4);
     const chains=new Set(marks.edges.map(e=>e.chainId));expect(chains.size).toBe(2);
@@ -124,25 +125,9 @@ describe('mapSurface',()=>{
     expect(()=>mapSurface(sheet,stripe(.5),{uv:'missing'})).toThrow();
   });
 
-  it('runs through the async toolkit with stats, and cancels before adoption',async()=>{
-    let marks!:ReturnType<typeof mapSurface>;
-    const run=await compileSketchAsync(sketchAsync({seed:42,pens:{ink:pen({width:mm(.2)})}},async t=>{
-      const sheet=plane(2).subdivide(3);
-      marks=await t.mapSurface(sheet,t.times(8,(_,u)=>stripe((u+.5)/8)));
-      return view([sheet,marks],{camera:orthographic({eye:[5,7,6],span:4}),pen:'ink'});
-    }));
-    expect(run.modeling3[0].operation).toBe('mapSurface');
-    expect(run.modeling3[0].mapping?.outputSegments).toBe(marks.edges.length);
-    expect(marks.edges.length).toBeGreaterThan(8);
-    const controller=new AbortController();
-    await expect(compileSketchAsync(sketchAsync({seed:42},async t=>{
-      const pending=t.mapSurface(plane(2).subdivide(4),t.times(64,(_,u)=>stripe((u+.5)/64)));setTimeout(()=>controller.abort(),0);await pending;return null;
-    }),undefined,{signal:controller.signal})).rejects.toThrow();
-  });
-
   it('draws mapped marks as ordinary strokes, hidden by the rest of the surface',async()=>{
     // A folded sheet: the marks on the far half are behind the near half.
-    const sheet=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[-1,-1,2],[-1,1,2]],[[0,1,2,3],[2,1,4,5]]).cornerAttributes({uv:c=>[c.point.x*.5+.5,c.point.y*.5+.5] as const,chart:c=>c.face.id});
+    const sheet=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[-1,-1,2],[-1,1,2]],[[0,1,2,3],[2,1,4,5]]).corners.set({uv:c=>[c.point.x*.5+.5,c.point.y*.5+.5] as const,chart:c=>`f${c.face.index}`});
     const marks=mapSurface(sheet,[stripe(.25),stripe(.75)]);
     expect(marks.edges.length).toBe(8);
     const draw=(select:(lines:import('../src/three/api/projected.js').ProjectedLines)=>import('../src/three/api/projected.js').ProjectedCurves)=>compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([sheet,marks],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),pen:'ink'},lines=>strokes(select(lines),{stroke:'ink'}))));

@@ -3,11 +3,11 @@ title: Instances and sampling
 description: "Points on a surface, and one prototype placed at every point or face."
 ---
 
-`t.sample` and `t.scatter` put points on a surface. `instanceOnPoints` and `instanceOnFaces` put a prototype mesh at each one. The result goes into `view` like a mesh. `.realize()` makes it one ordinary mesh when you need the mesh operations.
+`t.scatter` puts points on a surface. `instanceOnPoints` and `instanceOnFaces` put a prototype with faces at each one. The result is a value of points, one for each copy, and it goes into `view` like any value with faces. `instances.realize()` makes one ordinary value from all the copies when you need the words of faces.
 
-## t.sample() · t.scatter() on a mesh
+## t.scatter() on a surface
 
-Both take a mesh and return points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.sample(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both. A face selection is the surface that it names: `t.scatter(mesh.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. Each row keeps the id of its face.
+It takes a value with faces and returns points on its surface. The points are the one geometry, with no edges. Each point has the columns of the face under it and the point columns there. Each row also has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.scatter(m, { count })` places `count` points weighted by area. `t.scatter(m, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both forms. A face selection is the surface that it names: `t.scatter(m.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. The `source` of each point is the face under it. A write or a move of the points keeps each sample.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -25,7 +25,9 @@ export default sketch({ aspect: [1, 1], seed: 7, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/3d.instanceOnPoints.mdx</include>
 
-Places one prototype mesh at every point of a point set. `scale`, `rotate` and `offset` are constants or fields on the source point rows. A 2D point is a 3D point at z = 0: a 2D point selection, a material or a list of `[x, y]` pairs stands on the ground plane, with its ids and columns. `pointCloud` takes the same 2D points. `alignAxis('z', normal)` gives the rotation that stands the prototype on a surface. `.realize()` makes one ordinary mesh from all the copies, for the mesh operations.
+Places one prototype with faces at every point of a point set. `scale`, `rotate` and `offset` are constants or fields on the source point rows. A 2D point is a 3D point at z = 0. A 2D point selection, a material or a list of `[x, y]` pairs stands on the ground plane, with its columns. `pointCloud` takes the same 2D points. `alignAxis('z', normal)` gives the rotation that stands the prototype on a surface.
+
+The result has one point for each copy, where the copy stands. The point keeps the columns of the point under it, and that point is its `source`. The column `scale` holds the three factors of the copy. The column `rotate` holds the turn as you gave it. It is Euler degrees `[x, y, z]`, or the `quaternion` of a rotation value when a copy has one. The words of points apply: `points.set('scale', [2, 2, 2])` makes every copy bigger, and `move` and `translate` move the copies. `instances.prototype` is the prototype, and the words of points keep it. `instances.realize()` makes one ordinary value from all the copies (see below).
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -53,5 +55,22 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
   const ball = sphere(1.3, { segments: 14, rings: 7 });
   const studs = instanceOnFaces(box([0.12, 0.12, 0.3]), ball.faces.filter((f) => f.normal[2] > -0.2), { scale: (f) => 0.5 + f.area * 6 });
   return view([ball, studs], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
+});
+```
+
+## realize()
+
+<include>/_sig/Material.realize.mdx</include>
+
+Makes one ordinary value from all the copies. It has the faces, edges and points of the prototype one time for each copy, where that copy stands. Use it for the words of faces, because the instances have no faces. A row of the result has a list of two as its `source`: the prototype row, then its instance. `maxPoints` and `maxFaces` refuse a result that is too large, before the word makes it. Below, the copies of one post become one value. The tops of the posts take a face column, and the view hatches those faces.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, pointCloud, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#647767' }) } }, (t) => {
+  const posts = instanceOnPoints(box([0.3, 0.3, 1]), pointCloud(t.times(5, (k) => [k * 0.7 - 1.4, 0, 0.5])).points, { rotate: (p) => [0, 0, p.index * 12] });
+  const fence = posts.realize().faces.set('top', (f) => f.normal[2] > 0.9);
+  return view(fence, { camera: orthographic({ eye: [3, 5, 3], target: [0, 0, 0.5], span: 2.6 }), pen: 'ink', hatch: { spacing: mm(1.5), angle: 45, pen: 'shade', select: (f) => f.top } });
 });
 ```

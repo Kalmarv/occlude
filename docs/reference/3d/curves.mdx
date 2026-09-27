@@ -1,30 +1,29 @@
 ---
 title: Curves and profiles
-description: "Polylines, sampled curves and circles, and the meshes that revolve and sweep make from them."
+description: "Polylines and sampled curves, and the surfaces that revolve and sweep make from them."
 ---
 
-Curves are polygonal paths in 3D. On their own they are wires in a view. As profiles, `revolve` and `sweep` turn them into meshes.
+Curves are polygonal paths in 3D. On their own they are wires in a view. As profiles, `revolve` and `sweep` turn them into surfaces.
 
-## curve() · parametricCurve() · circle()
+## curve() · parametricCurve()
 
-<include>/_sig/3d.curve.mdx</include>
+<include>/_sig/curve.mdx</include>
 <include>/_sig/3d.parametricCurve.mdx</include>
-<include>/_sig/3d.circle.mdx</include>
 
-`curve` takes points, `parametricCurve` samples a function of `t` from 0 to 1, and `circle` is a closed profile in XY. A curve in a view is a wire: meshes hide it, and it hides nothing.
+`curve` takes points, and `parametricCurve` samples a function of `t` from 0 to 1. A curve is the one geometry with points and edges and no faces. A curve in a view is a wire: surfaces hide it, and it hides nothing.
 
-`curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too: `curve(m)` puts a material in XY at z = 0 and keeps the ids and the columns of its points. The chain tells if it is closed. A function of `t` is a different input, so it has a different word: `parametricCurve`.
+`curve` is the word of `occlude`, and `occlude/3d` gives the same word. It builds a chain from points in the order given, and points `[x, y, z]` give a chain in space. The chain is open unless you give `closed: true`. `curve(m)` of a 2D material is the chain through the same points. A view draws a value of the plane at z = 0. 3D space is flat, so `revolve` and `sweep` refuse a chain of a curved sketch space by name. Make that profile with `curve(points)` from plain positions, because they have no space. A function of `t` is a different input, so it has a different word: `parametricCurve`.
 
-The 3D `circle(radius)` is a profile at the origin. The 2D `circle(x, y, r)` is a shape. When a sketch uses both, import one with a different name: `import { circle as circle2 } from 'occlude'`.
+A circle profile is a closed `parametricCurve` of the angle: `parametricCurve((u) => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], { closed: true })`. The word `circle` is the 2D shape.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { curve, parametricCurve, circle, view, orthographic } from 'occlude/3d';
+import { curve, parametricCurve, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const zig = curve([[-2.4, -1, 0], [-1.6, -1, 1.2], [-0.8, -1, 0], [0, -1, 1.2]]);
   const helix = parametricCurve((u) => [Math.cos(u * 12) * 0.7, Math.sin(u * 12) * 0.7, u * 2.4 - 1.2], { segments: 160 });
-  const ring = circle(0.9, { segments: 24 }).translate([2.2, 0, 0]);
+  const ring = parametricCurve((u) => [0.9 * Math.cos(2 * Math.PI * u), 0.9 * Math.sin(2 * Math.PI * u), 0], { segments: 24, closed: true }).translate([2.2, 0, 0]);
   return view([zig, helix, ring], { camera: orthographic({ eye: [3, 6, 4], span: 6.5 }), pen: 'ink' });
 });
 ```
@@ -33,7 +32,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.revolve.mdx</include>
 
-Turns a profile in the XZ plane around the Z axis. A profile that starts on the axis gives a closed bottom. An open end stays open. A 2D chain is a profile too: its x is the radius and its y is the height.
+Turns a profile in the XZ plane around the Z axis. A profile that starts on the axis gives a closed bottom. An open end stays open. A 2D chain is a profile too: its x is the radius and its y is the height. The `source` of a point of the result is the profile point that it turns. The `source` of a side face is the profile edge.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -49,81 +48,82 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.sweep.mdx</include>
 
-Carries an XY profile along a path: a circle for a tube, an open polyline for a ribbon. `scale` and `twist` change the profile along the way. A 2D material is an XY profile, so `sweep(t.sample(circle2(0, 0, 0.25), { count: 10 }), path)` works. A value with more than one chain is not one profile, and `sweep` refuses it.
+Carries an XY profile along a path: a circle for a tube, an open polyline for a ribbon. `scale` and `twist` change the profile along the way. A 2D material is an XY profile, so `sweep(t.sample(circle(0, 0, 0.25), { count: 10 }), path)` with the 2D `circle` works. A value with more than one chain is not one profile, and `sweep` refuses it. The `source` of a point of the result is a list of two rows: the profile point, then the path point.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { circle, parametricCurve, sweep, view, orthographic } from 'occlude/3d';
+import { parametricCurve, sweep, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const path = parametricCurve((u) => [Math.cos(u * Math.PI * 2) * 1.2, Math.sin(u * Math.PI * 2) * 1.2, u * 2.4 - 1.2], { segments: 48 });
-  return view(sweep(circle(0.22, { segments: 10 }), path), { camera: orthographic({ eye: [5, 6, 3], span: 4.5 }), pen: 'ink', creaseAngle: 180 });
+  const tube = parametricCurve((u) => [0.22 * Math.cos(2 * Math.PI * u), 0.22 * Math.sin(2 * Math.PI * u), 0], { segments: 10, closed: true });
+  return view(sweep(tube, path), { camera: orthographic({ eye: [5, 6, 3], span: 4.5 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
 ## length · along() · resample()
 
-<include>/_sig/3d.CurveGeometry.along.mdx</include>
-<include>/_sig/3d.CurveGeometry.resample.mdx</include>
+<include>/_sig/Material.along.mdx</include>
+<include>/_sig/Material.resample.mdx</include>
 
-A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives places along the curve by arc length. Each place has `x`, `y`, `z`, the unit `tangent`, the arc length `s`, the fraction `u` and the point columns. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it. `t.sample(curve, { count })` or `{ spacing }` gives the points of `resample` as a point set, with the point columns.
+A 3D curve has the chain words of a 2D material, because it is the same value. A value with a `z` column measures in space, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives points along the curve by arc length, as the 2D `along` does. The answer is a point set. Each point has `x`, `y` and `z` and the point columns of the curve. It also has the columns `s` (the arc length), `u` (the fraction of the length) and `tangent` (the unit direction). Its `source` is the edge of the curve under it. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it.
 
-Below, beads are put on a helix at equal arc length.
+Below, beads sit on a helix at equal arc length.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { parametricCurve, sphere, instanceOnPoints, pointCloud, view, orthographic } from 'occlude/3d';
+import { parametricCurve, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, () => {
   const helix = parametricCurve((u) => [Math.cos(u * 12) * 1.1, Math.sin(u * 12) * 1.1, u * 2.4 - 1.2], { segments: 240 });
-  const stations = helix.along({ spacing: helix.length / 40 });
-  const beads = instanceOnPoints(sphere(0.09, { segments: 10, rings: 5 }), pointCloud(stations.map((s) => [s.x, s.y, s.z])));
+  const places = helix.along({ spacing: helix.length / 40 });
+  const beads = instanceOnPoints(sphere(0.09, { segments: 10, rings: 5 }), places);
   return view([helix.resample({ count: 80 }), beads], { camera: orthographic({ eye: [4, 6, 3], span: 3.6 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
-## t.streamlines3()
+## t.streamlines() in space
 
-<include>/_sig/Toolkit.streamlines3.mdx</include>
+<include>/_sig/Toolkit.streamlines.mdx</include>
 
-Evenly spaced streamlines of a 3D vector field, as open curves. A view occludes them like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
+`t.streamlines` of a field of space, `(x, y, z) => [vx, vy, vz]`, gives evenly spaced streamlines. It is the 2D word, and seeds in space make it run in space. The answer is one value, and each line is a chain of it, as in 2D. A view occludes the lines like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
 
-Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }` to throw that many points into a closed mesh. `within` cuts every line to the runs inside a closed mesh, and interpolates the crossing point.
+Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of places `[x, y, z]` or a value with z. `{ count, within }` throws that many seeds into a closed surface. `within` cuts every line to the runs inside a closed surface, and interpolates the crossing point.
 
-`curl3` and `grad3` read a field by central differences. The curl of any field has no divergence, so streamlines of `curl3` neither crowd nor thin out. Below, the flow is the ABC field, cut to a ball, and a box in front hides what is behind it.
+`curl3` and `grad` read a field of space by central differences. The curl of any field has no divergence, so streamlines of `curl3` neither crowd nor thin out. Below, the flow is the ABC field, cut to a ball, and a box in front hides what is behind it.
 
 ```ts live
-import { sketchAsync, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
 import { sphere, box, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.32), color: '#18202A' }), flow: pen({ width: mm(0.16), color: '#2A6F8A' }) } }, async (t) => {
+export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.32), color: '#18202A' }), flow: pen({ width: mm(0.16), color: '#2A6F8A' }) } }, async (t) => {
   const A = Math.sqrt(3), B = Math.SQRT2, C = 1, k = 0.85;
   const ball = sphere(1.7, { segments: 32, rings: 16 });
-  const lines = t.streamlines3((x, y, z) => [A * Math.sin(k * z) + C * Math.cos(k * y), B * Math.sin(k * x) + A * Math.cos(k * z), C * Math.sin(k * y) + B * Math.cos(k * x)],
-    { seeds: { count: 90, within: ball }, spacing: 0.17, step: 0.045, maxLength: 6, within: ball, pen: 'flow' });
+  const lines = t.streamlines((x, y, z) => [A * Math.sin(k * z) + C * Math.cos(k * y), B * Math.sin(k * x) + A * Math.cos(k * z), C * Math.sin(k * y) + B * Math.cos(k * x)],
+    { seeds: { count: 90, within: ball }, spacing: 0.17, step: 0.045, maxLength: 6, within: ball });
   const wall = box([0.9, 0.9, 0.9]).translate([1.35, 1.45, 0.15]);
-  return view([...lines, wall], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), pen: 'ink' });
+  return view([[lines, { pen: 'flow' }], wall], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), pen: 'ink' });
 });
 ```
 
-## curl3() · grad3()
+## curl3() · grad()
 
 <include>/_sig/3d.curl3.mdx</include>
-<include>/_sig/3d.grad3.mdx</include>
+<include>/_sig/3d.grad.mdx</include>
 
-A field of space takes `(x, y, z)`, as `sdf3` and the 2D fields do. A function of one point, `(p) => …`, is refused by name. `grad3(scalar)` is the direction a scalar field rises fastest, as long as its rise. `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `step`, 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
+A field of space takes `(x, y, z)`, as `sdf3` and the 2D fields do. `curl3` refuses a function of one point, `(p) => …`, by name. `grad(scalar)` is the direction a scalar field rises fastest, as long as its rise. The same `grad` takes a field of the surface, `(s) => …` (see [Fields](/docs/reference/3d/fields)). `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `{ step }`, 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
 
 One hill, read two ways. The red lines climb the gradient of the hill. The blue lines follow the curl of the same hill, held upright as a potential. They close into rings around the climb. The curl of a gradient is zero, so the two families never agree.
 
 ```ts live
-import { sketchAsync, pen, mm } from 'occlude';
-import { sphere, curl3, grad3, view, orthographic } from 'occlude/3d';
+import { sketch, pen, mm } from 'occlude';
+import { sphere, curl3, grad, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ aspect: [1, 1], seed: 7, pens: { climb: pen({ width: mm(0.18), color: '#A84932' }), loop: pen({ width: mm(0.18), color: '#2A6F8A' }) } }, async (t) => {
+export default sketch({ aspect: [1, 1], seed: 7, pens: { climb: pen({ width: mm(0.18), color: '#A84932' }), loop: pen({ width: mm(0.18), color: '#2A6F8A' }) } }, async (t) => {
   const hill = (x, y, z) => Math.sin(1.3 * x) * Math.cos(1.3 * y) - 0.35 * z;
   const ball = sphere(1.7, { segments: 24, rings: 12 });
-  const climb = t.streamlines3(grad3(hill), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, pen: 'climb', key: 'climb' });
-  const loop = t.streamlines3(curl3((x, y, z) => [0, 0, hill(x, y, z)]), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, pen: 'loop', key: 'loop' });
-  return view([...climb, ...loop], { camera: orthographic({ eye: [4, -6, 4], span: 4.4 }) });
+  const climb = t.streamlines(grad(hill), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, key: 'climb' });
+  const loop = t.streamlines(curl3((x, y, z) => [0, 0, hill(x, y, z)]), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, key: 'loop' });
+  return view([[climb, { pen: 'climb' }], [loop, { pen: 'loop' }]], { camera: orthographic({ eye: [4, -6, 4], span: 4.4 }) });
 });
 ```

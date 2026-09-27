@@ -6,21 +6,27 @@ import {point,orientPoint,type H} from '../geometry/exact.js';
 import type {UV2} from './chartClip.js';
 
 export interface ChartTriangle3 {readonly triangle:number;readonly chart:string|number;readonly uv:readonly [UV2,UV2,UV2];readonly component:number}
-export interface ChartIndex3 {readonly rows:readonly ChartTriangle3[];readonly index:WorldIndex3}
+/** The triangles of the chart asked for (every chart when none is), and
+ * the name of every chart the surface's corners carry. */
+export interface ChartIndex3 {readonly rows:readonly ChartTriangle3[];readonly index:WorldIndex3;readonly charts:readonly (string|number)[]}
 const cache=new WeakMap<Surface3,Map<string,ChartIndex3>>();
 /** At most four coordinate configurations per live immutable surface. */
 export function* chartIndexJob3(surface:Surface3,uvName='uv',chartName='chart',selected?:string|number):Generator<void,ChartIndex3> {
   const key=JSON.stringify([uvName,chartName,selected??null]),entries=cache.get(surface),previous=entries?.get(key);
   if(previous)return previous;
   const topology=yield*triangulationJob3(surface);
-  const rows:ChartTriangle3[]=[],byTriangle=new Map<number,number>();
+  const rows:ChartTriangle3[]=[],byTriangle=new Map<number,number>(),seen=new Set<string|number>();
   for(let i=0;i<surface.triangles.length;i++){
     const face=surface.faces[surface.triangles[i].face],corners=triangleCorners3(surface,i).map(c=>face.corners![c]);
     const names=corners.map(c=>c.attributes[chartName]??'default');
-    if(names.some(n=>n!==names[0])||!['string','number'].includes(typeof names[0]))throw new Error('surface mapping triangle crosses chart identities');
-    if(selected===undefined||names[0]===selected){
-      const values=corners.map(c=>c.attributes[uvName]);
-      if(values.some(uv=>!Array.isArray(uv)||uv.length!==2||!uv.every(Number.isFinite)))throw new Error(`surface mapping requires finite corner pairs in ${uvName}`);
+    if(names.some(n=>n!==names[0])||!['string','number'].includes(typeof names[0]))throw new Error(`mapSurface: a triangle crosses two charts in the corner column '${chartName}' — every corner of a face names one chart`);
+    seen.add(names[0] as string|number);
+    const values=corners.map(c=>c.attributes[uvName]);
+    // A triangle with no finite pair at a corner has no place in a chart
+    // (a boolean result's cut faces, a corner never charted): it is skipped,
+    // and the rest map. A value that is no pair at all is a mistake.
+    if(values.some(uv=>uv!==undefined&&uv!==null&&(!Array.isArray(uv)||uv.length!==2)))throw new Error(`mapSurface: the corner column '${uvName}' holds ${JSON.stringify(values.find(uv=>!Array.isArray(uv)||uv.length!==2))} — a chart place is a pair [u, v]`);
+    if((selected===undefined||names[0]===selected)&&values.every(uv=>Array.isArray(uv)&&uv.every(Number.isFinite))){
       const uv=values.map(v=>Object.freeze([...(v as readonly number[])])) as unknown as readonly [UV2,UV2,UV2];
       const exact=uv.map(p=>point([p[0],p[1],0])) as unknown as readonly [H,H,H];
       // A triangle with no area in UV carries no chart: skip it, map the rest.
@@ -46,7 +52,7 @@ export function* chartIndexJob3(surface:Surface3,uvName='uv',chartName='chart',s
     component++;
   }
   const bounds=rows.map(row=>worldBounds3(row.uv.map(p=>[p[0],p[1],0]))),index=yield*WorldIndex3.build(bounds);
-  const value=Object.freeze({rows:Object.freeze(rows.map(row=>Object.freeze(row))),index});
+  const value=Object.freeze({rows:Object.freeze(rows.map(row=>Object.freeze(row))),index,charts:Object.freeze([...seen])});
   const next=entries??new Map<string,ChartIndex3>();
   if(next.size>=4)next.delete(next.keys().next().value!);
   next.set(key,value);cache.set(surface,next);return value;

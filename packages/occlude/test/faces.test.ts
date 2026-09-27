@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material, polygon, type Material } from '../src/index.js';
-import { faces, planarize, FaceSelection } from '../src/faces.js';
+import { planarize } from '../src/faces.js';
+import { seg, square } from './helpers/shapes.js';
 
-const square = (x = 0, y = 0, s = 10, extra: Record<string, number> = {}) =>
-  curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true, ...extra });
-const seg = (a: [number, number], b: [number, number], attrs: Record<string, number> = {}) => material([a, b], { edges: [[0, 1]], ...attrs });
-const areas = (m: Material) => m.faces().faces.map((f) => +f.area.toFixed(6)).sort((p, q) => p - q);
+/** `m` with edges added between rows, by the views of those rows. */
+const join = (m: Material, ...pairs: [number, number][]): Material => m.edges.add(pairs.map(([a, b]) => [m.points.at(a), m.points.at(b)] as const));
+
+const areas = (m: Material) => m.faces.faces.map((f) => +f.area.toFixed(6)).sort((p, q) => p - q);
 // Euler check: bounded faces = E - V + C over the whole (finite) graph, isolated vertices counted in V and C
 const euler = (m: Material) => {
   const seen = new Int32Array(m.n).fill(-1);
@@ -22,17 +23,16 @@ const euler = (m: Material) => {
 
 describe('planarize', () => {
   it('proper crossing: one shared vertex, four children, transfer by policy', () => {
-    const cross = append(seg([0, 0], [10, 10]).attribute('age', (p) => p.index * 4), seg([0, 10], [10, 0]).attribute('age', (p) => p.index * 4));
+    const cross = append(seg([0, 0], [10, 10]).points.set('age', (p) => p.index * 4), seg([0, 10], [10, 0]).points.set('age', (p) => p.index * 4));
     const p = cross.planarize();
     expect(p.n).toBe(5);
     expect(p.edgeCount).toBe(4);
     expect([p.x[4], p.y[4]]).toEqual([5, 5]);
     expect(Array.from(p.edgeList)).toEqual([0, 4, 4, 1, 2, 4, 4, 3]); // parent order, parameter order, direction kept
     expect(p.attrs.age[4]).toBe(2); // 0→4 at t=.5 on both edges: equal candidates
-    expect(p.iteration).toBe(0);
     expect(p.history).toEqual([]);
     expect(cross.n).toBe(4); // source untouched
-    expect(p.faces().length).toBe(0);
+    expect(p.faces.length).toBe(0);
   });
 
   it('T-junction and endpoint contact reuse the endpoint; several edges at one event share one vertex', () => {
@@ -80,13 +80,13 @@ describe('planarize', () => {
 
   it('conflicting point attributes take the first edge\'s value unless a resolver says; child edge attributes by interval', () => {
     const a = seg([0, 0], [10, 10], { age: 0 });
-    const b = seg([0, 10], [10, 0]).attribute('age', 8);
-    const cross = append(a, b).edgeAttribute('rest', 3);
+    const b = seg([0, 10], [10, 0]).points.set('age', 8);
+    const cross = append(a, b).edges.set('rest', 3);
     expect(cross.planarize().attrs.age[4]).toBe(0); // edge 0 is first: its value at the crossing
     const seen: number[][] = [];
     const p = cross.planarize({
       point: (ev) => { seen.push(ev.candidates.map((c) => c.edge!)); return { age: 1 }; },
-      edges: (parent, child) => ({ rest: parent.attrs.rest * child.fraction }),
+      edges: (parent, child) => ({ rest: parent.rest * child.fraction }),
     });
     expect(seen).toEqual([[0, 1]]);
     expect(p.attrs.age[4]).toBe(1);
@@ -94,8 +94,8 @@ describe('planarize', () => {
     expect(() => cross.planarize({ point: () => ({ nope: 1 }) })).toThrow(/no attribute 'nope'/);
     expect(cross.planarize({ point: () => ({}) }).attrs.age[4]).toBe(0); // a column left out keeps the default
     // nearest policy copies; unsplit edges get fraction 1
-    const cat = append(seg([0, 0], [10, 10]).attribute('kind', 1, { transfer: 'nearest' }), seg([0, 10], [10, 0]).attribute('kind', 1, { transfer: 'nearest' }));
-    const pc = append(cat, seg([20, 20], [30, 30]).attribute('kind', 1, { transfer: 'nearest' })).edgeAttribute('w', 2).planarize({ edges: (_, c) => ({ w: c.fraction * 10 }) });
+    const cat = append(seg([0, 0], [10, 10]).points.set('kind', 1, { transfer: 'nearest' }), seg([0, 10], [10, 0]).points.set('kind', 1, { transfer: 'nearest' }));
+    const pc = append(cat, seg([20, 20], [30, 30]).points.set('kind', 1, { transfer: 'nearest' })).edges.set('w', 2).planarize({ edges: (_, c) => ({ w: c.fraction * 10 }) });
     expect(pc.attrs.kind[4]).toBe(1);
     expect(Array.from(pc.edgeAttrs.w)).toEqual([5, 5, 5, 5, 10]);
     expect(pc.transfers.kind).toBe('nearest');
@@ -132,27 +132,27 @@ describe('planarize', () => {
 
 describe('faces', () => {
   it('empty, isolated, tree, one ring, disjoint rings', () => {
-    expect(material([]).faces().length).toBe(0);
-    expect(material([[0, 0], [1, 1]]).faces().length).toBe(0);
-    expect(connect.chain([[0, 0], [5, 0], [5, 5], [9, 9]]).faces().length).toBe(0);
+    expect(material([]).faces.length).toBe(0);
+    expect(material([[0, 0], [1, 1]]).faces.length).toBe(0);
+    expect(curve([[0, 0], [5, 0], [5, 5], [9, 9]]).faces.length).toBe(0);
     const one = square();
     expect(areas(one)).toEqual([100]);
-    expect(one.faces().faces[0].perimeter).toBe(40);
-    expect(one.faces().faces[0].bounds).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+    expect(one.faces.at(0).perimeter).toBe(40);
+    expect({ ...one.faces.at(0).bounds }).toEqual({ x: 0, y: 0, w: 10, h: 10, cx: 5, cy: 5 });
     expect(areas(append(square(), square(20, 0)))).toEqual([100, 100]);
-    for (const m of [one, append(square(), square(20, 0)), connect.chain([[0, 0], [5, 0], [5, 5]])]) expect(m.faces().length).toBe(euler(m));
+    for (const m of [one, append(square(), square(20, 0)), curve([[0, 0], [5, 0], [5, 5]])]) expect(m.faces.length).toBe(euler(m));
   });
 
   it('a square with one diagonal has two faces; both diagonals need planarize and give four', () => {
-    const diag = square().steps(1, (cur, next) => next.connect(cur.points.at(0), cur.points.at(2)));
+    const diag = join(square(), [0, 2]);
     expect(areas(diag)).toEqual([50, 50]);
-    const both = diag.steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(3)));
-    expect(() => both.faces()).toThrow(/cross without a shared vertex — run planarize\(\)/);
+    const both = join(diag, [1, 3]);
+    expect(() => both.faces).toThrow(/cross without a shared vertex — run planarize\(\)/);
     const p = both.planarize();
     expect(p.n).toBe(5);
     expect(areas(p)).toEqual([25, 25, 25, 25]);
-    expect(p.faces().length).toBe(euler(p));
-    const f = p.faces().faces[0];
+    expect(p.faces.length).toBe(euler(p));
+    const f = p.faces.at(0);
     expect(f.contours()).toHaveLength(1);
     expect(f.contours()[0].closed).toBe(true);
     expect(f.contours()[0].pts).toHaveLength(3);
@@ -160,38 +160,42 @@ describe('faces', () => {
 
   it('nested rings: annulus + disk, three levels; faces do not overlap and areas add up', () => {
     const two = append(square(0, 0, 30), square(10, 10, 10));
-    const cells = two.faces();
+    const cells = two.faces;
     expect(areas(two)).toEqual([100, 800]);
     const annulus = cells.faces.find((f) => f.area === 800)!;
     expect(annulus.contours()).toHaveLength(2);
     expect(annulus.perimeter).toBe(120 + 40);
-    expect(annulus.bounds).toEqual({ x: 0, y: 0, w: 30, h: 30 });
+    expect({ ...annulus.bounds }).toEqual({ x: 0, y: 0, w: 30, h: 30, cx: 15, cy: 15 });
+    // The bounds are an area: the face's box.
+    expect(annulus.bounds.contours()[0].pts).toEqual([[0, 0], [30, 0], [30, 30], [0, 30]]);
     let three = append(square(0, 0, 50), square(10, 10, 30));
     three = append(three, square(20, 20, 10));
     expect(areas(three)).toEqual([100, 800, 1600]);
-    const total = three.faces().faces.reduce((s, f) => s + f.area, 0);
+    const total = [...three.faces].reduce((s, f) => s + f.area, 0);
     expect(total).toBe(2500);
-    expect(three.faces().length).toBe(euler(three));
+    expect(three.faces.length).toBe(euler(three));
     // the union outline of everything is the outer square alone
-    expect(three.faces().contours()).toHaveLength(1);
+    expect(three.faces.contours()).toHaveLength(1);
   });
 
   it('dangling branches and bridges add no area, no face, no retraced contour', () => {
-    const withBranch = square().steps(1, (_, next) => next.extrude(_.points.filter((p) => p.index === 0), () => ({ position: [5, 5], attributes: {} })));
-    const cells = withBranch.faces();
+    const sqr = square();
+    const withBranch = sqr.extrude(sqr.points.at(0), [5, 5]);
+    expect(withBranch.n).toBe(5);
+    const cells = withBranch.faces;
     expect(cells.length).toBe(1);
-    expect(cells.faces[0].area).toBe(100);
-    expect(cells.faces[0].perimeter).toBe(40);
-    expect(cells.faces[0].contours()).toHaveLength(1);
-    expect(cells.faces[0].contours()[0].pts).toHaveLength(4);
+    expect(cells.at(0).area).toBe(100);
+    expect(cells.at(0).perimeter).toBe(40);
+    expect(cells.at(0).contours()).toHaveLength(1);
+    expect(cells.at(0).contours()[0].pts).toHaveLength(4);
     // a bridge between two loops
-    const bridged = append(square(), square(20, 0)).steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(4)));
+    const bridged = join(append(square(), square(20, 0)), [1, 4]);
     expect(areas(bridged)).toEqual([100, 100]);
-    expect(bridged.faces().length).toBe(euler(bridged));
-    for (const f of bridged.faces().faces) expect(f.contours()[0].pts).toHaveLength(4);
+    expect(bridged.faces.length).toBe(euler(bridged));
+    for (const f of bridged.faces.faces) expect(f.contours()[0].pts).toHaveLength(4);
     // a ring hanging inside another by a bridge: annulus with a pinched hole, two contours, no retrace
-    const inner = append(square(0, 0, 30), square(10, 10, 10)).steps(1, (cur, next) => next.connect(cur.points.at(1), cur.points.at(5)));
-    const ic = inner.faces();
+    const inner = join(append(square(0, 0, 30), square(10, 10, 10)), [1, 5]);
+    const ic = inner.faces;
     expect(areas(inner)).toEqual([100, 800]);
     const ann = ic.faces.find((f) => f.area === 800)!;
     expect(ann.contours()).toHaveLength(2);
@@ -204,56 +208,55 @@ describe('faces', () => {
     // around it left ±1e-13, which made a face with no contours.
     const pts: [number, number][] = [[56.28, 63.65], [53.36, 64.32], [50.58, 65.46], [47.61, 65.89], [49.01, 68.54], [47.85, 62.9], [49.86, 65.66], [59.14, 64.57]];
     const tree = material(pts, { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [4, 6], [0, 7]] });
-    expect(tree.faces().length).toBe(0);
+    expect(tree.faces.length).toBe(0);
     expect(euler(tree)).toBe(0);
     // the same tree floating inside a ring belongs to no face and takes nothing from it
     const inside = append(square(0, 0, 200), tree);
     expect(areas(inside)).toEqual([40000]);
-    expect(inside.faces().faces[0].contours()).toHaveLength(1);
+    expect(inside.faces.at(0).contours()).toHaveLength(1);
   });
 
   it('regions meeting at a vertex stay separate faces and separate contours', () => {
     const touching = append(square(), square(10, 10)); // corner (10,10) twice → planarize merges them
-    expect(() => touching.faces()).toThrow(/coincide but are distinct/);
+    expect(() => touching.faces).toThrow(/coincide but are distinct/);
     const p = touching.planarize();
     expect(p.n).toBe(7);
     expect(areas(p)).toEqual([100, 100]);
-    const both = p.faces().contours();
+    const both = p.faces.contours();
     expect(both).toHaveLength(2);
     for (const c of both) expect(c.pts).toHaveLength(4);
   });
 
   it('face selections: domain, source, fixed membership, set operations', () => {
     const grid = connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]]));
-    const cells = grid.faces();
+    const cells = grid.faces;
     expect(cells.length).toBe(4);
-    expect(cells.iteration).toBe(0);
     const big = cells.filter((f) => f.area >= 25);
     expect(big.length).toBe(4);
-    expect(big.has(cells.faces[0])).toBe(true);
-    expect(big.has(grid.faces().faces[0])).toBe(true); // faces() is cached: one collection per state
-    expect(big.has(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().faces[0])).toBe(false); // another state
+    expect(big.has(cells.at(0))).toBe(true);
+    expect(big.has(grid.faces.at(0))).toBe(true); // faces() is cached: one collection per state
+    expect(big.has(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces.at(0))).toBe(false); // another state
     expect(() => big.has(grid.vertex(0) as never)).toThrow(/vertex view/);
     expect(() => big.has(grid.edge(0) as never)).toThrow(/edge view/);
     expect(() => cells.has({ index: 0, area: 1 } as never)).toThrow(/face view/);
     const none = cells.filter(() => false);
     expect(none.contours()).toEqual([]);
-    expect(big.subtract(none).indices).toEqual([0, 1, 2, 3]);
+    expect(big.without(none).indices).toEqual([0, 1, 2, 3]);
     expect(big.intersect(cells.filter((f) => f.index < 2)).indices).toEqual([0, 1]);
-    expect(() => big.union(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().filter(() => true))).toThrow(/unrelated materials/);
-    expect(() => big.union({} as FaceSelection)).toThrow(/face selection/);
+    expect(() => big.union(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces.filter(() => true))).toThrow(/unrelated materials/);
+    expect(() => big.union({} as never)).toThrow(/face selection/);
     expect(cells.map((f) => f.index)).toEqual([0, 1, 2, 3]);
-    expect(Object.isFrozen(cells.faces[0])).toBe(true);
+    expect(Object.isFrozen(cells.at(0))).toBe(true);
   });
 
   it('union boundaries: shared walls vanish, holes stay when the inner face is unselected', () => {
-    const diag = square().steps(1, (cur, next) => next.connect(cur.points.at(0), cur.points.at(2)));
-    const cells = diag.faces();
+    const diag = join(square(), [0, 2]);
+    const cells = diag.faces;
     expect(cells.contours()).toHaveLength(1);
     expect(cells.contours()[0].pts).toHaveLength(4);
     const one = cells.filter((f) => f.index === 0);
     expect(one.contours()[0].pts).toHaveLength(3);
-    const nested = append(square(0, 0, 30), square(10, 10, 10)).faces();
+    const nested = append(square(0, 0, 30), square(10, 10, 10)).faces;
     const outerOnly = nested.filter((f) => f.area > 500);
     expect(outerOnly.contours()).toHaveLength(2); // the hole is kept
     expect(nested.contours()).toHaveLength(1); // both selected: the inner wall goes
@@ -261,7 +264,7 @@ describe('faces', () => {
     expect(innerOnly.contours()).toHaveLength(1);
     expect(innerOnly.contours()[0].pts).toHaveLength(4);
     // contours feed polygon and stroke directly
-    expect(() => polygon(nested.faces[0].contours(), { winding: 'evenodd' })).not.toThrow();
+    expect(() => polygon(nested.at(0).contours(), { winding: 'evenodd' })).not.toThrow();
     expect(() => polygon(nested.contours())).not.toThrow();
   });
 
@@ -273,8 +276,8 @@ describe('faces', () => {
     for (let i = 0; i < 24; i++) pts.push([rnd(), rnd()]);
     for (let i = 0; i + 1 < pts.length; i += 2) net = append(net, seg(pts[i], pts[i + 1]));
     const p = net.planarize();
-    expect(() => p.faces()).not.toThrow();
-    expect(p.faces().length).toBe(euler(p));
+    expect(() => p.faces).not.toThrow();
+    expect(p.faces.length).toBe(euler(p));
     const again = p.planarize();
     expect(again.n).toBe(p.n);
     expect(again.edgeCount).toBe(p.edgeCount);
@@ -283,8 +286,8 @@ describe('faces', () => {
 
 describe('review of 3df7b04', () => {
   it('1. a T-junction reconciles the stem endpoint against the receiving edge', () => {
-    const bar = seg([0, 0], [10, 0]).attribute('age', 0);
-    const stem = seg([5, 0], [5, 5]).attribute('age', 9);
+    const bar = seg([0, 0], [10, 0]).points.set('age', 0);
+    const stem = seg([5, 0], [5, 5]).points.set('age', 9);
     const t = append(bar, stem);
     expect(t.planarize().attrs.age[2]).toBe(9); // the stem's end is a vertex that survives: it keeps its own value
     const seen: unknown[] = [];
@@ -293,7 +296,7 @@ describe('review of 3df7b04', () => {
     expect((seen[0] as { vertex?: number }[])[0].vertex).toBe(2);
     expect(p.attrs.age[2]).toBe(4);
     // agreeing candidates need no resolver
-    const agree = append(seg([0, 0], [10, 0]).attribute('age', 0), seg([5, 0], [5, 5]).attribute('age', 0));
+    const agree = append(seg([0, 0], [10, 0]).points.set('age', 0), seg([5, 0], [5, 5]).points.set('age', 0));
     expect(agree.planarize().attrs.age[2]).toBe(0);
   });
 
@@ -330,20 +333,20 @@ describe('review of 3df7b04', () => {
     // As far as these coordinates can tell, the edges meet at one point, and
     // the crossing is read as that meeting: there is nothing the reader could
     // do about a gap of a rounding, so the drawing goes on.
-    expect(() => planar.faces()).not.toThrow();
-    expect(planar.faces().length).toBeGreaterThan(0);
+    expect(() => planar.faces).not.toThrow();
+    expect(planar.faces.length).toBeGreaterThan(0);
     // An ordinary un-planarized crossing still gets the ordinary advice.
-    expect(() => append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0])).faces()).toThrow(/run planarize\(\) first/);
+    expect(() => append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0])).faces).toThrow(/run planarize\(\) first/);
   });
 
   it('3. faces are translation invariant at large coordinate offsets', () => {
     for (const off of [0, 1e6, 1e8]) {
       const sq = square(off, off, 1);
-      const cells = sq.faces();
+      const cells = sq.faces;
       expect(cells.length).toBe(1);
-      expect(cells.faces[0].area).toBeCloseTo(1, 6);
-      expect(cells.faces[0].perimeter).toBeCloseTo(4, 6);
-      const nested = append(square(off, off, 30), square(off + 10, off + 10, 10)).faces();
+      expect(cells.at(0).area).toBeCloseTo(1, 6);
+      expect(cells.at(0).perimeter).toBeCloseTo(4, 6);
+      const nested = append(square(off, off, 30), square(off + 10, off + 10, 10)).faces;
       expect(nested.faces.map((f) => +f.area.toFixed(3)).sort((p, q) => p - q)).toEqual([100, 800]);
     }
   });
@@ -352,7 +355,7 @@ describe('review of 3df7b04', () => {
     let m = append(square(0, 0, 40), square(10, 10, 10));
     m = append(m, square(20, 20, 10)); // touches the first inner square at (20,20)
     const p = m.planarize();
-    const cells = p.faces();
+    const cells = p.faces;
     expect(cells.length).toBe(3);
     const outer = cells.faces.find((f) => f.area === 1400)!;
     expect(outer.contours()).toHaveLength(3);
@@ -364,7 +367,7 @@ describe('review of 3df7b04', () => {
   });
 
   it('5. face views are deeply frozen', () => {
-    const f = square().faces().faces[0];
+    const f = square().faces.at(0);
     expect(Object.isFrozen(f.contours())).toBe(true);
     expect(Object.isFrozen(f.contours()[0])).toBe(true);
     expect(Object.isFrozen(f.contours()[0].pts)).toBe(true);
@@ -377,12 +380,12 @@ describe('review of 3df7b04', () => {
 describe('faces: the planarity check reads positions and pairs exactly', () => {
   it('duplicate edges and coincident vertices are still refused, −0 counts as 0', () => {
     const dup = material([[0, 0], [10, 0], [10, 10]], { edges: [[0, 1], [1, 2], [1, 0]] });
-    expect(() => faces(dup)).toThrow(/duplicate edge 2/);
+    expect(() => dup.faces).toThrow(/duplicate edge 2/);
     const twice = material([[0, 0], [10, 0], [10, 0], [10, 10]], { edges: [[0, 1], [2, 3]] });
-    expect(() => faces(twice)).toThrow(/vertices 1 and 2 coincide but are distinct/);
+    expect(() => twice.faces).toThrow(/vertices 1 and 2 coincide but are distinct/);
     // -0 and 0 are one position, as they were when the key was a string
     const negZero = material([[-0, 5], [10, 5], [0, 5], [10, 9]], { edges: [[0, 1], [2, 3]] });
-    expect(() => faces(negZero)).toThrow(/vertices 0 and 2 coincide but are distinct/);
+    expect(() => negZero.faces).toThrow(/vertices 0 and 2 coincide but are distinct/);
   });
 
   it('tens of thousands of distinct positions never collide into a false coincidence', () => {
@@ -400,7 +403,7 @@ describe('faces: the planarity check reads positions and pairs exactly', () => {
     }
     const wide = material(pts, { edges: eds });
     expect(wide.n).toBe(40000);
-    expect(faces(wide).faces).toHaveLength(0);
+    expect(wide.faces).toHaveLength(0);
   });
 });
 
@@ -411,14 +414,14 @@ describe('faces: centroid, adjacency and an edge\'s faces', () => {
     edges: [[0, 1], [1, 2], [2, 3], [4, 5], [5, 6], [6, 7], [0, 4], [1, 5], [2, 6], [3, 7]],
   });
   it('a face knows its centroid, holes respected', () => {
-    const plain = sq(0, 0, 10).faces().at(0);
+    const plain = sq(0, 0, 10).faces.at(0);
     expect(plain.centroid.map((v) => +v.toFixed(9))).toEqual([5, 5]);
-    const ring = append(sq(0, 0, 10), sq(6, 6, 2)).planarize().faces().filter((f) => f.contours().length === 2).at(0);
+    const ring = append(sq(0, 0, 10), sq(6, 6, 2)).planarize().faces.filter((f) => f.contours().length === 2).at(0);
     expect(ring.centroid[0]).toBeLessThan(5); // the hole in the top-right corner pulls the centroid away
     expect(ring.centroid[1]).toBeLessThan(5);
   });
   it('adjacent faces share a wall, one hop out, never the faces asked about', () => {
-    const cells = row3().faces();
+    const cells = row3().faces;
     const byX = [...cells].sort((a, b) => a.centroid[0] - b.centroid[0]);
     expect(byX[0].adjacent.length).toBe(1);
     expect(byX[1].adjacent.length).toBe(2);
@@ -433,23 +436,38 @@ describe('faces: centroid, adjacency and an edge\'s faces', () => {
     expect(pair.adjacent().length).toBe(1);
     expect(pair.adjacent().has(byX[2])).toBe(true);
     // …and `subtract` is now redundant, which is the point of the rule.
-    expect(pair.adjacent().subtract(pair).indices).toEqual(pair.adjacent().indices);
+    expect(pair.adjacent().without(pair).indices).toEqual(pair.adjacent().indices);
     // The selection GROWN by a ring is the union, and says so.
     expect(pair.union(pair.adjacent()).length).toBe(3);
     // a corner touch is not adjacency
-    const corner = append(sq(0, 0, 10), sq(10, 10, 10)).planarize().faces();
+    const corner = append(sq(0, 0, 10), sq(10, 10, 10)).planarize().faces;
     expect(corner.length).toBe(2);
     expect(corner.at(0).adjacent.length).toBe(0);
   });
   it('an edge knows the faces on its sides', () => {
     const m = row3();
-    const cells = m.faces();
+    const cells = m.faces;
     const wall = m.edges.find((e) => e.a.x === 10 && e.b.x === 10)!;
     expect(wall.faces.length).toBe(2);
-    expect(cells.has(wall.faces[0])).toBe(true);
+    expect(cells.has(wall.faces.at(0))).toBe(true);
     const outer = m.edges.find((e) => e.a.y === 0 && e.b.y === 0 && e.b.x === 10)!;
     expect(outer.faces.length).toBe(1);
-    const crossed = sq(0, 0, 10).steps(1, (cur, next) => { next.connect(cur.points.at(0), cur.points.at(2)); next.connect(cur.points.at(1), cur.points.at(3)); });
+    const crossed = join(sq(0, 0, 10), [0, 2], [1, 3]);
     expect(() => crossed.edges.at(0).faces).toThrow(/planar/);
+  });
+});
+
+describe('an extracted face is the face it was', () => {
+  it('a face with a hole extracts as ONE face, the hole no face of its own', () => {
+    const sq = (x: number, y: number, s: number) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
+    const m = append(sq(0, 0, 30), sq(10, 10, 10));
+    const outer = m.faces.filter((f) => f.area > 500);
+    const ex = outer.extract();
+    expect(ex.faces.length).toBe(1);
+    expect(ex.faces.at(0).area).toBeCloseTo(800, 9);
+    expect(ex.faces.at(0).contours().length).toBe(2);
+    // One face of the collection, the same.
+    const one = m.faces.at(outer.at(0).index).extract();
+    expect(one.faces.map((f) => f.area)).toEqual([800]);
   });
 });

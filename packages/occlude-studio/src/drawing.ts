@@ -7,11 +7,12 @@
  * or the tour: a selection slices the plan the worker already holds.
  */
 
+import { type DrawRequest, type PenDef } from 'occlude';
 import {
-  canonicalJson, openPlan, parseToolpath, resolveDraw, selectAll, selectChains,
-  type DrawRequest, type DrawingPlan, type EstimateOpts, type FlatChain, type PenTiming, type PlanSelection, type PlanSettings, type PlanSchedule, type PenDef, type ResolvedDraw,
-  planSchedule,
-} from 'occlude';
+  canonicalJson, openPlan, parseToolpath, resolveDraw, selectAll, selectChains, type DrawingPlan,
+  type EstimateOpts, type FlatChain, type PenTiming, type PlanSelection, type PlanSettings,
+  type PlanSchedule, type ResolvedDraw, planSchedule,
+} from 'occlude/host';
 import type { RenderClient } from './workerClient.js';
 import type { MachineProfile } from './store.js';
 

@@ -47,9 +47,10 @@
  */
 
 import { halfplane as hHalfplane } from './hyperbolic.js';
-import type { Model, ModelDoor } from './placement.js';
+import { bindSpace, type Model, type ModelDoor } from './placement.js';
 import { mm, type L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
+import { ownerOf } from './views.js';
 
 export type SpaceKind = 'euclidean' | 'hyperbolic' | 'spherical';
 
@@ -153,7 +154,7 @@ export interface Space {
   /** Are geodesics straight lines on the sheet? */
   straight: boolean;
   /** The model this geometry's isometries are matrices on: what a
-   * `Placement` of THIS space is built over. `t.station(…).placement()`,
+   * `Placement` of THIS space is built over. `t.placement(…)`,
    * a tiling's placements and `reflection(space.model, a, b)` all go
    * through it. */
   model: ModelDoor;
@@ -207,15 +208,16 @@ const PLANE_DOOR: ModelDoor = {
 };
 
 /** The flat plane: the formulas every spacing word already uses, and the
- * identity for every map. */
-export function euclideanSpace(): Space {
+ * identity for every map. `center` is the middle of the drawable when the
+ * sketch's frame is known (`resolveSpace`), as it is in a curved space. */
+export function euclideanSpace(center: XY = [0, 0]): Space {
   return {
     kind: 'euclidean',
     projection: 'none',
     curvature: 0,
     radius: Infinity,
     size: Infinity,
-    center: [0, 0],
+    center: [vx(center), vy(center)],
     distance: (a, b) => Math.hypot(vx(b) - vx(a), vy(b) - vy(a)),
     exp: (p, v) => [vx(p) + vx(v), vy(p) + vy(v)],
     log: (p, q) => [vx(q) - vx(p), vy(q) - vy(p)],
@@ -431,7 +433,7 @@ export function curvedSpaceOf(
     if (r2 > 1) return [NaN, NaN];
     return [cx + (q[0] - cx) / (1 + r2), cy + (q[1] - cy) / (1 + r2)];
   };
-  return {
+  const space: Space = {
     kind: curvature < 0 ? 'hyperbolic' : 'spherical',
     projection,
     curvature,
@@ -520,6 +522,9 @@ export function curvedSpaceOf(
       ...(bow === undefined ? {} : { bow }),
     },
   };
+  // A placement of this door walks in this space (`placement.step`).
+  bindSpace(space.model, space);
+  return space;
 }
 
 /**
@@ -693,6 +698,44 @@ function noSpaceFor(projection: Projection): never {
   );
 }
 
+/** A `Space` record, read by what it answers. */
+const isSpaceRecord = (v: unknown): v is Space =>
+  typeof v === 'object' && v !== null && typeof (v as Space).kind === 'string' && typeof (v as Space).distance === 'function';
+
+/**
+ * @internal The space a geometry value says its coordinates belong to: a
+ * material's own, or the space of the material a selection, a face, a
+ * vertex or an edge was taken from. A list answers for its first entry.
+ * Plain numbers — loops, contour records, a rect, an `{ x, y }` — say
+ * none. Structural, as the accessor protocol is: a value that answers
+ * `space` answers for itself, a view answers through its owner, and a
+ * selection or a face table through its `source`.
+ */
+export function carriedSpace(v: unknown): Space | undefined {
+  for (let hop = 0; hop < 4; hop++) {
+    if (typeof v !== 'object' || v === null) return undefined;
+    if ('space' in v) {
+      const s = (v as { space?: unknown }).space;
+      return isSpaceRecord(s) ? s : undefined;
+    }
+    const owner = ownerOf(v);
+    if (owner !== undefined) v = owner;
+    else if (Array.isArray(v)) v = v[0];
+    // A selection's state is its owner; a face table's, its source.
+    else v = (v as { owner?: unknown }).owner ?? (v as { source?: unknown }).source;
+  }
+  return undefined;
+}
+
+/**
+ * @internal What a value made from `src` takes of its frame: the space its
+ * coordinates belong to. The Material constructor reads it off `from`, so
+ * a derived material names its source and nothing else.
+ */
+export function inherits<S extends { readonly space?: Space | undefined }>(src: S): { from: S } {
+  return { from: src };
+}
+
 /** The `projection` key as a kind and a size, whichever way it is written. */
 function projectionSpec(option: ProjectionOption | undefined): { kind?: Projection; size?: L } {
   if (option === undefined) return {};
@@ -807,7 +850,7 @@ export function resolveSpace(
     if (chart.size !== undefined) {
       throw new Error("projection: a size needs a space to draw — set space: 'hyperbolic' or 'spherical' beside it");
     }
-    return euclideanSpace();
+    return euclideanSpace([frame.cx, frame.cy]);
   }
   // The chart fills the page unless the sketch says how big to draw it.
   const size = chart.size === undefined ? Math.min(frame.w, frame.h) / 2 : frame.len(chart.size);
@@ -1079,13 +1122,22 @@ function edgeField(space: Space, a: readonly [number, number], b: readonly [numb
       return ell * Math.asin(Math.max(-1, Math.min(1, n[0] * mx + n[1] * my + n[2] * mz)));
     };
   }
+  if (space.kind === 'euclidean') {
+    // The flat plane: the line through the two points, positive on the
+    // left of a → b as the curved ones are.
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0)) return null;
+    return (x, y) => (dx * (y - a[1]) - dy * (x - a[0])) / len;
+  }
   return null;
 }
 
-/** The signed area of a loop in sketch coordinates: its sign is the loop's
- * winding, and the coordinates keep orientation, so it is the space's
- * winding too. */
-function chartArea(loop: readonly (readonly [number, number])[]): number {
+/** @internal The signed area of a loop in sketch coordinates (the
+ * shoelace sum): its sign is the loop's winding, and the coordinates keep
+ * orientation, so it is the space's winding too. The one shoelace. */
+export function signedArea(loop: readonly (readonly [number, number])[]): number {
   let sum = 0;
   for (let i = 0; i < loop.length; i++) {
     const p = loop[i];
@@ -1128,6 +1180,38 @@ export function spaceAreaField(space: Space, contours: readonly SpaceContour[]):
       if (v < best) best = v;
     }
     return best;
+  };
+}
+
+/**
+ * @internal The distance field of points in `space`: zero at a point and
+ * minus the space's distance to the nearest point everywhere else — the
+ * sign the flat field of points has, measured along geodesics, so a ring
+ * about every site has one radius of the space wherever the site is. With
+ * no finite site the field is −Infinity everywhere.
+ *
+ * In the disk a space length is never shorter than its coordinate length,
+ * so a site further off in coordinates than the best found so far cannot
+ * win and is skipped unmeasured.
+ */
+export function spacePointField(space: Space, xs: ArrayLike<number>, ys: ArrayLike<number>): (x: number, y: number) => number {
+  const sx: number[] = [];
+  const sy: number[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    if (!Number.isFinite(xs[i]) || !Number.isFinite(ys[i])) continue;
+    sx.push(xs[i]);
+    sy.push(ys[i]);
+  }
+  if (sx.length === 0) return () => -Infinity;
+  const bounded = space.kind === 'hyperbolic';
+  return (x, y) => {
+    let best = Infinity;
+    for (let i = 0; i < sx.length; i++) {
+      if (bounded && Math.hypot(sx[i] - x, sy[i] - y) >= best) continue;
+      const d = space.distance([x, y], [sx[i], sy[i]]);
+      if (d < best) best = d;
+    }
+    return -best;
   };
 }
 
@@ -1199,7 +1283,7 @@ function areaEdges(space: Space, contours: readonly SpaceContour[]): {
   let widest = 0;
   for (const c of contours) {
     if (!c.closed) continue;
-    const a = chartArea(c.pts);
+    const a = signedArea(c.pts);
     if (Math.abs(a) > Math.abs(widest)) widest = a;
   }
   const sign = widest < 0 ? -1 : 1;

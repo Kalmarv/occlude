@@ -40,7 +40,7 @@ Uses: `polygon` with `opaque`, `stroke`, `strokes`, `t.noise`, `t.rnd`, `t.chanc
 // it was never once used. It is the empty field in the middle of this paper,
 // fenced on its three sides by traffic that had somewhere to be, and it is
 // the only thing here that I drew by refusing to draw it.
-import { sketch, stroke, circle, mm, distance } from 'occlude';
+import { sketch, stroke, circle, mm, distance, lerp, perp, sub, unit } from 'occlude';
 const FINE = 'pigma-005-black';
 const TRUNK = 'pigma-01-black';
 export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
@@ -48,12 +48,7 @@ export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
     const U = Math.min(b.w, b.h);
     const MM = t.len(mm(1));
     const clamp = (v, a, c) => (v < a ? a : v > c ? c : v);
-    const lerp = (a, c, u) => [a[0] + (c[0] - a[0]) * u, a[1] + (c[1] - a[1]) * u];
     const dist = distance;
-    const perp = (a, c) => {
-        const d = Math.max(1e-6, dist(a, c));
-        return [-(c[1] - a[1]) / d, (c[0] - a[0]) / d];
-    };
     // ---- the boards ---------------------------------------------------------
     // Town, works, valley. The valley is the small one: it takes the low road
     // east along the bottom, which is why the low road talks to the valley and
@@ -320,7 +315,7 @@ export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
         const nrm = path.map((_, k) => {
             const a = pos[path[Math.max(0, k - 1)]];
             const c = pos[path[Math.min(path.length - 1, k + 1)]];
-            return perp(a, c);
+            return perp(unit(sub(c, a)));
         });
         for (let k = 1; k < nrm.length; k++) {
             if (nrm[k][0] * nrm[k - 1][0] + nrm[k][1] * nrm[k - 1][1] < 0)
@@ -376,7 +371,7 @@ export default sketch({ aspect: [1, 1], seed: 23 }, (t) => {
     for (const [k, list] of byPair) {
         const [ia, ic] = k.split('').map(Number);
         const A = EX[ia], C = EX[ic];
-        const n = perp(A.p, C.p);
+        const n = perp(unit(sub(C.p, A.p)));
         const span = dist(A.p, C.p);
         const w = Math.min(0.098 * U, 0.55 * MM * list.length);
         const sag = (n[1] >= 0 ? -1 : 1) * Math.min(0.028 * U, 0.05 * span);

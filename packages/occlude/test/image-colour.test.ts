@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assetTable } from '../src/index.js';
+import { assetTable } from '../src/host.js';
 import { image } from '../src/imageAsset.js';
 
 /** An RGBA image from a function of pixel coordinates. */

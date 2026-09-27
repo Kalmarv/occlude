@@ -3,13 +3,13 @@ title: Shapes
 description: "The drawables: shapes, paths, groups, clips, masks and the modifiers that change a line."
 ---
 
-A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line`, `label` and each point of a `path`. A pair and an `{ x, y }` record are the same point, so a station goes straight in. The first argument decides the form, and the ink is the same ink.
+A shape is exact geometry with drawing options. Coordinates are drawable units. One unit is 1 % of the short side of the drawable. A square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object. See [Shape options](#shape-options). A shape that starts at a point also takes that point as one value. This is true for `circle`, `rect`, `ellipse`, `ngon`, `line`, `label` and each point of a `path`. A pair and an `{ x, y }` object are the same point, so a placement or a point of a material goes straight in. The first argument decides the form, and the ink is the same ink.
 
 ## circle
 
 <include>/_sig/circle.mdx</include>
 
-A circle with its centre at `(x, y)` and radius `r`. The centre also goes in as one point. `circle([x, y], r)` and `circle({ x, y }, r)` draw the same circle, so a station goes straight in. The first argument decides the form, and the radius is a length either way.
+A circle with its centre at `(x, y)` and radius `r`. The centre also goes in as one point. `circle([x, y], r)` and `circle({ x, y }, r)` draw the same circle, so a placement or a point of `m.along()` goes straight in. The first argument decides the form, and the radius is a length either way.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -33,7 +33,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [rect(10, 10, 50, 36), rect(60,
 
 <include>/_sig/line.mdx</include>
 
-An open stroke from `(x1, y1)` to `(x2, y2)`. The two ends also go in as points. `line(a, b)` takes a pair or an `{ x, y }` record for each end, so `line(start, tip)` works with two stations. A pair and a record mean the same point, and the ink is the same ink.
+An open stroke from `(x1, y1)` to `(x2, y2)`. The two ends also go in as points. `line(a, b)` takes a pair or an `{ x, y }` object for each end, so `line(start, tip)` works with two placements. A pair and an object mean the same point, and the ink is the same ink.
 
 ```ts live
 import { sketch, line } from 'occlude';
@@ -62,7 +62,7 @@ A regular polygon: `sides` vertices on a circle of radius `r`, the first at `rot
 ```ts live
 import { sketch, ngon } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => t.times(4, (k) => ngon(16 + k * 22.5, 50, 3 + k, 11, k * 15)));
+export default sketch({ aspect: [1, 1] }, (t) => t.times(4, (k) => ngon(28 + (k % 2) * 44, 28 + Math.floor(k / 2) * 44, 3 + k, 20, k * 15)));
 ```
 
 ## path
@@ -99,7 +99,7 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(8, (k, u) => {
 
 <include>/_sig/polygon.mdx</include>
 
-One area from its boundary. Give a loop of pairs, several loops, contour records, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A tiling or a hex field has no closed chain, and its edges branch. Such a material gives the union of its faces. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
+One area from its boundary. Give a loop of pairs, several loops, the list that `contours()` answers, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A tiling or a grid has no closed chain, and its edges branch. Such a material gives the union of its faces. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through. A path keeps its own rule, and the rule of `path()` is `'nonzero'`. Give `winding` to change it.
 
 ```ts live
 import { sketch, polygon, circle, fill, mm } from 'occlude';
@@ -123,7 +123,7 @@ import { sketch, label, labelWidth, rect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const w = labelWidth('OCCLUDE', 14);
-  return [rect(50 - w / 2 - 3, 40 - 3, w + 6, 14 + 6, { pen: 'stabilo-88-blue' }), label('OCCLUDE', 50, 40, 14, { align: 'center' }), label('CAP HEIGHT 7', 50, 70, 7, { align: 'center' })];
+  return [rect(50 - w / 2 - 3, 24 - 3, w + 6, 14 + 6, { pen: 'stabilo-88-blue' }), label('OCCLUDE', 50, 24, 14, { align: 'center' }), label('CAP HEIGHT 7', 50, 72, 7, { align: 'center' })];
 });
 ```
 
@@ -131,7 +131,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/strokeFont.mdx</include>
 
-A stroke font from the text of a font file. Two formats read the same way, and the content picks between them: an SVG 1.1 font, or a Hershey `.jhf` file. The result is a plain record. `font.glyph(ch)` answers `curves()` in em units with y up. `font.advance(ch)` is the pen step. `font.kern(a, b)` is what to add between a pair. A source in neither format refuses by name. The bundled faces in `occlude/fonts` come through this same door, and each one also exports its source text.
+A stroke font from the text of a font file. Two formats read the same way, and the content picks between them: an SVG 1.1 font, or a Hershey `.jhf` file. The result is a plain object. `font.glyph(ch)` answers `curves` in em units with y up. `font.advance(ch)` is the pen step. `font.kern(a, b)` is what to add between a pair. A source in neither format refuses by name. The bundled faces in `occlude/fonts` come through this same door, and each one also exports its source text.
 
 ```ts live
 import { sketch, strokes, strokeFont, curve, times } from 'occlude';
@@ -166,9 +166,9 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 <include>/_sig/group.mdx</include>
 
-Applies a transform, a default pen, a default `z` and default modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point (a pair or an `{ x, y }` record, so a station goes in as it is), `'center'` or `'centroid'`. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin, the corner of the drawable. The call refuses a word that is not one of these, and names it.
+Applies a transform, a default pen, a default `z` and a stack of modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point, `'center'` or `'centroid'`. A point is a pair or an `{ x, y }` object, so a point of a material goes in as it is. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin. That is the corner of the drawable, or its middle when the sketch sets `origin: 'center'`. The call refuses a word that is not one of these, and names it.
 
-A group is also an area. `t.material`, `t.within`, `clip` and every other word that takes an area read a group as the union of its shapes. The transform of the group applies to them.
+A group is also an area. `t.material`, `t.within`, `clip`, `polygon` and every other word that takes an area read a group as the union of its shapes. The transform of the group applies to them.
 
 :::warning
 `origin: 'center'` is the middle of the group, not the middle of the drawable. To pivot on the middle of the drawable, give that point: `origin: [t.bounds().cx, t.bounds().cy]`.
@@ -188,7 +188,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/clip.mdx</include>
 <include>/_sig/invert.mdx</include>
 
-`clip` keeps only the ink of its children that lies inside the area. The area is any `Area`: a shape, a group, a face, loops, contour records or a closed material. The area itself is not drawn and hides nothing. Nested clips intersect. `invert(area)` is the area outside, so `clip(invert(area), …)` keeps the ink outside. `invert(area)` is an area in every word that takes an area. In a toolkit word, it is the drawable with the area taken out.
+`clip` keeps only the ink of its children that lies inside the area. The area is any `Area`: a shape, a group, a face, loops, a list of contours or a closed material. The area itself is not drawn and hides nothing. Nested clips intersect. `invert(area)` is the area outside, so `clip(invert(area), …)` keeps the ink outside. `invert(area)` is an area in every word that takes an area. In a toolkit word, it is the drawable with the area taken out.
 
 ```ts live
 import { sketch, clip, invert, circle, line } from 'occlude';
@@ -212,44 +212,42 @@ import { sketch, mask, circle, line } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => [...t.times(20, (k, u) => line(5, 10 + u * 80, 95, 10 + u * 80)), mask(circle(50, 50, 28)), circle(50, 50, 28, { pen: 'stabilo-88-blue' })]);
 ```
 
-## modify
+## A modifier stack
 
-<include>/_sig/modify.mdx</include>
-
-Applies a stack of modifiers to its children, in order. Nested stacks compose: the inner one runs first. Each modifier also exists as a shape option of the same name.
+A modifier goes in one place: the `modifiers: [...]` list of a shape or a group. The list applies the stack to the shape or to the children, in order. Nested stacks compose: the inner one runs first. A modifier alone is a value, not a drawing.
 
 ```ts live
-import { sketch, modify, smooth, wobble, mm, ngon } from 'occlude';
+import { sketch, smooth, wobble, mm, ngon, group } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => [ngon(27, 50, 5, 24), modify([smooth(2), wobble(mm(0.8))], ngon(73, 50, 5, 24))]);
+export default sketch({ aspect: [1, 1] }, (t) => [ngon(27, 50, 5, 24), group({ modifiers: [smooth(2), wobble(mm(0.8))] }, ngon(73, 50, 5, 24))]);
 ```
 
 ## wobble · decimate · dash
 
-<include>/_sig/wobble.1.mdx</include>
-<include>/_sig/decimate.1.mdx</include>
-<include>/_sig/dash.1.mdx</include>
+<include>/_sig/wobble.mdx</include>
+<include>/_sig/decimate.mdx</include>
+<include>/_sig/dash.mdx</include>
 
-Modifiers that run after occlusion, on the ink that survives. The [plotting](/docs/reference/plotting#where-a-modifier-runs) page states the order once, for every modifier. `wobble` moves the strokes with seeded smooth noise, like a hand tremor. `amount` is a length, and `wavelength` sets the scale. After occlusion the ink is a list of separate strokes. `decimate` drops a fraction of them, at random from the seed. `{ stroke, fill }` sets the fraction for the outline and the fill separately. `dash` cuts the strokes into dashes of physical length. The pattern continues through hidden-line cuts. In the record form of `wobble` and `decimate`, `step` is the pitch of the grid where the engine samples a field amount.
+Modifiers that run after occlusion, on the ink that survives. The [plotting](/docs/reference/plotting#where-a-modifier-runs) page states the order once, for every modifier. `wobble` moves the strokes with seeded smooth noise, like a hand tremor. `amount` is a length, and `wavelength` sets the scale. After occlusion the ink is a list of separate strokes. `decimate` drops a fraction of them, at random from the seed. `{ stroke, fill }` sets the fraction for the outline and the fill separately. `dash` cuts the strokes into dashes of physical length. The pattern continues through hidden-line cuts. When `wobble` or `decimate` gets an object, its `step` is the pitch of the grid where the engine samples a field amount.
 
 ```ts live
-import { sketch, circle, modify, wobble, decimate, dash, mm } from 'occlude';
+import { sketch, circle, wobble, decimate, dash, mm, group } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => [
-  modify([wobble(mm(1.2))], circle(27, 30, 20)),
-  modify([decimate(0.5)], circle(73, 30, 20)),
-  modify([dash(mm(3), mm(2))], circle(27, 74, 20)),
-  modify([wobble(mm(0.8)), dash(mm(3), mm(2))], circle(73, 74, 20)),
+  group({ modifiers: [wobble(mm(1.2))] }, circle(27, 30, 20)),
+  group({ modifiers: [decimate(0.5)] }, circle(73, 30, 20)),
+  group({ modifiers: [dash(mm(3), mm(2))] }, circle(27, 74, 20)),
+  group({ modifiers: [wobble(mm(0.8)), dash(mm(3), mm(2))] }, circle(73, 74, 20)),
 ]);
 ```
 
 ## smooth · roughen · deform
 
-<include>/_sig/smooth.1.mdx</include>
-<include>/_sig/roughen.1.mdx</include>
-<include>/_sig/deform.1.mdx</include>
+<include>/_sig/smooth.mdx</include>
+<include>/_sig/roughen.mdx</include>
+<include>/_sig/deform.mdx</include>
 
-Modifiers that run before occlusion, on the outline itself. The changed silhouette is what hides, and what a fill follows. `smooth` relaxes corners toward curves. `roughen` breaks a clean edge into jitter, resampled every `detail`. `deform` moves the outline by a vector field `(x, y) => [dx, dy]`. In the record form of `roughen` and `deform`, `step` is the pitch of the grid where the engine samples the field.
+Modifiers that run before occlusion, on the outline itself. The changed silhouette is what hides, and what a fill follows. `smooth` relaxes corners toward curves. `roughen` breaks a clean edge into jitter, resampled every `detail`. `deform` moves the outline by a vector field `(x, y) => [dx, dy]`. When `roughen` or `deform` gets an object, its `step` is the pitch of the grid where the engine samples the field.
 
 ```ts live
 import { sketch, rect, line, smooth, roughen, deform, mm } from 'occlude';
@@ -267,7 +265,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/stroke.mdx</include>
 <include>/_sig/strokes.2.mdx</include>
 
-Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves()`. A material never draws itself. These are the words that make ink. A material's rim edges are the ones with `cut = 1`. `t.within` and `t.isolines` add them along a boundary. They are the area's edge, so `polygon` uses them and `strokes(m)` does not. `strokes(m.edges)` draws every edge you give it.
+Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves`. A material never draws itself. These are the words that make ink. A material's rim edges are the ones with `cut = 1`. `t.within` and `t.isolines` add them along a boundary. They are the area's edge, so `polygon` uses them and `strokes(m)` does not. `strokes(m.edges)` draws every edge you give it.
 
 ```ts live
 import { sketch, stroke, strokes, circle } from 'occlude';

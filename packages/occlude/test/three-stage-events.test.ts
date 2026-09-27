@@ -1,6 +1,8 @@
 import {describe,expect,it} from 'vitest';
 import {box,view,orthographic} from '../src/three/api/index.js';
-import {compileSketchAsync,initOcclude,pen,mm,sketch,type StageEvent3} from '../src/index.js';
+import { pen, mm, sketch } from '../src/index.js';
+import { compileSketchAsync, initOcclude } from '../src/host.js';
+import { type StageEvent3 } from '../src/three/api/advanced.js';
 import {readFileSync} from 'node:fs';
 
 await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
@@ -33,29 +35,28 @@ describe('3D stage events',()=>{
 });
 
 describe('modeling progress events',()=>{
-  it('reports rising work counts for hatch, mapping and intersections without changing results',async()=>{
-    const {plane,box,mapSurface,intersections:_}=await import('../src/three/api/index.js');
-    const {curve,sketchAsync}=await import('../src/index.js');
+  it('reports rising work counts for the surface hatch without changing results',async()=>{
+    const {plane,box,mapSurface,intersections}=await import('../src/three/api/index.js');
+    const {curve,sketch}=await import('../src/index.js');
     const events:{operation:string;done:number;total?:number}[]=[];
     const run=async(listen:boolean)=>{
       let sizes:number[]=[];
-      await compileSketchAsync(sketchAsync({seed:3},async t=>{
+      await compileSketchAsync(sketch({seed:3},async t=>{
         const sheet=plane(2).subdivide(3);
         const marks=await t.hatch(sheet,{direction:[1,0,0],spacing:.1});
-        const mapped=await t.mapSurface(sheet,t.times(64,(_,u)=>curve([[0,u],[1,u]],{closed:false})));
-        const seams=await t.intersections(box(2),box(2).translate([1,0,0]));
+        // The pure forms run in the sketch; only the hatch is a batch.
+        const mapped=mapSurface(sheet,t.times(64,(_,u)=>curve([[0,u],[1,u]],{closed:false})));
+        const seams=intersections(box(2),box(2).translate([1,0,0]));
         sizes=[marks.edges.length,mapped.edges.length,seams.edges.length];return null;
       }),undefined,listen?{onProgress:e=>events.push(e)}:{});
       return sizes;
     };
     const listened=await run(true),silent=await run(false);
     expect(listened).toEqual(silent);
-    for(const operation of ['hatch','mapSurface','intersections']){
-      const done=events.filter(e=>e.operation===operation).map(e=>e.done);
-      expect(done.length).toBeGreaterThan(0);
-      expect(done.every((d,i)=>i===0||d>=done[i-1])).toBe(true);
-    }
-    expect(events.find(e=>e.operation==='intersections')?.total).toBe(1);
-    expect(events.find(e=>e.operation==='mapSurface')?.total).toBe(64);
+    expect(listened.every(n=>n>0)).toBe(true);
+    const done=events.filter(e=>e.operation==='hatch').map(e=>e.done);
+    expect(done.length).toBeGreaterThan(0);
+    expect(done.every((d,i)=>i===0||d>=done[i-1])).toBe(true);
+    expect(events.every(e=>e.operation==='hatch')).toBe(true);
   });
 });

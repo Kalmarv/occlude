@@ -9,7 +9,7 @@ The sketch places nothing by hand. Each colony is a few thrown discs blended int
 
 A lichen lives at its margin, so the zone lines crowd there. Behind the margin the crust cracks into plates, and the plates darken as they weather. In the middle the plates have gone, and the pitted rock comes back through the holes.
 
-Uses: `sdf` with `blend`, `t.isolines`, `t.voronoi`, `faces()`, `t.within`, `t.scatter`, `t.chance`, `union`, `subtract`, `polygon` with `opaque` and hatch `fill`, `strokes`.
+Uses: `sdf` with `blend`, `t.isolines`, `t.voronoi`, `faces`, `t.within`, `t.scatter`, `t.chance`, `union`, `subtract`, `polygon` with `opaque` and hatch `fill`, `strokes`.
 
 ```ts live
 // Lichen on a north face.
@@ -128,7 +128,7 @@ export default sketch({
                 // where it weathers.
                 const patch = (x, y) => clamp01(0.5 + 0.85 * t.noise(x / 11 - off, y / 11 + off));
                 const plates = t
-                    .within(cells.faces(), inner, { keep: 'contained' })
+                    .within(cells.faces, inner, { keep: 'contained' })
                     .filter((f) => {
                     const [fx, fy] = f.centroid;
                     const depth = clamp01((zoneField(fx, fy) - band) / (s.r * 0.35));

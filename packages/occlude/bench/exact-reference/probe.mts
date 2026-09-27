@@ -1,10 +1,5 @@
-import {
-  append,
-  sketch,
-  compileSketch,
-  setPaperHint,
-  type Material,
-} from '../../src/index.js';
+import { append, sketch, rect, type Material } from '../../src/index.js';
+import { compileSketch } from '../../src/host.js';
 import {
   analyticalUnion,
   type Envelope,
@@ -14,17 +9,16 @@ const paper = Number(process.argv[2] ?? 100),
   depth = Number(process.argv[3] ?? 1),
   low = Number(process.argv[4] ?? 1),
   high = Number(process.argv[5] ?? 5);
-setPaperHint(paper, paper);
 compileSketch(
   sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
     const b = t.bounds();
     let width = 40,
-      m = t.material(t.rect(b.cx - 20, b.cy - 20, 40, 40));
+      m = t.material(rect(b.cx - 20, b.cy - 20, 40, 40));
     for (let i = 0; i <= depth; i++) {
       const shapes = m
         .along()
-        .map((p) =>
-          t.rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
+        .points.map((p) =>
+          rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
         );
       m = shapes.reduce((m, s) => append(m, t.material(s)), m);
       width /= 2;
@@ -32,6 +26,7 @@ compileSketch(
     source = m;
     return [];
   }),
+  { paper: { w: paper, h: paper } },
 );
 const src = source!,
   inputs: Envelope[] = [];

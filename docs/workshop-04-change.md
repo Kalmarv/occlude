@@ -6,20 +6,19 @@
 import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(40, { min: 0, max: 60, step: 1 });
   const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
   const every = ui(8, { min: 1, max: 24, step: 1, label: 'draw every' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => {
-    const pull = force.tension(current, { rest: 2.5 });
-    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-  }, (current, next) => {
-    next.splitEdges(current.edges.filter((e) => e.length > 5));
-  }, { every });
+  const grown = t.steps(steps, ring, (g) => {
+    const pull = force.tension(g, { rest: 2.5 });
+    return g.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (g) => g.split(g.edges.filter((e) => e.length > 5)), { every });
   const states = grown.history;
   return [
     states.slice(0, -1).map((h) => strokes(h, { pen: 'pigma-005-black' })),
@@ -32,7 +31,7 @@ Drag `steps` to zero and back up. Everything on this page comes from what happen
 
 ## One move, then several
 
-Start with a ring and one rule: every point moves away from the centre. `sub(p, centre)` is the vector from the centre to the point; `mul(…, 0.06)` shortens it to six percent. That is the displacement, and `next.move` adds it to where the point already is. The blue ring is the original; the black one is after `steps` moves; the dots are its points.
+Start with a ring and one rule: every point moves away from the centre. `sub(p, centre)` is the vector from the centre to the point; `mul(…, 0.06)` shortens it to six percent. That is the displacement. `t.steps(steps, ring, pass)` runs a pass `steps` times, starting from `ring`. A pass is a function that is given the material as it is, `g`, and returns the next one; here the pass is `(g) => g.move(outward)`, and `move` adds the displacement to where each point already is. The blue ring is the original; the black one is after `steps` moves; the dots are its points.
 
 Before you drag the slider: the displacement is six percent of the distance from the centre. Will the ring grow by the same amount each step, or by more each time?
 
@@ -40,11 +39,12 @@ Before you drag the slider: the displacement is six percent of the distance from
 import { sketch, circle, strokes, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
   const steps = ui(0, { min: 0, max: 20, step: 1 });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.06);
-  const grown = ring.steps(steps, (current, next) => next.move(current.points, (p) => outward(p)));
+  const grown = t.steps(steps, ring, (g) => g.move(outward));
   return [
     strokes(ring, { pen: 'stabilo-88-blue' }),
     strokes(grown),
@@ -58,7 +58,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 The ring grows by more each step. The displacement is a fraction of the distance from the centre, and after each step that distance is larger, so the next step is larger too: multiplication, not addition. Twelve steps at six percent is about twice the radius; twenty is about three times. If you want constant speed, make the displacement a fixed length instead of a fraction: `mul(unit(sub(p, centre)), 0.7)`, with `unit` from the same vocabulary, moves every point 0.7 outward whatever its distance.
 
-The other thing to notice is what `next.move` does with the answer. `[dx, dy]` is added to the point's position; it is not the position. A rule that returns `[t.cx + 30, t.cy]` does not put every point at one place, it moves every point by the same amount. Chapter 2 said this; here it is the difference between a ring that grows and a ring that slides.
+The other thing to notice is what `move` does with the answer. `[dx, dy]` is added to the point's position; it is not the position. A rule that returns `[b.cx + 30, b.cy]` does not put every point at one place, it moves every point by the same amount. Chapter 2 said this; here it is the difference between a ring that grows and a ring that slides.
 
 </details>
 
@@ -70,12 +70,13 @@ A ring that only expands stays a circle. Give each point a second displacement t
 import { sketch, circle, strokes, line, add, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(0, { min: 0, max: 20, step: 1 });
   const wrinkle = ui(1, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => next.move(current.points, (p) => uneven(p)));
+  const grown = t.steps(steps, ring, (g) => g.move(uneven));
   return [
     grown.points.map((p) => line(p.x, p.y, ...add(p, mul(uneven(p), 6)))),
     strokes(ring, { pen: 'stabilo-88-blue' }),
@@ -95,7 +96,7 @@ At this seed the ring drifts and deforms more than it grows: some connections st
 
 ## A competing rule
 
-The uneven motion pulls points apart in some places. Something can pull them back: a force. `force.tension(current, { rest: 2.5 })` is prepared once per step from `current`, and for a point it gives the vector toward each connected neighbour that is more than 2.5 away, by the extra distance. Nothing toward closer neighbours: a slack cord, not a spring. It is prepared inside the rule because it reads the connections and positions of the state being moved; the ring of the previous step is a different state with different positions.
+The uneven motion pulls points apart in some places. Something can pull them back: a force. `force.tension(g, { rest: 2.5 })` is prepared once per step from `g`, and for a point it gives the vector toward each connected neighbour that is more than 2.5 away, by the extra distance. Nothing toward closer neighbours: a slack cord, not a spring. It is prepared inside the pass because it reads the connections and positions of the state being moved; the ring of the previous step is a different state with different positions.
 
 Two rings from the same start, the same seed and the same noise. Left, uneven motion alone. Right, with tension added, scaled by `strength`. `sum` adds any number of displacements.
 
@@ -107,10 +108,10 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
   const ring = t.sample(circle(50, 50, 14), { count: 36 });
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14), t.noise(p.x / 14 + 30, p.y / 14)];
-  const loose = ring.steps(steps, (current, next) => next.move(current.points, (p) => uneven(p)));
-  const held = ring.steps(steps, (current, next) => {
-    const pull = force.tension(current, { rest: 2.5 });
-    next.move(current.points, (p) => sum(uneven(p), mul(pull(p), strength)));
+  const loose = t.steps(steps, ring, (g) => g.move(uneven));
+  const held = t.steps(steps, ring, (g) => {
+    const pull = force.tension(g, { rest: 2.5 });
+    return g.move((p) => sum(uneven(p), mul(pull(p), strength)));
   });
   return [
     strokes(loose), loose.points.map((p) => circle(p.x, p.y, 0.5)),
@@ -130,28 +131,25 @@ Tension acts only on connections longer than `rest`, so it changes the stretched
 
 ## Give long segments more detail
 
-Points are where a ring can bend. A stretched connection is a long straight side, and no displacement of its two ends will put a bend in the middle of it. `next.splitEdges(current.edges.filter((e) => e.length > 5))` in the second pass looks at every connection after the first pass has finished moving the points and inserts a point in the middle of each one longer than 5. The label counts the points.
+Points are where a ring can bend. A stretched connection is a long straight side, and no displacement of its two ends will put a bend in the middle of it. `g.split(g.edges.filter((e) => e.length > 5))` in a second pass inserts a point in the middle of each connection longer than 5. The passes of one step run in order, and each is given what the one before it returned, so the split sees the ring after the move. The label counts the points.
 
 Before you look: if the ring is subdivided at the end of a step, and nothing moves it afterwards, does its silhouette change?
 
-```ts live focus=9-12
+```ts live focus=9
 import { sketch, circle, strokes, label, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
   const steps = ui(12, { min: 0, max: 20, step: 1 });
   const split = ui(true, { label: 'subdivide' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.06);
-  const grown = ring.steps(steps, (current, next) => {
-    next.move(current.points, (p) => outward(p));
-  }, (current, next) => {
-    if (split) next.splitEdges(current.edges.filter((e) => e.length > 5));
-  });
+  const grown = t.steps(steps, ring, (g) => g.move(outward), (g) => (split ? g.split(g.edges.filter((e) => e.length > 5)) : g));
   return [
     strokes(grown),
     grown.points.map((p) => circle(p.x, p.y, 0.6)),
-    label(`${grown.n} points`, 4, 6, 4),
+    label(`${grown.points.length} points`, 4, 6, 4),
   ];
 });
 ```
@@ -167,24 +165,23 @@ Toggle `subdivide` with `steps` fixed: the outline is the same, and only the dot
 
 The three parts, named: `outward` moves, `uneven` disturbs, `pull` restrains, and the split adds points where the first two have stretched the ring. Nothing else. Each control belongs to one part.
 
-```ts live focus=9-13
+```ts live focus=9-14
 import { sketch, circle, strokes, force, sum, sub, mul, label, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(30, { min: 0, max: 60, step: 1 });
   const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => {
-    const pull = force.tension(current, { rest: 2.5 });
-    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-  }, (current, next) => {
-    next.splitEdges(current.edges.filter((e) => e.length > 5));
-  });
-  return [strokes(grown), label(`${grown.n} points`, 4, 6, 4)];
+  const grown = t.steps(steps, ring, (g) => {
+    const pull = force.tension(g, { rest: 2.5 });
+    return g.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (g) => g.split(g.edges.filter((e) => e.length > 5)));
+  return [strokes(grown), label(`${grown.points.length} points`, 4, 6, 4)];
 });
 ```
 
@@ -199,26 +196,25 @@ With no wrinkle the ring is a growing circle that gains points and stays a circl
 
 ## Draw the process
 
-So far only the last state is drawn. `{ every: 8 }` as a third argument to `steps` keeps the state at iteration 0, every eighth iteration and the last, on the result's `history`. Each entry is a material of its own. Drawing them is what makes the growth visible as a sequence; keeping them is a separate choice from drawing them, and neither changes the final ring. The last state is drawn in blue over the lighter earlier ones.
+So far only the last state is drawn. `{ every: 8 }` as the last argument to `t.steps` keeps the state at iteration 0, every eighth iteration and the last, on the result's `history`. Each entry is a material of its own. Drawing them is what makes the growth visible as a sequence; keeping them is a separate choice from drawing them, and neither changes the final ring. The last state is drawn in blue over the lighter earlier ones.
 
-```ts live focus=8,15-19
+```ts live focus=7,15-19
 import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = ui(40, { min: 0, max: 60, step: 1 });
   const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
   const every = ui(8, { min: 1, max: 24, step: 1, label: 'draw every' });
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => {
-    const pull = force.tension(current, { rest: 2.5 });
-    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-  }, (current, next) => {
-    next.splitEdges(current.edges.filter((e) => e.length > 5));
-  }, { every });
+  const grown = t.steps(steps, ring, (g) => {
+    const pull = force.tension(g, { rest: 2.5 });
+    return g.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (g) => g.split(g.edges.filter((e) => e.length > 5)), { every });
   const states = grown.history;
   return [
     states.slice(0, -1).map((h) => strokes(h, { pen: 'pigma-005-black' })),
@@ -233,47 +229,45 @@ This is the drawing from the top of the page. Drag `draw every` from 1 to 24 wit
 
 The rule is the same; the constants and what is drawn are not. Calm: little wrinkle, firm tension, a wide interval, so the states nest like contour lines on a map. The folds are gentle and the spacing between states is what carries the drawing.
 
-```ts live focus=4-7,18
+```ts live focus=4-7,16
 import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = 60;
   const wrinkle = 0.4;
   const strength = 0.9;
   const every = 6;
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.018);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => {
-    const pull = force.tension(current, { rest: 2.5 });
-    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-  }, (current, next) => {
-    next.splitEdges(current.edges.filter((e) => e.length > 5));
-  }, { every });
+  const grown = t.steps(steps, ring, (g) => {
+    const pull = force.tension(g, { rest: 2.5 });
+    return g.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (g) => g.split(g.edges.filter((e) => e.length > 5)), { every });
   return grown.history.map((h) => strokes(h, { pen: 'pigma-005-black' }));
 });
 ```
 
 Folded: the same constants, a shorter split length so the folds get more points to bend with, and only the last state drawn, as an area with a hatch, so the folds read as a shape rather than a path. Retaining history and drawing it are separate choices; here the history is not even kept. The thin spikes at its edge are places where the ring folded over itself; an area with a crossing in its outline is a subject for chapter 6.
 
-```ts live focus=4-6,12,15
+```ts live focus=4-6,14-15
 import { sketch, circle, polygon, fill, mm, force, sum, sub, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const b = t.bounds();
   const steps = 44;
   const wrinkle = 0.9;
   const strength = 0.5;
-  const centre = [t.cx, t.cy];
-  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const centre = [b.cx, b.cy];
+  const ring = t.sample(circle(b.cx, b.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.02);
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => {
-    const pull = force.tension(current, { rest: 2.5 });
-    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-  }, (current, next) => {
-    next.splitEdges(current.edges.filter((e) => e.length > 4));
-  });
+  const grown = t.steps(steps, ring, (g) => {
+    const pull = force.tension(g, { rest: 2.5 });
+    return g.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (g) => g.split(g.edges.filter((e) => e.length > 4)));
   return polygon(grown, { fill: fill('hatch', { angle: 30, spacing: mm(1.1) }) });
 });
 ```
@@ -288,15 +282,15 @@ And a thing to be careful about: nothing in this rule promises that the ring nev
 
 ## On your own
 
-Slow the outward push over time, so the ring grows fast at first and then spends its later steps only folding, and choose which of its states to draw. Two things you have not used yet: the rule's third argument, `k`, is the step number, counting from 0; and a control can be a fraction as easily as a count.
+Slow the outward push over time, so the ring grows fast at first and then spends its later steps only folding, and choose which of its states to draw. Two things you have not used yet: a pass can count the steps in a column of its own; and a control can be a fraction as easily as a count.
 
 <details>
 <summary>A hint, not the answer</summary>
 
-`outward` is prepared once and knows nothing about time. Make the rule scale it: something of the form `mul(outward(p), 1 - k / steps)` gives a push that is full at the start and gone at the end; `1 - k / steps` squared, or a step function that switches the push off after a chosen iteration, are different drawings. Then decide about `every`: a growth that slows down puts its late states close together, so an even interval will crowd them, and drawing only the states before the push stops is one honest answer.
+`outward` is prepared once and knows nothing about time, and neither does a pass: `t.steps` does not tell it which step it is. Give the ring a column, `ring.points.set('age', 0)`, and add a pass that counts, `(g) => g.points.set('age', (p) => p.age + 1)`. A point that a split adds sits between two points of the same age, so it takes that age too, and every point's `age` is the step number. Then scale the push: something of the form `mul(outward(p), 1 - p.age / steps)` gives a push that is full at the start and gone at the end; `1 - p.age / steps` squared, or a step function that switches the push off after a chosen iteration, are different drawings. Then decide about `every`: a growth that slows down puts its late states close together, so an even interval will crowd them, and drawing only the states before the push stops is one honest answer.
 
 </details>
 
 ## Where to look things up
 
-`steps`, `every`, `history` and the edits `next` accepts are under *Movement and growth* on [Materials](#/materials); the force recipes, `tension` among them, under *Forces*; the vector helpers `sub`, `mul`, `sum` and `unit` under *Vectors*. Next, chapter 5: a line that grows from one end and decides where to go.
+`t.steps`, `every`, `history`, `move` and `split` are under *Movement and growth* on [Materials](#/materials); the force recipes, `tension` among them, under *Forces*; the vector helpers `sub`, `mul`, `sum` and `unit` under *Vectors*. Next, chapter 5: a line that grows from one end and decides where to go.

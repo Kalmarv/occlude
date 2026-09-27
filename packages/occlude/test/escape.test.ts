@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import {
-  compileSketchAsync, complex, escape, evalPrim, initOcclude, render, sketch, strokes,
-} from '../src/index.js';
+import { complex, escape, sketch, strokes } from '../src/index.js';
+import { compileSketchAsync, evalPrim, initOcclude, render } from '../src/host.js';
 import type { Vec } from '../src/index.js';
 
 beforeAll(async () => {

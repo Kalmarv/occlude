@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import type { Camera3 } from 'occlude';
+import type { Camera3 } from 'occlude/3d/advanced';
 import { viewCameraEdit } from './viewCamera.js';
 const ortho: Camera3 = { kind: 'orthographic', span: 4.25, eye: [5, 7, 6], target: [0, 0, 0], near: .1, far: 100 };
 const persp: Camera3 = { kind: 'perspective', fovDegrees: 40, eye: [1, 2, 3], target: [0, 0, 0], up: [0, 1, 0], near: .1, far: 100 };

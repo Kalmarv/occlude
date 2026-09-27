@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { circle, distanceTo, sdf, initOcclude, polygon, render, sketch, type SketchDef } from '../src/index.js';
+import { circle, distanceTo, sdf, polygon, sketch, type SketchDef } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 import { isolinesOf } from '../src/isolines.js';
 import { __sdfDirect, __sdfFused } from '../src/distance.js';
 

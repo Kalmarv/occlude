@@ -96,7 +96,8 @@ export function fill(
   return { type: 'asset', def: ref, params };
 }
 
-/** Wrap an inline fill function. `.fill(f)` also accepts the function directly. */
+/** @internal Wrap an inline fill function: a shape's `fill` takes the
+ * function directly. */
 export function customFill(fn: CustomFillFn): FillSpec {
   return { type: 'custom', fn };
 }
@@ -227,12 +228,13 @@ export function loadFillModule(name: string, js: string): AnyFill {
   return def as AnyFill;
 }
 
-/** The package's surface as a fill file sees it via `require`: every pure
- * export (rulings, mm, ease, map, shapes …) and none of the host
- * integration (seed/pen/paper setters, the registry, the render entry
- * points) — a fill is a pure function of (region, params, ctx) and gets
- * no handle on the runtime around it. Provided lazily by index.ts, since
- * the namespace is only complete once the module graph has evaluated. */
+/** The package's surface as a fill file sees it via `require`: the root
+ * module (rulings, mm, ease, map, shapes …), which holds none of the host
+ * integration — the registry, the run and the render entry points are
+ * `occlude/host` — so a fill is a pure function of (region, params, ctx)
+ * with no handle on the runtime around it. Provided lazily by index.ts,
+ * since the namespace is only complete once the module graph has
+ * evaluated. */
 let occludeProvider: (() => Record<string, unknown>) | null = null;
 let occludeExports: Record<string, unknown> | null = null;
 export function setOccludeModule(provider: () => Record<string, unknown>): void {

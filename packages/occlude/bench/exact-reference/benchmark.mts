@@ -1,15 +1,8 @@
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import {
-  append,
-  sketch,
-  compileSketch,
-  setPaperHint,
-  material,
-  type Material,
-  type ThickenOpts,
-} from '../../src/index.js';
+import { append, sketch, rect, material, type Material, type ThickenOpts } from '../../src/index.js';
+import { compileSketch } from '../../src/host.js';
 /** A thicken implementation: the method under test, or a saved baseline
  * module's free function with the same contract. */
 type ThickenFn = (source: Material, opts: ThickenOpts) => Material;
@@ -21,17 +14,16 @@ const before: ThickenFn | undefined =
     : (await import(pathToFileURL(resolve(process.argv[at + 1])).href)).thicken;
 function recursive(paper: number, depth: number): Material {
   let source: Material | undefined;
-  setPaperHint(paper, paper);
   compileSketch(
     sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
       const b = t.bounds();
       let width = 40,
-        m = t.material(t.rect(b.cx - 20, b.cy - 20, 40, 40));
+        m = t.material(rect(b.cx - 20, b.cy - 20, 40, 40));
       for (let i = 0; i <= depth; i++) {
         const shapes = m
           .along()
-          .map((p) =>
-            t.rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
+          .points.map((p) =>
+            rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
           );
         m = shapes.reduce((m, s) => append(m, t.material(s)), m);
         width /= 2;
@@ -39,6 +31,7 @@ function recursive(paper: number, depth: number): Material {
       source = m;
       return [];
     }),
+    { paper: { w: paper, h: paper } },
   );
   return source!;
 }
@@ -92,7 +85,7 @@ for (const [name, source, opts] of fixtures) {
           label,
           inputEdges: source.edgeCount,
           vertices: result!.n,
-          loops: result!.curves().length,
+          loops: result!.curves.length,
           medianMs: times[1],
           maxMs: times[2],
           processPeakRssKiB: process.resourceUsage().maxRSS,

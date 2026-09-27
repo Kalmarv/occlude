@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { box3, commitCamera3, compileSketchAsync, initOcclude, lineArt3, mm, pen, sketch } from '../src/index.js';
+import { mm, pen, sketch } from '../src/index.js';
+import { commitCamera3, compileSketchAsync, initOcclude } from '../src/host.js';
+import { box3, lineArt3 } from '../src/three/api/advanced.js';
 import { paperBudget3, intervalTolerance3 } from '../src/three/visibility/precision.js';
 import { precisionFixtures3 } from '../tools/precision-fixtures3.js';
 import { lerp3 } from '../src/three/math.js';

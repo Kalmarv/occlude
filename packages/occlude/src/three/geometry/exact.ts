@@ -155,10 +155,10 @@ export const subtract=(a:H,b:H):H=>[a[0]-b[0],a[1]-b[1],a[2]-b[2],a[3]-b[3]];
 export const constant=(n:bigint):H=>[0n,0n,0n,n];
 export const sign=(n:bigint)=>n<0n?-1n:n>0n?1n:0n;
 
-/** Canonical finite projective point. Plane orientations use reduce instead. */
 /** Points canonicalPoint has produced: canonical by construction, so a second
  * canonicalization (the network intake, encoding, a key) is a lookup, not a gcd. */
 const canonical=new WeakSet<H>();
+/** Canonical finite projective point. Plane orientations use reduce instead. */
 export function canonicalPoint(p:H):H {
   if(canonical.has(p))return p;
   if(p[3]===0n)throw new Error('exact surface point is at infinity');
@@ -201,8 +201,8 @@ export function pointNumber(p:H):Vec3 {
   if(!value.every(Number.isFinite))throw new Error('exact surface point exceeds finite coordinates');
   return Object.freeze(value);
 }
-export type EncodedPoint3=readonly [string,string,string,string];
 /** Decimal integer strings survive JSON and structured clone without BigInt. */
+export type EncodedPoint3=readonly [string,string,string,string];
 /** Encodings this module produced are canonical by construction; decoding
  * one back needs no gcd. Encodings from elsewhere are canonicalized. */
 const canonicalEncodings=new WeakSet<EncodedPoint3>();

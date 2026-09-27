@@ -33,7 +33,7 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
   // boundary to raise walls from: drop those and extrude the rest. Dropping one
   // can only free boundary edges for its neighbours, so the pass repeats until
   // every surviving component has a boundary.
-  let active=components.filter(c=>{finite3(c.vector);return c.vector.some(n=>n!==0);});
+  let active=components.filter(c=>{finite3(c.vector,'extrude');return c.vector.some(n=>n!==0);});
   const topology=topology3(surface),id=(...parts:(string|number)[])=>JSON.stringify(['extrude',operation,...parts]);
   // Boundary edges per component, oriented as the selected face winds them.
   let boundary=active.map(()=>[] as {edge:number;a:number;b:number;face:number}[]);
@@ -127,7 +127,7 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
         const faceId=mint('face',component.index,'side',surface.edges[e.edge].id),attributes:Attributes3=structuredClone(face.attributes);
         // A wall is built with the side chart, so its face column names it too.
         if(Object.hasOwn(attributes,'chart'))attributes.chart=`${operation}:side:${component.index}`;
-        add({id:faceId,vertices:[a,b,bTop,aTop],corners:[corner(a,0,[u0,0]),corner(b,1,[u1,0]),corner(b,2,[u1,1]),corner(a,3,[u0,1])],attributes,provenance:{operation:'extrude',parents:[face.id,surface.edges[e.edge].id]}},[[a,b,bTop],[a,bTop,aTop]]);
+        add({id:faceId,vertices:[a,b,bTop,aTop],corners:[corner(a,0,[u0,0]),corner(b,1,[u1,0]),corner(b,2,[u1,1]),corner(a,3,[u0,1])],attributes,provenance:{operation:'extrude',parents:[surface.edges[e.edge].id]}},[[a,b,bTop],[a,bTop,aTop]]);
         parentEdge.set(key(aTop,bTop),e.edge);parentEdge.set(key(a,aTop),e.edge);
       });
     }

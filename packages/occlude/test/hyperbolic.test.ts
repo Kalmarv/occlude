@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { apply, circle, compose, halfplane, inverse, reflection, rotation, translation, type Mobius } from '../src/hyperbolic.js';
+import { apply, compose, halfplane, inverse, rotation, translation, type Mobius } from '../src/hyperbolic.js';
 import { hyperbolicSpaceOf } from '../src/space.js';
 
 /** The unit disk's own hyperbolic distance. */
@@ -64,14 +64,14 @@ const agree = (m: Mobius, n: Mobius, tol = 1e-12) =>
 
 describe('the transform record', () => {
   it('keeps the disk', () => {
-    const ms = [translation(0.4, -0.2), rotation(37), compose(translation(-0.6, 0.3), rotation(110)), reflection([0.2, 0.1], [-0.3, 0.6])];
+    const ms = [translation(0.4, -0.2), rotation(37), compose(translation(-0.6, 0.3), rotation(110))];
     for (const p of diskPoints(1000)) {
       for (const m of ms) expect(abs(apply(m, p))).toBeLessThan(1);
     }
   });
 
   it('is undone by its inverse', () => {
-    const ms = [translation(0.4, -0.2), rotation(-73), reflection([0.2, 0.1], [-0.3, 0.6]), compose(reflection([0.1, 0], [0.5, 0.5]), translation(0.3, 0.3))];
+    const ms = [translation(0.4, -0.2), rotation(-73), compose(rotation(40), translation(0.3, 0.3))];
     for (const m of ms) {
       expect(agree(compose(inverse(m), m), rotation(0))).toBe(true);
       expect(agree(compose(m, inverse(m)), rotation(0))).toBe(true);
@@ -95,28 +95,8 @@ describe('the transform record', () => {
     expect(q[1]).toBeCloseTo(0.5, 12);
   });
 
-  it('a reflection turns the disk over and is its own inverse', () => {
-    const r = reflection([0.2, 0.1], [-0.3, 0.6]);
-    expect(r.mirror).toBe(true);
-    expect(agree(compose(r, r), rotation(0))).toBe(true);
-    // Two reflections make a Möbius transform, which does not.
-    expect(compose(r, reflection([0.4, -0.2], [0, 0.5])).mirror).toBe(false);
-    expect(() => reflection([0.2, 0.1], [0.2, 0.1])).toThrow(/two points are the same/);
-  });
-
-  it('a reflection fixes the geodesic it is taken in', () => {
-    for (const [a, b] of [[[0.2, 0.1], [-0.3, 0.6]], [[0.3, 0.3], [-0.3, -0.3]]] as [number, number][][]) {
-      const r = reflection(a, b);
-      for (let k = 0; k <= 8; k++) {
-        const p = along(a, b, k / 8);
-        const q = apply(r, p);
-        expect(Math.hypot(q[0] - p[0], q[1] - p[1])).toBeLessThan(1e-9);
-      }
-    }
-  });
-
   it('keeps every hyperbolic distance', () => {
-    const ms = [translation(0.4, -0.2), rotation(-73), reflection([0.2, 0.1], [-0.3, 0.6]), compose(reflection([0.1, 0], [0.5, 0.5]), translation(0.3, 0.3))];
+    const ms = [translation(0.4, -0.2), rotation(-73), compose(rotation(40), translation(0.3, 0.3))];
     const pts = diskPoints(40, 11, 0.95);
     for (const m of ms) {
       for (let i = 0; i < pts.length; i += 2) {
@@ -125,39 +105,6 @@ describe('the transform record', () => {
         expect(hdist(apply(m, a), apply(m, b))).toBeCloseTo(hdist(a, b), 9);
       }
     }
-  });
-});
-
-describe('circle', () => {
-  it('holds every sample at the hyperbolic radius asked for', () => {
-    for (const c of [[0, 0], [0.5, 0.2], [-0.8, 0.1]] as [number, number][]) {
-      for (const r of [0.2, 1, 3]) {
-        for (const p of circle(c, r, { count: 24 })) expect(hdist(c, p)).toBeCloseTo(r, 9);
-      }
-    }
-  });
-
-  it('is a Euclidean circle whose centre is not the hyperbolic one', () => {
-    const c: [number, number] = [0.6, 0];
-    const loop = circle(c, 1.1, { count: 64 });
-    // Fit a circle through three of the samples, then hold the rest to it.
-    const [p0, p1, p2] = [loop[0], loop[21], loop[42]];
-    const d = 2 * (p0[0] * (p1[1] - p2[1]) + p1[0] * (p2[1] - p0[1]) + p2[0] * (p0[1] - p1[1]));
-    const n = (p: readonly number[]) => p[0] ** 2 + p[1] ** 2;
-    const cx = (n(p0) * (p1[1] - p2[1]) + n(p1) * (p2[1] - p0[1]) + n(p2) * (p0[1] - p1[1])) / d;
-    const cy = (n(p0) * (p2[0] - p1[0]) + n(p1) * (p0[0] - p2[0]) + n(p2) * (p1[0] - p0[0])) / d;
-    const r = Math.hypot(p0[0] - cx, p0[1] - cy);
-    for (const p of loop) expect(Math.hypot(p[0] - cx, p[1] - cy)).toBeCloseTo(r, 9);
-    // The hyperbolic centre sits nearer the rim than the Euclidean one:
-    // that shift is the whole point of the picture.
-    expect(cy).toBeCloseTo(0, 9);
-    expect(cx).toBeLessThan(c[0] - 0.05);
-  });
-
-  it('draws nothing for a radius or a count that holds no loop', () => {
-    expect(circle([0, 0], 0)).toEqual([]);
-    expect(circle([0, 0], -1)).toEqual([]);
-    expect(circle([0, 0], 1, { count: 2 })).toEqual([]);
   });
 });
 

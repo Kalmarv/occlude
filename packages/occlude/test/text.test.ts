@@ -3,6 +3,7 @@
  * faces, and what `t.text` does with a string — size as cap height, the
  * pen walk, alignment, leading, and a line set along a chain.
  */
+import { glyphChains } from '../src/strokeFont.js';
 import { describe, expect, it } from 'vitest';
 import { circle, material, type Material } from '../src/index.js';
 import { strokeFont } from '../src/strokeFont.js';
@@ -10,6 +11,7 @@ import {
   hersheySimplex, hersheyDuplex, hersheyTriplex, hersheyScript, hersheyGothic, relief,
 } from '../src/fonts/index.js';
 import { toolkit } from './helpers/run.js';
+import { rec } from './helpers/xy.js';
 
 /** Two glyphs and one kern pair, the smallest SVG font that says anything. */
 const TINY_SVG = `<?xml version="1.0"?>
@@ -54,14 +56,14 @@ describe('strokeFont: an SVG 1.1 font', () => {
   });
 
   it('gives the glyph its chains in em units, y up', () => {
-    const [chain] = f.glyph('A')!.curves();
+    const [chain] = f.glyph('A')!.curves.map(rec);
     expect(chain.closed).toBe(false);
     expect(chain.pts).toEqual([[0, 0], [300, 700], [600, 0]]);
   });
 
   it('keeps a Bézier a Bézier until a tolerance asks for points', () => {
-    const coarse = f.glyph('V')!.curves({ tolerance: 200 }).at(0)!.pts;
-    const fine = f.glyph('V')!.curves({ tolerance: 0.5 }).at(0)!.pts;
+    const coarse = glyphChains(f.glyph('V')!, 200)[0].pts;
+    const fine = glyphChains(f.glyph('V')!, 0.5)[0].pts;
     expect(fine.length).toBeGreaterThan(coarse.length);
     // The quadratic's own midpoint, to prove the curve and not the chord.
     const mid = fine[(fine.length - 1) / 2];
@@ -89,7 +91,7 @@ describe('strokeFont: a Hershey .jhf file', () => {
   });
 
   it('breaks a glyph at every pen-up, y up from the baseline at +9', () => {
-    const chains = f.glyph('!')!.curves();
+    const chains = f.glyph('!')!.curves.map(rec);
     expect(chains.length).toBe(2);
     expect(chains.map((c) => c.closed)).toEqual([false, false]);
     // 'JRVR' is a horizontal stroke on the baseline; 'RMRW' a vertical one.
@@ -99,7 +101,7 @@ describe('strokeFont: a Hershey .jhf file', () => {
 
   it('reads a file wrapped at 72 columns the same as one glyph per line', () => {
     const wrapped = TINY_JHF.replace('  700  6HWJRVR RRMRW', '  700  6HWJRVR R\nRMRW');
-    expect(strokeFont(wrapped).glyph('!')!.curves()).toEqual(f.glyph('!')!.curves());
+    expect(strokeFont(wrapped).glyph('!')!.curves.map(rec)).toEqual(f.glyph('!')!.curves.map(rec));
   });
 });
 
@@ -124,7 +126,7 @@ describe('the bundled faces', () => {
     expect(font.xHeight!).toBeLessThan(font.capHeight!);
     expect(font.descent).toBeLessThan(0);
     expect(font.ascent).toBeGreaterThan(font.capHeight!);
-    expect(font.glyph('a')!.curves().length).toBeGreaterThan(0);
+    expect(font.glyph('a')!.curves.map(rec).length).toBeGreaterThan(0);
     expect(name).toBe(name);
   });
 
@@ -224,7 +226,7 @@ describe('t.text', () => {
       // square to the radius under it, and every copy must sit at the same
       // distance from the centre.
       const m = t.text('----', { size: 6, along: ring });
-      const chains = m.curves();
+      const chains = m.curves.map(rec);
       expect(chains.length).toBe(4);
       const radii: number[] = [];
       for (const c of chains) {

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import ts from 'typescript';
-import type { Camera3 } from 'occlude';
+import type { Camera3 } from 'occlude/3d/advanced';
 import { cameraConfigEdit } from './cameraConfig.js';
 
 const camera: Camera3 = { kind: 'orthographic', span: 4, eye: [1,2,3], target: [0,0,0], near: .1, far: 10 };
@@ -8,13 +8,13 @@ function evaluate(source: string) {
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports: Record<string, any> = {};
   const sketch = (config: unknown, fn: unknown) => ({ config, fn });
-  new Function('require','exports',js)(() => ({ sketch, sketchAsync: sketch }),exports);
+  new Function('require','exports',js)(() => ({ sketch }),exports);
   return exports;
 }
 
 it.each([
   `import { sketch } from 'occlude'; export default sketch({ seed: 42 /* keep */ }, () => 'model');`,
-  `import { sketchAsync as make } from 'occlude'; const cfg = {seed:42}; const def = make(cfg, () => 'model'); export default def;`,
+  `import { sketch as make } from 'occlude'; const cfg = {seed:42}; const def = make(cfg, () => 'model'); export default def;`,
   `import * as o from 'occlude'; export const definition = o.sketch({seed:42}, () => 'model');`,
   `import { sketch } from 'occlude'; const make = () => sketch({seed:42}, () => 'model'); export default make();`,
   `import { sketch } from 'occlude'; const args = [{seed:42}, () => 'model'] as const; export default sketch(...args);`,

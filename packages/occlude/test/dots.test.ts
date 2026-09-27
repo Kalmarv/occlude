@@ -8,10 +8,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import {
-  circle, curve, dots, initOcclude, line, material, plan, render, sketch, strokes,
-  type SketchDef,
-} from '../src/index.js';
+import { circle, curve, dots, line, material, sketch, strokes, type SketchDef } from '../src/index.js';
+import { initOcclude, plan, render } from '../src/host.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -77,18 +76,14 @@ describe('dots', () => {
 });
 
 describe('extrude', () => {
-  it('takes one bare vertex, not only a selection', () => {
+  it('takes one bare vertex', () => {
     const m = curve([[0, 0], [10, 0]], { closed: false });
-    const grown = m.steps(1, (cur, next) => {
-      next.extrude(cur.points.at(1), (p) => ({ position: [p.x + 10, p.y] }));
-    });
+    const grown = m.extrude(m.points.at(1), [10, 0]);
     expect(grown.n).toBe(3);
-    expect(grown.pts[2]).toEqual([20, 0]);
+    expect(grown.points.map(xy)[2]).toEqual([20, 0]);
     // A vertex held from an earlier state is the same vertex.
-    const again = grown.steps(1, (cur, next) => {
-      next.extrude(m.points.at(0), (p) => ({ position: [p.x, p.y - 10] }));
-    });
+    const again = grown.extrude(m.points.at(0), [0, -10]);
     expect(again.n).toBe(4);
-    expect(again.pts[3]).toEqual([0, -10]);
+    expect(again.points.map(xy)[3]).toEqual([0, -10]);
   });
 });

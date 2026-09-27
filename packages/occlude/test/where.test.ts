@@ -8,6 +8,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
+import { xy, oneRing } from './helpers/xy.js';
+import { selectionIn } from '../src/selection.js';
 
 const chain = () => curve([[0, 0], [20, 0], [40, 0], [60, 0], [80, 0], [100, 0]], { closed: false });
 const cage = {
@@ -24,7 +26,7 @@ describe('where', () => {
     // edge gone.
     expect(out.n).toBe(6);
     expect(out.edgeCount).toBe(5);
-    expect(out.pts.map((p) => Math.round(p[1]))).toEqual([0, 0, 0, 10, 10, 10]);
+    expect(out.points.map(xy).map((p) => Math.round(p[1]))).toEqual([0, 0, 0, 10, 10, 10]);
   });
 
   it('a point selection is read as the edges AMONG its members', () => {
@@ -41,30 +43,23 @@ describe('where', () => {
   it('an edge selection given to a point verb is read as its endpoints', () => {
     const m = chain();
     const out = m.warp({ ...cage, where: m.edges.filter((e) => e.index >= 3) });
-    expect(out.pts.map((p) => Math.round(p[1]))).toEqual([0, 0, 0, 10, 10, 10]);
-  });
-
-  it('snap looks for a better place only where it may', () => {
-    const m = chain();
-    const out = m.snap((x, y) => -Math.abs(y - 5), { radius: 6, where: m.points.filter((p) => p.x > 45) });
-    expect(out.pts.map((p) => Math.round(p[1]))).toEqual([0, 0, 0, 5, 5, 5]);
+    expect(out.points.map(xy).map((p) => Math.round(p[1]))).toEqual([0, 0, 0, 10, 10, 10]);
   });
 
   it('absent is the whole material, as it always was', () => {
     const m = chain();
-    expect(m.warp(cage).pts).toEqual(m.warp({ ...cage, where: m.points.filter(() => true) }).pts);
+    expect(m.warp(cage).points.map(xy)).toEqual(m.warp({ ...cage, where: m.points.filter(() => true) }).points.map(xy));
   });
 
   it('refuses a selection of another material, by name', () => {
     const m = chain();
     const other = material([[0, 0], [1, 1]]).points.filter(() => true);
     expect(() => m.warp({ ...cage, where: other })).toThrow(/selection of another material/);
-    expect(() => m.snap(() => 1, { radius: 1, where: other })).toThrow(/selection of another material/);
   });
 
   it('refuses a thing that is not a selection', () => {
     const m = chain();
-    expect(() => m.warp({ ...cage, where: [1, 2] as never })).toThrow(/must be a selection/);
+    expect(() => m.warp({ ...cage, where: [1, 2] as never })).toThrow(/warp: expected a point — a vertex view or a point value/);
   });
 });
 
@@ -74,7 +69,7 @@ describe('where, on resample', () => {
     // Edges 3 and 4 — the ruling: a point selection means the edges with
     // BOTH ends in it.
     const out = m.resample({ count: 5, where: m.points.filter((p) => p.index >= 3) });
-    expect(out.pts.map((p) => Math.round(p[0]))).toEqual([0, 20, 40, 60, 70, 80, 90, 100]);
+    expect(out.points.map(xy).map((p) => Math.round(p[0]))).toEqual([0, 20, 40, 60, 70, 80, 90, 100]);
     expect(out.edgeCount).toBe(7);
   });
 
@@ -84,7 +79,7 @@ describe('where, on resample', () => {
     const out = m.resample({ count: 3, where: ends });
     // Two runs of one edge each, three vertices apiece, and the middle of
     // the chain untouched.
-    expect(out.pts.map((p) => Math.round(p[0]))).toEqual([0, 10, 20, 40, 60, 80, 90, 100]);
+    expect(out.points.map(xy).map((p) => Math.round(p[0]))).toEqual([0, 10, 20, 40, 60, 80, 90, 100]);
   });
 
   it('the untouched part keeps its identity, and the new part is new', () => {
@@ -92,7 +87,7 @@ describe('where, on resample', () => {
     const kept = m.points.filter((p) => p.index <= 3);
     const out = m.resample({ count: 5, where: m.points.filter((p) => p.index >= 3) });
     // Every vertex the resample did not touch answers in the new state.
-    expect(kept.in(out).length).toBe(4);
+    expect(selectionIn(kept, out).length).toBe(4);
     expect([...out.pointIds].slice(0, 4)).toEqual([...m.pointIds].slice(0, 4));
     // …and the run's far end is the same vertex it always was.
     expect(out.pointOf(m.points.at(5).id)).toBeDefined();
@@ -113,7 +108,7 @@ describe('where, on resample', () => {
   });
 
   it('an edge column comes through a kept edge verbatim', () => {
-    const m = chain().edgeAttribute('tag', (e) => e.index * 10);
+    const m = chain().edges.set('tag', (e) => e.index * 10);
     const out = m.resample({ count: 3, where: m.edges.filter((e) => e.index === 4) });
     expect([...out.edgeAttrs.tag].slice(0, 4)).toEqual([0, 10, 20, 30]);
     // The run's own edges take the value of the edge under each middle.
@@ -123,19 +118,19 @@ describe('where, on resample', () => {
   it('a ring stays a ring when only part of it is eligible', () => {
     const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
     const out = ring.resample({ count: 4, where: ring.edges.filter((e) => e.index === 0) });
-    expect(out.closed).toBe(true);
+    expect(oneRing(out)).toBe(true);
     expect(out.n).toBe(out.edgeCount);
     // The three edges it did not touch are still there, corner for corner.
-    expect(out.pts).toContainEqual([10, 0]);
-    expect(out.pts).toContainEqual([10, 10]);
-    expect(out.pts).toContainEqual([0, 10]);
+    expect(out.points.map(xy)).toContainEqual([10, 0]);
+    expect(out.points.map(xy)).toContainEqual([10, 10]);
+    expect(out.points.map(xy)).toContainEqual([0, 10]);
   });
 
   it('every edge eligible is the whole resample, exactly', () => {
     const m = chain();
-    expect(m.resample({ count: 9, where: m.edges.filter(() => true) }).pts).toEqual(m.resample({ count: 9 }).pts);
+    expect(m.resample({ count: 9, where: m.edges.filter(() => true) }).points.map(xy)).toEqual(m.resample({ count: 9 }).points.map(xy));
     const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
-    expect(ring.resample({ count: 9, where: ring.edges.filter(() => true) }).pts).toEqual(ring.resample({ count: 9 }).pts);
+    expect(ring.resample({ count: 9, where: ring.edges.filter(() => true) }).points.map(xy)).toEqual(ring.resample({ count: 9 }).points.map(xy));
   });
 
   it('refuses a selection of another material, by name', () => {

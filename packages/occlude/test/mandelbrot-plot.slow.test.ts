@@ -12,7 +12,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { complex, escape, estimatePlanMs, initOcclude, mm, pen, plan, planToolpath, render, selectAll, sketch, strokes, type EstimateOpts, type SketchDef } from '../src/index.js';
+import { complex, escape, mm, pen, sketch, strokes, type SketchDef } from '../src/index.js';
+import {
+  estimatePlanMs, initOcclude, plan, planToolpath, render, selectAll, type EstimateOpts,
+} from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));

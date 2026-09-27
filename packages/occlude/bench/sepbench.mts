@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { curve, force, neighbours } from '../src/index.js';
+import { curve, force } from '../src/index.js';
 const N = 5000;
 const ring = curve(Array.from({ length: N }, (_, i) => { const a = (i / N) * Math.PI * 2; return [50 + Math.cos(a) * 20 + Math.sin(i) * 0.3, 50 + Math.sin(a) * 20] as [number, number]; }), { closed: true, age: 0 });
 const pts = ring.points;
@@ -25,7 +25,8 @@ function kernel(x: Float64Array, y: Float64Array, radius: number, adj: (i: numbe
   }
 }
 const ox = new Float64Array(N), oy = new Float64Array(N);
-t0 = performance.now(); kernel(ring.x, ring.y, 2, (i) => i.adjacent, ox, oy); console.log('typed-array JS kernel (grid, no allocation)', (performance.now() - t0).toFixed(1), 'ms');
-t0 = performance.now(); for (let k = 0; k < 5; k++) kernel(ring.x, ring.y, 2, (i) => i.adjacent, ox, oy); console.log('  warm ×5 avg', ((performance.now() - t0) / 5).toFixed(1), 'ms');
-// how many neighbours per point on this ring?
+// the kernel reads each point's neighbours as rows, read once off the views
+const adjacent = pts.map((p) => p.adjacent.map((q) => q.index));
+t0 = performance.now(); kernel(ring.x, ring.y, 2, (i) => adjacent[i], ox, oy); console.log('typed-array JS kernel (grid, no allocation)', (performance.now() - t0).toFixed(1), 'ms');
+t0 = performance.now(); for (let k = 0; k < 5; k++) kernel(ring.x, ring.y, 2, (i) => adjacent[i], ox, oy); console.log('  warm ×5 avg', ((performance.now() - t0) / 5).toFixed(1), 'ms');
 

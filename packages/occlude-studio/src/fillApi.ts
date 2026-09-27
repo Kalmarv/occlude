@@ -1,6 +1,6 @@
 /** Client for the server-side fill library (fill-store.mjs). */
 
-export { FILL_NAME_RE } from 'occlude';
+export { FILL_NAME_RE } from 'occlude/host';
 
 export interface FillMeta {
   name: string;

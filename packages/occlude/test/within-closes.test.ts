@@ -6,13 +6,16 @@
  *
  * `within-closes.golden.json` was written from HEAD (e4928d5) before the
  * change, by the same calls as the hatch and filter-form cases below: the
- * old function's rows, and the old face and edge filter answers.
+ * old function's rows, and the old face and edge filter answers. The filter
+ * answers were re-keyed from rows to geometry (each face's centroid, each
+ * edge's ends) from that same HEAD when `t.hexes` folded into `t.tiling`,
+ * whose cells come in flood order.
  */
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { toolkit } from './helpers/run.js';
-import { circle, material, rect, type Material } from '../src/index.js';
+import { circle, distanceTo, material, rect, type Edge, type Face, type Material } from '../src/index.js';
 
 const golden = JSON.parse(readFileSync(new URL('./within-closes.golden.json', import.meta.url), 'utf8'));
 const t = toolkit({ aspect: [1, 1] });
@@ -56,10 +59,10 @@ const onRectEdge = (x: number, y: number, x0: number, y0: number, x1: number, y1
 
 describe('a lattice cut to a rect', () => {
   const [x0, y0, x1, y1] = [13, 17, 74, 64];
-  const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 }).attributes({ w: (p) => p.x * 2 + p.y });
+  const src = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 0 }).points.set({ w: (p) => p.x * 2 + p.y });
   const out = t.within(src, rect(x0, y0, x1 - x0, y1 - y0));
-  const cells = out.faces();
-  const srcFaces = src.faces();
+  const cells = out.faces;
+  const srcFaces = src.faces;
 
   it('every cell the rect overlaps comes back as a face, with the area it has inside', () => {
     const expected = srcFaces.map((f) => Math.abs(shoelace(clipToRect(f.contours()[0].pts, x0, y0, x1, y1)))).filter((a) => a > 1e-9);
@@ -132,7 +135,7 @@ describe('a lattice cut to a rect', () => {
     const corner = [...Array(out.n).keys()].find((v) => out.x[v] === x0 && out.y[v] === y0)!;
     expect(corner).toBeDefined();
     expect(new Set(src.pointIds).has(out.pointIds[corner])).toBe(false);
-    const face = cells.containing([x0 + 0.1, y0 + 0.1]).at(0);
+    const face = cells.filter((f) => distanceTo(f)(x0 + 0.1, y0 + 0.1) > 0).at(0);
     expect(face.points.indices).toContain(corner);
     const neighbours: number[] = [];
     for (let e = 0; e < out.edgeCount; e++) {
@@ -150,7 +153,7 @@ describe('the closure decides', () => {
   it('a single closed ring cut by a rect is one face, closed along the rect', () => {
     const ring = t.material(circle(50, 50, 20));
     const out = t.within(ring, rect(50, 30, 40, 40));
-    const cells = out.faces();
+    const cells = out.faces;
     expect(cells.length).toBe(1);
     const ringPts: P[] = [...Array(ring.n).keys()].map((i) => [ring.x[i], ring.y[i]]);
     expect(cells.at(0).area).toBeCloseTo(Math.abs(shoelace(clipToRect(ringPts, 50, 30, 90, 70))), 6);
@@ -160,11 +163,11 @@ describe('the closure decides', () => {
 
   it('a lattice already clipped to the frame keeps its frame cells as faces', () => {
     // Caleb's case: the frame walls lie ON the boundary, where the cut drops them.
-    const out = t.within(t.hexes({ spacing: 50, orientation: 'pointy', gap: 1 }), rect(0, 0, 100, 100));
-    expect(out.faces().length).toBe(t.hexes({ spacing: 50, orientation: 'pointy', gap: 1 }).faces().length);
-    for (const f of out.faces()) {
-      const inner = t.within(t.hexes({ spacing: 15, orientation: 'pointy', gap: 1 }), f);
-      expect(inner.faces().length).toBeGreaterThan(0);
+    const out = t.within(t.tiling(6, 3, { side: 50 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 1 }), rect(0, 0, 100, 100));
+    expect(out.faces.length).toBe(t.tiling(6, 3, { side: 50 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 1 }).faces.length);
+    for (const f of out.faces) {
+      const inner = t.within(t.tiling(6, 3, { side: 15 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 1 }), f);
+      expect(inner.faces.length).toBeGreaterThan(0);
     }
   });
 
@@ -173,8 +176,8 @@ describe('the closure decides', () => {
     const edges: [number, number][] = [];
     for (let k = 0; k < 12; k++) { pts.push([-10 + k * 9, -5], [10 + k * 9, 105]); edges.push([2 * k, 2 * k + 1]); }
     for (let k = 0; k < 4; k++) { const i = pts.length; pts.push([30 + k * 10, 30], [40 + k * 10, 90], [30 + k * 10, 40]); edges.push([i, i + 1], [i + 2, i + 1]); }
-    let hatch = material(pts, { edges }).attributes({ w: (p) => p.x * 0.5 + p.y });
-    hatch = hatch.edgeAttributes({ len: 1, tone: (e) => e.index + 0.25 }, { transfer: { len: 'distribute' } });
+    let hatch = material(pts, { edges }).points.set({ w: (p) => p.x * 0.5 + p.y });
+    hatch = hatch.edges.set('len', 1, { transfer: 'distribute' }).edges.set('tone', (e) => e.index + 0.25);
     const cut = t.within(hatch, rect(20, 15, 60, 50));
     const g = golden.hatch;
     expect([...cut.x]).toEqual(g.x);
@@ -182,53 +185,59 @@ describe('the closure decides', () => {
     expect([...cut.edgeList]).toEqual(g.edges);
     for (const name of Object.keys(g.attrs)) expect([...cut.attrs[name]]).toEqual(g.attrs[name]);
     for (const name of Object.keys(g.edgeAttrs)) expect([...cut.edgeAttrs[name]]).toEqual(g.edgeAttrs[name]);
-    expect(cut.attrNames.sort()).toEqual(Object.keys(g.attrs).sort());
-    expect(cut.edgeAttrNames.sort()).toEqual(Object.keys(g.edgeAttrs).sort());
+    expect(Object.keys(cut.attrs).sort()).toEqual(Object.keys(g.attrs).sort());
+    expect(Object.keys(cut.edgeAttrs).sort()).toEqual(Object.keys(g.edgeAttrs).sort());
     expect([...cut.pointIds].map((id) => [...hatch.pointIds].indexOf(id))).toEqual(g.keptIds);
     // an open chain's own cut column is just a column: it travels as one
-    const own = t.within(hatch.edgeAttributes({ cut: 3 }), rect(20, 15, 60, 50));
+    const own = t.within(hatch.edges.set({ cut: 3 }), rect(20, 15, 60, 50));
     expect([...own.edgeAttrs.cut].every((c) => c === 3)).toBe(true);
   });
 
   it('a bounded scatter stays a point cloud: no cut column for connect and steps to trip on', () => {
     const pts = t.scatter({ spacing: 13, within: circle(48, 50, 42) });
-    expect(pts.edgeAttrNames).toEqual([]);
+    expect(Object.keys(pts.edgeAttrs)).toEqual([]);
   });
 
   it('a lattice whose cut closes nothing still says so: a cut column of zeros', () => {
-    const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 });
+    const src = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 0 });
     const out = t.within(src, rect(-50, -50, 300, 300));
     expect(out.edgeAttrs.cut.length).toBe(out.edgeCount);
     expect([...out.edgeAttrs.cut].every((c) => c === 0)).toBe(true);
   });
 
   it('an existing cut column is kept: its marks OR the closing marks', () => {
-    const src = t.hexes({ spacing: 12, orientation: 'pointy', gap: 0 });
-    const marked = src.edgeAttributes({ cut: 1 });
+    const src = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 0 });
+    const marked = src.edges.set({ cut: 1 });
     const area = circle(50, 50, 30);
     const plain = t.within(src, area);
     const out = t.within(marked, area);
-    expect(out.faces().length).toBe(plain.faces().length);
+    expect(out.faces.length).toBe(plain.faces.length);
     // Every source edge stays marked, and the closing edges are marked too.
     expect(out.edgeAttrs.cut.every((c) => c === 1)).toBe(true);
     expect(out.edgeCount).toBe(plain.edgeCount);
     // A source with an unmarked column gets exactly the closing marks.
-    const zero = t.within(src.edgeAttributes({ cut: 0 }), area);
+    const zero = t.within(src.edges.set({ cut: 0 }), area);
     expect([...zero.edgeAttrs.cut]).toEqual([...plain.edgeAttrs.cut]);
   });
 });
 
 describe('the filter forms do not change', () => {
-  const cells = t.hexes({ spacing: 12, orientation: 'pointy', gap: 1 });
+  // The hex field the golden was written from, as the tiling that replaced
+  // it; the golden names each cell by its centroid and each edge by its
+  // ends, because the tiling states its cells in flood order.
+  const cells = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30, origin: [0, 0], gap: 1 });
   const disc = circle(50, 50, 30);
+  const r = (v: number) => Math.round(v * 1e6) / 1e6;
+  const faceKey = (f: Face) => `${r(f.centroid[0])},${r(f.centroid[1])}`;
+  const edgeKey = (e: Edge) => { const a = `${r(e.a.x)},${r(e.a.y)}`; const b = `${r(e.b.x)},${r(e.b.y)}`; return a < b ? `${a}|${b}` : `${b}|${a}`; };
   it('faces', () => {
     for (const form of ['contained', 'centroid', 'touching'] as const) {
-      expect([...t.within(cells.faces(), disc, { keep: form })].map((f) => f.index)).toEqual(golden.faces[form]);
+      expect(t.within(cells.faces, disc, { keep: form }).map(faceKey).sort()).toEqual(golden.faces[form]);
     }
   });
   it('edges', () => {
     for (const form of ['contained', 'centroid', 'touching'] as const) {
-      expect([...t.within(cells.edges, disc, { keep: form }).indices]).toEqual(golden.edges[form === 'centroid' ? 'midpoint' : form]);
+      expect(t.within(cells.edges, disc, { keep: form }).map(edgeKey).sort()).toEqual(golden.edges[form === 'centroid' ? 'midpoint' : form]);
     }
   });
 });

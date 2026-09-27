@@ -8,10 +8,11 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
-  circle, compileSketch, ellipse, initOcclude, label, material, ngon, rect, render, sdf, sketch, stroke,
-  type Material, type Toolkit, type Execution,
+  circle, ellipse, label, material, ngon, rect, sdf, sketch, stroke, type Material, type Toolkit,
 } from '../src/index.js';
+import { compileSketch, initOcclude, render, type Execution } from '../src/host.js';
 import { sphere, view, orthographic } from '../src/three/api/index.js';
+import { xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -49,7 +50,7 @@ describe('P10 · every random word draws fresh values (G5-8, G1-2)', () => {
 
   it('G5-8: t.throw in a loop of faces puts a different pattern in every cell', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const cells = t.hexes({ spacing: 30 }).faces().filter((f) => f.area > 500);
+    const cells = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.filter((f) => f.area > 500);
     const offsets = cells.map((f) => {
       const seeds = t.throw(f, { count: 4 });
       return Array.from({ length: seeds.n }, (_, i) => `${(seeds.x[i] - f.centroid[0]).toFixed(6)},${(seeds.y[i] - f.centroid[1]).toFixed(6)}`).join(' ');
@@ -76,7 +77,7 @@ describe('P10 · frame words read the frame the config names (G1-2, G1-1, G3-11)
     const t = toolkit({ aspect: [3, 2], origin: 'center', yUp: true });
     const b = t.bounds();
     expect({ x: b.x, y: b.y, w: b.w, h: b.h, cx: b.cx, cy: b.cy }).toEqual({ x: -75, y: -50, w: 150, h: 100, cx: 0, cy: 0 });
-    expect([t.width, t.height, t.cx, t.cy]).toEqual([150, 100, 0, 0]);
+    expect([t.bounds().w, t.bounds().h, t.bounds().cx, t.bounds().cy]).toEqual([150, 100, 0, 0]);
     // The top-left frame is the one it always was.
     const flat = toolkit({ aspect: [3, 2] }).bounds();
     expect([flat.x, flat.y, flat.w, flat.h, flat.cx, flat.cy]).toEqual([0, 0, 150, 100, 75, 50]);
@@ -86,11 +87,11 @@ describe('P10 · frame words read the frame the config names (G1-2, G1-1, G3-11)
 
   it('G1-2: grid and hexes cover the whole drawable, not one quadrant', () => {
     const t = toolkit({ aspect: [3, 2], origin: 'center', yUp: true });
-    const cells = t.grid({ cols: 6, rows: 6 });
-    expect(Math.min(...cells.map((c) => c.x))).toBe(-75);
-    expect(Math.max(...cells.map((c) => c.x + c.w))).toBeCloseTo(75, 9);
-    expect(Math.min(...cells.map((c) => c.y))).toBe(-50);
-    const hex = t.hexes({ spacing: 12 });
+    const cells = t.grid({ cols: 6, rows: 6 }).faces;
+    expect(Math.min(...cells.map((c) => c.bounds.x))).toBe(-75);
+    expect(Math.max(...cells.map((c) => c.bounds.x + c.bounds.w))).toBeCloseTo(75, 9);
+    expect(Math.min(...cells.map((c) => c.bounds.y))).toBe(-50);
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     expect(Math.min(...hex.x)).toBeCloseTo(-75, 9);
     expect(Math.max(...hex.x)).toBeCloseTo(75, 9);
     expect(Math.min(...hex.y)).toBeCloseTo(-50, 9);
@@ -104,7 +105,7 @@ describe('P10 · frame words read the frame the config names (G1-2, G1-1, G3-11)
     // sketches/getting-started-3.ts:6
     const out = render(sketch({ aspect: [3, 2], origin: 'center', yUp: true, rectMode: 'center' }, (t) => {
       const b = t.bounds();
-      return [rect(0, 0, b.w - 4, b.h - 4), t.grid({ cols: 6, rows: 6, gap: 2 }).map((c) => circle(c.cx, c.cy, 3))];
+      return [rect(0, 0, b.w - 4, b.h - 4), t.grid({ cols: 6, rows: 6, gap: 2 }).faces.map((c) => circle(c.bounds.cx, c.bounds.cy, 3))];
     }), SQ);
     const f = out.frame;
     const [x0, y0, x1, y1] = [f.offsetX, f.offsetY, f.offsetX + f.inner.innerW, f.offsetY + f.inner.innerH];
@@ -125,7 +126,7 @@ describe('P10 · frame words read the frame the config names (G1-2, G1-1, G3-11)
 describe('N2 · one within: area on every point operation', () => {
   it('G2-16, G7-14: relax and settle take any area, a face too; bounds is refused by name', () => {
     run((t) => {
-      const f = t.hexes({ spacing: 40 }).faces().filter((c) => c.area > 1000).at(0);
+      const f = t.tiling(6, 3, { side: 40 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.filter((c) => c.area > 1000).at(0);
       // sketches/reference-points-1.ts:10
       const relaxed = t.relax(t.scatter({ spacing: 4, within: f }), { iterations: 3, within: f });
       const inside = t.within(relaxed.points, f);
@@ -159,9 +160,9 @@ describe('N2 · one within: area on every point operation', () => {
       // sketches/examples-territory-1.ts:10, sketches/examples-cone-2.ts:10
       for (const area of [ngon(50, 50, 6, 35), ellipse(50, 50, 40, 25)]) {
         const cells = t.voronoi(sites, { within: area });
-        const faces = cells.faces();
+        const faces = cells.faces;
         expect(faces.length).toBeGreaterThan(5);
-        for (const f of faces) expect(cells.siteOf(f)).toBeDefined();
+        for (const f of faces) expect(f.source).toBeDefined();
         const lowered = t.material(area);
         const [lx0, lx1] = [Math.min(...lowered.x), Math.max(...lowered.x)];
         expect(Math.min(...cells.x)).toBeGreaterThanOrEqual(lx0 - 1e-6);
@@ -222,7 +223,7 @@ describe('N3 · point forms on the rest', () => {
     const t = toolkit({ aspect: [1, 1] });
     const pts = t.scatter({ spacing: 20 });
     const records = stroke(pts.points);
-    const pairs = stroke(pts.pts);
+    const pairs = stroke(pts.points.map(xy));
     expect(JSON.stringify(records.geom)).toBe(JSON.stringify(pairs.geom));
     expect(JSON.stringify(stroke([[0, 0], { x: 10, y: 5 }]).geom)).toBe(JSON.stringify(stroke([[0, 0], [10, 5]]).geom));
     expect(() => stroke([[0, 0], 5] as never)).toThrow('stroke: entry 1 is not a point');
@@ -235,7 +236,7 @@ describe('N3 · point forms on the rest', () => {
       // sketches/fields-2.ts:14, sketches/examples-squall-1.ts:16
       const a = t.streamlines(flow, { spacing: 6, seeds });
       const b = t.streamlines(flow, { spacing: 6, seeds: seeds.points });
-      const c = t.streamlines(flow, { spacing: 6, seeds: seeds.pts });
+      const c = t.streamlines(flow, { spacing: 6, seeds: seeds.points.map(xy) });
       expect(coords(a)).toBe(coords(c));
       expect(coords(b)).toBe(coords(c));
     });
@@ -246,14 +247,14 @@ describe('N5 · typed face columns from the generators', () => {
   it('G1-5: a hex face reads i and j as numbers', () => {
     const t = toolkit({ aspect: [2, 1] });
     // sketches/shapes-1.ts:13 — typechecks with no `?? 0`
-    const angles: number[] = t.hexes({ spacing: 14 }).faces().map((f) => 30 * f.j + f.i);
+    const angles: number[] = t.tiling(6, 3, { side: 14 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.map((f) => 30 * f.j + f.i);
     expect(angles.every(Number.isFinite)).toBe(true);
   });
 
   it('G3-6: a tiling face reads generation, mirrored and placementIndex as numbers', () => {
     const t = toolkit({ aspect: [1, 1] });
     // sketches/reference-geometry-3.ts:11
-    const odd = t.tiling(4, 4, { depth: 3, side: 6 }).faces().filter((f) => f.generation % 2 === 1);
+    const odd = t.tiling(4, 4, { side: 6 }).faces.filter((f) => f.generation % 2 === 1);
     expect(odd.length).toBeGreaterThan(0);
     const hands: (0 | 1)[] = odd.map((f) => f.mirrored);
     expect(hands.every((m) => m === 0 || m === 1)).toBe(true);
@@ -266,7 +267,7 @@ describe('N1 slice · chain verbs on an edge selection (G2-10, G5-25)', () => {
     const ring = t.sample(circle(50, 50, 30), { count: 40 });
     const arc = ring.edges.filter((e) => e.a.y < 50 && e.b.y < 50);
     // sketches/reference-material-3.ts:13, sketches/examples-datum-1.ts:15
-    expect(arc.along({ spacing: 5 }).map((s) => [s.x, s.y])).toEqual(arc.extract().along({ spacing: 5 }).map((s) => [s.x, s.y]));
+    expect(arc.along({ spacing: 5 }).points.map((s) => [s.x, s.y])).toEqual(arc.extract().along({ spacing: 5 }).points.map((s) => [s.x, s.y]));
     expect(coords(arc.trim({ start: 2, end: 2 }))).toBe(coords(arc.extract().trim({ start: 2, end: 2 })));
     expect(coords(arc.resample({ spacing: 3 }))).toBe(coords(arc.extract().resample({ spacing: 3 })));
   });
@@ -302,7 +303,7 @@ describe('sweep · the space words', () => {
   it('F7: face area and perimeter, and measure, read the material space', () => {
     const t = toolkit({ aspect: [1, 1], space: 'hyperbolic' });
     const sp = t.space;
-    const square = t.material(rect(40, 40, 20, 20)).faces().at(0);
+    const square = t.material(rect(40, 40, 20, 20)).faces.at(0);
     let dens = 0;
     const n = 400;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) dens += sp.density([40 + ((i + 0.5) / n) * 20, 40 + ((j + 0.5) / n) * 20]);
@@ -310,22 +311,22 @@ describe('sweep · the space words', () => {
     expect(Math.abs(square.area - expected) / expected).toBeLessThan(1e-4);
     expect(square.area).not.toBeCloseTo(400, 3);
     expect(square.perimeter).toBeGreaterThan(80);
-    const m = t.material(rect(40, 40, 20, 20)).faces().measure(() => 1, { step: 0.1 }).results[0];
+    const m = t.material(rect(40, 40, 20, 20)).faces.measure(() => 1, { step: 0.1 }).faces.at(0);
     expect(m.area).toBe(square.area);
     expect(m.integral).toBeCloseTo(square.area, 0);
     expect(m.mean).toBeCloseTo(1, 12);
     // Flat is unchanged: the chart is the space.
-    const flat = toolkit({ aspect: [1, 1] }).material(rect(40, 40, 20, 20)).faces().at(0);
+    const flat = toolkit({ aspect: [1, 1] }).material(rect(40, 40, 20, 20)).faces.at(0);
     expect([flat.area, flat.perimeter]).toEqual([400, 80]);
-    expect(() => t.material(rect(40, 40, 20, 20)).faces().measure(() => 1, { resolution: 64 } as never)).toThrow('measure: resolution is now step');
+    expect(() => t.material(rect(40, 40, 20, 20)).faces.measure(() => 1, { resolution: 64 } as never)).toThrow('measure: resolution is now step');
   });
 
   it('F7: the inscribed circle is a circle of the space inside the face', () => {
     const t = toolkit({ aspect: [1, 1], space: 'spherical' });
-    const faces = t.material(rect(30, 30, 40, 20)).faces();
+    const faces = t.material(rect(30, 30, 40, 20)).faces;
     const face = faces.at(0);
-    const r = faces.measure().results[0];
-    const circleOfSpace = t.space.circle(r!.inscribedCentre, r!.inscribedRadius * 0.999, 64);
+    const r = faces.measure().faces.at(0);
+    const circleOfSpace = t.space.circle([r.inscribedX, r.inscribedY], r.inscribedRadius * 0.999, 64);
     const inside = t.within(material(circleOfSpace).points, face);
     expect(inside.length).toBe(64);
   });
@@ -340,11 +341,12 @@ describe('sweep · the space words', () => {
 
 describe('strokes3 clips to the view frame (as the callback does)', () => {
   it('a run that leaves the frame is cut at it', async () => {
-    const { compileSketchAsync, sketchAsync } = await import('../src/index.js');
-    const exec = await compileSketchAsync(sketchAsync({ aspect: [1, 1] }, async (t) => {
+    const { sketch } = await import('../src/index.js');
+    const { compileSketchAsync } = await import('../src/host.js');
+    const exec = await compileSketchAsync(sketch({ aspect: [1, 1] }, async (t) => {
       const scene = view(sphere(3), { camera: orthographic({ eye: [4, 5, 3], span: 3 }) }).scene;
       const cls = await t.classify3(scene);
-      const { constructStrokes3 } = await import('../src/index.js');
+      const { constructStrokes3 } = await import('../src/three/api/advanced.js');
       return t.strokes3(constructStrokes3(cls, [{ id: 'all', stroke: 'pigma-005-black' }]));
     }), SQ);
     const out = render(exec);

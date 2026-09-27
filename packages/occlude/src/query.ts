@@ -1,8 +1,10 @@
 /**
- * Geometry queries against a material's sampled edges: prepare once for a
- * frozen state, ask many times. Queries return information and never
- * move, split, stop or connect anything; a result is bound to the state
- * it was asked of.
+ * The spatial index over a material's sampled edges: what `edges.near`,
+ * `edges.nearest`, `edges.firstHit` and `edges.crossing` read. It is built
+ * the first time one of them is asked on a state and kept there, so a
+ * sketch never prepares it. Queries return information and never move,
+ * split, stop or connect anything; a result is bound to the state it was
+ * asked of.
  *
  * Edges are straight segments between sampled vertices; nothing here is
  * analytic geometry, and nothing snaps. Coordinates are the material's
@@ -25,12 +27,11 @@
  * judging the rest as they come is the same answer.
  */
 
-import { Material, ownedBy, type Edge, type Vertex, type XY } from './material.js';
+import type { Material, Edge } from './material.js';
+import { vx, vy, type XY } from './vec.js';
+import { checkRadius } from './selection.js';
 
 const EPS = 1e-9;
-
-const vx = (p: XY): number => (Array.isArray(p) ? (p as readonly number[])[0] : (p as { x: number }).x);
-const vy = (p: XY): number => (Array.isArray(p) ? (p as readonly number[])[1] : (p as { y: number }).y);
 
 export interface NearestHit {
   edge: Edge;
@@ -56,25 +57,32 @@ export interface FirstHit {
   kind: 'crossing' | 'touch' | 'overlap';
 }
 
+/** @internal The prepared index of one state. */
 export interface EdgeQuery {
   /** The closest edge within `within` of `position` (inclusive), or null.
    * Ties go to the earlier source edge. `excludeIncident` skips every edge
-   * incident to that vertex of the source state, so a tip can sense the
-   * nearest line that is not its own stem. */
-  nearest(position: XY, opts: { within: number; excludeIncident?: Vertex | number }): NearestHit | null;
+   * incident to that vertex row of the source state (the selection finds
+   * the row by identity), so a tip can sense the nearest line that is not
+   * its own stem. `accept`, when given, is the edges a selection holds:
+   * the rest are not there. */
+  nearest(position: XY, opts: { within: number; excludeIncident?: number; accept?: (edge: number) => boolean }): NearestHit | null;
   /** Every edge CLOSER THAN `radius` to `position`, by true distance to the
    * segment, as source edge rows ascending. The bound is strict, as it is
    * for `points.near`. This is what `edges.near` reads; `nearest` answers
-   * the different question of which ONE is closest. */
-  within(position: XY, radius: number): number[];
+   * the different question of which ONE is closest. Given `distances`, it
+   * pushes each row's distance there, position by position, and leaves the
+   * rows in the order the grid found them. */
+  within(position: XY, radius: number, distances?: number[]): number[];
   /** The first edge a straight move from `from` to `to` would meet, by
    * smallest `along` then source edge order; endpoint contact counts.
-   * `excludeIncident` skips every edge incident to that vertex of the
-   * source state. A zero-length move is a contact query at `from`. */
-  firstHit(from: XY, to: XY, opts?: { excludeIncident?: Vertex | number }): FirstHit | null;
+   * `excludeIncident` skips every edge incident to that vertex row of the
+   * source state. A zero-length move is a contact query at `from`.
+   * `accept`, when given, is the edges a selection holds: the rest are not
+   * there. */
+  firstHit(from: XY, to: XY, opts?: { excludeIncident?: number; accept?: (edge: number) => boolean }): FirstHit | null;
 }
 
-/** Prepare edge queries for a frozen material. */
+/** @internal Prepare edge queries for a frozen material. */
 export function edges(m: Material): EdgeQuery {
   const E = m.edgeCount;
   const ax = new Float64Array(E);
@@ -86,13 +94,16 @@ export function edges(m: Material): EdgeQuery {
   let maxx = -Infinity;
   let maxy = -Infinity;
   let extent = 0;
+  const list = m.edgeList;
+  const X = m.x;
+  const Y = m.y;
   for (let e = 0; e < E; e++) {
-    const a = m.edgeList[2 * e];
-    const b = m.edgeList[2 * e + 1];
-    ax[e] = m.x[a];
-    ay[e] = m.y[a];
-    bx[e] = m.x[b];
-    by[e] = m.y[b];
+    const a = list[2 * e];
+    const b = list[2 * e + 1];
+    ax[e] = X[a];
+    ay[e] = Y[a];
+    bx[e] = X[b];
+    by[e] = Y[b];
     minx = Math.min(minx, ax[e], bx[e]);
     miny = Math.min(miny, ay[e], by[e]);
     maxx = Math.max(maxx, ax[e], bx[e]);
@@ -213,37 +224,30 @@ export function edges(m: Material): EdgeQuery {
   let vertexStart: Int32Array | null = null;
   let vertexEdges: Int32Array | null = null;
   const buildAdjacency = (): void => {
+    const ends = m.edgeList;
     const start = new Int32Array(m.n + 1);
-    for (let e = 0; e < 2 * E; e++) start[m.edgeList[e] + 1]++;
+    for (let e = 0; e < 2 * E; e++) start[ends[e] + 1]++;
     for (let i = 0; i < m.n; i++) start[i + 1] += start[i];
     const fill = start.slice(0, m.n);
     const list = new Int32Array(2 * E);
     for (let e = 0; e < E; e++) {
-      list[fill[m.edgeList[2 * e]]++] = e;
-      list[fill[m.edgeList[2 * e + 1]]++] = e;
+      list[fill[ends[2 * e]]++] = e;
+      list[fill[ends[2 * e + 1]]++] = e;
     }
     vertexStart = start;
     vertexEdges = list;
   };
-  const incidentRow = (v: Vertex | number): number => {
-    if (typeof v === 'number') {
-      if (!Number.isInteger(v) || v < 0 || v >= m.n) throw new Error(`query: no vertex ${v} in the source material`);
-      return v;
-    }
-    if (!ownedBy(v, m)) throw new Error('query: excludeIncident must be a vertex of the queried material');
-    return v.index;
-  };
-
   return {
     nearest(position, opts) {
       const within = opts.within;
-      if (!Number.isFinite(within) || within < 0) throw new Error('query.nearest: within must be finite and non-negative');
+      const accept = opts.accept;
+      if (!Number.isFinite(within) || within < 0) throw new Error('edges.nearest: within must be finite and non-negative');
       const px = vx(position);
       const py = vy(position);
       let skipStart = -1;
       let skipEnd = -1;
       if (opts.excludeIncident !== undefined) {
-        const v = incidentRow(opts.excludeIncident);
+        const v = opts.excludeIncident;
         if (vertexStart === null) buildAdjacency();
         skipStart = vertexStart![v];
         skipEnd = vertexStart![v + 1];
@@ -284,6 +288,7 @@ export function edges(m: Material): EdgeQuery {
         for (; judged < candN; judged++) {
           const e = cand[judged];
           if (skipStart >= 0 && isIncident(e)) continue;
+          if (accept !== undefined && !accept(e)) continue;
           const dx = bx[e] - ax[e];
           const dy = by[e] - ay[e];
           const len2 = dx * dx + dy * dy;
@@ -300,8 +305,8 @@ export function edges(m: Material): EdgeQuery {
       }
       return bestE < 0 ? null : { edge: m.edge(bestE), position: [bestX, bestY], t: bestT, distance: bestD };
     },
-    within(position, radius) {
-      if (!(radius > 0) || !Number.isFinite(radius)) throw new Error('edges.near: radius must be a positive distance');
+    within(position, radius, distances) {
+      checkRadius(radius, 'edges.near');
       const px = vx(position);
       const py = vy(position);
       queryId++;
@@ -335,14 +340,20 @@ export function edges(m: Material): EdgeQuery {
           const len2 = dx * dx + dy * dy;
           let t = 0;
           if (len2 > 0) t = Math.max(0, Math.min(1, ((px - ax[e]) * dx + (py - ay[e]) * dy) / len2));
-          if (Math.hypot(px - (ax[e] + dx * t), py - (ay[e] + dy * t)) < radius) out.push(e);
+          const d = Math.hypot(px - (ax[e] + dx * t), py - (ay[e] + dy * t));
+          if (d < radius) {
+            out.push(e);
+            if (distances) distances.push(d);
+          }
         }
       }
-      // The grid hands them back ring by ring; a selection is source order.
-      out.sort((p, q) => p - q);
+      // The grid hands them back ring by ring. A caller that takes the
+      // distances orders them itself; the others read source order.
+      if (!distances) out.sort((p, q) => p - q);
       return out;
     },
     firstHit(from, to, opts = {}) {
+      const accept = opts.accept;
       const fx = vx(from);
       const fy = vy(from);
       const tx = vx(to);
@@ -350,7 +361,7 @@ export function edges(m: Material): EdgeQuery {
       let skipStart = -1;
       let skipEnd = -1;
       if (opts.excludeIncident !== undefined) {
-        const v = incidentRow(opts.excludeIncident);
+        const v = opts.excludeIncident;
         if (vertexStart === null) buildAdjacency();
         skipStart = vertexStart![v];
         skipEnd = vertexStart![v + 1];
@@ -371,6 +382,7 @@ export function edges(m: Material): EdgeQuery {
       gatherSegment(fx, fy, tx, ty);
       for (let i = 0; i < candN; i++) {
         const e = cand[i];
+        if (accept !== undefined && !accept(e)) continue;
         if (skipStart >= 0) {
           let incident = false;
           for (let j = skipStart; j < skipEnd; j++) if (vertexEdges![j] === e) { incident = true; break; }
@@ -439,104 +451,3 @@ function pointOnSegment(px: number, py: number, ax: number, ay: number, dx: numb
   const qy = ay + dy * t;
   return Math.hypot(px - qx, py - qy) <= eps ? Math.max(0, Math.min(1, t)) : null;
 }
-
-export interface NearestPoint {
-  point: Vertex;
-  /** The point's place, as a fresh pair. */
-  position: [number, number];
-  distance: number;
-}
-
-export interface PointQuery {
-  /** The closest point within `within` of `position` (inclusive), or null.
-   * Ties go to the earlier source row. A vertex of the queried state is
-   * never its own nearest point, as it is never its own neighbour in
-   * `points.near`; any other position — a pair, a vertex of another
-   * material — is just a place. */
-  nearest(position: XY, opts: { within: number }): NearestPoint | null;
-}
-
-/** Prepare point queries for a frozen material: the sibling of `edges`,
- * with the same ring search over a uniform grid of the points. */
-export function points(m: Material): PointQuery {
-  const N = m.n;
-  let minx = Infinity;
-  let miny = Infinity;
-  let maxx = -Infinity;
-  let maxy = -Infinity;
-  for (let i = 0; i < N; i++) {
-    // A point that is not a place is never the nearest one.
-    if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
-    minx = Math.min(minx, m.x[i]);
-    miny = Math.min(miny, m.y[i]);
-    maxx = Math.max(maxx, m.x[i]);
-    maxy = Math.max(maxy, m.y[i]);
-  }
-  if (!Number.isFinite(minx)) { minx = miny = 0; maxx = maxy = 1; }
-  // About one point per cell.
-  const span = Math.max(maxx - minx, maxy - miny, 1e-9);
-  const cell = Math.max(span / Math.max(1, Math.ceil(Math.sqrt(N))), 1e-9);
-  const cols = Math.floor((maxx - minx) / cell) + 1;
-  const rows = Math.floor((maxy - miny) / cell) + 1;
-  const col = (x: number) => Math.min(cols - 1, Math.max(0, Math.floor((x - minx) / cell)));
-  const row = (y: number) => Math.min(rows - 1, Math.max(0, Math.floor((y - miny) / cell)));
-  const cellStart = new Int32Array(cols * rows + 1);
-  const at = new Int32Array(N).fill(-1);
-  for (let i = 0; i < N; i++) {
-    if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
-    at[i] = row(m.y[i]) * cols + col(m.x[i]);
-    cellStart[at[i] + 1]++;
-  }
-  for (let i = 0; i < cols * rows; i++) cellStart[i + 1] += cellStart[i];
-  const items = new Int32Array(cellStart[cols * rows]);
-  const cursor = cellStart.slice(0, cols * rows);
-  for (let i = 0; i < N; i++) if (at[i] >= 0) items[cursor[at[i]]++] = i;
-
-  return {
-    nearest(position, opts) {
-      const within = opts.within;
-      if (!Number.isFinite(within) || within < 0) throw new Error('query.nearest: within must be finite and non-negative');
-      const px = vx(position);
-      const py = vy(position);
-      const self = ownedBy(position, m) ? (position as Vertex).index : -1;
-      const c0 = col(px - within);
-      const c1 = col(px + within);
-      const r0 = row(py - within);
-      const r1 = row(py + within);
-      const cc = col(px);
-      const cr = row(py);
-      const kMax = Math.max(cc - c0, c1 - cc, cr - r0, r1 - cr);
-      let best = -1;
-      let bestD = Infinity;
-      for (let k = 0; k <= kMax; k++) {
-        if (k > 0) {
-          // Everything left unvisited lies outside the square already covered.
-          const reach = Math.max(0, Math.min(px - (minx + (cc - k + 1) * cell), minx + (cc + k) * cell - px, py - (miny + (cr - k + 1) * cell), miny + (cr + k) * cell - py));
-          if (reach > within || reach > bestD) break;
-        }
-        // The cells of ring k: the whole top and bottom rows, the two ends
-        // of every row between.
-        for (let r = Math.max(r0, cr - k); r <= Math.min(r1, cr + k); r++) {
-          const whole = r === cr - k || r === cr + k;
-          const ends = whole ? [] : k === 0 ? [cc] : [cc - k, cc + k];
-          const lo = Math.max(c0, cc - k);
-          const hi = Math.min(c1, cc + k);
-          for (const c of whole ? Array.from({ length: Math.max(0, hi - lo + 1) }, (_, i) => lo + i) : ends) {
-            if (c < c0 || c > c1) continue;
-            for (let j = cellStart[r * cols + c]; j < cellStart[r * cols + c + 1]; j++) {
-              const i = items[j];
-              if (i === self) continue;
-              const d = Math.hypot(m.x[i] - px, m.y[i] - py);
-              if (d > within) continue;
-              if (best < 0 || d < bestD || (d === bestD && i < best)) { best = i; bestD = d; }
-            }
-          }
-        }
-      }
-      return best < 0 ? null : { point: m.vertex(best), position: [m.x[best], m.y[best]], distance: bestD };
-    },
-  };
-}
-
-/** Queries as one namespace: `query.edges(current)`, `query.points(food)`. */
-export const query = { edges, points };

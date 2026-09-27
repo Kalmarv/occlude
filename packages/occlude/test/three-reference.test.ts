@@ -46,7 +46,9 @@ it('records Freestyle coverage differences while independent rays validate Occlu
 });
 
 it('matches Freestyle constant physical width and color with an actual Occlude SVG', async () => {
-  const {initOcclude,sketch,pen,paper,mm,box3,lineArt3,compileSketchAsync,exportSvg}=await import('../src/index.js');
+  const {sketch,pen,paper,mm}=await import('../src/index.js');
+  const {initOcclude,compileSketchAsync,exportSvg}=await import('../src/host.js');
+  const {box3,lineArt3}=await import('../src/three/api/advanced.js');
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
   const reference=JSON.parse(readFileSync(new URL('./fixtures/three-reference/freestyle.json',import.meta.url),'utf8'));
   let vertices=0;

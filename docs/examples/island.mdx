@@ -11,7 +11,8 @@ Uses: `t.isolines`, `distanceTo`, `t.ridges`, `t.within`, `points.components()`,
 import { sketch, strokes, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
-  const shore = (x, y) => t.noise(x / 40, y / 40) + 0.78 - 1.45 * Math.hypot((x - t.cx) / (t.width * 0.46), (y - t.cy) / (t.height * 0.44)) ** 2;
+  const b = t.bounds();
+  const shore = (x, y) => t.noise(x / 40, y / 40) + 0.78 - 1.45 * Math.hypot((x - b.cx) / (b.w * 0.46), (y - b.cy) / (b.h * 0.44)) ** 2;
   const coast = t.isolines(shore, 0, { step: 1 });
   const inland = distanceTo(coast);
   const height = (x, y) => Math.max(0, inland(x, y)) * 0.55 + 15 * t.noise(x / 21, y / 21) + 3.5 * t.noise(x / 8, y / 8);
@@ -20,7 +21,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const peak = (g) => Math.max(...g.map((p) => p.strength));
     const top = Math.max(...crests.map(peak));
     const kept = crests.filter((g) => g.length >= minRun && peak(g) > top * minStrength);
-    return m.points.rows(kept.flatMap((g) => g.indices)).edges.extract();
+    return m.points.rows(kept.flatMap((g) => [...g])).edges.extract();
   };
   const range = t.within(t.ridges(height, { step: 2.6 }), coast);
   const spurs = t.within(t.ridges(height, { step: 0.9 }), coast);

@@ -1,10 +1,10 @@
 /**
  * Wavefront OBJ as a mesh source: `obj(text, opts)` turns a model exported
- * by Blender or any other modeller into an ordinary `Mesh` — viewed,
+ * by Blender or any other modeller into an ordinary `Material` — viewed,
  * occluded, hatched, subdivided, styled and plotted like a box.
  *
  * Deliberately not a general OBJ engine: `v` and `f` are read, `o` and `g`
- * become face attributes, and everything else (normals, texture
+ * become face columns, and everything else (normals, texture
  * coordinates, materials, smoothing groups, `l` polylines, free-form
  * curves) is read past. Polygons keep their vertex count; the surface's own
  * ear clipping triangulates them for drawing. Negative (relative) indices
@@ -21,7 +21,8 @@
 import type {Vec3} from '../math.js';
 import {surface3} from '../geometry/surface.js';
 import {ownSurface3} from '../geometry/model.js';
-import {Mesh,emptyMesh,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,type GeometryOptions} from './mesh.js';
+import type {Material} from '../../material.js';
 
 export interface ObjOptions extends GeometryOptions {
   /** The axis the file treats as up. OBJ files are Y-up by convention
@@ -93,7 +94,7 @@ function optionsObject(options:unknown):asserts options is ObjOptions {
 
 /** A mesh from the text of an OBJ file. See the module note for what is
  * read and what refuses. */
-export function obj(text:string,options:ObjOptions={}):Mesh<{},{},{object?:string;group?:string},{}> {
+export function obj(text:string,options:ObjOptions={}):Material {
   if(typeof text!=='string')throw new Error('obj needs the text of an OBJ file; in a sketch, t.asset(\'name.obj\')');
   optionsObject(options);
   const {up='y',objects,...geometry}=options;
@@ -110,11 +111,11 @@ export function obj(text:string,options:ObjOptions={}):Mesh<{},{},{object?:strin
   const use=(v:number):number=>{let i=remap.get(v);if(i===undefined){i=positions.length;remap.set(v,i);positions.push(parsed.positions[v]);}return i;};
   const polygons=faces.map(f=>f.vertices.map(use));
   if(faces.length===0&&!wanted)parsed.positions.forEach((_,v)=>use(v));
-  const mesh=new Mesh(ownSurface3(surface3(positions,polygons)),geometry);
+  const mesh=geometry3(ownSurface3(surface3(positions,polygons)),geometry);
   const named=faces.some(f=>f.object!==undefined),grouped=faces.some(f=>f.group!==undefined);
-  if(!named&&!grouped)return mesh as Mesh<{},{},{object?:string;group?:string},{}>;
-  return mesh.faceAttributes(row=>{
-    const f=faces[row.index];
-    return {...(named?{object:f.object??''}:{}),...(grouped?{group:f.group??''}:{})};
-  }) as unknown as Mesh<{},{},{object?:string;group?:string},{}>;
+  if(!named&&!grouped)return mesh as Material;
+  return mesh.faces.set({
+    ...(named?{object:(row:{index:number})=>faces[row.index].object??''}:{}),
+    ...(grouped?{group:(row:{index:number})=>faces[row.index].group??''}:{}),
+  }) as unknown as Material;
 }

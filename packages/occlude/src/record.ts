@@ -459,6 +459,10 @@ function lowerGeom(geom: ShapeGeom, rz: Resolver): Prim[][] {
         })
         .filter((c) => c.length > 0);
     }
+    case 'region':
+      // The toolkit makes a group's or an invert's area a path before the
+      // shape reaches the lowerer (api.ts `pinShape`).
+      throw new Error('polygon: a group or an inverted area is read by the toolkit — draw it in a sketch, or give it to a t. word');
   }
 }
 
@@ -971,7 +975,7 @@ function chaikin(pts: [number, number][], passes: readonly number[], closed: boo
  * A rect, a path, a polygon and text are placed where their own numbers
  * name, so walls stay shared and a grid stays a grid: their points ARE
  * sketch coordinates, and an EDGE is the image of the flat edge under that
- * placement, which is what `m.map` does to any map. A ROUND shape —
+ * placement, which is what a point map does to any edge. A ROUND shape —
  * circle, ellipse, ngon — is steps from its anchor instead
  * (`roundPlacing`): off the base geodesic the two readings differ, and
  * only the steps give the circle of the space. An ngon's edges and a
@@ -1439,6 +1443,7 @@ function isConvexGeom(geom: ShapeGeom): boolean {
     case 'path':
     case 'line':
     case 'area':
+    case 'region':
       return false; // the core detects convex all-line contours itself
   }
 }

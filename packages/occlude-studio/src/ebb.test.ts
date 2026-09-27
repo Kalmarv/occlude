@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { Ebb, lmAxisCompletes, lmCompletable, type PlotProgress } from './ebb.js';
-import { liftForTravel } from 'occlude';
+import { liftForTravel } from 'occlude/host';
 
 const opts = {
   stepsPerMm: 100,

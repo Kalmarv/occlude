@@ -1,20 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
-import {
-  compileSketchAsync,
-  constructStrokes3,
-  dash,
-  decodePlanBuffer,
-  evalPrim,
-  initOcclude,
-  lineArt3,
-  mm,
-  pen,
-  render,
-  sketchAsync,
-  wobble,
-} from '../src/index.js';
+import { sketch, dash, mm, pen, wobble } from '../src/index.js';
+import { compileSketchAsync, decodePlanBuffer, evalPrim, initOcclude, render } from '../src/host.js';
+import { constructStrokes3, lineArt3 } from '../src/three/api/advanced.js';
 import { pensToJson } from '../src/render.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
@@ -22,13 +11,14 @@ import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 import { point } from '../src/three/geometry/exact.js';
 import { mesh } from '../src/three/api/mesh.js';
 import { surfaceBinding3, surfaceCurveNetwork3, selectSurfaceCurveNetwork3, type SurfaceCurveNetwork3 } from '../src/three/curves/network.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
 });
 
 const frame = cameraFrame3({ kind: 'orthographic', span: 12, eye: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0], near: .1, far: 10 }, { x: 0, y: 0, width: 120, height: 120 });
-const binding = surfaceBinding3(mesh([[0, 0, 0], [10, 0, 0], [0, 10, 0]], [[0, 1, 2]]).surface);
+const binding = surfaceBinding3(surfaceOf(mesh([[0, 0, 0], [10, 0, 0], [0, 10, 0]], [[0, 1, 2]])));
 const objects = [{ id: 'sheet', surface: binding.source, lineSource: false }];
 const p = (id: string, x: number, y: number) => ({ id, point: point([x, y, 0]), supports: [{ source: 0, triangle: 0 }] });
 
@@ -118,7 +108,7 @@ describe('supported graph phase identity', () => {
 
   it('produces equal planned wobble and dash output for equivalent graph subdivisions', async () => {
     const planned = async (network: SurfaceCurveNetwork3) => {
-      const execution = await compileSketchAsync(sketchAsync({ seed: 42, margin: 0, pens: { ink: pen({ width: mm(.2) }) } }, async t => {
+      const execution = await compileSketchAsync(sketch({ seed: 42, margin: 0, pens: { ink: pen({ width: mm(.2) }) } }, async t => {
         const classified = await t.classify3(lineArt3({ objects, curves: [{ id: 'marks', network }], camera: frame.camera, lineSets: [] }));
         return t.strokes3(constructStrokes3(classified, set), { modifiers: [wobble({ amount: mm(.15), wavelength: mm(4) }), dash(mm(2), mm(1))] });
       }), { paper: { w: 120, h: 120 } });

@@ -77,6 +77,7 @@ export function globalTrigger(path: string): string | null {
   if (path === 'packages/occlude/test/fixtures/docs-ink.json') return 'the ink baseline';
   if (path === `${SRC}docsExamples.ts`) return 'the fence transform and page list';
   if (path === `${SRC}index.ts`) return 'the library surface';
+  if (path === `${SRC}host.ts`) return 'the host surface';
   if (path === 'README.md') return 'the README fence';
   if (path === WORKER_ENTRY) return 'the classifier worker entry (the fast run never enters it)';
   if (path.startsWith('packages/occlude-studio/assets/')) return 'a fence asset';

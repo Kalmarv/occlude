@@ -25,11 +25,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  circle, exportGcode, exportPng, exportSvg, initOcclude, label, line, mm, path,
-  paperSize, rect, render, sketch, fill,
-  type PenDef, type Tree,
-} from '../src/index.js';
+import { circle, label, line, mm, path, rect, sketch, fill, type PenDef, type Tree } from '../src/index.js';
+import { exportGcode, exportPng, exportSvg, initOcclude, paperSize, render } from '../src/host.js';
 
 // ---- args ----
 

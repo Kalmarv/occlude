@@ -11,9 +11,9 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the area is calculated one time and kept. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field, and it goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
+The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the library calculates the area one time and keeps it. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field. It goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
 
-`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.edges`, `m.n` and `m.edgeCount` count the level lines only. The closing edges belong to the area: `m.faces()` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
+`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.points` and `m.edges` count the level lines only. The closing edges belong to the area: `m.faces` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -48,12 +48,13 @@ import { sketch, strokes, escape, complex, rect, pen, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 21, pens: {
   fine: pen({ width: mm(0.3), color: '#23252B' }),
 } }, (t) => {
+  const b = t.bounds();
   const field = escape((z, c) => complex.add(complex.mul(z, z), c), { input: 'c', iterations: 60, bailout: 1e6 });
   // The sheet as the c-plane, as in the escape() example: x = 64 is c = 0.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   // The same contours at two grid pitches, each kept on its own side of c = 0.
   const side = (area, step) => strokes(t.within(t.isolines(count, { spacing: 2 }, { step }), area), { pen: 'fine' });
-  return [side(rect(0, 0, 64, t.height), undefined), side(rect(64, 0, t.width - 64, t.height), mm(0.25))];
+  return [side(rect(0, 0, 64, b.h), undefined), side(rect(64, 0, b.w - 64, b.h), mm(0.25))];
 });
 ```
 
@@ -72,35 +73,33 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 });
 ```
 
-## distanceTo()
+## t.distanceTo()
 
-<include>/_sig/distanceTo.mdx</include>
+<include>/_sig/Toolkit.distanceTo.mdx</include>
 
-A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` record. This is true for `t.distanceTo`, `t.travelTime`, `t.noiseField`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material. `distanceTo` reads the boundary's `contours()`.
+A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` object. This is true for `t.distanceTo`, `t.travelTime`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is a shape, loops, a list of contours, a face, or a chain material. `t.distanceTo` reads the boundary's `contours()`. An open shape has no inside. So `t.distanceTo(line(a, b))` is the signed distance to the line through `a` and `b`, positive on its left. This is true in a flat sketch and in a curved one.
+
+`t.distanceTo` measures in the space of the geometry. When the geometry has no space, as loops, points and a shape have not, it measures in the space of the sketch. The pure import `distanceTo` measures in the space its argument carries: a material or a selection made in a curved sketch. Plain loops, points and a list of contours carry none, so it measures those flat.
 
 ```ts live
-import { sketch, strokes, ngon, distanceTo } from 'occlude';
+import { sketch, strokes, ngon } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const d = distanceTo(t.material(ngon(50, 50, 5, 34)));
+  const d = t.distanceTo(t.material(ngon(50, 50, 5, 34)));
   return strokes(t.isolines(d, [-6, -3, 0, 3, 6, 9, 12]));
 });
 ```
 
-## distanceToPoints()
-
-<include>/_sig/distanceToPoints.mdx</include>
-
-The distance to the nearest of a cloud of sites, with the sign `distanceTo` uses. The value is zero at a site and negative everywhere else, so no part of the field lies inside. `t.isolines(d, -3)` is the ring three units out from every site. Two rings that reach each other join, and the join runs along the wall between those two sites. The sites are points, so no lowering happens. A `t.scatter` result, a material's `points`, or a plain array of pairs all go straight in. Pure: the field reads no seed and no paper.
+Points have no inside. A point selection or a material of points alone is points. Of points, `t.distanceTo` is the distance to the nearest point, with the same sign. The value is zero at a point and negative everywhere else, so no part of the field lies inside. `t.isolines(d, -3)` is the ring three units out from every site. Two rings that reach each other join, and the join runs along the wall between those two sites. A `t.scatter` result or a material's `points` goes straight in. A plain array of pairs is a loop, so `material(pairs)` makes it points. The field reads no seed.
 
 Dried mud. Close levels near the merge depth make plates, and the gaps left between the plates are the cracks.
 
 ```ts live
-import { sketch, strokes, distanceToPoints } from 'occlude';
+import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
-  const d = distanceToPoints(sites);
+  const d = t.distanceTo(sites);
   return [
     strokes(t.isolines(d, [-6.9]), { pen: 'pigma-05-black' }),
     strokes(t.isolines(d, [-6.4, -5.6]), { pen: 'pigma-005-black' }),
@@ -114,7 +113,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 <include>/_sig/sdf.box.mdx</include>
 <include>/_sig/sdf.segment.mdx</include>
 
-A shape can be the field that measures it. These three are exact. They spell their arguments as `circle` and `line` do: `sdf.circle(p, r)`, `sdf.box(p, w, h)` and `sdf.segment(a, b, r)` take each point as one value. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
+A shape can be the field that measures it. These three are exact. They spell their arguments as `circle` and `line` do: `sdf.circle(p, r)`, `sdf.box(p, w, h)` and `sdf.segment(a, b, r)` take each point as one value. They carry the same sign as `t.distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
 
 ```ts live
 import { sketch, strokes, sdf } from 'occlude';
@@ -162,7 +161,7 @@ import { sketch, polygon, sdf, fill, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const r = ui(9, { min: 0, max: 18 });
-  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => sdf.circle(c.cx, c.cy, 15.5));
+  const parts = t.grid({ cols: 3, rows: 3 }).faces.map((f) => sdf.circle(f.bounds.cx, f.bounds.cy, 15.5));
   const body = sdf.blend(parts, r);
   return polygon(t.isolines(body, 0), { fill: fill('hatch', { angle: 20, spacing: mm(1.3) }) });
 });
@@ -173,7 +172,7 @@ A box is always centred, and that is why it is not called `rect`. `rect(x, y, w,
 :::
 
 :::warning
-The algebra reads its fields as distances. `sdf.union` of two noise fields is the larger noise, and that means nothing. Combine only fields that measure a shape: these three, `distanceTo`, and what the algebra itself returns.
+The algebra reads its fields as distances. `sdf.union` of two noise fields is the larger noise, and that means nothing. Combine only fields that measure a shape: these three, `t.distanceTo`, and what the algebra itself returns.
 :::
 
 :::note
@@ -184,9 +183,9 @@ A boundary stays exact, and the depth behind it does not. `union` measures corre
 
 <include>/_sig/Toolkit.travelTime.mdx</include>
 
-<AutoTypeTable path="../occlude/src/travel.ts" name="TravelOpts" />
+<AutoTypeTable path="../occlude/src/api.ts" name="TravelTimeOpts" />
 
-The time a front needs to reach each point of the drawable. The front starts at its source at time zero, and the options record names the source. Under `fromPoints` every entry is a separate seed, a pair or an `{ x, y }` record. Under `fromArea` the input is one area or a shape. Give one key or the other, and the call refuses both keys at once by name. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance of `distanceTo`. `step` is the pitch of the grid that the front moves on. Its default is the same as the default of `t.isolines`.
+The time a front needs to reach each point of the drawable. The front starts at its source at time zero, and the options name the source. Under `fromPoints` every entry is a separate seed, a pair or an `{ x, y }` object. Under `fromArea` the input is one area or a shape. Give one key or the other, and the call refuses both keys at once by name. `speed` is a number or a field, and 1 is the default. A speed of zero or less is a wall, and the front walks around it. `within` names the ground, and the drawable is the default. Unreachable ground reads `+Infinity`, so contours stop at a barrier. On open ground at speed 1 the answer is the straight-line distance: the value of `t.distanceTo` without its sign. `t.distanceTo` is negative outside an area. The travel time is not. `step` is the pitch of the grid that the front moves on. Its default is the same as the default of `t.isolines`.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -195,9 +194,10 @@ import { sketch, strokes } from 'occlude';
 // rings still leave the seed together; they bunch up over the slow ground
 // and stretch where the going is easy.
 export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const b = t.bounds();
   const going = (x, y) => 0.2 + 0.8 * (0.5 + 0.5 * t.noise(x / 24, y / 24));
-  const arrival = t.travelTime({ fromPoints: [[t.cx, t.cy]], speed: going, step: 0.5 });
-  return strokes(t.isolines(arrival, { spacing: t.width / 16 }));
+  const arrival = t.travelTime({ fromPoints: [[b.cx, b.cy]], speed: going, step: 0.5 });
+  return strokes(t.isolines(arrival, { spacing: b.w / 16 }));
 });
 ```
 
@@ -231,10 +231,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const east = (x, y) => [1, 0];
   const plain = rotate(east, 45), marked = rotate(vectorField(east), 45);
   const arrow = (p, v, pen) => [circle(p, 0.8, { pen }), line(p, add(p, mul(v, 7)), { pen })];
-  return t.grid({ cols: 5, rows: 5 }).map((c) => [
-    arrow([c.cx - 4, c.cy - 2], plain(c.cx, c.cy), 'stabilo-88-green'),
-    arrow([c.cx - 4, c.cy + 3], marked(c.cx, c.cy), 'stabilo-88-blue'),
-  ]);
+  return t.grid({ cols: 5, rows: 5 }).faces.map((f) => {
+    const [x, y] = f.centroid;
+    return [
+      arrow([x - 4, y - 2], plain(x, y), 'stabilo-88-green'),
+      arrow([x - 4, y + 3], marked(x, y), 'stabilo-88-blue'),
+    ];
+  });
 });
 ```
 
@@ -244,9 +247,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.2.mdx</include>
 <include>/_sig/Toolkit.within.3.mdx</include>
 <include>/_sig/Toolkit.within.4.mdx</include>
-<include>/_sig/Toolkit.within.5.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a cell becomes a wall of that cell. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a cell becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, contour records or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. The call refuses a value that is not an area, and names it.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. A material with faces closes along the boundary. The part of the area's edge that goes through a face becomes a wall of that face. These walls have the edge column `cut = 1`, and the other edges have `cut = 0`. The call replaces an existing `cut` column. A material without faces does not get the column. A corner of the area inside a face becomes a new vertex, with the columns of the vertex before it. An open chain stops at the boundary. To draw the material without the rim, filter the column. It filters a point selection, an edge selection or a face collection. `area` is an `Area`: a shape, a group, a face, a loop of pairs, a list of contours or a closed material. A group is the union of its shapes, and its transform applies. `invert(area)` is the area outside, in the drawable. The toolkit reads each area in the same way for every word that takes an area. A face collection is several areas, so the call refuses it and tells you to name one face. The call refuses a value that is not an area, and names it.
 
 A selection cannot clip. A point, an edge and a face come through whole or not at all. The option `keep` decides, with the same three words for points, edges and faces. `{ keep: 'contained' }` is the default. It keeps a member with no point outside the area and no crossing of the boundary. The boundary belongs to the area, so a point on the boundary is in, and a wall along the boundary is in. `'centroid'` keeps a member whose centroid is in the area or on its boundary. The centroid of an edge is its `center`, and the centroid of a point is the point. `'touching'` keeps a member that has a point in common with the area. This includes a face that holds all of the area. The call judges the boundary with the ink tolerance, 0.05 mm on the sheet. A vertex that is nearer than this to the boundary is on the boundary. The call refuses the old option names `faces` and `edges`, and names them. To cut at the boundary instead, give `within` the material.
 
@@ -257,13 +259,13 @@ import { sketch, strokes, circle, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 11 }));
-  const disc = circle(50, 50, 30);
+  const disc = circle(50, 50, 42);
   const whole = t.within(web.edges, disc);
   const cut = t.within(web.edges, disc, { keep: 'centroid' });
   return [
     strokes(whole),
-    strokes(cut.subtract(whole), { pen: 'stabilo-88-blue' }),
-    circle(50, 50, 30, { pen: 'stabilo-88-green' }),
+    strokes(cut.without(whole), { pen: 'stabilo-88-blue' }),
+    circle(50, 50, 42, { pen: 'stabilo-88-green' }),
   ];
 });
 ```
@@ -279,15 +281,15 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 });
 ```
 
-Below, a circle cuts a lattice of cells. Each cell at the rim is a face, so `polygon` fills it. The walls draw without the rim.
+Below, a circle cuts a hexagon tiling. Each tile at the rim is a face, so `polygon` fills it. The walls draw without the rim.
 
 ```ts live
 import { sketch, strokes, circle, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.within(t.hexes({ spacing: 9, orientation: 'pointy' }), circle(50, 50, 40));
+  const cells = t.within(t.tiling(6, 3, { side: 5.2, rotate: 30 }), circle(50, 50, 40));
   return [
-    cells.faces().map((f, i) => polygon(f, { fill: fill('hatch', { angle: i % 2 ? 60 : -30, spacing: mm(1) }), stroke: false })),
+    cells.faces.map((f, i) => polygon(f, { fill: fill('hatch', { angle: i % 2 ? 60 : -30, spacing: mm(1) }), stroke: false })),
     strokes(cells.edges.filter((e) => !e.cut)),
   ];
 });
@@ -299,16 +301,16 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/grad.mdx</include>
 <include>/_sig/vectorField.mdx</include>
 
-`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function, so the field verbs turn its arrows too (see [translate · rotate · scale](#translate--rotate--scale)). Below, the black marks point uphill from each dot, and the blue marks run along the contours.
+`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. Both take central differences over `{ step }`, 0.25 by default. `vectorField(fn)` marks your own vector function, so the field verbs turn its arrows too (see [translate · rotate · scale](#translate--rotate--scale)). Below, the black marks point uphill from each dot, and the blue marks run along the contours.
 
 ```ts live
 import { sketch, line, circle, strokes, curl, grad, add, mul, unit } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const hill = (x, y) => t.noise(x / 30, y / 30);
-  const marks = (vf, pen) => t.grid({ cols: 9, rows: 9 }).map((c) => {
-    const p = [c.cx, c.cy];
-    return [circle(p, 0.7, { pen }), line(p, add(p, mul(unit(vf(c.cx, c.cy)), 5)), { pen })];
+  const marks = (vf, pen) => t.grid({ cols: 9, rows: 9 }).faces.map((f) => {
+    const p = f.centroid;
+    return [circle(p, 0.7, { pen }), line(p, add(p, mul(unit(vf(...p)), 5)), { pen })];
   });
   return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), marks(grad(hill)), marks(curl(hill), 'stabilo-88-blue')];
 });
@@ -326,6 +328,17 @@ Evenly spaced flow lines of a vector field, as one material of open chains. A li
 import { sketch, strokes, curl, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => strokes(t.streamlines(curl((x, y) => t.noise(x / 35, y / 35)), { spacing: mm(2.5) })));
+```
+
+Each point of a line has `u`, its fraction of the arc length along its own line. `u` is 0 at the start of the line and 1 at its end. A long line and a short line both go from 0 to 1. Below, the first half of each line is blue.
+
+```ts live
+import { sketch, strokes, curl, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const lines = t.streamlines(curl((x, y) => t.noise(x / 35, y / 35)), { spacing: mm(2.5) });
+  return [strokes(lines.edges.filter((e) => e.b.u > 0.5)), strokes(lines.edges.filter((e) => e.b.u <= 0.5), { pen: 'stabilo-88-blue' })];
+});
 ```
 
 `maxLength` is the longest run each way from a seed. It is a length, or a field of lengths read at the seed, so one seed grows one mark of that length. A seed whose length is zero, absent, or below a nib width draws nothing, because the pen would leave a dot there. Length is then a second tone beside spacing. The marks of an engraving run long in the dark. They shorten through the mid tones, and they end as dots in the light.
@@ -355,7 +368,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 import { sketch, strokes, axisField, across, grad, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
-  const slope = axisField(grad((x, y) => t.noise(x / 46, y / 46), 1));
+  const slope = axisField(grad((x, y) => t.noise(x / 46, y / 46), { step: 1 }));
   return [
     strokes(t.streamlines(slope, { spacing: mm(3) }), { pen: 'pigma-01-black' }),
     strokes(t.streamlines(across(slope), { spacing: mm(6) }), { pen: 'stabilo-88-green' }),
@@ -385,23 +398,21 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 <include>/_sig/Toolkit.lattice.mdx</include>
 
-A grid of named channels over an area, and a rule that steps it. `spacing` sets the cell size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each cell from its centre.
+A grid of square faces over an area, with named channels. `spacing` sets the face size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each face from its centre.
 
-`lat.steps(n, rule)` returns a new lattice. The rule is `(cur, next, k) => …`, as for `m.steps`. `cur.cells` is the cells of the lattice as `[i, j]` pairs, so a rule that does arithmetic on each cell walks `for (const [i, j] of cur.cells)`. `cur.at(channel, i, j)` reads a cell, `cur.laplacian(channel, i, j)` is the five-point stencil, and `cur.neighbours(i, j)` lists the cells beside one. `next.set` and `next.add` write one cell. `next.diffuse(channel, rate)` and `next.decay(channel, rate)` work on the whole channel. A `diffuse` rate above 0.25 runs away.
+A lattice is one table of faces, and `lat.faces.set(channel, value, where?)` writes a channel. `lat.faces` holds the faces. A face answers the words of every face, such as `centroid`, `bounds` and `adjacent`. It also answers its grid place `i` and `j`, every channel by name, and `c.laplacian(channel)` (the five-point stencil). `t.steps(n, lat, pass)` runs a pass over it. Every function of one `set` reads the faces as they were before the write. So one write over the whole grid is one instant. A diffusion is one write: `lat.faces.set('a', (c) => c.a + rate * c.laplacian('a'))`. A rate above 0.25 runs away. A decay is `lat.faces.set('a', (c) => c.a * (1 - rate))`. The [steps](/docs/reference/steps) page tells more about the lattice as one table.
 
-`lat.add(points, amount, channel?)` puts an amount into the cell under each point. `lat.field(channel)` reads a channel back as a field. `lat.values`, `lat.cols`, `lat.rows` and `lat.cell(x, y)` give the raw numbers. Every operation returns a new value.
+`lat.add(points, amount, channel?)` puts an amount into the face under each point. `lat.field(channel)` reads a channel back as a field. `lat.face([x, y])` is the face under a position. `lat.values`, `lat.cols` and `lat.rows` give the raw numbers. Every operation returns a new value.
 
-Below, ink drops at a few points and spreads. Each step diffuses the channel and forgets a little of it.
+Below, ink drops at a few points and spreads. Each step diffuses the channel and then forgets a little of it.
 
 ```ts live
 import { sketch, strokes, dots, mm, pen } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.25), color: '#23252B' }), drop: pen({ width: mm(1.2), color: '#2457D6' }) } }, (t) => {
   const drops = t.throw({ count: 12 });
-  const ink = t.lattice({ spacing: 1 }).add(drops, 60).steps(90, (cur, next) => {
-    next.diffuse('a', 0.22);
-    next.decay('a', 0.01);
-  });
+  const spread = (l) => l.faces.set('a', (c) => c.a + 0.22 * c.laplacian('a')).faces.set('a', (c) => c.a * 0.99);
+  const ink = t.steps(90, t.lattice({ spacing: 1 }).add(drops, 60), spread);
   return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])), dots(drops, { pen: 'drop' })];
 });
 ```
@@ -410,11 +421,11 @@ export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/Toolkit.residual.mdx</include>
 
-The tone a drawing still owes, held on a grid of cells. `field` is the target darkness, 0 to 1. `spacing` is the cell size. `area` says what owes anything. The value is a field: `r(x, y)` is what is still owed there.
+The tone a drawing still owes, as a lattice with one channel, `owed`. `field` is the target darkness, 0 to 1. `spacing` is the face size. `area` says what owes anything. `r.field()` is the debt as a field, so `t.scatter`, `t.isolines` and a decimate amount read it. Outside the area the field is `NaN`, and a field consumer reads that as no place.
 
-`r.spend(marks, { width })` takes away the nib footprint of the marks and answers with the tone it took. `marks` is a material, a point selection, a contour record or a polyline. A chain costs its stroke at `width`, and a loose point costs a dot. A cell never goes below 0. `r.total()` is the debt that remains.
+`r.spend(marks, { width })` takes away the nib footprint of the marks and returns a new lattice. `marks` is a material, a selection, a contour, a list of contours or a polyline. A chain costs its stroke at `width`, and a loose point costs a dot. `width` is a length in the units of the lattice, because a lattice does not know the paper. Give a nib as `t.len(mm(0.35))`. A face never goes below 0. `r.faces.sum('owed')` is the debt that remains. What a spend took is the drop in that sum, in face areas.
 
-`spend` changes the residual in place. It is the one value in the library that changes, because a ledger must hold what the last mark paid. `r.snapshot()` gives a frozen copy as a plain field.
+Nothing changes in place. A ledger is a sequence of values, `r = r.spend(…)`. Each earlier value still reads what it read before, so keep one when you need the debt at that time.
 
 Two pens against one debt. The broad pen stipples first and pays for what its nib covers. The fine pen then fills only the tone that the broad pen missed.
 
@@ -426,10 +437,10 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: {
   fine: pen({ width: mm(0.4), color: '#23252B' }),
 } }, (t) => {
   const tone = (x, y) => Math.max(0, Math.min(1, 1.2 - distance([x, y], [50, 50]) / 40));
-  const r = t.residual(tone, { spacing: mm(3) });
-  const broad = t.scatter(r, { spacing: mm(5) });
-  r.spend(broad, { width: mm(3) });
-  const fine = t.scatter(r, { spacing: mm(0.9) });
+  let r = t.residual(tone, { spacing: mm(3) });
+  const broad = t.scatter(r.field(), { spacing: mm(5) });
+  r = r.spend(broad, { width: t.len(mm(3)) });
+  const fine = t.scatter(r.field(), { spacing: mm(0.9) });
   return [dots(broad, { pen: 'broad' }), dots(fine, { pen: 'fine' })];
 });
 ```
@@ -440,7 +451,7 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: {
 
 <AutoTypeTable path="../occlude/src/spacefill.ts" name="SpacefillOpts" />
 
-One line that folds until the folds fill an area, as one pen-down stroke. It visits every cell of a divided square once. `spacing` is the finest cell. A `field` of tone, 0 to 1, divides a cell again where the tone asks for a finer cell. Tone 0 lifts the pen. `maxSpacing` caps the coarsest cell. Each vertex carries the `level` it stopped at. `area` takes a shape, a face, loops or a contour material.
+One line that folds until the folds fill an area. It visits every cell of a divided square once. The line is one stroke when the area is that square: a side of `spacing` times a power of the rule's `n`. Any other area breaks the stroke where cells fall outside it. `spacing` is the finest cell. A `field` of tone, 0 to 1, divides a cell again where the tone asks for a finer cell. Tone 0 lifts the pen. `maxSpacing` caps the coarsest cell. Each vertex carries the `level` it stopped at. `area` takes a shape, a face, loops or a contour material.
 
 `rule` is the fold as data: how a cell divides, the order of its children, and the turn each one takes. `hilbertRule` is the default. `peanoRule` and `meanderRule` divide in threes. A table that misses a cell refuses by name.
 
@@ -468,7 +479,7 @@ export default sketch({ aspect: [1, 1], seed: 21, pens: {
 } }, (t) => {
   const step = (z, c) => complex.add(complex.mul(z, z), c);
   const field = escape(step, { input: 'c', iterations: 60, bailout: 1e6 });
-  // The sheet as the c-plane: (64, 50) is c = −0.5, and 34 sheet units are one unit of c.
+  // The sheet as the c-plane: (64, 50) is c = 0, and 34 sheet units are one unit of c.
   const count = (x, y) => field((x - 64) / 34, (y - 50) / 34);
   return [
     strokes(t.isolines(count, { spacing: 1 }), { pen: 'fine' }),

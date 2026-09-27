@@ -63,26 +63,30 @@ rasters are implementation numbers. They are not tenants.
   filtered. A shape area is lowered by the toolkit, never by a pure
   kernel.
 - **One accessor protocol.** A geometry value says what it is by what it
-  answers: `contours()` for areas, `curves()` for chains, `points` for
-  positions. Every area consumer reads `contours()`, every chain consumer
-  `curves()`, every point consumer `points`; a consumer refuses a value
+  answers: `contours()` for areas, `curves` for chains (a property, rows
+  in walk order), `points` for positions. Every area consumer reads
+  `contours()`, every chain consumer `curves`, every point consumer
+  `points`; a consumer refuses a value
   that cannot answer, by name. The protocol is structural — no base class,
   no marker, nothing a value cannot already say honestly.
-- **A collection you hold is a property; one you compute is a call.**
-  `m.points`, `m.edges`, `cells.points`, `face.edges` are properties;
-  `m.faces()`, `m.curves()`, `cells.contours()`, `cells.boundaryEdges()`
-  are calls, because each makes a new collection. The rule is one rule for
-  2D and 3D.
+- **A thing you can read is a property, computed on first read.** What a
+  value has — its domains (`g.points`, `g.edges`, `g.curves`, `g.faces`),
+  a row's relations and derived columns (`p.adjacent`, `face.parent`,
+  `face.source`, `p.u`) — is a property, stored or derived, built the
+  first time it is read and kept on the immutable value, never before. A
+  call makes a new value or answers a question with arguments:
+  `g.move(…)`, `sel.adjacent()`, `sel.components()`, `face.contours()`.
+  The rule is one rule for 2D and 3D.
 - **A method stays in its world; a function crosses one.** Material to
-  material is a method (`m.thicken`, `m.warp`, `m.steps`); shape to
+  material is a method (`m.thicken`, `m.warp`, `m.move`); shape to
   material, material to ink, geometry to field are functions (`polygon`,
   `strokes`, `distanceTo`). Anything that needs paper, units or the seed
   is on the toolkit whatever world it stays in. `connect.*` is the one
   kept exception: a family of recipes reads better with its prefix.
 - **The frame rule.** Value methods exist only on resolved data-world
-  values (Material, Station, Selection, Face, contour records).
+  values (a material, a Selection, its rows, a Placement).
   Anything that needs the sketch frame — paper, units, a shape's own
-  transform — is a toolkit function. `station.place(...)` is right;
+  transform — is a toolkit function. `group(p.placement(), …)` is right;
   `.along()` or `.length` on `circle()` is not: `t.material(circle(…))`
   first.
 - **A shape is not geometry until the toolkit lowers it.** A shape needs
@@ -91,19 +95,22 @@ rasters are implementation numbers. They are not tenants.
   The two doors are `t.material` and `t.sample`; a pure kernel never
   lowers a shape, and a consumer handed one refuses by name and says
   which door to use.
-- **Identity is minted, kept and retired.** Every vertex and edge carries
-  an `id` — minted once, never reused, outside `attrs` so nothing
-  interpolates it. A split retires the parent and mints two children,
-  each keeping the parent's lineage root, which is how a face keeps its
-  columns across a subdivided wall. A view or a selection from an earlier
-  state is resolved by id, never by row: `sel.in(state)`, `cur.point(id)`,
-  and the step verbs take stale references and skip what is gone.
+- **Identity is internal; the value you hold is the name.** Every row
+  still has an identity — minted once, never reused, kept by the library
+  for relations and `source`, and a split still retires the
+  parent and keeps its lineage, which is how a face keeps its columns
+  across a subdivided wall. But a sketch never names an id: a point or
+  edge value (`point(…)`, `edge(…)`), a row view or a selection you hold
+  names its rows in any later state and in any write, and what is gone is
+  skipped. Access is by rule (`filter`, `near`, `pick`, a relation), never
+  by an id or a row number.
 - **Relations speak the mesh's words.** `p.adjacent` and `p.edges` for
   one vertex; `sel.adjacent()`, `sel.connected()`, `sel.components()` for
   a whole selection, the same three on points and on edges in 2D and 3D;
-  `points.near` for distance, which is a different question from
-  topology; `rows` to hand back rows the sketch worked out; `pairs` for a
-  relation between two selections. One meaning each, named: `sel.edges`
+  `points.near` for distance (nearest first), which is a different
+  question from topology; `rows` to hand back rows the sketch worked out;
+  `source` for the rows of the input a derived row came from. One meaning
+  each, named: `sel.edges`
   is the edges among the members and `sel.edges.adjacent()` the edges
   touching them.
 - **Drawing stays explicit.** `strokes`, `stroke`, `polygon` and `dots`
@@ -121,7 +128,8 @@ rasters are implementation numbers. They are not tenants.
 - **`origin` is the pivot.** `rotate` and `scale` pivot on `origin`
   (`[x, y]`, or `'center'` for the drawable's middle); on the user origin
   when it is unset. Scaling about the middle is an option, never a
-  compensating translate.
+  compensating translate. A value in space carries its own origin;
+  `rotate` and `scale` pivot on it, and `origin` overrides.
 - Wasm protocol changes (strides, flags, export signatures) land on both
   sides in the same commit. Buffer strides are documented at the top of
   `scene.rs`.
@@ -135,12 +143,11 @@ rasters are implementation numbers. They are not tenants.
   once per issue.
 - **When patches stack, stop and rearchitect.**
 - **Definition of done:** `pnpm check` — one line per gate: Rust tests, TS
-  tests, the library typecheck (`src` and `tools`), every docs example
-  rendering, the docs ink oracle against
+  tests, the library typecheck (`src`, `tools`, `test` and `bench`), the
+  studio typecheck, every docs example rendering, the docs ink oracle against
   `packages/occlude/test/fixtures/docs-ink.json`, the root build, and the
   wasm md5 match. Then commit/push. A DELIBERATE ink change re-saves that
-  baseline in the same commit, with the reason in the message; the test
-  suite and the studio are not typechecked yet (`check.mjs` says so). The
+  baseline in the same commit, with the reason in the message. The
   server serves dist per request, and reports its build id per request, so
   a REBUILD needs no restart; restart only for server.mjs / *-store.mjs
   changes (kill by PID — pkill aborts the shell). Ship with `pnpm ship --push` (`ship.mjs`):

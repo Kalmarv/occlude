@@ -1,9 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import {
-  circle, evalPrim, group, initOcclude, rect, render, sketch,
-} from '../src/index.js';
+import { circle, group, rect, sketch } from '../src/index.js';
+import { evalPrim, initOcclude, render } from '../src/host.js';
 import type { SketchDef, Tree } from '../src/index.js';
 
 beforeAll(async () => {
@@ -43,8 +42,8 @@ function sameInk(a: { frags: number; box: number[] }, b: { frags: number; box: n
 describe('origin: the pivot for rotate and scale', () => {
   it("scales about the drawable's centre, named as the point it is — exactly the ritual it replaces", () => {
     const s = 0.6;
-    const ritual = ink(sketch({}, (t) => group({ scale: s, translate: [t.cx * (1 - s), t.cy * (1 - s)] }, circle(30, 30, 12))));
-    sameInk(ink(sketch({}, (t) => group({ scale: s, origin: [t.cx, t.cy] }, circle(30, 30, 12)))), ritual);
+    const ritual = ink(sketch({}, (t) => group({ scale: s, translate: [t.bounds().cx * (1 - s), t.bounds().cy * (1 - s)] }, circle(30, 30, 12))));
+    sameInk(ink(sketch({}, (t) => group({ scale: s, origin: [t.bounds().cx, t.bounds().cy] }, circle(30, 30, 12)))), ritual);
   });
 
   it('means the same on a shape as on a group around it', () => {

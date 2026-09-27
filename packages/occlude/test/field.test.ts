@@ -3,11 +3,15 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  circle, compileSketch, deform, encodeScene, fill, group, initOcclude, mm, path, rect, render,
-  rotate, scale, sketch, stroke, translate, vectorField, strokes , type Material } from '../src/index.js';
+  circle, decimate, deform, fill, group, mm, path, rect, rotate, scale, sketch, stroke, translate, vectorField, wobble,
+  strokes, type Material,
+} from '../src/index.js';
+import { compileSketch, encodeScene, initOcclude, render } from '../src/host.js';
 import type { VectorFieldFn } from '../src/shapes.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
-import type { RenderOptions, SketchDef } from '../src/index.js';
+import type { SketchDef } from '../src/index.js';
+import type { RenderOptions } from '../src/host.js';
+import { xy, oneRing, rec } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -213,7 +217,7 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
       rect(10, 10, 80, 80, {
         stroke: false,
         fill: fill('hatch', { angle: 0, spacing: mm(1) }),
-        wobble: { amount: t.within(() => mm(0.3), circle(50, 50, 20)), wavelength: mm(3) },
+        modifiers: [wobble({ amount: t.within(() => mm(0.3), circle(50, 50, 20)), wavelength: mm(3) })],
       }),
     );
     const out = sq(def);
@@ -246,7 +250,7 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
     // erased. Rect B is the same rect under a 90° group: local -x now points
     // to paper -y, so its TOP half is erased (paper y grows downward).
     const half = (x: number) => (x < 0 ? 1 : 0);
-    const spec = { fill: fill('hatch', { angle: 90, spacing: mm(0.8) }), decimate: { fill: half, align: 'shape' as const } };
+    const spec = { fill: fill('hatch', { angle: 90, spacing: mm(0.8) }), modifiers: [decimate({ fill: half, align: 'shape' })] };
     const a = sq(sketch({ seed: 1 }, () => rect(20, 20, 30, 30, spec)));
     const b = sq(sketch({ seed: 1 }, () => group({ rotate: 90 }, rect(20, -60, 30, 30, spec))));
     const centre = (o: typeof a): [number, number] => {
@@ -284,7 +288,7 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
     const f = (x: number, y: number) => Math.hypot(x, y) < 5 ? 1 : 0;
     const exec = compileSketch(sketch({ seed: 1 }, (t) =>
       t.times(40, (k) => circle(5 + (k % 8) * 12, 5 + Math.floor(k / 8) * 12, 4, {
-        fill: fill('solid'), decimate: { fill: f, align: 'shape' },
+        fill: fill('solid'), modifiers: [decimate({ fill: f, align: 'shape' })],
       }))), SQ);
     const scene = encodeScene(exec);
     let grids = 0;
@@ -330,21 +334,21 @@ describe('t.material: any shape as chain material with its own vertices', () => 
       open = t.material(stroke({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
       return circle(0, 0, 1);
     }));
-    expect(circ!.curves()).toHaveLength(1);
+    expect(circ!.curves.map(rec)).toHaveLength(1);
     expect(circ!.n).toBeGreaterThan(50);
-    expect(circ!.closed).toBe(true);
-    for (const [x, y] of circ!.pts) expect(Math.hypot(x - 50, y - 25)).toBeCloseTo(15, 1);
+    expect(oneRing(circ!)).toBe(true);
+    for (const [x, y] of circ!.points.map(xy)) expect(Math.hypot(x - 50, y - 25)).toBeCloseTo(15, 1);
     expect(rc!.n).toBe(4);
-    const xs = rc!.pts.map((p) => p[0]);
-    const ys = rc!.pts.map((p) => p[1]);
+    const xs = rc!.points.map(xy).map((p) => p[0]);
+    const ys = rc!.points.map(xy).map((p) => p[1]);
     expect(Math.min(...xs)).toBeCloseTo(40, 6);
     expect(Math.max(...xs)).toBeCloseTo(60, 6);
     expect(Math.min(...ys)).toBeCloseTo(45, 6);
     expect(Math.max(...ys)).toBeCloseTo(55, 6);
     expect(open!.n).toBe(3);
-    expect(open!.closed).toBe(false);
-    expect(open!.pts[0]).toEqual([0, 0]);
-    expect(open!.pts[2]).toEqual([10, 10]);
+    expect(oneRing(open!)).toBe(false);
+    expect(open!.points.map(xy)[0]).toEqual([0, 0]);
+    expect(open!.points.map(xy)[2]).toEqual([10, 10]);
   });
 
   it('composes: distanceTo(t.material(circle)) is the circle\'s signed distance', () => {

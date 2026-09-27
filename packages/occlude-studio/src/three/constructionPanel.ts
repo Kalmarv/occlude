@@ -219,6 +219,7 @@ export function cameraSource(camera: Camera3): string {
   const vec = (v: readonly number[]) => `[${v.map(n).join(', ')}]`;
   const up = camera.up && !(camera.up[0] === 0 && camera.up[1] === 0 && camera.up[2] === 1) ? `, up: ${vec(camera.up)}` : '';
   if (camera.kind === 'orthographic') return `orthographic({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, span: ${n(camera.span)} })`;
-  if (camera.kind === 'oblique') return `oblique({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, shift: ${vec(camera.shift)}, fovDegrees: ${n(camera.fovDegrees)} })`;
+  // A shifted frame is perspective with a shift: one factory, one word.
+  if (camera.kind === 'oblique') return `perspective({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, shift: ${vec(camera.shift)}, fovDegrees: ${n(camera.fovDegrees)} })`;
   return `perspective({ eye: ${vec(camera.eye)}, target: ${vec(camera.target)}${up}, fovDegrees: ${n(camera.fovDegrees)} })`;
 }

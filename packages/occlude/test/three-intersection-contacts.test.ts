@@ -1,28 +1,29 @@
 import {describe,it,expect} from 'vitest';
 import {mesh,plane,box,sphere,cylinder,cone,torus} from 'occlude/3d';
-import {grid3} from '../src/three/geometry/model.js';
+import {gridSurface as grid3} from './helpers/surfaces.js';
 import {surfaceBinding3} from '../src/three/curves/network.js';
 import {intersectionContacts3,intersectionContactsAsync3} from '../src/three/curves/intersectionContacts.js';
 import {triangulation3} from '../src/three/geometry/triangulation.js';
 import {WorldIndex3} from '../src/three/geometry/bounds.js';
 import {runGeometryJob3} from '../src/three/geometry/job.js';
-const binding=(model:ReturnType<typeof plane>)=>surfaceBinding3(model.surface);
+import {surfaceOf} from '../src/three/geometry/value.js';
+const binding=(model:ReturnType<typeof plane>)=>surfaceBinding3(surfaceOf(model));
 describe('intersection spatial preparation',()=>{
  it('validates shared topology and retains neighbor/cache identity through motion',()=>{
-  const source=plane(2,2).subdivide(2),topology=triangulation3(source.surface);
-  expect(topology.componentCount).toBe(1);expect(topology.neighbors).toHaveLength(source.surface.triangles.length);
-  expect(triangulation3(source.displace(p=>[0,0,p.x*p.y]).surface)).toBe(topology);
-  const mirrored=triangulation3(source.scale([-1,1,1]).surface);expect(mirrored.componentCount).toBe(1);
+  const source=plane(2,2).subdivide(2),topology=triangulation3(surfaceOf(source));
+  expect(topology.componentCount).toBe(1);expect(topology.neighbors).toHaveLength(surfaceOf(source).triangles.length);
+  expect(triangulation3(surfaceOf(source.displace(p=>[0,0,p.x*p.y])))).toBe(topology);
+  const mirrored=triangulation3(surfaceOf(source.scale([-1,1,1])));expect(mirrored.componentCount).toBe(1);
   for(let i=0;i<topology.neighbors.length;i++)for(const neighbor of topology.neighbors[i])if(neighbor>=0)expect(topology.neighbors[neighbor]).toContain(i);
-  for(const model of [box(),sphere(),cylinder(),cone(),torus()])expect(triangulation3(model.surface).neighbors.every(row=>row.every(i=>i>=0))).toBe(true);
+  for(const model of [box(),sphere(),cylinder(),cone(),torus()])expect(triangulation3(surfaceOf(model)).neighbors.every(row=>row.every(i=>i>=0))).toBe(true);
  });
  it('rejects broken render triangles rather than silently repairing them',()=>{
-  const source=plane().surface,t=source.triangles[0];
+  const source=surfaceOf(plane()),t=source.triangles[0];
   expect(()=>triangulation3({...source,triangles:[t,t]})).toThrow('winding');
   expect(()=>triangulation3({...source,triangles:[t]})).toThrow('cover');
   expect(()=>triangulation3({...source,triangles:[{...t,vertices:[0,1,999]},source.triangles[1]]})).toThrow('invalid fixed triangle');
   const two=mesh([[0,0,0],[1,0,0],[0,1,0],[0,0,0],[-1,0,0],[0,-1,0]],[[0,1,2],[3,4,5]]);
-  expect(triangulation3(two.surface).componentCount).toBe(2);
+  expect(triangulation3(surfaceOf(two)).componentCount).toBe(2);
  });
  it('uses closed world bounds without welding tiny positive gaps',()=>{
   const index=runGeometryJob3(WorldIndex3.build([[0,0,0,1,1,0],[0,0,Number.MIN_VALUE,1,1,Number.MIN_VALUE]])).value;
@@ -45,7 +46,7 @@ describe('intersection spatial preparation',()=>{
  it('checks capacities even when the sources have been cached',()=>{
   const a=binding(plane()),b=binding(plane());intersectionContacts3(a,b);
   for(const options of [{maxInputTriangles:1},{maxInputPoints:1},{maxCandidates:0},{maxContacts:0},{maxContactPoints:0},{maxExactBytes:0},{maxCoordinateBits:0}])expect(()=>intersectionContacts3(a,b,options)).toThrow('budget');
-  const collapsed=surfaceBinding3(plane().surface,{id:'collapsed',transform:{translate:[1e16,0,0]}});expect(()=>intersectionContacts3(a,collapsed)).toThrow('degenerate');
+  const collapsed=surfaceBinding3(surfaceOf(plane()),{id:'collapsed',transform:{translate:[1e16,0,0]}});expect(()=>intersectionContacts3(a,collapsed)).toThrow('degenerate');
  });
  it('yields real tasks, observes cancellation, and agrees with synchronous contacts',async()=>{
   const a=surfaceBinding3(grid3(40,40,[4,4])),b=surfaceBinding3(grid3(40,40,[4,4])),controller=new AbortController();

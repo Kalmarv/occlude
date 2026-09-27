@@ -13,13 +13,16 @@
  * point; `demand` (written by settle) is a cell's integrated density
  * divided by the capacity one point carries at the given spacing, so 1 is
  * a full cell; a cell's mean density is `integral / area`, which
- * `faces().measure(field)` reports for any face.
+ * `faces.measure(field)` writes for any face.
  */
 
 import { Delaunay } from 'd3-delaunay';
 import { Material, material as makeMaterial, withinMaterial } from './material.js';
-import { numericLoops, type AreaInput } from './boundary.js';
-import { distanceTo } from './distance.js';
+import { carryLinks, linkRows } from './derivation.js';
+import { PointRows, rebuild } from './tables.js';
+import { Column, type AnyColumn } from './column.js';
+import { numericLoops, refuseShape, type AreaInput } from './boundary.js';
+import { distanceField } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
@@ -62,11 +65,9 @@ export interface RelaxOpts {
   iterations?: number;
   /** Weighting density (0…1; default uniform). */
   density?: FieldFn2;
-  /** Keep only what lies inside this area (default: the drawable, or the
-   * area a toolkit cloud was bounded by): the refinement runs over the
-   * area's box and the result is trimmed to the area afterwards, so a
-   * non-rectangular boundary thins the population near itself. A rectangle
-   * — `rect(…)`, `t.bounds()`, a grid cell — needs no trimming. */
+  /** The area the points relax in (default: the drawable, or the area a
+   * toolkit cloud was bounded by): the density is zero outside it, so each
+   * cell is read by its part inside the area. Every point is kept. */
   within?: AreaInput | ShapeValue;
   /** The density raster's cell, a length (default: the bounds' long side
    * / 256). */
@@ -89,10 +90,10 @@ export interface SettleOpts {
   /** The density raster's cell, a length (default: the bounds' long side
    * / 256). */
   step?: L;
-  /** Point attributes for each child a split inserts, merged over the
+  /** Point columns for each child a split inserts, merged over the
    * inherited ones (a copy of the parent's): a partial record of declared
    * columns, or a callback of the parent as it is when it splits (its
-   * position and attributes, `demand` included). `demand` is computed and
+   * position and columns, `demand` included). `demand` is computed and
    * cannot be given. */
   point?: Record<string, number> | ((parent: SettleParent) => Record<string, number>);
 }
@@ -165,17 +166,13 @@ export function accumulateCells(coords: Float64Array, raster: DensityRaster): { 
 
 const coordsOf = (m: Material): Float64Array => {
   const c = new Float64Array(m.n * 2);
+  const X = m.x;
+  const Y = m.y;
   for (let i = 0; i < m.n; i++) {
-    c[2 * i] = m.x[i];
-    c[2 * i + 1] = m.y[i];
+    c[2 * i] = X[i];
+    c[2 * i + 1] = Y[i];
   }
   return c;
-};
-
-const copyColumns = (cols: Readonly<Record<string, Float64Array>>): Record<string, Float64Array> => {
-  const out: Record<string, Float64Array> = {};
-  for (const k in cols) out[k] = Float64Array.from(cols[k]);
-  return out;
 };
 
 /** An area written as the four corners of its own box, each edge
@@ -203,17 +200,15 @@ function isAxisBox(loops: readonly (readonly (readonly [number, number])[])[], b
 
 /** What a `within` area asks of an operation: the box its raster and
  * sampling run over, and the loops to trim to afterwards (`null` when the
- * area IS its own box, where the result already lies inside). */
-/** The toolkit uses this too, for an operation whose cells are clipped to a
- * box (voronoi): a non-null `loops` means the area is not its own box. */
+ * area IS its own box, where the result already lies inside). The toolkit
+ * uses it too, for an operation whose cells are clipped to a box
+ * (voronoi): a non-null `loops` means the area is not its own box. */
 export function withinRegion(
   area: AreaInput | ShapeValue,
   who: string,
 ): { bounds: Bounds; loops: [number, number][][] | null } {
-  if (typeof area === 'object' && area !== null && '__occludeShape' in area) {
-    throw new Error(`${who}: a shape area is lowered by the toolkit (t.${who}), where the sketch frame is known — pass loops, a face or a material here`);
-  }
-  const loops = numericLoops(area, who);
+  refuseShape(area, who, `t.${who}`);
+  const loops = numericLoops(area as AreaInput, who);
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
@@ -243,7 +238,9 @@ function rasterStep(env: PointsEnv, opts: { step?: L }, word: string): number | 
 
 /**
  * Lloyd relaxation: each point moves to the density-weighted centroid of
- * its nearest-site cell within the bounds, `iterations` times. Count,
+ * its nearest-site cell within the area, `iterations` times. The density
+ * is zero outside the `within` area, so a cell's centroid is the centroid
+ * of the part of it that lies inside, and a point is never dropped. Count,
  * rows, edges and every declared column are kept; a point whose cell holds
  * no density stays where it is. Writes no computed column.
  */
@@ -253,7 +250,10 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
   const step = rasterStep(env, opts, 'relax');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax');
   const bounds = region?.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density ?? (() => 1), bounds, step, env.space, 'relax');
+  const density = opts.density ?? (() => 1);
+  // A box area is its own raster; any other area masks it.
+  const inside = region?.loops ? distanceField(region.loops) : null;
+  const raster = densityRaster(inside ? (x, y) => (inside(x, y) > 0 ? density(x, y) : 0) : density, bounds, step, env.space, 'relax');
   const coords = coordsOf(m);
   for (let it = 0; it < n && m.n > 0; it++) {
     const { w, cx, cy } = accumulateCells(coords, raster);
@@ -269,9 +269,9 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     x[p] = coords[2 * p];
     y[p] = coords[2 * p + 1];
   }
-  // Relaxing moves points; it makes and unmakes nothing.
-  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space });
-  return region?.loops ? withinMaterial(out, region.loops) : out;
+  // Relaxing moves points; it makes and unmakes nothing, so every row
+  // keeps what it answers as `source` and `u`.
+  return rebuild(m, { x: Column.of(x), y: Column.of(y) });
 }
 
 /**
@@ -284,8 +284,13 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
  * children copy their parent's (a copied value is duplicated, not shared
  * out) merged with `opts.point`, and `demand` is written for every point
  * of the result.
+ *
+ * Every point of the result knows the input point it descends from — a
+ * survivor its own, a child its parent's — as its `source`, a row of
+ * `origin.of` (the value the sketch passed: `origin.rows[i]` is where row
+ * `i` of `m` is in it; by default `m` itself).
  */
-export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): Material {
+export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts, origin: { of: Material; rows: ArrayLike<number> } = { of: m, rows: Int32Array.from({ length: m.n }, (_, i) => i) }): Material {
   if (m.edgeCount > 0) throw new Error(`settle: the input has ${m.edgeCount} edges — settling changes the point count, so it takes point-only material; extract the points first (m.points.extract())`);
   if (typeof opts?.density !== 'function') throw new Error('settle: { density } is required — the field the point count follows');
   if (opts.spacing === undefined) throw new Error('settle: { spacing } is required — it sets one point\'s capacity');
@@ -303,7 +308,9 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   // a full-demand hex cell at `spacing` holds. Cells above split, below die.
   const cap = ((spacingU * spacingU * 0.866) / (cw * cw)) * 1.0;
 
-  const names = m.attrNames.filter((name) => name !== 'demand');
+  // The numeric columns a child's record may set; every column of any kind
+  // comes down from the parent.
+  const names = Object.keys(m.attrs).filter((name) => name !== 'demand');
   const hook = opts.point;
   if (hook !== undefined && typeof hook !== 'function' && (typeof hook !== 'object' || hook === null)) throw new Error('settle: point must be a record of attributes or a callback of the parent');
   const checkOverride = (o: Record<string, number>): Record<string, number> => {
@@ -320,10 +327,11 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   // Overrides accumulated along a point's line of descent (null: pure inheritance).
   let over: (Record<string, number> | null)[] = Array.from({ length: m.n }, () => null);
   let demand = new Float64Array(m.n);
-  /** The parent as the hook sees it: current position, inherited and overridden attributes, demand. */
+  /** The parent as the hook sees it: current position, inherited and overridden columns, demand. */
+  const flats = names.map((name) => m.attrs[name]);
   const parentRecord = (p: number, x: number, y: number, d: number): SettleParent => {
     const r: Record<string, number> = { x, y };
-    for (const name of names) r[name] = m.attrs[name][parent[p]];
+    names.forEach((name, k) => { r[name] = flats[k][parent[p]]; });
     Object.assign(r, over[p]);
     r.demand = d;
     return Object.freeze(r) as SettleParent;
@@ -380,16 +388,32 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     x[k] = coords[2 * k];
     y[k] = coords[2 * k + 1];
   }
-  const attrs: Record<string, Float64Array> = {};
+  // A child is a new point with its parent's columns, of every kind — the
+  // ones its line of descent was given a value for overridden — and the
+  // demand its cell had.
+  const rows = new PointRows(m, 'settle');
+  for (let k = 0; k < count; k++) rows.copy(parent[k], x[k], y[k]);
+  const made = rows.done();
+  const attrs: Record<string, AnyColumn> = { ...made.attrs };
+  delete attrs.demand;
   for (const name of names) {
-    const src = m.attrs[name];
-    const col = new Float64Array(count);
-    for (let k = 0; k < count; k++) col[k] = over[k]?.[name] ?? src[parent[k]];
-    attrs[name] = col;
+    if (!over.some((o) => o !== null && name in o)) continue;
+    const col = (attrs[name] as Column).copy();
+    for (let k = 0; k < count; k++) {
+      const v = over[k]?.[name];
+      if (v !== undefined) col[k] = v;
+    }
+    attrs[name] = Column.of(col);
   }
-  attrs.demand = demand;
-  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {}, space: m.space });
-  return region?.loops ? withinMaterial(out, region.loops) : out;
+  attrs.demand = Column.of(demand);
+  const none = new Float64Array(0);
+  const out = rebuild(m, {
+    ...made, attrs,
+    edgeList: Column.of(new Uint32Array(0)), edgeAttrs: {}, edgeIds: Column.of(none), edgeRoots: Column.of(none), edgeKeys: null,
+  }, { edgeTransfers: {}, faceAttrs: {} });
+  linkRows(out, { points: { source: { of: origin.of, domain: 'points', rows: Int32Array.from(parent, (r) => origin.rows[r]) } } });
+  // The cut keeps the ids of what it keeps, and so their sources.
+  return region?.loops ? carryLinks(out, withinMaterial(out, region.loops)) : out;
 }
 
 /** Field-modulated Poisson-disk sampling (Bridson, variable radius): local
@@ -420,7 +444,7 @@ export function throwPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: T
   const attempts = opts.attempts ?? 1000;
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'throw');
   const { bounds } = region ?? env;
-  const inside = region?.loops ? distanceTo(region.loops) : null;
+  const inside = region?.loops ? distanceField(region.loops) : null;
   // Uniform per area OF THE SPACE, as `scatter` is: in a curved space a
   // landing is kept with the chance the space's density over its ceiling
   // on the box gives, so a coordinate cell that holds more of the space

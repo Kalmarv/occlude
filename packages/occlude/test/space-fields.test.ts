@@ -14,8 +14,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { Placement } from '../src/placement.js';
 import { toolkit } from './helpers/run.js';
 import { circle, distanceTo, line, space } from '../src/index.js';
+import { firstCell, xy } from './helpers/xy.js';
 
 const hyp = () => toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 45 }) });
 const sph = () => toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
@@ -29,12 +31,12 @@ describe('a circle is a boundary like any other', () => {
       // The loop the sketch draws is the sin/cos circle of the
       // coordinates, and the field is zero along it to the tolerance the
       // boundary was sampled at.
-      for (const p of t.material(circle(c[0], c[1], r)).pts) expect(Math.abs(f(p[0], p[1]))).toBeLessThan(0.02);
+      for (const p of t.material(circle(c[0], c[1], r)).points.map(xy)) expect(Math.abs(f(p[0], p[1]))).toBeLessThan(0.02);
       // Inside is positive and the deepest reading is at the middle;
       // outside is negative.
       expect(f(c[0], c[1])).toBeGreaterThan(0);
-      for (const p of t.material(circle(c[0], c[1], r * 0.5)).pts) expect(f(p[0], p[1])).toBeGreaterThan(0);
-      for (const p of t.material(circle(c[0], c[1], r * 1.5)).pts) expect(f(p[0], p[1])).toBeLessThan(0);
+      for (const p of t.material(circle(c[0], c[1], r * 0.5)).points.map(xy)) expect(f(p[0], p[1])).toBeGreaterThan(0);
+      for (const p of t.material(circle(c[0], c[1], r * 1.5)).points.map(xy)) expect(f(p[0], p[1])).toBeLessThan(0);
     }
   });
 
@@ -71,7 +73,7 @@ describe('a circle is a boundary like any other', () => {
 describe('an area is read as geodesics', () => {
   it('is zero on every edge of a tiling cell and positive inside it', () => {
     for (const t of [hyp(), sph()]) {
-      const { cell } = t.space.kind === 'hyperbolic' ? t.tiling(7, 3) : t.tiling(3, 5);
+      const cell = firstCell(t.space.kind === 'hyperbolic' ? t.tiling(7, 3) : t.tiling(3, 5));
       const f = t.distanceTo(cell);
       for (let i = 0; i < cell.length; i++) {
         const mid = t.space.geodesic(cell[i], cell[(i + 1) % cell.length], 0.5);
@@ -93,7 +95,9 @@ describe('an area is read as geodesics', () => {
 
   it('is negative outside, and the sign follows the winding', () => {
     const t = hyp();
-    const { cell, placements } = t.tiling(7, 3, { depth: 1 });
+    const tiles = t.tiling(7, 3, { depth: 1 });
+    const cell = firstCell(tiles);
+    const placements = tiles.faces.map((f) => f.source as Placement);
     const f = t.distanceTo(cell);
     // The seat of a neighbouring copy is outside the cell.
     for (const place of placements.slice(1)) {

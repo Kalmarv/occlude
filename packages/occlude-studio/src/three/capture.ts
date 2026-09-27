@@ -1,4 +1,4 @@
-import type { Execution } from 'occlude';
+import type { Execution } from 'occlude/host';
 import type { CameraFrame3 } from 'occlude/src/three/camera.js';
 import type { SurfaceObject3, WireObject3 } from 'occlude/src/three/features/snapshot.js';
 import type {SurfaceCurveNetwork3} from 'occlude/src/three/curves/network.js';

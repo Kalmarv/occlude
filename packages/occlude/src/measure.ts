@@ -1,9 +1,10 @@
 /**
- * Measurements over faces: geometric area and centroid from the contours
- * (holes respected), and, given a scalar field, its integral, mean and
- * density-weighted centre over each face by a midpoint rule on a square
- * raster. A measurement is a frozen result about its exact input faces —
- * looked up by face with ownership checked — and never geometry.
+ * Measurements over faces, written as FACE COLUMNS: `faces.measure(field?)`
+ * answers the geometry whose measured faces carry them, so a sketch reads
+ * `f.mean` or `f.inscribedRadius` on the face itself. The shape of each
+ * face, exact from its contours (holes respected), and, given a scalar
+ * field, its integral, mean and density-weighted centre by a midpoint rule
+ * on a square raster. Area and centroid are the face's own words already.
  *
  * Approximation: the raster has cells of side `step`, a length in the
  * material's units (default: the long side of `bounds` — the measured
@@ -17,15 +18,18 @@
  *
  * `mean` is the average of the samples inside the face, so it always lies
  * within the field's own range; `integral` is the raster's ∫field dA over
- * the face. A face that caught no sample has no mean.
+ * the face, and `samples` how many raster samples fell inside it. A face
+ * that caught no sample has no mean: NaN.
  *
- * A density-weighted centre needs a nonnegative field with positive total
- * over the face; with any negative sample, or zero total, it is null.
- * Signed fields still have an integral and a mean.
+ * A density-weighted centre (`weightedX`, `weightedY`) needs a nonnegative
+ * field with positive total over the face; with any negative sample, or
+ * zero total, both are NaN. Signed fields still have an integral and a
+ * mean.
  *
- * Shape columns — `orientation`, `elongation`, `inscribedCentre` and
- * `inscribedRadius` — are exact from the contours and need no field, so a
- * measurement with no field still carries them. Orientation is the
+ * Shape columns — `orientation`, `elongation`, and the inscribed circle's
+ * `inscribedX`, `inscribedY` and `inscribedRadius` — are exact from the
+ * contours and need no field, so a measurement with no field still writes
+ * them. Orientation is the
  * principal axis of the face's area second moments, in radians like every
  * other computed angle; elongation says how much to trust it (0 for a disc
  * or a square, approaching 1 for a sliver). The inscribed circle is the
@@ -42,58 +46,22 @@
  * the field's `integral`, `mean` and `weightedCentroid` weigh every sample
  * by the space's `density`; `perimeter` is each wall's length in the
  * space; the inscribed circle is the largest circle OF THE SPACE inside
- * the face, its radius a length of the space. `centroid`, `orientation`
- * and `elongation` stay chart readings of the coordinates.
+ * the face, its radius a length of the space. `orientation` and
+ * `elongation` stay chart readings of the coordinates.
  */
 
-import type { Face, Faces } from './faces.js';
+import type { Face, FaceTable } from './faces.js';
 import type { Bounds } from './points.js';
 import type { Space } from './space.js';
-import { ownedBy, viewKind } from './material.js';
 import type { IsoContour } from './isolines.js';
 import { distanceTo } from './distance.js';
 
-/** One face's measurement. Records and their coordinate tuples are frozen. */
-export interface FaceMeasure {
-  readonly face: Face;
-  /** Geometric area, holes subtracted (the face's own `area`). */
-  readonly area: number;
-  /** Geometric area centroid, holes respected. */
-  readonly centroid: readonly [number, number];
-  /** ∫ field dA over the face; NaN when no field was given. */
-  readonly integral: number;
-  /** integral / area; NaN when no field was given. */
-  readonly mean: number;
-  /** Density-weighted centre, or null when the density contract fails. */
-  readonly weightedCentroid: readonly [number, number] | null;
-  /** How many raster samples fell inside the face (0 for none). */
-  readonly samples: number;
-  /** Principal axis of the face's area, in radians; 0 when the area is 0. */
-  readonly orientation: number;
-  /** 1 − minor/major of the equivalent ellipse: 0 is isotropic, 1 a sliver. */
-  readonly elongation: number;
-  /** Centre of the largest circle inside the face, holes respected. */
-  readonly inscribedCentre: readonly [number, number];
-  /** Its radius; 0 for a face with no interior. */
-  readonly inscribedRadius: number;
-}
-
-/** A finished record: the tuples and the record itself frozen. */
-function freezeMeasure(r: Draft): FaceMeasure {
-  Object.freeze(r.centroid);
-  Object.freeze(r.inscribedCentre);
-  if (r.weightedCentroid) Object.freeze(r.weightedCentroid);
-  return Object.freeze(r);
-}
-
-/** A measurement under construction: the same fields, still writable. */
+/** One face's measurement while it is worked out. */
 type Draft = {
   face: Face;
-  area: number;
-  centroid: [number, number];
   integral: number;
   mean: number;
-  weightedCentroid: [number, number] | null;
+  weighted: [number, number] | null;
   samples: number;
   orientation: number;
   elongation: number;
@@ -406,7 +374,6 @@ function densityOver(space: Space, b: { x: number; y: number; w: number; h: numb
   return top;
 }
 
-/** Even-odd containment over a face's contours. */
 /** The x positions where the face's contours cross the horizontal line at
  * `y`, sorted. Even-odd: a point is inside the face exactly when an odd
  * number of crossings lie strictly to its right, i.e. when it sits in
@@ -426,42 +393,11 @@ function rowCrossings(f: Face, y: number, out: number[]): number[] {
   return out;
 }
 
-export class FaceMeasurements implements Iterable<FaceMeasure> {
-  readonly source: Faces;
-  readonly results: readonly FaceMeasure[];
-  private readonly byIndex: Map<number, FaceMeasure>;
-
-  /** @internal Use `faces.measure(...)`. */
-  constructor(source: Faces, results: FaceMeasure[]) {
-    this.source = source;
-    this.results = Object.freeze(results);
-    this.byIndex = new Map(results.map((r) => [r.face.index, r]));
-    Object.freeze(this);
-  }
-
-  get length(): number {
-    return this.results.length;
-  }
-
-  [Symbol.iterator](): Iterator<FaceMeasure> {
-    return this.results[Symbol.iterator]();
-  }
-
-  map<T>(fn: (r: FaceMeasure, i: number) => T): T[] {
-    return this.results.map(fn);
-  }
-
-  /** The measurement of `face`, which must be a view of the measured collection and among the measured faces. */
-  forFace(face: Face): FaceMeasure {
-    if (viewKind(face) !== 'face') throw new Error('measure.forFace: expected a face view');
-    if (!ownedBy(face, this.source)) throw new Error('measure.forFace: that face belongs to another face collection — measure the collection it came from');
-    const r = this.byIndex.get(face.index);
-    if (!r) throw new Error(`measure.forFace: face ${face.index} was not among the measured faces`);
-    return r;
-  }
-}
-
-export function measureFaces(source: Faces, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): FaceMeasurements {
+/**
+ * @internal The measurement of `members`, faces of `source`, as face
+ * columns by position in `members`: what `faces.measure` writes.
+ */
+export function measureFaces(source: FaceTable, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): Record<string, Float64Array> {
   if ('resolution' in opts) throw new Error('measure: resolution is now step — the raster cell, a length in the material\'s units');
   if (opts.step !== undefined && !(typeof opts.step === 'number' && Number.isFinite(opts.step) && opts.step > 0)) {
     throw new Error(`measure: step must be a positive finite number in the material's units, got ${String(opts.step)} — resolve a length such as mm() with t.len`);
@@ -469,22 +405,21 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
   const space = curvedSpaceOf(source.source.space);
   // Geometry first: exact from the contours.
   const results: Draft[] = members.map((face) => {
-    let a = 0;
-    let mx = 0;
-    let my = 0;
-    for (const c of face.contours()) {
-      const m = contourMoment(c);
-      a += m.a;
-      mx += m.a * m.cx;
-      my += m.a * m.cy;
-    }
-    const centroid: [number, number] = a !== 0 ? [mx / a, my / a] : [NaN, NaN];
     const axis = principalAxis(face);
     const slack = opts.precision ?? Math.hypot(face.bounds.w, face.bounds.h) / 4096;
     const circle = inscribedCircle(face, slack, space);
-    return { face, area: face.area, centroid, integral: NaN, mean: NaN, weightedCentroid: null, samples: 0, orientation: axis.orientation, elongation: axis.elongation, inscribedCentre: circle.centre, inscribedRadius: circle.radius };
+    return { face, integral: NaN, mean: NaN, weighted: null, samples: 0, orientation: axis.orientation, elongation: axis.elongation, inscribedCentre: circle.centre, inscribedRadius: circle.radius };
   });
-  if (!field || members.length === 0) return new FaceMeasurements(source, results.map(freezeMeasure));
+  const column = (of: (r: Draft) => number): Float64Array => Float64Array.from(results, of);
+  const shape: Record<string, Float64Array> = {
+    orientation: column((r) => r.orientation),
+    elongation: column((r) => r.elongation),
+    inscribedX: column((r) => r.inscribedCentre[0]),
+    inscribedY: column((r) => r.inscribedCentre[1]),
+    inscribedRadius: column((r) => r.inscribedRadius),
+  };
+  if (!field) return shape;
+  if (members.length === 0) return { ...shape, integral: column(() => NaN), mean: column(() => NaN), samples: column(() => 0), weightedX: column(() => NaN), weightedY: column(() => NaN) };
   // The raster.
   let b = opts.bounds;
   if (!b) {
@@ -568,8 +503,15 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     // inside that range, converges to the same value as the raster refines,
     // and makes a face that caught no sample NaN — absent — rather than 0.
     r.mean = samples > 0 ? integral / (space ? weight : samples) : NaN;
-    r.weightedCentroid = !negative && integral > 0 ? [wx / integral, wy / integral] : null;
+    r.weighted = !negative && integral > 0 ? [wx / integral, wy / integral] : null;
     r.samples = samples;
   }
-  return new FaceMeasurements(source, results.map(freezeMeasure));
+  return {
+    ...shape,
+    integral: column((r) => r.integral),
+    mean: column((r) => r.mean),
+    samples: column((r) => r.samples),
+    weightedX: column((r) => (r.weighted ? r.weighted[0] : NaN)),
+    weightedY: column((r) => (r.weighted ? r.weighted[1] : NaN)),
+  };
 }

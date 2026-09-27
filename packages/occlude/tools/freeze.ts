@@ -27,13 +27,13 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { type PenDef, type SketchDef } from '../src/index.js';
 import {
-  DEFAULT_PAPERS, DEFAULT_PENS, PAPERS,
-  encodePlanBuffer, hashPlan, initOcclude, isSketch, isSketchAsync, liveExampleToJs,
-  makePlan, planBuffer, planSvg, planToolpath, renderAsync, resolveDraw, selectAll,
-  type AsyncSketchDef, type EstimateOpts, type LiftMap, type PaperDef, type PenDef,
-  type PenTiming, type PlanSelection, type PlanSettings, type SettlePoint, type SketchDef,
-} from '../src/index.js';
+  DEFAULT_PAPERS, DEFAULT_PENS, PAPERS, encodePlanBuffer, hashPlan, initOcclude, isSketch,
+  liveExampleToJs, makePlan, planBuffer, planSvg, planToolpath, renderAsync,
+  resolveDraw, selectAll, type EstimateOpts, type LiftMap, type PaperDef, type PenTiming,
+  type PlanSelection, type PlanSettings, type SettlePoint,
+} from '../src/host.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
 import { requireFor, seedArg } from './inputs.js';
@@ -202,8 +202,7 @@ const source = readFileSync(sketchPath, 'utf8');
 const js = liveExampleToJs(stripTypeScriptTypes(source, { mode: 'strip' }));
 const module = { exports: {} as Record<string, unknown> };
 new Function('require', 'exports', 'module', js)(requireFor(pens, papers), module.exports, module);
-const isDefinition = (v: unknown): v is SketchDef | AsyncSketchDef => isSketch(v) || isSketchAsync(v);
-const def = (isDefinition(module.exports.default) ? module.exports.default : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
+const def = (isSketch(module.exports.default) ? module.exports.default : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
 if (!def) throw new Error(`${sketchPath}: no sketch exported`);
 
 const sheet = sheetOf(paperName, papers);

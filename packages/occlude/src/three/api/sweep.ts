@@ -1,15 +1,19 @@
+import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
-import {Mesh,CurveGeometry,emptyMesh,evaluate,type PointRow,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,derived,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {evaluate,type Field} from './columns.js';
+import {surfaceOf} from '../geometry/value.js';
 import {sampleValue} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import {profileCurve} from './curves.js';
+import type {Material,Vertex} from '../../material.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SweepOptions<A extends Attributes3={}> extends GeometryOptions,ConstructionBudget {
   /** World direction for the profile's initial +X, projected off the tangent. */
   readonly normal?:Vec3;
-  readonly scale?:Field<PointRow<A>,number>;
+  readonly scale?:Field<Vertex,number>;
   /** Total twist in degrees; closed paths require whole turns. */
   readonly twist?:number;
   /** Close a closed profile at the two ends of an open path. Default false. */
@@ -31,10 +35,10 @@ function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
 /** Carry an XY profile along an unbranched 3D path using transported frames.
  * The profile (and the path) may be a 2D chain, read in XY at z = 0.
  * Closed paths distribute frame-closure twist by arc length. */
-export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(input:CurveGeometry<P,E>|{curves():unknown},along:CurveGeometry<A,B>|{curves():unknown},options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV> {
+export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(input:Material|{readonly curves:unknown}|Curve2,along:Material|{readonly curves:unknown}|Curve2,options:SweepOptions<A>={}):Material {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('sweep options must be an object');
-  const profile=profileCurve(input,'xy','sweep') as CurveGeometry<P,E>,path=profileCurve(along,'xy','sweep path') as CurveGeometry<A,B>;
-  const section=curvePath(profile),route=curvePath(path),shape=profile.surface,source=path.surface;
+  const profile=profileCurve(input,'xy','sweep') as Material,path=profileCurve(along,'xy','sweep path') as Material;
+  const section=curvePath(profile),route=curvePath(path),shape=surfaceOf(profile),source=surfaceOf(path);
   // Nothing to carry, or nowhere to carry it: an empty sweep, not a failure.
   if(!section.edges.length||!route.edges.length)return emptyMesh(options);
   const count=route.points.length,width=section.points.length,caps=options.caps===true&&!route.closed;
@@ -62,7 +66,7 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
   // A normal lying along the tangent names no direction in the section plane;
   // the automatic choice below is as good as any other.
   const automatic=()=>{const axis=[0,1,2].sort((a,b)=>Math.abs(tangents[0][a])-Math.abs(tangents[0][b]))[0];return perpendicular([axis===0?1:0,axis===1?1:0,axis===2?1:0],tangents[0]);};
-  if(options.normal){finite3(options.normal);start=Math.hypot(...cross3(options.normal,tangents[0]))===0?automatic():perpendicular(options.normal,tangents[0]);}
+  if(options.normal){finite3(options.normal,'sweep normal');start=Math.hypot(...cross3(options.normal,tangents[0]))===0?automatic():perpendicular(options.normal,tangents[0]);}
   else start=automatic();
   const normals:Vec3[]=[start];for(let i=1;i<count;i++)normals.push(transport(normals[i-1],tangents[i-1],tangents[i]));
   let closure=0;
@@ -70,26 +74,26 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
   // A section the scale field collapses (zero, or a value it could not answer)
   // contributes no width at that point; the sweep still runs and the triangles
   // that collapse there are dropped below.
-  const rows=path.points.map(p=>p),scales=route.points.map(i=>Math.max(0,sampleValue(evaluate(options.scale??1,rows[i]),0)));
+  const rows=path.points.map(p=>p as Vertex),scales=route.points.map(i=>Math.max(0,sampleValue(evaluate(options.scale??1,rows[i]),0)));
   const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],triangles:SurfaceTriangle3[]=[];
   for(let ring=0;ring<count;ring++){
     const normal=rotate(normals[ring],tangents[ring],(closure+twist*Math.PI/180)*distances[ring]/length),binormal=unit3(cross3(tangents[ring],normal)),pathPoint=source.points[route.points[ring]];
     for(const index of section.points){
       const p=shape.points[index],[x,y,z]=p.position;
-      const position=add3(centers[ring],add3(add3(mul3(normal,x*scales[ring]),mul3(binormal,y*scales[ring])),mul3(tangents[ring],z*scales[ring])));finite3(position);
-      points.push({id:JSON.stringify(['sweep',p.id,pathPoint.id]),position,attributes:{...pathPoint.attributes,...p.attributes},provenance:{operation:'sweep',parents:[p.id,pathPoint.id]}});
+      const position=add3(centers[ring],add3(add3(mul3(normal,x*scales[ring]),mul3(binormal,y*scales[ring])),mul3(tangents[ring],z*scales[ring])));finite3(position,'sweep');
+      points.push({id:JSON.stringify(['sweep',p.id,pathPoint.id]),position,attributes:{...pathPoint.attributes,...p.attributes},provenance:{operation:'sweep',parents:[p.id,pathPoint.id],inputs:[0,1]}});
     }
   }
   const index=(ring:number,vertex:number)=>(ring%count)*width+vertex%width;
   for(let ring=0;ring<route.edges.length;ring++)for(let edge=0;edge<section.edges.length;edge++){
     const a=index(ring,edge),b=index(ring,edge+1),c=index(ring+1,edge+1),d=index(ring+1,edge),profileEdge=shape.edges[section.edges[edge]],pathEdge=source.edges[route.edges[ring]],face=faces.length;
-    faces.push({id:JSON.stringify(['sweep',profileEdge.id,pathEdge.id]),vertices:[a,b,c,d],attributes:{...pathEdge.attributes,...profileEdge.attributes},provenance:{operation:'sweep',parents:[profileEdge.id,pathEdge.id]}});
+    faces.push({id:JSON.stringify(['sweep',profileEdge.id,pathEdge.id]),vertices:[a,b,c,d],attributes:{...pathEdge.attributes,...profileEdge.attributes},provenance:{operation:'sweep',parents:[profileEdge.id,pathEdge.id],inputs:[0,1]}});
     triangles.push({face,vertices:[a,b,c]},{face,vertices:[a,c,d]});
   }
   if(caps)for(const ring of [0,count-1]){
     const boundary=Array.from({length:width},(_,i)=>index(ring,i));if(ring===0)boundary.reverse();
     const cap=surface3(boundary.map(i=>points[i].position),[boundary.map((_,i)=>i)]),face=faces.length;
-    faces.push({id:JSON.stringify(['sweep','cap',ring===0?'start':'end']),vertices:boundary,attributes:{},provenance:{operation:'sweep',parents:section.edges.map(i=>shape.edges[i].id)}});
+    faces.push({id:JSON.stringify(['sweep','cap',ring===0?'start':'end']),vertices:boundary,attributes:{},provenance:{operation:'sweep',parents:section.edges.map(i=>shape.edges[i].id),inputs:section.edges.map(()=>0)}});
     for(const t of cap.triangles)triangles.push({face,vertices:t.vertices.map(i=>boundary[i]) as [number,number,number]});
   }
   // A triangle with no area draws nothing: drop it and keep the rest of the
@@ -107,5 +111,5 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     const uv:readonly (readonly [number,number])[]=[[u[edge],v[ring]],[u[edge+1],v[ring]],[u[edge+1],v[ring+1]],[u[edge],v[ring+1]]];
     return {uv:uv[c],chart:'side'};
   });
-  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV>(surface,options);
+  return geometry3(surface,{...options,derived:derived('sweep',input as object,along as object)});
 }

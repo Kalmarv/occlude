@@ -93,6 +93,7 @@ export function globalTrigger(path: string, change?: Pick<Change, 'added'>): str
   // vite's transform reads the nearest tsconfig.json; tsconfig.check.json is the typecheck's alone
   if (/(^|\/)tsconfig\.json$/.test(path)) return 'a tsconfig';
   if (path === `${SRC}index.ts`) return 'the library surface';
+  if (path === `${SRC}host.ts`) return 'the host surface';
   if (path === WORKER_ENTRY) return 'the classifier worker entry (a run at one worker never enters it)';
   if (change?.added && path.startsWith(SRC) && /\.[cm]?[jt]sx?$/.test(path)) return 'a new src module';
   return null;

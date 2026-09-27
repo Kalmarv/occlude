@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { circle, rect, fill, mm, mask, clip, dash, decimate, modify, sketch, render, plan, planToolpath, selectAll, initOcclude, evalPrim, planSvg, planGcode } from '../src/index.js';
+import { circle, rect, fill, mm, mask, clip, dash, decimate, sketch } from '../src/index.js';
+import {
+  render, plan, planToolpath, selectAll, initOcclude, evalPrim, planSvg, planGcode,
+} from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -108,7 +111,7 @@ it('constructs islands before generating and respects nested clips', async () =>
 
 it('does not heal intentional dash or decimation breaks', async () => {
   for (const modifier of [dash(mm(1),mm(0.1)),decimate({fill:0.25})]) {
-    const result=render(sketch({aspect:[1,1],seed:42},()=>modify([modifier],circle(50,50,15,{stroke:false,fill:fill('contour')}))),{paper:'Square20'});
+    const result=render(sketch({aspect:[1,1],seed:42},()=>circle(50,50,15,{stroke:false,fill:fill('contour'),modifiers:[modifier]})),{paper:'Square20'});
     const normal=await plan(result);
     const unbridged=await plan(result,{bridge:false});
     expect(normal.chains.length).toBeGreaterThan(2);
@@ -128,7 +131,7 @@ it('uses the fill pen independently and preserves sub-nib remnants', async () =>
 it('preserves displacement outside the source consistently across fill types', async () => {
   const {wobble}=await import('../src/index.js');
   for (const kind of ['solid', 'hatch', 'contour']) {
-    const r=render(sketch({aspect:[1,1],seed:42},()=>wobble(mm(2),circle(50,50,10,{stroke:false,fill:fill(kind)}))),{paper:'Square20'});
+    const r=render(sketch({aspect:[1,1],seed:42},()=>circle(50,50,10,{stroke:false,fill:fill(kind),modifiers:[wobble(mm(2))]})),{paper:'Square20'});
     const p=await plan(r);
     const distances=p.chains.flatMap(c=>c.prims.flatMap(prim=>Array.from({length:9},(_,i)=>{
       const [x,y]=evalPrim(prim,i/8); return Math.hypot(x-100,y-100);
@@ -168,7 +171,7 @@ it.each([true,false])('covers an attached sub-nib finger with connectors=%s in t
 it('handles mirrored, nonuniformly scaled cubic outlines and pre-smoothing', async () => {
   const {path,group,smooth}=await import('../src/index.js');
   const source=path().moveTo(25,30).bezierTo(25,5,80,20,75,50).bezierTo(90,85,20,85,25,30).close().build({stroke:false,fill:fill('contour')});
-  const def=sketch({aspect:[1,1],seed:42},()=>group({origin:[50,50],scale:[-0.8,1.1],rotate:17},smooth(1,source)));
+  const def=sketch({aspect:[1,1],seed:42},()=>group({origin:[50,50],scale:[-0.8,1.1],rotate:17},group({modifiers:[smooth(1)]},source)));
   const a=render(def,{paper:'Square20'}),b=render(def,{paper:'Square20'});
   expect(a.frags.length).toBeGreaterThan(0);
   expect(Array.from(a.raw.prims).every(Number.isFinite)).toBe(true);
@@ -230,7 +233,7 @@ it('does not collapse a short inset loop into a tap that loses its footprint', a
 it('keeps an intact duplicate outline after decimating a contour-filled shape', async () => {
   for (const fraction of [0.3, 1]) {
     const result = render(sketch({aspect:[1,1],seed:42}, () => [
-      decimate(fraction, rect(20,20,60,60,{fill:fill('contour')})),
+      rect(20,20,60,60,{fill:fill('contour'),modifiers:[decimate(fraction)]}),
       rect(20,20,60,60),
     ]), {paper:'Square20'});
     const ordered = await plan(result, {bridge:false});
@@ -248,7 +251,7 @@ it('keeps an intact duplicate outline after decimating a contour-filled shape', 
 
 
 it.each([0.38, 0.4, 0.45, 1.0])('renders the recursive variable-width boundary at %f mm with continuous decoded runs', async (width) => {
-  const { DEFAULT_PENS } = await import('../src/index.js');
+  const { DEFAULT_PENS } = await import('../src/host.js');
   const { default: fixture } = await import('../bench/fixtures/thicken-contour-residual.js');
   const library = DEFAULT_PENS.map(p => ({ ...p, width }));
   {

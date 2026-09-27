@@ -7,7 +7,7 @@
  * background worker at the studio's settings, saves the PNG back, and
  * repaints the box — one at a time, lowest priority, never blocking.
  */
-import { liveExampleToJs } from 'occlude';
+import { liveExampleToJs } from 'occlude/host';
 
 import { RenderClient } from './workerClient.js';
 import { loadPens, loadSettings, loadPapers, sheetOf } from './store.js';

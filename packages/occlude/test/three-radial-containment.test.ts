@@ -32,23 +32,21 @@ describe('radial provenance', () => {
     expect(plane(2).radialCentre).toBeUndefined();
   });
 
-  it('moves with translate, rotate and scale, and is kept by displace and style', () => {
+  it('moves with translate, rotate and scale, and is kept by displace and a write', () => {
     const ball = geodesic(1, { frequency: 3 });
     expect(ball.translate([1, 2, 3]).radialCentre).toEqual([1, 2, 3]);
     expect(ball.scale(0.5).radialCentre).toEqual([0, 0, 0]);
-    expect(ball.translate([2, 0, 0]).scale(0.5, [0, 0, 0]).radialCentre).toEqual([1, 0, 0]);
+    expect(ball.translate([2, 0, 0]).scale(0.5, { origin: [0, 0, 0] }).radialCentre).toEqual([1, 0, 0]);
     expect(ball.translate([2, 0, 0]).rotate([0, 0, 180], [0, 0, 0]).radialCentre![0]).toBeCloseTo(-2, 12);
     // A displacement in any direction keeps the record, because radiality is
     // re-proved from the triangles and never assumed.
     expect(ball.displace(() => [0.1, 0, 0]).radialCentre).toEqual([0, 0, 0]);
-    expect(ball.style({ creaseAngle: 180 }).radialCentre).toEqual([0, 0, 0]);
-    expect(ball.withKey('ball').radialCentre).toEqual([0, 0, 0]);
+    expect(ball.points.set('z', (p) => p.z + 0.1).faces.set('k', 1).radialCentre).toEqual([0, 0, 0]);
   });
 
   it('is dropped by an edit that can move the shell off its centre', () => {
     const ball = geodesic(1, { frequency: 3 });
     expect(ball.subdivide(1).radialCentre).toBeUndefined();
-    expect(ball.steps(1, { move: () => [0, 0, 0] as Vec3 }).radialCentre).toBeUndefined();
   });
 
   it('re-proves radiality from the triangles, whatever the record says', () => {
@@ -73,7 +71,7 @@ describe('the containment certificate', () => {
   const globe = () => {
     const base = geodesic(1, { frequency: [5, 5] }).dual();
     const water = base.scale(0.99);
-    const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04).style({ creaseAngle: 180 });
+    const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04);
     const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
     return view([water, terrain, levels], {
       camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),

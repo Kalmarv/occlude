@@ -46,10 +46,12 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
+import { chainsOf } from './curves.js';
+import { inherits } from './space.js';
 
 export function envelope(m: Material): Material {
   const src = makeMaterial(m);
-  const curves = src.curves();
+  const curves = chainsOf(src);
   const chains = curves.map((c) => {
     const pts = c.pts.map(([x, y]) => [x, y] as [number, number]);
     // A closed member's last segment returns to its first point.
@@ -57,7 +59,7 @@ export function envelope(m: Material): Material {
   });
   // One curve has no neighbour to meet, so there is no envelope to draw:
   // the family is empty until the second member arrives.
-  if (chains.length < 2) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
+  if (chains.length < 2) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), inherits(src));
 
   const side = (ax: number, ay: number, bx: number, by: number, px: number, py: number): number =>
     (bx - ax) * (py - ay) - (by - ay) * (px - ax);
@@ -112,5 +114,5 @@ export function envelope(m: Material): Material {
     open = next;
   }
 
-  return new Material(Float64Array.from(xs), Float64Array.from(ys), { member: Float64Array.from(member) }, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: {}, transfers: { member: 'nearest' }, edgeTransfers: {}, space: m.space });
+  return new Material(Float64Array.from(xs), Float64Array.from(ys), { member: Float64Array.from(member) }, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: {}, transfers: { member: 'nearest' }, edgeTransfers: {}, ...inherits(src) });
 }

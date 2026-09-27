@@ -5,7 +5,7 @@
  * DOM module renders this; tests exercise it directly.
  */
 
-import type { InspectionEntry, InspectionPayload } from 'occlude';
+import type { InspectionEntry, InspectionPayload } from 'occlude/host';
 
 /** A column's displayed range, from its finite values only. */
 export type ColumnRange =

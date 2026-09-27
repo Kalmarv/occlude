@@ -64,7 +64,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [ngon(32, 50, 6, 26, { fill: fi
 
 <AutoTypeTable path="../occlude/src/fillModule.ts" name="FillRegion" />
 
-A fill is a function of the region: `(region, ctx) => strokes`. `region.bbox` is the bounding box in millimetres, `region.contains(x, y)` the point test, and `ctx.rnd()` the seeded random stream. `ctx.toUnits(p)` changes a paper point into the sketch point at that position, in drawable units. `ctx.toPaper(p)` changes it back. Use them to read a field of the sketch. It runs during the render, for that one shape, and returns strokes in paper millimetres as records: `{ type: 'line', x1, y1, x2, y2 }`, `{ type: 'arc', cx, cy, r, start, sweep }`, `{ type: 'cubic', … }` or `{ type: 'polyline', pts }`. The engine clips them to the region and occludes them like every other mark. Use `ctx.rnd()`, not `Math.random()`, so the fill follows the seed.
+A fill is a function of the region: `(region, ctx) => strokes`. `region.bbox` is the bounding box in millimetres, `region.contains(x, y)` the point test, and `ctx.rnd()` the seeded random stream. `ctx.toUnits(p)` changes a paper point into the sketch point at that position, in drawable units. `ctx.toPaper(p)` changes it back. Use them to read a field of the sketch. It runs during the render, for that one shape, and returns strokes in paper millimetres. Each stroke is an object: `{ type: 'line', x1, y1, x2, y2 }`, `{ type: 'arc', cx, cy, r, start, sweep }`, `{ type: 'cubic', … }` or `{ type: 'polyline', pts }`. The engine clips them to the region and occludes them like every other mark. Use `ctx.rnd()`, not `Math.random()`, so the fill follows the seed.
 
 ```ts live
 import { sketch, circle } from 'occlude';

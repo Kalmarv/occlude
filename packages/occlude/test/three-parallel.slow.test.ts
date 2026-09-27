@@ -12,7 +12,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { compileSketchAsync, exportSvg, initOcclude, mm, pen, sketch, paperSize } from '../src/index.js';
+import { mm, pen, sketch } from '../src/index.js';
+import { compileSketchAsync, exportSvg, initOcclude, paperSize } from '../src/host.js';
 import { box, geodesic, isolines, orthographic, perspective, view } from '../src/three/api/index.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
@@ -40,7 +41,7 @@ const boxField = () => {
 const globe = () => {
   const base = geodesic(1, { frequency: [6, 6] }).dual();
   const water = base.scale(0.99);
-  const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04).style({ creaseAngle: 180 });
+  const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04);
   const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
   return view([water, terrain, levels], {
     camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),

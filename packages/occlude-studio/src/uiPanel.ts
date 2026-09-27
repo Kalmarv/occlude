@@ -6,7 +6,8 @@
  * drag, and the normal change→re-run pipeline picks the new value up.
  */
 
-import { scanUiControls, shaper, type ProbeSummary, type UiControl } from 'occlude';
+import { shaper } from 'occlude';
+import { scanUiControls, type ProbeSummary, type UiControl } from 'occlude/host';
 import type { Editor } from './editor.js';
 
 interface Row {

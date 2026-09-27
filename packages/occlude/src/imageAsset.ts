@@ -134,12 +134,8 @@ export interface ImageSampler {
   readonly height: number;
   /** Luminance 0–1. `area` (sketch units) averages a box of that half-size. */
   lum(x: number, y: number, area?: number): number;
-  /** [r, g, b] each 0–1. */
-  rgb(x: number, y: number, area?: number): [number, number, number];
   /** Alpha 0–1. */
   a(x: number, y: number, area?: number): number;
-  /** Posterized tone: 0 (darkest) … n−1 (lightest). */
-  bands(x: number, y: number, n: number, area?: number): number;
   /** Gradient magnitude of luminance, 0–~1 (edges bright). */
   edge(x: number, y: number, area?: number): number;
   /** Gradient direction of luminance, radians (perpendicular = contour). */
@@ -220,7 +216,7 @@ export interface ImageSampler {
    */
   regions(opts?: RegionOpts): ImageRegion[];
   /** The same pixels as a field over surface chart coordinates, for 3D tone,
-   * density or attributes: `tone: img.surface({ channel: 'dark' })`. Chart
+   * density or columns: `tone: img.surface({ channel: 'dark' })`. Chart
    * (0,0) is the image's bottom-left by default (v up); `wrap` clamps or
    * repeats outside [0,1]; `area` is a box half-size in chart units, applied
    * as one prefilter so CPU and GPU evaluation sample identical pixels.
@@ -443,10 +439,7 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
     width,
     height,
     lum: (x, y, area) => sample(LUM, x, y, area),
-    rgb: (x, y, area) => [sample(0, x, y, area), sample(1, x, y, area), sample(2, x, y, area)],
     a: (x, y, area) => sample(3, x, y, area),
-    bands: (x, y, n, area) =>
-      Math.min(Math.max(1, Math.floor(n)) - 1, Math.floor(sample(LUM, x, y, area) * n)),
     edge,
     dir: (x, y, area) => {
       const eps = 1 / sx;

@@ -38,6 +38,7 @@ import {
   type Material,
 } from '../src/index.js';
 import { exactEnvelopeOracle } from './helpers/envelope-oracle.js';
+import { rec } from './helpers/xy.js';
 
 it('keeps the exposed cap immediately before exact containment', () => {
   const radius = 1.9999999999999998;
@@ -49,7 +50,7 @@ it('keeps the exposed cap immediately before exact containment', () => {
     { edges: [[0, 1]], radius: [1, radius] },
   );
   const result = thicken(source, { radius: (p) => p.radius, tolerance: 0.001 });
-  expect(result.curves()).toHaveLength(1);
+  expect(result.curves.map(rec)).toHaveLength(1);
   expect(Math.min(...result.x)).toBe(-1);
   const oracle = exactEnvelopeOracle([[0, 0, 1, 0, 1, radius]]);
   expect(oracle(-1, 0)).toBe(0);
@@ -129,7 +130,7 @@ it('preserves exact dyadic subdivision, duplication, edge reversal and reflectio
     other = variants.map(distanceTo),
     mirror = distanceTo(build(reflected));
   for (const result of variants)
-    expect(result.curves().length).toBe(original.curves().length);
+    expect(result.curves.map(rec).length).toBe(original.curves.map(rec).length);
   for (let i = 0; i < 300; i++) {
     const x = -3 + (((i * 47) % 307) / 307) * 14,
       y = -3 + (((i * 73) % 311) / 311) * 14;
@@ -148,6 +149,6 @@ it('sweeps representable values across contact without welding a gap', () => {
       ]),
       { radius: 1 },
     );
-    expect(result.curves()).toHaveLength(separation < 2 ? 1 : 2);
+    expect(result.curves.map(rec)).toHaveLength(separation < 2 ? 1 : 2);
   }
 });

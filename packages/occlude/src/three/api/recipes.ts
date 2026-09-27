@@ -1,9 +1,9 @@
 import type {L} from '../../units.js';
 import type {FillSpec} from '../../fills.js';
 import type {Attributes3} from '../geometry/surface.js';
-import type {Field,FaceRow} from './mesh.js';
-import type {MeshFaceRow} from './topology.js';
-import {Collection} from './collection.js';
+import {type Field} from './columns.js';
+import {Selection} from '../../selection.js';
+import type {Face} from '../../faces.js';
 
 /** The 2D words for a pen, said once for every 3D option record: a record
  * that names a pen names it `pen`. `stroke` is the 2D outline switch; in
@@ -16,9 +16,19 @@ export function refuseStroke(options:unknown,who:string):void {
   throw new Error(`${who}: \`stroke\` is the 2D outline switch — name the pen with \`pen\`: ${hint}`);
 }
 
+/** How an object is drawn is the view's to say, never the value's: a
+ * display word in a geometry's options is refused by name, with the one
+ * spelling that says it. */
+const DISPLAY_WORDS=['pen','fillPen','creaseAngle','suggestive','hatch'] as const;
+/** @internal Refuse a display word in the options of a 3D value. */
+export function refuseDisplay(options:unknown,who:string):void {
+  if(!options||typeof options!=='object')return;
+  for(const word of DISPLAY_WORDS)if((options as Record<string,unknown>)[word]!==undefined)
+    throw new Error(`${who}: \`${word}\` is how the view draws an object, not part of the geometry — give it in the view: view([[value, { ${word}: … }], …], options)`);
+}
 /** The face row a hatch recipe reads: the mesh's own row, so a selection's
  * `has(f)` answers for it. */
-export type HatchRow<F extends Attributes3>=MeshFaceRow<F,any,any,any>&FaceRow<F>;
+export type HatchRow<F extends Attributes3>=Face&Face;
 /** One view hatch recipe: parallel lines on the faces it selects. Per-face
  * fields read the mesh's own face row. */
 export interface ViewHatch<F extends Attributes3=Attributes3> {
@@ -30,7 +40,7 @@ export interface ViewHatch<F extends Attributes3=Attributes3> {
   readonly pen?:Field<HatchRow<F>,string>;
   /** The faces the recipe hatches: a face selection of the mesh, or a test on
    * its face rows. Unset: every face. */
-  readonly select?:Collection<any,unknown>|((face:HatchRow<F>)=>unknown);
+  readonly select?:Selection<any>|((face:HatchRow<F>)=>unknown);
 }
 /** What a `hatch` option takes: a recipe, the 2D `fill('hatch', …)` or
  * `fill('crosshatch', …)`, or a list of them. */
@@ -40,7 +50,7 @@ export type ViewHatchInput<F extends Attributes3=Attributes3>=ViewHatch<F>|FillS
 export interface HatchRecipe {
   readonly key:string;
   readonly spacing:Field<any,L>;readonly angle:Field<any,number>;readonly offset?:Field<any,L>;
-  readonly pen?:Field<any,string>;readonly select?:(face:MeshFaceRow<any,any,any,any>)=>boolean;
+  readonly pen?:Field<any,string>;readonly select?:(face:Face)=>boolean;
 }
 
 const isFillSpec=(value:unknown):value is FillSpec=>!!value&&typeof value==='object'&&typeof (value as {type?:unknown}).type==='string'&&['use','asset','custom','mask'].includes((value as {type:string}).type);
@@ -66,8 +76,8 @@ function recipeOf(value:ViewHatch<any>,who:string):Omit<HatchRecipe,'key'>&{key?
   refuseStroke(value,`${who} recipe`);
   const select=value.select;
   let test:HatchRecipe['select'];
-  if(select instanceof Collection){
-    if(select.domain!=='face')throw new Error(`${who}: select takes a face selection, got a ${select.domain} selection`);
+  if(select instanceof Selection){
+    if(select.domain.kind.name!=='face')throw new Error(`${who}: select takes a face selection, got a ${select.domain.kind.name} selection`);
     test=face=>select.has(face);
   }else if(select!==undefined){
     if(typeof select!=='function')throw new Error(`${who}: select takes a face selection or a test on the face rows`);

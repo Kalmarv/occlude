@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { box3, surface3, section3, lineArt3, FeatureKind3, constructStrokes3 } from '../src/index.js';
+import {
+  box3, surface3, section3, lineArt3, FeatureKind3, constructStrokes3,
+} from '../src/three/api/advanced.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
 import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 const plane={id:'middle',origin:[0,0,0] as const,normal:[0,0,1] as const};
 const frame=cameraFrame3({kind:'orthographic',span:4,eye:[4,6,5],target:[0,0,0],near:.1,far:30},{x:0,y:0,width:100,height:100});
 const select=(f:{flags:number})=>(f.flags&FeatureKind3.section)!==0;
@@ -67,7 +70,8 @@ describe('mesh-plane sections',()=>{
       p.position.forEach((n,k)=>expect(n).toBeCloseTo(reconstructed[k]));
     }
     expect(()=>section3(box3(),[plane],{maxSegments:1})).toThrow('capacity');
-    expect(()=>section3(box3(),[{...plane,normal:[0,0,0]}])).toThrow('nonzero');
+    // A plane with no direction cuts nothing: that section draws nothing.
+    expect(section3(box3(),[{...plane,normal:[0,0,0]}]).segments.length).toBe(0);
     expect(()=>section3(box3(),[plane,plane])).toThrow('unique');
   });
 });

@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {beforeAll,it,expect} from 'vitest';
-import {initOcclude,sketchAsync,compileSketchAsync,pen,mm,strokes,label} from '../src/index.js';
+import { sketch, pen, mm, strokes, label } from '../src/index.js';
+import { initOcclude, compileSketchAsync } from '../src/host.js';
 import {box,view,orthographic,perspective} from 'occlude/3d';
 import {projectedLines} from 'occlude/3d/advanced';
 import {Material} from '../src/material.js';
@@ -13,7 +14,7 @@ const corners:[number,number,number][]=[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
 it('puts a world point exactly where the view draws it',async()=>{
  let placed:(readonly [number,number])[]=[];
  const drawing=view(box(2),{camera,pen:'ink'});
- const execution=await compileSketchAsync(sketchAsync(config,async t=>{
+ const execution=await compileSketchAsync(sketch(config,async t=>{
    placed=corners.map(c=>t.toPaper(drawing,c));
    return drawing;
  }));
@@ -33,9 +34,9 @@ it('follows the camera the view is actually drawn with',async()=>{
  let before:readonly [number,number]=[0,0],after:readonly [number,number]=[0,0];
  const drawing=view(box(2),{camera,pen:'ink',key:'main'});
  const plain=async(t:{toPaper:(v:typeof drawing,p:[number,number,number])=>readonly [number,number]})=>t.toPaper(drawing,[1,1,1]);
- await compileSketchAsync(sketchAsync(config,async t=>{before=await plain(t);return drawing;}));
+ await compileSketchAsync(sketch(config,async t=>{before=await plain(t);return drawing;}));
  const override=perspective({eye:[6,9,7],fovDegrees:40});
- const committed=await compileSketchAsync(sketchAsync({...config,cameras3:{main:override}},async t=>{after=await plain(t);return drawing;}));
+ const committed=await compileSketchAsync(sketch({...config,cameras3:{main:override}},async t=>{after=await plain(t);return drawing;}));
  expect(after).not.toEqual(before);
  // The camera the run is drawn with is the one the point is placed with.
  const classified=committed.scenes3.get(drawing.scene)!;
@@ -47,7 +48,7 @@ it('follows the camera the view is actually drawn with',async()=>{
 it('makes a material of many points and a NaN pair behind the eye',async()=>{
  const drawing=view(box(2),{camera:perspective({eye:[0,-6,2],fovDegrees:45}),pen:'ink'});
  let cloud:Material|undefined,behind:readonly [number,number]=[0,0],rows=0;
- await compileSketchAsync(sketchAsync(config,async t=>{
+ await compileSketchAsync(sketch(config,async t=>{
    cloud=t.toPaper(drawing,corners);
    rows=t.toPaper(drawing,{points:[[0,0,0],[0,-60,0]]}).points.length;
    behind=t.toPaper(drawing,[0,-60,0]);
@@ -61,7 +62,7 @@ it('makes a material of many points and a NaN pair behind the eye',async()=>{
 });
 
 it('refuses anything that is not a view, by name',async()=>{
- await compileSketchAsync(sketchAsync(config,async t=>{
+ await compileSketchAsync(sketch(config,async t=>{
    expect(()=>t.toPaper({} as never,[0,0,0])).toThrow('toPaper requires');
    expect(()=>t.toPaper(view(box(),{camera}),{} as never)).toThrow('points');
    return null;

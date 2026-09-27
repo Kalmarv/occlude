@@ -1,15 +1,15 @@
 ---
 title: Edits
-description: "Subdivide, displace, step, attributes, grids, extrusion, topology and forces on a mesh."
+description: "Subdivide, displace, run, set columns, grids, extrusion, topology and forces on geometry in space."
 ---
 
-A mesh is an immutable value. Every edit returns a new mesh and keeps the old one. The rows keep their identity across edits. A selection from one revision applies again on the next.
+A 3D value is the one geometry of occlude: the material of 2D, with a `z` column. It has points, edges, stated faces and the corners of those faces. A domain can be empty. A curve has no faces, and a point set has no edges. Every edit returns a new value and keeps the old one. The rows keep their identity across edits. So a selection from one state applies again on a later state of the same rows. Another construction of the same shape is another value, and its rows are not rows of this one. A word that needs faces refuses a value with no faces by name: `subdivide`, `extrude` of faces, the booleans and `dual`. A word that reads a surface answers nothing on a value with no faces: `t.scatter`, `isolines`, `intersections`, `trace`, `mapSurface` and `t.hatch`.
 
 ## subdivide()
 
-<include>/_sig/3d.Mesh.subdivide.mdx</include>
+<include>/_sig/Material.subdivide.mdx</include>
 
-`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Here the same wave moves three planes at levels 1, 2 and 3. The view draws every fold, so the grids show.
+`m.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Each row of the result answers `source`, the row of the input that it comes from. A face gives its parent face, and an edge gives its parent edge. A point gives the point that it keeps, or a selection of the points that make it. Here the same wave moves three planes at levels 1, 2 and 3. The view draws every fold, so the grids show.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -24,31 +24,31 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## dual()
 
-<include>/_sig/3d.Mesh.dual.mdx</include>
+<include>/_sig/Material.dual.mdx</include>
 
-The dual of a mesh: one point for each face, at its middle, and one face for each point, around it. A cube duals to an octahedron, and a geodesic polyhedron duals to its Goldberg polyhedron, twelve pentagons and the rest hexagons. `project` moves every dual point out to that radius from the origin.
+The dual of a geometry with faces has one point for each face, at its middle. It has one face for each point, around it. A cube duals to an octahedron, and a geodesic polyhedron duals to its Goldberg polyhedron, twelve pentagons and the rest hexagons. `project` moves every dual point out to that radius from the origin.
 
-Numeric face columns become point columns, and point columns become face columns. Both keep the name of their source, as `dual:<id>`. A point on a boundary has no ring of faces around it, so it gets no face. An open mesh loses its rim. A projected dual face is not exactly flat, and it draws as the triangles its own average plane gives.
+Numeric face columns become point columns, and point columns become face columns, with the same names. A point on a boundary has no ring of faces around it, so it gets no face. An open surface loses its rim. A projected dual face is not exactly flat, and it draws as the triangles its own average plane gives. A dual point's `source` is the face of the input that it stands for, and a dual face's `source` is the point.
 
 ```ts live
 import { sketch, pen, mm, group } from 'occlude';
 import { geodesic, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
-  const dome = geodesic(1, { frequency: [3, 0], creaseAngle: 0 });
+  const dome = geodesic(1, { frequency: [3, 0] });
   const camera = orthographic({ eye: [4, 7, 5], span: 2.4 });
   return [
-    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(dome, { camera, pen: 'ink' })),
-    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(dome.dual({ project: 1 }), { camera, pen: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(dome, { camera, pen: 'ink', creaseAngle: 0 })),
+    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(dome.dual({ project: 1 }), { camera, pen: 'ink', creaseAngle: 0 })),
   ];
 });
 ```
 
 ## displace()
 
-<include>/_sig/3d.Mesh.displace.mdx</include>
+<include>/_sig/Material.displace.mdx</include>
 
-`mesh.displace(field)` moves each point by a triple from the field, or by a number along the point's normal. One pass, one new mesh.
+`m.displace(field)` moves each point by a triple from the field, or by a number along the normal of the point. One pass gives one new value. The faces keep the triangles they had, so a bent quad keeps its diagonal.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -57,13 +57,11 @@ import { plane, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => view(plane(5, 5).subdivide(4).displace((p) => [0, 0, 0.7 * t.noise(p.x * 0.6, p.y * 0.6)]), { camera: orthographic({ eye: [6, 8, 5], span: 8 }), pen: 'ink', creaseAngle: 0 }));
 ```
 
-## steps()
+## t.steps() in space
 
-<include>/_sig/3d.Mesh.steps.mdx</include>
+<include>/_sig/Toolkit.steps.mdx</include>
 
-`mesh.steps(count, rule)` is the frozen edit loop, the same as a material's. The rule reads `current` and writes `next`. The shorthand `{ move, set }` applies to every point, and a numeric `move` follows the vertex normal. A step of a mesh moves points and writes columns: `next.move`, `next.set`, `next.setEdges`, `next.setFaces` and `next.setCorners`. It does not change the topology, because the faces of a mesh must stay closed polygons between two verbs. To change the topology, use `subdivide`, `extrude` or a boolean between the steps. Here one rule lifts the middle of a sheet a little on each step. The three sheets are the rule applied 0, 4 and 10 times.
-
-A step of a mesh uses the words of a [material step](/docs/reference/steps). `next.edits` is the batch as records, in five ops: `move`, `set`, `setEdge`, `setFace` and `setCorner`. A record names its row by its view or by its `id`. A pass that returns a list replaces the batch. A selection from an earlier revision applies by id and skips the rows that are gone. A record for a row that is not in this revision drops as `gone`. A value that is not finite drops as `not-finite`. `mesh.dropped` lists them. A topology record, for example `connect` or `split`, is an error, and the error names the op.
+`t.steps(n, m, pass)` runs a pass over a value in space, as it runs one over a [material](/docs/reference/steps). A pass is `(m) => m`. It reads the value and returns the next one. A pass can set columns, displace points, subdivide, extrude or join a boolean. With `{ every }`, the result keeps its start, every `every`-th state and the last state on `history`, as a plain list of values. Here one pass lifts the middle of a sheet a little on each step. The three sheets are the pass applied 0, 4 and 10 times.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -71,18 +69,24 @@ import { plane, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
   const sheet = plane(2.2, 2.2).subdivide(3);
-  const lift = { move: (p) => [0, 0, 0.06 * Math.max(0, 1 - Math.hypot(p.x, p.y))] };
-  const sheets = [0, 4, 10].map((n, k) => sheet.steps(n, lift).translate([k * 2.6 - 2.6, 0, 0]));
+  const lift = (m) => m.points.set('z', (p) => p.z + 0.06 * Math.max(0, 1 - Math.hypot(p.x, p.y)));
+  const sheets = [0, 4, 10].map((n, k) => t.steps(n, sheet, lift).translate([k * 2.6 - 2.6, 0, 0]));
   return view(sheets, { camera: orthographic({ eye: [1, 6, 5], target: [0, 0, 0], span: 9 }), pen: 'ink', creaseAngle: 0 });
 });
 ```
 
-## attribute() · faceAttribute()
+## points.set() · faces.set()
 
-<include>/_sig/3d.Mesh.attribute.mdx</include>
-<include>/_sig/3d.Mesh.faceAttribute.mdx</include>
+<include>/_sig/points.set.mdx</include>
+<include>/_sig/faces.set.mdx</include>
 
-`mesh.attribute(name, field)` adds a typed point column, and `faceAttribute` a face column. Below, a point column lifts the sheet, and a face column marks the high faces for the hatch.
+`m.points.set(column, value, where?, opts?)` writes a point column and returns the new value. `m.edges.set`, `m.faces.set` and `m.corners.set` write the other domains. They are the writes of 2D, with the same rules. A value is a number, a boolean, a string, a list of numbers, a row or a placement. It can also be a function of the row. The record form `set({ column: value, … })` writes several columns. Every function in it reads the rows as they were before the write. `x`, `y` and `z` are the position of a point. `where` is a selection, one row, or a test of the row. It names the rows that the write changes. A value that is not a finite number leaves that row as it was.
+
+A column holds one kind of value on every row: numbers, booleans, strings, lists of numbers of one length, rows or placements. The first write gives the kind. A write of another kind to the same column refuses by name, so write another column to hold it. A row that a write does not reach holds the default of the kind. The defaults are 0, `false`, an empty string, a list of zeros, no row and no placement. A number and a list of numbers blend when a subdivision makes a row between two rows. The other kinds never blend. The new row takes the value of one parent.
+
+On points, the last argument can be `{ transfer }`. It says how a column refines: `'interpolate'` (the default) or `'nearest'`. The record form takes `{ transfer: { column: policy } }`. A later write of a value keeps the policy of the column. A corner has no transfer, because a corner lives and dies with its face. A curve and a point set answer the same writes on their points and edges.
+
+Below, a point column lifts the sheet, and a face column marks the high faces for the hatch.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -90,20 +94,20 @@ import { plane, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => {
   const sheet = plane(4, 4).subdivide(3)
-    .attribute('h', (p) => 0.5 + 0.5 * t.noise(p.x, p.y))
+    .points.set('h', (p) => 0.5 + 0.5 * t.noise(p.x, p.y))
     .displace((p) => [0, 0, p.h])
-    .faceAttribute('high', (f) => f.centroid[2] > 0.58);
+    .faces.set('high', (f) => f.centroid[2] > 0.58);
   return view(sheet, { camera: orthographic({ eye: [5, 7, 5], span: 6 }), pen: 'ink', creaseAngle: 0, hatch: { spacing: mm(1.4), angle: 45, pen: 'shade', select: (f) => f.high === true } });
 });
 ```
 
 ## smooth()
 
-<include>/_sig/3d.Mesh.smooth.mdx</include>
+<include>/_sig/Material.smooth.mdx</include>
 
 Replaces a column by the mean of itself and its neighbours, `steps` times. It finds the domain from the name. A point column averages over the points an edge joins to it. A face column averages over the faces that share an edge with it. A corner column averages over the corners of its point and of its face. The values must be numbers, or vectors of the same length.
 
-A hard edge in a column becomes a ramp, and every pass widens the ramp. Here one column holds 1 above a noise threshold and 0 below it. The black mesh lifts that column as it is, and the red mesh lifts it after four passes.
+A hard edge in a column becomes a ramp, and every pass widens the ramp. Here one column holds 1 above a noise threshold and 0 below it. The black sheet lifts that column as it is, and the red sheet lifts it after four passes.
 
 ```ts live
 import { sketch, pen, mm, group } from 'occlude';
@@ -111,7 +115,7 @@ import { plane, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [2, 1], seed: 4, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.2), color: '#A84932' }) } }, (t) => {
   const b = t.bounds();
-  const rough = plane(4, 4).subdivide(4).attribute('h', (p) => (t.noise(p.x * 1.4, p.y * 1.4) > 0.55 ? 1 : 0));
+  const rough = plane(4, 4).subdivide(4).points.set('h', (p) => (t.noise(p.x * 1.4, p.y * 1.4) > 0.55 ? 1 : 0));
   const lift = (m) => m.displace((p) => [0, 0, p.h * 0.9]);
   const camera = orthographic({ eye: [5, 7, 5], span: 9 });
   return [
@@ -140,9 +144,9 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## extrude()
 
-<include>/_sig/3d.Mesh.extrude.mdx</include>
+<include>/_sig/Material.extrude.mdx</include>
 
-`mesh.extrude(faces, offset)` raises a connected face selection as one region. Each connected part of the selection becomes a translated cap, and every boundary edge of the region grows a wall. `offset` is a model vector, or `{ distance }` along the region's mean normal.
+`m.extrude(faces, offset)` raises a connected face selection as one region. The 2D `extrude` takes a point, and this one takes a face selection, so one word does both. Each connected part of the selection becomes a translated cap, and every boundary edge of the region grows a wall. `offset` is a model vector, or `{ distance }` along the region's mean normal. The `source` of a wall is the boundary edge under it. The `source` of a new point is the point that it copies. A cap keeps its own face.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -156,32 +160,32 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 });
 ```
 
-## unite() · subtract() · common()
+## union() · subtract() · intersect()
 
-<include>/_sig/3d.Mesh.unite.mdx</include>
-<include>/_sig/3d.Mesh.subtract.mdx</include>
-<include>/_sig/3d.Mesh.common.mdx</include>
+<include>/_sig/Material.union.mdx</include>
+<include>/_sig/Material.subtract.mdx</include>
+<include>/_sig/Material.intersect.mdx</include>
 
-`a.unite(b)` is everything in one solid or the other. `a.subtract(b)` is `a` with `b` cut out of it. `a.common(b)` is only what lies in both. Mesh to mesh is a method, because both sides are meshes.
+`a.union(b)` is everything in one solid or the other. `a.subtract(b)` is `a` with `b` cut out of it. `a.intersect(b)` is only what lies in both. They are the words of selections and of `sdf3`. The operation is a method, because both sides are values in space.
 
-Both meshes must have no holes. An open shell refuses by name, and says how many boundary edges it has. The seam is exact. The engine finds where the triangles of the two solids cross, in exact arithmetic. It cuts each crossed triangle along that curve, and it keeps the parts the operation asks for.
+The operation needs two solids with no holes. An open shell refuses by name, and says how many boundary edges it has. The seam is exact. The engine finds where the triangles of the two solids cross, in exact arithmetic. It cuts each crossed triangle along that curve, and it keeps the parts the operation asks for.
 
-A face that the seam did not reach keeps its identity and its columns. A face that the seam crossed becomes its pieces, and each piece keeps the columns of the face it came from. So a column you put on one solid is still there to select by. Every face of the result answers `cut`: `true` for a face along a seam. It adds up down a chain. A face that an earlier operation cut stays `cut`, so one pen draws every seam the chain made. A new point on the seam takes its point columns from the triangle of the first solid that it lies on.
+A face that the seam did not reach keeps its identity and its columns. A face that the seam crossed becomes its pieces, and each piece keeps the columns of the face it came from. So a column you put on one solid is still there to select by. A face's `source` is the face of either input that it came from. Every face of the result answers `cut`: `true` for a face along a seam. It adds up down a chain. A face that an earlier operation cut stays `cut`, so one pen draws every seam the chain made. A new point on the seam takes its point columns from the triangle of the first solid that it lies on.
 
-Two solids that never meet are still an answer. `unite` gives both, `subtract` gives the first alone, and `common` gives an empty mesh. If the result is not a closed manifold surface, the operation refuses by name. Two boxes that touch along one edge have no union a pen can draw.
+Two solids that never meet are still an answer. `union` gives both, `subtract` gives the first alone, and `intersect` gives an empty value. If the result is not a closed manifold surface, the operation refuses by name. Two boxes that touch along one edge have no union a pen can draw.
 
-Here `common` cuts a shaft to length, and `unite` puts it onto a box. `subtract` takes a ball out of the near corner. The box keeps its own edges in black. Every seam the three operations made draws in red.
+Here `intersect` cuts a shaft to length, and `union` puts it onto a box. `subtract` takes a ball out of the near corner. The box keeps its own edges in black. Every seam the three operations made draws in red.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';
 import { box, sphere, cylinder, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), seam: pen({ width: mm(0.3), color: '#A84932' }) } }, () => {
-  const shaft = cylinder(0.5, 4, { segments: 20 }).common(box([3, 3, 2.9]));
-  const block = box(2.2).unite(shaft);
+  const shaft = cylinder(0.5, 4, { segments: 20 }).intersect(box([3, 3, 2.9]));
+  const block = box(2.2).union(shaft);
   const solid = block.subtract(sphere(1, { segments: 20, rings: 10 }).translate([1.1, 1.1, 0.4]));
   const fold = (c) => c.kinds.has('silhouette') || c.feature.creaseAngle >= 18;
-  const onCut = (c) => c.faceAttributes.length === 2 && c.faceAttributes.every((a) => a.cut === true);
+  const onCut = (c) => c.faceColumns.length === 2 && c.faceColumns.every((a) => a.cut === true);
   return view(solid, { camera: orthographic({ eye: [7, 5, 4.5], span: 4.6 }), creaseAngle: 18 }, (lines) => [
     strokes(lines.visible.filter((c) => fold(c) && !onCut(c)), { stroke: 'ink' }),
     strokes(lines.visible.filter((c) => fold(c) && onCut(c)), { stroke: 'seam' }),
@@ -191,7 +195,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## Topology
 
-The step refuses A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A row also knows its own place. A point answers `x`, `y` and `z`. A face answers `centroid` and `area`, as a 2D face does. An edge answers `length` and `center`, and 2D says `center` for the same thing. `center` on a face by name. Distance is a different question from topology: `mesh.points.near(p, { radius })` and `mesh.edges.near(p, { radius })` give the members closer than `radius` to `p`, as in 2D. `p` is a row, a triple or `{ x, y, z }`. A point is never near to itself. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. `adjacent()` leaves the members out, so it is the ring around a selection. `sel.union(sel.adjacent())` is the selection grown by that ring. An edge selection says the same three words. Two edges are neighbours through a shared END, as two faces are through a shared edge. A face selection also has `.boundaryEdges()`. `mesh.faces.rows(f)` is the selection that holds those rows, by index or by the rows themselves, as `sel.rows` does in 2D. Faces are neighbours through a shared edge, not a shared corner.
+A row knows its neighbours: `point.edges`, `point.adjacent`, `point.faces`, `point.corners`, `face.points`, `face.edges`, `face.adjacent`, `face.corners` and `edge.faces`. A corner knows its `point` and its `face`. A row also knows its own place. A point answers `x`, `y` and `z`. A face answers `normal`, `centroid` and `area`, measured in space on the triangles of the face. An edge answers `length` and `center`, and 2D says `center` for the same thing. A face refuses `center` by name. Distance is a different question from topology. `m.points.near(p, { radius })` and `m.edges.near(p, { radius })` give the members closer than `radius` to `p` in space, as in 2D. `p` is a row, a triple or `{ x, y, z }`. A point is never near to itself. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. `adjacent()` leaves the members out, so it is the ring around a selection. `sel.union(sel.adjacent())` is the selection grown by that ring. An edge selection says the same three words. Two edges are neighbours through a shared END, as two faces are through a shared edge. A face selection also has `.boundaryEdges()`. `m.faces.rows(f)` is the selection that holds those rows. Give the rows themselves, one or a list, as `sel.rows` takes them in 2D. Faces are neighbours through a shared edge, not a shared corner.
 
 Every kind says it the same way, in 2D and in 3D. Here the cap is one selection, and the ring is its one-hop neighbours.
 
@@ -203,14 +207,14 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
   const ball = sphere(1.3, { segments: 24, rings: 12 });
   const cap = ball.faces.filter((f) => f.normal[2] > 0.9);
   const ring = cap.adjacent();
-  const tagged = ball.faceAttribute('zone', (f) => (cap.has(f) ? 2 : ring.has(f) ? 1 : 0));
+  const tagged = ball.faces.set('zone', (f) => (cap.has(f) ? 2 : ring.has(f) ? 1 : 0));
   return view(tagged, { camera: orthographic({ eye: [3, 4, 6], span: 3.6 }), pen: 'ink', creaseAngle: 180, hatch: [{ spacing: mm(1.2), angle: 45, pen: 'shade', select: (f) => f.zone === 2 }, { spacing: mm(1.2), angle: 135, pen: 'blue', select: (f) => f.zone === 1 }] });
 });
 ```
 
 ## Forces
 
-These are the 3D forces, from `occlude/3d`. They are not the material forces of [Steps](/docs/reference/steps): a 3D force takes world geometry, not rows. Inside a `steps` rule, a force is a field of the point that returns a displacement. `force.attract(target, { strength })` pulls toward a world point. `force.plane({ origin, normal, side })` pushes a point back to one side of a plane. `side` is `'above'` or `'below'`. `force.project(query)` pulls onto a surface. `force.sum` adds them.
+These are the 3D forces, from `occlude/3d`. They are not the material forces of [Steps](/docs/reference/steps): a 3D force takes world geometry, not rows. In a pass, a force is a function of the point that returns a displacement. `force.attract(target, { strength })` pulls toward a world point. `force.plane({ origin, normal, side })` pushes a point back to one side of a plane. `side` is `'above'` or `'below'`. `force.project(query)` pulls onto a surface. `force.sum` adds them.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -219,7 +223,7 @@ import { sphere, force, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
   const ceiling = force.plane({ origin: [0, 0, 0.6], normal: [0, 0, 1], side: 'below' });
   const pull = force.attract([0, 0, -1.5], { strength: 0.12 });
-  const squashed = sphere(1.3, { segments: 32, rings: 16 }).steps(6, (cur, next) => next.move(cur.points, force.sum(ceiling, pull)));
+  const squashed = t.steps(6, sphere(1.3, { segments: 32, rings: 16 }), (m) => m.displace(force.sum(ceiling, pull)));
   return view(squashed, { camera: orthographic({ eye: [5, 6, 3], span: 4.2 }), pen: 'ink', creaseAngle: 180 });
 });
 ```

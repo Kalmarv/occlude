@@ -8,7 +8,7 @@
  * after a save would be a correctness bug, not a slowdown.
  */
 
-import { fillTable, isBuiltinFill, loadFillModule, scanFillNames, type FillTable } from 'occlude';
+import { fillTable, isBuiltinFill, loadFillModule, scanFillNames, type FillTable } from 'occlude/host';
 
 /** An unsaved fill being drafted in the editor, already emitted to JS by
  * the editor's TypeScript worker (the main thread emits; it never runs). */

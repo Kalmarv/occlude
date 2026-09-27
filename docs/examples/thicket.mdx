@@ -3,22 +3,22 @@ title: Thicket
 description: A tree grown by one rule, which stops where it runs out of room.
 ---
 
-One pass grows the whole tree. A tip is a point with exactly one neighbour. The pass finds every tip and extrudes from it. A fork returns two children and a shoot returns one, so the same action makes a trunk and a twig.
+One pass grows the whole tree. A tip is a point with exactly one neighbour. The pass finds every tip and grows new points from it, each one a `point` value joined to its tip by an edge. A fork makes two children and a shoot makes one, so the same action makes a trunk and a twig.
 
-`p.adjacent` and `near` answer different questions, and the pass needs both. `p.adjacent` holds the points an edge joins to this one, so a tip has exactly one of them. `near` is what is merely close, joined or not. `near(p, { radius }).subtract(p.adjacent)` is everything close that is not joined. A tip grows only when that is empty.
+`p.adjacent` and `near` answer different questions, and the pass needs both. `p.adjacent` holds the points an edge joins to this one, so a tip has exactly one of them. `near` is what is merely close, joined or not. `near(p, { radius }).without(p.adjacent)` is everything close that is not joined. A tip grows only when that is empty.
 
 That second test is what makes the drawing stop. The crown fills, the tips crowd each other, and growth ends on its own. Without it the branches double every step and the crown goes solid black.
 
 The chance lives in the pass, where the toolkit is in scope, so `t.chance` and `t.rnd` are the sketch's own seeded streams.
 
-Uses: `steps`, `p.adjacent`, `points.near` with `subtract`, `next.extrude`, a point column carried through it, `t.chance`, `t.rnd`.
+Uses: `t.steps`, `p.adjacent`, `points.near` with `without`, `point` with `points.add` and `edges.add`, a point column on every new point, `t.chance`, `t.rnd`.
 
 :::note
-`gen` counts how far a tip is from the trunk. It rides the extrude as an ordinary point column, so a branch knows its own age and shortens with it. A new point must name every declared column. The engine never drops a column in silence.
+`gen` counts how far a tip is from the trunk. It rides every new point as an ordinary point column, so a branch knows its own age and shortens with it. A new point must name every declared column. The engine never drops a column in silence.
 :::
 
 ```ts live
-import { sketch, strokes, material, pen, mm, add, mul, sub, unit, fromAngle, angleOf } from 'occlude';
+import { sketch, strokes, material, point, pen, mm, add, mul, sub, unit, fromAngle, angleOf } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 6, margin: 6,
@@ -30,23 +30,24 @@ export default sketch({
     { edges: [[0, 1]] },
   );
   const room = b.w * 0.010;
-  const grown = trunk.steps(16, (cur, next) => {
+  const grown = t.steps(16, trunk, (g) => {
     // A tip has one neighbour, and nothing but its own branch nearby.
-    const tips = cur.points.filter((p) =>
+    const tips = g.points.filter((p) =>
       p.adjacent.length === 1 && p.y <= b.h * 0.95 &&
-      cur.points.near(p, { radius: room }).subtract(p.adjacent).length === 0);
-    next.extrude(tips, (p) => {
+      g.points.near(p, { radius: room }).without(p.adjacent).length === 0);
+    const shoots = tips.map((p) => {
       const dir = unit(sub(p, p.adjacent.at(0)));
       const len = b.h * 0.085 * Math.pow(0.86, p.gen);
       const turn = (deg) => fromAngle(angleOf(dir) + (deg * Math.PI) / 180);
-      const child = (deg) => ({ position: add(p, mul(turn(deg), len)), attributes: { gen: p.gen + 1 } });
+      const child = (deg) => [p, point(add(p, mul(turn(deg), len)), { gen: p.gen + 1 })];
       if (t.chance(0.46 + 0.04 * p.gen)) {
         const spread = 15 + t.rnd(16);
         return [child(spread), child(-spread)];
       }
       return [child(t.rnd(-11, 11))];
-    });
+    }).flat();
+    return g.points.add(shoots.map(([, q]) => q)).edges.add(shoots);
   });
-  return strokes(grown.curves(), { pen: 'ink' });
+  return strokes(grown.curves, { pen: 'ink' });
 });
 ```

@@ -25,6 +25,7 @@
 
 import { usableLength } from './guard.js';
 import { Material, mintIds } from './material.js';
+import { carryLinks } from './derivation.js';
 import type { FieldFn } from './shapes.js';
 import type { Space } from './space.js';
 import { mm, type L } from './units.js';
@@ -309,7 +310,7 @@ function checkOpts(opts: IsoOpts): void {
     if (key === 'close') {
       throw new Error(
         'isolines: { close } is gone — every level set is an area and closes along the drawable (or its within bound); ' +
-          'the closing edges carry cut = 1, so strokes(m.edges.filter((e) => !e.attrs.cut)) draws the level line alone',
+          'the closing edges carry cut = 1, so strokes(m.edges.filter((e) => !e.cut)) draws the level line alone',
       );
     }
     throw new Error(`isolines: '${key}' is not an option — the options are { step }`);
@@ -693,7 +694,7 @@ function mergeColinear(
  * The rows of a level are its level lines first, in the order and the
  * direction the open march gives them, then the closing runs, which join
  * the lines' own end rows. So the level line alone,
- * `m.edges.filter((e) => !e.attrs.cut)`, walks and draws exactly as the
+ * `m.edges.filter((e) => !e.cut)`, walks and draws exactly as the
  * open level lines did. This is the area `levelSetMaterial` works out when
  * it is asked for.
  */
@@ -705,7 +706,7 @@ export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
 /**
  * The material `t.isolines` answers: the level lines of every level, each
  * edge carrying its `level` and `cut` = 0, rows in the order
- * `levelMaterial` gives them. Its area — `contours()`, `faces()`, and what
+ * `levelMaterial` gives them. Its area — `contours()`, `faces`, and what
  * `polygon`, `t.within` and every other area consumer read — is
  * `levelMaterial` of the closed levels, worked out the first time it is
  * asked for. The area's level-line rows carry this material's ids, so a
@@ -744,7 +745,8 @@ function closedArea(set: LevelLines, lines: Material): Material {
       edges[e] = edgeRoots[e] = freshEdges[f++];
     }
   }
-  return new Material(r.x, r.y, {}, r.edges, { ...levelCarry(r), ids: { points, edges, edgeRoots }, space: lines.space });
+  // The lines' rows are the area's line rows, so what they answer carries.
+  return carryLinks(lines, new Material(r.x, r.y, {}, r.edges, { ...levelCarry(r), ids: { points, edges, edgeRoots }, from: lines }));
 }
 
 /** The rows of levels as one material, lines then (with `rims`) the

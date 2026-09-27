@@ -17,7 +17,7 @@ import { sketch, circle, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   t.draw({ progress: [0, ui(0.6, { min: 0, max: 1 })] });
-  return t.grid({ cols: 8, rows: 8 }).map((c) => circle(c.cx, c.cy, c.w * 0.4));
+  return t.grid({ cols: 8, rows: 8 }).faces.map((f) => circle(f.centroid, f.bounds.w * 0.4));
 });
 ```
 
@@ -60,7 +60,7 @@ The studio previews the PLAN, so a shader shows on screen. The plan keeps lines,
 :::
 
 :::warning
-A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the row before shading.
+A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the number of the chain before shading.
 :::
 
 :::warning
@@ -93,7 +93,8 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 Headless export, after `initOcclude()` once. `exportSvg` writes one path for each chain in plot order, with arcs and cubics kept exact. `exportPng` rasterises at `scale` pixels for each millimetre. `exportGcode` writes one job for each pen. `profile` describes the machine: `bed`, `resolution`, `travelFeed`, `zMode`, `arcSupport` and `yAxis`. All three honour `t.draw`. The studio's Export panel does the same for the current selection. `t.draw({ minutes })` and `t.draw({ budget })` read the time of the plot, and only a machine knows its time. So an export of such a sketch needs `timing`. `penOf` gives the `feed` and `penDelay` of each pen, and `opts` gives the motion limits of your machine profile. The same numbers go into `estimatePlanMs`. Without `timing`, the export refuses the sketch and names the option.
 
 ```ts
-import { initOcclude, sketch, circle, render, exportSvg, exportGcode, exportPng } from 'occlude';
+import { sketch, circle } from 'occlude';
+import { initOcclude, render, exportSvg, exportGcode, exportPng } from 'occlude/host';
 
 const def = sketch({ aspect: [1, 1] }, (t) => circle(50, 50, 40));
 const profile = { bed: [300, 218], resolution: 0.2, travelFeed: 8000, zMode: true, arcSupport: false, yAxis: 'down' };
@@ -127,7 +128,7 @@ The mark goes at a corner of the sheet. A hand can find a corner with nothing on
 
 After step 2, Plot, Frame and Resume start from the corner. Use the same button after a pen change, before a resume, or on the next day. Move the head by hand until the tip is on the drawn cross. Then push Draw registration. Each pen draws its own cross on the same mark. A pen that does not sit where the last pen sat shows before the plot.
 
-The record of an unfinished plot keeps the registration point. If the sketch has a different corner, Resume refuses with `this plot was registered at (x, y); choose the corner there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
+An unfinished plot keeps its registration point. If the sketch has a different corner, Resume refuses with `this plot was registered at (x, y); choose the corner there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
 
 ## estimatePlanMs()
 

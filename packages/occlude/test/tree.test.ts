@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connect, material, type Material } from '../src/index.js';
+import { connect, curve, material, type Material } from '../src/index.js';
 
 const len = (m: Material) => {
   let s = 0;
@@ -37,12 +37,12 @@ describe('connect.tree', () => {
     // connected and acyclic are the same statement.
     expect(t.edgeCount).toBe(199);
     expect(components(t)).toBe(1);
-    expect(t.faces().length).toBe(0); // a tree encloses nothing
+    expect(t.faces.length).toBe(0); // a tree encloses nothing
     // Rows are untouched: the tree is in the edges.
     expect(Array.from(t.x)).toEqual(Array.from(pts.x));
     // It is the cheapest such tree, so it is shorter than any other spanning
     // structure over the same points.
-    expect(len(t)).toBeLessThan(len(connect.chain(pts)));
+    expect(len(t)).toBeLessThan(len(curve(pts)));
     expect(len(t)).toBeLessThan(len(connect.tour(pts)));
   });
 

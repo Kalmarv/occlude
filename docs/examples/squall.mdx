@@ -24,8 +24,9 @@ Uses: `t.streamlines`, `t.within`, `t.scatter`, `t.times`, `t.noise`, `polygon` 
 // to be anybody's, and the near hills take the bottom of it away.
 import { sketch, strokes, stroke, polygon, line, mm } from 'occlude';
 export default sketch({ aspect: [3, 2], seed: 11 }, (t) => {
-    const W = t.width;
-    const H = t.height;
+    const b = t.bounds();
+    const W = b.w;
+    const H = b.h;
     const FINE = 'pigma-005-black';
     const MID = 'pigma-01-black';
     const HEAVY = 'pigma-05-black';

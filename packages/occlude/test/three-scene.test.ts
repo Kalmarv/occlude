@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { pen, mm, clip, rect, compileSketch, compileSketchAsync, group, initOcclude, line, lineArt3, render, renderAsync, sketch, type Camera3, type SceneCompute3 } from '../src/index.js';
+import { pen, mm, clip, rect, group, line, sketch } from '../src/index.js';
+import { compileSketch, compileSketchAsync, initOcclude, render, renderAsync } from '../src/host.js';
+import { lineArt3, type Camera3, type SceneCompute3 } from '../src/three/api/advanced.js';
 
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 const camera: Camera3 = { kind: 'orthographic', span: 2, eye: [0,0,5], target: [0,0,0], up: [0,1,0], near: .1, far: 10 };

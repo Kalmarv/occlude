@@ -1,9 +1,12 @@
 import {beforeAll,describe,expect,it} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {obj,view,orthographic,type Mesh} from '../src/three/api/index.js';
-import {cross3,dot3} from '../src/three/math.js';
-import {sketch,compileSketchAsync,renderAsync,pen,mm,initOcclude,exportSvg} from '../src/index.js';
+import {obj,view,orthographic} from '../src/three/api/index.js';
+import {manifold} from './helpers/surfaces.js';
+import { sketch, pen, mm } from '../src/index.js';
+import { compileSketchAsync, renderAsync, initOcclude, exportSvg } from '../src/host.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 
 beforeAll(async()=>{
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -32,19 +35,12 @@ f 7/1/1 8/1/1 4/1/1 3/1/1
 f 8/1/1 5/1/1 1/1/1 4/1/1
 `;
 
-function manifold(m:Mesh<any,any,any,any>,chi:number):void {
-  expect(m.surface.edges.every(e=>e.faces.length===2)).toBe(true);
-  expect(m.points.length-m.edges.length+m.faces.length).toBe(chi);
-  let volume=0;
-  for(const t of m.surface.triangles){const [a,b,c]=t.vertices.map(i=>m.surface.points[i].position);volume+=dot3(a,cross3(b,c))/6;}
-  expect(volume).toBeGreaterThan(0);
-}
 
 describe('obj() mesh source',()=>{
   it('reads a Blender export as a closed, outward-wound mesh, stood up Z-up',()=>{
     const cube=obj(CUBE);
     expect(cube.points.length).toBe(8);expect(cube.faces.length).toBe(6);expect(cube.edges.length).toBe(12);
-    expect(cube.faces.every(f=>f.vertices.length===4)).toBe(true);
+    expect(cube.faces.every(f=>f.corners.length===4)).toBe(true);
     manifold(cube,2);
     // The file's Y (0..2) is occlude's Z; the file's Z becomes -Y.
     expect(Math.min(...cube.points.map(p=>p.z))).toBe(0);expect(Math.max(...cube.points.map(p=>p.z))).toBe(2);
@@ -58,7 +54,7 @@ describe('obj() mesh source',()=>{
   });
   it('honours negative (relative) indices',()=>{
     const m=obj('v 0 0 0\nv 1 0 0\nv 0 1 0\nf -3 -2 -1\n');
-    expect([...m.faces][0].vertices).toEqual([0,1,2]);
+    expect([...m.faces][0].corners.map(c=>c.point.index)).toEqual([0,1,2]);
   });
   it('drops a face with fewer than three distinct corners and compacts unused vertices',()=>{
     const m=obj('v 0 0 0\nv 1 0 0\nv 0 1 0\nv 9 9 9\nf 1 2 3\nf 1 1 2\n');
@@ -92,9 +88,9 @@ describe('obj() mesh source',()=>{
     // 1,113 of the file's vertices belong to no face (stray scan points); the import keeps only what the faces use.
     expect((text.match(/^v /gm)??[]).length).toBe(35947);
     expect(bunny.points.length).toBe(34834);expect(bunny.faces.length).toBe(69451);
-    expect(bunny.surface.triangles.length).toBe(69451);
-    expect(bunny.surface.edges.filter(e=>e.faces.length===1).length).toBe(223);
-    expect(bunny.surface.edges.every(e=>e.faces.length<=2)).toBe(true);
+    expect(surfaceOf(bunny).triangles.length).toBe(69451);
+    expect(surfaceOf(bunny).edges.filter(e=>e.faces.length===1).length).toBe(223);
+    expect(surfaceOf(bunny).edges.every(e=>e.faces.length<=2)).toBe(true);
     // Stood upright: the file's Y (its height) is occlude's Z, about 15 cm tall.
     const z=[...bunny.points].map(p=>p.z);
     expect(Math.max(...z)-Math.min(...z)).toBeCloseTo(0.154,2);

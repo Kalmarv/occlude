@@ -39,7 +39,7 @@ describe('warp', () => {
   });
 
   it('keeps the drawing a drawing: structure, columns and shape', () => {
-    const ring = connect.ring(material([[30, 40], [70, 40], [70, 60], [30, 60]], { weight: 5 }));
+    const ring = curve(material([[30, 40], [70, 40], [70, 60], [30, 60]], { weight: 5 }), { closed: true });
     const pulled: [number, number][] = [[0, 0], [100, 0], [130, 120], [0, 100]];
     const w = ring.warp({ from: square(), to: pulled });
     expect(w.n).toBe(ring.n);

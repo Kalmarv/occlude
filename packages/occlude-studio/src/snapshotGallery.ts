@@ -23,7 +23,7 @@ import { snapshotSeed,
   forkSnapshot, listSketchInfo, loadSnapshot, openInStudio, putThumb, sketchHistory, snapshotJs, thumbUrl,
   type Snapshot,
 } from './sketchApi.js';
-import { liveExampleToJs } from 'occlude';
+import { liveExampleToJs } from 'occlude/host';
 import { loadPens, loadSettings, loadPapers, sheetOf } from './store.js';
 import { RenderClient } from './workerClient.js';
 

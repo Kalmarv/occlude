@@ -23,7 +23,9 @@
  */
 
 import { Material, material as makeMaterial, type Vertex } from '../../../src/material.js';
-import { EdgeSelection, PointSelection } from '../../../src/relation.js';
+import { isPointSelection, isEdgeSelection, endpointRows } from '../../../src/relation.js';
+import type { Selection } from '../../../src/selection.js';
+import type { Edge } from '../../../src/material.js';
 import type { EventCandidate, PlanarEvent } from '../../../src/faces.js';
 import {
   analyticalUnion,
@@ -120,7 +122,7 @@ function canonicalize(loop: OutVert[]): OutVert[] {
 function candidateAttrs(c: Cand, source: Material): Record<string, number> {
   const out: Record<string, number> = {};
   if (c.vertex !== undefined) {
-    for (const name of source.attrNames)
+    for (const name of Object.keys(source.attrs))
       out[name] = source.attrs[name][c.vertex];
     return out;
   }
@@ -128,7 +130,7 @@ function candidateAttrs(c: Cand, source: Material): Record<string, number> {
   const t = c.t!;
   const a = source.edgeList[2 * e];
   const b = source.edgeList[2 * e + 1];
-  for (const name of source.attrNames) {
+  for (const name of Object.keys(source.attrs)) {
     const va = source.attrs[name][a];
     const vb = source.attrs[name][b];
     out[name] =
@@ -191,7 +193,7 @@ function checkOpts(opts: ThickenOpts): number {
  * vertex gets the callback's record as its complete attribute row.
  */
 export function thicken(
-  source: Material | PointSelection<unknown> | EdgeSelection<unknown>,
+  source: Material | Selection<Vertex> | Selection<Edge>,
   opts: ThickenOpts,
 ): Material {
   const tol = checkOpts(opts);
@@ -207,13 +209,13 @@ export function thicken(
     for (let i = 0; i < source.edgeCount; i++) e.push(i);
     vRows = v;
     eRows = e;
-  } else if (source instanceof PointSelection) {
+  } else if (isPointSelection(source)) {
     src = source.source;
     vRows = source.indices;
     eRows = source.edges.indices;
-  } else if (source instanceof EdgeSelection) {
+  } else if (isEdgeSelection(source)) {
     src = source.source;
-    vRows = source.endpointRows;
+    vRows = endpointRows(source);
     eRows = source.indices;
   } else {
     throw new Error(

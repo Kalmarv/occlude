@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { tagDraws } from 'occlude';
+import { tagDraws } from 'occlude/host';
 
 import { freeze } from './freeze.js';
 

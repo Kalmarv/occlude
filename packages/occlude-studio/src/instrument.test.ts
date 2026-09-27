@@ -45,10 +45,10 @@ describe('instrumentDeclarations', () => {
 
   it('finds the statement end through nested brackets, arrows and inner statements', () => {
     const src = [
-      'const web = start.steps(30, (cur, next, k) => {',
-      '  const tips = cur.points.filter((p) => p.active === 1);',
-      '  next.set(() => ({ active: 0 }), { where: tips });',
-      '  if (k > 2) { const z = [1, 2].map((v) => v * 2); return z; }',
+      'const web = t.steps(30, start, (g) => {',
+      '  const tips = g.points.filter((p) => p.active === 1);',
+      '  g = g.points.set({ active: (p) => { const was = p.active; return 0 * was; } }, tips);',
+      '  if (g.points.length > 2) { const z = [1, 2].map((v) => v * 2); return z; }',
       '});',
       'const f = (p) => p.x >= 1;',
       'const eq = a == b;',
@@ -59,8 +59,8 @@ describe('instrumentDeclarations', () => {
     expect(out).toContain(`});${hook('web')}`);
     expect(out).toContain(`p.x >= 1;${hook('f')}`);
     expect(out).toContain(`a == b;${hook('eq')}`);
-    // Nothing was injected inside the where-object or the arrow parameter list.
-    expect(out).not.toContain('where: tips });' + H);
+    // Nothing was injected inside the column record or the arrow parameter list.
+    expect(out).not.toContain('0 * was; } }, tips);' + H);
   });
 
   it('survives TypeScript emit shapes: exports, requires, semicolon-less last lines', () => {

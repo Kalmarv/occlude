@@ -21,11 +21,11 @@
 import { describe, expect, it } from 'vitest';
 import { SQ } from './helpers/run.js';
 import {
-  bindToolkit, circle, compileSketch, line, rect, sketch, space, strokes,
-  Execution as Run,
-  type Execution, type SketchConfig, type ShapeValue, type Toolkit,
+  circle, line, rect, sketch, space, strokes, type SketchConfig, type ShapeValue, type Toolkit,
 } from '../src/index.js';
+import { bindToolkit, compileSketch, Execution as Run, type Execution } from '../src/host.js';
 import { lowerShape } from '../src/record.js';
+import { xy } from './helpers/xy.js';
 
 function tk(cfg: SketchConfig = {}): Toolkit & { exec: Execution } {
   const exec = new Run(SQ);
@@ -78,9 +78,9 @@ describe('a shape is its anchor plus offsets', () => {
   it('keeps a grid a grid: neighbours share their wall to the last digit', () => {
     for (const cfg of [HYP, SPH]) {
       const t = tk(cfg);
-      const cells = t.grid({ cols: 9, rows: 9 });
+      const cells = t.grid({ cols: 9, rows: 9 }).faces.map((f) => f.bounds);
       const corners = (c: { x: number; y: number; w: number; h: number }) =>
-        t.material(rect(c.x, c.y, c.w, c.h)).pts;
+        t.material(rect(c.x, c.y, c.w, c.h)).points.map(xy);
       // The right wall of one cell and the left wall of the next are the
       // same two places: a placement that moved a shape's own points about
       // would tear them apart.
@@ -101,7 +101,7 @@ describe('a shape is its anchor plus offsets', () => {
   it('places a rect at its own corners, with geodesic walls of the height asked for', () => {
     const t = tk(HYP);
     const m = t.material(rect(20, 60, 40, 24));
-    const pts = m.pts.map((p) => [p[0], p[1]] as [number, number]);
+    const pts = m.points.map(xy).map((p) => [p[0], p[1]] as [number, number]);
     // The four corners are among the points, as the numbers the sketch
     // wrote them.
     for (const c of [[20, 60], [60, 60], [60, 84], [20, 84]] as [number, number][]) {
@@ -132,7 +132,7 @@ describe('a shape is its anchor plus offsets', () => {
     for (const cfg of [HYP, SPH]) {
       const t = tk(cfg);
       for (const c of [[50, 50], [78, 30], [24, 86]] as [number, number][]) {
-        for (const p of t.material(circle(c[0], c[1], 14)).pts) {
+        for (const p of t.material(circle(c[0], c[1], 14)).points.map(xy)) {
           expect(t.space.distance(c, p)).toBeCloseTo(14, 9);
         }
       }
@@ -146,7 +146,7 @@ describe('a shape is its anchor plus offsets', () => {
       const b: [number, number] = [84, 72];
       // `t.material` keeps the line's own two ends; `t.sample` walks it.
       expect(t.material(line(a[0], a[1], b[0], b[1])).n).toBe(2);
-      const pts = t.sample(line(a[0], a[1], b[0], b[1]), { count: 24 }).pts;
+      const pts = t.sample(line(a[0], a[1], b[0], b[1]), { count: 24 }).points.map(xy);
       expect(pts.length).toBeGreaterThan(4);
       // Every sample is on the geodesic: the two legs add up to the whole.
       const whole = t.space.distance(a, b);
@@ -163,7 +163,7 @@ describe('a shape is its anchor plus offsets', () => {
     const t = tk(HYP);
     // `rotate` turns the offsets in the flat coordinates, as it always
     // has, and the placement reads the turned numbers.
-    const pts = t.material(rect(40, 40, 20, 20, { rotate: 45, origin: 'center' })).pts;
+    const pts = t.material(rect(40, 40, 20, 20, { rotate: 45, origin: 'center' })).points.map(xy);
     const c: [number, number] = [50, 50];
     const far = Math.max(...pts.map((p) => Math.hypot(p[0] - c[0], p[1] - c[1])));
     expect(far).toBeCloseTo(Math.hypot(10, 10), 6);
@@ -178,8 +178,8 @@ describe('the sketch-time doors answer in sketch coordinates', () => {
     // is drawn well inside that.
     const z = t.space.toChart([20, 84]);
     expect(Math.hypot(z[0] - 20, z[1] - 84)).toBeGreaterThan(5);
-    expect(Math.min(...m.pts.map((p) => p[0]))).toBeCloseTo(20, 9);
-    expect(Math.max(...m.pts.map((p) => p[1]))).toBeCloseTo(84, 9);
+    expect(Math.min(...m.points.map(xy).map((p) => p[0]))).toBeCloseTo(20, 9);
+    expect(Math.max(...m.points.map(xy).map((p) => p[1]))).toBeCloseTo(84, 9);
   });
 
   it('draws a material of a shape exactly as the shape itself draws', () => {

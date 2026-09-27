@@ -16,7 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
   const network = append(frame, ...lines);
-  const cells = t.within(network.planarize().faces(), rect(6, 6, 188, 88));
+  const cells = t.within(network.planarize().faces, rect(6, 6, 188, 88));
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
@@ -40,11 +40,11 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const network = append(t.material(rect(10, 10, 80, 80)), chord(10, 34, 90, 62), chord(28, 10, 60, 90), chord(10, 74, 90, 26));
   const planar = network.planarize();
-  const junctions = planar.points.filter((p) => network.pointOf(p.id) === undefined);
+  const junctions = planar.points.without(network.points);
   return [
-    strokes(network), label(`${network.edgeCount} connections`, 12, 6, 3.4),
+    strokes(network), label(`${network.edges.length} connections`, 12, 6, 3.4),
     group({ translate: [100, 0] },
-      strokes(planar), label(`${planar.edgeCount} connections`, 12, 6, 3.4),
+      strokes(planar), label(`${planar.edges.length} connections`, 12, 6, 3.4),
       junctions.map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-blue' })),
     ),
   ];
@@ -66,7 +66,7 @@ A grown network carries columns, such as chapter 5's `heading`, and the two line
 
 ## Reveal the areas
 
-`planar.faces()` reads the regions a connected network encloses: each one a face with an `area` and its own closed outline, which `polygon` takes as it is. Hatched at a different angle each, they show themselves. Two frames, each with one chord and one more line: on the left the second line reaches both sides; on the right it stops short of the frame by a few units. Count the faces on each side before you check the label.
+`planar.faces` reads the regions a connected network encloses: each one a face with an `area` and its own closed outline, which `polygon` takes as it is. Hatched at a different angle each, they show themselves. Two frames, each with one chord and one more line: on the left the second line reaches both sides; on the right it stops short of the frame by a few units. Count the faces on each side before you check the label.
 
 ```ts live focus=7-8
 import { sketch, strokes, polygon, fill, mm, label, line, rect, append, group } from 'occlude';
@@ -74,11 +74,11 @@ import { sketch, strokes, polygon, fill, mm, label, line, rect, append, group } 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const build = (second) => append(t.material(rect(10, 10, 80, 80)), chord(10, 50, 90, 50), second);
-  const reaching = build(chord(50, 10, 50, 90)).planarize().faces();
-  const short = build(chord(50, 16, 50, 84)).planarize().faces();
+  const reaching = build(chord(50, 10, 50, 90)).planarize().faces;
+  const short = build(chord(50, 16, 50, 84)).planarize().faces;
   const show = (cells) => [
     cells.map((f, k) => polygon(f, { fill: fill('hatch', { angle: (k * 50) % 180, spacing: mm(1.2) }), stroke: false })),
-    strokes(cells.source),
+    strokes(cells.edges),
     label(`${cells.length} faces`, 12, 6, 3.4),
   ];
   return [show(reaching), group({ translate: [100, 0] }, show(short))];
@@ -103,7 +103,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const limit = ui(120, { min: 10, max: 800, step: 10, label: 'area below' });
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const network = append(t.material(rect(6, 6, 188, 88)), ...t.times(9, () => chord(t.rnd(6, 194), 6, t.rnd(6, 194), 94)), ...t.times(4, () => chord(6, t.rnd(6, 94), 194, t.rnd(6, 94))));
-  const cells = network.planarize().faces();
+  const cells = network.planarize().faces;
   const chosen = cells.filter((f) => f.area < limit);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.2) });
   return [
@@ -123,7 +123,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const gap = ui(1.1, { min: 0.4, max: 3, step: 0.1, label: 'hatch (mm)' });
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const network = append(t.material(rect(6, 6, 188, 88)), ...t.times(9, () => chord(t.rnd(6, 194), 6, t.rnd(6, 194), 94)), ...t.times(4, () => chord(6, t.rnd(6, 94), 194, t.rnd(6, 94))));
-  const cells = network.planarize().faces();
+  const cells = network.planarize().faces;
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
@@ -143,7 +143,7 @@ import { sketch, strokes, polygon, fill, mm, line, rect, append, group } from 'o
 export default sketch({ aspect: [2, 1] }, (t) => {
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const grid = append(t.material(rect(10, 10, 80, 80)), chord(36, 10, 36, 90), chord(64, 10, 64, 90), chord(10, 36, 90, 36), chord(10, 64, 90, 64));
-  const cells = grid.planarize().faces();
+  const cells = grid.planarize().faces;
   const ring = cells.filter((f) => f.bounds.x !== 36 || f.bounds.y !== 36);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.4) });
   const shade = ring.map((f) => polygon(f, { fill: hatch, stroke: false }));
@@ -176,7 +176,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
   const network = append(frame, ...lines);
-  const cells = t.within(network.planarize().faces(), rect(6, 6, 188, 88));
+  const cells = t.within(network.planarize().faces, rect(6, 6, 188, 88));
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
@@ -200,7 +200,7 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
     ? through(t.rnd(4, 96), t.rnd(4, 96), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-20, 20), focus[1] + t.rnd(-20, 20), t.rnd(Math.PI))));
   const network = append(frame, ...lines);
-  const cells = t.within(network.planarize().faces(), rect(4, 4, 92, 92));
+  const cells = t.within(network.planarize().faces, rect(4, 4, 92, 92));
   const chosen = cells.filter((f) => f.area < 60);
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 60)));
   const shade = chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));

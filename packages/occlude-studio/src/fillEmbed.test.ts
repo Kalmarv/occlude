@@ -7,7 +7,7 @@ import {
   BUILTIN_FILL_NAMES as STORE_BUILTINS, FILL_NAME_RE as STORE_NAME_RE, sketchUsesFill,
   // @ts-expect-error plain-JS module shared with the production server
 } from '../fill-store.mjs';
-import { BUILTIN_FILL_NAMES, FILL_NAME_RE } from 'occlude';
+import { BUILTIN_FILL_NAMES, FILL_NAME_RE } from 'occlude/host';
 
 const SKETCH = `import { sketch, circle, fill } from 'occlude';
 

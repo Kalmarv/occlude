@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  distanceTo, material, curve, polygon, strokes, numericLoops,
-  sketch, compileSketch, append,
-  type Material, type Vertex,
+  distanceTo, material, curve, polygon, rect, strokes, sketch, append, type Material, type Vertex,
 } from '../src/index.js';
+import { compileSketch } from '../src/host.js';
+import { numericLoops } from '../src/boundary.js';
 
 import { exactEnvelopeOracle } from './helpers/envelope-oracle.js';
+import { rec } from './helpers/xy.js';
 
 // ---- helpers ---------------------------------------------------------------------
 
@@ -43,7 +44,7 @@ interface Loop {
 
 function loopsOf(m: Material): Loop[] {
   const out: Loop[] = [];
-  for (const c of m.curves()) {
+  for (const c of m.curves.map(rec)) {
     if (!c.closed) continue;
     const pts = c.indices.map((i) => [m.x[i], m.y[i]] as [number, number]);
     let a = 0;
@@ -80,7 +81,7 @@ describe('thicken: geometry and topology', () => {
     const empty = material([]).thicken({ radius: 2 });
     expect(empty.n).toBe(0);
     expect(empty.edgeCount).toBe(0);
-    expect(empty.attrNames).toEqual([]);
+    expect(Object.keys(empty.attrs)).toEqual([]);
     const sel = material([[0, 0]]).points.filter(() => false);
     const viaSel = sel.thicken({ radius: 2 });
     expect(viaSel.n).toBe(0);
@@ -363,15 +364,14 @@ describe('thicken: material and callback contract', () => {
     expect(() => tree.thicken({ radius: 1, point: 3 } as never)).toThrow(/point must be a function/);
   });
 
-  it('geometry-only output has empty domains, iteration 0, empty history and own arrays', () => {
+  it('geometry-only output has empty domains, empty history and own arrays', () => {
     const body = tree.thicken({ radius: 1 });
-    expect(body.attrNames).toEqual([]);
-    expect(body.edgeAttrNames).toEqual([]);
-    expect(body.iteration).toBe(0);
+    expect(Object.keys(body.attrs)).toEqual([]);
+    expect(Object.keys(body.edgeAttrs)).toEqual([]);
     expect(body.history).toEqual([]);
     // The source is untouched.
     expect(tree.n).toBe(4);
-    expect(tree.attrNames).toEqual(['radius', 'age']);
+    expect(Object.keys(tree.attrs)).toEqual(['radius', 'age']);
     expect(Array.from(tree.edgeList)).toEqual([0, 1, 0, 2, 1, 3]);
     // A later write to the result does not touch the source.
     body.x[0] = 999;
@@ -386,7 +386,7 @@ describe('thicken: material and callback contract', () => {
         support: candidates.length,
       }),
     });
-    expect(body.attrNames).toEqual(['age', 'support']);
+    expect(Object.keys(body.attrs)).toEqual(['age', 'support']);
     for (let i = 0; i < body.n; i++) {
       expect(Number.isFinite(body.attrs.age[i])).toBe(true);
       expect(body.attrs.support[i]).toBeGreaterThanOrEqual(1);
@@ -550,8 +550,8 @@ describe('thicken: near-degenerate junctions', () => {
       edges: [[0,1],[2,3],[2,4]],
     });
     const body = src.thicken({radius:p => 0.1 + p.x / 100 * 0.9});
-    expect(body.curves()).toHaveLength(1);
-    expect(body.curves()[0].closed).toBe(true);
+    expect(body.curves.map(rec)).toHaveLength(1);
+    expect(body.curves.map(rec)[0].closed).toBe(true);
     const d = distanceTo(body);
     expect(d(32,35)).toBeGreaterThan(0.35);
     expect(d(30,33)).toBeGreaterThan(0.35);
@@ -603,7 +603,7 @@ describe('thicken: near-degenerate junctions', () => {
             const body = kink(h, ox, oy, angle, reverse).thicken({ radius: 1 });
             const loops = loopsOf(body);
             expect(loops, `h=${h} a=${angle} o=(${ox},${oy}) rev=${reverse}`).toHaveLength(1);
-            expect(body.curves().every((c) => c.closed)).toBe(true);
+            expect(body.curves.map(rec).every((c) => c.closed)).toBe(true);
             closed++;
           }
         }
@@ -618,7 +618,7 @@ describe('thicken: near-degenerate junctions', () => {
       radius: [3.612, 0.185, 3.043, 0.093, 1.746],
     }).thicken({ radius: radiusOf });
     expect(loopsOf(body).length).toBeGreaterThan(0);
-    expect(body.curves().every((c) => c.closed)).toBe(true);
+    expect(body.curves.map(rec).every((c) => c.closed)).toBe(true);
   });
 
   it('gaps and overlaps above the approximation budget retain topology', () => {
@@ -698,7 +698,7 @@ describe('thicken: sub-resolution near-tangent circle intersections', () => {
     [[0, 0], [2 * Math.cos(0.1), 2 * Math.sin(0.1)]],
   ])('returns closed bounded approximations for nearly touching discs %j', (a, b) => {
     const out = material([a as [number, number], b as [number, number]]).thicken({ radius: 1 });
-    const contours = [...out.curves()];
+    const contours = [...out.curves.map(rec)];
     expect(contours.length).toBeGreaterThan(0);
     expect(contours.every(c => c.closed)).toBe(true);
     expect(totalArea(out)).toBeGreaterThan(5.5);
@@ -729,8 +729,8 @@ describe('thicken: shared circle intersection construction', () => {
       radius: radiusOf, tolerance: 0.02,
       point: event => ({ supports: event.candidates.length }),
     });
-    expect(body.curves()).toHaveLength(1);
-    expect(body.curves()[0].closed).toBe(true);
+    expect(body.curves.map(rec)).toHaveLength(1);
+    expect(body.curves.map(rec)[0].closed).toBe(true);
     const d = distanceTo(body);
     for (let i = 0; i < source.n; i++) expect(d(source.x[i], source.y[i])).toBeGreaterThan(0);
     const junction = body.points.filter(p => Math.hypot(p.x - 15.031654855962282, p.y - 6.550506119940689) < 0.02);
@@ -744,7 +744,7 @@ it('keeps closed coverage around a sub-resolution line–circle overlap', () => 
   const body = material([[-4, -2], [4, -2], [0, 0.9999999999999999]], {
     edges: [[0, 1]], radius: [1, 1, 2],
   }).thicken({ radius: radiusOf });
-  expect(body.curves().every(c => c.closed)).toBe(true);
+  expect(body.curves.map(rec).every(c => c.closed)).toBe(true);
   expect(distanceTo(body)(0, -2)).toBeGreaterThan(0);
   expect(distanceTo(body)(0, 1)).toBeGreaterThan(0);
 });
@@ -759,10 +759,10 @@ describe('thicken: overlapping recursive rectangles', () => {
       compileSketch(sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
         const b = t.bounds();
         let size = initialSize;
-        let m = t.material(t.rect(b.cx - size / 2, b.cy - size / 2, size, size));
+        let m = t.material(rect(b.cx - size / 2, b.cy - size / 2, size, size));
         for (let generation = 0; generation <= level; generation++) {
-          const shapes = m.along(spacing === undefined ? undefined : { spacing }).map(p =>
-            t.rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2));
+          const shapes = m.along(spacing === undefined ? undefined : { spacing }).points.map(p =>
+            rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2));
           m = shapes.reduce((acc, shape) => append(acc, t.material(shape)), m);
           size /= 2;
         }
@@ -780,7 +780,7 @@ describe('thicken: overlapping recursive rectangles', () => {
         const body = src.thicken({ radius, tolerance: 0.01 });
         expect(body.n).toBeGreaterThan(0);
         expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
-        expect(body.curves().every(c => c.closed)).toBe(true);
+        expect(body.curves.map(rec).every(c => c.closed)).toBe(true);
         const loops = loopsOf(body);
         expect(loops.some(c => c.area > 0)).toBe(true);
         expect(loops.some(c => c.area < 0)).toBe(true);
@@ -817,7 +817,7 @@ describe('thicken: overlapping recursive rectangles', () => {
       let body: Material;
       try { body = src.thicken({ radius, tolerance: 0.01 }); }
       catch (error) { throw new Error(`${context}: ${String(error)}`); }
-      expect(body.curves().every(c => c.closed), context).toBe(true);
+      expect(body.curves.map(rec).every(c => c.closed), context).toBe(true);
       const shapes: Envelope[] = [];
       for (let i = 0; i < src.edgeList.length; i += 2) {
         const a = src.edgeList[i], b = src.edgeList[i + 1];
@@ -843,7 +843,7 @@ describe('thicken: overlapping recursive rectangles', () => {
       ]) {
         const src = recursive(1, undefined, paper);
         const body = src.thicken({ radius: field, tolerance: 0.01 });
-        expect(body.curves().every(c => c.closed)).toBe(true);
+        expect(body.curves.map(rec).every(c => c.closed)).toBe(true);
         expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
         const shapes: Envelope[] = [];
         const radii = Array.from({length: src.n}, (_, i) => field({x:src.x[i], y:src.y[i]} as Vertex));
@@ -875,7 +875,7 @@ describe('thicken: overlapping recursive rectangles', () => {
           radius: (p) => radii[p.index],
           tolerance: 0.01,
         });
-        expect(body.curves().every((c) => c.closed)).toBe(true);
+        expect(body.curves.map(rec).every((c) => c.closed)).toBe(true);
         expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
         const envelopes: Envelope[] = [];
         for (let i = 0; i < src.edgeCount; i++) {

@@ -1,12 +1,18 @@
-import {CurveGeometry,type EdgeAttributes} from './mesh.js';
-import type {Attributes3} from '../geometry/surface.js';
+import {type EdgeAttributes} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
+import type {Attributes3,Surface3} from '../geometry/surface.js';
 import {sub3} from '../math.js';
+import {Material} from '../../material.js';
 export interface CurvePath {readonly points:readonly number[];readonly edges:readonly number[];readonly closed:boolean}
 /** Order a single unbranched component, preserving its first edge's direction.
  * Shared by operations consuming a path rather than an arbitrary edge graph. */
-export function curvePath<P extends Attributes3,E extends EdgeAttributes>(curve:CurveGeometry<P,E>):CurvePath {
-  if(!(curve instanceof CurveGeometry))throw new Error('construction requires curve geometry');
-  const {points,edges}=curve.surface;
+export function curvePath<P extends Attributes3,E extends EdgeAttributes>(curve:Material):CurvePath {
+  if(!(curve instanceof Material))throw new Error('construction requires curve geometry');
+  return surfacePath(surfaceOf(curve));
+}
+/** `curvePath` of a working view: its edges walked as one path. */
+export function surfacePath(surface:Surface3):CurvePath {
+  const {points,edges}=surface;
   // A zero-length edge is no step along the path: drop it and order what is
   // left. Nothing left is an empty path, and every construction over it is an
   // empty mesh rather than a failed sketch.

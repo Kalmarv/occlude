@@ -9,9 +9,9 @@ Here the same motif repeats under `{4, 5}`. Five squares meet at every corner. N
 
 Nothing shrinks in the metric of the disk. Every cell there is the same square, at the same size, and the rim lies infinitely far away. The shrinking belongs to the picture, not to the plane the picture shows.
 
-The sketch draws in hyperbolic space, because `{4, 5}` is a tiling of that space. `t.tiling` refuses a symbol of another geometry. A wall is a geodesic, so it draws as an arc that meets the rim at a right angle. The sketch writes the turned square once, inside the cell, and every placement carries it. `strokes(tiles)` draws each wall once, because two cells that meet share the wall.
+The sketch draws in hyperbolic space, because `{4, 5}` is a tiling of that space. `t.tiling` refuses a symbol of another geometry. A wall is a geodesic, so it draws as an arc that meets the rim at a right angle. The sketch writes the turned square once, inside the cell, and every placement carries it: a face's `source` is the placement that put it there. `strokes(tiles)` draws each wall once, because two cells that meet share the wall.
 
-Uses: `t.tiling`, `t.space`, `strokes`, `line`, `circle`.
+Uses: `t.tiling` and the `source` of its faces, `t.space`, `strokes`, `line`, `circle`.
 
 ```ts live
 // ONE MOTIF, FIVE AT A CORNER
@@ -30,7 +30,7 @@ export default sketch(
     const c = t.space.center;
     // The turned square: the middle of each wall, pulled toward the
     // middle of the cell along the geodesic between them.
-    const quad = tiles.cell;
+    const quad = [...tiles.faces.at(0).points.filter((p) => p.corner)];
     const inner = quad.map((v, i) => t.space.geodesic(c, t.space.geodesic(v, quad[(i + 1) % 4], 0.5), 0.72));
     const ring = (pts) => pts.map((v, i) => line(v, pts[(i + 1) % pts.length], { pen: 'faint' }));
     return [
@@ -38,7 +38,7 @@ export default sketch(
       // left to put it.
       circle(c[0], c[1], 300, { pen: 'ink' }),
       strokes(tiles, { pen: 'ink' }),
-      tiles.placements.map((f) => ring(inner.map((v) => f.point(v)))),
+      tiles.faces.map((f) => ring(inner.map((v) => f.source.point(v)))),
     ];
   },
 );

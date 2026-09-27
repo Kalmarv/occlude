@@ -1,8 +1,9 @@
 import {SurfaceQueries3} from 'occlude/src/three/queries/surface.js';
+import {surfaceOf} from 'occlude/3d/advanced';
 import {GpuSurfaceQueries3} from 'occlude/src/compute/webgpu/queries.js';
 import {surface3} from 'occlude/src/three/geometry/surface.js';
 import {Rng} from 'occlude/src/random.js';
-import {grid3,FaceSelection3,extrudeFaces3} from 'occlude/src/three/geometry/model.js';
+import {plane} from 'occlude/3d';
 import {deformSurfaceCpu3} from 'occlude/src/three/geometry/deform.js';
 import {GpuDeform3} from 'occlude/src/compute/webgpu/deform.js';
 import type {Surface3} from 'occlude/src/three/geometry/surface.js';
@@ -12,7 +13,8 @@ import { box3 } from 'occlude/src/three/geometry/surface.js';
 import { featureSnapshot3, FeatureKind3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
 import type { CameraFrame3 } from 'occlude/src/three/camera.js';
-import { exportSvg, initOcclude, line, mm, paper, pen, sketch } from 'occlude';
+import { line, mm, paper, pen, sketch } from 'occlude';
+import { exportSvg, initOcclude } from 'occlude/host';
 import { cameraFrame3, toPaper3 } from 'occlude/src/three/camera.js';
 import { lerp3, type Triangle3, type Vec3 } from 'occlude/src/three/math.js';
 import { hiddenInterval3, occlusionVolume3, visibleIntervals3, type Interval3 } from 'occlude/src/three/visibility/interval.js';
@@ -31,7 +33,7 @@ const projection = document.querySelector<HTMLSelectElement>('#projection')!;
 let canvas = document.querySelector<HTMLCanvasElement>('#viewport')!;
 // This dedicated laboratory exposes its kernels for browser conformance checks
 // against the exact production bundle (no Vite /@fs imports required).
-Object.assign(window, { threeLabApi: { createBenchmarkWorker: () => new Worker(new URL('./three/benchmark.ts', import.meta.url), { type: 'module' }), GpuIntervals3, SurfaceQueries3, GpuSurfaceQueries3, surface3, GpuDeform3, grid3, FaceSelection3, extrudeFaces3, deformSurfaceCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
+Object.assign(window, { threeLabApi: { createBenchmarkWorker: () => new Worker(new URL('./three/benchmark.ts', import.meta.url), { type: 'module' }), GpuIntervals3, SurfaceQueries3, GpuSurfaceQueries3, surface3, GpuDeform3, deformSurfaceCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
 
 let client: ThreeWorkerClient | null = null, svg = '', revision = 0;
 
@@ -44,15 +46,17 @@ let relief:Surface3|null=null,reliefPending:Promise<Surface3>|null=null,modelBui
 async function reliefModel():Promise<Surface3> {
   if(relief)return relief;
   if(!reliefPending)reliefPending=(async()=>{
-    const grid=grid3(8,8,[4,4]);
-    grid.faces.forEach(f=>{f.attributes.importance=new Rng(`relief:42:${f.id}`).float();});
-    const selection=new FaceSelection3(grid).filter(f=>f.index%8%2===0&&Math.floor(f.index/8)%2===0);
-    const raised=extrudeFaces3(grid,selection,f=>.3+.9*Math.abs(Number(f.attributes.importance)),{operation:'relief:42'});
+    // Every other cell of an 8 × 8 sheet, both ways, raised by its own importance.
+    const cell=(v:number)=>Math.floor((v+2)/.5)%2===0;
+    const sheet=plane(4,4).subdivide(3).faces.set('importance',f=>new Rng(`relief:42:${f.id}`).float());
+    const raisedMesh=sheet.extrude(sheet.faces.filter(f=>cell(f.centroid[0])&&cell(f.centroid[1])),{distance:r=>.3+.9*Math.abs(Number(r.faces.at(0)?.importance))},{key:'relief:42'});
+    const raised=surfaceOf(raisedMesh);
+    const raisedPoints=raised.points.flatMap((p,i)=>p.position[2]>0?[i]:[]);
     const pinned=raised.points.flatMap((p,i)=>Math.abs(p.position[0])===2||Math.abs(p.position[1])===2?[i]:[]);
     const displacements=raised.points.map(p=>[0,0,.002*Math.sin(p.position[0]*3+p.position[1]*2)] as Vec3);
     const result=await client!.deform({surface:raised,deformation:{iterations:24,relaxation:.025,displacements,pinned},geometryRevision:3,cameraRevision:0});
     const modeled=result.deformation.surface;
-    const selectedPoints=modeled.points.flatMap((p,i)=>p.attributes.parentPoint?[i]:[]);
+    const selectedPoints=raisedPoints;
     const ceiling=surface3([[-3,-3,.55],[3,-3,1.15],[3,3,1.15],[-3,3,.55]],[[0,1,2,3]]);
     const queried=await client!.query({querySurface:ceiling,rayQueries:[],nearestQueries:selectedPoints.map(i=>({point:modeled.points[i].position})),geometryRevision:3,cameraRevision:0});
     queried.queries.nearest.hits.forEach((hit,j)=>{const p=modeled.points[selectedPoints[j]];if(hit&&p.position[2]>hit.point[2]){p.position=hit.point;p.attributes.constraintDistance=hit.distance;queryEdits++;}});

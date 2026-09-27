@@ -39,18 +39,19 @@
  */
 
 import { numericLoops, type AreaInput } from './boundary.js';
-import { distanceTo } from './distance.js';
+import { distanceField } from './distance.js';
 import { usableLength } from './guard.js';
 import type { IsoEnv } from './isolines.js';
 import type { Space } from './space.js';
-import type { PointSelection } from './relation.js';
+import type { Selection } from './selection.js';
+import type { Vertex } from './material.js';
 import type { FieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
 
 /** Where the front starts, at time zero: an area (its whole interior and
  * boundary) or a set of points. The point atom decides an array —
  * `[{ x, y }, …]` is a set of separate seeds, `[[x, y], …]` is one loop. */
-export type TravelFrom = AreaInput | PointSelection;
+export type TravelFrom = AreaInput | Selection<Vertex>;
 
 export interface TravelOpts {
   /** Distance covered per unit time, as a number or a field (default 1).
@@ -157,7 +158,7 @@ function seedDistance(
   points: [number, number][],
 ): ((x: number, y: number) => number) | null {
   if (loops.length === 0 && points.length === 0) return null;
-  const area = loops.length > 0 ? distanceTo(loops) : null;
+  const area = loops.length > 0 ? distanceField(loops) : null;
   const px = Float64Array.from(points.map((p) => p[0]));
   const py = Float64Array.from(points.map((p) => p[1]));
   return (x, y) => {
@@ -190,7 +191,7 @@ function seedDistanceIn(
   space: Space,
 ): ((x: number, y: number, reach: number) => number) | null {
   if (loops.length === 0 && points.length === 0) return null;
-  const area = loops.length > 0 ? distanceTo(loops) : null;
+  const area = loops.length > 0 ? distanceField(loops) : null;
   return (x, y, reach) => {
     let best = Infinity;
     if (area !== null) {
@@ -254,7 +255,7 @@ export function travelTimeOf(env: IsoEnv, from: TravelFrom, opts: TravelOpts = {
     throw new Error(`travelTime: { speed } must be a number or a field of (x, y), got ${typeof given}`);
   }
   const speedAt: FieldFn = typeof given === 'function' ? given : () => given;
-  const ground = opts.within === undefined ? null : distanceTo(opts.within);
+  const ground = opts.within === undefined ? null : distanceField(opts.within);
   const start = seedsOf(from, 'travelTime');
   const space = env.space !== undefined && env.space.kind !== 'euclidean' ? env.space : null;
   const seed = space ? null : seedDistance(start.loops, start.points);

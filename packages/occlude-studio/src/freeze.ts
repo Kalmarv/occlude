@@ -2,7 +2,7 @@
  * Freeze: an evolved or rolled drawing written back into its sketch as
  * numbers you can edit. Pure text in, text out; undo is the editor's.
  */
-import { formatSeed, parseSeed, tagDraws } from 'occlude';
+import { formatSeed, parseSeed, tagDraws } from 'occlude/host';
 
 /** Offset range of the first argument of the sketch(...) call, if an object literal. */
 export function optionsSpan(source: string): [number, number] | null {

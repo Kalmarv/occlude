@@ -23,7 +23,7 @@
  * `f(x, y)` and `f(p)`, `p` a pair or an `{ x, y }` record — the spelling
  * the vector arithmetic takes. That is every field verb here (`rotate`,
  * `translate`, `scale`, `within`, `grad`, `curl`, `across`) and the
- * toolkit's field words (`t.distanceTo`, `t.travelTime`, `t.noiseField`).
+ * toolkit's field words (`t.distanceTo`, `t.travelTime`).
  * A field you write answers what you wrote; wrap it in a verb, or call it
  * `f(...p)`. The `sdf.*` words and the pure `distanceTo` are the fast
  * kernels behind these and stay `(x, y)`.
@@ -89,7 +89,7 @@ const numbersOnly: LenResolver = (l) => {
 };
 
 /** Mark a vector-valued field ((x, y) => [dx, dy]) so the transform verbs
- * rotate its arrows. `noiseField` returns pre-marked fields. */
+ * rotate its arrows. */
 export function vectorField(fn: VectorFieldFn): VectorFieldFn {
   FIELD_META.set(fn, { kind: 'vector' });
   return fn;
@@ -167,19 +167,35 @@ function derivedVector(src: FieldFn, sample: VectorFieldFn, again: (f: FieldFn) 
   return out;
 }
 
+/** How far apart the central differences of `grad` and `curl` are taken. */
+export interface DifferenceOptions {
+  /** The difference step in user units (default 0.25 — a quarter of a
+   * percent of the short side). A step that is not a positive number is
+   * the default. */
+  readonly step?: number;
+}
+/** The step a difference is taken over; the old positional spelling is
+ * refused by name. */
+function stepOf(who: string, opts: DifferenceOptions | undefined): number {
+  if (typeof opts === 'number') throw new Error(`${who}: the step is an option — ${who}(f, { step: ${opts} })`);
+  if (opts !== undefined && (typeof opts !== 'object' || opts === null)) throw new Error(`${who}: options are { step }`);
+  const step = opts?.step;
+  return typeof step === 'number' && Number.isFinite(step) && step > 0 ? step : 0.25;
+}
+
 /**
  * Gradient of a scalar field by central differences: points uphill, its
- * length is the slope. `h` is the difference step in user units (default
- * 0.25 — a quarter of a percent of the short side). Streamlines of
- * `grad(distanceTo(loops))` run away from a shape; `deform` with it pushes
- * ink downhill.
+ * length is the slope. `step` is the difference step (see
+ * `DifferenceOptions`). Streamlines of `grad(distanceTo(loops))` run away
+ * from a shape; `deform` with it pushes ink downhill.
  */
-export function grad(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
+export function grad(field: FieldFn, opts?: DifferenceOptions): PointField<VectorFieldFn> {
+  const h = stepOf('grad', opts);
   const sample: VectorFieldFn = (x, y) => [
     (field(x + h, y) - field(x - h, y)) / (2 * h),
     (field(x, y + h) - field(x, y - h)) / (2 * h),
   ];
-  return derivedVector(field, sample, (f) => grad(f, h));
+  return derivedVector(field, sample, (f) => grad(f, { step: h }));
 }
 
 /**
@@ -187,14 +203,16 @@ export function grad(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
  * field's contours and never converges (divergence-free). Streamlines of
  * `curl(noise)` are the flow-field look; streamlines of `curl(f)` at nib
  * spacing are the isolines of `f`, densely — one mechanism seen twice.
+ * `step` is the difference step, as for `grad`.
  */
-export function curl(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
-  const g = grad(field, h);
+export function curl(field: FieldFn, opts?: DifferenceOptions): PointField<VectorFieldFn> {
+  const h = stepOf('curl', opts);
+  const g = grad(field, { step: h });
   const sample: VectorFieldFn = (x, y) => {
     const [gx, gy] = g(x, y);
     return [-gy, gx];
   };
-  return derivedVector(field, sample, (f) => curl(f, h));
+  return derivedVector(field, sample, (f) => curl(f, { step: h }));
 }
 
 type AnyField = FieldFn | VectorFieldFn | LengthFn;
@@ -429,9 +447,6 @@ function indexLoops(loops: [number, number][][]): LoopIndex {
   return { ax, ay, bx, by, x0, y0, x1, y1, bandH, nb, start, items };
 }
 
-/** A prepared bound and the frame it was built for. The loops depend on the
- * frame (units, rectMode, origin, yUp), so a shape reused under a different
- * paper rebuilds instead of answering out of the old frame. */
 /** What a sketch-time bound needs of the run: the frame it lowers against
  * and a per-run memo of lowered shapes (one shape bounds many fields). */
 export interface BoundEnv {

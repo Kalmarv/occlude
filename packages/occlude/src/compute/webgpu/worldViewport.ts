@@ -76,7 +76,7 @@ export class GpuWorldViewport3 {
   private upload(triangles:readonly Triangle3[],wires:readonly(readonly[Vec3,Vec3])[]):void{
     if(this.triangles===triangles&&this.wires===wires)return;
     let low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
-    for(const rows of [triangles,wires])for(const row of rows)for(const p of row){finite3(p);for(let k=0;k<3;k++){low[k]=Math.min(low[k],p[k]);high[k]=Math.max(high[k],p[k]);}}
+    for(const rows of [triangles,wires])for(const row of rows)for(const p of row){finite3(p,'view');for(let k=0;k<3;k++){low[k]=Math.min(low[k],p[k]);high[k]=Math.max(high[k],p[k]);}}
     this.center=low.map((v,k)=>Number.isFinite(v)?v/2+high[k]/2:0) as unknown as Vec3;
     this.scale=Math.max(0,...high.map((v,k)=>Number.isFinite(v)?Math.max(Math.abs(v-this.center[k]),Math.abs(low[k]-this.center[k])):0))||1;
     const pack=(rows:readonly(readonly Vec3[])[],count:number)=>{

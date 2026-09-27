@@ -4,9 +4,8 @@ import {surfaceLocation3,captureSurfacePlacement3} from '../geometry/location.js
 import {estimateCurvature3,curvatureAt3,type CurvatureOptions3} from '../geometry/curvature.js';
 import {rotateVector3,rotation3,vector3,type RotationInput,type Vector3} from '../rotation.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
-import {clampSetting,sampleValue} from '../degenerate.js';
+import {clampSetting,emptySize,sampleValue} from '../degenerate.js';
 import {lightRecipe3,lightTone3,imageValue3,registerToneRecipe3,toneRecipe3} from './tone.js';
-import {falloff} from '../api/vec.js';
 
 /** A direction over the surface. The tracer projects the result onto the
  * actual tangent plane; `null` means "no direction here" (stop or fall back).
@@ -69,10 +68,16 @@ export function lamp(options:LampOptions):ToneField {
     // A lamp sitting exactly on the surface lights that point fully: there is
     // no direction left to measure an angle against.
     const cosine=distance>0?Math.max(0,dot3(s.normal,mul3(to,1/distance))):1;
-    const fade=reach?falloff(s.position,{center:position,radius:reach.radius,ease:reach.ease}):1;
+    const fade=reach?falloff(s.position,position,reach):1;
     const illumination=ambient+(1-ambient)*cosine*sampleValue(fade,0);
     return Math.min(1,Math.max(0,1-illumination));
   };
+}
+/** 1 at `center`, 0 at `radius` and beyond, linear or eased in between. No
+ * radius is no reach: the falloff is zero everywhere rather than failing. */
+function falloff(point:Vec3,center:Vec3,reach:LampFalloff):number {
+  const t=emptySize(reach.radius)?0:Math.max(0,1-Math.hypot(...sub3(point,center))/reach.radius);
+  return reach.ease?reach.ease(t):t;
 }
 /** What an environment is read with: a direction, or the sampler
  * `t.image(name).surface(...)` gives, which is read by the same directions
@@ -113,11 +118,12 @@ export function environment(sampler:EnvironmentSampler,options:EnvironmentOption
 // transform revision (captureSurfacePlacement3), never by its string id: an
 // instance that turns keeps its id but not its gradients.
 const gradients=new WeakMap<(s:SurfaceLocation3)=>number,WeakMap<Surface3,WeakMap<object,Map<number,Vec3|null>>>>();
-/** Gradient of a scalar field, taken from its values at the three vertices of
- * the current triangle: exact for the linear interpolant, a per-triangle
- * estimate for anything else. Zero where the field is constant. */
-export function gradient(scalar:(s:SurfaceLocation3)=>number):DirectionField {
-  if(typeof scalar!=='function')throw new Error('gradient requires a scalar surface field');
+/** Gradient of a scalar surface field, taken from its values at the three
+ * vertices of the current triangle: exact for the linear interpolant, a
+ * per-triangle estimate for anything else. Zero where the field is constant.
+ * The artist's word is `grad` (api/vec.ts), which reads the field's domain. */
+export function surfaceGradient(scalar:(s:SurfaceLocation3)=>number):DirectionField {
+  if(typeof scalar!=='function')throw new Error('grad requires a scalar surface field');
   let bySurface=gradients.get(scalar);if(!bySurface){bySurface=new WeakMap();gradients.set(scalar,bySurface);}
   return s=>{
     let byPlacement=bySurface!.get(s.source);if(!byPlacement){byPlacement=new WeakMap();bySurface!.set(s.source,byPlacement);}

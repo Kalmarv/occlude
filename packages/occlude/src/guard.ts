@@ -8,6 +8,7 @@
  */
 
 import { Len } from './units.js';
+import type { XY } from './vec.js';
 
 /** Most repetitions any single combinator may produce. */
 export const MAX_REPEAT = 100_000;
@@ -40,4 +41,16 @@ export function usableLength(l: number | Len | undefined): boolean {
  * the drawing. */
 export function valueAt(v: unknown, fallback: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
+/** @internal Is this argument a POINT — a pair or an `{ x, y }` record —
+ * rather than a number or a length? A word with a point form (a shape
+ * word, an `sdf.*` word) decides its form by the first argument. Any other
+ * object is refused by name: it is neither a point nor a length. */
+export function isPointArg(v: unknown, who: string): v is XY {
+  if (Array.isArray(v)) return true;
+  if (typeof v !== 'object' || v === null || v instanceof Len) return false;
+  const p = v as { x?: unknown; y?: unknown };
+  if (typeof p.x === 'number' && typeof p.y === 'number') return true;
+  throw new Error(`${who}: this object is not a point — give [x, y] or { x, y } with numbers`);
 }

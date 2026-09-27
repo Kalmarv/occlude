@@ -5,7 +5,7 @@
  * field on the paper, so it reads the field at the sketch point UNDER each
  * paper sample; a `within()` bound is lowered and projected the way the ink
  * is; `t.travelTime` marches the space's metric; a material from the toolkit
- * carries the sketch's space, `m.steps` walks a move in it with `exp`, and
+ * carries the sketch's space, `move` walks in it with `exp`, and
  * the forces measure with `distance` and `log`; `t.relax`/`t.settle` weigh a
  * cell by the space's area.
  *
@@ -20,9 +20,9 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, compileSketch, encodeScene, fill, force, initOcclude, line, material, rect, render, sketch, space,
-  Material, type SketchConfig,
+  append, circle, curve, decimate, fill, force, line, material, rect, sketch, space, Material, type SketchConfig,
 } from '../src/index.js';
+import { compileSketch, encodeScene, initOcclude, render } from '../src/host.js';
 import { lowerShape, unitMm, userToPaperMatrix } from '../src/record.js';
 import { flattenPrim, type Prim } from '../src/prims.js';
 import { paperStep, planGrid } from '../src/fieldGrid.js';
@@ -30,6 +30,7 @@ import { apply, invert, mul, scale as mscale } from '../src/matrix.js';
 import { decodePrim, PRIM_STRIDE } from '../src/sceneBuffers.js';
 import { densityRaster, settleMaterial } from '../src/points.js';
 import { fromSheet, spaceAreaNearest, type Space } from '../src/space.js';
+import { firstCell, xy } from './helpers/xy.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
@@ -83,7 +84,7 @@ describe('the engine reads a field at the sketch point under each paper sample',
       seen.push([x, y]);
       return 0.25;
     };
-    const exec = compileSketch(sketch(cfg, () => rect(20, 20, 60, 60, { fill: fill('hatch'), decimate: { fill: field } })), SQ);
+    const exec = compileSketch(sketch(cfg, () => rect(20, 20, 60, 60, { fill: fill('hatch'), modifiers: [decimate({ fill: field })] })), SQ);
     const scene = encodeScene(exec);
     return { exec, scene, seen, field };
   };
@@ -188,9 +189,9 @@ describe('the ink follows the field where the ink is', () => {
     const out = render(sketch(HYP, () => rect(2, 2, 96, 96, {
       stroke: false,
       fill: fill('stipple'),
-      decimate: { fill: (x: number, y: number) => (inside(x, y) > 0 ? 0 : 1) },
+      modifiers: [decimate({ fill: (x: number, y: number) => (inside(x, y) > 0 ? 0 : 1) })],
     })), SQ);
-    const loop = projectedLoop(t, t.material(C).pts as Pt[]);
+    const loop = projectedLoop(t, t.material(C).points.map(xy) as Pt[]);
     const dots = out.frags.filter((f) => f.dot).map((f): Pt => {
       const g = f.geom as { x0: number; y0: number };
       return [g.x0, g.y0];
@@ -206,7 +207,7 @@ describe('the ink follows the field where the ink is', () => {
     // the chart point would have kept ink inside it: here dots lie well
     // outside it, where the projected circle is.
     const unit = unitMm(t.exec.frame);
-    const chartDisk = (t.material(C).pts as Pt[]).map(([x, y]): Pt => [x * unit + t.exec.frame.offsetX, y * unit + t.exec.frame.offsetY]);
+    const chartDisk = (t.material(C).points.map(xy) as Pt[]).map(([x, y]): Pt => [x * unit + t.exec.frame.offsetX, y * unit + t.exec.frame.offsetY]);
     expect(dots.filter((p) => { const r = against(chartDisk, p); return !r.inside && r.dist > 2; }).length).toBeGreaterThan(20);
   });
 
@@ -215,9 +216,9 @@ describe('the ink follows the field where the ink is', () => {
     const out = render(sketch(HYP, (k) => rect(2, 2, 96, 96, {
       stroke: false,
       fill: fill('stipple'),
-      decimate: { fill: k.within(() => 1, C) },
+      modifiers: [decimate({ fill: k.within(() => 1, C) })],
     })), SQ);
-    const loop = projectedLoop(t, t.material(C).pts as Pt[]);
+    const loop = projectedLoop(t, t.material(C).points.map(xy) as Pt[]);
     let outside = 0;
     for (const f of out.frags) {
       if (!f.dot) continue;
@@ -234,7 +235,7 @@ describe('the ink follows the field where the ink is', () => {
   it('the clip loop the engine receives is the projected boundary', () => {
     const t = toolkit(HYP);
     const exec = compileSketch(sketch(HYP, (k) => rect(2, 2, 96, 96, {
-      fill: fill('hatch'), decimate: { fill: k.within(() => 1, C) },
+      fill: fill('hatch'), modifiers: [decimate({ fill: k.within(() => 1, C) })],
     })), SQ);
     const scene = encodeScene(exec);
     const u = scene.fieldUses;
@@ -248,12 +249,12 @@ describe('the ink follows the field where the ink is', () => {
       const p = decodePrim(scene.prims, (pStart + k) * PRIM_STRIDE) as Extract<Prim, { t: 'line' }>;
       got.push([p.x0, p.y0]);
     }
-    const want = projectedLoop(t, t.material(C).pts as Pt[]);
+    const want = projectedLoop(t, t.material(C).points.map(xy) as Pt[]);
     // The same boundary both ways, to the lowering's sampling tolerance.
     for (const p of got) expect(against(want, p).dist).toBeLessThan(0.06);
     for (const p of want) expect(against(got, p).dist).toBeLessThan(0.06);
     // The chart disk of the same numbers is a different place.
-    const chartDisk = (t.material(C).pts as Pt[]).map(([x, y]): Pt => [x * unitMm(t.exec.frame) + t.exec.frame.offsetX, y * unitMm(t.exec.frame) + t.exec.frame.offsetY]);
+    const chartDisk = (t.material(C).points.map(xy) as Pt[]).map(([x, y]): Pt => [x * unitMm(t.exec.frame) + t.exec.frame.offsetX, y * unitMm(t.exec.frame) + t.exec.frame.offsetY]);
     expect(Math.max(...got.map((p) => against(chartDisk, p).dist))).toBeGreaterThan(1);
   });
 });
@@ -299,50 +300,54 @@ describe('a material carries the space its coordinates belong to', () => {
    * prototype is enumerated below, so a new verb that is not listed here
    * fails the test that says which. */
   const verbs = (m: Material, sp: Space): Record<string, () => Material> => ({
-    smooth: () => m.attribute('w', 1).smooth('w'),
-    attribute: () => m.attribute('w', 1),
-    attributes: () => m.attributes({ w: 1 }),
-    faceAttribute: () => m.faceAttribute('f', 1),
-    faceAttributes: () => m.faceAttributes({ f: 1 }),
-    edgeAttribute: () => m.edgeAttribute('e', 1),
-    edgeAttributes: () => m.edgeAttributes({ e: 1 }),
-    withEdges: () => m.withEdges([[0, 2]]),
+    smooth: () => m.points.set('w', 1).smooth('w'),
+    'points.set': () => m.points.set('w', 1),
+    'points.set record': () => m.points.set({ w: 1 }),
+    'faces().set': () => m.faces.set('f', 1),
+    'faces().set record': () => m.faces.set({ f: 1 }),
+    'edges.set': () => m.edges.set('e', 1),
+    'edges.set record': () => m.edges.set({ e: 1 }),
+    'points.add': () => m.points.add([50, 50]),
+    'points.remove': () => m.points.remove(m.points.at(0)),
+    'edges.add': () => m.edges.add([m.points.at(0), m.points.at(2)]),
+    'edges.remove': () => m.edges.remove(m.edges.at(0)),
     resample: () => m.resample({ count: 24 }),
     spline: () => m.spline(),
     trim: () => m.trim({ start: 1 }),
-    map: () => m.map((p) => [p.x + 1, p.y]),
-    transform: () => m.transform(toolkitStation(sp).placement()),
+    'points.set x': () => m.points.set('x', (p) => p.x + 1),
+    transform: () => m.transform(toolkitStation(sp)),
     scale: () => m.scale(0.5),
     rotate: () => m.rotate(10),
     translate: () => m.translate([1, 2]),
-    deform: () => m.deform(() => [0.1, 0]),
+    'move by a field': () => m.move(() => [0.1, 0]),
     thicken: () => m.thicken({ radius: 1 }),
     warp: () => m.warp({ from: [[0, 0], [100, 0], [100, 100], [0, 100]], to: [[0, 0], [100, 0], [100, 100], [0, 100]] }),
     oscillate: () => m.oscillate({ wavelength: 3, amplitude: 1 }),
-    coil: () => m.coil({ radius: 1, pitch: 3 }),
+    'oscillate, rolled': () => m.oscillate({ wavelength: 3, amplitude: 1, shape: (u) => [Math.sin(2 * Math.PI * u), 1 - Math.cos(2 * Math.PI * u)] }),
     envelope: () => m.envelope(),
     interlace: () => m.interlace({ gap: 1 }),
-    snap: () => m.snap(() => 0, { radius: 1 }),
     trails: () => m.trails(),
-    steps: () => m.steps(1, { move: () => [0.1, 0] }),
+    replace: () => m.replace(m.edges.at(0), curve([[0, 0], [0.5, 0.2], [1, 0]])),
+    withHistory: () => m.withHistory([]),
     planarize: () => m.planarize(),
     merge: () => m.merge(),
     extract: () => m.points.extract(),
     extrude: () => m.extrude(m.points.at(0), [0.1, 0]),
     split: () => m.split(m.edges),
     move: () => m.move([0.1, 0]),
+    along: () => m.along({ count: 5 }),
   });
-  let stationOf: (sp: Space) => ReturnType<ReturnType<typeof toolkit>['station']>;
+  let stationOf: (sp: Space) => ReturnType<ReturnType<typeof toolkit>['placement']>;
   const toolkitStation = (sp: Space) => stationOf(sp);
 
   /** Two crossing rings: faces, crossings for interlace, chains for the rest. */
   const source = (t: ReturnType<typeof toolkit>): Material =>
-    t.sample(circle(45, 50, 12), { count: 40 }).steps(0, { move: () => [0, 0] });
+    t.sample(circle(45, 50, 12), { count: 40 });
 
   it('every verb that answers a material keeps the receiver\'s space', () => {
     for (const cfg of [HYP, SPH, FLAT]) {
       const t = toolkit(cfg);
-      stationOf = () => t.station(50, 50, { heading: 20 });
+      stationOf = () => t.placement([50, 50], 20);
       const m = source(t);
       expect(m.space).toBe(t.space);
       for (const [name, call] of Object.entries(verbs(m, t.space))) {
@@ -358,7 +363,9 @@ describe('a material carries the space its coordinates belong to', () => {
     // Readers, lookups and constructors of other kinds of value.
     const notMaterial = new Set([
       'constructor', 'rowOfPoint', 'rowOfEdge', 'pointOf', 'edgeOf', 'vertex', 'edge', 'adjacentRows', 'incidentEdgeRows',
-      'rowOfVertex', 'faces', 'cellOf', 'siteOf', 'contours', 'curves', 'edgeRowsAll', 'along', 'pivot',
+      'rowOfVertex', 'contours', 'pivot',
+      // The 3D words: a value in space, made by the 3D layer (three/api/words.ts).
+      'subdivide', 'union', 'subtract', 'intersect', 'dual', 'displace', 'rebind', 'realize',
     ]);
     const names = Object.getOwnPropertyNames(Material.prototype).filter((k) => typeof Object.getOwnPropertyDescriptor(Material.prototype, k)?.value === 'function');
     expect(names.filter((k) => !covered.has(k) && !notMaterial.has(k))).toEqual([]);
@@ -401,42 +408,37 @@ describe('a material carries the space its coordinates belong to', () => {
         isolines: () => t.isolines((x) => x, [50]),
         ridges: () => t.ridges((x, y) => -Math.hypot(x - 50, y - 50)),
         streamlines: () => t.streamlines(() => [1, 0], { spacing: 10 }),
-        hexes: () => t.hexes({ spacing: 10 }),
-        triangles: () => t.triangles({ size: 10 }),
+        grid: () => t.grid({ cols: 4, rows: 3 }),
       };
       for (const [name, call] of Object.entries(words)) expect(call().space, name).toBe(t.space);
     }
     const hyp = toolkit(HYP);
     expect(hyp.tiling(5, 4, { depth: 1 }).space).toBe(hyp.space);
-    expect(hyp.tiling(5, 4, { depth: 1 }).geometry).toBe('hyperbolic');
   });
 });
 
-// ---- steps walk -----------------------------------------------------------
+// ---- a move walks ---------------------------------------------------------
 
 describe('a move is a walk in the material\'s space', () => {
   it('sphere: each point lands at exp(p, move)', () => {
     const t = toolkit(SPH);
     const m = t.sample(circle(50, 50, 15), { count: 16 });
     const d = 4;
-    const out = m.steps(1, { move: () => [d, 0] });
+    const out = m.move([d, 0]);
     for (let i = 0; i < m.n; i++) {
       const want = t.space.exp([m.x[i], m.y[i]], [d, 0]);
       expect(out.x[i]).toBe(want[0]);
       expect(out.y[i]).toBe(want[1]);
     }
-    // Two moves in one pass add up first, then walk once.
-    const twice = m.steps(1, (cur, next) => {
-      next.move(cur.points, () => [1, 0.5]);
-      next.move(cur.points, () => [2, -0.5]);
-    });
+    // Two displacements in one move add up first, then walk once.
+    const twice = m.move([1, 0.5], () => [2, -0.5]);
     const want = t.space.exp([m.x[3], m.y[3]], [3, 0]);
     expect([twice.x[3], twice.y[3]]).toEqual(want);
   });
 
   it('flat: x + d exactly, for a pure material and a flat toolkit one', () => {
     for (const m of [material([[1.1, 2.3], [7.7, 0.3]]), toolkit(FLAT).material(rect(1.1, 2.3, 4.4, 5.5))]) {
-      const out = m.steps(1, { move: () => [0.1, 0] });
+      const out = m.move([0.1, 0]);
       for (let i = 0; i < m.n; i++) {
         expect(out.x[i]).toBe(m.x[i] + 0.1);
         expect(out.y[i]).toBe(m.y[i] + 0);
@@ -449,7 +451,7 @@ describe('a move is a walk in the material\'s space', () => {
 
 describe('forces measure with the space', () => {
   const pairIn = (t: ReturnType<typeof toolkit>, a: Pt, b: Pt): Material =>
-    t.sample(line(a[0], a[1], b[0], b[1]), { count: 2 }).map((p) => (p.index === 0 ? a : b));
+    t.sample(line(a[0], a[1], b[0], b[1]), { count: 2 }).points.set({ x: (p) => (p.index === 0 ? a : b)[0], y: (p) => (p.index === 0 ? a : b)[1] });
 
   it('separation pushes apart along the geodesic, by the old law in the space distance', () => {
     for (const cfg of [HYP, SPH]) {
@@ -496,12 +498,12 @@ describe('forces measure with the space', () => {
   it('boundary pushes inward, perpendicular to the nearest geodesic edge', () => {
     const t = toolkit(HYP);
     const tiles = t.tiling(5, 4, { depth: 1 });
-    const area = tiles.seed.contours();
-    const inside = t.distanceTo(tiles.seed.contours()[0].pts as Pt[]);
+    const area = tiles.faces.at(0).contours();
+    const inside = t.distanceTo(tiles.faces.at(0).contours()[0].pts as Pt[]);
     const keep = t.force.boundary(area, { radius: 6, strength: 2 });
     const near = spaceAreaNearest(t.space, area.map((c) => ({ pts: c.pts, closed: true })));
     let checked = 0;
-    const corners = tiles.cell as Pt[];
+    const corners = firstCell(tiles) as Pt[];
     for (let k = 0; k < corners.length; k++) {
       // A point a little way in from the middle of each wall, where that
       // wall is the one nearest.
@@ -562,15 +564,19 @@ describe('forces measure with the space', () => {
     const mm = material([[10, 10], [12, 11], [15, 10], [11, 14], [30, 30], [31, 31.5]]);
     const vs: number[] = [];
     const sep = force.separation(mm, { radius: 5 });
-    const att = force.attract(mm, { radius: 5, strength: 2 });
+    // An attraction is a separation turned round: 2 when touching at radius 5.
+    const att = force.separation(mm, { radius: 5, amount: -2 / 5 });
     const vor = force.vortex([20, 20], { strength: 3, falloff: 7 });
     const bnd = force.boundary([[[0, 0], [20, 0], [20, 20], [0, 20]]], { radius: 4, strength: 1.5 });
     for (const p of mm.points) vs.push(...sep(p), ...att(p), ...vor(p), ...bnd(p));
-    const ring = t.sample(circle(40, 40, 10), { count: 12 }).steps(1, { move: (p) => [Math.sin(p.index) * 0.7, Math.cos(p.index * 3) * 0.5] });
+    const ring = t.sample(circle(40, 40, 10), { count: 12 }).move((p) => [Math.sin(p.index) * 0.7, Math.cos(p.index * 3) * 0.5]);
     const ten = force.tension(ring, { rest: 3 });
     const rl = force.relax(ring, { amount: 0.5 });
     for (const p of ring.points) vs.push(...ten(p), ...rl(p), ring.x[p.index], ring.y[p.index]);
-    expect(hash(vs)).toBe('3215f7a1190db86f');
+    // Re-saved when force.attract folded into a negative separation: the
+    // attraction's last bits moved (≤ 5e-17); every other force is bitwise
+    // the old arithmetic (checked against the pre-fold code).
+    expect(hash(vs)).toBe('7354d6751f089e09');
   });
 });
 

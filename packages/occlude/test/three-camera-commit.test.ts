@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { box3, clip, commitCamera3, compileSketchAsync, constructStrokes3, dash, drawing3, group, initOcclude, label, lineArt3, mask, mm, pen, rect, render, sketch, sketchAsync, type Camera3, type SceneCompute3 } from '../src/index.js';
+import { clip, dash, group, label, mask, mm, pen, rect, sketch } from '../src/index.js';
+import { commitCamera3, compileSketchAsync, initOcclude, render } from '../src/host.js';
+import {
+  box3, constructStrokes3, lineArt3, type Camera3, type SceneCompute3,
+} from '../src/three/api/advanced.js';
+// The retained interpretation `view` is built on; no longer an export.
+import { drawing3 } from '../src/three/drawing.js';
 
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 const camera: Camera3 = { kind: 'orthographic', span: 4, eye: [4,6,5], target: [0,0,0], near: .1, far: 30 };
@@ -59,7 +65,7 @@ it('reinterprets styles against the new snapshot and shares unaffected classific
 
 it('rejects fixed projected strokes instead of rebinding their edits', async () => {
   const source = scene();
-  const original = await compileSketchAsync(sketchAsync(config, async t => {
+  const original = await compileSketchAsync(sketch(config, async t => {
     const view = await t.classify3(source);
     return [source, t.strokes3(constructStrokes3(view, source.lineSets))];
   }));

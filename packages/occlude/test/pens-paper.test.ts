@@ -7,10 +7,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { circle, fill, inch, mm, paper, paperModel, pen, penModel, sketch } from '../src/index.js';
 import {
-  DEFAULT_PAPERS, DEFAULT_PENS, circle, compileSketch, encodeScene, exportCollisions, exportPng, exportSvg, fill, inch, initOcclude, mm, moduleName, paper, paperModel, pen, penModel,
-  render, sketch, userModules,
-} from '../src/index.js';
+  DEFAULT_PAPERS, DEFAULT_PENS, compileSketch, encodeScene, exportCollisions, exportPng, exportSvg,
+  initOcclude, moduleName, render, userModules,
+} from '../src/host.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -22,7 +23,7 @@ describe('paper and pens declared by the sketch', () => {
     expect(letter).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
     expect(paper({ width: mm(180), height: 240 })).toEqual({ w: 180, h: 240 });
     expect(() => paper({ width: 0, height: 10 })).toThrow(/positive/);
-    const def = sketch({ paper: letter, margin: inch(0.5) }, (t) => circle(t.cx, t.cy, 10));
+    const def = sketch({ paper: letter, margin: inch(0.5) }, (t) => circle(t.bounds().cx, t.bounds().cy, 10));
     const exec = compileSketch(def, { paper: { w: 100, h: 100 } });
     expect(exec.paper).toEqual(letter);
     expect(exec.marginPct).toBeCloseTo((12.7 / 215.9) * 100, 9);

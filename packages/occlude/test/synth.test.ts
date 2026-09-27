@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { compileSketch, probeExpression, sketch, synth } from '../src/index.js';
+import { probeExpression, sketch, synth } from '../src/index.js';
+import { compileSketch } from '../src/host.js';
 
 const B = { x: 0, y: 0, w: 100, h: 100 };
 

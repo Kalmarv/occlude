@@ -1,7 +1,7 @@
 /** Client for the saved-result store (result-store.mjs). */
 
 import type { CapturedThree3 } from './three/capture.js';
-import type { PlanSettings, PlanSelection } from 'occlude';
+import type { PlanSettings, PlanSelection } from 'occlude/host';
 
 export interface ResultMeta {
   three?: CapturedThree3;

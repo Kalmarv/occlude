@@ -12,9 +12,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  circle, exportSvg, fill, initOcclude, line, mask, mm, path, rect, render, sketch,
-} from '../src/index.js';
+import { circle, fill, line, mask, mm, path, rect, sketch } from '../src/index.js';
+import { exportSvg, initOcclude, render } from '../src/host.js';
 
 const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
 const wasmBytes = readFileSync(wasmPath);

@@ -10,14 +10,16 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { connect, initOcclude, material, type Material } from '../src/index.js';
+import { curve, material, type Material } from '../src/index.js';
+import { initOcclude } from '../src/host.js';
+import { selectionIn } from '../src/selection.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
   await initOcclude(readFileSync(wasmPath));
 });
 
-const ring = (): Material => connect.ring(material([[0, 0], [10, 0], [10, 10], [0, 10]]));
+const ring = (): Material => curve(material([[0, 0], [10, 0], [10, 10], [0, 10]]), { closed: true });
 const ids = (m: Material): number[] => [...m.points].map((p) => p.id as number);
 
 describe('every vertex and edge has one', () => {
@@ -61,19 +63,17 @@ describe('a column can hold one', () => {
     const partner = m.points.at(0).id;
     // A column is numbers, which is why an id is a number: a sketch marks a
     // partner in one step and finds it in the next.
-    const marked = m.attribute('partner', () => partner as number);
+    const marked = m.points.set('partner', () => partner as number);
     expect(marked.pointOf(marked.points.at(3).partner as never)).toBeDefined();
     expect(marked.rowOfPoint(marked.points.at(3).partner as never)).toBe(0);
   });
 });
 
-describe('through a step', () => {
+describe('through a write', () => {
   it('a survivor keeps its id, and a new point gets its own', () => {
     const m = ring();
     const before = ids(m);
-    const after = m.steps(1, (cur, next) => {
-      next.move(cur.points, () => [0.5, 0]);
-    });
+    const after = m.move([0.5, 0]);
     // Moving changes nothing about who a point is.
     expect(ids(after)).toEqual(before);
     expect(after.pointOf(m.points.at(0).id)?.x).toBeCloseTo(0.5, 10);
@@ -82,9 +82,7 @@ describe('through a step', () => {
   it('a split retires the parent edge and gives both children their own', () => {
     const m = ring();
     const parent = m.edges.at(0).id;
-    const after = m.steps(1, (cur, next) => {
-      next.splitEdges(cur.edges.filter((_, i) => i === 0), { at: 0.5 });
-    });
+    const after = m.split(m.edges.at(0));
     // The parent is gone: a split ends it, and both halves are new.
     expect(after.rowOfEdge(parent)).toBe(-1);
     expect(after.edgeCount).toBe(m.edgeCount + 1);
@@ -96,9 +94,7 @@ describe('through a step', () => {
     const m = ring();
     const doomed = m.points.at(1).id;
     const kept = m.points.at(3).id;
-    const after = m.steps(1, (cur, next) => {
-      next.remove(cur.points.filter((_, i) => i === 1));
-    });
+    const after = m.points.remove(m.points.at(1));
     expect(after.pointOf(doomed)).toBeUndefined();
     expect(after.pointOf(kept)).toBeDefined();
   });
@@ -117,20 +113,18 @@ describe('a selection outlives the state it was made in', () => {
     const m = ring();
     const left = m.points.filter((p) => p.x < 5);
     expect(left.length).toBe(2);
-    const after = m.steps(1, (cur, next) => {
-      next.remove(cur.points.filter((p) => p.x < 5 && p.y < 5));
-    });
+    const after = m.points.remove(m.points.filter((p) => p.x < 5 && p.y < 5));
     // One of the two is gone; the other is still the same point.
-    const again = left.in(after);
+    const again = selectionIn(left, after);
     expect(again.length).toBe(1);
     expect(again.at(0).id).toBe(left.at(1).id);
-    expect(again.source).toBe(after);
+    expect(again.owner).toBe(after);
   });
 
   it('is asked about by identity, not by row', () => {
     const m = ring();
     const some = m.points.filter((_, i) => i < 2);
-    const later = m.attribute('age', 0);
+    const later = m.points.set('age', 0);
     // The same points, a later state: membership holds.
     expect(some.has(later.vertex(1))).toBe(true);
     expect(some.has(later.vertex(3))).toBe(false);
@@ -138,24 +132,20 @@ describe('a selection outlives the state it was made in', () => {
     expect(some.has(ring().vertex(1))).toBe(false);
   });
 
-  it('a step verb takes a selection from an earlier state', () => {
+  it('a write takes a selection from an earlier state', () => {
     const m = ring();
     const outer = m.points.filter((p) => p.y < 5);
-    const moved = m.steps(1, (_cur, next) => {
-      // No re-selection: the selection from before the step still names
-      // these two points, and the verb finds them.
-      next.move(outer, () => [0, 3]);
-    });
+    // No re-selection: the selection from before the write still names
+    // these two points, and the verb finds them.
+    const moved = m.points.set('age', 1).move([0, 3], outer);
     expect(Array.from(moved.y)).toEqual([3, 3, 10, 10]);
   });
 
   it('an edge a split retired is gone from a re-bound selection', () => {
     const m = ring();
     const all = m.edges.filter(() => true);
-    const after = m.steps(1, (cur, next) => {
-      next.splitEdges(cur.edges.filter((_, i) => i === 0), { at: 0.5 });
-    });
-    const again = all.in(after);
+    const after = m.split(m.edges.at(0));
+    const again = selectionIn(all, after);
     expect(again.length).toBe(m.edgeCount - 1); // the split parent is not there
   });
 });
@@ -165,9 +155,7 @@ describe('lineage: a split ends an edge but not the wall it was', () => {
     const m = ring();
     const parent = m.edges.at(0);
     const parentRoot = m.edgeRoots[0];
-    const after = m.steps(1, (cur, next) => {
-      next.splitEdges(cur.edges.filter((_, i) => i === 0), { at: 0.5 });
-    });
+    const after = m.split(m.edges.at(0));
     // The parent is retired, so its id resolves to nothing.
     expect(after.rowOfEdge(parent.id)).toBe(-1);
     // Two children carry the wall it was.
@@ -181,11 +169,9 @@ describe('lineage: a split ends an edge but not the wall it was', () => {
   it('a wall split twice still names one root', () => {
     const m = ring();
     const root = m.edgeRoots[0];
-    let after = m.steps(1, (cur, next) => next.splitEdges(cur.edges.filter((_, i) => i === 0), { at: 0.5 }));
-    after = after.steps(1, (cur, next) => {
-      const firstChild = [...cur.edges].find((e) => cur.edgeRoots[e.index] === root)!;
-      next.splitEdges(cur.edges.filter((_, i) => i === firstChild.index), { at: 0.5 });
-    });
+    let after = m.split(m.edges.at(0));
+    const firstChild = [...after.edges].find((e) => after.edgeRoots[e.index] === root)!;
+    after = after.split(firstChild);
     const pieces = [...after.edges].filter((e) => after.edgeRoots[e.index] === root);
     expect(pieces).toHaveLength(3);
   });

@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, distanceTo, initOcclude, material, mm, polygon, render,
-  sketch, type Face, type SketchDef, type Tree,
+  circle, distanceTo, material, mm, polygon, sketch, type Face, type SketchDef, type Tree,
 } from '../src/index.js';
+import { initOcclude, render } from '../src/host.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -19,7 +19,7 @@ const ink = (def: SketchDef): number => render(def, { paper: 'Square20' }).stats
 function aFace(): Face {
   let face: Face | undefined;
   ink(sketch({}, (t) => {
-    face = t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces().at(0);
+    face = t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces.at(0);
     return [];
   }));
   if (!face) throw new Error('no face was built');
@@ -45,7 +45,7 @@ describe('an area input: a face and a shape are already areas', () => {
     // Deliberately the wrong input: a collection is several areas, and the
     // refusal is the contract. `as never` states that this call is meant to
     // fail its own type.
-    expect(() => ink(sketch({}, (t) => [polygon(t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces() as never, { opaque: true })])))
+    expect(() => ink(sketch({}, (t) => [polygon(t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces as never, { opaque: true })])))
       .toThrow(/face collection is several areas .*contours\(\)/);
   });
 

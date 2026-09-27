@@ -34,13 +34,13 @@ export interface CameraFrame3 {
 
 /** Capture and validate an explicit camera and paper frame. Right-handed, Z up. */
 export function cameraFrame3(camera: Camera3, paper: PaperFrame3): CameraFrame3 {
-  finite3(camera.eye); finite3(camera.target); finite3(camera.up ?? [0, 0, 1]);
+  finite3(camera.eye, 'camera eye'); finite3(camera.target, 'camera target'); finite3(camera.up ?? [0, 0, 1], 'camera up');
   if (![camera.near, camera.far].every(Number.isFinite) || !(camera.near > 0 && camera.far > camera.near)) throw new Error('camera requires 0 < near < far');
   if (camera.kind === 'orthographic') {
     if (!(camera.span > 0) || !Number.isFinite(camera.span)) throw new Error('orthographic span must be positive and finite');
   } else if (camera.kind === 'perspective' || camera.kind === 'oblique') {
     if (!(camera.fovDegrees > 0 && camera.fovDegrees < 180)) throw new Error('perspective FOV must be between 0 and 180 degrees');
-    if (camera.kind === 'oblique' && (camera.shift.length !== 2 || !camera.shift.every(Number.isFinite))) throw new Error('oblique shift must be two finite fractions of the frame');
+    if (camera.kind === 'oblique' && (camera.shift.length !== 2 || !camera.shift.every(Number.isFinite))) throw new Error('perspective shift must be two finite fractions of the frame');
   } else throw new Error('unknown camera projection');
   if (![paper.x, paper.y, paper.width, paper.height].every(Number.isFinite) || !(paper.width > 0 && paper.height > 0)) throw new Error('camera paper frame must be finite with positive size');
   const back = unit3(sub3(camera.eye, camera.target));
@@ -52,14 +52,14 @@ export function cameraFrame3(camera: Camera3, paper: PaperFrame3): CameraFrame3 
 }
 
 export function toCamera3(frame: CameraFrame3, point: Vec3): Vec3 {
-  finite3(point);
+  finite3(point, 'camera');
   const p = sub3(point, frame.camera.eye);
   return [dot3(p, frame.right), dot3(p, frame.up), dot3(p, frame.back)];
 }
 
 /** NDC xy and WebGPU depth [0,1] for a near/far-clipped camera point. */
 export function projectCamera3(frame: CameraFrame3, p: Vec3): Vec3 {
-  finite3(p);
+  finite3(p, 'camera');
   const c = frame.camera, d = -p[2];
   if (!(d > 0)) throw new Error('clip points behind the eye before projection');
   const aspect = frame.paper.width / frame.paper.height;
