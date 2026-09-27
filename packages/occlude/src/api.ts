@@ -23,8 +23,8 @@
 import {type EdgeAttributes} from './three/api/mesh.js';
 import type {Attributes3} from './three/geometry/surface.js';
 import {scatterSurface,type SurfaceScatterOptions} from './three/api/sampling.js';
-import {kernelOf} from './three/geometry/value.js';
-import {streamlinesInSpace,type Streamlines3Options} from './three/api/flow.js';
+import {hasFaces} from './three/geometry/value.js';
+import {streamlinesInSpace,seedsInSpace,type Streamlines3Options} from './three/api/flow.js';
 import type {VectorField3} from './three/api/vec.js';
 import {SurfaceCurves} from './three/api/supported.js';
 import {sampleSurfaceCurves,type CurveSamplingOptions} from './three/api/curveSampling.js';
@@ -1757,7 +1757,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if(a instanceof Selection&&a.domain.kind.name==='face'&&a.source instanceof Material&&inSpace3(a.source))a=(a as Selection<Face>).extract() as Material;
     // One door, two forms; each form draws from its own stream, in call
     // order (the first call reads the plain key, as it always has).
-    if(a instanceof Material&&inSpace3(a)){const options=b as SurfaceScatterOptions<any>;const form=(options as {count?:unknown})?.count!==undefined?'__surface-sample:':'__surface-scatter:';return scatterSurface(a,options,{rnd:exec.freshStream(form+(options?.key??kernelOf(a).key??'default')).rnd,signal:scope?.signal});}
+    if(a instanceof Material&&inSpace3(a)){const options=b as SurfaceScatterOptions<any>;const form=(options as {count?:unknown})?.count!==undefined?'__surface-sample:':'__surface-scatter:';return scatterSurface(a,options,{rnd:exec.freshStream(form+(options?.key??a.key??'default')).rnd,signal:scope?.signal});}
     const field = typeof a === 'function' ? a : undefined;
     const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
     const raw = (b ?? a) as ScatterOpts;
@@ -2266,10 +2266,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * Lines stop at the drawable edge, at a `t.within()` bound, and half a
    * spacing from ink already laid. Deterministic, no seed. */
   function streamlines(field: VectorFieldFn, opts?: StreamOpts): Material;
-  function streamlines(field: VectorField3, opts: Streamlines3Options): Material[];
-  function streamlines(field: VectorFieldFn | VectorField3, opts: StreamOpts | Streamlines3Options = {}): Material | Material[] {
-    // A field of space, (x, y, z) => …, runs in 3D: the curves a view occludes.
-    if (typeof field === 'function' && field.length === 3) return streamlinesInSpace(exec, field as VectorField3, opts as Streamlines3Options);
+  /** In space: seeds in space — `[x, y, z]` places, a value with z, or
+   * `{ count, within }` — trace a field of space, `(x, y, z) => …`, as one
+   * value of chains that a view occludes. */
+  function streamlines(field: VectorField3, opts: Streamlines3Options): Material;
+  function streamlines(field: VectorFieldFn | VectorField3, opts: StreamOpts | Streamlines3Options = {}): Material {
+    // Seeds in space run in space: the seeds say where the lines are.
+    if (seedsInSpace((opts as { seeds?: unknown } | undefined)?.seeds)) return streamlinesInSpace(exec, field as VectorField3, opts as Streamlines3Options);
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
     const lines = streamlinesOf(env, field as VectorFieldFn, opts as StreamOpts);
@@ -2448,6 +2451,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     // length is `resample`, the same door in the material's own world. The
     // toolkit form exists so one word means one thing whatever it is given.
     if(shape instanceof Material){
+      // A surface is not a curve: its points come from a scatter.
+      if(inSpace3(shape)&&hasFaces(shape))throw new Error('t.sample: this value has faces, and t.sample walks curves — points on a surface are t.scatter(m, { count }) or t.scatter(m, { spacing })');
       // A length is a drawing unit; the material's own coordinates are what
       // `resample` counts in, so it is resolved through the frame exactly as
       // a shape's spacing is.

@@ -20,7 +20,13 @@ const read=(value:unknown):Vec3=>{
   const p=Array.isArray(value)?value:[(value as {x?:unknown})?.x,(value as {y?:unknown})?.y,(value as {z?:unknown})?.z];
   return [sample(p[0]),sample(p[1]),sample(p[2])];
 };
-const spacing=(step:number|undefined):number=>Number.isFinite(step)&&(step as number)>0?step as number:1e-3;
+/** The step a difference is taken over (1e-3 unless a positive number is
+ * given); the positional spelling is refused by name. */
+function spacing(who:string,options:{step?:number}|undefined):number {
+  if(typeof options==='number')throw new Error(`${who}: the step is an option — ${who}(field, { step: ${options} })`);
+  const step=options?.step;
+  return typeof step==='number'&&Number.isFinite(step)&&step>0?step:1e-3;
+}
 /**
  * The gradient of a scalar field: the direction it rises fastest, as long as
  * its rise. One word for both 3D domains, read from the field's own
@@ -45,7 +51,7 @@ export function grad(scalar:ScalarField3|ToneField,options?:{step?:number}):Vect
     return surfaceGradient(scalar as ToneField);
   }
   checkedField3(scalar,'grad');
-  const field=scalar as ScalarField3,h=spacing(options?.step);
+  const field=scalar as ScalarField3,h=spacing('grad',options);
   return (x,y,z)=>{
     const p:Vec3=[x,y,z],out=[0,0,0] as [number,number,number];
     for(let k=0;k<3;k++){
@@ -60,9 +66,9 @@ export function grad(scalar:ScalarField3|ToneField,options?:{step?:number}):Vect
  * about, as long as how fast. The curl of any field is divergence free, so
  * `curl3` of a vector potential is the flow word — streamlines of it neither
  * pile up nor thin out. */
-export function curl3(field:VectorField3,options:{step?:number}={}):VectorField3 {
+export function curl3(field:VectorField3,options?:{step?:number}):VectorField3 {
   checkedField3(field,'curl3');
-  const h=spacing(options.step);
+  const h=spacing('curl3',options);
   return (x,y,z)=>{
     const p:Vec3=[x,y,z],d:Vec3[]=[];
     for(let k=0;k<3;k++){

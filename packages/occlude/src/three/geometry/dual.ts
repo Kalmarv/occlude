@@ -1,4 +1,4 @@
-import {add3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
+import {add3,centroid3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
 import {assembleSurface3,surface3,type Attributes3,type Surface3,type SurfaceFace3,type SurfacePoint3} from './surface.js';
 import {emptySize} from '../degenerate.js';
 
@@ -7,7 +7,6 @@ export interface DualOptions {
    * projected this way is the Goldberg polyhedron. */
   readonly project?:number;
 }
-const centroid=(positions:readonly Vec3[]):Vec3=>mul3(positions.reduce((sum,p)=>add3(sum,p),[0,0,0] as Vec3),1/positions.length);
 /** Newell's normal: the area vector of a polygon, planar or not. */
 function areaVector(positions:readonly Vec3[]):Vec3 {
   let normal:Vec3=[0,0,0];
@@ -27,7 +26,7 @@ export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
   if(!surface.faces.length)return surface3([],[]);
   if(options.project!==undefined&&emptySize(options.project))return surface3([],[]);
   const positions=surface.points.map(p=>p.position);
-  const faceCentre=surface.faces.map(f=>centroid(f.vertices.map(v=>positions[v])));
+  const faceCentre=surface.faces.map(f=>centroid3(f.vertices.map(v=>positions[v])));
   const faceNormal=surface.faces.map(f=>areaVector(f.vertices.map(v=>positions[v])));
   const radius=options.project;
   const placed=faceCentre.map(p=>{

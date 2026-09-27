@@ -1,8 +1,8 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3} from '../geometry/surface.js';
-import {geometry3,emptyMesh,surfaceOf,derived,type EdgeAttributes,type GeometryOptions} from './mesh.js';
-import {kernelOf} from '../geometry/value.js';
+import {geometry3,emptyMesh,derived,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
 import {emptyCount,emptySize} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import type {Vec3} from '../math.js';
@@ -84,5 +84,5 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:Ma
     add(JSON.stringify(['revolve','end']),boundary.map(i=>index(i,n)).reverse(),{},path.edges.map(i=>source.edges[i].id),boundary.map(i=>capByPoint!.get(i)!).reverse(), 'end');
   }
   const topology=surface3(points.map(p=>p.position as Vec3),faces.map(f=>f.vertices));
-  return geometry3(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??kernelOf(profile).key,derived:derived('revolve',input as object)});
+  return geometry3(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key,derived:derived('revolve',input as object)});
 }

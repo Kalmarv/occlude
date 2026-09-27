@@ -47,8 +47,9 @@ describe('source',()=>{
     for(const p of dots.points){expect(ball.faces.has(p.source as never)).toBe(true);expect(p.source).toBe(ball.faces.at(p.sample.face.index));}
   });
   it('a lifted 2D chain: each point the 2D point it came from',()=>{
-    const ring=chain([[0,0],[1,0],[1,1]]),lifted=curve(ring);
-    expect([...lifted.points].map(p=>p.source)).toEqual([...ring.points]);
+    // `curve` of a chain is the chain through those same points.
+    const ring=chain([[0,0],[1,0],[1,1]]),again=curve(ring);
+    expect([...again.points].every(p=>ring.points.has(p))).toBe(true);
     const tube=sweep(ring,parametricCurve(u=>[0,0,u],{segments:2}));
     const [across,alongPath]=tube.points.at(0)!.source as readonly any[];
     expect(ring.points.has(across)).toBe(true);expect(alongPath.z).toBe(0);
@@ -68,7 +69,7 @@ describe('along answers points',()=>{
     expect(at.points.at(1)!.source).toBe(path.edges.at(0));
     expect(at.points.at(3)!.source).toBe(path.edges.at(1));
     // Points stand where instances go.
-    expect(instanceOnPoints(box(.1),at).length).toBe(5);
+    expect(instanceOnPoints(box(.1),at).points.length).toBe(5);
     expect(path.resample({count:5}).points.at(3)!.source).toBe(path.edges.at(1));
   });
 });
@@ -103,17 +104,17 @@ describe('the frame',()=>{
     }));
     expect(kind).toBe('hyperbolic');
   });
-  it('curve, sweep and revolve refuse a chain of a curved space by name',async()=>{
+  it('sweep and revolve refuse a chain of a curved space by name',async()=>{
     const errors:string[]=[];
     await compileSketchAsync(sketch({aspect:[1,1],space:space.hyperbolic({radius:45})},t=>{
       const ring=t.material(circle(0,0,5));
-      for(const f of [()=>curve(ring),()=>sweep(ring,parametricCurve(u=>[0,0,u])),()=>revolve(ring)])try{f();}catch(e){errors.push(String(e));}
+      for(const f of [()=>sweep(ring,parametricCurve(u=>[0,0,u])),()=>revolve(ring)])try{f();}catch(e){errors.push(String(e));}
       return [];
     }));
-    expect(errors).toHaveLength(3);
+    expect(errors).toHaveLength(2);
     for(const e of errors)expect(e).toContain('hyperbolic space, and 3D space is flat');
     // A flat chain lifts as before.
-    expect(curve(chain([[0,0],[5,0]])).points.length).toBe(2);
+    expect(revolve(chain([[1,0],[1,5]])).points.length).toBeGreaterThan(0);
     expect(pointCloud([[0,0]]).points.length).toBe(1);
   });
 });

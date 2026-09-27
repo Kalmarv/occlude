@@ -30,7 +30,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(m, field, at, { key })`. The call refuses `levels` in the options by name.
 
-The result is a collection of chains. `rings.curves` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
+The result is a collection of chains. `rings.curves` is a selection of the chains. Each chain has its `points`, `closed` and its columns, so `c.level` is the level of a ring. The selection words work on it, as they work on every selection. `rings.curves.filter((c) => c.points.every((p) => p.z > 0)).extract()` keeps the upper rings as curves that a view draws. `groupBy` gives a list of selections, each with its `key`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -106,7 +106,7 @@ import { cylinder, sphere, instanceOnPoints, view, orthographic } from 'occlude/
 
 export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
   const can = cylinder(1, 2.2, { segments: 28 }).corners.set('band', (c) => (c.chart === 'side' && Math.floor(c.uv[0] * 4) % 2 === 0 ? 1 : 0));
-  const banded = t.scatter(can, { count: 1400 }).points.filter((p) => p.sample.cornerAttributes.band === 1);
+  const banded = t.scatter(can, { count: 1400 }).points.filter((p) => p.sample.cornerColumns.band === 1);
   return view([can, instanceOnPoints(sphere(0.025, { segments: 6, rings: 3 }), banded)], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```

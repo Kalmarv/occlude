@@ -69,7 +69,7 @@ describe('supported graph renderer',()=>{
   const network=surfaceCurveNetwork3({sources:[{id:'sheet',binding}],nodes:[{id:'a',point:[1n,1n,0n,3n]},{id:'b',point:point([1,.25,0])}],segments:[{id:'mark',kind:'mapped',a:'a',b:'b',chainId:'motif',range:[.2,.8],supports:[{source:0,triangle:0}]}]});
   const marks=new SurfaceCurves(network,{key:'marks'}),selected=marks.edges.filter(e=>e.kind==='mapped').extract();
   expect(selected.key).toBe('marks');expect(selected.network.reference).toBe(network);expect(selected.points.length).toBe(2);
-  expect(marks.withKey('copy').edges.has(marks.edges.at(0)!)).toBe(true);
+  expect(new SurfaceCurves(network,{key:'copy'}).edges.has(marks.edges.at(0)!)).toBe(true);
   const bent=model.displace(p=>[0,0,p.x]).scale([-2,3,1]),next=selected.rebind(bent);
   expect(next.points.at(0)!.exact).toEqual(['-2','3','1','3']);expect(marks.points.at(0)!.z).toBe(0);
   expect(next.edges.at(0)!.range).toEqual([.2,.8]);expect(next.edges.at(0)!.chainId).toBe('motif');

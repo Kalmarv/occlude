@@ -9,6 +9,7 @@
  */
 import {describe,expect,it} from 'vitest';
 import {plane,box,pointCloud,curve,grid,instanceOnPoints} from '../src/three/api/index.js';
+import {placedOf} from '../src/three/api/instances.js';
 import {scatterSurface} from '../src/three/api/sampling.js';
 import type {Material} from '../src/material.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
@@ -129,12 +130,13 @@ describe('points and curves set',()=>{
     expect(out.points.every(p=>p.h===p.sample.face.index&&p.z===1)).toBe(true);
     expect(out.points.map(p=>p.sample)).toEqual(s.points.map(p=>p.sample));
   });
-  it('instances: a column on the instance rows, placements kept; transform is not a column',()=>{
+  it('instances: a column on the copies, their placements kept; the turn and size are columns too',()=>{
     const inst=instanceOnPoints(box(0.2),pointCloud([[0,0,0],[1,0,0]]));
-    const out=inst.instances.set('size',(r)=>r.index+1);
-    expect(out.rows.map(r=>r.size)).toEqual([1,2]);
-    expect(out.rows.map(r=>r.transform)).toEqual(inst.rows.map(r=>r.transform));
-    expect(()=>inst.instances.set('transform',1 as never)).toThrow("'transform' is not a column");
+    const out=inst.points.set('size',(r)=>r.index+1);
+    expect(out.points.map(r=>r.size)).toEqual([1,2]);
+    expect(placedOf(out).map(c=>c.transform)).toEqual(placedOf(inst).map(c=>c.transform));
+    // The scale is the copy's own column: a write resizes it.
+    expect(placedOf(inst.points.set('scale',[2,2,2])).map(c=>c.transform.scale)).toEqual([[2,2,2],[2,2,2]]);
   });
 });
 

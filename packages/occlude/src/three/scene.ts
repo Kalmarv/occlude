@@ -5,7 +5,8 @@ import type { ModelingCompute3 } from './modeling.js';
 import type { SurfaceEvaluationTarget3, SurfaceEvaluationBatch3, SurfaceEvaluationResult3 } from './surface/evaluate.js';
 import type { ToneRecipe3 } from './surface/tone.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
-import { snapshotSurface3, stageSurface3 } from './geometry/model.js';
+import { snapshotSurface3 } from './geometry/model.js';
+import { stageSurface3, type StageSurface3 } from './geometry/value.js';
 import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
 import type { ClassifiedScene3 } from './visibility/scene.js';
 import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
@@ -21,7 +22,7 @@ export interface LineArtOptions3 {
   readonly id?: string;
   /** An object's `surface` may be a geometry from `occlude/3d`; its
    * working view is read. */
-  readonly objects?: readonly (Omit<SurfaceObject3, 'surface'> & { readonly surface: import('./geometry/model.js').StageSurface3 })[];
+  readonly objects?: readonly (Omit<SurfaceObject3, 'surface'> & { readonly surface: StageSurface3 })[];
   readonly wires?: readonly WireObject3[];
   readonly curves?: readonly SurfaceCurveObject3[];
   readonly camera: Camera3;

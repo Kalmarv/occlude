@@ -37,7 +37,8 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, materialFromParts, readEdge, ownedBy, ownerOfView, referenced, viewKind, viewProto, WORDS_3D, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, materialFromParts, readEdge, ownedBy, ownerOfView, referenced, viewKind, viewProto, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
+import { faceWords3 } from './three/api/words.js';
 import { curvesOfRows, type Curve } from './curves.js';
 import { writeFaces, writeFaceColumns, rebuild, PointRows, EdgeRows, type CellValue, type FaceSetOpts, type FaceRecordSetOpts } from './tables.js';
 import { box, type Box } from './layout.js';
@@ -1738,8 +1739,8 @@ export class FaceTable<F extends Face = Face> {
     this.sourceOf = stated?.source;
     this.regions = regions;
     // views
-    // A value in space measures its walls in space, and asks the 3D layer
-    // for each face's normal, area and centroid (`WORDS_3D.faceWords`).
+    // A value in space measures its walls in space, and each face's normal,
+    // area and centroid on its fixed triangles (`faceWords3`).
     const z = inSpace ? m.attrs.z : null;
     const edgeLength = z === null
       ? (e: number) => Math.hypot(m.x[m.edgeList[2 * e + 1]] - m.x[m.edgeList[2 * e]], m.y[m.edgeList[2 * e + 1]] - m.y[m.edgeList[2 * e]])
@@ -1748,9 +1749,7 @@ export class FaceTable<F extends Face = Face> {
     const spaceWords = (f: number) => {
       let got = measured.get(f);
       if (got === undefined) {
-        const words = WORDS_3D.faceWords;
-        if (words === undefined) throw new Error('face: a face of a value in space is measured in space — that comes with occlude/3d; import occlude/3d first');
-        got = words(m, f);
+        got = faceWords3(m, f);
         measured.set(f, got);
       }
       return got;

@@ -4,7 +4,6 @@ import {plane,box,curve,pointCloud,query} from 'occlude/3d';
 import { sketch } from '../src/index.js';
 import { initOcclude, compileSketch } from '../src/host.js';
 import {toolkit} from './helpers/run.js';
-import {kernelOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
 describe('column writes read the incoming revision',()=>{
@@ -99,7 +98,7 @@ describe('point and sampled point runs',()=>{
       {every:1});
     expect(result.points.map(p=>[p.x,p.y,p.z,p.age])).toEqual([[1,5,2,2],[2,5,2,2]]);
     expect(result.history.map(s=>s.points.at(0)!.age)).toEqual([0,1,2]);
-    expect(kernelOf(result).key).toBe('points');
+    expect(result.key).toBe('points');
     expect(result.points.set('age',4).history).toEqual([]);
     const rotated=pointCloud([[2,0,0]]).rotate([0,0,90],[1,0,0]).scale([2,3,4],{origin:[1,0,0]});
     expect(rotated.points.at(0)!.x).toBeCloseTo(1);

@@ -48,7 +48,6 @@ describe('G3-23 · pen is the pen word on every 3D option', () => {
     expect(() => view([[box(1), { stroke: 'ink' }]] as never, { camera })).toThrow(said);
     expect(() => isolines(sphere(1), (p) => p.z, 0, { stroke: 'ink' } as never)).toThrow(said);
     expect(() => intersections(box(1), sphere(0.7), { stroke: 'ink' } as never)).toThrow(said);
-    expect(() => curve([[0, 0, 0], [1, 0, 0]], { stroke: 'ink' } as never)).toThrow(said);
   });
   it('keeps the pen off the value: the view names it', () => {
     const said = /is how the view draws an object/;
@@ -83,7 +82,7 @@ describe('G3-18 · a face says centroid, as in 2D', () => {
 });
 
 describe('G3-28 · a projected line reads its columns as properties', () => {
-  it('answers c.column, the same value as c.attributes.column', async () => {
+  it('answers c.column', async () => {
     let seen: ProjectedLines | undefined;
     await draw(() => view(box(1.5), { camera, hatch: { spacing: mm(2), angle: 30, pen: 'shade' } }, (lines) => { seen = lines; return strokes(lines.visible, { pen: 'ink' }); }));
     const hatch = seen!.visible.kind('hatch');
@@ -91,7 +90,7 @@ describe('G3-28 · a projected line reads its columns as properties', () => {
     // FRICTION G3-28: lines.visible.filter((c) => c.attrs.rim !== 1)
     for (const c of hatch) {
       expect(c.hatchFamily).toBe('hatch');
-      expect(c.hatchFamily).toBe(c.attributes.hatchFamily);
+      expect('attributes' in c).toBe(false);
       expect(c.pen).toBe('shade');
     }
   });
@@ -248,7 +247,7 @@ describe('G3-31 · G6-25 · a 2D chain is a profile', () => {
   it('refuses several chains, and a shape, by name', () => {
     const two = material([[0, 0], [1, 0], [0, 1], [1, 1]], { edges: [[0, 1], [2, 3]] });
     expect(() => sweep(two, path)).toThrow(/has 2 chains/);
-    expect(() => curve({ __occludeShape: true, curves: () => [] } as never)).toThrow(/a shape is not geometry until the toolkit lowers it/);
+    expect(() => sweep({ __occludeShape: true, curves: () => [] } as never, path)).toThrow(/a shape is not geometry until the toolkit lowers it/);
   });
 });
 
@@ -270,11 +269,11 @@ describe('G3-34 · G5-15 · a 2D point is a 3D point at z = 0', () => {
     const flat = material([[0, 0], [1, 2], [3, 1]]).points.set('size', (p) => p.index + 1);
     // FRICTION G3-34: instanceOnPoints(cone(…), flat.points)
     const copies = instanceOnPoints(cone(0.2, 0.5), flat.points, { scale: (p) => p.size });
-    expect(copies.rows.map((r) => r.transform.translate)).toEqual([[0, 0, 0], [1, 2, 0], [3, 1, 0]]);
-    expect(copies.rows.map((r) => r.transform.scale)).toEqual([[1, 1, 1], [2, 2, 2], [3, 3, 3]]);
+    expect(copies.points.map((r) => [r.x, r.y, r.z])).toEqual([[0, 0, 0], [1, 2, 0], [3, 1, 0]]);
+    expect(copies.points.map((r) => r.scale)).toEqual([[1, 1, 1], [2, 2, 2], [3, 3, 3]]);
     // FRICTION G5-15: instanceOnPoints(sphere(…), t.within(lattice.points, square), …) — a 2D selection
-    expect(instanceOnPoints(cone(0.2, 0.5), flat.points.filter((p) => p.x > 0)).rows.length).toBe(2);
-    expect(instanceOnPoints(cone(0.2, 0.5), [[0, 0], [2, 2]]).rows.length).toBe(2);
+    expect(instanceOnPoints(cone(0.2, 0.5), flat.points.filter((p) => p.x > 0)).points.length).toBe(2);
+    expect(instanceOnPoints(cone(0.2, 0.5), [[0, 0], [2, 2]]).points.length).toBe(2);
     expect(pointCloud(flat).points.map((p) => [p.x, p.y, p.z, p.size])).toEqual([[0, 0, 0, 1], [1, 2, 0, 2], [3, 1, 0, 3]]);
   });
 });
@@ -287,12 +286,13 @@ describe('G3-37 · supported curves are a collection of chains', () => {
     expect(chains.length).toBe(7);
     expect(chains.every((c) => c.closed)).toBe(true);
     // FRICTION G3-37: rings.filter((c) => c.points.every((p) => p.z > 0))
-    const upper = rings.filter((c) => c.points.every((p) => p.z > 0));
-    expect(upper.curves.length).toBe(3);
-    expect(upper.curves.every((c) => (c.level ?? 0) > 0)).toBe(true);
-    expect(rings.map((c) => c.level)).toEqual(chains.map((c) => c.attributes.level));
-    const halves = rings.groupBy((c) => (c.level ?? 0) > 0);
-    expect(halves.map((g) => g.curves.curves.length).sort()).toEqual([3, 4]);
+    const upper = rings.curves.filter((c) => c.points.every((p) => p.z > 0));
+    expect(upper.length).toBe(3);
+    expect(upper.every((c) => (c.level ?? 0) > 0)).toBe(true);
+    expect(upper.extract().curves.length).toBe(3);
+    expect(rings.curves.map((c) => c.level)).toEqual(chains.map((c) => c.level));
+    const halves = rings.curves.groupBy((c) => (c.level ?? 0) > 0);
+    expect(halves.map((g) => g.length).sort()).toEqual([3, 4]);
   });
 });
 

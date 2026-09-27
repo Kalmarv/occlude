@@ -7,12 +7,12 @@ Curves are polygonal paths in 3D. On their own they are wires in a view. As prof
 
 ## curve() · parametricCurve()
 
-<include>/_sig/3d.curve.mdx</include>
+<include>/_sig/curve.mdx</include>
 <include>/_sig/3d.parametricCurve.mdx</include>
 
 `curve` takes points, and `parametricCurve` samples a function of `t` from 0 to 1. A curve is the one geometry with points and edges and no faces. A curve in a view is a wire: surfaces hide it, and it hides nothing.
 
-`curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too. `curve(m)` puts a material in XY at z = 0, and it keeps the columns of its points. Each point's `source` is the 2D point it came from. The chain gives its own closure. 3D space is flat, so `curve`, `revolve` and `sweep` refuse a chain of a curved sketch space by name. Make that profile with `material(points)`, because it has no space. A function of `t` is a different input, so it has a different word: `parametricCurve`.
+`curve` is the word of `occlude`, and `occlude/3d` gives the same word. It builds a chain from points in the order given, and points `[x, y, z]` give a chain in space. The chain is open unless you give `closed: true`. `curve(m)` of a 2D material is the chain through the same points. A view draws a value of the plane at z = 0. 3D space is flat, so `revolve` and `sweep` refuse a chain of a curved sketch space by name. Make that profile with `curve(points)` from plain positions, because they have no space. A function of `t` is a different input, so it has a different word: `parametricCurve`.
 
 A circle profile is a closed `parametricCurve` of the angle: `parametricCurve((u) => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], { closed: true })`. The word `circle` is the 2D shape.
 
@@ -86,9 +86,9 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/Toolkit.streamlines.mdx</include>
 
-`t.streamlines` of a field of space, `(x, y, z) => [vx, vy, vz]`, gives evenly spaced streamlines as open curves. It is the 2D word, and the parameters of the field give the space it runs in. A view occludes the curves like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
+`t.streamlines` of a field of space, `(x, y, z) => [vx, vy, vz]`, gives evenly spaced streamlines. It is the 2D word, and seeds in space make it run in space. The answer is one value, and each line is a chain of it, as in 2D. A view occludes the lines like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
 
-Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }` to throw that many points into a closed surface. `within` cuts every line to the runs inside a closed surface, and interpolates the crossing point.
+Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of places `[x, y, z]` or a value with z. `{ count, within }` throws that many seeds into a closed surface. `within` cuts every line to the runs inside a closed surface, and interpolates the crossing point.
 
 `curl3` and `grad` read a field of space by central differences. The curl of any field has no divergence, so streamlines of `curl3` neither crowd nor thin out. Below, the flow is the ABC field, cut to a ball, and a box in front hides what is behind it.
 
@@ -111,7 +111,7 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
 <include>/_sig/3d.curl3.mdx</include>
 <include>/_sig/3d.grad.mdx</include>
 
-A field of space takes `(x, y, z)`, as `sdf3` and the 2D fields do. `curl3` refuses a function of one point, `(p) => …`, by name. `grad(scalar)` is the direction a scalar field rises fastest, as long as its rise. The same `grad` takes a field of the surface, `(s) => …` (see [Fields](/docs/reference/3d/fields)). `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `step`, 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
+A field of space takes `(x, y, z)`, as `sdf3` and the 2D fields do. `curl3` refuses a function of one point, `(p) => …`, by name. `grad(scalar)` is the direction a scalar field rises fastest, as long as its rise. The same `grad` takes a field of the surface, `(s) => …` (see [Fields](/docs/reference/3d/fields)). `curl3(field)` is the axis a vector field turns about, as long as how fast. Both take central differences over `{ step }`, 1e-3 by default. Where a field has no value, both give a zero vector, so a line stops there.
 
 One hill, read two ways. The red lines climb the gradient of the hill. The blue lines follow the curl of the same hill, held upright as a potential. They close into rings around the climb. The curl of a gradient is zero, so the two families never agree.
 

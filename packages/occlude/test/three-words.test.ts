@@ -1,21 +1,21 @@
 /**
  * The 3D words of the one geometry (src/three/api/words.ts): the core's
- * `Material` methods delegate to them, a word that needs faces refuses a
+ * `Material` methods call them, a word that needs faces refuses a
  * value with none by name, face rows measure on the fixed triangles, and a
  * derivation links its rows to the rows they came from.
  */
 import {describe,expect,it} from 'vitest';
-import {Material,WORDS_3D} from '../src/material.js';
+import {Material} from '../src/material.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
 import {faceGeometry3} from '../src/three/geometry/model.js';
-import {WORDS3} from '../src/three/api/words.js';
-import {plane,box} from '../src/three/api/mesh.js';
+import {plane,box,pointCloud} from '../src/three/api/mesh.js';
+import {grad} from '../src/three/api/vec.js';
+import {toolkit} from './helpers/run.js';
 import {sphere,geodesic} from '../src/three/api/primitives.js';
-import {curve} from '../src/three/api/curves.js';
+import {curve,curve as chain} from '../src/index.js';
 
 describe('the 3D words of the one geometry',()=>{
-  it('fills the core registry, and every value in space is a Material',()=>{
-    for(const name of Object.keys(WORDS_3D))expect((WORDS_3D as unknown as Record<string,unknown>)[name]).toBe((WORDS3 as unknown as Record<string,unknown>)[name]);
+  it('every value in space is a Material',()=>{
     for(const made of [plane(1),box(1),sphere(1,{segments:6,rings:3}),curve([[0,0,0],[1,0,0]])])expect(made).toBeInstanceOf(Material);
   });
   it('keeps the working view of a value it made, and its fixed triangles through a write',()=>{
@@ -53,4 +53,28 @@ describe('the 3D words of the one geometry',()=>{
     expect(d.faces.length).toBeGreaterThan(0);
     for(const p of cube.dual().points)expect(cube.faces.has(p.source as never)).toBe(true);
   });
+  it('a field that cannot answer at a point leaves that point, and a wrong answer is refused by name',()=>{
+    const cube=box(1),moved=cube.displace(p=>p.index===0?[Number.NaN,0,0]:[0,0,1]);
+    expect(moved.points.at(0)!.z).toBe(cube.points.at(0)!.z);expect(moved.points.at(1)!.z).toBe(cube.points.at(1)!.z+1);
+    expect(()=>cube.displace(()=>'up' as never)).toThrow('displace: the field answered');
+    // An extrusion by a vector that is not finite leaves that region where it is.
+    expect(cube.extrude(cube.faces.filter(f=>f.index===0),[Number.NaN,0,0]).faces.length).toBe(cube.faces.length);
+  });
+  it('refuses a surface to t.sample, and a planar question with a place in space, by name',()=>{
+    const t=toolkit();
+    expect(()=>t.sample(box(1),{count:4})).toThrow('t.sample: this value has faces, and t.sample walks curves — points on a surface are t.scatter(m, { count })');
+    const flat=chain([[0,0],[10,0],[10,10]]);
+    expect(()=>flat.points.near([0,0,0],{radius:5})).toThrow('points.near: this value is in the plane');
+    expect(()=>flat.edges.near([0,0,0],{radius:5})).toThrow('edges.near: this value is in the plane');
+    expect(flat.points.near([0,0],{radius:5}).length).toBe(1);
+  });
+  it('t.streamlines answers one value in both worlds, the seeds saying which',()=>{
+    const t=toolkit(),inSpace=t.streamlines(((...a:number[])=>[0,0,1]) as never,{seeds:[[0,0,0],[1,0,0]],step:.05,maxLength:1} as never);
+    expect(inSpace).toBeInstanceOf(Material);expect(inSpace.curves.length).toBe(2);expect(inSpace.points.at(0)!.z).toBeDefined();
+    expect(t.streamlines((x:number,y:number,z:number)=>[0,0,1] as const,{seeds:pointCloud([[0,0,0]]),step:.05,maxLength:1}).curves.length).toBe(1);
+    expect(t.streamlines((x:number,y:number)=>[1,0],{spacing:20})).toBeInstanceOf(Material);
+    // The difference step is an option in space as in the plane.
+    expect(()=>grad(((x:number,y:number,z:number)=>x) as never,0.5 as never)).toThrow('grad: the step is an option');
+  });
 });
+

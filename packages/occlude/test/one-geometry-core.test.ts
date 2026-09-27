@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { append, curve, material, point, type Material } from '../src/index.js';
-import { materialFromParts, partsOfMaterial, statedPartsOf, type Vertex } from '../src/material.js';
+import { materialFromParts, partsOfMaterial, type Vertex } from '../src/material.js';
 import { Column, kinds } from '../src/column.js';
 import { identity } from '../src/placement.js';
 import { spaceOf } from '../src/space.js';
@@ -36,6 +36,9 @@ function cube(cols = false): Material {
     })),
   });
 }
+
+/** The stated faces of a value, read back. */
+const stated = (m: Material) => partsOfMaterial(m).faces;
 
 describe('typed columns on points, edges and faces', () => {
   it('a column takes its kind from the value: boolean, string, vector, reference, placement', () => {
@@ -250,18 +253,20 @@ describe('the internal constructor doors', () => {
     expect(m.edges.map((e) => e.crease)).toEqual([true, false, false, false]);
     const faces = back.faces!;
     expect(faces.loops).toEqual([[0, 1, 2, 3]]);
-    expect(faces.cols.frame).toEqual([place]);
-    expect(faces.cols.h).toEqual([2]);
+    // Face columns come back as columns of the kind each holds.
+    const values = (c: { length: number; get(i: number): unknown }) => Array.from({ length: c.length }, (_, i) => c.get(i));
+    expect(values(faces.cols.frame)).toEqual([place]);
+    expect(values(faces.cols.h)).toEqual([2]);
     expect([...faces.corners.point]).toEqual([0, 1, 2, 3]);
     expect(m.corners.map((q) => q.uv)).toEqual([[0, 0], [1, 0], [0, 0], [0, 1]]);
     // The parts, read back, build the same value again.
     const again = materialFromParts({
       x: back.x, y: back.y, z: back.z, pointCols: back.pointCols, edges: back.edges, edgeCols: back.edgeCols,
-      faces: faces.loops.map((loop, f) => ({ loop, cols: { frame: faces.cols.frame[f] as never, h: faces.cols.h[f] as number } })),
+      faces: faces.loops.map((loop, f) => ({ loop, cols: { frame: faces.cols.frame.get(f) as never, h: faces.cols.h.get(f) as number } })),
       ids: back.ids,
     });
     expect(again.points.map((p) => [p.x, p.y, p.z, p.w, p.up])).toEqual(m.points.map((p) => [p.x, p.y, p.z, p.w, p.up]));
-    expect(statedPartsOf(again)!.cols.frame).toEqual([place]);
+    expect(values(partsOfMaterial(again).faces!.cols.frame)).toEqual([place]);
     expect(again.faces.at(0).frame).toBe(place);
   });
 
@@ -327,51 +332,37 @@ describe('ids are internal', () => {
   });
 });
 
-describe('the 3D words: one registry, installed by the 3D layer', () => {
-  it('a shared word is told apart by what it takes, and hands its arguments to the registry', async () => {
-    const { WORDS_3D } = await import('../src/material.js');
-    const saved = { ...WORDS_3D };
-    const calls: unknown[][] = [];
-    const keep = (name: string) => (...args: unknown[]) => { calls.push([name, ...args.slice(1)]); return args[0] as Material; };
-    try {
-      for (const k of Object.keys(WORDS_3D)) delete (WORDS_3D as Record<string, unknown>)[k];
-      const flat = square();
-      expect(() => flat.translate([1, 2, 3])).toThrow(/m.translate: that is a 3D word — .*import occlude\/3d/);
-      expect(() => flat.subdivide()).toThrow(/m.subdivide: that is a 3D word/);
-      Object.assign(WORDS_3D, { translate: keep('translate'), rotate: keep('rotate'), scale: keep('scale'), extrude: keep('extrude'), along: keep('along'), subdivide: keep('subdivide') });
-      // The plane's words stay the plane's.
-      expect(flat.translate([1, 2]).points.at(0).x).toBe(1);
-      expect(flat.rotate(90).points.length).toBe(4);
-      expect(flat.scale(2).points.at(1).x).toBe(20);
-      flat.translate([1, 2, 3]);
-      flat.rotate('x', 30, { origin: [0, 0, 0] });
-      flat.scale([1, 2, 3]);
-      const c = cube();
-      c.scale(2);
-      c.extrude(c.faces.filter((f) => f.index === 0), 0.5);
-      c.along({ count: 3 });
-      c.subdivide(2);
-      expect(calls.map((k) => k[0])).toEqual(['translate', 'rotate', 'scale', 'scale', 'extrude', 'along', 'subdivide']);
-      expect(calls[1]).toEqual(['rotate', 'x', 30, { origin: [0, 0, 0] }]);
-    } finally {
-      for (const k of Object.keys(WORDS_3D)) delete (WORDS_3D as Record<string, unknown>)[k];
-      Object.assign(WORDS_3D, saved);
-    }
+describe('the 3D words: called where the core declares them', () => {
+  it('a shared word is told apart by what it takes', () => {
+    const flat = square();
+    // The plane's words stay the plane's.
+    expect(flat.translate([1, 2]).points.at(0).x).toBe(1);
+    expect(flat.rotate(90).points.length).toBe(4);
+    expect(flat.scale(2).points.at(1).x).toBe(20);
+    expect(flat.translate([1, 2]).points.at(0).z).toBeUndefined();
+    // A 3-vector, angles, an axis or three factors are words of space.
+    expect(flat.translate([1, 2, 3]).points.at(0).z).toBe(3);
+    const c = cube();
+    const at = (m: Material) => m.points.map((p) => [p.x, p.y, p.z]);
+    // On a value in space a number of degrees turns about z, and one factor
+    // scales all three axes, about the same pivot as the vector forms.
+    expect(at(c.translate([2, 0, 0]).rotate(90))).toEqual(at(c.translate([2, 0, 0]).rotate('z', 90)));
+    expect(at(c.translate([2, 0, 0]).scale(2))).toEqual(at(c.translate([2, 0, 0]).scale([2, 2, 2])));
+    expect(c.extrude(c.faces.filter((f) => f.index === 0), 0.5).faces.length).toBe(10);
+    expect(() => flat.extrude(flat.faces, 1)).toThrow('extrude: faces extrude in space — a value with z');
   });
 
-  it('row words in space: face normal/area/centroid from the registry, 3D edge centre, point faces and corners', async () => {
-    const { WORDS_3D } = await import('../src/material.js');
-    const saved = WORDS_3D.faceWords;
-    try {
-      WORDS_3D.faceWords = (_m, f) => ({ normal: [0, 0, f], area: 10 + f, centroid: [f, f, f] });
-      const c = cube();
-      expect(c.faces.at(2).normal).toEqual([0, 0, 2]);
-      expect(c.faces.at(2).area).toBe(12);
-      expect(c.faces.at(3).centroid).toEqual([3, 3, 3]);
-    } finally {
-      WORDS_3D.faceWords = saved;
-    }
+  it('a motion that is not finite moves nothing, in the plane and in space', () => {
+    const flat = square(), c = cube();
+    for (const m of [flat.translate([NaN, 0]), flat.rotate(NaN), flat.scale(Infinity), flat.rotate(90, { origin: [NaN, 0] })]) expect(m).toBe(flat);
+    for (const m of [c.translate([NaN, 0, 0]), c.rotate('z', NaN), c.rotate([0, NaN, 0]), c.scale([1, NaN, 1]), c.scale(2, { origin: [NaN, 0, 0] })]) expect(m).toBe(c);
+  });
+
+  it('row words in space: face normal, area and centroid on the fixed triangles, 3D edge centre, point faces and corners', () => {
     const c = cube();
+    expect(c.faces.at(2).normal).toEqual([0, -1, 0]);
+    expect(c.faces.at(2).area).toBe(1);
+    expect(c.faces.at(1).centroid).toEqual([0.5, 0.5, 1]);
     const e = c.edges.at(0);
     expect(e.center.length).toBe(3);
     expect(c.points.at(0).faces.length).toBe(3);
@@ -399,7 +390,7 @@ describe('the 3D words: one registry, installed by the 3D layer', () => {
     expect(partsOfMaterial(m.points.filter((p) => p.index > 0).extract()).keys.points).toEqual(['b', 'c']);
     // Nothing a sketch reads names them: not a column, not on a row.
     expect(Object.keys(m.points.at(0))).toEqual(['index', 'x', 'y']);
-    expect(statedPartsOf(m)!.ids.faces).toHaveLength(1);
+    expect(stated(m)!.ids.faces).toHaveLength(1);
   });
 
   it('a source read row by row answers each row the first time it asks', () => {
@@ -533,8 +524,8 @@ describe('extracting stated faces keeps the statement', () => {
     expect(out.faces.map((f) => f.name)).toEqual(['f2', 'f3', 'f4', 'f5']);
     expect(out.corners.length).toBe(16);
     expect(out.corners.map((q) => q.uv)).toEqual(sides.corners.map((q) => q.uv));
-    const before = statedPartsOf(c)!;
-    const after = statedPartsOf(out)!;
+    const before = stated(c)!;
+    const after = stated(out)!;
     expect([...after.ids.faces!]).toEqual([2, 3, 4, 5].map((f) => before.ids.faces![f]));
     expect([...after.ids.corners!]).toEqual([...before.ids.corners!].slice(8));
     // The loops name the extracted rows: the same places.
@@ -568,22 +559,22 @@ describe('a fixed triangulation per stated face', () => {
   it('is stated with the loops and read back', () => {
     const m = pair();
     expect(m.stated!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined]);
-    expect(statedPartsOf(m)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined]);
-    expect(statedPartsOf(cube())!.triangles).toBeUndefined();
+    expect(stated(m)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined]);
+    expect(stated(cube())!.triangles).toBeUndefined();
   });
 
   it('is kept by every write that keeps the faces, by extract and by append; an edge write drops it', () => {
     const m = pair();
     const kept = m.move([0, 0, 1]).points.set('w', 1).faces.set('k', 2).corners.set('uv', [0, 0]);
-    expect(statedPartsOf(kept)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined]);
-    expect(statedPartsOf(m.faces.at(0).extract())!.triangles).toEqual([[0, 1, 2, 0, 2, 3]]);
-    expect(statedPartsOf(m.faces.filter((f) => f.index === 1).extract())!.triangles).toBeUndefined();
+    expect(stated(kept)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined]);
+    expect(stated(m.faces.at(0).extract())!.triangles).toEqual([[0, 1, 2, 0, 2, 3]]);
+    expect(stated(m.faces.filter((f) => f.index === 1).extract())!.triangles).toBeUndefined();
     // (A face column on both sides is refused by append; the second pair has none.)
     const other = materialFromParts({ x: [0, 1, 2, 2, 1, 0], y: [0, 0, 0, 1, 1, 1], z: [0, 0, 0, 0, 0, 0], faces: [{ loop: [0, 1, 4, 5], triangles: [0, 1, 2, 0, 2, 3] }, { loop: [1, 2, 3, 4] }] });
     const both = append(m, other);
     expect(both.faces.length).toBe(4);
-    expect(statedPartsOf(both)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined, [0, 1, 2, 0, 2, 3], undefined]);
-    expect(statedPartsOf(both)!.loops[2]).toEqual([6, 7, 10, 11]);
+    expect(stated(both)!.triangles).toEqual([[0, 1, 2, 0, 2, 3], undefined, [0, 1, 2, 0, 2, 3], undefined]);
+    expect(stated(both)!.loops[2]).toEqual([6, 7, 10, 11]);
     expect(m.edges.remove(m.edges.at(0)).stated).toBeUndefined();
   });
 
@@ -606,11 +597,11 @@ describe('append joins stated faces', () => {
     // A corner column one side lacks takes its kind's default there.
     expect(both.corners.at(29).seam).toBe(false);
     expect(both.faces.at(8).side).toBe(0);
-    const ids = statedPartsOf(both)!.ids.faces!;
-    expect([...ids].slice(0, 6)).toEqual([...statedPartsOf(a)!.ids.faces!]);
-    expect([...ids].slice(6)).toEqual([...statedPartsOf(b)!.ids.faces!]);
+    const ids = stated(both)!.ids.faces!;
+    expect([...ids].slice(0, 6)).toEqual([...stated(a)!.ids.faces!]);
+    expect([...ids].slice(6)).toEqual([...stated(b)!.ids.faces!]);
     const k = cube();
-    const self = statedPartsOf(append(k, k))!.ids.faces!;
+    const self = stated(append(k, k))!.ids.faces!;
     expect(new Set(self).size).toBe(12);
     expect(append(a, square(), { fill: { z: 0 } }).stated).toBeUndefined();
     expect(append(a, material([[5, 5, 5]])).faces.length).toBe(6);

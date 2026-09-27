@@ -35,9 +35,11 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
  });
 
  it('drops the degenerate element and keeps the rest',()=>{
-  // A repeated point is no segment; a polygon with no plane is no triangles;
+  // A polygon with no plane is no triangles;
   // a component with no vector is no extrusion. The neighbours survive.
-  expect(curve([[0,0,0],[0,0,0],[1,0,0],[2,0,0]]).edges.length).toBe(2);
+  // `curve` keeps every position a row, in the order given; a segment of
+  // no length draws nothing.
+  expect(curve([[0,0,0],[0,0,0],[1,0,0],[2,0,0]]).edges.length).toBe(3);
   const bowtie=surface3([[0,0,0],[1,1,0],[0,1,0],[1,0,0]],[[0,1,2,3]]);
   expect(bowtie.faces.length).toBe(1);expect(bowtie.triangles.length).toBe(0);
   const mixed=surface3([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0]],[[0,1,2,3],[1,4,2]]);
@@ -77,7 +79,7 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(scatterSurface(nothing,{count:5},{rnd:()=>.5}).points.length).toBe(0);
   expect(intersections(nothing,real).edges.length).toBe(0);
   expect(intersections([nothing,empty()]).edges.length).toBe(0);
-  expect(instanceOnPoints(nothing,pointCloud([[0,0,0],[2,0,0]]).points).length).toBe(2);
+  expect(instanceOnPoints(nothing,pointCloud([[0,0,0],[2,0,0]]).points).points.length).toBe(2);
   // Alone in a view, an empty mesh plans nothing at all.
   const blank=await compileSketchAsync(sketch(config,()=>view([nothing],{camera,pen:'ink',hatch:{spacing:mm(3),pen:'shade'}})));
   expect(render(blank).raw.frags.length).toBe(0);

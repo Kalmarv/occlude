@@ -34,7 +34,7 @@ describe('one class over every domain', () => {
     'mesh points': mesh.points, 'mesh edges': mesh.edges, 'mesh faces': mesh.faces, 'mesh corners': mesh.corners,
     'cloud points': pointCloud([[0, 0, 0], [1, 0, 0]]).points,
     'curve edges': mesh.edges.extract().edges,
-    instances: instanceOnPoints(plane(), pointCloud([[0, 0, 0]]).points).instances,
+    instances: instanceOnPoints(plane(), pointCloud([[0, 0, 0]]).points).points,
   };
 
   it('is one runtime class, with one implementation of the shared words', () => {

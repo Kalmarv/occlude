@@ -5,7 +5,7 @@ import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {cross3,dot3} from '../src/three/math.js';
 import type {} from 'occlude/3d';
-import {surfaceOf,kernelOf} from '../src/three/geometry/value.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
@@ -44,7 +44,7 @@ describe('curve-profile revolution',()=>{
  });
  it('accepts transformed circle profiles and keeps ordinary downstream mesh capabilities',()=>{
   const profile=circle(.25,{segments:12,key:'donut'}).rotate([90,0,0]).translate([1,0,0]).points.set('gain',.1).edges.set('label','tube');
-  const solid=revolve(profile,{segments:24});manifold(solid);expect(solid.points.length).toBe(288);expect(solid.faces.length).toBe(288);expect(kernelOf(solid).key).toBe('donut');
+  const solid=revolve(profile,{segments:24});manifold(solid);expect(solid.points.length).toBe(288);expect(solid.faces.length).toBe(288);expect(solid.key).toBe('donut');
   expect(volume(solid)).toBeGreaterThan(0);expect(solid.faces.map(f=>f.label)).toEqual(Array(288).fill('tube'));
   const edited=solid.subdivide().displace(p=>[0,0,p.gain]).faces.set('up',f=>f.normal[2]>0).displace([0,0,.2]);
   manifold(edited);expect(edited.faces.length).toBeGreaterThan(solid.faces.length);expect(volume(edited)).toBeCloseTo(volume(solid),10);expect(edited.points.at(0)!.z).toBeCloseTo(solid.points.at(0)!.z+.3,12);expect(query(edited).nearest([2,0,0])).not.toBeNull();

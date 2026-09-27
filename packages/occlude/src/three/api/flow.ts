@@ -1,15 +1,31 @@
 import {add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
-import {isGeometry,surfaceOf,type GeometryOptions} from './mesh.js';
-import {curve} from './curves.js';
+import {geometry3,type GeometryOptions} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
+import {surface3,type Surface3,type SurfaceEdge3} from '../geometry/surface.js';
+import {ownSurface3} from '../geometry/model.js';
 import {query,type PreparedQuery} from './query.js';
 import {checkedField3,type VectorField3} from './vec.js';
 import {refuseDisplay} from './recipes.js';
-import type {Material} from '../../material.js';
+import {Material,inSpace3} from '../../material.js';
+import {Selection} from '../../selection.js';
 
-/** Where the lines start: the points themselves, or a count thrown into a
- * closed mesh — `{ count: 40, within: sphere(2) }`. */
-export type Seeds3=readonly Vec3[]|{readonly count:number;readonly within:Material};
+/** Where the lines start: places in space — `[x, y, z]` triples, or a value
+ * with z, whose points they are — or a count thrown into a closed mesh,
+ * `{ count: 40, within: sphere(2) }`. */
+export type Seeds3=readonly Vec3[]|Material|Selection<{readonly x:number;readonly y:number;readonly z:number}>|{readonly count:number;readonly within:Material};
+/** @internal Are these seeds in space? That is the one thing that says a
+ * `t.streamlines` runs in space: places with a z, a value with z or its
+ * points, or a count thrown into a mesh. */
+export function seedsInSpace(seeds:unknown):boolean {
+  if(seeds instanceof Material)return inSpace3(seeds);
+  if(seeds instanceof Selection)return seeds.source instanceof Material&&inSpace3(seeds.source);
+  if(Array.isArray(seeds)){
+    const first=seeds[0];
+    return Array.isArray(first)?first.length===3:typeof first==='object'&&first!==null&&typeof (first as {z?:unknown}).z==='number';
+  }
+  return typeof seeds==='object'&&seeds!==null&&'within' in seeds;
+}
 export interface Streamlines3Options extends GeometryOptions {
   readonly seeds:Seeds3;
   /** Closest another line may come, in world units. Lines stop half of it from
@@ -119,8 +135,8 @@ function cutInside(prepared:PreparedQuery,path:readonly Vec3[],scale:number):Vec
   if(run.length>1)runs.push(run);
   return runs;
 }
-/** Evenly spaced streamlines of a 3D vector field as open curves — `view()`
- * occludes them like any other geometry.
+/** Evenly spaced streamlines of a 3D vector field as one value of open
+ * chains, a line a chain — `view()` occludes them like any other geometry.
  *
  * Each seed is traced both ways with RK4 until the field has no direction
  * there, until the line reaches `maxLength`, or until it comes within half a
@@ -130,18 +146,18 @@ function cutInside(prepared:PreparedQuery,path:readonly Vec3[],scale:number):Vec
  *
  * A field with no direction, a spacing that is not positive, or an open
  * `within` mesh draws nothing for that piece. */
-export function streamlines3(field:VectorField3,options:Streamlines3Options,env:Streamlines3Env):Material[] {
+export function streamlines3(field:VectorField3,options:Streamlines3Options,env:Streamlines3Env):Material {
   checkedField3(field,'t.streamlines');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('t.streamlines of a field of space requires its options, { seeds }');
   refuseDisplay(options,'t.streamlines');
-  if(options.spacing!==undefined&&emptySize(options.spacing))return [];
-  if(options.step!==undefined&&emptySize(options.step))return [];
-  if(options.maxLength!==undefined&&emptySize(options.maxLength))return [];
+  if(options.spacing!==undefined&&emptySize(options.spacing))return lines([],[],[],options.key);
+  if(options.step!==undefined&&emptySize(options.step))return lines([],[],[],options.key);
+  if(options.maxLength!==undefined&&emptySize(options.maxLength))return lines([],[],[],options.key);
   const bound=options.within;
-  if(bound!==undefined&&!isGeometry(bound))throw new Error('t.streamlines within requires a closed mesh');
-  if(bound&&!closed(bound))return [];
+  if(bound!==undefined&&!(bound instanceof Material))throw new Error('t.streamlines within requires a closed mesh');
+  if(bound&&!closed(bound))return lines([],[],[],options.key);
   const seeds=seedPoints(options.seeds,env);
-  if(!seeds.length)return [];
+  if(!seeds.length)return lines([],[],[],options.key);
   const region=bound?bounds(surfaceOf(bound).points.map(p=>p.position)):undefined;
   const spread=Math.max(bounds(seeds).extent,region?.extent??0);
   const extent=spread>0?spread:1;
@@ -169,8 +185,10 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
     }
     return out;
   };
-  const curves:Material[]=[];
-  const {key,seeds:_seeds,spacing:_spacing,step:_step,maxLength:_max,within:_within,...rest}=options;
+  // Every line is a chain of one value: its points named for the line and
+  // their place on it, a repeated point no segment.
+  const places:Vec3[]=[],names:string[]=[],edges:SurfaceEdge3[]=[];
+  let line=0;
   for(const seed of seeds){
     if(!seed.every(Number.isFinite)||!direction(field,seed))continue;
     if(grid&&spacing!==undefined&&grid.near(seed,spacing*0.9,Infinity))continue;
@@ -179,15 +197,31 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
     const forward=half(seed,1,mark),back=half(seed,-1,mark);
     const path=[...back.reverse(),seed,...forward];
     if(path.length<2)continue;
-    for(const run of clip?cutInside(clip,path,extent):[path])
-      if(run.length>1)curves.push(curve(run,{...rest,...(key?{key:`${key}:${curves.length}`}:{})}));
+    for(const run of clip?cutInside(clip,path,extent):[path]){
+      if(run.length<2)continue;
+      const start=places.length;
+      run.forEach((p,j)=>{places.push(p);names.push(`l${line}:p${j}`);});
+      for(let j=0;j+1<run.length;j++){
+        if(Math.hypot(...sub3(run[j],run[j+1]))===0)continue;
+        edges.push({id:`e:l${line}:p${j}:p${j+1}`,vertices:[start+j,start+j+1],faces:[],attributes:{}});
+      }
+      line++;
+    }
   }
-  return curves;
+  return lines(places,names,edges,options.key);
+}
+/** The lines as one value: points and edges, no faces. */
+function lines(places:readonly Vec3[],names:readonly string[],edges:readonly SurfaceEdge3[],key:string|undefined):Material {
+  const base=surface3(places,[]);
+  const surface:Surface3={...base,points:base.points.map((p,i)=>({...p,id:names[i]})),edges};
+  return geometry3(ownSurface3(surface),key!==undefined?{key}:{});
 }
 function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
-  if(Array.isArray(seeds))return (seeds as readonly Vec3[]).map(p=>[...p] as Vec3);
+  if(Array.isArray(seeds))return (seeds as readonly unknown[]).map(p=>(Array.isArray(p)?[p[0],p[1],p[2]]:[(p as {x:number}).x,(p as {y:number}).y,(p as {z:number}).z]) as Vec3);
+  const rows=seeds instanceof Material?seeds.points:seeds instanceof Selection?seeds:undefined;
+  if(rows!==undefined)return [...rows as Iterable<{x:number;y:number;z:number}>].map(p=>[p.x,p.y,p.z] as Vec3);
   const request=seeds as {count:number;within:Material};
-  if(!request||typeof request!=='object'||!isGeometry(request.within))throw new Error('t.streamlines seeds require a list of points, or { count, within }');
+  if(!request||typeof request!=='object'||!(request.within instanceof Material))throw new Error('t.streamlines seeds require a list of points, or { count, within }');
   if(!Number.isSafeInteger(request.count)||request.count<0)throw new Error('t.streamlines seed count must be a nonnegative integer');
   if(!closed(request.within))return [];
   const box=bounds(surfaceOf(request.within).points.map(p=>p.position));
@@ -203,10 +237,9 @@ function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
   return out;
 }
 
-/** @internal The toolkit's `t.streamlines` for a field of space, `(x, y, z)
- * => …`: the same word as for a field of the plane, read from the field's
- * arity. Seeds given as a count are thrown into their mesh with the sketch's
+/** @internal The toolkit's `t.streamlines` for seeds in space (see
+ * `seedsInSpace`): the same word as in the plane. Seeds given as a count are thrown into their mesh with the sketch's
  * seeded stream, keyed by the options' `key`. */
-export function streamlinesInSpace(exec:{stream(name:string):{rnd:()=>number}},field:VectorField3,options:Streamlines3Options):Material[] {
+export function streamlinesInSpace(exec:{stream(name:string):{rnd:()=>number}},field:VectorField3,options:Streamlines3Options):Material {
   return streamlines3(field,options,{rnd:exec.stream('__streamlines3:'+(options?.key??'default')).rnd});
 }

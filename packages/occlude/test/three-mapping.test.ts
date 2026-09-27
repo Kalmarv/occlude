@@ -71,7 +71,7 @@ describe('mapSurface',()=>{
     expect(closed.points.length).toBe(4);
     // Edge 1 runs from (.7,.2) to (.7,.7) and meets the diagonal at v=.3: w = 1 + .2.
     const crossing=marks.points.find(p=>Math.abs(p.x-.4)<1e-9&&Math.abs(p.y+.4)<1e-9)!;
-    expect(crossing.attributes.w).toBeCloseTo(1.2,9);
+    expect(crossing.w).toBeCloseTo(1.2,9);
     // A corner exactly on the diagonal in decimal is a sliver in binary64: the
     // exact graph still closes, and the sliver's float phase has zero width
     // (its exact interval is narrower than binary64) without any nudging.
@@ -88,8 +88,8 @@ describe('mapSurface',()=>{
     expect(new Set(all.edges.map(e=>e.chart)).size).toBe(6);
     expect(all.edges.length).toBe(12);expect(one.edges.length).toBe(2);
     expect(one.edges.every(e=>e.chart==='f0')).toBe(true);
-    expect(()=>mapSurface(cube,stripe(.5),{chart:'missing'})).not.toThrow();
-    expect(mapSurface(cube,stripe(.5),{chart:'missing'}).edges.length).toBe(0);
+    // A chart the surface does not carry is refused, with the ones it does.
+    expect(()=>mapSurface(cube,stripe(.5),{chart:'missing'})).toThrow('mapSurface: no face has the chart "missing" — the charts here are "f0"');
   });
 
   it('assigns overlap layers when one physical sheet folds onto itself in chart space',()=>{

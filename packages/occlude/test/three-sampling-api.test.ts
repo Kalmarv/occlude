@@ -45,7 +45,7 @@ describe('surface samples and scatter',()=>{
   const selected=edited.points.filter(p=>p.index%2===0).extract();expect(selected.points.length).toBe(6);expect(selected.points.at(1)!.sample).toBe(samples.points.at(2)!.sample);
   expect(generationOf(selected)).toEqual(generationOf(samples));
   expect(()=>edited.points.set('sample',1)).toThrow("the column 'sample'");expect(()=>{(edited.points.at(0)!.sample.position as unknown as number[])[0]=99;}).toThrow();
-  const placed=instanceOnPoints(box(.1),selected.points,{offset:p=>p.sample.normal});expect(placed.instances.at(1)!.source).toBe(selected.points.at(1));
+  const placed=instanceOnPoints(box(.1),selected.points,{offset:p=>p.sample.normal});expect(placed.points.at(1)!.source).toBe(selected.points.at(1));
   expect(samples.points.at(0)!.sample.face.roof).toBe(true);
  });
  it('retains rich sample rows through synchronous and async query batches',async()=>{

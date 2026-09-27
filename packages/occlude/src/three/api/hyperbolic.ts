@@ -32,7 +32,8 @@ import {surface3,type Surface3} from '../geometry/surface.js';
 import {mesh,curveGeometry3} from './mesh.js';
 import {spacePlacement,type Placement} from '../../placement.js';
 import type { Vec3 } from '../math.js';
-import type {Material} from '../../material.js';
+import type {Material,Vertex} from '../../material.js';
+import {select,type Selection} from '../../selection.js';
 
 export interface HoneycombOptions {
   /** Generations of neighbours to reflect out to. Depth 0 is the
@@ -51,16 +52,6 @@ export interface ObserverOptions {
   up?: Vec3;
 }
 
-/** One shared vertex of a honeycomb, in Klein coordinates. `id` is the id
- * the same point has in `wires`. */
-export interface HoneycombPoint {
-  readonly id: string;
-  readonly index: number;
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-}
-
 /** The columns every edge of a honeycomb carries, in `wires`. */
 export type HoneycombEdgeColumns = {
   /** The index of the lowest copy that has this edge. */
@@ -71,16 +62,18 @@ export type HoneycombEdgeColumns = {
 
 /** One wall of a honeycomb, once, however many copies share it. */
 export interface HoneycombFace {
-  readonly id: string;
   readonly index: number;
-  /** The wall as a loop of `points` indices, wound as its owner winds it. */
-  readonly vertices: readonly number[];
-  /** The index of the copy that first owns the wall: the lowest generation. */
-  readonly cell: number;
+  /** The wall's corners, points of `wires`, in order round it as its owner
+   * winds it. */
+  readonly points: Selection<Vertex>;
+  /** The placement of the copy that first owns the wall: the lowest
+   * generation. */
+  readonly source: Placement<Vec3>;
   /** The flood generation of that copy. */
   readonly generation: number;
-  /** That copy turns space over: its placement's `orientation` is −1. */
-  readonly mirrored: boolean;
+  /** 1 when that copy turns space over (its placement's `orientation` is
+   * −1), else 0 — as a tiling's face says it. */
+  readonly mirrored: number;
 }
 
 /**
@@ -89,8 +82,9 @@ export interface HoneycombFace {
  *
  * It is not a `Material`. A mesh is a surface, where an edge has one wall on
  * each side; inside a honeycomb `r` walls meet at every edge. So the
- * complex answers what it holds: its `points` and its `faces` as rows, its
- * edges as `wires`, and the `cell` and `placements` it was made from.
+ * complex answers what it holds: its edges and vertices as `wires`, its
+ * walls as `faces` over the points of `wires`, and the `cell` and
+ * `placements` it was made from.
  */
 export interface Honeycomb {
   /** The regular cell, centred on the centre of the ball, as a closed
@@ -99,13 +93,11 @@ export interface Honeycomb {
   /** One placement per copy of the cell, the identity first, in flood
    * order. */
   readonly placements: readonly Placement<Vec3>[];
-  /** Every vertex of the complex, once. */
-  readonly points: readonly HoneycombPoint[];
   /** Every wall of the complex, once. */
   readonly faces: readonly HoneycombFace[];
-  /** Every edge of the complex, once, as a two-point wire with the edge
-   * columns `cell` and `generation`. A Klein chord IS the geodesic, so the
-   * two ends draw it. The points are `points`, id for id. */
+  /** Every vertex and every edge of the complex, once: an edge a two-point
+   * wire with the edge columns `cell` and `generation`. A Klein chord IS the
+   * geodesic, so the two ends draw it. */
   readonly wires: Material;
 }
 
@@ -130,14 +122,15 @@ export function honeycomb(p: number, q: number, r: number, options: HoneycombOpt
   const complex = honeycombComplex(p, q, r, options);
   const id = (i: number): string => `p${i}`;
   const edges = complex.edges.map(({ vertices: [a, b], cell, generation }) => ({ id: `e:${id(a)}:${id(b)}`, vertices: [a, b] as [number, number], faces: [], attributes: { cell, generation } }));
-  const wires: Surface3 = { ...surface3(complex.points, []), edges };
-  return Object.freeze({
-    cell: mesh(complex.cell.points, complex.cell.faces),
-    placements: Object.freeze(complex.copies.map((c) => spacePlacement(c.transform))),
-    points: Object.freeze(complex.points.map(([x, y, z], index) => Object.freeze({ id: id(index), index, x, y, z }))),
-    faces: Object.freeze(complex.faces.map((f, index) => Object.freeze({ id: `f${index}`, index, vertices: f.vertices, cell: f.cell, generation: f.generation, mirrored: f.mirrored }))),
-    wires: curveGeometry3(wires, edges.map((_, i) => i)),
-  });
+  const surface: Surface3 = { ...surface3(complex.points, []), edges };
+  const wires = curveGeometry3(surface, edges.map((_, i) => i));
+  const placements = Object.freeze(complex.copies.map((c) => spacePlacement(c.transform)));
+  // A wall's corners are read the first time they are asked for.
+  const faces = Object.freeze(complex.faces.map((f, index): HoneycombFace => {
+    let points: Selection<Vertex> | undefined;
+    return Object.freeze(Object.defineProperty({ index, source: placements[f.cell], generation: f.generation, mirrored: f.mirrored ? 1 : 0 }, 'points', { get: () => (points ??= select(wires.points.domain, f.vertices)), enumerable: true }) as HoneycombFace);
+  }));
+  return Object.freeze({ cell: mesh(complex.cell.points, complex.cell.faces), placements, faces, wires });
 }
 
 /**

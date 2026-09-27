@@ -71,6 +71,10 @@ export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
+// The 3D words, called where the core declares them. The import cycle is
+// the same kind as the kernels' above: every read is at call time.
+import { translate3, rotate3, scale3, transform3, extrude3, smooth3, subdivide3, boolean3, dual3, displace3, along3, resample3, rebind3 } from './three/api/words.js';
+import { realize as realize3, type RealizeOptions } from './three/api/instances.js';
 
 // ---- the material --------------------------------------------------------------------
 
@@ -632,14 +636,11 @@ const EDGE_WORDS: PropertyDescriptorMap = {
   },
   id: { get(this: Edge) { return at64(stateOf(this).store.edgeIds, this.index) as EdgeId; } },
   root: { get(this: Edge) { return at64(stateOf(this).store.edgeRoots, this.index) as EdgeId; } },
-  // In space, the middle in space: the 3D layer's when it is loaded.
+  // In space, the middle in space.
   center: {
     get(this: Edge) {
-      const m = stateOf(this);
-      const z = m.store.attrs.z;
+      const z = stateOf(this).store.attrs.z;
       if (!(z instanceof Column)) return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec;
-      const own = WORDS_3D.edgeCenter;
-      if (own !== undefined) return own(m, this.index);
       return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2, (at64(z, this.a.index) + at64(z, this.b.index)) / 2];
     },
   },
@@ -746,6 +747,13 @@ export class Material {
    * value nothing named. Non-enumerable, as `space` is.
    */
   declare readonly key: string | undefined;
+  /**
+   * The prototype a value of instances places at its points (occlude/3d's
+   * `instanceOnPoints` and `instanceOnFaces`), or undefined for a value that
+   * places nothing. Carried as the key is, so every write and every verb
+   * that keeps the points keeps what they place. Non-enumerable.
+   */
+  declare readonly prototype: Material | undefined;
   /** @internal id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -801,10 +809,13 @@ export class Material {
       space?: Space;
       /** The value's key (see `Material.key`). */
       key?: string;
-      /** The value these rows were made from: the space and the key are
-       * taken from it when not given, so a derived material is in the
-       * space of its source, and keeps its name, without a word to say so. */
-      from?: { readonly space?: Space | undefined; readonly key?: string | undefined };
+      /** The prototype the value's points place (see `Material.prototype`). */
+      prototype?: Material;
+      /** The value these rows were made from: the space, the key and the
+       * prototype are taken from it when not given, so a derived material is
+       * in the space of its source, and keeps its name, without a word to
+       * say so. */
+      from?: { readonly space?: Space | undefined; readonly key?: string | undefined; readonly prototype?: Material | undefined };
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
@@ -901,6 +912,7 @@ export class Material {
     const key = carry.key ?? carry.from?.key;
     if (key !== undefined && typeof key !== 'string') throw new Error(`material: a key is a string — got ${typeof key}`);
     Object.defineProperty(this, 'key', { value: key, enumerable: false });
+    Object.defineProperty(this, 'prototype', { value: carry.prototype ?? carry.from?.prototype, enumerable: false });
     Object.defineProperty(this, 'stated', { value: statedFor(carry.faces, list, edgeIds), enumerable: false });
     this.idBox = { points: null, edges: null };
     Object.freeze(this.faceAttrs);
@@ -1198,8 +1210,9 @@ export class Material {
     const onPoints = Object.hasOwn(this.attrs, name);
     const onEdges = Object.hasOwn(this.edgeAttrs, name);
     // A face or corner column is smoothed over the faces (3D).
-    if (!onPoints && !onEdges && (Object.hasOwn(this.faceAttrs, name) || Object.hasOwn(this.stated?.corners ?? {}, name))) return word3('smooth')(this, name, opts);
-    if (!onPoints && !onEdges) throw new Error(`smooth: no point or edge column '${name}' to smooth`);
+    const onFaces = Object.hasOwn(this.faceAttrs, name);
+    if (!onPoints && !onEdges && (onFaces || Object.hasOwn(this.stated?.corners ?? {}, name))) return smooth3(this, onFaces ? 'faces' : 'corners', name, opts);
+    if (!onPoints && !onEdges) throw new Error(`smooth: no ${inSpace3(this) ? 'point, edge, face or corner' : 'point or edge'} column '${name}' to smooth`);
     if (steps === 0) return material(this);
     const src = material(this);
     let cur = Float64Array.from(onPoints ? src.attrs[name] : src.edgeAttrs[name]);
@@ -1255,7 +1268,7 @@ export class Material {
    * a partial resample.
    */
   resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: Where }): Material {
-    if (inSpace3(this)) return word3('resample')(this, opts);
+    if (inSpace3(this)) return resample3(this, opts);
     return resampleMaterial(this, opts, null);
   }
 
@@ -1536,7 +1549,7 @@ export class Material {
    */
   along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> } = {}): Material {
     // A value in space is walked in space.
-    if (inSpace3(this)) return word3('along')(this, opts);
+    if (inSpace3(this)) return along3(this, opts);
     return alongMaterial(this, opts, null);
   }
 
@@ -1578,7 +1591,7 @@ export class Material {
    * vertex and every unsplit edge, and a face keeps its columns.
    */
   transform(op: Placement | Placement<Vec3> | TransformRecord): Material {
-    if (isSpacePlacement(op)) return word3('transform')(this, op);
+    if (isSpacePlacement(op)) return transform3(this, op);
     // A placement or a record of the plane moves sketch points: on a value
     // in space it would move x and y and leave z, which is no motion of
     // space at all.
@@ -1707,11 +1720,15 @@ export class Material {
    * every id and every column carries.
    */
   scale(k: number | readonly [number, number] | Vec3, opts: { origin?: Origin | Vec3 } = {}): Material {
-    // Three factors scale in space, and so does one on a value in space.
-    if ((Array.isArray(k) && k.length === 3) || (typeof k === 'number' && inSpace3(this))) return word3('scale')(this, k as number | Vec3, opts);
+    // Three factors scale in space, and so does one on a value in space:
+    // `scale(k)` there is `scale([k, k, k])`.
+    if ((Array.isArray(k) && k.length === 3) || (typeof k === 'number' && inSpace3(this))) return scale3(this, k, opts);
     const [kx, ky] = typeof k === 'number' ? [k, k] : [k[0], k[1]];
-    if (!Number.isFinite(kx) || !Number.isFinite(ky)) throw new Error(`m.scale: [${kx}, ${ky}] is not a scale factor`);
-    const [ox, oy] = this.pivot('m.scale', opts.origin);
+    // A factor or a pivot that is not finite scales nothing, as `move` moves
+    // nothing by it.
+    const pivot = this.pivot('m.scale', opts.origin);
+    if (!Number.isFinite(kx) || !Number.isFinite(ky) || pivot === undefined) return this;
+    const [ox, oy] = pivot;
     return mapPositions(this, (p) => [ox + (p.x - ox) * kx, oy + (p.y - oy) * ky], 'm.scale');
   }
 
@@ -1728,10 +1745,16 @@ export class Material {
    * `degrees`. */
   rotate(axis: 'x' | 'y' | 'z' | Vec3, degrees: number, options?: object): Material;
   rotate(degrees: unknown, opts: unknown = {}, more?: unknown): Material {
-    if (typeof degrees !== 'number') return word3('rotate')(this, degrees, opts, more);
+    // In space a number of degrees turns about z: `rotate(n)` is
+    // `rotate('z', n)`.
+    if (typeof degrees !== 'number') return rotate3(this, degrees, opts, more);
+    if (inSpace3(this)) return rotate3(this, 'z', degrees, opts);
     const o = (opts ?? {}) as { origin?: Origin };
-    if (!Number.isFinite(degrees)) throw new Error(`m.rotate: ${degrees} is not an angle`);
-    const [ox, oy] = this.pivot('m.rotate', o.origin);
+    // An angle or a pivot that is not finite turns nothing, as `move` moves
+    // nothing by it.
+    const pivot = this.pivot('m.rotate', o.origin);
+    if (!Number.isFinite(degrees) || pivot === undefined) return this;
+    const [ox, oy] = pivot;
     const a = radians(degrees);
     const c = Math.cos(a);
     const s = Math.sin(a);
@@ -1745,17 +1768,19 @@ export class Material {
   /** Every vertex moved by `by`. It is `map` underneath, so every id and
    * every column carries. */
   translate(by: XY | Vec3): Material {
-    if (isVec3(by)) return word3('translate')(this, (Array.isArray(by) ? by : [vx(by as XY), vy(by as XY), (by as unknown as { z: number }).z]) as unknown as Vec3);
+    if (isVec3(by)) return translate3(this, by);
     const dx = vx(by);
     const dy = vy(by);
-    if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error(`m.translate: [${dx}, ${dy}] is not an offset`);
+    // An offset that is not finite moves nothing, as `move` moves nothing by it.
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return this;
     return mapPositions(this, (p) => [p.x + dx, p.y + dy], 'm.translate');
   }
 
   /** @internal The pivot `scale` and `rotate` read: the user origin when
    * unset, `'center'` this material's bounds centre, `'centroid'` its area
-   * centroid (see `scale`). An empty material pivots on the origin. */
-  pivot(verb: string, origin: Origin | undefined): Vec {
+   * centroid (see `scale`). An empty material pivots on the origin; a point
+   * that is not finite is no pivot (undefined). */
+  pivot(verb: string, origin: Origin | undefined): Vec | undefined {
     if (origin === undefined) return [0, 0];
     if (origin === 'center' || origin === 'centroid') {
       if (this.n === 0) return [0, 0];
@@ -1778,8 +1803,7 @@ export class Material {
     if (typeof origin === 'string') throw new Error(`${verb}: origin is a point ([x, y] or { x, y }), 'center' or 'centroid' — got '${origin}'`);
     const x = vx(origin);
     const y = vy(origin);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${verb}: origin [${x}, ${y}] is not a point`);
-    return [x, y];
+    return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : undefined;
   }
 
   /** Thickness around this material's chains: an outline at the radius each
@@ -1839,8 +1863,8 @@ export class Material {
   extrude(faces: Selection<Face>, offset: number | Vec3 | ((region: any) => Vec3) | { readonly distance: unknown }, options?: object): Material;
   extrude(from: PointEnd | Selection<Face> | undefined, offset: unknown, cols?: unknown): Material {
     // Faces extrude in 3D (the words a 2D and a 3D value share are told
-    // apart by what they take): see `WORDS_3D`.
-    if (isFaceSelection(from)) return word3('extrude')(this, from, offset, cols);
+    // apart by what they take): see three/api/words.ts.
+    if (isFaceSelection(from)) return extrude3(this, from, offset, cols);
     return extrudeRecipe(this, from, offset as XY | Vec3, cols as Record<string, CellValue> | undefined);
   }
 
@@ -1898,40 +1922,41 @@ export class Material {
     return restamp(this, this.iteration, states);
   }
 
-  // ---- the 3D words (see `Words3`) ----
+  // ---- the 3D words (three/api/words.ts) ----
 
   /** Every face cut into smaller faces, `levels` times, the surface
    * smoothed as it goes (3D). */
   subdivide(levels?: number, options?: object): Material {
-    return word3('subdivide')(this, levels, options);
+    return subdivide3(this, levels, options as never);
   }
 
   /** The solid this geometry and `other` fill together (3D). */
   union(other: Material): Material {
-    return word3('union')(this, other);
+    return boolean3('union')(this, other);
   }
 
   /** The solid this geometry fills and `other` does not (3D). */
   subtract(other: Material): Material {
-    return word3('subtract')(this, other);
+    return boolean3('subtract')(this, other);
   }
 
   /** The solid both fill (3D). */
   intersect(other: Material): Material {
-    return word3('intersect')(this, other);
+    return boolean3('intersect')(this, other);
   }
 
   /** Re-attach what was made on a surface — scattered samples, points
    * sampled on surface curves, the surface curves themselves — to an
    * edited revision of that surface, or of each surface (3D). */
   rebind(target: Material | readonly Material[]): Material {
-    return word3('rebind')(this, target);
+    return rebind3(this, target);
   }
 
-  /** Curves attached to a prototype, repeated at every placement of an
-   * instance set (3D). */
-  place(instances: unknown): Material {
-    return word3('place')(this, instances);
+  /** One ordinary value from every copy instances place: the prototype's
+   * faces, edges and points once for each copy, where it stands (3D).
+   * Each row's `source` is the prototype row and the instance. */
+  realize(options?: RealizeOptions): Material {
+    return realize3(this, options);
   }
 
   /**
@@ -1959,13 +1984,13 @@ export class Material {
 
   /** The dual: a point per face, a face per point (3D). */
   dual(options?: object): Material {
-    return word3('dual')(this, options);
+    return dual3(this, options as never);
   }
 
   /** Every point moved by a field: a vector, or a distance along its
    * normal (3D). */
   displace(field: unknown, options?: object): Material {
-    return word3('displace')(this, field, options);
+    return displace3(this, field as never, options as never);
   }
 
   /** @internal The derived views the 3D layer builds from the columns on
@@ -3014,12 +3039,14 @@ export function curve(
   points: PointsLike,
   opts: { closed?: boolean } & Record<string, number | ArrayLike<number> | boolean | undefined> = {},
 ): Material {
+  if (typeof points === 'function') throw new Error('curve: takes points — a function of t is parametricCurve(t => [x, y, z]) from occlude/3d');
   const { closed = false, ...rest } = opts;
   if (typeof closed !== 'boolean') throw new Error(`curve: closed is true or false, got ${String(closed)}`);
   const cols: Record<string, number | ArrayLike<number>> = {};
   for (const [k, v] of Object.entries(rest)) {
     if (v === undefined) continue;
     if (typeof v === 'boolean') throw new Error(`curve: attribute '${k}' must be numeric`);
+    if (typeof v === 'string') throw new Error(`curve: the column '${k}' is a number or a list of numbers, one a point — got '${v}'${k === 'pen' || k === 'stroke' ? '; a pen is how a drawing draws the value: strokes(m, { pen }), or [m, { pen }] in a view' : ''}`);
     cols[k] = v;
   }
   const given = material(points, cols);
@@ -3062,7 +3089,7 @@ function transformByRecord(m: Material, op: TransformRecord): Material {
     ? null
     : Array.isArray(op.origin)
       ? [num(op.origin[0], 'origin[0]'), num(op.origin[1], 'origin[1]')]
-      : (m.pivot(who, op.origin as Origin) as [number, number]);
+      : (m.pivot(who, op.origin as Origin) as [number, number] | undefined) ?? (() => { throw new Error(`${who}: origin is not a point — a material moves in its own units, so give finite numbers`); })();
   let mat = IDENTITY;
   if (op.translate !== undefined) mat = mulMat(mat, translateMat(num(op.translate[0], 'translate[0]'), num(op.translate[1], 'translate[1]')));
   if (pivot) mat = mulMat(mat, translateMat(pivot[0], pivot[1]));
@@ -4241,61 +4268,6 @@ export function areaView<T>(input: T): T | Material | Selection<Edge> {
 /** A point or a step in space: three numbers. */
 export type Vec3 = readonly [number, number, number];
 
-/**
- * @internal The 3D words of the one geometry, installed by the 3D layer
- * when it loads (src/three/api/words.ts fills this record; this module
- * never imports it — no cycle, no prototype patching). Each `Material`
- * word below that is 3D, or has a 3D half, is a real method here that
- * hands the value and its arguments, as it took them, to its entry; an
- * entry that is missing is refused by name ("import occlude/3d").
- *
- * The shared words are told apart by what they take, never by a flag:
- * `translate` by a 3-vector, `rotate` by anything but a number of degrees
- * (angles, or an axis and degrees), `scale` by three factors — or by one
- * on a value with a `z`, which scales in space — `transform` by a placement
- * of space, `extrude` by a face selection, `smooth` by a face or corner
- * column, `along` and `resample` by a value with a `z`. The 3D-only words
- * (`subdivide`, the booleans, `dual`, `displace`) are 3D whatever they take.
- * `faceWords` and `edgeCenter` answer row words of a value with a `z`.
- */
-export interface Words3 {
-  translate(m: Material, offset: Vec3): Material;
-  rotate(m: Material, a: unknown, b?: unknown, c?: unknown): Material;
-  scale(m: Material, scale: number | Vec3, pivot?: unknown): Material;
-  transform(m: Material, placement: Placement<Vec3>): Material;
-  extrude(m: Material, faces: Selection<Face>, offset: unknown, options?: unknown): Material;
-  smooth(m: Material, name: string, options: { readonly steps?: number }): Material;
-  subdivide(m: Material, levels?: number, options?: unknown): Material;
-  union(m: Material, other: Material): Material;
-  subtract(m: Material, other: Material): Material;
-  intersect(m: Material, other: Material): Material;
-  dual(m: Material, options?: unknown): Material;
-  displace(m: Material, field: unknown, options?: unknown): Material;
-  along(m: Material, options: unknown): Material;
-  resample(m: Material, options: unknown): Material;
-  /** Samples, sampled curve points or surface curves re-attached to an
-   * edited revision of the surface(s) they were made on. */
-  rebind(m: Material, target: Material | readonly Material[]): Material;
-  /** Curves attached to a prototype, repeated at every placement of an
-   * instance set. */
-  place(m: Material, instances: unknown): Material;
-  /** Face `f`'s normal, area and centroid, measured in space. */
-  faceWords(m: Material, f: number): { readonly normal: Vec3; readonly area: number; readonly centroid: Vec3 };
-  /** Edge `e`'s middle, in space. */
-  edgeCenter(m: Material, e: number): Vec3;
-}
-
-/** @internal The 3D words, as the 3D layer installs them (see `Words3`). */
-export const WORDS_3D: Partial<Words3> = {};
-
-/** The 3D half of a word, or refused by name when the 3D layer is not
- * loaded. */
-function word3<K extends keyof Words3>(name: K): Words3[K] {
-  const f = WORDS_3D[name];
-  if (f === undefined) throw new Error(`m.${name}: that is a 3D word — it comes with occlude/3d; import occlude/3d first`);
-  return f as Words3[K];
-}
-
 /** @internal Does this value's points have a `z` — is it a value in space? */
 export function inSpace3(m: Material): boolean {
   return m.store.attrs.z instanceof Column;
@@ -4323,10 +4295,9 @@ function isVec3(v: unknown): boolean {
 //       faceColumns?, cornerColumns? }
 //   partsOfMaterial(m)        the same parts read back: the columns as they
 //                             are held, the edge list, the ids, and the
-//                             stated faces (`statedPartsOf`).
-//   statedPartsOf(m)          the stated faces alone: their loops, their
-//                             columns by face row, their corners, their
-//                             fixed triangles.
+//                             stated faces — their loops, their columns by
+//                             face row, their corners, their fixed
+//                             triangles.
 //
 // Rows are rows of the value: a loop names point rows, an edge names point
 // rows, a corner record is by position round its loop. Ids are the run's
@@ -4405,6 +4376,8 @@ export interface MaterialParts {
   readonly space?: Space;
   /** The value's key (see `Material.key`). */
   readonly key?: string;
+  /** The prototype the points place (see `Material.prototype`). */
+  readonly prototype?: Material;
   /** Declared transfer policies, as `points.set(…, { transfer })` keeps them. */
   readonly transfers?: Readonly<Record<string, TransferPolicy>>;
   readonly edgeTransfers?: Readonly<Record<string, EdgeTransfer>>;
@@ -4435,14 +4408,14 @@ export interface MaterialPartsOut {
   readonly faces: StatedParts | undefined;
 }
 
-/** @internal A value's stated faces, read back (`statedPartsOf`). */
+/** @internal A value's stated faces, read back (`partsOfMaterial`'s `faces`). */
 export interface StatedParts {
   /** Per face row, its loop of point rows (a face with holes: its outer
    * run; a face that holds others: empty). */
   readonly loops: readonly (readonly number[])[];
-  /** Face columns by name, one value per face row: its own, else the
-   * column's fallback, else the kind's default. */
-  readonly cols: Readonly<Record<string, readonly unknown[]>>;
+  /** Face columns by name, of the kind each holds, one row per face row:
+   * its own value, else the column's fallback, else the kind's default. */
+  readonly cols: Readonly<Record<string, AnyColumn>>;
   /** The corners: each one's face row and point row, where each face's
    * corners start, and the corner columns as held. */
   readonly corners: { readonly face: Uint32Array; readonly point: Uint32Array; readonly start: Uint32Array; readonly cols: Readonly<Record<string, AnyColumn>> };
@@ -4578,6 +4551,7 @@ export function materialFromParts(parts: MaterialParts): Material {
     keys: nameCols,
     space: parts.space,
     ...(parts.key !== undefined ? { key: parts.key } : {}),
+    ...(parts.prototype !== undefined ? { prototype: parts.prototype } : {}),
     faces: stated,
   });
   // Face columns are keyed by the walls each face is made of, as every
@@ -4678,21 +4652,24 @@ export function partsOfMaterial(m: Material): MaterialPartsOut {
 
 /** @internal The stated faces of `m` read back (see `StatedParts`), or
  * undefined when its faces are read off the picture. */
-export function statedPartsOf(m: Material): StatedParts | undefined {
+function statedPartsOf(m: Material): StatedParts | undefined {
   const stated = m.stated;
   if (stated === undefined) return undefined;
   const loops = stated.cycles.map((runs) => (runs.length === 0 ? [] : runs[0]));
-  const cols: Record<string, readonly unknown[]> = {};
+  const cols: Record<string, AnyColumn> = {};
   const names = Object.keys(m.faceAttrs);
   if (names.length > 0) {
     const keys = statedFaceIds(m, stated.cycles);
     for (const name of names) {
+      // A column of the kind it holds, a face row a row: its own value,
+      // else the column's fallback, else the kind's default.
       const column = m.faceAttrs[name];
-      const fallback = column.fallback !== undefined ? column.fallback : (column.kind?.default ?? 0);
-      cols[name] = keys.map((key) => {
+      const kind = column.kind ?? kinds.number;
+      const fallback = column.fallback !== undefined ? column.fallback : kind.default;
+      cols[name] = (kind as { from(values: readonly unknown[]): AnyColumn }).from(keys.map((key) => {
         const v = column.values.get(key);
         return v === undefined ? fallback : v;
-      });
+      }));
     }
   }
   const index = cornerIndex(stated.cycles);

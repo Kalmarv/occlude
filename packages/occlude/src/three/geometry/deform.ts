@@ -13,7 +13,7 @@ export function captureDeform3(surface:Surface3,options:DeformOptions3) {
   if(!Number.isSafeInteger(options.iterations)||options.iterations<0||options.iterations>10000||!Number.isFinite(options.relaxation)||options.relaxation<0||options.relaxation>1)throw new Error('deformation requires 0–10000 iterations and relaxation within [0,1]');
   if(options.displacements&&options.displacements.length!==surface.points.length)throw new Error('deformation needs one displacement per point');
   const pinned=new Set(options.pinned??[]);if([...pinned].some(i=>!Number.isInteger(i)||i<0||i>=surface.points.length))throw new Error('invalid pinned point');
-  const displacements=surface.points.map((_,i)=>{const d=options.displacements?.[i]??[0,0,0];finite3(d);return [...d] as Vec3;});
+  const displacements=surface.points.map((_,i)=>{const d=options.displacements?.[i]??[0,0,0];finite3(d,'deform');return [...d] as Vec3;});
   return {surface:cloneSurface3(surface),displacements,pinned,iterations:options.iterations,relaxation:options.relaxation};
 }
 /** Frozen gather reference: relaxation and authored displacement both read the

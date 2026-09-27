@@ -60,7 +60,8 @@ describe('rotation values and alignment',()=>{
    near([point.x,point.y,point.z],[1,1,0]);
    const line=curve([[0,0,0],[1,0,0]]).rotate(r);near(surfaceOf(line).points[1].position,[0,1,0]);
    const prototype=box([2,4,6]),instances=instanceOnPoints(prototype,pointCloud([[10,0,0]]).points,{rotate:()=>r,scale:[-2,3,4]});
-   expect(Array.isArray(instances.rows[0].transform.rotate)).toBe(false);
+   // A rotation value is kept as its quaternion.
+   expect(instances.points.at(0)!.rotate).toEqual([...r.quaternion]);
    const realized=instances.realize();
    surfaceOf(prototype).points.forEach((p,i)=>near(surfaceOf(realized).points[i].position,[10-p.position[1]*3,-p.position[0]*2,p.position[2]*4]));
    expect(surfaceOf(realized).faces[0].vertices).toEqual([...surfaceOf(prototype).faces[0].vertices].reverse());

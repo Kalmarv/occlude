@@ -43,7 +43,7 @@ export function lightRecipe3(options:{direction:LightDirection3;ambient?:number;
   const named:Record<string,Vec3>={up:[0,0,1],down:[0,0,-1],x:[1,0,0],y:[0,1,0],z:[0,0,1]};
   const direction:Vec3|undefined=typeof options.direction==='string'?named[options.direction]:options.direction;
   if(!direction)throw new Error('light direction must be a vector or up/down/x/y/z');
-  finite3(direction);
+  finite3(direction,'light');
   // A light pointing nowhere lights nothing: every normal reads as turned away
   // and the tone comes out flat.
   const ramp=options.ramp??'linear',space=options.space??'world';

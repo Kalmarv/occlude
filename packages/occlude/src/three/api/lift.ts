@@ -31,7 +31,7 @@ const isRecord2=(v:unknown):v is {x:number;y:number;z?:undefined}=>!!v&&typeof v
 function refuseCurved(value:object,who:string):void {
   const owner=isCurveRow(value)?(value as {points:{source?:unknown}}).points.source:value;
   const space=owner&&typeof owner==='object'?(owner as {space?:{kind?:string}}).space:undefined;
-  if(space&&space.kind!=='euclidean')throw new Error(`${who}: this chain lives in the sketch's ${space.kind} space, and 3D space is flat — a 3D profile needs flat coordinates: build it with material(points) or with [x, y, z] positions`);
+  if(space&&space.kind!=='euclidean')throw new Error(`${who}: this chain lives in the sketch's ${space.kind} space, and 3D space is flat — a 3D profile needs flat coordinates: build it with curve(points), from pairs or from [x, y, z] positions`);
 }
 /** True when `value` is a 2D chain source: it answers `curves`, or it is
  * one curve row. */
@@ -51,6 +51,9 @@ export function chain2(value:unknown,who:string):{readonly points:readonly Lifte
     rows=(value.points.source as {points?:{at?(i:number):unknown}}).points;
   }else{
     const chains=chainRecordsOf(value)??[];
+    // A value with nothing in it is nothing to build from: an empty profile.
+    if(chains.length===0&&(value as {points?:{length?:number}}).points?.length===0)return {points:[],closed:false};
+    if(chains.length===0)throw new Error(`${who}: this value has points and no chain — a profile is one chain: curve(points) joins points in their order`);
     if(chains.length!==1)throw new Error(`${who}: this value has ${chains.length} chains, and a profile is one — pick one: m.curves.at(i) is one curve, or split the material first`);
     chain=chains[0];rows=(value as {points?:{at?(i:number):unknown}}).points;
   }

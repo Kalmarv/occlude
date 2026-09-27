@@ -20,10 +20,10 @@ describe('owned surface locations',()=>{
   expect(p.source).toBe(surfaceOf(model));expect(p.space).toBe('model');
   expect(p.position).toEqual([.5,1.5,0]);expect(p.modelPosition).toBe(p.position);
   expect(p.barycentric).toEqual([.25,.25,.5]);expect(p.vertexIds).toEqual(surfaceOf(model).points.map(p=>p.id));
-  expect(p.pointAttributes).toEqual({heat:3.5,label:2});expect(p.faceAttributes.group).toBe('sheet');
-  expect(p.uv).toEqual([.25,.5]);expect(p.cornerAttributes.uv).toEqual(p.uv);expect(p.chart).toBe('island');
+  expect(p.pointColumns).toEqual({heat:3.5,label:2});expect(p.faceColumns.group).toBe('sheet');
+  expect(p.uv).toEqual([.25,.5]);expect(p.cornerColumns.uv).toEqual(p.uv);expect(p.chart).toBe('island');
   expect(p.chartStatus).toBe('regular');expect(p.frame!.du).toEqual([2,0,0]);expect(p.frame!.dv).toEqual([0,3,0]);expect(p.frame!.orientation).toBe(1);
-  expect(Object.isFrozen(p.cornerAttributes.uv)).toBe(true);
+  expect(Object.isFrozen(p.cornerColumns.uv)).toBe(true);
   expect(()=>{(p.position as unknown as number[])[0]=99;}).toThrow();
  });
  it('keeps different chart values at the same geometric vertex',()=>{
@@ -110,9 +110,9 @@ describe('surface sample rebinding',()=>{
   
   
   
-  expect(row.note).toBe('captured');expect(row.sample.pointAttributes.note).toBe('new source');
+  expect(row.note).toBe('captured');expect(row.sample.pointColumns.note).toBe('new source');
   expect(row.z).toBeCloseTo(row.x+2*row.y,14);expect(row.sample.position).toEqual([row.x,row.y,row.z]);
-  expect(row.sample.face).toBe(bent.faces.at(row.sample.face.index));expect(row.sample.cornerAttributes.uv).toEqual(before.sample.cornerAttributes.uv);
+  expect(row.sample.face).toBe(bent.faces.at(row.sample.face.index));expect(row.sample.cornerColumns.uv).toEqual(before.sample.cornerColumns.uv);
   expect(surfaceOf(rebound).points.map(p=>p.id)).toEqual(surfaceOf(samples).points.map(p=>p.id));
   expect(generationOf(rebound)).toEqual(generationOf(samples));expect(rebound.history).toEqual([]);
   const selected=edited.points.filter(p=>p.index<2).extract().rebind(bent);expect(selected.points.length).toBe(2);
@@ -123,7 +123,7 @@ describe('surface sample rebinding',()=>{
  it('selects custom coordinate columns and refuses nearest-only chart coordinates',()=>{
   const rest=plane(2).corners.set({tex:c=>[c.point.x/2+.5,c.point.y/2+.5] as const,island:'custom'});
   const samples=scatterSurface(rest,{count:1,uvAttribute:'tex',chartAttribute:'island'},{rnd:()=>.25});
-  const p=samples.points.at(0)!;expect(p.sample.chart).toBe('custom');expect(p.sample.uv).toEqual(p.sample.cornerAttributes.tex);
+  const p=samples.points.at(0)!;expect(p.sample.chart).toBe('custom');expect(p.sample.uv).toEqual(p.sample.cornerColumns.tex);
   expect(p.sample.frame).toBeDefined();expect(samples.rebind(rest.translate([0,0,1])).points.at(0)!.sample.uv).toEqual(p.sample.uv);
  });
  it('exposes the richer context through the bound toolkit',()=>{

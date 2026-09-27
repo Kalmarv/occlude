@@ -1,6 +1,6 @@
 import {orient2d} from 'robust-predicates';
 import {assembleSurface3,type Attribute3,type Attributes3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3} from './surface.js';
-import {add3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
+import {add3,centroid3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
 import {pointNumber,triangleWeights,type H} from './exact.js';
 import {coplanarContact3,type TriangleContact3} from '../curves/contact.js';
 import {bindingTriangle3,surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
@@ -203,7 +203,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
       const cuts=own.map(i=>cutTriangle(side,i,positions,edgePoints,operation));
       if(cuts.every(c=>c.whole)){
         // Nothing reached this face: it stays one face, with its identity.
-        if(!keep.has(place3(side,own[0],centroid(side.corners[own[0]].map(v=>positions[v])),positions,solids[s],scale)))continue;
+        if(!keep.has(place3(side,own[0],centroid3(side.corners[own[0]].map(v=>positions[v])),positions,solids[s],scale)))continue;
         emit({
           id:faceId(s,source.id,mint),vertices:oriented(source.vertices.map(v=>side.vertices[v]),flip),
           attributes:{...clone(source.attributes),cut:was},...(s===0?{}:{provenance:{operation,parents:[source.id],inputs:[s]}}),
@@ -214,7 +214,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
       // result keeps one fixed triangle per polygon and no Steiner points.
       let n=0;
       for(let k=0;k<own.length;k++)for(const piece of cuts[k].parts){
-        if(!keep.has(place3(side,own[k],centroid(piece.vertices.map(v=>positions[v])),positions,solids[s],scale)))continue;
+        if(!keep.has(place3(side,own[k],centroid3(piece.vertices.map(v=>positions[v])),positions,solids[s],scale)))continue;
         const vertices=oriented(piece.vertices,flip);
         emit({id:mint('piece',faceId(s,source.id,mint),n++),vertices,attributes:{...clone(source.attributes),cut:piece.cut||was},provenance:{operation,parents:[source.id],inputs:[s]}},[vertices]);
       }
@@ -282,7 +282,6 @@ function withinPlane(points:Float64Array,p:number,plane:Float64Array,q:number,we
 const clone=(attrs:Attributes3):Attributes3=>Object.fromEntries(Object.entries(attrs).map(([k,v])=>[k,Array.isArray(v)?[...v]:v]));
 const faceId=(side:number,id:string,mint:(...parts:(string|number)[])=>string)=>side===0?id:mint('b',id);
 const oriented=(vertices:readonly number[],flip:boolean):readonly number[]=>flip?[...vertices].reverse():vertices;
-const centroid=(points:readonly Vec3[]):Vec3=>mul3(points.reduce((a,b)=>add3(a,b),[0,0,0] as Vec3),1/points.length);
 function bothBounds(sides:readonly Side[]):WorldBounds3[]{return sides.map(s=>worldBounds3(s.surface.points.map(p=>p.position)));}
 
 /** A new seam vertex takes its columns from the first solid's triangle, by the

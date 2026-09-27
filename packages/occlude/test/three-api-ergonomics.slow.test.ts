@@ -70,7 +70,8 @@ describe('object origin and rotation',()=>{
     // A rotation value with an explicit pivot still works.
     const c4=centroid(b.rotate(axisAngle('z',90),[0,0,0]));
     expect(near(c4,[0,5,0],1e-9)).toBe(true);
-    expect(()=>b.rotate('z',Infinity)).toThrow('finite');
+    // A turn by an angle that is not finite turns nothing, as `move` does.
+    expect(b.rotate('z',Infinity)).toBe(b);
   });
   it('the origin rides along with a rotation or scale about another pivot',()=>{
     const b=box(1).translate([5,0,0]);
@@ -157,13 +158,13 @@ describe('mesh editing shorthands',()=>{
 describe('instances on faces',()=>{
   it('places one prototype per face at the centre, aligned to the normal',()=>{
     const cube=box(2),pins=instanceOnFaces(cylinder(.1,.5,{segments:6}),cube.faces,{offset:.25});
-    expect(pins.instances.length).toBe(6);
+    expect(pins.points.length).toBe(6);
     const realized=pins.realize();
     // Every pin's axis points outward: its points sit outside the cube's face plane on the normal side.
     expect(realized.points.every(p=>Math.max(Math.abs(p.x),Math.abs(p.y),Math.abs(p.z))>=1-1e-9)).toBe(true);
-    expect(()=>instanceOnFaces(box(1),cube.points as never)).toThrow('face collection');
+    expect(()=>instanceOnFaces(box(1),cube.points as never)).toThrow('instanceOnFaces: expected faces');
     const some=instanceOnFaces(box(.2),cube.faces.filter(f=>f.normal[2]>.5));
-    expect(some.instances.length).toBe(1);
+    expect(some.points.length).toBe(1);
   });
 });
 
@@ -213,7 +214,7 @@ describe('each object in the view',()=>{
     expect(()=>torus(1,.3,{pen:'ink'} as never)).toThrow('how the view draws');
     expect(()=>sphere(1,{creaseAngle:180} as never)).toThrow('[[value, { creaseAngle');
     expect(()=>plane(1,1,{suggestive:{}} as never)).toThrow('how the view draws');
-    expect(()=>curve([[0,0,0],[1,0,0]],{pen:'ink'} as never)).toThrow('how the view draws');
+    expect(()=>curve([[0,0,0],[1,0,0]],{pen:'ink'} as never)).toThrow('a pen is how a drawing draws the value');
     expect((sphere(1) as unknown as Record<string,unknown>).style).toBeUndefined();
   });
 });

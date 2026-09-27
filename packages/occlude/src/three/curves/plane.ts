@@ -8,7 +8,7 @@ const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
  * participate, so a hatch stripe never scans the whole scene. */
 export function intersectPlane3(surface:Surface3,plane:Plane3,triangles:readonly number[],options:{tolerance?:number;maxSegments:number;kind:SurfaceCurveSegment3['kind']}):readonly SurfaceCurveSegment3[] {
   const segments:SurfaceCurveSegment3[]=[];
-    finite3(plane.origin);finite3(plane.normal);const normal=unit3(plane.normal);
+    finite3(plane.origin,'section origin');finite3(plane.normal,'section normal');const normal=unit3(plane.normal);
     const indices=new Set(triangles.flatMap(i=>[...surface.triangles[i].vertices]));
     const local=new Map([...indices].map(i=>[i,sub3(surface.points[i].position,plane.origin)]));
     const scale=[...local.values()].reduce((a,p)=>Math.max(a,...p.map(Math.abs)),0);

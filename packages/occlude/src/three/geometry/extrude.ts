@@ -33,7 +33,7 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
   // boundary to raise walls from: drop those and extrude the rest. Dropping one
   // can only free boundary edges for its neighbours, so the pass repeats until
   // every surviving component has a boundary.
-  let active=components.filter(c=>{finite3(c.vector);return c.vector.some(n=>n!==0);});
+  let active=components.filter(c=>{finite3(c.vector,'extrude');return c.vector.some(n=>n!==0);});
   const topology=topology3(surface),id=(...parts:(string|number)[])=>JSON.stringify(['extrude',operation,...parts]);
   // Boundary edges per component, oriented as the selected face winds them.
   let boundary=active.map(()=>[] as {edge:number;a:number;b:number;face:number}[]);

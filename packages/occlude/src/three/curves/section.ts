@@ -1,4 +1,5 @@
-import { snapshotSurface3, stageSurface3, type StageSurface3 } from '../geometry/model.js';
+import { snapshotSurface3 } from '../geometry/model.js';
+import { stageSurface3, type StageSurface3 } from '../geometry/value.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import type { Vec3 } from '../math.js';
 import { intersectPlane3 } from './plane.js';
@@ -17,6 +18,11 @@ export function section3(input:StageSurface3,planes:readonly SectionPlane3[],opt
   if(options.tolerance!==undefined&&(!Number.isFinite(options.tolerance)||options.tolerance<0))throw new Error('section tolerance must be finite and nonnegative');
   if(new Set(planes.map(p=>p.id)).size!==planes.length||planes.some(p=>!p.id))throw new Error('section planes require unique nonempty IDs');
   for(const plane of [...planes].sort((a,b)=>compare(a.id,b.id))) {
+    for(const [name,v] of [['origin',plane.origin],['normal',plane.normal]] as const)if(!Array.isArray(v)||v.length!==3||!v.every(n=>typeof n==='number'))throw new Error(`view section: ${name} is a place in space [x, y, z] — got ${JSON.stringify(v)}`);
+    // A plane with no direction, or not finite, cuts nothing: that section
+    // draws nothing and the others still draw.
+    const length=Math.hypot(...plane.normal);
+    if(!(length>0)||!Number.isFinite(length)||!plane.origin.every(Number.isFinite))continue;
     for(const segment of intersectPlane3(surface,{...plane,attributes:{...plane.attributes,sectionPlane:plane.id}},surface.triangles.map((_,i)=>i),{...options,kind:'section',maxSegments:max-segments.length}))segments.push(segment);
   }
   return Object.freeze({surface,segments:Object.freeze(segments)});

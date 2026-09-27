@@ -2,7 +2,9 @@ import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
-import {geometry3,emptyMesh,evaluate,surfaceOf,derived,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,derived,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {evaluate,type Field} from './columns.js';
+import {surfaceOf} from '../geometry/value.js';
 import {sampleValue} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import {profileCurve} from './curves.js';
@@ -64,7 +66,7 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
   // A normal lying along the tangent names no direction in the section plane;
   // the automatic choice below is as good as any other.
   const automatic=()=>{const axis=[0,1,2].sort((a,b)=>Math.abs(tangents[0][a])-Math.abs(tangents[0][b]))[0];return perpendicular([axis===0?1:0,axis===1?1:0,axis===2?1:0],tangents[0]);};
-  if(options.normal){finite3(options.normal);start=Math.hypot(...cross3(options.normal,tangents[0]))===0?automatic():perpendicular(options.normal,tangents[0]);}
+  if(options.normal){finite3(options.normal,'sweep normal');start=Math.hypot(...cross3(options.normal,tangents[0]))===0?automatic():perpendicular(options.normal,tangents[0]);}
   else start=automatic();
   const normals:Vec3[]=[start];for(let i=1;i<count;i++)normals.push(transport(normals[i-1],tangents[i-1],tangents[i]));
   let closure=0;
@@ -78,7 +80,7 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     const normal=rotate(normals[ring],tangents[ring],(closure+twist*Math.PI/180)*distances[ring]/length),binormal=unit3(cross3(tangents[ring],normal)),pathPoint=source.points[route.points[ring]];
     for(const index of section.points){
       const p=shape.points[index],[x,y,z]=p.position;
-      const position=add3(centers[ring],add3(add3(mul3(normal,x*scales[ring]),mul3(binormal,y*scales[ring])),mul3(tangents[ring],z*scales[ring])));finite3(position);
+      const position=add3(centers[ring],add3(add3(mul3(normal,x*scales[ring]),mul3(binormal,y*scales[ring])),mul3(tangents[ring],z*scales[ring])));finite3(position,'sweep');
       points.push({id:JSON.stringify(['sweep',p.id,pathPoint.id]),position,attributes:{...pathPoint.attributes,...p.attributes},provenance:{operation:'sweep',parents:[p.id,pathPoint.id],inputs:[0,1]}});
     }
   }

@@ -82,7 +82,7 @@ export function triangulate(positions: readonly Vec3[], vertices: readonly numbe
 
 /** Internal topology assembly keeps fixed triangles after deformation. */
 export function assembleSurface3(points: readonly SurfacePoint3[], faces: readonly SurfaceFace3[], triangles: readonly SurfaceTriangle3[], previous?: Surface3): Surface3 {
-  points.forEach(p=>finite3(p.position));
+  points.forEach(p=>finite3(p.position,'mesh'));
   for (const rows of [points,faces]) if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('surface IDs must be unique within their domain');
   const edges = new Map<string, { vertices: [number, number]; faces: number[]; forward: number }>();
   faces.forEach(({vertices},face)=>{
@@ -133,7 +133,7 @@ export function assembleSurface3(points: readonly SurfacePoint3[], faces: readon
   inheritTopology3(result,previous);return result;
 }
 export function surface3(positions: readonly Vec3[], polygons: readonly (readonly number[])[]): Surface3 {
-  positions.forEach(finite3);
+  positions.forEach(p=>finite3(p,'mesh'));
   const points=positions.map((position,i)=>({id:`p${i}`,position,attributes:{}}));
   const faces=polygons.map((vertices,i)=>({id:`f${i}`,vertices,attributes:{}}));
   const triangles:SurfaceTriangle3[]=[];
@@ -145,7 +145,7 @@ export function surface3(positions: readonly Vec3[], polygons: readonly (readonl
 }
 
 export function box3(size: Vec3 = [1, 1, 1], center: Vec3 = [0, 0, 0]): Surface3 {
-  finite3(size); finite3(center);
+  finite3(size, 'box size'); finite3(center, 'box centre');
   // A box with no extent on some axis is nothing to draw, not a fault: the
   // sketch keeps rendering and this box contributes no faces.
   if (size.some(v => v <= 0)) return surface3([], []);

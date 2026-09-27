@@ -13,13 +13,14 @@
 import {surfaceLocation3,rebindSurfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
 import {sameAttachmentTopology3} from '../geometry/topology.js';
 import {kinds} from '../../column.js';
-import type {Material} from '../../material.js';
+import {Material} from '../../material.js';
 import type {Face} from '../../faces.js';
-import {geometry3,evaluate,derived,isGeometry,surfaceOf,type Field,type GeometryOptions} from './mesh.js';
+import {geometry3,derived,type GeometryOptions} from './mesh.js';
+import {evaluate,type Field} from './columns.js';
+import {surfaceOf} from '../geometry/value.js';
 import {surface3,assembleSurface3,type Attributes3,type Surface3,type SurfacePoint3} from '../geometry/surface.js';
 import {sub3,mul3,cross3,type Vec3} from '../math.js';
 import {emptySize,sampleValue} from '../degenerate.js';
-import {kernelOf} from '../geometry/value.js';
 
 /** A place on a surface, as a sampled point answers it (`p.sample`): the
  * place's position, normals, weights and chart coordinates, and the face
@@ -70,7 +71,7 @@ export interface SurfaceSamplingEnv {readonly rnd:()=>number;readonly signal?:Ab
 interface Prepared{readonly source:Surface3;readonly faces:readonly Face[];readonly triangles:readonly number[];readonly cumulative:readonly number[];readonly total:number;readonly extent:number;readonly origin:Vec3}
 function nonnegativeInteger(value:number,name:string):void{if(!(value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error(`${name} must be a nonnegative integer or Infinity`);}
 function optionsObject(value:unknown):void{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('surface sampling options must be an object');}
-function requireGeometry(target:unknown,who:string):asserts target is Material{if(!isGeometry(target))throw new Error(`${who} requires a geometry with faces`);}
+function requireGeometry(target:unknown,who:string):asserts target is Material{if(!(target instanceof Material))throw new Error(`${who} requires a geometry with faces`);}
 function prepare(target:Material,weight:Field<Face,number>|undefined):Prepared{
   const source=surfaceOf(target),origin=source.points[0]?.position??[0,0,0];
   const extent=source.points.reduce((m,p)=>Math.max(m,...sub3(p.position,origin).map(Math.abs)),0);
@@ -96,7 +97,7 @@ function draw(target:Material,prepared:Prepared,env:SurfaceSamplingEnv,index:num
   const root=Math.sqrt(random(env)),v=random(env),barycentric=Object.freeze([1-root,root*(1-v),root*v]) as Vec3;
   const face=prepared.faces[t.face],location=surfaceLocation3(source,triangle,barycentric,{pointTransfers:target.transfers,uvAttribute:coordinates.uvAttribute,chartAttribute:coordinates.chartAttribute});
   const sample=captureSample(location,face);
-  const point:SurfacePoint3={id:JSON.stringify(['sample',index]),position:location.position,attributes:{...source.faces[t.face].attributes,...location.pointAttributes},provenance:{operation:'sample',parents:[source.faces[t.face].id]}};
+  const point:SurfacePoint3={id:JSON.stringify(['sample',index]),position:location.position,attributes:{...source.faces[t.face].attributes,...location.pointColumns},provenance:{operation:'sample',parents:[source.faces[t.face].id]}};
   return {point,sample};
 }
 /** The samples as the one geometry: points with the face's and the place's
@@ -180,6 +181,6 @@ export function rebindSamples(m:Material,target:Material,options:SurfaceCoordina
     const fresh=captureSample(rebound,faces[rebound.face]),stats=generations.get(samples[i]);if(stats)generations.set(fresh,stats);next.push(fresh);
     return {...point,position:rebound.position,provenance:{operation:'rebind',parents:[rebound.faceId]}};
   });
-  return geometry3(assembleSurface3(points,[],[]),{key:kernelOf(m).key,from:m,derived:derived('rebind',target),pointCols:{sample:kinds.placement.from(next)}});
+  return geometry3(assembleSurface3(points,[],[]),{key:m.key,from:m,derived:derived('rebind',target),pointCols:{sample:kinds.placement.from(next)}});
 }
 export type {Attributes3};

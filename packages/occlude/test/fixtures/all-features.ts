@@ -77,8 +77,8 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const zoomed = scale(land, 1.3);
   const bounded = t.within(land, ellipse(40, 30, 28, 20));
   const flow = vectorField((x, y): [number, number] => [Math.cos(y / 14), Math.sin(x / 14)]);
-  const slope = grad(land, 0.5);
-  const swirl = curl(land, 0.5);
+  const slope = grad(land, { step: 0.5 });
+  const swirl = curl(land, { step: 0.5 });
   const blended = (x: number, y: number) => map(land(x, y) + turned(x, y) * 0.5, 0, 1.5, 0, 1);
   const eased = (x: number, y: number) => ease.sinOut(1 - ramp(x, y));
   const movedRead = movedField(20, 20);

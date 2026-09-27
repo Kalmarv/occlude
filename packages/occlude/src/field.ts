@@ -167,19 +167,35 @@ function derivedVector(src: FieldFn, sample: VectorFieldFn, again: (f: FieldFn) 
   return out;
 }
 
+/** How far apart the central differences of `grad` and `curl` are taken. */
+export interface DifferenceOptions {
+  /** The difference step in user units (default 0.25 — a quarter of a
+   * percent of the short side). A step that is not a positive number is
+   * the default. */
+  readonly step?: number;
+}
+/** The step a difference is taken over; the old positional spelling is
+ * refused by name. */
+function stepOf(who: string, opts: DifferenceOptions | undefined): number {
+  if (typeof opts === 'number') throw new Error(`${who}: the step is an option — ${who}(f, { step: ${opts} })`);
+  if (opts !== undefined && (typeof opts !== 'object' || opts === null)) throw new Error(`${who}: options are { step }`);
+  const step = opts?.step;
+  return typeof step === 'number' && Number.isFinite(step) && step > 0 ? step : 0.25;
+}
+
 /**
  * Gradient of a scalar field by central differences: points uphill, its
- * length is the slope. `h` is the difference step in user units (default
- * 0.25 — a quarter of a percent of the short side). Streamlines of
- * `grad(distanceTo(loops))` run away from a shape; `deform` with it pushes
- * ink downhill.
+ * length is the slope. `step` is the difference step (see
+ * `DifferenceOptions`). Streamlines of `grad(distanceTo(loops))` run away
+ * from a shape; `deform` with it pushes ink downhill.
  */
-export function grad(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
+export function grad(field: FieldFn, opts?: DifferenceOptions): PointField<VectorFieldFn> {
+  const h = stepOf('grad', opts);
   const sample: VectorFieldFn = (x, y) => [
     (field(x + h, y) - field(x - h, y)) / (2 * h),
     (field(x, y + h) - field(x, y - h)) / (2 * h),
   ];
-  return derivedVector(field, sample, (f) => grad(f, h));
+  return derivedVector(field, sample, (f) => grad(f, { step: h }));
 }
 
 /**
@@ -187,14 +203,16 @@ export function grad(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
  * field's contours and never converges (divergence-free). Streamlines of
  * `curl(noise)` are the flow-field look; streamlines of `curl(f)` at nib
  * spacing are the isolines of `f`, densely — one mechanism seen twice.
+ * `step` is the difference step, as for `grad`.
  */
-export function curl(field: FieldFn, h = 0.25): PointField<VectorFieldFn> {
-  const g = grad(field, h);
+export function curl(field: FieldFn, opts?: DifferenceOptions): PointField<VectorFieldFn> {
+  const h = stepOf('curl', opts);
+  const g = grad(field, { step: h });
   const sample: VectorFieldFn = (x, y) => {
     const [gx, gy] = g(x, y);
     return [-gy, gx];
   };
-  return derivedVector(field, sample, (f) => curl(f, h));
+  return derivedVector(field, sample, (f) => curl(f, { step: h }));
 }
 
 type AnyField = FieldFn | VectorFieldFn | LengthFn;

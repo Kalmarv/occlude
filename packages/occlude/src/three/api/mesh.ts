@@ -13,23 +13,18 @@ import {surface3,box3,assembleSurface3,type Surface3,type Attributes3,type Attri
 import {ownSurface3} from '../geometry/model.js';
 import {add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptyCount,emptySize} from '../degenerate.js';
-import {attributeName,attributeValue,evaluate,type Field,type AttributeFields} from './columns.js';
+import {attributeValue} from './columns.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
 import {points2} from './lift.js';
-import {value3,surfaceOf,type Carry3} from '../geometry/value.js';
+import {value3,type Carry3} from '../geometry/value.js';
 import {sourceOf3,type Input3} from './words.js';
-import type {Material,Vertex,Edge} from '../../material.js';
-import type {Face} from '../../faces.js';
-import type {Corner} from '../../corners.js';
+import {Material} from '../../material.js';
 import {Selection} from '../../selection.js';
 import type {Rotation} from '../rotation.js';
 import './words.js';
 
-export {attributeName,attributeValue,evaluate};
-export type {Field,AttributeFields};
-export type {SetOptions3,SetManyOptions3,Transfer3} from './columns.js';
-export type {Where3} from './collection.js';
 export type {DisplaceOptions,RotateOptions3 as RotateOptions,ScaleOptions3 as ScaleOptions,Origin3,ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './words.js';
+/** The columns of an edge, by name. */
 export type EdgeAttributes = Record<string,Attribute3|undefined>;
 
 export interface GeometryOptions {
@@ -54,19 +49,21 @@ export interface Geometry3Options extends GeometryOptions {
   readonly pointCols?:Carry3['pointCols'];
   /** Where the rows came from, said outright (the core's `source`). */
   readonly source?:Carry3['source'];
+  /** The prototype the points place (instances.ts). */
+  readonly prototype?:Material;
 }
-function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');refuseDisplay(options,'geometry options');}
+function checkOptions(options:GeometryOptions&{readonly prototype?:unknown}):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');refuseDisplay(options,'geometry options');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
-/** Column names and values a kernel's surface carries are the ones a
- * geometry column may hold. */
+/** The values a kernel's surface carries are ones a geometry column may
+ * hold; the names are the core's to judge, domain by domain. */
 function validateAttributes(surface:Surface3):void {
   for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows){
-    for(const [name,value] of Object.entries(row.attributes)){attributeName(name);if(value!==undefined)attributeValue(value);}
+    for(const value of Object.values(row.attributes))if(value!==undefined)attributeValue(value);
   }
 }
 /** The value a derivation read, as a geometry: a selection is read on the
  * geometry it selects from. */
-const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.source as Material):'store' in v?v as Material:'rows' in v&&'prototype' in v?v as Input3:undefined;
+const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.source as Material):v instanceof Material?v:undefined;
 
 /** @internal A kernel's surface as a value in space. */
 export function geometry3(surface:Surface3,options:Geometry3Options={}):Material {
@@ -81,6 +78,7 @@ export function geometry3(surface:Surface3,options:Geometry3Options={}):Material
     ...(options.transfers!==undefined?{transfers:options.transfers}:{}),
     ...(options.from!==undefined?{from:options.from}:{}),
     ...(options.pointCols!==undefined?{pointCols:options.pointCols}:{}),
+    ...(options.prototype!==undefined?{prototype:options.prototype}:{}),
     ...(options.source!==undefined?{source:options.source}:options.derived&&inputs&&inputs.length?{source:sourceOf3(options.derived.operation,surface,inputs)}:{}),
   });
 }
@@ -222,7 +220,6 @@ export function box(size:number|Vec3=1,options:GeometryOptions={}):Material{
  * rather than failing, and it flows through view, hatch, sampling and the plan
  * like any other geometry. */
 export function emptyMesh(options:GeometryOptions={}):Material{return geometry3(ownSurface3(surface3([],[])),options);}
-export const emptyCurve=emptyMesh;
 /** Points from positions, or 2D points (a point collection or selection, a
  * material, `[x, y]` pairs) at z = 0 with their columns kept; each lifted
  * point's `source` is the 2D row it stands for. */
@@ -235,9 +232,3 @@ export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly
   if(!Array.isArray(positions))throw new Error('pointCloud takes [x, y, z] positions or 2D points');
   return geometry3(ownSurface3(surface3(positions as readonly Vec3[],[])),options);
 }
-/** Does a value hold faces? */
-export const hasFaces=(m:Material):boolean=>surfaceOf(m).faces.length>0;
-/** Is `v` the one geometry? */
-export const isGeometry=(v:unknown):v is Material=>typeof v==='object'&&v!==null&&'store' in v&&'stated' in (v as object);
-export {surfaceOf};
-export type {Attributes3};

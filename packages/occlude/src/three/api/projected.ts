@@ -27,10 +27,11 @@ export interface ProjectedCurveRow {
   readonly feature:Feature3;readonly kinds:ReadonlySet<FeatureKind>;
   /** Local clipped source parameters; endpoints are physical paper millimeters. */
   readonly range:Interval3;readonly a:readonly [number,number];readonly b:readonly [number,number];
-  readonly attributes:Feature3['attributes'];readonly faceAttributes:Feature3['faceAttributes'];readonly support:Feature3['support'];
+  /** The columns of the faces the line lies on, one record a face. */
+  readonly faceColumns:Feature3['faceAttributes'];readonly support:Feature3['support'];
 }
 /** One classified interval. Its source's columns read as properties
- * (`c.rim`), as on every other row; `attributes` is the same record. */
+ * (`c.rim`), as on every other row. */
 export type ProjectedCurve=ProjectedCurveRow&{readonly [column:string]:unknown};
 /** Paper millimetres to the drawable units of the sketch the view is drawn in. */
 export type PaperToUser=(x:number,y:number)=>[number,number];
@@ -56,7 +57,7 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
         index,feature,...(feature.instance?{instance:feature.instance}:{}),kinds:kinds(feature.flags),range,
         a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),
         b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),
-        attributes:feature.attributes,faceAttributes:feature.faceAttributes,support:feature.support,
+        faceColumns:feature.faceAttributes,support:feature.support,
       }) as ProjectedCurve);
     }));
     Object.freeze(this);

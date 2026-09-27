@@ -1,6 +1,5 @@
 import {rotateVector3,rotation3,type RotationInput} from '../rotation.js';
-import {sealAssembledTopology3,shareTopology3,topology3} from './topology.js';
-import { groupRows } from '../../groupRows.js';
+import {sealAssembledTopology3,topology3} from './topology.js';
 import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
 import { assembleSurface3,surface3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3,type Attributes3 } from './surface.js';
 import {emptyCount,emptySize,sampleValue} from '../degenerate.js';
@@ -31,17 +30,6 @@ export function measureFaces3(surface:Surface3):readonly FaceMeasure3[] {
   const neighbors=topology3(surface).faceNeighbors,{normals,centers,areas}=faceGeometry3(surface);
   return Object.freeze(surface.faces.map((f,i)=>Object.freeze({source:surface,index:i,id:f.id,normal:normals[i],center:centers[i],area:areas[i],attributes:Object.freeze(structuredClone(f.attributes)),adjacent:neighbors[i]})));
 }
-/** What the explicit stage reads: a surface, or a mesh value from
- * `occlude/3d`, whose surface is read — as a scene object's `surface` is. */
-export type StageSurface3=Surface3|{readonly surfaceBox:{surface:unknown}};
-/** A geometry's working view, as the 3D layer installs the reader of it
- * (value.ts): the stage reads a geometry the way a view does. */
-export const STAGE_VIEW:{surfaceOf?:(m:never)=>Surface3}={};
-export function stageSurface3(input:StageSurface3):Surface3 {
-  if(Array.isArray((input as Surface3).points))return input as Surface3;
-  if(STAGE_VIEW.surfaceOf===undefined||!('surfaceBox' in input))throw new Error('expected a surface or a geometry with faces');
-  return STAGE_VIEW.surfaceOf(input as never);
-}
 export function cloneSurface3(surface:Surface3):Surface3 {return assembleSurface3(surface.points,surface.faces,surface.triangles,surface);}
 
 /** Apply already validated affine settings with the same operation order used
@@ -54,7 +42,7 @@ export function transformPosition3(position:Vec3,options:Parameters<typeof trans
 /** Affine modeling edit with an explicit pivot and Euler or rotation values.
  * Negative determinant reverses polygon and triangle winding consistently. */
 export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rotate?:RotationInput;scale?:Vec3;origin?:Vec3}):Surface3 {
-  const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(finite3);rotation3(rotate);
+  const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(v=>finite3(v,'transform'));rotation3(rotate);
   const settings={translate,rotate,scale,origin};
   const points=surface.points.map(p=>({...p,position:transformPosition3(p.position,settings)}));
   const mirrored=scale.filter(n=>n<0).length%2===1;
@@ -84,37 +72,4 @@ function captureAssembled(snapshot:Surface3):Surface3 {
   for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);for(const c of f.corners??[]){freeze(c.attributes);freeze(c);}freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
   capturedSurfaces3.add(snapshot);sealAssembledTopology3(snapshot);
   return Object.freeze(snapshot);
-}
-/** Attribute patches per domain, one optional record per row; corners run in
- * face order, then polygon winding order. A patch merges over the row's record. */
-export interface AttributePatches3 {
-  readonly points?:readonly (Attributes3|undefined)[];readonly edges?:readonly (Attributes3|undefined)[];
-  readonly faces?:readonly (Attributes3|undefined)[];readonly corners?:readonly (Attributes3|undefined)[];
-}
-const deepFreeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))deepFreeze(child);Object.freeze(value);}};
-/** An attribute-only edit of a captured surface. Rows keep their identity,
- * positions, incidence and triangulation by reference; only rows with a patch
- * get a fresh frozen record. The result is captured too, sharing the source's
- * topology revision, so nothing about the surface is re-read or re-verified. */
-export function editAttributes3(source:Surface3,patches:AttributePatches3):Surface3 {
-  const surface=snapshotSurface3(source);
-  for(const [domain,count] of [['points',surface.points.length],['edges',surface.edges.length],['faces',surface.faces.length],['corners',surface.faces.reduce((n,f)=>n+f.vertices.length,0)]] as const){
-    const rows=patches[domain];if(rows&&rows.length!==count)throw new Error(`${domain} attribute patch must cover every row`);
-  }
-  const merge=<R extends {attributes:Attributes3}>(row:R,patch:Attributes3|undefined):R=>{
-    if(!patch)return row;
-    const attributes=Object.freeze({...row.attributes,...patch});deepFreeze(attributes);
-    return Object.freeze({...row,attributes});
-  };
-  const points=patches.points?Object.freeze(surface.points.map((p,i)=>merge(p,patches.points![i]))):surface.points;
-  const edges=patches.edges?Object.freeze(surface.edges.map((e,i)=>merge(e,patches.edges![i]))):surface.edges;
-  let corner=0;
-  const faces=patches.faces||patches.corners?Object.freeze(surface.faces.map((f,i)=>{
-    const corners=patches.corners?Object.freeze(f.corners!.map(c=>merge(c,patches.corners![corner++]))):f.corners;
-    const row=merge(f,patches.faces?.[i]);
-    return corners===f.corners?row:Object.freeze({...row,corners});
-  })):surface.faces;
-  const result:Surface3=Object.freeze({points,faces,edges,triangles:surface.triangles});
-  capturedSurfaces3.add(result);shareTopology3(result,surface);
-  return result;
 }

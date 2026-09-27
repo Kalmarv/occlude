@@ -1,7 +1,6 @@
 import {chainsOf} from '../../curves.js';
 import {Material} from '../../material.js';
-import {isGeometry,surfaceOf} from './mesh.js';
-import {kernelOf} from '../geometry/value.js';
+import {surfaceOf} from '../geometry/value.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {chartIndexJob3} from '../curves/chartIndex.js';
@@ -32,7 +31,7 @@ export interface SurfaceMappingOptions extends SurfaceCurveOptions {
 }
 /** Every mapped segment names its chart and physical sheet; a pattern column
  * on the source material rides along as a numeric edge attribute. */
-export type MappedAttributes={chart:string|number;component:number;pattern:number;layer:number};
+export type MappedColumns={chart:string|number;component:number;pattern:number;layer:number};
 export interface SurfaceMappingStats {
   readonly candidates:number;readonly pointContacts:number;readonly overlapLayers:number;
   readonly duplicateSupports:number;readonly outputNodes:number;readonly outputSegments:number;
@@ -49,7 +48,7 @@ function checkFrame(frame:ChartFrame|undefined):Required<ChartFrame>|undefined {
 }
 /** Capture mutable material columns before any asynchronous task boundary. */
 export function captureSurfaceMapping(mesh:Material,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {
-  if(!isGeometry(mesh))throw new Error('mapSurface requires a mesh');
+  if(!(mesh instanceof Material))throw new Error('mapSurface requires a mesh');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('surface mapping options must be an object');
   refuseStroke(options,'mapSurface');refuseDisplay(options,'mapSurface');
   const settings=structuredClone(options),patterns=pattern instanceof Material?[pattern]:pattern;
@@ -81,6 +80,12 @@ const sameRatio=(a:Ratio,b:Ratio)=>a[0]*b[1]===b[0]*a[1];
 export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapping>,onProgress?:(event:{operation:'mapSurface';done:number;total?:number})=>void) {
   const {mesh,patterns,settings}=captured,surface=surfaceOf(mesh),binding=surfaceBinding3(surface);
   const charts=yield*chartIndexJob3(surface,settings.uv,settings.chartAttribute,settings.chart);
+  // A surface whose corners hold no chart place at all has nowhere to map
+  // to; a chart the surface does not carry is a mistake, named with the
+  // charts it does carry.
+  const uvName=settings.uv??'uv';
+  if(surface.faces.length>0&&!surface.faces.some(f=>f.corners?.some(c=>Array.isArray(c.attributes[uvName]))))throw new Error(`mapSurface: no corner of this surface holds a chart place in '${uvName}' — set one with m.corners.set('${uvName}', …), or map on a primitive, which has a chart`);
+  if(settings.chart!==undefined&&charts.charts.length>0&&!charts.charts.includes(settings.chart))throw new Error(`mapSurface: no face has the chart ${JSON.stringify(settings.chart)} — the charts here are ${charts.charts.map(c=>JSON.stringify(c)).join(', ')}`);
   const budget=settings.budget??{},maxNodes=limit(budget.maxNodes,Infinity,'node'),maxSegments=limit(budget.maxSegments,Infinity,'segment'),maxSupports=limit(budget.maxSupports,Infinity,'support'),maxBytes=limit(budget.maxExactBytes,Infinity,'exact byte'),maxBits=limit(budget.maxCoordinateBits,32768,'coordinate bit'),maxCandidates=settings.maxCandidates??Infinity;
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   const nodeIds=new Map<string,string>(),segmentIds=new Map<string,number>();
@@ -122,7 +127,7 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
     const chains=chainsOf(material);yield;
     const pointColumns=Object.entries(material.attrs);
     for(let ci=0;ci<chains.length;ci++){
-      const path=chains[ci],count=path.indices.length-(path.closed?0:1),chain=identity('mapped-chain',settings.key??kernelOf(mesh).key??'default',pi,ci);
+      const path=chains[ci],count=path.indices.length-(path.closed?0:1),chain=identity('mapped-chain',settings.key??mesh.key??'default',pi,ci);
       for(let e=0;e<count;e++){
         const ia=path.indices[e],ib=path.indices[(e+1)%path.indices.length],a:UV2=[material.x[ia],material.y[ia]],b:UV2=[material.x[ib],material.y[ib]];
         stats.inputSegments++;
@@ -161,13 +166,13 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
   }
   const network=yield*surfaceCurveNetworkJob3({sources:[{id:'surface',binding}],nodes,segments},budget);
   stats.outputNodes=network.nodes.length;stats.outputSegments=network.segments.length;
-  return {curves:new SurfaceCurves<MappedAttributes>(network,{key:settings.key}),stats:Object.freeze(stats) as SurfaceMappingStats};
+  return {curves:new SurfaceCurves<MappedColumns>(network,{key:settings.key}),stats:Object.freeze(stats) as SurfaceMappingStats};
 }
 /** Map resolved 2D material through stored chart coordinates onto supported
  * surface curves. Straight pattern segments map exactly; a curved motif is
  * represented by the polyline you supply (its flattening contract is the 2D
  * conversion's own count/spacing/tolerance). Use `await t.mapSurface(...)` in
  * `sketchAsync` for substantial cancellable workloads. */
-export function mapSurface(mesh:Material,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}):SurfaceCurves<MappedAttributes> {
+export function mapSurface(mesh:Material,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}):SurfaceCurves<MappedColumns> {
   return runGeometryJob3(surfaceMappingJob(captureSurfaceMapping(mesh,pattern,options))).value.curves;
 }

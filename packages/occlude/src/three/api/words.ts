@@ -4,40 +4,43 @@
  * A value in space is a `Material` with a `z` column (geometry/value.ts).
  * The words it shares with a value in the plane are told apart by what they
  * take — `extrude` of a face selection, `translate` by a 3-vector, `rotate`
- * by anything but a number of degrees, `scale` by three factors,
+ * by anything but a number of degrees (or by a number on a value with a
+ * `z`), `scale` by three factors (or by one on a value with a `z`),
  * `transform` by a placement of space, `smooth` of a face or corner column —
  * and the words only a value in space has (`subdivide`, the booleans,
  * `dual`, `displace`) refuse by name on a value with no faces where they
- * need faces. The core declares every one of them on `Material` and
- * delegates through its registry; these are the implementations the 3D
- * layer fills it with (`WORDS3`).
+ * need faces. The core declares every one of them on `Material` and calls
+ * the one here.
  *
- * Every word reads the value's working view (`surfaceOf`), runs the kernel
- * it always ran, and hands the kernel's surface back through `value3`: a
- * row the kernel kept keeps its id, and a derivation (subdivide, extrude, a
- * boolean, dual) links each row it made to the rows it came from, which
- * `row.source` answers.
+ * A motion of space (`translate`, `rotate`, `scale`, `transform`,
+ * `displace`) is a map over the x, y and z columns (`mapPositions3`): every
+ * row and column is kept and no working view is read. The derivations read
+ * the value's working view (`surfaceOf`), run the kernel they always ran,
+ * and hand the kernel's surface back through `value3`: a row the kernel
+ * kept keeps its id, and a derivation (subdivide, extrude, a boolean, dual)
+ * links each row it made to the rows it came from, which `row.source`
+ * answers.
  */
 
-import {WORDS_3D,type Material,type Words3,type Vertex} from '../../material.js';
-import {selectionIn,type Selection} from '../../selection.js';
+import type {Material,Vertex} from '../../material.js';
+import {selectionIn,select,type Selection} from '../../selection.js';
+import {inSpace3} from '../../material.js';
 import type {Face} from '../../faces.js';
 import {carryLinks,type DomainSpec,type SourceSpec} from '../../derivation.js';
 import {isSpacePlacement,type Placement as Isometry} from '../../placement.js';
+import {Column} from '../../column.js';
 import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
-import {assembleSurface3,surface3,type Attribute3,type Surface3} from '../geometry/surface.js';
-import {ownSurface3,transformSurface3,transformPosition3,faceGeometry3} from '../geometry/model.js';
-import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
+import {surface3,triangulate,type Attribute3,type Surface3} from '../geometry/surface.js';
+import {ownSurface3,transformPosition3} from '../geometry/model.js';
+import {add3,sub3,mul3,dot3,cross3,finite3,unit3,type Vec3} from '../math.js';
 import {sampleValue} from '../degenerate.js';
 import {subdivideSurface,type SubdivisionOptions} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
 import {dualSurface3,type DualOptions} from '../geometry/dual.js';
 import {booleanSurface3,type BooleanOperation3} from '../geometry/boolean.js';
-import {evaluate,type Field} from './columns.js';
-import {value3,surfaceOf,kernelOf,type Carry3,type Kernel3} from '../geometry/value.js';
-import {partsOfView} from '../geometry/parts.js';
-import {topology3} from '../geometry/topology.js';
-import {curveLength,alongSurface,resampledSurface} from './curveWalk.js';
+import {evaluate,describe3,type Field} from './columns.js';
+import {value3,surfaceOf,kernelOf,hasFaces,mapPositions3,type Carry3,type Kernel3} from '../geometry/value.js';
+import {alongSurface,resampledSurface} from './curveWalk.js';
 import {samplesOf,rebindSamples} from './sampling.js';
 import {curveSamplesOf,rebindCurveSamples} from './curveSampling.js';
 
@@ -53,7 +56,7 @@ function kept(m:Material,more:Partial<Carry3>={}):Carry3 {
     from:m,origin:k.origin,orientation:k.orientation,
     ...(k.radialCentre!==undefined?{radialCentre:k.radialCentre}:{}),
     transfers:m.transfers,
-    ...(k.key!==undefined?{key:k.key}:{}),
+    ...(m.key!==undefined?{key:m.key}:{}),
     // The same faces answer the same source (points and edges carry theirs
     // through the links).
     ...(m.stated?.source!==undefined?{source:{faces:m.stated.source}}:{}),
@@ -62,7 +65,6 @@ function kept(m:Material,more:Partial<Carry3>={}):Carry3 {
 }
 /** A result with every row of `m`: its links carry, as a write's do. */
 const sameRows=(m:Material,out:Material):Material=>carryLinks(m,out);
-const hasFaces=(m:Material):boolean=>surfaceOf(m).faces.length>0;
 function refuseNoFaces(m:Material,who:string):void {
   if(!hasFaces(m))throw new Error(`${who}: this value has no faces — ${who} works on a geometry with faces (plane, box, sphere, a mesh); a value of points or curves has none`);
 }
@@ -71,37 +73,30 @@ function refuseNoFaces(m:Material,who:string):void {
 
 type Domain='points'|'edges'|'faces'|'corners';
 const DOMAINS:readonly Domain[]=['points','edges','faces','corners'];
-/** What a derivation may read besides a geometry: a set of instances,
- * whose rows are named by their own ids. */
-interface Rows3 {readonly rows:readonly {readonly id:string}[]}
-/** @internal An input a derivation read: a geometry, or instances. */
-export type Input3=Material|Rows3;
-const isRows=(input:Input3):input is Rows3=>!('store' in input);
+/** @internal An input a derivation read. */
+export type Input3=Material;
 /** name → row, per domain, of an input's working view. */
-const nameIndex=new WeakMap<object,Map<string,{domain:Domain|'instances';row:number}>>();
-function rowsByName(input:Input3):Map<string,{domain:Domain|'instances';row:number}> {
+const nameIndex=new WeakMap<object,Map<string,{domain:Domain;row:number}>>();
+function rowsByName(input:Input3):Map<string,{domain:Domain;row:number}> {
   let index=nameIndex.get(input);
   if(index)return index;
   index=new Map();
-  if(isRows(input))input.rows.forEach((r,row)=>index!.set(r.id,{domain:'instances',row}));
-  else{
-    const names=partsOfView(surfaceOf(input))!.names;
-    for(const d of DOMAINS)names[d].forEach((name,row)=>{if(!index!.has(name))index!.set(name,{domain:d,row});});
-  }
+  // A row's name is its id in the working view.
+  const view=surfaceOf(input);
+  const names:Record<Domain,readonly string[]>={points:view.points.map(p=>p.id),edges:view.edges.map(e=>e.id),faces:view.faces.map(f=>f.id),
+    corners:view.faces.flatMap(f=>f.corners?.map(c=>c.id)??f.vertices.map(v=>JSON.stringify(['corner',f.id,view.points[v].id])))};
+  for(const d of DOMAINS)names[d].forEach((name,row)=>{if(!index!.has(name))index!.set(name,{domain:d,row});});
   nameIndex.set(input,index);
   return index;
 }
-/** A row of an input, as a sketch reads it. */
-function rowOf(input:Input3,domain:Domain|'instances',row:number):unknown {
-  if(isRows(input))return input.rows[row];
-  return (input as unknown as Record<Domain,Selection<unknown>>)[domain as Domain].at(row);
-}
-function rowsOf(input:Input3,domain:Domain|'instances',rows:readonly number[]):unknown {
-  if(rows.length===1||isRows(input))return rowOf(input,domain,rows[0]);
-  return (input as unknown as Record<Domain,Selection<unknown>>)[domain as Domain].rows(rows);
+/** Rows of one domain of an input, as a sketch reads them: one row, or a
+ * selection of several. */
+function rowsOf(input:Input3,domain:Domain,rows:readonly number[]):unknown {
+  const all=(input as unknown as Record<Domain,Selection<unknown>>)[domain];
+  return rows.length===1?all.at(rows[0]):select(all.domain,rows);
 }
 /** Where one row came from: per input it read, the rows of one domain. */
-interface Found {readonly input:number;readonly domain:Domain|'instances';readonly rows:number[]}
+interface Found {readonly input:number;readonly domain:Domain;readonly rows:number[]}
 /**
  * What each row of a derivation's surface came from, in the inputs it read:
  * a row the derivation made names its parents (its lineage record for this
@@ -144,8 +139,8 @@ function specOf(inputs:readonly Input3[],rows:readonly (readonly Found[])[]):Dom
     else if(shape!==s)return undefined;
   }
   if(shape===undefined)return undefined;
-  const shapes=shape.split(',').map(x=>{const [i,d]=x.split(':');return {input:Number(i),domain:d as Domain|'instances'};});
-  if(shapes.some(x=>x.domain==='corners'||x.domain==='instances'||isRows(inputs[x.input])))return undefined;
+  const shapes=shape.split(',').map(x=>{const [i,d]=x.split(':');return {input:Number(i),domain:d as Domain};});
+  if(shapes.some(x=>x.domain==='corners'))return undefined;
   // One parent answers a row and several a selection: rows of both kinds in
   // one domain are read row by row.
   const counts=new Set(rows.flatMap(groups=>groups.map(g=>g.rows.length===1)));
@@ -184,31 +179,37 @@ function derivedValue(operation:string,m:Material,surface:Surface3,inputs:readon
  * when it has no triangles). */
 export type Origin3='center'|'centroid'|Vec3;
 export interface RotateOptions3 {
-  /** Pivot (see `Origin3`); the object's own origin when unset. */
+  /** Pivot (see `Origin3`; a pair `[x, y]` is the place at z = 0); the
+   * object's own origin when unset. */
   readonly origin?:Origin3;
   /** Read the axis in the object's current frame instead of world axes. */
   readonly local?:boolean;
 }
 export interface ScaleOptions3 {readonly origin?:Origin3}
-interface Pivoted {readonly surface:Surface3;readonly origin:Vec3;readonly orientation:Rotation}
-const pivoted=(m:Material):Pivoted=>{const k=kernelOf(m);return {surface:surfaceOf(m),origin:k.origin,orientation:k.orientation};};
 
-function pivotOf(verb:string,options:RotateOptions3|ScaleOptions3|undefined,self:Pivoted):Vec3 {
+/** Three finite numbers. */
+const finiteTriple=(v:unknown):v is Vec3=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);
+/** The pivot a word turns or scales about; undefined for a pivot that is
+ * no place (not finite): the word then moves nothing, as `move` does. */
+function pivotOf(verb:string,options:RotateOptions3|ScaleOptions3|undefined,m:Material,own:Vec3):Vec3|undefined {
   if(options&&(options as {about?:unknown}).about!==undefined)throw new Error(`${verb}: 'about' is spelled origin — { origin: [x, y, z] | 'center' | 'centroid' }; the object's own origin is the default and the world's is [0, 0, 0]`);
-  const o=options?.origin;
-  if(o===undefined)return self.origin;
-  if(Array.isArray(o)){finite3(o as Vec3);return o as Vec3;}
+  const o=options?.origin as unknown;
+  if(o===undefined)return own;
+  // A place of the plane is the place at z = 0, as a 2D point is.
+  if(Array.isArray(o)){const q=o.length===2?[o[0],o[1],0]:o;return finiteTriple(q)?q:undefined;}
+  if(typeof o==='object'&&o!==null&&typeof (o as {x?:unknown}).x==='number'){const p=o as {x:number;y:number;z?:number},q=[p.x,p.y,p.z??0];return finiteTriple(q)?q:undefined;}
   if(o!=='center'&&o!=='centroid')throw new Error(`${verb}: origin is a point [x, y, z], 'center' or 'centroid' — got ${typeof o==='string'?`'${o}'`:JSON.stringify(o)}`);
-  const pts=self.surface.points;
-  if(pts.length===0)return self.origin;
+  if(m.n===0)return own;
   if(o==='center'){
+    const s=m.store,z=s.attrs.z,xs=s.x.flat(),ys=s.y.flat(),zs=z instanceof Column?z.flat():undefined;
     const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
-    for(const p of pts)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
+    for(let i=0;i<m.n;i++){const p=[xs[i],ys[i],zs===undefined?0:zs[i]];for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p[k]);hi[k]=Math.max(hi[k],p[k]);}}
     return [(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2];
   }
   // Area-weighted triangle centroids: the centroid of the surface itself.
+  const surface=surfaceOf(m),pts=surface.points;
   let area=0;const c=[0,0,0];
-  for(const t of self.surface.triangles){
+  for(const t of surface.triangles){
     const [a,b,d]=t.vertices.map(i=>pts[i].position);
     const u=sub3(b,a),v=sub3(d,a);
     const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
@@ -224,73 +225,88 @@ function isRotationInput(value:unknown):value is RotationInput {
 }
 /** The object's origin after turning about a pivot: it rides along like every
  * other point, so a later default rotation still turns in place. */
-function movedOrigin(self:Pivoted,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3{return Object.freeze(add3(pivot,move(sub3(self.origin,pivot)))) as unknown as Vec3;}
-function rotationArguments(self:Pivoted,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions3,c?:RotateOptions3):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3} {
+const movedOrigin=(origin:Vec3,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3=>Object.freeze(add3(pivot,move(sub3(origin,pivot)))) as unknown as Vec3;
+/** A rotation's arguments read: the turn, its pivot, and where it leaves the
+ * object's origin and orientation; undefined for a turn by an angle, an
+ * axis or a pivot that is not finite, which turns nothing. */
+function rotationArguments(m:Material,k:Kernel3,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions3,c?:RotateOptions3):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3}|undefined {
   let rotate:Rotation,options:RotateOptions3={};
   if(typeof b==='number'){
-    if(!Number.isFinite(b))throw new Error('rotate degrees must be finite');
+    if(!Number.isFinite(b))return undefined;
+    if(Array.isArray(a)&&!a.every(Number.isFinite))return undefined;
     options=c??{};
-    const axis:Axis3=options.local?rotateVector3(typeof a==='string'?(a==='x'?[1,0,0]:a==='y'?[0,1,0]:[0,0,1]):vector3(a as Vec3),self.orientation):a as Axis3;
+    const axis:Axis3=options.local?rotateVector3(typeof a==='string'?(a==='x'?[1,0,0]:a==='y'?[0,1,0]:[0,0,1]):vector3(a as Vec3),k.orientation):a as Axis3;
     rotate=axisAngle(axis,b);
   }else{
     if(!isRotationInput(a))throw new Error('rotate takes degrees about z, Euler degrees [x, y, z], a rotation value, or an axis with degrees');
+    if(Array.isArray(a)&&!finiteTriple(a))return undefined;
     rotate=rotation3(a);
-    if(Array.isArray(b)){finite3(b as Vec3);return {rotate,origin:b as Vec3,orientation:self.orientation.then(rotate),moved:movedOrigin(self,b as Vec3,v=>rotate.apply(v))};}
-    options=(b as RotateOptions3|undefined)??{};
+    options=Array.isArray(b)?{origin:b as Vec3}:(b as RotateOptions3|undefined)??{};
   }
-  const origin=pivotOf('rotate',options,self);
-  return {rotate,origin,orientation:self.orientation.then(rotate),moved:movedOrigin(self,origin,v=>rotate.apply(v))};
+  const origin=pivotOf('rotate',options,m,k.origin);
+  if(origin===undefined)return undefined;
+  return {rotate,origin,orientation:k.orientation.then(rotate),moved:movedOrigin(k.origin,origin,v=>rotate.apply(v))};
 }
-/** The image of a recorded centre under the same affine edit the points took. */
-const movedCentre=(centre:Vec3|undefined,options:Parameters<typeof transformSurface3>[1]):Vec3|undefined=>centre&&transformPosition3(centre,options);
-const transformed=(surface:Surface3,options:Parameters<typeof transformSurface3>[1]):Surface3=>ownSurface3(transformSurface3(surface,options));
+/** The state of a moved value: `k` with these in place, a centre that is
+ * no longer known left out. */
+function movedKernel(k:Kernel3,more:{origin?:Vec3;orientation?:Rotation;radialCentre?:Vec3|undefined}):Kernel3 {
+  const radialCentre='radialCentre' in more?more.radialCentre:k.radialCentre;
+  return Object.freeze({origin:more.origin??k.origin,orientation:more.orientation??k.orientation,...(radialCentre!==undefined?{radialCentre}:{})});
+}
+/** Settings of one affine motion, in the order `transformPosition3` applies
+ * them. */
+interface Affine3 {readonly translate:Vec3;readonly rotate:RotationInput;readonly scale:Vec3;readonly origin:Vec3}
+const affine=(o:Partial<Affine3>):Affine3=>({translate:o.translate??[0,0,0],rotate:o.rotate??[0,0,0],scale:o.scale??[1,1,1],origin:o.origin??[0,0,0]});
+/** An affine motion that turns space over (an odd number of negative factors). */
+const mirrors=(scale:Vec3):boolean=>scale.filter(n=>n<0).length%2===1;
 
 // ─── the words a value in the plane shares ───────────────────────────
+//
+// A motion of space is a map over the x, y and z columns: every row, id,
+// column and face is kept, and no working view is read. An argument that
+// is not finite moves nothing, as `move` does.
 
 /** `translate([x, y, z])`: every point moved, the object's origin with it. */
 export function translate3(m:Material,by:unknown):Material {
-  const offset=Array.isArray(by)?by as unknown as Vec3:[(by as {x:number}).x,(by as {y:number}).y,(by as {z:number}).z] as Vec3;
-  finite3(offset);
-  const k=kernelOf(m),origin=k.origin;
-  return sameRows(m,value3(transformed(surfaceOf(m),{translate:offset}),kept(m,{origin:add3(origin,offset),radialCentre:movedCentre(k.radialCentre,{translate:offset})})));
+  const offset:unknown=Array.isArray(by)?by:[(by as {x:number}).x,(by as {y:number}).y,(by as {z:number}).z];
+  if(!finiteTriple(offset))return m;
+  const k=kernelOf(m),settings=affine({translate:offset});
+  return mapPositions3(m,p=>transformPosition3(p,settings),'translate',{kernel:movedKernel(k,{origin:add3(k.origin,offset),radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
 }
 /** `rotate(angles | rotation, pivot?)` or `rotate(axis, degrees, { origin, local })`. */
 export function rotate3(m:Material,a:unknown,b?:unknown,c?:unknown):Material {
-  const self=pivoted(m),r=rotationArguments(self,a as RotationInput|Axis3,b as number|Vec3|RotateOptions3|undefined,c as RotateOptions3|undefined);
-  return sameRows(m,value3(transformed(self.surface,{rotate:r.rotate,origin:r.origin}),kept(m,{orientation:r.orientation,origin:r.moved,radialCentre:movedCentre(kernelOf(m).radialCentre,{rotate:r.rotate,origin:r.origin})})));
+  const k=kernelOf(m),r=rotationArguments(m,k,a as RotationInput|Axis3,b as number|Vec3|RotateOptions3|undefined,c as RotateOptions3|undefined);
+  if(r===undefined)return m;
+  const settings=affine({rotate:r.rotate,origin:r.origin});
+  return mapPositions3(m,p=>transformPosition3(p,settings),'rotate',{kernel:movedKernel(k,{orientation:r.orientation,origin:r.moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
 }
 /** `scale(k | [x, y, z], pivot?)`. A zero factor is allowed: a value
  * scaled to nothing keeps its points on the pivot and has no faces or
  * edges left to draw. */
-export function scale3(m:Material,k:unknown,b?:unknown):Material {
-  const self=pivoted(m),factors:Vec3=typeof k==='number'?[k,k,k]:k as unknown as Vec3;finite3(factors);
-  const origin=Array.isArray(b)?b as unknown as Vec3:pivotOf('scale',b as ScaleOptions3|undefined,self);if(Array.isArray(b))finite3(origin);
-  const moved=movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]);
+export function scale3(m:Material,by:unknown,b?:unknown):Material {
+  const factors=(typeof by==='number'?[by,by,by]:by) as Vec3;
+  if(!finiteTriple(factors))return m;
+  const k=kernelOf(m);
+  const origin=pivotOf('scale',Array.isArray(b)?{origin:b as unknown as Vec3}:b as ScaleOptions3|undefined,m,k.origin);
+  if(origin===undefined)return m;
+  const moved=movedOrigin(k.origin,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]);
   if(factors.some(f=>f===0)){
-    const s=self.surface,faceless=s.faces.length===0&&s.edges.length===0;
     // Points alone collapse onto the pivot; anything with edges or faces
     // is nothing to draw.
-    const surface=faceless?ownSurface3(assembleSurface3(s.points.map(p=>({...p,position:add3(origin,sub3(p.position,origin).map((v,i)=>v*factors[i]) as unknown as Vec3)})),[],[])):ownSurface3(surface3([],[]));
-    return value3(surface,kept(m,{origin:moved,radialCentre:undefined}));
+    if(m.edgeCount===0&&!hasFaces(m))return mapPositions3(m,p=>add3(origin,sub3(p,origin).map((v,i)=>v*factors[i]) as unknown as Vec3),'scale',{kernel:movedKernel(k,{origin:moved,radialCentre:undefined})});
+    return value3(ownSurface3(surface3([],[])),kept(m,{origin:moved,radialCentre:undefined}));
   }
-  return sameRows(m,value3(transformed(self.surface,{scale:factors,origin}),kept(m,{origin:moved,radialCentre:movedCentre(kernelOf(m).radialCentre,{scale:factors,origin})})));
+  const settings=affine({scale:factors,origin});
+  return mapPositions3(m,p=>transformPosition3(p,settings),'scale',{mirror:mirrors(factors),kernel:movedKernel(k,{origin:moved,radialCentre:k.radialCentre&&transformPosition3(k.radialCentre,settings)})});
 }
 /** `transform(placement)` with a placement of space (`observer`, a
  * honeycomb's placements): every point through it, every row and column
  * kept. A Lorentz isometry moves the Klein ball projectively, so a flat
- * face stays flat; one that turns space over rewinds every face. */
+ * face stays flat; one that turns space over turns every face over. */
 export function transform3(m:Material,placement:Isometry<Vec3>):Material {
   if(!isSpacePlacement(placement))throw new Error('transform takes a placement of 3D space — an observer, or one of a honeycomb\'s placements; a placement of the plane moves sketch points');
-  const surface=surfaceOf(m),points=surface.points.map(p=>({...p,position:placement.point(p.position)}));
-  let out:Surface3;
-  if(placement.orientation>0)out=ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
-  else{
-    const faces=surface.faces.map(f=>({...f,vertices:[...f.vertices].reverse(),corners:f.corners&&[...f.corners].reverse()}));
-    const triangles=surface.triangles.map(t=>({...t,vertices:[t.vertices[0],t.vertices[2],t.vertices[1]] as [number,number,number]}));
-    out=ownSurface3(assembleSurface3(points,faces,triangles,surface));
-  }
   const k=kernelOf(m);
-  return sameRows(m,value3(out,kept(m,{origin:placement.point(k.origin),radialCentre:undefined})));
+  return mapPositions3(m,p=>placement.point(p),'transform',{mirror:placement.orientation<0,kernel:movedKernel(k,{origin:placement.point(k.origin),radialCentre:undefined})});
 }
 
 /** One connected component of an extrusion selection, measured on the input. */
@@ -310,6 +326,7 @@ const regionCenterRefused=():never=>{throw new Error('an extrude region\'s middl
  * region boundary edge (holes and open sheet edges included). Faces that
  * touch no other selected face are each their own region. */
 export function extrude3(m:Material,faces:Selection<Face>,offset:unknown,options:unknown={}):Material {
+  if(!inSpace3(m))throw new Error('extrude: faces extrude in space — a value with z; in the plane, extrude(point, offset) adds a point and its edge');
   const opts=(options??{}) as ExtrudeOptions;
   if(typeof opts!=='object'||Array.isArray(opts))throw new Error('extrude options must be an object');
   // A selection from an earlier state is read on this one; faces that are
@@ -333,22 +350,20 @@ export function extrude3(m:Material,faces:Selection<Face>,offset:unknown,options
       const distance=sampleValue(evaluate((off as {distance:Field<ExtrudeRegion,number>}).distance,region),0);
       vector=region.normal?[region.normal[0]*distance,region.normal[1]*distance,region.normal[2]*distance]:[0,0,0];
     }
-    if(!Array.isArray(vector)||vector.length!==3)throw new Error(`extrude offset must produce a 3-vector for region ${index}`);
-    finite3(vector);
-    return {index,faces:component.indices,vector:[vector[0],vector[1],vector[2]] as Vec3};
+    if(!Array.isArray(vector)||vector.length!==3)throw new Error(`extrude: the offset of region ${index} is ${describe3(vector)} — a 3-vector [x, y, z]`);
+    // An offset that is not finite is no offset: that region stays where it
+    // is, as one whose distance the field could not answer does.
+    return {index,faces:component.indices,vector:(finiteTriple(vector)?[vector[0],vector[1],vector[2]]:[0,0,0]) as Vec3};
   });
   return derivedValue('extrude',m,extrudeRegion3(surface,components,key),[m]);
 }
 
-/** `smooth(name, { steps })` of a face or a corner column: each row the
- * mean of itself and its neighbours, `steps` times — faces over shared
- * edges, corners over the corners of their point and face. Numbers and
- * numeric vectors only. */
-export function smooth3(m:Material,name:string,options:{readonly steps?:number}={}):Material {
+/** `smooth(name, { steps })` of a face or a corner column (`domain`, as the
+ * core found it): each row the mean of itself and its neighbours, `steps`
+ * times — faces over shared edges, corners over the corners of their point
+ * and face. Numbers and numeric vectors only. */
+export function smooth3(m:Material,domain:'faces'|'corners',name:string,options:{readonly steps?:number}={}):Material {
   const steps=options.steps??1;if(!Number.isSafeInteger(steps)||steps<0)throw new Error('smooth steps must be a nonnegative integer');
-  const surface=surfaceOf(m);
-  const domain=Object.hasOwn(surface.faces[0]?.attributes??{},name)?'faces':Object.hasOwn(surface.faces[0]?.corners?.[0]?.attributes??{},name)?'corners':undefined;
-  if(!domain)throw new Error(`smooth: no point, edge, face or corner column '${name}' to smooth`);
   const mean=(values:readonly (Attribute3|undefined)[]):Attribute3=>{
     if(values.every(v=>typeof v==='number'))return (values as number[]).reduce((a,b)=>a+b,0)/values.length;
     if(values.every(v=>Array.isArray(v)&&v.length===(values[0] as number[]).length))return (values[0] as number[]).map((_,k)=>values.reduce<number>((a,v)=>a+(v as number[])[k],0)/values.length);
@@ -413,29 +428,27 @@ function vertexNormals(surface:Surface3):(Vec3|null)[] {
  * number along its vertex normal (`along` chooses another direction). A
  * point the field cannot answer, or with no normal to follow, stays. */
 export function displace3(m:Material,field:Field<unknown,Vec3|number>,options:DisplaceOptions={}):Material {
-  const surface=surfaceOf(m),along=options.along??'normal';
+  const along=options.along??'normal';
   const axis:Vec3|undefined=along==='x'?[1,0,0]:along==='y'?[0,1,0]:along==='z'?[0,0,1]:along==='normal'?undefined:along;
-  if(axis)finite3(axis);
+  if(axis)finite3(axis,'displace along');
   let normals:(Vec3|null)[]|undefined;
   const rows=[...(m as unknown as {points:Iterable<unknown>}).points];
-  const points=rows.map((row,i)=>{
-    const value=evaluate(field,row);
-    let delta:Vec3;
+  const deltas=rows.map((row,i):Vec3=>{
+    const value=evaluate(field,row) as unknown;
     if(typeof value==='number'){
-      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(surface))[i];
-      delta=direction?mul3(direction,amount):[0,0,0];
-    }else{delta=value;finite3(delta);}
-    return {...surface.points[i],position:add3(surface.points[i].position,delta)};
+      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(surfaceOf(m)))[i];
+      return direction?mul3(direction,amount):[0,0,0];
+    }
+    if(!Array.isArray(value)||value.length!==3||!value.every(v=>typeof v==='number'))throw new Error(`displace: the field answered ${describe3(value)} — a number, or a vector [x, y, z]`);
+    return finiteTriple(value)?value:[0,0,0];
   });
   // Moved points keep a star-shaped solid's recorded centre: nothing trusts
   // it, every certificate re-proves it.
-  return sameRows(m,value3(ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface)),kept(m)));
+  return mapPositions3(m,(p,i)=>add3(p,deltas[i]),'displace');
 }
 
 // ─── curves in space ─────────────────────────────────────────────────
 
-/** `length` of a value in space: every edge once, in world units. */
-export function length3(m:Material):number {return curveLength(surfaceOf(m));}
 /** `along({ count } | { spacing })` of a value in space: points by arc
  * length on its one unbranched curve, each with `s`, `u` and the unit
  * `tangent`, the curve's point columns carried, and `source` the edge
@@ -455,17 +468,28 @@ export function resample3(m:Material,opts:{readonly count?:number;readonly spaci
 /** A face of a value in space, measured on its fixed triangles: its unit
  * normal, its area and its area centroid. */
 export function faceWords3(m:Material,f:number):{readonly normal:Vec3;readonly area:number;readonly centroid:Vec3} {
-  const g=faceGeometry3(surfaceOf(m));
-  return {normal:g.normals[f],area:g.areas[f],centroid:g.centers[f]};
+  // The statement's loop and fixed triangles, read on the x, y and z
+  // columns: no working view. The sums run in the order the view's
+  // `faceGeometry3` takes them, so the answers are its answers.
+  const stated=m.stated,runs=stated?.cycles[f],loop=runs===undefined||runs.length===0?[]:runs[0];
+  const s=m.store,z=s.attrs.z;
+  const at=(v:number):Vec3=>[s.x.get(v),s.y.get(v),z instanceof Column?z.get(v):0];
+  const places=loop.map(at),held=stated?.triangles?.[f];
+  const local:number[]=held!==undefined?[...held]:triangulate(places,places.map((_,k)=>k)).flat();
+  let normal:Vec3=[0,0,0],center:Vec3=[0,0,0],area=0;
+  for(let k=0;k+2<local.length;k+=3){
+    const a=places[local[k]],b=places[local[k+1]],c=places[local[k+2]],n=cross3(sub3(b,a),sub3(c,a)),w=Math.hypot(...n)/2;
+    normal=add3(normal,n);area+=w;center=add3(center,mul3(add3(add3(a,b),c),w/3));
+  }
+  // A face with no represented triangles (a degenerate polygon) has no
+  // normal, and the mean of its own points for a centroid.
+  const length=Math.hypot(...normal);
+  return {
+    normal:Object.freeze(length>0&&Number.isFinite(length)?unit3(normal):[0,0,0]) as Vec3,
+    area,
+    centroid:Object.freeze(area>0?mul3(center,1/area):places.length?mul3(places.reduce((sum,p)=>add3(sum,p),[0,0,0] as Vec3),1/places.length):[0,0,0]) as Vec3,
+  };
 }
-/** The middle of an edge of a value in space. */
-export function edgeCenter3(m:Material,e:number):Vec3 {
-  const s=surfaceOf(m),edge=s.edges[e],a=s.points[edge.vertices[0]].position,b=s.points[edge.vertices[1]].position;
-  return mul3(add3(a,b),0.5);
-}
-/** The faces and corners around a point of a value in space, in row order. */
-export function pointFaces3(m:Material,p:number):readonly number[]{return topology3(surfaceOf(m)).pointFaces[p];}
-export function pointCorners3(m:Material,p:number):readonly number[]{return topology3(surfaceOf(m)).pointCorners[p];}
 
 /** The recorded radial centre of `m` (see `Kernel3`). */
 export const radialCentreOf=(m:Material):Vec3|undefined=>kernelOf(m).radialCentre;
@@ -479,21 +503,9 @@ export function rebind3(m:Material,target:unknown):Material {
   if(curveSamplesOf(m)!==undefined)return rebindCurveSamples(m,target as never);
   throw new Error('rebind: this value carries no samples — t.scatter on a geometry with faces, or t.sample on surface curves, makes points that rebind');
 }
-/** `place(instances)` belongs to curves attached to a surface. */
-export function place3(_m:Material,_instances:unknown):Material {
-  throw new Error('place: only curves attached to a prototype surface (intersections, isolines, hatch, trace, mapSurface) are placed at instances');
-}
-
-/** The implementations, by the name the core's registry takes them under. */
-export const WORDS3:Words3&{readonly length:(m:Material)=>number}=Object.freeze({
-  translate:translate3,rotate:rotate3,scale:scale3,transform:transform3,extrude:extrude3,smooth:smooth3,
-  subdivide:subdivide3,union:boolean3('union'),subtract:boolean3('subtract'),intersect:boolean3('intersect'),dual:dual3,displace:displace3,
-  along:along3,resample:resample3,length:length3,rebind:rebind3,place:place3,
-  faceWords:faceWords3,edgeCenter:edgeCenter3,
-});
 
 // The words a value in space answers, typed for a sketch: the core declares
-// each as a method that delegates here; these are its 3D signatures.
+// each as a method that calls the one here; these are its 3D signatures.
 declare module '../../material.js' {
   interface Material {
     /** Every point moved by a vector, or by a number along its vertex
@@ -509,5 +521,3 @@ declare module '../../material.js' {
   }
 }
 
-// The core's 3D words delegate here from the moment the 3D layer loads.
-Object.assign(WORDS_3D,WORDS3);

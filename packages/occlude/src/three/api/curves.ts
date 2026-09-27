@@ -1,11 +1,11 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {finite3,sub3,type Vec3} from '../math.js';
 import {surface3,type Surface3} from '../geometry/surface.js';
-import {curveGeometry3,emptyCurve,derived,isGeometry,type GeometryOptions,type Geometry3Options} from './mesh.js';
+import {curveGeometry3,emptyMesh,derived,type GeometryOptions,type Geometry3Options} from './mesh.js';
 import {inSpace3} from '../../material.js';
 import {emptyCount} from '../degenerate.js';
 import {chain2,isChain2,type Lifted2} from './lift.js';
-import type {Material} from '../../material.js';
+import {Material} from '../../material.js';
 export interface PolylineOptions extends GeometryOptions {readonly closed?:boolean;readonly maxPoints?:number}
 export interface CurveOptions extends PolylineOptions {readonly segments?:number}
 /** True when there is no path to build. The point budget is a real limit and
@@ -18,8 +18,8 @@ function count(points:number,options:PolylineOptions):boolean {
   return points<(options.closed?3:2);
 }
 function path(positions:readonly Vec3[],options:PolylineOptions&Geometry3Options,rows?:readonly Lifted2[]):Material {
-  if(count(positions.length,options))return emptyCurve(options);
-  positions.forEach(finite3);
+  if(count(positions.length,options))return emptyMesh(options);
+  positions.forEach(p=>finite3(p,'curve'));
   const segments=positions.length-(options.closed?0:1);
   // A repeated point is no segment: drop that edge and keep the rest of the
   // path, the same rule extrusion already uses for a zero distance.
@@ -35,38 +35,24 @@ function path(positions:readonly Vec3[],options:PolylineOptions&Geometry3Options
   const {closed:_closed,maxPoints:_max,...geometry}=options as PolylineOptions&Geometry3Options&{segments?:number};
   return curveGeometry3(surface,edges.map((_,i)=>i),geometry);
 }
-/** A piecewise-linear 3D chain from positions, in the order given — the 2D
- * `curve`: open unless `closed: true`, and a closed chain shares its first
- * point at the seam (do not repeat it). A 2D chain (a material, anything
- * that answers `curves`, or one curve row) is read as an XY profile at z = 0, and says
- * itself whether it is closed; its ids and columns are kept. No face or
- * implicit fill is constructed. */
-export function curve(positions:readonly Vec3[]|{readonly curves:unknown}|Curve2,options:PolylineOptions={}):Material {
-  if(typeof positions==='function')throw new Error('curve takes positions, as in 2D; a function of t is parametricCurve(t => [x, y, z], { segments })');
-  // A curve in space is already one.
-  if(isGeometry(positions)&&inSpace3(positions))return positions;
-  if(isChain2(positions)){
-    if(options.closed!==undefined)throw new Error('curve: a 2D chain says whether it is closed — leave out closed');
-    const chain=chain2(positions,'curve');
-    return path(chain.points.map(p=>[p.x,p.y,0] as Vec3),{...options,closed:chain.closed,derived:derived('lift',positions)},chain.points);
-  }
-  if(!Array.isArray(positions))throw new Error('curve takes a list of [x, y, z] positions or a 2D chain');
-  return path(positions,options);
-}
 /** Sample a parameterized path once, at uniformly spaced t in [0,1].
  * Closed paths omit t=1 and connect the final sample to t=0. */
 export function parametricCurve(position:(t:number)=>Vec3,options:CurveOptions={}):Material {
   if(typeof position!=='function')throw new Error('parametricCurve takes a function of t; a list of positions is curve(points)');
   const segments=options.segments??64,points=segments+(options.closed?0:1);
-  if(emptyCount(segments,1,'curve segments'))return emptyCurve(options);
-  if(count(points,options))return emptyCurve(options);
-  return path(Array.from({length:points},(_,i)=>{const p=position(i/segments);finite3(p);return [...p] as Vec3;}),options);
+  if(emptyCount(segments,1,'curve segments'))return emptyMesh(options);
+  if(count(points,options))return emptyMesh(options);
+  // A formula that cannot answer somewhere draws nothing, as `parametric`'s
+  // does.
+  const sampled:Vec3[]=[];
+  for(let i=0;i<points;i++){const p=position(i/segments);if(!Array.isArray(p)||p.length!==3||!p.every(Number.isFinite))return emptyMesh(options);sampled.push([p[0],p[1],p[2]]);}
+  return path(sampled,options);
 }
 /** A profile as the construction verbs take it: a 3D curve as it is, or
  * the one chain of a 2D value — laid in XY at z = 0 for `sweep`, or in the
  * XZ meridian (x is the radius, y the height) for `revolve`. */
 export function profileCurve<T extends Material>(profile:T|{readonly curves:unknown}|Curve2,plane:'xy'|'xz',who:string):T|Material {
-  if(isGeometry(profile)&&inSpace3(profile))return profile as T;
+  if((profile instanceof Material)&&inSpace3(profile))return profile as T;
   if(!isChain2(profile))throw new Error(`${who}: the profile is a curve — a 3D curve, or a 2D chain such as a material`);
   const chain=chain2(profile,who);
   return path(chain.points.map(p=>(plane==='xy'?[p.x,p.y,0]:[p.x,0,p.y]) as Vec3),{closed:chain.closed,derived:derived('lift',profile)},chain.points);

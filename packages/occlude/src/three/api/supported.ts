@@ -1,27 +1,30 @@
-import {Table3,select3,kind3,POINTS3,EDGES3} from './collection.js';
-import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
+import {ROW_TYPES,Selection,select,domainKind,rowRange,type Domain,type DomainKind,type Types} from '../../selection.js';
 import type {Attributes3} from '../geometry/surface.js';
-import {isGeometry,surfaceOf,type GeometryOptions} from './mesh.js';
+import {type GeometryOptions} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
 import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,surfaceCurveNetwork3,bindingTriangle3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3,type SurfaceCurveRecipe3} from '../curves/network.js';
-import {Instances,instanceSurfaceBinding3} from './instances.js';
+import {prototypeOf,placedOf} from './instances.js';
 import {identity} from './identity.js';
 import {weightedPoint} from '../geometry/exact.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
-import type {Material} from '../../material.js';
-/** Multiple support contexts remain distinct at seams and intersections. */
-export interface SurfaceCurvePoint {
+import {Material} from '../../material.js';
+/** A point of supported curves: where it is, how it is attached, and its
+ * columns read as properties. Multiple support contexts remain distinct at
+ * seams and intersections. */
+export type SurfaceCurvePoint = Readonly<Record<string,unknown>&{
  readonly id:string;readonly index:number;readonly x:number;readonly y:number;readonly z:number;
  readonly exact:SurfaceCurveNode3['exact'];readonly supports:SurfaceCurveNode3['supports'];
- readonly attributes:SurfaceCurveNode3['attributes'];
  readonly [ROW_TYPES]?:SurfaceCurvePointTypes;
-}
+}>;
 /** @internal What a selection of supported-curve points answers: derived
  * rows, so no write; `extract()` is the rows themselves. */
 export type SurfaceCurvePointTypes=Types<{source:SurfaceCurveNetwork3;points:Selection<SurfaceCurvePoint>;extract:()=>readonly SurfaceCurvePoint[]}>;
 /** @internal What a selection of supported-curve edges answers: `extract()`
  * is the curves those edges make. */
 export type SurfaceCurveEdgeTypes<A extends Attributes3>=Types<{source:SurfaceCurveNetwork3;edges:Selection<SurfaceCurveEdge<A>>;extract:()=>SurfaceCurves<A>}>;
-export type SurfaceCurveEdge<A extends Attributes3={}> = Readonly<Omit<A,keyof SupportedCurveSegment3|'index'> & Omit<SupportedCurveSegment3,'a'|'b'> & {
+/** An edge of supported curves: its columns read as properties, as on every
+ * other row. */
+export type SurfaceCurveEdge<A extends Attributes3={}> = Readonly<Omit<A,keyof SupportedCurveSegment3|'index'> & Omit<SupportedCurveSegment3,'a'|'b'|'attributes'> & {
  readonly index:number;readonly a:SurfaceCurvePoint;readonly b:SurfaceCurvePoint;
  readonly [ROW_TYPES]?:SurfaceCurveEdgeTypes<A>;
 }>;
@@ -29,22 +32,75 @@ const rows=new WeakMap<SurfaceCurveNetwork3,{points:readonly SurfaceCurvePoint[]
 /** One chain of supported curves: its points in walking order, whether it
  * comes back to its start, its edges, and the columns every one of its
  * edges agrees on (`c.level` on an isoline ring), read as properties like
- * every other row; `attributes` is the same record. */
+ * every other row. */
 export type SurfaceChain<A extends Attributes3={}> = Readonly<Partial<A>&{
  id:string;index:number;points:Selection<SurfaceCurvePoint>;closed:boolean;
- edges:Selection<SurfaceCurveEdge<A>>;attributes:Readonly<Partial<A>>;
+ edges:Selection<SurfaceCurveEdge<A>>;
  readonly [ROW_TYPES]?:SurfaceChainTypes<A>;
 }>;
 /** @internal What a selection of supported-curve chains answers: derived
  * rows, so no write; `extract()` is the curves they make. */
 export type SurfaceChainTypes<A extends Attributes3>=Types<{source:SurfaceCurveNetwork3;points:Selection<SurfaceCurvePoint>;edges:Selection<SurfaceCurveEdge<A>>;curves:Selection<SurfaceChain<A>>;extract:()=>SurfaceCurves<A>}>;
+
+// ─── the rows as a selection domain ───────────────────────────────────
+
+type Row3={readonly id:string;readonly index:number};
+/** Which domain, and which network, each row is a row of. */
+const owners=new WeakMap<object,{readonly network:object;readonly kind:DomainKind;readonly index:number}>();
+/**
+ * The rows of one domain of supported curves: points, edges or chains. They
+ * are derived — a view resolves them, and nothing writes them — and a row
+ * of another revision of the same curves (an extraction, a rebind) is found
+ * here by the name its construction gave it.
+ */
+class CurveRows<Row extends Row3> implements Domain<Row> {
+ readonly dense=true;
+ #all:readonly number[]|null=null;
+ #names:ReadonlyMap<string,number>|null=null;
+ constructor(readonly kind:DomainKind,readonly source:SurfaceCurveNetwork3,readonly table:readonly Row[],readonly extract:(rows:readonly number[])=>unknown){
+  table.forEach((row,index)=>{if(!owners.has(row))owners.set(row,{network:source,kind,index});});
+ }
+ get size():number{return this.table.length;}
+ all():readonly number[]{return (this.#all??=rowRange(this.table.length));}
+ valid(r:number):boolean{return Number.isInteger(r)&&r>=0&&r<this.table.length;}
+ row(r:number):Row{return this.table[r];}
+ #rowOfName(name:string):number{return (this.#names??=new Map(this.table.map((row,i)=>[row.id,i]))).get(name)??-1;}
+ rowOf(v:unknown,who:string):number{
+  const owner=typeof v==='object'&&v!==null?owners.get(v):undefined;
+  if(owner===undefined||owner.kind!==this.kind)throw new Error(`${who}: expected a ${this.kind.name} of supported curves, got ${owner?`a ${owner.kind.name}`:typeof v}`);
+  return owner.network===this.source&&this.table[owner.index]===v?owner.index:this.#rowOfName((v as Row).id);
+ }
+ resolve(other:Selection<any>,who:string):number[]{
+  const d=other.domain;
+  if(!(d instanceof CurveRows)||d.kind!==this.kind)throw new Error(`${who}: selection set operations require the same domain (${this.kind.plural}, got ${d.kind.plural})`);
+  if(d===this)return [...other.indices];
+  const out:number[]=[];
+  for(const row of other as Selection<Row>){const i=this.#rowOfName(row.id);if(i>=0)out.push(i);}
+  return out;
+ }
+ on(state:unknown,who:string):Domain<Row>{
+  const target=state instanceof SurfaceCurves?(state as unknown as Record<string,unknown>)[this.kind.plural]:undefined;
+  if(!(target instanceof Selection)||!(target.domain instanceof CurveRows)||target.domain.kind!==this.kind)throw new Error(`${who}: expected supported curves to read the ${this.kind.plural} on`);
+  return target.domain as Domain<Row>;
+ }
+}
+/** A kind of supported-curve rows: its own words, `extract`, and a refused
+ * write. */
+function curveKind(name:string,words:Record<string,PropertyDescriptor&ThisType<Selection<any>>>={}):DomainKind {
+ return domainKind(name,`${name}s`,{
+  ...words,
+  extract:{value(this:Selection<any>):unknown{return (this.domain as CurveRows<Row3>).extract(this.indices);}},
+ },{set:'supported curves are derived by the construction that made them — they hold no columns to set'});
+}
+const POINTS3=curveKind('point',{points:{get(this:Selection<any>){return this;}}});
+const EDGES3=curveKind('edge',{edges:{get(this:Selection<any>){return this;}}});
 type ChainSel=Selection<SurfaceChain<any>>;
 /** The words of a selection of supported-curve chains: its points and its
  * edges, chain by chain in walking order, and itself as its curves. */
 const whole=new WeakMap<object,{readonly points:Selection<SurfaceCurvePoint>;readonly edges:Selection<SurfaceCurveEdge<any>>}>();
-const CURVES3=kind3('curve',{
- points:{get(this:ChainSel){return whole.get(this.domain)!.points.rows([...new Set(this.map(c=>c.points.indices).flat())]);}},
- edges:{get(this:ChainSel){return whole.get(this.domain)!.edges.rows([...new Set(this.map(c=>c.edges.indices).flat())]);}},
+const CURVES3=curveKind('curve',{
+ points:{get(this:ChainSel){const all=whole.get(this.domain)!.points;return select(all.domain,[...new Set(this.map(c=>c.points.indices).flat())]);}},
+ edges:{get(this:ChainSel){const all=whole.get(this.domain)!.edges;return select(all.domain,[...new Set(this.map(c=>c.edges.indices).flat())]);}},
  curves:{get(this:ChainSel){return this;}},
 });
 /** Chains of a network, each a run of segments sharing a `chainId`, walked
@@ -90,48 +146,33 @@ export class SurfaceCurves<A extends Attributes3={}> {
   const network=isRecipe(this.#source)?this.#source.resolve():this.#source;
   let cached=rows.get(network);
   if(!cached){
-   const points=Object.freeze(network.nodes.map((node,index)=>Object.freeze({id:node.id,index,x:node.position[0],y:node.position[1],z:node.position[2],attributes:node.attributes,exact:node.exact,supports:node.supports})));
-   const edges=Object.freeze(network.segments.map((segment,index)=>Object.freeze({...segment.attributes,...segment,index,a:points[segment.a],b:points[segment.b]})));
+   const points=Object.freeze(network.nodes.map((node,index)=>Object.freeze({...node.attributes,id:node.id,index,x:node.position[0],y:node.position[1],z:node.position[2],exact:node.exact,supports:node.supports}) as SurfaceCurvePoint));
+   const edges=Object.freeze(network.segments.map((segment,index)=>{const {attributes,...own}=segment;return Object.freeze({...attributes,...own,index,a:points[segment.a],b:points[segment.b]}) as unknown as SurfaceCurveEdge;}));
    cached={points,edges};rows.set(network,cached);
   }
   const {points,edges}=cached;
   const active=network.reference?[...new Set(network.segments.flatMap(s=>[s.a,s.b]))]:points.map(p=>p.index);
   return this.#built={
    network,
-   points:select3(new Table3(POINTS3,network,'point',points,{extract:indices=>Object.freeze(indices.map(i=>points[i]))}),active) as Selection<SurfaceCurvePoint>,
-   edges:select3(new Table3(EDGES3,network,'edge',edges as readonly SurfaceCurveEdge<A>[],{extract:indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices),this)})) as unknown as Selection<SurfaceCurveEdge<A>>,
+   points:select(new CurveRows(POINTS3,network,points,indices=>Object.freeze(indices.map(i=>points[i]))),active) as Selection<SurfaceCurvePoint>,
+   edges:select(new CurveRows(EDGES3,network,edges as readonly SurfaceCurveEdge<A>[],indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices),this)),null) as unknown as Selection<SurfaceCurveEdge<A>>,
   };
  }
  /** The chains these curves are made of, in the order they were made: a
-  * selection of chain rows, read on first ask and kept. */
+  * selection of chain rows, read on first ask and kept. `filter`, `map`,
+  * `groupBy` and the other selection words read them; `extract()` is the
+  * curves a view draws. */
  get curves():Selection<SurfaceChain<A>> {
   if(this.#curves)return this.#curves;
   const {network,points,edges}=this.#build();
   const chains=Object.freeze(chainsOf(network).map((chain,index)=>{
    const shared:Record<string,unknown>={},first=network.segments[chain.segments[0]].attributes;
    for(const [name,value] of Object.entries(first))if(chain.segments.every(i=>network.segments[i].attributes[name]===value))shared[name]=value;
-   return Object.freeze({...shared,id:chain.id,index,points:points.rows(chain.points),closed:chain.closed,edges:edges.rows(chain.segments),attributes:Object.freeze(shared)}) as unknown as SurfaceChain<A>;
+   return Object.freeze({...shared,id:chain.id,index,points:select(points.domain,chain.points),closed:chain.closed,edges:select(edges.domain,chain.segments)}) as unknown as SurfaceChain<A>;
   }));
-  const table=new Table3(CURVES3,network,'curve',chains,{extract:indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices.flatMap(i=>chains[i].edges.indices)),this)});
+  const table=new CurveRows(CURVES3,network,chains,indices=>new SurfaceCurves<A>(selectSurfaceCurveNetwork3(network,indices.flatMap(i=>chains[i].edges.indices)),this));
   whole.set(table,{points,edges});
-  return this.#curves=select3(table) as Selection<SurfaceChain<A>>;
- }
- /** The chains a test keeps, as curves a view draws. */
- filter(test:(chain:SurfaceChain<A>,index:number)=>unknown):SurfaceCurves<A> {
-  const kept=[...this.curves].filter(test);
-  return new SurfaceCurves<A>(selectSurfaceCurveNetwork3(this.network,kept.flatMap(c=>c.edges.indices)),this);
- }
- map<T>(field:(chain:SurfaceChain<A>,index:number)=>T):T[]{return this.curves.map(field);}
- find(test:(chain:SurfaceChain<A>,index:number)=>unknown):SurfaceChain<A>|undefined{return this.curves.find(test);}
- some(test:(chain:SurfaceChain<A>,index:number)=>unknown):boolean{return this.curves.some(test);}
- every(test:(chain:SurfaceChain<A>,index:number)=>unknown):boolean{return this.curves.every(test);}
- /** The chains split by key, first-occurrence order: each group's key and
-  * its curves, which a view draws. (`key` on the curves themselves is their
-  * view identity, so the group key rides beside them.) */
- groupBy<K>(field:(chain:SurfaceChain<A>)=>K):readonly {readonly key:K;readonly curves:SurfaceCurves<A>}[] {
-  const groups=new Map<K,number[]>();
-  for(const chain of this.curves){const k=field(chain),list=groups.get(k)??[];list.push(...chain.edges.indices);groups.set(k,list);}
-  return Object.freeze([...groups].map(([key,indices])=>Object.freeze({key,curves:new SurfaceCurves<A>(selectSurfaceCurveNetwork3(this.network,indices),this)})));
+  return this.#curves=select(table,null) as Selection<SurfaceChain<A>>;
  }
  /** The description behind these curves, when they are not computed yet. */
  get recipe():SurfaceCurveRecipe3|undefined{return isRecipe(this.#source)?this.#source:undefined;}
@@ -140,23 +181,24 @@ export class SurfaceCurves<A extends Attributes3={}> {
  get edges():Selection<SurfaceCurveEdge<A>>{return this.#build().edges;}
  get sources():SurfaceCurveNetwork3['sources']{return this.network.sources;}
  rebind(target:Material|readonly Material[]):SurfaceCurves<A> {
-  const targets=isGeometry(target)?[target]:target;
-  if(!Array.isArray(targets)||targets.length!==this.sources.length||targets.some(t=>!isGeometry(t)))throw new Error('curve rebind requires one mesh per source');
+  const targets=(target instanceof Material)?[target]:target;
+  if(!Array.isArray(targets)||targets.length!==this.sources.length||targets.some(t=>!(t instanceof Material)))throw new Error('curve rebind requires one mesh per source');
   const bindings=(targets as readonly Material[]).map((t,i)=>surfaceBinding3(surfaceOf(t),this.sources[i].binding.placement));
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
- withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.#source,{key});}
- /** Repeat prototype-attached marks at every placement of an instance set.
+ /** Repeat prototype-attached marks at every copy of instances.
   * Attachments are re-evaluated on each placed triangle from their retained
-  * affine weights; the prototype mesh is not realized. Segment attributes gain
-  * the instance ID; chains are per placement. Single-source marks only. */
- place(instances:Instances<any,any,any,any,any,any,any>):SurfaceCurves<A&{instance:string}> {
-  if(!(instances instanceof Instances))throw new Error('curve placement requires an instance set');
+  * affine weights; the prototype mesh is not realized. Each edge gains the
+  * `instance` column, naming the copy; chains are per copy. Single-source
+  * marks only. */
+ place(instances:Material):SurfaceCurves<A&{instance:string}> {
+  const prototype=prototypeOf(instances);
+  if(prototype===undefined)throw new Error('place: expected instances — instanceOnPoints or instanceOnFaces places the prototype these curves are attached to');
   const network=this.network.reference??this.network;
-  if(network.sources.length!==1||network.sources[0].binding.placement)throw new Error('curve placement requires marks attached to one unplaced prototype');
-  if(network.sources[0].binding.source!==surfaceOf(instances.prototype))throw new Error('curves are attached to a different prototype than these instances');
+  if(network.sources.length!==1||network.sources[0].binding.placement)throw new Error('place: these curves are attached to more than one surface, or placed already — place marks attached to one unplaced prototype');
+  if(network.sources[0].binding.source!==surfaceOf(prototype))throw new Error('place: these curves are attached to another prototype than these instances place');
   const selected=new Set(this.network.segments.map(s=>s.id));
-  const sources=instances.rows.map(row=>({id:row.id,binding:instanceSurfaceBinding3(instances,row)}));
+  const sources=placedOf(instances).map(copy=>({id:copy.id,binding:copy.binding}));
   const nodes=sources.flatMap((source,si)=>network.nodes.map(node=>{
    const support=node.supports[0],weights=support.weights.map(v=>BigInt(v));
    return {id:identity('placed-node',source.id,node.id),point:weightedPoint(bindingTriangle3(source.binding,support.triangle),weights),supports:node.supports.map(s=>({source:si,triangle:s.triangle})),attributes:node.attributes};

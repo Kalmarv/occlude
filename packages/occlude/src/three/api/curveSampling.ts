@@ -1,9 +1,9 @@
 import {emptySize} from '../degenerate.js';
-import {geometry3,isGeometry,surfaceOf,type GeometryOptions} from './mesh.js';
+import {geometry3,type GeometryOptions} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
 import {kinds} from '../../column.js';
-import type {Material} from '../../material.js';
-import {kernelOf} from '../geometry/value.js';
-import {Instances,instanceSurfaceBinding3} from './instances.js';
+import {Material} from '../../material.js';
+import {isInstances,placedOf} from './instances.js';
 export type {Attributes3};
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
@@ -25,7 +25,7 @@ export interface CurveSample {
  /** All incident triangle contexts remain distinct at creases and UV seams. */
  readonly locations:readonly SurfaceLocation3[];
  /** Select actual mesh/placement ownership; multiple face contexts stay explicit. */
- on(target:Material|Instances<any,any,any,any,any,any,any>):readonly SurfaceLocation3[];
+ on(target:Material):readonly SurfaceLocation3[];
 }
 interface Attachment {readonly network:SurfaceCurveNetwork3;readonly edgeId:string;readonly fraction:Ratio}
 /** Where each curve sample sits on its network, kept beside the record a
@@ -45,12 +45,15 @@ function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fra
  })));
  const sample=Object.freeze({chainId:segment.chainId,edgeId:segment.id,parameter:segment.range[0]+ratioNumber(fraction)*(segment.range[1]-segment.range[0]),exact:encodePoint(p),position,tangent,
   get locations(){return rows();},
-  on(target:Material|Instances<any,any,any,any,any,any,any>){
-   if(isGeometry(target))return Object.freeze(rows().filter(row=>row.source===surfaceOf(target)&&!row.placement));
-   if(!(target instanceof Instances))throw new Error('curve sample source requires a mesh or instance set');
-   const bindings=target.rows.map(row=>instanceSurfaceBinding3(target,row));
-   return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===row.source&&b.placement===row.placement)));
+  on(target:Material){
+   if(isInstances(target)){
+    const bindings=placedOf(target).map(copy=>copy.binding);
+    return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===row.source&&b.placement===row.placement)));
+   }
+   if(!(target instanceof Material))throw new Error('sample.on: expected a mesh or instances');
+   return Object.freeze(rows().filter(row=>row.source===surfaceOf(target)&&!row.placement));
   },
+
  });
  attachments.set(sample,{network,edgeId:segment.id,fraction});
  return sample;
@@ -87,7 +90,7 @@ export function rebindCurveSamples(m:Material,target:SurfaceCurves<any>):Materia
   const sample=context(next,segment,a.fraction);fresh.push(sample);
   return {...p,position:sample.position};
  });
- return curvePoints(target,points,fresh,kernelOf(m).key,m);
+ return curvePoints(target,points,fresh,m.key,m);
 }
 export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):Material {
  const {count,spacing}=options,maxPoints=options.maxPoints??Infinity,maxSupports=options.maxSupports??Infinity;

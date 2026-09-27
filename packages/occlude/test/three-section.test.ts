@@ -70,7 +70,8 @@ describe('mesh-plane sections',()=>{
       p.position.forEach((n,k)=>expect(n).toBeCloseTo(reconstructed[k]));
     }
     expect(()=>section3(box3(),[plane],{maxSegments:1})).toThrow('capacity');
-    expect(()=>section3(box3(),[{...plane,normal:[0,0,0]}])).toThrow('nonzero');
+    // A plane with no direction cuts nothing: that section draws nothing.
+    expect(section3(box3(),[{...plane,normal:[0,0,0]}]).segments.length).toBe(0);
     expect(()=>section3(box3(),[plane,plane])).toThrow('unique');
   });
 });

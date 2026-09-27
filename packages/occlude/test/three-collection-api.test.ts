@@ -52,9 +52,9 @@ describe('source-bound collection selection algebra',()=>{
     const source=box(),curves=source.edges.extract();
     expect(curves.edges.without(curves.edges.filter(e=>e.index<3)).length).toBe(9);
     const instances=instanceOnPoints(plane(),pointCloud([[0,0,0],[1,0,0]]).points);
-    const first=instances.instances.filter(p=>p.index===0);
-    expect(first.union(instances.instances.without(first)).length).toBe(2);
-    expect(first.has(instances.instances.at(0)!)).toBe(true);
-    expect(first.extract().length).toBe(1);
+    const first=instances.points.filter(p=>p.index===0);
+    expect(first.union(instances.points.without(first)).length).toBe(2);
+    expect(first.has(instances.points.at(0)!)).toBe(true);
+    expect(first.extract().points.length).toBe(1);
   });
 });

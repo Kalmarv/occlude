@@ -1,12 +1,11 @@
-import {isGeometry,surfaceOf} from './mesh.js';
-import {kernelOf} from '../geometry/value.js';
+import {surfaceOf} from '../geometry/value.js';
 import type {IsoLevels} from '../../isolines.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {isolines3} from '../curves/isolines.js';
 import {snapshotSurface3} from '../geometry/model.js';
 import {surfaceBinding3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3,type SurfaceCurveRecipe3,type SurfaceCurveView3} from '../curves/network.js';
-import type {Material} from '../../material.js';
+import {Material} from '../../material.js';
 import type {Corner} from '../../corners.js';
 
 /** Which levels to trace: the 2D `t.isolines` `at` — one level, a list,
@@ -17,7 +16,7 @@ export interface IsolineOptions extends SurfaceCurveOptions {
   readonly maxSegments?:number;readonly maxNodes?:number;readonly budget?:SurfaceCurveBudget3;
 }
 /** `levelIndex` rather than `index`: edge rows already carry their row index. */
-export type IsolineAttributes={level:number;levelIndex:number};
+export type IsolineColumns={level:number;levelIndex:number};
 /** The field's row: the corner (uv, chart, `.point`, `.face`) with its point's
  * `x`, `y`, `z` and point attributes merged in, so `p => p.z` and
  * `c => c.uv[1]` both read naturally. */
@@ -65,7 +64,7 @@ function checkedLevels(at:unknown):IsoLevels {
   return at as IsoLevels;
 }
 export function captureIsolines(mesh:Material,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):CapturedIsolines {
-  if(!isGeometry(mesh))throw new Error('isolines require a geometry with faces');
+  if(!(mesh instanceof Material))throw new Error('isolines require a geometry with faces');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isolines options must be an object');
   const moved=(levelWords as readonly string[]).find(k=>k in options);
   if(moved)throw new Error(`isolines: '${moved}' is a level, not an option — the levels are the third argument, as in 2D: isolines(mesh, field, ${moved==='levels'?'[0, 0.5]':`{ ${moved}: … }`})`);
@@ -85,7 +84,7 @@ export function captureIsolines(mesh:Material,field:IsolineField,at:IsoLevels,op
   });
   const levels=resolveLevels(spec,values);
   const surface=snapshotSurface3(surfaceOf(mesh));
-  return {surface,binding:surfaceBinding3(surface),values,levels:Object.freeze([...levels]),key:options.key??kernelOf(mesh).key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
+  return {surface,binding:surfaceBinding3(surface),values,levels:Object.freeze([...levels]),key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
 }
 /** The contours as a description a view resolves once it knows its camera.
  *
@@ -124,7 +123,7 @@ export function isolineRecipe(captured:CapturedIsolines):SurfaceCurveRecipe3 {
  * are interpolated linearly inside each represented triangle; a nonlinear
  * field is approximated by its corner samples, so refine the mesh for
  * accuracy. Reusable supported construction geometry, not a view feature. */
-export function isolines(mesh:Material,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):SurfaceCurves<IsolineAttributes> {
+export function isolines(mesh:Material,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):SurfaceCurves<IsolineColumns> {
   const captured=captureIsolines(mesh,field,at,options);
-  return new SurfaceCurves<IsolineAttributes>(isolineRecipe(captured),{key:options.key});
+  return new SurfaceCurves<IsolineColumns>(isolineRecipe(captured),{key:options.key});
 }

@@ -5,16 +5,6 @@ import {integerWeights,weightedPoint,encodePoint,pointNumber,type H} from '../ge
 import {surfaceBinding3,bindingTriangle3,surfaceCurveNetwork3,type SurfaceCurveNetworkInput3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3} from './network.js';
 import {identity} from '../api/identity.js';
 
-/** Scalar isolines of the piecewise-linear interpolant of per-corner values on
- * the represented triangles. Nothing here is exact about the field: the level
- * crossing parameter is binary64, but the crossing POINT is then constructed
- * exactly on the represented triangle edge, so incidence to both triangles
- * sharing that edge is exact. Half-open convention: a corner whose value
- * equals the level counts as above it, so a level through a vertex yields the
- * vertex itself as a node (no zero-length pieces are emitted). Two triangles
- * share a crossing node only when their corner values agree along the edge; a
- * seam (different corner values at one vertex) keeps its nodes separate. */
-export interface IsolineLevels3 {readonly levels:readonly number[]}
 /** What a lazy run skipped and what it still had to build. Present only when
  * a `hidden` predicate was given. */
 export interface IsolineLazyStats3 {
@@ -61,7 +51,17 @@ function positiveBudget(value:number|undefined,fallback:number,name:string):numb
 /** An end of a deferred record: everything the crossing point is a function of,
  * and nothing built. `lo`/`hi` are corner indices on `triangle`. */
 interface DeferredEnd3 {readonly triangle:number;readonly lo:number;readonly hi:number;readonly s:number;readonly crossing:string}
-/** `values` holds one number per corner in face order, then polygon order. */
+/** Scalar isolines of the piecewise-linear interpolant of per-corner values on
+ * the represented triangles. Nothing here is exact about the field: the level
+ * crossing parameter is binary64, but the crossing POINT is then constructed
+ * exactly on the represented triangle edge, so incidence to both triangles
+ * sharing that edge is exact. Half-open convention: a corner whose value
+ * equals the level counts as above it, so a level through a vertex yields the
+ * vertex itself as a node (no zero-length pieces are emitted). Two triangles
+ * share a crossing node only when their corner values agree along the edge; a
+ * seam (different corner values at one vertex) keeps its nodes separate.
+ *
+ * `values` holds one number per corner in face order, then polygon order. */
 export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonly number[],options:IsolineOptions3={}):IsolineResult3 {
   const surface=snapshotSurface3(input),binding=surfaceBinding3(surface),key=options.key??'isolines';
   const maxSegments=positiveBudget(options.maxSegments,250000,'segment'),maxNodes=positiveBudget(options.maxNodes,250000,'node');

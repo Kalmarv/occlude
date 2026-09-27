@@ -192,6 +192,7 @@ class PointDomain implements Domain<Vertex> {
       }
       return { rows, distances };
     }
+    placeFlat(p, who);
     const rows = index(p as XY);
     const distances = new Float64Array(rows.length);
     // The index is built over every position, so the flats are joined
@@ -275,6 +276,7 @@ class EdgeDomain implements Domain<Edge> {
       }
       return { rows, distances };
     }
+    placeFlat(p, who);
     if (space === undefined || space.kind === 'euclidean') {
       const distances: number[] = [];
       return { rows: edgeQuery(m).within([px, py], radius, distances), distances };
@@ -297,6 +299,13 @@ function placeZ(p: unknown, who: string): number {
   const z = Array.isArray(p) ? p[2] : typeof p === 'object' && p !== null ? (p as { z?: unknown }).z : undefined;
   if (typeof z !== 'number' || !Number.isFinite(z)) throw new Error(`${who}: this value is in space — ask with a place in space: [x, y, z], { x, y, z } or a point of a value in space`);
   return z;
+}
+
+/** A question about a value in the plane asks with a place in the plane:
+ * a place in space is refused by name, not read as its shadow. */
+function placeFlat(p: unknown, who: string): void {
+  const z = Array.isArray(p) ? p[2] : typeof p === 'object' && p !== null ? (p as { z?: unknown }).z : undefined;
+  if (z !== undefined) throw new Error(`${who}: this value is in the plane — ask with a place in the plane: [x, y], { x, y } or a point of a value in the plane; [x, y, z] is a place in space`);
 }
 
 const inCurvedSpace = (who: string): Error =>

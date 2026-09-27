@@ -405,7 +405,7 @@ export default sketch({ aspect: [1, 1], seed: 4, space: space.hyperbolic({ radiu
 
 `view` does not take a space yet. Until it does, three words in `occlude/3d` hold a hyperbolic scene. They work in the Klein ball, the unit ball of `[x, y, z]`. There a hyperbolic line is a chord, and a hyperbolic plane is a flat plane. Klein coordinates are not hyperbolic lengths: a point at distance `R` from the centre sits at Klein radius `tanh R`.
 
-`honeycomb(p, q, r, { depth })` gives the honeycomb as one complex. `cell` is the regular cell as a mesh. `placements` has one `Placement<Vec3>` for each copy of the cell, and the identity is first. `points` has each corner one time, and two cells that touch at a corner share it. `faces` has each wall one time, with the columns `cell`, `generation` and `mirrored`. `cell` is the first copy that has the wall. `generation` is the number of reflections to that copy. `mirrored` is true when that copy is a mirror image. `wires` has each edge one time, as a wire with two points, and each wire has the columns `cell` and `generation`. The complex is not a mesh, because more than two walls touch each edge.
+`honeycomb(p, q, r, { depth })` gives the honeycomb as one complex. `cell` is the regular cell as a mesh. `placements` has one `Placement<Vec3>` for each copy of the cell, and the identity is first. `wires` has each corner one time and each edge one time, as a wire with two points. Two cells that touch at a corner share it. Each wire has the columns `cell` and `generation`. `faces` has each wall one time. Its `points` are the points of `wires` in order around the wall. Its `source` is the placement of the first copy that has the wall. `generation` is the number of reflections to that copy. `mirrored` is 1 when that copy is a mirror image, and 0 when it is not, as on a tiling. The complex is not a mesh, because more than two walls touch each edge.
 
 Four symbols have a compact cell: `{4, 3, 5}`, `{5, 3, 4}`, `{3, 5, 3}` and `{5, 3, 5}`. The word refuses any other symbol, and the error names its geometry.
 
@@ -429,8 +429,8 @@ export default sketch({ aspect: [1, 1], pens: {
   const seen = observer([c.x * 0.15, c.y * 0.15, c.z * 0.15], wall.centroid, { up: [0.26, 0, 0.97] });
   const camera = perspective({ eye: [0, 0, 0], target: [0, 1, 0], fovDegrees: 100, near: 0.005 });
   return view(h.wires.transform(seen), { camera, pen: 'ink' }, (lines) => clip(rect(0, 0, b.w, b.h), [
-    strokes(lines.visible.filter((w) => w.attributes.generation > 0), { stroke: 'ink' }),
-    strokes(lines.visible.filter((w) => w.attributes.generation === 0), { stroke: 'room' }),
+    strokes(lines.visible.filter((w) => w.generation > 0), { stroke: 'ink' }),
+    strokes(lines.visible.filter((w) => w.generation === 0), { stroke: 'room' }),
   ]));
 });
 ```

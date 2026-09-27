@@ -7,7 +7,7 @@ export interface RotationData {readonly kind:'rotation';readonly quaternion:Quat
 export type RotationInput = Vec3|RotationData;
 export function vector3(value:Vector3):Vec3 {
   const v=Array.isArray(value)?value:[(value as {x:number}).x,(value as {y:number}).y,(value as {z:number}).z];
-  finite3(v as Vec3);return [...v] as unknown as Vec3;
+  finite3(v as Vec3,'rotation');return [...v] as unknown as Vec3;
 }
 /** Undefined where there is no direction: a zero vector names no axis, so the
  * rotation asked for is the identity. An unknown axis name is still a mistake. */
@@ -39,10 +39,21 @@ export class Rotation implements RotationData {
   then(next:RotationInput):Rotation{return new Rotation(multiply(rotation3(next).quaternion,this.quaternion));}
   inverse():Rotation{const [x,y,z,w]=this.quaternion;return new Rotation([-x,-y,-z,w]);}
 }
+/** @internal The rotation a stored quaternion is. One this library made —
+ * a unit, its sign canonical — is taken as it is, so a turn read back from
+ * a column turns exactly as the rotation it was stored from; any other is
+ * normalized, as a rotation value always is. */
+export function storedRotation(q:ArrayLike<number>):Rotation {
+  const value=[q[0],q[1],q[2],q[3]] as const,length=Math.hypot(...value),leading=value[3]||value[0]||value[1]||value[2];
+  if(!value.every(Number.isFinite)||leading<0||Math.abs(length-1)>4*Number.EPSILON)return new Rotation(value);
+  const turn=Object.create(Rotation.prototype) as {kind:'rotation';quaternion:Quaternion3};
+  turn.kind='rotation';turn.quaternion=Object.freeze([...value]) as unknown as Quaternion3;
+  return Object.freeze(turn) as unknown as Rotation;
+}
 export function rotation3(value:RotationInput):Rotation {
   if(value instanceof Rotation)return value;
   if(Array.isArray(value)){
-    finite3(value as Vec3);let result=new Rotation([0,0,0,1]);
+    finite3(value as Vec3,'rotation');let result=new Rotation([0,0,0,1]);
     for(const [i,axis] of (['x','y','z'] as const).entries())result=result.then(axisAngle(axis,value[i]));
     return result;
   }
@@ -107,7 +118,7 @@ export function alignAxis(axis:Axis3,target:Vector3,options:AlignAxisOptions={})
 /** Preserve legacy Euler arithmetic, while applying rotation values directly. */
 export function rotateVector3(value:Vec3,input:RotationInput):Vec3 {
   if(!Array.isArray(input))return rotation3(input).apply(value);
-  finite3(input as Vec3);let v=value;
+  finite3(input as Vec3,'rotation');let v=value;
   for(let axis=0;axis<3;axis++){const angle=input[axis]*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle),a=(axis+1)%3,b=(axis+2)%3,next=[...v];next[a]=c*v[a]-s*v[b];next[b]=s*v[a]+c*v[b];v=next as unknown as Vec3;}
   return v;
 }

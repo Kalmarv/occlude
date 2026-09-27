@@ -171,7 +171,7 @@ export { rotate, translate, scale, vectorField, grad, curl } from './field.js';
 // perpendicular family of either kind.
 export { axisField, across } from './field.js';
 export type { AxisFieldFn } from './field.js';
-export type { Prepared, PointField } from './field.js';
+export type { Prepared, PointField, DifferenceOptions } from './field.js';
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui } from './ui.js';

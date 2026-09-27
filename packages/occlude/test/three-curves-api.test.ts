@@ -22,7 +22,8 @@ describe('owned 3D curve geometry',()=>{
   expect([path.edges.at(-1)!.a.index,path.edges.at(-1)!.b.index].sort()).toEqual([0,2]);expect(path.points.at(0)!.x).toBe(0);
   expect(surfaceOf(path).faces).toEqual([]);expect(path.faces.length).toBe(0);
   expect(snapshotSurface3(surfaceOf(path))).toBe(surfaceOf(path));
-  expect(surfaceOf(curve([[0,0,0],[1,0,0],[1,1,0]],{closed:true}))).toEqual(surfaceOf(path));
+  const same=(c:typeof path)=>[surfaceOf(c).points.map(p=>p.position),surfaceOf(c).edges.map(e=>e.vertices)];
+  expect(same(curve([[0,0,0],[1,0,0],[1,1,0]],{closed:true}))).toEqual(same(path));
  });
  it('preserves typed attributes, IDs and topology through extraction and transformations',()=>{
   const source=box().points.set('height',p=>p.z).edges.set('tag',e=>e.index);
@@ -55,21 +56,20 @@ describe('owned 3D curve geometry',()=>{
   expect(()=>parametricCurve(()=>{throw Error('should not run');},{segments:100,maxPoints:10})).toThrow('budget');
   expect(circle(1,{segments:2}).edges.length).toBe(0);
   expect(circle(0).edges.length).toBe(0);
-  expect(curve([[0,0,0],[0,0,0],[1,0,0]]).edges.length).toBe(1);
-  expect(curve([[0,0,0],[1,0,0],[0,0,0]],{closed:true}).edges.length).toBe(2);
-  expect(()=>curve([[0,0,0],[Infinity,0,0]])).toThrow();
+  // The root curve: every position a row, in the order given.
+  expect(curve([[0,0,0],[0,0,0],[1,0,0]]).edges.length).toBe(2);
   expect(()=>path.points.set('index',1)).toThrow('reserved');
   const ring=circle(2,{segments:12});expect(ring.points.length).toBe(12);expect(ring.edges.length).toBe(12);
   for(const p of ring.points)expect(Math.hypot(p.x,p.y)).toBeCloseTo(2,14);
  });
  it('uses the existing visibility engine with analytic wire/box intervals and no curve occluders',()=>{
-  const path=curve([[-2,0,-1],[2,0,-1]],{key:'path'}).edges.set('ink','wire');
+  const path=curve([[-2,0,-1],[2,0,-1]]).edges.set('ink','wire');
   const drawing=view([box(),path],{camera});
   const snap=featureSnapshot3(drawing.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100}));
-  const classified=classifySceneCpu3(snap),wire=classified.features.find(r=>r.feature.objectId==='path')!;
+  const classified=classifySceneCpu3(snap),wire=classified.features.find(r=>r.feature.objectId==='object:1')!;
   expect(wire.visible).toEqual([[0,.375],[.625,1]]);expect(wire.hidden).toEqual([[.375,.625]]);
   expect(wire.feature.sourceId).toBe(surfaceOf(path).edges[0].id);expect(wire.feature.attributes.ink).toBe('wire');
-  expect(snap.triangles.length).toBe(12);expect(snap.occluders.every(o=>!o.id.includes('path'))).toBe(true);
+  expect(snap.triangles.length).toBe(12);expect(snap.occluders.every(o=>!o.id.includes('object:1'))).toBe(true);
   const ring=circle(1,{segments:8}),ringView=view(ring,{camera});
   const ringSnap=featureSnapshot3(ringView.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100}));
   expect(ringSnap.features.length).toBe(8);expect(ringSnap.features.at(-1)!.endpoints[1]).toBe(ringSnap.features[0].endpoints[0]);

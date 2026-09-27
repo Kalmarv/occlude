@@ -1,47 +1,39 @@
 /**
- * @internal The one geometry's parts, and the 3D working view built from them.
+ * @internal The 3D working view, read from the one geometry's parts and
+ * written back to them.
  *
  * A 3D value is the one geometry (`Material`): typed columns per domain, a
  * `z` point column, stated polygon faces with their corners, and minted
  * numeric ids. The 3D kernels (visibility, subdivide, extrude, booleans,
  * dual, sweep, revolve, isolines, hatch, intersections, sampling) keep their
- * own working format, `Surface3`: row objects and fixed triangles. This
- * module is the one door between the two, both ways:
+ * own working format, `Surface3`: row objects and fixed triangles. The
+ * core's parts are the one format between the two, both ways:
  *
- *   partsOfSurface(surface, from?)  a kernel's result → parts, for the
- *                                   core's constructor door;
- *   surfaceOfParts(parts)           parts → the working view a kernel reads.
+ *   partsOfSurface(surface, from?)  a kernel's result → `MaterialParts`,
+ *                                   for the core's `materialFromParts`;
+ *   surfaceOfParts(parts)           `partsOfMaterial`'s parts → the working
+ *                                   view a kernel reads.
  *
- * The parts, domain by domain:
- *
- * | domain  | rows                              | columns      |
- * |---------|-----------------------------------|--------------|
- * | points  | `x`, `y`, `z`                     | `pointCols`  |
- * | edges   | `edges`, two point rows an edge   | `edgeCols`   |
- * | faces   | `loops` from `loopStarts[f]` to   | `faceCols`   |
- * |         | `loopStarts[f + 1]`, point rows   |              |
- * | corners | one per loop entry, in face order | `cornerCols` |
- * |         | then winding order                |              |
- *
- * `triangles` (three point rows each) and `triangleFaces` are the faces'
- * FIXED triangulation: a polygon is authoring topology, its triangles are
- * what is drawn and occluded, and a move keeps them as they were (a quad
- * bent by a displacement keeps the diagonal it was born with). Absent, each
- * face is triangulated from its positions (`triangulate`, the ear clipping
- * a new surface gets).
+ * The faces' FIXED triangulation is face data: a polygon is authoring
+ * topology, its triangles are what is drawn and occluded, and a move keeps
+ * them as they were (a quad bent by a displacement keeps the diagonal it was
+ * born with). The parts hold each face's triangles as positions round its
+ * loop; a face with none is triangulated from its positions (`triangulate`,
+ * the ear clipping a new surface gets).
  *
  * Identity, two words, both internal:
  *
- * - `ids`: every row's minted number (`mintIds`, the run's counter). It is
+ * - ids: every row's minted number (`mintIds`, the run's counter). It is
  *   the row's identity in the one geometry: a selection from an earlier
  *   state is resolved by it, and a row a kernel kept keeps it.
- * - `names`: every row's kernel NAME — the string the kernels made it under
+ * - keys: every row's kernel NAME — the string the kernels made it under
  *   (`p0`, a face's `f3`, a subdivision child's hash of its parents'). The
  *   view spells a row's `id` with its name, so a kernel reads exactly the
  *   rows it always read: its canonical orders, its stroke keys and the
  *   stroke seeds they feed come from what a row is made of, and not from
  *   when in the run it was minted. A line added above an object does not
- *   re-roll its strokes. A name is never a public word.
+ *   re-roll its strokes. A name is never a public word. A row with no name
+ *   (one the core added) is named for its id.
  *
  * `partsOfSurface` joins the two: a row whose name the kernel's first input
  * holds in the same domain is that row, and keeps its id; any other row is
@@ -59,88 +51,61 @@
  *
  * Lineage: a row a derivation made carries `{ operation, parents, inputs? }`
  * — the names of the rows it came from, and which input holds each when the
- * derivation read more than one value (the kernels' `provenance`).
+ * derivation read more than one value (the kernels' `provenance`). It rides
+ * beside the parts, into the view a derivation's value keeps.
  */
 
-import {Column, kinds, kindOf, type AnyColumn, type AnyKind, type VectorColumn} from '../../column.js';
-import {mintIds} from '../../material.js';
+import {Column, kinds, kindOf, kindWords, type AnyColumn, type AnyKind, type VectorColumn} from '../../column.js';
+import {mintIds, type FacePart, type MaterialParts, type MaterialPartsOut} from '../../material.js';
+import type {CellValue} from '../../tables.js';
+import {kindOfValue} from '../../tables.js';
 import {captureSurface3, ownSurface3} from './model.js';
-import {inheritTopology3} from './topology.js';
 import {triangulate, type Attribute3, type Attributes3, type Provenance3, type Surface3, type SurfaceCorner3, type SurfaceEdge3, type SurfaceFace3, type SurfacePoint3, type SurfaceTriangle3} from './surface.js';
 import type {Vec3} from '../math.js';
 
 /** The domains of the one geometry a 3D value fills. */
 export type Domain3 = 'points' | 'edges' | 'faces' | 'corners';
-export const DOMAINS3: readonly Domain3[] = Object.freeze(['points', 'edges', 'faces', 'corners']);
-
-/** What one row came from: the names of its parent rows, and, when the
- * derivation read several values, the input that holds each parent. */
-export type Lineage3 = Provenance3;
+const DOMAINS3: readonly Domain3[] = Object.freeze(['points', 'edges', 'faces', 'corners']);
 
 export type Columns3 = Readonly<Record<string, AnyColumn>>;
+/** What each row of one domain came from; absent where nothing did. */
+export type Lineage3 = Readonly<Partial<Record<Domain3, readonly (Provenance3 | undefined)[]>>>;
 
-/** @internal The one geometry's parts, as the 3D layer builds and reads them. */
-export interface SurfaceParts {
-  readonly x: Float64Array;
-  readonly y: Float64Array;
-  readonly z: Float64Array;
-  readonly pointCols: Columns3;
-  /** Two point rows an edge, the lower first. */
-  readonly edges: Uint32Array;
-  readonly edgeCols: Columns3;
-  /** Every face's loop of point rows, one after another. */
-  readonly loops: Uint32Array;
-  /** Face `f`'s loop is `loops[loopStarts[f]]` up to `loops[loopStarts[f + 1]]`;
-   * one longer than the faces. A corner's row is its place in `loops`. */
-  readonly loopStarts: Uint32Array;
-  readonly faceCols: Columns3;
-  readonly cornerCols: Columns3;
-  /** The fixed triangulation: three point rows a triangle, and the face
-   * each triangle belongs to. Absent: triangulated from the positions. */
-  readonly triangles?: Uint32Array;
-  readonly triangleFaces?: Uint32Array;
-  /** The minted id of every row, per domain. */
-  readonly ids: Readonly<Record<Domain3, Float64Array>>;
-  /** The kernel name of every row, per domain (see the module note). */
-  readonly names: Readonly<Record<Domain3, readonly string[]>>;
-  /** What each row came from, per domain; absent where nothing did. */
-  readonly lineage: Readonly<Partial<Record<Domain3, readonly (Lineage3 | undefined)[]>>>;
-  /** @internal The surface these parts were read from has every column on
-   * every row and a corner record at every vertex: it is its own view. */
-  readonly complete?: true;
-}
+/** @internal The parts a view is read from: `partsOfMaterial`'s. */
+export type ViewParts = MaterialPartsOut;
+
+/** @internal A kernel's surface as the core's parts, with what a view of
+ * them needs besides: the rows' lineage, and whether the surface is its own
+ * view (every column on every row and a corner record at every vertex). */
+export type SurfaceMade = MaterialParts & {readonly lineage: Lineage3; readonly complete: boolean};
 
 // ─── columns ──────────────────────────────────────────────────────────
 
 /** The column kind a view value is: a number, a boolean, a string, or a
  * vector of its length. */
-function kindOfValue(value: Attribute3): AnyKind {
-  if (typeof value === 'number') return kinds.number;
-  if (typeof value === 'boolean') return kinds.boolean;
-  if (typeof value === 'string') return kinds.string;
-  if (Array.isArray(value)) return kinds.vector(value.length);
-  throw new Error(`a geometry column holds numbers, booleans, strings or numeric vectors — got ${typeof value}`);
+function kernelKind(value: Attribute3): AnyKind {
+  const kind = kindOfValue(value);
+  if (kind === null || kind === undefined || kind === kinds.reference) throw new Error(`a geometry column holds numbers, booleans, strings or numeric vectors — got ${typeof value}`);
+  return kind;
 }
-const kindWords = (kind: AnyKind): string => kind.name === 'vector' ? `a vector of ${kind.width}` : `a ${kind.name}`;
 
-/** Does every record hold a value for every column any of them holds? */
 /** The typed columns of a domain's attribute records: one column per name any
  * row has, of the kind its values are; a row with none reads the default. */
-function columnsOf(records: readonly Readonly<Attributes3>[], holes?: {sparse: boolean}): Record<string, AnyColumn> {
+function columnsOf(records: readonly Readonly<Attributes3>[], holes: {sparse: boolean}): Record<string, AnyColumn> {
   const found = new Map<string, AnyKind>();
   const count = new Map<string, number>();
   for (const record of records) {
     for (const name in record) {
       const value = record[name];
       if (value === undefined) continue;
-      const kind = kindOfValue(value);
+      const kind = kernelKind(value);
       const known = found.get(name);
       if (known === undefined) found.set(name, kind);
       else if (known !== kind) throw new Error(`the column '${name}' holds ${kindWords(known)} on one row and ${kindWords(kind)} on another: a column holds one kind`);
       count.set(name, (count.get(name) ?? 0) + 1);
     }
   }
-  if (holes !== undefined) for (const c of count.values()) if (c !== records.length) holes.sparse = true;
+  for (const c of count.values()) if (c !== records.length) holes.sparse = true;
   const out: Record<string, AnyColumn> = {};
   const n = records.length;
   for (const [name, kind] of found) {
@@ -202,48 +167,60 @@ function recordsOf(cols: Columns3, n: number): Attributes3[] {
   return out;
 }
 
-// ─── ids ──────────────────────────────────────────────────────────────
+/** A cell of a column, as a face part takes it. */
+const cellAt = (column: AnyColumn, i: number): CellValue => (column as {get(i: number): unknown}).get(i) as CellValue;
 
-/** name → row of one domain of `parts`, built once per parts. */
-const nameMaps = new WeakMap<SurfaceParts, Partial<Record<Domain3, Map<string, number>>>>();
-function rowOfName(parts: SurfaceParts, domain: Domain3): Map<string, number> {
-  let maps = nameMaps.get(parts);
-  if (maps === undefined) nameMaps.set(parts, maps = {});
-  let map = maps[domain];
-  if (map === undefined) {
-    map = new Map();
-    const names = parts.names[domain];
-    for (let i = 0; i < names.length; i++) map.set(names[i], i);
-    maps[domain] = map;
-  }
+// ─── names and ids ────────────────────────────────────────────────────
+
+/** Kernel names, or a row's own name made from its id where it has none. */
+const named = (keys: readonly string[] | null | undefined, ids: ArrayLike<number>, prefix: string): readonly string[] =>
+  Array.from(ids, (id, i) => { const k = keys?.[i]; return k === undefined || k === '' ? `${prefix}${id}` : k; });
+
+/** Every row of the parts, by domain: its kernel name and its id, the
+ * columns it holds, and each face's loop (point rows). */
+interface Rows3 {
+  readonly names: Readonly<Record<Domain3, readonly string[]>>;
+  readonly ids: Readonly<Record<Domain3, ArrayLike<number>>>;
+  readonly cols: Readonly<Record<Domain3, Columns3>>;
+  readonly loops: readonly (readonly number[])[];
+}
+function rowsOf(parts: ViewParts): Rows3 {
+  const stated = parts.faces;
+  const loops = stated?.loops ?? [];
+  const cornerCount = stated?.corners.point.length ?? 0;
+  const faceIds = stated?.ids.faces ?? new Float64Array(loops.length);
+  const cornerIds = stated?.ids.corners ?? new Float64Array(cornerCount);
+  return {
+    names: {
+      points: named(parts.keys.points, parts.ids.points, '2d:'),
+      edges: named(parts.keys.edges, parts.ids.edges, '2d:e'),
+      faces: named(stated?.keys.faces, stated?.ids.faces ?? Float64Array.from(loops, (_, f) => f), 'face:'),
+      corners: named(stated?.keys.corners, stated?.ids.corners ?? Float64Array.from({length: cornerCount}, (_, c) => c), 'corner:'),
+    },
+    ids: {points: parts.ids.points, edges: parts.ids.edges, faces: faceIds, corners: cornerIds},
+    cols: {points: parts.pointCols, edges: parts.edgeCols, faces: stated?.cols ?? {}, corners: stated?.corners.cols ?? {}},
+    loops,
+  };
+}
+
+/** name → row of one domain. */
+function rowOfName(names: readonly string[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (let i = 0; i < names.length; i++) map.set(names[i], i);
   return map;
 }
 
 /** An edge's ends, by the names of its points: the same two points are the
  * same edge, whatever name a kernel gave the edge. */
 const endsKey = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
-const edgeEnds = new WeakMap<SurfaceParts, Map<string, number>>();
-function rowOfEnds(parts: SurfaceParts): Map<string, number> {
-  let map = edgeEnds.get(parts);
-  if (map === undefined) {
-    map = new Map();
-    const p = parts.names.points;
-    for (let e = 0; e < parts.edges.length / 2; e++) map.set(endsKey(p[parts.edges[2 * e]], p[parts.edges[2 * e + 1]]), e);
-    edgeEnds.set(parts, map);
-  }
-  return map;
-}
 
 /** The ids of a domain's rows: a name `from` holds is that row's id (an
  * edge also by its two points), any other a fresh one. */
-function domainIds(names: readonly string[], from: SurfaceParts | undefined, domain: Domain3, ends?: (i: number) => string): Float64Array {
+function domainIds(names: readonly string[], known: Map<string, number> | undefined, fromIds: ArrayLike<number> | undefined, byEnds?: {map: Map<string, number>; key: (i: number) => string}): Float64Array {
   const out = new Float64Array(names.length);
-  const known = from === undefined ? undefined : rowOfName(from, domain);
-  const byEnds = from === undefined || ends === undefined ? undefined : rowOfEnds(from);
-  const fromIds = from?.ids[domain];
   let fresh = 0;
   for (let i = 0; i < names.length; i++) {
-    const row = known?.get(names[i]) ?? byEnds?.get(ends!(i));
+    const row = known?.get(names[i]) ?? byEnds?.map.get(byEnds.key(i));
     if (row === undefined) {
       out[i] = NaN;
       fresh++;
@@ -262,13 +239,12 @@ function domainIds(names: readonly string[], from: SurfaceParts | undefined, dom
 /** `from`'s reference and placement columns of one domain, onto the rows a
  * kernel answered: a kept row keeps its value, a row made from others its
  * first parent's in `from`, any other the default. */
-function carried(from: SurfaceParts | undefined, domain: Domain3, fromCols: Columns3 | undefined, names: readonly string[], lineage: readonly (Lineage3 | undefined)[] | undefined): Record<string, AnyColumn> {
+function carried(fromCols: Columns3 | undefined, rowOf: Map<string, number> | undefined, names: readonly string[], lineage: readonly (Provenance3 | undefined)[] | undefined): Record<string, AnyColumn> {
   const out: Record<string, AnyColumn> = {};
-  if (from === undefined || fromCols === undefined) return out;
+  if (fromCols === undefined || rowOf === undefined) return out;
   for (const name in fromCols) {
     const column = fromCols[name];
     if (inView(column)) continue;
-    const rowOf = rowOfName(from, domain);
     const kind = kindOf(column) as typeof kinds.reference | typeof kinds.placement;
     const values: unknown[] = [];
     for (let i = 0; i < names.length; i++) {
@@ -295,10 +271,10 @@ function cornersOf(surface: Surface3, f: SurfaceFace3): readonly SurfaceCorner3[
   return f.corners ?? f.vertices.map((v) => ({id: JSON.stringify(['corner', f.id, surface.points[v].id]), attributes: {}}));
 }
 
-/** @internal A surface as parts. `from` is the parts of the value the
- * kernel that made `surface` read first, when it read one: a row it kept
+/** @internal A surface as the core's parts. `from` is the parts of the value
+ * the kernel that made `surface` read first, when it read one: a row it kept
  * keeps its id, and its reference and placement columns ride across. */
-export function partsOfSurface(surface: Surface3, from?: SurfaceParts): SurfaceParts {
+export function partsOfSurface(surface: Surface3, from?: ViewParts): SurfaceMade {
   const n = surface.points.length;
   const x = new Float64Array(n);
   const y = new Float64Array(n);
@@ -314,133 +290,111 @@ export function partsOfSurface(surface: Surface3, from?: SurfaceParts): SurfaceP
     edges[2 * i] = e.vertices[0];
     edges[2 * i + 1] = e.vertices[1];
   });
-  const loopStarts = new Uint32Array(surface.faces.length + 1);
-  surface.faces.forEach((f, i) => { loopStarts[i + 1] = loopStarts[i] + f.vertices.length; });
-  const loops = new Uint32Array(loopStarts[surface.faces.length]);
   const corners: SurfaceCorner3[] = [];
-  surface.faces.forEach((f, i) => {
-    loops.set(f.vertices, loopStarts[i]);
-    for (const c of cornersOf(surface, f)) corners.push(c);
-  });
-  const triangles = new Uint32Array(surface.triangles.length * 3);
-  const triangleFaces = new Uint32Array(surface.triangles.length);
-  surface.triangles.forEach((t, i) => {
-    triangles[3 * i] = t.vertices[0];
-    triangles[3 * i + 1] = t.vertices[1];
-    triangles[3 * i + 2] = t.vertices[2];
-    triangleFaces[i] = t.face;
-  });
+  for (const f of surface.faces) for (const c of cornersOf(surface, f)) corners.push(c);
   const rows: Record<Domain3, readonly {readonly id: string; readonly provenance?: Provenance3; readonly attributes: Readonly<Attributes3>}[]> = {points: surface.points, edges: surface.edges, faces: surface.faces, corners};
-  const fromCols: Record<Domain3, Columns3 | undefined> = {points: from?.pointCols, edges: from?.edgeCols, faces: from?.faceCols, corners: from?.cornerCols};
+  const fromRows = from === undefined ? undefined : rowsOf(from);
   const names = {} as Record<Domain3, readonly string[]>;
   const ids = {} as Record<Domain3, Float64Array>;
-  const lineage: Partial<Record<Domain3, readonly (Lineage3 | undefined)[]>> = {};
+  const lineage: Partial<Record<Domain3, readonly (Provenance3 | undefined)[]>> = {};
   const cols = {} as Record<Domain3, Columns3>;
   const holes = {sparse: false};
   for (const d of DOMAINS3) {
     const r = rows[d];
     names[d] = Object.freeze(r.map((row) => row.id));
-    ids[d] = domainIds(names[d], from, d, d === 'edges' ? (e) => endsKey(names.points[edges[2 * e]], names.points[edges[2 * e + 1]]) : undefined);
+    const known = fromRows === undefined ? undefined : rowOfName(fromRows.names[d]);
+    let byEnds: {map: Map<string, number>; key: (i: number) => string} | undefined;
+    if (d === 'edges' && fromRows !== undefined) {
+      const p = fromRows.names.points, list = from!.edges, map = new Map<string, number>();
+      for (let e = 0; e < list.length / 2; e++) map.set(endsKey(p[list[2 * e]], p[list[2 * e + 1]]), e);
+      byEnds = {map, key: (e) => endsKey(names.points[edges[2 * e]], names.points[edges[2 * e + 1]])};
+    }
+    ids[d] = domainIds(names[d], known, fromRows?.ids[d], byEnds);
     if (r.some((row) => row.provenance !== undefined)) lineage[d] = Object.freeze(r.map((row) => row.provenance));
-    cols[d] = Object.freeze({...columnsOf(r.map((row) => row.attributes), holes), ...carried(from, d, fromCols[d], names[d], lineage[d])});
+    cols[d] = Object.freeze({...columnsOf(r.map((row) => row.attributes), holes), ...carried(fromRows?.cols[d], known, names[d], lineage[d])});
   }
-  return Object.freeze({
+  // Each face: its loop, its fixed triangles as positions round the loop,
+  // and its columns, every face every column.
+  const local: number[][] = surface.faces.map(() => []);
+  for (const t of surface.triangles) {
+    const loop = surface.faces[t.face].vertices;
+    for (let k = 0; k < 3; k++) local[t.face].push(loop.indexOf(t.vertices[k]));
+  }
+  const faceNames = Object.keys(cols.faces);
+  const faces: FacePart[] = surface.faces.map((f, i) => {
+    let own: Record<string, CellValue> | undefined;
+    if (faceNames.length > 0) {
+      own = {};
+      for (const name of faceNames) own[name] = cellAt(cols.faces[name], i);
+    }
+    return {loop: f.vertices, triangles: local[i], ...(own ? {cols: own} : {})};
+  });
+  return {
     x, y, z,
     pointCols: cols.points,
     edges,
     edgeCols: cols.edges,
-    loops, loopStarts,
-    faceCols: cols.faces,
-    cornerCols: cols.corners,
-    triangles, triangleFaces,
-    ids: Object.freeze(ids),
-    names: Object.freeze(names),
+    faces,
+    ...(surface.faces.length > 0 ? {cornerColumns: cols.corners} : {}),
+    ids: {points: ids.points, edges: ids.edges, faces: ids.faces, corners: ids.corners},
+    keys: names,
     lineage: Object.freeze(lineage),
-    ...(holes.sparse || surface.faces.some((f) => f.corners === undefined) ? {} : {complete: true}),
-  });
+    complete: !holes.sparse && !surface.faces.some((f) => f.corners === undefined),
+  };
 }
 
 const edgeKey = (a: number, b: number): number => a < b ? a * 0x100000000 + b : b * 0x100000000 + a;
 const withProvenance = <T extends object>(row: T, provenance: Provenance3 | undefined): T =>
   provenance === undefined ? row : {...row, provenance};
 
-/** @internal The working view of `parts`: a captured `Surface3` whose rows
- * are spelled with their names, whose attribute records are the view
- * columns, and whose triangles are the fixed ones, or the ear clipping of
- * each face when the parts carry none. */
-export function surfaceOfParts(parts: SurfaceParts): Surface3 {
+/** @internal The working view of a value's parts: a captured `Surface3`
+ * whose rows are spelled with their names, whose attribute records are the
+ * view columns, and whose triangles are each face's fixed ones, or the ear
+ * clipping of the face when it has none. `lineage`, when given, is what the
+ * rows came from. A value with no `z` is at z = 0. */
+export function surfaceOfParts(parts: ViewParts, lineage: Lineage3 = {}): Surface3 {
+  const rows = rowsOf(parts);
   const n = parts.x.length;
-  const faceCount = parts.loopStarts.length - 1;
-  const edgeCount = parts.edges.length / 2;
-  const pointRecords = recordsOf(parts.pointCols, n);
+  const zs = parts.z;
+  const pointRecords = recordsOf(rows.cols.points, n);
   const points: SurfacePoint3[] = [];
   for (let i = 0; i < n; i++) {
-    points.push(withProvenance({id: parts.names.points[i], position: [parts.x[i], parts.y[i], parts.z[i]] as Vec3, attributes: pointRecords[i]}, parts.lineage.points?.[i]));
+    points.push(withProvenance({id: rows.names.points[i], position: [parts.x[i], parts.y[i], zs === undefined ? 0 : zs[i]] as Vec3, attributes: pointRecords[i]}, lineage.points?.[i]));
   }
-  const cornerRecords = recordsOf(parts.cornerCols, parts.loops.length);
-  const faceRecords = recordsOf(parts.faceCols, faceCount);
+  const edgeCount = parts.edges.length / 2;
+  const loops = rows.loops;
+  const cornerRecords = recordsOf(rows.cols.corners, rows.names.corners.length);
+  const faceRecords = recordsOf(rows.cols.faces, loops.length);
   const faces: SurfaceFace3[] = [];
+  const triangles: SurfaceTriangle3[] = [];
   const incident: number[][] = [];
   for (let e = 0; e < edgeCount; e++) incident.push([]);
   const edgeAt = new Map<number, number>();
   for (let e = 0; e < edgeCount; e++) edgeAt.set(edgeKey(parts.edges[2 * e], parts.edges[2 * e + 1]), e);
-  for (let f = 0; f < faceCount; f++) {
-    const start = parts.loopStarts[f];
-    const end = parts.loopStarts[f + 1];
-    const vertices = Array.from(parts.loops.subarray(start, end));
+  const held = parts.faces?.triangles;
+  let positions: Vec3[] | undefined;
+  let c = 0;
+  for (let f = 0; f < loops.length; f++) {
+    const vertices = loops[f];
     const corners: SurfaceCorner3[] = [];
-    for (let c = start; c < end; c++) corners.push(withProvenance({id: parts.names.corners[c], attributes: cornerRecords[c]}, parts.lineage.corners?.[c]));
+    for (let k = 0; k < vertices.length; k++, c++) corners.push(withProvenance({id: rows.names.corners[c], attributes: cornerRecords[c]}, lineage.corners?.[c]));
     for (let k = 0; k < vertices.length; k++) {
       const e = edgeAt.get(edgeKey(vertices[k], vertices[(k + 1) % vertices.length]));
       if (e === undefined) throw new Error(`surface parts: face ${f} walks a side no edge joins (${vertices[k]}–${vertices[(k + 1) % vertices.length]})`);
       incident[e].push(f);
     }
-    faces.push(withProvenance({id: parts.names.faces[f], vertices: Object.freeze(vertices), corners: Object.freeze(corners), attributes: faceRecords[f]}, parts.lineage.faces?.[f]));
+    faces.push(withProvenance({id: rows.names.faces[f], vertices: Object.freeze([...vertices]), corners: Object.freeze(corners), attributes: faceRecords[f]}, lineage.faces?.[f]));
+    const own = held?.[f];
+    if (own !== undefined) {
+      for (let k = 0; k + 2 < own.length; k += 3) triangles.push(Object.freeze({vertices: Object.freeze([vertices[own[k]], vertices[own[k + 1]], vertices[own[k + 2]]] as [number, number, number]), face: f}));
+    } else {
+      for (const t of triangulate(positions ??= points.map((p) => p.position), vertices)) triangles.push(Object.freeze({vertices: Object.freeze(t), face: f}));
+    }
   }
-  const edgeRecords = recordsOf(parts.edgeCols, edgeCount);
+  const edgeRecords = recordsOf(rows.cols.edges, edgeCount);
   const edges: SurfaceEdge3[] = [];
   for (let e = 0; e < edgeCount; e++) {
-    edges.push(withProvenance({id: parts.names.edges[e], vertices: Object.freeze([parts.edges[2 * e], parts.edges[2 * e + 1]] as [number, number]), faces: Object.freeze(incident[e]), attributes: edgeRecords[e]}, parts.lineage.edges?.[e]));
-  }
-  const triangles: SurfaceTriangle3[] = [];
-  if (parts.triangles !== undefined && parts.triangleFaces !== undefined) {
-    for (let t = 0; t < parts.triangleFaces.length; t++) {
-      triangles.push(Object.freeze({vertices: Object.freeze([parts.triangles[3 * t], parts.triangles[3 * t + 1], parts.triangles[3 * t + 2]] as [number, number, number]), face: parts.triangleFaces[t]}));
-    }
-  } else {
-    const positions = points.map((p) => p.position);
-    faces.forEach((f, face) => { for (const vertices of triangulate(positions, f.vertices)) triangles.push(Object.freeze({vertices: Object.freeze(vertices), face})); });
+    edges.push(withProvenance({id: rows.names.edges[e], vertices: Object.freeze([parts.edges[2 * e], parts.edges[2 * e + 1]] as [number, number]), faces: Object.freeze(incident[e]), attributes: edgeRecords[e]}, lineage.edges?.[e]));
   }
   return captureSurface3(ownSurface3({points: Object.freeze(points), faces: Object.freeze(faces), edges: Object.freeze(edges), triangles: Object.freeze(triangles)}));
-}
-
-// ─── the view kept beside its parts ───────────────────────────────────
-
-const partsOfViews = new WeakMap<Surface3, SurfaceParts>();
-
-/** @internal The parts a view was built from, or undefined for a surface
- * that is not a view. */
-export const partsOfView = (surface: Surface3): SurfaceParts | undefined => partsOfViews.get(surface);
-
-/** @internal The view of `parts`, kept beside them: `partsOfView` answers
- * them back. */
-export function viewOfParts(parts: SurfaceParts): Surface3 {
-  const view = surfaceOfParts(parts);
-  partsOfViews.set(view, parts);
-  return view;
-}
-
-/** @internal The view of parts read from `surface`: the surface itself when
- * nothing had to be filled in (see `complete`), else one built from the
- * parts that takes the surface's topology revision, so adjacency and
- * attachment lineage carry on. */
-export function viewFrom(surface: Surface3, parts: SurfaceParts): Surface3 {
-  if (parts.complete !== true || parts.triangles === undefined) {
-    const view = viewOfParts(parts);
-    inheritTopology3(view, surface);
-    return view;
-  }
-  const view = captureSurface3(surface);
-  partsOfViews.set(view, parts);
-  return view;
 }

@@ -5,12 +5,6 @@ import {surfacePath} from './curveTopology.js';
 import {surfaceOf} from '../geometry/value.js';
 import type {Material} from '../../material.js';
 
-/** The whole length of a curve, every edge once, in world units. */
-export function curveLength(surface:Surface3):number {
-  let total=0;
-  for(const e of surface.edges)total+=Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position));
-  return total;
-}
 const surfaceOfCurve=(c:Surface3|Material):Surface3=>'store' in c?surfaceOf(c as Material):c as Surface3;
 const unit=(v:Vec3):Vec3=>{const l=Math.hypot(...v);return l>0?[v[0]/l,v[1]/l,v[2]/l]:[0,0,0];};
 function mix(a:Attributes3,b:Attributes3,t:number):Attributes3 {

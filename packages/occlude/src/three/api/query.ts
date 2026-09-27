@@ -1,10 +1,12 @@
-import {isGeometry,surfaceOf,evaluate,type EdgeAttributes,type Field} from './mesh.js';
+import {type EdgeAttributes} from './mesh.js';
+import {surfaceOf} from '../geometry/value.js';
+import {evaluate,type Field} from './columns.js';
 import {Selection} from '../../selection.js';
 import type {Attributes3,Surface3} from '../geometry/surface.js';
 import {prepareSurfaceQueries3,validateRay3,validateNearest3,QUERY_HOST3,type RayQuery3,type NearestQuery3,type SurfaceHit3} from '../queries/surface.js';
 import type {SurfaceQueryInput3,SurfaceQueryResult3} from '../modeling.js';
 import {finite3,sub3,type Vec3} from '../math.js';
-import type {Material,Vertex} from '../../material.js';
+import {Material,type Vertex} from '../../material.js';
 import type {Face} from '../../faces.js';
 
 export interface Position3 {readonly x:number;readonly y:number;readonly z:number}
@@ -28,7 +30,7 @@ export interface RayBatchOptions<P extends Attributes3,R extends Vertex=Vertex> 
 export interface SegmentBatchOptions<P extends Attributes3,R extends Vertex=Vertex> {readonly from?:Field<R,PointLike3>;readonly to:Field<R,PointLike3>}
 /** The execution toolkit supplies this host; users pass t to prepared.batch(t). */
 export interface QueryHost {[QUERY_HOST3](surface:Surface3,input:SurfaceQueryInput3):Promise<SurfaceQueryResult3>}
-export function position3(point:PointLike3):Vec3{const p=Array.isArray(point)?point:[(point as Position3).x,(point as Position3).y,(point as Position3).z];finite3(p as Vec3);return Object.freeze([...p]) as Vec3;}
+export function position3(point:PointLike3):Vec3{const p=Array.isArray(point)?point:[(point as Position3).x,(point as Position3).y,(point as Position3).z];finite3(p as Vec3,'query');return Object.freeze([...p]) as Vec3;}
 function rows<R extends Vertex>(selection:Selection<R>):readonly R[]{if(!(selection instanceof Selection&&selection.domain.kind.name==='point'))throw new Error('query batches require a point collection');return Object.freeze([...selection]);}
 function results<R extends Vertex,H>(selection:Selection<R>,source:readonly R[],hits:readonly(H|null)[]):QueryResults<R,H>{
   if(source.length!==hits.length)throw new Error('query host returned an inconsistent result count');
@@ -61,7 +63,7 @@ function convertRays<F extends Attributes3>(prepared:PreparedQuery<F>,values:rea
 
 /** One owned target and cached CPU spatial index, shared by scalar and batch queries. */
 export class PreparedQuery<F extends Attributes3=Attributes3> {
-  constructor(readonly target:Material){if(!isGeometry(target))throw new Error('query requires a mesh target; realize mesh instances explicitly');queryStates.set(this,{source:prepareSurfaceQueries3(surfaceOf(target)),faces:Object.freeze([...target.faces])});Object.freeze(this);}
+  constructor(readonly target:Material){if(!(target instanceof Material))throw new Error('query: expected a value with faces — a mesh, a box, a sphere');if(target.prototype!==undefined)throw new Error('query: instances are points that place a prototype — query instances.realize(), which has the faces');queryStates.set(this,{source:prepareSurfaceQueries3(surfaceOf(target)),faces:Object.freeze([...target.faces])});Object.freeze(this);}
   nearest(point:PointLike3,options:NearestOptions={}):SurfaceHit<F>|null{return hit(this,state(this).source.nearest([{point:position3(point),maxDistance:options.within}])[0]);}
   ray(origin:PointLike3,direction:Vec3,options:RayOptions={}):RayHit<F>|null{const p=position3(origin);return rayHit(this,state(this).source.rays([{origin:p,direction:position3(direction),...options}])[0],p);}
   segment(from:PointLike3,to:PointLike3):RayHit<F>|null{

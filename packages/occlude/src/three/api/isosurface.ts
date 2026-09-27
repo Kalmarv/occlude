@@ -117,7 +117,7 @@ export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Mater
   const box=options.bounds;
   if(!Array.isArray(box)||box.length!==2)throw new Error('isosurface bounds must be a [min, max] pair of triples');
   const [min,max]=box as readonly [Vec3,Vec3];
-  finite3(min);finite3(max);
+  finite3(min,'isosurface bounds');finite3(max,'isosurface bounds');
   const size:Vec3=[max[0]-min[0],max[1]-min[1],max[2]-min[2]];
   const level=clampSetting(options.level,-Number.MAX_VALUE,Number.MAX_VALUE,0,'isosurface level');
   if('resolution' in options)throw new Error('isosurface: resolution is now step — the side of one cell, a length in the scene\'s units');

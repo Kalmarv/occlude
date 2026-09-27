@@ -253,8 +253,8 @@ describe('every value that answered curves() answers the property', () => {
     }
     // A glyph's curve, in em units, y up.
     expect(pts(strokeFont(TINY).glyph('A')!.curves.at(0))).toEqual([[0, 0], [300, 700], [600, 0]]);
-    // One curve row is a profile for the 3D doors.
-    const c3 = curve3(m.curves.at(0));
+    // The points of one curve row are a chain in space too.
+    const c3 = curve3(m.curves.at(0).points);
     expect(c3.points.length).toBe(4);
   });
 });

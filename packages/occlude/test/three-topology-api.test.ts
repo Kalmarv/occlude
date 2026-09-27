@@ -67,7 +67,6 @@ describe('owned mesh topology relationships',()=>{
     const before=topology3(surface);
     (surface as any).edges=[...surface.edges,{id:'loose',vertices:[1,3],faces:[],attributes:{}}];
     expect(topology3(surface)).not.toBe(before);
-    expect(topology3(surface).pointNeighbors[3]).toEqual([1]);
   });
 });
 

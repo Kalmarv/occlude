@@ -1,6 +1,7 @@
 export {mesh,plane,box,pointCloud,parametric} from './mesh.js';
 export type {ParametricOptions} from './mesh.js';
-export type {Field,AttributeFields,GeometryOptions} from './mesh.js';
+export type {GeometryOptions} from './mesh.js';
+export type {Field} from './columns.js';
 export {view,orthographic,perspective} from './view.js';
 export type {ViewOptions,ViewObjectOptions,ViewInput,SuggestiveInput,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
@@ -15,13 +16,16 @@ export type {DistanceField3} from './sdf3.js';
 export {isosurface} from './isosurface.js';
 export type {IsosurfaceOptions} from './isosurface.js';
 export type {SphereOptions,GeodesicOptions,GeodesicBase,RadialOptions,TorusOptions} from './primitives.js';
-export {instanceOnPoints} from './instances.js';
-export type {Instances,InstanceRow,InstanceTransform,InstanceTransformInput,InstanceOnPointsOptions,RealizeOptions} from './instances.js';
+export {instanceOnPoints,instanceOnFaces} from './instances.js';
+export type {InstanceOnPointsOptions,InstanceOnFacesOptions,RealizeOptions} from './instances.js';
 export {query} from './query.js';
 export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,QueryResults,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
 export {force} from './force.js';
 export type {Force} from './force.js';
-export {curve,parametricCurve} from './curves.js';
+/** `curve` is the root word from `occlude`: positions `[x, y, z]` give a
+ * chain in space. */
+export {curve} from '../../material.js';
+export {parametricCurve} from './curves.js';
 export type {PolylineOptions,CurveOptions} from './curves.js';
 export {revolve} from './revolve.js';
 export type {RevolveOptions} from './revolve.js';
@@ -36,27 +40,25 @@ export type {GridOptions} from './grid.js';
 
 export type {SurfaceCurves,SurfaceCurvePoint,SurfaceCurveEdge} from './supported.js';
 export {intersections} from './intersections.js';
-export type {IntersectionInput,IntersectionOptions,IntersectionAttributes} from './intersections.js';
+export type {IntersectionInput,IntersectionOptions,IntersectionColumns} from './intersections.js';
 export type {CurveSample,CurveSamplingOptions} from './curveSampling.js';
 
 export type {SurfaceUV,SurfaceChart} from '../geometry/coordinates.js';
 export {mapSurface} from './mapping.js';
-export type {SurfaceMappingOptions,SurfaceMappingStats,MappedAttributes,ChartFrame} from './mapping.js';
+export type {SurfaceMappingOptions,SurfaceMappingStats,MappedColumns,ChartFrame} from './mapping.js';
 export {trace} from './hatch.js';
 /** `distance` and `length` are the root words from `occlude`, which take a
  * pair, a triple, or a row with `x`, `y` and optionally `z`. */
 export {grad,curl3} from './vec.js';
 export type {VectorField3,ScalarField3} from './vec.js';
 export type {Seeds3,Streamlines3Options} from './flow.js';
-export {instanceOnFaces} from './instances.js';
-export type {InstanceOnFacesOptions} from './instances.js';
 export type {SurfaceCurveOptions} from './supported.js';
-export type {HatchOptions,HatchFamily,HatchAttributes,HatchStats,HatchInput,TraceOptions,TraceSeed,TraceAttributes} from './hatch.js';
+export type {HatchOptions,HatchFamily,HatchColumns,HatchStats,HatchInput,TraceOptions,TraceSeed,TraceColumns} from './hatch.js';
 export {light,lamp,environment,curvature,across} from '../surface/fields.js';
 export type {DirectionField,DirectionInput,ToneField,ToneInput,LampOptions,LampFalloff,EnvironmentSampler,EnvironmentOptions} from '../surface/fields.js';
 export type {SurfaceLocation3 as SurfaceLocation} from '../geometry/location.js';
 export {isolines} from './isolines.js';
-export type {IsolineOptions,IsolineLevels,IsolineAttributes,IsolineField} from './isolines.js';
+export type {IsolineOptions,IsolineLevels,IsolineColumns,IsolineField} from './isolines.js';
 export type {ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './mesh.js';
 export {honeycomb,observer,geodesic3} from './hyperbolic.js';
-export type {Honeycomb,HoneycombPoint,HoneycombFace,HoneycombEdgeColumns,HoneycombOptions,Geodesic3Options,ObserverOptions} from './hyperbolic.js';
+export type {Honeycomb,HoneycombFace,HoneycombEdgeColumns,HoneycombOptions,Geodesic3Options,ObserverOptions} from './hyperbolic.js';

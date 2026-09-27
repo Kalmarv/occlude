@@ -3,7 +3,7 @@ title: Edits
 description: "Subdivide, displace, run, set columns, grids, extrusion, topology and forces on geometry in space."
 ---
 
-A 3D value is the one geometry of occlude: the material of 2D, with a `z` column. It has points, edges, stated faces and the corners of those faces. A domain can be empty. A curve has no faces, and a point set has no edges. Every edit returns a new value and keeps the old one. The rows keep their identity across edits. So a selection from one state applies again on a later state of the same rows. Another construction of the same shape is another value, and its rows are not rows of this one. A word that needs faces refuses a value with no faces by name.
+A 3D value is the one geometry of occlude: the material of 2D, with a `z` column. It has points, edges, stated faces and the corners of those faces. A domain can be empty. A curve has no faces, and a point set has no edges. Every edit returns a new value and keeps the old one. The rows keep their identity across edits. So a selection from one state applies again on a later state of the same rows. Another construction of the same shape is another value, and its rows are not rows of this one. A word that needs faces refuses a value with no faces by name: `subdivide`, `extrude` of faces, the booleans and `dual`. A word that reads a surface answers nothing on a value with no faces: `t.scatter`, `isolines`, `intersections`, `trace`, `mapSurface` and `t.hatch`.
 
 ## subdivide()
 
@@ -185,7 +185,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
   const block = box(2.2).union(shaft);
   const solid = block.subtract(sphere(1, { segments: 20, rings: 10 }).translate([1.1, 1.1, 0.4]));
   const fold = (c) => c.kinds.has('silhouette') || c.feature.creaseAngle >= 18;
-  const onCut = (c) => c.faceAttributes.length === 2 && c.faceAttributes.every((a) => a.cut === true);
+  const onCut = (c) => c.faceColumns.length === 2 && c.faceColumns.every((a) => a.cut === true);
   return view(solid, { camera: orthographic({ eye: [7, 5, 4.5], span: 4.6 }), creaseAngle: 18 }, (lines) => [
     strokes(lines.visible.filter((c) => fold(c) && !onCut(c)), { stroke: 'ink' }),
     strokes(lines.visible.filter((c) => fold(c) && onCut(c)), { stroke: 'seam' }),

@@ -182,7 +182,7 @@ describe('the four verbs are map underneath', () => {
   }
 });
 
-describe('a non-finite input is refused by name', () => {
+describe('a non-finite input moves nothing', () => {
   it('scale, rotate, translate, move and the pivot', () => {
     // A step that is not finite moves the vertex nowhere, as the
     // drawing-side `deform` reads such a sample: not a mistake, not a throw.
@@ -190,11 +190,8 @@ describe('a non-finite input is refused by name', () => {
     expect(still.points.map((p) => [p.x, p.y])).toEqual(src().points.map((p) => [p.x, p.y]));
     const partly = src().move((p) => [0, p.x > 3 ? Infinity : 2]);
     expect(partly.points.map((p) => p.y - src().points.at(p.index).y)).toEqual(src().points.map((p) => (p.x > 3 ? 0 : 2)));
-    expect(() => src().scale(NaN)).toThrow(/m\.scale/);
-    expect(() => src().scale([1, Infinity])).toThrow(/m\.scale/);
-    expect(() => src().rotate(NaN)).toThrow(/m\.rotate/);
-    expect(() => src().translate([Infinity, 0])).toThrow(/m\.translate/);
-    expect(() => src().scale(2, { origin: [NaN, 0] })).toThrow(/m\.scale/);
-    expect(() => src().rotate(90, { origin: [0, Infinity] })).toThrow(/m\.rotate/);
+    // A transform by a number that is not finite moves nothing, as `move` does.
+    const m = src();
+    for (const out of [m.scale(NaN), m.scale([1, Infinity]), m.rotate(NaN), m.translate([Infinity, 0]), m.scale(2, { origin: [NaN, 0] }), m.rotate(90, { origin: [0, Infinity] })]) expect(out).toBe(m);
   });
 });

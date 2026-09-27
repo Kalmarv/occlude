@@ -60,7 +60,7 @@ describe('intersections resolve in the view, among what the view keeps',()=>{
     expect(curves.recipe).toBeDefined();
     const first=curves.network;
     expect(curves.network).toBe(first);
-    expect(curves.withKey('x').network).toBe(first); // a keyed copy shares the resolution
+    expect(intersections(a,b,{key:'x'}).network).not.toBe(first); // another construction resolves its own
     expect(curves.edges.length).toBeGreaterThan(0);
   });
   it('draws the same seams whether or not off-screen objects are in the list',async()=>{

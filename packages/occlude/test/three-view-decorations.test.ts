@@ -33,7 +33,7 @@ it('captures typed hatch fields once per eligible face, independently of camera 
 it('preserves the exact shared kernel feature/interval result for mixed section and hatch recipes',()=>{
  const geometry=box(2,{key:'model'}).faces.set('spacing',5),planes=[{id:'level',origin:[0,0,0] as const,normal:[0,0,1] as const,attributes:{height:0}}];
  const families=[{id:'shade',spacing:mm(5),angle:35},{id:'cross',spacing:mm(10),angle:-35}];
- const modern=view(geometry,{camera,hatch:families.map(({id,...r})=>({...r,key:id})),sections:planes.map(({id,...p})=>({...p,key:id}))});
+ const modern=view(geometry,{camera,hatch:families.map(({id,...r})=>({...r,key:id})),sections:planes.map(({id,attributes,...p})=>({...p,columns:attributes,key:id}))});
  const legacy=lineArt3({camera,objects:[{id:'model',surface:surfaceOf(geometry),hatch:hatch3(surfaceOf(geometry),families),curves:section3(surfaceOf(geometry),planes)}],lineSets:[]});
  for(const projection of [camera,perspective({eye:[5,7,6]})]){
   expect(classifySceneCpu3(snapshot(modern.scene,projection)).features).toEqual(classifySceneCpu3(snapshot(legacy,projection)).features);
@@ -64,6 +64,8 @@ it('transforms captured prototype sections with instances and captures hatch eli
 it('validates keys and physical recipe values before drawing',()=>{
  expect(()=>view(box(),{camera,hatch:[{key:'same',spacing:mm(2)},{key:'same',spacing:mm(3)}]})).toThrow('hatch keys');
  expect(()=>view(box(),{camera,sections:[{key:'',origin:[0,0,0],normal:[0,0,1]}]})).toThrow('section keys');
+ expect(()=>view(box(),{camera,sections:[{origin:[0,0,0],normal:[0,0,1],attributes:{h:1}} as never]})).toThrow('view section: its columns are `columns`');
  expect(view(box(),{camera,hatch:{spacing:()=>mm(0)}}).scene.objects.every(o=>o.hatch!.families.every(f=>!f.length))).toBe(true);
- expect(()=>view(box(),{camera,sections:[{origin:[0,0,0],normal:[0,0,0]}]})).toThrow();
+ // A section with no direction draws nothing, and the view still draws.
+ expect(()=>view(box(),{camera,sections:[{origin:[0,0,0],normal:[0,0,0]}]})).not.toThrow();
 });

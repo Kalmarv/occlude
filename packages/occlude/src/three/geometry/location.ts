@@ -40,9 +40,9 @@ export interface SurfaceLocation3 {
   readonly modelPosition:Vec3;readonly position:Vec3;
   readonly modelNormal:Vec3;readonly normal:Vec3;
   readonly modelShadingNormal?:Vec3;readonly shadingNormal?:Vec3;
-  readonly pointAttributes:Readonly<Attributes3>;
-  readonly faceAttributes:Readonly<Attributes3>;
-  readonly cornerAttributes:Readonly<Attributes3>;
+  readonly pointColumns:Readonly<Attributes3>;
+  readonly faceColumns:Readonly<Attributes3>;
+  readonly cornerColumns:Readonly<Attributes3>;
   /** Chart coordinates, where the face's corners carry a `uv` column: every
    * primitive does; a boolean's result and a mesh built from points do not.
    * `chartStatus` says which. */
@@ -81,7 +81,7 @@ function freeze<T>(value:T):T {
  * placement that folds the surface flat. Every consumer already reads a zero
  * vector as "no direction here". */
 function unit(v:Vec3):Vec3 {
-  finite3(v);const scale=Math.max(...v.map(Math.abs));if(!scale)return freeze([0,0,0] as Vec3);
+  finite3(v,'surface location');const scale=Math.max(...v.map(Math.abs));if(!scale)return freeze([0,0,0] as Vec3);
   const scaled=v.map(n=>n/scale) as unknown as Vec3;return freeze(mul3(scaled,1/Math.hypot(...scaled)));
 }
 /** Same weighted transfer rule as surface sampling: numeric columns interpolate,
@@ -112,10 +112,10 @@ function normal(v:Vec3,transform?:SurfaceTransform3):Vec3 {
   return unit(rotateVector3(unit(inverse),transform.rotate??[0,0,0]));
 }
 function placedPosition(p:Vec3,transform?:SurfaceTransform3):Vec3 {
-  if(!transform)return p;const result=transformPosition3(p,transform);finite3(result);return freeze(result);
+  if(!transform)return p;const result=transformPosition3(p,transform);finite3(result,'surface location');return freeze(result);
 }
 function frame(du:Vec3,dv:Vec3,n:Vec3,orientation:1|-1):SurfaceTangentFrame3 {
-  finite3(du);finite3(dv);const tangent=unit(du);unit(dv);
+  finite3(du,'surface location');finite3(dv,'surface location');const tangent=unit(du);unit(dv);
   return freeze({du,dv,tangent,bitangent:mul3(unit(cross3(n,tangent)),orientation),orientation});
 }
 const capturedPlacements=new WeakSet<SurfacePlacement3>();
@@ -206,7 +206,7 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
   source=snapshotSurface3(source);
   const t=source.triangles[triangle];
   if(!Number.isSafeInteger(triangle)||!t)throw new Error('surface location requires a valid source triangle');
-  finite3(barycentric);
+  finite3(barycentric,'surface location');
   if(barycentric.some(w=>w<0||w>1)||Math.abs(barycentric.reduce((a,b)=>a+b,0)-1)>32*Number.EPSILON)throw new Error('surface location requires barycentric weights inside its triangle');
   const exactWeights=options.exactWeights;
   if(exactWeights&&(exactWeights.length!==3||exactWeights.some(n=>typeof n!=='bigint'||n<0n||n.toString(2).length>32768)||!exactWeights.some(n=>n>0n)))throw new Error('surface location requires bounded nonnegative exact weights');
@@ -217,10 +217,10 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
   const place=captureSurfacePlacement3(options.placement);
   const ctx=triangleContext(source,triangle,place,uvName,chartName,options.cornerTransfers?.[uvName]==='nearest');
   const {a,b,c,ab,ac,worldPoints,worldAb,worldAc}=ctx;
-  const modelPosition=exactWeights?pointNumber(weightedPoint([a,b,c].map(point),exactWeights)):Object.freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition);
+  const modelPosition=exactWeights?pointNumber(weightedPoint([a,b,c].map(point),exactWeights)):Object.freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition,'surface location');
   const exact=exactWeights?weightedPoint(worldPoints.map(point),exactWeights):undefined;
   const worldPosition=exact?pointNumber(exact):place?Object.freeze(add3(worldPoints[0],add3(mul3(worldAb,weights[1]),mul3(worldAc,weights[2])))):modelPosition;
-  finite3(worldPosition);
+  finite3(worldPosition,'surface location');
   let uv:readonly [number,number]|undefined;
   if(ctx.coords){
     const coords=ctx.coords;
@@ -228,10 +228,10 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
     if(!uv.every(Number.isFinite))throw new Error('surface UV position is not representable');
   }
   const modelShadingNormal=options.shadingNormal?unit(options.shadingNormal):undefined;
-  const location={...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:ctx.face,faceId:ctx.faceId,vertices:t.vertices,vertexIds:ctx.vertexIds,corners:ctx.corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal:ctx.modelNormal,normal:ctx.worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,faceAttributes:source.faces[ctx.face].attributes,uv,chart:ctx.chart,modelFrame:ctx.modelFrame,frame:ctx.worldFrame,tangentU:ctx.worldFrame?.tangent,tangentV:ctx.worldFrame?.bitangent,x:worldPosition[0],y:worldPosition[1],z:worldPosition[2],facing(direction:Vec3){const l=Math.hypot(...direction);if(!(l>0))throw new Error('facing requires a nonzero direction');const n=ctx.worldNormal;return Math.max(0,(n[0]*direction[0]+n[1]*direction[1]+n[2]*direction[2])/l);},chartStatus:ctx.chartStatus} as SurfaceLocation3;
-  let pointAttributes:Readonly<Attributes3>|undefined,cornerAttributes:Readonly<Attributes3>|undefined;
-  Object.defineProperty(location,'pointAttributes',{enumerable:true,get(){return pointAttributes??=freeze(interpolateAttributes3(ctx.rows,weights,options.pointTransfers));}});
-  Object.defineProperty(location,'cornerAttributes',{enumerable:true,get(){return cornerAttributes??=freeze(interpolateAttributes3(ctx.cornerRows,weights,options.cornerTransfers));}});
+  const location={...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:ctx.face,faceId:ctx.faceId,vertices:t.vertices,vertexIds:ctx.vertexIds,corners:ctx.corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal:ctx.modelNormal,normal:ctx.worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,faceColumns:source.faces[ctx.face].attributes,uv,chart:ctx.chart,modelFrame:ctx.modelFrame,frame:ctx.worldFrame,tangentU:ctx.worldFrame?.tangent,tangentV:ctx.worldFrame?.bitangent,x:worldPosition[0],y:worldPosition[1],z:worldPosition[2],facing(direction:Vec3){const l=Math.hypot(...direction);if(!(l>0))throw new Error('facing requires a nonzero direction');const n=ctx.worldNormal;return Math.max(0,(n[0]*direction[0]+n[1]*direction[1]+n[2]*direction[2])/l);},chartStatus:ctx.chartStatus} as SurfaceLocation3;
+  let pointColumns:Readonly<Attributes3>|undefined,cornerColumns:Readonly<Attributes3>|undefined;
+  Object.defineProperty(location,'pointColumns',{enumerable:true,get(){return pointColumns??=freeze(interpolateAttributes3(ctx.rows,weights,options.pointTransfers));}});
+  Object.defineProperty(location,'cornerColumns',{enumerable:true,get(){return cornerColumns??=freeze(interpolateAttributes3(ctx.cornerRows,weights,options.cornerTransfers));}});
   Object.freeze(location);
   owned.set(location,{options:retainOptions(options,place)});return location;
 }

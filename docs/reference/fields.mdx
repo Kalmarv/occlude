@@ -301,7 +301,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/grad.mdx</include>
 <include>/_sig/vectorField.mdx</include>
 
-`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function, so the field verbs turn its arrows too (see [translate · rotate · scale](#translate--rotate--scale)). Below, the black marks point uphill from each dot, and the blue marks run along the contours.
+`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. Both take central differences over `{ step }`, 0.25 by default. `vectorField(fn)` marks your own vector function, so the field verbs turn its arrows too (see [translate · rotate · scale](#translate--rotate--scale)). Below, the black marks point uphill from each dot, and the blue marks run along the contours.
 
 ```ts live
 import { sketch, line, circle, strokes, curl, grad, add, mul, unit } from 'occlude';
@@ -368,7 +368,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 import { sketch, strokes, axisField, across, grad, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
-  const slope = axisField(grad((x, y) => t.noise(x / 46, y / 46), 1));
+  const slope = axisField(grad((x, y) => t.noise(x / 46, y / 46), { step: 1 }));
   return [
     strokes(t.streamlines(slope, { spacing: mm(3) }), { pen: 'pigma-01-black' }),
     strokes(t.streamlines(across(slope), { spacing: mm(6) }), { pen: 'stabilo-88-green' }),

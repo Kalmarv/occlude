@@ -43,7 +43,7 @@ const everywhere:DistanceField3=()=>Infinity;
 const triple=(v:Vec3|number,what:string):Vec3=>{
   const out:Vec3=typeof v==='number'?[v,v,v]:v;
   if(!Array.isArray(out)||out.length!==3)throw new Error(`sdf3.${what}: expected a [x, y, z] triple`);
-  finite3(out);
+  finite3(out,'sdf3');
   return out;
 };
 
