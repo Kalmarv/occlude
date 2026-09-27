@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { distanceTo, rect, sketch } from '../src/index.js';
+import { circle, distanceTo, material, rect, sketch, space, spaceOf } from '../src/index.js';
+import { toolkit } from './helpers/run.js';
+import { inSpace } from '../src/material.js';
 import { initOcclude, render } from '../src/host.js';
 import type { SketchDef } from '../src/index.js';
 import type { RenderOptions } from '../src/host.js';
@@ -99,5 +101,43 @@ describe('distanceTo: signed distance field', () => {
     expect(inset15.span).toBeCloseTo(30, 0); // 60 − 2·15
     expect(halo.count).toBe(1);
     expect(halo.span).toBeCloseTo(70, 0); // 60 + 2·5, rounded corners
+  });
+});
+
+describe('distanceTo in a curved space', () => {
+  it('the pure word measures in the space a value carries, as the toolkit twin does', () => {
+    const t = toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 45 }) });
+    const c = t.space.center;
+    const ring = t.material(circle(c, 10));
+    // The toolkit twin measures in the space: at the centre, the radius.
+    const inside = t.distanceTo(ring)(c[0], c[1]);
+    expect(inside).toBeCloseTo(10, 1);
+    // The pure word reads the space off the value: a material of a curved
+    // sketch, a face of one and a vertex list of one are the same area.
+    for (const v of [ring, ring.faces.at(0), [...ring.points]]) {
+      expect(distanceTo(v as never)(c[0], c[1])).toBeCloseTo(inside, 9);
+    }
+    // Its points are points of the space: minus the distance to the nearest.
+    const off: [number, number] = [c[0] + 3, c[1] - 2];
+    expect(distanceTo(ring.points)(off[0], off[1])).toBe(t.distanceTo(ring.points)(off[0], off[1]));
+    // Plain numbers carry no space: the flat field of the coordinates.
+    const flatRadius = distanceTo(ring.contours())(c[0], c[1]);
+    expect(flatRadius).toBeGreaterThan(0);
+    expect(Math.abs(flatRadius - inside)).toBeGreaterThan(0.01);
+    // A flat material is measured as it always was.
+    const flat = toolkit({ aspect: [1, 1] });
+    const box = flat.material(rect(40, 40, 20, 20));
+    expect(distanceTo(box)(50, 50)).toBeCloseTo(10, 12);
+  });
+
+  it('the toolkit twin reads the space a value carries before the sketch\'s', () => {
+    // A flat sketch holding points of a curved space: the value says where
+    // its coordinates are, so the field is the space's, not the sheet's.
+    const disk = spaceOf({ curvature: -4 / (45 * 45), center: [50, 50] });
+    const flat = toolkit({ aspect: [1, 1] });
+    const site = material([[50, 50]]);
+    const curvedSite = inSpace(material([[50, 50]]), disk);
+    expect(flat.distanceTo(site)(50, 80)).toBeCloseTo(-30, 12);
+    expect(flat.distanceTo(curvedSite)(50, 80)).toBeCloseTo(-disk.distance([50, 50], [50, 80]), 12);
   });
 });

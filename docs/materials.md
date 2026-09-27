@@ -38,7 +38,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 });
 ```
 
-`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces` are the cells, in the sites' row order. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and each cell knows its site: a face's `source` is its site, a point row of the sites. The other direction is a question for the faces: `cells.faces.find((f) => f.source.index === site.index)` is a site's cell, and `cells.faces.filter((f) => chosen.has(f.source))` the cells of a selection of sites. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so a cell's `source` is a row of that source, and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces` are the triangles. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
+`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces` are the cells, in the sites' row order. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and each cell knows its site: a face's `source` is its site, a point row of the sites. The other direction is a question for the faces: `cells.faces.find((f) => f.source === site)` is a site's cell, and `cells.faces.filter((f) => chosen.has(f.source))` the cells of a selection of sites. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so a cell's `source` is a row of that source, and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces` are the triangles. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
 
 ```ts live
 import { sketch, polygon, fill, mm, strokes, connect } from 'occlude';
@@ -227,7 +227,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const nudged = t.steps(2, settled, (g) => {
     const measured = t.voronoi(g).faces.measure(tone, { step: 1 });
     return g.move((p) => {
-      const face = measured.faces.find((f) => f.source.index === p.index);
+      const face = measured.faces.find((f) => f.source === p);
       return face && Number.isFinite(face.weightedX) ? mul(sub([face.weightedX, face.weightedY], p), 0.3) : [0, 0];
     });
   });
@@ -1057,8 +1057,8 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   all = append(all, curve(t.times(12, (k) => [132 + Math.cos(k / 12 * Math.PI * 2) * 16, 68 + Math.sin(k / 12 * Math.PI * 2) * 16]), { closed: true }));
   all = append(all, material([[100, 44], [176, 84], [60, 92], [184, 40]]));
   const pieceOf = new Map();
-  all.points.components().forEach((piece) => { for (const i of piece.indices) pieceOf.set(i, piece.key); });
-  const labelled = all.points.set('piece', (p) => pieceOf.get(p.index), { transfer: 'nearest' });
+  all.points.components().forEach((piece) => { for (const p of piece) pieceOf.set(p, piece.key); });
+  const labelled = all.points.set('piece', (p) => pieceOf.get(p), { transfer: 'nearest' });
   const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
   return [
     labelled.edges.groupBy((e) => e.a.piece).map((g) => strokes(g, { pen: pens[g.key % 3] })),
@@ -1638,7 +1638,7 @@ its silhouette and its scales alone: `creaseAngle: 180` asks for no folds.
 
 ```ts live
 import { sketch, pen, mm, curve, rect } from 'occlude';
-import { sphere, mapSurface, style, view, orthographic } from 'occlude/3d';
+import { sphere, mapSurface, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 11, pens: {
   ink: pen({ width: mm(0.35), color: '#18202A' }),
@@ -1665,8 +1665,8 @@ export default sketch({ seed: 11, pens: {
   const pod = sphere(1.6, { segments: 72, rings: 36 })
     .displace((p) => 0.06 * t.noise(p.x * 1.4, p.y * 1.4, p.z * 1.4));
   // creaseAngle 180 draws no folds, so the form is its silhouette and the
-  // scales wrapping it; the marks carry their own pen.
-  return view([pod, style(mapSurface(pod, scales, { frame: CHART }), { pen: 'scale' })], {
+  // scales wrapping it; the view gives the marks their own pen.
+  return view([pod, [mapSurface(pod, scales, { frame: CHART }), { pen: 'scale' }]], {
     camera: orthographic({ eye: [5, 3.4, 1.1], target: [0, 0, 0], span: 4 }),
     pen: 'ink',
     creaseAngle: 180,
@@ -2109,7 +2109,7 @@ hides its own far side.
 
 ```ts live
 import { sketch, pen, mm, curve } from 'occlude';
-import { sphere, mapSurface, style, view, orthographic } from 'occlude/3d';
+import { sphere, mapSurface, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 9, pens: {
   ink: pen({ width: mm(0.32), color: '#18202A' }),
@@ -2122,7 +2122,7 @@ export default sketch({ seed: 9, pens: {
     { wavelength: (x, y) => 2.2 + (1 - rough(x, y)) * 7, amplitude: (x, y) => rough(x, y) * 1.5 },
   ));
   const globe = sphere(1.6, { segments: 96, rings: 48 });
-  return view([globe, style(mapSurface(globe, bands, { frame: CHART }), { pen: 'relief' })], {
+  return view([globe, [mapSurface(globe, bands, { frame: CHART }), { pen: 'relief' }]], {
     camera: orthographic({ eye: [5, 2.6, 1.6], target: [0, 0, 0], span: 3.9 }),
     pen: 'ink',
     creaseAngle: 180,
@@ -2672,7 +2672,7 @@ works on paper — and `mapSurface` then puts the result on the pot.
 
 ```ts live paper=150x120
 import { sketch, curve, rect, append, pen, mm } from 'occlude';
-import { curve as curve3, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
+import { curve as curve3, revolve, mapSurface, view, perspective } from 'occlude/3d';
 
 // The ornament — a diaper lattice with a dot in every diamond — is drawn once,
 // flat, on a plain rectangle. A revolve stores its surface as a chart of
@@ -2750,7 +2750,7 @@ export default sketch({ aspect: [5, 4], seed: 5, pens: {
     const to = rest.map(([u, v]) => cages[k]((u - U0) / (U1 - U0), (v - V0) / (V1 - V0)));
     const panel = append(flatAll.warp({ from: rest, to }), flatEdge.warp({ from: rest, to }));
     const body = revolve(curve3(meridian), { segments: 72 }).scale(s).rotate([0, 0, turn]).translate([x, y, 0]);
-    return [body, style(mapSurface(body, panel), { pen: 'paint' })];
+    return [body, [mapSurface(body, panel), { pen: 'paint' }]];
   };
 
   return view(
@@ -3004,7 +3004,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 ```ts live paper=180x120
 import { sketch, append, material, pen, mm, curve as chain } from 'occlude';
-import { curve, parametricCurve, plane, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
+import { curve, parametricCurve, plane, revolve, mapSurface, view, perspective } from 'occlude/3d';
 
 // A cooling tower, and the drawing it was made from, lying on the floor under
 // it.
@@ -3053,7 +3053,7 @@ export default sketch({ aspect: [3, 2], seed: 8, pens: {
       return [Math.sqrt(r0 * r0 + (z / H) ** 2 * (R * R - r0 * r0)), 0, z];
     })),
     { segments: 72 },
-  ).scale(0.994).style({ creaseAngle: 180 });
+  ).scale(0.994);
 
   // the construction, in the floor's chart: the same family seen from above,
   // which is a set of chords of a circle
@@ -3076,9 +3076,9 @@ export default sketch({ aspect: [3, 2], seed: 8, pens: {
   return view(
     [
       floor,
-      style(mapSurface(floor, chords), { pen: 'ink' }),
-      style(mapSurface(floor, waist), { pen: 'found' }),
-      skin,
+      [mapSurface(floor, chords), { pen: 'ink' }],
+      [mapSurface(floor, waist), { pen: 'found' }],
+      [skin, { creaseAngle: 180 }],
       ...struts,
       ...rims,
     ],

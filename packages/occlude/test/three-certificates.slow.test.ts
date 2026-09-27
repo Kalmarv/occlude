@@ -19,7 +19,7 @@ import { surface3 } from '../src/three/geometry/surface.js';
 import { sphere } from '../src/three/api/primitives.js';
 import { classifyScene3 } from '../src/three/visibility/scene.js';
 import { unionIntervals3, type Interval3 } from '../src/three/visibility/interval.js';
-import { captureSnapshot, globeScene } from '../tools/globe-certs/scene.js';
+import { captureSnapshot, globeScene } from './fixtures/globe-scene.js';
 import type { Vec3 } from '../src/three/math.js';
 
 const mesh = (

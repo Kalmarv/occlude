@@ -37,7 +37,7 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, inheritEdge, ownedBy, ownerOfView, viewKind, viewProto, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, readEdge, inheritEdge, ownedBy, ownerOfView, viewKind, viewProto, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
 import { curvesOfRows, type Curve } from './curves.js';
 import { writeFaces, writeFaceColumns, type FaceSetOpts } from './tables.js';
 import { box, type Box } from './layout.js';
@@ -46,6 +46,8 @@ import { edgesOf, pointsOf, endpointRows, sameLineage, unrelated } from './relat
 import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
 import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
+import { Column, columnOf, type ColumnLike } from './column.js';
+import { carryLinks, derivation, linkRows, record } from './derivation.js';
 
 const EVENT_TOL = 1e-9;
 
@@ -500,6 +502,9 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   const roots = Array.from(new Set(parent.map((_, g) => find(g)))).filter((g) => !groupVertex.has(g));
   roots.sort((a, b) => groupKey.get(a)![0] - groupKey.get(b)![0] || groupKey.get(a)![1] - groupKey.get(b)![1]);
   const groupRow = new Map<number, number>();
+  // A crossing lies on the input edges that meet there: its `source`. A
+  // vertex that survives is the vertex it was, and says nothing new.
+  const pointSource: (number[] | undefined)[] = [];
   // One block of ids for the crossings, in the order the loop would have
   // asked for them one at a time — the same numbers, without an array per
   // vertex. A material with no columns asks no candidate anything: the
@@ -520,6 +525,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
       attrs = reconcile(m, { position: groupPos.get(g)!, candidates }, opts.point);
     }
     const pos = groupPos.get(g)!;
+    pointSource[ox.length] = Array.from(new Set(groupEdges.get(g)!.map((q) => q.edge))).sort((p, q) => p - q);
     groupRow.set(g, ox.length);
     ox.push(pos[0]);
     oy.push(pos[1]);
@@ -534,6 +540,8 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
 
   // ---- child edges in parent, parameter order ----
   const edges: number[] = [];
+  // Every piece is a piece of one input edge: its `source`.
+  const edgeSource: number[] = [];
   const eids: number[] = [];
   const minted: number[] = []; // rows of `eids` waiting for a fresh id
   const eroots: number[] = [];
@@ -574,11 +582,12 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     // interval, resolver call, inherited columns — is for the columns, and
     // a material without any skips it.
     const carries = enames.length > 0 || opts.edges !== undefined;
-    const parentView = carries ? m.edge(e) : undefined!;
+    const parentView = carries ? readEdge(m, e) : undefined!;
     const parentAttrs: Record<string, number> = {};
     for (const name of enames) parentAttrs[name] = m.edgeAttrs[name][e];
     for (let k = 0; k + 1 < stops.length; k++) {
       edges.push(stops[k].row, stops[k + 1].row);
+      edgeSource.push(e);
       // A piece of a wall is a new edge, and still that wall: a fresh id,
       // the parent's root. An edge no crossing touched comes through this
       // loop as its own single child, so it keeps its id too. The fresh
@@ -603,16 +612,22 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
+  const out = carryLinks(m, new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
     iteration: 0,
     edgeAttrs,
     transfers: { ...m.transfers },
     edgeTransfers: { ...m.edgeTransfers },
     ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
     faceAttrs: m.faceAttrs,
-    space: m.space,
+    from: m,
     faces: m.stated,
+  }));
+  pointSource.length = ox.length;
+  linkRows(out, {
+    points: { source: { of: m, domain: 'edges', many: pointSource } },
+    edges: { source: { of: m, domain: 'edges', rows: Int32Array.from(edgeSource) } },
   });
+  return record(out, derivation('planarize', [m], { ...opts }));
 }
 
 // ---- faces ----------------------------------------------------------------------------
@@ -637,7 +652,7 @@ function faceWise(out: Material, rows: readonly number[], inside: (leaf: number)
     edges[2 * k + 1] = out.edgeList[2 * k];
   }
   if (!edges) return out;
-  return new Material(out.x, out.y, out.attrs as Record<string, Float64Array>, edges, { iteration: out.iteration, history: [], edgeAttrs: out.edgeAttrs as Record<string, Float64Array>, transfers: { ...out.transfers }, edgeTransfers: { ...out.edgeTransfers }, ids: { points: out.pointIds, edges: out.edgeIds, edgeRoots: out.edgeRoots }, faceAttrs: out.faceAttrs, space: out.space, faces: out.stated });
+  return carryLinks(out, new Material(out.x, out.y, out.attrs as Record<string, Float64Array>, edges, { iteration: out.iteration, history: [], edgeAttrs: out.edgeAttrs as Record<string, Float64Array>, transfers: { ...out.transfers }, edgeTransfers: { ...out.edgeTransfers }, ids: { points: out.pointIds, edges: out.edgeIds, edgeRoots: out.edgeRoots }, faceAttrs: out.faceAttrs, from: out, faces: out.stated }));
 }
 
 /**
@@ -739,23 +754,19 @@ export interface StatedFaces {
    * it is asked for. Absent: nothing. */
   readonly source?: (f: number) => unknown;
   /** The edge list the faces were stated over. */
-  readonly edgeList: Uint32Array;
+  readonly edgeList: ColumnLike<Uint32Array>;
   /** The edge ids the faces were stated over. */
-  readonly edgeIds: Float64Array;
+  readonly edgeIds: ColumnLike<Float64Array>;
 }
 
 /** @internal `stated`, when a state has exactly the edges it was stated
  * over; undefined when a write changed them. */
-export function statedFor(stated: StatedFaces | undefined, edgeList: Uint32Array, edgeIds: Float64Array): StatedFaces | undefined {
+export function statedFor(stated: StatedFaces | undefined, edgeList: Column<Uint32Array>, edgeIds: Column): StatedFaces | undefined {
   if (stated === undefined) return undefined;
-  if (stated.edgeList !== edgeList) {
-    if (stated.edgeList.length !== edgeList.length) return undefined;
-    for (let k = 0; k < edgeList.length; k++) if (stated.edgeList[k] !== edgeList[k]) return undefined;
-  }
-  if (stated.edgeIds !== edgeIds) {
-    if (stated.edgeIds.length !== edgeIds.length) return undefined;
-    for (let k = 0; k < edgeIds.length; k++) if (stated.edgeIds[k] !== edgeIds[k]) return undefined;
-  }
+  // A write that kept the edges kept their columns, or the leaves of them:
+  // what is shared is not read.
+  if (!columnOf(stated.edgeList).sameValues(edgeList)) return undefined;
+  if (!columnOf(stated.edgeIds).sameValues(edgeIds)) return undefined;
   return stated;
 }
 

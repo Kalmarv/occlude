@@ -18,8 +18,9 @@
 
 import { Delaunay } from 'd3-delaunay';
 import { Material, material as makeMaterial, withinMaterial } from './material.js';
+import { carryLinks, linkRows } from './derivation.js';
 import { numericLoops, type AreaInput } from './boundary.js';
-import { distanceTo } from './distance.js';
+import { distanceField } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
@@ -269,9 +270,10 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     x[p] = coords[2 * p];
     y[p] = coords[2 * p + 1];
   }
-  // Relaxing moves points; it makes and unmakes nothing.
-  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space, faces: m.stated });
-  return region?.loops ? withinMaterial(out, region.loops) : out;
+  // Relaxing moves points; it makes and unmakes nothing, so every row
+  // keeps what it answers as `source` and `u`.
+  const out = carryLinks(m, new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
+  return region?.loops ? carryLinks(out, withinMaterial(out, region.loops)) : out;
 }
 
 /**
@@ -284,8 +286,13 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
  * children copy their parent's (a copied value is duplicated, not shared
  * out) merged with `opts.point`, and `demand` is written for every point
  * of the result.
+ *
+ * Every point of the result knows the input point it descends from — a
+ * survivor its own, a child its parent's — as its `source`, a row of
+ * `origin.of` (the value the sketch passed: `origin.rows[i]` is where row
+ * `i` of `m` is in it; by default `m` itself).
  */
-export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): Material {
+export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts, origin: { of: Material; rows: ArrayLike<number> } = { of: m, rows: Int32Array.from({ length: m.n }, (_, i) => i) }): Material {
   if (m.edgeCount > 0) throw new Error(`settle: the input has ${m.edgeCount} edges — settling changes the point count, so it takes point-only material; extract the points first (m.points.extract())`);
   if (typeof opts?.density !== 'function') throw new Error('settle: { density } is required — the field the point count follows');
   if (opts.spacing === undefined) throw new Error('settle: { spacing } is required — it sets one point\'s capacity');
@@ -388,8 +395,10 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     attrs[name] = col;
   }
   attrs.demand = demand;
-  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {}, space: m.space });
-  return region?.loops ? withinMaterial(out, region.loops) : out;
+  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {}, from: m });
+  linkRows(out, { points: { source: { of: origin.of, domain: 'points', rows: Int32Array.from(parent, (r) => origin.rows[r]) } } });
+  // The cut keeps the ids of what it keeps, and so their sources.
+  return region?.loops ? carryLinks(out, withinMaterial(out, region.loops)) : out;
 }
 
 /** Field-modulated Poisson-disk sampling (Bridson, variable radius): local
@@ -420,7 +429,7 @@ export function throwPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: T
   const attempts = opts.attempts ?? 1000;
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'throw');
   const { bounds } = region ?? env;
-  const inside = region?.loops ? distanceTo(region.loops) : null;
+  const inside = region?.loops ? distanceField(region.loops) : null;
   // Uniform per area OF THE SPACE, as `scatter` is: in a curved space a
   // landing is kept with the chance the space's density over its ceiling
   // on the box gives, so a coordinate cell that holds more of the space

@@ -30,7 +30,7 @@ describe('transported profile sweeps',()=>{
   expect(solid.points.at(0)).toMatchObject({x:.5,y:0,z:0,height:1});
   expect(solid.points.at(8)!.x).toBeCloseTo(Math.SQRT1_2,12);expect(solid.points.at(8)!.y).toBeCloseTo(Math.SQRT1_2,12);
   expect(solid.points.at(16)!.x).toBeCloseTo(0,12);expect(solid.points.at(16)!.y).toBeCloseTo(1.5,12);
-  expect(solid.points.at(8)!.provenance!.parents).toEqual([profile.points.at(0)!.id,path.points.at(1)!.id]);
+  const [across,alongPath]=solid.points.at(8)!.source;expect(across).toBe(profile.points.at(0));expect(alongPath).toBe(path.points.at(1));
   expect(solid.faces.at(0)).toMatchObject({material:'ink',section:0});expect(solid.faces.at(-1)!.material).toBeUndefined();
   const before=volume(solid),changed=solid.subdivide().displace(p=>[0,0,p.weight]).displace([0,0,1]);manifold(changed);expect(volume(changed)).toBeCloseTo(before,10);
   expect(path.points.at(0)!.z).toBe(0);

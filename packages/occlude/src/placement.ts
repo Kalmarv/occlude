@@ -28,9 +28,24 @@
  * one product of two frame matrices.
  *
  * Pure: no paper, no seed, no shape lowering. The toolkit hands it a door.
+ *
+ * ONE VALUE IN TWO DIMENSIONS. A placement of 3D space is the same value
+ * one dimension up: `Placement<Vec3>`. Its model is the hyperboloid in
+ * `R⁴` under the Minkowski product, read through the Beltrami–Klein ball,
+ * so its matrix is a 4×4 Lorentz matrix (sixteen numbers, `m`) where the
+ * plane's is a 3×3; `point`, `then`, `inverse` and `orientation` mean
+ * exactly what they mean on the plane (`then` is the matrix product,
+ * `orientation` the sign of the determinant). What stays 2D-only is what
+ * makes a plane placement a FRAME: `x`, `y`, `heading`, the walk verbs
+ * `step`, `turn` and `toward`, the `door` of the sketch's space, and
+ * `group(placement, …)` — a drawing is on the sheet, and a turn in space
+ * has no one heading. So the two dimensions stay two kinds of value, told
+ * apart by the point they move, and neither follows the other.
  */
 
+import { apply as applyLorentz, compose as composeLorentz, inverse as inverseLorentz, type Lorentz } from './hyperbolicSpace.js';
 import type { Space, SpaceKind } from './space.js';
+import type { Vec3 } from './three/math.js';
 import { radians } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 
@@ -104,7 +119,10 @@ export interface Frame {
  * number of reflections — and +1 when it does not. A motif with a hand to
  * it comes out left-handed in the first case.
  */
-export interface Placement {
+export type Placement<P extends XY | Vec3 = XY> = [P] extends [Vec3] ? SpacePlacement : PlanePlacement;
+
+/** A placement of the sketch's plane (see `Placement`). */
+export interface PlanePlacement {
   readonly door: ModelDoor;
   readonly orientation: 1 | -1;
   /** The 3×3 on model vectors, row-major. Internal: the value a sketch
@@ -242,7 +260,7 @@ function make(door: ModelDoor, m: readonly number[], at?: Frame): Placement {
       return door.down(act(frozen, door.up(p)));
     },
     then(next: Placement): Placement {
-      agree('then', door, next.door);
+      agree('then', door, (next as Partial<Placement>).door);
       // `next` after this: the matrices multiply the other way round.
       return make(door, mul9(next.m, frozen));
     },
@@ -310,7 +328,8 @@ function towardFrame(sp: Space | undefined, f: Frame, q: XY): Frame {
 
 /** Two doors are the same door, or the two placements name two geometries
  * and cannot meet. */
-function agree(who: string, a: ModelDoor, b: ModelDoor): void {
+function agree(who: string, a: ModelDoor, b: ModelDoor | undefined): void {
+  if (!b) throw new Error(`placement.${who}: a placement of 3D space cannot follow one of the plane`);
   if (a === b || a.id === b.id) return;
   throw new Error(`placement.${who}: a placement of ${b.kind} space cannot follow one of ${a.kind} space`);
 }
@@ -410,4 +429,54 @@ export function isPlacement(v: unknown): v is Placement {
     && typeof p.door === 'object' && p.door !== null
     && (p.orientation === 1 || p.orientation === -1)
   );
+}
+
+// ---- one dimension up: a placement of 3D hyperbolic space ------------------
+
+/** A placement of 3D hyperbolic space (see `Placement`): the verbs of a
+ * plane placement that have a meaning in space. */
+export interface SpacePlacement {
+  /** −1 when the isometry turns space over — an odd number of
+   * reflections — and +1 when it does not. */
+  readonly orientation: 1 | -1;
+  /** The 4×4 Lorentz matrix on the hyperboloid, row-major. Internal, as
+   * the plane's nine numbers are. */
+  readonly m: readonly number[];
+  /** Where this isometry sends a point of the Klein ball. A fresh triple
+   * out. A straight Klein chord stays a straight chord, so moving the two
+   * ends of a wire moves the whole wire exactly. */
+  point(p: Vec3): Vec3;
+  /** Apply this, then `next`. */
+  then(next: SpacePlacement): SpacePlacement;
+  /** The isometry that undoes this one. */
+  inverse(): SpacePlacement;
+}
+
+const lorentzOf = new WeakMap<SpacePlacement, Lorentz>();
+
+/** @internal The placement over one engine record: what `honeycomb` and
+ * `observer` answer. The record stays private; `then` and `inverse` are the
+ * engine's `compose` and `inverse`, so a chain is one matrix, not a chain of
+ * closures. */
+export function spacePlacement(record: Lorentz): SpacePlacement {
+  const value: SpacePlacement = Object.freeze({
+    orientation: record.mirror ? -1 as const : 1 as const,
+    m: record.matrix,
+    point: (p: Vec3): Vec3 => applyLorentz(record, p),
+    // `next` after this: the matrices multiply the other way round.
+    then: (next: SpacePlacement): SpacePlacement => {
+      const other = lorentzOf.get(next);
+      if (!other) throw new Error('placement.then: a placement of the plane cannot follow one of 3D space');
+      return spacePlacement(composeLorentz(other, record));
+    },
+    inverse: (): SpacePlacement => spacePlacement(inverseLorentz(record)),
+  });
+  lorentzOf.set(value, record);
+  return value;
+}
+
+/** @internal Is this a placement of 3D space? Only the engine makes one, so
+ * the test is the record under it. */
+export function isSpacePlacement(v: unknown): v is SpacePlacement {
+  return typeof v === 'object' && v !== null && lorentzOf.has(v as SpacePlacement);
 }

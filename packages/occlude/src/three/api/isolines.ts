@@ -1,6 +1,6 @@
 import {Mesh} from './mesh.js';
 import type {IsoLevels} from '../../isolines.js';
-import {refuseStroke} from './recipes.js';
+import {refuseStroke,refuseDisplay} from './recipes.js';
 import type {MeshCornerRow} from './topology.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {isolines3} from '../curves/isolines.js';
@@ -67,7 +67,7 @@ export function captureIsolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isolines options must be an object');
   const moved=(levelWords as readonly string[]).find(k=>k in options);
   if(moved)throw new Error(`isolines: '${moved}' is a level, not an option — the levels are the third argument, as in 2D: isolines(mesh, field, ${moved==='levels'?'[0, 0.5]':`{ ${moved}: … }`})`);
-  refuseStroke(options,'isolines');
+  refuseStroke(options,'isolines');refuseDisplay(options,'isolines');
   const spec=checkedLevels(at);
   const corners=[...mesh.corners];
   const values=Float64Array.from(corners,c=>{
@@ -122,5 +122,5 @@ export function isolineRecipe(captured:CapturedIsolines):SurfaceCurveRecipe3 {
  * accuracy. Reusable supported construction geometry, not a view feature. */
 export function isolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):SurfaceCurves<IsolineAttributes> {
   const captured=captureIsolines(mesh,field,at,options);
-  return new SurfaceCurves<IsolineAttributes>(isolineRecipe(captured),{key:options.key,pen:options.pen});
+  return new SurfaceCurves<IsolineAttributes>(isolineRecipe(captured),{key:options.key});
 }

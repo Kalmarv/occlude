@@ -36,6 +36,7 @@
 import { orient2d } from 'robust-predicates';
 import { Material, mintIds, inheritEdge } from './material.js';
 import { overlapSpan, positionHash } from './faces.js';
+import { inherits } from './space.js';
 
 export interface MergeOpts {
   /** Two vertices closer than this are one vertex; two edges within this of
@@ -313,6 +314,6 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
     ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
     faceAttrs: m.faceAttrs,
     faces: m.stated,
-    space: m.space,
+    ...inherits(m),
   });
 }

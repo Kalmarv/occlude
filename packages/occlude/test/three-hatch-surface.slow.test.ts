@@ -138,14 +138,16 @@ describe('seeded surface hatch',()=>{
     const lanesLeft=new Set(shaded.edges.filter(e=>e.a.x<-.5).map(e=>e.lane)).size,lanesMiddle=new Set(shaded.edges.filter(e=>e.a.x>.2).map(e=>e.lane)).size;
     expect(lanesLeft).toBeGreaterThan(lanesMiddle);
   });
-  it('lights explicitly; crosshatch is two calls with their own pens',()=>{
+  it('lights explicitly; crosshatch is two calls, and the lines hold no pen',()=>{
     const cube=box(2),lit=light({direction:[0,0,1],ambient:.2});
-    const a=hatchSurface(cube,{direction:s=>s.tangentU!,pen:'ink',spacing:.25,step:.125},stream(13)).curves.edges;
-    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,pen:'shade',spacing:.25,step:.125},stream(13));
+    const a=hatchSurface(cube,{direction:s=>s.tangentU!,spacing:.25,step:.125},stream(13)).curves.edges;
+    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,spacing:.25,step:.125},stream(13));
     const b=curves.edges;
     expect(stats.families).toBe(1);expect(stats.tone.backend).toBe('cpu');
     expect(a.length).toBeGreaterThan(0);expect(b.length).toBeGreaterThan(0);
-    expect(a.every(e=>e.pen==='ink')&&b.every(e=>e.pen==='shade')).toBe(true);
+    expect([...a,...b].every(e=>!('pen' in e))).toBe(true);
+    // The view names the pen of each family: [marks, { pen }].
+    expect(()=>hatchSurface(cube,{direction:(s:any)=>s.tangentU!,pen:'ink',spacing:.25,step:.125} as never,stream(13))).toThrow('how the view draws');
     // The top face faces the light: tone 0, so the shaded call draws nothing on it,
     // while the bottom face (tone 0.8) is fully hatched.
     expect(b.some(e=>e.a.z>1-1e-9&&e.b.z>1-1e-9)).toBe(false);expect(b.some(e=>e.a.z<-1+1e-9&&e.b.z<-1+1e-9)).toBe(true);

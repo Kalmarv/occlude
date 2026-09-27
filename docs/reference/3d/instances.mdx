@@ -7,7 +7,7 @@ description: "Points on a surface, and one prototype placed at every point or fa
 
 ## t.scatter() on a mesh
 
-It takes a mesh and returns points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.scatter(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both forms. A face selection is the surface that it names: `t.scatter(mesh.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. Each row keeps the id of its face.
+It takes a mesh and returns points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.scatter(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both forms. A face selection is the surface that it names: `t.scatter(mesh.faces.filter((f) => f.normal[2] > 0.85), { spacing })` puts points on those faces only. The `source` of each point is the face under it.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -25,7 +25,7 @@ export default sketch({ aspect: [1, 1], seed: 7, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/3d.instanceOnPoints.mdx</include>
 
-Places one prototype mesh at every point of a point set. `scale`, `rotate` and `offset` are constants or fields on the source point rows. A 2D point is a 3D point at z = 0: a 2D point selection, a material or a list of `[x, y]` pairs stands on the ground plane, with its ids and columns. `pointCloud` takes the same 2D points. `alignAxis('z', normal)` gives the rotation that stands the prototype on a surface. `.realize()` makes one ordinary mesh from all the copies, for the mesh operations.
+Places one prototype mesh at every point of a point set. `scale`, `rotate` and `offset` are constants or fields on the source point rows. A 2D point is a 3D point at z = 0. A 2D point selection, a material or a list of `[x, y]` pairs stands on the ground plane, with its columns. `pointCloud` takes the same 2D points. `alignAxis('z', normal)` gives the rotation that stands the prototype on a surface. `.realize()` makes one ordinary mesh from all the copies, for the mesh operations. Each instance row has the point under it as its `source`. A row of a realized mesh has a list of two as its `source`: the prototype row, then its instance.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

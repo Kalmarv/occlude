@@ -6,7 +6,7 @@ import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,va
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {identity} from './identity.js';
 import {weightedPoint} from '../geometry/exact.js';
-import {refuseStroke} from './recipes.js';
+import {refuseStroke,refuseDisplay} from './recipes.js';
 /** Multiple support contexts remain distinct at seams and intersections. */
 export interface SurfaceCurvePoint extends PointRow<{}> {
  readonly exact:SurfaceCurveNode3['exact'];readonly supports:SurfaceCurveNode3['supports'];
@@ -65,15 +65,11 @@ function chainsOf(network:SurfaceCurveNetwork3):{id:string;segments:number[];poi
 }
 /** Supported construction geometry, before camera interpretation. Generators
  * create these values; edge extraction retains attachments and full source phase. */
-export interface SurfaceCurveOptions extends GeometryOptions {
- /** Named pen for `view`'s default drawing of these marks. */
- readonly pen?:string;
-}
+export interface SurfaceCurveOptions extends GeometryOptions {}
 const isRecipe=(source:SurfaceCurveNetwork3|SurfaceCurveRecipe3):source is SurfaceCurveRecipe3=>typeof (source as SurfaceCurveRecipe3).resolve==='function';
 interface Built<A extends Attributes3> {readonly network:SurfaceCurveNetwork3;readonly points:Selection<SurfaceCurvePoint>;readonly edges:Selection<SurfaceCurveEdge<A>>}
 export class SurfaceCurves<A extends Attributes3={}> {
  readonly key?:string;
- readonly pen?:string;
  readonly #source:SurfaceCurveNetwork3|SurfaceCurveRecipe3;
  #built?:Built<A>;
  #curves?:Selection<SurfaceChain<A>>;
@@ -83,9 +79,8 @@ export class SurfaceCurves<A extends Attributes3={}> {
  constructor(source:SurfaceCurveNetwork3|SurfaceCurveRecipe3,options:SurfaceCurveOptions={}){
   if(!isRecipe(source))validateSurfaceCurveNetwork3(source);
   if(options.key!==undefined&&(typeof options.key!=='string'||!options.key))throw new Error('surface curve key must be nonempty');
-  refuseStroke(options,'surface curves');
-  if(options.pen!==undefined&&(typeof options.pen!=='string'||!options.pen))throw new Error('surface curve pen must be a pen name');
-  this.key=options.key;this.pen=options.pen;this.#source=source;
+  refuseStroke(options,'surface curves');refuseDisplay(options,'surface curves');
+  this.key=options.key;this.#source=source;
   Object.freeze(this);
  }
  #build():Built<A> {
@@ -148,9 +143,7 @@ export class SurfaceCurves<A extends Attributes3={}> {
   const bindings=targets.map((t,i)=>surfaceBinding3(t.surface,this.sources[i].binding.placement));
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
- withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.#source,{key,pen:this.pen});}
- /** The same marks drawn with a named pen by `view`; curves carry only `pen`. */
- style(style:{readonly pen?:string}):SurfaceCurves<A>{refuseStroke(style,'style');return new SurfaceCurves<A>(this.#source,{key:this.key,pen:style.pen??this.pen});}
+ withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.#source,{key});}
  /** Repeat prototype-attached marks at every placement of an instance set.
   * Attachments are re-evaluated on each placed triangle from their retained
   * affine weights; the prototype mesh is not realized. Segment attributes gain
@@ -170,7 +163,7 @@ export class SurfaceCurves<A extends Attributes3={}> {
    id:identity('placed-segment',source.id,segment.id),kind:segment.kind,a:identity('placed-node',source.id,network.nodes[segment.a].id),b:identity('placed-node',source.id,network.nodes[segment.b].id),
    chainId:identity('placed-chain',source.id,segment.chainId),range:segment.range,supports:segment.supports.map(s=>({source:si,triangle:s.triangle})),attributes:{...segment.attributes,instance:source.id},
   })));
-  const placed=surfaceCurveNetwork3({sources,nodes,segments}),curves=new SurfaceCurves<A&{instance:string}>(placed,{key:this.key,pen:this.pen});
+  const placed=surfaceCurveNetwork3({sources,nodes,segments}),curves=new SurfaceCurves<A&{instance:string}>(placed,{key:this.key});
   if(selected.size===network.segments.length)return curves;
   return curves.edges.filter(e=>selected.has(network.segments.find(s=>identity('placed-segment',e.instance,s.id)===e.id)?.id??'')).extract();
  }

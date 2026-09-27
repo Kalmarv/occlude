@@ -12,7 +12,7 @@ Curves are polygonal paths in 3D. On their own they are wires in a view. As prof
 
 `curve` takes points, and `parametricCurve` samples a function of `t` from 0 to 1. A curve in a view is a wire: meshes hide it, and it hides nothing.
 
-`curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too. `curve(m)` puts a material in XY at z = 0, and it keeps the ids and the columns of its points. The chain gives its own closure. A function of `t` is a different input, so it has a different word: `parametricCurve`.
+`curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too. `curve(m)` puts a material in XY at z = 0, and it keeps the columns of its points. Each point's `source` is the 2D point it came from. The chain gives its own closure. 3D space is flat, so `curve`, `revolve` and `sweep` refuse a chain of a curved sketch space by name. Make that profile with `material(points)`, because it has no space. A function of `t` is a different input, so it has a different word: `parametricCurve`.
 
 A circle profile is a closed `parametricCurve` of the angle: `parametricCurve((u) => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], { closed: true })`. The word `circle` is the 2D shape.
 
@@ -32,7 +32,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.revolve.mdx</include>
 
-Turns a profile in the XZ plane around the Z axis. A profile that starts on the axis gives a closed bottom. An open end stays open. A 2D chain is a profile too: its x is the radius and its y is the height.
+Turns a profile in the XZ plane around the Z axis. A profile that starts on the axis gives a closed bottom. An open end stays open. A 2D chain is a profile too: its x is the radius and its y is the height. The `source` of a point of the result is the profile point that it turns. The `source` of a side face is the profile edge.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -48,7 +48,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.sweep.mdx</include>
 
-Carries an XY profile along a path: a circle for a tube, an open polyline for a ribbon. `scale` and `twist` change the profile along the way. A 2D material is an XY profile, so `sweep(t.sample(circle(0, 0, 0.25), { count: 10 }), path)` with the 2D `circle` works. A value with more than one chain is not one profile, and `sweep` refuses it.
+Carries an XY profile along a path: a circle for a tube, an open polyline for a ribbon. `scale` and `twist` change the profile along the way. A 2D material is an XY profile, so `sweep(t.sample(circle(0, 0, 0.25), { count: 10 }), path)` with the 2D `circle` works. A value with more than one chain is not one profile, and `sweep` refuses it. The `source` of a point of the result is a list of two rows: the profile point, then the path point.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -66,18 +66,18 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 <include>/_sig/3d.CurveGeometry.along.mdx</include>
 <include>/_sig/3d.CurveGeometry.resample.mdx</include>
 
-A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives places along the curve by arc length. Each place has `x`, `y`, `z`, the unit `tangent`, the arc length `s`, the fraction `u` and the point columns. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it. `curve.resample({ count }).points.extract()` gives those points as a point set, with the point columns.
+A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives points along the curve by arc length, as the 2D `along` does. The answer is a point set. Each point has `x`, `y` and `z` and the point columns of the curve. It also has the columns `s` (the arc length), `u` (the fraction of the length) and `tangent` (the unit direction). Its `source` is the edge of the curve under it. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it.
 
 Below, beads sit on a helix at equal arc length.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { parametricCurve, sphere, instanceOnPoints, pointCloud, view, orthographic } from 'occlude/3d';
+import { parametricCurve, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, () => {
   const helix = parametricCurve((u) => [Math.cos(u * 12) * 1.1, Math.sin(u * 12) * 1.1, u * 2.4 - 1.2], { segments: 240 });
   const places = helix.along({ spacing: helix.length / 40 });
-  const beads = instanceOnPoints(sphere(0.09, { segments: 10, rings: 5 }), pointCloud(places.map((s) => [s.x, s.y, s.z])));
+  const beads = instanceOnPoints(sphere(0.09, { segments: 10, rings: 5 }), places);
   return view([helix.resample({ count: 80 }), beads], { camera: orthographic({ eye: [4, 6, 3], span: 3.6 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
@@ -100,9 +100,9 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
   const A = Math.sqrt(3), B = Math.SQRT2, C = 1, k = 0.85;
   const ball = sphere(1.7, { segments: 32, rings: 16 });
   const lines = t.streamlines((x, y, z) => [A * Math.sin(k * z) + C * Math.cos(k * y), B * Math.sin(k * x) + A * Math.cos(k * z), C * Math.sin(k * y) + B * Math.cos(k * x)],
-    { seeds: { count: 90, within: ball }, spacing: 0.17, step: 0.045, maxLength: 6, within: ball, pen: 'flow' });
+    { seeds: { count: 90, within: ball }, spacing: 0.17, step: 0.045, maxLength: 6, within: ball });
   const wall = box([0.9, 0.9, 0.9]).translate([1.35, 1.45, 0.15]);
-  return view([...lines, wall], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), pen: 'ink' });
+  return view([[lines, { pen: 'flow' }], wall], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), pen: 'ink' });
 });
 ```
 
@@ -122,8 +122,8 @@ import { sphere, curl3, grad, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], seed: 7, pens: { climb: pen({ width: mm(0.18), color: '#A84932' }), loop: pen({ width: mm(0.18), color: '#2A6F8A' }) } }, async (t) => {
   const hill = (x, y, z) => Math.sin(1.3 * x) * Math.cos(1.3 * y) - 0.35 * z;
   const ball = sphere(1.7, { segments: 24, rings: 12 });
-  const climb = t.streamlines(grad(hill), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, pen: 'climb', key: 'climb' });
-  const loop = t.streamlines(curl3((x, y, z) => [0, 0, hill(x, y, z)]), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, pen: 'loop', key: 'loop' });
-  return view([...climb, ...loop], { camera: orthographic({ eye: [4, -6, 4], span: 4.4 }) });
+  const climb = t.streamlines(grad(hill), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, key: 'climb' });
+  const loop = t.streamlines(curl3((x, y, z) => [0, 0, hill(x, y, z)]), { seeds: { count: 45, within: ball }, spacing: 0.33, step: 0.05, maxLength: 4, within: ball, key: 'loop' });
+  return view([[climb, { pen: 'climb' }], [loop, { pen: 'loop' }]], { camera: orthographic({ eye: [4, -6, 4], span: 4.4 }) });
 });
 ```

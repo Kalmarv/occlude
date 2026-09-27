@@ -94,13 +94,16 @@ export function edges(m: Material): EdgeQuery {
   let maxx = -Infinity;
   let maxy = -Infinity;
   let extent = 0;
+  const list = m.edgeList;
+  const X = m.x;
+  const Y = m.y;
   for (let e = 0; e < E; e++) {
-    const a = m.edgeList[2 * e];
-    const b = m.edgeList[2 * e + 1];
-    ax[e] = m.x[a];
-    ay[e] = m.y[a];
-    bx[e] = m.x[b];
-    by[e] = m.y[b];
+    const a = list[2 * e];
+    const b = list[2 * e + 1];
+    ax[e] = X[a];
+    ay[e] = Y[a];
+    bx[e] = X[b];
+    by[e] = Y[b];
     minx = Math.min(minx, ax[e], bx[e]);
     miny = Math.min(miny, ay[e], by[e]);
     maxx = Math.max(maxx, ax[e], bx[e]);
@@ -221,14 +224,15 @@ export function edges(m: Material): EdgeQuery {
   let vertexStart: Int32Array | null = null;
   let vertexEdges: Int32Array | null = null;
   const buildAdjacency = (): void => {
+    const ends = m.edgeList;
     const start = new Int32Array(m.n + 1);
-    for (let e = 0; e < 2 * E; e++) start[m.edgeList[e] + 1]++;
+    for (let e = 0; e < 2 * E; e++) start[ends[e] + 1]++;
     for (let i = 0; i < m.n; i++) start[i + 1] += start[i];
     const fill = start.slice(0, m.n);
     const list = new Int32Array(2 * E);
     for (let e = 0; e < E; e++) {
-      list[fill[m.edgeList[2 * e]]++] = e;
-      list[fill[m.edgeList[2 * e + 1]]++] = e;
+      list[fill[ends[2 * e]]++] = e;
+      list[fill[ends[2 * e + 1]]++] = e;
     }
     vertexStart = start;
     vertexEdges = list;

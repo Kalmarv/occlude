@@ -15,7 +15,7 @@ export default sketch(
       const noise3 = t.noise(p.x * 10, p.y * 10, p.z * 10);
       return (noise * 0.6 + noise2 * 0.3 + noise3 * 0.1) * 0.12;
     };
-    const terrain = pbase.displace((p) => terrainDisplace(p)).style({ creaseAngle: 180 });
+    const terrain = pbase.displace((p) => terrainDisplace(p));
     const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
     const coastline = intersections(water, terrain);
     return view([water, terrain, levels, coastline], {

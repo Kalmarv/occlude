@@ -8,7 +8,7 @@ description: Rows of a material, chosen and combined, and what they know about e
 A kind of row can have words of its own. Only edges have `nearest`, and only faces have `measure`. A word that a kind does not have stops the sketch with a message that names it: `faces.near: faces have no near`.
 
 :::note
-A row number belongs to one state. When a write adds or removes vertices, the rows get new numbers. A selection is more than its rows. Every vertex and edge carries an id, so a selection made in one state still names the same points in the next. A write, a set operation and `has` take a selection or a row of an earlier state. They find the rows by id. The members that are gone drop out. Select again when you want to ask the new state a new question. Do not select again to keep hold of the same points.
+A row number belongs to one state. When a write adds or removes vertices, the rows get new numbers. A selection is more than its rows: a selection made in one state still names the same points in the next. A write, a set operation, `rows` and `has` take a selection or a row of an earlier state. They find the same rows. The members that are gone drop out. Select again when you want to ask the new state a new question. Do not select again to keep hold of the same points.
 :::
 
 ## order
@@ -39,14 +39,14 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 <include>/_sig/Vertex.x.mdx</include>
 <include>/_sig/Vertex.y.mdx</include>
 
-One vertex, as a view of its row: `index`, `x`, `y`, and every column by name. A view reads the state it came from. To carry a view into a later state, hold its data, not the view.
+One vertex, as a view of its row: `index`, `x`, `y`, and every column by name. `index` is its place in the order of the table, in this state only. A view reads the state it came from, and it is also the name of its row. In a later state, `later.points.rows(p)` holds the same point.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 38), { count: 20 }).points.set('k', (p) => p.index % 4);
-  return [strokes(ring), ring.points.map((p) => circle(p, 1 + p.k, { pen: 'stabilo-88-blue' }))];
+  const ring = t.sample(circle(50, 50, 38), { count: 20 }).points.set('size', (p) => p.index % 4);
+  return [strokes(ring), ring.points.map((p) => circle(p, 1 + p.size, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -138,13 +138,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Selection.intersect.mdx</include>
 <include>/_sig/Selection.without.mdx</include>
 
-Set operations on selections of one kind of row. `union` takes any number of selections: `a.union(b, c)` is the members of `a`, then the new members of `b`, then those of `c`. `a.intersect(b)` keeps the members of `a` that are also in `b`, and `a.without(b)` keeps the members of `a` that are not. Every row that is not selected is the whole collection without the selection: `m.points.without(sel)`. `without` also takes one row or one point value. The other selection can come from an earlier state, and the operation reads it by id. A selection of a material that shares no id is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
+Set operations on selections of one kind of row. `union` takes any number of selections: `a.union(b, c)` is the members of `a`, then the new members of `b`, then those of `c`. `a.intersect(b)` keeps the members of `a` that are also in `b`, and `a.without(b)` keeps the members of `a` that are not. Every row that is not selected is the whole collection without the selection: `m.points.without(sel)`. `without` also takes one row or one point value. The other selection can come from an earlier state, and the operation finds the same rows. A selection of an unrelated material is an error. The result keeps the key of the first selection, so `groups.reduce((a, b) => a.union(b))` gives one selection.
 
 ```ts live
-import { sketch, circle } from 'occlude';
+import { sketch, circle, rect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cloud = t.scatter({ spacing: 6 });
+  const cloud = t.scatter({ spacing: 6, within: rect(4, 4, 92, 92) });
   const left = cloud.points.filter((p) => p.x < 55);
   const low = cloud.points.filter((p) => p.y > 45);
   const both = left.intersect(low);
@@ -161,7 +161,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Selection.rows.mdx</include>
 
-The selection that holds those SOURCE rows, in the order you give. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error. `rows` also takes the views themselves, one or a list, so `web.edges.rows(wall)` is the selection that holds the edge `wall`. A view of an earlier state gives the row it became. Every kind of row has `rows`.
+The selection that holds those rows, in the order you give. Give the views themselves, one or a list: `web.edges.rows(wall)` is the selection that holds the edge `wall`. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A view of an earlier state gives the row it became. A row that is not in the state is an error. Every kind of row has `rows`.
 
 Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
 
@@ -181,9 +181,9 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 
 <include>/_sig/Selection.extract.mdx</include>
 
-A new material from the selection. From points: the selected points with every column and no edges, in the order of the selection. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges in the order of the selection, their endpoints in row order, and both sets of columns. The rows have no gaps. The new material starts its own history. This is the one way to get independent material out of a selection. From faces: the edges and corners of the selected faces, with every column and every id. A builder such as `curve(sel)` also keeps the ids of the members, so `result.points.intersect(sel)` finds them.
+A new material from the selection. From points: the selected points with every column and no edges, in the order of the selection. `sel.edges.extract()` is the way to keep the edges among the members. From edges: the selected edges in the order of the selection, their endpoints in row order, and both sets of columns. The rows have no gaps. This is the one way to get independent material out of a selection. From faces: the edges and corners of the selected faces, with every column. The rows of the new material keep their names, so `result.points.intersect(sel)` finds the members. A builder such as `curve(sel)` also keeps its members.
 
-An edge selection also has the chain verbs of a material: `resample`, `trim`, `spline`, `oscillate` and `along`. Each one is `sel.extract()` and then the verb, so you need not extract first. Below, the cells of a hex field lose the walls near a line, and `trim` shortens each wall that stays.
+An edge selection also has the chain verbs of a material: `resample`, `trim`, `spline`, `oscillate` and `along`. Each one is `sel.extract()` and then the verb, so you need not extract first. Below, the cells of a hexagon tiling lose the walls near a line, and `trim` shortens each wall that stays.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -239,7 +239,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not, the nearest first. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge.
 
-`p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
+`p.edges` is the same neighbours, as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
 `edges.near(p, { radius })` is the same distance question for walls, and it measures the whole segment. On a lattice, `l.faces.near` measures to the centre of each face. The radius is a length in the space of the material. A long wall passing close to a place is near it, whichever end you measure from. The topological question for a wall is `e.adjacent`.
 
@@ -340,7 +340,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 <include>/_sig/edges.nearest.mdx</include>
 <include>/_sig/edges.firstHit.mdx</include>
 
-Two spatial questions on edges. `nearest(position, { within })` gives the closest edge within a distance. `firstHit(from, to)` gives the first edge that a straight move from `from` to `to` meets. Both return a hit or `null`. A hit from `nearest` has `edge`, `position` (the closest point, as a pair), `distance`, and `t`, the fraction along the edge. A hit from `firstHit` has the same fields and `along`, the fraction along the move. There, `position` is the place where the move meets the edge, and `distance` is the length from `from`. `kind` is `crossing`, `touch` or `overlap`. `excludeIncident: p` ignores the edges that touch the vertex `p`. Two edges at the same distance give the edge with the lower row.
+Two spatial questions on edges. `nearest(position, { within })` gives the closest edge within a distance. `firstHit(from, to)` gives the first edge that a straight move from `from` to `to` meets. Both return a hit or `null`. A hit from `nearest` has `edge`, `position` (the closest point, as a pair), `distance`, and `t`, the fraction along the edge. A hit from `firstHit` has the same fields and `along`, the fraction along the move. There, `position` is the place where the move meets the edge, and `distance` is the length from `from`. `kind` is `crossing`, `touch` or `overlap`. `excludeIncident: p` ignores the edges that touch the vertex `p`. Two edges at the same distance give the edge that comes first.
 
 Both read the state they come from, and neither edits it. The first question on a state builds an index, and the state keeps it for every later question. A selection of part of a state answers with its own members only.
 
@@ -422,7 +422,7 @@ m.warp({ from, to, where: m.points.filter((p) => p.y > 30) })
 
 It names the ELIGIBLE region. The operation's own rule still applies inside it. A method takes the domain it uses: give a method that moves points an edge selection, and it takes the endpoints. A face selection or one face gives its corners to a method that moves points. It gives its edges to a method on edges. A point selection, read as edges, gives the edges among its members, as `strokes(sel)` draws them. For the edges touching the members, say `sel.edges.adjacent()`. With no `where` the whole material is eligible. A method refuses a selection of another material, by name.
 
-`m.warp` moves points and leaves the rest where they are, as `m.move` does with the point selection it takes last. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region keeps its id.
+`m.warp` moves points and leaves the rest where they are, as `m.move` does with the point selection it takes last. `m.resample` works on edges. Consecutive eligible edges make a run, and a run keeps its two end vertices, so the chain stays one chain. A row outside the region stays as it was.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';

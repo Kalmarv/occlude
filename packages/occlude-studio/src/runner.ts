@@ -15,7 +15,9 @@ import * as threeAdvanced from 'occlude/3d/advanced';
  *
  * One `Execution` per run: created before the module evaluates (its draw
  * and inspect hooks are handed to the tagged code), compiled, encoded, and
- * returned whole. Nothing of a run outlives it except through the object.
+ * returned whole. Nothing of a run outlives it except through the object —
+ * and the memo, when the host hands one in: a cache of derivations that
+ * changes no ink (memo.ts).
  */
 
 import * as occlude from 'occlude';
@@ -26,6 +28,7 @@ import {
   type AssetTable, type EncodedScene, type FillTable, type PaperDef,
 } from 'occlude/host';
 import type { SceneCompute3, StageListener3, ProgressListener3 } from 'occlude/3d/advanced';
+import type { MemoStore } from 'occlude/host';
 import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
@@ -62,11 +65,15 @@ export interface RunConfig {
   draftFill?: { name: string; js: string };
   /** Return the run's addressed draws (the evolution grid's material). */
   draws?: boolean;
+  /** Read the toolkit's pure data operations through the worker's memo,
+   * which outlives the run (memo.ts). Off unless the editor's `occlude.memo`
+   * flag is on; off, a run is what it always was. */
+  memo?: boolean;
 }
 
 export { moduleName };
 
-function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): { def?: SketchDef; error?: unknown; run: Execution } {
+function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, memo?: MemoStore): { def?: SketchDef; error?: unknown; run: Execution } {
   // Let bounds() see the real paper for aspect-'paper' sketches.
   const { w, h } = paperSize({ paper: cfg.paper as never, landscape: cfg.landscape });
   const run = new Execution({
@@ -77,7 +84,7 @@ function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets
     assets,
     fills,
     inspect: cfg.inspect === true,
-  });
+  }, { memo });
   const modules = userModules(cfg.pens, cfg.papers ?? []);
   const require = (name: string): unknown => {
     if (name === 'occlude') return occlude;
@@ -113,8 +120,8 @@ function encodeRun(run: Execution, cfg: RunConfig): RunOutcome {
   return { scene: encodeScene(run, { coarsen: cfg.coarsen, debugGhost: cfg.debugGhost }), error: null, run };
 }
 
-export function runSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): RunOutcome {
-  const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
+export function runSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, memo?: MemoStore): RunOutcome {
+  const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills, memo);
   if (!def) return { scene: null, error, run };
   try {
     compileSketch(def, run);
@@ -125,8 +132,8 @@ export function runSketch(js: string, cfg: RunConfig, seed: number | string, ass
 }
 
 /** The worker awaits the entire sketch before encoding or adopting its run. */
-export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal, compute3?: SceneCompute3, onStage?: StageListener3, onProgress?: ProgressListener3): Promise<RunOutcome> {
-  const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
+export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal, compute3?: SceneCompute3, onStage?: StageListener3, onProgress?: ProgressListener3, memo?: MemoStore): Promise<RunOutcome> {
+  const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills, memo);
   if (!def) return { scene: null, error, run };
   try {
     await compileSketchAsync(def, run, { signal, compute3, onStage, onProgress });

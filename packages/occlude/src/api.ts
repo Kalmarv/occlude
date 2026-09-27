@@ -39,7 +39,7 @@ import { resolveTree3, classifyForRun3, strokesForRun3, inFrame3 } from './three
 import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
-import { INK_TOL, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
+import { INK_TOL, carriedSpace, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
 import { cellOf, coverTiling, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
 import { framePlacement, isPlacement, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
@@ -83,9 +83,12 @@ import {
   Material, material as materialOf, alongChain, checkSampling, inSpace,
   withinMaterial, areaCentroid, append, areaView, type Edge, type PointsLike, type Transfer, type Vertex,
 } from './material.js';
-import { chainRecordOf, chainRecordsOf, isCurveRow, type Curve } from './curves.js';
+import { chainLengths, chainRecordOf, chainRecordsOf, isCurveRow, type Curve } from './curves.js';
 import { isPointSelection, isEdgeSelection } from './relation.js';
 import { Selection } from './selection.js';
+import { memoised } from './memo.js';
+import { ownerOf, viewKind } from './views.js';
+import { carryLinks, derivation, linkRows, nodeOf, record } from './derivation.js';
 
 /** A pass of `t.steps`: the value in, the next value out. One argument. */
 type Pass<T> = (value: T) => T;
@@ -98,7 +101,7 @@ import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { spacefill, type SpacefillOpts } from './spacefill.js';
 import { textOf, type TextOpts } from './strokeFont.js';
 import { hersheySimplex } from './fonts/hersheySimplex.js';
-import { distanceTo, isPointSites, type DistanceField, type PointSites } from './distance.js';
+import { curvedDistanceField, distanceField, isPointSites, type DistanceField } from './distance.js';
 import { boundaryIn, force, isOptionsOnly, separationFrom, separationOf, sourcePoints, vortexIn, type GraphForce, type SeparationOpts, type Sources } from './forces.js';
 import { restamp, setEdges } from './tables.js';
 import {
@@ -659,6 +662,37 @@ function areaOutlines(run: Execution, area: Area, who: string, tolerance: L | un
   if (records) return records.map((c) => ({ pts: numericLoops([c.pts as Loop], who)[0], closed: c.closed !== false }));
   return numericLoops(areaLoops(area, who), who).map((pts) => ({ pts, closed: true }));
 }
+/**
+ * The edge rows of an area that is geometry — a curve, a selection, a face
+ * — as a lookup from a boundary segment to the edge row it runs along, in
+ * the one material those edges are rows of. Its outlines are read off that
+ * geometry's own vertices, so a segment of an outline is an edge with the
+ * same two ends; a segment no edge makes (a chord that closes an open
+ * chain) answers -1. A shape, loops, records and a rect have no rows:
+ * undefined.
+ */
+function geometryEdges(area: unknown): (((x0: number, y0: number, x1: number, y1: number) => number) & { of: Material }) | undefined {
+  if (typeof area !== 'object' || area === null || isShapeValue(area) || isGroupValue(area) || isInvertValue(area)) return undefined;
+  const iterable = (v: unknown): v is Iterable<unknown> => typeof v === 'object' && v !== null && typeof (v as Iterable<unknown>)[Symbol.iterator] === 'function';
+  const first = (v: Iterable<unknown>): unknown => { for (const x of v) return x; return undefined; };
+  let edges: Iterable<unknown> | undefined;
+  if (iterable(area) && viewKind(first(area)) === 'edge') edges = area;
+  else if (isGeometry(area) && 'edges' in area && iterable((area as { edges?: unknown }).edges)) edges = (area as { edges: Iterable<unknown> }).edges;
+  if (edges === undefined) return undefined;
+  let of: Material | undefined;
+  const rows = new Map<string, number>();
+  for (const e of edges as Iterable<Edge>) {
+    const owner = ownerOf(e) as Material | undefined;
+    if (!(owner instanceof Material)) continue;
+    of ??= owner;
+    if (owner !== of) continue;
+    rows.set(`${e.a.x},${e.a.y},${e.b.x},${e.b.y}`, e.index);
+    rows.set(`${e.b.x},${e.b.y},${e.a.x},${e.a.y}`, e.index);
+  }
+  if (of === undefined) return undefined;
+  return Object.assign((x0: number, y0: number, x1: number, y1: number) => rows.get(`${x0},${y0},${x1},${y1}`) ?? -1, { of });
+}
+
 /** A row a chain value answers under `curves`: not a list of points, but
  * a value with its `points` in order and its `closed`. */
 const isRowOfCurve = (v: unknown): boolean =>
@@ -963,7 +997,7 @@ export function withinAny(
       }
       if (fill.boundary.length === 0) return false;
       const [ax, ay] = fill.boundary[0];
-      return distanceTo(areas)(ax, ay) >= -tol;
+      return distanceField(areas)(ax, ay) >= -tol;
     });
   }
   // A face is kept whole or not kept at all: nothing of it is clipped. It
@@ -993,7 +1027,7 @@ export function withinAny(
     // would cover. Each real segment is tested at its ends and its middle,
     // deeper than the tolerance; a wall the face shares with the boundary is
     // ON it, not in it, and passes.
-    const faceInside = distanceTo(areas);
+    const faceInside = distanceField(areas);
     for (const s of fill.boundary) {
       const [ax, ay, bx, by] = s;
       if (faceInside(ax, ay) > tol || faceInside(bx, by) > tol || faceInside((ax + bx) / 2, (ay + by) / 2) > tol) return false;
@@ -1072,7 +1106,7 @@ function boundarySide(fill: ReturnType<typeof areaFill>, tol: number): (x: numbe
   return (x, y) => {
     const v = fill.at(x, y);
     if (!(v > 0) && !(v < 0)) return v;
-    near ??= fill.boundary.length === 0 ? () => Infinity : distanceTo(fill.boundary.map(([ax, ay, bx, by]) => [[ax, ay], [bx, by]] as [number, number][]));
+    near ??= fill.boundary.length === 0 ? () => Infinity : distanceField(fill.boundary.map(([ax, ay, bx, by]) => [[ax, ay], [bx, by]] as [number, number][]));
     return Math.abs(near(x, y)) <= tol ? 0 : v;
   };
 }
@@ -1643,11 +1677,8 @@ export interface NoiseOptions {
   readonly amount?: number;
 }
 
-/** The area a toolkit cloud was bounded by — `t.scatter`/`t.throw` with
- * `within`, and what `t.relax`/`t.settle` made of one — as lowered loops.
- * A side table, not a column: the material is the plain value it was, and
- * only the point words read it, as their default `within`. */
-const cloudAreas = new WeakMap<object, [number, number][][]>();
+/** The point words whose cloud keeps the area it was made in. */
+const CLOUD_WORDS: ReadonlySet<string> = new Set(['t.scatter', 't.throw', 't.relax', 't.settle']);
 
 /** `t.quadtree` options: the pure ones, with any area for `within`. */
 export type QuadtreeTkOpts = Omit<QuadtreeOpts, 'within'> & { within?: AreaInput | ShapeValue };
@@ -1658,7 +1689,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * flat one too, since a flat material from the toolkit KNOWS it is flat.
    * Every word below that answers a material answers through this. */
   function spaced(m: Material): Material {
-    return inSpace(m, exec.space);
+    // The same rows in another space: whatever they answer as `source`
+    // and `u` they still answer.
+    return carryLinks(m, inSpace(m, exec.space));
   }
 
   /** Environment handed to the points module: a seeded stream of its own
@@ -1677,21 +1710,29 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     };
   }
 
-  /** A toolkit cloud bounded by `within` keeps that area, so the next point
-   * word defaults to it. */
-  function bounded(m: Material, loops: [number, number][][] | undefined): Material {
-    if (loops) cloudAreas.set(m, loops);
-    return m;
+  /** The area a toolkit cloud was bounded by — `t.scatter`/`t.throw` with
+   * `within`, and what `t.relax`/`t.settle` made of one — as lowered loops:
+   * the `within` its derivation kept, which the next point word defaults
+   * to. A write makes a value of its own, which keeps none. */
+  function cloudArea(m: unknown): [number, number][][] | undefined {
+    const node = nodeOf(m);
+    return node !== undefined && CLOUD_WORDS.has(node.op) ? node.params.within as [number, number][][] | undefined : undefined;
   }
 
-  /** The points a relax or settle works on, and the area the cloud they
-   * came from was bounded by: a point selection is its members, extracted
-   * with their columns and ids; anything else that has points is read as
-   * points. */
-  function pointOpInput(x: Material | Selection<Vertex> | PointsLike): { m: Material; area: [number, number][][] | undefined } {
-    if (isPointSelection(x)) return { m: x.extract(), area: cloudAreas.get(x.source) };
+  /** The points a relax or settle works on, the area the cloud they came
+   * from was bounded by, and where each of their rows is in the value the
+   * sketch passed: a point selection is its members, extracted with their
+   * columns and ids, whose rows are rows of the selection's material;
+   * anything else that has points is read as points. */
+  function pointOpInput(x: Material | Selection<Vertex> | PointsLike): { m: Material; area: [number, number][][] | undefined; origin: { of: Material; rows: Int32Array } } {
+    if (isPointSelection(x)) {
+      const m = x.extract();
+      const of = x.source;
+      const ids = m.pointIds;
+      return { m, area: cloudArea(of), origin: { of, rows: Int32Array.from(ids, (id) => of.rowOfPoint(id as Vertex['id'])) } };
+    }
     const m = materialOf(x as never);
-    return { m, area: cloudAreas.get(x as Material) };
+    return { m, area: cloudArea(x), origin: { of: m, rows: Int32Array.from({ length: m.n }, (_, i) => i) } };
   }
 
   /** A point operation's `within`, lowered, or undefined. */
@@ -1722,7 +1763,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (area !== undefined && raw.within !== undefined) throw new Error('scatter: the area is the first argument — give it there or as within, not both');
     const within = withinLoops(area ?? raw.within, 'scatter');
     const opts: ScatterOpts = within === undefined ? raw : { ...raw, within };
-    return bounded(spaced(scatterPoints(pointsEnv(), field, opts)), within);
+    return record(spaced(scatterPoints(pointsEnv(), field, opts)),
+      derivation('t.scatter', [field ?? area], { spacing: raw.spacing, within }, { seeded: true }));
   }
 
   /** Independent uniform random points, `count` of them: `t.throw({ count })`
@@ -1739,7 +1781,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (!raw || typeof raw !== 'object' || raw.count === undefined) throw new Error('throw: { count } is required');
     const within = withinLoops(area ?? raw.within, 'throw');
     const opts: ThrowOpts = within === undefined ? raw : { ...raw, within };
-    return bounded(spaced(throwPoints(pointsEnv('__throw'), field, opts)), within);
+    return record(spaced(throwPoints(pointsEnv('__throw'), field, opts)),
+      derivation('t.throw', [field ?? area], { count: raw.count, attempts: raw.attempts, within }, { seeded: true }));
   }
 
   /** Lloyd relaxation: each point to the density-weighted centroid of its
@@ -1750,7 +1793,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const { m, area } = pointOpInput(points);
     const within = withinLoops(opts.within, 'relax') ?? area;
     const o: RelaxOpts = within === undefined ? opts : { ...opts, within };
-    return bounded(spaced(relaxMaterial(pointsEnv(), m, o)), within);
+    return record(spaced(relaxMaterial(pointsEnv(), m, o)),
+      derivation('t.relax', [points, opts.density], { iterations: opts.iterations, step: opts.step, within }));
   }
 
   /** Weighted Linde-Buzo-Gray settling toward `density` at `spacing`:
@@ -1758,10 +1802,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * keep their columns, children copy their parent's, `demand` is written.
    * Split directions come from the sketch's seeded stream. */
   function settle(points: Material | Selection<Vertex> | PointsLike, opts: SettleOpts): Material {
-    const { m, area } = pointOpInput(points);
+    const { m, area, origin } = pointOpInput(points);
     const within = withinLoops(opts?.within, 'settle') ?? area;
     const o: SettleOpts = within === undefined ? opts : { ...opts, within };
-    return bounded(spaced(settleMaterial(pointsEnv(), m, o)), within);
+    return record(spaced(settleMaterial(pointsEnv(), m, o, origin)),
+      derivation('t.settle', [points, opts?.density, opts?.point], { spacing: opts?.spacing, iterations: opts?.iterations, step: opts?.step, within }, { seeded: true }));
   }
 
   /** The subdivision of the drawable that puts detail where the points are:
@@ -1774,7 +1819,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function quadtreeTk(points: PointsLike, opts: QuadtreeTkOpts = {}): Material {
     const b = exec.bounds();
     const o: QuadtreeOpts = opts.within === undefined ? opts as QuadtreeOpts : { ...opts, within: numericAreaLoops(exec, opts.within, 'quadtree') };
-    return spaced(quadtree(points, { x: b.x, y: b.y, w: b.w, h: b.h }, o));
+    return record(spaced(quadtree(points, { x: b.x, y: b.y, w: b.w, h: b.h }, o)),
+      derivation('t.quadtree', [points], { capacity: o.capacity, depth: o.depth, within: o.within }));
   }
 
   /** One line that folds until it fills an area, as material: a chain of
@@ -1787,7 +1833,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `peanoRule` and `meanderRule` beside it, and a table of your own if you
    * want another fold. Draw it with `strokes`. */
   function spacefillTk(area: Area, opts: SpacefillOpts): Material {
-    return spaced(spacefill({ len: (l: L) => exec.len(l) }, numericAreaLoops(exec, area, 'spacefill'), opts));
+    return record(spaced(spacefill({ len: (l: L) => exec.len(l) }, numericAreaLoops(exec, area, 'spacefill'), opts)),
+      derivation('t.spacefill', [area, opts.field], { ...opts, field: undefined }));
   }
 
   /**
@@ -1812,6 +1859,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * at the chart's centre, its side fixed by the curvature.
    */
   function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
+    return record(tilingOf(p, q, opts), derivation('t.tiling', [], { p, q, ...opts }));
+  }
+
+  function tilingOf(p: number, q: number, opts: TilingOpts): Tiling {
     const geometry = tilingGeometry(p, q);
     const sp = exec.space;
     if (sp.kind !== geometry) {
@@ -1878,39 +1929,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * geodesics, and as close as the boundary's own sampling for anything
    * else, so a circle and a tiling cell need no word of their own.
    */
-  /**
-   * `t.distanceTo(points)` in a curved space: zero at a point and minus the
-   * space's distance to the nearest point everywhere else — the sign
-   * the pure `distanceTo` of points has, measured along geodesics. The pure word reads
-   * the chart; this one reads the space, so a ring about every site has
-   * one radius of the space wherever the site is.
-   *
-   * In the disk a space length is never shorter than its coordinate
-   * length, so a site further off in coordinates than the best found so
-   * far cannot win and is skipped unmeasured.
-   */
-  function spaceDistanceToPoints(space: Space, points: PointSites): DistanceField {
-    const m = materialOf(points);
-    const sx: number[] = [];
-    const sy: number[] = [];
-    for (let i = 0; i < m.n; i++) {
-      if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) continue;
-      sx.push(m.x[i]);
-      sy.push(m.y[i]);
-    }
-    if (sx.length === 0) return () => -Infinity;
-    const bounded = space.kind === 'hyperbolic';
-    return (x, y) => {
-      let best = Infinity;
-      for (let i = 0; i < sx.length; i++) {
-        if (bounded && Math.hypot(sx[i] - x, sy[i] - y) >= best) continue;
-        const d = space.distance([x, y], [sx[i], sy[i]]);
-        if (d < best) best = d;
-      }
-      return -best;
-    };
-  }
-
   function spaceDistanceTo(space: Space, area: Area): DistanceField {
     // A shape says whether each of its outlines closes; anything else is
     // an area, and an area's boundaries are loops.
@@ -1950,9 +1968,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     // sites, anything else becomes a material. The cells are made in the
     // run's space, and their site correspondence lives on that material.
     const siteSet = isPointSelection(sites) ? sites : materialOf(sites);
-    if (opts.within === undefined) return voronoiOf(siteSet, { x: b.x, y: b.y, w: b.w, h: b.h }, exec.space);
-    const region = withinRegion(numericAreaLoops(exec, opts.within, 'voronoi'), 'voronoi');
-    return voronoiOf(siteSet, region.bounds, exec.space, region.loops ?? undefined);
+    if (opts.within === undefined) return record(voronoiOf(siteSet, { x: b.x, y: b.y, w: b.w, h: b.h }, exec.space), derivation('t.voronoi', [sites]));
+    const loops = numericAreaLoops(exec, opts.within, 'voronoi');
+    const region = withinRegion(loops, 'voronoi');
+    return record(voronoiOf(siteSet, region.bounds, exec.space, region.loops ?? undefined), derivation('t.voronoi', [sites], { within: loops }));
   }
 
   /**
@@ -2016,10 +2035,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * the stream does not depend on what is in the collection.
    *
    * `pick(items, n)` with `n` of 1 or more is `n` distinct members (all of
-   * them when there are fewer), and `pick(items, share)` with a share
-   * between 0 and 1 is that share of them, rounded: a selection of a
-   * selection, a list of a list, in the collection's own order. One draw
-   * per member picked.
+   * them when there are fewer; one draw per member picked), and
+   * `pick(items, share)` with a share between 0 and 1 is a chance per
+   * member: each member is in with that chance, one draw per member in the
+   * collection's order — so `pick(small, 1 / 50)` can pick one of a few
+   * members, where a rounded share of them would always be none. Either
+   * way the answer is a selection of a selection, a list of a list, in the
+   * collection's own order.
    */
   function pick<T>(items: Pickable<T>): T;
   function pick<S extends Selection<any>>(items: S, count: number): S;
@@ -2027,16 +2049,23 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function pick<T>(items: Pickable<T>, count?: number): unknown {
     if (count === undefined) return items.length === 0 ? exec.pick(NO_MEMBER) : exec.pick(items);
     const len = items.length;
-    const k = !(count > 0) ? 0 : count < 1 ? Math.round(count * len) : Math.min(Math.floor(count), len);
-    // A partial shuffle of the positions: the first k are the picks.
-    const order = Array.from({ length: len }, (_, i) => i);
-    for (let i = 0; i < k; i++) {
-      const j = i + exec.rndInt(len - i);
-      const swap = order[i];
-      order[i] = order[j];
-      order[j] = swap;
+    let chosen: Set<number>;
+    if (count > 0 && count < 1) {
+      // A share is a chance per member, one draw each, in order.
+      chosen = new Set();
+      for (let i = 0; i < len; i++) if (exec.chance(count)) chosen.add(i);
+    } else {
+      const k = !(count > 0) ? 0 : Math.min(Math.floor(count), len);
+      // A partial shuffle of the positions: the first k are the picks.
+      const order = Array.from({ length: len }, (_, i) => i);
+      for (let i = 0; i < k; i++) {
+        const j = i + exec.rndInt(len - i);
+        const swap = order[i];
+        order[i] = order[j];
+        order[j] = swap;
+      }
+      chosen = new Set(order.slice(0, k));
     }
-    const chosen = new Set(order.slice(0, k));
     const withFilter = items as unknown as { filter?: (fn: (m: T, i: number) => boolean) => unknown };
     if (typeof withFilter.filter === 'function') return withFilter.filter((_, i) => chosen.has(i));
     const out: T[] = [];
@@ -2090,7 +2119,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         if (value === undefined) throw new Error(`t.steps: pass ${i + 1} returned nothing at step ${k} — a pass returns the value the next one reads`);
       }
       // A material counts its steps: what `force.drift` turns with.
-      if (value instanceof Material) value = restamp(value, base + k + 1) as T;
+      // What a pass derived answers within the pass: the next step keeps
+      // only what the start answered (tables.ts `restamp`).
+      if (value instanceof Material) value = restamp(value, base + k + 1, [], start) as T;
       if (every && (k + 1) % every === 0 && k + 1 < count) snaps.push(value);
     }
     if (every && count > 0) snaps.push(value);
@@ -2140,7 +2171,12 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function isolines(field: FieldFn2, at: IsoLevels, opts: IsoOpts = {}): Material {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(levelSetMaterial(levelLines(env, field, at, opts, boundDomain(field, env.bounds))));
+    const set = levelLines(env, field, at, opts, boundDomain(field, env.bounds));
+    // The value keeps its field and the levels it traced: a `{ count }` or
+    // a `{ spacing }` is resolved against the field's own range, so the
+    // levels are an answer of the rule, kept beside what was asked.
+    return record(spaced(levelSetMaterial(set)),
+      derivation('t.isolines', [field], { at, step: opts.step }, { kept: { levels: Object.freeze(set.groups.map((g) => g.level)) } }));
   }
 
   /** Where a bound field can exist: the box its `within` bounds share with
@@ -2217,7 +2253,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         ei++;
       }
     }
-    return new Material(x, y, { strength, height }, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: { strength: 'interpolate', height: 'interpolate' }, edgeTransfers: {}, space: exec.space });
+    return record(new Material(x, y, { strength, height }, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: { strength: 'interpolate', height: 'interpolate' }, edgeTransfers: {}, space: exec.space }),
+      derivation('t.ridges', [field], { ...opts }));
   }
 
   /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
@@ -2233,7 +2270,16 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (typeof field === 'function' && field.length === 3) return streamlinesInSpace(exec, field as VectorField3, opts as Streamlines3Options);
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
-    return spaced(contourMaterial(streamlinesOf(env, field as VectorFieldFn, opts as StreamOpts)));
+    const lines = streamlinesOf(env, field as VectorFieldFn, opts as StreamOpts);
+    // Each point's arc-length fraction along its own line, in the space.
+    const u: number[] = [];
+    for (const c of lines) {
+      const cum = chainLengths(c.pts, false, exec.space);
+      const total = cum[cum.length - 1];
+      for (let k = 0; k < c.pts.length; k++) u.push(total > 0 ? cum[k] / total : 0);
+    }
+    const out = linkRows(spaced(contourMaterial(lines)), { points: { params: { u: Float64Array.from(u) } } });
+    return record(out, derivation('t.streamlines', [field], { ...(opts as StreamOpts) }));
   }
 
   /** How long the front takes to reach each point of the drawable, as a
@@ -2328,7 +2374,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
     }
     flush();
-    return pieces.length === 1 ? pieces[0] : spaced(append(...pieces));
+    return record(pieces.length === 1 ? pieces[0] : spaced(append(...pieces)), derivation('t.material', areas, { tolerance: opts.tolerance }));
   }
 
   /** Outlines as one material, each a ring or a chain, welding nothing. */
@@ -2381,6 +2427,12 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * several outlines are separate chains in one material. Sampling does not
    * keep the shape's own vertices — `t.material(shape)` does. Positions and
    * connectivity only — columns come from `points.set()`.
+   *
+   * Every sample answers `u`, its arc-length fraction along its outline
+   * (0 at the outline's start; an open chain ends at 1, a ring stops short
+   * of it), and a sample of geometry — a curve, a selection, a face —
+   * answers `source`, the input edge it lies on. Both are kept by a `set`
+   * or a `move` of the result; a point added later has neither.
    */
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
   function sample(area:Area,options:{count?:number;spacing?:L;tolerance?:L}):Material;
@@ -2399,19 +2451,25 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       // a shape's spacing is.
       const opts=options as {count?:number;spacing?:L};
       const spacing=opts.spacing===undefined?undefined:resolveLen(opts.spacing,exec.frame.inner)/unitMm(exec.frame);
-      // The space is frame data and a material has no frame, so the toolkit
-      // hands the run's own in with the spacing.
-      return spaced(shape.resample(spacing===undefined?{count:opts.count,space:exec.space}:{spacing,space:exec.space}));
+      // Measured in the run's space: a material the toolkit made is in it
+      // already, and chart data (a pure `material(points)`) is put in it.
+      return record(spaced(spaced(shape).resample(spacing===undefined?{count:opts.count}:{spacing})),
+        derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing }));
     }
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
+    const node = derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing, tolerance: opts.tolerance });
     const frame = exec.frame;
     const unit = unitMm(frame);
     const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
     // A spacing that resolves to nothing, or a count with fewer than two
     // samples in it, samples nothing: an empty material, not a failed sketch.
-    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return spaced(materialOf([]));
+    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return record(spaced(materialOf([])), node);
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
+    // Per sample, the rule's parameter and, for geometry, the edge under it.
+    const u: number[] = [];
+    const under = geometryEdges(shape);
+    const source: number[] = [];
     // Each outline keeps its OWN closure: a path may hold a ring and a chain.
     // A bare `spacing` is a length in the space, so the arc length between
     // two samples is the space's own and a sample between two vertices sits
@@ -2421,10 +2479,15 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     for (const { pts: poly, closed, curve } of areaOutlines(exec, shape, 'sample', opts.tolerance, 'all')) {
       const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU, space: exec.space });
       const first = pts.length;
+      // `alongChain` places sample k at arc length total·k/gaps: its
+      // fraction of the outline is k/gaps exactly.
+      const gaps = closed ? samples.length : samples.length - 1;
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         const [x0, y0] = poly[seg];
         const [x1, y1] = poly[(seg + 1) % poly.length];
+        u.push(gaps > 0 ? k / gaps : 0);
+        if (under) source.push(under(x0, y0, x1, y1));
         // A circle or an ellipse in a curved space: the sample is ON the
         // curve, a step from its centre, and not on a chord of it.
         if (curve) {
@@ -2439,7 +2502,12 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       }
       if (closed && samples.length > 2) edges.push([first + samples.length - 1, first]);
     }
-    return spaced(materialOf(pts, { edges }));
+    const out = spaced(materialOf(pts, { edges }));
+    linkRows(out, { points: {
+      params: { u: Float64Array.from(u) },
+      source: under ? { of: under.of, domain: 'edges', rows: Int32Array.from(source) } : undefined,
+    } });
+    return record(out, node);
   }
 
   /**
@@ -2516,7 +2584,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     seed: opts.seed ?? `${exec.seedUsed}:synth:${exec.rng.float()}`,
     bounds: opts.bounds ?? { x: b0.x, y: b0.y, w: b0.w, h: b0.h },
   });
-  return {
+  return memoised({
     ...bindModeling3(exec, scope),
     classify3: (scene: LineArtScene3) => {
       if (!scope || scope.isOpen && !scope.isOpen()) throw new Error('classify3 requires an active async compilation');
@@ -2575,7 +2643,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A grid of cells covering the whole drawable, as one geometry: its
      * faces are the cells in row-major order, each with its `i` and `j`
      * and its rectangle as `bounds`; neighbouring cells share one wall. */
-    grid: (opts: GridOptions): Material => spaced(gridCells(exec.bounds(), opts)),
+    grid: (opts: GridOptions): Material => record(spaced(gridCells(exec.bounds(), opts)), derivation('t.grid', [], { ...opts })),
     /** The placements of one of the seventeen wallpaper groups, enough of
      * them to cover the drawable: hand each to `group(placement, motif)`
      * and the motif repeats under the group. `cell` is `[w, h]` for a
@@ -2600,17 +2668,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /**
      * The distance field of an area, taking a shape as well as resolved
      * geometry: inside the sketch the frame is in hand, so the toolkit
-     * lowers the shape and the pure `distanceTo` never has to.
+     * lowers the shape and the pure `distanceTo` never has to. It measures
+     * in the space the geometry carries, and in the sketch's space when it
+     * carries none: plain loops, points and a shape.
      */
     distanceTo: (area: Area): PointField<DistanceField> => {
+      const space = carriedSpace(area) ?? exec.space;
       // Points have no inside: a point selection, a material that is
       // points alone, or a face collection is measured to its nearest point.
       if (isPointSites(area)) {
-        return pointField(exec.space.kind === 'euclidean' ? distanceTo(area) : spaceDistanceToPoints(exec.space, area));
+        return pointField(space.kind === 'euclidean' ? distanceField(area) : curvedDistanceField(space, area));
       }
-      return pointField(exec.space.kind === 'euclidean'
-        ? distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput)
-        : spaceDistanceTo(exec.space, area));
+      return pointField(space.kind === 'euclidean'
+        ? distanceField(lowerShape(exec, area, 'distanceTo') as AreaInput)
+        : spaceDistanceTo(space, area));
     },
     /**
      * The forces, each taking a shape where it takes an area or points. The
@@ -2647,7 +2718,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     asset: (name: string): string => assetOf(exec.inputs.assets, name),
     /** A captured image as a sampler placed on the drawable. */
     image: (name: string, place: ImagePlacement = {}) => imageOf(exec.inputs.assets, name, place),
-  };
+  }, exec);
 }
 
 interface EmitCtx {

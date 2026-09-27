@@ -9,6 +9,7 @@ import type {AttributeFields,PointColumns3,PointFields3} from './columns.js';
 import {surface3,assembleSurface3,type Attribute3,type Attributes3,type Surface3,type SurfacePoint3} from '../geometry/surface.js';
 import {sub3,mul3,cross3,type Vec3} from '../math.js';
 import {emptySize,sampleValue} from '../degenerate.js';
+import {SOURCES,derived,withSource} from './source.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SurfaceSample<F extends Attributes3,C extends Attributes3={},Q extends Attributes3={}> extends Omit<SurfaceLocation3,'face'|'faceAttributes'|'pointAttributes'|'cornerAttributes'> {
   readonly face:FaceRow<F>;
@@ -40,7 +41,7 @@ const states=new WeakMap<object,SampleState<any,any,any,any>>();
 export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C extends Attributes3={},Q extends Attributes3={}> extends PointGeometry<P> {
   constructor(geometry:PointGeometry<P>,target:Mesh<Q,any,F,C>,samples:ReadonlyMap<string,SurfaceSample<F,C,Q>>,generation:SamplingGeneration){
     super(geometry.surface,geometry);
-    const owned=new Map<string,SurfaceSample<F,C,Q>>(),rows=Object.freeze(geometry.points.map(p=>{const sample=samples.get(p.id);if(!sample)throw new Error('surface sample provenance is missing');owned.set(p.id,sample);return Object.freeze({...p,sample}) as unknown as SurfaceSampleRow<P,F,C,Q>;}));
+    const owned=new Map<string,SurfaceSample<F,C,Q>>(),rows=Object.freeze(geometry.points.map(p=>{const sample=samples.get(p.id);if(!sample)throw new Error('surface sample provenance is missing');owned.set(p.id,sample);return Object.freeze(withSource({...p,sample},geometry.surface,geometry.surface.points[p.index])) as unknown as SurfaceSampleRow<P,F,C,Q>;}));
     states.set(this,{target,samples:owned,generation:Object.freeze({...generation}),rows});
   }
   private get state():SampleState<P,F,C,Q>{return states.get(this)!;}
@@ -76,9 +77,9 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C 
       if(!location)throw new Error('surface sample has no owned attachment');
       const rebound=rebindSurfaceLocation3(location,target.surface,{pointTransfers:target.transfers,cornerTransfers:target.cornerTransfers,...options});
       samples.set(point.id,captureSample<F2,C2,Q2>(rebound,faces[rebound.face]));
-      return {...point,position:rebound.position,provenance:{operation:'rebind',parents:[point.id,rebound.faceId,...rebound.vertexIds]}};
+      return {...point,position:rebound.position,provenance:{operation:'rebind',parents:[rebound.faceId]}};
     });
-    return new SurfaceSamples<P,F2,C2,Q2>(new PointGeometry<P>(assembleSurface3(points,[],[]),{key:this.key}),target,samples,this.generation);
+    return new SurfaceSamples<P,F2,C2,Q2>(new PointGeometry<P>(assembleSurface3(points,[],[]),{key:this.key,[SOURCES]:derived('rebind',target)}),target,samples,this.generation);
   }
   withKey(key:string):SurfaceSamples<P,F,C,Q>{return this.changed(super.withKey(key));}
 }
@@ -129,16 +130,16 @@ function random(env:SurfaceSamplingEnv):number{const r=env.rnd();if(!Number.isFi
 function draw<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,prepared:Prepared<F>,env:SurfaceSamplingEnv,index:number,coordinates:SurfaceCoordinateOptions){
   const q=random(env)*prepared.total;let lo=0,hi=prepared.cumulative.length-1;
   while(lo<hi){const mid=(lo+hi)>>>1;if(q<prepared.cumulative[mid])hi=mid;else lo=mid+1;}
-  const triangle=prepared.triangles[lo],t=target.surface.triangles[triangle],points=t.vertices.map(v=>target.surface.points[v]);
+  const triangle=prepared.triangles[lo],t=target.surface.triangles[triangle];
   const root=Math.sqrt(random(env)),v=random(env),barycentric=Object.freeze([1-root,root*(1-v),root*v]) as Vec3;
   const face=prepared.faces[t.face],location=surfaceLocation3(target.surface,triangle,barycentric,{pointTransfers:target.transfers,cornerTransfers:target.cornerTransfers,uvAttribute:coordinates.uvAttribute,chartAttribute:coordinates.chartAttribute});
   const sample=captureSample<F,C,P>(location,face);
-  const point:SurfacePoint3={id:JSON.stringify(['sample',index]),position:location.position,attributes:{...target.surface.faces[t.face].attributes,...location.pointAttributes},provenance:{operation:'sample',parents:[face.id,...points.map(p=>p.id)]}};
+  const point:SurfacePoint3={id:JSON.stringify(['sample',index]),position:location.position,attributes:{...target.surface.faces[t.face].attributes,...location.pointAttributes},provenance:{operation:'sample',parents:[face.id]}};
   return {point,sample};
 }
 function result<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,points:readonly SurfacePoint3[],samples:ReadonlyMap<string,SurfaceSample<F,C,P>>,generation:SamplingGeneration,options:GeometryOptions):SurfaceSamples<Combined<F,P>,F,C,P>{
   const surface:Surface3={...surface3([],[]),points};
-  return new SurfaceSamples(new PointGeometry<Combined<F,P>>(surface,{key:options.key}),target,samples,generation);
+  return new SurfaceSamples(new PointGeometry<Combined<F,P>>(surface,{key:options.key,[SOURCES]:derived('sample',target)}),target,samples,generation);
 }
 /** `count` independent area-weighted points. */
 function samplePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:CountOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{

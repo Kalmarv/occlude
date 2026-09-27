@@ -22,6 +22,7 @@ import {
   renderEncoded, tourBudget, type Execution, type Frame, type PlanSettings, type WasmModule,
 } from 'occlude/host';
 import { GpuSceneCompute3 } from 'occlude/3d/advanced';
+import { MemoStore } from 'occlude/host';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -132,6 +133,15 @@ let renderedPlanHash: string | null = null;
 let capturedThree: CapturedThree3 | undefined;
 let captureSource: { run: Execution; context: Parameters<typeof captureThree3>[1] } | undefined;
 const renderJobs = new Map<number, AbortController>();
+/** The memo behind the editor's `occlude.memo` flag: kept across renders
+ * while the flag is on (least recently used out past its byte budget),
+ * dropped with everything it holds the first render the flag is off. */
+let memo: MemoStore | undefined;
+/** The memo a render reads through: the kept one when its config asks. */
+function memoFor(cfg: RunConfig): MemoStore | undefined {
+  if (!cfg.memo) return (memo = undefined);
+  return (memo ??= new MemoStore({ maxBytes: 128 * 1024 * 1024 }));
+}
 let candidate: { id: number; adopt: () => void } | undefined;
 const currentThree = () => {
   if (captureSource) { capturedThree = captureThree3(captureSource.run,captureSource.context); captureSource = undefined; }
@@ -198,9 +208,16 @@ async function handleMessage(msg: Msg): Promise<void> {
           draft('sketch');
           // Modeling progress inside the sketch, throttled: one event per 100 ms.
           let lastProgress = -Infinity;
+          const store = memoFor(source.cfg);
+          const seen = store?.snapshot();
           const outcome = await runSketchAsync(source.js, source.cfg, source.cfg.seed ?? sessionSeed, assets, fills, signal, compute3,
             event => draft(event.stage, { scene: event.scene, paper: event.paper, segments: event.segments, total: event.total }, [event.segments.buffer as ArrayBuffer]),
-            event => { const now = performance.now(); if (now - lastProgress < 100) return; lastProgress = now; draft('modeling', { progress: event }); });
+            event => { const now = performance.now(); if (now - lastProgress < 100) return; lastProgress = now; draft('modeling', { progress: event }); },
+            store);
+          if (store && seen) {
+            const s = store.stats;
+            console.debug(`occlude memo: ${s.hits - seen.hits} hits, ${s.misses - seen.misses} misses, ${s.unkeyed - seen.unkeyed} unkeyed, ${s.refused - seen.refused} refused; saved ${(s.savedMs - seen.savedMs).toFixed(1)} ms; holding ${store.size.entries} entries, ${(store.size.bytes / 1e6).toFixed(1)} MB`);
+          }
           signal?.throwIfAborted();
           if (outcome.error || !outcome.scene) {
             const err = outcome.error;

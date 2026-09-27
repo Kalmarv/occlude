@@ -4,6 +4,7 @@ import {surface3,type Surface3} from '../geometry/surface.js';
 import {CurveGeometry,emptyCurve,type GeometryOptions} from './mesh.js';
 import {emptyCount} from '../degenerate.js';
 import {chain2,isChain2,type Lifted2} from './lift.js';
+import {SOURCES,derived,type Sourced} from './source.js';
 export interface PolylineOptions extends GeometryOptions {readonly closed?:boolean;readonly maxPoints?:number}
 export interface CurveOptions extends PolylineOptions {readonly segments?:number}
 /** True when there is no path to build. The point budget is a real limit and
@@ -15,7 +16,7 @@ function count(points:number,options:PolylineOptions):boolean {
   if(options.closed!==undefined&&typeof options.closed!=='boolean')throw new Error('curve closed must be boolean');
   return points<(options.closed?3:2);
 }
-function path(positions:readonly Vec3[],options:PolylineOptions,rows?:readonly Lifted2[]):CurveGeometry {
+function path(positions:readonly Vec3[],options:PolylineOptions&Sourced,rows?:readonly Lifted2[]):CurveGeometry {
   if(count(positions.length,options))return emptyCurve(options);
   positions.forEach(finite3);
   const segments=positions.length-(options.closed?0:1);
@@ -43,7 +44,7 @@ export function curve(positions:readonly Vec3[]|{readonly curves:unknown}|Curve2
   if(isChain2(positions)){
     if(options.closed!==undefined)throw new Error('curve: a 2D chain says whether it is closed — leave out closed');
     const chain=chain2(positions,'curve');
-    return path(chain.points.map(p=>[p.x,p.y,0] as Vec3),{...options,closed:chain.closed},chain.points);
+    return path(chain.points.map(p=>[p.x,p.y,0] as Vec3),{...options,closed:chain.closed,[SOURCES]:derived('lift',positions)},chain.points);
   }
   if(!Array.isArray(positions))throw new Error('curve takes a list of [x, y, z] positions or a 2D chain');
   return path(positions,options);
@@ -64,5 +65,5 @@ export function profileCurve<T extends CurveGeometry<any,any>>(profile:T|{readon
   if(profile instanceof CurveGeometry)return profile;
   if(!isChain2(profile))throw new Error(`${who}: the profile is a curve — a 3D curve, or a 2D chain such as a material`);
   const chain=chain2(profile,who);
-  return path(chain.points.map(p=>(plane==='xy'?[p.x,p.y,0]:[p.x,0,p.y]) as Vec3),{closed:chain.closed},chain.points);
+  return path(chain.points.map(p=>(plane==='xy'?[p.x,p.y,0]:[p.x,0,p.y]) as Vec3),{closed:chain.closed,[SOURCES]:derived('lift',profile)},chain.points);
 }

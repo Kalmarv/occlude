@@ -7,17 +7,17 @@
  * time, where a force said without its state is prepared.
  */
 
-import { material, Material, type PointsLike, type Vertex, type Edge } from './material.js';
+import { material, Material, readVertex, readEdge, type PointsLike, type Vertex, type Edge } from './material.js';
 import { faceCentroids } from './faces.js';
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
 import { ownerOf, ownerOfView } from './views.js';
-import { distanceTo } from './distance.js';
+import { distanceField } from './distance.js';
 import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
 import { grad } from './field.js';
 import { valueAt } from './guard.js';
 import type { VectorFieldFn } from './shapes.js';
 import type { Model } from './placement.js';
-import { bucketChart, spaceAreaNearest, type Space } from './space.js';
+import { bucketChart, carriedSpace, spaceAreaNearest, type Space } from './space.js';
 
 // ---- spatial neighbours -----------------------------------------------------------
 
@@ -47,14 +47,17 @@ export interface NeighbourStats {
  * from point to point, which is what a per-vertex `force.separation` asks
  * of it.
  */
-export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats; space?: Space }): (p: XY, reach?: number) => number[] {
-  const space = curved(opts.space);
+export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats }): (p: XY, reach?: number) => number[] {
+  const space = curved(m.space);
   if (space) {
     const index = neighboursIn(m, opts.radius, opts.stats, space);
     return (p, reach) => index.near(p, space.model.up(p), reach === undefined ? opts.radius : reach, null);
   }
   const radius = opts.radius;
   const stats = opts.stats;
+  // The positions, read once: the index and every query read these arrays.
+  const X = m.x;
+  const Y = m.y;
   // Cells are indexed row-major over the material's own extent — no packed
   // key, so no two cells can share an index whatever the coordinates.
   let minx = Infinity;
@@ -62,10 +65,10 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
   let maxx = -Infinity;
   let maxy = -Infinity;
   for (let i = 0; i < m.n; i++) {
-    if (m.x[i] < minx) minx = m.x[i];
-    if (m.x[i] > maxx) maxx = m.x[i];
-    if (m.y[i] < miny) miny = m.y[i];
-    if (m.y[i] > maxy) maxy = m.y[i];
+    if (X[i] < minx) minx = X[i];
+    if (X[i] > maxx) maxx = X[i];
+    if (Y[i] < miny) miny = Y[i];
+    if (Y[i] > maxy) maxy = Y[i];
   }
   const cell = radius;
   const gx0 = Number.isFinite(minx) ? Math.floor(minx / cell) : 0;
@@ -75,7 +78,7 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
   const grid = new Map<number, number[]>();
   const key = (gx: number, gy: number) => (gx - gx0 < 0 || gx - gx0 >= cols || gy - gy0 < 0 || gy - gy0 >= rows ? -1 : (gy - gy0) * cols + (gx - gx0));
   for (let i = 0; i < m.n; i++) {
-    const k = key(Math.floor(m.x[i] / cell), Math.floor(m.y[i] / cell));
+    const k = key(Math.floor(X[i] / cell), Math.floor(Y[i] / cell));
     const bucket = grid.get(k);
     if (bucket) bucket.push(i);
     else grid.set(k, [i]);
@@ -100,8 +103,8 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
         if (stats) stats.candidates += bucket.length;
         for (const j of bucket) {
           if (j === self) continue;
-          const dx = px - m.x[j];
-          const dy = py - m.y[j];
+          const dx = px - X[j];
+          const dy = py - Y[j];
           if (dx * dx + dy * dy < r2) out.push(j);
         }
       }
@@ -355,33 +358,54 @@ export function tension(m: Material | { rest: number | ((e: Edge) => number); am
     const rest = said?.rest;
     if (typeof rest !== 'number' && typeof rest !== 'function') throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
     const amount = amountOf(said?.amount, 'force.tension');
-    return new GraphForce((g) => scaled(tension(g, { rest }), amount));
+    return new GraphForce((g) => scaled(tensionOf(g, rest, true), amount));
   }
-  const { rest } = opts!;
-  m = m as Material;
+  return tensionOf(m as Material, opts!.rest, false);
+}
+
+/** `tension` prepared for `m`: the sum of the pulls, or for a force said
+ * without its state (`stepped`) half their mean over the neighbours that
+ * pull (see `step`): a lone stretched edge is at its rest length after one
+ * move, and a point pulled many ways moves no further than one pull. */
+function tensionOf(m: Material, rest: number | ((e: Edge) => number), stepped: boolean): (p: Vertex) => Vec {
+  // Each pull counted as it is added, for the stepped mean.
+  let c = 0;
+  const counted = (v: Vec, gap: number): Vec => {
+    if (gap > 0) c++;
+    return v;
+  };
+  const done = (v: Vec): Vec => (stepped ? step(v[0], v[1], c, true) : v);
   const space = curved(m.space);
   if (space) {
     // In a space the pull is along the geodesic to each neighbour, by the
     // part of the space's distance beyond the rest length.
-    const restOf = typeof rest === 'number' ? () => rest : typeof rest === 'function' ? (e: number) => valueAt(rest(m.edge(e)), 0) : null;
+    const restOf = typeof rest === 'number' ? () => rest : typeof rest === 'function' ? (e: number) => valueAt(rest(readEdge(m, e)), 0) : null;
     if (!restOf) throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
     const lifted = liftRows(m, space);
     return (p) => {
       const edgeRows = m.incidentEdgeRows(p.index);
       const np = space.model.up(p);
       const frame = space.model.frameAt(p);
-      return sumBy(m.adjacentRows(p.index), (j, k) => {
+      c = 0;
+      return done(sumBy(m.adjacentRows(p.index), (j, k) => {
         const d = space.modelDistance(np, lifted[j]);
-        return mul(unit(logRow(space, p, np, frame, m, j, lifted[j])), Math.max(0, d - restOf(edgeRows[k])));
-      });
+        const gap = Math.max(0, d - restOf(edgeRows[k]));
+        return counted(mul(unit(logRow(space, p, np, frame, m, j, lifted[j])), gap), gap);
+      }));
     };
   }
+  // A neighbour is read as its position: no row view is made for it.
+  const X = m.x;
+  const Y = m.y;
   if (typeof rest === 'number') {
-    return (p) =>
-      sumBy(m.adjacentRows(p.index), (j) => {
-        const delta = sub(m.vertex(j), p);
-        return mul(unit(delta), Math.max(0, length(delta) - rest));
-      });
+    return (p) => {
+      c = 0;
+      return done(sumBy(m.adjacentRows(p.index), (j) => {
+        const delta = sub([X[j], Y[j]], p);
+        const gap = Math.max(0, length(delta) - rest);
+        return counted(mul(unit(delta), gap), gap);
+      }));
+    };
   }
   if (typeof rest !== 'function') throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
   // `adjacentRows` and `incidentEdgeRows` are built by one pass over the
@@ -389,11 +413,13 @@ export function tension(m: Material | { rest: number | ((e: Edge) => number); am
   // of the k-th edge.
   return (p) => {
     const edgeRows = m.incidentEdgeRows(p.index);
-    return sumBy(m.adjacentRows(p.index), (j, k) => {
-      const delta = sub(m.vertex(j), p);
-      const r = valueAt(rest(m.edge(edgeRows[k])), 0);
-      return mul(unit(delta), Math.max(0, length(delta) - r));
-    });
+    c = 0;
+    return done(sumBy(m.adjacentRows(p.index), (j, k) => {
+      const delta = sub([X[j], Y[j]], p);
+      const r = valueAt(rest(readEdge(m, edgeRows[k])), 0);
+      const gap = Math.max(0, length(delta) - r);
+      return counted(mul(unit(delta), gap), gap);
+    }));
   };
 }
 
@@ -441,7 +467,9 @@ export interface SeparationOpts {
  * force can be strong in one part of a drawing and nothing in another.
  */
 export function separationOf(said: SeparationOpts, space: Space | undefined): GraphForce {
-  return new GraphForce((g) => separationFrom(g, said, space));
+  const { amount, ...opts } = said;
+  const much = amountOf(amount, 'force.separation');
+  return new GraphForce((g) => scaled(separationIn(g, opts, space, true), much));
 }
 
 /** @internal `separation` from these sources, scaled by its `amount`, in
@@ -454,11 +482,11 @@ export function separationFrom(sources: Sources, said: SeparationOpts, space: Sp
 
 /** @internal `separation` measuring in `space` when the sources carry none
  * of their own: the toolkit's `t.force.separation` hands the sketch's. */
-export function separationIn(sources: Sources, opts: { radius: number | ((p: Vertex) => number); excludeConnected?: boolean }, space0: Space | undefined): (p: Vertex) => Vec {
+export function separationIn(sources: Sources, opts: { radius: number | ((p: Vertex) => number); excludeConnected?: boolean }, space0: Space | undefined, stepped = false): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
   const m = material(sourcePoints(sources));
   const space = curved(spaceOfSources(sources) ?? space0);
-  if (typeof radius === 'number') return radial(m, radius, excludeConnected, space);
+  if (typeof radius === 'number') return radial(m, radius, excludeConnected, space, stepped);
   if (typeof radius !== 'function') throw new Error(`force.separation: { radius } must be a distance, or a function of the vertex — got ${String(radius)}`);
   // Each source's own radius, read once against the frozen state, as every
   // force here prepares against it. A radius the function does not answer
@@ -466,7 +494,7 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
   const own = new Float64Array(m.n);
   let widest = 0;
   for (let i = 0; i < m.n; i++) {
-    own[i] = Math.max(0, valueAt(radius(m.vertex(i)), 0));
+    own[i] = Math.max(0, valueAt(radius(readVertex(m, i)), 0));
     if (own[i] > widest) widest = own[i];
   }
   const cell = widest > 0 ? widest : 1;
@@ -481,6 +509,7 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
       let frame: readonly [Model, Model] | null = null;
       let x = 0;
       let y = 0;
+      let c = 0;
       const rows = index.near(p, np, rp + widest, dists);
       for (let k = 0; k < rows.length; k++) {
         const j = rows[k];
@@ -498,33 +527,57 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
         const s = (1 - d / r) * r;
         x -= (l[0] / ll) * s;
         y -= (l[1] / ll) * s;
+        c++;
       }
-      return [x, y];
+      return step(x, y, c, stepped);
     };
   }
   const near = neighbours(m, { radius: cell });
+  const X = m.x;
+  const Y = m.y;
   return (p) => {
     const rp = Math.max(0, valueAt(radius(p), 0));
     const row = ownerOf(p) === m ? p.index : -1;
     const adj = excludeConnected && row >= 0 ? m.adjacentRows(row) : null;
     let x = 0;
     let y = 0;
+    let c = 0;
     // Everything that could touch p is within p's radius plus the widest
     // one in the material; the pair's own sum then decides.
     for (const j of near(p, rp + widest)) {
       if (adj && adj.includes(j)) continue;
       const r = rp + own[j];
       if (!(r > 0)) continue;
-      const dx = p.x - m.x[j];
-      const dy = p.y - m.y[j];
+      const dx = p.x - X[j];
+      const dy = p.y - Y[j];
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d <= 0 || d >= r) continue;
       const s = (1 - d / r) * r;
       x += (dx / d) * s;
       y += (dy / d) * s;
+      c++;
     }
-    return [x, y];
+    return step(x, y, c, stepped);
   };
+}
+
+/**
+ * The step a pair force gives a move, from the sum of `c` pulls or pushes.
+ *
+ * A force a sketch prepared itself (`force.separation(g, …)`,
+ * `force.tension(g, …)`) is the sum, and the sketch scales it. A force said
+ * without its state (`force.separation({ … })` handed to `move`) steps by
+ * half the MEAN of the pulls that act on the point. The sum grows with how
+ * many partners are in reach, so a step that is right for a sparse cloud
+ * flings a dense one, and every sketch had to find its own small `amount`.
+ * The mean is bounded by the force's own scale — a separation's push by its
+ * radius, a tension's pull by the stretch of one edge — wherever the points
+ * are, and half of it is the step that brings a lone pair exactly to its
+ * radius or its rest length when both ends move: the largest step that does
+ * not overshoot. `amount` then scales a calm move, and 1 needs no tuning.
+ */
+function step(x: number, y: number, c: number, stepped: boolean): Vec {
+  return stepped && c > 0 ? [x / (2 * c), y / (2 * c)] : [x, y];
 }
 
 /** The fixed-law radial separation on the raw
@@ -534,8 +587,8 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
  * 20× on a 5 000-point ring (see the reference). It pushes away from
  * the source, `radius` when touching, fading linearly to zero at the
  * radius. */
-function radial(m: Material, radius: number, excludeConnected: boolean, space: Space | null): (p: Vertex) => Vec {
-  if (space) return radialIn(m, radius, excludeConnected, space);
+function radial(m: Material, radius: number, excludeConnected: boolean, space: Space | null, stepped = false): (p: Vertex) => Vec {
+  if (space) return radialIn(m, radius, excludeConnected, space, stepped);
   const near = neighbours(m, { radius });
   const mx = m.x;
   const my = m.y;
@@ -546,6 +599,7 @@ function radial(m: Material, radius: number, excludeConnected: boolean, space: S
     const py = p.y;
     let x = 0;
     let y = 0;
+    let c = 0;
     for (const j of near(p)) {
       if (adj && adj.includes(j)) continue;
       // sub(p, q) → unit → mul, spelled out in the same operations
@@ -556,9 +610,10 @@ function radial(m: Material, radius: number, excludeConnected: boolean, space: S
         const s = (1 - d / radius) * radius;
         x += (dx / d) * s;
         y += (dy / d) * s;
+        c++;
       }
     }
-    return [x, y];
+    return step(x, y, c, stepped);
   };
 }
 
@@ -566,7 +621,7 @@ function radial(m: Material, radius: number, excludeConnected: boolean, space: S
  * SPACE, each pushing or pulling along the geodesic between the two —
  * direction from `log`, magnitude from the space's distance, the same
  * linear law. */
-function radialIn(m: Material, radius: number, excludeConnected: boolean, space: Space): (p: Vertex) => Vec {
+function radialIn(m: Material, radius: number, excludeConnected: boolean, space: Space, stepped: boolean): (p: Vertex) => Vec {
   const index = neighboursIn(m, radius, undefined, space);
   const dists: number[] = [];
   return (p) => {
@@ -576,6 +631,7 @@ function radialIn(m: Material, radius: number, excludeConnected: boolean, space:
     let frame: readonly [Model, Model] | null = null;
     let x = 0;
     let y = 0;
+    let c = 0;
     const rows = index.near(p, np, radius, dists);
     for (let k = 0; k < rows.length; k++) {
       const j = rows[k];
@@ -588,9 +644,10 @@ function radialIn(m: Material, radius: number, excludeConnected: boolean, space:
         const s = (1 - d / radius) * radius;
         x -= (l[0] / ll) * s;
         y -= (l[1] / ll) * s;
+        c++;
       }
     }
-    return [x, y];
+    return step(x, y, c, stepped);
   };
 }
 
@@ -651,7 +708,7 @@ export function boundaryIn(loops: AreaInput, opts: { radius: number; strength?: 
       return mul(r.inward, (1 - Math.max(r.distance, 0) / radius) * strength);
     };
   }
-  const inside = distanceTo(numericLoops(loops, 'force.boundary'));
+  const inside = distanceField(numericLoops(loops, 'force.boundary'));
   const inward = grad(inside);
   return (p) => {
     const d = inside(vx(p), vy(p));
@@ -670,11 +727,12 @@ export function vortex(centre: XY, opts: { strength: number; falloff?: number })
   return vortexIn(centre, opts, undefined);
 }
 
-/** @internal `vortex` in `space`: a centre is a bare point and carries no
- * space, so the toolkit's `t.force.vortex` hands the sketch's. */
+/** @internal `vortex` in the space the centre carries — a vertex of a
+ * curved material — else in `space`: a bare point carries none, and the
+ * toolkit's `t.force.vortex` hands the sketch's. */
 export function vortexIn(centre: XY, opts: { strength: number; falloff?: number }, space: Space | undefined): (p: XY) => Vec {
   const { strength, falloff = 10 } = opts;
-  const sp = curved(space);
+  const sp = curved(carriedSpace(centre) ?? space);
   if (sp) {
     // The direction from the centre is `log(p, centre)` turned round, in
     // p's own frame, and the distance is the space's.
@@ -733,14 +791,16 @@ export function relax(m?: Material | { amount?: number }, opts: { amount?: numbe
       return mul([mx / nb.length, my / nb.length], amount);
     };
   }
+  const X = m.x;
+  const Y = m.y;
   return (p) => {
     const nb = m.adjacentRows(p.index);
     if (nb.length < 2) return [0, 0];
     let mx = 0;
     let my = 0;
     for (const j of nb) {
-      mx += m.x[j];
-      my += m.y[j];
+      mx += X[j];
+      my += Y[j];
     }
     return mul(sub([mx / nb.length, my / nb.length], p), amount);
   };

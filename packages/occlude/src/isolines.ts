@@ -25,6 +25,7 @@
 
 import { usableLength } from './guard.js';
 import { Material, mintIds } from './material.js';
+import { carryLinks } from './derivation.js';
 import type { FieldFn } from './shapes.js';
 import type { Space } from './space.js';
 import { mm, type L } from './units.js';
@@ -744,7 +745,8 @@ function closedArea(set: LevelLines, lines: Material): Material {
       edges[e] = edgeRoots[e] = freshEdges[f++];
     }
   }
-  return new Material(r.x, r.y, {}, r.edges, { ...levelCarry(r), ids: { points, edges, edgeRoots }, space: lines.space });
+  // The lines' rows are the area's line rows, so what they answer carries.
+  return carryLinks(lines, new Material(r.x, r.y, {}, r.edges, { ...levelCarry(r), ids: { points, edges, edgeRoots }, from: lines }));
 }
 
 /** The rows of levels as one material, lines then (with `rims`) the

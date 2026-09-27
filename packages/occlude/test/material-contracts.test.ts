@@ -14,17 +14,24 @@ import { xy, rec } from './helpers/xy.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
-describe('ownership: derived states copy, the public arrays stay writable', () => {
-  it('a derived material never shares a column with its source', () => {
+describe('ownership: derived states share what they did not write', () => {
+  it('a derived material shares every column it did not write, and never writes one it holds', () => {
     const m = square();
     const d = m.points.set('a', 1);
     const e = m.edges.add([m.points.at(0), m.points.at(2)]);
+    // A column write shares the rest; an edge write shares the points.
+    expect(d.store.x).toBe(m.store.x);
+    expect(d.store.edgeList).toBe(m.store.edgeList);
+    expect(e.store.x).toBe(m.store.x);
+    expect(e.store.pointIds).toBe(m.store.pointIds);
+    expect(e.store.edgeList).not.toBe(m.store.edgeList);
+    // ...and the source reads as it did.
+    expect(m.attrNames).toEqual([]);
+    expect(Array.from(m.edgeList)).toEqual([0, 1, 1, 2, 2, 3, 3, 0]);
+    // The flat arrays are the shared storage, read-only by contract: a
+    // direct write reaches every state that shares the column.
     m.x[0] = 100;
-    expect(d.x[0]).toBe(0);
-    expect(e.x[0]).toBe(0);
-    expect(d.edgeList).not.toBe(m.edgeList);
-    // and a derivation made AFTER the write reads the written value
-    expect(m.points.set('b', 2).x[0]).toBe(100);
+    expect(d.x[0]).toBe(100);
   });
 
   it('t.steps: the result, its snapshots and the input own their columns', () => {
@@ -67,8 +74,10 @@ describe('what a direct write reaches', () => {
     expect(hit).not.toBeNull();
     expect(hit!.edge.index).toBe(0); // ...but the query still sees it at 0→10
     expect(hit!.distance).toBe(1);
-    // the edge VIEW in the result is a live view of the (written) material
-    expect(hit!.edge.a.x).toBe(100);
+    // the edge VIEW in the result is the state's one view of that row,
+    // made on the first read (before the write) and kept
+    expect(hit!.edge).toBe(m.edge(0));
+    expect(hit!.edge.a.x).toBe(0);
   });
 
   it('a prepared neighbourhood keeps its buckets but judges distance live', () => {

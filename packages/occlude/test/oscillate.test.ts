@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { append, curve, material, mm, type Material } from '../src/index.js';
+import { append, curve, line as lineShape, material, mm, space, type Material } from '../src/index.js';
+import { toolkit } from './helpers/run.js';
 
 const line = (x0: number, y0: number, x1: number, y1: number) => curve([[x0, y0], [x1, y1]]);
 const ys = (m: Material) => Array.from(m.y);
@@ -141,5 +142,40 @@ describe('oscillate', () => {
       return [50 + Math.cos(a) * 12, 50 + Math.sin(a) * 12] as [number, number];
     }), { closed: true }).oscillate({ wavelength: 9, amplitude: 20 });
     expect(() => knot.planarize().faces).not.toThrow();
+  });
+
+  it('measures the phase in the space of the material, as it spaces the stations', () => {
+    // A wavelength is a length of the space: the stations are spaced by the
+    // space's arc length, and so is the phase. A square wave flips side once
+    // per half wavelength, so an open chain of length L flips about 2L/λ
+    // times, where L is its length in the space, not on the chart. Off the
+    // centre the geodesic is longer (hyperbolic) or shorter (spherical)
+    // than its chart length, so the two counts part.
+    for (const sp of [space.hyperbolic({ radius: 45 }), space.spherical({ radius: 30 })]) {
+      const t = toolkit({ aspect: [1, 1], space: sp });
+      const [cx, cy] = t.space.center;
+      const a: [number, number] = [cx - 30, cy + 30];
+      const b: [number, number] = [cx + 30, cy + 30];
+      const m = t.material(lineShape(a, b));
+      const w = m.oscillate({ wavelength: 5, amplitude: 0.3, shape: (u) => (u < 0.5 ? 1 : -1) });
+      const base = m.oscillate({ wavelength: 5, amplitude: 0 });
+      expect(w.n).toBe(base.n);
+      expect(w.space).toBe(m.space);
+      // The side of the swing at a station: the offset across the chain.
+      const side = (k: number): number => {
+        const k0 = Math.max(k - 1, 0);
+        const k1 = Math.min(k + 1, base.n - 1);
+        const tx = base.x[k1] - base.x[k0];
+        const ty = base.y[k1] - base.y[k0];
+        return Math.sign(-(w.x[k] - base.x[k]) * ty + (w.y[k] - base.y[k]) * tx);
+      };
+      let flips = 0;
+      for (let k = 1; k < base.n; k++) if (side(k) !== side(k - 1)) flips++;
+      let chart = 0;
+      for (let k = 1; k < base.n; k++) chart += Math.hypot(base.x[k] - base.x[k - 1], base.y[k] - base.y[k - 1]);
+      const L = t.space.distance(a, b);
+      expect(Math.abs(L - chart)).toBeGreaterThan(10);
+      expect(flips).toBe(Math.floor((2 * L) / 5));
+    }
   });
 });

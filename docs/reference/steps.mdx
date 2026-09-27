@@ -1,9 +1,9 @@
 ---
 title: Steps and forces
-description: A graph is two tables with ids, and a run folds passes over a value.
+description: A graph is two tables of rows, and a run folds passes over a value.
 ---
 
-A graph is two tables of rows. The points table holds `x`, `y` and the columns you declare. The edges table holds rows that name two points. Every row has an id. The library mints an id one time and never uses it again. A lattice is one table of faces with fixed rows, and the stencil relates each face to the faces beside it.
+A graph is two tables of rows. The points table holds `x`, `y` and the columns you declare. The edges table holds rows that name two points. A point or an edge that you hold is the name of its row, in this state and in each later state. A lattice is one table of faces with fixed rows, and the stencil relates each face to the faces beside it.
 
 A table takes three writes. You add a row, you remove a row, or you set a column. Every verb on this page is a few of these writes. A selection is the query that names the rows. A run folds passes over a value.
 
@@ -36,18 +36,18 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 | remove a row | `g.points.remove(sel)`: also the edges that name the points | `g.edges.remove(sel)`: the points stay |
 | set a column | `g.points.set('h', value, where?, opts?)`, `g.points.set({ h, k }, where?, opts?)` | `g.edges.set('w', value, where?, opts?)` |
 
-Faces are a third domain with one write. A face is not a row, so `g.faces.set(…)` keys its columns by the walls of the face. The [faces](/docs/reference/faces) page shows it.
+Faces are a third domain with one write, `g.faces.set(…)`. A face comes from the edges, so you cannot add or remove a face. The [faces](/docs/reference/faces) page shows it.
 
 ## set()
 
 <include>/_sig/points.set.mdx</include>
 <include>/_sig/edges.set.mdx</include>
 
-A value is a number, or a function of the row. The record form of `set` is one instant: every function reads the table as it was before the write. A chain of `set` calls is a sequence. A write to a column that is not declared declares it, with 0 on every other row. `x` and `y` are columns too.
+A value is a number, or a function of the row. The object form of `set` is one instant: every function reads the table as it was before the write. A chain of `set` calls is a sequence. A write to a column that is not declared declares it, with 0 on every other row. `x` and `y` are columns too.
 
 `where` is a selection, one member, or a test of the row. It names the rows that the write changes. A `set` on a filtered selection writes only its own members.
 
-The last argument can be a record of options. `transfer` tells what a column does at a new row. A point column is `'interpolate'` (the default) or `'nearest'`. `'interpolate'` blends the two values, and `'nearest'` copies the nearer one. An edge column is `'copy'` (the default) or `'distribute'`. `'copy'` gives the value of a split edge to both halves, and `'distribute'` shares it by length. A later write of a value keeps the policy of the column. Below, the points on the right get older in each step, and the rings grow with the age.
+The last argument can be an object of options. `transfer` tells what a column does at a new row. A point column is `'interpolate'` (the default) or `'nearest'`. `'interpolate'` blends the two values, and `'nearest'` copies the nearer one. An edge column is `'copy'` (the default) or `'distribute'`. `'copy'` gives the value of a split edge to both halves, and `'distribute'` shares it by length. A later write of a value keeps the policy of the column. Below, the points on the right get older in each step, and the rings grow with the age.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -79,7 +79,7 @@ import { sketch, strokes, material, add, mul, fromAngle, point } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const seed = material([[50, 92]], { heading: -Math.PI / 2, depth: 0, tip: 1 });
   const grow = (g) => {
-    const tips = g.points.filter((p) => p.tip === 1 && p.y > 10 && p.x > 10 && p.x < 90);
+    const tips = g.points.filter((p) => p.tip === 1 && p.y > 10 && p.y < 96 && p.x > 10 && p.x < 90);
     const stems = tips.map((p) => {
       const turns = p.depth % 5 === 0 ? [p.heading - 0.5, p.heading + 0.5] : [p.heading + t.noise(p.x / 20, p.y / 20) * 0.4];
       return turns.map((h) => [p, point(add(p, mul(fromAngle(h), 3.2)), { heading: h, depth: p.depth + 1, tip: 1 })]);
@@ -95,7 +95,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/points.remove.mdx</include>
 <include>/_sig/edges.remove.mdx</include>
 
-`points.remove` deletes points and the edges that touch them. The neighbours of a removed point do not join. `edges.remove` deletes edges and keeps their points. Below, the ring loses every ninth point. A new hub joins four points of the ring, and each spoke is an edge value.
+`points.remove` deletes points and the edges that touch them. The neighbours of a removed point do not join. `edges.remove` deletes edges and keeps their points. Below, the ring loses its points in the upper left. A new hub joins four points of the ring: the top, the bottom, the left and the right. Each spoke is an edge value.
 
 ```ts live
 import { sketch, circle, strokes, point, edge } from 'occlude';
@@ -103,20 +103,19 @@ import { sketch, circle, strokes, point, edge } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 36 });
   const hub = point([50, 50]);
-  const spokes = ring.points.filter((p) => p.index % 9 === 4).map((p) => edge(p, hub));
-  return strokes(ring.points.remove(ring.points.filter((p) => p.index % 9 === 0)).points.add(hub).edges.add(spokes));
+  const spokes = ring.points.filter((p) => Math.abs(p.x - 50) < 1 || Math.abs(p.y - 50) < 1).map((p) => edge(p, hub));
+  return strokes(ring.points.remove(ring.points.filter((p) => p.x < 40 && p.y < 40)).points.add(hub).edges.add(spokes));
 });
 ```
 
-Here a cloud of points joins each pair that is closer than 16. Then the web loses the edges on the left half of the sheet. The points stay.
+Here a cloud of points joins each pair that is closer than 16. Each pair comes two times, one time from each end, and the write adds one edge. Then the web loses the edges on the left half of the sheet. The points stay.
 
 ```ts live
-import { sketch, circle, strokes, distance } from 'occlude';
+import { sketch, circle, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cloud = t.scatter({ spacing: 12 });
-  // Each pair once: the neighbours of a point that come after it by row.
-  const pairs = [...cloud.points].flatMap((a) => [...cloud.points.near(a, { radius: 16 })].filter((b) => b.index > a.index && distance(a, b) < 16).map((b) => [a, b]));
+  const pairs = [...cloud.points].flatMap((a) => cloud.points.near(a, { radius: 16 }).map((b) => [a, b]));
   const joined = cloud.edges.add(pairs);
   const trimmed = joined.edges.remove(joined.edges.filter((e) => e.a.x < 50 && e.b.x < 50));
   return [strokes(trimmed), cloud.points.map((p) => circle(p, 0.8))];
@@ -130,9 +129,9 @@ A write skips data that cannot land. It does not throw, and it does not warn. It
 | The write skips | When |
 |---|---|
 | everything | it gets nothing: an empty selection, or `undefined` from an empty `pick` |
-| a row, `gone` | a value or an end names no row in this state |
-| an edge row, `self` | the two ends name one point |
-| a row, `already` | the geometry has the value already, the pair is an edge already, or it comes two times in one write |
+| a row | a value or an end names no row in this state |
+| an edge row | the two ends name one point |
+| a row | the geometry has the value already, the pair is an edge already, or it comes two times in one write |
 | one row | a position or a value is not a finite number |
 
 ## A value is a name
@@ -148,8 +147,8 @@ import { sketch, circle, strokes, add, polar, point } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const start = t.sample(circle([50, 50], 10), { count: 12 });
   const web = (g) => {
-    const fresh = point(add(t.pick(g.points), polar(3, t.rnd(2 * Math.PI))));
-    return g.points.add(fresh).edges.add([fresh, g.points.near(fresh, { radius: 6 }).at(0)]);
+    const fresh = point(add(t.pick(g.points), polar(5, t.rnd(2 * Math.PI))));
+    return g.points.add(fresh).edges.add([fresh, g.points.near(fresh, { radius: 10 }).at(0)]);
   };
   return strokes(t.steps(500, start, web));
 });
@@ -157,7 +156,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 ## Queries
 
-A selection answers `filter`, `near`, `without`, `at`, `slice` and `map`. `at(-1)` is the last member. `without` takes a selection or one member. `t.pick(sel)` gives one member, or `undefined` when the selection is empty. `t.pick(sel, 5)` gives five members as a selection. `t.pick(sel, 0.1)` gives a tenth of them. A choice for each member is a pick, then two verbs. The picked members go one way, and `without` gives the rest.
+A selection answers `filter`, `near`, `without`, `at`, `slice` and `map`. `at(-1)` is the last member. `without` takes a selection or one member. `t.pick(sel)` gives one member, or `undefined` when the selection is empty. `t.pick(sel, 5)` gives five members as a selection, in the order of the selection. A share below one is a chance for each member: `t.pick(sel, 0.1)` keeps each member with a chance of 0.1. So a small selection can give some members or none. A choice for each member is a pick, then two verbs. The picked members go one way, and `without` gives the rest.
 
 ## Recipes
 
@@ -195,7 +194,7 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
 
 <include>/_sig/Material.split.mdx</include>
 
-`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. An `at` outside 0 to 1 cuts nothing. A point column goes to the new point by its transfer policy. The two new edges keep the lineage root of the old edge, and they share its columns by the edge policy. Below, each step splits the edges that are longer than 12.
+`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. An `at` outside 0 to 1 cuts nothing. A point column goes to the new point by its transfer policy. The new point and the two new edges answer the old edge as their `source`. The two edges share its columns by the edge policy. Below, each step splits the edges that are longer than 12.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -258,19 +257,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.field.mdx</include>
 <include>/_sig/force.relax.mdx</include>
 
-A force gives a vector at a point. Nothing moves until a pass gives the force to `move`. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`, and a negative `amount` turns it round, so it pulls toward the sources. `drift` reads a direction from a noise function. It turns slowly from one step of the run to the next. A vertex knows its material, and the material counts its steps. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` and `neighbours` read the sources' `points`.
+A force gives a vector at a point. Nothing moves until a pass gives the force to `move`. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`, and a negative `amount` turns it round, so it pulls toward the sources. `drift` reads a direction from a noise function. It turns slowly from one step of the run to the next. A vertex knows its material, and the material counts its steps. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` reads the sources' `points`.
 
 ## Forces as values
 
-`force.tension({ rest, amount? })`, `force.separation({ radius, excludeConnected?, amount? })` and `force.relax({ amount })` are forces with no state. `g.move` prepares each from `g` one time and adds them. `move` adds each force at its full length. `amount` on `tension` and on `separation` scales the force, and it is a number or a function of the point. The forms that take sources take `amount` too. A small amount is a slow, calm move. At full strength, `separation` can push a point as far as its radius in one step. `force.drift`, `force.boundary`, `force.vortex` and `force.field` are functions of the point already, so `move` reads them as they are.
+`force.tension({ rest, amount? })`, `force.separation({ radius, excludeConnected?, amount? })` and `force.relax({ amount })` are forces with no state. `g.move` prepares each from `g` one time and adds them. A force with no state gives a calm step, and you do not tune it. `tension` and `separation` move a point by half the mean of the pulls on it. Two points that are too near go apart to `radius` in one step, and a stretched edge goes back to `rest`. A point in a crowd moves no more than half the radius. The number of points that push it does not change this. `amount` scales the step, and it is a number or a function of the point. `relax` moves a point `amount` of the way to the mean of its neighbours. `force.drift`, `force.boundary`, `force.vortex` and `force.field` are functions of the point already, so `move` reads them as they are.
 
-The forms that take a state first, as in `force.tension(g, { rest })`, prepare the force from that state. They give a function of the point, and you scale it yourself. Here is one force alone. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
+The forms that take a state first, as in `force.tension(g, { rest })`, prepare the force from that state. They give the sum of the pulls as a function of the point, and you scale it yourself. The forms that take sources take `amount` too. Here is one force alone. Five lumps on a ring push the ring out. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
 
 ```ts live
 import { sketch, circle, strokes, force, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 20), { count: 40 }).points.set('lump', (p) => (p.index % 8 < 3 ? 1 : 0));
+  const ring = t.sample(circle(50, 50, 20), { count: 40 }).points.set('lump', (p) => (Math.sin(p.u * 10 * Math.PI) > 0.5 ? 1 : 0));
   const spread = t.steps(10, ring, (g) => {
     const apart = force.separation(g.points.filter((p) => p.lump === 1), { radius: 14 });
     return g.move((p) => mul(apart(p), 0.35));
@@ -327,10 +326,10 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 });
 ```
 
-The other three forces pull toward something. A separation with a negative `amount` pulls toward its sources. An amount of `-1 / radius` pulls with a strength of 1 when touching, and fades to zero at the radius. `vortex` turns around a centre. `field` reads a vector field. This field is the curl of a noise. A curl runs along the contours of the noise, and not across them. `force.sum` adds all three forces. `{ every: 1 }` keeps every state, so the sketch draws each dot's full path from `history`.
+The other three forces pull toward something. A separation with a negative `amount` pulls toward its sources. An amount of `-1 / radius` pulls with a strength of 1 when touching, and fades to zero at the radius. `vortex` turns around a centre. `field` reads a vector field. This field is the curl of a noise. A curl runs along the contours of the noise, and not across them. `force.sum` adds all three forces. `{ every: 1 }` keeps every state, so the sketch draws each dot's full path from `history`. A seed point that you hold names its row in each state of the history. The drawing stops at the edge of the drawable.
 
 ```ts live
-import { sketch, stroke, circle, material, force, curl, mul } from 'occlude';
+import { sketch, stroke, circle, clip, rect, material, force, curl, mul } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const b = t.bounds();
@@ -342,11 +341,11 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   );
   const seeds = material(t.grid({ cols: 34, rows: 17 }).faces.map((f) => f.centroid));
   const flown = t.steps(80, seeds, (g) => g.move((p) => mul(push(p), 0.3)), { every: 1 });
-  const trail = (i) => flown.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
-  return [
-    seeds.points.map((p) => stroke(trail(p.index))),
+  const trail = (p) => flown.history.map((h) => { const q = h.points.rows(p).at(0); return [q.x, q.y]; });
+  return clip(rect(0, 0, b.w, b.h), [
+    seeds.points.map((p) => stroke(trail(p))),
     posts.map((p) => circle(p, 3, { pen: 'stabilo-88-blue' })),
-  ];
+  ]);
 });
 ```
 
@@ -378,12 +377,12 @@ import { sketch, circle, strokes, force, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const box = [[10, 10], [90, 10], [90, 90], [10, 90]];
-  const run = (make, pen) => strokes(t.steps(14, t.sample(circle(50, 50, 26), { count: 40 }), (g) => g.move((p) => mul(make(g)(p), 0.5))), { pen });
+  const run = (make, pen) => strokes(t.steps(14, t.sample(circle(50, 50, 34), { count: 40 }), (g) => g.move((p) => mul(make(g)(p), 0.5))), { pen });
   return [
     run((g) => force.separation(g, { radius: 9, excludeConnected: true }), 'pigma-005-black'),
     run((g) => force.boundary(box, { radius: 30 }), 'stabilo-88-blue'),
     run((g) => force.sum(force.separation(g, { radius: 9, excludeConnected: true }), force.boundary(box, { radius: 30 })), 'stabilo-88-green'),
-    strokes(t.material(circle(50, 50, 26)), { pen: 'pigma-005-black' }),
+    strokes(t.material(circle(50, 50, 34)), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -391,8 +390,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 ## Your own interaction
 
 A force of your own is a function, not a word of the library. Sum what you
-want over the points within a radius. `g.points.near(p, { radius })` is
-the neighbourhood, from an index built once for the state, and a vertex is
+want over the points within a radius. `g.points.near(p, { radius })` gives
+those points, from an index built once for the state, and a vertex is
 never its own neighbour. `sumBy` adds the vectors up. To skip the points at
 the other end of `p`'s edges, take them out: `.without(p.adjacent)`.
 
@@ -427,7 +426,7 @@ import { sketch, circle, strokes, polar, distance } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const { pick, rnd, chance } = t;
-  const center = [25, 50];
+  const center = [50, 50];
   const ring = t.sample(circle(center, 12), { count: 60 });
   const first = ring.points.at(0);
   const rim = (g) => g.points.filter((p) => distance(p, center) > 10);
@@ -438,7 +437,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 
   const grown = t.steps(400, ring, sprout, join);
   const slipped = t.steps(400, ring, sprout, joinToFirst);
-  return [strokes(grown), strokes(slipped.translate([50, 0]), { pen: 'stabilo-88-blue' })];
+  return [strokes(grown), strokes(slipped.translate([100, 0]), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -451,11 +450,11 @@ import { sketch, circle, strokes, force } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const { pick } = t;
-  const seed = t.sample(circle([25, 50], 8), { count: 24 });
+  const seed = t.sample(circle([50, 50], 8), { count: 24 });
 
   const settle = (g) => g.move(
     force.tension({ rest: 1.6 }),
-    force.separation({ radius: 4, excludeConnected: true, amount: 0.05 }),
+    force.separation({ radius: 4, excludeConnected: true }),
     force.relax({ amount: 0.4 }),
     force.drift(t.noise, { amount: 0.24, frequency: 0.05 }),
   );
@@ -466,9 +465,9 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     return g.edges.remove(broken).split(s.without(broken));
   };
 
-  const clean = t.steps(150, seed, settle, cut);
-  const flawed = t.steps(150, seed, settle, cutOrBreak);
-  return [strokes(clean), strokes(flawed.translate([50, 0]), { pen: 'stabilo-88-blue' })];
+  const clean = t.steps(95, seed, settle, cut);
+  const flawed = t.steps(95, seed, settle, cutOrBreak);
+  return [strokes(clean), strokes(flawed.translate([100, 0]), { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -551,7 +550,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
   const wander = (g) => g.extrude(chance(0.3) ? pick(crossings) : pick(g.points), polar(1.5, rnd(2 * Math.PI)));
 
   const walked = t.steps(3000, lines, wander);
-  return [strokes(walked, { pen: 'stabilo-88-blue' }), strokes(connect.neighbourhood(walked.points))];
+  return [strokes(walked, { pen: 'stabilo-88-blue' }), strokes(connect.unimpeded(walked.points, { room: 2 }))];
 });
 ```
 
@@ -567,8 +566,8 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const start = t.sample(circle([50, 50], 10), { count: 12 });
 
   const web = (g) => {
-    const q = point(add(pick(g.points), polar(3, rnd(2 * Math.PI))));
-    return g.points.add(q).edges.add(g.points.near(q, { radius: 6 }).slice(0, 2).map((p) => [q, p]));
+    const q = point(add(pick(g.points), polar(5, rnd(2 * Math.PI))));
+    return g.points.add(q).edges.add(g.points.near(q, { radius: 10 }).slice(0, 2).map((p) => [q, p]));
   };
 
   return strokes(t.steps(500, start, web));
@@ -597,21 +596,22 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 
 ## 9. Age on a column, and pruning by it
 
-Every point gets older in each step. Old tips fall off, and the drawing shows only the young edges.
+Every point gets older in each step, and old tips fall off. The edges with a young end are blue.
 
 ```ts live
 import { sketch, strokes, circle, polar } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
   const { pick, rnd } = t;
-  const ring = t.sample(circle([50, 50], 6), { count: 20 }).points.set('age', 0);
+  const ring = t.sample(circle([50, 50], 12), { count: 20 }).points.set('age', 0);
 
   const age = (g) => g.points.set('age', (p) => p.age + 1);
-  const sprout = (g) => g.extrude(pick(g.points), polar(2.5, rnd(2 * Math.PI)), { age: 0 });
+  const sprout = (g) => g.extrude(pick(g.points), polar(5, rnd(2 * Math.PI)), { age: 0 });
   const prune = (g) => g.points.remove(g.points.filter((p) => p.age > 40 && p.edges.length === 1));
 
   const alive = t.steps(300, ring, age, sprout, prune);
-  return strokes(alive.edges.filter((e) => e.a.age < 20 || e.b.age < 20));
+  const young = alive.edges.filter((e) => e.a.age < 20 || e.b.age < 20);
+  return [strokes(alive.edges.without(young)), strokes(young, { pen: 'stabilo-88-blue' })];
 });
 ```
 
@@ -640,7 +640,7 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
 
 ## 11. Gray-Scott on the lattice, as the equations
 
-The two columns `a` and `b` react and diffuse. One `set` with a record is one instant, so `b` reads the old `a`.
+The two columns `a` and `b` react and diffuse. One `set` with an object is one instant, so `b` reads the old `a`.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -694,7 +694,7 @@ import { sketch, strokes, circle, polar, force } from 'occlude';
 export default sketch({ aspect: [3, 1], seed: 6 }, (t) => {
   const { pick, rnd, chance } = t;
   const seed = t.sample(circle([0, 0], 6), { count: 20 });
-  const settle = (g) => g.move(force.tension({ rest: 1.5 }), force.separation({ radius: 3.5, amount: 0.05 }), force.relax({ amount: 0.3 }));
+  const settle = (g) => g.move(force.tension({ rest: 1.5 }), force.separation({ radius: 3.5 }), force.relax({ amount: 0.3 }));
   const stretched = (g) => g.edges.filter((e) => e.length > 1.7);
 
   const cut = (g) => g.split(stretched(g));
@@ -705,7 +705,7 @@ export default sketch({ aspect: [3, 1], seed: 6 }, (t) => {
   };
   const cutAndWander = (g) => g.split(stretched(g)).move((p) => (chance(0.01) ? polar(1, rnd(2 * Math.PI)) : [0, 0]));
 
-  const runs = [cut, cutTenth, cutOrJoin, cutAndWander].map((flaw) => t.steps(200, seed, settle, flaw));
-  return runs.map((r, i) => strokes(r.translate([15 + i * 30, 17])));
+  const runs = [cut, cutTenth, cutOrJoin, cutAndWander].map((flaw) => t.steps(160, seed, settle, flaw));
+  return runs.map((r, i) => strokes(r.translate([37.5 + i * 75, 50])));
 });
 ```

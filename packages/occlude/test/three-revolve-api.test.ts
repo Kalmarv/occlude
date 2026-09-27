@@ -18,7 +18,7 @@ describe('curve-profile revolution',()=>{
   expect(solid.points.length).toBe(n+2);expect(solid.faces.length).toBe(2*n);expect(volume(solid)).toBeCloseTo(n*r*r*Math.sin(2*Math.PI/n)*h/6,12);
   expect(solid.points.filter(p=>p.x===0&&p.y===0).length).toBe(2);
   expect(solid.points.filter(p=>p.weight===2).length).toBe(n);expectTypeOf(solid.points.at(0)!.weight).toEqualTypeOf<number>();
-  for(const face of solid.faces){expect(face.provenance!.parents.length).toBe(1);if(face.part==='base')expect(face.normal[2]).toBe(-1);else expect(face.normal[2]).toBeGreaterThan(0);}
+  for(const face of solid.faces){expect(profile.edges.has(face.source)).toBe(true);if(face.part==='base')expect(face.normal[2]).toBe(-1);else expect(face.normal[2]).toBeGreaterThan(0);}
   expect(solid.surface).toEqual(revolve(profile,{segments:n}).surface);
   const negative=revolve(profile,{segments:n,angle:-360});manifold(negative);expect(volume(negative)).toBeCloseTo(volume(solid),12);
  });

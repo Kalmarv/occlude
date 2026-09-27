@@ -49,7 +49,7 @@ Before dragging: which walls will change when the fourth site moves, and which c
 
 ## Follow the correspondence
 
-The diagram remembers which site made which cell. A cell's `source` is its site: the row of the site material it came from, with every column the site carries. The other way is a question you ask of the cells: `cells.find((f) => f.source.index === 2)` is the cell of the site in row 2. Here the third site's cell is hatched through that `find`, and every cell is labelled with its site's row through `source`, which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
+The diagram remembers which site made which cell. A cell's `source` is its site: the row of the site material it came from, with every column the site carries. The other way is a question you ask of the cells: `cells.find((f) => f.source === sites.points.at(2))` is the cell of the site in row 2. Here the third site's cell is hatched through that `find`, and every cell is labelled with its site's row through `source`, which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, polygon, fill, mm, label, material } from 'occlude';
@@ -59,7 +59,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
     .points.set('kind', (p) => (p.x < 100 ? 0 : 1));
   const diagram = t.voronoi(sites);
   const cells = diagram.faces;
-  const third = cells.find((f) => f.source.index === 2);
+  const third = cells.find((f) => f.source === sites.points.at(2));
   const eastern = cells.filter((f) => f.source.kind === 1);
   return [
     polygon(third, { fill: fill('hatch', { angle: 45, spacing: mm(1.2) }), stroke: false }),
@@ -90,7 +90,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   return [
     beside.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1.4) }), stroke: false })),
     strokes(diagram, { pen: 'pigma-005-black' }),
-    strokes(diagram.edges.rows([chosen.index]), { pen: 'stabilo-88-blue' }),
+    strokes(diagram.edges.rows([chosen]), { pen: 'stabilo-88-blue' }),
     sites.points.map((p) => circle(p.x, p.y, 1.8)),
     label(`${beside.length} beside this wall`, 4, 6, 3.4),
   ];

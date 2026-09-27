@@ -12,7 +12,7 @@
  * The operation remains synchronous and independent of the renderer.
  */
 
-import { Material, type Vertex, type Edge } from './material.js';
+import { Material, readVertex, type Vertex, type Edge } from './material.js';
 import { isPointSelection, isEdgeSelection, endpointRows } from './relation.js';
 import type { Selection } from './selection.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
@@ -217,7 +217,7 @@ export function thicken(
     );
   }
 
-  if (vRows.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
+  if (vRows.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { from: src });
 
   const radii = new Float64Array(src.n);
   radii.fill(NaN);
@@ -230,7 +230,7 @@ export function thicken(
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     let r: number;
     if (typeof opts.radius === 'number') r = opts.radius;
-    else r = opts.radius(src.vertex(row));
+    else r = opts.radius(readVertex(src, row));
     if (typeof r !== 'number') {
       throw new Error(
         `thicken: radius for vertex ${row} must be finite, got ${String(r)}`,
@@ -288,7 +288,7 @@ export function thicken(
       maxY: src.y[row] + r,
     });
   }
-  if (shapes.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: src.space });
+  if (shapes.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { from: src });
 
   // A loop that came back with no area cannot be drawn as a boundary at
   // these coordinates; it is left out and the loops that survive are kept.
@@ -388,5 +388,5 @@ export function thicken(
     attrs = cols;
   }
 
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {}, space: src.space });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {}, from: src });
 }

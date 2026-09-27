@@ -31,7 +31,7 @@ const paper = { x: 5, y: 5, width: 190, height: 190 };
 const globe = (frequency = 5) => {
   const base = geodesic(1, { frequency: [frequency, frequency] }).dual();
   const water = base.scale(0.99);
-  const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04).style({ creaseAngle: 180 });
+  const terrain = base.displace((p) => (Math.sin(p.x * 3) * Math.cos(p.y * 4) + Math.sin(p.z * 5)) * 0.04);
   const levels = isolines(terrain, (p) => Math.hypot(p.x, p.y, p.z), { count: 20 });
   const drawing = view([water, terrain, levels], {
     camera: perspective({ eye: [8.59782, -0.703966, -1.55822], target: [0, 0, 0], fovDegrees: 19.5622 }),
@@ -108,8 +108,8 @@ describe('the isoline view door', () => {
       () => {
         const ball = sphere(1.3, { segments: 40, rings: 20 });
         const recipe = isolines(ball, (p) => p.z, { count: 9 }).recipe!;
-        const rings = new SurfaceCurves(eager ? recipe.resolve() : recipe, { pen: 'line' });
-        return view([ball, rings], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 },
+        const rings = new SurfaceCurves(eager ? recipe.resolve() : recipe);
+        return view([ball, [rings, { pen: 'line' }]], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 },
           (lines) => [
             strokes(lines.visible.filter((c) => !c.kinds.has('isoline')), { stroke: 'ink' }),
             strokes(lines.visible.filter((c) => c.kinds.has('isoline')), { stroke: 'line', modifiers: modifiers as never }),

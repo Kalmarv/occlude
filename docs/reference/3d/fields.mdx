@@ -18,8 +18,8 @@ import { sphere, light, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
   const ball = sphere(1.5, { segments: 32, rings: 16 });
   const sun = light({ direction: [-1, -2, 2], ambient: 0.1, ramp: 'smooth' });
-  const marks = await t.hatch(ball, { spacing: 0.12, direction: (s) => s.tangentU, tone: sun, pen: 'shade' });
-  return view([ball, marks], { camera: orthographic({ eye: [4, -6, 3], span: 4.2 }), pen: 'ink', creaseAngle: 180 });
+  const marks = await t.hatch(ball, { spacing: 0.12, direction: (s) => s.tangentU, tone: sun });
+  return view([ball, [marks, { pen: 'shade' }]], { camera: orthographic({ eye: [4, -6, 3], span: 4.2 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -39,16 +39,16 @@ import { sketch, pen, mm } from 'occlude';
 import { sphere, cylinder, lamp, environment, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.14), color: '#56626A' }) } }, async (t) => {
-  const ball = sphere(1, { segments: 32, rings: 16, creaseAngle: 180 });
-  const post = cylinder(0.55, 2.2, { segments: 32, creaseAngle: 180 }).translate([2.3, 0.2, 0]);
+  const ball = sphere(1, { segments: 32, rings: 16 });
+  const post = cylinder(0.55, 2.2, { segments: 32 }).translate([2.3, 0.2, 0]);
   const bulb = lamp({ position: [1.2, -2.4, 1.5], ambient: 0.12, falloff: { radius: 7 } });
   const sky = environment((d) => 0.1 + 0.16 * Math.max(0, d[2]));
   // Tone fields are ordinary functions: the lamp and the sky multiply, and the
   // power sharpens the turn from light to dark.
   const tone = (s) => Math.pow(bulb(s) * sky(s), 1.5);
   const marks = [];
-  for (const object of [ball, post]) marks.push(await t.hatch(object, { spacing: 0.06, direction: (s) => s.tangentU, tone, pen: 'shade' }));
-  return view([ball, post, ...marks], { camera: orthographic({ eye: [3, -7, 3], target: [1.15, 0, 0], span: 4.7 }), pen: 'ink' });
+  for (const object of [ball, post]) marks.push(await t.hatch(object, { spacing: 0.06, direction: (s) => s.tangentU, tone }));
+  return view([ball, post, [marks, { pen: 'shade' }]], { camera: orthographic({ eye: [3, -7, 3], target: [1.15, 0, 0], span: 4.7 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -57,7 +57,7 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
 <include>/_sig/3d.grad.mdx</include>
 <include>/_sig/3d.across.mdx</include>
 
-`grad(scalar)` of a surface field, `(s) => …`, is the direction of the fastest rise of the field, for each triangle. It is the word for a field of space too, which it reads by central differences (see [Curves](/docs/reference/3d/curves)). `across(direction)` turns a direction field a quarter turn on the surface, so the lines run across it. Meridians and parallels on a sphere are the gradient of height and its across.
+`grad(scalar)` of a surface field, `(s) => …`, is the direction of the fastest rise of the field, for each triangle. It is the word for a field of space too, and it reads that field by central differences (see [Curves](/docs/reference/3d/curves)). `across(direction)` turns a direction field a quarter turn on the surface, so the lines run across it. Meridians and parallels on a sphere are the gradient of height and its across.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -67,9 +67,9 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
   const ball = sphere(1.6, { segments: 32, rings: 16 });
   const height = grad((s) => s.position[2]);
   const sun = light({ direction: [-1, -2, 2], ambient: 0.1, ramp: 'smooth' });
-  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: (s) => 0.25 + 0.75 * sun(s), pen: 'warm' });
-  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: (s) => Math.max(0, 1.6 * sun(s) - 0.6), pen: 'cool' });
-  return view([ball, meridians, parallels], { camera: perspective({ eye: [4, -6, 3], fovDegrees: 36 }), pen: 'ink', creaseAngle: 180 });
+  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: (s) => 0.25 + 0.75 * sun(s) });
+  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: (s) => Math.max(0, 1.6 * sun(s) - 0.6) });
+  return view([ball, [meridians, { pen: 'warm' }], [parallels, { pen: 'cool' }]], { camera: perspective({ eye: [4, -6, 3], fovDegrees: 36 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -86,8 +86,8 @@ import { plane, curvature, light, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.18), color: '#56626A' }) } }, async (t) => {
   const relief = plane(4, 4).subdivide(4).displace((p) => [0, 0, 0.6 * Math.sin(p.x * 1.6) * Math.cos(p.y * 1.3)]);
   const sun = light({ direction: [-1, -1, 2], ambient: 0.15, ramp: 'smooth' });
-  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun, pen: 'shade' });
-  return view([relief, form], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), pen: 'ink', creaseAngle: 60 });
+  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun });
+  return view([relief, [form, { pen: 'shade' }]], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), pen: 'ink', creaseAngle: 60 });
 });
 ```
 

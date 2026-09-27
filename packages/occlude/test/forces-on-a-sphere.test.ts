@@ -31,6 +31,7 @@ import {
 } from '../src/index.js';
 import { docsPaper, initOcclude, paperSize } from '../src/host.js';
 import { neighbours } from '../src/forces.js';
+import { inSpace } from '../src/material.js';
 import { length, mul, sub, sumBy, unit } from '../src/vec.js';
 import { rec } from './helpers/xy.js';
 
@@ -109,7 +110,7 @@ describe('forces on a sphere', () => {
     // Deterministic: candidates examined per neighbour found. The old
     // box-wide stretch examined 53 per hit at step 190; the flat grid 2.9.
     const stats = { queries: 0, candidates: 0, hits: 0 };
-    const near = neighbours(grown!, { radius: 4.4, space: grown!.space, stats });
+    const near = neighbours(grown!, { radius: 4.4, stats });
     for (const p of grown!.points) near(p);
     expect(stats.candidates / stats.hits).toBeLessThan(4);
   }, 60_000);
@@ -136,9 +137,10 @@ describe('neighbours near a pole and across the seam', () => {
     for (let i = 0; i < 600; i++) pts.push([100 + (rnd() * 2 - 1) * Math.PI * ell, poleY - rnd() * 12]);
     for (let i = 0; i < 300; i++) pts.push([100 + Math.PI * ell + (rnd() * 2 - 1) * 8, 50 + (rnd() * 2 - 1) * 30]);
     for (let i = 0; i < 100; i++) pts.push([100 + (rnd() * 6 - 3) * Math.PI * ell, 50 + (rnd() * 4 - 2) * Math.PI * ell]);
-    const m = material(pts);
+    // A material measures in the space it carries.
+    const m = inSpace(material(pts), sp);
     for (const radius of [1.5, 4.4]) {
-      const near = neighbours(m, { radius, space: sp });
+      const near = neighbours(m, { radius });
       for (let i = 0; i < 400; i++) {
         const onPole = i % 2 === 0;
         const q: [number, number] = onPole
@@ -162,8 +164,8 @@ describe('neighbours near a pole and across the seam', () => {
       const x = seam + (rnd() * 2 - 1) * 10;
       pts.push([x > seam ? x - 2 * Math.PI * sp.radius : x, 50 + (rnd() * 2 - 1) * 20]);
     }
-    const m = material(pts);
-    const near = neighbours(m, { radius: 4.4, space: sp });
+    const m = inSpace(material(pts), sp);
+    const near = neighbours(m, { radius: 4.4 });
     for (let i = 0; i < 200; i++) {
       const q: [number, number] = [seam - rnd() * 3, 50 + (rnd() * 2 - 1) * 20];
       expect(near(q).sort((a, b) => a - b)).toEqual(brute(m, sp, q, 4.4));
@@ -175,8 +177,8 @@ describe('neighbours near a pole and across the seam', () => {
     const rnd = stream(11);
     const pts: [number, number][] = [];
     for (let i = 0; i < 800; i++) pts.push([rnd() * 400 - 100, rnd() * 300 - 100]);
-    const m = material(pts);
-    const near = neighbours(m, { radius: 6, space: sp });
+    const m = inSpace(material(pts), sp);
+    const near = neighbours(m, { radius: 6 });
     for (let i = 0; i < 300; i++) {
       const q: [number, number] = [rnd() * 400 - 100, rnd() * 300 - 100];
       const reach = i % 3 === 0 ? 15 : undefined;

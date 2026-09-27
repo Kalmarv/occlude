@@ -20,7 +20,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const settled = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
     const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
-    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const cellFor = (p) => cells.find((c) => c.source === p);
     const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
     return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)

@@ -16,7 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const settled = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
     const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
-    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const cellFor = (p) => cells.find((c) => c.source === p);
     const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
     return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)
@@ -34,7 +34,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 
 ## A sample is not a measurement
 
-Chapter 8's scatter read the field at each point. A cell is an area, and the field can vary across it. One large cell in the middle of three sites, over a faint ramp with a bright patch that the control slides from left to right. Two numbers are written on it: the field at the site, and the mean of the field over the cell. `diagram.faces.measure(field)` samples the field across every face on a raster and adds it up. It returns the diagram again, and each of its faces carries the result as columns: `integral` (the sum, in field units times area) and `mean` (the integral over the area), beside the `area` every face has. A cell also knows the site it came from, as `source`, so `measured.faces.find((c) => c.source.index === 0)` is the cell of the first site.
+Chapter 8's scatter read the field at each point. A cell is an area, and the field can vary across it. One large cell in the middle of three sites, over a faint ramp with a bright patch that the control slides from left to right. Two numbers are written on it: the field at the site, and the mean of the field over the cell. `diagram.faces.measure(field)` samples the field across every face on a raster and adds it up. It returns the diagram again, and each of its faces carries the result as columns: `integral` (the sum, in field units times area) and `mean` (the integral over the area), beside the `area` every face has. A cell also knows the site it came from, as `source`, so `measured.faces.find((c) => c.source === sites.points.at(0))` is the cell of the first site.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, label, material, distance, ui } from 'occlude';
@@ -46,7 +46,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[100, 50], [16, 14], [184, 86]]);
   const diagram = t.voronoi(sites);
   const measured = diagram.faces.measure(field, { step: 1.5625 });
-  const cell = measured.faces.find((c) => c.source.index === 0);
+  const cell = measured.faces.find((c) => c.source === sites.points.at(0));
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6)),
     strokes(t.isolines(patch, [0.3, 0.6], { step: 1 }), { pen: 'stabilo-88-blue' }),
@@ -72,7 +72,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[100, 50], [16, 14], [184, 86]]);
   const diagram = t.voronoi(sites);
   const measured = diagram.faces.measure(field, { step: 1.5625 });
-  const m = measured.faces.find((c) => c.source.index === 0);
+  const m = measured.faces.find((c) => c.source === sites.points.at(0));
   const target = Number.isFinite(m.weightedX) ? [m.weightedX, m.weightedY] : null;
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6)),
@@ -98,7 +98,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
     const diagram = t.voronoi(g);
     const cells = diagram.faces.measure(light, { step: 1.5625 }).faces;
     return g.move((p) => {
-      const c = cells.find((f) => f.source.index === p.index);
+      const c = cells.find((f) => f.source === p);
       const target = c && Number.isFinite(c.weightedX) ? [c.weightedX, c.weightedY] : null;
       const step = target ? mul(sub(target, p), amount) : [0, 0];
       arrows.push(line(p.x, p.y, ...add(p, step), { pen: 'stabilo-88-blue' }));
@@ -109,7 +109,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 });
 ```
 
-`diagram` is built from `g` inside the pass, so the `source` of each cell is a row of the state `p` belongs to, and the match by `index` finds the site's own cell. That is the ownership rule from chapters 3 and 9 doing useful work: a diagram of the previous step has cells with the same row numbers, but its cells are not theirs.
+`diagram` is built from `g` inside the pass, so the `source` of each cell is `g`'s own view of that row, the same value `p` already is, and `f.source === p` finds the site's own cell directly. That is the ownership rule from chapters 3 and 9 doing useful work: a diagram built from an earlier step makes its own views, so a stale cell's `source` is never `===` a point of this step, even at the same row.
 
 ## Repeat, and then decide differently
 
@@ -127,7 +127,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
     const diagram = t.voronoi(g);
     const cells = diagram.faces.measure(light, { step: 1.5625 }).faces;
     return g.move((p) => {
-      const c = cells.find((f) => f.source.index === p.index);
+      const c = cells.find((f) => f.source === p);
       const target = c && Number.isFinite(c.weightedX) ? [c.weightedX, c.weightedY] : null;
       return target ? mul(sub(target, p), amount) : [0, 0];
     });
@@ -152,7 +152,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const respond = (stopping) => t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
     const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
-    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const cellFor = (p) => cells.find((c) => c.source === p);
     const lit = g.points.filter((p) => { const c = cellFor(p); return stopping && p.mobility === 1 && c !== undefined && c.mean > bright; });
     return g.move((p) => {
       const c = cellFor(p);
@@ -180,7 +180,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const stopped = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g);
     const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
-    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const cellFor = (p) => cells.find((c) => c.source === p);
     const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
     return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)
@@ -224,7 +224,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const settled = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
     const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
-    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const cellFor = (p) => cells.find((c) => c.source === p);
     const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
     return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)

@@ -16,6 +16,16 @@ export function refuseStroke(options:unknown,who:string):void {
   throw new Error(`${who}: \`stroke\` is the 2D outline switch — name the pen with \`pen\`: ${hint}`);
 }
 
+/** How an object is drawn is the view's to say, never the value's: a
+ * display word in a geometry's options is refused by name, with the one
+ * spelling that says it. */
+const DISPLAY_WORDS=['pen','fillPen','creaseAngle','suggestive','hatch'] as const;
+/** @internal Refuse a display word in the options of a 3D value. */
+export function refuseDisplay(options:unknown,who:string):void {
+  if(!options||typeof options!=='object')return;
+  for(const word of DISPLAY_WORDS)if((options as Record<string,unknown>)[word]!==undefined)
+    throw new Error(`${who}: \`${word}\` is how the view draws an object, not part of the geometry — give it in the view: view([[value, { ${word}: … }], …], options)`);
+}
 /** The face row a hatch recipe reads: the mesh's own row, so a selection's
  * `has(f)` answers for it. */
 export type HatchRow<F extends Attributes3>=MeshFaceRow<F,any,any,any>&FaceRow<F>;

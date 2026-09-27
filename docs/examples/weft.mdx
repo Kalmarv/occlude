@@ -11,10 +11,12 @@ The drawing is not the threads. It is the cells between them.
 
 The darkest hatch stays at 0.4 mm, twice the nib. Below that the fill lands as solid black and a fold stops reading as a fold.
 
-Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, and `force.tension` with a rest for each edge. Then `faces`, `Face.area`, `measure` for an `orientation` column, `polygon` with a hatch fill, and `map`.
+The nails are a selection of the net before it hangs. That selection names the same points in each later state, so each step moves every point but the nails.
+
+Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, `without`, and `force.tension` with a rest for each edge. Then `faces`, `Face.area`, `measure` for an `orientation` column, `polygon` with a hatch fill, and `map`.
 
 ```ts live
-import { sketch, polygon, fill, mm, map, material, force, mul } from 'occlude';
+import { sketch, polygon, fill, mm, map, material, force, mul, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const b = t.bounds();
@@ -28,13 +30,15 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     if (c > 0) edges.push([i - 1, i]);
     if (r > 0) edges.push([i - cols, i]);
   }
-  const nails = new Set([0, (cols / 2) | 0, cols - 1]);
   const net = material(pts, { edges })
     .edges.set('rest', (e) => gap * (1 + 0.8 * t.noise(e.center[0] / 34, e.center[1] / 34)))
     .smooth('rest', { steps: 14 });
+  // The nails: the top corners and the middle of the top row.
+  const top = [0, (cols / 2) | 0, cols - 1].map((c) => [x0 + c * gap, y0]);
+  const nails = net.points.filter((p) => top.some((q) => distance(p, q) < gap / 2));
   const hang = (g) => {
     const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.42 * gap]);
-    return g.move((p) => mul(pull(p), 0.1), g.points.filter((p) => !nails.has(p.index)));
+    return g.move((p) => mul(pull(p), 0.1), g.points.without(nails));
   };
   const hung = t.steps(300, net, hang);
   const cells = hung.faces.measure().faces;

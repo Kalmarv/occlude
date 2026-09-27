@@ -13,7 +13,7 @@ import { sketch, strokes, polygon, fill, mm, material, distance } from 'occlude'
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const pts = t.relax(t.scatter((x, y) => 0.3 + 0.7 * Math.pow(y / 100, 1.5), { spacing: 4.5 }), { iterations: 2 });
   const root = [...pts.points].reduce((a, b) => (distance(b, [50, 97]) < distance(a, [50, 97]) ? b : a));
-  const seeded = pts.points.set('when', (p) => (p.index === root.index ? 0 : -1));
+  const seeded = pts.points.set('when', (p) => (p === root ? 0 : -1));
   const tree = t.steps(40, seeded, (g) => {
     const now = 1 + Math.max(...g.points.map((p) => p.when));
     const reach = (p) => g.points.near(p, { radius: 9 }).filter((q) => q.when >= 0);

@@ -71,8 +71,8 @@ export function dualSurface3(surface:Surface3,options:DualOptions={}):Surface3 {
   const used=[...new Set(polygons.flat())].sort((a,b)=>a-b);
   const at=new Map(used.map((f,i)=>[f,i]));
   const numeric=(attributes:Attributes3):Attributes3=>Object.fromEntries(Object.entries(attributes).filter(([,value])=>typeof value==='number'||Array.isArray(value)&&value.every(n=>typeof n==='number')));
-  const points:SurfacePoint3[]=used.map(f=>({id:`dual:${surface.faces[f].id}`,position:placed[f],attributes:numeric(surface.faces[f].attributes)}));
-  const faces:SurfaceFace3[]=polygons.map((loop,i)=>({id:`dual:${surface.points[owners[i]].id}`,vertices:loop.map(f=>at.get(f)!),attributes:{...surface.points[owners[i]].attributes}}));
+  const points:SurfacePoint3[]=used.map(f=>({id:`dual:${surface.faces[f].id}`,position:placed[f],attributes:numeric(surface.faces[f].attributes),provenance:{operation:'dual',parents:[surface.faces[f].id]}}));
+  const faces:SurfaceFace3[]=polygons.map((loop,i)=>({id:`dual:${surface.points[owners[i]].id}`,vertices:loop.map(f=>at.get(f)!),attributes:{...surface.points[owners[i]].attributes},provenance:{operation:'dual',parents:[surface.points[owners[i]].id]}}));
   // The ordinary ear clipping decides the triangles, in each face's own average
   // plane: a projected Goldberg's hexagons are not exactly planar, and they are
   // drawn as the triangles that plane gives.

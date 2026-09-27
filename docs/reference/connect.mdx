@@ -3,11 +3,11 @@ title: Connect
 description: The ways to put edges between points.
 ---
 
-Every builder takes points, a material or a selection of one, and returns a material with new edges. Most builders keep the rows, their order and their columns, and change only the edge list. `connect.pairs` joins the rows of two materials. `trails` is a method on the material, and it adds a pass-through vertex at each junction. `edgeAttributes` gives every new edge the same columns.
+Every builder takes points, a material or a selection of one, and returns a material with new edges. Most builders keep the rows, their order and their columns, and change only the edge list. `connect.pairs` joins the rows of two materials. `trails` is a method on the material, and it adds a pass-through vertex at each junction. `edgeColumns` gives every new edge the same columns.
 
 ## In the order given
 
-The rows in the order given are one chain: [`curve(points)`](/docs/reference/material#curve). `closed: true` also joins the last row to the first. A selection keeps the ids of its members. Below, seven points on a circle, taken three steps apart. The open chain is on the left, and the ring on the right adds one closing edge.
+The rows in the order given are one chain: [`curve(points)`](/docs/reference/material#curve). `closed: true` also joins the last row to the first. A chain from a selection keeps its members and their columns. A point that you hold from the source is also a point of the chain. Below, seven points on a circle, taken three steps apart. The open chain is on the left, and the ring on the right adds one closing edge.
 
 ```ts live
 import { sketch, strokes, circle, curve } from 'occlude';
@@ -40,7 +40,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/connect.pairs.mdx</include>
 
-Joins row `i` of `a` to row `i` of `b`, in one material that holds both. The two must have the same number of rows.
+Joins the first row of `a` to the first row of `b`, the second to the second, and so on. The result is one material that holds both. The two must have the same number of rows.
 
 ```ts live
 import { sketch, strokes, circle, connect } from 'occlude';
@@ -96,7 +96,7 @@ Below, the blue ticks are six placements, each with a heading of its own. The bl
 import { sketch, strokes, line, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
-  const places = t.times(6, (k) => t.placement([22 + (k % 3) * 28, 32 + Math.floor(k / 3) * 36], t.rnd(360)));
+  const places = t.times(6, (k) => t.placement([18 + (k % 3) * 32, 26 + Math.floor(k / 3) * 48], t.rnd(360)));
   return [
     places.map((s) => line(s, s.step(7), { pen: 'stabilo-88-blue' })),
     strokes(connect.turns(places, { radius: 6 })),
@@ -143,7 +143,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/connect.unimpeded.mdx</include>
 
-Joins two rows when nothing else is in the space between them. `room` sets how much space. The test region is the lens between the two rows. At `room: 1` the lens is the disc with the pair as its diameter. Larger values need more empty space, so the lattice thins out. `room` is 1 or more, and it may be a field, read at the middle of each pair.
+Joins two rows when nothing else is in the space between them. `room` sets how much space. The test region is the lens between the two rows. At `room: 1` the lens is the disc with the pair as its diameter. At `room: 2` the lens holds each point that is nearer to both rows than they are to each other. This is the relative neighbourhood graph, and it holds every edge of `connect.tree`. Larger values need more empty space, so the lattice thins out. `room` is 1 or more, and it may be a field, read at the middle of each pair. Two rows at one place are one point: the first row takes part, and the other rows get no edges.
 
 ```ts live
 import { sketch, strokes, connect } from 'occlude';

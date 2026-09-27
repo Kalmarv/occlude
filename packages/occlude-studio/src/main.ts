@@ -282,6 +282,9 @@ async function boot(): Promise<void> {
           inspect: inspector.enabled,
           seed,
           draws: true, // the run's draws, for Freeze
+          // Off unless `localStorage['occlude.memo'] = 'on'`: the worker's
+          // memo of derivations across renders (occlude/src/memo.ts).
+          memo: localStorage.getItem('occlude.memo') === 'on',
         },
       }, () => myRun === runSeq && editor.getValue() === source, draft => {
         // A stage picture of THIS run only; the final reply replaces it.

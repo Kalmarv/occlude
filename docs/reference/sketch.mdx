@@ -26,7 +26,7 @@ The sketch function can be `async` and use `await`. Some 3D words, such as `t.ha
 import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, async (t) => {
-  const radius = await Promise.resolve(30);
+  const radius = await Promise.resolve(40);
   return circle(50, 50, radius);
 });
 ```
@@ -59,7 +59,7 @@ import { sketch, paper, pen, mm, inch, circle } from 'occlude';
 
 export default sketch({ paper: paper({ width: inch(5), height: inch(3) }), pens: { main: pen({ width: mm(0.5), color: '#2457D6' }) }, margin: 8 }, (t) => {
   const b = t.bounds();
-  return t.times(9, (k, u) => circle(8 + u * (b.w - 16), b.h / 2, 6, { pen: 'main' }));
+  return t.times(9, (k, u) => circle(b.h / 2 + u * (b.w - b.h), b.h / 2, b.h / 2 - 4, { pen: 'main' }));
 });
 ```
 
@@ -99,7 +99,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, row
 <include>/_sig/Toolkit.bounds.mdx</include>
 <include>/_sig/Toolkit.grid.mdx</include>
 
-`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. Read it when a drawing must fill whatever drawable it lands on. The record is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, as one material. Its `faces` are the cells, row by row. Each face has the face columns `i` (across) and `j` (down), and its `bounds` is the rect of the cell, `{ x, y, w, h, cx, cy }`. Two cells that touch share one wall, so `strokes` draws the wall once and `f.adjacent` answers. A `gap` moves the cells apart, and then they share nothing. For cells that are not rectangles, use `t.tiling` (see [Geometry](/docs/reference/geometry)).
+`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. Read it when a drawing must fill whatever drawable it lands on. The answer is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, as one material. Its `faces` are the cells, row by row. Each face has the face columns `i` (across) and `j` (down), and its `bounds` is the rect of the cell, `{ x, y, w, h, cx, cy }`. Two cells that touch share one wall, so `strokes` draws the wall once and `f.adjacent` answers. A `gap` moves the cells apart, and then they share nothing. For cells that are not rectangles, use `t.tiling` (see [Geometry](/docs/reference/geometry)).
 
 Under `origin: 'center'`, the corner of the drawable is `(-w/2, -h/2)` and its middle is `(0, 0)`. `bounds()` answers in that frame, and every word that covers the drawable (`grid`, `tiling`, `scatter`, `voronoi` and the fields) reads it. Below, the grid covers the drawable of a centred, y-up sketch.
 

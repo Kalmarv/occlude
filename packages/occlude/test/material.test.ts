@@ -699,18 +699,21 @@ describe('boundaries (review 2026-09-07)', () => {
     expect(() => append(b, a)).toThrow(/first material has no 'age'/);
   });
 
-  it('7. derived materials never share columns with their source', () => {
+  it('7. derived materials share the columns they did not write, and leave their source as it was', () => {
     const src = curve([[0, 0], [1, 0], [1, 1]], { closed: true, age: 1 });
     const derived = src.points.set('extra', 2);
-    derived.x[0] = 99;
-    expect(src.x[0]).toBe(0);
+    expect(derived.store.x).toBe(src.store.x);
+    expect(derived.store.attrs.age).toBe(src.store.attrs.age);
+    expect(src.attrNames).toEqual(['age']);
+    const moved = src.points.set('x', 5);
+    expect(moved.store.x).not.toBe(src.store.x);
+    expect(Array.from(src.x)).toEqual([0, 1, 1]);
     const stepped = toolkit({ seed: 1 }).steps(2, src, (g) => g, { every: 1 });
-    stepped.history[0].x[1] = 99;
-    expect(src.x[1]).toBe(1);
+    expect(stepped.history[0].store.x).toBe(src.store.x);
     const loose = material([[0, 0], [1, 0], [2, 0]]);
     const chained = curve(loose);
-    chained.y[0] = 42;
-    expect(loose.y[0]).toBe(0);
+    expect(chained.store.y).toBe(loose.store.y);
+    expect(loose.edgeCount).toBe(0);
   });
 });
 
@@ -963,19 +966,19 @@ describe('edges.nearest / firstHit: pruning keeps the full scan’s answer', () 
 });
 
 describe('correctness pass (review of 22c9887)', () => {
-  it('2. derived materials own their topology', () => {
+  it('2. derived materials share the topology they did not change', () => {
     const src = square();
     const derived = src.points.set('age', 1);
-    expect(derived.edgeList).not.toBe(src.edgeList);
+    expect(derived.store.edgeList).toBe(src.store.edgeList);
     const e2 = src.edges.set('rest', 1);
-    expect(e2.edgeList).not.toBe(src.edgeList);
+    expect(e2.store.edgeList).toBe(src.store.edgeList);
     const stepped = toolkit({ seed: 1 }).steps(2, src, (g) => g, { every: 1 });
-    expect(stepped.edgeList).not.toBe(src.edgeList);
-    const owned = new Set<Uint32Array>([src.edgeList, stepped.edgeList]);
-    for (const s of stepped.history) {
-      expect(owned.has(s.edgeList)).toBe(false);
-      owned.add(s.edgeList);
-    }
+    expect(stepped.store.edgeList).toBe(src.store.edgeList);
+    for (const s of stepped.history) expect(s.store.edgeList).toBe(src.store.edgeList);
+    // A write that changes the edges makes a new list and leaves the old one.
+    const cut = src.split(src.edges.at(0));
+    expect(cut.store.edgeList).not.toBe(src.store.edgeList);
+    expect(Array.from(src.edgeList)).toEqual([0, 1, 1, 2, 2, 3, 3, 0]);
   });
 
   it('3. resample keeps edge attributes at samples that land on existing vertices', () => {

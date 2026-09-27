@@ -1,6 +1,6 @@
 /**
  * The honeycomb is geometry: one cell complex with shared vertices, each
- * wall once and each edge once, its copies as `Placement3` values, and its
+ * wall once and each edge once, its copies as `Placement<Vec3>` values, and its
  * edges as two-point wires that `transform` moves exactly.
  *
  * A honeycomb is a 3-complex, not a surface — `r` walls meet at an edge —
@@ -10,8 +10,9 @@
 
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { honeycomb, observer, view, perspective, type Honeycomb, type Placement3, type Vec3 } from 'occlude/3d';
-import { isPlacement3 } from '../src/three/api/placement3.js';
+import { honeycomb, observer, view, perspective, type Honeycomb, type Vec3 } from 'occlude/3d';
+import { isSpacePlacement } from '../src/placement.js';
+import type { Placement } from '../src/index.js';
 import { clip, mm, pen, rect, sketch, strokes } from '../src/index.js';
 import { compileSketchAsync, initOcclude, render } from '../src/host.js';
 import { identity } from '../src/placement.js';
@@ -159,9 +160,9 @@ describe('the {5, 3, 4} honeycomb as a complex', () => {
   });
 });
 
-describe('Placement3', () => {
+describe('Placement<Vec3>', () => {
   const h = honeycomb(4, 3, 5, { depth: 2 });
-  const some: Placement3[] = [h.placements[1], h.placements[5], h.placements[20], observer([0.2, -0.1, 0.05], [0.5, 0.4, 0.1])];
+  const some: Placement<Vec3>[] = [h.placements[1], h.placements[5], h.placements[20], observer([0.2, -0.1, 0.05], [0.5, 0.4, 0.1])];
   const probe: Vec3[] = [[0.1, 0.2, -0.3], [-0.4, 0.05, 0.2], [0.3, -0.3, 0.1]];
 
   it('composes with then, undoes with inverse, multiplies orientation', () => {
@@ -183,10 +184,10 @@ describe('Placement3', () => {
   });
 
   it('is structural, and a 2D placement is not one', () => {
-    for (const a of some) expect(isPlacement3(a)).toBe(true);
-    expect(isPlacement3(identity(spaceOf({ curvature: 0 }).model))).toBe(false);
-    expect(isPlacement3((p: Vec3) => p)).toBe(false);
-    expect(() => some[0].then({ orientation: 1, point: (p: Vec3) => p, then: () => some[0], inverse: () => some[0] })).toThrow('expected a Placement3');
+    for (const a of some) expect(isSpacePlacement(a)).toBe(true);
+    expect(isSpacePlacement(identity(spaceOf({ curvature: 0 }).model))).toBe(false);
+    expect(isSpacePlacement((p: Vec3) => p)).toBe(false);
+    expect(() => some[0].then({ orientation: 1, point: (p: Vec3) => p, then: () => some[0], inverse: () => some[0] } as never)).toThrow('cannot follow one of 3D space');
   });
 
   it('puts the observer eye at the origin and the target on +Y', () => {
@@ -235,10 +236,10 @@ describe('transform', () => {
     cell.faces.map((f, i) => expect(kept.faces.at(i)!.vertices).toEqual(f.vertices));
   });
 
-  it('refuses what is not a Placement3, by name', () => {
+  it('refuses what is not a placement of 3D space, by name', () => {
     const h = honeycomb(5, 3, 4, { depth: 0 });
-    expect(() => h.wires.transform(((p: Vec3) => p) as never)).toThrow('transform takes a Placement3');
-    expect(() => h.cell.transform(identity(spaceOf({ curvature: 0 }).model) as never)).toThrow('transform takes a Placement3');
+    expect(() => h.wires.transform(((p: Vec3) => p) as never)).toThrow('transform takes a placement of 3D space');
+    expect(() => h.cell.transform(identity(spaceOf({ curvature: 0 }).model) as never)).toThrow('transform takes a placement of 3D space');
   });
 });
 

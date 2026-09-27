@@ -9,7 +9,7 @@ A mesh is an immutable value. Every edit returns a new mesh and keeps the old on
 
 <include>/_sig/3d.Mesh.subdivide.mdx</include>
 
-`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Here the same wave moves three planes at levels 1, 2 and 3. The view draws every fold, so the grids show.
+`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Each row of the result answers `source`, the row of the input that it comes from. A face gives its parent face, and an edge gives its parent edge. A point gives the point that it keeps, or a selection of the points that make it. Here the same wave moves three planes at levels 1, 2 and 3. The view draws every fold, so the grids show.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -28,18 +28,18 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 The dual of a mesh: one point for each face, at its middle, and one face for each point, around it. A cube duals to an octahedron, and a geodesic polyhedron duals to its Goldberg polyhedron, twelve pentagons and the rest hexagons. `project` moves every dual point out to that radius from the origin.
 
-Numeric face columns become point columns, and point columns become face columns. Both keep the name of their source, as `dual:<id>`. A point on a boundary has no ring of faces around it, so it gets no face. An open mesh loses its rim. A projected dual face is not exactly flat, and it draws as the triangles its own average plane gives.
+Numeric face columns become point columns, and point columns become face columns. Both keep the name of their source, as `dual:<id>`. A point on a boundary has no ring of faces around it, so it gets no face. An open mesh loses its rim. A projected dual face is not exactly flat, and it draws as the triangles its own average plane gives. A dual point's `source` is the face of the input that it stands for, and a dual face's `source` is the point.
 
 ```ts live
 import { sketch, pen, mm, group } from 'occlude';
 import { geodesic, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
-  const dome = geodesic(1, { frequency: [3, 0], creaseAngle: 0 });
+  const dome = geodesic(1, { frequency: [3, 0] });
   const camera = orthographic({ eye: [4, 7, 5], span: 2.4 });
   return [
-    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(dome, { camera, pen: 'ink' })),
-    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(dome.dual({ project: 1 }), { camera, pen: 'ink' })),
+    group({ scale: 0.5, origin: [0, 0], translate: [0, 25] }, view(dome, { camera, pen: 'ink', creaseAngle: 0 })),
+    group({ scale: 0.5, origin: [0, 0], translate: [50, 25] }, view(dome.dual({ project: 1 }), { camera, pen: 'ink', creaseAngle: 0 })),
   ];
 });
 ```
@@ -144,7 +144,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 <include>/_sig/3d.Mesh.extrude.mdx</include>
 
-`mesh.extrude(faces, offset)` raises a connected face selection as one region. Each connected part of the selection becomes a translated cap, and every boundary edge of the region grows a wall. `offset` is a model vector, or `{ distance }` along the region's mean normal.
+`mesh.extrude(faces, offset)` raises a connected face selection as one region. Each connected part of the selection becomes a translated cap, and every boundary edge of the region grows a wall. `offset` is a model vector, or `{ distance }` along the region's mean normal. The `source` of a wall is the boundary edge under it. The `source` of a new point is the point that it copies. A cap keeps its own face.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -168,7 +168,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 Both meshes must have no holes. An open shell refuses by name, and says how many boundary edges it has. The seam is exact. The engine finds where the triangles of the two solids cross, in exact arithmetic. It cuts each crossed triangle along that curve, and it keeps the parts the operation asks for.
 
-A face that the seam did not reach keeps its identity and its columns. A face that the seam crossed becomes its pieces, and each piece keeps the columns of the face it came from. So a column you put on one solid is still there to select by. Every face of the result answers `cut`: `true` for a face along a seam. It adds up down a chain. A face that an earlier operation cut stays `cut`, so one pen draws every seam the chain made. A new point on the seam takes its point columns from the triangle of the first solid that it lies on.
+A face that the seam did not reach keeps its identity and its columns. A face that the seam crossed becomes its pieces, and each piece keeps the columns of the face it came from. So a column you put on one solid is still there to select by. A face's `source` is the face of either input that it came from. Every face of the result answers `cut`: `true` for a face along a seam. It adds up down a chain. A face that an earlier operation cut stays `cut`, so one pen draws every seam the chain made. A new point on the seam takes its point columns from the triangle of the first solid that it lies on.
 
 Two solids that never meet are still an answer. `union` gives both, `subtract` gives the first alone, and `intersect` gives an empty mesh. If the result is not a closed manifold surface, the operation refuses by name. Two boxes that touch along one edge have no union a pen can draw.
 
@@ -193,7 +193,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## Topology
 
-The step refuses A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A row also knows its own place. A point answers `x`, `y` and `z`. A face answers `centroid` and `area`, as a 2D face does. An edge answers `length` and `center`, and 2D says `center` for the same thing. `center` on a face by name. Distance is a different question from topology: `mesh.points.near(p, { radius })` and `mesh.edges.near(p, { radius })` give the members closer than `radius` to `p`, as in 2D. `p` is a row, a triple or `{ x, y, z }`. A point is never near to itself. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. `adjacent()` leaves the members out, so it is the ring around a selection. `sel.union(sel.adjacent())` is the selection grown by that ring. An edge selection says the same three words. Two edges are neighbours through a shared END, as two faces are through a shared edge. A face selection also has `.boundaryEdges()`. `mesh.faces.rows(f)` is the selection that holds those rows, by index or by the rows themselves, as `sel.rows` does in 2D. Faces are neighbours through a shared edge, not a shared corner.
+A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A row also knows its own place. A point answers `x`, `y` and `z`. A face answers `centroid` and `area`, as a 2D face does. An edge answers `length` and `center`, and 2D says `center` for the same thing. A face refuses `center` by name. Distance is a different question from topology: `mesh.points.near(p, { radius })` and `mesh.edges.near(p, { radius })` give the members closer than `radius` to `p`, as in 2D. `p` is a row, a triple or `{ x, y, z }`. A point is never near to itself. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. `adjacent()` leaves the members out, so it is the ring around a selection. `sel.union(sel.adjacent())` is the selection grown by that ring. An edge selection says the same three words. Two edges are neighbours through a shared END, as two faces are through a shared edge. A face selection also has `.boundaryEdges()`. `mesh.faces.rows(f)` is the selection that holds those rows, by index or by the rows themselves, as `sel.rows` does in 2D. Faces are neighbours through a shared edge, not a shared corner.
 
 Every kind says it the same way, in 2D and in 3D. Here the cap is one selection, and the ring is its one-hop neighbours.
 

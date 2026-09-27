@@ -60,7 +60,7 @@ The studio previews the PLAN, so a shader shows on screen. The plan keeps lines,
 :::
 
 :::warning
-A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the row before shading.
+A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the number of the chain before shading.
 :::
 
 :::warning
@@ -128,7 +128,7 @@ The mark goes at a corner of the sheet. A hand can find a corner with nothing on
 
 After step 2, Plot, Frame and Resume start from the corner. Use the same button after a pen change, before a resume, or on the next day. Move the head by hand until the tip is on the drawn cross. Then push Draw registration. Each pen draws its own cross on the same mark. A pen that does not sit where the last pen sat shows before the plot.
 
-The record of an unfinished plot keeps the registration point. If the sketch has a different corner, Resume refuses with `this plot was registered at (x, y); choose the corner there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
+An unfinished plot keeps its registration point. If the sketch has a different corner, Resume refuses with `this plot was registered at (x, y); choose the corner there, or start a new plot`. Bed origin and Paper origin end the registration. On GRBL, Home also ends it.
 
 ## estimatePlanMs()
 

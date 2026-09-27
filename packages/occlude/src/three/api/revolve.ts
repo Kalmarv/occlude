@@ -6,6 +6,7 @@ import {emptyCount,emptySize} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import type {Vec3} from '../math.js';
 import {profileCurve} from './curves.js';
+import {SOURCES,derived} from './source.js';
 export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
   readonly segments?:number;
   /** Signed sweep in degrees, nonzero and at most a full turn. */
@@ -82,5 +83,5 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:Cu
     add(JSON.stringify(['revolve','end']),boundary.map(i=>index(i,n)).reverse(),{},path.edges.map(i=>source.edges[i].id),boundary.map(i=>capByPoint!.get(i)!).reverse(), 'end');
   }
   const topology=surface3(points.map(p=>p.position as Vec3),faces.map(f=>f.vertices));
-  return new Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV>(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key});
+  return new Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV>(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key,[SOURCES]:derived('revolve',input as object)});
 }

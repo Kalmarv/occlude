@@ -1,6 +1,6 @@
 ---
 title: View
-description: "The camera, the drawing boundary, hatch, the view callback and styles."
+description: "The camera, the drawing boundary, how each object is drawn, hatch and the view callback."
 ---
 
 `view` projects geometry through a camera into the drawable and computes the visible lines. From there the result is ordinary ink: strokes, clips, masks and pens apply.
@@ -9,7 +9,7 @@ description: "The camera, the drawing boundary, hatch, the view callback and sty
 
 <include>/_sig/3d.view.1.mdx</include>
 
-Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `pen` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame.
+Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. Only the view says how the view draws an object. A pair `[value, { pen, … }]` in the list gives the options of one object (see [each object](#each-object)). The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `pen` names the pen. The ink stays inside the drawable, or inside the view's `viewport`. A line stops at the edge of that frame.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -54,34 +54,34 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## creaseAngle
 
-The view draws a fold between two faces when the angle between them is larger than `creaseAngle`. The view's value is the default. An object's own value, `sphere(1, { creaseAngle: 180 })` or `style(mesh, { creaseAngle })`, wins for that object. 180 draws no creases, so a curved mesh shows only its silhouette. 0 draws every fold.
+The view draws a fold between two faces when the angle between them is larger than `creaseAngle`. The view's value is the default. An object's own value in its pair, `[mesh, { creaseAngle: 180 }]`, wins for that object. 180 draws no creases, so a curved mesh shows only its silhouette. 0 draws every fold.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { sphere, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => view([sphere(1, { segments: 16, rings: 8, creaseAngle: 0 }).translate([-1.2, 0, 0]), sphere(1, { segments: 16, rings: 8, creaseAngle: 180 }).translate([1.2, 0, 0])], { camera: orthographic({ eye: [4, 7, 3], span: 5 }), pen: 'ink' }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => view([[sphere(1, { segments: 16, rings: 8 }).translate([-1.2, 0, 0]), { creaseAngle: 0 }], [sphere(1, { segments: 16, rings: 8 }).translate([1.2, 0, 0]), { creaseAngle: 180 }]], { camera: orthographic({ eye: [4, 7, 3], span: 5 }), pen: 'ink' }));
 ```
 
 ## suggestive
 
 Suggestive contours are the lines where the surface almost turns away from the eye. They are the silhouette that a nearby viewpoint shows. The two sheets below are one dune field, drawn twice. The outline alone says nothing about the sand. The suggestive contours draw every crest. The reading is from DeCarlo, Finkelstein, Rusinkiewicz and Santella (2003).
 
-`suggestive: {}` draws them, on one object or on the view for all of them. The default, `false`, draws none. An object's own value wins, so `style(mesh, { suggestive: false })` keeps one object plain. `threshold` is the derivative test: a larger number keeps fewer lines, and 12 is the default. The number is a ratio of the object's own size, so a model of any scale reads the same. These lines belong to one view, not to the model, so they move with the camera. The view classifies them with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them, and the default drawing gives them the object's pen.
+`suggestive: {}` draws them, in the pair of one object or on the view for all of them. The default, `false`, draws none. An object's own value wins, so `[mesh, { suggestive: false }]` keeps one object plain. `threshold` is the derivative test: a larger number keeps fewer lines, and 12 is the default. The number is a ratio of the object's own size, so a model of any scale reads the same. These lines belong to one view, not to the model, so they move with the camera. The view classifies them with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them, and the default drawing gives them the object's pen.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';
-import { plane, view, orthographic, style } from 'occlude/3d';
+import { plane, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shape: pen({ width: mm(0.25), color: '#A84932' }) } }, () => {
   // Crests running diagonally, over a slow drift.
   const dunes = (p) => 0.12 * Math.sin(4.16 * p.x + 3.12 * p.y + 0.4)
     + 0.054 * Math.sin(5.62 * p.x - 3.79 * p.y + 1.9)
     + 0.32 * Math.sin(0.55 * p.x + 0.35 * p.y + 1.1);
-  const sand = plane(6, 4, { creaseAngle: 180 }).subdivide(6).displace((p) => [0, 0, dunes(p)]);
+  const sand = plane(6, 4).subdivide(6).displace((p) => [0, 0, dunes(p)]);
   return view(
-    [sand.translate([0, 0, 2.4]).withKey('plain'), style(sand.translate([0, 0, -2.4]).withKey('read'), { suggestive: {} })],
-    { camera: orthographic({ eye: [6.87, -8.19, 5.45], target: [0, 0, 0], span: 9.5 }) },
+    [sand.translate([0, 0, 2.4]).withKey('plain'), [sand.translate([0, 0, -2.4]).withKey('read'), { suggestive: {} }]],
+    { camera: orthographic({ eye: [6.87, -8.19, 5.45], target: [0, 0, 0], span: 9.5 }), creaseAngle: 180 },
     (lines) => [
       strokes(lines.visible.kind('silhouette', 'boundary'), { stroke: 'ink' }),
       strokes(lines.visible.kind('suggestive'), { stroke: 'shape' }),
@@ -92,7 +92,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## hatch
 
-`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the mesh, or a test on its face rows. The test gets the mesh's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. The call refuses a fill that is not parallel lines, and a spacing field of the paper. A recipe without a pen uses the object's `fillPen`, then its `pen`, then the view's. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
+`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the mesh, or a test on its face rows. The test gets the mesh's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. The call refuses a fill that is not parallel lines, and a spacing field of the paper. A recipe without a pen uses the `fillPen` of the object's pair, then the `pen` of the pair, then the view's `pen`. A `hatch` in the pair of an object replaces the view's hatch for that object. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -143,7 +143,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 <include>/_sig/Toolkit.toPaper.1.mdx</include>
 <include>/_sig/Toolkit.toPaper.2.mdx</include>
 
-Where a view puts a world point on the paper. One point in gives one `[x, y]` pair in drawable units. Points in give a material of the projected points. A label or a leader line can then go where the drawing put an object. The camera is the view's own, and a camera the studio committed counts. The pair lands exactly where that view's lines do.
+Where a view puts a world point on the paper. One point in gives one `[x, y]` pair in drawable units. Points in give a material of the projected points, in the space of the sketch. A label or a leader line can then go where the drawing put an object. The camera is the view's own, and a camera the studio committed counts. The pair lands exactly where that view's lines do.
 
 A point behind the eye has no place on the paper. The pair is then two NaN values, and a material leaves that point out.
 
@@ -169,17 +169,17 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.35), colo
 });
 ```
 
-## style()
+## Each object
 
-<include>/_sig/3d.style.mdx</include>
+`[value, { pen?, fillPen?, creaseAngle?, suggestive?, hatch? }]` in the list of a view says how the view draws that value. A geometry holds no pen and no hatch. To draw it in a different way, change the view. The geometry stays the same value. Each field of the pair wins over the field of the view for that value. `fillPen` is the pen of the hatch where a recipe names no pen, as in 2D. The `hatch` of a pair replaces the hatch of the view for that value, as each 2D polygon has its own fill.
 
-Sets the drawing of a value: `pen`, `fillPen`, `creaseAngle` and `hatch`. The hatch of an object replaces the hatch of the view for that object, as each 2D polygon has its own fill. It returns the styled value, or a styled list, and keeps the fields it does not name.
+A list in a pair gives each value in the list the same options. An inner pair wins over an outer pair, field by field. Instances take the options of their pair, as one object. Curves take only `pen`. A view draws each value once, so the view refuses one value in two pairs with different options.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { box, sphere, style, view, orthographic } from 'occlude/3d';
+import { box, sphere, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), blue: pen({ width: mm(0.3), color: '#2457D6' }) } }, (t) => view([box(1.4), ...style([sphere(0.6, { segments: 20, rings: 10 }).translate([1.3, 0.6, 0.6]), sphere(0.4, { segments: 20, rings: 10 }).translate([-1.1, -0.8, 0.9])], { pen: 'blue', creaseAngle: 180 })], { camera: orthographic({ eye: [5, 7, 4], span: 5 }), pen: 'ink' }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), blue: pen({ width: mm(0.3), color: '#2457D6' }) } }, (t) => view([box(1.4), [[sphere(0.6, { segments: 20, rings: 10 }).translate([1.3, 0.6, 0.6]), sphere(0.4, { segments: 20, rings: 10 }).translate([-1.1, -0.8, 0.9])], { pen: 'blue', creaseAngle: 180 }]], { camera: orthographic({ eye: [5, 7, 4], span: 5 }), pen: 'ink' }));
 ```
 
 ## opaque

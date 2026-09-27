@@ -8,6 +8,7 @@ import {sub3,add3,mul3} from '../math.js';
 import {pointsNear3,edgesNear3,place3,pointDistance3,edgeDistance3} from './near3.js';
 import type {Vector3} from '../rotation.js';
 import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
+import {withSource} from './source.js';
 
 export type MeshPointRow<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> = PointRow<P>&{
   readonly edges:Selection<MeshEdgeRow<E,P,F,C>>;readonly faces:Selection<MeshFaceRow<F,P,E,C>>;readonly adjacent:Selection<MeshPointRow<P,E,F,C>>;readonly corners:Selection<MeshCornerRow<C,P,E,F>>;
@@ -150,7 +151,7 @@ function context(mesh:Mesh<any,any,any,any>):Context{
     const d=new Table3<AnyRow>(kind,surface,name,rows,options);contextOf.set(d,result);return d;
   };
   const points=lazy(()=>{
-    const rows:readonly AnyRow[]=Object.freeze(surface.points.map((p,index)=>relations<AnyRow>({...p.attributes,id:p.id,index,x:p.position[0],y:p.position[1],z:p.position[2],attributes:p.attributes,provenance:p.provenance},{
+    const rows:readonly AnyRow[]=Object.freeze(surface.points.map((p,index)=>relations<AnyRow>(withSource({...p.attributes,id:p.id,index,x:p.position[0],y:p.position[1],z:p.position[2],attributes:p.attributes},surface,p),{
       edges:()=>select3(result.edges,rowOrder(topology.pointEdges[index])),faces:()=>select3(result.faces,rowOrder(topology.pointFaces[index])),
       adjacent:()=>select3(result.points,rowOrder(topology.pointNeighbors[index])),corners:()=>select3(result.corners,rowOrder(topology.pointCorners[index])),
     })));
@@ -169,7 +170,7 @@ function context(mesh:Mesh<any,any,any,any>):Context{
   });
   const edges=lazy(()=>{
     const p=points().table as readonly AnyRow[];
-    return domain(MESH_EDGES,'edge',Object.freeze(surface.edges.map((e,index)=>relations<AnyRow>({...e.attributes,id:e.id,index,vertices:e.vertices,a:p[e.vertices[0]],b:p[e.vertices[1]],length:Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position)),center:mul3(add3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position),0.5),attributes:e.attributes,provenance:e.provenance},{
+    return domain(MESH_EDGES,'edge',Object.freeze(surface.edges.map((e,index)=>relations<AnyRow>(withSource({...e.attributes,id:e.id,index,vertices:e.vertices,a:p[e.vertices[0]],b:p[e.vertices[1]],length:Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position)),center:mul3(add3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position),0.5),attributes:e.attributes},surface,e),{
       points:()=>select3(result.points,rowOrder(e.vertices)),faces:()=>select3(result.faces,rowOrder(e.faces)),
     }))),{
       extract:ids=>new CurveGeometry(surface,ids),
@@ -180,7 +181,7 @@ function context(mesh:Mesh<any,any,any,any>):Context{
   });
   const faces=lazy(()=>{
     const {normals,centers,areas}=faceGeometry3(surface);
-    return domain(MESH_FACES,'face',Object.freeze(surface.faces.map((face,index)=>relations<AnyRow>({...face.attributes,id:face.id,index,vertices:face.vertices,normal:normals[index],centroid:centers[index],area:areas[index],attributes:face.attributes,provenance:face.provenance},{
+    return domain(MESH_FACES,'face',Object.freeze(surface.faces.map((face,index)=>relations<AnyRow>(withSource({...face.attributes,id:face.id,index,vertices:face.vertices,normal:normals[index],centroid:centers[index],area:areas[index],attributes:face.attributes},surface,face),{
       center:faceCenterRefused,
       points:()=>select3(result.points,rowOrder(face.vertices)),edges:()=>select3(result.edges,rowOrder(topology.faceEdges[index])),
       adjacent:()=>select3(result.faces,rowOrder(topology.faceNeighbors[index])),corners:()=>select3(result.corners,rowOrder(topology.faceCorners[index])),
@@ -192,7 +193,7 @@ function context(mesh:Mesh<any,any,any,any>):Context{
   });
   const corners=lazy(()=>{
     let cornerIndex=0;
-    const rows:readonly AnyRow[]=Object.freeze(surface.faces.flatMap((face,faceIndex)=>face.corners!.map((c,localIndex)=>relations<AnyRow>({...c.attributes,id:c.id,index:cornerIndex++,localIndex,attributes:c.attributes,provenance:c.provenance},{point:()=>points().table[face.vertices[localIndex]],face:()=>faces().table[faceIndex]}))));
+    const rows:readonly AnyRow[]=Object.freeze(surface.faces.flatMap((face,faceIndex)=>face.corners!.map((c,localIndex)=>relations<AnyRow>(withSource({...c.attributes,id:c.id,index:cornerIndex++,localIndex,attributes:c.attributes},surface,c),{point:()=>points().table[face.vertices[localIndex]],face:()=>faces().table[faceIndex]}))));
     return domain(MESH_CORNERS,'corner',rows,{
       extract:ids=>Object.freeze(ids.map(i=>rows[i])),
       write:write=>writeMesh3(mesh,'corner',write),

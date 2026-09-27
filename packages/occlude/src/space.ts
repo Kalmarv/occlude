@@ -50,6 +50,7 @@ import { halfplane as hHalfplane } from './hyperbolic.js';
 import { bindSpace, type Model, type ModelDoor } from './placement.js';
 import { mm, type L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
+import { ownerOfView } from './views.js';
 
 export type SpaceKind = 'euclidean' | 'hyperbolic' | 'spherical';
 
@@ -696,6 +697,43 @@ function noSpaceFor(projection: Projection): never {
   );
 }
 
+/** A `Space` record, read by what it answers. */
+const isSpaceRecord = (v: unknown): v is Space =>
+  typeof v === 'object' && v !== null && typeof (v as Space).kind === 'string' && typeof (v as Space).distance === 'function';
+
+/**
+ * @internal The space a geometry value says its coordinates belong to: a
+ * material's own, or the space of the material a selection, a face, a
+ * vertex or an edge was taken from. A list answers for its first entry.
+ * Plain numbers — loops, contour records, a rect, an `{ x, y }` — say
+ * none. Structural, as the accessor protocol is: a value that answers
+ * `space` answers for itself, a view answers through its owner, and a
+ * selection or a face table through its `source`.
+ */
+export function carriedSpace(v: unknown): Space | undefined {
+  for (let hop = 0; hop < 4; hop++) {
+    if (typeof v !== 'object' || v === null) return undefined;
+    if ('space' in v) {
+      const s = (v as { space?: unknown }).space;
+      return isSpaceRecord(s) ? s : undefined;
+    }
+    const owner = ownerOfView(v);
+    if (owner !== undefined) v = owner;
+    else if (Array.isArray(v)) v = v[0];
+    else v = (v as { source?: unknown }).source;
+  }
+  return undefined;
+}
+
+/**
+ * @internal What a value made from `src` takes of its frame: the space its
+ * coordinates belong to. The Material constructor reads it off `from`, so
+ * a derived material names its source and nothing else.
+ */
+export function inherits<S extends { readonly space?: Space | undefined }>(src: S): { from: S } {
+  return { from: src };
+}
+
 /** The `projection` key as a kind and a size, whichever way it is written. */
 function projectionSpec(option: ProjectionOption | undefined): { kind?: Projection; size?: L } {
   if (option === undefined) return {};
@@ -1131,6 +1169,38 @@ export function spaceAreaField(space: Space, contours: readonly SpaceContour[]):
       if (v < best) best = v;
     }
     return best;
+  };
+}
+
+/**
+ * @internal The distance field of points in `space`: zero at a point and
+ * minus the space's distance to the nearest point everywhere else — the
+ * sign the flat field of points has, measured along geodesics, so a ring
+ * about every site has one radius of the space wherever the site is. With
+ * no finite site the field is −Infinity everywhere.
+ *
+ * In the disk a space length is never shorter than its coordinate length,
+ * so a site further off in coordinates than the best found so far cannot
+ * win and is skipped unmeasured.
+ */
+export function spacePointField(space: Space, xs: ArrayLike<number>, ys: ArrayLike<number>): (x: number, y: number) => number {
+  const sx: number[] = [];
+  const sy: number[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    if (!Number.isFinite(xs[i]) || !Number.isFinite(ys[i])) continue;
+    sx.push(xs[i]);
+    sy.push(ys[i]);
+  }
+  if (sx.length === 0) return () => -Infinity;
+  const bounded = space.kind === 'hyperbolic';
+  return (x, y) => {
+    let best = Infinity;
+    for (let i = 0; i < sx.length; i++) {
+      if (bounded && Math.hypot(sx[i] - x, sy[i] - y) >= best) continue;
+      const d = space.distance([x, y], [sx[i], sy[i]]);
+      if (d < best) best = d;
+    }
+    return -best;
   };
 }
 

@@ -534,7 +534,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 
 ```ts live paper=180x120
 import { sketch, pen, mm } from 'occlude';
-import { plane, mapSurface, view, perspective, style } from 'occlude/3d';
+import { plane, mapSurface, view, perspective } from 'occlude/3d';
 
 // A landscape whose only lines are the ones the ground has: its crests, its
 // watercourses, and the edge of the block. No contours, no hatch, no drawn
@@ -566,14 +566,13 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
   const ground = plane(4)
     .subdivide(6)
-    .displace((p) => [0, 0, 0.62 * height(((p.x + 2) / 4) * b.w, ((p.y + 2) / 4) * b.h)])
-    .style({ creaseAngle: 180 });
+    .displace((p) => [0, 0, 0.62 * height(((p.x + 2) / 4) * b.w, ((p.y + 2) / 4) * b.h)]);
 
   return view(
     [
-      ground,
-      style(mapSurface(ground, crest), { pen: 'ink' }),
-      style(mapSurface(ground, water), { pen: 'water' }),
+      [ground, { creaseAngle: 180 }],
+      [mapSurface(ground, crest), { pen: 'ink' }],
+      [mapSurface(ground, water), { pen: 'water' }],
     ],
     { camera: perspective({ eye: [0.2, -6.4, 2.5], target: [0, 0.15, -0.15], fovDegrees: 32 }), pen: 'ink' },
   );

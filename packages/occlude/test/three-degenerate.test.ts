@@ -67,7 +67,6 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(clampSetting(Number.NaN,0,1,.15,'tone')).toBe(.15);
   expect(clampSetting(undefined,0,1,.15,'tone')).toBe(.15);
   expect(()=>clampSetting('x' as never,0,1,.15,'tone')).toThrow('tone');
-  expect(box(1).style({creaseAngle:400}).creaseAngle).toBe(180);
  });
 
  it('carries an empty mesh through view, hatch, isolines, sampling, intersections and the plan',async()=>{

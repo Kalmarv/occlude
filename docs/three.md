@@ -8,7 +8,7 @@ Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = 
 
 `subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
 
-Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `points.set(name, field)` writes a typed column and preserves its type in later fields; `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Parent IDs remain available as provenance. Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
+Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `points.set(name, field)` writes a typed column and preserves its type in later fields; `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Each row of a derived value answers `source`: the row it came from in the input. That is a row when one row made it, and a selection when several did (a subdivided face's middle point has the corners of its parent face as its `source`). Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
 
 `displace(field)` is one immutable displacement pass: a triple per point, or a number along the vertex normal (`{ along: 'z' }` or a triple picks another direction). A run is the 2D one: `t.steps(count, mesh, (m) => m.displace(…).points.set(…), { every })`. A pass takes the geometry and returns the next; a field in a write reads the rows as they were before that write. With `{ every }`, `history` is a plain list of the initial state, every requested step and the final state. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
 
@@ -34,7 +34,9 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
 });
 ```
 
-`view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default, or on an object to give it its own threshold: `torus(1.2, 0.1, { creaseAngle: 180 })` or `mesh.style({ creaseAngle: 60 })`; instances take their prototype's. 180 never draws an object's creases (smooth shading), 0 draws every fold. An object can likewise carry its own pen, `sphere(7, { pen: 'fine' })` or `mesh.style({ pen: 'fine' })`: the default drawing uses it for that object's lines and for its hatch where the recipe names no pen, and the view's `pen` covers the rest. `style(geometry, { pen, fillPen, creaseAngle })` is the one place to say how things are drawn: on a value or a list of them (`style(rings, { fillPen: 'red', creaseAngle: 180 })` returns the styled list), setting the fields named and keeping the rest, so styles compose. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
+`view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default. 180 never draws a crease (smooth shading), 0 draws every fold.
+
+The view also says how each object is drawn, and it is the only place that does. A geometry holds no pen, crease angle or hatch, so a change in how it is drawn does not change the geometry. Write the object as a pair in the view's list: `view([[torus(1.2, 0.1), { creaseAngle: 180 }], box(1)], { camera, pen: 'ink' })`. The pair takes `pen`, `fillPen` (the pen for its hatch where the recipe names none), `creaseAngle`, `suggestive` and `hatch`, and each field it names wins over the view's for that object. A list in a pair gives each object in the list the same options: `[[ringA, ringB], { fillPen: 'red', creaseAngle: 180 }]`. An inner pair's fields win over an outer pair's. Instances are drawn as one object, and curves take only `pen`. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
 Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `without` require the same domain, and read a selection of another revision by id; a selection keeps its order, and `union` appends the other's new members. `mesh.faces.without(sel)` is the remaining rows of the complete domain. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faces.set` stores face fields and `edges.set` edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
 
@@ -42,7 +44,7 @@ Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupB
 
 An optional `view` callback replaces default ink emission. `lines.visible` and `lines.hidden` contain classified intervals, with readable `.kinds` sets, original features, support and captured attributes. `strokes` accepts these collections directly and retains the full source reference through filtering, physical-paper conversion, clipping and supported post modifiers. It does not flatten them into anonymous contours. `stroke:`, group pen defaults and ordinary clips/masks keep their usual meanings.
 
-The `suggestive` kind is the one kind a view must be asked for. Suggestive contours are the lines where the surface almost turns away from the eye. The reading is from DeCarlo, Finkelstein, Rusinkiewicz and Santella (2003). They state a fold that a silhouette alone cannot. `sphere(1.2, { suggestive: {} })`, `style(mesh, { suggestive: { threshold: 30 } })` or `suggestive` on the view turns them on; the default, `false`, draws none, and an object's own value wins over the view's. A larger `threshold` keeps fewer lines. The lines belong to one view, so they move with the camera, and they are classified with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them. See [suggestive](/docs/reference/3d/view#suggestive) for the picture.
+The `suggestive` kind is the one kind a view must be asked for. Suggestive contours are the lines where the surface almost turns away from the eye. The reading is from DeCarlo, Finkelstein, Rusinkiewicz and Santella (2003). They state a fold that a silhouette alone cannot. `suggestive: {}` on the view, or `[mesh, { suggestive: { threshold: 30 } }]` for one object, turns them on; the default, `false`, draws none, and an object's own value wins over the view's. A larger `threshold` keeps fewer lines. The lines belong to one view, so they move with the camera, and they are classified with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them. See [suggestive](/docs/reference/3d/view#suggestive) for the picture.
 
 ```ts live
 import { sketch, pen, mm, strokes, dash, clip, rect } from 'occlude';
@@ -155,8 +157,9 @@ instanced drawing or a visibility speedup.
 
 `.realize({maxPoints?, maxFaces?})` explicitly produces one ordinary mesh with
 a disconnected copy of each instance's topology. It preserves shared edges
-within each copy, mirrors winding for negative scales, and records prototype,
-instance and source-point IDs in derived provenance. Instance attributes are
+within each copy and mirrors winding for negative scales. Each row's `source`
+is a list of two: the prototype row it copies and the instance it belongs
+to (whose own `source` is the point under it). Instance attributes are
 copied to the point/edge/face domains; existing prototype columns win collisions.
 Realization derives new IDs deterministically; selecting a subset preserves
 those IDs. Realization is unlimited by default; an explicit `maxPoints`/`maxFaces`
@@ -348,8 +351,10 @@ continue to work. Revolve copies profile point attributes and transfers profile
 edge attributes to side faces. Sweep combines path and profile point columns
 and transfers both edge domains to side faces; profile columns win name
 collisions. Angular/end caps have empty face attributes, so inherited face
-columns are optional. Derived point/face provenance records source IDs;
-generated edges start with empty attributes. No ambient counters are involved.
+columns are optional. A revolved point's `source` is the profile point it
+turns, and a side face's `source` is the profile edge. A swept point's `source`
+is a list of two: the profile point and the path point. Generated edges start
+with empty attributes. No ambient counters are involved.
 
 Construction budgets are unlimited by default; set explicit `maxPoints`/`maxFaces` with
 `maxPoints` and `maxFaces`. General cap triangulation has a separate
@@ -428,8 +433,8 @@ Continuous numeric point columns and equal-sized numeric vectors interpolate
 barycentrically. Categorical columns and columns declared with transfer
 `'nearest'` use the largest barycentric weight, breaking ties by source point ID.
 Missing point columns remain missing; face columns are inherited and point
-columns take precedence on name collisions. Source face/point IDs also appear
-in point provenance. Instancing and query batches preserve the full point-row type, so placement
+columns take precedence on name collisions. Each sample's `source` is the face
+under it. Instancing and query batches preserve the full point-row type, so placement
 fields, `instance.source` and query `result.source` retain sample normals and
 typed source faces.
 
@@ -485,7 +490,7 @@ export default sketch({ seed: 42, pens: {
 and semantic `key`. Spacing, angle, offset and pen can be constants or fields
 on the mesh's typed face rows, so one recipe can rule tagged faces in another
 pen: `pen: f => f.ring ? 'red' : 'fine'`. A recipe without a pen uses the
-object's `fillPen` (`torus(…, { fillPen: 'red' })` or `style({ fillPen })`, as in
+object's `fillPen` (`[torus(…), { fillPen: 'red' }]` in the view's list, as in
 2D), then the object's `pen`, then the view's. Eligibility and field values are captured once when the
 view is created; camera commits regenerate the paper ruling without reevaluating
 those fields. An array supplies multiple families, including crosshatching.
@@ -500,7 +505,7 @@ advanced `section3` API can section explicitly realized world geometry. A
 section's pen defaults to the view's pen. Keys are optional and must be unique
 within the hatch or section list; automatic keys depend on list position.
 
-Hatch and sections retain source/support provenance on the same geometry
+Hatch and sections keep their source and support on the same geometry
 revision. No `hatch.surface` / `sections.surface` threading is needed. A custom
 view callback still replaces all default ink; use `c.kinds.has('hatch')` or
 `c.kinds.has('section')` on its visible/hidden collections to interpret them.
@@ -803,7 +808,7 @@ The same `corners.set` writes columns in the passes of `t.steps`. Every field
 reads the incoming revision, including fields reached through another domain.
 
 Transforms, face extraction and realization preserve corner values and their
-provenance. Subdivision interpolates numeric columns within each parent face;
+`source`. Subdivision interpolates numeric columns within each parent face;
 it never averages across a seam. Categorical columns use a deterministic
 source, and `corners.set('label', field, { transfer: 'nearest' })` preserves numeric labels.
 If a quad's numeric corner field is not affine, subdivision refines its fixed
@@ -1267,10 +1272,10 @@ export default sketch({ seed: 42, pens: {
   const ball = sphere(1.6, { segments: 32, rings: 16 });
   const height = grad(s => s.position[2]);
   const sun = light({ direction: [-1, -2, 2], ambient: 0.1, ramp: 'smooth' });
-  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: s => 0.25 + 0.75 * sun(s), pen: 'warm' });
-  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6), pen: 'cool' });
+  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: s => 0.25 + 0.75 * sun(s) });
+  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6) });
   return [
-    view([ball, meridians, parallels], { camera: perspective({ eye: [4, -6, 3], target: [0, 0, 0], fovDegrees: 36 }), pen: 'ink' }),
+    view([ball, [meridians, { pen: 'warm' }], [parallels, { pen: 'cool' }]], { camera: perspective({ eye: [4, -6, 3], target: [0, 0, 0], fovDegrees: 36 }), pen: 'ink' }),
     label('GRADIENT / ACROSS / LIGHT', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1287,8 +1292,8 @@ camera. Options:
 
 - `direction`: a vector or direction field; `spacing`: surface distance between
   neighbouring lines in model/world units (not chart units, not paper).
-- `tone`: 0..1 constant or field (default 1); `pen`: a pen name recorded on
-  the lines so `view`'s default drawing uses it.
+- `tone`: 0..1 constant or field (default 1). The lines hold no pen: the
+  view names it, `[marks, { pen: 'shade' }]`.
 - `step` (default spacing / 2), `maxLength` and `maxSteps` per direction from a
   seed, `seeds` random restarts per surface, `maxTraces`, `maxSegments`,
   `maxTotalSteps`, `creaseDegrees` (default 60; 180 crosses every fold),
@@ -1356,10 +1361,10 @@ export default sketch({ seed: 42, pens: {
   const relief = plane(5, 4).subdivide(4)
     .displace(p => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1) + 0.15 * t.noise(p.x, p.y)]);
   const sun = light({ direction: [-2, 1, 3], ambient: 0.05 });
-  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun, pen: 'shade' });
-  const cross = await t.hatch(relief, { spacing: 0.12, direction: across(curvature('max')), tone: s => Math.max(0, 2 * sun(s) - 1), pen: 'cross' });
+  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun });
+  const cross = await t.hatch(relief, { spacing: 0.12, direction: across(curvature('max')), tone: s => Math.max(0, 2 * sun(s) - 1) });
   return [
-    view([relief, form, cross], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), pen: 'ink' }),
+    view([relief, [form, { pen: 'shade' }], [cross, { pen: 'cross' }]], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), pen: 'ink' }),
     label('CURVATURE / CROSSHATCH', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1457,11 +1462,11 @@ export default sketch({ seed: 42, pens: {
   const warm = sheet.faces.filter(f => f.heat > 0.2);
   const model = sheet.extrude(warm, { distance: 0.7 }, { key: 'plateau' });
   const marks = await t.hatch(model, {
-    direction: s => s.tangentU, spacing: 0.1, pen: 'shade',
+    direction: s => s.tangentU, spacing: 0.1,
     tone: light({ direction: [-1, -1, 2], ambient: 0.1 }),
   });
   return [
-    view([model, marks], { camera: orthographic({ eye: [5, 7, 6], span: 5.5 }), pen: 'ink' }),
+    view([model, [marks, { pen: 'shade' }]], { camera: orthographic({ eye: [5, 7, 6], span: 5.5 }), pen: 'ink' }),
     label('DIFFUSED / EXTRUDED', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1514,7 +1519,7 @@ export default sketch({ seed: 42, paper: paper({ width: mm(210), height: mm(148)
 
 ## 2D and 3D words
 
-3D says the 2D word where the meaning is the same: `pen` names a pen on every 3D option, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, `distance` and `length` from `occlude` measure triples and 3D rows, `grad` is the gradient, `t.streamlines` and `t.scatter` read what they are given, `union` and `intersect` combine solids as they combine selections, a field of space takes `(x, y, z)`, and a 2D point or chain is a 3D one at z = 0. Some words differ because the meaning differs:
+3D says the 2D word where the meaning is the same: `pen` names a pen on every drawing option of the view, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, `distance` and `length` from `occlude` measure triples and 3D rows, `grad` is the gradient, `t.streamlines` and `t.scatter` read what they are given, `union` and `intersect` combine solids as they combine selections, a field of space takes `(x, y, z)`, `curve.along` answers points with `s`, `u` and `tangent` as a 2D `along` does, a row's `source` is what it came from, a placement of space is `Placement<Vec3>` with the verbs of a placement of the plane, and a 2D point or chain is a 3D one at z = 0. A 2D chain of a curved sketch space is refused by `curve`, `sweep` and `revolve`, because 3D space is flat. Some words differ because the meaning differs:
 
 - A mesh step moves points and writes columns. The topology changes between steps, with `subdivide`, `extrude` and the booleans, because a mesh's faces must stay closed polygons.
 - A surface field reads a row (`s.normal`, `p.z`), so it is the sibling of a 2D attribute field, not of a 2D field of the plane.

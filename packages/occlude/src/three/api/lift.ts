@@ -25,6 +25,14 @@ function columns(row:Record<string,unknown>):Attributes3 {
 const isPair=(v:unknown):v is readonly [number,number]=>Array.isArray(v)&&v.length===2&&typeof v[0]==='number'&&typeof v[1]==='number';
 const isRecord2=(v:unknown):v is {x:number;y:number;z?:undefined}=>!!v&&typeof v==='object'&&!Array.isArray(v)&&typeof (v as {x?:unknown}).x==='number'&&typeof (v as {y?:unknown}).y==='number'&&(v as {z?:unknown}).z===undefined;
 
+/** 3D space is flat. A chain of a curved sketch space has coordinates that
+ * are not lengths there, so lifting it would build a solid from a picture
+ * of the chain, not from the chain: refused by name. */
+function refuseCurved(value:object,who:string):void {
+  const owner=isCurveRow(value)?(value as {points:{source?:unknown}}).points.source:value;
+  const space=owner&&typeof owner==='object'?(owner as {space?:{kind?:string}}).space:undefined;
+  if(space&&space.kind!=='euclidean')throw new Error(`${who}: this chain lives in the sketch's ${space.kind} space, and 3D space is flat — a 3D profile needs flat coordinates: build it with material(points) or with [x, y, z] positions`);
+}
 /** True when `value` is a 2D chain source: it answers `curves`, or it is
  * one curve row. */
 export function isChain2(value:unknown):value is {readonly curves:unknown} {
@@ -36,6 +44,7 @@ export function isChain2(value:unknown):value is {readonly curves:unknown} {
 export function chain2(value:unknown,who:string):{readonly points:readonly Lifted2[];readonly closed:boolean} {
   refuseShape(value,who);
   if(!isChain2(value))throw new Error(`${who}: expected a chain — a 2D value that answers curves, such as a material, or one curve (m.curves.at(i))`);
+  refuseCurved(value,who);
   let chain:ChainRecord,rows:{at?(i:number):unknown}|undefined;
   if(isCurveRow(value)){
     chain=chainRecordOf(value);

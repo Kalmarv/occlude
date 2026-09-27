@@ -19,8 +19,8 @@
  * centre of the ball sits at Klein radius `tanh R`. `geodesic3` is the one
  * word here that counts in hyperbolic length.
  *
- * The isometries are `Placement3` values (placement3.ts); the 4×4 Lorentz
- * matrices under them stay internal.
+ * The isometries are `Placement<Vec3>` values (src/placement.ts): the one
+ * placement value, one dimension up, with a 4×4 Lorentz matrix under it.
  */
 
 import {
@@ -30,7 +30,7 @@ import {
 } from '../../hyperbolicSpace.js';
 import {surface3,type Surface3} from '../geometry/surface.js';
 import {mesh,CurveGeometry,type Mesh} from './mesh.js';
-import {placement3,type Placement3} from './placement3.js';
+import {spacePlacement,type Placement} from '../../placement.js';
 import type { Vec3 } from '../math.js';
 
 export interface HoneycombOptions {
@@ -97,7 +97,7 @@ export interface Honeycomb {
   readonly cell: Mesh;
   /** One placement per copy of the cell, the identity first, in flood
    * order. */
-  readonly placements: readonly Placement3[];
+  readonly placements: readonly Placement<Vec3>[];
   /** Every vertex of the complex, once. */
   readonly points: readonly HoneycombPoint[];
   /** Every wall of the complex, once. */
@@ -132,7 +132,7 @@ export function honeycomb(p: number, q: number, r: number, options: HoneycombOpt
   const wires: Surface3 = { ...surface3(complex.points, []), edges };
   return Object.freeze({
     cell: mesh(complex.cell.points, complex.cell.faces),
-    placements: Object.freeze(complex.copies.map((c) => placement3(c.transform))),
+    placements: Object.freeze(complex.copies.map((c) => spacePlacement(c.transform))),
     points: Object.freeze(complex.points.map(([x, y, z], index) => Object.freeze({ id: id(index), index, x, y, z }))),
     faces: Object.freeze(complex.faces.map((f, index) => Object.freeze({ id: `f${index}`, index, vertices: f.vertices, cell: f.cell, generation: f.generation, mirrored: f.mirrored }))),
     wires: new CurveGeometry<{}, HoneycombEdgeColumns>(wires, edges.map((_, i) => i)),
@@ -162,8 +162,8 @@ export function honeycomb(p: number, q: number, r: number, options: HoneycombOpt
  * `[0, 0, 1]`. An `up` along the line of sight names no frame and refuses
  * by name.
  */
-export function observer(eye: Vec3, target: Vec3, options: ObserverOptions = {}): Placement3 {
-  return placement3(cameraRecord(eye, target, options));
+export function observer(eye: Vec3, target: Vec3, options: ObserverOptions = {}): Placement<Vec3> {
+  return spacePlacement(cameraRecord(eye, target, options));
 }
 
 /**

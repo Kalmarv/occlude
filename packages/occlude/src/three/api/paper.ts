@@ -1,4 +1,4 @@
-import {material,type Material} from '../../material.js';
+import {material,inSpace,type Material} from '../../material.js';
 import {paperToUser} from '../../record.js';
 import type {Execution} from '../../execution.js';
 import {toCamera3,toPaper3,type CameraFrame3} from '../camera.js';
@@ -41,7 +41,8 @@ function list(value:PaperPoints3):readonly PointLike3[] {
  * already put an object. The camera is the view's own, including a camera the
  * studio has committed, so the pair lands exactly where the view's lines do.
  * A point behind the eye has no place on the paper: the pair is NaN, and a
- * material skips it. */
+ * material skips it. The material is in the run's space, as every material
+ * the toolkit answers is. */
 export function bindToPaper3(exec:Execution) {
   function toPaper(view:ViewSource3,point:PointLike3):readonly [number,number];
   function toPaper(view:ViewSource3,points:PaperPoints3):Material;
@@ -49,7 +50,9 @@ export function bindToPaper3(exec:Execution) {
     const frame=viewFrame3(exec,sceneOf(view)),toUser=paperToUser(exec.frame);
     if(single(input))return projected(frame,toUser,position3(input as PointLike3));
     const points=list(input as PaperPoints3).map(p=>projected(frame,toUser,position3(p)));
-    return material(points.filter(p=>p.every(Number.isFinite)) as unknown as readonly (readonly [number,number])[]);
+    // The points are drawable points of this run, so they are in its space,
+    // as every material the toolkit answers is.
+    return inSpace(material(points.filter(p=>p.every(Number.isFinite)) as unknown as readonly (readonly [number,number])[]),exec.space);
   }
   return toPaper;
 }

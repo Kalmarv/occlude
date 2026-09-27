@@ -206,7 +206,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
         if(!keep.has(place3(side,own[0],centroid(side.corners[own[0]].map(v=>positions[v])),positions,solids[s],scale)))continue;
         emit({
           id:faceId(s,source.id,mint),vertices:oriented(source.vertices.map(v=>side.vertices[v]),flip),
-          attributes:{...clone(source.attributes),cut:was},...(s===0?{}:{provenance:{operation,parents:[source.id]}}),
+          attributes:{...clone(source.attributes),cut:was},...(s===0?{}:{provenance:{operation,parents:[source.id],inputs:[s]}}),
         },own.map(i=>oriented(side.corners[i],flip)));
         continue;
       }
@@ -216,7 +216,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
       for(let k=0;k<own.length;k++)for(const piece of cuts[k].parts){
         if(!keep.has(place3(side,own[k],centroid(piece.vertices.map(v=>positions[v])),positions,solids[s],scale)))continue;
         const vertices=oriented(piece.vertices,flip);
-        emit({id:mint('piece',faceId(s,source.id,mint),n++),vertices,attributes:{...clone(source.attributes),cut:piece.cut||was},provenance:{operation,parents:[source.id]}},[vertices]);
+        emit({id:mint('piece',faceId(s,source.id,mint),n++),vertices,attributes:{...clone(source.attributes),cut:piece.cut||was},provenance:{operation,parents:[source.id],inputs:[s]}},[vertices]);
       }
     }
   }

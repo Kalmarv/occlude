@@ -50,7 +50,7 @@ async function globeShells(options: { frequency: number; seed?: number }): Promi
     const water = base.scale(0.99);
     const height = (p: { x: number; y: number; z: number }) =>
       (t.noise(p.x * 2, p.y * 2, p.z * 2) * 0.6 + t.noise(p.x * 4, p.y * 4, p.z * 4) * 0.3 + t.noise(p.x * 10, p.y * 10, p.z * 10) * 0.1) * 0.12;
-    const terrain = base.displace(height).style({ creaseAngle: 180 });
+    const terrain = base.displace(height);
     captured = { water, terrain } as never;
     return [];
   });

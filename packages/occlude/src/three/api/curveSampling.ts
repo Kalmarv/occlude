@@ -13,6 +13,7 @@ import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeig
 import {bindingTriangle3,sameSurfaceCurveLineage3,type SurfaceCurveNetwork3,type SupportedCurveSegment3} from '../curves/network.js';
 import type {Vec3} from '../math.js';
 import type {RotationInput,Axis3} from '../rotation.js';
+import {SOURCES,derived,withSource} from './source.js';
 
 export interface CurveSamplingOptions extends GeometryOptions {
  readonly count?:number;
@@ -72,7 +73,7 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
   const rows=Object.freeze(geometry.points.map(p=>{
    const attachment=attachments.get(p.id),segment=attachment&&segments.get(attachment.edgeId);
    if(!attachment||!segment)throw new Error('curve sample provenance is missing');
-   owned.set(p.id,attachment);return Object.freeze({...p,sample:context(network,segment,attachment.fraction)}) as unknown as CurveSampleRow<P,A>;
+   owned.set(p.id,attachment);return Object.freeze(withSource({...p,sample:context(network,segment,attachment.fraction)},geometry.surface,geometry.surface.points[p.index])) as unknown as CurveSampleRow<P,A>;
   }));
   states.set(this,{target,attachments:owned,rows});
  }
@@ -104,7 +105,7 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
   if(!sameSurfaceCurveLineage3(previous,next))throw new Error('curve construction changed; regenerate samples');
   const segments=new Map(next.segments.map(s=>[s.id,s]));
   const points=this.surface.points.map(p=>{const a=this.state.attachments.get(p.id)!,segment=segments.get(a.edgeId);if(!segment)throw new Error('curve edge was not retained; regenerate samples');return {...p,position:context(next,segment,a.fraction).position};});
-  return new CurveSamples(new PointGeometry<P>(assembleSurface3(points,[],[]),{key:this.key}),target,this.state.attachments);
+  return new CurveSamples(new PointGeometry<P>(assembleSurface3(points,[],[]),{key:this.key,[SOURCES]:derived('sample',target)}),target,this.state.attachments);
  }
 }
 export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):CurveSamples<A,A> {
@@ -139,8 +140,8 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
    supports+=t===0?network.nodes[segment.a].supports.length:t===1?network.nodes[segment.b].supports.length:segment.supports.length;
    if(supports>maxSupports)throw new Error('curve sampling exceeds support budget');
    const id=identity('curve-sample',segment.chainId,chain[0].id,i,n,options.key??target.key??'default'),sample=context(network,segment,fraction);
-   points.push({id,position:sample.position,attributes:{...segment.attributes},provenance:{operation:'sample',parents:[segment.id,segment.chainId]}});attachments.set(id,{edgeId:segment.id,fraction});
+   points.push({id,position:sample.position,attributes:{...segment.attributes},provenance:{operation:'sample',parents:[segment.id]}});attachments.set(id,{edgeId:segment.id,fraction});
   }
  }
- return new CurveSamples(new PointGeometry<A>(assembleSurface3(points,[],[]),{key:options.key}),target,attachments);
+ return new CurveSamples(new PointGeometry<A>(assembleSurface3(points,[],[]),{key:options.key,[SOURCES]:derived('sample',target)}),target,attachments);
 }

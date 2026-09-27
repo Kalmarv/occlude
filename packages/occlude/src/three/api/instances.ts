@@ -1,7 +1,8 @@
 import {rotation3,alignAxis,type RotationInput} from '../rotation.js';
 import {pointCloud} from './mesh.js';
 import {points2} from './lift.js';
-import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow,type Style3} from './mesh.js';
+import {refuseDisplay} from './recipes.js';
+import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow} from './mesh.js';
 import {Table3,select3,domainOf,kind3,isSelection3,type Where3} from './collection.js';
 import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
 import type {AttributeFields,Widen3,Widened3} from './columns.js';
@@ -11,6 +12,7 @@ import {transformSurface3} from '../geometry/model.js';
 import {add3,mul3,finite3,type Vec3} from '../math.js';
 import {captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
 import {surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
+import {SOURCES,derived} from './source.js';
 
 export interface InstanceTransform {readonly translate:Vec3;readonly rotate:RotationInput;readonly scale:Vec3}
 export interface InstanceTransformInput {readonly translate?:Vec3;readonly rotate?:RotationInput;readonly scale?:number|Vec3}
@@ -70,7 +72,7 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
   readonly rows:readonly InstanceRow<A,S,R>[];
   constructor(readonly prototype:Mesh<P,E,F,C>,rows:readonly InstanceData<A,S,R>[],options:GeometryOptions={}) {
     if(!(prototype instanceof Mesh))throw new Error('mesh instances require a mesh prototype');
-    this.key=key(options.key);
+    refuseDisplay(options,'instances');this.key=key(options.key);
     if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('instance IDs must be unique');
     this.rows=Object.freeze(rows.map((row,index)=>{
       const attributes=ownAttributes(row.attributes as A),captured=transform(row.transform);
@@ -94,8 +96,6 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     }}))) as unknown as Selection<InstanceSelectionRow<P,E,F,A,S,R,C>>;
   }
   withKey(value:string):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype,this.rows,{key:value});}
-  /** Instances are drawn like their prototype: style it. */
-  style(style:Style3):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype.style(style),this.rows,this);}
   /** Replace supplied S/R/T components; omitted components retain their values.
    * Rotation accepts XYZ Euler degrees or a rotation value about the prototype origin. */
   transform(field:Field<InstanceRow<A,S,R>,InstanceTransformInput>):Instances<P,E,F,A,S,R,C>{
@@ -111,13 +111,13 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],edges:SurfaceEdge3[]=[],triangles:SurfaceTriangle3[]=[];
     for(const row of this.rows){
       const surface=transformSurface3(prototype,row.transform),pointOffset=points.length,faceOffset=faces.length;
-      const metadata=(domain:string,id:string,attrs:Attributes3)=>({id:identity(domain,row.id,id),attributes:{...(row.attributes as Readonly<A>),...attrs},provenance:{operation:'realize',parents:[id,row.id,row.source.id]}});
+      const metadata=(domain:string,id:string,attrs:Attributes3)=>({id:identity(domain,row.id,id),attributes:{...(row.attributes as Readonly<A>),...attrs},provenance:{operation:'realize',parents:[id,row.id],inputs:[0,1]}});
       for(const p of surface.points)points.push({...p,...metadata('p',p.id,p.attributes)});
       for(const f of surface.faces)faces.push({...f,...metadata('f',f.id,f.attributes),vertices:f.vertices.map(v=>v+pointOffset),corners:f.corners?.map(c=>({...c,...metadata('corner',c.id,c.attributes)}))});
       for(const t of surface.triangles)triangles.push({face:t.face+faceOffset,vertices:t.vertices.map(v=>v+pointOffset) as [number,number,number]});
       for(const e of surface.edges)edges.push({...e,...metadata('e',e.id,e.attributes),vertices:e.vertices.map(v=>v+pointOffset) as [number,number],faces:e.faces.map(f=>f+faceOffset)});
     }
-    return new Mesh(assembleSurface3(points,faces,triangles,{points,faces,edges,triangles}),{key:this.key,transfers:this.prototype.transfers,cornerTransfers:this.prototype.cornerTransfers});
+    return new Mesh(assembleSurface3(points,faces,triangles,{points,faces,edges,triangles}),{key:this.key,transfers:this.prototype.transfers,cornerTransfers:this.prototype.cornerTransfers,[SOURCES]:derived('realize',this.prototype,this)});
   }
 }
 /** Internal bridge shared by surface generators and ordinary view capture. */

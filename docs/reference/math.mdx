@@ -30,7 +30,7 @@ import { sketch, circle, shaper } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const straight = shaper([[0, 0], [1, 1]]);
   const lifted = shaper([[0, 0], [0.5, 0.8], [1, 1]]);
-  return [t.times(12, (k, u) => circle(8 + u * 84, 32, 0.4 + 4 * straight(u))), t.times(12, (k, u) => circle(8 + u * 84, 68, 0.4 + 4 * lifted(u), { pen: 'stabilo-88-blue' }))];
+  return [t.times(12, (k, u) => circle(8 + u * 84, 22, 0.4 + 4 * straight(u))), t.times(12, (k, u) => circle(8 + u * 84, 78, 0.4 + 4 * lifted(u), { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -52,8 +52,8 @@ A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, 
 import { sketch, stroke, circle, add, sub, unit, mul, perp, lerp } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const a = [12, 72], b = [88, 32];
-  const n = mul(unit(perp(sub(b, a))), 22);
+  const a = [10, 80], b = [90, 24];
+  const n = mul(unit(perp(sub(b, a))), 30);
   const mid = lerp(a, b, 0.5);
   return [stroke([a, b]), stroke([mid, add(mid, n)], { pen: 'stabilo-88-blue' }), circle(mid, 1.2)];
 });
@@ -153,5 +153,26 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     const target = (0.2 + 0.11 * i) * b.h;
     return stroke(path.map((p) => add(mid, mul(sub(p, own), target / spread))), { pen: i === 1 ? 'stabilo-88-blue' : undefined });
   });
+});
+```
+
+### polar() · angleTo()
+
+<include>/_sig/polar.mdx</include>
+<include>/_sig/angleTo.mdx</include>
+
+`polar(r, angle)` is a step of length `r` in the direction `angle`, in radians. `fromAngle(a)` is `polar(1, a)`. `angleTo(a, b)` is the direction of the way from `a` to `b`, the same as `angleOf(sub(b, a))`. Two equal points give 0.
+
+Each stroke starts at the middle of a grid cell and points at the blue eye.
+
+```ts live
+import { sketch, stroke, circle, add, polar, angleTo, distance } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const eye = [64, 40];
+  return [
+    circle(eye, 2, { pen: 'stabilo-88-blue' }),
+    t.grid({ cols: 14, rows: 14 }).faces.map((f) => distance(f.centroid, eye) > 6 && stroke([f.centroid, add(f.centroid, polar(4.5, angleTo(f.centroid, eye)))])),
+  ];
 });
 ```

@@ -2,7 +2,7 @@ export {mesh,plane,box,pointCloud,parametric} from './mesh.js';
 export type {ParametricOptions} from './mesh.js';
 export type {Mesh,PointGeometry,CurveGeometry,GeometryPointRow,CurvePointRow,CurveEdgeRow,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,GeometryOptions,SetOptions3,SetManyOptions3,Transfer3,Where3} from './mesh.js';
 export {view,orthographic,perspective} from './view.js';
-export type {ViewOptions,ViewHatch,ViewSection,CameraOptions} from './view.js';
+export type {ViewOptions,ViewObjectOptions,ViewInput,SuggestiveInput,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
 export type {Selection} from '../../selection.js';
 export type {SubdivisionOptions} from './subdivide.js';
@@ -60,8 +60,5 @@ export type {SurfaceLocation3 as SurfaceLocation} from '../geometry/location.js'
 export {isolines} from './isolines.js';
 export type {IsolineOptions,IsolineLevels,IsolineAttributes,IsolineField} from './isolines.js';
 export type {ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './mesh.js';
-export {style,type Styleable} from './style.js';
-export type {Style3} from './mesh.js';
 export {honeycomb,observer,geodesic3} from './hyperbolic.js';
 export type {Honeycomb,HoneycombPoint,HoneycombFace,HoneycombEdgeColumns,HoneycombOptions,Geodesic3Options,ObserverOptions} from './hyperbolic.js';
-export type {Placement3} from './placement3.js';

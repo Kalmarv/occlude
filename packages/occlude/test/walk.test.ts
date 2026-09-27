@@ -16,6 +16,7 @@ import {
   circle, curve, group, line, sketch, space, type Placement, type ShapeValue, type Space, type Toolkit,
 } from '../src/index.js';
 import { compileSketch, compileSketchAsync, evalPrim, initOcclude, render } from '../src/host.js';
+import { inSpace } from '../src/material.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -106,7 +107,8 @@ describe('the hyperbolic walk', () => {
   });
 
   it('along carries its space, and the placement at a point walks in it', () => {
-    const pts = curve([[50, 60], [60, 60]], { closed: false }).along({ space: hyp });
+    // A material walks in the space it carries: no option names one.
+    const pts = inSpace(curve([[50, 60], [60, 60]], { closed: false }), hyp).along();
     expect(pts.space).toBe(hyp);
     const s = pts.points.at(0).placement();
     expect(s.door).toBe(hyp.model);

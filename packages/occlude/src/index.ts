@@ -81,7 +81,7 @@ export type { InterlaceOpts, Crossing } from './interlace.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
 export type { MergeOpts } from './merge.js';
 // One selection over every domain: `m.points`, `m.edges`, `m.faces`,
-// `l.cells`, and every part of one a sketch picks out.
+// `l.faces`, and every part of one a sketch picks out.
 export type { Selection, Keyed } from './selection.js';
 export type { Face, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { NearestHit, FirstHit } from './query.js';

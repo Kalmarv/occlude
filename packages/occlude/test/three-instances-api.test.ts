@@ -40,7 +40,8 @@ describe('shared mesh instances',()=>{
   const placed=instanceOnPoints(prototype,sites.points),a=placed.realize(),b=placed.realize();
   expect(a.surface).toEqual(b.surface);expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(a.surface.edges.every(e=>e.faces.length===2)).toBe(true);
   expect(a.points.map(p=>p.tag)).toEqual(Array(16).fill('prototype'));expect(a.edges.at(0)!.edgeTag).toBe(7);expect(a.faces.at(0)!.faceTag).toBe(9);expect(a.faces.at(0)!.height).toBe(2);
-  expect(a.points.at(0)!.provenance!.parents).toEqual([prototype.points.at(0)!.id,placed.rows[0].id,sites.points.at(0)!.id]);
+  // A realized row comes from a prototype row and an instance: its source is the two, in that order.
+  const [from,copy]=a.points.at(0)!.source;expect(from).toBe(prototype.points.at(0));expect(copy).toBe(placed.rows[0]);expect(copy.source).toBe(sites.points.at(0));
   const selected=placed.instances.filter(r=>r.index===1).extract().realize();expect(selected.points.map(p=>p.id)).toEqual(a.points.map(p=>p.id).slice(8));
   expect(()=>placed.realize({maxPoints:15})).toThrow('points budget');expect(()=>placed.realize({maxFaces:11})).toThrow('faces budget');
   expect(instanceOnPoints(prototype,sites.points.filter(()=>false)).realize().points.length).toBe(0);

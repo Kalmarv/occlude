@@ -35,7 +35,7 @@ const entryHost = join(pkg, 'src/host.ts');
 const RECEIVER: Record<string, string> = {
   Material: 'm', Tiling: 'tiles', Face: 'face', Edge: 'edge', Vertex: 'p',
   Selection: 'sel', Curve: 'c', Placement: 'placement', Lattice: 'l', Toolkit: 't', '3d.Mesh': 'mesh',
-  '3d.CurveGeometry': 'curve', '3d.Honeycomb': 'h', '3d.Placement3': 'place',
+  '3d.CurveGeometry': 'curve', '3d.Honeycomb': 'h',
   connect: 'connect', force: 'force', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
 };
@@ -45,13 +45,13 @@ const PAGE: Record<string, string> = {
   Vertex: 'selections', Edge: 'selections', Selection: 'selections', NearestHit: 'selections', FirstHit: 'selections',
   Face: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
   PointValue: 'steps', EdgeValue: 'steps', GraphForce: 'steps', ReplaceOpts: 'steps',
-  Lattice: 'steps', Cell: 'steps', Vec: 'material', XY: 'material',
+  Lattice: 'steps', LatticeFace: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   HatchParams: 'fills', CrosshatchParams: 'fills', SolidParams: 'fills', StippleParams: 'fills', ContourParams: 'fills', BuiltinFillName: 'fills', FillParams: 'fills',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
   Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry', TransformOp: 'transforms',
-  Placement3: 'geometry', Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',
-  Mesh: '3d/primitives', MeshPointRow: '3d/edits', MeshEdgeRow: '3d/edits', MeshFaceRow: '3d/edits', MeshCornerRow: '3d/edits', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
+  Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',
+  ViewObjectOptions: '3d/view', ViewOptions: '3d/view', Mesh: '3d/primitives', MeshPointRow: '3d/edits', MeshEdgeRow: '3d/edits', MeshFaceRow: '3d/edits', MeshCornerRow: '3d/edits', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
 
@@ -153,7 +153,7 @@ const NAMESPACES = ['connect', 'force', 'ease', 'sdf'];
  * object type on one line. */
 const SUBNAMESPACES: string[] = [];
 /** The 3D values whose members a page documents, keyed `3d.<Owner>.<word>`. */
-const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb', 'Placement3'];
+const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb'];
 /**
  * The one selection (selection.ts). Its shared words are written once,
  * spelled over `Row`, as `sel.<word>`. The words a kind brings — the writes,
@@ -216,8 +216,8 @@ function selectionWords(sym: ts.Symbol): void {
   const kinds: [string, ts.Type | undefined][] = [
     ['points', material && propertyType(material, 'points')],
     ['edges', material && propertyType(material, 'edges')],
-    ['faces', material && propertyType(material, 'faces', true)],
-    ['cells', lattice && propertyType(lattice, 'cells')],
+    ['faces', material && propertyType(material, 'faces')],
+    ['l.faces', lattice && propertyType(lattice, 'faces')],
   ];
   for (const m of checker.getPropertiesOfType(t)) {
     const name = m.getName();

@@ -8,7 +8,7 @@ import { initOcclude, renderAsync, type RenderResult } from '../src/host.js';
 import { box3, lineArt3 } from '../src/three/api/advanced.js';
 import * as three from '../src/three/api/index.js';
 import {
-  box, plane, sphere, cone, view, style, orthographic, isolines, intersections, trace, sweep, revolve,
+  box, plane, sphere, cone, view, orthographic, isolines, intersections, trace, sweep, revolve,
   curve, parametricCurve, instanceOnPoints, pointCloud, grad, curl3, sdf3,
 } from '../src/three/api/index.js';
 import { sampleSurfaceCurves } from '../src/three/api/curveSampling.js';
@@ -30,7 +30,7 @@ const draw = (body: Parameters<typeof sketch>[1]) => renderAsync(sketch({ aspect
 
 describe('G3-23 · pen is the pen word on every 3D option', () => {
   it('draws a view, an object and a hatch recipe in the pens named `pen`', async () => {
-    const out = await draw(() => view([box(1.5), sphere(0.6, { pen: 'blue', segments: 12, rings: 6 }).translate([1.6, 0, 0])], {
+    const out = await draw(() => view([box(1.5), [sphere(0.6, { segments: 12, rings: 6 }).translate([1.6, 0, 0]), { pen: 'blue' }]], {
       camera, pen: 'ink', hatch: { spacing: mm(1.5), angle: 30, pen: 'shade' },
     }));
     const counts = byPen(out);
@@ -44,16 +44,16 @@ describe('G3-23 · pen is the pen word on every 3D option', () => {
     expect(() => view(box(1), { camera, hatch: { spacing: mm(1), stroke: 'ink' } as never })).toThrow(said);
     expect(() => view(box(1), { camera, sections: [{ origin: [0, 0, 0], normal: [0, 0, 1], stroke: 'ink' } as never] })).toThrow(said);
     expect(() => sphere(1, { stroke: 'ink' } as never)).toThrow(said);
-    expect(() => style(box(1), { stroke: 'ink' } as never)).toThrow(said);
-    expect(() => box(1).style({ stroke: 'ink' } as never)).toThrow(said);
+    expect(() => view([[box(1), { stroke: 'ink' }]] as never, { camera })).toThrow(said);
     expect(() => isolines(sphere(1), (p) => p.z, 0, { stroke: 'ink' } as never)).toThrow(said);
     expect(() => intersections(box(1), sphere(0.7), { stroke: 'ink' } as never)).toThrow(said);
     expect(() => curve([[0, 0, 0], [1, 0, 0]], { stroke: 'ink' } as never)).toThrow(said);
   });
-  it('keeps the pen on the value as `pen`', () => {
-    expect(sphere(1, { pen: 'blue' }).pen).toBe('blue');
-    expect(box(1).style({ pen: 'shade' }).pen).toBe('shade');
-    expect(isolines(sphere(1), (p) => p.z, 0, { pen: 'blue' }).pen).toBe('blue');
+  it('keeps the pen off the value: the view names it', () => {
+    const said = /is how the view draws an object/;
+    expect(() => sphere(1, { pen: 'blue' } as never)).toThrow(said);
+    expect(() => isolines(sphere(1), (p) => p.z, 0, { pen: 'blue' } as never)).toThrow(said);
+    expect(view([[box(1), { pen: 'shade' }]], { camera }).scene.objects[0].stroke).toBe('shade');
   });
 });
 
@@ -149,15 +149,15 @@ describe('G3-20 · select takes a face selection, and the test sees the mesh row
 });
 
 describe('G6-17 · an object carries its own hatch, as a polygon carries its fill', () => {
-  it('hatches a styled object with its own recipe and the rest with the view\'s', async () => {
+  it('hatches an object with the recipe of its pair and the rest with the view\'s', async () => {
     const a = box(1).translate([-1, 0, 0]), b = box(1).translate([1, 0, 0]);
     // FRICTION G6-17: style(b, { hatch: { spacing, angle: 90, stroke: 'hair', select } })
-    const own = await draw(() => view([style(a, { hatch: { spacing: mm(1), angle: 90, pen: 'blue' } }), b], { camera, pen: 'ink', hatch: { spacing: mm(1), angle: 0, pen: 'shade' } }));
+    const own = await draw(() => view([[a, { hatch: { spacing: mm(1), angle: 90, pen: 'blue' } }], b], { camera, pen: 'ink', hatch: { spacing: mm(1), angle: 0, pen: 'shade' } }));
     const counts = byPen(own);
     expect(counts.blue).toBeGreaterThan(0);
     expect(counts.shade).toBeGreaterThan(0);
-    // Styled alone: only its own recipe draws; the view's does not reach it.
-    const alone = await draw(() => view([style(a, { hatch: { spacing: mm(1), angle: 90, pen: 'blue' } })], { camera, pen: 'ink', hatch: { spacing: mm(1), angle: 0, pen: 'shade' } }));
+    // Alone: only its own recipe draws; the view's does not reach it.
+    const alone = await draw(() => view([[a, { hatch: { spacing: mm(1), angle: 90, pen: 'blue' } }]], { camera, pen: 'ink', hatch: { spacing: mm(1), angle: 0, pen: 'shade' } }));
     expect(byPen(alone).shade).toBeUndefined();
     expect(byPen(alone).blue).toBe(counts.blue);
   });
@@ -228,13 +228,14 @@ describe('G3-25 · projected lines answer curves() and contours()', () => {
 describe('G3-31 · G6-25 · a 2D chain is a profile', () => {
   const ring = curve2([[0.3, 0], [0, 0.3], [-0.3, 0], [0, -0.3]], { closed: true });
   const path = curve([[0, 0, 0], [0, 0, 1], [0.5, 0, 1.5]]);
-  it('sweeps a 2D material as an XY profile, ids and columns kept', () => {
+  it('sweeps a 2D material as an XY profile, columns kept and each point\'s source its 2D point', () => {
     // FRICTION G3-31: sweep(star, path)
     const tube = sweep(ring.points.set('k', (p) => p.index), path);
     const lifted = sweep(curve(ring.points.map((p) => [p.x, p.y, 0] as [number, number, number]), { closed: true }), path);
     expect(tube.points.map((p) => [p.x, p.y, p.z])).toEqual(lifted.points.map((p) => [p.x, p.y, p.z]));
     expect(tube.points.map((p) => p.k)).toEqual(lifted.points.map((_, i) => i % 4));
-    expect(tube.points.at(0)!.provenance!.parents[0]).toBe(`2d:${String(ring.points.at(0)!.id)}`);
+    const profile = ring.points.set('k', (p) => p.index);
+    expect(sweep(profile, path).points.at(0)!.source[0]).toBe(profile.points.at(0));
   });
   it('revolves a 2D chain as the XZ meridian', () => {
     const profile = curve2([[0, 0], [0.9, 0], [1.1, 0.8], [0.6, 1.6]], { closed: false });
@@ -313,11 +314,11 @@ describe('G3-32 · a 3D curve has length, along and resample', () => {
     // FRICTION G3-32: helix.along({ count: 20 }), helix.length, helix.resample({ spacing })
     const total = helix.edges.map((e) => e.length).reduce((a, b) => a + b, 0);
     expect(helix.length).toBeCloseTo(total, 12);
-    const stations = helix.along({ count: 20 });
+    const stations = helix.along({ count: 20 }).points;
     expect(stations).toHaveLength(20);
-    expect(stations[0].s).toBe(0);
-    expect(stations[19].s).toBeCloseTo(total, 9);
-    expect(Math.hypot(...stations[7].tangent)).toBeCloseTo(1, 9);
+    expect(stations.at(0)!.s).toBe(0);
+    expect(stations.at(19)!.s).toBeCloseTo(total, 9);
+    expect(Math.hypot(...stations.at(7)!.tangent)).toBeCloseTo(1, 9);
     const even = helix.resample({ spacing: 0.5 });
     expect(even.edges.length).toBe(Math.round(total / 0.5));
     expect(() => helix.along({})).toThrow(/exactly one of/);

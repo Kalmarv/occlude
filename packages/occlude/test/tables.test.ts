@@ -353,9 +353,12 @@ describe('recipes equal their table lines', () => {
     expect(rows(m.move([2, 3], m.points.at(1)))).toEqual(rows(m.points.set({ x: (p) => p.x + 2, y: (p) => p.y + 3 }, m.points.at(1))));
     const ring = curve([[0, 0], [3, 0], [3, 3], [0, 3], [1.5, 1.2]], { closed: true });
     const summed = ring.move(force.tension({ rest: 1 }), force.separation({ radius: 4, amount: (p: Vertex) => p.x / 3 }), force.relax({ amount: 0.5 }));
-    const t = force.tension(ring, { rest: 1 });
-    const s = force.separation(ring, { radius: 4 });
-    const r = force.relax(ring, { amount: 0.5 });
+    // A force said without its state is prepared from the graph the move
+    // reads: `prepare` is that step.
+    type Pull = (p: Vertex) => [number, number];
+    const t = force.tension({ rest: 1 }).prepare(ring) as Pull;
+    const s = force.separation({ radius: 4 }).prepare(ring) as Pull;
+    const r = force.relax({ amount: 0.5 }).prepare(ring) as Pull;
     const byHand = ring.move((p) => {
       const a = t(p);
       const b = s(p);
@@ -369,6 +372,26 @@ describe('recipes equal their table lines', () => {
     expect(rows(slow)).toEqual(rows(ring.move((p) => { const a = t(p); return [a[0] * 0.25, a[1] * 0.25]; })));
     // A move that is not finite leaves that point where it is.
     expect([...m.move((p) => (p.index === 1 ? [NaN, 0] : [1, 0])).x]).toEqual([1, 10, 11, 1]);
+  });
+
+  it('a force said without its state steps by half the mean of its pulls: calm with no amount', () => {
+    // A lone pair closer than the radius is at the radius after one move,
+    // each point taking half the way.
+    const pair = material([[0, 0], [1, 0]]);
+    const apart = pair.move(force.separation({ radius: 4 }));
+    expect(apart.points.at(1)!.x - apart.points.at(0)!.x).toBeCloseTo(4, 12);
+    // A lone stretched edge is at its rest length after one move.
+    const edge = curve([[0, 0], [10, 0]]);
+    const pulled = edge.move(force.tension({ rest: 2 }));
+    expect(pulled.points.at(1)!.x - pulled.points.at(0)!.x).toBeCloseTo(2, 12);
+    // A crowd moves no further than one push: however many sources are in
+    // reach, a step is at most half the radius. The state-first form is the
+    // sum, for a sketch that scales it itself.
+    const crowd = material([[0, 0], ...Array.from({ length: 30 }, (_, k) => [0.01 * Math.cos(k), 0.2 + 0.01 * Math.sin(k)] as [number, number])]);
+    const stepped = force.separation({ radius: 4 }).prepare(crowd)(crowd.points.at(0)!) as [number, number];
+    const summed = force.separation(crowd, { radius: 4 })(crowd.points.at(0)!);
+    expect(Math.hypot(stepped[0], stepped[1])).toBeLessThanOrEqual(2);
+    expect(Math.hypot(summed[0], summed[1])).toBeGreaterThan(50);
   });
 });
 
@@ -495,13 +518,31 @@ describe('t.pick by count and by share', () => {
     expect(isPointSelection(five)).toBe(true);
     expect(five.length).toBe(5);
     expect(new Set(five.indices).size).toBe(5);
-    expect(a.pick(m.points, 0.25).length).toBe(5);
     expect(a.pick(m.points, 50).length).toBe(20);
     expect(a.pick(m.points, 0).length).toBe(0);
     expect(a.pick([1, 2, 3, 4], 2)).toHaveLength(2);
     expect(a.pick(m.points.filter(() => false), 3).length).toBe(0);
     const b = toolkit({ seed: 7 });
     expect(b.pick(m.points, 5).indices).toEqual(five.indices);
+  });
+
+  it('a share below one is a chance per member: one draw each, in order', () => {
+    const m = material(Array.from({ length: 2000 }, (_, i) => [i, 0] as [number, number]));
+    const a = toolkit({ seed: 5 });
+    const some = a.pick(m.points, 0.25);
+    expect(some.length).toBeGreaterThan(420);
+    expect(some.length).toBeLessThan(580);
+    // one draw per member: after the pick the stream is where 2000 draws put it
+    const b = toolkit({ seed: 5 });
+    for (let i = 0; i < 2000; i++) b.rnd();
+    expect(a.rnd()).toBe(b.rnd());
+    // a small selection can still fire
+    const few = material([[0, 0], [1, 0], [2, 0]]);
+    const t = toolkit({ seed: 1 });
+    let fired = 0;
+    for (let k = 0; k < 400; k++) fired += t.pick(few.points, 1 / 50).length;
+    expect(fired).toBeGreaterThan(5);
+    expect(fired).toBeLessThan(60);
   });
 
   it('an empty collection gives no member, and the draw is still taken', () => {
@@ -528,16 +569,16 @@ describe('pure words', () => {
     expect([...g.edgeList]).toEqual([0, 2, 1, 3]);
   });
 
-  it('connect.neighbourhood: a pair with no third point nearer both', () => {
+  it('connect.unimpeded({ room: 2 }): a pair with no third point nearer both', () => {
     // A square and its middle: the sides have the middle nearer both ends
     // (distance 7.07 < 10), so only the four spokes are left.
-    const g = connect.neighbourhood(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]]));
+    const g = connect.unimpeded(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]]), { room: 2 });
     const pairs = (m: Material) => [...m.edges].map((e) => [e.a.index, e.b.index].sort((p, q) => p - q).join('-')).sort();
     expect(pairs(g)).toEqual(['0-4', '1-4', '2-4', '3-4']);
     // Without the middle, the four sides; the diagonals have a corner nearer both.
-    expect(pairs(connect.neighbourhood(material([[0, 0], [10, 0], [10, 10], [0, 10]])))).toEqual(['0-1', '0-3', '1-2', '2-3']);
+    expect(pairs(connect.unimpeded(material([[0, 0], [10, 0], [10, 10], [0, 10]]), { room: 2 }))).toEqual(['0-1', '0-3', '1-2', '2-3']);
     // Points on a line: each joins the next.
-    expect(pairs(connect.neighbourhood(material([[0, 0], [3, 0], [1, 0]])))).toEqual(['0-2', '1-2']);
+    expect(pairs(connect.unimpeded(material([[0, 0], [3, 0], [1, 0]]), { room: 2 }))).toEqual(['0-2', '1-2']);
     // Against the definition, pair by pair, on a cloud.
     const t = toolkit({ seed: 4 });
     const cloud = t.throw({ count: 60 });
@@ -550,7 +591,9 @@ describe('pure words', () => {
       }
       if (empty) brute.push(`${a}-${b}`);
     }
-    expect(pairs(connect.neighbourhood(cloud))).toEqual(brute.sort());
+    expect(pairs(connect.unimpeded(cloud, { room: 2 }))).toEqual(brute.sort());
+    // A row read twice stands in nobody's way.
+    expect(pairs(connect.unimpeded(material([[0, 0], [10, 0], [0, 0]]), { room: 2 }))).toEqual(['0-1']);
   });
 
   it('resample at a spacing keeps the network\'s junctions and ends', () => {

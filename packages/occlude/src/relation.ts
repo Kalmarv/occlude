@@ -16,8 +16,10 @@
  * from `near`, and a mean from `sel.mean(column)`.
  */
 
-import { Material, ownedBy, viewKind, type Edge, type Vertex } from './material.js';
+import { at64, atU32 } from './column.js';
+import { Material, alongMaterial, ownedBy, resampleMaterial, viewKind, type Edge, type Vertex } from './material.js';
 import { ownerOf } from './views.js';
+import { carryLinks } from './derivation.js';
 import { degreesWithin } from './chains.js';
 import { curvesOfRows, type Curve } from './curves.js';
 import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
@@ -42,11 +44,15 @@ import type { Face } from './faces.js';
  */
 export function sameLineage(a: Material, b: Material): boolean {
   if (a === b) return true;
-  for (let i = 0; i < b.n; i++) if (a.rowOfPoint(b.pointIds[i] as never) >= 0) return true;
+  // States of one run share their id columns, or leaves of them: the same
+  // leaf is the same ids.
+  const theirs = b.store.pointIds;
+  if (a.store.pointIds === theirs && b.n > 0) return true;
+  for (const leaf of theirs.leaves()) for (let k = 0; k < leaf.length; k++) if (a.rowOfPoint(leaf[k] as never) >= 0) return true;
   if (b.edgeCount === 0 || a.edgeCount === 0) return false;
   const roots = new Set<number>();
-  for (let e = 0; e < a.edgeCount; e++) roots.add(a.edgeRoots[e]);
-  for (let e = 0; e < b.edgeCount; e++) if (roots.has(b.edgeRoots[e])) return true;
+  for (const leaf of a.store.edgeRoots.leaves()) for (let k = 0; k < leaf.length; k++) roots.add(leaf[k]);
+  for (const leaf of b.store.edgeRoots.leaves()) for (let k = 0; k < leaf.length; k++) if (roots.has(leaf[k])) return true;
   return false;
 }
 
@@ -136,8 +142,9 @@ class PointDomain implements Domain<Vertex> {
     if (theirs === this.source) return [...other.indices];
     if (!sameLineage(this.source, theirs)) throw unrelated(who);
     const out: number[] = [];
+    const ids = theirs.store.pointIds;
     for (const i of other.indices) {
-      const r = this.source.rowOfPoint(theirs.pointIds[i] as never);
+      const r = this.source.rowOfPoint(at64(ids, i) as never);
       if (r >= 0) out.push(r);
     }
     return out;
@@ -158,7 +165,7 @@ class PointDomain implements Domain<Vertex> {
       // in the flat plane. One grid per radius, kept on the state, and
       // bounded: a per-point radius would otherwise build one grid per
       // distinct float and hold every one of them for the state's life.
-      index = neighbours(m, { radius, space: m.space });
+      index = neighbours(m, { radius });
       if (box.byRadius.size >= 8) box.byRadius.delete(box.byRadius.keys().next().value as number);
       box.byRadius.set(radius, index);
     }
@@ -167,8 +174,12 @@ class PointDomain implements Domain<Vertex> {
     const space = m.space;
     const rows = index(p as XY);
     const distances = new Float64Array(rows.length);
-    if (space === undefined || space.kind === 'euclidean') for (let k = 0; k < rows.length; k++) distances[k] = Math.hypot(px - m.x[rows[k]], py - m.y[rows[k]]);
-    else for (let k = 0; k < rows.length; k++) distances[k] = space.distance([px, py], [m.x[rows[k]], m.y[rows[k]]]);
+    // The index is built over every position, so the flats are joined
+    // already: the distances read them.
+    const x = m.x;
+    const y = m.y;
+    if (space === undefined || space.kind === 'euclidean') for (let k = 0; k < rows.length; k++) distances[k] = Math.hypot(px - x[rows[k]], py - y[rows[k]]);
+    else for (let k = 0; k < rows.length; k++) distances[k] = space.distance([px, py], [x[rows[k]], y[rows[k]]]);
     return { rows, distances };
   }
 }
@@ -198,8 +209,9 @@ class EdgeDomain implements Domain<Edge> {
     if (theirs === this.source) return [...other.indices];
     if (!sameLineage(this.source, theirs)) throw unrelated(who);
     const out: number[] = [];
+    const ids = theirs.store.edgeIds;
     for (const e of other.indices) {
-      const r = this.source.rowOfEdge(theirs.edgeIds[e] as never);
+      const r = this.source.rowOfEdge(at64(ids, e) as never);
       if (r >= 0) out.push(r);
     }
     return out;
@@ -211,9 +223,10 @@ class EdgeDomain implements Domain<Edge> {
   /** Every edge that meets this one at a vertex, this one excluded. */
   neighbours(e: number): number[] {
     const m = this.source;
+    const list = m.store.edgeList;
     const out: number[] = [];
-    for (const f of m.incidentEdgeRows(m.edgeList[2 * e])) if (f !== e) out.push(f);
-    for (const f of m.incidentEdgeRows(m.edgeList[2 * e + 1])) if (f !== e) out.push(f);
+    for (const f of m.incidentEdgeRows(atU32(list, 2 * e))) if (f !== e) out.push(f);
+    for (const f of m.incidentEdgeRows(atU32(list, 2 * e + 1))) if (f !== e) out.push(f);
     return out;
   }
   near(p: unknown, radius: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
@@ -271,19 +284,20 @@ function edgeRowsAmong(sel: Sel): readonly number[] {
  * corners never cost a pass over every point. */
 export function endpointRows(sel: Selection<Edge>): number[] {
   const m = sel.source as Material;
+  const list = m.store.edgeList;
   const rows = sel.indices;
   if (rows.length * 8 < m.n) {
     const ends = new Set<number>();
     for (const e of rows) {
-      ends.add(m.edgeList[2 * e]);
-      ends.add(m.edgeList[2 * e + 1]);
+      ends.add(atU32(list, 2 * e));
+      ends.add(atU32(list, 2 * e + 1));
     }
     return [...ends].sort((a, b) => a - b);
   }
   const seen = new Uint8Array(m.n);
   for (const e of rows) {
-    seen[m.edgeList[2 * e]] = 1;
-    seen[m.edgeList[2 * e + 1]] = 1;
+    seen[atU32(list, 2 * e)] = 1;
+    seen[atU32(list, 2 * e + 1)] = 1;
   }
   const out: number[] = [];
   for (let i = 0; i < m.n; i++) if (seen[i]) out.push(i);
@@ -293,7 +307,8 @@ export function endpointRows(sel: Selection<Edge>): number[] {
 /** The edges of `m` whose both ends `inside` holds, in row order. */
 function edgesAmong(m: Material, inside: (r: number) => boolean): number[] {
   const rows: number[] = [];
-  for (let e = 0; e < m.edgeCount; e++) if (inside(m.edgeList[2 * e]) && inside(m.edgeList[2 * e + 1])) rows.push(e);
+  const list = m.store.edgeList;
+  for (let e = 0; e < m.edgeCount; e++) if (inside(atU32(list, 2 * e)) && inside(atU32(list, 2 * e + 1))) rows.push(e);
   return rows;
 }
 
@@ -332,11 +347,12 @@ const EDGES: DomainKind = domainKind('edge', 'edges', {
   add: { value(this: Sel, rows: unknown, cols?: Record<string, number>): Material { return addEdges(this.source, rows, cols); } },
   remove: { value(this: Sel, what: unknown): Material { return removeEdges(this.source, what); } },
   thicken: { value(this: Sel, opts: ThickenOpts): Material { return thickenKernel(this, opts); } },
-  resample: { value(this: Sel, opts: Parameters<Material['resample']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).resample(opts); } },
+  // A resample or an along of the members answers rows of their material.
+  resample: { value(this: Sel, opts: Parameters<Material['resample']>[0]): Material { return resampleMaterial(extractRows(this.source, endpointRows(this), this.indices), opts, { of: this.source, edges: this.indices }); } },
   trim: { value(this: Sel, opts: Parameters<Material['trim']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).trim(opts); } },
   spline: { value(this: Sel, opts?: Parameters<Material['spline']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).spline(opts); } },
   oscillate: { value(this: Sel, opts: Parameters<Material['oscillate']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).oscillate(opts); } },
-  along: { value(this: Sel, opts?: Parameters<Material['along']>[0]) { return extractRows(this.source, endpointRows(this), this.indices).along(opts); } },
+  along: { value(this: Sel, opts?: Parameters<Material['along']>[0]) { return alongMaterial(extractRows(this.source, endpointRows(this), this.indices), opts ?? {}, { of: this.source, edges: this.indices }); } },
   /** @internal Highest vertex degree within the members. The area
    * consumers refuse a branching value by it. */
   maxDegree: { value(this: Sel): number {
@@ -394,47 +410,23 @@ const EDGES: DomainKind = domainKind('edge', 'edges', {
 /** @internal Copy the given point rows and edge rows of `m` into a fresh
  * material: every column of both domains, transfer policies, no history. */
 export function extractRows(m: Material, pointRows: readonly number[], edgeRows: readonly number[]): Material {
-  const n = pointRows.length;
-  const x = new Float64Array(n);
-  const y = new Float64Array(n);
+  const s = m.store;
   const rowMap = new Map<number, number>();
+  for (let k = 0; k < pointRows.length; k++) rowMap.set(pointRows[k], k);
   // An extracted row is the row it came from, so it keeps its identity: a
   // selection pulled out and grown is still made of the same points.
-  const pointIds = new Float64Array(n);
-  for (let k = 0; k < n; k++) {
-    const i = pointRows[k];
-    x[k] = m.x[i];
-    y[k] = m.y[i];
-    pointIds[k] = m.pointIds[i];
-    rowMap.set(i, k);
-  }
   const attrs: Record<string, Float64Array> = {};
-  for (const name of m.attrNames) {
-    const src = m.attrs[name];
-    const col = new Float64Array(n);
-    for (let k = 0; k < n; k++) col[k] = src[pointRows[k]];
-    attrs[name] = col;
-  }
+  for (const name in s.attrs) attrs[name] = s.attrs[name].gather(pointRows);
   const edges = new Uint32Array(edgeRows.length * 2);
   for (let k = 0; k < edgeRows.length; k++) {
     const e = edgeRows[k];
-    edges[2 * k] = rowMap.get(m.edgeList[2 * e])!;
-    edges[2 * k + 1] = rowMap.get(m.edgeList[2 * e + 1])!;
+    edges[2 * k] = rowMap.get(s.edgeList.get(2 * e))!;
+    edges[2 * k + 1] = rowMap.get(s.edgeList.get(2 * e + 1))!;
   }
   const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of m.edgeAttrNames) {
-    const src = m.edgeAttrs[name];
-    const col = new Float64Array(edgeRows.length);
-    for (let k = 0; k < edgeRows.length; k++) col[k] = src[edgeRows[k]];
-    edgeAttrs[name] = col;
-  }
-  const edgeIds = new Float64Array(edgeRows.length);
-  const edgeRoots = new Float64Array(edgeRows.length);
-  for (let k = 0; k < edgeRows.length; k++) {
-    edgeIds[k] = m.edgeIds[edgeRows[k]];
-    edgeRoots[k] = m.edgeRoots[edgeRows[k]];
-  }
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs, space: m.space, faces: m.stated });
+  for (const name in s.edgeAttrs) edgeAttrs[name] = s.edgeAttrs[name].gather(edgeRows);
+  const ids = { points: s.pointIds.gather(pointRows), edges: s.edgeIds.gather(edgeRows), edgeRoots: s.edgeRoots.gather(edgeRows) };
+  return carryLinks(m, new Material(s.x.gather(pointRows), s.y.gather(pointRows), attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
 }
 
 /**

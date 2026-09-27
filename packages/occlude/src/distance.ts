@@ -24,6 +24,7 @@ import { isPointSelection } from './relation.js';
 import type { Selection } from './selection.js';
 import type { Vertex } from './material.js';
 import { Len } from './units.js';
+import { carriedSpace, spaceAreaField, spacePointField, type Space } from './space.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -73,8 +74,35 @@ export function isPointSites(v: unknown): v is PointSites {
  * every site, and where two rings would meet they merge into the
  * cracked-mud cell wall between the sites. A plain array of pairs is a
  * loop; `material(pairs)` makes it points.
+ *
+ * The distance is measured in the space the value carries: a material the
+ * toolkit made in a hyperbolic or spherical sketch, or a selection or a
+ * face of one, is measured along the space's geodesics, and its edges are
+ * geodesics. Plain loops, points and contour records carry no space: they
+ * are flat numbers and are measured flat. `t.distanceTo` measures those in
+ * the sketch's space, and takes a shape.
  */
 export function distanceTo(boundary: AreaInput | PointSites): DistanceField {
+  const space = carriedSpace(boundary);
+  if (space === undefined || space.kind === 'euclidean') return distanceField(boundary);
+  return curvedDistanceField(space, boundary);
+}
+
+/** @internal `distanceTo` in a curved `space`: to the nearest point of
+ * points, and to the geodesic edges of an area's closed loops. The toolkit
+ * word and the pure one measure here. */
+export function curvedDistanceField(space: Space, boundary: AreaInput | PointSites): DistanceField {
+  if (isPointSites(boundary)) {
+    const { sx, sy } = sitePositions(boundary, 'distanceTo');
+    return spacePointField(space, sx, sy);
+  }
+  return spaceAreaField(space, numericLoops(boundary, 'distanceTo').map((pts) => ({ pts, closed: true })));
+}
+
+/** @internal `distanceTo` without the refusal: the flat field of the
+ * coordinates, for the toolkit's flat branch and for the words that read
+ * only its sign (inside or outside is the same in every space). */
+export function distanceField(boundary: AreaInput | PointSites): DistanceField {
   if (isPointSites(boundary)) return distanceToSites(boundary);
   const loops = numericLoops(boundary, 'distanceTo');
   const segs: Seg[] = [];

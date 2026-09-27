@@ -14,7 +14,7 @@ All randomness comes from the sketch's seed: `seed` in the config, or `?seed=` i
 <include>/_sig/Toolkit.pick.mdx</include>
 <include>/_sig/Toolkit.chance.mdx</include>
 
-`rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `rndInt(n)` gives a whole number from 0 to n minus 1. `rndInt(a, b)` gives a whole number from a to b, and both ends can come up. A die is `rndInt(1, 6)`. Each call is one draw from the stream. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
+`rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `rndInt(n)` gives a whole number from 0 to n minus 1. `rndInt(a, b)` gives a whole number from a to b, and both ends can come up. A die is `rndInt(1, 6)`. Each call is one draw from the stream. `pick` returns one element of a list or a selection, and `undefined` when it is empty. `pick(list, n)` with `n` of 1 or more returns `n` different elements. `pick(list, share)` with a share less than 1 gives each element that chance, with one draw for each element. So a short list can also give one element. The answer keeps the order of the list, and a selection gives a selection. `chance(p)` is true with probability `p`.
 
 ```ts live
 import { sketch, circle, rect } from 'occlude';

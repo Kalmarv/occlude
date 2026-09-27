@@ -37,6 +37,7 @@
 import { Material, material as makeMaterial, mintIds, inheritEdge } from './material.js';
 import { chainsOf } from './curves.js';
 import { pairKey } from './views.js';
+import { inherits } from './space.js';
 
 /** One place two strands cross, as `over` sees it. */
 export interface Crossing {
@@ -283,6 +284,6 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
     edgeTransfers: { ...src.edgeTransfers },
     ids: { points: pointIds, edges: edgeIds, edgeRoots },
     faceAttrs: src.faceAttrs,
-    space: m.space,
+    ...inherits(src),
   });
 }

@@ -174,7 +174,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 6 }), { iterations: 2, density });
   const cells = t.voronoi(sites);
   return sites.points.map((p) => {
-    const cell = cells.faces.find((f) => f.source.index === p.index);
+    const cell = cells.faces.find((f) => f.source === p);
     return cell && circle(p.x, p.y, distanceTo(cell)(p.x, p.y) * 0.92);
   });
 });

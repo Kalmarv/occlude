@@ -6,6 +6,7 @@ import {Mesh,CurveGeometry,emptyMesh,evaluate,type PointRow,type Field,type Edge
 import {sampleValue} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import {profileCurve} from './curves.js';
+import {SOURCES,derived} from './source.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SweepOptions<A extends Attributes3={}> extends GeometryOptions,ConstructionBudget {
   /** World direction for the profile's initial +X, projected off the tangent. */
@@ -78,19 +79,19 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     for(const index of section.points){
       const p=shape.points[index],[x,y,z]=p.position;
       const position=add3(centers[ring],add3(add3(mul3(normal,x*scales[ring]),mul3(binormal,y*scales[ring])),mul3(tangents[ring],z*scales[ring])));finite3(position);
-      points.push({id:JSON.stringify(['sweep',p.id,pathPoint.id]),position,attributes:{...pathPoint.attributes,...p.attributes},provenance:{operation:'sweep',parents:[p.id,pathPoint.id]}});
+      points.push({id:JSON.stringify(['sweep',p.id,pathPoint.id]),position,attributes:{...pathPoint.attributes,...p.attributes},provenance:{operation:'sweep',parents:[p.id,pathPoint.id],inputs:[0,1]}});
     }
   }
   const index=(ring:number,vertex:number)=>(ring%count)*width+vertex%width;
   for(let ring=0;ring<route.edges.length;ring++)for(let edge=0;edge<section.edges.length;edge++){
     const a=index(ring,edge),b=index(ring,edge+1),c=index(ring+1,edge+1),d=index(ring+1,edge),profileEdge=shape.edges[section.edges[edge]],pathEdge=source.edges[route.edges[ring]],face=faces.length;
-    faces.push({id:JSON.stringify(['sweep',profileEdge.id,pathEdge.id]),vertices:[a,b,c,d],attributes:{...pathEdge.attributes,...profileEdge.attributes},provenance:{operation:'sweep',parents:[profileEdge.id,pathEdge.id]}});
+    faces.push({id:JSON.stringify(['sweep',profileEdge.id,pathEdge.id]),vertices:[a,b,c,d],attributes:{...pathEdge.attributes,...profileEdge.attributes},provenance:{operation:'sweep',parents:[profileEdge.id,pathEdge.id],inputs:[0,1]}});
     triangles.push({face,vertices:[a,b,c]},{face,vertices:[a,c,d]});
   }
   if(caps)for(const ring of [0,count-1]){
     const boundary=Array.from({length:width},(_,i)=>index(ring,i));if(ring===0)boundary.reverse();
     const cap=surface3(boundary.map(i=>points[i].position),[boundary.map((_,i)=>i)]),face=faces.length;
-    faces.push({id:JSON.stringify(['sweep','cap',ring===0?'start':'end']),vertices:boundary,attributes:{},provenance:{operation:'sweep',parents:section.edges.map(i=>shape.edges[i].id)}});
+    faces.push({id:JSON.stringify(['sweep','cap',ring===0?'start':'end']),vertices:boundary,attributes:{},provenance:{operation:'sweep',parents:section.edges.map(i=>shape.edges[i].id),inputs:section.edges.map(()=>0)}});
     for(const t of cap.triangles)triangles.push({face,vertices:t.vertices.map(i=>boundary[i]) as [number,number,number]});
   }
   // A triangle with no area draws nothing: drop it and keep the rest of the
@@ -108,5 +109,5 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     const uv:readonly (readonly [number,number])[]=[[u[edge],v[ring]],[u[edge+1],v[ring]],[u[edge+1],v[ring+1]],[u[edge],v[ring+1]]];
     return {uv:uv[c],chart:'side'};
   });
-  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV>(surface,options);
+  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV>(surface,{...options,[SOURCES]:derived('sweep',input as object,along as object)});
 }

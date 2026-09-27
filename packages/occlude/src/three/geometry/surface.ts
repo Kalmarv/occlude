@@ -4,7 +4,9 @@ import { add3, cross3, finite3, mul3, sub3, type Vec3 } from '../math.js';
 
 export type Attribute3 = number | string | boolean | readonly number[];
 export type Attributes3 = Record<string, Attribute3>;
-export interface Provenance3 { readonly operation: string; readonly parents: readonly string[] }
+/** Internal lineage: the derivation, the ids of the rows it read, and, when
+ * it read more than one value, which of its inputs holds each parent. */
+export interface Provenance3 { readonly operation: string; readonly parents: readonly string[]; readonly inputs?: readonly number[] }
 export interface SurfacePoint3 { readonly provenance?: Provenance3; readonly id: string; position: Vec3; attributes: Attributes3 }
 /** One corner per polygon vertex, in the polygon's winding order. */
 export interface SurfaceCorner3 { readonly id:string; readonly provenance?:Provenance3; attributes:Attributes3 }
@@ -28,7 +30,7 @@ function copyAttributes(attributes:Attributes3):Attributes3 {
   for(const name in attributes){const value=attributes[name];out[name]=Array.isArray(value)?[...value]:value;}
   return out;
 }
-const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenance.operation,parents:[...provenance.parents]});
+const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenance.operation,parents:[...provenance.parents],...(provenance.inputs?{inputs:[...provenance.inputs]}:{})});
 
 /** Deterministic ear clipping of a simple polygon. No fan triangulation of
  * concave faces; robust orientation guards crossings and ear containment.

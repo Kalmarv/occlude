@@ -29,7 +29,8 @@
  * material it draws.
  */
 
-import { Material, geodesicEdges, type Edge, type Vertex } from './material.js';
+import { at64 } from './column.js';
+import { Material, geodesicEdges, vertexView, type Edge, type Vertex } from './material.js';
 import { walkChains, type Chain } from './chains.js';
 import { Selection, select, domainKind, rowRange, isSelectionOf, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
 import { pointDomain, edgesOf, pointsOf, extractRows, endpointRows, sameLineage, unrelated } from './relation.js';
@@ -190,8 +191,9 @@ export class CurveTable implements Domain<Curve> {
    * same curve in another state; a curve whose edges were split or cut
    * away names nothing there. */
   private keyOf(r: number): string {
-    const ids = Array.from(this.chains[r].edges, (e) => this.source.edgeIds[e]);
-    return ids.sort((a, b) => a - b).join(',');
+    const ids = this.source.store.edgeIds;
+    const keys = Array.from(this.chains[r].edges, (e) => at64(ids, e));
+    return keys.sort((a, b) => a - b).join(',');
   }
   private byKey(other: CurveTable, r: number): number {
     if (other === this) return r;
@@ -266,18 +268,24 @@ export class CurveTable implements Domain<Curve> {
     }
     // The material's point domain, read along this curve: every word a
     // point selection has, and the rows carry the curve's own columns.
+    // One view per row here too, kept: `===` names a point of the curve.
     const base = pointDomain(m);
     const along = Object.create(base) as typeof base;
+    const views = new Map<number, Vertex>();
     Object.defineProperty(along, 'row', {
       value(v: number): Vertex {
-        const p = m.vertex(v) as Record<string, number>;
+        let view = views.get(v);
+        if (view !== undefined) return view;
+        const p = vertexView(m, v) as Record<string, number>;
         const k = at.get(v);
         if (k !== undefined) {
           p.s = cum[k];
           p.u = total > 0 ? cum[k] / total : 0;
           p.heading = heading[k];
         }
-        return p as Vertex;
+        view = Object.freeze(p) as Vertex;
+        views.set(v, view);
+        return view;
       },
     });
     return (this.pointSels[r] = select(along, c.indices, undefined, true));
@@ -365,10 +373,10 @@ function curveRow(table: CurveTable, r: number): Curve {
   // row's own words win over a column of the same name.
   for (const name of m.edgeAttrNames) {
     if (CURVE_WORDS.has(name) || c.edges.length === 0) continue;
-    const col = m.edgeAttrs[name];
-    const v = col[c.edges[0]];
+    const col = m.store.edgeAttrs[name];
+    const v = at64(col, c.edges[0]);
     let same = true;
-    for (let k = 1; k < c.edges.length && same; k++) same = col[c.edges[k]] === v;
+    for (let k = 1; k < c.edges.length && same; k++) same = at64(col, c.edges[k]) === v;
     if (same) row[name] = v;
   }
   row.index = r;

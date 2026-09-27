@@ -148,10 +148,10 @@ describe('mesh edges, faces and corners set',()=>{
     const one=out.corners.at(2)!;
     expect(out.corners.set('tone',[9,9],one).corners.map(c=>c.tone[0])).toEqual([0,1,9,3]);
   });
-  it('keeps the recorded radial centre, the pen and the key',()=>{
-    const m=box(1,{key:'b',pen:'red'});
+  it('keeps the recorded radial centre and the key',()=>{
+    const m=box(1,{key:'b'});
     const out=m.faces.set('k',1);
-    expect(out.key).toBe('b');expect(out.pen).toBe('red');
+    expect(out.key).toBe('b');
   });
 });
 
@@ -201,7 +201,6 @@ describe('history through withHistory',()=>{
     expect(Object.isFrozen(kept.history)).toBe(true);
     expect(kept.points.set('h',1).history).toEqual([]);
     expect(kept.withKey('k').history).toEqual([a,b]);
-    expect(kept.style({pen:'red'}).history).toEqual([a,b]);
     expect(a.history).toEqual([]);
   });
   it('point and curve geometry and samples keep theirs, as their own kind',()=>{

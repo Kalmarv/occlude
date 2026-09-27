@@ -9,18 +9,18 @@ These words derive curves from a mesh, or ask it questions. The mesh hides a cur
 
 <include>/_sig/3d.intersections.1.mdx</include>
 
-The curve where two meshes cross. Give two meshes, or a list. In a list, every pair that can meet gives its curve. Both meshes must be in the view with it. The curves take the view's pen. `style` gives them a pen of their own, as the example does.
+The curve where two meshes cross. Give two meshes, or a list. In a list, every pair that can meet gives its curve. Both meshes must be in the view with it. The curves take the view's pen. A pair in the view's list, `[curves, { pen }]`, gives them a pen of their own, as the example does.
 
 The call returns a description, not the computed curves. The view first drops every object outside the camera. Then it computes only the pairs that can meet. A big list of far-apart objects costs little. A direct read of the curves, such as `.edges`, computes every pair.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { box, sphere, intersections, style, view, orthographic } from 'occlude/3d';
+import { box, sphere, intersections, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.4), color: '#A84932' }) } }, (t) => {
   const ball = sphere(1.3, { segments: 40, rings: 20 });
   const block = box([1.2, 1.2, 2.8]).translate([0.5, 0.3, 0]);
-  return view([ball, block, style(intersections(ball, block), { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], target: [0.3, 0.2, 0.3], span: 4.6 }), pen: 'ink', creaseAngle: 180 });
+  return view([ball, block, [intersections(ball, block), { pen: 'line' }]], { camera: orthographic({ eye: [5, 6, 4], target: [0.3, 0.2, 0.3], span: 4.6 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -28,17 +28,17 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.isolines.mdx</include>
 
-The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key, pen })`. The call refuses `levels` in the options by name.
+The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key })`. The call refuses `levels` in the options by name.
 
 The result is a collection of chains. `rings.curves` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { sphere, isolines, style, view, orthographic } from 'occlude/3d';
+import { sphere, isolines, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
   const ball = sphere(1.3, { segments: 40, rings: 20 });
-  return view([ball, style(isolines(ball, (p) => p.z, { count: 9 }), { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
+  return view([ball, [isolines(ball, (p) => p.z, { count: 9 }), { pen: 'line' }]], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -50,13 +50,13 @@ Follows a direction field across the surface from each seed, triangle to triangl
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { sphere, trace, style, view, orthographic } from 'occlude/3d';
+import { sphere, trace, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
   const ball = sphere(1.3, { segments: 40, rings: 20 });
   const seeds = t.scatter(ball, { count: 24 }).points;
   const paths = trace(ball, seeds, [0, 0, 1], { step: 0.05, maxLength: 2.4 });
-  return view([ball, style(paths, { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
+  return view([ball, [paths, { pen: 'line' }]], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -68,12 +68,12 @@ Lays a 2D material onto the surface through the mesh's stored chart coordinates.
 
 ```ts live
 import { sketch, pen, mm, curve, append } from 'occlude';
-import { cylinder, mapSurface, style, view, orthographic } from 'occlude/3d';
+import { cylinder, mapSurface, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
   const tube = cylinder(1, 2.4, { segments: 36, caps: false });
   const zigzag = append(...t.times(8, (k) => curve(t.times(40, (j, u) => [u, (k + 0.5) / 8 + Math.sin(u * Math.PI * 6) * 0.04]), { closed: false })));
-  return view([tube, style(mapSurface(tube, zigzag, { chart: 'side' }), { pen: 'line' })], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
+  return view([tube, [mapSurface(tube, zigzag, { chart: 'side' }), { pen: 'line' }]], { camera: orthographic({ eye: [5, 6, 3], span: 4 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 
@@ -81,7 +81,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/Toolkit.hatch.mdx</include>
 
-Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit. It traces the lanes in a background job, so the sketch function must be `async` and the call needs `await`. One call is one family. A second call with another direction is a crosshatch.
+Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit. It traces the lanes in a background job, so the sketch function must be `async` and the call needs `await`. One call is one family. A second call with another direction is a crosshatch. The lines hold no pen: the view names it, `[marks, { pen }]`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -90,9 +90,9 @@ import { sphere, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
   const ball = sphere(1.5, { segments: 40, rings: 20 });
   const light = (s) => Math.max(0, s.normal[0] * 0.6 + s.normal[1] * 0.3 + s.normal[2] * 0.75);
-  const along = await t.hatch(ball, { direction: (s) => s.tangentU, spacing: 0.14, tone: (s) => 1 - light(s), pen: 'shade' });
-  const across = await t.hatch(ball, { direction: (s) => s.tangentV, spacing: 0.14, tone: (s) => Math.max(0, 0.55 - light(s)) * 1.8, pen: 'shade' });
-  return view([ball, along, across], { camera: orthographic({ eye: [5, 6, 4], span: 4.2 }), pen: 'ink', creaseAngle: 180 });
+  const along = await t.hatch(ball, { direction: (s) => s.tangentU, spacing: 0.14, tone: (s) => 1 - light(s) });
+  const across = await t.hatch(ball, { direction: (s) => s.tangentV, spacing: 0.14, tone: (s) => Math.max(0, 0.55 - light(s)) * 1.8 });
+  return view([ball, [[along, across], { pen: 'shade' }]], { camera: orthographic({ eye: [5, 6, 4], span: 4.2 }), pen: 'ink', creaseAngle: 180 });
 });
 ```
 

@@ -28,11 +28,12 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
+import { inherits } from './space.js';
 
 export interface TrailsOpts {
   /** Edge attributes for the rewired edges (the source edge's own columns are
    * carried across; these are added on top). */
-  edgeAttributes?: Record<string, number>;
+  edgeColumns?: Record<string, number>;
 }
 
 /** One pen-down run: the source rows it passes through, in order, and whether
@@ -175,7 +176,7 @@ export function trails(m: Material, opts: TrailsOpts = {}): Material {
       for (const k of edgeNames) edgeCols[k].push(src.edgeAttrs[k][run.edges[i]]);
     }
   }
-  const extra = opts.edgeAttributes ?? {};
+  const extra = opts.edgeColumns ?? {};
   for (const k of Object.keys(extra)) if (!edgeNames.includes(k)) edgeCols[k] = new Array(edges.length / 2).fill(extra[k]);
-  return new Material(Float64Array.from(xs), Float64Array.from(ys), Object.fromEntries(names.map((k) => [k, Float64Array.from(cols[k])])), Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: Object.fromEntries(Object.keys(edgeCols).map((k) => [k, Float64Array.from(edgeCols[k])])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, space: src.space });
+  return new Material(Float64Array.from(xs), Float64Array.from(ys), Object.fromEntries(names.map((k) => [k, Float64Array.from(cols[k])])), Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: Object.fromEntries(Object.keys(edgeCols).map((k) => [k, Float64Array.from(edgeCols[k])])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, ...inherits(src) });
 }

@@ -5,6 +5,7 @@ import {CurveGeometry} from './mesh.js';
 import {curve} from './curves.js';
 import {query,type PreparedQuery} from './query.js';
 import {checkedField3,type VectorField3} from './vec.js';
+import {refuseDisplay} from './recipes.js';
 
 /** Where the lines start: the points themselves, or a count thrown into a
  * closed mesh — `{ count: 40, within: sphere(2) }`. */
@@ -132,6 +133,7 @@ function cutInside(prepared:PreparedQuery,path:readonly Vec3[],scale:number):Vec
 export function streamlines3(field:VectorField3,options:Streamlines3Options,env:Streamlines3Env):CurveGeometry[] {
   checkedField3(field,'t.streamlines');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('t.streamlines of a field of space requires its options, { seeds }');
+  refuseDisplay(options,'t.streamlines');
   if(options.spacing!==undefined&&emptySize(options.spacing))return [];
   if(options.step!==undefined&&emptySize(options.step))return [];
   if(options.maxLength!==undefined&&emptySize(options.maxLength))return [];
@@ -168,7 +170,7 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
     return out;
   };
   const curves:CurveGeometry[]=[];
-  const {key,seeds:_seeds,spacing:_spacing,step:_step,maxLength:_max,within:_within,...style}=options;
+  const {key,seeds:_seeds,spacing:_spacing,step:_step,maxLength:_max,within:_within,...rest}=options;
   for(const seed of seeds){
     if(!seed.every(Number.isFinite)||!direction(field,seed))continue;
     if(grid&&spacing!==undefined&&grid.near(seed,spacing*0.9,Infinity))continue;
@@ -178,7 +180,7 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
     const path=[...back.reverse(),seed,...forward];
     if(path.length<2)continue;
     for(const run of clip?cutInside(clip,path,extent):[path])
-      if(run.length>1)curves.push(curve(run,{...style,...(key?{key:`${key}:${curves.length}`}:{})}));
+      if(run.length>1)curves.push(curve(run,{...rest,...(key?{key:`${key}:${curves.length}`}:{})}));
   }
   return curves;
 }

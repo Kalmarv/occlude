@@ -25,7 +25,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
       const target = add(p, mul(fromAngle(h), 2.2));
       const hit = lines.firstHit(p, target, { excludeIncident: p });
       if (hit) {
-        if (walls.some((w) => w.index === hit.edge.index)) return [];
+        if (walls.some((w) => w === hit.edge)) return [];
         const meet = point(hit.position, { active: 0, heading: h, depth: p.depth + 1 });
         walls.push(hit.edge);
         return [edge(p, meet), edge(hit.edge.a, meet), edge(meet, hit.edge.b)];
@@ -282,7 +282,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
       const target = add(p, mul(fromAngle(h), 2.2));
       const hit = lines.firstHit(p, target, { excludeIncident: p });
       if (hit) {
-        if (walls.some((w) => w.index === hit.edge.index)) return [];
+        if (walls.some((w) => w === hit.edge)) return [];
         const meet = point(hit.position, { active: 0, heading: h, depth: p.depth + 1 });
         walls.push(hit.edge);
         return [edge(p, meet), edge(hit.edge.a, meet), edge(meet, hit.edge.b)];

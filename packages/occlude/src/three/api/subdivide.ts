@@ -75,8 +75,25 @@ export function subdivideSurface(surface: Surface3, levels=1, options: Subdivisi
     points += 5*faces; faces *= 4;
   }
   let current=surface;
-  for(let level=0;level<levels;level++) current=refine(current,transfers,cornerTransfers,maxPoints,maxFaces);
+  for(let level=0;level<levels;level++) {
+    const next=refine(current,transfers,cornerTransfers,maxPoints,maxFaces);
+    if(level>0)throughLevel(current,next);
+    current=next;
+  }
   return current;
+}
+/** Several levels are one derivation: a row of the last level names its
+ * lineage in the input, not in a level the sketch never held. Each row's
+ * parents are read through the level before (its rows are only ever seen
+ * here, so their records are rewritten in place). */
+function throughLevel(previous:Surface3,next:Surface3):void {
+  const up=new Map<string,readonly string[]>();
+  const note=(rows:readonly {readonly id:string;readonly provenance?:{readonly parents:readonly string[]}}[])=>{for(const r of rows)up.set(r.id,r.provenance?.parents??[r.id]);};
+  note(previous.points);note(previous.edges);note(previous.faces);for(const f of previous.faces)note(f.corners??[]);
+  const lift=(rows:readonly {readonly provenance?:{readonly operation:string;readonly parents:readonly string[]}}[])=>{
+    for(const r of rows)if(r.provenance)(r as {provenance:{operation:string;parents:readonly string[]}}).provenance={operation:r.provenance.operation,parents:[...new Set(r.provenance.parents.flatMap(p=>up.get(p)??[p]))]};
+  };
+  lift(next.points);lift(next.edges);lift(next.faces);for(const f of next.faces)lift(f.corners??[]);
 }
 
 function refine(surface: Surface3, transfers: PointTransfers, cornerTransfers:PointTransfers, maxPoints:number, maxFaces:number): Surface3 {

@@ -55,7 +55,7 @@ packages/occlude/src/
                         (and a fill file) can use; `occlude/host` holds what
                         only a host needs — compile, render, plan, export,
                         the fill and asset registries, papers, pens and docs
-  units, matrix         L values (percent/w/h/long/mm), affine transforms
+  units, matrix         L values (w/h/s/mm/inch), affine transforms
   execution             ONE object per run (no module-level sketch state
                         anywhere): the inputs a host resolved — paper, the
                         captured pen library, seed, assets, fills — the
@@ -82,12 +82,23 @@ packages/occlude/src/
   isolines, streamlines, sketch-time generators (marching squares, evenly
   points, distance      spaced streamlines, scatter/relax/settle, signed
                         distance); shaper: knot curves as functions
-  material, vec, views, the material vocabulary: vertices with attribute
-  tables, forces,         columns and an edge list (material), vectors,
-  selection, relation,    view identity, the three writes, force recipes,
-  curves, chains,         selections and extraction, the ordered domain
-  query                   (`g.curves`, walked by chains), spatial edge
-                          queries
+  material, vec, views, the material vocabulary: points with named columns
+  tables, forces,         and an edge list (material), vectors, view
+  selection, relation,    identity (one kept view per row of a state), the
+  curves, chains,         three writes, force recipes, the one `Selection`
+  query                   and extraction, the ordered domain (`g.curves`, a
+                          property, walked by chains), spatial edge queries
+  column                persistent columns: the storage under every row a
+                        material or a lattice holds — leaves of 1024 values,
+                        a write copies the leaves it touches and shares the
+                        rest, a kernel reads one joined flat array
+  derivation, memo      what a derived value keeps (the node: operation,
+                        inputs, parameters) and the row links `source` and
+                        `u` answer; the host-owned conservative memo
+  warp, thicken,        the material-to-material methods (`m.warp`,
+  envelope, interlace,    `m.thicken`, …): each reads the material in its
+  oscillate, merge,       own coordinates, or its own space where the
+  trails, spacefill       geometry page's table says so
   faces, measure        the one face domain, `g.faces` (a property):
                         STATED faces, written by the word that knows its
                         cells, or DERIVED by planarization and the planar
@@ -301,9 +312,11 @@ machinery and the contracts.
 
 ```
 packages/occlude/src/three/
-  api/*                 the public vocabulary: mesh and primitives, curves,
-                        view, hatch, isolines, mapping, intersections,
-                        instances, sampling, prepared queries
+  api/*                 the public vocabulary (`occlude/3d`): mesh and
+                        primitives, curves, view, hatch, isolines, mapping,
+                        intersections, instances, sampling, prepared
+                        queries; `api/advanced` is `occlude/3d/advanced`,
+                        the explicit stage for tools
   geometry/*            model, topology, corners, triangulation, curvature,
                         extrude, deform, location — and exact.ts, the
                         homogeneous BigInt kernel with its f64 sign filter
@@ -349,8 +362,10 @@ A mesh is an immutable owned revision. Rows carry a stable `id`, a local
 (`three/api/mesh.ts`). Selections retain their source revision and an editor
 refuses a selection from another revision even when the IDs match; explicit
 extraction is what makes an ownership change visible. Derived topology uses
-compact deterministic IDs and records immediate parent IDs as provenance, so
-allocation order, wall time and model RNG are irrelevant to identity.
+compact deterministic IDs and records immediate parent IDs as internal
+lineage, so allocation order, wall time and model RNG are irrelevant to
+identity. A row reads that lineage as `source`, the rows of the derivation's
+inputs it came from; how a row is drawn lives on the view, never on the value.
 A 3D run is the one run: `t.steps(n, mesh, (m) => m.points.set(…))`. The
 writes are `set` on the typed collections (`mesh.points`, `mesh.edges`,
 `mesh.faces`, `mesh.corners`), each returning a new revision, and `history`
@@ -628,15 +643,18 @@ clip regions the engine tests before it samples.
 
 ## Materials
 
-`material.ts` holds vertices as typed columns (`x`, `y`, declared
-attributes) plus an edge list with its own columns. Every operation
-returns a new material. `tables.ts` holds the three writes on a table —
+`material.ts` holds points as persistent columns (`x`, `y`, declared
+point columns; `column.ts`) plus an edge list with its own columns. Every
+operation returns a new material, and a derived state shares every column
+leaf that its write did not touch. `tables.ts` holds the three writes on a table —
 add a row, remove a row, set a column — on `points` and `edges`, the one
 write `set` on `faces`, and the recipes over them (`extrude`, `split`,
 `replace`, `move`). `t.steps` folds passes `(g) => g2` over a state,
 optionally recording history. Forces are
 prepared per state (spatial index built once, and kept on the state by `points.near`) and
-evaluated per point. `selection.ts` is the one `Selection` every domain
+evaluated per point. A stateless `tension` or `separation` handed to
+`move` moves a point by half the mean of its pulls, scaled by `amount`,
+so a pass needs no hand-tuned step; the state-first forms keep the sum. `selection.ts` is the one `Selection` every domain
 shares (the words, the order, the relations, `near`, the reductions) over
 a per-state domain; `relation.ts` is the point and edge domains of a
 material and extraction; `curves.ts` is the ordered domain, `g.curves`:
@@ -664,7 +682,7 @@ is the same face interface over a regular grid: a column is one
 `laplacian(column)` besides. `set`, `add` and `spend` return a new
 lattice, and a `set` reads the faces as they were before it, so a
 diffusion is one instant. `residual.ts` builds a lattice with one column,
-`owed`, and `spend` is the lattice's own word. Attribute transfer (interpolate or
+`owed`, and `spend` is the lattice's own word. Column transfer (interpolate or
 nearest for points, copy or distribute for edges) is declared per column
 and honoured by split, resample, planarize and append.
 
@@ -681,44 +699,49 @@ nothing in a sketch may rely on it.
 `ownedBy`), `selection.ts` (`Selection`), `relation.ts` (the point and edge domains), pinned by
 `test/material-contracts.test.ts` and `test/material.test.ts`.
 
-- **Columns.** A state is `x`, `y` (`Float64Array`, `n` long), point
-  attribute columns by name (each `n` long), an edge list (`Uint32Array`,
+- **Columns.** A state is `x`, `y` (Float64 columns, `n` long), point
+  columns by name (each `n` long), an edge list (a Uint32 column,
   `[a0, b0, a1, b1, …]`, stored order, each pair a distinct row and never
-  `a === b`), and edge attribute columns (each `edgeCount` long). `x`,
-  `y`, `index` are reserved point names; `a`, `b`, `length`, `index` are
-  reserved edge names. The constructor checks lengths and edge ranges.
-- **Ownership on construction.** The constructor *adopts* the arrays it
-  is given; every library operation that derives a state (the writes and
-  their recipes, `resample`, `append`, `withinMaterial`, `extract`,
-  `planarize`) copies its columns first, so no two
-  materials the library made share an array. The object, its column
-  records, policies and history are `Object.freeze`d; typed-array
-  *contents* are not freezable, so `m.x[i] = …` from a sketch writes into
-  that one state.
-- **What a direct write reaches** (current behaviour, pinned): views
-  (`vertex`, `edge`) and every derivation made after the write read the
-  columns live. `g.curves` is walked on its first read and kept on the
-  state: a direct write after that read reaches the positions of its point
-  rows, but not the walk or its derived columns (`s`, `u`, `heading`). Adjacency (`connected`, `degree`) is
-  built lazily from the edge list only and cannot go stale on a
-  coordinate write. The edge index behind `m.edges.nearest` copies the
-  endpoints the first time a state is asked, and keeps them. A prepared neighbour index (and every force built on
-  it) keeps its buckets but reads distances live, so a row written away
-  drops out of its old cell's answers while a row written near is never
-  found. `faces` is computed once per state and returned from the cache
-  thereafter. Nothing invalidates on a write. Sketches should treat
-  states as immutable; the library does.
+  `a === b`), edge columns (each `edgeCount` long), and the internal id
+  columns (point ids, edge ids, edge lineage roots). `x`, `y`, `index`,
+  `id`, `source`, `edges`, `adjacent` are reserved point names; `a`, `b`,
+  `length`, `index` are reserved edge names. The constructor checks
+  lengths and edge ranges.
+- **Persistent columns** (`column.ts`, pinned by `test/column.test.ts`).
+  Every column is a run of fixed-size leaves (1024 values), and a leaf is
+  never written once a column holds it. A write makes a new column that
+  copies the leaves it touches (or the whole column past half of them) and
+  shares the rest, so a state kept on a run's `history` costs the leaves
+  that changed. The constructor *adopts* the arrays it is given
+  (`Column.of`). A kernel reads a column as one flat array, joined on
+  first read and kept (`m.x`, `m.attrs[name]`, `m.edgeList` are internal
+  getters over it); a flat is never written either. The object, its column
+  records, policies and history are `Object.freeze`d.
+- **What a direct write reaches.** Nothing a sketch holds exposes a
+  column: a row reads through its view, and the flat getters are
+  `@internal`, stripped from the declarations. A flat is shared by every
+  state that shares its column, so a write into one from untyped JS
+  reaches all of those states and would poison the memo. The library
+  never writes one, and nothing invalidates on such a write. Every derived
+  structure is built on first read and kept on the state: `g.curves` (the
+  walk and its derived columns `s`, `u`, `heading`, `tangent`, `normal`),
+  `g.faces`, adjacency, the edge index behind `m.edges.nearest` and the
+  neighbour index behind `near` and the forces.
 - **Identity.** State identity is the `Material` object. Row indices are
   positions within one state, never identities across states: a removal
-  renumbers. Every point and edge row carries a minted `id`, and the id
-  is what names a row across states. A vertex or edge *view* is a plain
-  object whose prototype carries the owner and kind as non-enumerable
-  symbols (`views.ts`); `ownedBy(view, m)` tests whether a view is of this
-  state, and a spread or JSON copy is unowned. Selections
-  (`m.points.filter`) bind to their source state; a selection of another
-  state of the same lineage is resolved in this one by id when a write or
-  a set operation takes it (`later.points.intersect(sel)`), and one of an
-  unrelated material is refused.
+  renumbers. Every point and edge row carries a minted `id`, internal and
+  never a sketch's word, and the id is what names a row across states. A
+  state keeps ONE view object per row once the row is read (a map until
+  32 rows are read, then an array), so a view compares by `===` within a
+  state and `f.source === site` holds; the callback of a write or a kernel
+  gets the view of its row. A view's owner is a private field of its class
+  (`views.ts`, `RowView`); `ownedBy(view, m)` tests whether a view is of
+  this state, and a spread or JSON copy is unowned. Selections
+  (`m.points.filter`) bind to their source state; a view, a value or a
+  selection of another state of the same lineage is resolved in this one
+  by id when a write, `rows`, `has` or a set operation takes it
+  (`later.points.intersect(sel)`), and one of an unrelated material is
+  refused.
 - **Lineage.** The internal `iteration` counts the steps of `t.steps`,
   which is what `force.drift` turns with; the writes, `resample` and
   `withinMaterial` keep it, `append`, `extract` and `planarize` start a
@@ -778,6 +801,53 @@ and `test/transfer.test.ts`.
   the displacements, each read on the state as it was; a sum that is not
   finite leaves the point, and in a curved space the point walks the
   geodesic.
+
+### Derivations and the memo
+
+*Where:* `derivation.ts` (the node and the links), `memo.ts` (the store,
+`MEMO_OPS`, the key), the words in `api.ts` and `points.ts` that record
+them, pinned by `test/derivation.test.ts` and `test/memo.test.ts`; the
+proof is `tools/memo-proof.ts`.
+
+- **A derived value keeps its inputs and its rule.** A word such as
+  `t.sample`, `t.settle`, `t.streamlines` or `t.voronoi` puts an internal
+  node on the value it returns: the operation, its input values by
+  reference, and its parameters as plain data. The node is never a
+  public word, and a write makes a new value with no node of its own.
+  The methods that make rows from rows link them the same way: `split`
+  and `replace` (the edge they cut), `planarize` (a piece's input edge, a
+  crossing's input edges), `resample` and `along` (the edge under the
+  row). `thicken` links nothing: no output row comes whole from one input
+  row.
+- **The correspondence is ordinary rows.** A derived row answers
+  `source`, the input row it came from, and parameter columns such as
+  `u`. `source` has its natural shape: a row when one input row made the
+  row (a sample's edge, a settled point's parent, a Voronoi cell's site),
+  a selection when many did (a quadtree cell's points), `undefined` when
+  none did. The links are kept by row identity, so a `set` or a `move` of
+  the result still answers them, a removed row finds nothing, and a row
+  added later has none.
+- **Ids are internal.** Links, `source` and the memo key read the minted
+  ids; a sketch never names one. It holds values and rows, and reaches
+  rows by a rule.
+- **The memo is conservative.** A host that owns a `MemoStore` (the
+  studio's render worker behind `localStorage['occlude.memo'] = 'on'`,
+  kept across renders and evicted by bytes, least recently used first)
+  lets the run answer an earlier result for a call on the allow-list
+  (`MEMO_OPS`: `material`, `sample`, `grid`, `text`, `tiling`, `voronoi`,
+  `quadtree`, `spacefill`, `relax`, `within`; `memoMethod` wraps
+  `m.planarize` and `m.thicken`) with the same operation, frame, place in
+  the run's id counter and arguments. Plain data and shapes key by value,
+  geometry by identity. A call with a closure anywhere in its arguments (a
+  field, a pass, a predicate) is never memoised. A call that moves
+  `Execution.effects` (a seeded draw, a stream opened, a noise read, a
+  probe) is not stored, and its operation is never memoised again by that
+  store: to skip it would move every later draw. So `t.steps` and field
+  closures always run.
+- **Warm equals cold.** A hit returns the value a cold run made, and it
+  leaves the id counter where a cold run leaves it, so the ink never
+  changes. `tools/memo-proof.ts` renders each docs fence cold, then warm
+  after an edit and its undo, and checks that the hashes agree.
 
 ### Geometry queries
 

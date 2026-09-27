@@ -14,7 +14,9 @@
  * `wavelength` and `amplitude` are numbers in the source material's own
  * coordinates, or fields read at each sample, so tone can drive either: a
  * short wavelength where the picture is dark packs more swings into the same
- * run of chain, and a large amplitude makes each swing reach further.
+ * run of chain, and a large amplitude makes each swing reach further. In a
+ * curved space the wavelength is a length of the material's space: the
+ * stations and the phase both measure along the chain in it.
  *
  * Phase is INTEGRATED along the chain, φ(s) = ∫ ds/λ, not computed as s/λ.
  * With a varying wavelength those differ, and only the integral keeps the
@@ -41,6 +43,7 @@
 import { Material, material as makeMaterial, mintIds, alongSamples, type ChainSample, type TransferPolicy, type EdgeTransfer } from './material.js';
 import { chainsOf } from './curves.js';
 import { valueAt } from './guard.js';
+import { inherits } from './space.js';
 
 /** A number in the source material's coordinates, or a field read at the sample. */
 export type OscillateAmount = number | ((x: number, y: number) => number);
@@ -159,7 +162,7 @@ export function chainsMaterial(stations: readonly ChainSample[], source: Materia
   for (const name of edgeNames) edgeAttrs[name] = Float64Array.from(edgeValues[name]);
   const edgePolicies: Record<string, EdgeTransfer> = {};
   for (const name of edgeNames) if (source.edgeTransfers[name]) edgePolicies[name] = source.edgeTransfers[name]!;
-  const carry = { iteration: 0, history: [], edgeAttrs, transfers: policies, edgeTransfers: edgePolicies, space: source.space };
+  const carry = { iteration: 0, history: [], edgeAttrs, transfers: policies, edgeTransfers: edgePolicies, ...inherits(source) };
   if (!junctions) return new Material(x, y, cols, Uint32Array.from(edges), carry);
   // A junction keeps its id; every other row is new geometry.
   const fresh = mintIds(sourceOfRow.reduce((n, v) => n + (v < 0 ? 1 : 0), 0));
@@ -238,6 +241,12 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
     const straight = alongSamples(source);
     return chainsMaterial(straight, source, 'oscillate', junctionsOf(straight));
   }
+  // The phase is measured in the space the chains are walked in, the one
+  // `along` spaces the stations by: a wavelength is a length of the space,
+  // as the spacing is.
+  const curved = source.space !== undefined && source.space.kind !== 'euclidean' ? source.space : null;
+  const gap = (a: ChainSample, b: ChainSample): number =>
+    curved ? curved.distance([a.x, a.y], [b.x, b.y]) : Math.hypot(b.x - a.x, b.y - a.y);
   const out: ChainSample[] = [];
   for (const fine of byChain(alongSamples(source, { spacing: shortest / steps }))) {
     if (fine.length < 2) continue;
@@ -247,7 +256,7 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
     for (let k = 1; k < fine.length; k++) {
       const a = fine[k - 1];
       const b = fine[k];
-      const ds = Math.hypot(b.x - a.x, b.y - a.y);
+      const ds = gap(a, b);
       const lam = (amountAt(opts.wavelength, a.x, a.y) + amountAt(opts.wavelength, b.x, b.y)) / 2;
       // A span with no wavelength on it advances no phase: the swing holds
       // where it was and the span is drawn straight.
@@ -264,7 +273,7 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
       const a = fine[fine.length - 1];
       const b = fine[0];
       const lam = (amountAt(opts.wavelength, a.x, a.y) + amountAt(opts.wavelength, b.x, b.y)) / 2;
-      if (lam > 0) span += Math.hypot(b.x - a.x, b.y - a.y) / lam;
+      if (lam > 0) span += gap(a, b) / lam;
     }
     // A chain that ends at a junction has to arrive there in step too.
     const idx = chains[fine[0].chain].indices;
