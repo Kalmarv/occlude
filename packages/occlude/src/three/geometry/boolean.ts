@@ -1,5 +1,5 @@
 import {orient2d} from 'robust-predicates';
-import {assembleSurface3,type Attribute3,type Attributes3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3} from './surface.js';
+import {kinds,kindOf,kindWords,type AnyColumn,type AnyKind} from '../../column.js';
 import {add3,centroid3,cross3,dot3,mul3,sub3,type Vec3} from '../math.js';
 import {pointNumber,triangleWeights,type H} from './exact.js';
 import {coplanarContact3,type TriangleContact3} from '../curves/contact.js';
@@ -7,7 +7,7 @@ import {bindingTriangle3,surfaceBinding3,type SurfaceBinding3} from '../curves/n
 import {intersectionContactsJob3,type PreparedIntersectionSource3} from '../curves/intersectionContacts.js';
 import {runGeometryJob3} from './job.js';
 import {worldBounds3,type WorldBounds3} from './bounds.js';
-import {meshOfSurface3} from './parts.js';
+import {checkMade3,cornerNames3,faceEdges3,kernelColumn,type Columns3,type Lineage3,type Made3,type Mesh3} from './mesh3.js';
 
 /** The three solid operations, named by what they answer, not by a branded
  * algorithm: what is in either solid, what is in the first and not the second,
@@ -44,7 +44,7 @@ const turn2=(a:Vec2,b:Vec2,c:Vec2)=>-orient2d(a[0],a[1],b[0],b[1],c[0],c[1]);
 const WELD=1e-10;
 
 interface Side {
-  readonly surface:Surface3;
+  readonly mesh:Mesh3;
   readonly binding:SurfaceBinding3;
   readonly prepared:PreparedIntersectionSource3;
   /** Source point index to pool vertex. */
@@ -60,7 +60,18 @@ interface Side {
   readonly overlaps:Map<number,{polygon:number[];normal:Vec3}[]>;
 }
 
-function openEdgeCount(surface:Surface3):number{return surface.edges.filter(e=>e.faces.length!==2).length;}
+/** Where a pool vertex's columns come from: a point of either solid (`side`,
+ * `row`), a seam point blended on a triangle of the first solid (its three
+ * point rows, the weights of the point on it, the corner it is nearest), or
+ * nothing (a seam point on a triangle with no plane). */
+type Origin={readonly side:0|1;readonly row:number}|{readonly seam:readonly [number,number,number];readonly w:readonly number[];readonly nearest:number}|null;
+/** What a kept face came from: its solid, its face row there, and whether it
+ * lies along a seam. */
+interface Kept {readonly side:0|1;readonly face:number;readonly cut:boolean}
+type Lineage=NonNullable<Lineage3['faces']>[number];
+
+/** Edges that do not have a face on each side: a rim, or a loose edge. */
+function openEdgeCount(mesh:Mesh3):number{return mesh.edgeFaces.filter(f=>f.length!==2).length;}
 /** Distance from a point to a segment, which is how far a seam point is from
  * being ON the edge of the triangle it landed in. */
 function toSegment(p:Vec3,a:Vec3,b:Vec3):number {
@@ -79,54 +90,61 @@ function toSegment(p:Vec3,a:Vec3,b:Vec3):number {
  * its own plane with the seam as constrained edges, every patch is classified
  * against the other solid, and the kept patches are welded by position.
  *
+ * The answer: a point either solid holds keeps its name (the second solid's
+ * under this operation's generation) and its columns; a seam point is new,
+ * its columns blended from the first solid's triangle it was cut on. An uncut
+ * face of the first solid keeps its name; every other face names the face it
+ * came from (its lineage). Every face answers `cut`.
+ *
  * KNOWN LIMIT: the result is checked for edge manifoldness and closure, not for
  * vertex manifoldness. Two solids that touch at a single VERTEX — two boxes
  * corner to corner — union to a closed surface that is pinched at that vertex,
  * and that surface is returned instead of refused. Two solids that touch along
  * an EDGE are caught, because the edge then carries four faces. */
-export function booleanSurface3(operation:BooleanOperation3,first:Surface3,second:Surface3):Surface3 {
-  for(const [value,which] of [[first,'first'],[second,'second']] as const){
-    if(!value||typeof value!=='object'||!Array.isArray(value.faces)||!Array.isArray(value.triangles))throw new Error(`${operation}: the ${which} value is not a mesh`);
-    const open=openEdgeCount(value);
+export function booleanMesh3(operation:BooleanOperation3,first:Mesh3,second:Mesh3):Made3 {
+  const meshes=[first,second] as const;
+  for(const [mesh,which] of [[first,'first'],[second,'second']] as const){
+    const open=openEdgeCount(mesh);
     if(open)throw new Error(`${operation}: the ${which} mesh is not closed (${open} boundary edges)`);
-    const drawn=new Set(value.triangles.map(t=>t.face));
-    if(value.faces.some((_,i)=>!drawn.has(i)))throw new Error(`${operation}: the ${which} mesh has a face with no triangles`);
+    const start=mesh.faceTriangleStart;
+    for(let f=0;f<mesh.faceCount;f++)if(start[f]===start[f+1])throw new Error(`${operation}: the ${which} mesh has a face with no triangles`);
   }
-  const bindings=[surfaceBinding3(meshOfSurface3(first)),surfaceBinding3(meshOfSurface3(second))] as const;
+  const bindings=[surfaceBinding3(first),surfaceBinding3(second)] as const;
   const contacts=runGeometryJob3(intersectionContactsJob3(bindings[0],bindings[1])).value;
 
   // One pool of welded vertices for both solids. A vertex the two solids share
   // keeps the first solid's identity and columns.
-  const positions:Vec3[]=[],ids:string[]=[],attributes:Attributes3[]=[],pool=new Map<string,number[]>();
+  const positions:Vec3[]=[],names:string[]=[],origins:Origin[]=[],pool=new Map<string,number[]>();
   // Minted identity goes in a generation that nothing the inputs already carry
   // can be in, so the same operation twice over the same solids — the second
   // bite of `box.subtract(a).subtract(b)` — mints past the first bite instead
   // of colliding with it. The generation is read off the inputs, so it is the
   // same number every time the sketch runs.
-  const taken=[first,second].flatMap(s=>[...s.points.map(p=>p.id),...s.faces.map(f=>f.id)]);
+  const taken=meshes.flatMap(m=>[...m.names.points,...m.names.faces]);
   let generation=0;
   while(taken.some(id=>id.startsWith(`${JSON.stringify([operation,generation]).slice(0,-1)},`)))generation++;
   const mint=(...parts:(string|number)[])=>JSON.stringify([operation,generation,...parts]);
-  const extent=[first,second].flatMap(s=>s.points.map(p=>p.position)),span=worldBounds3(extent);
+  const extent=meshes.flatMap(m=>m.positions),span=worldBounds3(extent);
   const weld=Math.max(Number.MIN_VALUE,WELD*Math.max(1e-12,...[0,1,2].map(k=>span[k+3]-span[k]).filter(Number.isFinite)));
   const cell=(p:Vec3,dx:number,dy:number,dz:number)=>`${Math.floor(p[0]/weld)+dx},${Math.floor(p[1]/weld)+dy},${Math.floor(p[2]/weld)+dz}`;
   let minted=0;
-  const vertex=(position:Vec3,id:()=>string,attrs:()=>Attributes3):number=>{
+  const vertex=(position:Vec3,name:()=>string,origin:()=>Origin):number=>{
     for(let dx=-1;dx<2;dx++)for(let dy=-1;dy<2;dy++)for(let dz=-1;dz<2;dz++)
       for(const i of pool.get(cell(position,dx,dy,dz))??[])if(Math.hypot(...sub3(positions[i],position))<=weld)return i;
-    const index=positions.length;positions.push(Object.freeze([...position]) as unknown as Vec3);ids.push(id());attributes.push(attrs());
+    const index=positions.length;positions.push(Object.freeze([...position]) as unknown as Vec3);names.push(name());origins.push(origin());
     const key=cell(position,0,0,0),list=pool.get(key);if(list)list.push(index);else pool.set(key,[index]);
     return index;
   };
   const sides:Side[]=bindings.map((binding,s)=>{
-    const surface=s===0?first:second;
-    const vertices=surface.points.map(p=>vertex(p.position,()=>s===0?p.id:mint('b',p.id),()=>({...p.attributes})));
-    const corners=surface.triangles.map(t=>t.vertices.map(v=>vertices[v]));
-    const normals=surface.triangles.map(t=>{
-      const [a,b,c]=t.vertices.map(v=>positions[vertices[v]]),n=cross3(sub3(b,a),sub3(c,a)),length=Math.hypot(...n);
-      return (length>0?mul3(n,1/length):[0,0,0]) as Vec3;
-    });
-    return {surface,binding,prepared:contacts.sources[s],vertices,corners,normals,interior:new Map(),cuts:new Map(),overlaps:new Map()};
+    const mesh=meshes[s],own=mesh.names.points;
+    const vertices=mesh.positions.map((p,i)=>vertex(p,()=>s===0?own[i]:mint('b',own[i]),()=>({side:s as 0|1,row:i})));
+    const corners:number[][]=[],normals:Vec3[]=[];
+    for(let t=0;t<mesh.triangleCount;t++){
+      const vs=mesh.triangle(t).map(v=>vertices[v]);corners.push(vs);
+      const [a,b,c]=vs.map(v=>positions[v]),n=cross3(sub3(b,a),sub3(c,a)),length=Math.hypot(...n);
+      normals.push((length>0?mul3(n,1/length):[0,0,0]) as Vec3);
+    }
+    return {mesh,binding,prepared:contacts.sources[s],vertices,corners,normals,interior:new Map(),cuts:new Map(),overlaps:new Map()};
   });
 
   // A seam point goes on the edge of a triangle it reached, or inside it. The
@@ -169,7 +187,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
     const triangles=[row.a,row.b] as const;
     const indices=row.contact.points.map(p=>{
       const position=pointNumber(p);
-      return vertex(position,()=>mint('cut',minted++),()=>seamAttributes(sides[0],row.a,p));
+      return vertex(position,()=>mint('cut',minted++),()=>seamOrigin(sides[0],row.a,p));
     });
     for(let s=0;s<2;s++){
       for(const index of indices)place(sides[s],triangles[s],index);
@@ -186,29 +204,28 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
   const scale=Math.max(1e-300,...bothBounds(sides).map(b=>b[3]-b[0]+b[4]-b[1]+b[5]-b[2]));
   const solids=sides.map((_,s)=>solid3(sides[1-s],positions));
 
-  // Cut every touched triangle, then keep the patches this operation wants.
-  const faces:SurfaceFace3[]=[],triangles:SurfaceTriangle3[]=[];
-  const emit=(face:SurfaceFace3,parts:readonly (readonly number[])[]):void=>{
-    const index=faces.length;faces.push(face);
-    for(const vertices of parts)triangles.push({face:index,vertices:vertices as readonly [number,number,number]});
+  // Cut every touched triangle, then keep the patches this operation wants:
+  // each kept face's loop and fixed triangles in pool vertices, its name, what
+  // it came from, and its lineage when the operation made it.
+  const loops:(readonly number[])[]=[],parts:(readonly (readonly number[])[])[]=[],faceNames:string[]=[],kept:Kept[]=[],lineage:Lineage[]=[];
+  const emit=(name:string,from:Kept,made:boolean,loop:readonly number[],triangles:readonly (readonly number[])[]):void=>{
+    faceNames.push(name);kept.push(from);loops.push(loop);parts.push(triangles);
+    lineage.push(made?{operation,parents:[meshes[from.side].names.faces[from.face]],inputs:[from.side]}:undefined);
   };
   for(let s=0;s<2;s++){
-    const side=sides[s],keep=new Set<Placement>(KEEP[operation][s]),flip=operation==='subtract'&&s===1;
-    const byFace=side.surface.faces.map(()=>[] as number[]);
-    side.surface.triangles.forEach((t,i)=>byFace[t.face].push(i));
-    for(let f=0;f<side.surface.faces.length;f++){
-      const source=side.surface.faces[f],own=byFace[f];
+    const side=sides[s],mesh=side.mesh,keep=new Set<Placement>(KEEP[operation][s]),flip=operation==='subtract'&&s===1;
+    const start=mesh.faceTriangleStart;
+    for(let f=0;f<mesh.faceCount;f++){
+      const source=mesh.names.faces[f],own:number[]=[];
+      for(let t=start[f];t<start[f+1];t++)own.push(t);
       // `cut` accumulates: a face that came out of an earlier operation's seam
       // is still on a seam, so a chain of operations answers every one of them.
-      const was=source.attributes.cut===true;
+      const was=mesh.cell('faces','cut',f)===true;
       const cuts=own.map(i=>cutTriangle(side,i,positions,edgePoints,operation));
       if(cuts.every(c=>c.whole)){
         // Nothing reached this face: it stays one face, with its identity.
         if(!keep.has(place3(side,own[0],centroid3(side.corners[own[0]].map(v=>positions[v])),positions,solids[s],scale)))continue;
-        emit({
-          id:faceId(s,source.id,mint),vertices:oriented(source.vertices.map(v=>side.vertices[v]),flip),
-          attributes:{...clone(source.attributes),cut:was},...(s===0?{}:{provenance:{operation,parents:[source.id],inputs:[s]}}),
-        },own.map(i=>oriented(side.corners[i],flip)));
+        emit(faceId(s,source,mint),{side:s as 0|1,face:f,cut:was},s===1,oriented(mesh.loops[f].map(v=>side.vertices[v]),flip),own.map(i=>oriented(side.corners[i],flip)));
         continue;
       }
       // A cut face is replaced by its pieces: one triangular face each, so the
@@ -217,26 +234,103 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
       for(let k=0;k<own.length;k++)for(const piece of cuts[k].parts){
         if(!keep.has(place3(side,own[k],centroid3(piece.vertices.map(v=>positions[v])),positions,solids[s],scale)))continue;
         const vertices=oriented(piece.vertices,flip);
-        emit({id:mint('piece',faceId(s,source.id,mint),n++),vertices,attributes:{...clone(source.attributes),cut:piece.cut||was},provenance:{operation,parents:[source.id],inputs:[s]}},[vertices]);
+        emit(mint('piece',faceId(s,source,mint),n++),{side:s as 0|1,face:f,cut:piece.cut||was},true,vertices,[vertices]);
       }
     }
   }
 
   // Only the vertices the kept faces use, in first-seen order.
-  const used=new Map<number,number>(),points:SurfacePoint3[]=[];
+  const used=new Map<number,number>(),order:number[]=[];
   const remap=(v:number):number=>{
     let index=used.get(v);
-    if(index===undefined){index=points.length;used.set(v,index);points.push({id:ids[v],position:positions[v],attributes:attributes[v]});}
+    if(index===undefined){index=order.length;used.set(v,index);order.push(v);}
     return index;
   };
-  const outFaces=faces.map(f=>({...f,vertices:f.vertices.map(remap)}));
-  const outTriangles=triangles.map(t=>({face:t.face,vertices:t.vertices.map(v=>used.get(v)!) as unknown as readonly [number,number,number]}));
-  let result:Surface3;
-  try{result=assembleSurface3(points,outFaces,outTriangles);}
+  const outLoops=loops.map(loop=>loop.map(remap));
+  const pointNames=order.map(v=>names[v]);
+  const {edges,names:edgeNames}=faceEdges3(outLoops,pointNames);
+  const made:Made3={
+    x:Float64Array.from(order,v=>positions[v][0]),y:Float64Array.from(order,v=>positions[v][1]),z:Float64Array.from(order,v=>positions[v][2]),
+    names:{points:pointNames,edges:edgeNames,faces:faceNames,corners:cornerNames3(outLoops,faceNames,pointNames)},
+    loops:outLoops,
+    triangles:loops.map((loop,f)=>parts[f].flatMap(t=>t.map(v=>loop.indexOf(v)))),
+    edges,
+    cols:{points:pointColumns(meshes,order.map(v=>origins[v])),faces:faceColumns(meshes,kept)},
+    lineage:{faces:lineage},
+  };
+  try{checkMade3(made);}
   catch(error){throw new Error(`${operation}: the result is not a manifold surface (${(error as Error).message})`);}
-  const open=openEdgeCount(result);
+  // Every face side runs one edge, and no edge runs more than two (checked):
+  // the edges with one face are those the sides do not fill twice.
+  const open=edges.length-outLoops.reduce((sum,loop)=>sum+loop.length,0);
   if(open)throw new Error(`${operation}: the result is not a closed surface (${open} boundary edges)`);
-  return result;
+  return made;
+}
+
+/** The kernel columns of one domain of each solid, in their order. */
+const ownColumns=(cols:Columns3):[string,AnyColumn][]=>Object.entries(cols).filter(([,column])=>kernelColumn(column));
+/** One domain's columns over the rows of the answer. `lists` are each solid's
+ * columns (name and kind) as its rows hold them, and `sides` says, row by
+ * row, which solid's columns the row holds, if any: the answer has a column
+ * that some row holds, in the order the rows first name them, and `value`
+ * gives its cells (a row that does not hold it reads the kind's default).
+ * Two solids that hold one name in two kinds are refused. */
+function columnsOver(lists:readonly (readonly (readonly [string,AnyKind])[])[],sides:Iterable<number|undefined>,value:(name:string,kind:AnyKind)=>unknown[]):Record<string,AnyColumn> {
+  const found=new Map<string,AnyKind>(),seen=new Set<number>();
+  for(const s of sides){
+    if(s===undefined||seen.has(s))continue;
+    seen.add(s);
+    for(const [name,kind] of lists[s]){
+      const known=found.get(name);
+      if(known===undefined)found.set(name,kind);
+      else if(known!==kind)throw new Error(`the column '${name}' holds ${kindWords(known)} on one row and ${kindWords(kind)} on another: a column holds one kind`);
+    }
+    if(seen.size===lists.length)break;
+  }
+  const out:Record<string,AnyColumn>={};
+  for(const [name,kind] of found)out[name]=kind.from(value(name,kind) as never);
+  return out;
+}
+const cellOf=(column:AnyColumn,row:number):unknown=>column.get(row);
+
+/** The point columns of the answer: a point of either solid keeps its own, a
+ * seam point blends the first solid's at the corners of its triangle by its
+ * weights (a number or a vector; a boolean or a string is the nearest
+ * corner's). */
+function pointColumns(meshes:readonly [Mesh3,Mesh3],origins:readonly Origin[]):Record<string,AnyColumn> {
+  const own=meshes.map(m=>ownColumns(m.cols.points));
+  const lists=own.map(cols=>cols.map(([name,column])=>[name,kindOf(column)] as const));
+  const sideOf=(o:Origin)=>o===null?undefined:'side' in o?o.side:0;
+  return columnsOver(lists,origins.map(sideOf),(name,kind)=>{
+    const cols=own.map(list=>list.find(([n])=>n===name)?.[1]);
+    return origins.map(o=>{
+      if(o===null)return kind.default;
+      if('side' in o){const column=cols[o.side];return column===undefined?kind.default:cellOf(column,o.row);}
+      const column=cols[0];
+      if(column===undefined)return kind.default;
+      const values=o.seam.map(v=>cellOf(column,v)),w=o.w;
+      if(kind===kinds.number)return (values as number[]).reduce((sum,v,k)=>sum+v*w[k],0);
+      if(kind.name==='vector')return (values[0] as readonly number[]).map((_,i)=>(values as (readonly number[])[]).reduce((sum,v,k)=>sum+v[i]*w[k],0));
+      return values[o.nearest];
+    });
+  });
+}
+/** The face columns of the answer: each face keeps the columns of the face it
+ * came from, and answers `cut`. */
+function faceColumns(meshes:readonly [Mesh3,Mesh3],kept:readonly Kept[]):Record<string,AnyColumn> {
+  const own=meshes.map(m=>ownColumns(m.cols.faces));
+  const lists=own.map(cols=>{
+    const list=cols.map(([name,column])=>[name,name==='cut'?kinds.boolean:kindOf(column)] as const);
+    return list.some(([name])=>name==='cut')?list:[...list,['cut',kinds.boolean] as const];
+  });
+  return columnsOver(lists,kept.map(k=>k.side),(name,kind)=>{
+    const cols=own.map(list=>list.find(([n])=>n===name)?.[1]);
+    return kept.map(k=>{
+      if(name==='cut')return k.cut;
+      const column=cols[k.side];
+      return column===undefined?kind.default:cellOf(column,k.face);
+    });
+  });
 }
 
 type ContactRow={readonly a:number;readonly b:number;readonly contact:TriangleContact3};
@@ -280,30 +374,21 @@ function withinPlane(points:Float64Array,p:number,plane:Float64Array,q:number,we
   for(let k=0;k<3;k++)if(Math.abs(dot3(n,sub3([points[p+3*k],points[p+3*k+1],points[p+3*k+2]],a)))>weld*length)return false;
   return true;
 }
-const clone=(attrs:Attributes3):Attributes3=>Object.fromEntries(Object.entries(attrs).map(([k,v])=>[k,Array.isArray(v)?[...v]:v]));
 const faceId=(side:number,id:string,mint:(...parts:(string|number)[])=>string)=>side===0?id:mint('b',id);
 const oriented=(vertices:readonly number[],flip:boolean):readonly number[]=>flip?[...vertices].reverse():vertices;
-function bothBounds(sides:readonly Side[]):WorldBounds3[]{return sides.map(s=>worldBounds3(s.surface.points.map(p=>p.position)));}
+function bothBounds(sides:readonly Side[]):WorldBounds3[]{return sides.map(s=>worldBounds3(s.mesh.positions));}
 
-/** A new seam vertex takes its columns from the first solid's triangle, by the
- * exact barycentric weights of the point on it: a numeric column is blended,
- * anything else comes from the nearest corner. */
-function seamAttributes(side:Side,triangle:number,exact:H):Attributes3 {
+/** Where a new seam point's columns come from: the first solid's triangle it
+ * was cut on, by the exact barycentric weights of the point on it. A
+ * triangle with no plane gives none. */
+function seamOrigin(side:Side,triangle:number,exact:H):Origin {
   const weights=triangleWeights(bindingTriangle3(side.binding,triangle),exact);
-  const corners=side.surface.triangles[triangle]?.vertices;
-  if(!weights||!corners)return {};
+  if(!weights||triangle>=side.mesh.triangleCount)return null;
   const total=Number(weights[0]+weights[1]+weights[2]);
-  if(!(total>0))return {};
-  const w=weights.map(n=>Number(n)/total),rows=corners.map(v=>side.surface.points[v].attributes);
+  if(!(total>0))return null;
+  const w=weights.map(n=>Number(n)/total);
   let nearest=0;for(let k=1;k<3;k++)if(w[k]>w[nearest])nearest=k;
-  const out:Attributes3={};
-  for(const name of new Set(rows.flatMap(r=>Object.keys(r)))){
-    const values=rows.map(r=>r[name]);
-    if(values.every(v=>typeof v==='number'))out[name]=(values as number[]).reduce((sum,v,k)=>sum+v*w[k],0);
-    else if(values.every(v=>Array.isArray(v)&&v.length===(values[0] as readonly number[]).length))out[name]=(values[0] as readonly number[]).map((_,i)=>(values as unknown as readonly (readonly number[])[]).reduce((sum,v,k)=>sum+v[i]*w[k],0));
-    else if(values[nearest]!==undefined)out[name]=Array.isArray(values[nearest])?[...values[nearest] as readonly number[]]:values[nearest] as Attribute3;
-  }
-  return out;
+  return {seam:side.mesh.triangle(triangle),w,nearest};
 }
 
 /** The parts one source triangle becomes. `whole` means nothing touched it. */

@@ -352,21 +352,21 @@ describe('G3-42 t.hatch reaches every face the direction crosses', () => {
 describe('G3-35 a cone base that lies on a sphere facet and crosses its edges unites exactly',()=>{
  /** Closed, edge-manifold, consistently wound: every edge has two faces that walk it in opposite directions. */
  const manifold=(m:Material,chi:number)=>{
-  const s=surfaceOf(m);
-  expect(s.edges.filter(e=>e.faces.length!==2)).toHaveLength(0);
-  expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
+  const s=mesh3(m);
+  expect(s.edgeFaces.filter(f=>f.length!==2)).toHaveLength(0);
+  expect(m.points.length-m.edges.length+m.faces.length).toBe(chi);
   const walk=new Map<string,number>();
-  for(const f of s.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=`${Math.min(a,b)}:${Math.max(a,b)}`;walk.set(key,(walk.get(key)??0)+(a<b?1:-1));}
+  for(const loop of s.loops)for(let i=0;i<loop.length;i++){const a=loop[i],b=loop[(i+1)%loop.length],key=`${Math.min(a,b)}:${Math.max(a,b)}`;walk.set(key,(walk.get(key)??0)+(a<b?1:-1));}
   expect([...walk.values()].every(n=>n===0)).toBe(true);
  };
- const volume=(m:Material)=>{let total=0;const s=surfaceOf(m);for(const t of s.triangles){const [a,b,c]=t.vertices.map(i=>s.points[i].position);total+=dot3(a,cross3(b,c))/6;}return total;};
+ const volume=(m:Material)=>{let total=0;const s=mesh3(m);for(let t=0;t<s.triangleCount;t++){const [a,b,c]=s.triangle(t).map(i=>s.position(i));total+=dot3(a,cross3(b,c))/6;}return total;};
  const spike=()=>cone(0.06,0.3,{segments:8}).translate([0,0,0.15]);
 
  it('unites a few cones stood on facets by the facet normal, near each facet edge in turn',()=>{
-  const ball=sphere(1.2,{segments:32,rings:16}),s=surfaceOf(ball);
+  const ball=sphere(1.2,{segments:32,rings:16}),s=mesh3(ball);
   // Three triangles well apart in the upper hemisphere; each cone sits 0.03
   // from a different edge of its triangle, so its 0.06 base crosses that edge.
-  const upper=s.triangles.map((t,i)=>({i,c:t.vertices.map(v=>s.points[v].position)})).filter(({c})=>c.every(p=>p[2]>0.3&&p[2]<1.0));
+  const upper=Array.from({length:s.triangleCount},(_,i)=>({i,c:s.triangle(i).map(v=>s.position(v))})).filter(({c})=>c.every(p=>p[2]>0.3&&p[2]<1.0));
   const picks=[upper[0],upper[Math.floor(upper.length/3)],upper[Math.floor(2*upper.length/3)]];
   const sites:Vec3[]=[],normals:Vec3[]=[];
   picks.forEach(({c},k)=>{

@@ -19,8 +19,7 @@
  * walks) reads the value through its kernels' reader (`mesh3`) and answers
  * columns (`Made3`), which `made3` makes the next value of: a row the kernel
  * kept keeps its id, and each row it made is linked to the rows it came
- * from, which `row.source` answers. The booleans still answer the working
- * view (`surfaceOf`), handed back through `value3`.
+ * from, which `row.source` answers.
  */
 
 import type {Material,Vertex} from '../../material.js';
@@ -32,16 +31,16 @@ import {isSpacePlacement,type Placement as Isometry} from '../../placement.js';
 import {Column} from '../../column.js';
 import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
 import {triangulate,type Attribute3,type Surface3} from '../geometry/surface.js';
-import {ownSurface3,transformPosition3} from '../geometry/model.js';
+import {transformPosition3} from '../geometry/model.js';
 import {mesh3,made3,kernelColumn,sourceOfMade3,type Made3,type Mesh3,type Columns3} from '../geometry/mesh3.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,unit3,type Vec3} from '../math.js';
 import {sampleValue} from '../degenerate.js';
 import {subdivideMesh3,type SubdivisionOptions} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
 import {dualMesh3,type DualOptions} from '../geometry/dual.js';
-import {booleanSurface3,type BooleanOperation3} from '../geometry/boolean.js';
+import {booleanMesh3,type BooleanOperation3} from '../geometry/boolean.js';
 import {evaluate,describe3,type Field} from './columns.js';
-import {value3,surfaceOf,frameOf,hasFaces,mapPositions3,type Carry3,type Frame3} from '../geometry/value.js';
+import {surfaceOf,frameOf,hasFaces,mapPositions3,type Carry3,type Frame3} from '../geometry/value.js';
 import {alongSurface,resampledSurface} from './curveWalk.js';
 import {samplesOf,rebindSamples} from './sampling.js';
 import {curveSamplesOf,rebindCurveSamples} from './curveSampling.js';
@@ -175,11 +174,6 @@ export function sourceOf3(operation:string,surface:Surface3,inputs:readonly Inpu
 function derivedValue(operation:string,m:Material,made:Made3,inputs:readonly Material[],more:Partial<Carry3>={}):Material {
   // A derivation drops a recorded radial centre unless it says it keeps one.
   return made3(made,{...kept(m,{radialCentre:undefined,...more}),source:sourceOfMade3(operation,made,inputs)});
-}
-/** A derivation's working-view answer as the one geometry: the door the
- * booleans still answer through. */
-function derivedView(operation:string,m:Material,surface:Surface3,inputs:readonly Input3[],more:Partial<Carry3>={}):Material {
-  return value3(surface,{...kept(m,{radialCentre:undefined,...more}),source:sourceOf3(operation,surface,inputs)});
 }
 /** The columns a kernel reads (no references or placements, which `made3`
  * carries). */
@@ -420,7 +414,7 @@ export function boolean3(operation:BooleanOperation3):(m:Material,other:Material
   return (m,other)=>{
     if(typeof other!=='object'||other===null||!('cache' in other))throw new Error(`${operation}: the second value is not a mesh — a geometry with faces`);
     refuseNoFaces(m,operation);refuseNoFaces(other,operation);
-    return derivedView(operation,m,ownSurface3(booleanSurface3(operation,surfaceOf(m),surfaceOf(other))),[m,other],{transfers:{},radialCentre:undefined});
+    return derivedValue(operation,m,booleanMesh3(operation,mesh3(m),mesh3(other)),[m,other],{transfers:{}});
   };
 }
 /** `dual(options?)`: one point per face at its middle, one face per vertex
