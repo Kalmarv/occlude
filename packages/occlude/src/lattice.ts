@@ -15,7 +15,7 @@
  * storage of its own: the faces are implicit in `(i, j)`, and a column is
  * one `Float32Array`, row-major. The write is `set` (every function reads
  * the faces as they were, so a pass over the whole grid is one instant),
- * a run steps it (`t.steps(n, lat, (l) => l.set(…))`), and `field(column)`
+ * a run steps it (`t.steps(n, lat, (l) => l.faces.set(…))`), and `field(column)`
  * hands a column back out, so everything that reads a field — `isolines`,
  * `scatter`, a fill, `decimate` — reads a lattice too. A face answers its
  * `laplacian`, which is what diffusion is written with, and `spend` takes
@@ -43,7 +43,7 @@ import { usableLength } from './guard.js';
 import type { IsoContour } from './isolines.js';
 import { box, type Box } from './layout.js';
 import { Material, RowViews, material as makeMaterial, type PointsLike } from './material.js';
-import { Column, at32, at64, columnOf, type ColumnLike, type ColumnWriter } from './column.js';
+import { at64, gridOf, GridColumn, type GridWriter } from './column.js';
 import type { Bounds, FieldFn2 } from './points.js';
 import { Len, type L } from './units.js';
 import { vx, vy, type XY } from './vec.js';
@@ -114,10 +114,11 @@ export class Lattice {
   /** The column names, in the order they were declared. */
   readonly channels: readonly string[];
 
-  /** @internal One persistent column per channel (column.ts), row-major:
-   * a write copies only the leaves it touches, so a spend of a few faces
-   * copies a few leaves and every state of a ledger shares the rest. */
-  readonly columns: readonly Column<Float32Array>[];
+  /** @internal One persistent grid column per channel (column.ts), kept
+   * in tiles: a write copies only the tiles it touches, so a spend of a
+   * few faces copies a few tiles and every state of a ledger shares the
+   * rest. */
+  readonly columns: readonly GridColumn[];
   /** @internal */ readonly mask: Uint8Array;
   /** States kept by the `t.steps` run that made this lattice when it asked
    * for `{ every }`: its start, every `every`-th state and the last, oldest
@@ -139,7 +140,7 @@ export class Lattice {
     spacing: number,
     bounds: Bounds,
     channels: readonly string[],
-    columns: readonly ColumnLike<Float32Array>[],
+    columns: readonly (Float32Array | GridColumn)[],
     mask: Uint8Array,
     history: readonly Lattice[] = [],
   ) {
@@ -148,7 +149,7 @@ export class Lattice {
     this.spacing = spacing;
     this.bounds = bounds;
     this.channels = channels;
-    this.columns = columns.map(columnOf);
+    this.columns = columns.map((c) => gridOf(c, cols, rows));
     this.mask = mask;
     this.history = Object.freeze([...history]);
   }
@@ -178,7 +179,7 @@ export class Lattice {
   }
 
   /** @internal This lattice with one column replaced. */
-  private withColumn(k: number, column: Column<Float32Array>): Lattice {
+  private withColumn(k: number, column: GridColumn): Lattice {
     const columns = this.columns.slice();
     columns[k] = column;
     return new Lattice(this.cols, this.rows, this.spacing, this.bounds, this.channels, columns, this.mask);
@@ -249,7 +250,7 @@ export class Lattice {
       f.index = idx;
       f.i = i;
       f.j = (idx - i) / this.cols;
-      for (let k = 0; k < this.channels.length; k++) f[this.channels[k]] = at32(this.columns[k], idx);
+      for (let k = 0; k < this.channels.length; k++) f[this.channels[k]] = this.columns[k].get(idx);
       view = views.set(idx, Object.freeze(f) as unknown as LatticeFace);
     }
     return view;
@@ -343,7 +344,7 @@ export class Lattice {
     f.i = i;
     f.j = (idx - i) / this.cols;
     const names = this.channels;
-    for (let k = 0; k < names.length; k++) f[names[k]] = at32(this.columns[k], idx);
+    for (let k = 0; k < names.length; k++) f[names[k]] = this.columns[k].get(idx);
     return f as unknown as LatticeFace;
   }
 
@@ -378,11 +379,11 @@ export class Lattice {
     const cells = this.n;
     // A column this write does not name is the same numbers: its column is
     // shared, as the mask is — no lattice writes a column it holds — and a
-    // column it names copies only the leaves the write reaches.
+    // column it names copies only the tiles the write reaches.
     const reach = rows === null ? 'all' : rows;
     const writers = names.map((name) => {
       const k = channels.indexOf(name);
-      return (k < this.columns.length ? this.columns[k] : Column.zeros(Float32Array, cells)).writer(reach);
+      return (k < this.columns.length ? this.columns[k] : GridColumn.of(new Float32Array(cells), this.cols, this.rows)).writer(reach);
     });
     if (rows === null || rows.length > 0) {
       const fns = names.map((name) => values[name] as number | ((f: LatticeFace) => number));
@@ -415,7 +416,7 @@ export class Lattice {
   }
 
   /** The write over some faces: each read and written through its column. */
-  private writeSome(rows: readonly number[], fns: readonly (number | ((f: LatticeFace) => number))[], fw: Record<string, number> | null, writers: readonly ColumnWriter<Float32Array>[]): void {
+  private writeSome(rows: readonly number[], fns: readonly (number | ((f: LatticeFace) => number))[], fw: Record<string, number> | null, writers: readonly GridWriter[]): void {
     for (let r = 0; r < rows.length; r++) {
       const idx = rows[r];
       const f = fw === null ? null : this.fill(fw, idx);
@@ -432,8 +433,7 @@ export class Lattice {
   sample(channel: string, i: number, j: number): number {
     const k = this.slot(channel, 'lattice.sample');
     if (i < 0 || j < 0 || i >= this.cols || j >= this.rows) return 0;
-    const idx = j * this.cols + i;
-    return this.mask[idx] ? at32(this.columns[k], idx) : 0;
+    return this.mask[j * this.cols + i] ? this.columns[k].at(i, j) : 0;
   }
 
   /**
@@ -460,18 +460,17 @@ export class Lattice {
       const ci = Math.floor((x - bx) / spacing);
       const cj = Math.floor((y - by) / spacing);
       if (ci < 0 || cj < 0 || ci >= cols || cj >= rows) return NaN;
-      const home = cj * cols + ci;
-      if (!mask[home]) return NaN;
+      if (!mask[cj * cols + ci]) return NaN;
       const u = (x - bx) / spacing - 0.5;
       const v = (y - by) / spacing - 0.5;
       const i0 = Math.floor(u);
       const j0 = Math.floor(v);
       const fx = u - i0;
       const fy = v - j0;
-      const v00 = stencilAt(a, mask, cols, rows, home, i0, j0);
-      const v10 = stencilAt(a, mask, cols, rows, home, i0 + 1, j0);
-      const v01 = stencilAt(a, mask, cols, rows, home, i0, j0 + 1);
-      const v11 = stencilAt(a, mask, cols, rows, home, i0 + 1, j0 + 1);
+      const v00 = stencilAt(a, mask, cols, rows, ci, cj, i0, j0);
+      const v10 = stencilAt(a, mask, cols, rows, ci, cj, i0 + 1, j0);
+      const v01 = stencilAt(a, mask, cols, rows, ci, cj, i0, j0 + 1);
+      const v11 = stencilAt(a, mask, cols, rows, ci, cj, i0 + 1, j0 + 1);
       return (v00 * (1 - fx) + v10 * fx) * (1 - fy) + (v01 * (1 - fx) + v11 * fx) * fy;
     };
   }
@@ -549,15 +548,15 @@ export class Lattice {
       for (let s = 1; s < line.length; s++) capsule(line[s - 1], line[s], r, cols, rows, spacing, bounds, cover, touched);
     }
 
-    // Only the leaves the marks touched are copied: a spend of a short
-    // chord copies a leaf or two, and the ledger's states share the rest.
+    // Only the tiles the marks touched are copied: a spend of a short
+    // chord copies a few, and the ledger's states share the rest.
     const from = this.columns[k];
     const out = from.writer(touched);
     for (const idx of touched) {
       const c = Math.min(1, cover[idx]);
       cover[idx] = 0;
       if (!mask[idx]) continue;
-      const have = at32(from, idx);
+      const have = from.get(idx);
       if (!(have > 0)) continue;
       // Clamped at what the face holds: a mark over a paid face takes nothing.
       out.set(idx, have - Math.min(have, c));
@@ -567,12 +566,11 @@ export class Lattice {
 }
 
 /** The value a field's stencil reads at grid place (i, j): the face's
- * own, or — off the grid or off the area — the containing face's, `home`.
- * A function of its own, so a sample makes no closure. */
-function stencilAt(a: Column<Float32Array>, mask: Uint8Array, cols: number, rows: number, home: number, i: number, j: number): number {
-  if (i < 0 || j < 0 || i >= cols || j >= rows) return at32(a, home);
-  const idx = j * cols + i;
-  return at32(a, mask[idx] ? idx : home);
+ * own, or — off the grid or off the area — the containing face's, at
+ * (hi, hj). A function of its own, so a sample makes no closure. */
+function stencilAt(a: GridColumn, mask: Uint8Array, cols: number, rows: number, hi: number, hj: number, i: number, j: number): number {
+  if (i < 0 || j < 0 || i >= cols || j >= rows || !mask[j * cols + i]) return a.at(hi, hj);
+  return a.at(i, j);
 }
 
 /** A channel this lattice does not have, refused by name. It is its own
@@ -1037,45 +1035,25 @@ function columnReduce(l: Lattice, name: string, members: readonly number[] | nul
   const k = l.channels.indexOf(name);
   if (k < 0) return undefined;
   const col = l.columns[k];
-  const mask = l.mask;
-  // The whole lattice is read leaf by leaf, in row order: a spend's new
-  // column is never joined to be summed.
+  if (members === null) {
+    // The whole lattice is read in row order, never joined: a ledger that
+    // sums its debt after every spend reads the tiles the spends wrote.
+    return op === 'mean' ? col.reduce(l.mask, 'sum') / col.reduce(l.mask, 'count') : col.reduce(l.mask, op);
+  }
   if (op === 'min' || op === 'max') {
     const lower = op === 'min';
     let m = lower ? Infinity : -Infinity;
-    if (members === null) {
-      let idx = 0;
-      for (const a of col.leaves()) {
-        for (let j = 0; j < a.length; j++, idx++) {
-          if (mask[idx] === 0) continue;
-          const v = a[j];
-          if (v - v === 0 && (lower ? v < m : v > m)) m = v;
-        }
-      }
-    } else {
-      for (let r = 0; r < members.length; r++) {
-        const v = at32(col, members[r]);
-        if (v - v === 0 && (lower ? v < m : v > m)) m = v;
-      }
+    for (let r = 0; r < members.length; r++) {
+      const v = col.get(members[r]);
+      if (v - v === 0 && (lower ? v < m : v > m)) m = v;
     }
     return m;
   }
   let sum = 0;
   let n = 0;
-  if (members === null) {
-    let idx = 0;
-    for (const a of col.leaves()) {
-      for (let j = 0; j < a.length; j++, idx++) {
-        if (mask[idx] === 0) continue;
-        const v = a[j];
-        if (v - v === 0) { sum += v; n++; }
-      }
-    }
-  } else {
-    for (let r = 0; r < members.length; r++) {
-      const v = at32(col, members[r]);
-      if (v - v === 0) { sum += v; n++; }
-    }
+  for (let r = 0; r < members.length; r++) {
+    const v = col.get(members[r]);
+    if (v - v === 0) { sum += v; n++; }
   }
   return op === 'mean' ? sum / n : sum;
 }

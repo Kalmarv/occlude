@@ -26,7 +26,8 @@
  * A per-row path reads `get(i)` and writes through a `writer`, and never
  * needs the flat. Nothing here knows what a row means: a material holds its
  * point columns, its edge list (a Uint32 column, two values per edge) and
- * its edge columns this way; a lattice holds one Float32 column per channel.
+ * its edge columns this way. A lattice holds one grid column per channel,
+ * kept in square tiles (`GridColumn`, below).
  */
 
 /** The typed arrays a column can hold. A Uint8 column is the storage
@@ -239,7 +240,7 @@ export class Column<S extends Flat = Float64Array> {
   }
 
   /** The value at row `i`, which must be a row of the column. A per-row
-   * reader in a hot loop takes `at64`, `at32` or `atU32`, whose reads see
+   * reader in a hot loop takes `at64` or `atU32`, whose reads see
    * one kind of array. */
   get(i: number): Item<S> {
     return this.storage.at(this.flatBox, this.leafBox, i);
@@ -449,12 +450,6 @@ export function at64(c: Column<Float64Array>, i: number): number {
   return f !== null ? f[i] : c.leafOf(i)[i & MASK];
 }
 
-/** The value at row `i` of a Float32 column. */
-export function at32(c: Column<Float32Array>, i: number): number {
-  const f = c.peekFlat();
-  return f !== null ? f[i] : c.leafOf(i)[i & MASK];
-}
-
 /** The value at row `i` of a Uint32 column. */
 export function atU32(c: Column<Uint32Array>, i: number): number {
   const f = c.peekFlat();
@@ -485,6 +480,288 @@ export type ColumnLike<T extends Numeric> = T | Column<T>;
 /** The column of `v`: itself, or the array adopted (see `Column.of`). */
 export function columnOf<T extends Numeric>(v: ColumnLike<T>): Column<T> {
   return v instanceof Column ? v : Column.of(v);
+}
+
+// ─── grid: a column of a 2D grid, kept in tiles ────────────────────────
+//
+// A lattice's column is a grid of `cols × rows` numbers, read row-major.
+// Kept as row-major leaves, a mark that crosses twenty grid rows copies
+// twenty leaves; kept in tiles of `TW × TH` places, it copies the few tiles
+// it falls in. A grid column is a row-major BASE, which is never written,
+// and the tiles written since, each an array of its own (a tile at the far
+// edge is padded). A value is its tile's when the tile was written, else
+// the base's. A write that reaches more than half the tiles is dense: it
+// copies the grid whole, and the copy is the new base, with no tiles. A
+// write that reaches few copies the tiles it touches — from the tile, or
+// cut from the base the first time — and shares the rest. The base stays
+// alive while a grid reads through it, as the flat under a leaf's view
+// does.
+
+/**
+ * A tile's width and height in places, as powers of two: 128 × 8, `LEAF`
+ * values, as a leaf is. A wide tile keeps a row-major read long: a sum
+ * reads a tile's width at a time. 32 × 32, 64 × 16, 128 × 8 and 256 × 4
+ * were measured on a 4000-spend ledger of a million faces and on the
+ * residual portrait (images #35), which sums its ledger after every spend:
+ * 128 × 8 was the fastest on the first and within noise on the second,
+ * though a spend there copies 3.8 tiles where 32 × 32 copies 2.4.
+ */
+const TW_BITS = 7;
+const TH_BITS = 3;
+const TW = 1 << TW_BITS;
+const TH = 1 << TH_BITS;
+const TH_MASK = TH - 1;
+const TW_MASK = TW - 1;
+
+/** What `GridColumn.reduce` folds the finite values it reads into. */
+export type GridFold = 'sum' | 'count' | 'min' | 'max';
+
+export class GridColumn {
+  /** Grid places across. */
+  readonly cols: number;
+  /** Grid places up. */
+  readonly rows: number;
+  /** @internal Tiles across. */
+  readonly across: number;
+  /** @internal The row-major values the tiles override. Never written. */
+  readonly base: Float32Array;
+  /** @internal The tiles written since `base`, a row of tiles after
+   * another; undefined where the base holds the values. Null when none is. */
+  readonly tiles: readonly (Float32Array | undefined)[] | null;
+  /** The whole grid, row-major: the base, or joined on first ask. */
+  private flatBox: Float32Array | null;
+
+  private constructor(cols: number, rows: number, base: Float32Array, tiles: readonly (Float32Array | undefined)[] | null) {
+    this.cols = cols;
+    this.rows = rows;
+    this.across = (cols + TW_MASK) >>> TW_BITS;
+    this.base = base;
+    this.tiles = tiles;
+    this.flatBox = tiles === null ? base : null;
+  }
+
+  /** The grid of these row-major values, adopted, not copied: the array
+   * must not be written after this. */
+  static of(flat: Float32Array, cols: number, rows: number): GridColumn {
+    if (flat.length !== cols * rows) throw new RangeError(`a grid of ${cols} × ${rows} takes ${cols * rows} values; got ${flat.length}`);
+    return new GridColumn(cols, rows, flat, null);
+  }
+
+  /** The value at grid place (i, j), which must be on the grid. */
+  at(i: number, j: number): number {
+    const f = this.flatBox;
+    if (f !== null) return f[j * this.cols + i];
+    const t = this.tiles![(j >>> TH_BITS) * this.across + (i >>> TW_BITS)];
+    return t !== undefined ? t[((j & TH_MASK) << TW_BITS) | (i & TW_MASK)] : this.base[j * this.cols + i];
+  }
+
+  /** The value at row-major place `idx`, which must be on the grid. */
+  get(idx: number): number {
+    const f = this.flatBox;
+    if (f !== null) return f[idx];
+    const i = idx % this.cols;
+    return this.at(i, (idx - i) / this.cols);
+  }
+
+  /** The whole grid as one row-major array: joined once and kept. Read it;
+   * never write it — other grids may share it. */
+  flat(): Float32Array {
+    const f = this.flatBox;
+    if (f !== null) return f;
+    const out = this.base.slice();
+    const tiles = this.tiles!;
+    for (let t = 0; t < tiles.length; t++) {
+      const tile = tiles[t];
+      if (tile === undefined) continue;
+      const { i0, j0, w, h } = this.tileBox(t);
+      for (let y = 0; y < h; y++) out.set(tile.subarray(y << TW_BITS, (y << TW_BITS) + w), (j0 + y) * this.cols + i0);
+    }
+    this.flatBox = out;
+    return out;
+  }
+
+  /**
+   * The finite values at the places `keep` marks (non-zero), folded in
+   * row-major order — the order a sum depends on — into their sum, their
+   * count, or their least or greatest (Infinity or -Infinity for none).
+   * Read a tile's width at a time, so a grid is never joined to be folded.
+   */
+  reduce(keep: Uint8Array, op: GridFold): number {
+    const { cols, rows, across, base } = this;
+    const flat = this.flatBox;
+    const tiles = this.tiles;
+    let acc = op === 'min' ? Infinity : op === 'max' ? -Infinity : 0;
+    for (let j = 0; j < rows; j++) {
+      const at = j * cols;
+      const first = (j >>> TH_BITS) * across;
+      const y = (j & TH_MASK) << TW_BITS;
+      for (let ti = 0; ti < across; ti++) {
+        const i0 = ti << TW_BITS;
+        const k = at + i0;
+        const tile = flat === null ? tiles![first + ti] : undefined;
+        const a = tile !== undefined ? tile : flat !== null ? flat : base;
+        const s = tile !== undefined ? y : k;
+        const e = s + Math.min(TW, cols - i0);
+        if (op === 'sum') acc = sumRun(a, s, e, keep, k, acc);
+        else if (op === 'count') acc = countRun(a, s, e, keep, k, acc);
+        else acc = extremeRun(a, s, e, keep, k, acc, op === 'min');
+      }
+    }
+    return acc;
+  }
+
+  /** One write of this grid: `set` any places, then `done()` for the new
+   * grid (see `ColumnWriter`). */
+  writer(reach: Reach): GridWriter {
+    return new GridWriter(this, reach === 'all' || (reach !== 'some' && this.touchesMost(reach)));
+  }
+
+  /** @internal How many tiles. */
+  get tileCount(): number {
+    return this.across * ((this.rows + TH_MASK) >>> TH_BITS);
+  }
+
+  /** @internal Tile `t` of this grid, as a new array the caller owns. */
+  tileCopy(t: number): Float32Array {
+    const own = this.tiles?.[t];
+    if (own !== undefined) return own.slice();
+    const out = new Float32Array(TW * TH);
+    const { i0, j0, w, h } = this.tileBox(t);
+    for (let y = 0; y < h; y++) {
+      const from = (j0 + y) * this.cols + i0;
+      out.set(this.base.subarray(from, from + w), y << TW_BITS);
+    }
+    return out;
+  }
+
+  /** @internal This grid with these tiles over its base. */
+  withTiles(tiles: readonly (Float32Array | undefined)[]): GridColumn {
+    return new GridColumn(this.cols, this.rows, this.base, tiles);
+  }
+
+  /** Would a write of these places reach more than half the tiles? */
+  private touchesMost(places: ArrayLike<number>): boolean {
+    const count = this.tileCount;
+    if (count <= 1) return true;
+    if (places.length * 2 <= count) return false;
+    const seen = new Uint8Array(count);
+    let touched = 0;
+    for (let k = 0; k < places.length; k++) {
+      const i = places[k] % this.cols;
+      const t = (((places[k] - i) / this.cols) >>> TH_BITS) * this.across + (i >>> TW_BITS);
+      if (seen[t] === 0) {
+        seen[t] = 1;
+        if (++touched * 2 > count) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Tile `t`'s place on the grid, and its width and height there. */
+  private tileBox(t: number): { i0: number; j0: number; w: number; h: number } {
+    const ti = t % this.across;
+    const i0 = ti << TW_BITS;
+    const j0 = ((t - ti) / this.across) << TH_BITS;
+    return { i0, j0, w: Math.min(TW, this.cols - i0), h: Math.min(TH, this.rows - j0) };
+  }
+}
+
+// `GridColumn.reduce`'s folds over one run: values `s` to `e` of `a`, whose
+// places start at `k` in `keep`. Each is its own small function, so the
+// loop in it sees one kind of fold, and none of them branches on a value:
+// a place that does not count adds 0, which leaves a sum as it was.
+
+function sumRun(a: Float32Array, s: number, e: number, keep: Uint8Array, k: number, sum: number): number {
+  for (let x = s; x < e; x++, k++) {
+    const v = a[x];
+    sum += keep[k] !== 0 && v - v === 0 ? v : 0;
+  }
+  return sum;
+}
+
+function countRun(a: Float32Array, s: number, e: number, keep: Uint8Array, k: number, n: number): number {
+  for (let x = s; x < e; x++, k++) {
+    const v = a[x];
+    n += keep[k] !== 0 && v - v === 0 ? 1 : 0;
+  }
+  return n;
+}
+
+function extremeRun(a: Float32Array, s: number, e: number, keep: Uint8Array, k: number, m: number, lower: boolean): number {
+  for (let x = s; x < e; x++, k++) {
+    const v = a[x];
+    if (keep[k] !== 0 && v - v === 0 && (lower ? v < m : v > m)) m = v;
+  }
+  return m;
+}
+
+/** The grid of `v`: itself, or row-major values adopted. */
+export function gridOf(v: Float32Array | GridColumn, cols: number, rows: number): GridColumn {
+  return v instanceof GridColumn ? v : GridColumn.of(v, cols, rows);
+}
+
+/** One write of a grid column (see `ColumnWriter`): a dense one copies
+ * the grid whole; a sparse one copies a tile the first time a place in it
+ * is set. The grid written is never touched. */
+export class GridWriter {
+  private readonly base: GridColumn;
+  private readonly whole: Float32Array | null;
+  private own: (Float32Array | undefined)[] | null = null;
+  private wrote = false;
+
+  constructor(base: GridColumn, dense: boolean) {
+    this.base = base;
+    this.whole = dense ? base.flat().slice() : null;
+  }
+
+  /** The value at row-major place `idx` as the write stands. */
+  get(idx: number): number {
+    if (this.whole !== null) return this.whole[idx];
+    const g = this.base;
+    const i = idx % g.cols;
+    const j = (idx - i) / g.cols;
+    const tile = this.own?.[(j >>> TH_BITS) * g.across + (i >>> TW_BITS)];
+    return tile !== undefined ? tile[((j & TH_MASK) << TW_BITS) | (i & TW_MASK)] : g.at(i, j);
+  }
+
+  /** A dense write's whole row-major array, to write places into directly
+   * — the write then counts as made — or null for a sparse write. */
+  array(): Float32Array | null {
+    if (this.whole === null) return null;
+    this.wrote = true;
+    return this.whole;
+  }
+
+  set(idx: number, v: number): void {
+    this.wrote = true;
+    if (this.whole !== null) {
+      this.whole[idx] = v;
+      return;
+    }
+    const g = this.base;
+    const i = idx % g.cols;
+    const j = (idx - i) / g.cols;
+    const t = (j >>> TH_BITS) * g.across + (i >>> TW_BITS);
+    const own = (this.own ??= new Array<Float32Array | undefined>(g.tileCount));
+    let tile = own[t];
+    if (tile === undefined) {
+      tile = g.tileCopy(t);
+      own[t] = tile;
+    }
+    tile[((j & TH_MASK) << TW_BITS) | (i & TW_MASK)] = v;
+  }
+
+  done(): GridColumn {
+    if (!this.wrote) return this.base;
+    if (this.whole !== null) return GridColumn.of(this.whole, this.base.cols, this.base.rows);
+    const tiles = this.base.tiles !== null ? this.base.tiles.slice() : new Array<Float32Array | undefined>(this.base.tileCount);
+    const own = this.own!;
+    for (let t = 0; t < own.length; t++) {
+      const tile = own[t];
+      if (tile !== undefined) tiles[t] = tile;
+    }
+    return this.base.withTiles(tiles);
+  }
 }
 
 // ─── kinds ─────────────────────────────────────────────────────────────
