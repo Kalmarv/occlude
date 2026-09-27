@@ -28,14 +28,14 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 
 ## Values
 
-**A number at a place.** The simplest field: `ramp(x, y)` returns `x / 200`, so it is 0 at the left edge of this sheet and 1 at the right, whatever `y` is. A function is nothing to look at, so a sparse grid asks it: each cell's centre gets a mark whose size is the value there. The field is evaluated when it is asked, here 96 times; it is not a stored column and not a picture. `t.grid` gives cells with centres `cx`, `cy` in drawable units, the same units every coordinate on these pages has used.
+**A number at a place.** The simplest field: `ramp(x, y)` returns `x / 200`, so it is 0 at the left edge of this sheet and 1 at the right, whatever `y` is. A function is nothing to look at, so a sparse grid asks it: each cell's centre gets a mark whose size is the value there. The field is evaluated when it is asked, here 96 times; it is not a stored column and not a picture. `t.grid` gives a material whose `faces` are the cells, and a face's `centroid` is its centre in drawable units, the same units every coordinate on these pages has used.
 
 ```ts live focus=4-5
 import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const ramp = (x, y) => x / 200;
-  return t.grid({ cols: 16, rows: 6 }).map((c) => circle(c.cx, c.cy, 0.3 + ramp(c.cx, c.cy) * 3));
+  return t.grid({ cols: 16, rows: 6 }).faces.map((f) => { const [x, y] = f.centroid; return circle(x, y, 0.3 + ramp(x, y) * 3); });
 });
 ```
 
@@ -104,9 +104,10 @@ import { sketch, circle, line, add, mul, unit, group, ui } from 'occlude';
 export default sketch({ aspect: [2, 1] }, (t) => {
   const rightward = (x, y) => [1, 0];
   const turning = (x, y) => [-(y - 50), x - 50];
-  const arrows = (field) => t.grid({ cols: 8, rows: 8 }).map((c) => {
-    const tip = add([c.cx, c.cy], mul(unit(field(c.cx, c.cy)), 4));
-    return [circle(c.cx, c.cy, 0.5), line(c.cx, c.cy, tip[0], tip[1])];
+  const arrows = (field) => t.grid({ cols: 8, rows: 8 }).faces.map((f) => {
+    const [x, y] = f.centroid;
+    const tip = add([x, y], mul(unit(field(x, y)), 4));
+    return [circle(x, y, 0.5), line(x, y, tip[0], tip[1])];
   });
   return [arrows(rightward), group({ translate: [100, 0] }, arrows(turning))];
 });

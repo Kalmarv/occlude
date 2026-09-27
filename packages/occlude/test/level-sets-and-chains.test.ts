@@ -64,7 +64,7 @@ describe('P2 · a level set is an area', () => {
     expect(has(corner, 0, 0)).toBe(true);
     // A quarter disc, not the lens between the arc and its chord.
     expect(area(ring.pts)).toBeCloseTo((Math.PI * r * r) / 4, 0);
-    expect(corner.faces().length).toBe(1);
+    expect(corner.faces.length).toBe(1);
   });
 
   it('G2-4: a lone contour cut by the frame is an area that polygon fills', () => {
@@ -119,7 +119,7 @@ describe('P2 · a level set is an area', () => {
     const b = t.bounds();
     const m = t.isolines(sdf.circle(0, 0, b.w * 0.3), 0);
     const onBorder = (x: number, y: number) => Math.abs(x) < 1e-9 || Math.abs(y) < 1e-9;
-    const walls = m.faces().at(0)!.edges;
+    const walls = m.faces.at(0)!.edges;
     const closing = walls.filter((e) => e.cut === 1);
     const level = walls.filter((e) => !e.cut);
     expect(closing.length).toBe(2); // along the top edge, then down the left one
@@ -138,7 +138,7 @@ describe('P2 · a level set is an area', () => {
     // The right corner of the diamond is inside the circle: the ring passes it.
     expect(has(cut, 86, 70)).toBe(true);
     // Both walls that meet there close the region: neither is level line.
-    const corner = [...cut.faces().at(0)!.edges.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
+    const corner = [...cut.faces.at(0)!.edges.points].find((p) => Math.abs(p.x - 86) < 1e-9 && Math.abs(p.y - 70) < 1e-9)!;
     expect([...corner.edges].map((e) => e.cut)).toEqual([1, 1]);
   });
 
@@ -168,14 +168,14 @@ describe('N1 · chain verbs walk the curves() of a network', () => {
 
   it('G2-14 / G4-14: resample on t.hexes keeps every junction, where it was and who it was', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const hex = t.hexes({ spacing: mm(10) });
+    const hex = t.tiling(6, 3, { side: mm(10 / Math.sqrt(3)), rotate: 30, origin: [0, 0] });
     const out = hex.resample({ spacing: t.len(mm(1)) });
     expect(byId(out)).toEqual(byId(hex));
-    expect(out.faces().length).toBe(hex.faces().length);
+    expect(out.faces.length).toBe(hex.faces.length);
     // Between the junctions the walls are redistributed.
     expect(out.points.length).toBeGreaterThan(hex.points.length * 3);
     // The honeycomb cut to a wall (examples-vessels): the rim is a network too.
-    const comb = t.within(t.hexes({ spacing: mm(6) }), rect(0, 0, 40, 80));
+    const comb = t.within(t.tiling(6, 3, { side: mm(6 / Math.sqrt(3)), rotate: 30, origin: [0, 0] }), rect(0, 0, 40, 80));
     expect(byId(comb.resample({ spacing: 1 }))).toEqual(byId(comb));
   });
 
@@ -196,7 +196,7 @@ describe('N1 · chain verbs walk the curves() of a network', () => {
 
   it('G4-1: each verb walks a network junction to junction, a rolled waveform too', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const hex = t.hexes({ spacing: 20 });
+    const hex = t.tiling(6, 3, { side: 20 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     expect(() => hex.oscillate({ wavelength: 4, amplitude: 1 })).not.toThrow();
     expect(() => hex.along({ spacing: 2 })).not.toThrow();
     expect(() => hex.oscillate({ wavelength: 2, amplitude: 1, shape: (u) => [Math.sin(2 * Math.PI * u), 1 - Math.cos(2 * Math.PI * u)] })).not.toThrow();
@@ -204,7 +204,7 @@ describe('N1 · chain verbs walk the curves() of a network', () => {
 
   it('along on a network: every chain from junction to junction, each end facing along its chain', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const hex = t.hexes({ spacing: 20 });
+    const hex = t.tiling(6, 3, { side: 20 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     const chains = hex.curves.map(rec);
     const stations = hex.along({ spacing: 5 }).points;
     // Each curve walked on its own: its own points, the first at s = 0.
@@ -297,7 +297,7 @@ describe('strokes of a closed level set', () => {
     expect(strokes(m.edges).length).toBe(m.curves.map(rec).length);
     // One level, so its one region is a face: the walls of that face are
     // the level line and the rim, and a selection of them is drawn as given.
-    const walls = t.isolines((x: number, y: number) => x + y, 60).faces().edges;
+    const walls = t.isolines((x: number, y: number) => x + y, 60).faces.edges;
     const lines = walls.filter((e) => e.cut === 0);
     const rims = walls.filter((e) => e.cut === 1);
     expect(rims.length).toBeGreaterThan(0);

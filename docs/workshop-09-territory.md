@@ -13,7 +13,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const density = (x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 34, edge));
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
-  const cells = diagram.faces();
+  const cells = diagram.faces;
   const beside = (e) => e.faces;
   const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
   const marked = diagram.edges.set({
@@ -21,7 +21,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     border: (e) => (contrast(e) > ratio ? 1 : 0),
   });
   const cleared = marked.edges.remove(marked.edges.filter((e) => e.open === 1));
-  const country = cleared.faces().filter((f) => f.area > field);
+  const country = cleared.faces.filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
     strokes(cleared.edges.filter((e) => e.border === 1), { pen: 'pigma-05-black' }),
@@ -32,7 +32,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 ## Give each site a territory
 
-Seven points, placed by hand, drawn large. `t.voronoi(sites)` builds the walls between their territories: every position on the sheet belongs to the nearest site, and a wall is where two sites are equally near. The walls are clipped to the drawable, so the outer cells end at the sheet's edge. What comes back is material, corners and walls, and `faces()` reads the cells the way chapter 6 read the cells of a network. Drag the control: one site moves, and every wall it shares moves with it, while the walls between other sites stay.
+Seven points, placed by hand, drawn large. `t.voronoi(sites)` builds the walls between their territories: every position on the sheet belongs to the nearest site, and a wall is where two sites are equally near. The walls are clipped to the drawable, so the outer cells end at the sheet's edge. What comes back is material, corners and walls, and `faces` reads the cells the way chapter 6 read the cells of a network. Drag the control: one site moves, and every wall it shares moves with it, while the walls between other sites stay.
 
 ```ts live focus=4-6
 import { sketch, strokes, circle, material, ui } from 'occlude';
@@ -49,7 +49,7 @@ Before dragging: which walls will change when the fourth site moves, and which c
 
 ## Follow the correspondence
 
-The diagram remembers which site made which cell. `diagram.cellOf(site)` gives the face of a site's territory, and `diagram.siteOf(face)` the site of a face; both take views of the exact materials involved, the site material and the diagram's faces. Here the third site's cell is hatched through `cellOf`, and every cell is labelled with its site's row through `siteOf`, which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
+The diagram remembers which site made which cell. A cell's `source` is its site: the row of the site material it came from, with every column the site carries. The other way is a question you ask of the cells: `cells.find((f) => f.source.index === 2)` is the cell of the site in row 2. Here the third site's cell is hatched through that `find`, and every cell is labelled with its site's row through `source`, which is how a category on the sites becomes a drawing of the cells: `kind` is a column on the sites, and the hatch reads it through the correspondence.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, polygon, fill, mm, label, material } from 'occlude';
@@ -58,20 +58,20 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[40, 30], [150, 26], [70, 72], [96, 50], [170, 74], [120, 86], [24, 90]])
     .points.set('kind', (p) => (p.x < 100 ? 0 : 1));
   const diagram = t.voronoi(sites);
-  const cells = diagram.faces();
-  const third = diagram.cellOf(sites.points.at(2));
-  const eastern = cells.filter((f) => diagram.siteOf(f).kind === 1);
+  const cells = diagram.faces;
+  const third = cells.find((f) => f.source.index === 2);
+  const eastern = cells.filter((f) => f.source.kind === 1);
   return [
     polygon(third, { fill: fill('hatch', { angle: 45, spacing: mm(1.2) }), stroke: false }),
     eastern.map((f) => polygon(f, { fill: fill('hatch', { angle: 135, spacing: mm(2.4) }), stroke: false })),
     strokes(diagram),
     sites.points.map((p) => circle(p.x, p.y, 1.8)),
-    cells.map((f) => label(String(diagram.siteOf(f).index), f.bounds.x + 3, f.bounds.y + 3, 3)),
+    cells.map((f) => label(String(f.source.index), f.bounds.x + 3, f.bounds.y + 3, 3)),
   ];
 });
 ```
 
-The correspondence belongs to this diagram, frozen as it was built. Edit the diagram, by moving a corner or removing a wall, and the result is new material that knows nothing of sites; ask it `siteOf` and it says so. That is not a limitation to work around but the same rule chapter 3 gave for selections: a relationship is a fact about one state.
+The correspondence belongs to the cells of this diagram, as it was built. Change its walls, by removing a wall or splitting one, and the result is new material whose faces are read again from the walls it has. No site made those faces, so their `source` is `undefined`. A write that leaves the walls as they are, such as a move of a corner or a new column, keeps the cells and their sites. That is not a limitation to work around but the same rule chapter 3 gave for selections: a relationship is a fact about one state.
 
 ## Ask what is on either side
 
@@ -84,7 +84,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const wall = ui(6, { min: 0, max: 30, step: 1, label: 'wall row' });
   const sites = material([[40, 30], [150, 26], [70, 72], [96, 50], [170, 74], [120, 86], [24, 90]]);
   const diagram = t.voronoi(sites);
-  const cells = diagram.faces();
+  const cells = diagram.faces;
   const chosen = diagram.edges.at(Math.min(wall, diagram.edges.length - 1));
   const beside = chosen.faces;
   return [
@@ -97,11 +97,11 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-This is a relationship of any planar network, not a Voronoi convenience: chapter 6's chords have it too. With `siteOf` on each side, a wall can be asked whether the two territories it separates are alike.
+This is a relationship of any planar network, not a Voronoi convenience: chapter 6's chords have it too. With `source` on each side, a wall can be asked whether the two territories it separates are alike.
 
 ## Remove a wall on purpose
 
-Two neighbouring sites of the same kind are one region; the wall between them is a wall the map does not need. Removing it is a write, `edges.remove`, and like every write it returns new material that has no correspondence. So the decision is made first, on the diagram that has it, and written onto the walls as an edge column: `diagram.edges.set('same', …)` sets `same` to 1 where both cells beside a wall have the same kind. The removal then reads only that number. After it, `faces()` is asked again, and the merged regions are the faces of the new material.
+Two neighbouring sites of the same kind are one region; the wall between them is a wall the map does not need. Removing it is a write, `edges.remove`, and like every write that changes the walls it returns new material whose faces have no `source`. So the decision is made first, on the diagram that has it, and written onto the walls as an edge column: `diagram.edges.set('same', …)` sets `same` to 1 where both cells beside a wall have the same kind. The removal then reads only that number. After it, `faces` is asked again, and the merged regions are the faces of the new material.
 
 ```ts live focus=8-11
 import { sketch, strokes, circle, polygon, fill, mm, material, group } from 'occlude';
@@ -110,11 +110,11 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[20, 30], [70, 26], [35, 72], [56, 50], [85, 74], [60, 90], [14, 90], [88, 12]])
     .points.set('kind', (p) => (p.x + p.y < 110 ? 0 : 1));
   const diagram = t.voronoi(sites, { within: { x: 0, y: 0, w: 100, h: 100 } });
-  const cells = diagram.faces();
-  const kind = (face) => diagram.siteOf(face).kind;
+  const cells = diagram.faces;
+  const kind = (face) => face.source.kind;
   const marked = diagram.edges.set('same', (e) => { const [a, b] = e.faces; return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
   const merged = marked.edges.remove(marked.edges.filter((e) => e.same === 1));
-  const regions = merged.faces();
+  const regions = merged.faces;
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-05-black' })),
     group({ translate: [100, 0] }, regions.map((f) => polygon(f, { fill: fill('hatch', { angle: f.index ? 135 : 45, spacing: mm(1.4) }), stroke: false })), strokes(merged)),
@@ -122,12 +122,12 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-Left, the diagram with its sites coloured by kind. Right, the walls between like neighbours gone, and the two regions that remain hatched from the new faces. The corners the removed walls met at are still points of the material, with two walls or none; they change nothing about the regions and are left alone. Before reading on: `merged` has two faces where `diagram` had eight. Which of the two materials can answer `siteOf`, and what would you do if you needed a region's kind?
+Left, the diagram with its sites coloured by kind. Right, the walls between like neighbours gone, and the two regions that remain hatched from the new faces. The corners the removed walls met at are still points of the material, with two walls or none; they change nothing about the regions and are left alone. Before reading on: `merged` has two faces where `diagram` had eight. Which of the two materials has faces with a `source`, and what would you do if you needed a region's kind?
 
 <details>
 <summary>What to look for</summary>
 
-Only `diagram` can. `merged` is new material, and its faces are new faces that no site made. If a region's kind is needed after the edit, it has to be derived again from something that is still true: the sites are still where they were, and a region contains them, so the kind of the sites inside it is the honest answer, decided by a rule you write. For a drawing, though, the merging is often not needed at all, as the next section shows.
+Only `diagram` does. `merged` is new material, and its faces are new faces that no site made. If a region's kind is needed after the edit, it has to be derived again from something that is still true: the sites are still where they were, and a region contains them, so the kind of the sites inside it is the honest answer, decided by a rule you write. For a drawing, though, the merging is often not needed at all, as the next section shows.
 
 </details>
 
@@ -171,7 +171,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const density = (x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 34, 6));
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
-  const cells = diagram.faces();
+  const cells = diagram.faces;
   const contrast = (e) => { const [a, b] = e.faces; return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
   const border = cells.edges.filter((e) => contrast(e) > ratio);
   return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })];
@@ -193,7 +193,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const density = (x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 34, 6));
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
-  const cells = diagram.faces();
+  const cells = diagram.faces;
   const open = diagram.edges.set('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
   const cleared = open.edges.remove(open.edges.filter((e) => e.open === 1));
   return strokes(cleared);
@@ -202,7 +202,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 Drag `countryside above area` down and the clearing eats into the town; up past the largest cell and every fence returns. In between, the country is one open region, the town keeps every wall, and the edge between them is the last ring of small cells against the open ground: the edge the border found above, drawn now by absence instead of by a heavy pen. Clearing by a rule about *both* cells is what keeps the ring: a wall with a small cell on either side is never cleared.
 
-**Keep the cells or change them, and say why.** Two drawings can look the same and be different materials, and the choice between them is not about what can be drawn. A selection of cells has `contours()`, the closed contours around its union, and `polygon` fills those, so the country can be hatched as one area without removing a single wall: select the union when several cells should be drawn as one area. Removing the walls makes a different material, whose open country is one face with no sites, and that matters only when later operations need it to be one face: measuring it in chapter 10, planarizing it against other lines, growing from its outline. Remove walls when subsequent geometry should treat the cells as one; select a union when only the drawing should. Below, both, from the same sites: left the cells kept, the country hatched through `contours()` and the town's cells hatched by distance from the centre, which needs `siteOf` and so needs the cells; right the cleared network, with the country as a face of its own.
+**Keep the cells or change them, and say why.** Two drawings can look the same and be different materials, and the choice between them is not about what can be drawn. A selection of cells has `contours()`, the closed contours around its union, and `polygon` fills those, so the country can be hatched as one area without removing a single wall: select the union when several cells should be drawn as one area. Removing the walls makes a different material, whose open country is one face with no sites, and that matters only when later operations need it to be one face: measuring it in chapter 10, planarizing it against other lines, growing from its outline. Remove walls when subsequent geometry should treat the cells as one; select a union when only the drawing should. Below, both, from the same sites: left the cells kept, the country hatched through `contours()` and the town's cells hatched by distance from the centre, which needs `source` and so needs the cells; right the cleared network, with the country as a face of its own.
 
 ```ts live focus=13-17
 import { sketch, strokes, polygon, fill, mm, distance, group, rect } from 'occlude';
@@ -213,7 +213,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     const density = t.within((x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 30, 6)), rect(x0, 0, 98, 100));
     const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density, within: { x: x0, y: 0, w: 98, h: 100 } });
     const diagram = t.voronoi(sites, { within: { x: x0, y: 0, w: 98, h: 100 } });
-    return { centre, diagram, cells: diagram.faces() };
+    return { centre, diagram, cells: diagram.faces };
   };
   const left = make(0);
   const right = make(102);
@@ -224,9 +224,9 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const cleared = open.edges.remove(open.edges.filter((e) => e.open === 1));
   return [
     polygon(country.contours(), { fill: hatch, stroke: false }),
-    town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
+    town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(f.source, left.centre)) }), stroke: false })),
     strokes(left.cells.edges, { pen: 'pigma-005-black' }),
-    cleared.faces().filter((f) => f.area > 90).map((f) => polygon(f, { fill: hatch, stroke: false })),
+    cleared.faces.filter((f) => f.area > 90).map((f) => polygon(f, { fill: hatch, stroke: false })),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
 });
@@ -247,7 +247,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const density = (x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 34, edge));
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
-  const cells = diagram.faces();
+  const cells = diagram.faces;
   const beside = (e) => e.faces;
   const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
   const marked = diagram.edges.set({
@@ -255,7 +255,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     border: (e) => (contrast(e) > ratio ? 1 : 0),
   });
   const cleared = marked.edges.remove(marked.edges.filter((e) => e.open === 1));
-  const country = cleared.faces().filter((f) => f.area > field);
+  const country = cleared.faces.filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
     strokes(cleared.edges.filter((e) => e.border === 1), { pen: 'pigma-05-black' }),
@@ -279,4 +279,4 @@ Two densities add: `Math.max` of two hills is two towns. For the road, a wall ha
 
 ## Where to look things up
 
-`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges` under *Faces and boundaries*; `edges.set` and `edges.remove` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.
+`t.voronoi` and a cell's `source` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges` under *Faces and boundaries*; `edges.set` and `edges.remove` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.

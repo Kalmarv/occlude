@@ -80,7 +80,7 @@ export type { RidgeOpts } from './ridges.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
 export type { MergeOpts } from './merge.js';
-// One selection over every domain: `m.points`, `m.edges`, `m.faces()`,
+// One selection over every domain: `m.points`, `m.edges`, `m.faces`,
 // `l.cells`, and every part of one a sketch picks out.
 export type { Selection, Keyed } from './selection.js';
 export type { Face, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
@@ -117,18 +117,17 @@ export type { ShaderValue, StrokeCtx, StrokeInk, StrokeProgram } from './shader.
 
 // Point-distribution duals: pure, so they take arbitrary point arrays.
 export type { ScatterOpts, ThrowOpts, RelaxOpts, SettleOpts, SettleParent, Bounds } from './points.js';
-// Voronoi cells as material, with the cell ↔ site correspondence on the result.
+// Voronoi cells as material: each cell's `source` is its site.
 export { hull, type Sites } from './voronoi.js';
-export type { VoronoiLinks } from './material.js';
-export { FaceMeasurements } from './measure.js';
-export type { FaceMeasure, MeasureOpts } from './measure.js';
+// `faces.measure(field?)` answers the geometry with measurement columns.
+export type { MeasureOpts } from './measure.js';
 export type { IsoOpts, IsoLevels } from './isolines.js';
 // A grid of values you can step: the stateful counterpart of a field. The
 // door is `t.lattice` — it reads the drawable and the seeded init.
-export type { Lattice, LatticeOpts, LatticeInit, LatticeValues, Cell, CellWhere } from './lattice.js';
-// Ink as a budget: the tone a drawing still owes, paid down by the marks it
-// makes. The door is `t.residual` — it reads the drawable and the nib.
-export type { Residual, ResidualOpts, SpendMarks, SpendOpts } from './residual.js';
+export type { Lattice, LatticeOpts, LatticeInit, LatticeValues, LatticeFace, LatticeWhere, SpendMarks, SpendOpts } from './lattice.js';
+// Ink as a budget: the tone a drawing still owes, a lattice column paid
+// down by the marks it makes. The door is `t.residual`.
+export type { ResidualOpts } from './residual.js';
 // Loops → signed distance field (positive inside): pure, composes with
 // isolines (offsetting is a recipe), scatter, decimate, deform.
 export { distanceTo, sdf } from './distance.js';
@@ -155,8 +154,8 @@ export { space, spaceOf } from './space.js';
 export type { Space, SpaceKind, SpaceSpec, CurvatureSpec, SpaceOption, Projection, ProjectionSpec, ProjectionOption } from './space.js';
 // `t.tiling(p, q)` is one word for the regular tilings of all three
 // geometries: the Schläfli symbol picks the sphere, the plane or the disk,
-// and the answer is a material of shared walls that still carries the cell
-// and its placements, the same shape in each.
+// and the answer is a material of shared walls whose faces are the cells,
+// each with its placement as `source`, the same shape in each.
 export { Tiling } from './tiling.js';
 export type { TilingGeometry, TilingOpts } from './tiling.js';
 // Seeds → arrival times (fast marching): the distance a walk actually

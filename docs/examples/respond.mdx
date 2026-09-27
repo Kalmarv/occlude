@@ -5,7 +5,7 @@ description: Voronoi sites move toward the light and stop when their cell is bri
 
 A relaxed cloud of sites, each with a cell. Each round, the sketch measures the light over every cell and moves the site toward the bright side of it. A site whose cell is bright enough stops. Every site counts the rounds in a column, so the round it stopped in is a column too. On the left, the cells at the end. On the right, the sites, with the stopped ones ringed by the round they stopped in.
 
-Uses: `t.scatter`, `t.relax`, `t.steps` with `move` and `points.set`, `t.voronoi`, `faces().measure(field)`, `cellOf`, `ui`.
+Uses: `t.scatter`, `t.relax`, `t.steps` with `move` and `points.set`, `t.voronoi`, `faces.measure(field)` and the face columns it writes, a face's `source`, `ui`.
 
 ```ts live
 import { sketch, strokes, circle, distance, sub, mul, group, rect, ui } from 'occlude';
@@ -19,9 +19,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 7, within: rect(0, 0, 100, 100) }), { iterations: 2, within: half }).points.set({ mobility: 1, stopped: -1, round: 0 });
   const settled = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
-    const measured = diagram.faces().measure(light, { step: 0.78125 });
-    const lit = g.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; });
-    return g.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; })
+    const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
+    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
+    return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)
       .points.set('round', (p) => p.round + 1);
   });

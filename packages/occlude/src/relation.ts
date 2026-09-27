@@ -434,7 +434,7 @@ export function extractRows(m: Material, pointRows: readonly number[], edgeRows:
     edgeIds[k] = m.edgeIds[edgeRows[k]];
     edgeRoots[k] = m.edgeRoots[edgeRows[k]];
   }
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs, space: m.space });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: m.faceAttrs, space: m.space, faces: m.stated });
 }
 
 /**

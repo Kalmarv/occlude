@@ -105,16 +105,26 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/quadtree.ts" name="QuadtreeOpts" />
 
-Divides the drawable, or the `within` area, into cells. A cell splits where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls. A wall meets a bigger cell's wall at a T, so run `planarize()` before `faces()` reads the cells.
+Divides the drawable, or the `within` area, into cells. A cell splits where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls. Where a wall meets a bigger cell's wall at a T, the two share a vertex, so `strokes` draws each wall once.
+
+The faces are every cell, from the root to the leaves, one level at a time: the root is `faces.at(0)`. A cell that split holds its four quarters. `f.children` gives them, and `f.parent` gives the cell that holds `f`. `depth` counts the splits from the root, and `leaf` is true for a cell that did not split. The leaves divide the area with no overlap: `faces.filter((f) => f.leaf)`. A cell that holds others is a face too, so a drawing that fills every face fills a parent over its children. Filter to the leaves first. The `source` of a cell is the points it holds, as a selection of the input.
+
+Below, the hatched cells are the last splits: each one split once, and its four children are all leaves. Blue lines join the centroid of each cell to the centroid of its parent. So the tree draws on top of its own cells.
 
 ```ts live
-import { sketch, circle, strokes, polygon, fill, mm, distance } from 'occlude';
+import { sketch, circle, line, strokes, polygon, fill, mm, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const tone = (x, y) => Math.max(0, 1 - distance([x, y], [35, 60]) / 40);
   const pts = t.scatter(tone, { spacing: 4 });
-  const cells = t.quadtree(pts, { capacity: 4 }).planarize().faces();
-  return [strokes(cells.edges), cells.filter((f) => f.area < 20).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), pts.points.map((p) => circle(p, 0.5, { pen: 'stabilo-88-blue' }))];
+  const tree = t.quadtree(pts, { capacity: 4 });
+  const last = tree.faces.filter((f) => !f.leaf && f.children.every((c) => c.leaf));
+  return [
+    last.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 0, spacing: mm(1.2) }) })),
+    strokes(tree),
+    tree.faces.filter((f) => f.parent).map((f) => line(f.parent.centroid, f.centroid, { pen: 'stabilo-88-blue' })),
+    pts.points.map((p) => circle(p, 0.5)),
+  ];
 });
 ```
 
@@ -122,16 +132,21 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Toolkit.voronoi.mdx</include>
 
-The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. Give `cellOf` a selection of sites to get their cells as a face selection. Give `siteOf` a face selection to get its sites. The cells stop at the drawable. `within` cuts them at an area: a rect, `t.bounds()`, a face or a shape. A cut cell closes along the edge of the area, and it keeps its site. The cells do not follow a site that moves. Build them again.
+The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces` holds the cells, one for each site that has a cell, in the order of the sites. The `source` of a cell is its site, a point row of the sites. For the sites of a face selection, write `sel.map((f) => f.source)`. The other way, the cell of one site is `cells.faces.find((f) => f.source.index === site.index)`, and the cells of a selection of sites are `cells.faces.filter((f) => chosen.has(f.source))`. A write that changes the walls reads the faces from the drawing again, and those faces have no source. The cells stop at the drawable. `within` cuts them at an area: a rect, `t.bounds()`, a face or a shape. A cut cell closes along the edge of the area, and it keeps its site. The cells do not follow a site that moves. Build them again. Below, a hatch fills the big cells, and a blue line joins each one to its site.
 
 ```ts live
-import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';
+import { sketch, circle, line, strokes, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const sites = t.scatter({ spacing: 14 });
   const cells = t.voronoi(sites);
-  const big = cells.faces().filter((f) => f.area > 160);
-  return [strokes(cells), big.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })), sites.points.map((p) => circle(p, 0.8, { pen: 'stabilo-88-blue' }))];
+  const big = cells.faces.filter((f) => f.area > 160);
+  return [
+    strokes(cells),
+    big.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })),
+    sites.points.map((p) => circle(p, 0.8, { pen: 'stabilo-88-blue' })),
+    big.map((f) => line(f.source, f.centroid, { pen: 'stabilo-88-blue' })),
+  ];
 });
 ```
 

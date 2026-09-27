@@ -11,7 +11,7 @@ A fracture has junctions, and `trim` works on chains. A single material refuses 
 
 The cells shade by their distance from it. A cell a crack runs through is dark. `adjacent()` gives the ring around those, and one more `adjacent()` gives the ring around that. Each ring is a ring and nothing more, because `adjacent()` leaves its members out.
 
-Uses: `t.voronoi`, `t.relax`, and `edges.set` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `without` and `has`. Then `edges.curves`, `curve`, `m.trim`, `faces()`, and `polygon` with a hatch fill.
+Uses: `t.voronoi`, `t.relax`, and `edges.set` reading `e.center`. Then `edges.near`, `adjacent()` on an edge selection AND on a face selection, `union`, `without` and `has`. Then `edges.curves`, `curve`, `m.trim`, `faces`, and `polygon` with a hatch fill.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm, map, curve } from 'occlude';
@@ -25,7 +25,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
     const limit = map(k, 0, 57, 0.08, 0.5);
     crack = crack.union(crack.adjacent().filter((e) => e.strength < limit));
   }
-  const cells = web.faces();
+  const cells = web.faces;
   const split = cells.filter((f) => [...f.edges].some((e) => crack.has(e)));
   const near = split.adjacent();
   const far = near.adjacent().without(split);

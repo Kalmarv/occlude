@@ -22,14 +22,14 @@ Two standard refinements, both explicit about what they read:
 | `t.relax(m, { iterations?, density?, within?, step? })` | Lloyd relaxation: each point moves to the density-weighted centroid of its cell within the area (default the area a bounded cloud came from, else the drawable). A point selection relaxes its members. Count, edges and every column are kept; nothing is written. |
 | `t.settle(m, { density, spacing, iterations?, within?, step?, point? })` | Weighted Linde-Buzo-Gray settling: relaxation plus population control. A point whose cell holds more demand than one point's capacity at `spacing` splits, a starved one dies, so the count converges to the density's ink budget. Point-only input; survivors keep their columns, children copy their parent's merged with `point` (a partial record of declared columns, or a callback of the splitting parent: `point: (parent) => ({ age: 0 })` resets a child's age and keeps its species), and `demand` is written: cell demand over capacity, 1 for a full cell. |
 
-Three quantities, three names: `density` is the field at a point, `demand` a cell's integrated density over one point's capacity, and a cell's mean density is `integral / area` from `faces().measure(field)` below. Left, a plain grid; right, the same grid after twelve settle passes over a tone field, dots sized by demand.
+Three quantities, three names: `density` is the field at a point, `demand` a cell's integrated density over one point's capacity, and a cell's mean density is `integral / area` from `faces.measure(field)` below. Left, a plain grid; right, the same grid after twelve settle passes over a tone field, dots sized by demand.
 
 ```ts live
 import { sketch, circle, material } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const dark = (x, y) => Math.max(0.03, 1 - Math.hypot(x - 50, (y - 50) * 1.8) / 50);
-  const grid = material(t.grid({ cols: 15, rows: 15 }).map((c) => [c.cx / 2, c.cy]));
+  const grid = material(t.grid({ cols: 15, rows: 15 }).faces.map((f) => [f.bounds.cx / 2, f.bounds.cy]));
   const settled = t.settle(grid, { density: dark, spacing: 4.8, iterations: 12 });
   return [
     grid.points.map((p) => circle(p.x, p.y, 0.6)),
@@ -38,7 +38,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 });
 ```
 
-`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces()` reads the cells. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and the result relates to its sites in both directions: `cells.cellOf(site)` gives a site's face, `cells.siteOf(face)` a face's site vertex, both checked against the exact site material. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so `cellOf` answers for that source's vertices and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces()` are the triangles. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
+`t.voronoi(sites, { within? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces` are the cells, in the sites' row order. Adjacent cells share their corners and one wall, the clipping boundary (the drawable by default, or any `within` area, where a cut cell closes along the boundary) is explicit, and each cell knows its site: a face's `source` is its site, a point row of the sites. The other direction is a question for the faces: `cells.faces.find((f) => f.source.index === site.index)` is a site's cell, and `cells.faces.filter((f) => chosen.has(f.source))` the cells of a selection of sites. Sites can be a material, its `points`, or a filtered selection of them: a selection keeps its source as the sites, so a cell's `source` is a row of that source, and unselected rows have no cell. Cocircular sites (a grid, a regular polygon) meet at one shared corner. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces` are the triangles. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
 
 ```ts live
 import { sketch, polygon, fill, mm, strokes, connect } from 'occlude';
@@ -49,14 +49,14 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const right = pts.points.filter((p) => p.x > 104);
   const cells = t.voronoi(left, { within: { x: 0, y: 0, w: 98, h: 100 } });
   return [
-    cells.faces().map((f) => polygon(f, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }), stroke: false } : { stroke: false })),
+    cells.faces.map((f) => polygon(f, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }), stroke: false } : { stroke: false })),
     strokes(cells),
     strokes(connect.triangulate(right)),
   ];
 });
 ```
 
-A cell is not a live construction: moving a site or a wall does not rebuild anything, and material edited or extracted from the result has no correspondence any more (asking gives an error that says so). Construct the cells again when the sites have moved.
+A cell is not a live construction: moving a site or a wall does not rebuild anything. A write that leaves the walls alone (a move, a column) keeps the cells and their sources; a write that changes the walls derives the faces from the walls again, and those faces have no `source`. Construct the cells again when the sites have moved.
 
 ### Snap to a field
 
@@ -74,15 +74,17 @@ detail and coarse on its flats, with nobody deciding where the detail is.
 Both limits are termination rules rather than budgets: coincident points can
 never be separated, so without a depth the splitting would not stop.
 
-What comes back is the subdivision as ordinary Material — the outer rectangle,
-plus the cross that split each cell that split. Not four walls per cell:
-adjacent cells of different sizes would then lay one long edge over two short
-ones, and a collinear overlap is the one thing `planarize` refuses. That is
-`m.merge()`'s job: it cuts an overlap into spans and keeps each span once, so
-the lattice needs no repair. Crosses meet their neighbours end-on or at a T,
-which planarize turns into a
-shared vertex, so `planarize().faces()` gives the cells and `strokes()` draws
-the lattice. Points outside `bounds` take no part in it.
+What comes back is the subdivision as ordinary Material whose faces are the
+cells, every one of them from the root to the leaves, breadth-first: the root
+is `faces.at(0)`, a cell's `children` are its four quadrants, and `parent`,
+`depth` and `leaf` say where it sits. The leaves are the partition,
+`faces.filter((f) => f.leaf)`, so a drawing that fills cells fills the leaves:
+a parent's fill covers its children. A cell's `source` is the points it holds,
+as a selection of the input. The walls are one planar net — the outer
+rectangle, plus the cross that split each cell that split, with a shared
+vertex wherever a cross meets a wall end-on or at a T — so `strokes()` draws
+the lattice and each wall once, and no `planarize` is needed. Points outside
+the `within` area take no part in it.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -116,10 +118,11 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const edge = img.field('edge', { area: 0.5 });
   const detail = t.scatter((x, y) => 0.04 + Math.pow(Math.min(1, edge(x, y) * 9), 2.2) * 0.96, { spacing: 1.2 });
   return t.quadtree(detail, { capacity: 2, within: { x: 4, y: 4, w: 92, h: 92 } })
-    .planarize().faces().measure()
-    .map((r) => {
-      const tone = dark(r.inscribedCentre[0], r.inscribedCentre[1]);
-      return tone < 0.2 ? null : polygon(r.face, {
+    .faces.measure().faces
+    .filter((f) => f.leaf)
+    .map((f) => {
+      const tone = dark(f.inscribedX, f.inscribedY);
+      return tone < 0.2 ? null : polygon(f, {
         fill: fill('hatch', { angle: 45, spacing: mm(0.45 + Math.pow(1 - tone, 0.7) * 5.5) }),
         stroke: false,
       });
@@ -196,10 +199,10 @@ export default sketch({ seed: 3, pens: { ink: pen({ width: mm(0.24), color: '#18
   const dark = img.field('dark', { area: 1.4 });
   const edge = img.field('edge', { area: 0.6 });
   const detail = t.scatter((x, y) => 0.03 + Math.pow(Math.min(1, edge(x, y) * 9), 1.1) * 0.97, { spacing: 1.7 });
-  const cells = t.quadtree(detail, { capacity: 2, within: { x: 0, y: 0, w: 100, h: 100 } }).planarize().faces();
-  return view(cells.measure().results.map((r) => {
-    const b = r.face.bounds;
-    const tone = dark(r.inscribedCentre[0], r.inscribedCentre[1]);
+  const cells = t.quadtree(detail, { capacity: 2, within: { x: 0, y: 0, w: 100, h: 100 } }).faces.measure().faces.filter((f) => f.leaf);
+  return view(cells.map((f) => {
+    const b = f.bounds;
+    const tone = dark(f.inscribedX, f.inscribedY);
     const h = 0.15 + tone * tone * 3.4;
     return box([(b.w / 100) * 9, (b.h / 100) * 9, h])
       .translate([((b.x + b.w / 2) / 100 - 0.5) * 9, ((b.y + b.h / 2) / 100 - 0.5) * 9, h / 2]);
@@ -222,12 +225,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const seeds = t.scatter(tone, { spacing: 3 }).points.set('side', (p) => (p.x < 100 ? 0 : 1));
   const settled = t.settle(seeds, { density: tone, spacing: 3, iterations: 20 });
   const nudged = t.steps(2, settled, (g) => {
-    const cells = t.voronoi(g);
-    const measured = cells.faces().measure(tone, { step: 1 });
+    const measured = t.voronoi(g).faces.measure(tone, { step: 1 });
     return g.move((p) => {
-      const face = cells.cellOf(p);
-      const target = face ? measured.forFace(face).weightedCentroid : null;
-      return target ? mul(sub(target, p), 0.3) : [0, 0];
+      const face = measured.faces.find((f) => f.source.index === p.index);
+      return face && Number.isFinite(face.weightedX) ? mul(sub([face.weightedX, face.weightedY], p), 0.3) : [0, 0];
     });
   });
   return nudged.points.map((p) => circle(p.x, p.y, 0.35 + 0.45 * Math.min(1.5, p.demand), { pen: p.side ? 'stabilo-88-blue' : 'pigma-005-black' }));
@@ -242,17 +243,17 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 |---|---|
 | making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.resample()` |
 | vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
-| writes | `points.set`, `edges.set`, `faces().set` write columns; `points.add`, `edges.add`, `points.remove`, `edges.remove` add and remove rows; `move`, `split`, `extrude`, `replace` are recipes over them |
+| writes | `points.set`, `edges.set`, `faces.set` write columns; `points.add`, `edges.add`, `points.remove`, `edges.remove` add and remove rows; `move`, `split`, `extrude`, `replace` are recipes over them |
 | rules | `t.steps(n, start, (g) => g2)` runs passes of writes; forces prepared once and evaluated at a point |
-| collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.adjacent()`, `.connected()`, `.components()`; `.extract()` for independent material; `.sum`, `.mean`, `.min`, `.max` |
-| areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaryEdges` and `contours()` outline a union as walls or as loops |
+| collections | `.points`, `.edges`, `.faces`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.adjacent()`, `.connected()`, `.components()`; `.extract()` for independent material; `.sum`, `.mean`, `.min`, `.max` |
+| areas | `.planarize()` shares crossings on purpose; `.faces` are the enclosed regions; `boundaryEdges` and `contours()` outline a union as walls or as loops |
 | drawing | `.curves` (the chains, in walk order), `.along()` for points to place things at, `strokes()`, `edges.groupBy`, `extent`, then `stroke`, `polygon`, `circle` |
 
 All are pure imports except `t.sample`, which reads the paper. Shapes stay exact through the engine; sampling is the one explicit lossy step into this vocabulary.
 
 ### Making a material
 
-Two conversions take a shape into material. `t.material(shape, …, { tolerance? })` keeps each boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm); several shapes become several outlines of one material, so `t.material(...circles).planarize().faces()` are the pieces their overlaps cut. `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes an open chain from positions, or a ring with `closed: true`. `material(existingMaterial)` returns that value unchanged; nonempty constructor options with an existing material are rejected. Use the writes (`m.points.set(…)`, `m.edges.add(…)`, `m.edges.remove(…)`) to edit it. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
+Two conversions take a shape into material. `t.material(shape, …, { tolerance? })` keeps each boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm); several shapes become several outlines of one material, so `t.material(...circles).planarize().faces` are the pieces their overlaps cut. `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes an open chain from positions, or a ring with `closed: true`. `material(existingMaterial)` returns that value unchanged; nonempty constructor options with an existing material are rejected. Use the writes (`m.points.set(…)`, `m.edges.add(…)`, `m.edges.remove(…)`) to edit it. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
 
 A hexagon's corners pulled toward the centre by an amount that alternates around the ring. Nothing is computed by hand: the corners are the material's rows, and the drawing is the polygon of the result.
 
@@ -266,7 +267,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-`m.points.set(name, constant | p => value, where?, { transfer? })` writes a point column and returns a new material; a column written for the first time is declared, 0 on every row the write does not reach. `m.points.set({ a: …, b: … }, where?, { transfer? })` writes several at once, every value reading the material as it was, so no column sees another's new value. `m.edges.set(…)` does the same for edge columns, each edge its own row, and `m.faces().set(…)` for face columns. Read `m.points` (vertex views `{ index, x, y, ...columns }`, so a column is `p.age`, and `m.points.map((p) => [p.x, p.y])` gives pairs), `p.adjacent` on a vertex view, `m.edges` (a column is `e.rest`) and `m.curves`, the chains as rows (see Resampling and transfer).
+`m.points.set(name, constant | p => value, where?, { transfer? })` writes a point column and returns a new material; a column written for the first time is declared, 0 on every row the write does not reach. `m.points.set({ a: …, b: … }, where?, { transfer? })` writes several at once, every value reading the material as it was, so no column sees another's new value. `m.edges.set(…)` does the same for edge columns, each edge its own row, and `m.faces.set(…)` for face columns. Read `m.points` (vertex views `{ index, x, y, ...columns }`, so a column is `p.age`, and `m.points.map((p) => [p.x, p.y])` gives pairs), `p.adjacent` on a vertex view, `m.edges` (a column is `e.rest`) and `m.curves`, the chains as rows (see Resampling and transfer).
 
 ```ts live
 import { sketch, circle, material } from 'occlude';
@@ -446,7 +447,7 @@ position, so the rest are joined to it and the tree still reaches every row.
 With fewer than three distinct positions, or all of them collinear, there is
 no triangulation to draw on and every pair becomes a candidate.
 
-The result is a tree, so `faces()` finds nothing in it, `strokes` walks each
+The result is a tree, so `faces` finds nothing in it, `strokes` walks each
 arm, and `p.adjacent.length` tells a tip from a fork.
 
 ```ts live
@@ -629,7 +630,7 @@ degree-4 vertex, so an arrangement of closed curves qualifies — comes back as
 
 The split vertices sit on top of one another, which is exactly what they are:
 one place the pen passes through twice. That makes the result a *drawing*
-rather than a structure, and `faces()` will rightly refuse it. Keep the
+rather than a structure, and `faces` will rightly refuse it. Keep the
 original to ask questions of, and trail the copy to plot it.
 
 Each faint line below is the pen travelling with its nib up.
@@ -715,12 +716,12 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const density = (x, y) => 0.12 + dark(x, y) * 0.88;
   const sites = t.settle(t.scatter(density, { spacing: 5.4 }), { density, spacing: 5.4, iterations: 10 });
   const cells = t.voronoi(sites);
-  const measured = cells.faces().measure();
+  const measured = cells.faces.measure();
   const walls = cells.trails();
   console.error(`walls: chains=${cells.curves.length} trails=${walls.curves.length}`);
   return [
-    measured.map((r) => polygon(r.face, {
-      fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.58 + Math.pow(1 - dark(...r.inscribedCentre), 0.8) * 3) }),
+    measured.faces.map((f) => polygon(f, {
+      fill: fill('hatch', { angle: degrees(f.orientation), spacing: mm(0.58 + Math.pow(1 - dark(f.inscribedX, f.inscribedY), 0.8) * 3) }),
       stroke: false,
     })),
     strokes(walls, { pen: 'pigma-005-black' }),
@@ -946,9 +947,10 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const pull = (p, q) => mul(unit(sub(q, p)), 60 / (length(sub(q, p)) + 20));
   return [
     anchors.map((a) => circle(a.x, a.y, 3)),
-    t.grid({ cols: 20, rows: 10 }).map((c) => {
-      const f = sumBy(anchors, (a) => pull(c, a));
-      return line(c.cx, c.cy, c.cx + f[0], c.cy + f[1]);
+    t.grid({ cols: 20, rows: 10 }).faces.map((cell) => {
+      const [x, y] = cell.centroid;
+      const f = sumBy(anchors, (a) => pull([x, y], a));
+      return line(x, y, x + f[0], y + f[1]);
     }),
   ];
 });
@@ -956,7 +958,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ## Collections and selections
 
-`m.points`, `m.edges` and `m.faces()` are geometry collections: iterate them, read `length`, take `at(i)`, `map` to an ordinary array, `find`, `filter` and `groupBy`. `filter` returns a selection: the same kind of collection, bound to the same state, holding the rows the predicate picked in source order, so it filters, iterates, maps and groups again like the whole. Nothing is copied or changed; views are the source's own, with their ownership. `groupBy(classifier)` splits a collection into an array of selections by key, in first-occurrence order, each carrying its `key`; the key is the classification that made the group, not a column, and a later state knows nothing of it. Independent material is made on purpose with `extract()`.
+`m.points`, `m.edges` and `m.faces` are geometry collections: iterate them, read `length`, take `at(i)`, `map` to an ordinary array, `find`, `filter` and `groupBy`. `filter` returns a selection: the same kind of collection, bound to the same state, holding the rows the predicate picked in source order, so it filters, iterates, maps and groups again like the whole. Nothing is copied or changed; views are the source's own, with their ownership. `groupBy(classifier)` splits a collection into an array of selections by key, in first-occurrence order, each carrying its `key`; the key is the classification that made the group, not a column, and a later state knows nothing of it. Independent material is made on purpose with `extract()`.
 
 A selection is consumed where its domain makes sense: `strokes(edges)` draws the selected chains, and `polygon`, `distanceTo` and `force.boundary` take an edge selection as a boundary of its own topology, so a ring picked out of a network is an area even though the network is not. A point selection contributes only the edges that already join its members. Faces are areas already: draw them one by one with `cells.map((f) => polygon(f))` or outline their union with `contours()`. A face collection is not one area, so it must say which. The same goes for a shape: `polygon(circle(50, 50, 20))` reads the circle's boundary as an area, so a clip needs no separately named value.
 
@@ -980,7 +982,7 @@ import { sketch, strokes, circle, connect, ui } from 'occlude';
 // selection too), and the points the long edges touch.
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const longest = ui(18, { min: 6, max: 28, step: 1 });
-  const mesh = connect.triangulate(t.grid({ cols: 13, rows: 7 }).map((c) => [c.cx + t.rnd(-4.4, 4.4), c.cy + t.rnd(-4, 4)]));
+  const mesh = connect.triangulate(t.grid({ cols: 13, rows: 7 }).faces.map((f) => [f.bounds.cx + t.rnd(-4.4, 4.4), f.bounds.cy + t.rnd(-4, 4)]));
   const long = mesh.edges.filter((e) => e.length > longest);
   return [
     strokes(mesh.edges.without(long), { pen: 'pigma-005-black' }),
@@ -1028,7 +1030,7 @@ import { sketch, strokes, circle, group, connect } from 'occlude';
 // vertex's connected neighbours, so the edges between warm vertices
 // outline exactly the neighbourhood, derived from the topology.
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
-  const mesh = connect.triangulate(t.grid({ cols: 9, rows: 8 }).map((c) => [c.cx * 0.48 + t.rnd(-2.4, 2.4), c.cy + t.rnd(-2.8, 2.8)]));
+  const mesh = connect.triangulate(t.grid({ cols: 9, rows: 8 }).faces.map((f) => [f.bounds.cx * 0.48 + t.rnd(-2.4, 2.4), f.bounds.cy + t.rnd(-2.8, 2.8)]));
   const hot = [12, 39, 61];
   const raw = mesh.points.set('hot', (p) => (hot.includes(p.index) ? 1 : 0));
   const warm = raw.points.set('warmth', (p) => p.adjacent.mean('hot'));
@@ -1101,7 +1103,7 @@ Inside a pass the geometry is a value like any other, and the writes make the ne
 |---|---|
 | `g.points.set(column, value, where?, { transfer? })`, `g.points.set({ column: value, … }, where?, …)` | write point columns; a value is a number or `(p) => number`; `x` and `y` are the position |
 | `g.edges.set(column, value, where?, { transfer? })` | write edge columns |
-| `g.faces().set(column, value, where?, { transfer?, fallback? })` | write face columns; a face keeps its column through later changes of its walls |
+| `g.faces.set(column, value, where?, { transfer?, fallback? })` | write face columns; a face keeps its column through later changes of its walls, and a face no write reached reads `fallback`, else 0 |
 | `g.points.add(position \| point(xy, columns))` | add a point; a new point gives every declared column |
 | `g.edges.add([a, b], columns?)` | add an edge between two points: views, or point values |
 | `g.points.remove(points)`, `g.edges.remove(edges)` | remove points with their edges, or edges without their points; neighbours are never joined |
@@ -1219,7 +1221,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const b = t.bounds();
   const anchors = [[0.22 * b.w, 0.6 * b.h], [0.54 * b.w, 0.24 * b.h], [0.82 * b.w, 0.72 * b.h]];
   const toward = force.separation(anchors, { radius: 0.34 * b.w, amount: -1 / (0.34 * b.w) });
-  const marks = material(t.grid({ cols: 24, rows: 12 }).map((c) => [c.cx, c.cy]));
+  const marks = material(t.grid({ cols: 24, rows: 12 }).faces.map((f) => [f.bounds.cx, f.bounds.cy]));
   const gathered = t.steps(90, marks, (g) => g.move((p) => mul(toward(p), 0.16)), { every: 1 });
   const trail = (i) => gathered.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
   return [
@@ -1238,7 +1240,7 @@ import { sketch, stroke, circle, material, force } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const b = t.bounds();
   const drifts = [0.004, 0.02, 0.12].map((frequency) => force.drift(t.noise, { amount: 0.32, frequency }));
-  const marks = material(t.grid({ cols: 18, rows: 6 }).map((c) => [c.cx, c.cy])).points.set('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
+  const marks = material(t.grid({ cols: 18, rows: 6 }).faces.map((f) => [f.bounds.cx, f.bounds.cy])).points.set('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
   const wandered = t.steps(55, marks, (g) => g.move((p) => drifts[p.band](p)), { every: 1 });
   const trail = (i) => wandered.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
   return [marks.points.map((p) => stroke(trail(p.index))), marks.points.map((p) => circle(p.x, p.y, 0.6))];
@@ -1410,15 +1412,19 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 
 ## Faces and boundaries
 
-The regions a network encloses are data too. `m.planarize()` makes every crossing and every endpoint-on-edge contact a shared vertex; nothing else does this for you, because connecting lines that merely cross is a decision. `m.faces()` then reads the bounded regions of that planar state: a tree has none, a ring one, a square with a diagonal two.
+The regions a network encloses are data too. `m.faces` is a property: the faces of that one state, worked out the first time it is read and kept on the value. A word that knows its faces states them: `t.tiling`, `t.grid`, `t.voronoi` and `t.quadtree` give their faces in the order they made them (a tiling as it generates, a grid row by row, Voronoi cells in site order, a quadtree breadth-first from the root). Any other material derives its faces from its walls. `m.planarize()` makes every crossing and every endpoint-on-edge contact a shared vertex; nothing else does this for you, because connecting lines that merely cross is a decision. `m.faces` then reads the bounded regions of that planar state: a tree has none, a ring one, a square with a diagonal two.
+
+Stated faces stay through every write that leaves the edges alone: a move, `points.set`, `faces.set`. A write that changes the edges (`edges.add`, `edges.remove`, `split`, `extrude`, …) drops them, and the faces of the new state are derived from its walls. Face columns go with the walls: a derived face takes the value of the old face it shares the most walls with (`transfer: 'nearest'`, the default), or the column stops there (`'drop'`). A face column is dense: every face has a number for every face column, and a face that no write reached and that takes nothing from an old face reads the column's `fallback`, else 0.
 
 | Value | Meaning |
 |---|---|
 | `m.planarize({ point?, edges? })` | independent material with crossings and contacts shared and edges split in order; overlaps, duplicate edges and zero-length edges are errors naming the rows |
 | `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
 | `edges: (parent, child) => attrs` | child edge attributes over the parent's |
-| `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows and collections read the same way: `face.edges` and `cells.edges` |
-| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `centroid` (holes respected; field-weighted centres come from `measure()`), `contours()` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); and `adjacent`, the faces across its walls as a selection |
+| `m.faces` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows and collections read the same way: `face.edges` and `cells.edges` |
+| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds` (a rect record `x`, `y`, `w`, `h`, `cx`, `cy`, an area in its own right), `centroid` (holes respected; field-weighted centres come from `measure()`), `contours()` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); `adjacent`, the faces across its walls as a selection; and its face columns, read flat (`f.height`) |
+| `face.source` | what the face came from: a Voronoi cell's site (a point row of the sites), a tile's placement cell, a quadtree cell's points (a selection of the input); undefined for a derived face |
+| `face.parent`, `face.children`, `face.depth`, `face.leaf` | where the face sits when faces nest: a quadtree states every cell from the root to the leaves, so `parent` is the cell that holds it (undefined for the root), `children` its quadrants as a selection (empty for a leaf), `depth` its steps from the root and `leaf` whether it holds none. A face that does not nest is a root and a leaf |
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `without` |
 | `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
 | `cells.points`, `sel.points` | the endpoints of those edges, once |
@@ -1426,11 +1432,11 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `cells.adjacent()`, `sel.adjacent()`, `face.adjacent` | the faces across the walls of the (selected) faces, one hop: neighbours share a wall, not merely a corner, and a selected neighbour is collected too, so `sel.adjacent().without(sel)` is the ring outside |
 | `cells.boundaryEdges()`, `sel.boundaryEdges()` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
 | `cells.contours()`, `sel.contours()` | closed contours around the same union boundary, as loops: what `polygon` reads for the union |
-| `cells.measure(field?, { step?, bounds?, precision? })` | per-face geometric `area`, `centroid`, `orientation`, `elongation`, `inscribedCentre` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
+| `cells.measure(field?, { step?, bounds?, precision? })` | the geometry with the measurements as face columns: `orientation`, `elongation`, the inscribed circle's `inscribedX`, `inscribedY` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean`, `samples` and density-weighted centre `weightedX`, `weightedY`. Read them on the result's `faces`, in the same order (`measured.faces.at(f.index)`); a face the selection left out reads 0 |
 
 A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
 
-Measurements are midpoint sums on a square raster (cells of side `step`, a length in the material's units, default the long side of `bounds` over 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. `integral` is that sum; `mean` is the average of the samples that fell inside, which keeps it within the field's own range however small the face is, and is `NaN` for a face that caught no sample at all — a region too small for the raster reports no measurement rather than a zero. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
+Measurements are midpoint sums on a square raster (cells of side `step`, a length in the material's units, default the long side of `bounds` over 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. `integral` is that sum; `mean` is the average of the samples that fell inside, which keeps it within the field's own range however small the face is, and is `NaN` for a face that caught no sample at all — a region too small for the raster reports no measurement rather than a zero. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total `weightedX` and `weightedY` are NaN, while a signed field still has an integral and a mean. A measurement is written once: its columns are values like any other face column, carried by later writes and never measured again.
 
 Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so the default `'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `contours()`.
 
@@ -1450,7 +1456,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
     chord(40, 48, 92, 84),
   ].reduce((a, b) => append(a, b));
   const planar = net.planarize();
-  const cells = planar.faces();
+  const cells = planar.faces;
   return [
     strokes(net),
     group({ translate: [100, 0] },
@@ -1472,7 +1478,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   let net = append(curve([[12, 12], [88, 12], [88, 88], [12, 88]], { closed: true }), curve([[36, 36], [64, 36], [64, 64], [36, 64]], { closed: true }));
   net = append(net, curve([[12, 50], [36, 50]], { closed: false }));
   net = append(net, curve([[64, 50], [88, 50]], { closed: false }));
-  const cells = net.planarize().faces();
+  const cells = net.planarize().faces;
   const chosen = cells.filter((f) => f.area > 1200 || inner);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.1) });
   return [
@@ -1487,13 +1493,13 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ### The shape of a face
 
-Four of a measurement's columns are exact from the contours and need no field, so `cells.measure()` with nothing in it still answers *what shape is this region*.
+Five of a measurement's columns are exact from the contours and need no field, so `cells.measure()` with nothing in it still answers *what shape is this region*.
 
 | Column | Meaning |
 |---|---|
-| `orientation` | the principal axis of the face's area, in radians like every other computed angle (`degrees(r.orientation)` for a `rotate` or a hatch `angle`) |
+| `orientation` | the principal axis of the face's area, in radians like every other computed angle (`degrees(f.orientation)` for a `rotate` or a hatch `angle`) |
 | `elongation` | `1 −` minor/major of the equivalent ellipse: 0 for a disc or a square, approaching 1 for a sliver — the column that says how much to trust `orientation` |
-| `inscribedCentre` | the centre of the largest circle that fits inside the face, holes respected |
+| `inscribedX`, `inscribedY` | the centre of the largest circle that fits inside the face, holes respected |
 | `inscribedRadius` | that circle's radius, 0 for a face with no interior |
 
 Orientation and elongation come from the face's area second moments, summed over its contours with their winding, so a hole subtracts its own moments rather than being patched around. A face whose moments are isotropic has no principal axis and reports `orientation` 0 with `elongation` 0, instead of an arbitrary angle you might have believed.
@@ -1516,13 +1522,13 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
     .reduce((a, b) => append(a, b));
   return [
     strokes(net),
-    net.planarize().faces().measure().map((r) => {
-      const [x, y] = r.inscribedCentre;
-      const reach = r.inscribedRadius * 0.8;
+    net.planarize().faces.measure().faces.map((f) => {
+      const x = f.inscribedX, y = f.inscribedY;
+      const reach = f.inscribedRadius * 0.8;
       return [
-        circle(x, y, r.inscribedRadius, { pen: 'stabilo-88-blue' }),
-        line(x - Math.cos(r.orientation) * reach, y - Math.sin(r.orientation) * reach,
-             x + Math.cos(r.orientation) * reach, y + Math.sin(r.orientation) * reach, { pen: 'stabilo-88-blue' }),
+        circle(x, y, f.inscribedRadius, { pen: 'stabilo-88-blue' }),
+        line(x - Math.cos(f.orientation) * reach, y - Math.sin(f.orientation) * reach,
+             x + Math.cos(f.orientation) * reach, y + Math.sin(f.orientation) * reach, { pen: 'stabilo-88-blue' }),
       ];
     }),
   ];
@@ -1568,11 +1574,11 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
     }
   }
   const net = parts.reduce((a, b) => append(a, b)).planarize();
-  const measured = net.faces().measure();
+  const measured = net.faces.measure();
   return [
-    measured.map((r) => polygon(r.face, { fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.26 + r.inscribedRadius * 0.17) }), stroke: false })),
+    measured.faces.map((f) => polygon(f, { fill: fill('hatch', { angle: degrees(f.orientation), spacing: mm(0.26 + f.inscribedRadius * 0.17) }), stroke: false })),
     strokes(net, { pen: 'pigma-005-black' }),
-    measured.results.filter((r) => r.inscribedRadius > 3.6).map((r) => circle(r.inscribedCentre[0], r.inscribedCentre[1], r.inscribedRadius * 0.55, { opaque: true, pen: 'stabilo-88-blue' })),
+    measured.faces.filter((f) => f.inscribedRadius > 3.6).map((f) => circle(f.inscribedX, f.inscribedY, f.inscribedRadius * 0.55, { opaque: true, pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -1587,21 +1593,21 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const dark = img.field('dark', { area: 1.1 });
   const disc = circle(50, 50, 44);
   const cells = t.within(t.voronoi(t.relax(t.scatter({ spacing: 3.2, within: disc }), { iterations: 2, within: disc })), disc);
-  return cells.faces().measure().results.map((r) => {
-    const [x, y] = r.inscribedCentre;
+  return cells.faces.measure().faces.map((f) => {
+    const x = f.inscribedX, y = f.inscribedY;
     const d = dark(x, y);
-    const size = r.inscribedRadius * Math.min(1, d * 1.3);
+    const size = f.inscribedRadius * Math.min(1, d * 1.3);
     if (size < 0.2) return null;
     // Tone twice over: the mark grows to fill its cell, and darker cells
     // carry more rings inside that same bound. Nothing can ever collide.
     const rings = d > 0.7 ? 2 : 1;
-    return group({ rotate: degrees(r.orientation), scale: [1, 1 - r.elongation], origin: [x, y] },
+    return group({ rotate: degrees(f.orientation), scale: [1, 1 - f.elongation], origin: [x, y] },
       t.times(rings, (k) => circle(x, y, (size * (k + 1)) / rings, { pen: 'pigma-005-black' })));
   });
 });
 ```
 
-Poked: a measurement is a table, and its columns are ordinary values, so they can be fed back into the verb that produced them. Lift one generation's inscribed centres with `material(points)` and they are the sites for the next generation's cells — a relaxation that moves each site to its cell's *incentre* rather than its centroid. It is not a named algorithm anywhere and it is three lines here, and it converges on something Lloyd does not: a near circle packing. The pale cells are where it started and the dark ones where it settled.
+Poked: a measurement's columns are ordinary values, so they can be fed back into the verb that produced them. Lift one generation's inscribed centres with `material(points)` and they are the sites for the next generation's cells — a relaxation that moves each site to its cell's *incentre* rather than its centroid. It is not a named algorithm anywhere and it is three lines here, and it converges on something Lloyd does not: a near circle packing. The pale cells are where it started and the dark ones where it settled.
 
 ```ts live
 import { sketch, strokes, circle, material } from 'occlude';
@@ -1613,13 +1619,13 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
     const cells = t.voronoi(sites);
     generations.push(cells);
     // The incentres of this generation are the sites of the next one.
-    sites = material(cells.faces().measure().map((r) => [...r.inscribedCentre]));
+    sites = material(cells.faces.measure().faces.map((f) => [f.inscribedX, f.inscribedY]));
   }
   const last = generations[generations.length - 1];
   return [
     strokes(generations[0], { pen: 'stabilo-88-blue' }),
     strokes(last, { pen: 'pigma-005-black' }),
-    last.faces().measure().map((r) => circle(r.inscribedCentre[0], r.inscribedCentre[1], r.inscribedRadius, { pen: 'pigma-005-black' })),
+    last.faces.measure().faces.map((f) => circle(f.inscribedX, f.inscribedY, f.inscribedRadius, { pen: 'pigma-005-black' })),
   ];
 });
 ```
@@ -1644,11 +1650,11 @@ export default sketch({ seed: 11, pens: {
   // One scale per cell, bounded by the circle that cell can hold and turned
   // onto its own axis. Each sits inside its own cell, so no two can overlap —
   // and the chart carries that guarantee onto the form.
-  const scales = cells.faces().measure().results.filter((r) => r.inscribedRadius > 0.7).map((r) => {
-    const [cx, cy] = r.inscribedCentre;
-    const a = r.orientation;
-    const rx = r.inscribedRadius * 0.94;
-    const ry = rx * (1 - r.elongation * 0.8);
+  const scales = cells.faces.measure().faces.filter((f) => f.inscribedRadius > 0.7).map((f) => {
+    const cx = f.inscribedX, cy = f.inscribedY;
+    const a = f.orientation;
+    const rx = f.inscribedRadius * 0.94;
+    const ry = rx * (1 - f.elongation * 0.8);
     return curve(t.times(24, (k, u) => {
       const th = u * Math.PI * 2;
       const px = Math.cos(th) * rx;
@@ -1670,7 +1676,7 @@ export default sketch({ seed: 11, pens: {
 
 ### Editable cellular drawing
 
-Voronoi cells as ordinary material. The large cells are selected; their internal walls are the edges the selection has that are not on its boundary, and one write removes them, so the rooms open into each other. The edited material draws like any other; it is no longer anyone's Voronoi cell, and asking it for a site is an error by design.
+Voronoi cells as ordinary material. The large cells are selected; their internal walls are the edges the selection has that are not on its boundary, and one write removes them, so the rooms open into each other. The edited material draws like any other; its walls changed, so its faces are derived from them again, and no face has a `source`: it is no longer anyone's Voronoi cell.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm } from 'occlude';
@@ -1678,7 +1684,7 @@ import { sketch, strokes, polygon, fill, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 2 });
   const cells = t.voronoi(sites);
-  const rooms = cells.faces().filter((f) => f.area > 260);
+  const rooms = cells.faces.filter((f) => f.area > 260);
   const internal = rooms.edges.without(rooms.boundaryEdges());
   const opened = cells.edges.remove(internal);
   // The boundary goes down first: ink laid on ink already there is dropped,
@@ -1724,11 +1730,10 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
     return grown.points.set('active', 0, tips);
   });
   const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, generation: Math.max(...ev.candidates.map((c) => c.attrs.generation)) }) });
-  const enclosed = planar.faces();
+  const enclosed = planar.faces;
   if (enclosed.length === 0) return strokes(web);
   const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 70, y - 40) / 90);
-  const measured = enclosed.measure(light, { step: 1 });
-  const lit = enclosed.filter((f) => f.area > 25 && measured.forFace(f).mean > 0.5);
+  const lit = enclosed.measure(light, { step: 1 }).faces.filter((f) => f.area > 25 && f.mean > 0.5);
   return [
     lit.map((f) => polygon(f, { fill: fill('hatch', { angle: 60, spacing: mm(1.2) }), stroke: false })),
     strokes(lit.boundaryEdges(), { pen: 'stabilo-88-blue' }),
@@ -1746,7 +1751,7 @@ import { sketch, strokes, polygon, fill, mm, connect, extent, ui } from 'occlude
 
 export default sketch({ aspect: [2, 1], seed: 33 }, (t) => {
   const minimum = ui(40, { min: 0, max: 160, step: 5, label: 'minimum area' });
-  const cells = connect.triangulate(t.grid({ cols: 14, rows: 7 }).map((c) => [c.cx + t.rnd(-5.2, 5.2), c.cy + t.rnd(-4.8, 4.8)])).faces();
+  const cells = connect.triangulate(t.grid({ cols: 14, rows: 7 }).faces.map((f) => [f.bounds.cx + t.rnd(-5.2, 5.2), f.bounds.cy + t.rnd(-4.8, 4.8)])).faces;
   // Three equal bands over the areas' own range.
   const [lo, hi] = extent(cells.map((f) => f.area));
   const band = (v) => Math.min(2, Math.max(0, Math.floor(((v - lo) / (hi - lo)) * 3)));
@@ -1893,7 +1898,7 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const pens = ['pigma-01-black', 'stabilo-88-green', 'stabilo-88-blue'];
   // a crossing's age is a decision, because the two edges' ages disagree
   const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, age: Math.max(...ev.candidates.map((c) => c.attrs.age)) }) });
-  const cells = planar.faces().filter((f) => f.area > 3);
+  const cells = planar.faces.filter((f) => f.area > 3);
   return [
     strokes(web),
     group({ translate: [50, 0] }, web.edges.groupBy((e) => band((e.a.age + e.b.age) / 2)).map((g) => strokes(g, { pen: pens[g.key] }))),
@@ -1969,7 +1974,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
       .reduce((a, b) => append(a, b))
       .planarize();
     return [
-      t.within(network.faces(), frame, { keep }).map((f) => polygon(f, { fill: hatch, stroke: false })),
+      t.within(network.faces, frame, { keep }).map((f) => polygon(f, { fill: hatch, stroke: false })),
       strokes(network, { pen: 'pigma-005-black' }),
       strokes(t.material(frame), { pen: 'pigma-05-black' }),
     ];
@@ -2087,10 +2092,10 @@ import { sketch, strokes, polygon, circle, fill, mm, degrees } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const ring = t.sample(circle(100, 50, 21), { count: 900 });
   const knot = ring.oscillate({ wavelength: 11, amplitude: 27 }).planarize();
-  const measured = knot.faces().measure();
+  const measured = knot.faces.measure();
   return [
-    measured.results.filter((r) => r.inscribedRadius > 1.2).map((r) =>
-      polygon(r.face, { fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.3 + r.inscribedRadius * 0.2) }), stroke: false })),
+    measured.faces.filter((f) => f.inscribedRadius > 1.2).map((f) =>
+      polygon(f, { fill: fill('hatch', { angle: degrees(f.orientation), spacing: mm(0.3 + f.inscribedRadius * 0.2) }), stroke: false })),
     strokes(knot, { pen: 'stabilo-88-blue' }),
   ];
 });

@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { Placement } from '../src/placement.js';
 import { toolkit } from './helpers/run.js';
 import { circle, distanceTo, line, space } from '../src/index.js';
 import { xy } from './helpers/xy.js';
@@ -94,7 +95,9 @@ describe('an area is read as geodesics', () => {
 
   it('is negative outside, and the sign follows the winding', () => {
     const t = hyp();
-    const { cell, placements } = t.tiling(7, 3, { depth: 1 });
+    const tiles = t.tiling(7, 3, { depth: 1 });
+    const { cell } = tiles;
+    const placements = tiles.faces.map((f) => f.source as Placement);
     const f = t.distanceTo(cell);
     // The seat of a neighbouring copy is outside the cell.
     for (const place of placements.slice(1)) {

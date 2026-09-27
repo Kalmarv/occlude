@@ -235,9 +235,9 @@ describe('occlude declarative api', () => {
 
     const gridDef = sketch({ aspect: [2, 1], seed: 1 }, ({ grid, bounds }) => {
       const b = bounds();
-      const cells = grid({ cols: 4, rows: 2 });
-      const maxX = Math.max(...cells.map((c) => c.x + c.w));
-      const maxY = Math.max(...cells.map((c) => c.y + c.h));
+      const cells = grid({ cols: 4, rows: 2 }).faces;
+      const maxX = Math.max(...cells.map((c) => c.bounds.x + c.bounds.w));
+      const maxY = Math.max(...cells.map((c) => c.bounds.y + c.bounds.h));
       expect(maxX).toBeCloseTo(b.w, 9);
       expect(maxY).toBeCloseTo(b.h, 9);
       return line(0, 0, b.w, 0);
@@ -897,7 +897,7 @@ describe('points: scatter / relax / settle / voronoi', () => {
   it('delaunay is a connection between the sites', () => {
     const pts = [[10, 10], [90, 10], [50, 80], [30, 40]] as [number, number][];
     // One interior point -> 3 triangles.
-    expect(connect.triangulate(pts).faces().length).toBe(3);
+    expect(connect.triangulate(pts).faces.length).toBe(3);
   });
 });
 
@@ -1024,13 +1024,13 @@ describe('live-coding guards', () => {
     expect(range(0, 3)).toEqual([0, 1, 2]);
     // The layout grid reads the same rule: no cells to lay out, no cells.
     const none = sketch({ aspect: [1, 1] }, (t) => [
-      ...t.grid({ cols: 0, rows: 4 }).map((c) => rect(c.x, c.y, c.w, c.h)),
+      ...t.grid({ cols: 0, rows: 4 }).faces.map((c) => rect(c.bounds.x, c.bounds.y, c.bounds.w, c.bounds.h)),
       circle(50, 50, 10),
     ]);
     expect(sq(none).frags.length).toBeGreaterThan(0);
     // grid needs sketch state for bounds(): validate via a render.
     const def = sketch({ aspect: [1, 1] }, (t) =>
-      t.grid({ cols: 1e6, rows: 1e6 }).map((c) => rect(c.x, c.y, c.w, c.h)),
+      t.grid({ cols: 1e6, rows: 1e6 }).faces.map((c) => rect(c.bounds.x, c.bounds.y, c.bounds.w, c.bounds.h)),
     );
     expect(() => sq(def)).toThrow(/grid.*cap/);
   });

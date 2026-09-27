@@ -3,7 +3,7 @@
  * diagram of a point set clipped to a rectangle and returns a Material
  * whose vertices are the cell corners and whose edges are the walls:
  * adjacent cells share their vertices and one wall, the clipping boundary
- * is explicit, and `faces()` reads the cells. The topology comes from the
+ * is explicit, and `faces` are the cells. The topology comes from the
  * Delaunay triangulation (d3-delaunay's Delaunator): every interior wall
  * is the segment between the circumcentres of two neighbouring triangles,
  * every hull wall a ray from a circumcentre away from the hull, both
@@ -14,14 +14,15 @@
  * 1e-9 of the diagram's scale are one vertex, and the zero-length walls
  * between them are dropped.
  *
- * The result carries a correspondence to its sites: `cells.cellOf(site)`
- * and `cells.siteOf(face)`, both ownership-checked, valid for the frozen
- * result and its selections only. Sites given as a point selection (a
- * material's `points`, or a filtered part of it) keep their source: the
- * correspondence answers for that source's vertices, and rows outside the
- * selection have no cell. Editing or extracting the result makes
- * new material with no correspondence; a moved site set needs a new
- * construction. Nothing here is live.
+ * The cells are STATED faces, one per site that has one, in the sites'
+ * row order, and each face's `source` is its site: a point row of the
+ * sites (of a point selection's own material, when the sites are a
+ * selection). The inverse is a question for the faces:
+ * `cells.faces.find((f) => f.source.index === site.index)`, or for many
+ * sites `cells.faces.filter((f) => chosen.has(f.source))`. A write that
+ * leaves the walls alone (a move, a column) keeps the cells and their
+ * sources; one that changes the walls reads the faces off the picture
+ * again, and those have no source.
  *
  * Duplicate sites: the site with the lowest row owns the cell (the
  * triangulation keeps the first of coincident points); the others have no
@@ -30,7 +31,8 @@
 
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
-import { Material, attachVoronoi, material, withinMaterial, type PointsLike, type Vertex } from './material.js';
+import { Material, material, withFaces, withinMaterial, type PointsLike, type Vertex } from './material.js';
+import { walkRuns } from './faces.js';
 import { isPointSelection } from './relation.js';
 import type { Selection } from './selection.js';
 import type { Bounds } from './points.js';
@@ -141,65 +143,71 @@ export interface VoronoiWalls {
 }
 
 /** The material of a rectangle-clipped Voronoi diagram of `sites`, in
- * `space` when the toolkit names the sketch's: the cells are a chart
- * construction either way, and their correspondence is kept on THIS
- * material, so the space goes in here rather than onto a copy.
+ * `space` when the toolkit names the sketch's, its faces the cells.
  *
  * `within`, when given, is an area that is not its own box (the box is
  * `bounds`): the diagram is built over the box and then cut at the area,
  * each cut cell closed along the boundary, so a cell is the part of the
- * site's region inside the area. A cell the area splits in two is two
- * faces of one site; `cellOf` answers the larger. */
+ * site's region inside the area. A cell the area splits in two is ONE
+ * face of its site, with two outer runs. */
 export function voronoiOf(sites: Sites, bounds: Bounds, space?: Space, within?: readonly (readonly [number, number])[][]): Material {
   const { source, rows } = sitesOf(sites);
   const { vx, vy, edges, del } = voronoiWalls(sites, bounds);
   const boxed = new Material(Float64Array.from(vx), Float64Array.from(vy), {}, Uint32Array.from(edges), { space });
   const m = within ? withinMaterial(boxed, within as [number, number][][]) : boxed;
-  // Faces ↔ sites: a cell is convex, so its area centroid lies inside it and
-  // names the site by nearest-site search. Site numbers are rows of the
-  // source; rows outside a selection have no cell. A cell cut at an area
-  // need not be convex, so there the centroid is checked, and a point that
-  // is inside is looked for when it is not.
-  const cells = m.faces(); // cached on the material: every later faces() is this collection
-  const siteOfFace = new Int32Array(cells.length).fill(-1);
-  const faceOfSite = new Int32Array(source.n).fill(-1);
-  if (del) {
-    const areaOf = new Float64Array(cells.length);
-    for (const f of cells) {
-      const outer = f.contours()[0].pts;
-      let cx = 0;
-      let cy = 0;
-      let a2 = 0;
-      for (let k = 0; k < outer.length; k++) {
-        const [x0, y0] = outer[k];
-        const [x1, y1] = outer[(k + 1) % outer.length];
-        const cross = x0 * y1 - x1 * y0;
-        a2 += cross;
-        cx += (x0 + x1) * cross;
-        cy += (y0 + y1) * cross;
-      }
-      if (a2 === 0) continue;
-      cx /= 3 * a2;
-      cy /= 3 * a2;
-      if (within) {
-        const at = pointInside(f.contours(), cx, cy, f.bounds);
-        if (!at) continue;
-        [cx, cy] = at;
-      }
-      const k = del.find(cx, cy);
-      if (k < 0) continue;
-      const s = rows[k];
-      areaOf[f.index] = Math.abs(a2);
-      if (faceOfSite[s] !== -1 && !(within && areaOf[f.index] > areaOf[faceOfSite[s]])) {
-        if (within) siteOfFace[f.index] = s;
-        continue;
-      }
-      siteOfFace[f.index] = s;
-      faceOfSite[s] = f.index;
+  if (!del || m.edgeCount === 0) return m;
+  // The regions the walls enclose, read off the picture once, each named
+  // by its site: a cell is convex, so its area centroid lies inside it and
+  // names the site by nearest-site search. A cell cut at an area need not
+  // be convex, so there the centroid is checked, and a point that is
+  // inside is looked for when it is not.
+  const runsOf = new Map<number, number[][]>();
+  const loose: number[][][] = [];
+  for (const runs of walkRuns(m)) {
+    const outer = runs[0].map((v) => [m.x[v], m.y[v]] as [number, number]);
+    let cx = 0;
+    let cy = 0;
+    let a2 = 0;
+    for (let k = 0; k < outer.length; k++) {
+      const [x0, y0] = outer[k];
+      const [x1, y1] = outer[(k + 1) % outer.length];
+      const cross = x0 * y1 - x1 * y0;
+      a2 += cross;
+      cx += (x0 + x1) * cross;
+      cy += (y0 + y1) * cross;
     }
+    let at: [number, number] | null = a2 === 0 ? null : [cx / (3 * a2), cy / (3 * a2)];
+    if (at && within) {
+      const contours = runs.map((run) => ({ pts: run.map((v) => [m.x[v], m.y[v]] as [number, number]), closed: true }));
+      let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+      for (const [x, y] of outer) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      at = pointInside(contours, at[0], at[1], { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    }
+    const k = at ? del.find(at[0], at[1]) : -1;
+    if (k < 0) {
+      loose.push(runs);
+      continue;
+    }
+    const held = runsOf.get(rows[k]);
+    if (held) held.push(...runs);
+    else runsOf.set(rows[k], runs);
   }
-  attachVoronoi(m, { sites: source, siteOfFace, faceOfSite, cells });
-  return m;
+  // One face per site that has a cell, in the sites' order; a region no
+  // site claims (a sliver the cut left) is a face of its own, after them.
+  const siteRow: number[] = [];
+  const cycles: number[][][] = [];
+  for (const r of rows) {
+    const runs = runsOf.get(r);
+    if (!runs) continue;
+    runsOf.delete(r);
+    siteRow.push(r);
+    cycles.push(runs);
+  }
+  for (const runs of loose) {
+    siteRow.push(-1);
+    cycles.push(runs);
+  }
+  return withFaces(m, { cycles, source: (f) => (siteRow[f] >= 0 ? source.vertex(siteRow[f]) : undefined) });
 }
 
 /** A point strictly inside a face: its centroid when that is inside, else

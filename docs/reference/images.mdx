@@ -42,7 +42,7 @@ import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
-  return t.grid({ cols: 46, rows: 46 }).map((c) => { const dark = 1 - img.lum(c.cx, c.cy, c.w / 2); return img.a(c.cx, c.cy) > 0.5 && circle(c.cx, c.cy, dark * c.w * 0.5); });
+  return t.grid({ cols: 46, rows: 46 }).faces.map((f) => { const { cx, cy, w } = f.bounds; const dark = 1 - img.lum(cx, cy, w / 2); return img.a(cx, cy) > 0.5 && circle(cx, cy, dark * w * 0.5); });
 });
 ```
 

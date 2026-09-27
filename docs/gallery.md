@@ -8,17 +8,16 @@ Nine short tutorials by Tim Holman and Ruth John ([generativeartistry.com](https
 
 ### Tiled lines
 
-After the one-line BASIC program `10 PRINT CHR$(205.5+RND(1)); : GOTO 10`: every cell of a grid gets one diagonal, flipped by a coin. `t.grid` hands out the cells and `t.chance` is the coin. Diagonals that meet at a corner are joined by the toolpath planner, so the pen draws far fewer strokes than there are cells. ([original](https://generativeartistry.com/tutorials/tiled-lines/))
+After the one-line BASIC program `10 PRINT CHR$(205.5+RND(1)); : GOTO 10`: every cell of a grid gets one diagonal, flipped by a coin. The faces of `t.grid` are the cells and `t.chance` is the coin. Diagonals that meet at a corner are joined by the toolpath planner, so the pen draws far fewer strokes than there are cells. ([original](https://generativeartistry.com/tutorials/tiled-lines/))
 
 ```ts live
 import { sketch, line } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 10 }, (t) =>
-  t.grid({ cols: 16, rows: 16 }).map((c) =>
-    t.chance(0.5)
-      ? line(c.x, c.y, c.x + c.w, c.y + c.h)
-      : line(c.x + c.w, c.y, c.x, c.y + c.h),
-  ),
+  t.grid({ cols: 16, rows: 16 }).faces.map((f) => {
+    const { x, y, w, h } = f.bounds;
+    return t.chance(0.5) ? line(x, y, x + w, y + h) : line(x + w, y, x, y + h);
+  }),
 );
 ```
 
@@ -52,10 +51,11 @@ Georg Nees, *Schotter* (1968): a grid of squares that keeps its composure at the
 import { sketch, rect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 17 }, (t) =>
-  t.grid({ cols: 10, rows: 10 }).map((c) => {
-    const fall = (c.j + 1) / 10;
-    return rect(-c.w / 2, -c.h / 2, c.w, c.h, {
-      translate: [c.cx + t.rnd(-1, 1) * fall * 5, c.cy],
+  t.grid({ cols: 10, rows: 10 }).faces.map((f) => {
+    const { w, h, cx, cy } = f.bounds;
+    const fall = (f.j + 1) / 10;
+    return rect(-w / 2, -h / 2, w, h, {
+      translate: [cx + t.rnd(-1, 1) * fall * 5, cy],
       rotate: t.rnd(-1, 1) * fall * 22,
     });
   }),
@@ -102,9 +102,10 @@ export default sketch({ aspect: [1, 1], seed: 31 }, (t) => {
     }
   }
   const tone = (x, y) => (t.noise(x / 40, y / 40) + 1) / 2;
-  const triangles = connect.triangulate(pts).faces();
-  return triangles.measure().map(({ face, centroid: [cx, cy] }) =>
-    polygon(face, { fill: fill('hatch', { angle: 45, spacing: mm(0.5 + tone(cx, cy) * 2.5) }) }));
+  return connect.triangulate(pts).faces.map((f) => {
+    const [cx, cy] = f.centroid;
+    return polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(0.5 + tone(cx, cy) * 2.5) }) });
+  });
 });
 ```
 
@@ -173,7 +174,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 6 }), { iterations: 2, density });
   const cells = t.voronoi(sites);
   return sites.points.map((p) => {
-    const cell = cells.cellOf(p);
+    const cell = cells.faces.find((f) => f.source.index === p.index);
     return cell && circle(p.x, p.y, distanceTo(cell)(p.x, p.y) * 0.92);
   });
 });

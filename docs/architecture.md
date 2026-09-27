@@ -86,8 +86,24 @@ packages/occlude/src/
   tables, forces,         columns and an edge list (material), vectors,
   selection, relation,    view identity, the three writes, force recipes,
   curves, chains,         selections and extraction, the ordered domain
-  query, faces            (`g.curves`, walked by chains), spatial edge
-                          queries, planarization and faces
+  query                   (`g.curves`, walked by chains), spatial edge
+                          queries
+  faces, measure        the one face domain, `g.faces` (a property):
+                        STATED faces, written by the word that knows its
+                        cells, or DERIVED by planarization and the planar
+                        walk on first read; a face row's columns, geometry,
+                        `source` and nesting (`parent`, `children`,
+                        `depth`, `leaf`); `measure` writes field and shape
+                        columns onto the faces
+  layout, tiling,       the words with stated faces: `t.grid` (row-major,
+  voronoi, quadtree       `i`/`j`), `t.tiling` (a flat symbol covers the
+                          drawable), Voronoi cells (`source` is the site),
+                          the quadtree (every cell, root to leaves)
+  lattice, residual     a regular grid of faces over `Float32Array`
+                        columns, topology implicit in `(i, j)`: the same face
+                        words, `set` over the faces as they were, `field()`
+                        and `spend`; a residual is a lattice with one column,
+                        `owed`
   placement, space      isometries of the sketch's geometry (`t.placement`,
                         `p.placement()`, the walk verbs `step`/`turn`/
                         `toward`) and the spaces they walk in
@@ -616,7 +632,7 @@ clip regions the engine tests before it samples.
 attributes) plus an edge list with its own columns. Every operation
 returns a new material. `tables.ts` holds the three writes on a table —
 add a row, remove a row, set a column — on `points` and `edges`, the one
-write `set` on `faces()`, and the recipes over them (`extrude`, `split`,
+write `set` on `faces`, and the recipes over them (`extrude`, `split`,
 `replace`, `move`). `t.steps` folds passes `(g) => g2` over a state,
 optionally recording history. Forces are
 prepared per state (spatial index built once, and kept on the state by `points.near`) and
@@ -630,7 +646,25 @@ curve row answering its points in walk order with the derived `s`, `u`,
 kept on the state, for `edges.nearest` and `edges.firstHit` with a
 wide-box fallback so long queries stay exact; `faces.ts` planarizes with Shewchuk's
 `orient2d` for every orientation decision and reads bounded faces, face
-selections and union boundaries. Attribute transfer (interpolate or
+selections and union boundaries. `g.faces` is one face domain with two
+sources. The words that know their cells STATE them when they build the
+material: `t.grid` in row-major order, `t.tiling` in the order its flood
+reached them, `t.voronoi` in site order, and `t.quadtree` breadth-first
+from the root, every cell of it, nested through `parent` and `children`.
+Any other material DERIVES its faces by the planar walk on the first read.
+A write that changes the edges drops a stated table, and the faces are
+then derived, with each face column carried by the lineage of its walls; a
+write that leaves the edges alone (`move`, `points.set`, `faces.set`)
+keeps it. A face's `source` is the row it came from when there is one (a
+Voronoi cell's site, a tile's placement), a selection when there are many
+(a quadtree cell's points), and `undefined` for a derived face. `measure`
+returns the material with measurement columns on its faces. `lattice.ts`
+is the same face interface over a regular grid: a column is one
+`Float32Array`, the topology is implicit in `(i, j)`, and a face answers
+`laplacian(column)` besides. `set`, `add` and `spend` return a new
+lattice, and a `set` reads the faces as they were before it, so a
+diffusion is one instant. `residual.ts` builds a lattice with one column,
+`owed`, and `spend` is the lattice's own word. Attribute transfer (interpolate or
 nearest for points, copy or distribute for edges) is declared per column
 and honoured by split, resample, planarize and append.
 
@@ -671,7 +705,7 @@ nothing in a sketch may rely on it.
   endpoints the first time a state is asked, and keeps them. A prepared neighbour index (and every force built on
   it) keeps its buckets but reads distances live, so a row written away
   drops out of its old cell's answers while a row written near is never
-  found. `faces()` is computed once per state and returned from the cache
+  found. `faces` is computed once per state and returned from the cache
   thereafter. Nothing invalidates on a write. Sketches should treat
   states as immutable; the library does.
 - **Identity.** State identity is the `Material` object. Row indices are
@@ -715,8 +749,9 @@ and `test/transfer.test.ts`.
   its own, and passes within a step are never captured. A plain object
   keeps none.
 - **Three writes on a table.** `points` and `edges` answer `add`,
-  `remove` and `set`; `faces()` answers `set` alone, keyed by the walls a
-  face is made of. Each write returns a new state. The callbacks of one
+  `remove` and `set`; `faces` answers `set` alone, keyed by the face's
+  identity: a stated face its own id, a derived face the walls it is made
+  of. Each write returns a new state. The callbacks of one
   write all read the state as it was, so the record form
   `set({ a: …, b: … })` is one instant. A trailing `{ transfer }` (and
   `fallback` on a face column) declares the column's policy; setting a

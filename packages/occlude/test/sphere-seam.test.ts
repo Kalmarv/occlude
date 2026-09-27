@@ -409,7 +409,7 @@ describe('a stored geodesic stays within its bow wherever it is carried', () => 
    * true geodesic and projected. */
   const geodesics = (P: { point: (p: [number, number]) => [number, number] | number[] }): [number, number][] => {
     const out: [number, number][] = [];
-    for (const f of tiles.placements) {
+    for (const f of tiles.faces.map((f) => f.source as Placement)) {
       const cell = tiles.cell.map((v) => f.point(v) as [number, number]);
       for (let k = 0; k < cell.length; k++) {
         const u = P.point(cell[k]) as [number, number];

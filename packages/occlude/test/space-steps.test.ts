@@ -78,7 +78,7 @@ describe('a shape is its anchor plus offsets', () => {
   it('keeps a grid a grid: neighbours share their wall to the last digit', () => {
     for (const cfg of [HYP, SPH]) {
       const t = tk(cfg);
-      const cells = t.grid({ cols: 9, rows: 9 });
+      const cells = t.grid({ cols: 9, rows: 9 }).faces.map((f) => f.bounds);
       const corners = (c: { x: number; y: number; w: number; h: number }) =>
         t.material(rect(c.x, c.y, c.w, c.h)).points.map(xy);
       // The right wall of one cell and the left wall of the next are the

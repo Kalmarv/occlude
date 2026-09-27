@@ -12,7 +12,7 @@
  *
  * Four layers, kept apart:
  *   material   `material()` / `curve()` / `t.sample()`; `connect.*`;
- *              the writes `points.set`, `edges.set`, `faces().set`; `.resample()`
+ *              the writes `points.set`, `edges.set`, `faces.set`; `.resample()`
  *   numbers    add sub mul length distance unit limit perp sum sumBy
  *   passes     `(g) => g2` over the writes and recipes, run by `t.steps`;
  *              forces PREPARED once, EVALUATED at a point to a vector
@@ -30,7 +30,7 @@ import { framePlacement, isPlacement, spaceOfDoor, type Placement } from './plac
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
 import { chainsOf, curvesOf, chainTangents, chainLengths, type Curve } from './curves.js';
-import { planarize, faceTable, faceTableOf, isFaceSelection, boxGrid, faceLocator, faceCentroids, type PlanarizeOpts, type FaceTable, type Face } from './faces.js';
+import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -141,11 +141,11 @@ export type Edge = {
   /** The edges that share a vertex with this one, this edge excluded —
    * what `p.adjacent` is for a vertex, in the edge's own world. */
   readonly adjacent: Selection<Edge>;
-  /** The faces on this edge's two sides, from the material's `faces()`, as
+  /** The faces on this edge's two sides, from the material's `faces`, as
    * a selection: the face on its left, then the one on its right — two for
    * a wall between cells, one for an outer wall or a spur inside a face,
-   * none for an edge no face touches. Reading it on a material that is not
-   * planar throws the same error as `faces()`. */
+   * none for an edge no face touches. Where faces nest, the leaves. Reading
+   * it on a material that is not planar throws the same error as `faces`. */
   readonly faces: Selection<Face>;
   readonly [ROW_TYPES]?: EdgeTypes;
 } & Record<string, number>;
@@ -212,6 +212,7 @@ export interface FaceColumn {
 export const RESERVED_FACE_FIELDS: readonly string[] = [
   'index', 'id', 'area', 'perimeter', 'bounds', 'centroid',
   'edges', 'points', 'boundaryEdges', 'adjacent', 'contours', 'extract',
+  'parent', 'children', 'depth', 'leaf', 'source',
 ];
 
 /** The names an edge view already owns, for the same reason: its columns
@@ -318,9 +319,13 @@ export class Material {
    * this one judges true segment distance per call. */
   readonly edgeQueryBox: { query: EdgeQuery | null } = { query: null };
   /** @internal The face collection of this state, built the first time it
-   * is asked for. A box like the others, because the state is frozen — and
-   * the one seat a value that knows its own faces (a `Tiling`) fills. */
+   * is asked for. A box like the others, because the state is frozen. */
   readonly facesBox: { faces: FaceTable | null };
+  /** @internal The faces the word that made this material stated (a tiling,
+   * a grid, Voronoi cells, a quadtree), kept while the edges are the ones
+   * they were stated over; undefined when the faces are read off the
+   * picture. Non-enumerable, like `space`. */
+  declare readonly stated: StatedFaces | undefined;
   /** @internal The point and edge domains of this state (relation.ts),
    * made the first time a selection of them is: every selection of this
    * state shares them. A box, like the others. */
@@ -413,6 +418,9 @@ export class Material {
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
+      /** Faces a word states outright; kept only when these edges are the
+       * ones they were stated over (`statedFor`). */
+      faces?: StatedFaces;
     } = {},
   ) {
     const {
@@ -479,6 +487,7 @@ export class Material {
     }
     this.faceAttrs = faceAttrs;
     Object.defineProperty(this, 'space', { value: carry.space, enumerable: false });
+    Object.defineProperty(this, 'stated', { value: statedFor(carry.faces, edgeList, this.edgeIds), enumerable: false });
     this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
@@ -531,7 +540,7 @@ export class Material {
     // edge is found there by id.
     Object.defineProperty(edgeProto, 'faces', {
       get(this: Edge) {
-        const cells = faceTableOf(owner.faces());
+        const cells = faceTableOf(owner.faces);
         return cells.facesOf(cells.source === owner ? this : cells.source.edgeOf(this.id)!);
       },
       enumerable: false,
@@ -738,61 +747,22 @@ export class Material {
     return mergeKernel(this, opts);
   }
 
-  /** The bounded regions this (already planar) material encloses. */
-  /** The bounded faces of this state (see faces.ts). A frozen state has one
-   * face collection: repeated calls return the same object, so a face view
-   * from any call is accepted by every consumer of this material's faces. */
-  faces(): Selection<Face> {
+  /**
+   * The faces of this state, as a selection of face rows: a property,
+   * worked out the first time it is read and kept on the state, so every
+   * read answers the same collection.
+   *
+   * A material a word made with faces it knows — `t.tiling`, `t.grid`,
+   * `t.voronoi`, `t.quadtree` — has those faces, in the order the word made
+   * them, nested where it nests and each with its `source`. A write that
+   * changes the edges drops them, and so does any material a sketch built
+   * itself: its faces are read off the drawn picture by the planar walk
+   * (faces.ts), and their columns carried by wall lineage.
+   */
+  get faces(): Selection<Face> {
     const area = areaMaterial(this);
-    if (area !== this) return area.faces();
-    return (this.facesBox.faces ??= faceTable(this)).all;
-  }
-
-
-
-  /** For material made by `t.voronoi`: the cell (a face of this material's
-   * `faces()`) of a site vertex, or undefined when the site has no cell
-   * (clipped away, or a duplicate of an earlier site). */
-  cellOf(site: Vertex): Face | undefined;
-  /** The cells of several sites at once, as a face selection: a point
-   * selection of the sites (`sites.points.filter(…)`) gives the cells of
-   * its members, a site with no cell adding nothing. */
-  cellOf(sites: Selection<Vertex>): Selection<Face>;
-  cellOf(site: Vertex | Selection<Vertex>): Face | Selection<Face> | undefined {
-    const links = voronoiLinks.get(this);
-    if (!links) throw new Error('cellOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
-    if (isPointSelection(site)) {
-      const sites = selectionIn(site, links.sites);
-      const rows: number[] = [];
-      for (const s of sites.indices) if (links.faceOfSite[s] >= 0) rows.push(links.faceOfSite[s]);
-      return links.cells.rows(rows);
-    }
-    if (!ownedBy(site, links.sites)) throw new Error('cellOf: that vertex is not a site of this diagram (it belongs to another state)');
-    const f = links.faceOfSite[site.index];
-    return f < 0 ? undefined : links.cells.at(f);
-  }
-
-  /** For material made by `t.voronoi`: the site vertex whose cell `face`
-   * is, or undefined for a face no site owns. Faces from any `faces()` of
-   * the same result are accepted. */
-  siteOf(face: Face): Vertex | undefined;
-  /** The sites of several cells at once, as a point selection of the
-   * sites: a face selection of this diagram's cells gives their sites. */
-  siteOf(cells: Selection<Face>): Selection<Vertex>;
-  siteOf(face: Face | Selection<Face>): Vertex | Selection<Vertex> | undefined {
-    const links = voronoiLinks.get(this);
-    if (!links) throw new Error('siteOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
-    if (isFaceSelection(face)) {
-      if (face.source !== this) throw new Error('siteOf: those faces belong to another material\'s cells');
-      const rows: number[] = [];
-      for (const f of face.indices) if (links.siteOfFace[f] >= 0) rows.push(links.siteOfFace[f]);
-      return links.sites.points.rows(rows);
-    }
-    if (viewKind(face) !== 'face') throw new Error('siteOf: expected a face view');
-    const owner = ownerOfView(face) as { source?: Material } | undefined;
-    if (!owner || owner.source !== this) throw new Error('siteOf: that face belongs to another material\'s cells');
-    const s = links.siteOfFace[face.index];
-    return s < 0 ? undefined : links.sites.vertex(s);
+    if (area !== this) return area.faces;
+    return (this.facesBox.faces ??= new FaceTable(this, this.stated)).all;
   }
 
   /**
@@ -1143,7 +1113,7 @@ export class Material {
     const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
     const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
     const edgeRoots = Float64Array.from(esrc, (v, k) => (v >= 0 ? this.edgeRoots[v] : eroot[k] >= 0 ? this.edgeRoots[eroot[k]] : edgeIds[k]));
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { ...base, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs });
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { ...base, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, faces: this.stated });
   }
 
   /**
@@ -1319,7 +1289,7 @@ export class Material {
     const edgeRoots = Float64Array.from(esrc, (v, i) => (v >= 0 ? this.edgeRoots[v] : this.edgeRoots[eroot[i]]));
     return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
       iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
-      ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, space: this.space,
+      ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, space: this.space, faces: this.stated,
     });
   }
 
@@ -1476,7 +1446,7 @@ export class Material {
     let fe = 0;
     const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
     const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots: Float64Array.from(eroot, (e) => this.edgeRoots[e]) }, faceAttrs: this.faceAttrs, space: this.space });
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots: Float64Array.from(eroot, (e) => this.edgeRoots[e]) }, faceAttrs: this.faceAttrs, space: this.space, faces: this.stated });
   }
 
   /**
@@ -1627,7 +1597,7 @@ export class Material {
       if (ts.length > 0) split = true;
     }
     if (!split) {
-      return new Material(Float64Array.from(nx), Float64Array.from(ny), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space });
+      return new Material(Float64Array.from(nx), Float64Array.from(ny), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) }, faceAttrs: this.faceAttrs, space: this.space, faces: this.stated });
     }
     const names = this.attrNames;
     const enames = this.edgeAttrNames;
@@ -1690,6 +1660,7 @@ export class Material {
       iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
       ids: { points: Float64Array.from(pointIds), edges: Float64Array.from(edgeIds), edgeRoots: Float64Array.from(edgeRoots) },
       faceAttrs: this.faceAttrs,
+      faces: this.stated,
       space: this.space,
     });
   }
@@ -1804,7 +1775,7 @@ export class Material {
   /** One pen-down per pass: a junction is split into one degree-2 vertex per
    * passing pair, so the chain walk sails through and no edge is drawn
    * twice. The ink is exactly where it was; the result is a drawing, and
-   * `faces()` will rightly refuse it. */
+   * `faces` will rightly refuse it. */
   trails(opts: TrailsOpts = {}): Material {
     return makeTrails(this, opts);
   }
@@ -2140,22 +2111,6 @@ const copyAttrs = (attrs: Readonly<Record<string, Float64Array>>): Record<string
   return out;
 };
 
-/** What a Voronoi construction knows about its sites, kept beside the
- * result (not inside it): the frozen result and its selections answer
- * `cellOf`/`siteOf`; any edited or extracted material does not. */
-export interface VoronoiLinks {
-  sites: Material;
-  siteOfFace: Int32Array;
-  faceOfSite: Int32Array;
-  cells: Selection<Face>;
-}
-const voronoiLinks = new WeakMap<Material, VoronoiLinks>();
-
-/** @internal */
-export function attachVoronoi(m: Material, links: VoronoiLinks): void {
-  voronoiLinks.set(m, links);
-}
-
 /** Where the straight segment (ax, ay)→(bx, by) crosses one of `loops`,
  * ascending by the segment parameter `t`, each with the point ON the
  * boundary. That point is taken from the boundary edge's own
@@ -2195,6 +2150,21 @@ export function loopCrossings(
 }
 
 /**
+ * @internal The same rows, with the faces a word states: every column, id
+ * and policy of `m` adopted as it is (`m` is the word's own work in
+ * progress, never a value a sketch holds), and `faces` over exactly its
+ * edges.
+ */
+export function withFaces(m: Material, faces: Omit<StatedFaces, 'edgeList' | 'edgeIds'>): Material {
+  return new Material(m.x, m.y, m.attrs as Record<string, Float64Array>, m.edgeList, {
+    iteration: m.iteration, history: m.history, edgeAttrs: m.edgeAttrs as Record<string, Float64Array>, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
+    ids: { points: m.pointIds, edges: m.edgeIds, edgeRoots: m.edgeRoots },
+    faceAttrs: m.faceAttrs as Record<string, FaceColumn>, space: m.space,
+    faces: { ...faces, edgeList: m.edgeList, edgeIds: m.edgeIds },
+  });
+}
+
+/**
  * @internal The same rows, in `space`: what the toolkit hands back from
  * every word that answers a material, so a material made in a sketch knows
  * the space its coordinates belong to. Every column, id and face column is
@@ -2209,7 +2179,7 @@ export function inSpace(m: Material, space: Space): Material {
   return new Material(Float64Array.from(m.x), Float64Array.from(m.y), copyAttrs(m.attrs), Uint32Array.from(m.edgeList), {
     iteration: m.iteration, history: m.history, edgeAttrs: copyAttrs(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
     ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) },
-    faceAttrs: m.faceAttrs, space,
+    faceAttrs: m.faceAttrs, space, faces: m.stated,
     ...(own ? { area: () => inSpace(areaMaterial(m), space) } : {}),
   });
 }
@@ -2231,7 +2201,7 @@ export function inSpace(m: Material, space: Space): Material {
  * The material's own closure decides what the cut leaves. An open chain ends
  * at the boundary. A face is an area, and the part of it inside `area` is
  * closed along the cut: each piece of the boundary with one of the source's
- * `faces()` just inside it becomes an edge — a piece through a cell, or a
+ * `faces` just inside it becomes an edge — a piece through a cell, or a
  * piece along a wall the cut dropped — so a rim cell comes back as a face.
  * The closing edges are data: the edge column `cut` is 1 on them and 0 on
  * every other edge (an existing `cut` column is replaced; its policy is
@@ -2482,7 +2452,7 @@ export function withinMaterial(
     edgeAttrs.cut = Float64Array.from(cutFlags, (f, i) => (f || (priorCut !== undefined && priorCut[i] !== 0) ? 1 : 0));
     delete edgeTransfers.cut;
   }
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs, space: m.space });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs, space: m.space, faces: m.stated });
 }
 
 /** The faces a cut can close, or null: a material with no cycle encloses
@@ -2505,7 +2475,7 @@ function readableFaces(m: Material): FaceTable | null {
   if (!cyclic) return null;
   let cells: FaceTable;
   try {
-    cells = faceTableOf(m.faces());
+    cells = faceTableOf(m.faces);
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('faces:')) return null;
     throw err;
@@ -2781,7 +2751,7 @@ export function mapPositions(m: Material, fn: (p: Vertex) => XY, who: string): M
     nx[i] = x;
     ny[i] = y;
   }
-  return new Material(nx, ny, copyAttrs(m.attrs), copyEdges(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyAttrs(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: copy(m.pointIds), edges: copy(m.edgeIds), edgeRoots: copy(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space });
+  return new Material(nx, ny, copyAttrs(m.attrs), copyEdges(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyAttrs(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: copy(m.pointIds), edges: copy(m.edgeIds), edgeRoots: copy(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space, faces: m.stated });
 }
 
 // ---- connections ----------------------------------------------------------------
@@ -3248,7 +3218,7 @@ export const connect = {
    * to it, and the tree still reaches every row.
    *
    * Rows are not reordered and the result is a chain-free tree: `strokes`
-   * walks each arm, `faces()` finds nothing because a tree encloses nothing,
+   * walks each arm, `faces` finds nothing because a tree encloses nothing,
    * and `p.adjacent.length` tells a tip from a fork.
    */
   tree(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; edgeAttributes?: Record<string, number> } = {}): Material {

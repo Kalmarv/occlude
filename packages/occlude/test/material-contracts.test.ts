@@ -86,11 +86,11 @@ describe('what a direct write reaches', () => {
 
   it('faces are cached per state: computed once, a later write is not seen', () => {
     const m = square();
-    const f1 = m.faces();
+    const f1 = m.faces;
     const area1 = f1.at(0).area;
     m.x[1] = 20;
     m.x[2] = 20;
-    expect(m.faces()).toBe(f1);
+    expect(m.faces).toBe(f1);
     expect(f1.at(0).area).toBe(area1);
   });
 });

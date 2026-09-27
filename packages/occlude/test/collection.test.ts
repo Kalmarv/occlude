@@ -99,7 +99,7 @@ describe('selections as boundaries', () => {
   });
 
   it('faces stay explicit per face', () => {
-    const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true })).faces();
+    const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }), curve([[20, 0], [30, 0], [30, 10], [20, 10]], { closed: true })).faces;
     // A selection is several areas at once: it must say which one.
     // Deliberately the wrong input (a selection is several areas): the
     // refusal is the contract.
@@ -151,7 +151,7 @@ describe('groupBy', () => {
     expect(distanceTo(levels[0])(25, 5)).toBe(-15);
     expect(levels.map((g) => polygon(g, { winding: 'nonzero' }))).toHaveLength(2);
     expect(strokes(levels[0])).toHaveLength(1);
-    const cells = two.faces().groupBy((f) => Math.floor(f.area / 1000));
+    const cells = two.faces.groupBy((f) => Math.floor(f.area / 1000));
     expect(cells).toHaveLength(1);
     expect(cells[0].key).toBe(0);
     expect(cells[0].length).toBe(2);

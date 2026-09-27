@@ -22,7 +22,7 @@
  *
  * The split vertices sit on top of one another, which is exactly what they
  * are: one place the pen passes through twice. That makes the result a
- * DRAWING, not a structure — `faces()` refuses coincident distinct vertices,
+ * DRAWING, not a structure — `faces` refuses coincident distinct vertices,
  * and rightly. Keep the original for asking questions of, and trail the copy
  * for plotting it.
  */

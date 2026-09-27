@@ -562,17 +562,17 @@ describe('a tiling hands back placements', () => {
   it('answers isometries, not functions, and the identity is first', () => {
     const t = disk();
     const tl = t.tiling(5, 4, { depth: 2 });
-    for (const p of tl.placements) expect(isPlacement(p)).toBe(true);
-    for (const v of tl.cell) near(tl.placements[0].point(v), v, 9);
+    for (const p of tl.faces.map((f) => f.source as Placement)) expect(isPlacement(p)).toBe(true);
+    for (const v of tl.cell) near(tl.faces.map((f) => f.source as Placement)[0].point(v), v, 9);
     // An odd generation turns the plane over, and the placement says so.
-    expect(tl.placements.slice(1, 6).every((p) => p.orientation === -1)).toBe(true);
+    expect(tl.faces.map((f) => f.source as Placement).slice(1, 6).every((p) => p.orientation === -1)).toBe(true);
   });
 
   it('places a whole material with one of them', () => {
     const t = disk();
     const tl = t.tiling(5, 4, { depth: 1 });
     const m = t.material(circle(t.space.center[0], t.space.center[1], 6));
-    const moved = m.transform(tl.placements[1]);
+    const moved = m.transform(tl.faces.map((f) => f.source as Placement)[1]);
     expect(moved.n).toBe(m.n);
     // The copy is a rigid move of the space the sketch draws in.
     for (let i = 1; i < m.n; i++) {

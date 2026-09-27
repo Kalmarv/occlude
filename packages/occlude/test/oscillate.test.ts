@@ -140,6 +140,6 @@ describe('oscillate', () => {
       const a = (k / 200) * Math.PI * 2;
       return [50 + Math.cos(a) * 12, 50 + Math.sin(a) * 12] as [number, number];
     }), { closed: true }).oscillate({ wavelength: 9, amplitude: 20 });
-    expect(() => knot.planarize().faces()).not.toThrow();
+    expect(() => knot.planarize().faces).not.toThrow();
   });
 });

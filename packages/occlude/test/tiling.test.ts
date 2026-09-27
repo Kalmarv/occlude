@@ -20,6 +20,11 @@ import { space } from '../src/index.js';
 import { tilingGeometry, type TilingGeometry, type TilingOpts } from '../src/tiling.js';
 import { sphereOfChart } from '../src/space.js';
 import { vx, vy, type XY, type Vec } from '../src/vec.js';
+import type { Placement } from '../src/placement.js';
+
+/** The side a flat tiling is read at: it covers the drawable, so a side
+ * of 1 would be ten thousand cells. */
+const FLAT_SIDE = 12;
 
 /** The sketch each geometry's tilings are drawn in. */
 const HOME: Record<TilingGeometry, Parameters<typeof toolkit>[0]> = {
@@ -44,10 +49,12 @@ const chartTiling = (p: number, q: number, opts: TilingOpts = {}): ChartTiling =
   const geometry = tilingGeometry(p, q);
   const t = toolkit(HOME[geometry]);
   const flat = geometry === 'euclidean';
-  const tl = t.tiling(p, q, flat ? { ...opts, side: 1 } : opts);
+  // A flat tiling covers the drawable: a side of FLAT_SIDE keeps it to a
+  // few dozen cells, and the model is read back at that scale.
+  const tl = t.tiling(p, q, flat ? { side: FLAT_SIDE } : opts);
   const b = t.bounds();
   const c: Vec = flat ? [b.cx, b.cy] : [t.space.center[0], t.space.center[1]];
-  const k = flat ? 1 : t.space.size;
+  const k = flat ? FLAT_SIDE : t.space.size;
   const toModel = (v: XY): Vec => {
     const z = t.space.toChart(v);
     return [(vx(z) - c[0]) / k, (vy(z) - c[1]) / k];
@@ -56,7 +63,7 @@ const chartTiling = (p: number, q: number, opts: TilingOpts = {}): ChartTiling =
   return {
     geometry: tl.geometry,
     cell: tl.cell.map(toModel),
-    placements: tl.placements.map((f) => ({ point: (z: XY) => toModel(f.point(fromModel(z))) })),
+    placements: tl.faces.map((f) => f.source as Placement).map((f) => ({ point: (z: XY) => toModel(f.point(fromModel(z))) })),
   };
 };
 
@@ -85,7 +92,7 @@ describe('the symbol picks the geometry', () => {
     // Every symbol from 3 up draws something, in its own geometry.
     for (const [p, q] of [[3, 3], [4, 4], [3, 6], [6, 3], [7, 3], [3, 7]]) {
       const t = toolkit(HOME[tilingGeometry(p, q)]);
-      expect(t.tiling(p, q, { depth: 1 }).placements.length).toBeGreaterThan(1);
+      expect(t.tiling(p, q, tilingGeometry(p, q) === 'euclidean' ? {} : { depth: 1 }).faces.length).toBeGreaterThan(1);
     }
   });
 
@@ -159,20 +166,19 @@ describe('the spherical tilings are the Platonic solids', () => {
 });
 
 describe('the Euclidean tilings are the three of the plane', () => {
-  it('grows one generation of edge neighbours at a time', () => {
-    // Depth 0 is the cell alone; depth 1 adds its `p` edge neighbours.
-    expect(chartTiling(4, 4, { depth: 0 }).placements.length).toBe(1);
-    expect(chartTiling(4, 4, { depth: 1 }).placements.length).toBe(5);
-    expect(chartTiling(3, 6, { depth: 1 }).placements.length).toBe(4);
-    expect(chartTiling(6, 3, { depth: 1 }).placements.length).toBe(7);
-    // and each generation reaches further.
+  it('covers the drawable, in the order the flood reached the cells, and refuses a depth', () => {
     for (const [p, q] of [[4, 4], [3, 6], [6, 3]]) {
-      let last = 0;
-      for (const depth of [1, 2, 3]) {
-        const n = chartTiling(p, q, { depth }).placements.length;
-        expect(n).toBeGreaterThan(last);
-        last = n;
-      }
+      const t = toolkit(HOME.euclidean);
+      const tl = t.tiling(p, q, { side: FLAT_SIDE });
+      // Every cell cut to the drawable, and together they are the drawable.
+      expect(tl.faces.sum('area')).toBeCloseTo(100 * 100, 6);
+      // The fundamental cell first, then generation by generation.
+      expect(tl.faces.at(0).generation).toBe(0);
+      const gens = tl.faces.map((f) => f.generation);
+      for (let k = 1; k < gens.length; k++) expect(gens[k]).toBeGreaterThanOrEqual(gens[k - 1]);
+      // One cell per lattice place.
+      expect(new Set(tl.faces.map((f) => `${f.i},${f.j}`)).size).toBe(tl.faces.length);
+      expect(() => t.tiling(p, q, { depth: 2 })).toThrow(/a flat tiling covers the drawable — depth/);
     }
   });
 
@@ -191,7 +197,7 @@ describe('the Euclidean tilings are the three of the plane', () => {
   });
 
   it('tiles without gap or overlap: every copy keeps the cell rigid', () => {
-    const t = chartTiling(4, 4, { depth: 2 });
+    const t = chartTiling(4, 4);
     const centres = seats(t);
     expect(centres[0]).toEqual([0, 0]);
     for (const f of t.placements) {
@@ -252,7 +258,7 @@ describe('t.tiling puts the chart on the drawable', () => {
     expect(Math.hypot(z[0] - 50, z[1] - 50)).toBeCloseTo(t.space.size * Math.hypot(model.cell[0][0], model.cell[0][1]), 9);
     // Every placement is an ISOMETRY of the space the sketch draws in.
     const probe: [number, number][] = [[50, 50], [62, 47], [41, 58], [55, 63]];
-    for (const f of tl.placements) {
+    for (const f of tl.faces.map((c) => c.source as Placement)) {
       for (let i = 0; i + 1 < probe.length; i++) {
         expect(t.space.distance(f.point(probe[i]), f.point(probe[i + 1]))).toBeCloseTo(t.space.distance(probe[i], probe[i + 1]), 7);
       }
@@ -263,7 +269,7 @@ describe('t.tiling puts the chart on the drawable', () => {
     const t = toolkit({ aspect: [1, 1], space: space.spherical({ radius: 30 }) });
     const tl = t.tiling(3, 5);
     expect(tl.geometry).toBe('spherical');
-    expect(tl.placements.length).toBe(20);
+    expect(tl.faces.length).toBe(20);
     // The equator is drawn at the space's `size`, and that is where the
     // model chart's unit circle lands.
     const model = chartTiling(3, 5);
@@ -278,10 +284,11 @@ describe('t.tiling puts the chart on the drawable', () => {
     // but with almost no precision left, because a placement is read
     // through the chart at both ends. Every other copy is an isometry of
     // the sketch's own sphere, exactly.
-    const out = tl.placements.map((f) => t.space.distance([50, 50], f.point(probe[0])));
+    const placed = tl.faces.map((c) => c.source as Placement);
+    const out = placed.map((f) => t.space.distance([50, 50], f.point(probe[0])));
     expect(Math.max(...out)).toBeLessThanOrEqual(Math.PI * t.space.radius + 1e-9);
-    for (let k = 0; k < tl.placements.length; k++) {
-      const f = tl.placements[k];
+    for (let k = 0; k < placed.length; k++) {
+      const f = placed[k];
       for (const v of probe) expect(Number.isFinite(f.point(v)[0])).toBe(true);
       if (out[k] > 0.9 * Math.PI * t.space.radius) continue;
       for (let i = 0; i + 1 < probe.length; i++) {
@@ -293,11 +300,11 @@ describe('t.tiling puts the chart on the drawable', () => {
   it('keeps a Euclidean symbol an isometry of the sheet, whatever its side', () => {
     for (const side of [undefined, 7]) {
       const t = toolkit({ aspect: [1, 1] });
-      const tl = t.tiling(4, 4, { depth: 1, side });
+      const tl = t.tiling(4, 4, { side });
       expect(tl.geometry).toBe('euclidean');
       // A scaled plane tiling is a plane tiling: every copy is rigid on
       // the sheet.
-      for (const f of tl.placements) {
+      for (const f of tl.faces.map((c) => c.source as Placement)) {
         for (let i = 0; i < tl.cell.length; i++) {
           const a = tl.cell[i];
           const b = tl.cell[(i + 1) % tl.cell.length];

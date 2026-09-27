@@ -30,7 +30,7 @@ describe('one class over every domain', () => {
   const m = grid();
   const mesh = box().subdivide(1);
   const all = {
-    points: m.points, edges: m.edges, faces: m.faces(), cells: lattice().cells,
+    points: m.points, edges: m.edges, faces: m.faces, 'lattice faces': lattice().faces,
     'mesh points': mesh.points, 'mesh edges': mesh.edges, 'mesh faces': mesh.faces, 'mesh corners': mesh.corners,
     'cloud points': pointCloud([[0, 0, 0], [1, 0, 0]]).points,
     'curve edges': mesh.edges.extract().edges,
@@ -47,7 +47,7 @@ describe('one class over every domain', () => {
   });
 
   it('answers the protocol words honestly: a word a kind has no answer to is absent', () => {
-    expect(typeof m.faces().contours).toBe('function');
+    expect(typeof m.faces.contours).toBe('function');
     expect('contours' in m.points).toBe(false);
     expect('contours' in m.edges).toBe(false);
     expect(m.points.curves.length).toBeGreaterThan(0);
@@ -55,11 +55,13 @@ describe('one class over every domain', () => {
     expect('curves' in mesh.points).toBe(false);
     expect('faces' in all['cloud points']).toBe(false);
     expect('faces' in m.points).toBe(false);
-    expect('points' in lattice().cells).toBe(false);
+    expect('points' in lattice().faces).toBe(false);
+    expect('edges' in lattice().faces).toBe(false);
+    expect(lattice().faces.faces).toBeDefined();
     // A selection of a kind answers that kind with itself.
     const points = m.points;
     const edges = m.edges;
-    const cells = m.faces();
+    const cells = m.faces;
     const corners = mesh.corners;
     expect(points.points).toBe(points);
     expect(edges.edges).toBe(edges);
@@ -68,7 +70,7 @@ describe('one class over every domain', () => {
   });
 
   it('refuses a word the domain cannot answer, by name', () => {
-    expect(() => (m.faces().near as (p: unknown, o: unknown) => unknown)([0, 0], { radius: 5 })).toThrow('faces.near: faces have no near');
+    expect(() => (m.faces.near as (p: unknown, o: unknown) => unknown)([0, 0], { radius: 5 })).toThrow('faces.near: faces have no near');
     expect(() => (m.points.nearest as (p: unknown, o: unknown) => unknown)([0, 0], { within: 5 })).toThrow('points.nearest: points have no nearest');
     expect(() => (m.points.boundaryEdges as () => unknown)()).toThrow('points.boundaryEdges: points have no boundaryEdges');
     expect(() => (m.edges.measure as () => unknown)()).toThrow('edges.measure: edges have no measure');
@@ -76,17 +78,17 @@ describe('one class over every domain', () => {
     expect(() => all['cloud points'].connected()).toThrow('points.connected: points have no connected');
     expect(() => (all['mesh faces'].near as (p: unknown, o: unknown) => unknown)([0, 0, 0], { radius: 1 })).toThrow('faces.near: faces have no near');
     // A kind may say why.
-    expect(() => (lattice().cells.extract as () => unknown)()).toThrow(/cells\.extract: a lattice's cells are rows of its own grid/);
-    expect(() => (lattice().cells.add as () => unknown)()).toThrow(/cells\.add: a lattice's cells are fixed/);
+    expect(() => (lattice().faces.extract as () => unknown)()).toThrow(/faces\.extract: a lattice's faces are squares of its own grid/);
+    expect(() => (lattice().faces.add as () => unknown)()).toThrow(/faces\.add: a lattice's faces are fixed/);
   });
 
-  it('has the relations on every domain with neighbours: points, edges, faces, cells, mesh rows', () => {
-    const cells = lattice().cells;
+  it('has the relations on every domain with neighbours: points, edges, faces, lattice faces, mesh rows', () => {
+    const cells = lattice().faces;
     const middle = cells.filter((c) => c.i === 4 && c.j === 4);
     expect(middle.adjacent().map((c) => [c.i, c.j])).toEqual([[4, 3], [3, 4], [5, 4], [4, 5]]);
     expect(middle.connected().length).toBe(cells.length);
     expect(cells.filter((c) => c.i === 0 || c.i === 9).components().length).toBe(2);
-    const faces = m.faces();
+    const faces = m.faces;
     expect(faces.filter((f) => f.index === 0).adjacent().length).toBe(2); // a corner cell
     expect(mesh.faces.filter((f) => f.index === 0).adjacent().length).toBe(4);
   });
@@ -161,11 +163,11 @@ describe('near answers nearest first, ties by row', () => {
     expect(c.edges.near([15, 0], { radius: 20 }).indices).toEqual([1, 0, 2]);
   });
 
-  it('cells, by the distance to the centre', () => {
-    const cells = lattice().cells;
+  it('lattice faces, by the distance to the centroid', () => {
+    const cells = lattice().faces;
     const near = cells.near([52, 51], { radius: 16 });
     expect([near.at(0).i, near.at(0).j]).toEqual([5, 5]);
-    const d = near.map((c) => Math.hypot(c.x - 52, c.y - 51));
+    const d = near.map((c) => Math.hypot(c.centroid[0] - 52, c.centroid[1] - 51));
     for (let k = 1; k < d.length; k++) expect(d[k]).toBeGreaterThanOrEqual(d[k - 1]);
   });
 
@@ -284,7 +286,7 @@ describe('relations answer selections', () => {
     expect(wall.faces instanceof Selection).toBe(true);
     expect(wall.faces.length).toBe(2);
     expect(wall.faces.map((f) => f.centroid[0]).sort((a, b) => a - b)).toEqual([5, 15]);
-    expect(m.faces().has(wall.faces.at(0))).toBe(true);
+    expect(m.faces.has(wall.faces.at(0))).toBe(true);
   });
 
   it('the 3D cross-domain words are properties, as `points` and `edges` are', () => {

@@ -300,7 +300,7 @@ describe('isolines: toolkit + engine integration', () => {
   it('clip(invert(polygon)) keeps ink outside; the two polarities tile the ink', () => {
     const mk = (kind: 'in' | 'out' | 'all'): SketchDef =>
       sketch({ seed: 3 }, (t) => {
-        const album = t.grid({ cols: 12, rows: 12 }).map((c) => circle(c.cx, c.cy, 2));
+        const album = t.grid({ cols: 12, rows: 12 }).faces.map((c) => circle(c.bounds.cx, c.bounds.cy, 2));
         if (kind === 'all') return album;
         const r = polygon(t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1));
         return [kind === 'in' ? clip(r, album) : clip(invert(r), album)];

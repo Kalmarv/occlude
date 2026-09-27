@@ -56,14 +56,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/connect.triangulate.mdx</include>
 
-The Delaunay edges of the rows. `faces()` of the result are the triangles.
+The Delaunay edges of the rows. `faces` of the result are the triangles.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const mesh = connect.triangulate(t.scatter({ spacing: 15 }));
-  return [strokes(mesh), mesh.faces().filter((f) => f.area > 120).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
+  return [strokes(mesh), mesh.faces.filter((f) => f.area > 120).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
 });
 ```
 
@@ -123,13 +123,13 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 
 <include>/_sig/Material.trails.mdx</include>
 
-The same drawing, wired so the pen lifts as few times as possible. At a junction, each pair of edges gets its own pass-through vertex. A chain walk then runs straight through the junction. The ink does not change. The result is a drawing, not a structure: `faces()` refuses it, so keep the original for questions.
+The same drawing, wired so the pen lifts as few times as possible. At a junction, each pair of edges gets its own pass-through vertex. A chain walk then runs straight through the junction. The ink does not change. The result is a drawing, not a structure: `faces` refuses it, so keep the original for questions.
 
 ```ts live
 import { sketch, strokes, material, connect, label, group } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const grid = material(t.grid({ cols: 5, rows: 5 }).map((c) => [c.cx * 0.46 + 2, c.cy * 0.46 + 10]));
+  const grid = material(t.grid({ cols: 5, rows: 5 }).faces.map((f) => [f.bounds.cx * 0.46 + 2, f.bounds.cy * 0.46 + 10]));
   const web = connect.triangulate(grid);
   const routed = web.trails();
   return [

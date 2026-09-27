@@ -9,11 +9,11 @@ describe('append takes any number of materials', () => {
     expect(pile.n).toBe(12);
     expect(pile.edgeCount).toBe(12);
     expect(pile.x[8]).toBe(40);
-    expect(pile.faces().length).toBe(3);
+    expect(pile.faces.length).toBe(3);
   });
   it('spreads a mapped list', () => {
     const parts = [0, 20, 40, 60].map(square);
-    expect(append(parts[0], ...parts.slice(1)).faces().length).toBe(4);
+    expect(append(parts[0], ...parts.slice(1)).faces.length).toBe(4);
   });
   it('reads a trailing plain object as the options for every side', () => {
     const tagged = material([[0, 0], [1, 0]], { active: 1 });

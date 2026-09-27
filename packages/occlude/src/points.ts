@@ -13,7 +13,7 @@
  * point; `demand` (written by settle) is a cell's integrated density
  * divided by the capacity one point carries at the given spacing, so 1 is
  * a full cell; a cell's mean density is `integral / area`, which
- * `faces().measure(field)` reports for any face.
+ * `faces.measure(field)` writes for any face.
  */
 
 import { Delaunay } from 'd3-delaunay';
@@ -270,7 +270,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     y[p] = coords[2 * p + 1];
   }
   // Relaxing moves points; it makes and unmakes nothing.
-  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space });
+  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, space: m.space, faces: m.stated });
   return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 

@@ -17,7 +17,7 @@ import { sketch, circle, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   t.draw({ progress: [0, ui(0.6, { min: 0, max: 1 })] });
-  return t.grid({ cols: 8, rows: 8 }).map((c) => circle(c.cx, c.cy, c.w * 0.4));
+  return t.grid({ cols: 8, rows: 8 }).faces.map((f) => circle(f.centroid, f.bounds.w * 0.4));
 });
 ```
 

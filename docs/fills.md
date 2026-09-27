@@ -134,9 +134,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const paper = fill('hatch', { angle: 45, spacing: mm(1.4) });
   const shape = fill('hatch', { angle: 45, spacing: mm(1.4), align: 'shape' });
   return [
-    t.grid({ cols: 3, rows: 3 }).map((c) => rect(8 + c.i * 27, 8 + c.j * 27, 26, 26, { fill: paper })),
-    t.grid({ cols: 3, rows: 3 }).map((c) =>
-      rect(118 + c.i * 27, 8 + c.j * 27, 26, 26, { fill: shape, rotate: c.i * 15, translate: [131 + c.i * 27, 21 + c.j * 27] }),
+    t.grid({ cols: 3, rows: 3 }).faces.map((f) => rect(8 + f.i * 27, 8 + f.j * 27, 26, 26, { fill: paper })),
+    t.grid({ cols: 3, rows: 3 }).faces.map((f) =>
+      rect(118 + f.i * 27, 8 + f.j * 27, 26, 26, { fill: shape, rotate: f.i * 15, translate: [131 + f.i * 27, 21 + f.j * 27] }),
     ),
   ];
 });

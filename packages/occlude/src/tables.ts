@@ -4,7 +4,7 @@
  * table: add a row, remove a row, set a column. Faces are a third domain
  * with one write, `set`: a face is not a row, so its columns are keyed by
  * the walls it is made of. Every verb is a few of these writes.
- * `g.points`, `g.edges` and `g.faces()` answer them and return the new
+ * `g.points`, `g.edges` and `g.faces` answer them and return the new
  * material; `extrude`, `split`, `replace` and `move` are recipes over them.
  *
  * The call judges the program and the table judges the data. A wrong
@@ -30,7 +30,7 @@
 import { Material, mintIds, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, RESERVED_FACE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
 import { chainsOf } from './curves.js';
 import { pointDomain, edgeDomain, isPointSelection, isEdgeSelection } from './relation.js';
-import { faceTableOf, type Face } from './faces.js';
+import { faceTableOf, type Face, type FaceTable } from './faces.js';
 import { Selection, rowsIn } from './selection.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
@@ -73,7 +73,7 @@ export interface PointSetOpts { readonly transfer?: TransferPolicy }
 export interface EdgeSetOpts { readonly transfer?: EdgeTransfer }
 /** How a face column follows a change of walls, and what a face that
  * shares no wall with an old one starts from: the trailing options record
- * of `faces().set`. */
+ * of `faces.set`. */
 export interface FaceSetOpts { readonly transfer?: FaceTransfer; readonly fallback?: number }
 
 /** The names a point view owns; `x` and `y` are columns a write may set. */
@@ -122,7 +122,8 @@ interface Carry {
 }
 
 /** The new state: `m`'s policies, face columns, space and iteration, with
- * these rows. */
+ * these rows — and `m`'s stated faces, which the new state keeps only when
+ * its edges are `m`'s (see `statedFor`). */
 function make(m: Material, p: Parts, carry: Carry = {}): Material {
   return new Material(p.x, p.y, p.attrs, p.edgeList, {
     iteration: carry.iteration ?? m.iteration,
@@ -133,6 +134,7 @@ function make(m: Material, p: Parts, carry: Carry = {}): Material {
     ids: { points: p.pointIds, edges: p.edgeIds, edgeRoots: p.edgeRoots },
     faceAttrs: carry.faceAttrs ?? m.faceAttrs,
     space: m.space,
+    faces: m.stated,
   });
 }
 
@@ -751,12 +753,12 @@ function faceOptions(opts: Readonly<Record<string, unknown>> | undefined, who: s
 }
 
 /**
- * @internal `faces().set`, over the faces `sel` holds: the columns keyed by
+ * @internal `faces.set`, over the faces `sel` holds: the columns keyed by
  * wall lineage. Every face of the state keeps what it carries of a column
  * (its own value, or the one it inherited) and the faces written take
  * their new values, all read from the faces as they were; the column is
  * then written against THIS state's faces, so only a face that appears
- * later inherits.
+ * later inherits. A value that is not finite leaves that face as it was.
  */
 export function writeFaces(sel: Selection<Face>, args: readonly unknown[]): Material {
   const who = 'faces.set';
@@ -768,32 +770,53 @@ export function writeFaces(sel: Selection<Face>, args: readonly unknown[]): Mate
     const v = values[name];
     if (typeof v !== 'number' && typeof v !== 'function') throw new Error(`${who}: the value of '${name}' is a number or a function of the face — got ${typeof v}`);
   }
-  const { transfer, fallback, clearsFallback } = faceOptions(opts, who);
-  const m = sel.source as Material;
+  const face = faceOptions(opts, who);
   const cells = faceTableOf(sel);
   const rows = given ? faceRowsWhere(sel, sel.indices, where, who) : sel.indices;
-  if (rows.length === 0 && opts === undefined) return m;
-  const keys = cells.keys();
+  if (rows.length === 0 && opts === undefined) return sel.source as Material;
   const views = cells.faces;
   // Every value is worked out before any lands: one instant.
-  const written = names.map((name) => {
+  const written: Record<string, number[]> = {};
+  for (const name of names) {
     const v = values[name];
-    return rows.map((f) => (typeof v === 'number' ? v : v(views[f])));
-  });
+    written[name] = rows.map((f) => (typeof v === 'number' ? v : v(views[f])));
+  }
+  return writeFaceColumns(cells, rows, written, false, face);
+}
+
+/**
+ * @internal Face columns written onto faces `rows` of `cells`, the values
+ * by position in `rows`: the one door every face write goes through. With
+ * `keepNaN` a value that is not finite is written as it is — a
+ * measurement that has no answer for a face says so — and otherwise it
+ * leaves that face as it was. The faces keep their statement: a column
+ * write touches no edge.
+ */
+export function writeFaceColumns(
+  cells: FaceTable,
+  rows: readonly number[],
+  columns: Readonly<Record<string, ArrayLike<number>>>,
+  keepNaN: boolean,
+  face: { transfer?: FaceTransfer; fallback?: number; clearsFallback: boolean } = { clearsFallback: false },
+): Material {
+  const m = cells.source;
+  const keys = cells.keys();
   const next: Record<string, FaceColumn> = { ...m.faceAttrs };
-  names.forEach((name, k) => {
+  for (const name of Object.keys(columns)) {
+    if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`faces.set: '${name}' is a reserved field of a face, not a column`);
+    const values = columns[name];
     const was = m.faceAttrs[name];
     const map = new Map<string, number>();
     const held = cells.carried.get(name);
     if (held) held.forEach((v, f) => { if (v !== undefined) map.set(keys[f], v); });
-    rows.forEach((f, i) => { if (Number.isFinite(written[k][i])) map.set(keys[f], written[k][i]); });
+    rows.forEach((f, i) => { if (keepNaN || Number.isFinite(values[i])) map.set(keys[f], values[i]); });
     next[name] = {
       values: map,
-      transfer: transfer ?? was?.transfer ?? 'nearest',
-      fallback: fallback !== undefined ? fallback : clearsFallback ? undefined : was?.fallback,
+      transfer: face.transfer ?? was?.transfer ?? 'nearest',
+      fallback: face.fallback !== undefined ? face.fallback : face.clearsFallback ? undefined : was?.fallback,
       seen: new Set(keys),
     };
-  });
+  }
   return make(m, partsOf(m), { faceAttrs: next });
 }
 

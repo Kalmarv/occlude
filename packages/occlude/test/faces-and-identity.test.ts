@@ -24,7 +24,7 @@ const DISC = circle(50, 50, 34);
 function web(seed = 7, spacing = 10) {
   const t = toolkit({ aspect: [1, 1], seed });
   const cells = t.voronoi(t.relax(t.scatter({ spacing }), { iterations: 3 }));
-  return { t, cells, faces: cells.faces() };
+  return { t, cells, faces: cells.faces };
 }
 
 const idsOf = (m: Material) => [...m.pointIds];
@@ -66,8 +66,8 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G2-8 · face.extract() is one face as material, so the chain needs no rewrap', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const hex = t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 });
-    const near = t.within(hex.faces(), DISC, { keep: 'touching' });
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), origin: [50, 50], rotate: 45 });
+    const near = t.within(hex.faces, DISC, { keep: 'touching' });
     const shrunk = near.map((f) => f.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     const workaround = near.map((f) => f.boundaryEdges.extract().scale(0.7, { origin: 'centroid' }).rotate(20, { origin: 'centroid' }));
     // The same points; `face.extract()` winds its walls the face's way
@@ -82,8 +82,8 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G2-9 · FaceSelection has extract() and in(state)', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const hex = t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 });
-    const near = t.within(hex.faces(), DISC, { keep: 'touching' });
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), origin: [50, 50], rotate: 45 });
+    const near = t.within(hex.faces, DISC, { keep: 'touching' });
     const kept = near.extract().scale(0.5, { origin: 'center' });
     expect(kept.n).toBe(near.edges.extract().n);
     const moved = hex.rotate(10, { origin: [50, 50] });
@@ -95,8 +95,8 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G2-13 · where takes a face selection: its corners for a point method', () => {
     const t = toolkit({ aspect: [1, 1], seed: 2 });
-    const hex = t.steps<Material>(3, t.hexes({ spacing: 10 }), (g) => g.split(g.edges));
-    const inside = t.within(hex.faces(), circle(50, 50, 28));
+    const hex = t.steps<Material>(3, t.tiling(6, 3, { side: 10 / Math.sqrt(3), rotate: 30 }), (g) => g.split(g.edges));
+    const inside = t.within(hex.faces, circle(50, 50, 28));
     const cage = { from: [[0, 0], [100, 0], [100, 100], [0, 100]] as [number, number][], to: [[0, 0], [100, 0], [110, 105], [0, 100]] as [number, number][] };
     const bent = hex.warp({ ...cage, where: inside });
     const workaround = hex.warp({ ...cage, where: inside.points });
@@ -106,12 +106,12 @@ describe('P5 · a face collection is a selection', () => {
     expect(hex.warp({ ...cage, where: one }).points.map(xy)).toEqual(hex.warp({ ...cage, where: one.points }).points.map(xy));
     // An edge method reads its edges: a ring's one face names every edge.
     const ring = t.material(circle(50, 50, 20));
-    expect(ring.resample({ spacing: 2, where: ring.faces().at(0) }).n).toBe(ring.resample({ spacing: 2, where: ring.edges }).n);
+    expect(ring.resample({ spacing: 2, where: ring.faces.at(0) }).n).toBe(ring.resample({ spacing: 2, where: ring.edges }).n);
   });
 
   it('G3-8 / G6-2 · polygon(faces) is refused by the type and by name', () => {
     const t = toolkit({ aspect: [1, 1], seed: 7 });
-    const cells = t.tiling(4, 4, { depth: 6, side: 6 }).faces();
+    const cells = t.tiling(4, 4, { side: 6 }).faces;
     const odd = cells.filter((f) => (f.generation ?? 0) % 2 === 1);
     // @ts-expect-error — a face collection is several areas: name which
     expect(() => polygon(odd)).toThrow(/a face collection is several areas/);
@@ -125,7 +125,7 @@ describe('P5 · a face collection is a selection', () => {
     const t = toolkit({ aspect: [2, 1], seed: 12 });
     const centre = [74, 52] as const;
     const density = (x: number, y: number) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(Math.hypot(x - centre[0], y - centre[1]) / 34, 6));
-    const cells = t.voronoi(t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density })).faces();
+    const cells = t.voronoi(t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density })).faces;
     const small = cells.filter((f) => f.area < 60);
     const heart = small.find((f) => Math.hypot(f.centroid[0] - centre[0], f.centroid[1] - centre[1]) < 8)!;
     const town = small.components().find((c) => c.has(heart))!;
@@ -156,17 +156,17 @@ describe('P5 · a face collection is a selection', () => {
     expect(strokes(kept).length).toBeGreaterThan(0);
   });
 
-  it('G4-16 · a cut Voronoi material: the cells of sites are found again by id (the within door keeps no site link)', () => {
-    // `t.within` belongs to another branch; the correspondence itself does
-    // not survive the cut. What this spec gives: the cells of the uncut
-    // diagram, read against the cut one by id.
+  it('G4-16 · a cut Voronoi material: the cells of sites are found again by id (the cut faces keep no source)', () => {
+    // The cut changes the walls, so its faces are read off the picture and
+    // have no site. What stays: the cells of the uncut diagram, read
+    // against the cut one by id.
     const t = toolkit({ aspect: [1, 1], seed: 4 });
     const disc = circle(50, 50, 44);
     const sites = t.relax(t.scatter({ spacing: 6, within: disc }), { iterations: 2, within: disc });
     const diagram = t.voronoi(sites);
     const cut = t.within(diagram, disc);
-    expect(() => cut.cellOf(sites.points.at(0))).toThrow(/no Voronoi correspondence/);
-    const inner = diagram.cellOf(sites.points.filter((p) => Math.hypot(p.x - 50, p.y - 50) < 20));
+    expect(cut.faces.every((f) => f.source === undefined)).toBe(true);
+    const inner = diagram.faces.filter((f) => Math.hypot(f.source.x - 50, f.source.y - 50) < 20);
     const found = selectionIn(inner, cut);
     expect(found.length).toBe(inner.length);
   });
@@ -192,7 +192,7 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G6-38 · dots(cells) taps each cell once, at its centroid', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5, space: space.hyperbolic({ radius: 50 }) });
-    const cells = t.tiling(4, 5, { depth: 3 }).faces();
+    const cells = t.tiling(4, 5, { depth: 3 }).faces;
     expect(dots(cells).length).toBe(cells.length);
     expect(dots(cells.points).length).toBe(cells.points.length);
   });
@@ -218,15 +218,15 @@ describe('P5 · a face collection is a selection', () => {
   it('G6-26 · f.id is the face\'s identity: the weft pairing across steps, not every cell with cell 0', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
     const gap = 9;
-    const net = t.hexes({ spacing: gap, origin: [50, 10] })
+    const net = t.tiling(6, 3, { side: gap / Math.sqrt(3), rotate: 30, origin: [50, 10] })
       .edges.set('rest', (e) => e.length * (1 + 0.6 * t.noise(e.center[0] / 30, e.center[1] / 30)));
     const nails = net.points.filter((p) => p.y < 2);
     const hung = t.steps(10, net, (g) => {
       const pull = force.sum(force.tension(g, { rest: (e) => e.rest }), () => [0, 0.08 * gap]);
       return g.move((p: Vertex) => mul(pull(p), 0.1), g.points.without(nails));
     });
-    const cells = hung.faces();
-    const rest = net.faces();
+    const cells = hung.faces;
+    const rest = net.faces;
     const partner = cells.map((f) => rest.find((g) => g.id === f.id)!);
     // Every cell finds a partner, and not all the same one: the bug paired
     // every cell with rest cell 0 because `f.id` was undefined.
@@ -238,7 +238,7 @@ describe('P5 · a face collection is a selection', () => {
     // A renumbering does not move an id: a line laid across one corner of
     // the web and planarized splits a few cells and renumbers the rest, and
     // every cell it did not cross keeps its id — and its area.
-    const crossed = append(net, t.material(line(0, 30, 30, 0)).edges.set('rest', 0)).planarize().faces();
+    const crossed = append(net, t.material(line(0, 30, 30, 0)).edges.set('rest', 0)).planarize().faces;
     const byId = new Map(crossed.map((f) => [f.id, f] as const));
     const kept = rest.filter((f) => byId.has(f.id));
     expect(kept.length).toBeLessThan(rest.length);
@@ -246,8 +246,8 @@ describe('P5 · a face collection is a selection', () => {
     for (const f of rest.without(kept)) expect(Math.abs(f.centroid[0] + f.centroid[1] - 30) / Math.SQRT2).toBeLessThan(gap);
     for (const f of kept) expect(byId.get(f.id)!.area).toBeCloseTo(f.area, 9);
     // A transform keeps every id; so does a planarize that leaves the walls.
-    expect(net.rotate(20, { origin: [50, 50] }).faces().map((f) => f.id)).toEqual(rest.map((f) => f.id));
-    expect(net.planarize().faces().map((f) => f.id)).toEqual(rest.map((f) => f.id));
+    expect(net.rotate(20, { origin: [50, 50] }).faces.map((f) => f.id)).toEqual(rest.map((f) => f.id));
+    expect(net.planarize().faces.map((f) => f.id)).toEqual(rest.map((f) => f.id));
   });
 
   it('G6-26 · the fivefold ribbon is keyed by id, and ids are unique and never undefined', () => {
@@ -262,9 +262,9 @@ describe('P5 · a face collection is a selection', () => {
 
   it('G6-28 · filter predicates take truthiness, as arrays do', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5 });
-    const tiles = t.tiling(4, 4, { side: 8, depth: 6 });
-    const mirrored = tiles.faces().filter((f) => f.mirrored);
-    expect(mirrored.indices).toEqual(tiles.faces().filter((f) => f.mirrored === 1).indices);
+    const tiles = t.tiling(4, 4, { side: 8 });
+    const mirrored = tiles.faces.filter((f) => f.mirrored);
+    expect(mirrored.indices).toEqual(tiles.faces.filter((f) => f.mirrored === 1).indices);
     expect(tiles.points.filter((p) => p.index % 2).length).toBeGreaterThan(0);
     expect(tiles.edges.filter((e) => e.index % 2).length).toBeGreaterThan(0);
   });
@@ -280,16 +280,16 @@ describe('P5 · a face collection is a selection', () => {
     expect(tide.length).toBe(long.reduce((k, p) => k + p.length, 0));
   });
 
-  it('G7-16 · cellOf(selection) is the cells of those sites; siteOf(cells) the sites', () => {
+  it('G7-16 · the cells of some sites are a filter on the source; the sites of cells are their sources', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
     const sites = t.relax(t.scatter({ spacing: 7 }), { iterations: 3 }).points.set('kind', (p) => (p.index % 3 === 0 ? 1 : 0));
     const diagram = t.voronoi(sites);
     const chosenSites = sites.points.filter((p) => p.kind === 1);
-    const chosenCells = diagram.cellOf(chosenSites);
-    const workaround = diagram.faces().filter((f) => diagram.siteOf(f)?.kind === 1);
-    // The same cells; `cellOf` answers them in the sites' order.
-    expect([...chosenCells.indices].sort((a, b) => a - b)).toEqual(workaround.indices);
-    expect(diagram.siteOf(chosenCells).indices).toEqual(chosenSites.filter((p) => diagram.cellOf(p) !== undefined).indices);
+    const chosenCells = diagram.faces.filter((f) => chosenSites.has(f.source));
+    const byColumn = diagram.faces.filter((f) => f.source.kind === 1);
+    expect(chosenCells.indices).toEqual(byColumn.indices);
+    // The cells come in the sites' order, so their sources are the chosen sites that have a cell, in order.
+    expect(chosenCells.map((f) => f.source.index)).toEqual(chosenSites.filter((p) => diagram.faces.some((f) => f.source.index === p.index)).indices);
   });
 });
 
@@ -368,15 +368,15 @@ describe('P6 · identity survives every verb', () => {
 
   it('face selections resolve a stale operand by id too', () => {
     const t = toolkit({ aspect: [1, 1], seed: 3 });
-    const hex = t.hexes({ spacing: 12 });
+    const hex = t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 30 });
     const moved = hex.translate([1, 0]);
-    const before = hex.faces().filter((f) => f.index % 2 === 0);
-    const now = moved.faces();
+    const before = hex.faces.filter((f) => f.index % 2 === 0);
+    const now = moved.faces;
     expect(now.without(before).length).toBe(now.length - before.length);
     expect(now.has(before.at(0))).toBe(true);
     // Ids are minted once per run: an unrelated material of the same run
     // shares none, and is refused.
-    const other = t.voronoi(t.scatter({ spacing: 20 })).faces();
+    const other = t.voronoi(t.scatter({ spacing: 20 })).faces;
     expect(() => other.without(before)).toThrow(/unrelated materials/);
   });
 });
@@ -412,7 +412,8 @@ describe('F10 / F11 · relations read the material\'s space', () => {
     for (const s of [space.spherical({ radius: 30 }), space.hyperbolic({ radius: 45 })]) {
       const t = toolkit({ aspect: [1, 1], seed: 2, space: s });
       const sp = t.space;
-      const hex = t.hexes({ spacing: 14 });
+      // A lattice of the chart: the flat tilings are the plane's own.
+      const hex = t.grid({ cols: 7, rows: 7 });
       const dense = (a: [number, number], b: [number, number], p: [number, number]) => {
         let best = Infinity;
         for (let k = 0; k <= 400; k++) best = Math.min(best, sp.distance(p, sp.geodesic(a, b, k / 400)));

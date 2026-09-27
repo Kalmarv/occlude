@@ -57,7 +57,7 @@ describe('the {5, 4} cell', () => {
 
   it('placements[0] is the identity on every cell point', () => {
     for (const v of til.cell) {
-      const p = til.placements[0].point(v);
+      const p = til.faces.map((f) => f.source as Placement)[0].point(v);
       expect(Math.hypot(p[0] - v[0], p[1] - v[1])).toBeLessThan(1e-9);
     }
   });
@@ -86,7 +86,9 @@ describe('the Poincaré fence, end to end', () => {
     // The `ts live` fence on docs/reference/geometry.mdx, compiled here
     // so the page and the engine cannot drift apart.
     const definition = sketch(HYP, (t) => {
-      const { cell, placements } = t.tiling(5, 4, { depth: 5 });
+      const tiles = t.tiling(5, 4, { depth: 5 });
+      const { cell } = tiles;
+      const placements = tiles.faces.map((f) => f.source as Placement);
       const c = t.space.center;
       const ring = (pts: Vec[], opts?: ShapeOpts) => pts.map((v, i) => {
         const w = pts[(i + 1) % pts.length];

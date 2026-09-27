@@ -15,9 +15,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const started = Date.now();
   const settled = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
-    const measured = diagram.faces().measure(light, { step: 0.78125 });
-    const lit = g.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; });
-    return g.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; })
+    const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
+    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
+    return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)
       .points.set('round', (p) => p.round + 1);
   });
@@ -33,7 +34,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 
 ## A sample is not a measurement
 
-Chapter 8's scatter read the field at each point. A cell is an area, and the field can vary across it. One large cell in the middle of three sites, over a faint ramp with a bright patch that the control slides from left to right. Two numbers are written on it: the field at the site, and the mean of the field over the cell, from `diagram.faces().measure(field)`, which samples the field across every face on a raster and adds it up. `measured.forFace(cell)` looks one face up and gives its `area`, `integral` (the sum, in field units times area) and `mean` (the integral over the area).
+Chapter 8's scatter read the field at each point. A cell is an area, and the field can vary across it. One large cell in the middle of three sites, over a faint ramp with a bright patch that the control slides from left to right. Two numbers are written on it: the field at the site, and the mean of the field over the cell. `diagram.faces.measure(field)` samples the field across every face on a raster and adds it up. It returns the diagram again, and each of its faces carries the result as columns: `integral` (the sum, in field units times area) and `mean` (the integral over the area), beside the `area` every face has. A cell also knows the site it came from, as `source`, so `measured.faces.find((c) => c.source.index === 0)` is the cell of the first site.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, label, material, distance, ui } from 'occlude';
@@ -44,13 +45,13 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const field = (x, y) => 0.15 * (x / 200) + patch(x, y);
   const sites = material([[100, 50], [16, 14], [184, 86]]);
   const diagram = t.voronoi(sites);
-  const cell = diagram.cellOf(sites.points.at(0));
-  const measured = diagram.faces().measure(field, { step: 1.5625 });
+  const measured = diagram.faces.measure(field, { step: 1.5625 });
+  const cell = measured.faces.find((c) => c.source.index === 0);
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6)),
     strokes(t.isolines(patch, [0.3, 0.6], { step: 1 }), { pen: 'stabilo-88-blue' }),
     label(`at the site ${field(100, 50).toFixed(2)}`, 60, 72, 3.4),
-    label(`mean over the cell ${measured.forFace(cell).mean.toFixed(2)}`, 60, 80, 3.4),
+    label(`mean over the cell ${cell.mean.toFixed(2)}`, 60, 80, 3.4),
   ];
 });
 ```
@@ -59,9 +60,9 @@ Slide the patch. When is the site's own reading large, and when does the cell's 
 
 ## Find a useful target
 
-A cell has a centroid, its centre of area, and `measure` gives it. With a field it also gives a `weightedCentroid`: the centre of the field over the cell, which sits where the light is. The two differ when the light is uneven across the cell, and the weighted one is the target a light-seeking site wants. It needs a field that is not negative and not zero over the cell; where the total is zero there is no centre to find and the target is `null`, which a rule has to handle. Slide the patch again and watch the blue target leave the black centroid.
+A cell has a centroid, its centre of area, as `centroid`. With a field, `measure` also writes a weighted centre, `weightedX` and `weightedY`: the centre of the field over the cell, which sits where the light is. The two differ when the light is uneven across the cell, and the weighted one is the target a light-seeking site wants. It needs a field that is not negative and not zero over the cell; where the total is zero there is no centre to find and both columns are `NaN`, which a rule has to handle. Slide the patch again and watch the blue target leave the black centroid.
 
-```ts live focus=10-11
+```ts live focus=9-11
 import { sketch, strokes, circle, line, material, distance, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
@@ -70,9 +71,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const field = (x, y) => 0.15 * (x / 200) + patch(x, y);
   const sites = material([[100, 50], [16, 14], [184, 86]]);
   const diagram = t.voronoi(sites);
-  const cell = diagram.cellOf(sites.points.at(0));
-  const m = diagram.faces().measure(field, { step: 1.5625 }).forFace(cell);
-  const target = m.weightedCentroid;
+  const measured = diagram.faces.measure(field, { step: 1.5625 });
+  const m = measured.faces.find((c) => c.source.index === 0);
+  const target = Number.isFinite(m.weightedX) ? [m.weightedX, m.weightedY] : null;
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6)),
     circle(m.centroid[0], m.centroid[1], 1.2), line(m.centroid[0] - 2, m.centroid[1], m.centroid[0] + 2, m.centroid[1]),
@@ -95,10 +96,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const arrows = [];
   const moved = t.steps(1, sites, (g) => {
     const diagram = t.voronoi(g);
-    const measured = diagram.faces().measure(light, { step: 1.5625 });
+    const cells = diagram.faces.measure(light, { step: 1.5625 }).faces;
     return g.move((p) => {
-      const cell = diagram.cellOf(p);
-      const target = cell ? measured.forFace(cell).weightedCentroid : null;
+      const c = cells.find((f) => f.source.index === p.index);
+      const target = c && Number.isFinite(c.weightedX) ? [c.weightedX, c.weightedY] : null;
       const step = target ? mul(sub(target, p), amount) : [0, 0];
       arrows.push(line(p.x, p.y, ...add(p, step), { pen: 'stabilo-88-blue' }));
       return step;
@@ -108,7 +109,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 });
 ```
 
-`diagram` is built from `g` inside the pass, so `cellOf(p)` is asked of the state `p` belongs to. That is the ownership rule from chapters 3 and 9 doing useful work: a diagram of the previous step would refuse these points, and rightly, since its cells are not theirs.
+`diagram` is built from `g` inside the pass, so the `source` of each cell is a row of the state `p` belongs to, and the match by `index` finds the site's own cell. That is the ownership rule from chapters 3 and 9 doing useful work: a diagram of the previous step has cells with the same row numbers, but its cells are not theirs.
 
 ## Repeat, and then decide differently
 
@@ -124,10 +125,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 12 }), { iterations: 2 });
   const gathered = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g);
-    const measured = diagram.faces().measure(light, { step: 1.5625 });
+    const cells = diagram.faces.measure(light, { step: 1.5625 }).faces;
     return g.move((p) => {
-      const cell = diagram.cellOf(p);
-      const target = cell ? measured.forFace(cell).weightedCentroid : null;
+      const c = cells.find((f) => f.source.index === p.index);
+      const target = c && Number.isFinite(c.weightedX) ? [c.weightedX, c.weightedY] : null;
       return target ? mul(sub(target, p), amount) : [0, 0];
     });
   });
@@ -137,9 +138,9 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 
 That is one response to the measurement: go where the light is in your cell. It is the standard one, the thing `t.relax` does with a density, and it produces one kind of structure: cells that shrink toward the light and stretch away from it, smoothly, everywhere at once.
 
-**The same observation, a different decision.** Keep every line of the observation and change only what a site does with it. Second response: a site whose cell is bright enough stops, for good. It needs to remember that it stopped, so the sites carry a `mobility` column, 1 to start, and the pass sets it to 0 when the cell's `mean` crosses `bright`; the move is scaled by `mobility`, so a stopped site stays put while the others keep coming. The pass also writes `stopped`, the step at which it happened, which is only a record and changes nothing about the motion. A pass is not told which step it is, so the sites count for themselves: `round` starts at 0, and the last write of each step adds 1 to it. One thing to read carefully: the pass decides which sites stop, `lit`, from `g`, before anything moves, and the move reads `p.mobility` from `g` too. The writes then come in order, the move first and the `set` after it, so a site that qualifies this step makes one last move and is still from the step after. `lit` is a selection of `g` and the `set` is a write on the moved material; a selection names the same sites in a later state. The observation is identical: the diagram, the measurement, the same `mean` and `weightedCentroid` for every cell. Left, the first response; right, the second, from the same sites, drawn with the same marks so that only the positions differ.
+**The same observation, a different decision.** Keep every line of the observation and change only what a site does with it. Second response: a site whose cell is bright enough stops, for good. It needs to remember that it stopped, so the sites carry a `mobility` column, 1 to start, and the pass sets it to 0 when the cell's `mean` crosses `bright`; the move is scaled by `mobility`, so a stopped site stays put while the others keep coming. The pass also writes `stopped`, the step at which it happened, which is only a record and changes nothing about the motion. A pass is not told which step it is, so the sites count for themselves: `round` starts at 0, and the last write of each step adds 1 to it. One thing to read carefully: the pass decides which sites stop, `lit`, from `g`, before anything moves, and the move reads `p.mobility` from `g` too. The writes then come in order, the move first and the `set` after it, so a site that qualifies this step makes one last move and is still from the step after. `lit` is a selection of `g` and the `set` is a write on the moved material; a selection names the same sites in a later state. The observation is identical: the diagram, the measurement, the same `mean`, `weightedX` and `weightedY` for every cell. Left, the first response; right, the second, from the same sites, drawn with the same marks so that only the positions differ.
 
-```ts live focus=12,17,19-22
+```ts live focus=13,18,20-23
 import { sketch, strokes, circle, distance, sub, mul, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
@@ -150,11 +151,12 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 8 }), { iterations: 2, within: half }).points.set({ mobility: 1, stopped: -1, round: 0 });
   const respond = (stopping) => t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
-    const measured = diagram.faces().measure(light, { step: 0.78125 });
-    const lit = g.points.filter((p) => { const cell = diagram.cellOf(p); return stopping && p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; });
+    const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
+    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const lit = g.points.filter((p) => { const c = cellFor(p); return stopping && p.mobility === 1 && c !== undefined && c.mean > bright; });
     return g.move((p) => {
-      const cell = diagram.cellOf(p);
-      const target = cell ? measured.forFace(cell).weightedCentroid : null;
+      const c = cellFor(p);
+      const target = c && Number.isFinite(c.weightedX) ? [c.weightedX, c.weightedY] : null;
       return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0];
     }).points.set({ mobility: 0, stopped: (p) => p.round }, lit).points.set('round', (p) => p.round + 1);
   });
@@ -167,7 +169,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 
 With the same marks the difference is in the positions alone, and it is modest: the right side's middle stays a little more open than the left's, because the sites that arrived there first stopped instead of packing further. Whether that difference is worth a rule depends on what the drawing is for; the point here is only that it comes from the decision and nothing else. Now the record. The same stopped result, with the sites that stopped drawn as rings whose size is the step they stopped at, small for early, large for late, so the order of arrival is visible rather than inferred.
 
-```ts live focus=16,20
+```ts live focus=17,21
 import { sketch, strokes, circle, distance, sub, mul, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
@@ -177,9 +179,10 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 8 }), { iterations: 2 }).points.set({ mobility: 1, stopped: -1, round: 0 });
   const stopped = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g);
-    const measured = diagram.faces().measure(light, { step: 0.78125 });
-    const lit = g.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; });
-    return g.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; })
+    const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
+    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
+    return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)
       .points.set('round', (p) => p.round + 1);
   });
@@ -207,7 +210,7 @@ It has plenty. Its positions are its memory: each step's diagram is built from w
 
 The second response, on a modest population with two patches of light, drawn twice from the same final sites: as walls, where the light shows as two groups of smaller cells; and as marks of one size with the stopped sites ringed and the rings sized by the step they stopped at, as above. The label reports what the rule cost.
 
-```ts live focus=9-18
+```ts live focus=9-19
 import { sketch, strokes, circle, label, distance, sub, mul, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
@@ -220,9 +223,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const started = Date.now();
   const settled = t.steps(iterations, sites, (g) => {
     const diagram = t.voronoi(g, { within: half });
-    const measured = diagram.faces().measure(light, { step: 0.78125 });
-    const lit = g.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; });
-    return g.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; })
+    const cells = diagram.faces.measure(light, { step: 0.78125 }).faces;
+    const cellFor = (p) => cells.find((c) => c.source.index === p.index);
+    const lit = g.points.filter((p) => { const c = cellFor(p); return p.mobility === 1 && c !== undefined && c.mean > bright; });
+    return g.move((p) => { const c = cellFor(p); return c && Number.isFinite(c.weightedX) ? mul(sub([c.weightedX, c.weightedY], p), 0.8 * p.mobility) : [0, 0]; })
       .points.set({ mobility: 0, stopped: (p) => p.round }, lit)
       .points.set('round', (p) => p.round + 1);
   });
@@ -249,10 +253,10 @@ Write a third response from the same measurements, and say what structure it mak
 <details>
 <summary>A hint, and one possible answer</summary>
 
-The decision is the line that computes `target`, and it can read anything the measurement holds. For the mixed population, set `kind` on the sites as chapter 9 did and multiply the move by `p.kind`; the unmoved kind stays as a lattice and the moved kind gathers through it, which is a structure with two layers. For the dark's direction, `target` is a choice between two points: `mean < dim ? somewhere : weightedCentroid`, and `somewhere` is a fixed position, so the dark sites drain toward a corner while the lit ones gather, and the sheet divides into a place things go and a place they come from.
+The decision is the line that computes `target`, and it can read anything the measurement holds. For the mixed population, set `kind` on the sites as chapter 9 did and multiply the move by `p.kind`; the unmoved kind stays as a lattice and the moved kind gathers through it, which is a structure with two layers. For the dark's direction, `target` is a choice between two points: `mean < dim ? somewhere : [weightedX, weightedY]`, and `somewhere` is a fixed position, so the dark sites drain toward a corner while the lit ones gather, and the sheet divides into a place things go and a place they come from.
 
 </details>
 
 ## Where to look things up
 
-`measure`, `forFace` and the fields of a measurement are under *Faces and boundaries* on [Materials](#/materials); `t.voronoi`, `cellOf` and the standard refinements under *Point distributions*; `t.steps`, `move` and `points.set` under *Movement and growth*. Next, chapter 11: choosing a drawing worth plotting, and getting it onto paper.
+`measure` and the face columns it writes are under *Faces and boundaries* on [Materials](#/materials); `t.voronoi`, a cell's `source` and the standard refinements under *Point distributions*; `t.steps`, `move` and `points.set` under *Movement and growth*. Next, chapter 11: choosing a drawing worth plotting, and getting it onto paper.

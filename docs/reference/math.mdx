@@ -81,8 +81,8 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const cap = (v, max) => { const d = length(v); return d > max && d > 0 ? [(v[0] / d) * max, (v[1] / d) * max] : v; };
   const stone = [0.42 * b.w, 0.5 * b.h];
   const axis = fromAngle(-0.4);
-  return t.grid({ cols: 30, rows: 15 }).map((c) => {
-    const p = [c.cx, c.cy];
+  return t.grid({ cols: 30, rows: 15 }).faces.map((f) => {
+    const p = f.centroid;
     const v = sub(p, stone);
     const d = distance(p, stone);
     const dir = fromAngle(angleOf(v) + Math.PI / 2);

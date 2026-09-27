@@ -84,9 +84,12 @@ import { sketch, dots, rect, mm, pen } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 9, pens: { ink: pen({ width: mm(1.6), color: '#23252B' }) } }, (t) => {
   const title = `dice, seed ${t.seed}`;
-  return t.grid({ cols: 5, rows: 5, gap: 3 }).map((c) => [
-    rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, { pen: 'pigma-005-black' }),
-    dots(t.times(t.rndInt(1, 6), () => [t.rnd(c.x + 3, c.x + c.w - 3), t.rnd(c.y + 3, c.y + c.h - 3)]), { pen: 'ink' }),
-  ]);
+  return t.grid({ cols: 5, rows: 5, gap: 3 }).faces.map((f) => {
+    const c = f.bounds;
+    return [
+      rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, { pen: 'pigma-005-black' }),
+      dots(t.times(t.rndInt(1, 6), () => [t.rnd(c.x + 3, c.x + c.w - 3), t.rnd(c.y + 3, c.y + c.h - 3)]), { pen: 'ink' }),
+    ];
+  });
 });
 ```

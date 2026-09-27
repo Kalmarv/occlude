@@ -43,7 +43,7 @@ const RECEIVER: Record<string, string> = {
 const PAGE: Record<string, string> = {
   Material: 'material', Curve: 'material',
   Vertex: 'selections', Edge: 'selections', Selection: 'selections', NearestHit: 'selections', FirstHit: 'selections',
-  Face: 'faces', FaceMeasurements: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
+  Face: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
   PointValue: 'steps', EdgeValue: 'steps', GraphForce: 'steps', ReplaceOpts: 'steps',
   Lattice: 'steps', Cell: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
@@ -159,7 +159,7 @@ const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb', 'Placement3'];
  * spelled over `Row`, as `sel.<word>`. The words a kind brings — the writes,
  * `extract`, the protocol words, the faces' and edges' own — are typed by
  * the row, so each is written once per kind that has it, read off the
- * collection that holds that kind (`m.points`, `m.edges`, `m.faces()`,
+ * collection that holds that kind (`m.points`, `m.edges`, `m.faces`,
  * `l.cells`) and spelled with that receiver: `points.set(…)`, `faces.measure(…)`.
  */
 const KIND_WORDS = ['source', 'points', 'edges', 'faces', 'corners', 'contours', 'curves', 'set', 'add', 'remove', 'extract', 'boundaryEdges', 'measure', 'thicken', 'resample', 'trim', 'spline', 'oscillate', 'along'];

@@ -1,7 +1,7 @@
 /**
  * One selection, over any domain.
  *
- * `m.points`, `m.edges`, `m.faces()`, `l.cells`, `mesh.points`,
+ * `m.points`, `m.edges`, `m.faces`, `l.faces`, `mesh.points`,
  * `mesh.corners`, a curve's edges, a sample's points: every collection of
  * rows a geometry answers is a `Selection`, and so is every part of one a
  * sketch picks out. There is ONE implementation of the words they share —
@@ -45,7 +45,7 @@ import type { NearestHit, FirstHit } from './query.js';
  * domain: the cross-domain collections, the write and its result, what
  * `extract()` makes. A type-level word only — no row carries it — so one
  * `Selection<Row>` reads the right types for a vertex, a mesh face or a
- * lattice cell.
+ * lattice face.
  */
 export const ROW_TYPES: unique symbol = Symbol('rowTypes');
 
@@ -113,13 +113,13 @@ export interface Rowish {
 export type RowTypes<Row> = NonNullable<(Row & Rowish)[typeof ROW_TYPES]>;
 
 /**
- * A kind of domain: points, edges, faces, cells, corners, instances. It
+ * A kind of domain: points, edges, faces, corners, instances. It
  * names the rows in messages, and it holds the words only this kind of
  * selection has — its prototype, which inherits every shared word from
  * `Selection`. One kind serves every state.
  */
 export interface DomainKind {
-  /** One row: `point`, `edge`, `face`, `cell`, `corner`, `instance`. */
+  /** One row: `point`, `edge`, `face`, `corner`, `instance`. */
   readonly name: string;
   /** Many rows, as messages name them: `points`, `edges`, … */
   readonly plural: string;
@@ -141,7 +141,7 @@ export interface Domain<Row = unknown> {
   /** How many rows the domain holds. */
   readonly size: number;
   /** True when the rows are exactly `0 … size − 1`; a lattice's masked
-   * cells are not. */
+   * faces are not. */
   readonly dense: boolean;
   /** Every row, in row order. Built once and kept. */
   all(): readonly number[];
@@ -172,6 +172,12 @@ export interface Domain<Row = unknown> {
    * distance of each, position by position: what `near` reads. A kind with
    * no distance has none. */
   near?(p: unknown, radius: number, who: string): { readonly rows: readonly number[]; readonly distances: ArrayLike<number> };
+  /** A reduction of a column the domain stores by row, over `members`
+   * (null: every row), with the shared words' rules — a value that is not
+   * finite is left out, the members are read in order — or undefined for a
+   * name it does not store so. What `sum`, `mean`, `min` and `max` ask
+   * first, so a raster domain answers without making a row per member. */
+  reduce?(name: string, members: readonly number[] | null, op: 'sum' | 'mean' | 'min' | 'max'): number | undefined;
 }
 
 /** A key a `groupBy` or `components` gave its group. */
@@ -189,7 +195,7 @@ const describe = (v: unknown): string => {
  * A selection of rows of one domain in one state. See the module comment:
  * one class, every domain, the words a domain lacks refused by name.
  *
- * `Row` is the row view: `Vertex`, `Edge`, `Face`, `Cell`, a mesh's point
+ * `Row` is the row view: `Vertex`, `Edge`, `Face`, `LatticeFace`, a mesh's point
  * row, … — what iteration yields and what every predicate reads.
  */
 export class Selection<Row> implements Iterable<Row> {
@@ -233,9 +239,9 @@ export class Selection<Row> implements Iterable<Row> {
   declare readonly extract: RowTypes<Row>['extract'];
 
   /** Selections are read from a geometry — `m.points`, `m.edges`,
-   * `m.faces()`, `mesh.faces` — never constructed. */
+   * `m.faces`, `mesh.faces` — never constructed. */
   protected constructor() {
-    throw new Error('a selection is read from a geometry: m.points, m.edges, m.faces(), l.cells, mesh.faces');
+    throw new Error('a selection is read from a geometry: m.points, m.edges, m.faces, l.faces, mesh.faces');
   }
 
   /** The state the rows belong to. */
@@ -552,6 +558,8 @@ export class Selection<Row> implements Iterable<Row> {
   /** The sum of a column, or of a function of the row, over the members.
    * A value that is not finite is left out; the sum of nothing is 0. */
   sum(of: string | ((row: Row, index: number) => number)): number {
+    const stored = typeof of === 'string' ? this.domain.reduce?.(of, this.members, 'sum') : undefined;
+    if (stored !== undefined) return stored;
     let s = 0;
     for (const v of this.numbers(of, 'sum')) s += v;
     return s;
@@ -559,6 +567,8 @@ export class Selection<Row> implements Iterable<Row> {
 
   /** The mean, as `sum`; the mean of nothing is NaN. */
   mean(of: string | ((row: Row, index: number) => number)): number {
+    const stored = typeof of === 'string' ? this.domain.reduce?.(of, this.members, 'mean') : undefined;
+    if (stored !== undefined) return stored;
     const v = this.numbers(of, 'mean');
     let s = 0;
     for (const x of v) s += x;
@@ -567,6 +577,8 @@ export class Selection<Row> implements Iterable<Row> {
 
   /** The least value, as `sum`; the least of nothing is Infinity. */
   min(of: string | ((row: Row, index: number) => number)): number {
+    const stored = typeof of === 'string' ? this.domain.reduce?.(of, this.members, 'min') : undefined;
+    if (stored !== undefined) return stored;
     let m = Infinity;
     for (const v of this.numbers(of, 'min')) if (v < m) m = v;
     return m;
@@ -574,6 +586,8 @@ export class Selection<Row> implements Iterable<Row> {
 
   /** The greatest value, as `sum`; the greatest of nothing is -Infinity. */
   max(of: string | ((row: Row, index: number) => number)): number {
+    const stored = typeof of === 'string' ? this.domain.reduce?.(of, this.members, 'max') : undefined;
+    if (stored !== undefined) return stored;
     let m = -Infinity;
     for (const v of this.numbers(of, 'max')) if (v > m) m = v;
     return m;
@@ -601,7 +615,8 @@ export interface Selection<Row> {
   crossing(a: XY, b: XY): Selection<Row>;
   /** Faces: the edges between the selected union and the rest. */
   boundaryEdges: RowTypes<Row>['boundaryEdges'];
-  /** 2D faces: area, centroid, and with a field its integral and mean. */
+  /** 2D faces: the geometry with the faces' shape, and with a field its
+   * integral and mean, as face columns. */
   measure: RowTypes<Row>['measure'];
   /** 2D points and edges: thickness around what the selection holds. */
   thicken: RowTypes<Row>['thicken'];

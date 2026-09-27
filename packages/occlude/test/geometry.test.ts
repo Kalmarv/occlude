@@ -32,7 +32,7 @@ const openChain = () => curve(material([[10, 10], [60, 10], [60, 60]]));
 function cellsOf(): Selection<Face> {
   return material([[10, 10], [60, 10], [60, 60], [10, 60]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [0, 2]] })
     .planarize()
-    .faces();
+    .faces;
 }
 
 describe('what each value can say about itself', () => {

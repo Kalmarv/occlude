@@ -783,7 +783,7 @@ to place and edit the result.
 Each point has `i`, `j` and `k` attributes for its column, row and layer. X varies
 fastest, then Y, then Z; filtering preserves the original coordinates and IDs.
 This is a point domain for placement and construction. `t.grid` continues to
-lay out paper cells, and mesh topology remains explicit through mesh factories.
+lay out flat faces on the paper, and mesh topology remains explicit through mesh factories.
 
 ### Corner attributes
 

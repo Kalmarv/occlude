@@ -86,9 +86,10 @@ import { sketch, circle, shaper } from 'occlude';
 // Dot sizes through an S curve: the midtones spread apart.
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const tone = shaper([[0, 0], [0.3, 0.12], [0.7, 0.88], [1, 1]]);
-  return t.grid({ cols: 40, rows: 20 }).map((c) => {
-    const v = tone(t.noise(c.x / 40, c.y / 40) * 0.5 + 0.5);
-    return v > 0.03 ? circle(c.cx, c.cy, v * c.w * 0.48) : null;
+  return t.grid({ cols: 40, rows: 20 }).faces.map((f) => {
+    const { x, y, w, cx, cy } = f.bounds;
+    const v = tone(t.noise(x / 40, y / 40) * 0.5 + 0.5);
+    return v > 0.03 ? circle(cx, cy, v * w * 0.48) : null;
   });
 });
 ```
@@ -583,9 +584,9 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
 A field answers from a formula. A lattice remembers.
 
-`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of cells over an area and fills each one from its centre. `lat.set(channel, value)` writes a channel and returns a new lattice. The value is a number or a function of the cell: a cell reads its channels by name, and `c.laplacian(channel)` sums the differences to its four neighbours. One `set` with a record `{ a: …, b: … }` is one instant, so every function reads the lattice as it was. `t.steps(n, lat, pass)` runs a pass `n` times. A diffusion is `l.set('a', (c) => c.a + rate * c.laplacian('a'))`, and a decay is `l.set('a', (c) => c.a * (1 - r))`. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
+`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of square faces over an area and fills each one from its centre. `lat.faces` holds them, and a face answers what the faces of any material answer: `centroid`, `bounds`, `area`, `adjacent`, its place `i` and `j`, and its channels as columns. `lat.face(p)` is the face under a point. `lat.set(channel, value)` writes a channel and returns a new lattice. The value is a number or a function of the face: a face reads its channels by name, and `f.laplacian(channel)` sums the differences to its four neighbours. One `set` with a record `{ a: …, b: … }` is one instant, and every function reads the faces as they were before the write. `t.steps(n, lat, pass)` runs a pass `n` times. A diffusion is `l.set('a', (f) => f.a + rate * f.laplacian('a'))`, and a decay is `l.set('a', (f) => f.a * (1 - r))`, each over the lattice as it was. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
 
-Two numbers to keep in mind. `c.laplacian` counts in cells, not in drawing units. A diffusion rate above 0.25 is unstable, and the values run away.
+Two numbers to keep in mind. `f.laplacian` counts in faces, not in drawing units. A diffusion rate above 0.25 is unstable, and the values run away.
 
 The drawing below is a Gray-Scott reaction inside a disc. One channel feeds the other, the two spread at different rates, and that difference is the whole pattern. No word in the library knows the name of that reaction. The rule lives in the sketch, and the lattice only holds the numbers.
 
@@ -600,8 +601,8 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
   const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
     Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
   const react = (l) => l.set({
-    a: (c) => c.a + Du * c.laplacian('a') - c.a * c.b * c.b + feed * (1 - c.a),
-    b: (c) => c.b + Dv * c.laplacian('b') + c.a * c.b * c.b - (feed + kill) * c.b,
+    a: (f) => f.a + Du * f.laplacian('a') - f.a * f.b * f.b + feed * (1 - f.a),
+    b: (f) => f.b + Dv * f.laplacian('b') + f.a * f.b * f.b - (feed + kill) * f.b,
   });
   const grown = t.steps(5000, seeded, react);
   return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 }).edges.filter((e) => !e.cut)), disc];

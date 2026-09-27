@@ -242,7 +242,7 @@ describe('every value that answered curves() answers the property', () => {
       ['material', m],
       ['points', m.points],
       ['edges', m.edges],
-      ['faces', m.planarize().faces()],
+      ['faces', m.planarize().faces],
       ['glyph', strokeFont(TINY).glyph('A')!],
     ];
     for (const [name, v] of sources) {

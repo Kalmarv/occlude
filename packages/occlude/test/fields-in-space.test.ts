@@ -303,8 +303,8 @@ describe('a material carries the space its coordinates belong to', () => {
     smooth: () => m.points.set('w', 1).smooth('w'),
     'points.set': () => m.points.set('w', 1),
     'points.set record': () => m.points.set({ w: 1 }),
-    'faces().set': () => m.faces().set('f', 1),
-    'faces().set record': () => m.faces().set({ f: 1 }),
+    'faces().set': () => m.faces.set('f', 1),
+    'faces().set record': () => m.faces.set({ f: 1 }),
     'edges.set': () => m.edges.set('e', 1),
     'edges.set record': () => m.edges.set({ e: 1 }),
     'points.add': () => m.points.add([50, 50]),
@@ -406,8 +406,7 @@ describe('a material carries the space its coordinates belong to', () => {
         isolines: () => t.isolines((x) => x, [50]),
         ridges: () => t.ridges((x, y) => -Math.hypot(x - 50, y - 50)),
         streamlines: () => t.streamlines(() => [1, 0], { spacing: 10 }),
-        hexes: () => t.hexes({ spacing: 10 }),
-        triangles: () => t.triangles({ size: 10 }),
+        grid: () => t.grid({ cols: 4, rows: 3 }),
       };
       for (const [name, call] of Object.entries(words)) expect(call().space, name).toBe(t.space);
     }
@@ -498,8 +497,8 @@ describe('forces measure with the space', () => {
   it('boundary pushes inward, perpendicular to the nearest geodesic edge', () => {
     const t = toolkit(HYP);
     const tiles = t.tiling(5, 4, { depth: 1 });
-    const area = tiles.faces().at(0).contours();
-    const inside = t.distanceTo(tiles.faces().at(0).contours()[0].pts as Pt[]);
+    const area = tiles.faces.at(0).contours();
+    const inside = t.distanceTo(tiles.faces.at(0).contours()[0].pts as Pt[]);
     const keep = t.force.boundary(area, { radius: 6, strength: 2 });
     const near = spaceAreaNearest(t.space, area.map((c) => ({ pts: c.pts, closed: true })));
     let checked = 0;

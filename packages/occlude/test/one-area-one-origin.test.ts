@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { SQ, toolkit } from './helpers/run.js';
 import {
   append, circle, clip, group, invert, line, mask, material, ngon, polygon, rect, rotate, scale,
-  sketch, space, strokes, svg, vectorField, type SketchDef, type Toolkit, type Tree,
+  sketch, space, strokes, svg, vectorField, type Material, type SketchDef, type Toolkit, type Tree,
 } from '../src/index.js';
 import { compileSketch, evalPrim, initOcclude, render } from '../src/host.js';
 import { box } from '../src/three/api/index.js';
@@ -51,7 +51,7 @@ describe('P1 · one area door', () => {
 
   it('G1-10 G2-2 G4-4 G5-3 · t.within(field, face) bounds the field as polygon(face) does', () => {
     const t = tk();
-    const face = t.hexes({ spacing: 30 }).faces().at(3)!;
+    const face = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.at(3)!;
     const viaFace = t.isolines(t.within(ground, face), [0]);
     const viaPolygon = t.isolines(t.within(ground, polygon(face)), [0]);
     expect(viaFace.n).toBeGreaterThan(0);
@@ -60,14 +60,14 @@ describe('P1 · one area door', () => {
 
   it('G2-2 G3-4 G6-13 G7-13 · a field is bounded by a faced material, a face seed, contours and a vector field', () => {
     const t = tk();
-    const hex = t.hexes({ spacing: 30 });
+    const hex = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     const coast = t.isolines(ground, [0]);
-    for (const area of [hex, hex.faces().at(0)!, coast, coast.contours()]) {
+    for (const area of [hex, hex.faces.at(0)!, coast, coast.contours()]) {
       const f = t.within(ground, area);
       expect(Number.isNaN(f(-50, -50))).toBe(true);
     }
-    const tiles = t.tiling(4, 4, { side: 20, depth: 1 });
-    const pts = t.scatter(t.within(() => 1, tiles.faces().at(0)!), { spacing: 1.5 });
+    const tiles = t.tiling(4, 4, { side: 20 });
+    const pts = t.scatter(t.within(() => 1, tiles.faces.at(0)!), { spacing: 1.5 });
     expect(pts.n).toBeGreaterThan(0);
     const swirl = t.within(vectorField((x: number, y: number): [number, number] => [y - 50, 50 - x]), circle(50, 50, 20));
     expect(Number.isNaN(swirl(5, 5)[0])).toBe(true);
@@ -83,15 +83,15 @@ describe('P1 · one area door', () => {
     const rules = append(...t.times(5, (k, u) => t.sample(line(0, 10 + u * 80, 100, 10 + u * 80), { count: 2 })));
     const cut = t.within(rules, invert(disc));
     for (const p of cut.points.map(xy)) expect(Math.hypot(p[0] - 50, p[1] - 50)).toBeGreaterThan(19.99);
-    expect(t.within(t.material(rect(0, 0, 100, 100)).planarize().faces(), invert(disc)).length).toBe(0);
+    expect(t.within(t.material(rect(0, 0, 100, 100)).planarize().faces, invert(disc)).length).toBe(0);
     // Twice outside is inside, through the drawable.
     expect(t.within(ground, invert(invert(disc)))(50, 50)).toBe(ground(50, 50));
   });
 
   it('G3-5 G5-19 · t.material(face) is the face\'s walls with their ids; t.sample(face) samples every contour', () => {
     const t = tk();
-    const cells = t.hexes({ spacing: 30 });
-    const face = cells.faces().at(4)!;
+    const cells = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
+    const face = cells.faces.at(4)!;
     const walls = t.material(face);
     expect(walls.edgeCount).toBe(face.boundaryEdges.length);
     expect([...walls.edgeIds].sort()).toEqual([...face.boundaryEdges.extract().edgeIds].sort());
@@ -102,7 +102,7 @@ describe('P1 · one area door', () => {
 
   it('G4-7 G6-30 · t.sample(area) samples a face with a hole on both contours', () => {
     const t = tk();
-    const annulus = t.material(circle(50, 50, 30), circle(50, 50, 10)).planarize().faces().filter((f) => f.contours().length === 2).at(0)!;
+    const annulus = t.material(circle(50, 50, 30), circle(50, 50, 10)).planarize().faces.filter((f) => f.contours().length === 2).at(0)!;
     expect(annulus).toBeDefined();
     const both = t.sample(annulus, { spacing: 2 });
     expect(both.contours().length).toBe(2);
@@ -112,7 +112,7 @@ describe('P1 · one area door', () => {
   it('G2-5 · contour records go straight to t.material and on to planarize', () => {
     const t = tk();
     const levels = t.isolines(ground, [0]).contours();
-    const pieces = t.material(levels).planarize().faces();
+    const pieces = t.material(levels).planarize().faces;
     expect(pieces.length).toBeGreaterThan(0);
   });
 
@@ -150,8 +150,8 @@ describe('P1 · one area door', () => {
 
   it('G1-4 G6-21 · clip and mask take a face and a material', () => {
     same(
-      (t) => { const one = t.hexes({ spacing: 30 }).faces().at(4)!; return clip(one, t.times(10, (k, u) => line(0, u * 100, 100, u * 100))); },
-      (t) => { const one = t.hexes({ spacing: 30 }).faces().at(4)!; return clip(polygon(one), t.times(10, (k, u) => line(0, u * 100, 100, u * 100))); },
+      (t) => { const one = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.at(4)!; return clip(one, t.times(10, (k, u) => line(0, u * 100, 100, u * 100))); },
+      (t) => { const one = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.at(4)!; return clip(polygon(one), t.times(10, (k, u) => line(0, u * 100, 100, u * 100))); },
     );
     same(
       (t) => [t.times(10, (k, u) => line(0, u * 100, 100, u * 100)), mask(t.material(circle(50, 50, 20)))],
@@ -179,7 +179,7 @@ describe('P1 · one area door', () => {
   it('refuses a value that is no area by name, and still refuses a face collection', () => {
     const t = tk();
     expect(() => t.within(ground, 42 as never)).toThrow(/t\.within: a number is not an area — give a face, contours, a closed material, a shape or a rect/);
-    const cells = t.hexes({ spacing: 30 }).faces();
+    const cells = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces;
     expect(() => t.within(ground, cells as never)).toThrow(/face collection is several areas/);
     expect(() => clip(7 as never)).toThrow(/^clip: a number is not an area/);
   });
@@ -191,11 +191,11 @@ describe('P3 · within judges the boundary with the one ink tolerance', () => {
   it('verify-within-rim · faces cut from a frame and tested against it keep their rim', () => {
     const t = tk();
     const disc = circle(50, 50, 44);
-    const dFaces = append(t.material(disc), ...lines(t)).planarize().faces();
+    const dFaces = append(t.material(disc), ...lines(t)).planarize().faces;
     expect(dFaces.length).toBe(24);
     expect(t.within(dFaces, disc).length).toBe(24);
     const frame = rect(6, 6, 88, 88);
-    const bFaces = append(t.material(frame), ...lines(t)).planarize().faces();
+    const bFaces = append(t.material(frame), ...lines(t)).planarize().faces;
     expect(t.within(bFaces, frame).length).toBe(bFaces.length);
   });
 
@@ -203,7 +203,7 @@ describe('P3 · within judges the boundary with the one ink tolerance', () => {
     const t = toolkit({ aspect: [1, 1], seed: 11 });
     const disc = circle(50, 50, 44);
     const through = (x: number, y: number, a: number) => t.sample(line([x - Math.cos(a) * 200, y - Math.sin(a) * 200], [x + Math.cos(a) * 200, y + Math.sin(a) * 200]), { count: 2 });
-    const all = append(t.material(disc), ...t.times(18, () => through(60 + t.rnd(-15, 15), 40 + t.rnd(-15, 15), t.rnd(Math.PI)))).planarize().faces();
+    const all = append(t.material(disc), ...t.times(18, () => through(60 + t.rnd(-15, 15), 40 + t.rnd(-15, 15), t.rnd(Math.PI)))).planarize().faces;
     const inDisc = all.filter((f) => Math.hypot(f.centroid[0] - 50, f.centroid[1] - 50) < 44);
     expect(t.within(all, disc).length).toBe(inDisc.length);
   });
@@ -213,34 +213,34 @@ describe('P3 · within judges the boundary with the one ink tolerance', () => {
     const frame = rect(4, 4, 192, 92);
     const chord = () => t.sample(line(t.rnd(0, 200), 0, t.rnd(0, 200), 100), { count: 2 });
     const across = () => t.sample(line(0, t.rnd(0, 100), 200, t.rnd(0, 100)), { count: 2 });
-    const cells = append(t.material(frame), ...t.times(10, chord), ...t.times(4, across)).planarize().faces();
+    const cells = append(t.material(frame), ...t.times(10, chord), ...t.times(4, across)).planarize().faces;
     const inside = cells.filter((f) => f.centroid[0] > 4 && f.centroid[0] < 196 && f.centroid[1] > 4 && f.centroid[1] < 96);
     expect(t.within(cells, frame).length).toBe(inside.length);
   });
 
   it('G2-15 · a point on the boundary is within, as a wall along it is', () => {
     const t = tk();
-    const hex = t.hexes({ spacing: 30 });
+    const hex = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     // A whole cell: six corners, all on its own boundary.
-    const middle = hex.faces().filter((f) => f.contours()[0].pts.length === 6).at(0)!;
+    const middle = hex.faces.filter((f) => f.contours()[0].pts.length === 6).at(0)!;
     expect(t.within(hex.points, middle).length).toBe(6);
     expect(t.within(hex.edges, middle).length).toBe(6);
   });
 
   it('G5-24 · one keep vocabulary on points, edges and faces; the old names refuse by name', () => {
     const t = tk();
-    const hex = t.hexes({ spacing: 30 });
+    const hex = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] });
     const area = circle(50, 50, 25);
     for (const keep of ['contained', 'centroid', 'touching'] as const) {
       expect(() => t.within(hex.points, area, { keep })).not.toThrow();
       expect(() => t.within(hex.edges, area, { keep })).not.toThrow();
-      expect(() => t.within(hex.faces(), area, { keep })).not.toThrow();
+      expect(() => t.within(hex.faces, area, { keep })).not.toThrow();
     }
     // An edge's centroid is its middle.
     const byMiddle = t.within(hex.edges, area, { keep: 'centroid' });
     for (const e of byMiddle) expect(Math.hypot(e.center[0] - 50, e.center[1] - 50)).toBeLessThanOrEqual(25.001);
     expect(() => t.within(hex.edges, area, { edges: 'midpoint' } as never)).toThrow(/'edges' option is spelled keep/);
-    expect(() => t.within(hex.faces(), area, { faces: 'centroid' } as never)).toThrow(/'faces' option is spelled keep/);
+    expect(() => t.within(hex.faces, area, { faces: 'centroid' } as never)).toThrow(/'faces' option is spelled keep/);
   });
 });
 
@@ -249,8 +249,8 @@ describe('P4 · one pivot type', () => {
     // verify-shape-centroid: an ngon's area centroid is its centre.
     same(() => ngon(50, 50, 3, 30, { scale: 0.5, origin: 'centroid' }), () => ngon(50, 50, 3, 30, { scale: 0.5, origin: [50, 50] }));
     same(
-      (t) => { const f = t.hexes({ spacing: 30 }).faces().at(4)!; return polygon(f, { scale: 0.8, origin: 'centroid' }); },
-      (t) => { const f = t.hexes({ spacing: 30 }).faces().at(4)!; return polygon(f, { scale: 0.8, origin: f.centroid }); },
+      (t) => { const f = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.at(4)!; return polygon(f, { scale: 0.8, origin: 'centroid' }); },
+      (t) => { const f = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces.at(4)!; return polygon(f, { scale: 0.8, origin: f.centroid }); },
     );
     same(
       () => group({ rotate: 20, origin: 'centroid' }, ngon(30, 50, 6, 10, 30)),
@@ -287,33 +287,36 @@ describe('P4 · one pivot type', () => {
     expect(() => group({ rotate: 5, origin: 'page' as never })).toThrow(/group: origin is a point/);
     const t = tk();
     expect(() => t.material(rect(0, 0, 10, 10)).scale(2, { origin: 'middle' as never })).toThrow(/m\.scale: origin is a point/);
-    expect(() => t.hexes({ spacing: 10, origin: 'middle' as never })).toThrow(/hexes: origin is a point/);
+    expect(() => t.tiling(6, 3, { side: 10 / Math.sqrt(3), rotate: 30, origin: 'middle' as never })).toThrow(/tiling: origin is a point/);
   });
 
   it("G2-7 · t.hexes and t.triangles take 'center': the middle of the drawable they cover", () => {
     const t = tk();
-    expect(t.hexes({ spacing: 12, origin: 'center', rotate: 15 }).points.map(xy)).toEqual(t.hexes({ spacing: 12, origin: [50, 50], rotate: 15 }).points.map(xy));
-    expect(t.triangles({ size: 12, origin: 'centroid' }).points.map(xy)).toEqual(t.triangles({ size: 12, origin: { x: 50, y: 50 } }).points.map(xy));
+    expect(t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 45, origin: 'center' }).points.map(xy)).toEqual(t.tiling(6, 3, { side: 12 / Math.sqrt(3), rotate: 45, origin: [50, 50] }).points.map(xy));
+    expect(t.tiling(3, 6, { side: 12, rotate: 30, origin: 'centroid' }).points.map(xy)).toEqual(t.tiling(3, 6, { side: 12, rotate: 30, origin: { x: 50, y: 50 } }).points.map(xy));
   });
 
   it('G6-27 · a flat t.tiling takes origin and rotate; a curved one refuses origin by name', () => {
     const t = tk();
-    const plain = t.tiling(4, 4, { side: 10, depth: 1 });
-    const moved = t.tiling(4, 4, { side: 10, depth: 1, origin: [60, 50] });
-    for (let i = 0; i < plain.n; i++) {
-      expect(moved.points.map(xy)[i][0]).toBeCloseTo(plain.points.map(xy)[i][0] + 10, 9);
-      expect(moved.points.map(xy)[i][1]).toBeCloseTo(plain.points.map(xy)[i][1], 9);
-    }
-    expect(t.tiling(4, 4, { side: 10, depth: 1, origin: 'center' }).points.map(xy)).toEqual(plain.points.map(xy));
-    const turned = t.tiling(4, 4, { side: 10, depth: 1, rotate: 90 });
-    for (let i = 0; i < turned.n; i++) {
-      const [x, y] = plain.points.map(xy)[i];
-      expect(turned.points.map(xy)[i][0]).toBeCloseTo(50 - (y - 50), 9);
-      expect(turned.points.map(xy)[i][1]).toBeCloseTo(50 + (x - 50), 9);
-    }
+    // The fundamental cell is the first face; it stands on the origin and
+    // turns about it, and the lattice covers the drawable either way.
+    const cellOf = (m: Material) => m.faces.at(0).contours()[0].pts;
+    const plain = t.tiling(4, 4, { side: 10 });
+    const moved = t.tiling(4, 4, { side: 10, origin: [60, 50] });
+    cellOf(moved).forEach(([x, y], i) => {
+      expect(x).toBeCloseTo(cellOf(plain)[i][0] + 10, 9);
+      expect(y).toBeCloseTo(cellOf(plain)[i][1], 9);
+    });
+    expect(moved.faces.sum('area')).toBeCloseTo(plain.faces.sum('area'), 6);
+    expect(t.tiling(4, 4, { side: 10, origin: 'center' }).points.map(xy)).toEqual(plain.points.map(xy));
+    const turned = t.tiling(4, 4, { side: 10, rotate: 90 });
+    // A quarter turn of a square is the same square: the corners, turned.
+    const turnedCell = cellOf(turned).map(([x, y]) => `${Math.round(x * 1e6)},${Math.round(y * 1e6)}`).sort();
+    const want = cellOf(plain).map(([x, y]) => `${Math.round((50 - (y - 50)) * 1e6)},${Math.round((50 + (x - 50)) * 1e6)}`).sort();
+    expect(turnedCell).toEqual(want);
     const disk = toolkit({ aspect: [1, 1], space: space.hyperbolic({ radius: 45 }) });
     expect(() => disk.tiling(7, 3, { depth: 1, origin: [10, 10] })).toThrow(/tiling: a .* tiling stands on its chart's centre/);
-    expect(disk.tiling(7, 3, { depth: 1, rotate: 10 }).faces().length).toBe(disk.tiling(7, 3, { depth: 1 }).faces().length);
+    expect(disk.tiling(7, 3, { depth: 1, rotate: 10 }).faces.length).toBe(disk.tiling(7, 3, { depth: 1 }).faces.length);
   });
 
   it('G2-1 G6-33 · a field turns and scales about a point, and refuses a word by name', () => {
@@ -352,9 +355,9 @@ describe('P4 · one pivot type', () => {
         polygon(circle(30, 30, 5, { scale: 2, origin: 'centroid' })),
       ]), SQ),
       () => t.material(rect(0, 0, 10, 10)).rotate(10, { origin: { x: 5, y: 5 } }),
-      () => t.hexes({ spacing: 10, origin: { x: 5, y: 5 } }),
-      () => t.triangles({ size: 10, origin: 'center' }),
-      () => t.tiling(4, 4, { side: 10, depth: 1, origin: { x: 5, y: 5 } }),
+      () => t.tiling(6, 3, { side: 10 / Math.sqrt(3), origin: { x: 5, y: 5 } }),
+      () => t.tiling(3, 6, { side: 10, rotate: 30, origin: 'center' }),
+      () => t.tiling(4, 4, { side: 10, origin: { x: 5, y: 5 } }),
       () => rotate((x: number) => x, 10, { origin: { x: 1, y: 2 } }),
       () => box(1).scale(2, { origin: [1, 1, 1] }),
     ];

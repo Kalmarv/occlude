@@ -110,8 +110,9 @@ const hasContours = (v: unknown): v is { contours(): IsoContour[] } => isObj(v) 
 /** A value that can say where its chains are: it answers `curves`. Asked
  * without reading it, because reading it walks the chains. */
 const hasCurves = (v: unknown): v is { readonly curves: Iterable<CurveLike> } => isObj(v) && 'curves' in v;
-/** A value that can find the regions its edges enclose. */
-const hasFaces = (v: unknown): v is { faces(): { contours(): IsoContour[] } } => isObj(v) && typeof v.faces === 'function';
+/** A value that can find the regions its edges enclose. Asked without
+ * reading it, because reading it walks the faces. */
+const hasFaces = (v: unknown): v is { readonly faces: { contours(): IsoContour[] } } => isObj(v) && 'faces' in v;
 /**
  * A face collection: several areas at once, so it must name which it means.
  * It answers `contours()` — the union outline — but `polygon(cells)` is
@@ -171,7 +172,7 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
   // chains. A material with a closed chain is still read by what is closed
   // (the refusal below keeps it); one with none is read by its faces — a
   // tiling, a hex field, a planarized web — and its area is their union, the
-  // outer rim and any holes, the loops `m.faces().contours()` answers. A
+  // outer rim and any holes, the loops `m.faces.contours()` answers. A
   // branching material that encloses nothing, such as a tree, has no area
   // and gives no loops. A selection has no faces of its own, so the refusal
   // names the consumer, which is why it belongs here and not in the value.
@@ -182,7 +183,7 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
       // the way out; it carries the consumer's name as every refusal here.
       let regions: IsoContour[];
       try {
-        regions = input.faces().contours();
+        regions = input.faces.contours();
       } catch (err) {
         throw new Error(`${who}: ${(err as Error).message}`);
       }
@@ -191,7 +192,7 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
     if (degree !== null && degree > 2) {
       throw new Error(
         `${who}: this ${isObj(input) && 'indices' in input ? 'selection' : 'material'} branches (a vertex has ${degree} edges), so it has no single inside — ` +
-          'pick one boundary with edges.filter(…), or derive areas with planarize().faces()',
+          'pick one boundary with edges.filter(…), or derive areas with planarize().faces',
       );
     }
   }

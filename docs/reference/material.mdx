@@ -343,7 +343,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const panes = cols.flatMap(([x0, x1], c) => t.times(rows[c], (k) =>
     t.material(rect(x0 * b.w, top + (k / rows[c]) * tall, (x1 - x0) * b.w, tall / rows[c]))));
   const screen = append(...panes).merge();
-  const cells = screen.planarize().faces();
+  const cells = screen.planarize().faces;
   const biggest = Math.max(...cells.map((f) => f.area));
   return [
     cells.map((f, i) => polygon(f, {
@@ -374,11 +374,11 @@ import { sketch, strokes, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const b = t.bounds();
-  const cells = t.hexes({ spacing: mm(12), orientation: 'flat' });
+  const cells = t.tiling(6, 3, { side: mm(7) });
   const amount = 0.008 * b.w;
   const wavelength = 0.15 * b.w;
   const drift = (p) => [amount * t.noise(p.x / wavelength, p.y / wavelength), amount * t.noise(p.x / wavelength + 213.7, p.y / wavelength - 118.3)];
-  const faces = cells.faces().faces;
+  const faces = cells.faces;
   const whole = Math.max(...faces.map((f) => f.area)) * 0.99;
   return faces.filter((f) => f.area > whole).map((f) => {
     const outline = f.boundaryEdges.extract();
@@ -434,7 +434,7 @@ A honeycomb is a network. Below, each wall swings from side to side, and the swi
 import { sketch, strokes, circle, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const comb = t.hexes({ spacing: mm(14) });
+  const comb = t.tiling(6, 3, { side: mm(8), rotate: 30 });
   const swing = (x, y) => 1.6 * Math.max(0, 1 - Math.hypot(x - 50, y - 50) / 55);
   const wavy = comb.oscillate({ wavelength: 3, amplitude: swing });
   const forks = comb.points.filter((p) => p.edges.length === 3);

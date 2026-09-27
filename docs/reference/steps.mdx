@@ -3,7 +3,7 @@ title: Steps and forces
 description: A graph is two tables with ids, and a run folds passes over a value.
 ---
 
-A graph is two tables of rows. The points table holds `x`, `y` and the columns you declare. The edges table holds rows that name two points. Every row has an id. The library mints an id one time and never uses it again. A lattice is one table with fixed rows, and the stencil relates each cell to the cells beside it.
+A graph is two tables of rows. The points table holds `x`, `y` and the columns you declare. The edges table holds rows that name two points. Every row has an id. The library mints an id one time and never uses it again. A lattice is one table of faces with fixed rows, and the stencil relates each face to the faces beside it.
 
 A table takes three writes. You add a row, you remove a row, or you set a column. Every verb on this page is a few of these writes. A selection is the query that names the rows. A run folds passes over a value.
 
@@ -36,7 +36,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 | remove a row | `g.points.remove(sel)`: also the edges that name the points | `g.edges.remove(sel)`: the points stay |
 | set a column | `g.points.set('h', value, where?, opts?)`, `g.points.set({ h, k }, where?, opts?)` | `g.edges.set('w', value, where?, opts?)` |
 
-Faces are a third domain with one write. A face is not a row, so `g.faces().set(…)` keys its columns by the walls of the face. The [faces](/docs/reference/faces) page shows it.
+Faces are a third domain with one write. A face is not a row, so `g.faces.set(…)` keys its columns by the walls of the face. The [faces](/docs/reference/faces) page shows it.
 
 ## set()
 
@@ -340,7 +340,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
     force.vortex([0.5 * b.w, 0.5 * b.h], { strength: 1, falloff: 0.2 * b.w }),
     force.field(curl((x, y) => t.noise(x / 50, y / 50) * 8)),
   );
-  const seeds = material(t.grid({ cols: 34, rows: 17 }).map((c) => [c.cx, c.cy]));
+  const seeds = material(t.grid({ cols: 34, rows: 17 }).faces.map((f) => f.centroid));
   const flown = t.steps(80, seeds, (g) => g.move((p) => mul(push(p), 0.3)), { every: 1 });
   const trail = (i) => flown.history.map((h) => { const p = h.points.at(i); return [p.x, p.y]; });
   return [
@@ -414,9 +414,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Lattice.set.mdx</include>
 
-`l.cells` is a selection of the cells. `l.set(...)` is `l.cells.set(...)`, because a lattice has one table. A cell answers `x` and `y` (its centre), `index`, `i`, `j`, every column by name, `c.laplacian(column)` and `c.adjacent`. `l.cell(p)` is the cell under a position or a point. The `where` of a lattice write can also be points, and then it names the cells under them. A cell off the lattice reads 0, and no write gets to it. A lattice cannot add or remove a cell, so `l.cells.add` and `l.cells.remove` refuse by name. `l.field(column)` gives a column back as a field.
+`l.faces` is a selection of the faces, in row-major order. `l.set(...)` is `l.faces.set(...)`, because a lattice has one table. A face of a lattice answers the words of every face: `index`, `centroid` (its centre), `bounds`, `area`, `contours()` and `adjacent`. Its `adjacent` holds the four faces beside it. A lattice does not nest, so each face is a root and a leaf. A face also answers `i`, `j`, every column by name and `c.laplacian(column)`. `l.face(p)` is the face under a position or a point. The `where` of a lattice write can also be points, and then it names the faces under them. A face off the lattice reads 0, and no write gets to it. A lattice cannot add or remove a face, so `l.faces.add` and `l.faces.remove` refuse by name. `l.field(column)` gives a column back as a field.
 
-A diffusion is one `set`: `l.set('a', (c) => c.a + rate * c.laplacian('a'))`. A decay is one more: `l.set('a', (c) => c.a * (1 - rate))`. A rate above 0.25 runs away.
+Every function of one `set` reads the faces as they were before the write. So a pass over the whole grid is one instant. A diffusion is one `set`: `l.set('a', (c) => c.a + rate * c.laplacian('a'))`. A decay is one more: `l.set('a', (c) => c.a * (1 - rate))`. A rate above 0.25 runs away.
 
 ## 1. Ring growth, and the slipped copy
 
@@ -483,7 +483,7 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
   const { chance } = t;
   const b = t.bounds();
   const chaos = (p) => ((p.x - b.x) / b.w) ** 2;
-  const grid = connect.triangulate(t.grid({ cols: 45, rows: 30 }).map((c) => [c.cx, c.cy]));
+  const grid = connect.triangulate(t.grid({ cols: 45, rows: 30 }).faces.map((f) => f.centroid));
 
   const settle = (g) => g.move(force.separation({ radius: 5, amount: (p) => 0.3 * chaos(p) }));
   const erode = (g) => g.points.remove(g.points.filter((p) => chance(0.02 * chaos(p))));
@@ -505,7 +505,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const sky = t.lattice({ spacing: 1, area: rect(b.x, b.y, b.w / 2, b.h) }).set('ink', 0);
 
   const rain = (rate) => (l) => l
-    .set('ink', (c) => c.ink + 40, pick(l.cells))
+    .set('ink', (c) => c.ink + 40, pick(l.faces))
     .set('ink', (c) => c.ink + rate * c.laplacian('ink'))
     .set('ink', (c) => c.ink * 0.99);
 
@@ -648,7 +648,7 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
   const dish = t.lattice({ spacing: 0.5 })
     .set({ a: 1, b: 0 })
-    .set('b', 1, (c) => Math.abs(c.x - 50) < 4 && Math.abs(c.y - 50) < 4);
+    .set('b', 1, (c) => Math.abs(c.centroid[0] - 50) < 4 && Math.abs(c.centroid[1] - 50) < 4);
 
   const react = (l) => l.set({
     a: (c) => c.a + 0.2 * c.laplacian('a') - c.a * c.b * c.b + 0.055 * (1 - c.a),
@@ -671,11 +671,11 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const start = { web: t.sample(circle([50, 50], 5), { count: 12 }), ink: t.lattice({ spacing: 1 }).set('v', 0) };
 
   const grow = ({ web, ink }) => {
-    const from = pick(web.points.filter((p) => ink.cell(p).v < 0.3));
+    const from = pick(web.points.filter((p) => ink.face(p).v < 0.3));
     const fresh = point(add(from, polar(2, rnd(2 * Math.PI))));
     return {
       web: web.points.add(fresh).edges.add([from, fresh]),
-      ink: ink.set('v', (c) => c.v + 1, ink.cell(fresh)).set('v', (c) => c.v + 0.1 * c.laplacian('v')),
+      ink: ink.set('v', (c) => c.v + 1, ink.face(fresh)).set('v', (c) => c.v + 0.1 * c.laplacian('v')),
     };
   };
 

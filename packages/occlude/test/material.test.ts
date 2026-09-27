@@ -1059,7 +1059,7 @@ describe('view identity: the brand lives off the view, not on it', () => {
     expect(viewKind(e)).toBe('edge');
     expect(ownedBy(e, c)).toBe(true);
     expect(Object.keys(e)).toEqual(['a', 'b', 'length', 'index']);
-    const f = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).faces();
+    const f = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true }).faces;
     const { faceTableOf } = await import('../src/faces.js');
     expect(viewKind(f.at(0))).toBe('face');
     expect(ownedBy(f.at(0), faceTableOf(f))).toBe(true);

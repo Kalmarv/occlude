@@ -233,10 +233,11 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     ),
   );
   const planar = net.planarize();
-  const faceSet = planar.faces();
+  const faceSet = planar.faces;
   const chosen = faceSet.filter((f) => f.area > 80);
   const measured = faceSet.measure(land, { step: 0.8 });
-  const faceOne = chosen.length > 0 ? measured.forFace(chosen.at(0)) : null;
+  // The measured geometry keeps the faces and their order: the same row.
+  const faceOne = chosen.length > 0 ? measured.faces.at(chosen.at(0).index) : null;
   const facePerim = chosen.length > 0 ? chosen.at(0).perimeter : 0;
   const faceEdges = chosen.edges.length;
   scene.push(strokes(planar));
@@ -256,11 +257,11 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   scene.push(strokes(evenSpine));
 
   // ---- generators drawn: grid, scatter, relax, settle, voronoi -----------
-  const cellFaces = cells.faces();
+  const cellFaces = cells.faces;
   const cellOne = cellFaces.length > 0 ? cellFaces.at(0) : null;
-  const siteOfFirst = cellOne ? cells.siteOf(cellOne) : null;
-  const cellOfSite = seeds.points.length > 0 ? cells.cellOf(seeds.points.at(0)) : null;
-  scene.push(gridCells.map((c) => rect(c.x, c.y, c.w, c.h)));
+  const siteOfFirst = cellOne ? cellOne.source : null;
+  const cellOfSite = seeds.points.length > 0 ? cellFaces.find((f) => f.source.index === seeds.points.at(0).index) : null;
+  scene.push(gridCells.faces.map((c) => rect(c.bounds.x, c.bounds.y, c.bounds.w, c.bounds.h)));
   scene.push(seeds.points.map((p) => circle(p.x, p.y, 0.5)));
   scene.push(relaxed.points.filter((p, i) => i % 3 === 0).map((p) => circle(p.x, p.y, 0.9)));
   scene.push(settled.points.filter((p, i) => i % 3 === 0).map((p) => circle(p.x, p.y, 0.4 + p.demand * 0.8)));

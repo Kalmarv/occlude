@@ -68,10 +68,11 @@ import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
-  return t.grid({ cols: 36, rows: 42 }).map((c) => {
-    if (img.a(c.cx, c.cy, c.w / 2) < 0.5) return null;
-    const dark = 1 - img.lum(c.cx, c.cy, c.w / 2);
-    return dark > 0.04 ? circle(c.cx, c.cy, dark * c.w * 0.52) : null;
+  return t.grid({ cols: 36, rows: 42 }).faces.map((f) => {
+    const { w, cx, cy } = f.bounds;
+    if (img.a(cx, cy, w / 2) < 0.5) return null;
+    const dark = 1 - img.lum(cx, cy, w / 2);
+    return dark > 0.04 ? circle(cx, cy, dark * w * 0.52) : null;
   });
 });
 ```
@@ -367,24 +368,28 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## Ink as a budget
 
-<!-- anchor: ink-as-a-budget (t.residual, r.spend, r.total) -->
+<!-- anchor: ink-as-a-budget (t.residual, r.spend, r.faces.sum) -->
 
 A field says how dark the paper must be. A word then puts marks on that
 paper. Until now nothing measured what those marks paid for, so a second
 pass could not know what the first one had already covered.
-`t.residual(field, { spacing, area })` keeps that account. It holds the
-target tone on a grid of cells. `r.spend(marks, { width })` takes the nib
-footprint of the marks you drew off the grid, and answers with the tone it
-took. `r.total()` is what the drawing still owes, so a loop can stop when
-the debt is small.
+`t.residual(field, { spacing, area })` keeps that account. It is a lattice
+with one column, `owed`: the target tone on a grid of faces.
+`r.spend(marks, { width })` takes the nib footprint of the marks you drew
+off the faces, and returns a new residual. The old one does not change, so
+a ledger is a sequence of values: `r = r.spend(…)`. `width` is a length in
+the drawing's units, so a nib in millimetres goes through `t.len` first:
+`{ width: t.len(mm(0.35)) }`. `r.faces.sum('owed')` is what the drawing
+still owes, so a loop can stop when the debt is small, and what a spend
+took is how far that sum fell.
 
-A residual is also a field, so `t.scatter(r)`, `t.isolines(r, …)` and a
-decimate amount read it like any other. `spend` changes it in place, because
-a ledger must hold what the last stroke paid. `r.snapshot()` gives a frozen
-copy.
+`r.field()` is the debt as a field, so `t.scatter(r.field())`,
+`t.isolines(r.field(), …)` and a decimate amount read it like any other.
+Outside the area the field is absent. An earlier residual is still the
+tone as it was then, and it needs no copy.
 
-The drawing below is one continuous line. It starts at the cell with the
-deepest debt. At each step it looks at twelve short chords, and it takes the
+The drawing below is one continuous line. It starts where the debt is
+deepest. At each step it looks at twelve short chords, and it takes the
 chord with the most tone left along it. It pays for that chord at the width
 of the nib, so the next step sees fresh paper only where no line has been.
 The line stops when the debt falls under a tenth of where it started. The
@@ -399,13 +404,17 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const dark = img.field('dark', { area: 0.2 });
   const tone = (x, y) => img.a(x, y, 0.3) < 0.5 ? 0
     : Math.min(1, Math.max(0, map(dark(x, y), 0.08, 0.95, 0, 1)) ** 1.5 + img.edge(x, y, 0.2));
-  const r = t.residual(tone, { spacing: mm(0.7) });
-  const stop = r.total() * 0.09;
-  // Start where the debt is deepest.
-  const first = t.grid({ cols: 48, rows: 48 }).reduce((a, c) => (r(c.cx, c.cy) > r(a.cx, a.cy) ? c : a));
+  let r = t.residual(tone, { spacing: mm(0.7) });
+  const stop = r.faces.sum('owed') * 0.09;
+  const nib = t.len(mm(0.35));
+  // Start where the debt is deepest, looked for on a coarse grid.
+  const looks = t.grid({ cols: 48, rows: 48 }).faces.map((f) => f.bounds);
+  const start = r.field();
+  const first = looks.reduce((a, c) => (start(c.cx, c.cy) > start(a.cx, a.cy) ? c : a));
   let at = [first.cx, first.cy];
   const pts = [at];
-  for (let k = 0; k < 12000 && r.total() > stop; k++) {
+  for (let k = 0; k < 12000 && r.faces.sum('owed') > stop; k++) {
+    const owed = r.field();
     let best = null;
     let most = 0;
     for (let c = 0; c < 12; c++) {
@@ -413,11 +422,11 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
       const len = t.rnd(1.2, 5);
       const end = [at[0] + Math.cos(a) * len, at[1] + Math.sin(a) * len];
       let sum = 0;
-      for (let s = 1; s <= 5; s++) sum += r(at[0] + (end[0] - at[0]) * s / 5, at[1] + (end[1] - at[1]) * s / 5);
+      for (let s = 1; s <= 5; s++) sum += owed(at[0] + (end[0] - at[0]) * s / 5, at[1] + (end[1] - at[1]) * s / 5) || 0;
       if (sum > most) { most = sum; best = end; }
     }
     if (!best) break;
-    r.spend([at, best], { width: mm(0.35) });
+    r = r.spend([at, best], { width: nib });
     pts.push(best);
     at = best;
   }

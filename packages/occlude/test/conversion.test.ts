@@ -33,7 +33,7 @@ describe('t.material: a shape boundary with its own vertices', () => {
     });
     expect(pile!.n).toBe(12);
     expect(pile!.edgeCount).toBe(12);
-    expect(pile!.planarize().faces().length).toBe(3);
+    expect(pile!.planarize().faces.length).toBe(3);
     expect(coarse!.curves.map(rec).length).toBe(2);
     // No shapes (a spread of an empty list) is the empty material.
     let none: Material | null = null;

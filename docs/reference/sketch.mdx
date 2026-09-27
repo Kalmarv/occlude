@@ -88,7 +88,10 @@ Returns the value and records it under a label. After a render, the studio's con
 ```ts live
 import { sketch, circle } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, rows: 14 }).map((c) => circle(c.cx, c.cy, 0.5 + 2.5 * t.probe('noise', (t.noise(c.cx / 18, c.cy / 18) + 1) / 2))));
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, rows: 14 }).faces.map((f) => {
+  const [x, y] = f.centroid;
+  return circle(x, y, 0.5 + 2.5 * t.probe('noise', (t.noise(x / 18, y / 18) + 1) / 2));
+}));
 ```
 
 ## t.bounds() · t.grid()
@@ -96,16 +99,16 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, row
 <include>/_sig/Toolkit.bounds.mdx</include>
 <include>/_sig/Toolkit.grid.mdx</include>
 
-`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. Read it when a drawing must fill whatever drawable it lands on. The record is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
+`bounds()` is the drawable in the sketch's units and frame: `{ x, y, w, h, cx, cy }`, the corner, the size and the middle. Read it when a drawing must fill whatever drawable it lands on. The record is a rect, so it is an area: `t.within(m, t.bounds())` cuts to the drawable. `grid({ cols, rows, gap? })` covers the drawable with cells, as one material. Its `faces` are the cells, row by row. Each face has the face columns `i` (across) and `j` (down), and its `bounds` is the rect of the cell, `{ x, y, w, h, cx, cy }`. Two cells that touch share one wall, so `strokes` draws the wall once and `f.adjacent` answers. A `gap` moves the cells apart, and then they share nothing. For cells that are not rectangles, use `t.tiling` (see [Geometry](/docs/reference/geometry)).
 
-Under `origin: 'center'`, the corner of the drawable is `(-w/2, -h/2)` and its middle is `(0, 0)`. `bounds()` answers in that frame, and every word that covers the drawable (`grid`, `hexes`, `triangles`, `scatter`, `voronoi` and the fields) reads it. Below, the grid covers the drawable of a centred, y-up sketch.
+Under `origin: 'center'`, the corner of the drawable is `(-w/2, -h/2)` and its middle is `(0, 0)`. `bounds()` answers in that frame, and every word that covers the drawable (`grid`, `tiling`, `scatter`, `voronoi` and the fields) reads it. Below, the grid covers the drawable of a centred, y-up sketch.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const b = t.bounds();
-  return [rect(2, 2, b.w - 4, b.h - 4), t.grid({ cols: 6, rows: 6, gap: 3 }).map((c) => circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))];
+  return [rect(2, 2, b.w - 4, b.h - 4), t.grid({ cols: 6, rows: 6, gap: 3 }).faces.map((f) => circle(f.centroid, Math.min(f.bounds.w, f.bounds.h) / 2))];
 });
 ```
 
@@ -116,49 +119,8 @@ export default sketch({ aspect: [3, 2], origin: 'center', yUp: true }, (t) => {
   const b = t.bounds();
   return [
     rect(b.x + 2, b.y + 2, b.w - 4, b.h - 4),
-    t.grid({ cols: 6, rows: 4, gap: 3 }).map((c) => circle(c.cx, c.cy, Math.min(c.w, c.h) / 3)),
+    t.grid({ cols: 6, rows: 4, gap: 3 }).faces.map((f) => circle(f.centroid, Math.min(f.bounds.w, f.bounds.h) / 3)),
     line(0, 0, 0, b.h / 2 - 2, { pen: 'stabilo-88-blue' }),
-  ];
-});
-```
-
-## t.hexes() · t.triangles()
-
-<include>/_sig/Toolkit.hexes.mdx</include>
-<include>/_sig/Toolkit.triangles.mdx</include>
-
-<AutoTypeTable path="../occlude/src/layout.ts" name="HexOptions" />
-<AutoTypeTable path="../occlude/src/layout.ts" name="TriangleOptions" />
-
-Cells that are not rectangles, as ONE material. `grid` answers with records, and these two answer with geometry. `m.faces()` are the cells, and the wall two cells share is one edge. `strokes(m)` draws each wall once, and `sel.adjacent()` answers on the cells. The lattice starts at the user origin, and the drawable edge cuts the outermost cells.
-
-`hexes` takes the centre-to-centre `spacing` of neighbouring cells. `orientation` is `'pointy'` (a vertex at the top of each cell, the default) or `'flat'` (an edge there). Each face carries its axial `i` and `j`, and a face of `t.hexes` reads them as numbers. `origin` is the point for the centre of cell `i = 0, j = 0`. `rotate` turns the full lattice about `origin`, in degrees clockwise on the sheet, before the drawable edge cuts it.
-
-```ts live
-import { sketch, strokes, polygon, fill, mm } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.hexes({ spacing: mm(15), orientation: 'flat', gap: mm(1.6) });
-  return cells.faces().map((f) =>
-    (f.i + f.j) % 2 === 0
-      ? polygon(f, { fill: fill('hatch', { angle: 90, spacing: mm(0.8) }) })
-      : strokes(f.boundaryEdges.extract()),
-  );
-});
-```
-
-`triangles` takes the `size` of one side. Each face carries its row `j` and its place `i` along that row. An even `i` points up, and an odd one points down. `origin` moves the start of the top line of row 0, and `rotate` turns the lattice about it. In both words, `i` and `j` stay the numbers of the lattice. `gap` shrinks every cell about its own centre, in both words. A gapped cell touches nothing, so it shares nothing. A spacing of zero, or a gap that eats the cell, draws nothing.
-
-```ts live
-import { sketch, strokes, polygon, fill, mm } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.triangles({ size: mm(20) });
-  const mod = (n, k) => ((n % k) + k) % k;
-  return [
-    cells.faces().map((f) => mod(f.i + 2 * f.j, 3) === 1
-      && polygon(f, { fill: fill('hatch', { angle: 30 + 60 * mod(f.i, 2), spacing: mm(1.1) }) })),
-    strokes(cells),
   ];
 });
 ```

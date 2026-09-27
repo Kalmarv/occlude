@@ -7,11 +7,11 @@ Three nails hold a lattice. Everything else falls. Each thread carries a rest le
 
 The drawing is not the threads. It is the cells between them.
 
-`faces()` reads the hung lattice as cells. `measure` gives each cell an orientation, and its hatch follows that. The tone lies along the weave wherever the weave has turned. `area` against the rest area of a cell is its strain. A cell that gathered is small and takes a tight hatch. A cell pulled open takes a loose one. The folds are the dark parts.
+`faces` reads the hung lattice as cells. `measure` writes an `orientation` column on each cell, and its hatch follows that. The tone lies along the weave wherever the weave has turned. `area` against the rest area of a cell is its strain. A cell that gathered is small and takes a tight hatch. A cell pulled open takes a loose one. The folds are the dark parts.
 
 The darkest hatch stays at 0.4 mm, twice the nib. Below that the fill lands as solid black and a fold stops reading as a fold.
 
-Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, and `force.tension` with a rest for each edge. Then `faces()`, `Face.area`, `measure` for orientation, `polygon` with a hatch fill, and `map`.
+Uses: `material` with `edges`, `edges.set` reading `e.center`, and `m.smooth` on an EDGE column. Then `t.steps` with `move` over a selection, and `force.tension` with a rest for each edge. Then `faces`, `Face.area`, `measure` for an `orientation` column, `polygon` with a hatch fill, and `map`.
 
 ```ts live
 import { sketch, polygon, fill, mm, map, material, force, mul } from 'occlude';
@@ -37,12 +37,10 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     return g.move((p) => mul(pull(p), 0.1), g.points.filter((p) => !nails.has(p.index)));
   };
   const hung = t.steps(300, net, hang);
-  const cells = hung.faces();
-  const m = cells.measure();
+  const cells = hung.faces.measure().faces;
   return cells.map((f) => {
     const strain = Math.max(0.72, Math.min(1.55, f.area / (gap * gap)));
-    const r = m.forFace(f);
-    return polygon(f, { stroke: false, fill: fill('hatch', { angle: (r.orientation * 180) / Math.PI, spacing: mm(map(strain, 0.72, 1.55, 0.4, 1.45)) }) });
+    return polygon(f, { stroke: false, fill: fill('hatch', { angle: (f.orientation * 180) / Math.PI, spacing: mm(map(strain, 0.72, 1.55, 0.4, 1.45)) }) });
   });
 });
 ```

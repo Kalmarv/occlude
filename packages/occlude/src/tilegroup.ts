@@ -73,9 +73,11 @@ export interface TileFlood<T> {
  *
  * A finite geometry closes on itself: the flood then runs out of new tiles
  * on its own and stops early, whatever `depth` says. Two transforms that
- * put the cell in the same place are one transform.
+ * put the cell in the same place are one transform. `keep`, when given,
+ * says which copies the flood may reach at all: it stops at a copy `keep`
+ * refuses, so a flood with no depth covers what `keep` bounds.
  */
-export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[], depth: number): TileFlood<T> {
+export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[], depth: number, keep?: (m: T) => boolean): TileFlood<T> {
   const n = cell.length;
   if (n < 3) return { tiles: [], generation: [] };
   const mirrors = cell.map((v, i) => ops.reflection(v, cell[(i + 1) % n]));
@@ -106,6 +108,7 @@ export function tileGroup<T>(who: string, ops: TileOps<T>, cell: readonly Vec[],
     for (const m of frontier) {
       for (const r of mirrors) {
         const candidate = ops.compose(m, r);
+        if (keep && !keep(candidate)) continue;
         if (!place(candidate)) continue;
         next.push(candidate);
         out.push(candidate);

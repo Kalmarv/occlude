@@ -3,7 +3,7 @@ title: Faces
 description: The regions that a planar material encloses, and what you can read from them.
 ---
 
-A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
+A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces` holds those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls. A material with no closed chain whose edges branch, such as a tiling or a hex field, is an area too. Its area is the union of its faces: the outer rim and the holes.
 
 :::note
 On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls. A collection of faces is the selection of all its faces, and it has the words of a point or edge selection. Iterate it, or use `length`, `at`, `map`, `find`, `some`, `every`, `filter` and `groupBy`. It also has `has`, `rows`, `union`, `intersect`, `without`, `adjacent`, `connected`, `components` and `extract`. They have the same meanings as on the [selections](/docs/reference/selections) page.
@@ -15,7 +15,7 @@ On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On 
 
 <AutoTypeTable path="../occlude/src/faces.ts" name="PlanarizeOpts" />
 
-Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Where the edges at a crossing do not agree, the new vertex takes the values of the edge with the lowest row. A split of that edge gives the same values. A vertex that was there before keeps its own values. `point` overrides any column. Below, the blue rings are the two new vertices, where four edges meet.
+Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values. Where the edges at a crossing do not agree, the new vertex takes the values of the edge with the lowest row. A split of that edge gives the same values. A vertex that was there before keeps its own values. `point` overrides any column. Below, the blue rings are the two new vertices, where four edges meet.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -31,13 +31,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Material.faces.mdx</include>
 
-The bounded regions of a planar material, as a collection. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. Each call returns the same collection, so a face from any call is valid everywhere. If the material has a crossing without a vertex, the call fails and the message tells you to planarize.
+The bounded regions of a planar material, as a collection. `faces` is a property. The material makes the collection the first time you read it, and then keeps it. So a face from any read is valid everywhere. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. If the material has a crossing without a vertex, the read fails and the message tells you to planarize.
+
+Some words know their faces when they make them: `t.tiling`, `t.grid`, `t.voronoi`, `t.quadtree` and the lattice. These words state their faces, in the order that they made them. A tiling gives them in the order of its generations and a grid row by row. Voronoi gives its cells in the order of the sites. A quadtree gives its cells from the root down, one level at a time. Every other material reads its faces from its drawing. A write that does not change the edges keeps the stated faces: a move, a point write and a face write. A write that changes the edges of a material with stated faces drops them. The faces of the new material then come from its drawing. Each face column goes with the walls, as `faces.set()` below tells.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces;
   return cells.map((f, i) => polygon(f, { stroke: false, fill: fill('hatch', { angle: i * 60, spacing: mm(1.2) }) }));
 });
 ```
@@ -58,7 +60,7 @@ One region. `area` is the outer area minus the holes. `centroid` is the centroid
 import { sketch, circle, strokes, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces;
   return cells.map((f) => [
     strokes(t.isolines(distanceTo(f), 3)),
     circle(f.centroid, 1.5, { pen: 'stabilo-88-blue' }),
@@ -73,7 +75,7 @@ import { sketch, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
   const cells = t.voronoi(t.relax(t.scatter({ spacing: 22 }), { iterations: 3 }));
-  return cells.faces().map((f) => {
+  return cells.faces.map((f) => {
     const round = (4 * Math.PI * f.area) / (f.perimeter * f.perimeter);
     const angle = f.bounds.w > f.bounds.h ? 0 : 90;
     return polygon(f, { fill: fill('hatch', { angle, spacing: mm(0.5 + 2.2 * round) }), pen: f.index % 3 === 0 ? 'stabilo-88-blue' : undefined });
@@ -81,23 +83,52 @@ export default sketch({ aspect: [3, 2], seed: 5 }, (t) => {
 });
 ```
 
-## face.id
+## face.source · face.parent · face.children
 
-<include>/_sig/Face.id.mdx</include>
+<include>/_sig/Face.source.mdx</include>
+<include>/_sig/Face.parent.mdx</include>
+<include>/_sig/Face.children.mdx</include>
+<include>/_sig/Face.depth.mdx</include>
+<include>/_sig/Face.leaf.mdx</include>
 
-The identity of the face. It comes from the walls of the face. So the same face has the same id after a move, after a transform, and after a `planarize` that keeps its walls. Use `id`, not `index`, to find a face again in another state. Below, a round hex net stretches in one move, and each cell finds its rest shape by `id`. The hatch is tighter where a cell grew.
+`source` is what the face came from, in the shape that the word that made it gives. A Voronoi cell's source is its site, a point row of the sites. A tile's source is the placement that carried the first cell there. A quadtree cell's source is the points it holds, as a selection of the input. A face that a material reads from its drawing has no source.
+
+Faces can nest. A quadtree states every cell from the root to the leaves. `parent` is the face that holds this one, and `undefined` at a root. `children` is the faces that it holds one step down, and it is empty for a leaf. `depth` counts the steps from the root, 0 at a root. `leaf` is true for a face that holds no other face. The leaves divide the area with no overlap: `faces.filter((f) => f.leaf)`. A face of a material that does not nest is a root and a leaf. Below, the leaves of a quadtree get a hatch that closes with depth, and each leaf dots its own points. The hatch is blue when all the children of the parent are leaves.
+
+```ts live
+import { sketch, polygon, strokes, dots, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const pts = t.scatter((x, y) => Math.max(0, 1 - Math.hypot(x - 32, y - 36) / 45), { spacing: 3 });
+  const tree = t.quadtree(pts, { capacity: 2 });
+  const leaves = tree.faces.filter((f) => f.leaf);
+  return [
+    leaves.map((f) => polygon(f, {
+      stroke: false,
+      fill: fill('hatch', { angle: 45, spacing: mm(Math.max(0.4, 3.2 - 0.5 * f.depth)) }),
+      // Blue where the parent split into four leaves.
+      fillPen: f.parent?.children.every((c) => c.leaf) ? 'stabilo-88-blue' : 'pigma-005-black',
+    })),
+    strokes(tree),
+    leaves.map((f) => dots(f.source, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+## a face in another state
+
+A face has an identity, and the library keeps it inside. A face that a material reads from its drawing takes its identity from its walls. A stated face has an identity of its own. So the same face is the same after a move, after a transform, and after a `planarize` that keeps its walls. `index` is the row in one state only. To find a face again in another state, give it to the faces of that state: `faces.rows(f)` or `faces.has(f)`. Below, a round hex net stretches in one move, and each cell finds its rest shape in the net before the move. The hatch is tighter where a cell grew.
 
 ```ts live
 import { sketch, polygon, strokes, circle, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
-  const net = t.within(t.hexes({ spacing: 9 }), circle(50, 50, 38));
+  const net = t.within(t.tiling(6, 3, { side: 5.2, rotate: 30 }), circle(50, 50, 38));
   const pulled = net.move((p) => [0.1 * (p.x - 50) * (1 + Math.sin(p.y / 12)), 0.1 * (p.y - 50) * (1 + Math.sin(p.x / 12))]);
-  const rest = net.faces();
+  const rest = net.faces;
   return [
-    pulled.faces().map((f) => {
-      const before = rest.find((g) => g.id === f.id);
-      const grown = before ? f.area / before.area : 1;
+    pulled.faces.map((f) => {
+      const grown = f.area / rest.rows(f).at(0).area;
       return polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(Math.max(0.5, 0.5 + 5 * (1.45 - grown))) }) });
     }),
     strokes(pulled),
@@ -111,7 +142,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 <include>/_sig/Face.points.mdx</include>
 <include>/_sig/Face.boundaryEdges.mdx</include>
 
-`face.edges` is every edge that belongs to this face: its walls, and any loose edge that runs into it from a wall. A line that touches nothing belongs to no face. To take the edges that lie inside a face by position, use `t.within(m.edges, face)`. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
+`face.edges` is every edge that belongs to this face: its walls, and any loose edge that runs into it from a wall. A line that touches nothing belongs to no face. To take the edges that lie inside a face by position, use `t.within(m.edges, face)`. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`. A face that holds other faces also has the walls between them in `edges`.
 
 :::warning
 For a plain pile of shapes, `edges` and `boundaryEdges` are the same selection. They differ only when a loose line runs into a region. Use `boundaryEdges` when you want an outline.
@@ -124,7 +155,7 @@ import { sketch, rect, line, strokes, append } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const room = append(t.material(rect(15, 15, 70, 70)), t.material(line(15, 50, 60, 50))).planarize();
-  const cell = room.faces().at(0);
+  const cell = room.faces.at(0);
   return [strokes(cell.edges, { pen: 'stabilo-88-blue' }), strokes(cell.boundaryEdges)];
 });
 ```
@@ -139,7 +170,7 @@ The faces on the other side of this face's walls. Two faces are neighbours when 
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30), circle(50, 26, 18)).planarize().faces();
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30), circle(50, 26, 18)).planarize().faces;
   const most = Math.max(...cells.map((f) => f.adjacent.length));
   const middle = cells.filter((f) => f.adjacent.length === most).at(0);
   return [strokes(cells.edges), middle.adjacent.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) })), strokes(middle.boundaryEdges, { pen: 'stabilo-88-blue' })];
@@ -161,7 +192,7 @@ A collection of faces is several areas, so `polygon(cells)` is a type error. Wri
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces;
   const crescents = cells.filter((f) => Math.abs(f.centroid[0] - 50) > 1);
   return [polygon(crescents.contours(), { stroke: false, fill: fill('hatch', { angle: 0, spacing: mm(1.5) }) }), strokes(crescents.boundaryEdges(), { pen: 'pigma-05-black' })];
 });
@@ -178,7 +209,7 @@ The faces on the other side of the walls of the selected faces, one step out, th
 import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
+  const cells = t.voronoi(t.scatter({ spacing: 14 })).faces;
   const seed = t.within(cells, rect(40, 40, 20, 20), { keep: 'centroid' });
   const ring = seed.adjacent();
   return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), strokes(seed.boundaryEdges(), { pen: 'stabilo-88-blue' })];
@@ -192,7 +223,7 @@ import { sketch, polygon, strokes, fill, mm, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
   const dense = (x, y) => 0.1 + Math.exp(-((x - 35) ** 2 + (y - 40) ** 2) / 200) + Math.exp(-((x - 68) ** 2 + (y - 66) ** 2) / 150);
-  const cells = t.voronoi(t.relax(t.scatter(dense, { spacing: 3 }), { iterations: 2, density: dense })).faces();
+  const cells = t.voronoi(t.relax(t.scatter(dense, { spacing: 3 }), { iterations: 2, density: dense })).faces;
   const towns = cells.filter((f) => f.area < 25).components().filter((town) => town.length > 2);
   // The town with a face under the point: a face's distance is positive inside it.
   const middle = towns.find((town) => town.some((f) => distanceTo(f)(35, 40) > 0)) ?? towns[0];
@@ -210,16 +241,19 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 
-Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results. `step` is the side of one raster cell, a length in the units of the material. In a material with a curved `space`, the call measures `area`, `perimeter`, the inscribed circle and the field values in that space. `face.area` and `face.perimeter` are too. `centroid`, `orientation` and `elongation` stay in the coordinates.
+Measures each face, and answers the material with the measurements as face columns. Read them on the faces of the answer. Every face gets `orientation`, `elongation`, and the largest inscribed circle as `inscribedX`, `inscribedY` and `inscribedRadius`. With a field, each face also gets `integral`, `mean`, `samples`, and the centroid that the field weights as `weightedX` and `weightedY`. A face with no weight reads `NaN` there. The faces keep their order, so `measured.faces.at(f.index)` is the face `f`. When you measure a selection, the other faces read 0. `step` is the side of one raster cell, a length in the units of the material. In a material with a curved `space`, the call measures `area`, `perimeter`, the inscribed circle and the field values in that space. `face.area` and `face.perimeter` are too. `centroid`, `orientation` and `elongation` stay in the coordinates.
 
 ```ts live
 import { sketch, circle, strokes, line, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces;
   const light = (x, y) => Math.max(0, 1 - distance([x, y], [20, 20]) / 70);
-  const m = cells.measure(light, { step: 0.7 });
-  return [strokes(cells.edges), [...m].map((r) => [circle(r.centroid, 1.2), circle(r.weightedCentroid, 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid, r.weightedCentroid, { pen: 'stabilo-88-blue' })])];
+  const measured = cells.measure(light, { step: 0.7 });
+  return [strokes(cells.edges), measured.faces.map((f) => {
+    const lit = [f.weightedX, f.weightedY];
+    return [circle(f.centroid, 1.2), circle(lit, 1.2, { pen: 'stabilo-88-blue' }), line(f.centroid, lit, { pen: 'stabilo-88-blue' })];
+  })];
 });
 ```
 
@@ -227,7 +261,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Edge.faces.mdx</include>
 
-The faces on the two sides of an edge, as a selection of faces. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar, and `edge.faces` builds the face map itself. A material that is not planar fails with the same message as `faces()`. Below, the walls with two faces are blue.
+The faces on the two sides of an edge, as a selection of faces. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar, and `edge.faces` builds the face map itself. A material that is not planar fails with the same message as `faces`. Below, the walls with two faces are blue.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -239,15 +273,17 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## faces().set()
+## faces.set()
 
 <include>/_sig/faces.set.mdx</include>
 
 A value that belongs to what the walls enclose. A face is not a row, so a face column takes the face's own walls as its key. The column then follows the material through any edit that leaves those walls alone. It follows a SPLIT of a wall too, because a child wall remembers its parent.
 
-`m.faces().set(column, value, where?, opts?)` writes a face column and returns the new material. The value is a number, or a function of the face. The record form writes several columns at once, and every function reads the faces as they were. A `where`, or a filtered selection of faces, names the faces that the write changes. A value that is not a finite number leaves that face as it was.
+`m.faces.set(column, value, where?, opts?)` writes a face column and returns the new material. The value is a number, or a function of the face. The record form writes several columns at once, and every function reads the faces as they were. A `where`, or a filtered selection of faces, names the faces that the write changes. A value that is not a finite number leaves that face as it was.
 
-The last argument can be `{ transfer, fallback }`. `transfer` says what a face does when its boundary really changes. `'nearest'`, the default, takes the value of the old face it shares the most walls with. `'drop'` stops there. A face that shares no wall with an old face starts from `fallback`. A face column is sparse, so `f.height` may be `undefined`.
+The last argument can be `{ transfer, fallback }`. `transfer` says what a face does when its boundary really changes. `'nearest'`, the default, takes the value of the old face it shares the most walls with. `'drop'` stops there. A face column is dense: every face has a number for every face column. A face that no write reached and that takes nothing from an old face reads `fallback`, or 0 without one.
+
+A write that changes the edges drops the faces that a word stated, such as the cells of `t.voronoi`. The new faces then come from the drawing, and each face column goes with the walls as above.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm } from 'occlude';
@@ -257,7 +293,7 @@ export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
   const cells = t.voronoi(t.relax(t.scatter({ spacing: 26 }), { iterations: 4 }));
   // Two columns, given once, to the cells as they are now. A second call
   // sees the first call's column.
-  const tinted = cells.faces().set('tone', () => t.rnd()).faces().set({ turn: () => t.rnd(170) });
+  const tinted = cells.faces.set('tone', () => t.rnd()).faces.set({ turn: () => t.rnd(170) });
   // Then every wall is split and every inside vertex wanders. The walls are
   // new rows with new ids, and each one still names the wall it came from,
   // so every cell keeps the tone it was given.
@@ -266,7 +302,7 @@ export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
     return g.move((p) => [t.noise(p.x / 14, p.y / 14) * 2, t.noise(p.y / 14, p.x / 14) * 2], inner);
   });
   return [
-    cracked.faces().map((f) => polygon(f, { fill: fill('hatch', { angle: f.turn, spacing: mm(0.7 + f.tone * 1.6) }), stroke: false })),
+    cracked.faces.map((f) => polygon(f, { fill: fill('hatch', { angle: f.turn, spacing: mm(0.7 + f.tone * 1.6) }), stroke: false })),
     strokes(cracked, { pen: 'pigma-005-black' }),
   ];
 });

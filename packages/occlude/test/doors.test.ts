@@ -12,11 +12,10 @@
 import { describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import {
-  ellipse, material, ngon, path, polygon, rect, type Face, type Selection, type ShapeValue,
+  ellipse, material, ngon, path, polygon, rect, type Face, type Material, type Selection, type ShapeValue,
   type Toolkit,
 } from '../src/index.js';
 import { type Execution } from '../src/host.js';
-import { hexes, triangles } from '../src/layout.js';
 import { rec } from './helpers/xy.js';
 
 type Kit = Toolkit & { exec: Execution };
@@ -77,15 +76,15 @@ describe('a faced material is an area', () => {
   it('a tiling draws its rim, the loops its faces answer', () => {
     const tiling = t.tiling(4, 4);
     expect(tiling.contours()).toHaveLength(0);
-    const rim = tiling.faces().contours().map((c) => c.pts);
+    const rim = tiling.faces.contours().map((c) => c.pts);
     expect(rim.length).toBeGreaterThan(0);
     expect(loopsOf(polygon(tiling))).toEqual(rim);
   });
 
   it('a hex field draws its rim, which is the drawable', () => {
-    const cells = t.hexes({ spacing: 10 });
+    const cells = t.tiling(6, 3, { side: 10 / Math.sqrt(3), rotate: 30 });
     const loops = loopsOf(polygon(cells));
-    expect(loops).toEqual(cells.faces().contours().map((c) => c.pts));
+    expect(loops).toEqual(cells.faces.contours().map((c) => c.pts));
     expect(loops).toHaveLength(1);
     const xs = loops[0].map((p) => p[0]);
     const ys = loops[0].map((p) => p[1]);
@@ -102,7 +101,7 @@ describe('a faced material is an area', () => {
   it('a material with neither closed chains nor faces draws nothing, and does not throw', () => {
     // A cross: four arms from one vertex, branching and enclosing nothing.
     const cross = material([[50, 50], [60, 50], [50, 60], [40, 50], [50, 40]], { edges: [[0, 1], [0, 2], [0, 3], [0, 4]] });
-    expect(cross.faces().length).toBe(0);
+    expect(cross.faces.length).toBe(0);
     expect(loopsOf(polygon(cross))).toEqual([]);
     expect(loopsOf(polygon(material([])))).toEqual([]);
   });
@@ -134,14 +133,14 @@ describe("within keeps what touches", () => {
   const leftOf = (sel: Selection<Face>) => sel.map((f) => f.centroid[0] < 10);
 
   it('a face half inside touches, and is neither contained nor centred', () => {
-    const cells = two.faces();
+    const cells = two.faces;
     expect(leftOf(t.within(cells, area, { keep: 'touching' })).sort()).toEqual([false, true]);
     expect(leftOf(t.within(cells, area))).toEqual([false]);
     expect(leftOf(t.within(cells, area, { keep: 'centroid' }))).toEqual([false]);
   });
 
   it('an area wholly inside one big face touches that face', () => {
-    const big = t.material(rect(0, 0, 100, 100)).planarize().faces();
+    const big = t.material(rect(0, 0, 100, 100)).planarize().faces;
     const small: [number, number][] = [[40, 40], [60, 40], [60, 60], [40, 60]];
     expect(t.within(big, small, { keep: 'touching' }).length).toBe(1);
     expect(t.within(big, small).length).toBe(0);
@@ -166,14 +165,14 @@ describe("within keeps what touches", () => {
   });
 
   it('names the three words when the option is wrong', () => {
-    expect(() => t.within(two.faces(), area, { keep: 'near' as 'touching' })).toThrow(/'contained', 'centroid' or 'touching'/);
+    expect(() => t.within(two.faces, area, { keep: 'near' as 'touching' })).toThrow(/'contained', 'centroid' or 'touching'/);
     expect(() => t.within(two.edges, area, { keep: 'near' as 'touching' })).toThrow(/'contained', 'centroid' or 'touching'/);
   });
 });
 
 describe('a face collection reads like a point or edge selection', () => {
   const t = toolkit({ aspect: [1, 1] });
-  const cells = t.hexes({ spacing: 20 }).faces();
+  const cells = t.tiling(6, 3, { side: 20 / Math.sqrt(3), rotate: 30 }).faces;
   const whole = (f: Face) => f.adjacent.length === 6;
   for (const [name, collection] of [['every face', cells], ['a face selection', cells.filter((f) => f.centroid[1] < 60)]] as const) {
     it(`${name}: map, find, some, every agree with the faces array; filter is a selection`, () => {
@@ -197,39 +196,41 @@ describe('a face collection reads like a point or edge selection', () => {
 });
 
 describe('a lattice stands where it is told', () => {
-  const env = { bounds: { w: 141.4, h: 100 }, len: (l: unknown) => l as number };
-  const dump = (m: ReturnType<typeof hexes>) => ({
+  const t = toolkit({ aspect: [1.414, 1] });
+  const b = t.bounds();
+  const dump = (m: Material) => ({
     pts: m.points.map((p) => [p.x, p.y]),
-    faces: m.faces().map((f) => [f.i, f.j, f.contours()]),
+    faces: m.faces.map((f) => [f.i, f.j, f.contours()]),
   });
   /** Centres of the uncut cells — the largest area — by their i and j. */
-  const centres = (m: ReturnType<typeof hexes>) => {
-    const cells = m.faces().faces;
+  const centres = (m: Material) => {
+    const cells = m.faces;
     const full = Math.max(...cells.map((f) => f.area));
     return new Map(cells.filter((f) => f.area > full * (1 - 1e-9)).map((f) => [`${f.i},${f.j}`, f.centroid] as const));
   };
-  const drawableRim = (m: ReturnType<typeof hexes>) => {
-    const rim = m.faces().contours();
+  const drawableRim = (m: Material) => {
+    const rim = m.faces.contours();
     expect(rim).toHaveLength(1);
     const xs = rim[0].pts.map((p) => p[0]);
     const ys = rim[0].pts.map((p) => p[1]);
     const box = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     // The cut's own arithmetic: a crossing lands within a rounding of the edge.
-    [0, env.bounds.w, 0, env.bounds.h].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 9));
+    [b.x, b.x + b.w, b.y, b.y + b.h].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 9));
   };
 
   for (const [name, make] of [
-    ['hexes', (o: object) => hexes(env, { spacing: 12, ...o })],
-    ['triangles', (o: object) => triangles(env, { size: 12, ...o })],
+    ['{6, 3}', (o: object) => t.tiling(6, 3, { side: 12 / Math.sqrt(3), ...o })],
+    ['{3, 6}', (o: object) => t.tiling(3, 6, { side: 12, ...o })],
+    ['{4, 4}', (o: object) => t.tiling(4, 4, { side: 12, ...o })],
   ] as const) {
-    it(`${name}: the default is the user origin, unturned`, () => {
-      expect(dump(make({ origin: [0, 0], rotate: 0 }))).toStrictEqual(dump(make({})));
-      expect(dump(make({ origin: { x: 0, y: 0 } }))).toStrictEqual(dump(make({})));
+    it(`${name}: the default is the drawable's middle, unturned`, () => {
+      expect(dump(make({ origin: [b.cx, b.cy], rotate: 0 }))).toStrictEqual(dump(make({})));
+      expect(dump(make({ origin: 'center' }))).toStrictEqual(dump(make({})));
     });
 
     it(`${name}: origin moves every cell by one vector and keeps i and j`, () => {
       const at = centres(make({}));
-      const moved = centres(make({ origin: { x: 3.5, y: -2 } }));
+      const moved = centres(make({ origin: { x: b.cx + 3.5, y: b.cy - 2 } }));
       let shared = 0;
       for (const [key, [x, y]] of moved) {
         const c = at.get(key);
@@ -248,34 +249,35 @@ describe('a lattice stands where it is told', () => {
     });
 
     it(`${name}: a mid-edit placement lays out nothing`, () => {
-      expect(make({ rotate: Number.NaN }).n).toBe(0);
       expect(make({ origin: [Number.NaN, 0] }).n).toBe(0);
+      expect(make({ side: 0 }).n).toBe(0);
+      expect(make({ gap: 50 }).n).toBe(0);
     });
   }
 
-  it('hexes: a quarter turn makes pointy cells flat, at the flat lattice centres', () => {
-    // The turn keeps the pointy lattice's own i and j, which are not the
-    // flat lattice's: the SET of centres and the cell shapes are the same.
+  it('{6, 3}: a sixth of a turn is the same lattice, its i and j turned with it', () => {
     const r6 = (v: number) => String(Math.round(v * 1e6) / 1e6 + 0);
     const key = (f: Face) => `${r6(f.centroid[0])},${r6(f.centroid[1])}`;
-    const turned = hexes(env, { spacing: 12, rotate: 90 }).faces();
-    const uncut = turned.faces.filter((g) => Math.abs(g.area - (Math.sqrt(3) / 2) * 144) < 1e-9);
+    const side = 12 / Math.sqrt(3);
+    const flat = t.tiling(6, 3, { side, origin: [b.cx, b.cy] }).faces;
+    const turned = t.tiling(6, 3, { side, origin: [b.cx, b.cy], rotate: 60 }).faces;
+    const uncut = turned.filter((g) => Math.abs(g.area - (3 * Math.sqrt(3) / 2) * side * side) < 1e-9);
     expect(uncut.length).toBeGreaterThan(20);
-    const flat = hexes(env, { spacing: 12, orientation: 'flat' }).faces();
     expect(turned.length).toBe(flat.length);
     expect(new Set(turned.map(key))).toEqual(new Set(flat.map(key)));
     const shape = (f: Face) =>
       f.contours()[0].pts.map(([x, y]) => `${r6(x - f.centroid[0])},${r6(y - f.centroid[1])}`).sort();
     const byKey = new Map(flat.map((f) => [key(f), f]));
     for (const f of uncut) expect(shape(f)).toEqual(shape(byKey.get(key(f))!));
-    // The columns are the pointy lattice's own coordinates, turned with it:
-    // the pointy centre (12·(i + j/2), 1.5·R·j) a quarter turn on.
-    const R = 12 / Math.sqrt(3);
+    // The columns are the lattice's own axial coordinates, turned with it:
+    // centre = origin + side · turn60((3/2) i, (√3/2) i + √3 j).
+    const c = Math.cos(Math.PI / 3);
+    const sn = Math.sin(Math.PI / 3);
     for (const f of uncut) {
-      const i = f.i as number;
-      const j = f.j as number;
-      expect(f.centroid[0]).toBeCloseTo(-1.5 * R * j, 9);
-      expect(f.centroid[1]).toBeCloseTo(12 * (i + j / 2), 9);
+      const x = 1.5 * f.i;
+      const y = (Math.sqrt(3) / 2) * f.i + Math.sqrt(3) * f.j;
+      expect(f.centroid[0]).toBeCloseTo(b.cx + side * (c * x - sn * y), 9);
+      expect(f.centroid[1]).toBeCloseTo(b.cy + side * (sn * x + c * y), 9);
     }
   });
 });

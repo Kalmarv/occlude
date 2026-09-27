@@ -58,14 +58,14 @@ for (let i = 0; i < 400; i++) net = O.append(net, material([[rnd(0, 100), rnd(0,
 t(`  append ×400 (incremental, O(n²) total)`, () => { let m = material([]); for (let i = 0; i < 400; i++) m = O.append(m, material([[rnd(0, 100), rnd(0, 100)], [rnd(0, 100), rnd(0, 100)]], { edges: [[0, 1]] })); return m; });
 const pn = t(`  planarize 400 chords`, () => net.planarize()) as O.Material;
 console.log(`     -> ${pn.n} vertices ${pn.edgeCount} edges`);
-const fc = t(`  faces of it`, () => pn.faces()) as O.Faces;
+const fc = t(`  faces of it`, () => pn.faces) as O.Selection<O.Face>;
 t(`  faces.filter area>1 + contours`, () => fc.filter((f) => f.area > 1).contours());
 t(`  pn.curves`, () => pn.curves, 3);
 t(`  pn.edges (views)`, () => pn.edges, 3);
 t(`  query.edges prepare + 1000 firstHit`, () => { const q = O.query.edges(pn); for (let i = 0; i < 1000; i++) q.firstHit([rnd(0, 100), rnd(0, 100)], [rnd(0, 100), rnd(0, 100)]); });
 const tri = connect.triangulate(Array.from({ length: 5000 }, () => [rnd(0, 100), rnd(0, 100)] as [number, number]));
 t(`  triangulate 5000 pts (d3) -> ${tri.edgeCount} edges`, () => connect.triangulate(Array.from({ length: 5000 }, () => [rnd(0, 100), rnd(0, 100)] as [number, number])));
-t(`  tri.faces()`, () => tri.faces());
+t(`  tri.faces`, () => tri.faces);
 t(`  components(tri)`, () => tri.points.components(), 3);
 // ---- plan pipeline crossings on a dense drawing ----
 console.log('\n== plan pipeline (wasm crossings)');

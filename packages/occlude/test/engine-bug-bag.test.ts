@@ -88,7 +88,7 @@ describe('G4-17 G7-8 planarize gives a crossing the first edge\'s columns', () =
       }
       return { g: g.points.set('active', 0, tips), k: k + 1 };
     }).g;
-    const regions = paths.planarize().faces();
+    const regions = paths.planarize().faces;
     expect(regions.length).toBeGreaterThan(0);
   });
   it('takes the value along the lowest edge row, and point: overrides it', () => {
@@ -108,7 +108,7 @@ describe('G7-3 strokes refuses a shape by name', () => {
   });
   it('still names one face as an area', () => {
     const t = toolkit();
-    const face = t.material(rect(10, 10, 20, 20)).faces().at(0);
+    const face = t.material(rect(10, 10, 20, 20)).faces.at(0);
     expect(() => strokes(face as never)).toThrow(/one face is an area/);
   });
 });
@@ -129,9 +129,9 @@ describe('G5-11 replace welds a motif point onto a point already there', () => {
     const t = toolkit({ margin: 6 } as never);
     const h = Math.sqrt(3) / 6;
     const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
-    const cells = t.hexes({ spacing: mm(45) });
+    const cells = t.tiling(6, 3, { side: mm(45 / Math.sqrt(3)), rotate: 30, origin: [0, 0] });
     const grown = t.steps<Material>(2, cells, (g) => g.replace(g.edges, motif));
-    expect(grown.faces().length).toBeGreaterThan(0);
+    expect(grown.faces.length).toBeGreaterThan(0);
     const at = new Set<string>();
     for (let i = 0; i < grown.n; i++) at.add(`${grown.x[i].toFixed(9)},${grown.y[i].toFixed(9)}`);
     expect(at.size).toBe(grown.n);
@@ -148,24 +148,22 @@ describe('G5-11 replace welds a motif point onto a point already there', () => {
   });
 });
 
-describe('G3-7 G6-29 a flat tiling reads its faces at every depth', () => {
+describe('G3-7 G6-29 a flat tiling reads its faces: one per cell', () => {
   it('keeps one placement per cell, so faces read for {4,4}, {3,6} and {6,3} (reference-geometry-3, examples-fivefold-4)', () => {
     const t = toolkit();
-    // Cells within `depth` steps of the first: centred hexagonal and
-    // square numbers, and the triangles' own count.
-    const cells: Record<string, number[]> = { '6,3': [1, 7, 19, 37], '4,4': [1, 5, 13, 25], '3,6': [1, 4, 10, 19] };
-    for (const [symbol, counts] of Object.entries(cells)) {
-      const [p, q] = symbol.split(',').map(Number);
-      for (let depth = 0; depth <= 3; depth++) {
-        const tiles = t.tiling(p, q, { depth, side: 6 });
-        expect(tiles.placements).toHaveLength(counts[depth]);
-        expect(tiles.faces().length).toBe(counts[depth]);
-      }
+    const b = t.bounds();
+    for (const [p, q] of [[6, 3], [4, 4], [3, 6]]) {
+      const tiles = t.tiling(p, q, { side: 6 });
+      // Every cell once: no two faces share a lattice place or a centre,
+      // and together they are the drawable.
+      expect(new Set(tiles.faces.map((f) => `${f.i},${f.j}`)).size).toBe(tiles.faces.length);
+      expect(new Set(tiles.faces.map((f) => f.source)).size).toBe(tiles.faces.length);
+      expect(tiles.faces.sum('area')).toBeCloseTo(b.w * b.h, 6);
+      // One wall per shared edge: an edge has a cell on each side, or the
+      // drawable's rim on one.
+      for (const e of tiles.edges) expect(e.faces.length).toBeGreaterThanOrEqual(1);
+      expect(tiles.edges.filter((e) => e.faces.length === 2).length).toBeGreaterThan(tiles.faces.length);
     }
-    const deep = t.tiling(6, 3, { depth: 6, side: 6 });
-    expect(deep.faces().length).toBe(127);
-    // One wall per shared edge: a patch of 19 hexagons has 72 walls.
-    expect(t.tiling(6, 3, { depth: 2, side: 6 }).edgeCount).toBe(72);
   });
 });
 
@@ -183,7 +181,7 @@ describe('G2-11 a face\'s walls wind one stated way', () => {
   it('extracts each face so along normals point into it (reference-material-3)', () => {
     const t = toolkit({ seed: 1 });
     const parts = append(t.material(rect(20, 20, 30, 30)), t.material(rect(50, 20, 30, 30)), t.material(ngon(50, 60, 6, 22)));
-    const cells = parts.merge().planarize().rotate(12, { origin: 'centroid' }).faces();
+    const cells = parts.merge().planarize().rotate(12, { origin: 'centroid' }).faces;
     expect(cells.length).toBeGreaterThan(2);
     for (const f of cells) {
       const stations = f.extract().along({ spacing: 5 }).points;
@@ -225,7 +223,7 @@ describe('G2-21 m.transform takes a transform record with group\'s meaning', () 
     const t = toolkit();
     const motif = curve([[0, 0], [8, 2], [6, 9]], { closed: true });
     const copies = t.symmetry('p6m', { cell: 24 }).map((p) => motif.transform(p));
-    expect(append(...copies).merge().planarize().faces().length).toBeGreaterThan(0);
+    expect(append(...copies).merge().planarize().faces.length).toBeGreaterThan(0);
     expect(Array.from(copies[1].pointIds)).toEqual(Array.from(motif.pointIds));
     // 'center' is the one Origin of every pivot: the material's own middle.
     const mid: [number, number] = [(Math.min(...motif.x) + Math.max(...motif.x)) / 2, (Math.min(...motif.y) + Math.max(...motif.y)) / 2];
@@ -411,13 +409,13 @@ describe('G3-9 hatch of tiling faces under later hex strokes keeps its ink', () 
    * the hex strokes on top or left out. */
   const def = (hexes: boolean) => sketch({ aspect: [1, 1], seed: 7, pens }, (t) => {
     const h = fill('hatch', { angle: 60, spacing: mm(1) });
-    const odd = t.tiling(4, 4, { depth: 6, side: 6 }).faces().filter((f) => (f.generation ?? 0) % 2 === 1);
+    const odd = t.tiling(4, 4, { side: 6 }).faces.filter((f) => (f.generation ?? 0) % 2 === 1);
     const left = odd.filter((f) => f.centroid[0] < 50);
     const right = odd.filter((f) => f.centroid[0] >= 50);
     return [
       polygon(left.contours(), { fill: h, fillPen: 'blue', stroke: false }),
       right.map((f) => polygon(f, { fill: h, fillPen: 'blue', stroke: false })),
-      ...(hexes ? [strokes(t.hexes({ spacing: 7 }), { pen: 'green' })] : []),
+      ...(hexes ? [strokes(t.tiling(6, 3, { side: 7 / Math.sqrt(3), rotate: 30, origin: [0, 0] }), { pen: 'green' })] : []),
     ];
   });
 

@@ -46,7 +46,7 @@ describe("origin: 'centroid'", () => {
     const cells = append(
       curve([[0, 0], [9, 0], [12, 4], [3, 10], [0, 6]], { closed: true }),
       curve([[9, 0], [20, 1], [12, 4]], { closed: true }),
-    ).merge().planarize().faces();
+    ).merge().planarize().faces;
     expect(cells.faces.length).toBeGreaterThan(1);
     for (const f of cells.faces) {
       const outline = f.boundaryEdges.extract();
@@ -57,11 +57,11 @@ describe("origin: 'centroid'", () => {
       }
       for (const k of [0.3, 2]) {
         const moved = outline.scale(k, { origin: 'centroid' });
-        const again = moved.planarize().faces().at(0);
+        const again = moved.planarize().faces.at(0);
         expect(again.centroid[0]).toBeCloseTo(before[0], 9);
         expect(again.centroid[1]).toBeCloseTo(before[1], 9);
       }
-      const turned = outline.rotate(40, { origin: 'centroid' }).planarize().faces().at(0);
+      const turned = outline.rotate(40, { origin: 'centroid' }).planarize().faces.at(0);
       expect(turned.centroid[0]).toBeCloseTo(before[0], 9);
       expect(turned.centroid[1]).toBeCloseTo(before[1], 9);
     }

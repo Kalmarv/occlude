@@ -2,6 +2,9 @@
 // for when it asks a drawing for its regions. Seeds fixed; medians of 5.
 import { performance } from 'node:perf_hooks';
 import { material, append, connect } from '../src/index.js';
+// The walk itself, on every run: `m.faces` is kept on the state after the
+// first read, so the bench reads a fresh table each time.
+import { faceTable } from '../src/faces.js';
 
 let s = 5;
 const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647) * 100;
@@ -17,8 +20,8 @@ for (let i = 0; i < 400; i++) net = append(net, material([[rnd(), rnd()], [rnd()
 med('planarize 400 chords', () => net.planarize(), 3);
 const pn = net.planarize();
 console.log(`  -> ${pn.n} vertices ${pn.edgeCount} edges`);
-med(`faces of ${pn.edgeCount} planar edges`, () => pn.faces());
-const fc = pn.faces();
+med(`faces of ${pn.edgeCount} planar edges`, () => faceTable(pn));
+const fc = pn.faces;
 console.log(`  -> ${fc.faces.length} faces`);
 med('faces.filter area>1 + contours', () => fc.filter((f) => f.area > 1).contours());
 
@@ -40,7 +43,7 @@ med('faces.filter area>1 + contours', () => fc.filter((f) => f.area > 1).contour
 }
 
 const tri = connect.triangulate(Array.from({ length: 5000 }, () => [rnd(), rnd()] as [number, number]));
-med(`faces of a ${tri.n}-point triangulation (${tri.edgeCount} edges)`, () => tri.faces());
+med(`faces of a ${tri.n}-point triangulation (${tri.edgeCount} edges)`, () => faceTable(tri));
 
 // a lattice: every vertex has degree four and every face is a quad — the
 // angular sort and the walk with none of the randomness
@@ -52,7 +55,7 @@ med(`faces of a ${tri.n}-point triangulation (${tri.edgeCount} edges)`, () => tr
   const eds: [number, number][] = [];
   for (let i = 0; i <= K; i++) for (let j = 0; j < K; j++) { eds.push([id(i, j), id(i, j + 1)]); eds.push([id(j, i), id(j + 1, i)]); }
   const lat = material(pts, { edges: eds });
-  med(`faces of a ${K}×${K} lattice (${lat.n} V, ${lat.edgeCount} E)`, () => lat.faces());
+  med(`faces of a ${K}×${K} lattice (${lat.n} V, ${lat.edgeCount} E)`, () => faceTable(lat));
 }
 
 // many disjoint segments: the planarity check's position map at scale, with
@@ -67,5 +70,5 @@ med(`faces of a ${tri.n}-point triangulation (${tri.edgeCount} edges)`, () => tr
     eds.push([2 * i, 2 * i + 1]);
   }
   const wide = material(pts, { edges: eds });
-  med(`faces of ${wide.n} disjoint-segment vertices`, () => wide.faces(), 3);
+  med(`faces of ${wide.n} disjoint-segment vertices`, () => faceTable(wide), 3);
 }

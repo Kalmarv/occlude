@@ -51,16 +51,17 @@ for (const [name, field] of [['flat', flat], ['tonal', tone]] as const) {
     med(`  settle 10 rounds (standard recipe)`, () => settleMaterial(env, base, { iterations: 10, density: field, spacing: sp }));
     med(`  voronoi (material with shared walls)`, () => voronoiOf(base, env.bounds));
     const cells = voronoiOf(base, env.bounds);
-    med(`  faces().measure(field) over those cells`, () => cells.faces().measure(field, { bounds: env.bounds }));
+    med(`  faces.measure(field) over those cells`, () => cells.faces.measure(field, { bounds: env.bounds }));
     // The custom path: one round of "move to the weighted centroid" written
     // with the public ingredients, against the kernel's round.
     med(`  custom round: voronoi + measure + move`, () =>
       tk.steps(1, base, (cur) => {
-        const c = voronoiOf(cur, env.bounds);
-        const m = c.faces().measure(field, { bounds: env.bounds });
+        const measured = voronoiOf(cur, env.bounds).faces.measure(field, { bounds: env.bounds });
+        // Each cell's weighted centre, by the row of its site.
+        const target = new Map<number, [number, number]>();
+        for (const f of measured.faces) if (f.source && Number.isFinite(f.weightedX)) target.set(f.source.index, [f.weightedX, f.weightedY]);
         return cur.move((p) => {
-          const f = c.cellOf(p);
-          const w = f ? m.forFace(f).weightedCentroid : null;
+          const w = target.get(p.index);
           return w ? [w[0] - p.x, w[1] - p.y] : [0, 0];
         });
       }));

@@ -40,7 +40,7 @@ import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest,
 import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
 import { INK_TOL, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { cellOf, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
+import { cellOf, coverTiling, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
 import { framePlacement, isPlacement, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
@@ -48,7 +48,7 @@ import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
-import { grid as gridCells, hexes as hexCells, triangles as triangleCells, type Box, type CellMaterial, type GridCell, type GridOptions, type HexOptions, type TriangleOptions } from './layout.js';
+import { grid as gridCells, type Box, type GridOptions } from './layout.js';
 import { placements as symmetryPlacements, cellStep as symmetryCellStep, type PlaneGroup } from './symmetry.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type Origin, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type RandomStream, type SketchOptions, type TransformOp, type Winding } from './execution.js';
@@ -76,7 +76,7 @@ export interface TravelTimeOpts extends Omit<TravelOpts, 'within'> {
   fromArea?: Area;
 }
 import { latticeOf, Lattice, type LatticeInit, type LatticeOpts } from './lattice.js';
-import { residualOf, type Residual, type ResidualOpts } from './residual.js';
+import { residualOf, type ResidualOpts } from './residual.js';
 import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
@@ -944,12 +944,8 @@ export function withinAny(
   const faces: Selection<Face> = x;
   const tol = INK_TOL / unitMm(run.frame);
   if (keep === 'centroid') {
-    // Geometric centres: no field is measured, so no raster is built.
-    const measured = faces.measure();
-    return faces.filter((f) => {
-      const [cx, cy] = measured.forFace(f).centroid;
-      return side(cx, cy) >= 0;
-    });
+    // Geometric centres: the face's own.
+    return faces.filter((f) => side(f.centroid[0], f.centroid[1]) >= 0);
   }
   if (keep === 'touching') {
     // Any shared point: a vertex in or ON the boundary, a wall meeting a real
@@ -1770,8 +1766,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /** The subdivision of the drawable that puts detail where the points are:
    * a cell holding more than `capacity` points splits into four, down to
-   * `depth` splits. Returns the lattice as material — planarize it and its
-   * faces are the cells. */
+   * `depth` splits. Returns the lattice as material whose faces are EVERY
+   * cell, the root first and then breadth-first: `parent`, `children`,
+   * `depth` and `leaf` say where each sits, the leaves are the partition,
+   * and each cell's `source` is the points it holds, a selection of the
+   * input. */
   function quadtreeTk(points: PointsLike, opts: QuadtreeTkOpts = {}): Material {
     const b = exec.bounds();
     const o: QuadtreeOpts = opts.within === undefined ? opts as QuadtreeOpts : { ...opts, within: numericAreaLoops(exec, opts.within, 'quadtree') };
@@ -1792,8 +1791,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * The regular `{p, q}` tiling on the drawable: its cell and one
-   * `Placement` per copy of it, the identity first.
+   * The regular `{p, q}` tiling, as geometry whose faces are the cells:
+   * each face's `source` is the `Placement` that carried the fundamental
+   * cell there, the identity first.
    *
    * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
    * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
@@ -1804,10 +1804,12 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * draws in, and the cell is one cell of it. A symbol of another geometry
    * is refused by name, with the `space` that draws it.
    *
-   * The flat plane fixes no unit of length, so a Euclidean symbol takes
-   * one: `side`, or by default half the short side of the drawable, about
-   * its middle. That is a size, and every placement is still an isometry
-   * of the sheet.
+   * A flat symbol COVERS THE DRAWABLE, every cell cut to it, and each face
+   * carries its lattice `i` and `j`; `gap` parts the cells. The flat plane
+   * fixes no unit of length, so it takes one: `side`, or by default half
+   * the short side of the drawable, about `origin` (the drawable's middle
+   * by default). A curved symbol floods `depth` generations from the cell
+   * at the chart's centre, its side fixed by the curvature.
    */
   function tilingTk(p: number, q: number, opts: TilingOpts = {}): Tiling {
     const geometry = tilingGeometry(p, q);
@@ -1829,16 +1831,26 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       : (z: XY): Vec => [cos * vx(z) - sin * vy(z), sin * vx(z) + cos * vy(z)];
     const chart = modelChart(sp);
     if (!chart) {
+      if (opts.depth !== undefined) throw new Error('tiling: a flat tiling covers the drawable — depth counts the generations of a curved one; leave it out');
       const b = exec.bounds();
       const k = side ?? Math.min(b.w, b.h) / 2;
+      const gap = opts.gap === undefined ? 0 : exec.len(opts.gap);
       checkOrigin('tiling', opts.origin);
       const [ox, oy] = opts.origin === undefined || opts.origin === 'center' || opts.origin === 'centroid'
         ? [b.cx, b.cy] : [vx(opts.origin as XY), vy(opts.origin as XY)];
-      return tilingKernel(p, q, opts, { door: sp.model, up: (z: XY): Vec => { const t = turn(z); return [ox + k * t[0], oy + k * t[1]]; }, bow: 0, space: sp });
+      const up = (z: XY): Vec => { const t = turn(z); return [ox + k * t[0], oy + k * t[1]]; };
+      // The inverse: shift back, scale back, turn back.
+      const down = (v: Vec): Vec => {
+        const dx = (v[0] - ox) / k;
+        const dy = (v[1] - oy) / k;
+        return deg === 0 ? [dx, dy] : [cos * dx + sin * dy, -sin * dx + cos * dy];
+      };
+      return coverTiling(p, q, gap, { door: sp.model, up, down, side: k, space: sp, bounds: b });
     }
     if (opts.origin !== undefined) {
       throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling stands on its chart's centre — move it with a placement, group(placement, …), not origin`);
     }
+    if (opts.gap !== undefined) throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling's cells share their walls — gap parts the cells of a flat one; leave it out`);
     // A curved symbol takes its unit from its curvature: the model chart
     // is the sketch's own chart, so the model point goes through it and
     // out the other side, into the coordinates everything else speaks.
@@ -1927,9 +1939,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
    * drawable, or cut at a `within` area: any area, the cut cells closed
-   * along its boundary. `cells.cellOf(site)` and `cells.siteOf(face)`
-   * relate the result to its sites; a material or a point selection of one
-   * stays the sites, bare points become one. */
+   * along its boundary. The faces are the cells, one per site that has
+   * one, in the sites' order, and each face's `source` is its site; a
+   * material or a point selection of one stays the sites, bare points
+   * become one. */
   function voronoiTk(sites: PointsLike, opts: { within?: Area } = {}): Material {
     if ('bounds' in opts) throw new Error('voronoi: bounds is now within — a rect is an area: { within: rect(…) } or { within: t.bounds() }');
     const b = exec.bounds();
@@ -2094,23 +2107,14 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
 
   /**
    * Ink as a budget: `field` is the tone the drawing owes, 0 to 1, and the
-   * residual holds what is still owed on a grid of cells. `spacing` is the
-   * cell size (default the grid step `t.isolines` uses), and `area` bounds
-   * what owes anything — outside it nothing is owed.
-   *
-   * A residual IS a field: `r(x, y)` is the remaining tone there, so
-   * `t.scatter(r)`, `t.isolines(r, …)` and a decimate amount read it like
-   * any other. `r.spend(marks, { width })` subtracts the nib footprint of
-   * what was drawn and answers with the darkness taken, in cell areas;
-   * `r.total()` is the debt that is left, for the loop's stopping test.
-   *
-   * `spend` mutates, and it is the one value in the library that does: a
-   * ledger has to remember what the last stroke paid, and copying a raster
-   * per stroke would make a long loop quadratic. `r.snapshot()` is the
-   * frozen copy. The seed still decides everything: the ledger is a pure
-   * function of the sequence of spends.
+   * answer is a lattice whose one column, `owed`, holds what is still owed
+   * on a grid of faces. `spacing` is the face size (default the grid step
+   * `t.isolines` uses), and `area` bounds what owes anything — outside it
+   * nothing is owed. `r.spend(marks, { width })` answers a NEW lattice
+   * with the nib footprint of what was drawn taken off; the lattice is a
+   * value, and nothing mutates.
    */
-  function residual(field: FieldFn2, opts: ResidualOpts = {}): Residual {
+  function residual(field: FieldFn2, opts: ResidualOpts = {}): Lattice {
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
     const o: ResidualOpts = opts?.area === undefined ? opts : { ...opts, area: numericAreaLoops(exec, opts.area, 'residual') };
@@ -2122,7 +2126,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * its `level`. Its area — each region's boundary a ring, closed along the
    * drawable, the field's `t.within` bound and every hole, through every
    * corner it passes, those closing edges `cut` = 1 — is worked out the first
-   * time `contours()`, `faces()`, `polygon`, `t.within` or any other area
+   * time `contours()`, `faces`, `polygon`, `t.within` or any other area
    * consumer asks, and kept; a selection of the lines is closed by the runs
    * that join its ends. `polygon(m)` fills the regions and `strokes(m)` draws
    * the level lines. Pick levels with `m.edges.filter((e) => e.level ===
@@ -2281,7 +2285,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * Shapes as material, keeping their own vertices: one or more shapes, each
    * outline a ring or chain of the one returned material, in the order
    * given, welding nothing — `t.material(...circles).planarize()` is the
-   * pile whose `faces()` are the pieces the overlaps cut. The options are the
+   * pile whose `faces` are the pieces the overlaps cut. The options are the
    * trailing plain object. Points go through the pure `material(points)`.
    *
    * Any `Area` enters here, through the one lowering: a group's shapes
@@ -2568,17 +2572,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     get space(): Space {
       return exec.space;
     },
-    /** Cell rectangles covering the whole drawable. */
-    grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
-    /** Hexagonal cells covering the drawable as one material: `m.faces()`
-     * are the cells, a shared wall is ONE edge, and each face carries its
-     * axial `i` and `j`. `gap` shrinks each cell about its centre, and a
-     * gapped cell shares nothing. */
-    hexes: (opts: HexOptions): CellMaterial => spaced(hexCells({ bounds: exec.bounds(), len: (l: L) => exec.len(l) }, opts)) as CellMaterial,
-    /** Triangular cells covering the drawable as one material, read exactly
-     * as `hexes`: each face carries its row `j` and its index `i` along that
-     * row, where an even `i` points up. */
-    triangles: (opts: TriangleOptions): CellMaterial => spaced(triangleCells({ bounds: exec.bounds(), len: (l: L) => exec.len(l) }, opts)) as CellMaterial,
+    /** A grid of cells covering the whole drawable, as one geometry: its
+     * faces are the cells in row-major order, each with its `i` and `j`
+     * and its rectangle as `bounds`; neighbouring cells share one wall. */
+    grid: (opts: GridOptions): Material => spaced(gridCells(exec.bounds(), opts)),
     /** The placements of one of the seventeen wallpaper groups, enough of
      * them to cover the drawable: hand each to `group(placement, motif)`
      * and the motif repeats under the group. `cell` is `[w, h]` for a

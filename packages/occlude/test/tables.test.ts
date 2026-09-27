@@ -17,7 +17,7 @@ import {
   type Vertex, type Edge,
 } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
-import { latticeOf, type Cell, type Lattice } from '../src/lattice.js';
+import { latticeOf, type LatticeFace, type Lattice } from '../src/lattice.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -294,10 +294,10 @@ describe('snapshot writes: a set reads the table as it was', () => {
     expect([...w.edges.set('w', prev).edges.set('w', prev).edgeAttrs.w]).toEqual([0, 0, 1, 0]);
   });
 
-  it('on a lattice: set(col, fn) and set({…}) read the pre-write cells; a chain is a sequence', () => {
-    // A cell takes the value of the cell to its west, read from the old grid.
+  it('on a lattice: set(col, fn) and set({…}) read the pre-write faces; a chain is a sequence', () => {
+    // A face takes the value of the face to its west, read from the old grid.
     const l = lattice().set('v', (c) => (c.i === 0 ? 1 : 0));
-    const west = (c: Cell) => {
+    const west = (c: LatticeFace) => {
       const w = c.adjacent.filter((d) => d.i === c.i - 1 && d.j === c.j);
       return w.length === 0 ? 0 : w.at(0).v;
     };
@@ -308,7 +308,7 @@ describe('snapshot writes: a set reads the table as it was', () => {
     expect([...both.values.u.slice(0, 3)]).toEqual([10, 0, 0]);
     const chained = l.set('v', west).set('v', west);
     expect([...chained.values.v.slice(0, 4)]).toEqual([0, 0, 1, 0]);
-    // The laplacian reads the old grid too: one cell of 4 spreads 1 to each side.
+    // The laplacian reads the old grid too: one face of 4 spreads 1 to each side.
     const spot = lattice().set('h', 0).set('h', 4, [5.5, 5.5]);
     const spread = spot.set('h', (c) => c.h + 0.25 * c.laplacian('h'));
     expect([spread.values.h[55], spread.values.h[54], spread.values.h[56], spread.values.h[45], spread.values.h[65], spread.values.h[53]]).toEqual([0, 1, 1, 1, 1, 0]);
@@ -373,27 +373,27 @@ describe('recipes equal their table lines', () => {
 });
 
 describe('the lattice as one table', () => {
-  it('set on cells: number, function, where; l.set is l.cells.set; add and remove refuse', () => {
+  it('set on faces: number, function, where; l.set is l.faces.set; add and remove refuse', () => {
     const l = lattice().set('ink', 0);
     expect(l.channels).toEqual(['a', 'ink']);
-    const one = l.set('ink', 3, l.cells.at(5));
+    const one = l.set('ink', 3, l.faces.at(5));
     expect(one.values.ink[5]).toBe(3);
     expect(one.values.ink.reduce((s, v) => s + v, 0)).toBe(3);
-    expect(l.cells.set('ink', 3, l.cells.at(5)).values.ink).toEqual(one.values.ink);
-    const byTest = l.set('ink', (c) => c.x, (c) => c.j === 0);
+    expect(l.faces.set('ink', 3, l.faces.at(5)).values.ink).toEqual(one.values.ink);
+    const byTest = l.set('ink', (c) => c.centroid[0], (c) => c.j === 0);
     expect(byTest.values.ink[3]).toBe(3.5);
     expect(byTest.values.ink[13]).toBe(0);
     expect(l.set('ink', 3, undefined).values.ink.every((v) => v === 0)).toBe(true);
-    // @ts-expect-error a lattice's cells have no add
-    expect(() => l.cells.add()).toThrow(/cells are fixed/);
-    // @ts-expect-error a lattice's cells have no remove
-    expect(() => l.cells.remove()).toThrow(/cells are fixed/);
-    expect(() => l.set('x', 1)).toThrow(/reserved/);
-    // A value that is not finite leaves the cell as it was.
+    // @ts-expect-error a lattice's faces have no add
+    expect(() => l.faces.add()).toThrow(/faces are fixed/);
+    // @ts-expect-error a lattice's faces have no remove
+    expect(() => l.faces.remove()).toThrow(/faces are fixed/);
+    expect(() => l.set('i', 1)).toThrow(/reserved/);
+    // A value that is not finite leaves the face as it was.
     expect(l.set('ink', (c) => (c.index === 0 ? NaN : 1)).values.ink[0]).toBe(0);
   });
 
-  it('points name the cells they fall in', () => {
+  it('points name the faces they fall in', () => {
     const l = lattice().set('h', 5, material([[0.5, 0.5], [0.7, 0.2], [3.5, 4.5], [50, 50]]));
     expect([...l.values.h.keys()].filter((i) => l.values.h[i] === 5)).toEqual([0, 43]);
     expect(l.set('h', 1, [2.5, 2.5]).values.h[22]).toBe(1);
@@ -407,25 +407,23 @@ describe('the lattice as one table', () => {
     expect(seq.values.b[0]).toBe(20);
   });
 
-  it('a cell answers its centre, columns, laplacian and adjacent; cell(p) names the cell under a point', () => {
+  it('a face answers its centroid, columns, laplacian and adjacent; face(p) names the face under a point', () => {
     const l = lattice().set('v', (c) => c.i * c.i + c.j);
-    const c = l.cell([3.5, 2.2])!;
-    expect([c.i, c.j, c.x, c.y, c.index]).toEqual([3, 2, 3.5, 2.5, 23]);
+    const c = l.face([3.5, 2.2])!;
+    expect([c.i, c.j, ...c.centroid, c.index]).toEqual([3, 2, 3.5, 2.5, 23]);
     expect(c.v).toBe(11);
     expect(c.laplacian('v')).toBe((4 + 2) + (16 + 2) + (9 + 1) + (9 + 3) - 4 * 11);
     expect(c.adjacent.indices).toEqual([13, 22, 24, 33]);
     // The five-point stencil, zero-flux: west, east, south, north.
     const at = (i: number, j: number) => l.values.v[j * l.cols + i];
     expect(c.laplacian('v')).toBe((at(2, 2) - 11) + (at(4, 2) - 11) + (at(3, 1) - 11) + (at(3, 3) - 11));
-    // Off the lattice: a cell that reads 0 and that no write reaches.
-    const off = l.cell([-5, 2])!;
+    // Off the lattice: a face that reads 0 and that no write reaches.
+    const off = l.face([-5, 2])!;
     expect(off.v).toBe(0);
     expect(l.set('v', 99, off).values.v).toEqual(l.values.v);
-    expect(l.cell(undefined)).toBeUndefined();
-    // The two-number form still answers indices.
-    expect(l.cell(3.5, 2.2)).toEqual({ i: 3, j: 2 });
-    expect(l.cells.near([0.5, 0.5], { radius: 1.1 }).indices).toEqual([0, 1, 10]);
-    expect(l.cells.at(-1).index).toBe(99);
+    expect(l.face(undefined)).toBeUndefined();
+    expect(l.faces.near([0.5, 0.5], { radius: 1.1 }).indices).toEqual([0, 1, 10]);
+    expect(l.faces.at(-1).index).toBe(99);
   });
 });
 

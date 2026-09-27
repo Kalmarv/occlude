@@ -209,7 +209,7 @@ import { sketch, clip, invert, polygon, circle } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const blobs = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.1);
   const region = polygon(blobs);
-  const discs = (r) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, r));
+  const discs = (r) => t.grid({ cols: 40, rows: 20 }).faces.map((f) => circle(f.centroid, r));
   return [
     clip(region, discs(2.1)),
     clip(invert(region), discs(0.8)),
@@ -384,23 +384,24 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 ### grid
 
-`t.grid({ cols, rows, gap? })` returns cell rectangles covering the whole drawable, each `{ x, y, w, h, cx, cy, i, j }`.
+`t.grid({ cols, rows, gap? })` covers the whole drawable with cells and returns one material. Its `faces` are the cells, in rows from the top, and each face carries its place as the columns `i` (across) and `j` (down). A face's `bounds` is the cell's rectangle, `{ x, y, w, h, cx, cy }`, and the face is itself an area, so `polygon(f)` and `t.within(x, f)` take it. Two cells side by side share one wall: `strokes` draws it once, and `f.adjacent` answers. `gap` parts the cells, so a gapped cell touches nothing and shares nothing.
 
 ```ts live
 import { sketch, circle, rect, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 18 }, (t) =>
-  t.grid({ cols: 9, rows: 4, gap: 2 }).map((c) =>
-    t.chance(0.5)
-      ? circle(c.cx, c.cy, Math.min(c.w, c.h) * 0.42, { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1) }) })
-      : rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, 2),
-  ),
+  t.grid({ cols: 9, rows: 4, gap: 2 }).faces.map((f) => {
+    const { x, y, w, h, cx, cy } = f.bounds;
+    return t.chance(0.5)
+      ? circle(cx, cy, Math.min(w, h) * 0.42, { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1) }) })
+      : rect(x + 1, y + 1, w - 2, h - 2, 2);
+  }),
 );
 ```
 
-### hexes and triangles
+### tilings
 
-`t.hexes({ spacing, orientation?, gap? })` and `t.triangles({ size, gap? })` cover the drawable with cells that are not rectangles. A grid hands out cell records, and these two hand out one material. The cells are its faces, and a wall that two cells share is ONE edge. `strokes` draws that wall once, and `sel.adjacent()` answers on the cells. Each face carries the cell's two indices. For a hexagon `i` and `j` are axial coordinates. For a triangle they are the row and the place along it, where an even `i` points up. `gap` shrinks every cell about its own centre, so a gapped cell touches nothing and shares nothing.
+`t.tiling(p, q, { side?, rotate?, origin?, gap? })` covers the drawable with regular `p`-sided cells, `q` of them at every corner: `t.tiling(6, 3)` is hexagons, `t.tiling(3, 6)` is triangles and `t.tiling(4, 4)` is squares. Like a grid, it returns one material. The cells are its faces, and a wall that two cells share is ONE edge. `strokes` draws that wall once, and `sel.adjacent()` answers on the cells. Each face carries the cell's two lattice indices as the columns `i` and `j`. `side` is the length of one wall, `rotate` turns the tiling in degrees, and `origin` is where one cell's centre stands, by default the middle of the drawable. `gap` shrinks every cell about its own centre, so a gapped cell touches nothing and shares nothing. A symbol whose corners do not close flat, such as `{4, 5}`, is a tiling of a curved space, and the sketch must draw in that space.
 
 The drawable edge cuts the outermost cells, so the material's outline is the drawable itself. Here a tone field sets the hatch spacing of every cell, and the hatch angle follows the row.
 
@@ -409,10 +410,10 @@ import { sketch, strokes, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const b = t.bounds();
-  const cells = t.hexes({ spacing: mm(13) });
+  const cells = t.tiling(6, 3, { side: mm(7.5), rotate: -30 });
   const tone = (x, y) => 1 - Math.min(1, Math.hypot(x - b.cx, (y - b.cy) * 1.6) / (0.52 * b.w));
   return [
-    cells.faces().faces.map((f) => {
+    cells.faces.map((f) => {
       const v = tone(f.centroid[0], f.centroid[1]);
       return v > 0.04 && polygon(f, { fill: fill('hatch', { angle: 30 + 60 * f.j, spacing: mm(0.35 + 1.9 * (1 - v)) }) });
     }),

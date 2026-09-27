@@ -118,8 +118,8 @@ describe('within: points and faces', () => {
     run((t) => {
       const square = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] });
       const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize();
-      all = grid.faces().length;
-      kept = [...t.within(grid.faces(), rect(10, 10, 50, 50))];
+      all = grid.faces.length;
+      kept = [...t.within(grid.faces, rect(10, 10, 50, 50))];
     });
     // Four 30×30 cells; the frame reaches to 60, so only the one at 20…50
     // is inside it whole.
@@ -135,7 +135,7 @@ describe('within: points and faces', () => {
     let bounds: number[][] = [];
     run((t) => {
       const square = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] });
-      const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize().faces();
+      const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize().faces;
       // A frame whose right and bottom edges cut the far half of the grid,
       // past the centre of the cells they cut.
       const frame = rect(10, 10, 60, 60);
@@ -161,7 +161,7 @@ describe('within: points and faces', () => {
     };
     run((t) => {
       const cells = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-        .planarize().faces();
+        .planarize().faces;
       // Each of these is deliberately the wrong option for its domain (or an
       // unknown rule): `as never` states that the call is meant to throw.
       catchIt(() => t.within(cells, rect(10, 10, 60, 60), { keep: 'nope' } as never));
@@ -247,10 +247,10 @@ describe('within: the point operations', () => {
     });
     expect(coords(byWithin!)).toBe(coords(byBounds!));
     // Three cells, each closed along the circle, each still its site's.
-    const cells = byCircle!.faces();
+    const cells = byCircle!.faces;
     expect(cells.length).toBe(3);
     for (const f of cells) {
-      expect(byCircle!.siteOf(f)).toBeDefined();
+      expect(f.source).toBeDefined();
       for (const c of f.contours()) for (const [x, y] of c.pts) expect(Math.hypot(x - 50, y - 50)).toBeLessThan(30.000001);
     }
   });
@@ -287,7 +287,7 @@ describe('within: the filled region, not the contours', () => {
 
   const rectFace = (x0: number, y0: number, x1: number, y1: number): Selection<Face> =>
     material([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-      .planarize().faces();
+      .planarize().faces;
 
   it('counts a point on an interior contour as inside, for a material and a selection', () => {
     let vertices = -1;
@@ -362,7 +362,7 @@ describe('within: the filled region, not the contours', () => {
       const ring = append(
         material(outer, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
         material(holePts, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
-      ).planarize().faces();
+      ).planarize().faces;
       const faces = [...t.within(ring, area, { keep: 'contained' })];
       kept = faces.length;
       contours = faces[0]?.contours().length ?? 0;
@@ -386,7 +386,7 @@ describe('within: holes and winding', () => {
       // material cut above reads a boundary point as outside, as the engine's
       // clip does.
       expect(t.within(points.points, area).indices).toEqual([0, 1]);
-      const face = t.material(rect(60, 45, 20, 20)).planarize().faces();
+      const face = t.material(rect(60, 45, 20, 20)).planarize().faces;
       expect(t.within(face, area).length).toBe(1); // crosses the redundant edge at x=70
     });
   });
@@ -397,7 +397,7 @@ describe('within: holes and winding', () => {
       const solid = polygon([loop, loop], { winding: 'nonzero' });
       const cancelled = polygon([loop, [...loop].reverse()], { winding: 'nonzero' });
       const parity = polygon([loop, loop]);
-      const face = t.material(rect(10, 10, 60, 60)).planarize().faces();
+      const face = t.material(rect(10, 10, 60, 60)).planarize().faces;
       expect(t.within(face, solid).length).toBe(1);
       expect(pointsOf(t.within(chord(0, 20, 100, 20), solid))).toBe('10,20 70,20');
       for (const empty of [cancelled, parity]) {
@@ -416,9 +416,9 @@ describe('within: holes and winding', () => {
     let away = 0;
     run((t) => {
       const spanningFaces = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-        .planarize().faces();
+        .planarize().faces;
       const awayFaces = material([[15, 15], [30, 15], [30, 30], [15, 30]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
-        .planarize().faces();
+        .planarize().faces;
       spanning = t.within(spanningFaces, [ring, hole], { keep: 'contained' }).length;
       withoutHole = t.within(spanningFaces, [ring], { keep: 'contained' }).length;
       away = t.within(awayFaces, [ring, hole], { keep: 'contained' }).length;

@@ -705,7 +705,7 @@ export function levelMaterial(groups: readonly IsoLevelContours[]): Material {
 /**
  * The material `t.isolines` answers: the level lines of every level, each
  * edge carrying its `level` and `cut` = 0, rows in the order
- * `levelMaterial` gives them. Its area — `contours()`, `faces()`, and what
+ * `levelMaterial` gives them. Its area — `contours()`, `faces`, and what
  * `polygon`, `t.within` and every other area consumer read — is
  * `levelMaterial` of the closed levels, worked out the first time it is
  * asked for. The area's level-line rows carry this material's ids, so a

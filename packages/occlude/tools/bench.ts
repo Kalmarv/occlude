@@ -223,7 +223,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
   const boxes = [];
   for (let k = 0; k < 2000; k++) boxes.push(rect(t.rnd(2, 86), t.rnd(2, 86), t.rnd(4, 12), t.rnd(4, 12)));
   const cells = t.material(...boxes).merge().planarize();
-  void cells.faces();
+  void cells.faces;
   return strokes(cells);
 });`),
   },

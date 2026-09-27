@@ -312,6 +312,7 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
     edgeTransfers: { ...m.edgeTransfers },
     ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
     faceAttrs: m.faceAttrs,
+    faces: m.stated,
     space: m.space,
   });
 }

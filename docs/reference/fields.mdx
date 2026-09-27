@@ -13,7 +13,7 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 
 The level lines of a field, as one material. Give one value, a list of them, or a count or a spacing. Every edge carries its `level`, and every edge of the material is a level line with `cut` = 0. The lines are what `t.isolines` calculates. The area of a level is where the field is at the value or above it. When `polygon`, `contours()` or `t.within` asks for the area, the library calculates the area one time and keeps it. Each area is a ring. It closes along the drawable, along a `t.within` bound and around each hole in the field. It goes through each corner that is in the area. The edges that close a ring carry `cut` = 1.
 
-`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.points` and `m.edges` count the level lines only. The closing edges belong to the area: `m.faces()` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
+`polygon(m)` fills the areas with their holes. `strokes(m)` draws the level lines. `m.points` and `m.edges` count the level lines only. The closing edges belong to the area: `m.faces` has them, and `polygon` uses them. A selection of the lines is an area too. `polygon(sel)` closes it with each closing run that joins two ends of the selection. `m.edges.groupBy((e) => e.level)` splits the levels (see [Selections](/docs/reference/selections)). `step` is the pitch of the sample grid. The default is the larger of 1 mm and the long side divided by 256. For a field with a `t.within` bound, the grid covers only the box of the bound. A fine step on a small bound is not expensive. There is no `close` option, because each area closes. The call refuses `close` by name, and it refuses a key that is not part of a level spec by name.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -159,7 +159,7 @@ import { sketch, polygon, sdf, fill, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const r = ui(9, { min: 0, max: 18 });
-  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => sdf.circle(c.cx, c.cy, 15.5));
+  const parts = t.grid({ cols: 3, rows: 3 }).faces.map((f) => sdf.circle(f.bounds.cx, f.bounds.cy, 15.5));
   const body = sdf.blend(parts, r);
   return polygon(t.isolines(body, 0), { fill: fill('hatch', { angle: 20, spacing: mm(1.3) }) });
 });
@@ -229,10 +229,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const east = (x, y) => [1, 0];
   const plain = rotate(east, 45), marked = rotate(vectorField(east), 45);
   const arrow = (p, v, pen) => [circle(p, 0.8, { pen }), line(p, add(p, mul(v, 7)), { pen })];
-  return t.grid({ cols: 5, rows: 5 }).map((c) => [
-    arrow([c.cx - 4, c.cy - 2], plain(c.cx, c.cy), 'stabilo-88-green'),
-    arrow([c.cx - 4, c.cy + 3], marked(c.cx, c.cy), 'stabilo-88-blue'),
-  ]);
+  return t.grid({ cols: 5, rows: 5 }).faces.map((f) => {
+    const [x, y] = f.centroid;
+    return [
+      arrow([x - 4, y - 2], plain(x, y), 'stabilo-88-green'),
+      arrow([x - 4, y + 3], marked(x, y), 'stabilo-88-blue'),
+    ];
+  });
 });
 ```
 
@@ -282,9 +285,9 @@ Below, a circle cuts a lattice of cells. Each cell at the rim is a face, so `pol
 import { sketch, strokes, circle, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.within(t.hexes({ spacing: 9, orientation: 'pointy' }), circle(50, 50, 40));
+  const cells = t.within(t.tiling(6, 3, { side: 5.2, rotate: 30 }), circle(50, 50, 40));
   return [
-    cells.faces().map((f, i) => polygon(f, { fill: fill('hatch', { angle: i % 2 ? 60 : -30, spacing: mm(1) }), stroke: false })),
+    cells.faces.map((f, i) => polygon(f, { fill: fill('hatch', { angle: i % 2 ? 60 : -30, spacing: mm(1) }), stroke: false })),
     strokes(cells.edges.filter((e) => !e.cut)),
   ];
 });
@@ -303,9 +306,9 @@ import { sketch, line, circle, strokes, curl, grad, add, mul, unit } from 'occlu
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const hill = (x, y) => t.noise(x / 30, y / 30);
-  const marks = (vf, pen) => t.grid({ cols: 9, rows: 9 }).map((c) => {
-    const p = [c.cx, c.cy];
-    return [circle(p, 0.7, { pen }), line(p, add(p, mul(unit(vf(c.cx, c.cy)), 5)), { pen })];
+  const marks = (vf, pen) => t.grid({ cols: 9, rows: 9 }).faces.map((f) => {
+    const p = f.centroid;
+    return [circle(p, 0.7, { pen }), line(p, add(p, mul(unit(vf(...p)), 5)), { pen })];
   });
   return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), marks(grad(hill)), marks(curl(hill), 'stabilo-88-blue')];
 });
@@ -382,11 +385,11 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 <include>/_sig/Toolkit.lattice.mdx</include>
 
-A grid of named channels over an area. `spacing` sets the cell size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each cell from its centre.
+A grid of square faces over an area, with named channels. `spacing` sets the face size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each face from its centre.
 
-A lattice is one table of cells, and `lat.set(channel, value, where?)` writes a channel. A cell answers `x` and `y` (its centre), every channel by name, `c.laplacian(channel)` (the five-point stencil) and `c.adjacent`. `t.steps(n, lat, pass)` runs a pass over it. A diffusion is one write: `lat.set('a', (c) => c.a + rate * c.laplacian('a'))`. A rate above 0.25 runs away. A decay is `lat.set('a', (c) => c.a * (1 - rate))`. The [steps](/docs/reference/steps) page tells more about the lattice as one table.
+A lattice is one table of faces, and `lat.set(channel, value, where?)` writes a channel. `lat.faces` holds the faces. A face answers the words of every face, such as `centroid`, `bounds` and `adjacent`. It also answers its grid place `i` and `j`, every channel by name, and `c.laplacian(channel)` (the five-point stencil). `t.steps(n, lat, pass)` runs a pass over it. Every function of one `set` reads the faces as they were before the write. So one write over the whole grid is one instant. A diffusion is one write: `lat.set('a', (c) => c.a + rate * c.laplacian('a'))`. A rate above 0.25 runs away. A decay is `lat.set('a', (c) => c.a * (1 - rate))`. The [steps](/docs/reference/steps) page tells more about the lattice as one table.
 
-`lat.add(points, amount, channel?)` puts an amount into the cell under each point. `lat.field(channel)` reads a channel back as a field. `lat.values`, `lat.cols`, `lat.rows` and `lat.cell(x, y)` give the raw numbers. Every operation returns a new value.
+`lat.add(points, amount, channel?)` puts an amount into the face under each point. `lat.field(channel)` reads a channel back as a field. `lat.face([x, y])` is the face under a position. `lat.values`, `lat.cols` and `lat.rows` give the raw numbers. Every operation returns a new value.
 
 Below, ink drops at a few points and spreads. Each step diffuses the channel and then forgets a little of it.
 
@@ -405,11 +408,11 @@ export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/Toolkit.residual.mdx</include>
 
-The tone a drawing still owes, held on a grid of cells. `field` is the target darkness, 0 to 1. `spacing` is the cell size. `area` says what owes anything. The value is a field: `r(x, y)` is what is still owed there.
+The tone a drawing still owes, as a lattice with one channel, `owed`. `field` is the target darkness, 0 to 1. `spacing` is the face size. `area` says what owes anything. `r.field()` is the debt as a field, so `t.scatter`, `t.isolines` and a decimate amount read it. Outside the area the field is `NaN`, and a field consumer reads that as no place.
 
-`r.spend(marks, { width })` takes away the nib footprint of the marks and answers with the tone it took. `marks` is a material, a point selection, a contour record or a polyline. A chain costs its stroke at `width`, and a loose point costs a dot. A cell never goes below 0. `r.total()` is the debt that remains.
+`r.spend(marks, { width })` takes away the nib footprint of the marks and returns a new lattice. `marks` is a material, a point selection, a contour record or a polyline. A chain costs its stroke at `width`, and a loose point costs a dot. `width` is a length in the units of the lattice, because a lattice does not know the paper. Give a nib as `t.len(mm(0.35))`. A face never goes below 0. `r.faces.sum('owed')` is the debt that remains. What a spend took is the drop in that sum, in face areas.
 
-`spend` changes the residual in place. It is the one value in the library that changes, because a ledger must hold what the last mark paid. `r.snapshot()` gives a frozen copy as a plain field.
+Nothing changes in place. A ledger is a sequence of values, `r = r.spend(…)`. Each earlier value still reads what it read before, so keep one when you need the debt at that time.
 
 Two pens against one debt. The broad pen stipples first and pays for what its nib covers. The fine pen then fills only the tone that the broad pen missed.
 
@@ -421,10 +424,10 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: {
   fine: pen({ width: mm(0.4), color: '#23252B' }),
 } }, (t) => {
   const tone = (x, y) => Math.max(0, Math.min(1, 1.2 - distance([x, y], [50, 50]) / 40));
-  const r = t.residual(tone, { spacing: mm(3) });
-  const broad = t.scatter(r, { spacing: mm(5) });
-  r.spend(broad, { width: mm(3) });
-  const fine = t.scatter(r, { spacing: mm(0.9) });
+  let r = t.residual(tone, { spacing: mm(3) });
+  const broad = t.scatter(r.field(), { spacing: mm(5) });
+  r = r.spend(broad, { width: t.len(mm(3)) });
+  const fine = t.scatter(r.field(), { spacing: mm(0.9) });
   return [dots(broad, { pen: 'broad' }), dots(fine, { pen: 'fine' })];
 });
 ```

@@ -3,7 +3,7 @@ title: Selections
 description: Rows of a material, chosen and combined, and what they know about each other.
 ---
 
-`m.points`, `m.edges`, `m.faces()` and `l.cells` are collections of rows. So are the `points`, `edges`, `faces` and `corners` of a mesh. Each one is a selection: one kind of value with the same words for every kind of row. `filter` picks rows from one. It returns a selection bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine when they come from the same material, in this state or in an earlier one.
+`m.points`, `m.edges`, `m.faces` and `l.faces` are collections of rows. So are the `points`, `edges`, `faces` and `corners` of a mesh. Each one is a selection: one kind of value with the same words for every kind of row. `filter` picks rows from one. It returns a selection bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine when they come from the same material, in this state or in an earlier one.
 
 A kind of row can have words of its own. Only edges have `nearest`, and only faces have `measure`. A word that a kind does not have stops the sketch with a message that names it: `faces.near: faces have no near`.
 
@@ -189,7 +189,7 @@ An edge selection also has the chain verbs of a material: `resample`, `trim`, `s
 import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.hexes({ spacing: 16 });
+  const cells = t.tiling(6, 3, { side: 9.2, rotate: 30 });
   const kept = cells.edges.filter((e) => Math.abs(e.center[0] - e.center[1]) > 12);
   return [strokes(cells, { pen: 'stabilo-88-blue' }), strokes(kept.trim({ start: 1.5, end: 1.5 }))];
 });
@@ -241,7 +241,7 @@ Two different questions. `p.adjacent` is topology: the points an edge joins this
 
 `p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
-`edges.near(p, { radius })` is the same distance question for walls, and it measures the whole segment. `cells.near` measures to the centre of each cell. The radius is a length in the space of the material. A long wall passing close to a place is near it, whichever end you measure from. The topological question for a wall is `e.adjacent`.
+`edges.near(p, { radius })` is the same distance question for walls, and it measures the whole segment. On a lattice, `l.faces.near` measures to the centre of each face. The radius is a length in the space of the material. A long wall passing close to a place is near it, whichever end you measure from. The topological question for a wall is `e.adjacent`.
 
 ```ts live
 import { sketch, circle, rect, strokes, connect } from 'occlude';
@@ -307,7 +307,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 <include>/_sig/Selection.connected.mdx</include>
 <include>/_sig/Selection.components.mdx</include>
 
-The same three words a whole selection says, on points, on edges, on faces and on cells. On cells, a neighbour is one of the four cells beside it. `adjacent()` is one step out: every point an edge joins to a member, members excluded. `connected()` is all the way out: the members plus everything reachable from them. `components()` partitions the MEMBERS into pieces, joined by the edges among them alone, and keys them `0, 1, 2 …` as `groupBy` does. A loose vertex is a piece of its own.
+The same three words a whole selection says, on points, on edges and on faces. On the faces of a lattice, a neighbour is one of the four faces beside it. `adjacent()` is one step out: every point an edge joins to a member, members excluded. `connected()` is all the way out: the members plus everything reachable from them. `components()` partitions the MEMBERS into pieces, joined by the edges among them alone, and keys them `0, 1, 2 …` as `groupBy` does. A loose vertex is a piece of its own.
 
 ```ts live
 import { sketch, strokes, connect } from 'occlude';
