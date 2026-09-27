@@ -86,6 +86,8 @@ A column holds one kind of value on every row: numbers, booleans, strings, lists
 
 On points, the last argument can be `{ transfer }`. It says how a column refines: `'interpolate'` (the default) or `'nearest'`. The record form takes `{ transfer: { column: policy } }`. A later write of a value keeps the policy of the column. A corner has no transfer, because a corner lives and dies with its face. A curve and a point set answer the same writes on their points and edges.
 
+The table writes of 2D also change the rows of a value in space: `points.add`, `edges.add`, `points.remove`, `edges.remove`, `split` and `replace`. In space, a value has only the faces that it states. So a write keeps each face when all its points and sides stay. A face keeps its row, its name and its columns. A new edge between two points of a face does not change the face. When `split` or `replace` cuts a side of a face, the side goes through the new points. Each new point gets a corner, and the corner columns go to it as a split point takes a point column. A face that loses a point or a side goes.
+
 Below, a point column lifts the sheet, and a face column marks the high faces for the hatch.
 
 ```ts live
