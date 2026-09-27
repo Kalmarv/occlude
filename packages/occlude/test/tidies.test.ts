@@ -14,12 +14,12 @@ import { describe, expect, it } from 'vitest';
 import { box, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus, parametricCurve } from 'occlude/3d';
 import { chordMiddle, metricGap } from '../src/chord.js';
 import { euclideanSpace, spaceOf, type Space } from '../src/space.js';
+import { circle3 } from './helpers/surfaces.js';
 import { space } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
 import type { Selection } from '../src/selection.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
-const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 
 describe('a charted face row carries a typed chart', () => {
   const factories = {
@@ -32,7 +32,7 @@ describe('a charted face row carries a typed chart', () => {
     cone: cone(),
     torus: torus(),
     revolve: revolve(curve([[0, 0, 0], [1, 0, 0], [1, 0, 2]]), { segments: 8 }),
-    sweep: sweep(circle(0.2), curve([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
+    sweep: sweep(circle3(0.2), curve([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
   };
 
   it('answers `f.chart` as a string on every factory that charts, and none on a bare mesh', () => {

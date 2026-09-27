@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material } from '../src/index.js';
 import { toolkit } from './helpers/run.js';
 import { rec } from './helpers/xy.js';
+import { seg } from './helpers/shapes.js';
 
-const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
 
 describe('transfer contracts (con2 stage B)', () => {
   it('point columns: a continuous column interpolates and a categorical one copies through split, resample and extract', () => {
@@ -20,7 +20,6 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(rs.attrs.age[4]).toBeCloseTo(10, 6);
     const ex = rs.edges.filter((e) => e.index < 4).extract();
     expect(ex.transfers.kind).toBe('nearest');
-    expect(ex.iteration).toBe(0);
     // an explicit per-operation rule wins over the policy for that call only
     // It says what a NEW vertex gets: the two ends are kept, as they were.
     const forced = split.resample({ count: 5, transfer: { kind: 7 } });

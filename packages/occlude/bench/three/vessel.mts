@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import * as occlude from '../../src/host.js';
 import { compileSketchAsync, initOcclude, liveExampleToJs, exportSvg } from '../../src/host.js';
 import {requireFor} from '../../tools/inputs.js';
-import {workloads} from '../benchmark-surface/workloads.mjs';
+import {workloads} from './workloads.mjs';
 const root=fileURLToPath(new URL('../../../../',import.meta.url));
 await initOcclude(readFileSync(root+'crates/occlude-core/pkg/occlude_core_bg.wasm'));
 const wanted=process.env.WORKLOAD??'woven-vessel',passes=Number(process.env.PASSES??2);

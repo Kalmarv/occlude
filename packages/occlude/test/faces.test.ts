@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material, polygon, type Material } from '../src/index.js';
 import { planarize } from '../src/faces.js';
+import { seg, square } from './helpers/shapes.js';
 
 /** `m` with edges added between rows, by the views of those rows. */
 const join = (m: Material, ...pairs: [number, number][]): Material => m.edges.add(pairs.map(([a, b]) => [m.points.at(a), m.points.at(b)] as const));
 
-const square = (x = 0, y = 0, s = 10, extra: Record<string, number> = {}) =>
-  curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true, ...extra });
-const seg = (a: [number, number], b: [number, number], attrs: Record<string, number> = {}) => material([a, b], { edges: [[0, 1]], ...attrs });
 const areas = (m: Material) => m.faces.faces.map((f) => +f.area.toFixed(6)).sort((p, q) => p - q);
 // Euler check: bounded faces = E - V + C over the whole (finite) graph, isolated vertices counted in V and C
 const euler = (m: Material) => {
@@ -32,7 +30,6 @@ describe('planarize', () => {
     expect([p.x[4], p.y[4]]).toEqual([5, 5]);
     expect(Array.from(p.edgeList)).toEqual([0, 4, 4, 1, 2, 4, 4, 3]); // parent order, parameter order, direction kept
     expect(p.attrs.age[4]).toBe(2); // 0→4 at t=.5 on both edges: equal candidates
-    expect(p.iteration).toBe(0);
     expect(p.history).toEqual([]);
     expect(cross.n).toBe(4); // source untouched
     expect(p.faces.length).toBe(0);
@@ -234,7 +231,6 @@ describe('faces', () => {
     const grid = connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]]));
     const cells = grid.faces;
     expect(cells.length).toBe(4);
-    expect(cells.owner.iteration).toBe(0);
     const big = cells.filter((f) => f.area >= 25);
     expect(big.length).toBe(4);
     expect(big.has(cells.at(0))).toBe(true);

@@ -59,8 +59,6 @@ describe('column writes read the incoming revision',()=>{
     const source=plane().points.set({age:()=>0,vector:()=>[1,2]}).edges.set({age:()=>0}).faces.set({age:()=>0});
     // Another revision of the same rows is read by id, and lands.
     expect(source.points.set('age',3,source.translate([0,0,1]).points).points.map(p=>p.age)).toEqual([3,3,3,3]);
-    expect(()=>source.points.set('age','bad',source.points.at(0)!)).toThrow("the column 'age' holds a number");
-    expect(()=>source.points.set('vector',[1,2,3],source.points.at(0)!)).toThrow("the column 'vector' holds a vector of 2");
     const one=source.points.set('age',2,source.points.at(0)!).edges.set('age',3,source.edges.at(0)!).faces.set('age',4,source.faces.at(0)!);
     expect(one.points.map(p=>p.age)).toEqual([2,0,0,0]);
     expect(one.edges.map(e=>e.age)).toEqual([3,0,0,0]);

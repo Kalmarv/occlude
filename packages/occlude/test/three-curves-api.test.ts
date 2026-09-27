@@ -9,9 +9,9 @@ import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {toolkit} from './helpers/run.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
+import {circle3} from './helpers/surfaces.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
-const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[0,0,5],up:[0,1,0],span:5});
 describe('owned 3D curve geometry',()=>{
@@ -54,12 +54,12 @@ describe('owned 3D curve geometry',()=>{
   const parameters:number[]=[];const path=parametricCurve(t=>{parameters.push(t);return [t,t*t,t*t*t];},{segments:4});
   expect(parameters).toEqual([0,.25,.5,.75,1]);expect(path.points.at(-1)).toMatchObject({x:1,y:1,z:1});
   expect(()=>parametricCurve(()=>{throw Error('should not run');},{segments:100,maxPoints:10})).toThrow('budget');
-  expect(circle(1,{segments:2}).edges.length).toBe(0);
-  expect(circle(0).edges.length).toBe(0);
+  expect(circle3(1,{segments:2}).edges.length).toBe(0);
+  expect(circle3(0).edges.length).toBe(0);
   // The root curve: every position a row, in the order given.
   expect(curve([[0,0,0],[0,0,0],[1,0,0]]).edges.length).toBe(2);
   expect(()=>path.points.set('index',1)).toThrow('reserved');
-  const ring=circle(2,{segments:12});expect(ring.points.length).toBe(12);expect(ring.edges.length).toBe(12);
+  const ring=circle3(2,{segments:12});expect(ring.points.length).toBe(12);expect(ring.edges.length).toBe(12);
   for(const p of ring.points)expect(Math.hypot(p.x,p.y)).toBeCloseTo(2,14);
  });
  it('uses the existing visibility engine with analytic wire/box intervals and no curve occluders',()=>{
@@ -70,7 +70,7 @@ describe('owned 3D curve geometry',()=>{
   expect(wire.visible).toEqual([[0,.375],[.625,1]]);expect(wire.hidden).toEqual([[.375,.625]]);
   expect(wire.feature.sourceId).toBe(surfaceOf(path).edges[0].id);expect(wire.feature.attributes.ink).toBe('wire');
   expect(snap.triangles.length).toBe(12);expect(snap.occluders.every(o=>!o.id.includes('object:1'))).toBe(true);
-  const ring=circle(1,{segments:8}),ringView=view(ring,{camera});
+  const ring=circle3(1,{segments:8}),ringView=view(ring,{camera});
   const ringSnap=featureSnapshot3(ringView.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100}));
   expect(ringSnap.features.length).toBe(8);expect(ringSnap.features.at(-1)!.endpoints[1]).toBe(ringSnap.features[0].endpoints[0]);
  });

@@ -1,5 +1,5 @@
 /** Headless CPU reference: each workload twice in one process (cold, then warm). */
-import {readFileSync,writeFileSync} from 'node:fs';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import * as occlude from '../../src/host.js';
 import { compileSketchAsync, initOcclude, liveExampleToJs, exportSvg } from '../../src/host.js';
@@ -21,4 +21,5 @@ for(const {name,src} of workloads){
   }
   rows.push({name,runs});console.log(name,JSON.stringify(runs.map(r=>[r.pass,r.compileMs,r.modeling.map(m=>`${m.operation}:${m.wallMs}ms/${m.segments}`).join(' ')])));
 }
+mkdirSync(new URL('./results/',import.meta.url),{recursive:true});
 writeFileSync(new URL('./results/cpu.json',import.meta.url),JSON.stringify({hardware:'headless node, CPU reference, no GPU',node:process.version,rows},null,2)+'\n');

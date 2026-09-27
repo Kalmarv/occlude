@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { append, curve, material } from '../src/index.js';
-
-const square = (x: number) => curve([[x, 0], [x + 10, 0], [x + 10, 10], [x, 10]], { closed: true });
+import { square } from './helpers/shapes.js';
 
 describe('append takes any number of materials', () => {
   it('piles a list in the order given, edges renumbered', () => {
@@ -12,7 +11,7 @@ describe('append takes any number of materials', () => {
     expect(pile.faces.length).toBe(3);
   });
   it('spreads a mapped list', () => {
-    const parts = [0, 20, 40, 60].map(square);
+    const parts = [0, 20, 40, 60].map((x) => square(x));
     expect(append(parts[0], ...parts.slice(1)).faces.length).toBe(4);
   });
   it('reads a trailing plain object as the options for every side', () => {

@@ -1,6 +1,6 @@
 # Surface-drawing performance workloads
 
-Six workloads (`workloads.mjs`), each run twice in one process (cold, then warm).
+Seven workloads (`workloads.mjs`), each run twice in one process (cold, then warm).
 CPU: headless Node reference (`cpu.mts`, run from `packages/occlude` with `npx tsx`).
 GPU: served Studio on the NVIDIA adapter (`gpu.mjs`, run from `packages/occlude-studio`
 with `DISPLAY=:93 node tools/benchmark-three-gpu.mjs` from packages/occlude-studio),
@@ -66,4 +66,4 @@ readback and finalize, which is the target of the planned optimization pass.
 `woven-vessel` (seventh workload, the user's sketch): did not complete within
 120 s in Studio (60 s watchdog). CPU reference after depth pruning: 35,302
 features, 32,812 triangles, 2.26M candidate pairs, 20.1 s exact visibility,
-29.3 s total compile (`visibility-profile/woven-vessel.ts`).
+29.3 s total compile (`WORKLOAD=woven-vessel npx tsx bench/three/vessel.mts`).

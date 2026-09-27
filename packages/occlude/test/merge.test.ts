@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { append, curve, material, type Material } from '../src/index.js';
+import { seg, square } from './helpers/shapes.js';
 
-const seg = (a: [number, number], b: [number, number], attrs: Record<string, number> = {}) => material([a, b], { edges: [[0, 1]], ...attrs });
-const square = (x = 0, y = 0, s = 10) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
 // Every edge as an unordered pair of rounded positions, sorted — the ink, without the rows.
 const spans = (m: Material) => m.edges
   .map((e) => [[+e.a.x.toFixed(6), +e.a.y.toFixed(6)], [+e.b.x.toFixed(6), +e.b.y.toFixed(6)]].sort() as number[][])

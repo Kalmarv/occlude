@@ -6,7 +6,8 @@ import * as H from '../src/host.js';
 // on the public surface (the vocabulary word is `points.near`), but a
 // bench profiling the primitive itself imports it directly.
 import { neighbours } from '../src/forces.js';
-const { material, curve, connect, force, mul, initOcclude, sketch, circle, render, planBuffer, decodePlanBuffer, hashPlan, planToolpath, makePlan, selectAll, Execution, bindToolkit } = O;
+const { material, curve, connect, force, mul, sketch, circle } = O;
+const { initOcclude, render, planBuffer, decodePlanBuffer, planToolpath, makePlan, selectAll, Execution, bindToolkit } = H;
 const t = (label: string, f: () => unknown, n = 1) => { const t0 = performance.now(); let r; for (let i = 0; i < n; i++) r = f(); const ms = (performance.now() - t0) / n; console.log(label.padEnd(58), ms.toFixed(2).padStart(9), 'ms'); return r; };
 let s = 11; const rnd = (a = 0, b = 1) => ((s = (s * 48271) % 2147483647) / 2147483647) * (b - a) + a;
 const noise = (x: number, y: number, z = 0) => Math.sin(x * 0.7 + z) * Math.cos(y * 0.9 - z);
@@ -62,7 +63,7 @@ const fc = t(`  faces of it`, () => pn.faces) as O.Selection<O.Face>;
 t(`  faces.filter area>1 + contours`, () => fc.filter((f) => f.area > 1).contours());
 t(`  pn.curves`, () => pn.curves, 3);
 t(`  pn.edges (views)`, () => pn.edges, 3);
-t(`  query.edges prepare + 1000 firstHit`, () => { const q = O.query.edges(pn); for (let i = 0; i < 1000; i++) q.firstHit([rnd(0, 100), rnd(0, 100)], [rnd(0, 100), rnd(0, 100)]); });
+t(`  edge index prepare + 1000 firstHit`, () => { const q = pn.edges; for (let i = 0; i < 1000; i++) q.firstHit([rnd(0, 100), rnd(0, 100)], [rnd(0, 100), rnd(0, 100)]); });
 const tri = connect.triangulate(Array.from({ length: 5000 }, () => [rnd(0, 100), rnd(0, 100)] as [number, number]));
 t(`  triangulate 5000 pts (d3) -> ${tri.edgeCount} edges`, () => connect.triangulate(Array.from({ length: 5000 }, () => [rnd(0, 100), rnd(0, 100)] as [number, number])));
 t(`  tri.faces`, () => tri.faces);

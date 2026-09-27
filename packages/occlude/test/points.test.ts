@@ -18,6 +18,7 @@ const voronoi = (sites: PointsLike, b: Bounds): Material =>
 import { compileSketch, initOcclude, Execution } from '../src/host.js';
 import { densityRaster, accumulateCells } from '../src/points.js';
 import { xy } from './helpers/xy.js';
+import { square } from './helpers/shapes.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -27,7 +28,6 @@ beforeAll(async () => {
 function run(body: (t: Toolkit) => void, seed: number | string = 1): Execution {
   return compileSketch(sketch({ seed }, (t) => { body(t); return circle(0, 0, 1); }), SQ);
 }
-const square = (x0: number, y0: number, s: number) => curve([[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]], { closed: true });
 
 describe('a spacing at or below zero', () => {
   const field = () => 1;

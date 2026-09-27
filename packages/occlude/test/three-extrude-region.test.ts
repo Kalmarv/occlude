@@ -1,11 +1,11 @@
 import {describe,it,expect} from 'vitest';
 import {box,plane,mesh} from '../src/three/api/mesh.js';
-import {dot3,cross3,type Vec3} from '../src/three/math.js';
+import {type Vec3} from '../src/three/math.js';
+import {volume} from './helpers/surfaces.js';
 import type {Surface3} from '../src/three/geometry/surface.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
-const volume=(s:Surface3)=>s.triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(v=>s.points[v].position);return sum+dot3(a,cross3(b,c))/6;},0);
 const closed=(s:Surface3)=>s.edges.every(e=>e.faces.length===2);
 const sheet=(n=4)=>plane(4,4).subdivide(n===4?2:1);
 /** A face's kernel name: what the working view calls it. */

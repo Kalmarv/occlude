@@ -3,26 +3,13 @@ import {beforeAll,describe,it,expect} from 'vitest';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render } from '../src/host.js';
 import {box,sphere,cylinder,view,orthographic} from '../src/three/api/index.js';
-import {cross3,dot3} from '../src/three/math.js';
+import {manifold,volume} from './helpers/surfaces.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
 /** Closed, edge-manifold, consistently wound, and enclosing a positive volume. */
-function manifold(m:Material,chi:number){
- const s=surfaceOf(m);
- expect(s.edges.every(e=>e.faces.length===2)).toBe(true);
- expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
- const directions=new Map<string,number>();
- for(const f of s.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length];directions.set([Math.min(a,b),Math.max(a,b)].join(':'),(directions.get([Math.min(a,b),Math.max(a,b)].join(':'))??0)+(a<b?1:-1));}
- expect([...directions.values()].every(n=>n===0)).toBe(true);
-}
-function volume(m:Material):number{
- const s=surfaceOf(m);let total=0;
- for(const t of s.triangles){const [a,b,c]=t.vertices.map(i=>s.points[i].position);total+=dot3(a,cross3(b,c))/6;}
- return total;
-}
 const shape=(m:Material)=>JSON.stringify({points:surfaceOf(m).points.map(p=>[p.id,p.position]),faces:surfaceOf(m).faces.map(f=>[f.id,f.vertices,f.attributes])});
 
 describe('mesh booleans',()=>{

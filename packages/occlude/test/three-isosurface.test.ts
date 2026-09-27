@@ -3,7 +3,7 @@ import {beforeAll,describe,it,expect} from 'vitest';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render } from '../src/host.js';
 import {sdf3,isosurface,view,orthographic} from '../src/three/api/index.js';
-import {cross3,dot3,sub3} from '../src/three/math.js';
+import {manifold} from './helpers/surfaces.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -11,16 +11,6 @@ beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-cor
 /** The primitive catalog's own closed-surface test: two faces on every edge,
  * the expected Euler characteristic, opposed winding across every edge, no
  * degenerate triangle, and a positive enclosed volume (outward winding). */
-function manifold(s:Material,chi:number){
-  expect(surfaceOf(s).edges.every(e=>e.faces.length===2)).toBe(true);
-  expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
-  const directions=new Map<string,number>();
-  for(const f of surfaceOf(s).faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=[Math.min(a,b),Math.max(a,b)].join(':');directions.set(key,(directions.get(key)??0)+(a<b?1:-1));}
-  expect([...directions.values()].every(n=>n===0)).toBe(true);
-  let volume=0;for(const t of surfaceOf(s).triangles){const [a,b,c]=t.vertices.map(i=>surfaceOf(s).points[i].position);expect(Math.hypot(...cross3(sub3(b,a),sub3(c,a)))).toBeGreaterThan(0);volume+=dot3(a,cross3(b,c))/6;}
-  expect(volume).toBeGreaterThan(0);
-  return volume;
-}
 /** Connected pieces, by the faces that share a point. */
 function components(s:Material):number{
   const parent=s.points.map((_,i)=>i);

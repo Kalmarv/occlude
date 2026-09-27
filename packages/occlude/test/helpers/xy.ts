@@ -7,11 +7,6 @@ export const xy = (p: { readonly x: number; readonly y: number }): [number, numb
 /** A curve row's points as pairs, in walk order. */
 export const pts = (c: { readonly points: Iterable<{ readonly x: number; readonly y: number }> }): [number, number][] => Array.from(c.points, xy);
 
-/** A value's curves as plain chain records: the points as pairs in walk
- * order, the closure, and the point rows walked. */
-export const chains = (v: { readonly curves: Iterable<{ readonly points: Iterable<{ readonly x: number; readonly y: number; readonly index?: number }>; readonly closed: boolean }> }): { pts: [number, number][]; closed: boolean; indices: number[] }[] =>
-  Array.from(v.curves, (c) => ({ pts: pts(c), closed: c.closed, indices: Array.from(c.points, (p) => p.index ?? -1) }));
-
 /** Is this material one closed chain — a ring? Read from its curves. */
 export const oneRing = (m: { readonly curves: { readonly length: number; at(i: number): { readonly closed: boolean } } }): boolean =>
   m.curves.length === 1 && m.curves.at(0).closed;

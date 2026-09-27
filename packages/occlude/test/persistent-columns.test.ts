@@ -1,75 +1,79 @@
 /**
- * Materials and lattices on persistent columns: a write shares every leaf
- * it does not touch, a run's states share what they did not write, and a
- * row view is one object per row of a state.
+ * Materials and lattices on persistent columns: a write shares what it
+ * does not touch, so a run's states cost what they wrote (a bound on the
+ * heap they keep, not a count of the store's leaves — column.test.ts pins
+ * the leaves), and a row view is one object per row of a state.
  */
 
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { curve, material } from '../src/material.js';
-import { restamp } from '../src/tables.js';
-import { LEAF } from '../src/column.js';
 import { toolkit } from './helpers/run.js';
 
 const ring = (n: number) => curve(Array.from({ length: n }, (_, i) => [Math.cos((i / n) * 2 * Math.PI) * 40 + 50, Math.sin((i / n) * 2 * Math.PI) * 40 + 50] as [number, number]), { closed: true });
 
+/** The heap a value keeps alive, in MB: collected before it is made and
+ * again after, with the value still held. */
+const kept: unknown[] = [];
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc') as () => void;
+const retainedMB = (make: () => unknown): number => {
+  gc();
+  const before = process.memoryUsage().heapUsed;
+  kept.push(make());
+  gc();
+  const mb = (process.memoryUsage().heapUsed - before) / 1e6;
+  kept.length = 0;
+  return mb;
+};
+
+// A copy of the 64 k-point ring's positions is 1 MB: a few hundred states
+// that each copied them would keep hundreds of MB. The bounds below are a
+// tenth of that and more; sharing keeps about 1 MB.
+const N = 1 << 16;
+
 describe('writes share what they do not touch', () => {
-  it('restamp shares every column', () => {
-    const m = ring(10).points.set('age', 1).edges.set('rest', 2);
-    const r = restamp(m, 7);
-    expect(r.iteration).toBe(7);
-    for (const key of ['x', 'y', 'pointIds', 'edgeList', 'edgeIds', 'edgeRoots'] as const) expect(r.store[key]).toBe(m.store[key]);
-    expect(r.store.attrs.age).toBe(m.store.attrs.age);
-    expect(r.store.edgeAttrs.rest).toBe(m.store.edgeAttrs.rest);
+  it('four hundred moves of one point each keep every state for the cost of about one', () => {
+    const m = ring(N);
+    const states = [m];
+    const mb = retainedMB(() => {
+      for (let i = 0; i < 400; i++) { const g = states[states.length - 1]; states.push(g.move([1, 0], g.points.at((i * 97) % N))); }
+      return states;
+    });
+    expect(mb).toBeLessThan(40);
+    const last = states[400];
+    expect(last.points.at(0).x).toBe(m.points.at(0).x + 1);
+    expect(last.points.at(1).x).toBe(m.points.at(1).x);
   });
 
-  it('a split copies the leaves it touches and shares the rest', () => {
-    const m = ring(4 * LEAF);
-    const s = m.split(m.edges.at(3 * LEAF));
-    const shared = (a: { leaves(): readonly unknown[] }, b: { leaves(): readonly unknown[] }) => a.leaves().filter((leaf, k) => leaf === b.leaves()[k]).length;
-    // The new point goes on the end: every whole leaf of the points is shared.
-    expect(shared(s.store.x, m.store.x)).toBe(4);
-    expect(shared(s.store.pointIds, m.store.pointIds)).toBe(4);
-    // The parent edge goes and the children go on the end: the edge rows in
-    // front of it are shared (two values a row in the list).
-    expect(shared(s.store.edgeIds, m.store.edgeIds)).toBe(3);
-    expect(shared(s.store.edgeList, m.store.edgeList)).toBe(6);
-    expect(s.points.length).toBe(4 * LEAF + 1);
-    expect(s.edges.length).toBe(4 * LEAF + 1);
-  });
-
-  it('a move of some points copies only their leaves', () => {
-    const m = ring(4 * LEAF);
-    const moved = m.move([1, 0], m.points.at(5));
-    for (const key of ['x', 'y'] as const) {
-      const was = m.store[key].leaves();
-      const now = moved.store[key].leaves();
-      expect(now[0]).not.toBe(was[0]);
-      for (let k = 1; k < was.length; k++) expect(now[k]).toBe(was[k]);
-    }
-    expect(moved.x[5]).toBe(m.x[5] + 1);
-    expect(moved.store.pointIds).toBe(m.store.pointIds);
-  });
-
-  it('a run with history keeps the leaves its steps did not write, once', () => {
+  it('a run that keeps its history keeps each step\'s write, not a copy of the value', () => {
     const t = toolkit({ seed: 3 });
-    const m = ring(3 * LEAF);
-    const grown = t.steps(20, m, (g) => g.split(t.pick(g.edges)), { every: 5 });
-    const first = grown.history[0];
-    for (const s of grown.history) expect(s.store.x.leaves()[0]).toBe(first.store.x.leaves()[0]);
-    expect(grown.points.length).toBe(3 * LEAF + 20);
+    const start = ring(N).points.set('age', 0);
+    let grown = start;
+    const mb = retainedMB(() => (grown = t.steps(300, start, (g) => g.points.set('age', (p) => p.age + 1, g.points.at(5)), { every: 1 })));
+    expect(mb).toBeLessThan(40);
+    expect(grown.history.length).toBeGreaterThan(299);
+    expect(grown.points.at(5).age).toBe(300);
+    expect(grown.points.at(6).age).toBe(0);
+    expect(grown.history[0].points.at(5).age).toBeLessThan(2);
   });
 
-  it('a spend copies the leaves its marks touch', () => {
+  it('a hundred spends on a 160 000-face lattice keep every state for the cost of about one', () => {
     const t = toolkit({ seed: 1 });
-    const r = t.residual(() => 0.5, { spacing: 0.5 });
-    const before = r.columns[0].leaves();
-    const after = r.spend([[10, 10], [11, 10]], { width: 0.4 });
-    const leaves = after.columns[0].leaves();
-    const copied = leaves.filter((leaf, k) => leaf !== before[k]).length;
-    expect(before.length).toBeGreaterThan(20);
-    expect(copied).toBeGreaterThan(0);
-    expect(copied).toBeLessThan(4);
-    expect(after.faces.sum('owed')).toBeLessThan(r.faces.sum('owed'));
+    const first = t.residual((x, y) => 0.5 + 0.25 * Math.sin(x + y), { spacing: 0.25 });
+    expect(first.faces.length).toBe(160_000);
+    const states = [first];
+    const mb = retainedMB(() => {
+      for (let i = 0; i < 100; i++) {
+        const next = states[states.length - 1].spend([[10 + i * 0.5, 10], [11 + i * 0.5, 10]], { width: 0.4 });
+        next.faces.at(0).owed;
+        states.push(next);
+      }
+      return states;
+    });
+    expect(mb).toBeLessThan(40);
+    expect(states[100].faces.sum('owed')).toBeLessThan(first.faces.sum('owed'));
   });
 });
 
@@ -83,7 +87,7 @@ describe('a row view is one object per row of a state', () => {
     expect(m.points.near([p.x, p.y], { radius: 1 }).at(0)).toBe(p);
     const e = m.edges.at(2);
     expect(m.edges.at(2)).toBe(e);
-    expect(e.a).toBe(m.points.at(m.edgeList[4]));
+    expect(e.a).toBe(m.points.at(2));
     expect(m.edges.map((x) => x)[2]).toBe(e);
     expect(Object.isFrozen(p)).toBe(true);
     expect(Object.isFrozen(e)).toBe(true);
@@ -116,7 +120,7 @@ describe('a row view is one object per row of a state', () => {
     const m = ring(12);
     const target = m.points.at(2);
     const hit = m.points.set('hit', (p) => (p === target ? 1 : 0));
-    expect(Array.from(hit.attrs.hit).indexOf(1)).toBe(2);
+    expect(hit.points.map((p) => p.hit).indexOf(1)).toBe(2);
     expect(hit.points.filter((p) => p.hit === 1).length).toBe(1);
     const e = m.edges.at(4);
     const cut = m.split(m.edges, (x) => (x === e ? 0.5 : NaN));

@@ -1,4 +1,4 @@
-/** Six final surface-drawing workloads, shared by the headless CPU runner and the served GPU runner. */
+/** Seven surface-drawing workloads (the six finals and the user's woven vessel), shared by the headless CPU runner and the served GPU runner. */
 export const workloads=[
 {name:'mapped-plane',src:`import { sketch, curve, pen, mm } from 'occlude';
 import { plane, mapSurface, view, orthographic } from 'occlude/3d';
@@ -46,7 +46,7 @@ export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, asyn
   return view([ball, marks], { camera: orthographic({ eye: [4, -6, 3], span: 4 }), pen: 'ink' });
 });`},
 {name:'woven-vessel',src:String.raw`import { sketch, paper, pen, mm, strokes, dash, wobble, label } from 'occlude';
-import { cylinder, torus, sphere, curve, parametricCurve, revolve, circle, sweep, view, orthographic } from 'occlude/3d';
+import { cylinder, torus, sphere, curve, parametricCurve, revolve, sweep, view, orthographic } from 'occlude/3d';
 
 export default sketch(
   {
@@ -62,7 +62,7 @@ export default sketch(
   },
   (t) => {
     const R = 1.55, H = 2.6, ROD = 0.185, TURNS = 3, SEG = 140;
-    const rod = circle(ROD, { segments: 16 });
+    const rod = parametricCurve(u => [ROD * Math.cos(2 * Math.PI * u), ROD * Math.sin(2 * Math.PI * u), 0], { segments: 16, closed: true });
     const weave = [];
     for (const dir of [1, -1]) for (let k = 0; k < 3; k++) {
       const phase = (k * 2 * Math.PI) / 3 + (dir > 0 ? -0.5 : 0.5);
@@ -72,8 +72,8 @@ export default sketch(
         return [r * Math.cos(a), r * Math.sin(a), -0.18 + (H + 0.18) * u];
       }, { segments: SEG }), { caps: true }));
     }
-    const plinth = cylinder(2.4, 0.12, { segments: 56 }).faceAttribute('ground', (f) => f.normal[2] > 0.9).translate([0, 0, -0.31]);
-    const foot = cylinder(R + 0.3, 0.36, { segments: 48 }).faceAttribute('ground', (f) => f.normal[2] > 0.9).translate([0, 0, -0.06]);
+    const plinth = cylinder(2.4, 0.12, { segments: 56 }).faces.set('ground', (f) => f.normal[2] > 0.9).translate([0, 0, -0.31]);
+    const foot = cylinder(R + 0.3, 0.36, { segments: 48 }).faces.set('ground', (f) => f.normal[2] > 0.9).translate([0, 0, -0.06]);
     const band = torus(R, 0.17, { segments: 40, tubeSegments: 14 }).translate([0, 0, 0.52]);
     const rim = torus(R, 0.2, { segments: 48, tubeSegments: 14 }).translate([0, 0, H]);
     const handle = sweep(rod, parametricCurve((u) => { const a = Math.PI * u; return [-(R + 0.02) * Math.cos(a), 0, H + 1.1 * Math.sin(a)]; }, { segments: 72 }), { caps: true });

@@ -363,7 +363,7 @@ describe('a material carries the space its coordinates belong to', () => {
     // Readers, lookups and constructors of other kinds of value.
     const notMaterial = new Set([
       'constructor', 'rowOfPoint', 'rowOfEdge', 'pointOf', 'edgeOf', 'vertex', 'edge', 'adjacentRows', 'incidentEdgeRows',
-      'rowOfVertex', 'faces', 'cellOf', 'siteOf', 'contours', 'pivot',
+      'rowOfVertex', 'contours', 'pivot',
       // The 3D words: a value in space, made by the 3D layer (three/api/words.ts).
       'subdivide', 'union', 'subtract', 'intersect', 'dual', 'displace', 'rebind', 'realize',
     ]);

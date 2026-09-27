@@ -11,15 +11,13 @@ import { performance } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
-import { circle, fill, line, rect, setPenLibrary, sketch, type Shape } from '../src/index.js';
+import { circle, fill, line, mm, pen, rect, sketch, type Tree } from '../src/index.js';
 import { initOcclude, render } from '../src/host.js';
 
 await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 void core;
-// the studio's shared pen library, so the rows can name real pens
-try {
-  setPenLibrary(JSON.parse(readFileSync(fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url)), 'utf8')));
-} catch { /* defaults */ }
+// the two pens the rows name, declared as a sketch declares them
+const pens = { 'micron-03': pen({ width: mm(0.3) }), 'micron-01': pen({ width: mm(0.1) }) };
 
 const deep = process.argv.includes('--deep');
 const med = (label: string, f: () => { frags: number }, runs = 3) => {
@@ -35,8 +33,8 @@ const med = (label: string, f: () => { frags: number }, runs = 3) => {
   console.log(label.padEnd(50), t.toFixed(0).padStart(6), 'ms', `${String(frags).padStart(8)} frags  ${(t / Math.max(1, frags) * 1000).toFixed(1)} µs/frag  (${ms.map((v) => v.toFixed(0)).join(', ')})`);
 };
 
-const run = (build: (t: never) => Shape[]) => {
-  const out = render(sketch({ aspect: [1, 1], seed: 4 }, build as never), { paper: 'Square20' });
+const run = (build: (t: never) => Tree) => {
+  const out = render(sketch({ aspect: [1, 1], seed: 4, pens }, build as never), { paper: 'Square20' });
   return { frags: out.frags.length };
 };
 

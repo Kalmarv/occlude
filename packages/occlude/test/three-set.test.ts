@@ -5,7 +5,9 @@
  * keeps through `withHistory`. The write is the core's (tables.ts); what is
  * checked here is what a value in space adds: `z` is a position, a write
  * keeps the faces, their corners and their fixed triangles, and a declared
- * transfer policy reaches the 3D refinement.
+ * transfer policy reaches the 3D refinement. The write semantics the plane
+ * shares (kinds, wheres, earlier states, refusals) are one parameterised
+ * test in one-geometry-core.test.ts.
  */
 import {describe,expect,it} from 'vitest';
 import {plane,box,pointCloud,curve,grid,instanceOnPoints} from '../src/three/api/index.js';
@@ -18,57 +20,17 @@ import {toolkit} from './helpers/run.js';
 const sheet=()=>plane(2,2).subdivide(2);
 
 describe('points.set in space',()=>{
-  it('writes a number, a string, a boolean and a vector on every point',()=>{
-    const m=sheet().points.set({h:(p)=>p.x+p.y,name:'a',on:true,dir:[0,0,1]});
-    expect(m.points.every(p=>p.h===p.x+p.y&&p.name==='a'&&p.on===true)).toBe(true);
-    expect(m.points.at(0)!.dir).toEqual([0,0,1]);
-    expect(Object.isFrozen(m.points.at(0)!.dir)).toBe(true);
-  });
   it('answers a new value, keeps the faces, the corners and the fixed triangles, and leaves the input as it was',()=>{
-    const a=sheet().displace((p)=>[0,0,p.x*p.y]),b=a.points.set('h',1);
+    const a=sheet().displace((p)=>[0,0,p.x*p.y]),b=a.points.set('h',1).faces.set('k',2);
     expect(b).not.toBe(a);
     expect(a.points.at(0)!.h).toBeUndefined();
     expect(b.faces.length).toBe(a.faces.length);expect(b.corners.length).toBe(a.corners.length);
     expect(surfaceOf(b).triangles).toEqual(surfaceOf(a).triangles);
   });
-  it('writes only where a predicate, a selection or one row says',()=>{
-    const m=sheet().points.set('h',0);
-    const byPredicate=m.points.set('h',1,(p)=>p.x>0);
-    expect(byPredicate.points.filter(p=>p.h===1).length).toBe(m.points.filter(p=>p.x>0).length);
-    const right=m.points.filter(p=>p.x>0);
-    const bySelection=m.points.set('h',2,right);
-    expect(bySelection.points.filter(p=>p.h===2).indices).toEqual(right.indices);
-    const one=m.points.at(3)!;
-    expect(m.points.set('h',3,one).points.filter(p=>p.h===3).indices).toEqual([3]);
-  });
-  it('reads a selection of an earlier state of the same rows',()=>{
-    const first=sheet().points.set('h',0),picked=first.points.filter(p=>p.x<0);
-    const later=first.displace([0,0,1]);
-    expect(later.points.set('h',1,picked).points.filter(p=>p.h===1).indices).toEqual(picked.indices);
-  });
-  it('reads every function against the rows as they were before the write',()=>{
-    const m=sheet().points.set({u:1,w:2});
-    const swapped=m.points.set({u:(p)=>p.w,w:(p)=>p.u});
-    expect(swapped.points.every(p=>p.u===2&&p.w===1)).toBe(true);
-    const spike=m.points.set('u',(p)=>p.index===12?9:0);
-    const spread=spike.points.set('u',(p)=>Math.max(p.u,...p.adjacent.map(q=>q.u)));
-    expect(spread.points.filter(p=>p.u===9).length).toBe(1+spike.points.at(12)!.adjacent.length);
-  });
   it('moves points through z, and keeps the faces',()=>{
     const m=sheet(),out=m.points.set('z',(p)=>p.x>0?1:0);
     expect(out.points.every(p=>p.z===(m.points.at(p.index)!.x>0?1:0))).toBe(true);
     expect(out.faces.length).toBe(m.faces.length);
-    expect(()=>m.points.set('z','up' as never)).toThrow("'z' is a position, a number");
-  });
-  it('a new column written on a subset is the kind\'s default elsewhere: the one geometry has no holes',()=>{
-    const out=sheet().points.set('tag','top',(p)=>p.y>0);
-    expect(out.points.filter(p=>p.y<=0).every(p=>p.tag==='')).toBe(true);
-    expect(out.points.filter(p=>p.y>0).every(p=>p.tag==='top')).toBe(true);
-  });
-  it('keeps one kind per column, refused by name',()=>{
-    const m=sheet().points.set('h',0);
-    expect(()=>m.points.set('h','x',(p)=>p.index===0)).toThrow("the column 'h' holds a number");
-    expect(()=>m.points.set('id',1)).toThrow("'id' is a reserved field of a point");
   });
   it('declares a transfer policy that the 3D refinement reads',()=>{
     const m=sheet().points.set('cat',(p)=>p.x>0?1:0,{transfer:'nearest'});

@@ -14,11 +14,17 @@
 //   cargo run --release --example export_bench --no-default-features --features profile
 //   cargo run --release --example stack_bench  --no-default-features --features profile -- 400
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const quick = process.argv.includes('--quick');
 const here = fileURLToPath(new URL('.', import.meta.url));
-const sketches = '../occlude-studio/sketches';
+// The plan rows: the committed fixture, and the studio's dense sketches
+// where this checkout has them.
+const planned = [
+  `${here}fixtures/thicken-contour-residual.ts`,
+  ...['flow-user', 'church', 'contours'].map((name) => `${here}../../occlude-studio/sketches/${name}.ts`).filter((path) => existsSync(path)),
+];
 
 /** [script, extra args, one line on what it covers, slow?] */
 const suite: [string, string[], string, boolean][] = [
@@ -35,7 +41,7 @@ const suite: [string, string[], string, boolean][] = [
   ['imbench.mts', [], 'image sampling: summed-area tables and the samplers', false],
   ['obench.mts', [], 'heavy occlusion, as scaling series', true],
   ['prof.mts', [], 'per-phase costs incl. the wasm plan pipeline', true],
-  ['planbench.mts', [`${sketches}/flow-user.ts`, `${sketches}/church.ts`, `${sketches}/contours.ts`],
+  ['planbench.mts', planned,
     'the plan and decodeRender — what a studio render pays beyond renderhash', false],
 ];
 

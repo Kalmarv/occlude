@@ -2,7 +2,7 @@ import {beforeAll,describe,expect,it} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {obj,view,orthographic} from '../src/three/api/index.js';
-import {cross3,dot3} from '../src/three/math.js';
+import {manifold} from './helpers/surfaces.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { compileSketchAsync, renderAsync, initOcclude, exportSvg } from '../src/host.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
@@ -35,13 +35,6 @@ f 7/1/1 8/1/1 4/1/1 3/1/1
 f 8/1/1 5/1/1 1/1/1 4/1/1
 `;
 
-function manifold(m:Material,chi:number):void {
-  expect(surfaceOf(m).edges.every(e=>e.faces.length===2)).toBe(true);
-  expect(m.points.length-m.edges.length+m.faces.length).toBe(chi);
-  let volume=0;
-  for(const t of surfaceOf(m).triangles){const [a,b,c]=t.vertices.map(i=>surfaceOf(m).points[i].position);volume+=dot3(a,cross3(b,c))/6;}
-  expect(volume).toBeGreaterThan(0);
-}
 
 describe('obj() mesh source',()=>{
   it('reads a Blender export as a closed, outward-wound mesh, stood up Z-up',()=>{

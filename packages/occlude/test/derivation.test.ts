@@ -1,20 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { circle, curve, line, material, type Edge, type Vertex } from '../src/index.js';
-import { memoisable, nodeOf } from '../src/derivation.js';
+import { circle, curve, line, material, type Edge, type Material, type Vertex } from '../src/index.js';
+import { nodeOf } from '../src/derivation.js';
 import { ownedBy } from '../src/views.js';
 import { toolkit } from './helpers/run.js';
+import { onEdge } from './helpers/shapes.js';
 
 // `source` is typed by the view; a test reads it as the row it is.
 const edgeUnder = (p: Vertex): Edge | undefined => p.source as unknown as Edge | undefined;
 const parentOf = (p: Vertex): Vertex | undefined => p.source as unknown as Vertex | undefined;
-/** Does `p` lie on the segment of `e` (to rounding)? */
-const onEdge = (p: { x: number; y: number }, e: Edge): boolean => {
-  const ax = e.a.x; const ay = e.a.y; const bx = e.b.x; const by = e.b.y;
-  const cross = (bx - ax) * (p.y - ay) - (by - ay) * (p.x - ax);
-  const dot = (p.x - ax) * (bx - ax) + (p.y - ay) * (by - ay);
-  const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
-  return Math.abs(cross) / Math.sqrt(len2) < 1e-9 && dot >= -1e-9 && dot <= len2 + 1e-9;
-};
 
 describe('t.sample keeps its rule: u and source', () => {
   it('a sampled circle: u is the arc-length fraction from the start, a ring stops short of 1', () => {
@@ -108,23 +101,6 @@ describe('t.sample keeps its rule: u and source', () => {
     expect(run.points.map((p) => p.u)).toEqual(beads.points.map((p) => p.u));
   });
 
-  it('the node: the shape in, the count or spacing as asked', () => {
-    const t = toolkit({ aspect: [1, 1] });
-    const c = circle(50, 50, 20);
-    const ring = t.sample(c, { count: 30 });
-    const node = nodeOf(ring)!;
-    expect(node.op).toBe('t.sample');
-    expect(node.inputs).toEqual([c]);
-    expect(node.inputs[0]).toBe(c);
-    expect(node.params).toEqual({ count: 30 });
-    expect(memoisable(node)).toBe(true);
-    // A write is a value of its own, with no node from the sample.
-    expect(nodeOf(ring.move([1, 0]))).toBeUndefined();
-    // Material through the door is `resample`; the node says what was asked.
-    const again = t.sample(ring, { count: 10 });
-    expect(nodeOf(again)).toMatchObject({ op: 't.sample', params: { count: 10 } });
-    expect(nodeOf(again)!.inputs[0]).toBe(ring);
-  });
 });
 
 describe('the point words keep their rule', () => {
@@ -142,13 +118,6 @@ describe('the point words keep their rule', () => {
     // Several children of one parent: many rows share one source row.
     const parents = new Set(settled.points.map((p) => parentOf(p)!.index));
     expect(parents.size).toBeLessThan(settled.n);
-    const node = nodeOf(settled)!;
-    expect(node.op).toBe('t.settle');
-    expect(node.inputs[0]).toBe(cloud);
-    expect(node.inputs[1]).toBe(dense);
-    expect(node.params).toMatchObject({ spacing: 4, iterations: 6 });
-    expect(node.seeded).toBe(true);
-    expect(memoisable(node)).toBe(false);
   });
 
   it('t.settle of a selection names rows of the selection\'s material', () => {
@@ -166,22 +135,18 @@ describe('the point words keep their rule', () => {
     moved.points.forEach((p, i) => expect(p.source).toBe(settled.points.at(i)!.source));
   });
 
-  it('t.scatter, t.throw and t.relax record their nodes, and the cloud keeps its area', () => {
+  it('a scattered cloud keeps its area: a relax of it stays inside, a written value keeps none', () => {
     const t = toolkit({ aspect: [1, 1], seed: 5 });
-    const disc = circle(50, 50, 20);
-    const cloud = t.scatter(disc, { spacing: 5 });
-    const node = nodeOf(cloud)!;
-    expect(node.op).toBe('t.scatter');
-    expect(node.inputs[0]).toBe(disc);
-    expect(node.params.spacing).toBe(5);
-    expect(Array.isArray(node.params.within)).toBe(true);
-    expect(node.seeded).toBe(true);
+    const cloud = t.scatter(circle(50, 50, 20), { spacing: 5 });
+    const reach = (m: Material) => Math.max(...m.points.map((p) => Math.hypot(p.x - 50, p.y - 50)));
+    expect(reach(cloud)).toBeLessThan(20);
+    // The area the cloud was scattered in rides the relax, and the one after.
     const relaxed = t.relax(cloud);
-    expect(nodeOf(relaxed)).toMatchObject({ op: 't.relax', seeded: false });
-    expect(nodeOf(relaxed)!.inputs[0]).toBe(cloud);
-    // The area the cloud was scattered in rides the relax.
-    expect(nodeOf(relaxed)!.params.within).toBe(node.params.within);
-    expect(nodeOf(t.throw({ count: 10 }))).toMatchObject({ op: 't.throw', params: { count: 10 }, seeded: true });
+    expect(relaxed.points.length).toBe(cloud.points.length);
+    expect(reach(relaxed)).toBeLessThan(20);
+    expect(reach(t.relax(relaxed))).toBeLessThan(20);
+    // A write makes a value of its own: its relax spreads over the drawable.
+    expect(reach(t.relax(cloud.points.set('k', 1)))).toBeGreaterThan(20);
   });
 
   it('a relaxed sample keeps its u: relax moves rows, it makes none', () => {
@@ -202,43 +167,41 @@ describe('the point words keep their rule', () => {
       expect(us.at(-1)).toBeCloseTo(1, 12);
       for (let k = 1; k < us.length; k++) expect(us[k]).toBeGreaterThan(us[k - 1]);
     }
-    expect(nodeOf(lines)).toMatchObject({ op: 't.streamlines', params: { spacing: 10 } });
   });
 });
 
-describe('the field and area words record their nodes', () => {
-  it('t.isolines keeps its field and the levels it traced', () => {
+describe('the field and area words', () => {
+  it('t.isolines traces each level asked for, and every curve says which', () => {
     const t = toolkit({ aspect: [1, 1] });
-    const field = (x: number, y: number) => Math.hypot(x - 50, y - 50) / 50;
-    const rings = t.isolines(field, { count: 4 });
-    const node = nodeOf(rings)!;
-    expect(node.op).toBe('t.isolines');
-    expect(node.inputs[0]).toBe(field);
-    expect(node.params).toEqual({ at: { count: 4 } });
-    const levels = node.kept.levels as number[];
-    expect(levels.length).toBe(4);
-    // Every curve's level is one of the levels the node keeps.
-    for (const c of rings.curves) expect(levels).toContain(c.level);
-    expect(memoisable(node)).toBe(false); // a closure is never memoised
+    const rings = t.isolines((x: number, y: number) => Math.hypot(x - 50, y - 50) / 50, { count: 4 });
+    expect(new Set(rings.curves.map((c) => c.level)).size).toBe(4);
+    for (const c of rings.curves) expect(typeof c.level).toBe('number');
   });
 
-  it('t.voronoi, t.quadtree, t.tiling and t.material: the inputs as given, and the source Stage D built', () => {
+  it('t.voronoi names each face\'s site; a material through t.material is handed back as it is', () => {
     const t = toolkit({ aspect: [1, 1] });
     const sites = material([[20, 20], [70, 30], [40, 80]]);
     const cells = t.voronoi(sites);
-    expect(nodeOf(cells)).toMatchObject({ op: 't.voronoi', params: {} });
-    expect(nodeOf(cells)!.inputs[0]).toBe(sites);
     expect(cells.faces.map((f) => f.source)).toEqual([sites.vertex(0), sites.vertex(1), sites.vertex(2)]);
-    const tree = t.quadtree(sites, { capacity: 1 });
-    expect(nodeOf(tree)).toMatchObject({ op: 't.quadtree', params: { capacity: 1 } });
-    expect(nodeOf(tree)!.inputs[0]).toBe(sites);
-    const tiles = t.tiling(4, 4, { side: 25 });
-    expect(nodeOf(tiles)).toMatchObject({ op: 't.tiling', inputs: [], params: { p: 4, q: 4, side: 25 } });
-    const c = circle(50, 50, 10);
-    expect(nodeOf(t.material(c))).toMatchObject({ op: 't.material', params: {} });
-    expect(nodeOf(t.material(c))!.inputs[0]).toBe(c);
-    // A material through `t.material` is handed back as it is: no node of its own.
     expect(t.material(sites)).toBe(sites);
+  });
+
+  it('every maker records how it was made; a write, and a value made by hand, record nothing', () => {
+    // The smoke test of the derivation record the memo keys on (memo.test.ts
+    // asserts what it does: hits, misses and closures).
+    const t = toolkit({ aspect: [1, 1], seed: 6 });
+    const sites = material([[20, 20], [70, 30], [40, 80]]);
+    const ring = t.sample(circle(50, 50, 20), { count: 30 });
+    const cloud = t.scatter({ spacing: 8 });
+    const made = {
+      sample: ring, resample: t.sample(ring, { count: 10 }), scatter: cloud, throw: t.throw({ count: 10 }),
+      relax: t.relax(cloud), settle: t.settle(cloud, { density: () => 1, spacing: 8, iterations: 2 }),
+      streamlines: t.streamlines(() => [1, 0.3], { spacing: 10 }), isolines: t.isolines((x: number) => x / 100, { count: 2 }),
+      voronoi: t.voronoi(sites), quadtree: t.quadtree(sites, { capacity: 1 }), tiling: t.tiling(4, 4, { side: 25 }),
+      material: t.material(circle(50, 50, 10)),
+    };
+    for (const [word, value] of Object.entries(made)) expect(nodeOf(value), word).toBeDefined();
+    expect(nodeOf(ring.move([1, 0]))).toBeUndefined();
     expect(nodeOf(sites)).toBeUndefined();
   });
 });

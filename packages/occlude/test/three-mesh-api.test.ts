@@ -19,8 +19,6 @@ describe('immutable mesh values and frozen domains',()=>{
   
   
   expect(value.faces.at(0)?.label).toBe('high');
-  // A column keeps one kind: another kind is another column.
-  expect(()=>value.points.set('weight','heavy')).toThrow("the column 'weight' holds a number");
   expect(value.points.set('grade','heavy').points.at(0)?.grade).toBe('heavy');
   expect(()=>value.faces.set('area',2)).toThrow('reserved');
   // `x` on points is the position; a value that is not finite writes nothing.

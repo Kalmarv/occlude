@@ -21,7 +21,7 @@ const med = (label: string, f: () => unknown, runs = 5) => {
   console.log(label.padEnd(56), ms[ms.length >> 1].toFixed(0).padStart(6), 'ms', ` ${String(n).padStart(6)} contours  (${ms.map((v) => v.toFixed(0)).join(', ')})`);
 };
 
-const env = (w: number, h: number): IsoEnv => ({ bounds: { x: 0, y: 0, w, h }, len: (l) => (typeof l === 'number' ? l : (l as { mm: number }).mm ?? 1) });
+const env = (w: number, h: number): IsoEnv => ({ bounds: { x: 0, y: 0, w, h }, len: (l) => (typeof l === 'number' ? l : l.value) });
 
 // a field with plenty of structure: sums of sines makes many nested contours
 const wavy = (k: number) => (x: number, y: number) =>

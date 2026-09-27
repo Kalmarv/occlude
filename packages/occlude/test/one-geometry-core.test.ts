@@ -14,9 +14,10 @@ import { Column, kinds } from '../src/column.js';
 import { identity } from '../src/placement.js';
 import { spaceOf } from '../src/space.js';
 import { grid } from '../src/layout.js';
+import { plane } from '../src/three/api/index.js';
+import { square } from './helpers/shapes.js';
 
 /** A ring of four points and four edges. */
-const square = (): Material => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
 /** A placement to keep in a column: the frame of a point of `along`. */
 const somePlacement = () => square().along({ count: 4 }).points.at(1).placement();
@@ -54,10 +55,8 @@ describe('typed columns on points, edges and faces', () => {
     // A reference reads as the row it names, in the state that holds it.
     expect(p.parent).toBe(g.points.at(0));
     expect(p.frame).toBe(place);
-    // Kernels and the engine read numbers only: the flat record holds none.
-    expect(Object.keys(g.attrs)).toEqual([]);
-    expect(Object.keys(g.attrs)).toEqual([]);
-    expect(Object.keys(g.store.attrs)).toEqual(['ground', 'tag', 'n', 'parent', 'frame']);
+    // Each is a column of its own, read by name on every row.
+    expect(Object.keys(p)).toEqual(['index', 'x', 'y', 'ground', 'tag', 'n', 'parent', 'frame']);
   });
 
   it('a function names the kind with its first value, and a write reaches only the rows it names', () => {
@@ -68,16 +67,6 @@ describe('typed columns on points, edges and faces', () => {
     // An edge column of strings, set on some edges.
     const e = square().edges.set('kind', 'wall').edges.set('kind', 'door', (e) => e.index === 1);
     expect(e.edges.map((r) => r.kind)).toEqual(['wall', 'door', 'wall', 'wall']);
-  });
-
-  it('refuses another kind into a column, by name', () => {
-    const g = square().points.set('ground', true);
-    expect(() => g.points.set('ground', 1)).toThrow(/'ground' holds a boolean a row, and this value is a number/);
-    expect(() => g.points.set('ground', (p: Vertex) => (p.index === 2 ? 'x' : true))).toThrow(/'ground' holds a boolean/);
-    const n = square().points.set('n', [1, 2]);
-    expect(() => n.points.set('n', [1, 2, 3])).toThrow(/holds a vector of 2 a row, and this value is a vector of 3/);
-    expect(() => square().points.set('z', true)).toThrow(/'z' is a position, a number/);
-    expect(() => square().points.set('bad', { a: 1 } as never)).toThrow(/a number, a boolean, a string, a list of numbers, a row or a placement/);
   });
 
   it('refuses a policy a kind cannot follow, by name', () => {
@@ -139,6 +128,60 @@ describe('typed columns on points, edges and faces', () => {
     const one = g.faces.set('name', 'only', g.faces.at(0));
     expect(one.faces.map((f) => f.name)).toEqual(['only', '']);
     expect(g.faces.set('name', 'x', g.faces.at(0), { fallback: 'none' }).faces.at(1).name).toBe('none');
+  });
+});
+
+/** The one write, on a value in the plane and on a sheet in space: what
+ * `points.set` promises does not depend on where the value lives. */
+describe.each([
+  ['in the plane', (): Material => square()],
+  ['in space', (): Material => plane(2, 2).subdivide(2)],
+])('points.set %s', (_, make) => {
+  it('writes a number, a string, a boolean and a vector on every point', () => {
+    const m = make().points.set({ h: (p: Vertex) => p.x + p.y, name: 'a', on: true, dir: [0, 0, 1] });
+    expect(m.points.every((p) => p.h === p.x + p.y && p.name === 'a' && p.on === true)).toBe(true);
+    expect(m.points.at(0).dir).toEqual([0, 0, 1]);
+    expect(Object.isFrozen(m.points.at(0).dir)).toBe(true);
+  });
+
+  it('writes only where a predicate, a selection or one row says', () => {
+    const m = make().points.set('h', 0);
+    const right = m.points.filter((p) => p.x > 0);
+    expect(m.points.set('h', 1, (p: Vertex) => p.x > 0).points.filter((p) => p.h === 1).indices).toEqual(right.indices);
+    expect(m.points.set('h', 2, right).points.filter((p) => p.h === 2).indices).toEqual(right.indices);
+    expect(m.points.set('h', 3, m.points.at(3)).points.filter((p) => p.h === 3).indices).toEqual([3]);
+  });
+
+  it('reads a selection of an earlier state of the same rows', () => {
+    const first = make().points.set('h', 0);
+    const picked = first.points.filter((p) => p.x <= 0);
+    const later = first.move([0, 1]);
+    expect(later.points.set('h', 1, picked).points.filter((p) => p.h === 1).indices).toEqual(picked.indices);
+  });
+
+  it('reads every function against the rows as they were before the write', () => {
+    const m = make().points.set({ u: 1, w: 2 });
+    expect(m.points.set({ u: (p: Vertex) => p.w, w: (p: Vertex) => p.u }).points.every((p) => p.u === 2 && p.w === 1)).toBe(true);
+    const spike = m.points.set('u', (p: Vertex) => (p.index === 2 ? 9 : 0));
+    const spread = spike.points.set('u', (p: Vertex) => Math.max(p.u, ...p.adjacent.map((q) => q.u)));
+    expect(spread.points.filter((p) => p.u === 9).length).toBe(1 + spike.points.at(2).adjacent.length);
+  });
+
+  it('a new column written on some rows is the kind\'s default on the rest', () => {
+    const out = make().points.set('tag', 'top', (p: Vertex) => p.y > 0);
+    expect(out.points.filter((p) => p.y <= 0).every((p) => p.tag === '')).toBe(true);
+    expect(out.points.filter((p) => p.y > 0).every((p) => p.tag === 'top')).toBe(true);
+  });
+
+  it('keeps one kind per column, and refuses another kind, a position that is not a number and a reserved name, by name', () => {
+    const g = make().points.set('ground', true);
+    expect(() => g.points.set('ground', 1)).toThrow(/'ground' holds a boolean a row, and this value is a number/);
+    expect(() => g.points.set('ground', (p: Vertex) => (p.index === 2 ? 'x' : true))).toThrow(/'ground' holds a boolean/);
+    const n = make().points.set('n', [1, 2]);
+    expect(() => n.points.set('n', [1, 2, 3])).toThrow(/holds a vector of 2 a row, and this value is a vector of 3/);
+    expect(() => make().points.set('z', true)).toThrow(/'z' is a position, a number/);
+    expect(() => make().points.set('bad', { a: 1 } as never)).toThrow(/a number, a boolean, a string, a list of numbers, a row or a placement/);
+    expect(() => make().points.set('id', 1)).toThrow(/'id' is a reserved field of a point/);
   });
 });
 
@@ -284,7 +327,6 @@ describe('the internal constructor doors', () => {
       source: { points: { source: { of: input, domain: 'faces', rows: [0, 1, 2] } } },
     });
     expect(m.points.at(1).source).toBe(input.faces.at(1));
-    expect(m.cache.links).toBeDefined();
   });
 });
 
@@ -292,7 +334,6 @@ describe('links live on the value', () => {
   it('a split keeps its links and node in the value, and a write carries them', () => {
     const m = square();
     const cut = m.split(m.edges.at(0));
-    expect(cut.cache.node?.op).toBe('split');
     expect(cut.points.at(4).source).toBe(m.edges.at(0));
     const moved = cut.move([1, 0]);
     expect(moved.points.at(4).source).toBe(m.edges.at(0));
@@ -300,35 +341,51 @@ describe('links live on the value', () => {
 });
 
 describe('ids are internal', () => {
-  const declarations = (file: string): string => {
+  /** The members a published type declares, read as syntax from the
+   * declarations the build emits (stripInternal). The index signature on a
+   * row type types any name as a number, so an `@ts-expect-error` on
+   * `p.id` cannot say this; the member list can. */
+  const members = (file: string, name: string): string[] => {
     const path = fileURLToPath(new URL(`../src/${file}`, import.meta.url));
-    return ts.transpileDeclaration(readFileSync(path, 'utf8'), { fileName: file, compilerOptions: { stripInternal: true, declaration: true } }).outputText;
+    const text = ts.transpileDeclaration(readFileSync(path, 'utf8'), { fileName: file, compilerOptions: { stripInternal: true, declaration: true } }).outputText;
+    const out: string[] = [];
+    const take = (list: ts.NodeArray<ts.TypeElement | ts.ClassElement>) => {
+      for (const m of list) if (m.name !== undefined && ts.isIdentifier(m.name)) out.push(m.name.text);
+    };
+    const parts = (t: ts.TypeNode): void => {
+      if (ts.isTypeLiteralNode(t)) take(t.members);
+      else if (ts.isIntersectionTypeNode(t)) t.types.forEach(parts);
+      else if (ts.isParenthesizedTypeNode(t)) parts(t.type);
+    };
+    ts.forEachChild(ts.createSourceFile(`${file}.d.ts`, text, ts.ScriptTarget.Latest), (node) => {
+      if ((ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)) && node.name?.text === name) take(node.members);
+      if (ts.isTypeAliasDeclaration(node) && node.name.text === name) parts(node.type);
+    });
+    expect(out.length, `${name} declared in ${file}`).toBeGreaterThan(0);
+    return out;
   };
 
-  it('m.pointOf, m.edgeOf, p.id and e.id are absent from the typings', () => {
-    const d = declarations('material.ts');
-    expect(d).not.toMatch(/^\s+pointOf\(/m);
-    expect(d).not.toMatch(/^\s+edgeOf\(/m);
-    const block = (name: string) => d.slice(d.indexOf(`export type ${name} = {`), d.indexOf('} & Readonly<Record<string, number>>;', d.indexOf(`export type ${name} = {`)));
-    expect(block('Vertex')).toContain('readonly adjacent');
-    expect(block('Vertex')).not.toMatch(/readonly id:/);
+  it('m.pointOf, m.edgeOf, p.id, e.id and e.root are absent from the typings', () => {
+    const material = members('material.ts', 'Material');
+    expect(material).toContain('split');
+    expect(material).not.toContain('pointOf');
+    expect(material).not.toContain('edgeOf');
+    expect(members('material.ts', 'Vertex')).toContain('adjacent');
+    expect(members('material.ts', 'Vertex')).not.toContain('id');
     // Lineage is identity: an edge's root is internal as its id is.
-    expect(block('Edge')).toContain('readonly center');
-    expect(block('Edge')).not.toMatch(/readonly root:/);
-    expect(block('Edge')).not.toMatch(/readonly id:/);
-    const t = declarations('tables.ts');
-    const value = t.slice(t.indexOf('export type PointValue'), t.indexOf('export type EdgeValue'));
-    expect(value).toContain('readonly x');
-    expect(value).not.toMatch(/readonly id:/);
+    expect(members('material.ts', 'Edge')).toContain('center');
+    expect(members('material.ts', 'Edge')).not.toContain('root');
+    expect(members('material.ts', 'Edge')).not.toContain('id');
+    expect(members('tables.ts', 'PointValue')).toContain('x');
+    expect(members('tables.ts', 'PointValue')).not.toContain('id');
   });
 
-  it('the engine still reads them, and a sketch never needs to', () => {
+  it('a sketch never needs them: the value is the name', () => {
     const m = square();
     const later = m.split(m.edges.at(0));
-    // The value is the name: a row of an earlier state is found by holding it.
+    // A row of an earlier state is found by holding it.
     expect(later.points.has(m.points.at(2))).toBe(true);
     expect(later.points.without(m.points).length).toBe(1);
-    expect(typeof (m.points.at(0) as unknown as { id: number }).id).toBe('number');
   });
 });
 
@@ -383,8 +440,7 @@ describe('the 3D words: called where the core declares them', () => {
     const m = materialFromParts({ x: [0, 1, 1], y: [0, 0, 1], edges: [0, 1], keys: { points: ['a', 'b', 'c'], edges: ['ab'] }, faces: [{ loop: [0, 1, 2] }] });
     expect(partsOfMaterial(m).keys.points).toEqual(['a', 'b', 'c']);
     expect(partsOfMaterial(m).keys.edges).toEqual(['ab', '', '']);
-    const moved = m.move([1, 0]);
-    expect(moved.store.pointKeys).toBe(m.store.pointKeys);
+    expect(partsOfMaterial(m.move([1, 0])).keys.points).toEqual(['a', 'b', 'c']);
     const split = m.split(m.edges.at(0));
     expect(partsOfMaterial(split).keys.points).toEqual(['a', 'b', 'c', '']);
     expect(partsOfMaterial(m.points.filter((p) => p.index > 0).extract()).keys.points).toEqual(['b', 'c']);

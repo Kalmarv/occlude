@@ -3,16 +3,13 @@ import {readFileSync} from 'node:fs';
 import {curve,box,revolve,query,view,orthographic,perspective,parametricCurve} from 'occlude/3d';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
-import {cross3,dot3} from '../src/three/math.js';
+import {circle3,manifold,volume} from './helpers/surfaces.js';
 import type {} from 'occlude/3d';
 import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
-const circle=(r=1,options:{segments?:number;key?:string}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
-function volume(mesh:Material){return surfaceOf(mesh).triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(i=>surfaceOf(mesh).points[i].position);return sum+dot3(a,cross3(b,c))/6;},0);}
-function manifold(mesh:Material){expect(mesh.edges.length).toBeGreaterThan(0);expect(surfaceOf(mesh).edges.every(e=>e.faces.length===2)).toBe(true);for(const edge of mesh.edges)expect(edge.length).toBeGreaterThan(0);}
 describe('curve-profile revolution',()=>{
  it('shares full seams and poles with independent polygonal cone volume and normals',()=>{
   const n=12,r=2,h=3,profile=curve([[0,0,0],[r,0,0],[0,0,h]]).points.set('weight',p=>p.index+1).edges.set('part',e=>e.index===0?'base':'side');
@@ -43,7 +40,7 @@ describe('curve-profile revolution',()=>{
   const negative=revolve(profile,{segments:n,angle:-angle,caps:true});manifold(negative);expect(volume(negative)).toBeCloseTo(volume(sector),12);
  });
  it('accepts transformed circle profiles and keeps ordinary downstream mesh capabilities',()=>{
-  const profile=circle(.25,{segments:12,key:'donut'}).rotate([90,0,0]).translate([1,0,0]).points.set('gain',.1).edges.set('label','tube');
+  const profile=circle3(.25,{segments:12,key:'donut'}).rotate([90,0,0]).translate([1,0,0]).points.set('gain',.1).edges.set('label','tube');
   const solid=revolve(profile,{segments:24});manifold(solid);expect(solid.points.length).toBe(288);expect(solid.faces.length).toBe(288);expect(solid.key).toBe('donut');
   expect(volume(solid)).toBeGreaterThan(0);expect(solid.faces.map(f=>f.label)).toEqual(Array(288).fill('tube'));
   const edited=solid.subdivide().displace(p=>[0,0,p.gain]).faces.set('up',f=>f.normal[2]>0).displace([0,0,.2]);

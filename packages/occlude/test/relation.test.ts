@@ -92,7 +92,6 @@ describe('extraction', () => {
     expect(Array.from(pts.attrs.age)).toEqual([2, 3, 4, 9]);
     expect(Object.keys(pts.edgeAttrs)).toEqual(['strength']); // schema kept, empty
     expect(pts.edgeAttrs.strength.length).toBe(0);
-    expect(pts.iteration).toBe(0);
     expect(pts.history).toEqual([]);
     const induced = branchAndLoner.edges;
     expect(induced.indices).toEqual([2, 3]); // 2-3, 2-4; nothing is invented for 5
@@ -121,7 +120,6 @@ describe('extraction', () => {
     expect(Array.from(branches.attrs.age)).toEqual([2, 3, 4]);
     expect(Array.from(branches.attrs.kind)).toEqual([7, 7, 7]);
     expect(branches.transfers.kind).toBe('nearest');
-    expect(branches.iteration).toBe(0);
     // independent: writing the copy leaves the source alone. The extracted
     // edge IS one of the source's edges — extraction carries identity, which
     // is what makes an extracted piece still about the same material — so

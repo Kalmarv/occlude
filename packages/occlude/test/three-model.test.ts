@@ -1,9 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {box3} from '../src/three/geometry/surface.js';
 import {measureFaces3,transformSurface3,cloneSurface3,snapshotSurface3} from '../src/three/geometry/model.js';
-import {gridSurface} from './helpers/surfaces.js';
-import {dot3,cross3} from '../src/three/math.js';
-const volume=(s:ReturnType<typeof box3>)=>s.triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(v=>s.points[v].position);return sum+dot3(a,cross3(b,c))/6;},0);
+import {gridSurface,volume} from './helpers/surfaces.js';
 describe('procedural surface construction',()=>{
   it('measures faces with their areas, normals and adjacency',()=>{
     const s=gridSurface(3,2,[6,4]);expect(s.points).toHaveLength(12);expect(s.faces).toHaveLength(6);expect(s.triangles).toHaveLength(12);

@@ -9,7 +9,7 @@
  *
  *   rust       cargo test -p occlude-core
  *   ts         occlude test:all (fast + slow) + studio test
- *   types      tsc over src, tools and test
+ *   types      tsc over src, tools, test and bench
  *   studio     tsc over the studio (vite strips types without checking)
  *   docs       every `ts live` fence renders
  *   ink        every fence renders the same bytes as the committed baseline

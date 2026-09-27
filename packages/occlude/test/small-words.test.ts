@@ -11,10 +11,8 @@ import {
 import { toolkit } from './helpers/run.js';
 import { circle as circleShape } from '../src/index.js';
 import { rec } from './helpers/xy.js';
+import { seg, square } from './helpers/shapes.js';
 
-const square = (x = 0, y = 0, s = 10) =>
-  curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
-const seg = (a: [number, number], b: [number, number]) => material([a, b], { edges: [[0, 1]] });
 
 // ---- distanceTo of points --------------------------------------------------
 

@@ -451,17 +451,15 @@ describe('the lattice as one table', () => {
 });
 
 describe('t.steps', () => {
-  it('folds the passes over a material, in order, n times, and counts iterations', () => {
+  it('folds the passes over a material, in order, n times, and keeps every m-th state', () => {
     const t = toolkit({ seed: 1 });
     const seen: string[] = [];
     const out = t.steps(3, chain(), (g) => { seen.push('a'); return g.points.add([g.n, 99]); }, (g) => { seen.push('b'); return g; });
     expect(seen).toEqual(['a', 'b', 'a', 'b', 'a', 'b']);
     expect(out.n).toBe(7);
     expect([...out.x.slice(4)]).toEqual([4, 5, 6]);
-    expect(out.iteration).toBe(3);
     const kept = t.steps(4, chain(), (g) => g.move([1, 0]), { every: 2 });
     expect(kept.history.map((h) => h.x[0])).toEqual([0, 2, 4]);
-    expect(kept.history.map((h) => h.iteration)).toEqual([0, 2, 4]);
   });
 
   it('over a lattice and over a plain object', () => {

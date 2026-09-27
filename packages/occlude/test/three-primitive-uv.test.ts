@@ -2,10 +2,10 @@ import {describe,expect,it,expectTypeOf} from 'vitest';
 import {box,cone,cylinder,plane,curve,revolve,sphere,sweep,torus,instanceOnPoints,parametricCurve} from '../src/three/api/index.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
+import {circle3} from './helpers/surfaces.js';
 import type {Material} from '../src/material.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
-const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 
 type UV = readonly [number,number];
 type ChartedMesh = Material;
@@ -50,7 +50,7 @@ describe('primitive UV charts',()=>{
       [cylinder(1,2,{segments:8}),['side','bottom','top']],
       [cone(1,2,{segments:8}),['side','bottom']],
       [torus(2,.3,{segments:8,tubeSegments:5}),['torus']],
-      [sweep(circle(.4,{segments:8}),curve([[0,0,0],[0,0,2]]),{caps:true}),['side','start','end']],
+      [sweep(circle3(.4,{segments:8}),curve([[0,0,0],[0,0,2]]),{caps:true}),['side','start','end']],
       [revolve(curve([[1,0,-1],[2,0,-1],[2,0,1],[1,0,1]],{closed:true}),{angle:180,segments:8,caps:true}),['side','start','end']],
     ];
     for(const [mesh,required] of fixtures){
@@ -72,7 +72,7 @@ describe('primitive UV charts',()=>{
     expect(seamMultiplicity(ring)).toBeGreaterThan(0);
     expect(seamMultiplicity(cylinder(1,2,{segments:8}))).toBeGreaterThan(0);
     expect(seamMultiplicity(cone(1,2,{segments:8}))).toBeGreaterThan(0);
-    expect(seamMultiplicity(sweep(circle(.4,{segments:8}),curve([[0,0,0],[0,0,2]])))).toBeGreaterThan(0);
+    expect(seamMultiplicity(sweep(circle3(.4,{segments:8}),curve([[0,0,0],[0,0,2]])))).toBeGreaterThan(0);
   });
 
   it('preserves corner UV values through edits, mirrors, extraction, subdivision and realization',()=>{

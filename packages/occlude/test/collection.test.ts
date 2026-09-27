@@ -164,7 +164,6 @@ describe('groupBy', () => {
     const independent = branch.extract();
     expect(independent.n).toBe(3);
     expect(independent.edgeCount).toBe(2);
-    expect(independent.iteration).toBe(0);
     expect(Array.from(independent.edgeAttrs.level)).toEqual([2, 2]);
     expect(branch.points.length).toBe(3);
     expect(m.points.filter((p) => p.age > 4).extract().n).toBe(1);

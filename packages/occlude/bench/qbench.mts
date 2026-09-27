@@ -1,16 +1,21 @@
 import { performance } from 'node:perf_hooks';
-import { material, curve, query, append } from '../src/index.js';
+import { material, curve, append } from '../src/index.js';
+// The index `edges.nearest` and `edges.firstHit` build on first use, timed on
+// its own: the public words keep it on the value, so a second call is free.
+import { edges as edgeIndex } from '../src/query.js';
 let s = 5; const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647) * 100;
 const t = (label: string, f: () => unknown, reported = false) => { const t0 = performance.now(); const r = f(); const ms = reported ? (r as number) : performance.now() - t0; console.log(label.padEnd(58), ms.toFixed(reported ? 1 : 0).padStart(6), 'ms'); };
 let net = material([]);
 for (let i = 0; i < 400; i++) net = append(net, material([[rnd(), rnd()], [rnd(), rnd()]], { edges: [[0, 1]] }));
 const pn = net.planarize();
-t(`prepare query.edges over ${pn.edgeCount} edges (median of 5)`, () => { const ms: number[] = []; for (let i = 0; i < 5; i++) { const t0 = performance.now(); query.edges(pn); ms.push(performance.now() - t0); } ms.sort((a, b) => a - b); return ms[2]; }, true);
-const q = query.edges(pn);
+t(`prepare the edge index over ${pn.edgeCount} edges (median of 5)`, () => { const ms: number[] = []; for (let i = 0; i < 5; i++) { const t0 = performance.now(); edgeIndex(pn); ms.push(performance.now() - t0); } ms.sort((a, b) => a - b); return ms[2]; }, true);
+const q = pn.edges;
+q.nearest([50, 50], { within: 1 }); // builds the index once, outside the timed rows
 t(`1000 firstHit, 2 mm moves`, () => { for (let i = 0; i < 1000; i++) { const x = rnd(), y = rnd(); q.firstHit([x, y], [x + 1.4, y + 1.4]); } });
 t(`1000 firstHit, whole-drawing moves`, () => { for (let i = 0; i < 1000; i++) q.firstHit([rnd(), rnd()], [rnd(), rnd()]); });
 t(`1000 nearest within 3`, () => { for (let i = 0; i < 1000; i++) q.nearest([rnd(), rnd()], { within: 3 }); });
 const chain = curve(Array.from({ length: 16000 }, (_, i) => [i * 0.01, Math.sin(i * 0.001) * 50] as [number, number]), { closed: false });
-const q2 = query.edges(chain);
+const q2 = chain.edges;
+q2.nearest([0, 0], { within: 1 }); // likewise
 t(`1000 nearest within 3 vs 16k-edge chain`, () => { for (let i = 0; i < 1000; i++) q2.nearest([rnd() * 1.6, rnd() - 50], { within: 3 }); });
 t(`1000 nearest within 50 (Codex case, wide radius)`, () => { for (let i = 0; i < 1000; i++) q2.nearest([rnd(), rnd()], { within: 50 }); });

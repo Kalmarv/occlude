@@ -364,11 +364,10 @@ describe('thicken: material and callback contract', () => {
     expect(() => tree.thicken({ radius: 1, point: 3 } as never)).toThrow(/point must be a function/);
   });
 
-  it('geometry-only output has empty domains, iteration 0, empty history and own arrays', () => {
+  it('geometry-only output has empty domains, empty history and own arrays', () => {
     const body = tree.thicken({ radius: 1 });
     expect(Object.keys(body.attrs)).toEqual([]);
     expect(Object.keys(body.edgeAttrs)).toEqual([]);
-    expect(body.iteration).toBe(0);
     expect(body.history).toEqual([]);
     // The source is untouched.
     expect(tree.n).toBe(4);

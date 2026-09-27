@@ -8,9 +8,9 @@ import { point } from '../src/tables.js';
 import { toolkit } from './helpers/run.js';
 import { force } from '../src/forces.js';
 import { xy, oneRing, rec } from './helpers/xy.js';
+import { square } from './helpers/shapes.js';
 const { boundary, drift, field, relax, separation, tension, vortex } = force;
 
-const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true, age: 0 });
 
 describe('curve values', () => {
   it('holds columns, exposes vertex views, and is frozen', () => {
@@ -26,7 +26,7 @@ describe('curve values', () => {
   });
 
   it('connectivity is the order; open curves end', () => {
-    const c = square();
+    const c = square(0, 0, 10, { age: 0 });
     expect(c.points.at(0).adjacent.indices).toEqual([1, 3]);
     expect(c.points.at(0).edges.length).toBe(2);
     expect(c.edges).toHaveLength(4);
@@ -72,7 +72,7 @@ describe('positions are columns', () => {
 
 describe('forces', () => {
   it('tension is zero within rest and pulls beyond it', () => {
-    const c = square();
+    const c = square(0, 0, 10, { age: 0 });
     expect(tension(c, { rest: 20 })(c.points.at(0))).toEqual([0, 0]);
     const [fx, fy] = tension(c, { rest: 4 })(c.points.at(0));
     expect(fx).toBeCloseTo(6);
@@ -280,36 +280,31 @@ describe('t.steps over a material', () => {
 
   it('returns the final curve, preserves columns on survivors, and never mutates the input', () => {
     const t = toolkit({ seed: 1 });
-    const start = square();
+    const start = square(0, 0, 10, { age: 0 });
     const grown = t.steps(2, start, march);
-    expect(grown.iteration).toBe(2);
     expect(grown.history).toEqual([]);
     expect(start.x[0]).toBe(0);
-    expect(start.iteration).toBe(0);
     expect(grown.x[0]).toBe(2);
     expect(Array.from(grown.attrs.age)).toEqual([2, 2, 2, 2]);
   });
 
   it('zero and one step', () => {
     const t = toolkit({ seed: 1 });
-    const start = square();
+    const start = square(0, 0, 10, { age: 0 });
     const same = t.steps(0, start, march);
     expect(same.points.map(xy)).toEqual(start.points.map(xy));
-    expect(same.iteration).toBe(0);
-    expect(t.steps(0, start, march, { every: 5 }).history.map((h) => h.iteration)).toEqual([0]);
+    expect(t.steps(0, start, march, { every: 5 }).history.map((h) => h.points.at(0).age)).toEqual([0]);
     const one = t.steps(1, start, march);
     expect(one.x[0]).toBe(1);
-    expect(one.iteration).toBe(1);
   });
 
   it('history: the start, every m-th, and the final one, once each', () => {
     const t = toolkit({ seed: 1 });
-    const start = square();
+    const start = square(0, 0, 10, { age: 0 });
     const g = t.steps(10, start, march, { every: 4 });
-    expect(g.history.map((h) => h.iteration)).toEqual([0, 4, 8, 10]);
     expect(g.history.map((h) => h.x[0])).toEqual([0, 4, 8, 10]);
     // final step on the interval: not duplicated
-    expect(t.steps(8, start, march, { every: 4 }).history.map((h) => h.iteration)).toEqual([0, 4, 8]);
+    expect(t.steps(8, start, march, { every: 4 }).history.map((h) => h.points.at(0).age)).toEqual([0, 4, 8]);
     // snapshots carry no history of their own; the final curve is the last snapshot's state
     expect(g.history.every((h) => h.history.length === 0)).toBe(true);
     expect(g.history[3].points.map(xy)).toEqual(g.points.map(xy));
@@ -322,7 +317,7 @@ describe('t.steps over a material', () => {
 
   it('history on and off give the same final geometry; later steps leave snapshots untouched', () => {
     const t = toolkit({ seed: 1 });
-    const start = square();
+    const start = square(0, 0, 10, { age: 0 });
     const rule = (g: Material) => {
       const before = g.n;
       return g.split(g.edges.filter((e) => e.length > 12)).points.set('age', 0, (p) => p.index >= before);
@@ -394,7 +389,7 @@ describe('t.steps over a material', () => {
 
 describe('edges.groupBy, then curves (what segmentRuns was)', () => {
   it('a uniform closed curve is one group, one closed curve', () => {
-    const groups = square().edges.groupBy(() => 'a');
+    const groups = square(0, 0, 10, { age: 0 }).edges.groupBy(() => 'a');
     expect(groups).toHaveLength(1);
     expect(groups[0].curves).toHaveLength(1);
     expect(groups[0].curves.at(0).closed).toBe(true);
@@ -717,21 +712,21 @@ describe('boundaries (review 2026-09-07)', () => {
     expect(() => append(b, a)).toThrow(/first material has no column 'age'/);
   });
 
-  it('7. derived materials share the columns they did not write, and leave their source as it was', () => {
+  it('7. derived materials keep the columns they did not write, and leave their source as it was', () => {
     const src = curve([[0, 0], [1, 0], [1, 1]], { closed: true, age: 1 });
     const derived = src.points.set('extra', 2);
-    expect(derived.store.x).toBe(src.store.x);
-    expect(derived.store.attrs.age).toBe(src.store.attrs.age);
-    expect(Object.keys(src.attrs)).toEqual(['age']);
+    expect(derived.points.map((p) => [p.x, p.y, p.age, p.extra])).toEqual([[0, 0, 1, 2], [1, 0, 1, 2], [1, 1, 1, 2]]);
+    expect(Object.keys(src.points.at(0))).toEqual(['index', 'x', 'y', 'age']);
     const moved = src.points.set('x', 5);
-    expect(moved.store.x).not.toBe(src.store.x);
-    expect(Array.from(src.x)).toEqual([0, 1, 1]);
+    expect(moved.points.map((p) => p.x)).toEqual([5, 5, 5]);
+    expect(src.points.map((p) => p.x)).toEqual([0, 1, 1]);
     const stepped = toolkit({ seed: 1 }).steps(2, src, (g) => g, { every: 1 });
-    expect(stepped.history[0].store.x).toBe(src.store.x);
+    expect(stepped.history[0].points.map(xy)).toEqual(src.points.map(xy));
     const loose = material([[0, 0], [1, 0], [2, 0]]);
     const chained = curve(loose);
-    expect(chained.store.y).toBe(loose.store.y);
-    expect(loose.edgeCount).toBe(0);
+    expect(chained.points.map(xy)).toEqual(loose.points.map(xy));
+    for (const p of loose.points) expect(chained.points.has(p)).toBe(true);
+    expect(loose.edges.length).toBe(0);
   });
 });
 
@@ -986,19 +981,19 @@ describe('edges.nearest / firstHit: pruning keeps the full scan’s answer', () 
 });
 
 describe('correctness pass (review of 22c9887)', () => {
-  it('2. derived materials share the topology they did not change', () => {
-    const src = square();
-    const derived = src.points.set('age', 1);
-    expect(derived.store.edgeList).toBe(src.store.edgeList);
-    const e2 = src.edges.set('rest', 1);
-    expect(e2.store.edgeList).toBe(src.store.edgeList);
+  it('2. derived materials keep the topology they did not change', () => {
+    const src = square(0, 0, 10, { age: 0 });
+    const ends = (g: Material) => g.edges.map((e) => [e.a.index, e.b.index]);
     const stepped = toolkit({ seed: 1 }).steps(2, src, (g) => g, { every: 1 });
-    expect(stepped.store.edgeList).toBe(src.store.edgeList);
-    for (const s of stepped.history) expect(s.store.edgeList).toBe(src.store.edgeList);
-    // A write that changes the edges makes a new list and leaves the old one.
+    for (const g of [src.points.set('age', 1), src.edges.set('rest', 1), stepped, ...stepped.history]) {
+      expect(ends(g)).toEqual(ends(src));
+      for (const e of src.edges) expect(g.edges.has(e)).toBe(true);
+    }
+    // A write that changes the edges makes new ones and leaves the old.
     const cut = src.split(src.edges.at(0));
-    expect(cut.store.edgeList).not.toBe(src.store.edgeList);
-    expect(Array.from(src.edgeList)).toEqual([0, 1, 1, 2, 2, 3, 3, 0]);
+    expect(cut.edges.has(src.edges.at(0))).toBe(false);
+    expect(cut.edges.length).toBe(5);
+    expect(ends(src)).toEqual([[0, 1], [1, 2], [2, 3], [3, 0]]);
   });
 
   it('3. resample keeps edge attributes at samples that land on existing vertices', () => {

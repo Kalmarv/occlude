@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import { append, sketch, setPaperHint, material, type Material, type ThickenOpts } from '../../src/index.js';
+import { append, sketch, rect, material, type Material, type ThickenOpts } from '../../src/index.js';
 import { compileSketch } from '../../src/host.js';
 /** A thicken implementation: the method under test, or a saved baseline
  * module's free function with the same contract. */
@@ -14,17 +14,16 @@ const before: ThickenFn | undefined =
     : (await import(pathToFileURL(resolve(process.argv[at + 1])).href)).thicken;
 function recursive(paper: number, depth: number): Material {
   let source: Material | undefined;
-  setPaperHint(paper, paper);
   compileSketch(
     sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
       const b = t.bounds();
       let width = 40,
-        m = t.material(t.rect(b.cx - 20, b.cy - 20, 40, 40));
+        m = t.material(rect(b.cx - 20, b.cy - 20, 40, 40));
       for (let i = 0; i <= depth; i++) {
         const shapes = m
           .along()
           .points.map((p) =>
-            t.rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
+            rect(p.x - width / 4, p.y - width / 4, width / 2, width / 2),
           );
         m = shapes.reduce((m, s) => append(m, t.material(s)), m);
         width /= 2;
@@ -32,6 +31,7 @@ function recursive(paper: number, depth: number): Material {
       source = m;
       return [];
     }),
+    { paper: { w: paper, h: paper } },
   );
   return source!;
 }

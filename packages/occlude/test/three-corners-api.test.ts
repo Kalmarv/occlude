@@ -24,13 +24,11 @@ describe('typed corner fields and edits',()=>{
   expect(out.corners.map(c=>[c.energy,c.lag])).toEqual([[3,2],[3,2],[3,2],[3,2]]);
   expect(initial.corners.every(c=>c.energy===2)).toBe(true);
  });
- it('evolves corner values in a run, with one kind per column and no promises',()=>{
+ it('evolves corner values in a run, and refuses a promise as a value',()=>{
   const t=toolkit();
   const source=plane().corners.set({age:0,uv:c=>[c.point.x,c.point.y] as const});
   const out=t.steps(2,source,m=>{
     const first=m.corners.at(0)!;
-    expect(()=>m.corners.set('age','bad',first)).toThrow("the column 'age' holds a number");
-    expect(()=>m.corners.set('uv',[1,2,3],first)).toThrow("the column 'uv' holds a vector of 2");
     expect(()=>m.corners.set('age',(async()=>2) as never)).toThrow("the value of 'age'");
     return m.corners.set({age:c=>c.age+1,uv:c=>[c.uv[0]+1,c.uv[1]] as const});
   },{every:1});

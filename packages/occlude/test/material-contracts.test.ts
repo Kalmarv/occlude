@@ -11,20 +11,23 @@ import { curve, material } from '../src/material.js';
 import { neighbours } from '../src/forces.js';
 import { toolkit } from './helpers/run.js';
 import { xy, rec } from './helpers/xy.js';
+import { square } from './helpers/shapes.js';
 
-const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
 describe('ownership: derived states share what they did not write', () => {
   it('a derived material shares every column it did not write, and never writes one it holds', () => {
     const m = square();
     const d = m.points.set('a', 1);
     const e = m.edges.add([m.points.at(0), m.points.at(2)]);
-    // A column write shares the rest; an edge write shares the points.
-    expect(d.store.x).toBe(m.store.x);
-    expect(d.store.edgeList).toBe(m.store.edgeList);
-    expect(e.store.x).toBe(m.store.x);
-    expect(e.store.pointIds).toBe(m.store.pointIds);
-    expect(e.store.edgeList).not.toBe(m.store.edgeList);
+    // A column write keeps the rest; an edge write keeps the points: the
+    // same rows, by name, at the same places.
+    for (const g of [d, e]) {
+      expect(g.points.map(xy)).toEqual(m.points.map(xy));
+      for (const p of m.points) expect(g.points.has(p)).toBe(true);
+    }
+    for (const x of m.edges) expect(d.edges.has(x)).toBe(true);
+    expect(d.points.map((p) => p.a)).toEqual([1, 1, 1, 1]);
+    expect(e.edges.length).toBe(5);
     // ...and the source reads as it did.
     expect(Object.keys(m.attrs)).toEqual([]);
     expect(Array.from(m.edgeList)).toEqual([0, 1, 1, 2, 2, 3, 3, 0]);

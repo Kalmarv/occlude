@@ -24,7 +24,7 @@ const fixtures: [string, Material, ThickenOpts][] = [
   ['separate discs / 2000', material(Array.from({ length: 2000 }, (_, i) => [(i % 50) * 4, Math.floor(i / 50) * 4])), { radius: 0.6 }],
   ['overlapping discs / 600', cloud(600, 60), { radius: 2 }],
   ['nearest network / 700', connect.nearest(cloud(700, 150), { count: 3 }), { radius: 0.6 }],
-  ['variable chain / 1500', curve(Array.from({ length: 1500 }, (_, i) => [i * 0.1, 10 * Math.sin(i * 0.04)]), { closed: false }).attribute('width', p => 0.3 + (1 + Math.sin(p.x)) * 0.3), { radius: p => p.width }],
+  ['variable chain / 1500', curve(Array.from({ length: 1500 }, (_, i) => [i * 0.1, 10 * Math.sin(i * 0.04)]), { closed: false }).points.set('width', p => 0.3 + (1 + Math.sin(p.x)) * 0.3), { radius: p => p.width }],
   ['long crossing lines / 100', material(Array.from({ length: 200 }, (_, i) => [i % 2 ? 100 : 0, rnd() * 100]), { edges: Array.from({ length: 100 }, (_, i) => [2 * i, 2 * i + 1]) }), { radius: 0.2 }],
   ['near tangent / subtraction', material([[-1, 0], [0.9999999999999999, 0]]), { radius: 1 }],
   ['near tangent / height', material([[0, 0], [2 * Math.cos(0.1), 2 * Math.sin(0.1)]]), { radius: 1 }],
@@ -55,10 +55,11 @@ if (process.argv.includes('--verify')) {
   let failures = 0;
   for (let i = 0; i < 800; i++) {
     const count = 1 + Math.floor(rnd() * 6);
-    const source = cloud(count, 20).attribute('radius', () => 0.1 + rnd() * 4);
+    const points = Array.from({ length: count }, () => [rnd() * 20, rnd() * 20]);
+    const radius = Array.from({ length: count }, () => 0.1 + rnd() * 4);
     const edges: [number, number][] = [];
     for (let j = 1; j < count; j++) if (rnd() < 0.7) edges.push([Math.floor(rnd() * j), j]);
-    const net = source.withEdges(edges);
+    const net = material(points, { edges, radius });
     const opts: ThickenOpts = { radius: p => p.radius, tolerance: 0.02 };
     const outcome = (fn: ThickenFn) => {
       try { return fingerprint(fn, net, opts); }

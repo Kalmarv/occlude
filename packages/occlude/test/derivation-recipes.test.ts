@@ -1,31 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { circle, curve, material, rect, type Edge, type Vertex } from '../src/index.js';
-import { nodeOf } from '../src/derivation.js';
 import { inSpace, mapPositions, withFaces } from '../src/material.js';
 import { extractRows } from '../src/relation.js';
 import { restamp } from '../src/tables.js';
 import { spaceOf } from '../src/space.js';
 import type { Selection } from '../src/selection.js';
 import { toolkit } from './helpers/run.js';
+import { onEdge, square } from './helpers/shapes.js';
 
 // `source` is typed by the view; a test reads it as what it is.
 const edgeOf = (v: object): Edge | undefined => (v as { source?: unknown }).source as Edge | undefined;
 const edgesOf = (v: object): Selection<Edge> | undefined => (v as { source?: unknown }).source as Selection<Edge> | undefined;
 
-/** Does `p` lie on the segment of `e` (to rounding)? */
-const onEdge = (p: { x: number; y: number }, e: Edge): boolean => {
-  const ax = e.a.x; const ay = e.a.y; const bx = e.b.x; const by = e.b.y;
-  const cross = (bx - ax) * (p.y - ay) - (by - ay) * (p.x - ax);
-  const dot = (p.x - ax) * (bx - ax) + (p.y - ay) * (by - ay);
-  const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
-  return Math.abs(cross) / Math.sqrt(len2) < 1e-9 && dot >= -1e-9 && dot <= len2 + 1e-9;
-};
-
-const square = () => curve([[0, 0], [40, 0], [40, 40], [0, 40]], { closed: true });
 
 describe('split and replace: a made row names the edge it came from', () => {
   it('split: the new point and both children name the parent edge of the value split was given', () => {
-    const g = square();
+    const g = square(0, 0, 40);
     const cut = g.split(g.edges.at(1)!);
     const made = cut.points.at(-1)!;
     expect(edgeOf(made)).toBe(g.edges.at(1));
@@ -35,7 +25,6 @@ describe('split and replace: a made row names the edge it came from', () => {
     // A row split did not make says nothing new.
     expect(edgeOf(cut.points.at(0)!)).toBeUndefined();
     expect(edgeOf(cut.edges.at(0)!)).toBeUndefined();
-    expect(nodeOf(cut)?.op).toBe('split');
     // A set and a move of the result keep it.
     const moved = cut.move([1, 1]).points.set('w', 3);
     expect(edgeOf(moved.points.at(-1)!)).toBe(g.edges.at(1));
@@ -54,7 +43,7 @@ describe('split and replace: a made row names the edge it came from', () => {
   });
 
   it('replace: every motif point and every new edge names the edge it replaced', () => {
-    const g = square();
+    const g = square(0, 0, 40);
     const motif = curve([[0, 0], [1, 0], [1.5, 0.8], [2, 0], [3, 0]]);
     const koch = g.replace(g.edges.at(0)!, motif);
     const made = koch.points.filter((p) => p.index >= g.points.length);
@@ -87,7 +76,7 @@ describe('planarize: a piece names its edge, a crossing the edges that meet ther
 
 describe('resample and along: the edge under each point, and u', () => {
   it('resample of a ring: u runs k/count round it, each point on the edge it names', () => {
-    const g = square();
+    const g = square(0, 0, 40);
     const r = g.resample({ count: 8 });
     expect(r.points.map((p) => p.u)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((k) => k / 8));
     r.points.forEach((p) => {
@@ -110,7 +99,7 @@ describe('resample and along: the edge under each point, and u', () => {
   });
 
   it('along: a point names the edge it lies on; a selection answers rows of its own material', () => {
-    const g = square();
+    const g = square(0, 0, 40);
     const a = g.along({ count: 8 });
     // Samples at the middles lie on one edge each; every one on its own.
     expect(a.points.filter((p) => p.index % 2 === 1).map((p) => edgeOf(p))).toEqual([g.edges.at(0), g.edges.at(1), g.edges.at(2), g.edges.at(3)]);
@@ -133,7 +122,7 @@ describe('resample and along: the edge under each point, and u', () => {
 
 describe('identity-keeping rebuilds carry what the rows answer', () => {
   it('inSpace, withFaces, mapPositions, transform and extractRows', () => {
-    const g = square();
+    const g = square(0, 0, 40);
     const cut = g.split(g.edges.at(1)!);
     const made = (m: { points: Selection<Vertex> }) => edgeOf(m.points.at(-1)!);
     const disk = spaceOf({ curvature: -1e-4, center: [20, 20] });
@@ -184,7 +173,7 @@ describe('a run keeps what its start answered and one step of what it made', () 
     if (gc === undefined) return;
     const t = toolkit({ aspect: [1, 1] });
     let early: WeakRef<object> | undefined;
-    t.steps(40, square(), (g) => {
+    t.steps(40, square(0, 0, 40), (g) => {
       const cut = g.split(g.edges.at(0)!);
       if (early === undefined && g.points.length > 8) early = new WeakRef(g);
       return cut;
