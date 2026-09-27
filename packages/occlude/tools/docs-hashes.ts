@@ -194,10 +194,13 @@ if (savePath) {
 
 const baseline = JSON.parse(readFileSync(checkPath as string, 'utf8')) as Record<string, string>;
 // The affected run compares its own fences, and every baseline key of a page
-// it took whole (a fence removed from a changed page is still missing).
+// it took whole (a fence removed from a changed page is still missing). A
+// `--page` run compares the pages it rendered, and nothing else.
 const before = chosen && selection
   ? Object.fromEntries(Object.entries(baseline).filter(([k]) => chosen.has(k) || selection.pages.includes(k.split('#')[0])))
-  : baseline;
+  : only
+    ? Object.fromEntries(Object.entries(baseline).filter(([k]) => only.includes(k.split('#')[0])))
+    : baseline;
 if (chosen && selection) {
   const why = selection.reasons.map((r) => `${r.label} → ${keyList(r.keys)}`).join('; ');
   console.log(`affected ${chosen.size} of ${fences.length}${why ? ` (${why})` : ''}`);
@@ -205,9 +208,9 @@ if (chosen && selection) {
 const keys = Object.keys(before);
 const skipped = keys.filter((k) => before[k] === UNSTABLE_HASH);
 const comparable = keys.filter((k) => before[k] !== UNSTABLE_HASH);
-const changed = comparable.filter((k) => hashes[k] !== before[k]);
-const added = Object.keys(hashes).filter((k) => !(k in before));
 const missing = comparable.filter((k) => !(k in hashes));
+const changed = comparable.filter((k) => k in hashes && hashes[k] !== before[k]);
+const added = Object.keys(hashes).filter((k) => !(k in before));
 for (const k of changed) console.error(`changed  ${k}\n  before ${before[k]}\n  after  ${hashes[k]}`);
 // An example with no baseline entry is an example the oracle does not
 // watch. It used to be reported and forgiven, and four pages quietly sat
