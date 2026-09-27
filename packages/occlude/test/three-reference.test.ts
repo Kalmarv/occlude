@@ -48,7 +48,8 @@ it('records Freestyle coverage differences while independent rays validate Occlu
 it('matches Freestyle constant physical width and color with an actual Occlude SVG', async () => {
   const {sketch,pen,paper,mm}=await import('../src/index.js');
   const {initOcclude,compileSketchAsync,exportSvg}=await import('../src/host.js');
-  const {box3,lineArt3}=await import('../src/three/api/advanced.js');
+  const {lineArt3}=await import('../src/three/api/advanced.js');
+  const {box}=await import('../src/three/api/index.js');
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
   const reference=JSON.parse(readFileSync(new URL('./fixtures/three-reference/freestyle.json',import.meta.url),'utf8'));
   let vertices=0;
@@ -61,6 +62,6 @@ it('matches Freestyle constant physical width and color with an actual Occlude S
     }
   }
   expect(vertices).toBeGreaterThan(100);
-  const svg=exportSvg(await compileSketchAsync(sketch({paper:paper({width:mm(100),height:mm(100)}),margin:0,pens:{ink:pen({width:mm(.3),color:'#336699'})}},()=>lineArt3({objects:[{id:'cube',surface:box3([2,2,2])}],camera:{kind:'orthographic',span:5,eye:[5,7,6],target:[0,0,0],near:.1,far:30},lineSets:[{id:'visible',stroke:'ink'}]}))));
+  const svg=exportSvg(await compileSketchAsync(sketch({paper:paper({width:mm(100),height:mm(100)}),margin:0,pens:{ink:pen({width:mm(.3),color:'#336699'})}},()=>lineArt3({objects:[{id:'cube',surface:box([2,2,2])}],camera:{kind:'orthographic',span:5,eye:[5,7,6],target:[0,0,0],near:.1,far:30},lineSets:[{id:'visible',stroke:'ink'}]}))));
   expect(svg).toContain('stroke-width="0.3"'); expect(svg.toLowerCase()).toContain('#336699');
 });

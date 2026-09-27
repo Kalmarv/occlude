@@ -7,8 +7,8 @@ import {pensToJson} from '../src/render.js';
 import {box,plane,sphere,cylinder,cone,torus,grid,curve,parametricCurve,mesh,pointCloud,sweep,revolve,isolines,intersections,view,orthographic,instanceOnPoints} from '../src/three/api/index.js';
 import {scatterSurface} from '../src/three/api/sampling.js';
 import {emptyCount,emptySize,clampSetting,sampleValue} from '../src/three/degenerate.js';
-import {transformSurface3} from '../src/three/geometry/model.js';
-import {surface3,box3} from '../src/three/geometry/surface.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
+import {placedMesh3} from '../src/three/features/snapshot.js';
 import {worldBounds3} from '../src/three/geometry/bounds.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
 
@@ -40,12 +40,12 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   // `curve` keeps every position a row, in the order given; a segment of
   // no length draws nothing.
   expect(curve([[0,0,0],[0,0,0],[1,0,0],[2,0,0]]).edges.length).toBe(3);
-  const bowtie=surface3([[0,0,0],[1,1,0],[0,1,0],[1,0,0]],[[0,1,2,3]]);
-  expect(bowtie.faces.length).toBe(1);expect(bowtie.triangles.length).toBe(0);
-  const mixed=surface3([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0]],[[0,1,2,3],[1,4,2]]);
-  expect(mixed.faces.length).toBe(2);expect(mixed.triangles.length).toBe(3);
+  const bowtie=mesh([[0,0,0],[1,1,0],[0,1,0],[1,0,0]],[[0,1,2,3]]);
+  expect(bowtie.faces.length).toBe(1);expect(mesh3(bowtie).triangleCount).toBe(0);
+  const mixed=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0]],[[0,1,2,3],[1,4,2]]);
+  expect(mixed.faces.length).toBe(2);expect(mesh3(mixed).triangleCount).toBe(3);
   // A nonplanar quad becomes the triangles of its own average plane.
-  expect(surface3([[0,0,0],[1,0,0],[1,1,.4],[0,1,0]],[[0,1,2,3]]).triangles.length).toBe(2);
+  expect(mesh3(mesh([[0,0,0],[1,0,0],[1,1,.4],[0,1,0]],[[0,1,2,3]])).triangleCount).toBe(2);
   const sheet=plane(4).subdivide(2),left=sheet.faces.filter(f=>f.centroid[0]<-1),right=sheet.faces.filter(f=>f.centroid[0]>1);
   const one=sheet.extrude(left.union(right),r=>[0,0,r.index]);
   // The walls of the one component that moved: faces the input did not name.
@@ -94,11 +94,12 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
  });
 
  it('keeps the mistakes that are mistakes',()=>{
-  expect(()=>box3([Number.NaN,1,1])).toThrow('finite');
+  expect(()=>box([Number.NaN,1,1])).toThrow('finite');
   expect(()=>sphere(1,{segments:1e9})).toThrow('budget');
   expect(()=>parametricCurve(()=>[0,0,0],{segments:100,maxPoints:10})).toThrow('budget');
   expect(()=>torus(1,1)).toThrow('centerline');
   expect(()=>mesh([[0,0,0],[1,0,0]],[[0,1,7]])).toThrow('point indices');
-  expect(transformSurface3(box3(),{scale:[0,1,1]}).points.every(p=>p.position[0]===0)).toBe(true);
+  // A scene object's singular scale flattens it rather than failing.
+  expect(placedMesh3(mesh3(box()),{scale:[0,1,1]}).positions.every(p=>p[0]===0)).toBe(true);
  });
 });

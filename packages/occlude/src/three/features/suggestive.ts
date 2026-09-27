@@ -1,6 +1,5 @@
 import {estimateCurvature3,type CurvatureOptions3} from '../geometry/curvature.js';
-import {meshOfSurface3} from '../geometry/parts.js';
-import type {Surface3} from '../geometry/surface.js';
+import type {Mesh3} from '../geometry/mesh3.js';
 import type {CameraFrame3} from '../camera.js';
 import {clampSetting} from '../degenerate.js';
 import {add3,dot3,mul3,sub3,type Vec3} from '../math.js';
@@ -34,7 +33,8 @@ import {add3,dot3,mul3,sub3,type Vec3} from '../math.js';
  * itself (or, below zero, the far side of the surface, whose contours the
  * silhouette already states).
  *
- * This is a pure function of the surface, the camera and the threshold. A flat
+ * This is a pure function of the surface (as placed: its reader holds the
+ * placed positions and triangles), the camera and the threshold. A flat
  * mesh, a mesh with no curvature to estimate and an eye inside the mesh all
  * yield no segments rather than an error.
  */
@@ -58,23 +58,23 @@ const CURVATURE3:CurvatureOptions3={smoothing:2};
 const length3=(v:Vec3):number=>Math.hypot(v[0],v[1],v[2]);
 const safeUnit3=(v:Vec3):Vec3|null=>{const n=length3(v);return n>0&&Number.isFinite(n)?mul3(v,1/n):null;};
 
-export function suggestiveSegments3(surface:Surface3,frame:CameraFrame3,options:SuggestiveOptions3={}):readonly SuggestiveSegment3[] {
+export function suggestiveSegments3(mesh:Mesh3,frame:CameraFrame3,options:SuggestiveOptions3={}):readonly SuggestiveSegment3[] {
   const threshold=clampSetting(options.threshold,0,Infinity,SUGGESTIVE_THRESHOLD3,'suggestive threshold');
-  const points=surface.points,triangles=surface.triangles;
-  if(!triangles.length)return [];
+  const points=mesh.positions,slot=mesh.triangles,count=mesh.triangleCount;
+  if(!count)return [];
   const lo:number[]=[Infinity,Infinity,Infinity],hi:number[]=[-Infinity,-Infinity,-Infinity];
-  for(const p of points)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
+  for(const p of points)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p[k]);hi[k]=Math.max(hi[k],p[k]);}
   const diagonal=Math.hypot(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]);
   if(!(diagonal>0)||!Number.isFinite(diagonal))return [];
-  const estimate=estimateCurvature3(meshOfSurface3(surface),CURVATURE3);
+  const estimate=estimateCurvature3(mesh,CURVATURE3);
   // Every camera but the parallel one carries real view rays from its eye.
   const fromEye=frame.camera.kind!=='orthographic',eye=frame.camera.eye,back=frame.back;
   const scale=diagonal*diagonal;
   const out:SuggestiveSegment3[]=[];
-  for(let ti=0;ti<triangles.length;ti++){
-    const t=triangles[ti],rows=estimate.corners[ti];
+  for(let ti=0;ti<count;ti++){
+    const vertices=[slot[3*ti],slot[3*ti+1],slot[3*ti+2]],rows=estimate.corners[ti];
     if(!rows)continue;
-    const position=t.vertices.map(v=>points[v].position) as unknown as readonly [Vec3,Vec3,Vec3];
+    const position=vertices.map(v=>points[v]) as unknown as readonly [Vec3,Vec3,Vec3];
     const kr=[0,0,0],facing=[0,0,0],w:Vec3[]=[];
     let usable=true;
     for(let c=0;c<3&&usable;c++){
@@ -100,11 +100,11 @@ export function suggestiveSegments3(surface:Surface3,frame:CameraFrame3,options:
       if(above[i]===above[j])continue;
       // Canonical order by vertex index, so the two triangles sharing this edge
       // compute the same crossing bit for bit and their segments meet.
-      const [first,second]=t.vertices[i]<t.vertices[j]?[i,j]:[j,i];
+      const [first,second]=vertices[i]<vertices[j]?[i,j]:[j,i];
       const span=kr[second]-kr[first];
       if(!(span!==0)||!Number.isFinite(span))continue;
       const parameter=Math.min(1,Math.max(0,-kr[first]/span));
-      ends.push({vertices:[t.vertices[first],t.vertices[second]] as const,t:parameter});
+      ends.push({vertices:[vertices[first],vertices[second]] as const,t:parameter});
       const barycentric:number[]=[0,0,0];barycentric[first]=1-parameter;barycentric[second]=parameter;
       weights.push(barycentric as unknown as Vec3);
     }

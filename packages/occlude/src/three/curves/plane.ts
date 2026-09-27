@@ -1,16 +1,21 @@
-import type { Attributes3, Surface3 } from '../geometry/surface.js';
+import type { Attributes3 } from '../geometry/surface.js';
 import { dot3, finite3, lerp3, sub3, unit3, type Vec3 } from '../math.js';
 import { freezeCurves3, type SurfaceCurvePoint3, type SurfaceCurveSegment3 } from './surface.js';
 export interface Plane3 { readonly id:string; readonly origin:Vec3; readonly normal:Vec3; readonly attributes?:Attributes3 }
+/** Triangles a plane cuts: every point's position and kernel name (a node
+ * is named by the names of the points it lies between), and three point rows
+ * a triangle. A value's reader answers these in model space; a placed object
+ * answers them where its transform puts it. */
+export interface PlaneTriangles3 { readonly positions:readonly Vec3[]; readonly names:readonly string[]; readonly triangles:ArrayLike<number> }
 const key=(...parts:(string|number)[])=>JSON.stringify(parts);
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 /** Shared source-supported triangle/plane intersection; only selected triangles
  * participate, so a hatch stripe never scans the whole scene. */
-export function intersectPlane3(surface:Surface3,plane:Plane3,triangles:readonly number[],options:{tolerance?:number;maxSegments:number;kind:SurfaceCurveSegment3['kind']}):readonly SurfaceCurveSegment3[] {
-  const segments:SurfaceCurveSegment3[]=[];
+export function intersectPlane3(source:PlaneTriangles3,plane:Plane3,triangles:readonly number[],options:{tolerance?:number;maxSegments:number;kind:SurfaceCurveSegment3['kind']}):readonly SurfaceCurveSegment3[] {
+  const segments:SurfaceCurveSegment3[]=[],{positions,names,triangles:slot}=source;
     finite3(plane.origin,'section origin');finite3(plane.normal,'section normal');const normal=unit3(plane.normal);
-    const indices=new Set(triangles.flatMap(i=>[...surface.triangles[i].vertices]));
-    const local=new Map([...indices].map(i=>[i,sub3(surface.points[i].position,plane.origin)]));
+    const indices=new Set<number>();for(const i of triangles)for(let k=0;k<3;k++)indices.add(slot[3*i+k]);
+    const local=new Map([...indices].map(i=>[i,sub3(positions[i],plane.origin)]));
     const scale=[...local.values()].reduce((a,p)=>Math.max(a,...p.map(Math.abs)),0);
     if(!Number.isFinite(scale))throw new Error('section coordinates have unrepresentable extent');
     const tolerance=options.tolerance??64*Number.EPSILON*scale;
@@ -19,20 +24,20 @@ export function intersectPlane3(surface:Surface3,plane:Plane3,triangles:readonly
     const signs=new Map([...distances].map(([i,d])=>[i,Math.abs(d)<=tolerance?0:Math.sign(d)]));
     const nodes=new Map<string,SurfaceCurvePoint3>();
     const vertex=(i:number)=>{
-      const id=key(plane.id,'vertex',surface.points[i].id);
+      const id=key(plane.id,'vertex',names[i]);
       let node=nodes.get(id);
-      if(!node){node=freezeCurves3({id,position:surface.points[i].position,vertices:[i,i,i] as const,weights:[1,0,0] as const});nodes.set(id,node);}
+      if(!node){node=freezeCurves3({id,position:positions[i],vertices:[i,i,i] as const,weights:[1,0,0] as const});nodes.set(id,node);}
       return node;
     };
     const crossing=(i:number,j:number)=>{
       if((signs.get(i)!)===0)return vertex(i);if((signs.get(j)!)===0)return vertex(j);
-      if(compare(surface.points[i].id,surface.points[j].id)>0)[i,j]=[j,i];
-      const id=key(plane.id,'edge',surface.points[i].id,surface.points[j].id);
+      if(compare(names[i],names[j])>0)[i,j]=[j,i];
+      const id=key(plane.id,'edge',names[i],names[j]);
       let node=nodes.get(id);
       if(!node){
         // Opposite signs: scaled ratio avoids overflow of d0-d1.
         const a=Math.abs((distances.get(i)!)),b=Math.abs((distances.get(j)!)),m=Math.max(a,b),t=(a/m)/(a/m+b/m);
-        node=freezeCurves3({id,position:lerp3(surface.points[i].position,surface.points[j].position,t),vertices:[i,j,j] as const,weights:[1-t,t,0] as const});nodes.set(id,node);
+        node=freezeCurves3({id,position:lerp3(positions[i],positions[j],t),vertices:[i,j,j] as const,weights:[1-t,t,0] as const});nodes.set(id,node);
       }
       return node;
     };
@@ -45,8 +50,7 @@ export function intersectPlane3(surface:Surface3,plane:Plane3,triangles:readonly
       if(pieces.size>options.maxSegments)throw new Error(`section candidate capacity exceeded (${options.maxSegments}); use fewer planes or a larger explicit maxSegments`);
     };
     triangles.forEach(index=>{
-      const triangle=surface.triangles[index];
-      const v=triangle.vertices,s=v.map(i=>(signs.get(i)!));
+      const v=[slot[3*index],slot[3*index+1],slot[3*index+2]],s=v.map(i=>(signs.get(i)!));
       if(s.every(x=>x===0)){for(let j=0;j<3;j++)add(vertex(v[j]),vertex(v[(j+1)%3]),index,true);return;}
       if(s.every(x=>x>0)||s.every(x=>x<0))return;
       const hits=new Map<string,SurfaceCurvePoint3>();

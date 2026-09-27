@@ -4,7 +4,7 @@ import { reference3 } from './reference.js';
 import { verifyWorldViewport3 } from './viewportCheck.js';
 import { sketch, paper, pen, mm } from 'occlude';
 import { initOcclude, exportSvg } from 'occlude/host';
-import { box3, surface3 } from 'occlude/src/three/geometry/surface.js';
+import { box, mesh } from 'occlude/3d';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import { featureSnapshot3, type SurfaceObject3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
@@ -34,18 +34,17 @@ function compare(cpu:ClassifiedScene3,gpu:ClassifiedScene3):number {
   if(error>1e-5)throw new Error(`CPU/GPU parameter error ${error}`);
   return error;
 }
-/** An n × n sheet of quads, 12 across, as a raw surface for the kernels. */
+/** An n × n sheet of quads, 12 across, as a value for the kernels. */
 function grid(n:number):SurfaceObject3[]{
   const positions:[number,number,number][]=[],faces:number[][]=[];
   for(let y=0;y<=n;y++)for(let x=0;x<=n;x++)positions.push([(x/n-.5)*12,(y/n-.5)*12,0]);
   for(let y=0;y<n;y++)for(let x=0;x<n;x++){const p=y*(n+1)+x;faces.push([p,p+1,p+n+2,p+n+1]);}
   // Triangulated flat, then lifted: the fixed triangles are the flat sheet's.
-  const surface=surface3(positions,faces);
-  for(const point of surface.points){const [x,y]=point.position;point.position=[x,y,.15*Math.sin(x*2)*Math.cos(y*2)];}
+  const surface=mesh(positions,faces).points.set('z',p=>.15*Math.sin(p.x*2)*Math.cos(p.y*2));
   return [{id:'grid',surface}];
 }
 function city(n:number):SurfaceObject3[]{
-  return Array.from({length:n*n},(_,i)=>{const x=i%n,y=Math.floor(i/n),height=.3+((x*17+y*31)%23)/20;return {id:`box-${i}`,surface:box3([.28,.28,height],[(x-(n-1)/2)*.4,(y-(n-1)/2)*.4,height/2])};});
+  return Array.from({length:n*n},(_,i)=>{const x=i%n,y=Math.floor(i/n),height=.3+((x*17+y*31)%23)/20;return {id:`box-${i}`,surface:box([.28,.28,height]).translate([(x-(n-1)/2)*.4,(y-(n-1)/2)*.4,height/2])};});
 }
 self.onmessage=async event=>{
   if(event.data.type==='robustness'){
@@ -124,7 +123,7 @@ self.onmessage=async event=>{
       if(name==='city-30')postMessage({type:'svg',name,svg});
     }
     postMessage({type:'progress',message:'pathological overlap capacity check'});
-    const overlap=featureSnapshot3(Array.from({length:100},(_,i)=>({id:`overlap-${i}`,surface:box3([2,2,2],[0,0,i*.0001])})),[],frame);
+    const overlap=featureSnapshot3(Array.from({length:100},(_,i)=>({id:`overlap-${i}`,surface:box([2,2,2]).translate([0,0,i*.0001])})),[],frame);
     const t=performance.now();let capacityError='';
     try{await classifySceneGpu3(overlap,gpu,{maxCandidates:10000,pairCapacity:1024});}catch(error){capacityError=String(error);}
     if(!capacityError.includes('candidate pairs'))throw new Error('pathological overlap did not report capacity');

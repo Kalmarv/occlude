@@ -1,13 +1,11 @@
 import {objectSurfaceBinding3,validateSurfaceCurveNetwork3,type SurfaceCurveObject3} from './curves/network.js';
 import { validateHatch3 } from './curves/hatch.js';
-import { validateSurfaceCurves3 } from './curves/surface.js';
+import { stageGeometry3, validateSurfaceCurves3 } from './curves/surface.js';
 import type { ModelingCompute3 } from './modeling.js';
 import type { SurfaceEvaluationTarget3, SurfaceEvaluationBatch3, SurfaceEvaluationResult3 } from './surface/evaluate.js';
 import type { ToneRecipe3 } from './surface/tone.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
-import { snapshotSurface3 } from './geometry/model.js';
-import { stageSurface3, type StageSurface3 } from './geometry/value.js';
-import { meshOfSurface3 } from './geometry/parts.js';
+import { mesh3 } from './geometry/mesh3.js';
 import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
 import type { ClassifiedScene3 } from './visibility/scene.js';
 import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
@@ -21,9 +19,8 @@ export interface SceneCompute3 extends Partial<ModelingCompute3> {
 export interface LineArtOptions3 {
   /** Stable key for a camera override in sketch configuration. */
   readonly id?: string;
-  /** An object's `surface` may be a geometry from `occlude/3d`; its
-   * working view is read. */
-  readonly objects?: readonly (Omit<SurfaceObject3, 'surface'> & { readonly surface: StageSurface3 })[];
+  /** Each object's `surface` is a geometry from `occlude/3d`. */
+  readonly objects?: readonly SurfaceObject3[];
   readonly wires?: readonly WireObject3[];
   readonly curves?: readonly SurfaceCurveObject3[];
   readonly camera: Camera3;
@@ -44,23 +41,19 @@ const freeze = <T>(value: T): T => {
   }
   return value;
 };
-/** Capture editable geometry now; projection waits for the execution's paper.
+/** Capture the scene now; projection waits for the execution's paper. A
+ * geometry is a value and never changes, so the scene holds the value it was
+ * given; what the sketch could still edit (records, lists) is copied.
  * Selection callbacks must be pure functions of their captured feature rows. */
 export function lineArt3(options: LineArtOptions3): LineArtScene3 {
   if (options.id !== undefined && (typeof options.id !== 'string' || !options.id || options.id.startsWith('@'))) throw new Error('scene id must be nonempty and must not start with @');
   const camera = cameraFrame3(options.camera, options.viewport ?? { x: 0, y: 0, width: 1, height: 1 }).camera;
-  const surfaces = new Map<import('./geometry/surface.js').Surface3, import('./geometry/surface.js').Surface3>();
-  const captureSurface = (surface: import('./geometry/surface.js').Surface3) => {
-    let owned = surfaces.get(surface);
-    if (!owned) { owned = snapshotSurface3(surface); surfaces.set(surface, owned); }
-    return owned;
-  };
-  // A geometry is read through its working view.
-  const objects: readonly SurfaceObject3[] = (options.objects ?? []).map(object => ({ ...object, surface: stageSurface3(object.surface) }));
+  const objects = options.objects ?? [];
   for(const object of objects) {
-    if(object.curves)validateSurfaceCurves3(object.curves,meshOfSurface3(object.surface));
+    const mesh=mesh3(stageGeometry3(object.surface,`lineArt3: object '${object.id}' surface`));
+    if(object.curves)validateSurfaceCurves3(object.curves,mesh);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
-    if(object.binding)objectSurfaceBinding3({...object,mesh:meshOfSurface3(object.surface)});
+    if(object.binding)objectSurfaceBinding3({...object,mesh});
   }
   for(const entry of options.curves??[])if(entry.network)validateSurfaceCurveNetwork3(entry.network);
   return Object.freeze({
@@ -68,7 +61,7 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     id: options.id,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze(objects.map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,mesh:meshOfSurface3(captureSurface(object.surface))}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)), ...(object.radialCentre?{ radialCentre: freeze([...object.radialCentre]) as typeof object.radialCentre }:{}) }))),
+    objects: Object.freeze(objects.map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,mesh:mesh3(object.surface)}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), curves: object.curves && Object.freeze({surface:object.surface,segments:freeze(structuredClone(object.curves.segments))}), hatch: object.hatch && Object.freeze({...object.hatch,surface:object.surface,families:freeze(structuredClone(object.hatch.families))}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)), ...(object.radialCentre?{ radialCentre: freeze([...object.radialCentre]) as typeof object.radialCentre }:{}) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
     curves:Object.freeze((options.curves??[]).map(entry=>Object.freeze({...entry,attributes:freeze(structuredClone(entry.attributes))}))),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),

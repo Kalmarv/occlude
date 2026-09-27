@@ -3,8 +3,9 @@ import { beforeAll, expect, it } from 'vitest';
 import { clip, dash, group, label, mask, mm, pen, rect, sketch } from '../src/index.js';
 import { commitCamera3, compileSketchAsync, initOcclude, render } from '../src/host.js';
 import {
-  box3, constructStrokes3, lineArt3, type Camera3, type SceneCompute3,
+  constructStrokes3, lineArt3, type Camera3, type SceneCompute3,
 } from '../src/three/api/advanced.js';
+import { box } from '../src/three/api/index.js';
 // The retained interpretation `view` is built on; no longer an export.
 import { drawing3 } from '../src/three/drawing.js';
 
@@ -12,7 +13,7 @@ beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/
 const camera: Camera3 = { kind: 'orthographic', span: 4, eye: [4,6,5], target: [0,0,0], near: .1, far: 30 };
 const other: Camera3 = { ...camera, eye: [-5,2,3], span: 3 };
 const config = { seed: 42, margin: mm(7), pens: { ink: pen({ color: '#18202A', width: mm(.3) }) } };
-const scene = () => lineArt3({ camera, objects: [{ id: 'box', surface: box3([2,1,1]) }], lineSets: [{ id: 'v', stroke: 'ink' }] });
+const scene = () => lineArt3({ camera, objects: [{ id: 'box', surface: box([2,1,1]) }], lineSets: [{ id: 'v', stroke: 'ink' }] });
 
 it.each(['topLeft', 'center'] as const)('commits a camera without modeling again, preserving %s composition and old output', async origin => {
   let models = 0;

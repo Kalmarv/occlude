@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { surface3 } from '../src/three/geometry/surface.js';
+import { mesh } from '../src/three/api/mesh.js';
 import { cameraFrame3, toPaper3, type Camera3 } from '../src/three/camera.js';
 import { featureSnapshot3, FeatureKind3 } from '../src/three/features/snapshot.js';
 import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
@@ -56,8 +56,9 @@ const cases=[];
 for(const fixture of fixtures){
   const frame=cameraFrame3(fixture.camera,{x:0,y:0,width:100,height:100});
   const objects=fixture.objects.map(source=>{
-    const surface=surface3(source.positions,source.polygons);
-    for(const edge of surface.edges)if(source.marked?.some(([a,b])=>edge.vertices.includes(a)&&edge.vertices.includes(b)))edge.attributes.marked=true;
+    const plain=mesh(source.positions,source.polygons),marked=source.marked;
+    const between=(e:{a:{index:number};b:{index:number}})=>marked!.some(([a,b])=>(e.a.index===a&&e.b.index===b)||(e.a.index===b&&e.b.index===a));
+    const surface=marked?plain.edges.set('marked',true,between):plain;
     return {id:source.id,surface};
   });
   const snapshot=featureSnapshot3(objects,[],frame);

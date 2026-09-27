@@ -31,8 +31,10 @@ export default sketch({}, () => show(box(1), { pen: 'ink' }));
   expect(out).toContain(`show(box(1), { pen: 'ink', camera: persp({ eye: [1, 2, 3], target: [0, 0, 0], up: [0, 1, 0], fovDegrees: 40 }) })`);
 });
 it('falls back to cameras3 configuration for scenes without a view call', async () => {
-  const source = `import { sketch, lineArt3, box3 } from 'occlude';
-export default sketch({ seed: 2 }, () => lineArt3({ id: 'boxes', objects: [{ id: 'b', surface: box3() }], camera: { kind: 'orthographic', span: 4, eye: [5, 7, 6], target: [0, 0, 0], near: .1, far: 30 }, lineSets: [] }));
+  const source = `import { sketch } from 'occlude';
+import { box } from 'occlude/3d';
+import { lineArt3 } from 'occlude/3d/advanced';
+export default sketch({ seed: 2 }, () => lineArt3({ id: 'boxes', objects: [{ id: 'b', surface: box() }], camera: { kind: 'orthographic', span: 4, eye: [5, 7, 6], target: [0, 0, 0], near: .1, far: 30 }, lineSets: [] }));
 `;
   const out = await (await viewCameraEdit(source))({ boxes: ortho });
   expect(out).toContain('cameras3'); expect(out).toContain('"boxes"');

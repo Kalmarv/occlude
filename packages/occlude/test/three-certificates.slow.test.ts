@@ -15,13 +15,12 @@ import { cameraMembership3, facingCertificate3, shellCertificate3, type Certific
 import type { OccluderMesh3 } from '../src/three/features/snapshot.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
 import { cameraFrame3 } from '../src/three/camera.js';
-import { surface3 } from '../src/three/geometry/surface.js';
 import { sphere } from '../src/three/api/primitives.js';
+import { mesh as polygons } from '../src/three/api/mesh.js';
 import { classifyScene3 } from '../src/three/visibility/scene.js';
 import { unionIntervals3, type Interval3 } from '../src/three/visibility/interval.js';
 import { captureSnapshot, globeScene } from './fixtures/globe-scene.js';
 import type { Vec3 } from '../src/three/math.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const mesh = (
   positions: readonly (readonly [number, number, number])[],
@@ -160,8 +159,8 @@ describe('the pre-pass reads the snapshot the classifier holds', () => {
   // A tetrahedron is too coarse to certify anything — every one of its four
   // vertices touches a front-facing face. A sphere is the shape the rule is
   // for, and the orthographic camera is the bench's own.
-  const solid = surfaceOf(sphere(1.2, { segments: 24, rings: 12 }));
-  const tetra = surface3([[0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]], [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]]);
+  const solid = sphere(1.2, { segments: 24, rings: 12 });
+  const tetra = polygons([[0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]], [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]]);
 
   it('records one complete mesh per occluding object and none for a pass-through one', () => {
     const snapshot = featureSnapshot3([{ id: 'solid', surface: tetra }], [], frame);

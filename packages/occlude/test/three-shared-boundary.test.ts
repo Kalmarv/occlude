@@ -5,7 +5,7 @@ import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import {hiddenInterval3,occlusionVolume3,unionIntervals3,visibleIntervals3} from '../src/three/visibility/interval.js';
 import type {Vec3,Triangle3} from '../src/three/math.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 
 describe('shared occlusion boundaries',()=>{
  // Independent convex-cone oracle: a rim edge is hidden when both its base
@@ -14,14 +14,15 @@ describe('shared occlusion boundaries',()=>{
  for(const kind of ['perspective','orthographic'] as const)for(const near of [.1,18.8])it(`respects convex occlusion and open near clipping with ${kind}, near ${near}`,()=>{
   const radius=.4,height=.8421867598313839,n=32,eye:Vec3=[8,10,8],target:Vec3=[0,0,.5],translate:Vec3=[-3,-3,0];
   const prototype=cone(radius,1,{segments:n}),camera=(kind==='perspective'?perspective:orthographic)({eye,target,near});
-  const result=classifySceneCpu3(featureSnapshot3([{id:'cone',surface:surfaceOf(prototype),transform:{translate,scale:[1,1,height]}}],[],cameraFrame3(camera,{x:10,y:10,width:180,height:250})));
-  const back=new Set<string>();
+  const result=classifySceneCpu3(featureSnapshot3([{id:'cone',surface:prototype,transform:{translate,scale:[1,1,height]}}],[],cameraFrame3(camera,{x:10,y:10,width:180,height:250})));
+  const back=new Set<string>(),read=mesh3(prototype);
+  const edgeName=(a:number,b:number)=>read.names.edges.find((_,e)=>{const p=read.edges[2*e],q=read.edges[2*e+1];return (p===a&&q===b)||(p===b&&q===a);})!;
   for(let i=0;i<n;i++){
     const angle=2*Math.PI*i/n,mid=angle+Math.PI/n;
     const normal=[height*Math.cos(mid),height*Math.sin(mid),radius*Math.cos(Math.PI/n)];
     const point=[translate[0]+radius*Math.cos(angle),translate[1]+radius*Math.sin(angle),-height/2];
     const direction=eye.map((v,k)=>v-(kind==='perspective'?point[k]:target[k]));
-    if(normal.reduce((sum,v,k)=>sum+v*direction[k],0)<0){const edge=surfaceOf(prototype).edges.find(e=>e.vertices.includes(i)&&e.vertices.includes((i+1)%n))!;back.add(edge.id);}
+    if(normal.reduce((sum,v,k)=>sum+v*direction[k],0)<0)back.add(edgeName(i,(i+1)%n));
   }
   const hidden=result.features.filter(r=>back.has(r.feature.sourceId));expect(hidden.length).toBeGreaterThan(8);if(near<1)expect(hidden.every(r=>r.visible.length===0)).toBe(true);
   else {

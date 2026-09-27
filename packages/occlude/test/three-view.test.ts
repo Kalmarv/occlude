@@ -4,12 +4,11 @@ import { sketch, pen, mm, clip, rect, group, label, strokes, dash } from '../src
 import {
   initOcclude, compileSketchAsync, commitCamera3, render, exportSvg, decodePlanBuffer, evalPrim,
 } from '../src/host.js';
-import { lineArt3, box3 } from '../src/three/api/advanced.js';
+import { lineArt3 } from '../src/three/api/advanced.js';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
 import {pensToJson} from '../src/render.js';
 import {plane,box,view,orthographic,perspective} from 'occlude/3d';
 import {projectedLines} from 'occlude/3d/advanced';
-import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const config={seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'}),shade:pen({width:mm(.18),color:'#a84932'})}};
 const camera=orthographic({eye:[5,7,6],span:5});
@@ -41,7 +40,7 @@ it('captures hatch eligibility once on the owned revision and keeps multiple vie
 });
 it('preserves full wire dash phase through interval filtering and actual planned output',async()=>{
  const execution=await compileSketchAsync(sketch(config,async t=>{
-  const classified=await t.classify3(lineArt3({camera:orthographic({eye:[0,0,5],up:[0,1,0],span:10}),objects:[{id:'box',surface:box3(),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
+  const classified=await t.classify3(lineArt3({camera:orthographic({eye:[0,0,5],up:[0,1,0],span:10}),objects:[{id:'box',surface:box(),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
   const lines=projectedLines(classified);
   expect(lines.hidden.length).toBeGreaterThan(0);
   return strokes(lines.visible.filter(c=>c.b[0]>50),{stroke:'ink',modifiers:[dash(mm(7),mm(4))]});
@@ -54,7 +53,7 @@ it('preserves full wire dash phase through interval filtering and actual planned
 it('keeps full wire dash phase through a group and a cut, which are selections of the same lines',async()=>{
  const spans=async(pick:(lines:ReturnType<typeof projectedLines>,t:Parameters<Parameters<typeof sketch>[1]>[0])=>Parameters<typeof strokes>[0])=>{
   const execution=await compileSketchAsync(sketch(config,async t=>{
-   const classified=await t.classify3(lineArt3({camera:orthographic({eye:[0,0,5],up:[0,1,0],span:10}),objects:[{id:'box',surface:box3(),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
+   const classified=await t.classify3(lineArt3({camera:orthographic({eye:[0,0,5],up:[0,1,0],span:10}),objects:[{id:'box',surface:box(),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
    return strokes(pick(projectedLines(classified),t) as never,{stroke:'ink',modifiers:[dash(mm(7),mm(4))]});
   }),{paper:{w:100,h:100}});
   const result=render(execution),plan=core.wasm_plan(result.raw.prims,result.raw.frags,pensToJson(result.pens),200000,.01);

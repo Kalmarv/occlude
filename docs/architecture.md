@@ -372,12 +372,15 @@ inputs it came from; how a row is drawn lives on the view, never on the
 value.
 
 The 3D kernels (subdivide, extrude, the booleans, dual, curvature, the
-curve and hatch builders) work on `Surface3`, a working view the adapter
-builds from the value's parts on first need and keeps on the value
-(`three/geometry/value.ts`; one parts format, `MaterialParts`, both ways in
-`parts.ts`). The rigid words — `translate`, `rotate`, `scale`, `transform`,
-a displacement by vector — are maps over the `x`, `y`, `z` columns and build
-no view. What is not a row's — the key, the prototype, the value's own
+curve and hatch builders, the visibility snapshot) read a value through
+`mesh3(m)`, a typed reader over its columns, built once and kept on the
+value (`three/geometry/mesh3.ts`: the position flats, the stated loops, the
+triangle slot of their fixed triangles, the edge list, each row's kernel
+name, the typed columns and the incidence), and answer columns (`Made3`),
+which `made3` turns into the next value. A scene object's transform places
+that reader (`placedMesh3`) and makes no value. The rigid words —
+`translate`, `rotate`, `scale`, `transform`, a displacement by vector — are
+maps over the `x`, `y`, `z` columns and run no kernel. What is not a row's — the key, the prototype, the value's own
 origin and orientation (the pivot `rotate` and `scale` turn about), and a
 radial centre — is a value field the core carries through every write and
 every step, as it carries `space`; only a rigid move gives a moved origin

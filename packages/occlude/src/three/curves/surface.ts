@@ -1,6 +1,6 @@
-import type { Attributes3, Surface3 } from '../geometry/surface.js';
-import type { Mesh3 } from '../geometry/mesh3.js';
-import { meshOfSurface3 } from '../geometry/parts.js';
+import type { Attributes3 } from '../geometry/surface.js';
+import { mesh3, type Mesh3 } from '../geometry/mesh3.js';
+import { Material } from '../../material.js';
 import { finite3, type Vec3 } from '../math.js';
 
 /** Barycentric source position; original vertex indices survive instance transforms. */
@@ -17,10 +17,16 @@ export interface SurfaceCurveSegment3 {
   readonly chainId?:string;
   readonly range?:readonly [number,number];
 }
-/** Draw against this exact owned surface; a new model needs newly generated curves.
- * `surface` is what a scene object pairs with the curves; they are read on its
- * reader. */
-export interface SurfaceCurves3 { readonly surface:Surface3; readonly segments:readonly SurfaceCurveSegment3[] }
+/** Curves on one value: `surface` is the value they were cut from, which a
+ * scene object pairs with them; another value, even an edit of this one,
+ * needs curves of its own. */
+export interface SurfaceCurves3 { readonly surface:Material; readonly segments:readonly SurfaceCurveSegment3[] }
+/** The value the explicit stage reads (a scene object's `surface`, what
+ * `section3` and `hatch3` cut), refused by name when it is not one. */
+export function stageGeometry3(input:unknown,who:string):Material {
+  if(!(input instanceof Material))throw new Error(`${who}: expected a geometry from occlude/3d — box(), mesh(positions, faces), … — got ${input===null?'null':Array.isArray(input)?'a list':typeof input}`);
+  return input;
+}
 export const freezeCurves3=<T>(value:T):T=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const v of Object.values(value))freezeCurves3(v);Object.freeze(value);}return value;};
 
 /** Validate source ownership before any support IDs can bypass self-occlusion. */
@@ -37,7 +43,7 @@ function sameSourcePoint3(a:SurfaceCurvePoint3,b:SurfaceCurvePoint3):boolean {
   return true;
 }
 export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Mesh3):void {
-  if(meshOfSurface3(curves.surface)!==surface)throw new Error('surface curves belong to a different captured surface; draw curves.surface or regenerate the curves');
+  if(mesh3(curves.surface)!==surface)throw new Error('surface curves belong to a different geometry; draw curves.surface or cut the curves again');
   if(validated.get(curves)===surface)return;
   const ids=new Set<string>(),points=new Map<string,SurfaceCurvePoint3>();
   const vertexCount=surface.n,triangleCount=surface.triangleCount,positions=surface.positions,slot=surface.triangles;

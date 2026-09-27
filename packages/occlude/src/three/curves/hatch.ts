@@ -1,14 +1,14 @@
 import { orient2d } from 'robust-predicates';
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 import { resolveLen, type L, type UnitCtx } from '../../units.js';
-import { measureFaces3, snapshotSurface3, type FaceMeasure3 } from '../geometry/model.js';
-import { stageSurface3, type StageSurface3 } from '../geometry/value.js';
-import { meshOfSurface3 } from '../geometry/parts.js';
-import type { Attributes3, Surface3 } from '../geometry/surface.js';
+import { measureFaces3, type FaceMeasure3 } from '../geometry/model.js';
+import { mesh3 } from '../geometry/mesh3.js';
+import type { Material } from '../../material.js';
+import type { Attributes3 } from '../geometry/surface.js';
 import { cameraShift3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
 import { add3, mul3, type Triangle3, type Vec3 } from '../math.js';
-import { intersectPlane3, type Plane3 } from './plane.js';
-import { freezeCurves3, type SurfaceCurvePoint3, type SurfaceCurveSegment3, type SurfaceCurves3 } from './surface.js';
+import { intersectPlane3, type Plane3, type PlaneTriangles3 } from './plane.js';
+import { freezeCurves3, stageGeometry3, type SurfaceCurvePoint3, type SurfaceCurveSegment3, type SurfaceCurves3 } from './surface.js';
 
 export interface HatchFamily3 {
   readonly id:string;
@@ -20,7 +20,9 @@ export interface HatchFamily3 {
   readonly attributes?:Attributes3;
 }
 export interface HatchSource3 {
-  readonly surface:Surface3;
+  /** The value the recipe was captured on; a scene object pairs it with the
+   * recipe as its `surface`. */
+  readonly surface:Material;
   readonly families:readonly (readonly HatchFamily3[])[];
   readonly maxSegments:number;
 }
@@ -36,18 +38,19 @@ function drawableFamilies3(values:readonly HatchFamily3[]):readonly HatchFamily3
 }
 /** Capture per-face drawing intent now; generate at the resolved camera/paper.
  * A second family is crosshatch. Callbacks run once against frozen model rows. */
-export function hatch3(input:StageSurface3,families:readonly HatchFamily3[]|((face:FaceMeasure3)=>readonly HatchFamily3[]),options:{maxSegments?:number}={}):HatchSource3 {
-  const surface=snapshotSurface3(stageSurface3(input)),maxSegments=options.maxSegments??Infinity;
+export function hatch3(input:Material,families:readonly HatchFamily3[]|((face:FaceMeasure3)=>readonly HatchFamily3[]),options:{maxSegments?:number}={}):HatchSource3 {
+  const surface=stageGeometry3(input,'hatch3'),maxSegments=options.maxSegments??Infinity;
   if(!(maxSegments===Infinity||Number.isSafeInteger(maxSegments))||maxSegments<1)throw new Error('hatch maxSegments must be a positive integer or Infinity');
-  const rows=measureFaces3(meshOfSurface3(surface)).map(face=>{
+  const rows=measureFaces3(mesh3(surface)).map(face=>{
     const values=drawableFamilies3(typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(face.attributes)})):families);
     return values.map(value=>freezeCurves3(structuredClone(value)));
   });
-  return freezeCurves3({surface,families:rows,maxSegments});
+  // The value is immutable and keeps its own caches: only the recipe freezes.
+  return Object.freeze({surface,families:freezeCurves3(rows),maxSegments});
 }
-export function validateHatch3(hatch:HatchSource3,surface:Surface3):void {
-  if(hatch.surface!==surface)throw new Error('hatch belongs to a different captured surface; draw hatch.surface or regenerate it');
-  if(hatch.families.length!==surface.faces.length||!(hatch.maxSegments===Infinity||Number.isSafeInteger(hatch.maxSegments))||hatch.maxSegments<1)throw new Error('invalid captured hatch families or capacity');
+export function validateHatch3(hatch:HatchSource3,surface:Material):void {
+  if(hatch.surface!==surface)throw new Error('hatch belongs to a different geometry; draw hatch.surface or capture the hatch again');
+  if(hatch.families.length!==mesh3(surface).faceCount||!(hatch.maxSegments===Infinity||Number.isSafeInteger(hatch.maxSegments))||hatch.maxSegments<1)throw new Error('invalid captured hatch families or capacity');
   hatch.families.forEach(drawableFamilies3);
 }
 const edgeKey=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`;
@@ -101,8 +104,8 @@ function sheetRange(frame:CameraFrame3,a:Vec3,b:Vec3):readonly [number,number]|n
   return lo<hi?[lo,hi]:null;
 }
 /** A point part-way along a ruling piece, in the piece's own triangle. */
-function alongPiece(world:Surface3,piece:SurfaceCurveSegment3,t:number,id:string):SurfaceCurvePoint3 {
-  const tri=world.triangles[piece.triangles[0]].vertices;
+function alongPiece(world:PlaneTriangles3,piece:SurfaceCurveSegment3,t:number,id:string):SurfaceCurvePoint3 {
+  const at=3*piece.triangles[0],tri=[world.triangles[at],world.triangles[at+1],world.triangles[at+2]];
   const bary=(p:SurfaceCurvePoint3):Vec3=>{const w=[0,0,0];p.vertices.forEach((v,i)=>{const k=tri.indexOf(v);if(k<0)throw new Error('ruling piece vertex outside its triangle');w[k]+=p.weights[i];});return w as unknown as Vec3;};
   const wa=bary(piece.a),wb=bary(piece.b),weights=wa.map((v,i)=>v+(wb[i]-v)*t) as unknown as Vec3;
   return freezeCurves3({id,position:add3(piece.a.position,mul3(add3(piece.b.position,mul3(piece.a.position,-1)),t)),vertices:[tri[0],tri[1],tri[2]] as const,weights});
@@ -138,15 +141,17 @@ function chainPieces(pieces:readonly SurfaceCurveSegment3[]):SurfaceCurveSegment
  * and phase share one paper-origin lattice and are ruled together, so a
  * ruling is one chain across every face it crosses (its pieces share nodes at
  * the edges between faces); folded faces use piecewise triangle support. */
-export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFrame3,units:UnitCtx):SurfaceCurves3 {
-  const surface=hatch.surface,byFace=surface.faces.map(()=>[] as number[]);
-  world.triangles.forEach((t,i)=>byFace[t.face].push(i));
-  const camera=world.points.map(p=>toCamera3(frame,p.position));
+export function realizeHatch3(hatch:HatchSource3,world:PlaneTriangles3,frame:CameraFrame3,units:UnitCtx):SurfaceCurves3 {
+  // `world` is the object where its transform puts it, its triangles wound
+  // as placed; the recipe, the loops and the model positions are the value's.
+  const surface=mesh3(hatch.surface),faceOfTriangle=surface.triangleFace,byFace=surface.loops.map(()=>[] as number[]);
+  for(let i=0;i<faceOfTriangle.length;i++)byFace[faceOfTriangle[i]].push(i);
+  const camera=world.positions.map(p=>toCamera3(frame,p)),slot=world.triangles,loops=surface.loops,faceNames=surface.names.faces,model=surface.positions;
   const segments:SurfaceCurveSegment3[]=[];let rowsVisited=0;
   // Group faces by lattice: same family, spacing, phase and angle rule together.
   interface Group {readonly key:string;readonly family:HatchFamily3;readonly spacing:number;readonly phase:number;readonly angle:number;readonly faces:number[]}
   const groups=new Map<string,Group>();
-  for(let face=0;face<surface.faces.length;face++)for(const family of hatch.families[face]) {
+  for(let face=0;face<loops.length;face++)for(const family of hatch.families[face]) {
     const spacing=resolveLen(family.spacing,units),rawPhase=resolveLen(family.offset??0,units);
     const remainder=rawPhase%spacing,phase=remainder<0?remainder+spacing:remainder;
     // Resolved against the real paper this time: a spacing with no length here
@@ -161,7 +166,7 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
     // Projected, near/far-clipped, non-degenerate triangles of every face in the group.
     const projected=new Map<number,readonly (readonly [number,number])[]>();
     for(const face of group.faces)for(const index of byFace[face]) {
-      const tri=world.triangles[index].vertices.map(i=>camera[i]) as unknown as Triangle3;
+      const tri=[camera[slot[3*index]],camera[slot[3*index+1]],camera[slot[3*index+2]]] as unknown as Triangle3;
       const points: (readonly [number,number])[]=[];
       for(const clipped of clipTriangle3(tri,frame.camera.near,frame.camera.far)) {
         const p=clipped.map(v=>toPaper3(frame,v));
@@ -176,9 +181,9 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
     // faces. A ruling lying on it is the face outline, already drawn; one lying
     // on an edge between two grouped faces is interior and stays.
     const edgeCount=new Map<string,number>();
-    for(const face of group.faces)for(const [i,v] of surface.faces[face].vertices.entries()){const k=edgeKey(v,surface.faces[face].vertices[(i+1)%surface.faces[face].vertices.length]);edgeCount.set(k,(edgeCount.get(k)??0)+1);}
+    for(const face of group.faces)for(const [i,v] of loops[face].entries()){const k=edgeKey(v,loops[face][(i+1)%loops[face].length]);edgeCount.set(k,(edgeCount.get(k)??0)+1);}
     const boundary=new Set([...edgeCount].filter(([,n])=>n===1).map(([k])=>k));
-    const faceOf=(triangle:number)=>surface.faces[world.triangles[triangle].face].id;
+    const faceOf=(triangle:number)=>faceNames[faceOfTriangle[triangle]];
     const theta=group.angle*Math.PI/180,nx=-Math.sin(theta),ny=Math.cos(theta);
     let min=Infinity,max=-Infinity;
     for(const points of projected.values())for(const p of points){const d=nx*p[0]+ny*p[1];min=Math.min(min,d);max=Math.max(max,d);}
@@ -209,7 +214,7 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
       const points=new Map<SurfaceCurvePoint3,SurfaceCurvePoint3>();
       const modelPoint=(p:SurfaceCurvePoint3):SurfaceCurvePoint3=>{
         let owned=points.get(p);
-        if(!owned){const position=p.vertices.reduce((sum,v,i)=>add3(sum,mul3(surface.points[v].position,p.weights[i])),[0,0,0] as Vec3);owned=freezeCurves3({...p,position});points.set(p,owned);}
+        if(!owned){const position=p.vertices.reduce((sum,v,i)=>add3(sum,mul3(model[v],p.weights[i])),[0,0,0] as Vec3);owned=freezeCurves3({...p,position});points.set(p,owned);}
         return owned;
       };
       const kept:SurfaceCurveSegment3[]=[];
@@ -228,5 +233,5 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
       for(const chain of chainPieces(kept))segments.push(...chain);
     }
   }
-  return Object.freeze({surface,segments:Object.freeze(segments)});
+  return Object.freeze({surface:hatch.surface,segments:Object.freeze(segments)});
 }

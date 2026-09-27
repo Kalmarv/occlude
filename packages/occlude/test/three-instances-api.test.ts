@@ -7,7 +7,7 @@ import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[5,7,6],span:7});
 describe('shared mesh instances',()=>{
@@ -20,8 +20,8 @@ describe('shared mesh instances',()=>{
   const drawing=view(placed,{camera});
   const classified=classifySceneCpu3(featureSnapshot3(drawing.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100})));
   const copies=placedOf(placed);
-  for(const feature of classified.features){expect(feature.feature.instance).toEqual(drawing.scene.objects.find(o=>o.id===feature.feature.objectId)!.instance);expect(copies.some(c=>c.id===feature.feature.instance!.id&&surfaceOf(sites).points[(c.source as {index:number}).index].id===feature.feature.instance!.pointId)).toBe(true);}
-  expect(new Set(drawing.scene.objects.map(o=>o.surface)).size).toBe(1);expect(drawing.scene.objects[0].surface).toBe(surfaceOf(prototype));
+  for(const feature of classified.features){expect(feature.feature.instance).toEqual(drawing.scene.objects.find(o=>o.id===feature.feature.objectId)!.instance);expect(copies.some(c=>c.id===feature.feature.instance!.id&&mesh3(sites).names.points[(c.source as {index:number}).index]===feature.feature.instance!.pointId)).toBe(true);}
+  expect(new Set(drawing.scene.objects.map(o=>o.surface)).size).toBe(1);expect(drawing.scene.objects[0].surface).toBe(prototype);
   // A write keeps the prototype and every copy's name.
   const group=placed.points.groupBy(r=>r.ink)[0];expect(group.key).toBe('a');const selected=group.extract();
   expect(prototypeOf(selected)).toBe(prototype);expect(placedOf(selected).map(c=>c.id)).toEqual([copies[0].id,copies[2].id]);
