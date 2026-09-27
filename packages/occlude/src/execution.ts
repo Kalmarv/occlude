@@ -37,7 +37,6 @@ import type { Placement } from './placement.js';
 import { euclideanSpace, resolveSpace, type Space, type SpaceOption, type ProjectionOption } from './space.js';
 import type { AssetPixels, AssetTable } from './imageAsset.js';
 import type { AnyFill, FillTable } from './fills.js';
-import type { MemoStore } from './memo.js';
 
 export type Winding = 'nonzero' | 'evenodd';
 
@@ -330,33 +329,13 @@ export class Execution {
   /** Sketch-time `within` bounds lowered once per shape for THIS frame. */
   readonly boundCache: WeakMap<object, unknown> = new WeakMap();
 
-  /** The host's memo (memo.ts), when the host gave one: the toolkit's pure
-   * data operations read through it. Not an input of the run — it changes
-   * no ink, only whether a derivation computed again — so it is held by
-   * reference, outlives the run, and is never snapshotted. */
-  readonly memo: MemoStore | undefined;
-
-  /**
-   * How many things this run did that a skipped call would fail to do
-   * again, or read that a memo key does not hold: seeded draws, stream
-   * opens, noise reads (the seed), probe and inspection records. The memo
-   * reads it across a call, and a call that moved it is never memoised
-   * (draws stay in call order).
-   */
-  effects = 0;
-
   /** The step `t.steps` is making — the start's step count plus the passes
    * already made — while a run of steps is in progress; undefined outside
    * one. What `force.drift` turns with, wherever the pass keeps its
    * values (a material, a plain object holding several, a lattice). */
   step: number | undefined = undefined;
 
-  /** The sketch's `space` and `projection` as it wrote them: what the
-   * memo keys a frame by (the resolved `space` is a record of closures). */
-  spaceConfig: { readonly space?: SpaceOption; readonly projection?: ProjectionOption } = {};
-
-  constructor(inputs: ExecutionInputs, host: { memo?: MemoStore } = {}) {
-    this.memo = host.memo;
+  constructor(inputs: ExecutionInputs) {
     if (!inputs || typeof inputs !== 'object' || !inputs.paper) throw new Error('Execution: inputs.paper is required ({ w, h } in mm)');
     if (!(inputs.paper.w > 0) || !(inputs.paper.h > 0)) throw new Error(`Execution: paper must be positive, got ${inputs.paper.w}×${inputs.paper.h}`);
     this.inputs = Object.freeze({
@@ -447,7 +426,6 @@ export class Execution {
     // The space is centred on the middle of the drawable in the SKETCH's
     // coordinates — `(0, 0)` under `origin: 'center'` — so every word reads
     // one frame; the origin/yUp convention is applied after it projects.
-    this.spaceConfig = { space: cfg.space, projection: cfg.projection };
     const size = this.drawableSize();
     const middle = this.bounds();
     this.space = resolveSpace(cfg.space, cfg.projection, {
@@ -569,7 +547,6 @@ export class Execution {
    * every later draw is what the seed alone would have given.
    */
   private unitDraw(rng: Rng): number {
-    this.effects++;
     const f = rng.float();
     const site = this.siteStack[this.siteStack.length - 1];
     this.lastDraw = null;
@@ -646,7 +623,6 @@ export class Execution {
   }
 
   noise(x: number, y = 0, z?: number): number {
-    this.effects++;
     return this.rng.noise(x, y, z);
   }
 
@@ -670,7 +646,6 @@ export class Execution {
    * `stream(name)` is the sketch's own address and does not count.
    */
   freshStream(name: string): RandomStream {
-    this.effects++;
     const n = this.streamOpens.get(name) ?? 0;
     this.streamOpens.set(name, n + 1);
     return this.streamAt(n === 0 ? name : `${name}:${n}`);
@@ -706,7 +681,6 @@ export class Execution {
       pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
       noise: (x, y = 0, z?: number) => {
-        this.effects++;
         return rng.noise(x, y, z);
       },
     };
@@ -734,7 +708,6 @@ export class Execution {
   /** Record one value under `label`. Identity on the value; numbers only
    * count toward the stats (anything else is a "non-finite" tick). */
   recordProbe(label: string, value: unknown): void {
-    this.effects++;
     let p = this.probes.get(label);
     if (!p) {
       p = { count: 0, nonFinite: 0, min: Infinity, max: -Infinity, sum: 0, stride: 1, samples: [] };
@@ -778,7 +751,6 @@ export class Execution {
   /** Register `value` under `label` for the debug inspector. Not history:
    * the last registration under a label is the one kept. */
   recordInspection(label: string, value: Material): void {
-    this.effects++;
     if (!this.inputs.inspect) return;
     this.inspections.set(label, value);
   }

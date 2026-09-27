@@ -85,7 +85,6 @@ import {
 import { chainLengths, chainRecordOf, chainRecordsOf, isCurveRow, type Curve } from './curves.js';
 import { isPointSelection, isEdgeSelection } from './relation.js';
 import { Selection } from './selection.js';
-import { memoised } from './memo.js';
 // Named here so the toolkit's declaration can say its query-host key.
 import type { QUERY_HOST3 } from './three/queries/surface.js';
 import { describe, ownerOf, viewKind } from './views.js';
@@ -2596,7 +2595,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     seed: opts.seed ?? `${exec.seedUsed}:synth:${exec.rng.float()}`,
     bounds: opts.bounds ?? { x: b0.x, y: b0.y, w: b0.w, h: b0.h },
   });
-  return memoised({
+  return {
     ...bindModeling3(exec, scope),
     classify3: (scene: LineArtScene3) => {
       if (!scope || scope.isOpen && !scope.isOpen()) throw new Error('classify3 requires an active async compilation');
@@ -2734,7 +2733,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     asset: (name: string): string => assetOf(exec.inputs.assets, name),
     /** A captured image as a sampler placed on the drawable. */
     image: (name: string, place: ImagePlacement = {}) => imageOf(exec.inputs.assets, name, place),
-  }, exec);
+  };
 }
 
 interface EmitCtx {

@@ -27,18 +27,12 @@
  *
  *    The one reader of a node in the library is `cloudArea` (api.ts), which
  *    reads `op` and `params.within` so the next point word defaults to the
- *    area a cloud was bounded by. The memo (memo.ts) does not read nodes:
- *    it keys a toolkit call by its own arguments, the frame and the run's
- *    id counter (see its header). `memoisable(node)` states the same two
- *    refusals on a node — no function among the inputs or parameters
- *    (ruling 1: a closure is not hashable), no `seeded` call (ruling 4:
- *    skipping a draw moves every later draw) — and only tests call it.
- *    `inputs`, `seeded` and `kept` are read by tests only; `inputs` holds
- *    every input by reference, so a loop of derivations written by hand
- *    (`m = t.relax(m)` again and again) keeps every state it passed
- *    through (kept by the owner's ruling, not by a reader). A value that
- *    is one of its own inputs (a word that handed its input back) gets no
- *    node.
+ *    area a cloud was bounded by. `inputs`, `seeded` and `kept` are read
+ *    by tests only; `inputs` holds every input by reference, so a loop of
+ *    derivations written by hand (`m = t.relax(m)` again and again) keeps
+ *    every state it passed through (kept by the owner's ruling, not by a
+ *    reader). A value that is one of its own inputs (a word that handed
+ *    its input back) gets no node.
  *
  *    A write (`set`, `move`, `add`, …) is a derivation of its own and does
  *    not inherit the node: the node says how THIS value was made.
@@ -159,14 +153,6 @@ export function record<T>(value: T, node: Derivation): T {
 export function nodeOf(value: unknown): Derivation | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   return boxOf(value)?.node ?? NODES.get(value);
-}
-
-/** @internal May a memo return an earlier result for this node? Not when
- * it takes a closure — as an input, or as a parameter (a spacing that is a
- * field) — (ruling 1), or draws from the run's stream (ruling 4). */
-export function memoisable(node: Derivation): boolean {
-  const fn = (v: unknown): boolean => typeof v === 'function';
-  return !node.seeded && !node.inputs.some(fn) && !Object.values(node.params).some(fn);
 }
 
 // ---- the links ---------------------------------------------------------------

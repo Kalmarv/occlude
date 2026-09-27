@@ -6,7 +6,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PENS, assetTable, fillTable, tagDraws } from 'occlude/host';
-import { MemoStore } from 'occlude/host';
 import { currentDraws, currentSeed, moduleName, runSketch, runSketchAsync, type RunConfig } from './runner.js';
 
 const cfg: RunConfig = {
@@ -90,18 +89,3 @@ it('awaits async modules with captured libraries and seeded draws', async () => 
   expect(runSketch(js, cfg, 7, assetTable(), fillTable([])).error).toMatchObject({ message: expect.stringContaining('async rendering required') });
 });
 
-it('hands the worker\'s memo to the run, and a run through it draws what a run without one draws', () => {
-  const js = emitted(`exports.default = occlude_1.sketch({ seed: 3 }, (t) => [
-    ...t.sample(occlude_1.circle(50, 50, 30), { count: 48 }).points.map((p) => occlude_1.circle(p.x, p.y, t.rnd(1, 3))),
-    ...t.material(occlude_1.rect(20, 20, 60, 60)).points.map((p) => occlude_1.circle(p.x, p.y, 2)),
-  ]);`);
-  const store = new MemoStore();
-  const off = runSketch(js, cfg, 7, assetTable(), fillTable([]));
-  const cold = runSketch(js, cfg, 7, assetTable(), fillTable([]), store);
-  const warm = runSketch(js, cfg, 7, assetTable(), fillTable([]), store);
-  expect(off.run!.memo).toBeUndefined();
-  expect(cold.run!.memo).toBe(store);
-  expect(cold.error).toBeNull();
-  expect(cold.scene).toEqual(off.scene);
-  expect(warm.scene).toEqual(cold.scene);
-});

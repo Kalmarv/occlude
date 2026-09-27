@@ -101,5 +101,3 @@ export { PAPERS, DEFAULT_PAPERS, paperSize } from './paper.js';
 export type { Paper, PaperChoice, PaperDef } from './paper.js';
 export { DEFAULT_PENS } from './pens.js';
 
-// The memo a host keeps across runs (off unless the host hands one to the Execution).
-export { MemoStore } from './memo.js';

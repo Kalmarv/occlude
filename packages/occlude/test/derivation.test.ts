@@ -187,8 +187,7 @@ describe('the field and area words', () => {
   });
 
   it('every maker records how it was made; a write, and a value made by hand, record nothing', () => {
-    // The smoke test of the derivation record the memo keys on (memo.test.ts
-    // asserts what it does: hits, misses and closures).
+    // The smoke test of the derivation record.
     const t = toolkit({ aspect: [1, 1], seed: 6 });
     const sites = material([[20, 20], [70, 30], [40, 80]]);
     const ring = t.sample(circle(50, 50, 20), { count: 30 });

@@ -97,7 +97,7 @@ rasters are implementation numbers. They are not tenants.
   which door to use.
 - **Identity is internal; the value you hold is the name.** Every row
   still has an identity — minted once, never reused, kept by the library
-  for relations, `source` and the memo, and a split still retires the
+  for relations and `source`, and a split still retires the
   parent and keeps its lineage, which is how a face keeps its columns
   across a subdivided wall. But a sketch never names an id: a point or
   edge value (`point(…)`, `edge(…)`), a row view or a selection you hold

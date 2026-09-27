@@ -52,7 +52,6 @@ import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, pairKey, viewKind, RowView, rowViewKind } from './views.js';
 import { Column, at64, atU32, columnOf, isTypedColumn, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type ColumnLike, type StringColumn } from './column.js';
 import { carryLinks, derivation, linkRows, record, rowParam, rowSource, type Derivation, type DomainSpec, type Links, type RowSource } from './derivation.js';
-import { memoMethod } from './memo.js';
 import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, type Corner } from './corners.js';
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
@@ -1084,9 +1083,7 @@ export class Material {
    * contact of the sampled edges is a shared vertex. Explicit: nothing
    * else planarizes. See `planarize` for the rules and the resolvers. */
   planarize(opts: PlanarizeOpts = {}): Material {
-    // Pure: a value from a memoised call answers from the memo (memo.ts);
-    // a resolver among the options leaves the call unkeyed.
-    return memoMethod(this, 'planarize', [opts], () => planarize(this, opts));
+    return planarize(this, opts);
   }
 
   /** Independent material in which coincident ink is one piece of ink:
@@ -1783,9 +1780,7 @@ export class Material {
   /** Thickness around this material's chains: an outline at the radius each
    * vertex asks for. See `ThickenOpts`. */
   thicken(opts: ThickenOpts): Material {
-    // Pure, as `planarize` is: a radius or a `point` callback leaves the
-    // call unkeyed.
-    return memoMethod(this, 'thicken', [opts], () => thickenKernel(this, opts));
+    return thickenKernel(this, opts);
   }
 
   /** This material through a moved cage: corner for corner, the space in

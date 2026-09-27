@@ -92,9 +92,9 @@ packages/occlude/src/
                         material or a lattice holds — leaves of 1024 values,
                         a write copies the leaves it touches and shares the
                         rest, a kernel reads one joined flat array
-  derivation, memo      what a derived value keeps (the node: operation,
+  derivation            what a derived value keeps (the node: operation,
                         inputs, parameters) and the row links `source` and
-                        `u` answer; the host-owned conservative memo
+                        `u` answer
   warp, thicken,        the material-to-material methods (`m.warp`,
   envelope, interlace,    `m.thicken`, …): each reads the material in its
   oscillate, merge,       own coordinates, or its own space where the
@@ -738,7 +738,7 @@ nothing in a sketch may rely on it.
   column: a row reads through its view, and the flat getters are
   `@internal`, stripped from the declarations. A flat is shared by every
   state that shares its column, so a write into one from untyped JS
-  reaches all of those states and would poison the memo. The library
+  reaches all of those states. The library
   never writes one, and nothing invalidates on such a write. Every derived
   structure is built on first read and kept on the state: `g.curves` (the
   walk and its derived columns `s`, `u`, `heading`, `tangent`, `normal`),
@@ -819,12 +819,10 @@ and `test/transfer.test.ts`.
   finite leaves the point, and in a curved space the point walks the
   geodesic.
 
-### Derivations and the memo
+### Derivations
 
-*Where:* `derivation.ts` (the node and the links), `memo.ts` (the store,
-`MEMO_OPS`, the key), the words in `api.ts` and `points.ts` that record
-them, pinned by `test/derivation.test.ts` and `test/memo.test.ts`; the
-proof is `tools/memo-proof.ts`.
+*Where:* `derivation.ts` (the node and the links), the words in `api.ts`
+and `points.ts` that record them, pinned by `test/derivation.test.ts`.
 
 - **A derived value keeps its inputs and its rule.** A word such as
   `t.sample`, `t.settle`, `t.streamlines` or `t.voronoi` puts an internal
@@ -844,27 +842,9 @@ proof is `tools/memo-proof.ts`.
   none did. The links are kept by row identity, so a `set` or a `move` of
   the result still answers them, a removed row finds nothing, and a row
   added later has none.
-- **Ids are internal.** Links, `source` and the memo key read the minted
+- **Ids are internal.** Links and `source` read the minted
   ids; a sketch never names one. It holds values and rows, and reaches
   rows by a rule.
-- **The memo is conservative.** A host that owns a `MemoStore` (the
-  studio's render worker behind `localStorage['occlude.memo'] = 'on'`,
-  kept across renders and evicted by bytes, least recently used first)
-  lets the run answer an earlier result for a call on the allow-list
-  (`MEMO_OPS`: `material`, `sample`, `grid`, `text`, `tiling`, `voronoi`,
-  `quadtree`, `spacefill`, `relax`, `within`; `memoMethod` wraps
-  `m.planarize` and `m.thicken`) with the same operation, frame, place in
-  the run's id counter and arguments. Plain data and shapes key by value,
-  geometry by identity. A call with a closure anywhere in its arguments (a
-  field, a pass, a predicate) is never memoised. A call that moves
-  `Execution.effects` (a seeded draw, a stream opened, a noise read, a
-  probe) is not stored, and its operation is never memoised again by that
-  store: to skip it would move every later draw. So `t.steps` and field
-  closures always run.
-- **Warm equals cold.** A hit returns the value a cold run made, and it
-  leaves the id counter where a cold run leaves it, so the ink never
-  changes. `tools/memo-proof.ts` renders each docs fence cold, then warm
-  after an edit and its undo, and checks that the hashes agree.
 
 ### Geometry queries
 
