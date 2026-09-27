@@ -7,7 +7,6 @@ import {intersections3} from '../src/three/curves/intersections.js';
 import {SurfaceCurves} from '../src/three/api/supported.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {featureSnapshot3,FeatureKind3} from '../src/three/features/snapshot.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 describe('instance surface binding ownership',()=>{
   const bindingOf=(m:ReturnType<typeof instanceOnPoints>,i:number)=>placedOf(m)[i].binding;

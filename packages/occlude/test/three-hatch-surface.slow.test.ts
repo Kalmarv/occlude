@@ -13,7 +13,6 @@ import {bindingTriangle3} from '../src/three/curves/network.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 import type {SurfaceCurves} from '../src/three/api/supported.js';
 import {readFileSync} from 'node:fs';
-import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
@@ -183,7 +182,11 @@ describe('seeded surface hatch',()=>{
     const low=plane(2,2).subdivide(2),high=low.translate([0,0,10]);
     const onHigh=surfaceLocation3(mesh3(high),3,[.2,.3,.5]);
     expect(()=>trace(low,[onHigh],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
-    expect(()=>trace(low,[{sample:onHigh}],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    // A scattered point knows the surface it was sampled on, as a location does.
+    const scattered=scatterSurface(high,{count:2},{rnd:stream(7)});
+    expect(()=>trace(low,scattered.points,[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    expect(()=>trace(low,[scattered.points.at(0)!.sample],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    expect(trace(high,scattered.points,[1,0,0],{step:.2,maxLength:1}).edges.length).toBeGreaterThan(0);
     expect(trace(high,[onHigh],[1,0,0],{step:.2,maxLength:1}).edges.length).toBeGreaterThan(0);
     // The same instance id with a different transform must not reuse the gradient.
     const field=grad(s=>s.position[2]),sheet=plane(2,2);

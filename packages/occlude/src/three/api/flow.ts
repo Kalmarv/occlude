@@ -1,9 +1,7 @@
 import {add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
-import {geometry3,type GeometryOptions} from './mesh.js';
-import {surfaceOf} from '../geometry/value.js';
-import {surface3,type Surface3,type SurfaceEdge3} from '../geometry/surface.js';
-import {ownSurface3} from '../geometry/model.js';
+import {madeGeometry3,pointsMade3,type GeometryOptions} from './mesh.js';
+import {mesh3,checkMade3} from '../geometry/mesh3.js';
 import {query,type PreparedQuery} from './query.js';
 import {checkedField3,type VectorField3} from './vec.js';
 import {refuseDisplay} from './recipes.js';
@@ -92,7 +90,7 @@ class Separation3 {
     return false;
   }
 }
-const closed=(mesh:Material):boolean=>{const s=surfaceOf(mesh);return s.faces.length>0&&s.edges.every(e=>e.faces.length===2);};
+const closed=(mesh:Material):boolean=>{const m=mesh3(mesh);return m.faceCount>0&&m.edgeFaces.every(faces=>faces.length===2);};
 function bounds(points:readonly Vec3[]):{low:Vec3;high:Vec3;extent:number} {
   const low:number[]=[Infinity,Infinity,Infinity],high:number[]=[-Infinity,-Infinity,-Infinity];
   for(const p of points)for(let k=0;k<3;k++){low[k]=Math.min(low[k],p[k]);high[k]=Math.max(high[k],p[k]);}
@@ -150,15 +148,15 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
   checkedField3(field,'t.streamlines');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('t.streamlines of a field of space requires its options, { seeds }');
   refuseDisplay(options,'t.streamlines');
-  if(options.spacing!==undefined&&emptySize(options.spacing))return lines([],[],[],options.key);
-  if(options.step!==undefined&&emptySize(options.step))return lines([],[],[],options.key);
-  if(options.maxLength!==undefined&&emptySize(options.maxLength))return lines([],[],[],options.key);
+  if(options.spacing!==undefined&&emptySize(options.spacing))return lines([],[],[],[],options.key);
+  if(options.step!==undefined&&emptySize(options.step))return lines([],[],[],[],options.key);
+  if(options.maxLength!==undefined&&emptySize(options.maxLength))return lines([],[],[],[],options.key);
   const bound=options.within;
   if(bound!==undefined&&!(bound instanceof Material))throw new Error('t.streamlines within requires a closed mesh');
-  if(bound&&!closed(bound))return lines([],[],[],options.key);
+  if(bound&&!closed(bound))return lines([],[],[],[],options.key);
   const seeds=seedPoints(options.seeds,env);
-  if(!seeds.length)return lines([],[],[],options.key);
-  const region=bound?bounds(surfaceOf(bound).points.map(p=>p.position)):undefined;
+  if(!seeds.length)return lines([],[],[],[],options.key);
+  const region=bound?bounds(mesh3(bound).positions):undefined;
   const spread=Math.max(bounds(seeds).extent,region?.extent??0);
   const extent=spread>0?spread:1;
   const spacing=options.spacing;
@@ -187,7 +185,7 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
   };
   // Every line is a chain of one value: its points named for the line and
   // their place on it, a repeated point no segment.
-  const places:Vec3[]=[],names:string[]=[],edges:SurfaceEdge3[]=[];
+  const places:Vec3[]=[],names:string[]=[],edges:number[]=[],edgeNames:string[]=[];
   let line=0;
   for(const seed of seeds){
     if(!seed.every(Number.isFinite)||!direction(field,seed))continue;
@@ -203,18 +201,18 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
       run.forEach((p,j)=>{places.push(p);names.push(`l${line}:p${j}`);});
       for(let j=0;j+1<run.length;j++){
         if(Math.hypot(...sub3(run[j],run[j+1]))===0)continue;
-        edges.push({id:`e:l${line}:p${j}:p${j+1}`,vertices:[start+j,start+j+1],faces:[],attributes:{}});
+        edges.push(start+j,start+j+1);edgeNames.push(`e:l${line}:p${j}:p${j+1}`);
       }
       line++;
     }
   }
-  return lines(places,names,edges,options.key);
+  return lines(places,names,edges,edgeNames,options.key);
 }
-/** The lines as one value: points and edges, no faces. */
-function lines(places:readonly Vec3[],names:readonly string[],edges:readonly SurfaceEdge3[],key:string|undefined):Material {
-  const base=surface3(places,[]);
-  const surface:Surface3={...base,points:base.points.map((p,i)=>({...p,id:names[i]})),edges};
-  return geometry3(ownSurface3(surface),key!==undefined?{key}:{});
+/** The lines as one value: points and edges, no faces. A point a repeated
+ * place left without a segment stays a point of its line. */
+function lines(places:readonly Vec3[],names:readonly string[],edges:readonly number[],edgeNames:readonly string[],key:string|undefined):Material {
+  const made={...pointsMade3(places,names),names:{points:names,edges:edgeNames,faces:[],corners:[]},edges:Uint32Array.from(edges)};checkMade3(made);
+  return madeGeometry3(made,key!==undefined?{key}:{});
 }
 function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
   if(Array.isArray(seeds))return (seeds as readonly unknown[]).map(p=>(Array.isArray(p)?[p[0],p[1],p[2]]:[(p as {x:number}).x,(p as {y:number}).y,(p as {z:number}).z]) as Vec3);
@@ -224,7 +222,7 @@ function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
   if(!request||typeof request!=='object'||!(request.within instanceof Material))throw new Error('t.streamlines seeds require a list of points, or { count, within }');
   if(!Number.isSafeInteger(request.count)||request.count<0)throw new Error('t.streamlines seed count must be a nonnegative integer');
   if(!closed(request.within))return [];
-  const box=bounds(surfaceOf(request.within).points.map(p=>p.position));
+  const box=bounds(mesh3(request.within).positions);
   if(!(box.extent>0))return [];
   const prepared=query(request.within),out:Vec3[]=[];
   // Rejection sampling in the mesh's own box: the points are where the shape

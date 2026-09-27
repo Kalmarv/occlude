@@ -6,7 +6,6 @@ import {mesh3} from '../src/three/geometry/mesh3.js';
 import {Selection} from '../src/selection.js';
 import {mesh,pointCloud} from '../src/three/api/mesh.js';
 import {instanceOnPoints} from '../src/three/api/instances.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 function pair(){
  const s=surface3([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0],[2,1,0]],[[0,1,2,3],[1,4,5,2]]);
  return assembleSurface3(s.points,s.faces.map((f,i)=>({...f,corners:f.corners!.map((c,j)=>({...c,attributes:{uv:([[0,0],[1,0],[1,1],[0,1]][j]).map((v,k)=>v+(k===0?i*10:0)),island:i?'right':'left'}}))})),s.triangles,s);
@@ -53,10 +52,13 @@ describe('owned polygon corner storage',()=>{
   expect(refined.points.every(p=>!(p.source instanceof Selection)||p.source.length===2)).toBe(true);
  });
  it('namespaces realized corners while preserving their values',()=>{
-  const prototype=mesh(pair()),out=surfaceOf(instanceOnPoints(prototype,pointCloud([[0,0,0],[3,0,0]]).points).realize());
-  expect(new Set(out.faces.flatMap(f=>f.corners!.map(c=>c.id))).size).toBe(16);
-  expect(out.faces[0].corners!.map(c=>c.attributes.uv)).toEqual(out.faces[2].corners!.map(c=>c.attributes.uv));
-  expect(out.faces[2].corners!.every(c=>c.provenance?.operation==='realize')).toBe(true);
+  const prototype=pairValue(),placed=instanceOnPoints(prototype,pointCloud([[0,0,0],[3,0,0]]).points),out=placed.realize();
+  // Every copy has its own corners, holding the prototype's values.
+  expect(out.corners.length).toBe(16);expect(out.faces.at(1)!.corners.map(c=>c.uv)).toEqual([[10,0],[11,0],[11,1],[10,1]]);
+  expect(out.faces.at(0)!.corners.map(c=>c.uv)).toEqual(out.faces.at(2)!.corners.map(c=>c.uv));
+  expect(out.faces.at(3)!.corners.map(c=>c.island)).toEqual(Array(4).fill('right'));
+  // A realized face comes from the prototype face and its copy.
+  expect(out.faces.at(2)!.source).toEqual([prototype.faces.at(0),placed.points.at(1)]);
  });
  it('rejects missing or duplicate explicit corner identities',()=>{
   const s=pair();

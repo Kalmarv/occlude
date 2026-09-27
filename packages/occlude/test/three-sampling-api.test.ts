@@ -6,7 +6,6 @@ import {Rng} from '../src/random.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import type {Material} from '../src/material.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const env=(seed:number|string=42)=>{const rng=new Rng(seed);return {rnd:()=>rng.float()};};
 describe('surface samples and scatter',()=>{
@@ -67,7 +66,7 @@ describe('surface samples and scatter',()=>{
   const sites=scatterSurface(target,{spacing:.3,maxAttempts:3000,maxPoints:100},env());expect(sites.points.length).toBeGreaterThan(20);expect(generationOf(sites)!.reason).toBe('attempt-limit');
   const rows=sites.points.map(p=>p);for(let i=0;i<rows.length;i++)for(let j=i+1;j<rows.length;j++)expect(Math.hypot(rows[i].x-rows[j].x,rows[i].y-rows[j].y,rows[i].z-rows[j].z)).toBeGreaterThanOrEqual(.3);
   expect(new Set(rows.map(p=>p.z)).size).toBe(2);
-  const repeated=scatterSurface(target,{spacing:.3,maxAttempts:3000,maxPoints:100},env());expect(surfaceOf(repeated)).toEqual(surfaceOf(sites));
+  const repeated=scatterSurface(target,{spacing:.3,maxAttempts:3000,maxPoints:100},env());const places=(m:Material)=>m.points.map(p=>[p.x,p.y,p.z,...p.sample.barycentric]);expect(places(repeated)).toEqual(places(sites));
   const short=scatterSurface(target,{spacing:.3,maxPoints:10,maxAttempts:3000},env());expect(generationOf(short)!.reason).toBe('point-limit');expect(short.points.map(p=>[p.x,p.y,p.z])).toEqual(rows.slice(0,10).map(p=>[p.x,p.y,p.z]));
  });
  it('bounds work, handles empty domains, cancellation and invalid random sources explicitly',()=>{
@@ -93,12 +92,13 @@ describe('surface samples and scatter',()=>{
   const definition=sketch({seed:42,pens:{ink:pen({width:mm(.3)})}},t=>{
     models++;const terrain=plane(3).subdivide(2).faces.set('height',f=>f.centroid[0]);
     // Draws in call order: a second call is new points, the same ones on every run.
-    const a=t.scatter(terrain,{count:10}),b=t.scatter(terrain,{count:10});expect(surfaceOf(b)).not.toEqual(surfaceOf(a));
+    const a=t.scatter(terrain,{count:10}),b=t.scatter(terrain,{count:10});expect(b.points.map(p=>p.x)).not.toEqual(a.points.map(p=>p.x));
     const generated=t.scatter(terrain,{spacing:.6,maxAttempts:300,maxPoints:12});sites=generated;
     return view([terrain,instanceOnPoints(box(.2),generated.points)],{camera:orthographic({eye:[5,7,6],span:5})});
   });
-  const result=await compileSketchAsync(definition),source=surfaceOf(sites!),before=exportSvg(result),id=[...result.scenes3.keys()][0];
-  const changed=await commitCamera3(result,id,perspective({eye:[5,7,6]}));expect(models).toBe(1);expect(surfaceOf(sites!)).toBe(source);expect(exportSvg(result)).toBe(before);expect(exportSvg(changed)).not.toBe(before);
-  await compileSketchAsync(definition);expect(models).toBe(2);expect(surfaceOf(sites!)).toEqual(source);
+  const places=(m:Material)=>m.points.map(p=>[p.x,p.y,p.z]);
+  const result=await compileSketchAsync(definition),held=sites!,source=places(held),before=exportSvg(result),id=[...result.scenes3.keys()][0];
+  const changed=await commitCamera3(result,id,perspective({eye:[5,7,6]}));expect(models).toBe(1);expect(sites).toBe(held);expect(exportSvg(result)).toBe(before);expect(exportSvg(changed)).not.toBe(before);
+  await compileSketchAsync(definition);expect(models).toBe(2);expect(places(sites!)).toEqual(source);
  });
 });

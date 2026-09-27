@@ -7,6 +7,8 @@ import {isInstances,placedOf} from './instances.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
+import {placeOf3,type SurfaceSample} from './sampling.js';
+import type {CurveSample} from './curveSampling.js';
 import type {Attributes3} from '../geometry/surface.js';
 import {integerWeights,weightedPoint} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
@@ -357,10 +359,10 @@ export interface TraceOptions extends SurfaceCurveOptions {
   readonly step:number;readonly maxLength?:number;readonly maxSteps?:number;readonly creaseDegrees?:number;
   readonly uv?:string;readonly chartAttribute?:string;readonly budget?:SurfaceCurveBudget3;
 }
-type SeedLocation=Pick<SurfaceLocation3,'triangle'|'barycentric'>;
-/** Where a trace starts: a surface sample, a location, or a curve sample
- * (`t.sample(curves, …)` rows) that lies on the traced mesh. */
-export type TraceSeed={readonly sample:SeedLocation}|{readonly sample:{on(target:Material):readonly SeedLocation[]}}|SeedLocation;
+/** Where a trace starts: a location, a surface sample (a scattered point,
+ * or its `sample`), or a curve sample (a point of `t.sample(curves, …)`)
+ * that lies on the traced mesh. */
+export type TraceSeed=SurfaceLocation3|SurfaceSample|{readonly sample:SurfaceSample|CurveSample};
 export type TraceColumns={trace:number};
 /** Pure tracing from explicit seeds: sampled points, scattered points or
  * surface locations. Both directions from each seed; no spacing control, no
@@ -377,20 +379,20 @@ export function trace(mesh:Material,seeds:Iterable<TraceSeed>|Selection<Vertex>,
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   let index=0;
   for(const seed of walks?seeds:[]){
-    const held='sample' in seed?seed.sample:seed;
+    const held:unknown=seed&&typeof seed==='object'&&'sample' in seed?seed.sample:seed;
     // A curve sample keeps its attachment to every surface it lies on; the
-    // one on this mesh is the seed.
-    let location:SeedLocation;
+    // one on this mesh is the seed. A surface sample is the place it was
+    // captured at.
+    let location:SurfaceLocation3|undefined;
     if(typeof (held as {on?:unknown}).on==='function'){
-      const on=(held as {on(target:Material):readonly SeedLocation[]}).on(mesh);
+      const on=(held as CurveSample).on(mesh);
       if(!on.length)throw new Error('trace seed is a curve sample that does not lie on this mesh: sample curves on the traced mesh (intersections with it, its isolines)');
       location=on[0];
-    }else location=held as SeedLocation;
-    if(!location||!Number.isSafeInteger(location.triangle)||location.triangle<0||location.triangle>=binding.source.triangleCount||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
-    // A location knows its surface; a seed sampled on another mesh would be
+    }else location=placeOf3(held);
+    if(!location)throw new Error('trace seeds require a surface sample or location on this mesh');
+    // A place knows its surface; a seed sampled on another mesh would be
     // read as a triangle index on this one and land somewhere else entirely.
-    const own=locationMesh3(location);
-    if(own!==undefined&&own!==binding.source)throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
+    if(locationMesh3(location)!==binding.source)throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
     const result=traceBoth3(env,{triangle:location.triangle,weights:location.barycentric},field,settings),chain=identity('trace-chain',options.key??mesh.key??'default',index);
     const ids:(string|undefined)[]=[],last=result.nodes.length-1;
     const nodeId=(index:number)=>{

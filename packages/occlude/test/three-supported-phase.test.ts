@@ -12,7 +12,6 @@ import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 import { point } from '../src/three/geometry/exact.js';
 import { mesh } from '../src/three/api/mesh.js';
 import { surfaceBinding3, surfaceCurveNetwork3, selectSurfaceCurveNetwork3, type SurfaceCurveNetwork3 } from '../src/three/curves/network.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));

@@ -23,7 +23,6 @@ import {
 } from '../src/index.js';
 import { assetTable, evalPrim, exportPng, exportSvg, initOcclude, render } from '../src/host.js';
 import { rec } from './helpers/xy.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -278,7 +277,7 @@ const stream = (seed = 1) => { let v = seed >>> 0 || 1; return () => { v ^= v <<
 
 describe('G3-40 a location has uv where its face has a chart, as the fields page says', () => {
   it('reads uv and tangentU on a primitive, and neither on a boolean\'s result', () => {
-    const at = (m: Parameters<typeof surfaceOf>[0]) => surfaceLocation3(mesh3(m), 0, [1 / 3, 1 / 3, 1 / 3]);
+    const at = (m: Material) => surfaceLocation3(mesh3(m), 0, [1 / 3, 1 / 3, 1 / 3]);
     for (const primitive of [box(2), plane(2), sphere(1)]) {
       const s = at(primitive);
       expect(s.chartStatus).toBe('regular');
@@ -331,9 +330,9 @@ describe('G3-42 t.hatch reaches every face the direction crosses', () => {
   const solid = () => box(2).subtract(sphere(1.1, { segments: 24, rings: 12 }).translate([1, 1, 1]));
   it('hatches the scoop a boolean cut, whatever the random stream (reference-3d-fields-4)', () => {
     const m = solid();
-    const s = surfaceOf(m);
+    const s = mesh3(m);
     const onScoop = (tri: number) => {
-      const c = s.triangles[tri].vertices.map((v) => s.points[v].position).reduce((a, p) => [a[0] + p[0] / 3, a[1] + p[1] / 3, a[2] + p[2] / 3], [0, 0, 0]);
+      const c = s.triangle(tri).map((v) => s.positions[v]).reduce((a, p) => [a[0] + p[0] / 3, a[1] + p[1] / 3, a[2] + p[2] / 3], [0, 0, 0]);
       return Math.abs(Math.hypot(c[0] - 1, c[1] - 1, c[2] - 1) - 1.1) < 0.08;
     };
     for (const seed of [1, 2, 3, 4, 5]) {

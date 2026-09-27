@@ -9,7 +9,6 @@ import {point,type H} from '../src/three/geometry/exact.js';
 import {surfaceBinding3,surfaceCurveNetwork3} from '../src/three/curves/network.js';
 import {surfaceLocation3,rebindSurfaceLocation3} from '../src/three/geometry/location.js';
 import {toolkit} from './helpers/run.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const source=()=>mesh([[0,0,0],[10,0,0],[0,10,0]],[[0,1,2]]);
 const binding=()=>surfaceBinding3(mesh3(source()));
