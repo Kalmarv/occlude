@@ -1,6 +1,6 @@
 import type {Tree} from '../../api.js';
 import type {L} from '../../units.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {cameraFrame3,type Camera3,type PaperFrame3} from '../camera.js';
 import {sub3,type Vec3} from '../math.js';
 import {clampSetting} from '../degenerate.js';

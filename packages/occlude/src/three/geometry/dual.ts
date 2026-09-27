@@ -1,6 +1,5 @@
 import {add3,centroid3,dot3,mul3,type Vec3} from '../math.js';
-import {triangulate} from './surface.js';
-import {cornerNames3,checkMade3,faceEdges3,kernelColumn,pairKey,type Made3,type Mesh3} from './mesh3.js';
+import {triangulate,cornerNames3,checkMade3,faceEdges3,kernelColumn,pairKey,type Made3,type Mesh3} from './mesh3.js';
 import {kindOf,type AnyColumn} from '../../column.js';
 import {emptySize} from '../degenerate.js';
 

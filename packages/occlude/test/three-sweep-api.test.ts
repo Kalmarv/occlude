@@ -5,9 +5,16 @@ import type {} from 'occlude/3d';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {circle3,manifold,volume} from './helpers/surfaces.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {DOMAINS3,kernelColumn,mesh3} from '../src/three/geometry/mesh3.js';
 import type {Material} from '../src/material.js';
 
+/** Everything the kernels read of a value — names, positions, faces, fixed
+ * triangles, edges and every kernel column — as plain data. */
+function kernelRead(m:Material){
+ const r=mesh3(m),counts={points:r.n,edges:r.edgeCount,faces:r.faceCount,corners:r.cornerCount};
+ const cols=DOMAINS3.map(d=>Object.entries(r.cols[d]).filter(([,c])=>kernelColumn(c)).map(([k])=>[k,Array.from({length:counts[d]},(_,i)=>r.cell(d,k,i))]));
+ return {names:r.names,x:r.x,y:r.y,z:r.z,loops:r.loops,triangles:r.triangles,edges:r.edges,cols};
+}
 /** The 3D profile circle, as the parametric curve it always was. */
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 describe('transported profile sweeps',()=>{
@@ -17,7 +24,7 @@ describe('transported profile sweeps',()=>{
   expect(volume(solid)).toBeCloseTo(n*r*r*Math.sin(2*Math.PI/n)*h/2,12);
   expect(solid.faces.at(-2)!.normal[2]).toBe(-1);expect(solid.faces.at(-1)!.normal[2]).toBe(1);
   const hit=query(solid).ray([0,0,5],[0,0,-2]);expect(hit!.distance).toBeCloseTo(2,12);expect(hit!.t).toBeCloseTo(1,12);
-  expect(surfaceOf(solid)).toEqual(surfaceOf(sweep(profile,path,{caps:true,normal:[1,0,0]})));
+  expect(kernelRead(solid)).toEqual(kernelRead(sweep(profile,path,{caps:true,normal:[1,0,0]})));
  });
  it('captures typed path fields and merges attributes with explicit profile precedence',()=>{
   const profile=circle3(.5,{segments:8}).points.set('tag','profile').points.set('weight',2).edges.set('material','ink');
@@ -45,17 +52,17 @@ describe('transported profile sweeps',()=>{
  });
  it('supports open ribbon profiles and open tubes without implicit caps',()=>{
   const path=curve([[0,0,0],[0,0,1],[1,0,2]]),ribbon=sweep(curve([[-.5,0,0],[.5,0,0]]),path);
-  expect(ribbon.points.length).toBe(6);expect(ribbon.faces.length).toBe(2);expect(surfaceOf(ribbon).edges.filter(e=>e.faces.length===1).length).toBe(6);
-  const tube=sweep(circle3(.2,{segments:8}),path);expect(surfaceOf(tube).edges.filter(e=>e.faces.length===1).length).toBe(16);
+  expect(ribbon.points.length).toBe(6);expect(ribbon.faces.length).toBe(2);expect(ribbon.edges.filter(e=>e.faces.length===1).length).toBe(6);
+  const tube=sweep(circle3(.2,{segments:8}),path);expect(tube.edges.filter(e=>e.faces.length===1).length).toBe(16);
  });
  it('rejects undefined frames, singular fields and oversized topology before field evaluation',()=>{
   const profile=circle3(),path=curve([[0,0,0],[0,0,1]]);
   // A normal along the tangent, and a path that doubles back, name no frame:
   // the sweep picks a consistent one rather than refusing to draw.
-  expect(surfaceOf(sweep(profile,path,{normal:[0,0,1]})).faces.length).toBe(surfaceOf(sweep(profile,path)).faces.length);
-  expect(surfaceOf(sweep(profile,path,{scale:0})).triangles.length).toBe(0);expect(()=>sweep(profile,path,{twist:Infinity})).toThrow('finite');
+  expect(sweep(profile,path,{normal:[0,0,1]}).faces.length).toBe(sweep(profile,path).faces.length);
+  expect(mesh3(sweep(profile,path,{scale:0})).triangleCount).toBe(0);expect(()=>sweep(profile,path,{twist:Infinity})).toThrow('finite');
   expect(()=>sweep(profile,circle3(),{twist:30})).toThrow('whole turns');
-  expect(surfaceOf(sweep(profile,curve([[0,0,0],[0,0,1],[0,0,2]]))).faces.length).toBe(surfaceOf(sweep(profile,curve([[0,0,0],[0,0,1],[0,0,0]]))).faces.length);
+  expect(sweep(profile,curve([[0,0,0],[0,0,1],[0,0,2]])).faces.length).toBe(sweep(profile,curve([[0,0,0],[0,0,1],[0,0,0]])).faces.length);
   expect(()=>sweep(profile.translate([0,0,1]),path)).toThrow('XY');
   expect(()=>sweep(curve([[0,0,0],[1,0,0]]),path,{caps:true})).toThrow('closed profile');
   expect(()=>sweep(profile,path,{caps:true,maxCapPoints:3})).toThrow('cap point budget');

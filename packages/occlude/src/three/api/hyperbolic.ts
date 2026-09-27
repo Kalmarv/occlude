@@ -28,7 +28,7 @@ import {
   geodesic as geodesicPoints,
   honeycombComplex,
 } from '../../hyperbolicSpace.js';
-import {mesh,madeGeometry3,curveMade3} from './mesh.js';
+import {mesh,geometry3,curveMade3} from './mesh.js';
 import {Column, type AnyColumn} from '../../column.js';
 import {finite3} from '../math.js';
 import {spacePlacement,type Placement} from '../../placement.js';
@@ -126,7 +126,7 @@ export function honeycomb(p: number, q: number, r: number, options: HoneycombOpt
   const edges = complex.edges.map(({ vertices }) => vertices);
   // An edge's columns: the lowest copy that has it and that copy's generation.
   const columns: Record<string, AnyColumn> = edges.length === 0 ? {} : { cell: Column.of(Float64Array.from(complex.edges, (e) => e.cell)), generation: Column.of(Float64Array.from(complex.edges, (e) => e.generation)) };
-  const wires = madeGeometry3(curveMade3(complex.points, complex.points.map((_, i) => id(i)), edges, edges.map(([a, b]) => `e:${id(a)}:${id(b)}`), undefined, columns));
+  const wires = geometry3(curveMade3(complex.points, complex.points.map((_, i) => id(i)), edges, edges.map(([a, b]) => `e:${id(a)}:${id(b)}`), undefined, columns));
   const placements = Object.freeze(complex.copies.map((c) => spacePlacement(c.transform)));
   // A wall's corners are read the first time they are asked for.
   const faces = Object.freeze(complex.faces.map((f, index): HoneycombFace => {

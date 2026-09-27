@@ -1,5 +1,4 @@
-import {checkMade3,faceEdges3,kernelColumn,pairKey,type Columns3,type Made3,type Mesh3} from './mesh3.js';
-import type {Provenance3} from './surface.js';
+import {checkMade3,faceEdges3,kernelColumn,pairKey,type Columns3,type Made3,type Mesh3,type Provenance3} from './mesh3.js';
 import {kindOf,kinds,kindWords,type AnyColumn,type AnyKind} from '../../column.js';
 import {add3,cross3,finite3,mul3,sub3,unit3,type Vec3} from '../math.js';
 

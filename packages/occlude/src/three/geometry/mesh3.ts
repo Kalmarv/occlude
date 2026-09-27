@@ -53,9 +53,13 @@ import {select, type Selection} from '../../selection.js';
 import type {DomainSpec, SourceSpec} from '../../derivation.js';
 import {statedFaceIds} from '../../faces.js';
 import {cornerIndex} from '../../corners.js';
-import {finite3, type Vec3} from '../math.js';
-import {triangulate, type Provenance3} from './surface.js';
+import {add3, cross3, finite3, mul3, sub3, type Vec3} from '../math.js';
+import {orient2d} from 'robust-predicates';
 import type {Rotation} from '../rotation.js';
+
+/** Internal lineage: the derivation, the ids of the rows it read, and, when
+ * it read more than one value, which of its inputs holds each parent. */
+export interface Provenance3 { readonly operation: string; readonly parents: readonly string[]; readonly inputs?: readonly number[] }
 
 /** The domains of a value in space. */
 export type Domain3 = 'points' | 'edges' | 'faces' | 'corners';
@@ -288,6 +292,54 @@ export class Mesh3 {
     const column = this.cols[domain][name];
     return column === undefined ? undefined : (column as {get(i: number): CellValue}).get(row);
   }
+}
+
+/** Deterministic ear clipping of a simple polygon. No fan triangulation of
+ * concave faces; robust orientation guards crossings and ear containment.
+ * A nonplanar polygon is clipped in its own average plane, so the face becomes
+ * the triangles that plane gives: the polygon is authoring topology, the
+ * triangles are what is drawn and occluded.
+ *
+ * A polygon with no plane at all — zero extent, cancelling winding, no ear to
+ * clip — yields no triangles rather than failing. The face keeps its identity,
+ * its corners and its place in the face order (`triangle.face` indices and
+ * chart callbacks stay aligned); it simply contributes nothing to draw. */
+export function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [number, number, number][] {
+  const origin = positions[vertices[0]];
+  const local = vertices.map(i => sub3(positions[i], origin));
+  const extent = Math.max(...local.map(p => Math.hypot(...p)));
+  if (!(extent > 0) || !Number.isFinite(extent)) return [];
+  const normalized = local.map(p => mul3(p, 1 / extent));
+  let normal: Vec3 = [0, 0, 0];
+  for (let i = 1; i + 1 < normalized.length; i++) normal = add3(normal, cross3(normalized[i], normalized[i + 1]));
+  const norm = Math.hypot(...normal);
+  if (!(norm > 1e-14)) return [];
+  normal = mul3(normal, 1 / norm);
+  const drop = Math.abs(normal[0]) > Math.abs(normal[1]) ? (Math.abs(normal[0]) > Math.abs(normal[2]) ? 0 : 2) : (Math.abs(normal[1]) > Math.abs(normal[2]) ? 1 : 2);
+  const projected = normalized.map(p => drop === 0 ? [p[1], p[2]] : drop === 1 ? [p[0], p[2]] : [p[0], p[1]]);
+  const turn = (a: number, b: number, c: number) => -orient2d(...projected[a] as [number, number], ...projected[b] as [number, number], ...projected[c] as [number, number]);
+  const between = (a: number, b: number, p: number) => projected[p].every((v, k) => v >= Math.min(projected[a][k], projected[b][k]) && v <= Math.max(projected[a][k], projected[b][k]));
+  for (let i = 0; i < vertices.length; i++) for (let j = i + 1; j < vertices.length; j++) {
+    const b = (i + 1) % vertices.length, d = (j + 1) % vertices.length;
+    if (i === j || b === j || d === i) continue;
+    const x = turn(i, b, j), y = turn(i, b, d), z = turn(j, d, i), w = turn(j, d, b);
+    if ((x * y < 0 && z * w < 0) || (x === 0 && between(i, b, j)) || (y === 0 && between(i, b, d)) || (z === 0 && between(j, d, i)) || (w === 0 && between(j, d, b))) throw new Error('surface face must be simple without crossings or touching edges');
+  }
+  const area = projected.reduce((sum, p, i) => { const q = projected[(i + 1) % projected.length]; return sum + p[0] * q[1] - p[1] * q[0]; }, 0);
+  const sign = Math.sign(area), remaining = vertices.map((_, i) => i), triangles: [number, number, number][] = [];
+  while (remaining.length > 3) {
+    let found = false;
+    for (let j = 0; j < remaining.length; j++) {
+      const a = remaining[(j + remaining.length - 1) % remaining.length], b = remaining[j], c = remaining[(j + 1) % remaining.length];
+      if (turn(a, b, c) * sign <= 0) continue;
+      if (remaining.some(p => p !== a && p !== b && p !== c && turn(a, b, p) * sign >= 0 && turn(b, c, p) * sign >= 0 && turn(c, a, p) * sign >= 0)) continue;
+      triangles.push([vertices[a], vertices[b], vertices[c]]); remaining.splice(j, 1); found = true; break;
+    }
+    if (!found) return [];
+  }
+  if (turn(remaining[0], remaining[1], remaining[2]) * sign <= 0) return [];
+  triangles.push(remaining.map(i => vertices[i]) as [number, number, number]);
+  return triangles;
 }
 
 /** Two point rows as one number, the lower first. */

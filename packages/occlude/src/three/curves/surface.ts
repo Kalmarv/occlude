@@ -1,4 +1,4 @@
-import type { Attributes3 } from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import { mesh3, type Mesh3 } from '../geometry/mesh3.js';
 import { Material } from '../../material.js';
 import { finite3, type Vec3 } from '../math.js';

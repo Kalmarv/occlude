@@ -1,4 +1,4 @@
-import {madeGeometry3,pointsMade3,type GeometryOptions} from './mesh.js';
+import {geometry3,pointsMade3,type GeometryOptions} from './mesh.js';
 import {Column,type AnyColumn} from '../../column.js';
 import {finite3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
@@ -28,5 +28,5 @@ export function grid(options:GridOptions):Material {
   }
   // Each point's place in the lattice; a grid of no points has no columns.
   const lattice:Record<string,AnyColumn>=points.length?{i:Column.of(Float64Array.from(is)),j:Column.of(Float64Array.from(js)),k:Column.of(Float64Array.from(ks))}:{};
-  return madeGeometry3(pointsMade3(points,points.map((_,n)=>`p${n}`),lattice),options);
+  return geometry3(pointsMade3(points,points.map((_,n)=>`p${n}`),lattice),options);
 }

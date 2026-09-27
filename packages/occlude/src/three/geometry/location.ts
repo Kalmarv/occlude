@@ -1,9 +1,8 @@
 import {orient2d} from 'robust-predicates';
-import {transformPosition3,validateTransform3,rowColumns3,type SurfaceTransform3} from './model.js';
+import {transformPosition3,validateTransform3,rowColumns3,type SurfaceTransform3,type Attribute3,type Attributes3} from './model.js';
 import {triangleCorners3} from './corners.js';
 import {kernelColumn,sameAttachment3,type Domain3,type Mesh3} from './mesh3.js';
 import {Column,kindOf,type StoredColumn} from '../../column.js';
-import type {Attribute3,Attributes3} from './surface.js';
 import {add3,sub3,mul3,cross3,finite3,unit3,type Vec3} from '../math.js';
 import {rotateVector3} from '../rotation.js';
 import type {PointTransfers} from '../api/subdivide.js';

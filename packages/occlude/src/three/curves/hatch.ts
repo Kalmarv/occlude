@@ -1,14 +1,13 @@
 import { orient2d } from 'robust-predicates';
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 import { resolveLen, type L, type UnitCtx } from '../../units.js';
-import { measureFaces3, type FaceMeasure3 } from '../geometry/model.js';
+import {measureFaces3,type FaceMeasure3,type Attributes3} from '../geometry/model.js';
 import { mesh3 } from '../geometry/mesh3.js';
 import type { Material } from '../../material.js';
-import type { Attributes3 } from '../geometry/surface.js';
 import { cameraShift3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
 import { add3, mul3, type Triangle3, type Vec3 } from '../math.js';
 import { intersectPlane3, type Plane3, type PlaneTriangles3 } from './plane.js';
-import { freezeCurves3, stageGeometry3, type SurfaceCurvePoint3, type SurfaceCurveSegment3, type SurfaceCurves3 } from './surface.js';
+import {freezeCurves3,stageGeometry3,type SurfaceCurvePoint3,type SurfaceCurveSegment3,type SurfaceCurves3} from './surface.js';
 
 export interface HatchFamily3 {
   readonly id:string;

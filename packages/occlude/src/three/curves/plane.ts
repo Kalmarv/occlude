@@ -1,6 +1,6 @@
-import type { Attributes3 } from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import { dot3, finite3, lerp3, sub3, unit3, type Vec3 } from '../math.js';
-import { freezeCurves3, type SurfaceCurvePoint3, type SurfaceCurveSegment3 } from './surface.js';
+import {freezeCurves3,type SurfaceCurvePoint3,type SurfaceCurveSegment3} from './surface.js';
 export interface Plane3 { readonly id:string; readonly origin:Vec3; readonly normal:Vec3; readonly attributes?:Attributes3 }
 /** Triangles a plane cuts: every point's position and kernel name (a node
  * is named by the names of the points it lies between), and three point rows

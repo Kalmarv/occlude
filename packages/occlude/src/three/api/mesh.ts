@@ -9,20 +9,18 @@
  *
  * A factory builds its answer as columns (`Made3`: `polygons3`,
  * `facesMade3`, `pointsMade3`, `curveMade3`, `charted3`) and makes the
- * value through `madeGeometry3`, which checks the options and the columns
+ * value through `geometry3`, which checks the options and the columns
  * and links each row to what it came from.
  */
 
 import {chartColumns3,type SurfaceUV} from '../geometry/coordinates.js';
-import {assembleSurface3,triangulate,type Surface3,type Attribute3} from '../geometry/surface.js';
-import {DOMAINS3,made3,faceEdges3,cornerNames3,checkMade3,sourceOfMade3,kernelColumn,type Made3,type MadeCarry3,type Columns3,type Lineage3} from '../geometry/mesh3.js';
+import {columnsOfRecords3,type Attribute3} from '../geometry/model.js';
+import {triangulate,DOMAINS3,made3,faceEdges3,cornerNames3,checkMade3,sourceOfMade3,kernelColumn,type Made3,type MadeCarry3,type Columns3,type Lineage3} from '../geometry/mesh3.js';
 import {finite3,add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptyCount,emptySize} from '../degenerate.js';
 import {attributeValue} from './columns.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
-import {points2,liftedColumns} from './lift.js';
-import {value3} from '../geometry/value.js';
-import {sourceOf3,type Input3} from './words.js';
+import {points2} from './lift.js';
 import {kindOf,type AnyColumn} from '../../column.js';
 import {Material} from '../../material.js';
 import {Selection} from '../../selection.js';
@@ -42,7 +40,7 @@ export interface GeometryOptions {
  * the values it read, which its rows' `source` answers rows of. */
 export interface Derived3 {readonly operation:string;readonly inputs:readonly object[]}
 export const derived=(operation:string,...inputs:object[]):Derived3=>Object.freeze({operation,inputs:Object.freeze(inputs)});
-/** @internal What a factory hands its door (`madeGeometry3`) besides the
+/** @internal What a factory hands its door (`geometry3`) besides the
  * rows. */
 export interface Geometry3Options extends GeometryOptions {
   readonly radialCentre?:Vec3;
@@ -61,16 +59,9 @@ export interface Geometry3Options extends GeometryOptions {
 }
 function checkOptions(options:GeometryOptions&{readonly prototype?:unknown}):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');refuseDisplay(options,'geometry options');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
-/** The values a kernel's surface carries are ones a geometry column may
- * hold; the names are the core's to judge, domain by domain. */
-function validateAttributes(surface:Surface3):void {
-  for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows){
-    for(const value of Object.values(row.attributes))if(value!==undefined)attributeValue(value);
-  }
-}
 /** The value a derivation read, as a geometry: a selection is read on the
  * geometry it selects from. */
-const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.owner as Material):v instanceof Material?v:undefined;
+const inputOf=(v:object):Material|undefined=>v instanceof Selection?(v.owner as Material):v instanceof Material?v:undefined;
 
 // ─── the door: a kernel's columns as a value in space ────────────────────
 
@@ -91,10 +82,10 @@ function checkColumns(made:Made3):void {
 /** @internal A kernel's answer as a value in space: the options checked,
  * the columns checked, and each row's `source` from the derivation's
  * lineage (`derived`) or said outright (`source`). */
-export function madeGeometry3(made:Made3,options:Geometry3Options={}):Material {
+export function geometry3(made:Made3,options:Geometry3Options={}):Material {
   checkOptions(options);checkColumns(made);
   const key=checkedKey(options.key);
-  const inputs=options.derived?.inputs.map(inputOf).filter((m):m is Input3=>m!==undefined);
+  const inputs=options.derived?.inputs.map(inputOf).filter((m):m is Material=>m!==undefined);
   return made3(made,{
     ...(key!==undefined?{key}:{}),
     ...(options.origin!==undefined?{origin:options.origin}:{}),
@@ -190,79 +181,19 @@ export function kernelRows3(cols:Columns3,rows:ArrayLike<number>):Record<string,
   return out;
 }
 
-// ─── the Surface3 doors (until the last kernel reads columns) ─────────────
-
-/** @internal A kernel's surface as a value in space. */
-export function geometry3(surface:Surface3,options:Geometry3Options={}):Material {
-  checkOptions(options);validateAttributes(surface);
-  const key=checkedKey(options.key);
-  const inputs=options.derived?.inputs.map(inputOf).filter((m):m is Input3=>m!==undefined);
-  return value3(surface,{
-    ...(key!==undefined?{key}:{}),
-    ...(options.origin!==undefined?{origin:options.origin}:{}),
-    ...(options.orientation!==undefined?{orientation:options.orientation}:{}),
-    ...(options.radialCentre!==undefined?{radialCentre:options.radialCentre}:{}),
-    ...(options.transfers!==undefined?{transfers:options.transfers}:{}),
-    ...(options.from!==undefined?{from:options.from}:{}),
-    ...(options.pointCols!==undefined?{pointCols:options.pointCols}:{}),
-    ...(options.prototype!==undefined?{prototype:options.prototype}:{}),
-    ...(options.source!==undefined?{source:options.source}:options.derived&&inputs&&inputs.length?{source:sourceOf3(options.derived.operation,surface,inputs)}:{}),
-  });
-}
-/** @internal The edges `indices` of a surface, with the points they join,
- * as a curve in space: no faces. */
-export function curveGeometry3(surface:Surface3,indices:readonly number[],options:Geometry3Options={}):Material {
-  if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
-  const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
-  const mapping=new Map(used.map((v,i)=>[v,i]));
-  const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
-  return geometry3(source,options);
-}
-
-function validateImportedSurface(surface:Surface3):void {
-  if(!surface||![surface.points,surface.edges,surface.faces,surface.triangles].every(Array.isArray))throw new Error('mesh import requires points, edges, faces and triangles');
-  for(const edge of surface.edges)if(edge.vertices.length!==2||edge.vertices.some(v=>!Number.isSafeInteger(v)||v<0||v>=surface.points.length))throw new Error('mesh import has invalid edge vertices');
-  const byFace=surface.faces.map(()=>[] as Surface3['triangles'][number][]);
-  for(const triangle of surface.triangles){
-    if(!Number.isSafeInteger(triangle.face)||!byFace[triangle.face]||triangle.vertices.length!==3||new Set(triangle.vertices).size!==3||triangle.vertices.some(v=>!Number.isSafeInteger(v)||!surface.faces[triangle.face].vertices.includes(v)))throw new Error('mesh import has invalid triangle ownership or vertices');
-    byFace[triangle.face].push(triangle);
-  }
-  surface.faces.forEach((face,i)=>{
-    if(byFace[i].length!==face.vertices.length-2)throw new Error('mesh import triangulation must cover each polygon with n-2 triangles');
-    const edges=new Map<string,number>(),counts=new Map<string,number>();
-    for(const triangle of byFace[i])for(let j=0;j<3;j++){
-      const a=triangle.vertices[j],b=triangle.vertices[(j+1)%3],key=a<b?`${a}:${b}`:`${b}:${a}`;
-      counts.set(key,(counts.get(key)??0)+1);if(counts.get(key)!>2)throw new Error('mesh import has a non-manifold triangulation edge');
-      edges.set(key,(edges.get(key)??0)+(a<b?1:-1));
-    }
-    for(let j=0;j<face.vertices.length;j++){
-      const a=face.vertices[j],b=face.vertices[(j+1)%face.vertices.length],key=a<b?`${a}:${b}`:`${b}:${a}`;
-      edges.set(key,(edges.get(key)??0)-(a<b?1:-1));
-    }
-    if([...edges.values()].some(n=>n!==0))throw new Error('mesh import triangulation does not match its polygon boundary');
-  });
-}
-/** A geometry with faces from positions and polygon index lists, or from a
- * `Surface3` of the explicit stage (its ids, columns and fixed triangles
- * kept). */
-export function mesh(source:Surface3,options?:GeometryOptions):Material;
-export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options?:GeometryOptions):Material;
-export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Material{
-  if(Array.isArray(source)){
-    if(!Array.isArray(facesOrOptions))throw new Error('mesh positions require polygon index arrays');
-    return madeGeometry3(polygons3(source,facesOrOptions),options);
-  }
-  validateImportedSurface(source as Surface3);
-  // An advanced input may be written after this: its rows are read now.
-  const s=source as Surface3;
-  return geometry3(assembleSurface3(s.points,s.faces,s.triangles,s),facesOrOptions as GeometryOptions);
+/** A geometry with faces from positions and polygon index lists: each face
+ * a loop of three or more point indices, wound counter-clockwise seen from
+ * the side it faces. */
+export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options:GeometryOptions={}):Material{
+  if(!Array.isArray(positions)||!Array.isArray(faces))throw new Error('mesh takes positions [x, y, z] and polygon index arrays — mesh(positions, faces)');
+  return geometry3(polygons3(positions,faces),options);
 }
 /** One quad with a stored unit-square XY chart. Subdivision preserves this chart. */
 export function plane(width=1,height=width,options:GeometryOptions={}):Material{
   if(emptySize(width,height))return emptyMesh(options);
   const source=polygons3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return madeGeometry3(charted3(source,(_,c)=>({uv:uv[c],chart:'plane'})),options);
+  return geometry3(charted3(source,(_,c)=>({uv:uv[c],chart:'plane'})),options);
 }
 export interface ParametricOptions extends GeometryOptions {
   /** Samples across u and down v. A closed direction needs at least three. */
@@ -336,7 +267,7 @@ export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOpt
     faces.push(kept);charts.push(uv);
   }
   if(!faces.length)return emptyMesh(options);
-  return madeGeometry3(charted3(polygons3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'})),options);
+  return geometry3(charted3(polygons3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'})),options);
 }
 /** The unit box's corners, and its faces wound outward. */
 const BOX_CORNERS:readonly Vec3[]=[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
@@ -348,12 +279,12 @@ export function box(size:number|Vec3=1,options:GeometryOptions={}):Material{
   // A box with no extent on some axis is nothing to draw, not a fault: the
   // sketch keeps rendering and this box contributes no faces.
   const source=extent.some(v=>v<=0)?polygons3([],[]):polygons3(BOX_CORNERS.map(p=>p.map((v,i)=>v*extent[i]/2) as unknown as Vec3),BOX_FACES);
-  return madeGeometry3(charted3(source,(f,c)=>({uv:uv[c],chart:source.names.faces[f]})),options);
+  return geometry3(charted3(source,(f,c)=>({uv:uv[c],chart:source.names.faces[f]})),options);
 }
 /** Nothing to draw, as a value. A degenerate construction returns one of these
  * rather than failing, and it flows through view, hatch, sampling and the plan
  * like any other geometry. */
-export function emptyMesh(options:GeometryOptions={}):Material{return madeGeometry3(polygons3([],[]),options);}
+export function emptyMesh(options:GeometryOptions={}):Material{return geometry3(polygons3([],[]),options);}
 /** Points from positions, or 2D points (a point collection or selection, a
  * material, `[x, y]` pairs) at z = 0 with their columns kept; each lifted
  * point's `source` is the 2D row it stands for. */
@@ -361,8 +292,8 @@ export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly
   const lifted=points2(positions,'pointCloud');
   if(lifted){
     const at=lifted.map(p=>[p.x,p.y,0] as Vec3);at.forEach(p=>finite3(p,'mesh'));
-    return madeGeometry3(pointsMade3(at,lifted.map(p=>p.id),liftedColumns(lifted)),{...options,...(Array.isArray(positions)?{}:{derived:derived('lift',positions as object)})});
+    return geometry3(pointsMade3(at,lifted.map(p=>p.id),columnsOfRecords3(lifted.map(p=>p.attributes))),{...options,...(Array.isArray(positions)?{}:{derived:derived('lift',positions as object)})});
   }
   if(!Array.isArray(positions))throw new Error('pointCloud takes [x, y, z] positions or 2D points');
-  return madeGeometry3(polygons3(positions as readonly Vec3[],[]),options);
+  return geometry3(polygons3(positions as readonly Vec3[],[]),options);
 }

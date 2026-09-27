@@ -6,10 +6,9 @@ import { validateSurfaceCurves3, type SurfaceCurves3, type SurfaceCurveSegment3 
 import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, outsideView3, toCamera3, toPaper3, type CameraFrame3, type PaperFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
-import { rowColumns3, transformPosition3, validateTransform3, type SurfaceTransform3 } from '../geometry/model.js';
+import {rowColumns3,transformPosition3,validateTransform3,type SurfaceTransform3,type Attributes3} from '../geometry/model.js';
 import { Mesh3, mesh3, type Columns3 } from '../geometry/mesh3.js';
 import type { Material } from '../../material.js';
-import type { Attributes3 } from '../geometry/surface.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
 import { suggestiveSegments3, type SuggestiveEnd3, type SuggestiveOptions3 } from './suggestive.js';

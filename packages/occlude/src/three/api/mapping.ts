@@ -9,7 +9,7 @@ import {surfaceBinding3,bindingTriangle3,surfaceCurveNetworkJob3,type SurfaceCur
 import {worldBounds3} from '../geometry/bounds.js';
 import {gcd,ratioNumber,type Ratio,type H,type V} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
 
 /** Where pattern coordinates lie in the chart. The default is the unit square:

@@ -11,13 +11,12 @@
  */
 
 import {surfaceLocation3,rebindSurfaceLocation3,locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
-import {mesh3,sameAttachment3,kernelColumn,checkMade3,type Mesh3,type Columns3} from '../geometry/mesh3.js';
+import {mesh3,sameAttachment3,kernelColumn,checkMade3,type Mesh3,type Columns3,type Provenance3} from '../geometry/mesh3.js';
 import {kinds,kindOf,type AnyColumn} from '../../column.js';
 import {Material} from '../../material.js';
 import type {Face} from '../../faces.js';
-import {madeGeometry3,pointsMade3,derived,type GeometryOptions} from './mesh.js';
+import {geometry3,pointsMade3,derived,type GeometryOptions} from './mesh.js';
 import {evaluate,type Field} from './columns.js';
-import type {Provenance3} from '../geometry/surface.js';
 import {sub3,mul3,cross3,type Vec3} from '../math.js';
 import {emptySize,sampleValue} from '../degenerate.js';
 
@@ -130,7 +129,7 @@ function result(target:Material,points:Drawn,generation:SamplingGeneration,optio
   for(const sample of points.samples)generations.set(sample,stats);
   const mesh=mesh3(target),faceNames=mesh.names.faces;
   const lineage=points.faces.map((f):Provenance3=>({operation:'sample',parents:[faceNames[f]]}));
-  return madeGeometry3(pointsMade3(points.positions,points.names,sampledColumns(mesh,points.faces,points.samples),lineage),{key:options.key,derived:derived('sample',target),pointCols:{sample:kinds.placement.from(points.samples)}});
+  return geometry3(pointsMade3(points.positions,points.names,sampledColumns(mesh,points.faces,points.samples),lineage),{key:options.key,derived:derived('sample',target),pointCols:{sample:kinds.placement.from(points.samples)}});
 }
 /** `count` independent area-weighted points. */
 function samplePoints(target:Material,options:CountOptions,env:SurfaceSamplingEnv):Material{
@@ -211,5 +210,5 @@ export function rebindSamples(m:Material,target:Material,options:SurfaceCoordina
   const cols:Record<string,AnyColumn>={};
   if(m.n)for(const name in own.cols.points)if(kernelColumn(own.cols.points[name]))cols[name]=own.cols.points[name];
   const made=pointsMade3(positions,own.names.points,cols,lineage);checkMade3(made);
-  return madeGeometry3(made,{key:m.key,from:m,derived:derived('rebind',target),pointCols:{sample:kinds.placement.from(next)}});
+  return geometry3(made,{key:m.key,from:m,derived:derived('rebind',target),pointCols:{sample:kinds.placement.from(next)}});
 }

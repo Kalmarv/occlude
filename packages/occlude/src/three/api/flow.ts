@@ -1,6 +1,6 @@
 import {add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
-import {madeGeometry3,pointsMade3,type GeometryOptions} from './mesh.js';
+import {geometry3,pointsMade3,type GeometryOptions} from './mesh.js';
 import {mesh3,checkMade3} from '../geometry/mesh3.js';
 import {query,type PreparedQuery} from './query.js';
 import {checkedField3,type VectorField3} from './vec.js';
@@ -212,7 +212,7 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
  * place left without a segment stays a point of its line. */
 function lines(places:readonly Vec3[],names:readonly string[],edges:readonly number[],edgeNames:readonly string[],key:string|undefined):Material {
   const made={...pointsMade3(places,names),names:{points:names,edges:edgeNames,faces:[],corners:[]},edges:Uint32Array.from(edges)};checkMade3(made);
-  return madeGeometry3(made,key!==undefined?{key}:{});
+  return geometry3(made,key!==undefined?{key}:{});
 }
 function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
   if(Array.isArray(seeds))return (seeds as readonly unknown[]).map(p=>(Array.isArray(p)?[p[0],p[1],p[2]]:[(p as {x:number}).x,(p as {y:number}).y,(p as {z:number}).z]) as Vec3);

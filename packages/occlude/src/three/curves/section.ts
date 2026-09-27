@@ -1,10 +1,10 @@
 import { mesh3 } from '../geometry/mesh3.js';
 import type { Material } from '../../material.js';
-import type { Attributes3 } from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import type { Vec3 } from '../math.js';
 import { intersectPlane3 } from './plane.js';
-import { stageGeometry3, type SurfaceCurves3, type SurfaceCurveSegment3 } from './surface.js';
-export type { SurfaceCurves3, SurfaceCurveSegment3, SurfaceCurvePoint3 } from './surface.js';
+import {stageGeometry3,type SurfaceCurves3,type SurfaceCurveSegment3} from './surface.js';
+export type {SurfaceCurves3,SurfaceCurveSegment3,SurfaceCurvePoint3} from './surface.js';
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 
 export interface SectionPlane3 { readonly id:string; readonly origin:Vec3; readonly normal:Vec3; readonly attributes?:Attributes3 }

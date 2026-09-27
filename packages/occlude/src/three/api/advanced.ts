@@ -15,7 +15,7 @@ export type {FaceMeasure3} from '../geometry/model.js';
 export {section3} from '../curves/section.js';
 export {hatch3} from '../curves/hatch.js';
 export {projectedLines} from './projected.js';
-export type {Attributes3} from '../geometry/surface.js';
+export type {Attributes3} from '../geometry/model.js';
 export type {SceneCompute3,LineArtScene3,LineArtOptions3} from '../scene.js';
 export type {ClassifiedScene3,ClassifiedFeature3} from '../visibility/scene.js';
 export type {SurfaceObject3,WireObject3,Feature3} from '../features/snapshot.js';

@@ -16,7 +16,6 @@ import {isSpacePlacement,identity} from '../src/placement.js';
 import {spaceOf} from '../src/space.js';
 import {scatterSurface} from '../src/three/api/sampling.js';
 import {Material} from '../src/material.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 import {faceGeometry3} from '../src/three/geometry/model.js';
 import {grad} from '../src/three/api/vec.js';
 import {toolkit} from './helpers/run.js';

@@ -5,7 +5,6 @@ import {mesh} from 'occlude/3d';
 import {hiddenWorldInterval3,type WorldOcclusion3} from '../src/three/visibility/worldInterval.js';
 import type {SegmentBasis3} from '../src/three/visibility/interval.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 describe('shared exact surface constructions',()=>{
 
  it('never certifies a dot sign the exact arithmetic contradicts',()=>{

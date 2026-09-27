@@ -1,7 +1,7 @@
 import {type EdgeAttributes} from './mesh.js';
 import {evaluate,type Field} from './columns.js';
 import {Selection} from '../../selection.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {mesh3,type Mesh3} from '../geometry/mesh3.js';
 import {prepareSurfaceQueries3,validateRay3,validateNearest3,QUERY_HOST3,type RayQuery3,type NearestQuery3,type SurfaceHit3} from '../queries/surface.js';
 import type {SurfaceQueryInput3,SurfaceQueryResult3} from '../modeling.js';

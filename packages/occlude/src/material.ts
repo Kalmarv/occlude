@@ -1977,10 +1977,6 @@ export class Material {
     return displace3(this, field as never, options as never);
   }
 
-  /** @internal The derived views the 3D layer builds from the columns on
-   * first need and keeps here — its working surface (`surfaceOf(m)`),
-   * never a public word. A box, like the others, because the state is
-   * frozen. */
 }
 
 /** A derivation's input as the sketch passed it: the value a source row is

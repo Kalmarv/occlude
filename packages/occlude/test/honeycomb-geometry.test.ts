@@ -17,7 +17,7 @@ import { clip, mm, pen, rect, sketch, strokes } from '../src/index.js';
 import { compileSketchAsync, initOcclude, render } from '../src/host.js';
 import { identity } from '../src/placement.js';
 import { spaceOf } from '../src/space.js';
-import { surfaceOf } from '../src/three/geometry/value.js';
+import { mesh3 } from '../src/three/geometry/mesh3.js';
 /** A face's loop of point rows, round it: its corners' points. */
 const loopOf = (f: { corners: { map<T>(fn: (c: { point: { index: number } }) => T): T[] } }): number[] => f.corners.map((c) => c.point.index);
 
@@ -214,7 +214,7 @@ describe('transform', () => {
     const h = honeycomb(5, 3, 4, { depth: 1 });
     const seen = observer([0.05, -0.08, 0.1], [0.8, 0, 0]);
     const moved = h.wires.transform(seen);
-    expect(surfaceOf(moved).points.map((p) => p.id)).toEqual(surfaceOf(h.wires).points.map((p) => p.id));
+    expect(mesh3(moved).names.points).toEqual(mesh3(h.wires).names.points);
     h.wires.points.map((p, i) => expect(away(xyz(moved.points.at(i)!), seen.point(xyz(p)))).toBe(0));
     expect(moved.edges.map((e) => [e.a.index, e.b.index, e.cell, e.generation])).toEqual(h.wires.edges.map((e) => [e.a.index, e.b.index, e.cell, e.generation]));
   });
@@ -225,9 +225,9 @@ describe('transform', () => {
     const flip = h.placements[1];
     expect(flip.orientation).toBe(-1);
     const moved = cell.transform(flip);
-    expect(surfaceOf(moved).points.map((p) => p.id)).toEqual(surfaceOf(cell).points.map((p) => p.id));
+    expect(mesh3(moved).names.points).toEqual(mesh3(cell).names.points);
     cell.points.map((p, i) => expect(away(xyz(moved.points.at(i)!), flip.point(xyz(p)))).toBe(0));
-    expect(moved.faces.map((f) => [surfaceOf(moved).faces[f.index].id, f.tag])).toEqual(cell.faces.map((f) => [surfaceOf(cell).faces[f.index].id, f.tag]));
+    expect(moved.faces.map((f) => [mesh3(moved).names.faces[f.index], f.tag])).toEqual(cell.faces.map((f) => [mesh3(cell).names.faces[f.index], f.tag]));
     // Turned over, so each loop runs backwards and the solid stays wound
     // outward: every normal points away from the moved cell's centre.
     cell.faces.map((f, i) => expect(loopOf(moved.faces.at(i)!)).toEqual([...loopOf(f)].reverse()));
@@ -237,7 +237,7 @@ describe('transform', () => {
       expect(out[0] * f.normal[0] + out[1] * f.normal[1] + out[2] * f.normal[2]).toBeGreaterThan(0);
     }
     // Rewound faces are reassembled, so edges keep their ids, not their rows.
-    expect(surfaceOf(moved).edges.map((e) => e.id).sort()).toEqual(surfaceOf(cell).edges.map((e) => e.id).sort());
+    expect([...mesh3(moved).names.edges].sort()).toEqual([...mesh3(cell).names.edges].sort());
     // A turn that keeps the hand keeps the winding.
     const kept = cell.transform(h.placements[1].then(h.placements[2]));
     cell.faces.map((f, i) => expect(loopOf(kept.faces.at(i)!)).toEqual(loopOf(f)));

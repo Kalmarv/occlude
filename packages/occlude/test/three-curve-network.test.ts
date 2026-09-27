@@ -3,7 +3,6 @@ import {mesh3} from '../src/three/geometry/mesh3.js';
 import {mesh} from 'occlude/3d';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {surfaceBinding3,bindingPoint3,bindingTriangle3,bindingWorld3,surfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3} from '../src/three/curves/network.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 const planes=()=>[
  surfaceBinding3(mesh3(mesh([[1,0,0],[0,1,0],[0,0,1]],[[0,1,2]]))),
  surfaceBinding3(mesh3(mesh([[0,0,0],[1,1,0],[0,0,1]],[[0,1,2]]))),

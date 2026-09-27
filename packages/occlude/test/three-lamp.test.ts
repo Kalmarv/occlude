@@ -5,7 +5,6 @@ const plus=(a:Vec3,b:Vec3):Vec3=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 import type {} from '../src/three/api/index.js';
 import {toneRecipe3,registerToneRecipe3,type ImageRecipe3} from '../src/three/surface/tone.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 /** The middle of a mesh's first triangle, as a surface location. */

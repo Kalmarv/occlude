@@ -1,18 +1,8 @@
 import { expect } from 'vitest';
 import { Material } from '../../src/material.js';
 import { mesh, parametricCurve } from '../../src/three/api/index.js';
-import { surface3, type Surface3 } from '../../src/three/geometry/surface.js';
 import { mesh3 } from '../../src/three/geometry/mesh3.js';
 import { cross3, dot3, sub3, type Vec3 } from '../../src/three/math.js';
-
-/** `gridMesh` as a raw `Surface3`, for the tests of the transitional stage
- * that still read one; it goes with them. */
-export function gridSurface(columns: number, rows: number, size: readonly [number, number] = [1, 1]): Surface3 {
-  const positions: Vec3[] = [], faces: number[][] = [];
-  for (let y = 0; y <= rows; y++) for (let x = 0; x <= columns; x++) positions.push([(x / columns - 0.5) * size[0], (y / rows - 0.5) * size[1], 0]);
-  for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) { const p = y * (columns + 1) + x; faces.push([p, p + 1, p + columns + 2, p + columns + 1]); }
-  return surface3(positions, faces);
-}
 
 /** A flat grid of `columns × rows` quads, `size` across and centred on the
  * origin, as a value: its points row by row, its faces quad by quad, each
@@ -32,16 +22,14 @@ export const circle3 = (r = 1, options: { segments?: number; key?: string } = {}
   parametricCurve((u) => [r * Math.cos(2 * Math.PI * u), r * Math.sin(2 * Math.PI * u), 0], { ...options, closed: true });
 
 /** The signed volume a closed surface encloses (divergence theorem over its
- * triangles): positive when the faces wind outward. Takes a 3D value, or a
- * raw `Surface3` until the last tests of the transitional stage go. */
-export function volume(source: Material | Surface3): number {
-  const triangles: (readonly [Vec3, Vec3, Vec3])[] = [];
-  if (source instanceof Material) {
-    const read = mesh3(source);
-    for (let t = 0; t < read.triangleCount; t++) triangles.push(read.triangle(t).map((v) => read.positions[v]) as unknown as [Vec3, Vec3, Vec3]);
-  } else for (const t of source.triangles) triangles.push(t.vertices.map((i) => source.points[i].position) as unknown as [Vec3, Vec3, Vec3]);
+ * triangles): positive when the faces wind outward. */
+export function volume(m: Material): number {
+  const read = mesh3(m);
   let total = 0;
-  for (const [a, b, c] of triangles) total += dot3(a, cross3(b, c)) / 6;
+  for (let t = 0; t < read.triangleCount; t++) {
+    const [a, b, c] = read.triangle(t).map((v) => read.positions[v]);
+    total += dot3(a, cross3(b, c)) / 6;
+  }
   return total;
 }
 

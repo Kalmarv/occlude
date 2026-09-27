@@ -1,9 +1,10 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {finite3,sub3,type Vec3} from '../math.js';
-import {madeGeometry3,curveMade3,emptyMesh,derived,type GeometryOptions,type Geometry3Options} from './mesh.js';
+import {geometry3,curveMade3,emptyMesh,derived,type GeometryOptions,type Geometry3Options} from './mesh.js';
 import {inSpace3} from '../../material.js';
 import {emptyCount} from '../degenerate.js';
-import {chain2,isChain2,liftedColumns,type Lifted2} from './lift.js';
+import {chain2,isChain2,type Lifted2} from './lift.js';
+import {columnsOfRecords3} from '../geometry/model.js';
 import {Material} from '../../material.js';
 export interface PolylineOptions extends GeometryOptions {readonly closed?:boolean;readonly maxPoints?:number}
 export interface CurveOptions extends PolylineOptions {readonly segments?:number}
@@ -30,7 +31,7 @@ function path(positions:readonly Vec3[],options:PolylineOptions&Geometry3Options
   // keeps the points its edges join.
   const names=rows?rows.map(r=>r.id):positions.map((_,i)=>`p${i}`);
   const {closed:_closed,maxPoints:_max,...geometry}=options as PolylineOptions&Geometry3Options&{segments?:number};
-  return madeGeometry3(curveMade3(positions,names,edges,edges.map(([i,j])=>`e:p${i}:p${j}`),rows?kept=>liftedColumns(kept.map(i=>rows[i])):undefined),geometry);
+  return geometry3(curveMade3(positions,names,edges,edges.map(([i,j])=>`e:p${i}:p${j}`),rows?kept=>columnsOfRecords3(kept.map(i=>rows[i].attributes)):undefined),geometry);
 }
 /** Sample a parameterized path once, at uniformly spaced t in [0,1].
  * Closed paths omit t=1 and connect the final sample to t=0. */

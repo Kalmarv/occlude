@@ -1,7 +1,7 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {arcParameters3,profileCoordinates3} from '../geometry/coordinates.js';
 import {finite3,type Vec3} from '../math.js';
-import {madeGeometry3,facesMade3,earClip3,charted3,kernelRows3,emptyMesh,derived,type GeometryOptions} from './mesh.js';
+import {geometry3,facesMade3,earClip3,charted3,kernelRows3,emptyMesh,derived,type GeometryOptions} from './mesh.js';
 import {mesh3,type Lineage3} from '../geometry/mesh3.js';
 import {emptyCount,emptySize} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
@@ -94,5 +94,5 @@ export function revolve(input:Material|{readonly curves:unknown}|Curve2,options:
     faces:faceParents.map(parents=>({operation:'revolve',parents})),
   };
   const made=facesMade3(positions,pointNames,loops,faceNames,earClip3(positions,loops),{points:kernelRows3(source.cols.points,pointRows),faces:kernelRows3(source.cols.edges,faceRows)},lineage);
-  return madeGeometry3(charted3(made,(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key,derived:derived('revolve',input as object)});
+  return geometry3(charted3(made,(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key,derived:derived('revolve',input as object)});
 }

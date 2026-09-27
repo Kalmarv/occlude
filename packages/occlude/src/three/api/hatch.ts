@@ -9,7 +9,7 @@ import {identity} from './identity.js';
 import {locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
 import {placeOf3,type SurfaceSample} from './sampling.js';
 import type {CurveSample} from './curveSampling.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {integerWeights,weightedPoint} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
 import {surfaceBinding3,bindingTriangle3,surfaceCurveNetworkJob3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetworkInput3} from '../curves/network.js';

@@ -6,7 +6,6 @@ import {image} from '../src/imageAsset.js';
 import {plane} from '../src/three/api/index.js';
 import {toneRecipe3,imageValue3,prefilterPixels3} from '../src/three/surface/tone.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 // A 2x2 image: top row dark/bright, bottom row mid/alpha-only.
 const w=2,h=2,data=new Uint8ClampedArray(w*h*4);

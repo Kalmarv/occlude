@@ -1,9 +1,8 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {arcParameters3,profileCoordinates3} from '../geometry/coordinates.js';
-import {triangulate} from '../geometry/surface.js';
+import {triangulate,mesh3} from '../geometry/mesh3.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
-import {madeGeometry3,facesMade3,charted3,kernelRows3,emptyMesh,derived,type GeometryOptions} from './mesh.js';
-import {mesh3} from '../geometry/mesh3.js';
+import {geometry3,facesMade3,charted3,kernelRows3,emptyMesh,derived,type GeometryOptions} from './mesh.js';
 import {evaluate,type Field} from './columns.js';
 import {sampleValue} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
@@ -111,7 +110,7 @@ export function sweep(input:Material|{readonly curves:unknown}|Curve2,along:Mate
     points:{...kernelRows3(source.cols.points,pathRows),...kernelRows3(shape.cols.points,profileRows)},
     faces:{...kernelRows3(source.cols.edges,pathEdges),...kernelRows3(shape.cols.edges,profileEdges)},
   },lineage);
-  return madeGeometry3(charted3(made,(f,c,vertex)=>{
+  return geometry3(charted3(made,(f,c,vertex)=>{
     if(f>=sideCount)return {uv:capUV![vertex%width],chart:f===sideCount?'start':'end'};
     const ring=Math.floor(f/section.edges.length),edge=f%section.edges.length;
     const uv:readonly (readonly [number,number])[]=[[u[edge],v[ring]],[u[edge+1],v[ring]],[u[edge+1],v[ring+1]],[u[edge],v[ring+1]]];

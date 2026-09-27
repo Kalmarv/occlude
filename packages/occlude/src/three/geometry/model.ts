@@ -1,8 +1,15 @@
 import {rotateVector3,rotation3,type RotationInput} from '../rotation.js';
-import {sealAssembledTopology3} from './topology.js';
 import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
-import { assembleSurface3,type Surface3,type Attributes3,type Attribute3 } from './surface.js';
-import {kernelColumn,type Domain3,type Mesh3} from './mesh3.js';
+import {Column,kinds,kindWords,type AnyColumn,type AnyKind} from '../../column.js';
+import {kindOfValue} from '../../tables.js';
+import {kernelColumn,type Columns3,type Domain3,type Mesh3} from './mesh3.js';
+
+/** One value of a row's kernel column, as a record holds it: a number, a
+ * string, a boolean or a vector. */
+export type Attribute3 = number | string | boolean | readonly number[];
+/** A row's kernel columns as a record, by name (`rowColumns3`): what a
+ * feature, a location or a curve point carries. */
+export type Attributes3 = Record<string, Attribute3>;
 
 export interface FaceMeasure3 {readonly index:number;readonly id:string;readonly normal:Vec3;readonly center:Vec3;readonly area:number;readonly attributes:Readonly<Attributes3>;readonly adjacent:readonly number[]}
 export interface FaceGeometry3 {readonly normals:readonly Vec3[];readonly centers:readonly Vec3[];readonly areas:readonly number[]}
@@ -12,6 +19,33 @@ export interface FaceGeometry3 {readonly normals:readonly Vec3[];readonly center
 export function rowColumns3(mesh:Mesh3,domain:Domain3,row:number):Attributes3 {
   const out:Attributes3={},cols=mesh.cols[domain];
   for(const name in cols){const column=cols[name];if(kernelColumn(column))out[name]=(column as {get(i:number):Attribute3}).get(row);}
+  return out;
+}
+/** Records as columns, the inverse of `rowColumns3`: one column per name a
+ * record holds, in the order the names are first met, of the kind its
+ * values are (a number, a boolean, a string or a numeric vector); a record
+ * with no value reads the kind's default. A column holds one kind. */
+export function columnsOfRecords3(records:readonly Readonly<Record<string,Attribute3|undefined>>[]):Columns3 {
+  const found=new Map<string,AnyKind>();
+  for(const record of records)for(const name in record){
+    const value=record[name];if(value===undefined)continue;
+    const kind=kindOfValue(value);
+    if(kind===null||kind===undefined||kind===kinds.reference)throw new Error(`a geometry column holds numbers, booleans, strings or numeric vectors — got ${typeof value}`);
+    const known=found.get(name);
+    if(known===undefined)found.set(name,kind);
+    else if(known!==kind)throw new Error(`the column '${name}' holds ${kindWords(known)} on one row and ${kindWords(kind)} on another: a column holds one kind`);
+  }
+  const out:Record<string,AnyColumn>={};
+  for(const [name,kind] of found){
+    if(kind===kinds.number)out[name]=Column.of(Float64Array.from(records,r=>(r[name] as number|undefined)??0));
+    else if(kind===kinds.boolean)out[name]=kinds.boolean.of(Uint8Array.from(records,r=>r[name]===true?1:0));
+    else if(kind===kinds.string)out[name]=kinds.string.of(records.map(r=>(r[name] as string|undefined)??''));
+    else{
+      const k=kind.width,flat=new Float64Array(records.length*k);
+      records.forEach((r,i)=>{const v=r[name] as readonly number[]|undefined;if(v!==undefined)for(let c=0;c<k;c++)flat[i*k+c]=v[c];});
+      out[name]=kinds.vector(k).of(flat);
+    }
+  }
   return out;
 }
 // A statement of faces fixes the triangles and three position flats fix
@@ -40,7 +74,6 @@ export function measureFaces3(mesh:Mesh3):readonly FaceMeasure3[] {
   const neighbors=mesh.faceNeighbors,{normals,centers,areas}=faceGeometry3(mesh),names=mesh.names.faces;
   return Object.freeze(mesh.loops.map((_,i)=>Object.freeze({index:i,id:names[i],normal:normals[i],center:centers[i],area:areas[i],attributes:Object.freeze(rowColumns3(mesh,'faces',i)),adjacent:neighbors[i]})));
 }
-export function cloneSurface3(surface:Surface3):Surface3 {return assembleSurface3(surface.points,surface.faces,surface.triangles,surface);}
 
 /** An affine placement: translate, rotate and scale about `origin`. */
 export interface SurfaceTransform3 {translate?:Vec3;rotate?:RotationInput;scale?:Vec3;origin?:Vec3}
@@ -54,38 +87,4 @@ export function transformPosition3(position:Vec3,options:SurfaceTransform3):Vec3
   const origin=options.origin??[0,0,0],scale=options.scale??[1,1,1];
   const v=rotateVector3(sub3(position,origin).map((n,i)=>n*scale[i]) as unknown as Vec3,options.rotate??[0,0,0]);
   return add3(add3(v,origin),options.translate??[0,0,0]);
-}
-/** Affine modeling edit with an explicit pivot and Euler or rotation values.
- * Negative determinant reverses polygon and triangle winding consistently. */
-export function transformSurface3(surface:Surface3,options:SurfaceTransform3):Surface3 {
-  validateTransform3(options);
-  const settings={translate:options.translate??[0,0,0],rotate:options.rotate??[0,0,0],scale:options.scale??[1,1,1],origin:options.origin??[0,0,0]};
-  const points=surface.points.map(p=>({...p,position:transformPosition3(p.position,settings)}));
-  const mirrored=settings.scale.filter(n=>n<0).length%2===1;
-  return assembleSurface3(points,surface.faces.map(f=>({...f,vertices:mirrored?[...f.vertices].reverse():f.vertices,corners:mirrored?f.corners&&[...f.corners].reverse():f.corners})),surface.triangles.map(t=>({...t,vertices:mirrored?[t.vertices[0],t.vertices[2],t.vertices[1]]:t.vertices})),surface);
-}
-
-const capturedSurfaces3=new WeakSet<Surface3>();
-
-/** Owned frozen input for one procedural pass; editable results are explicit.
- * Trusted immutable snapshots are reusable across dependent generators. */
-export function snapshotSurface3(surface:Surface3):Surface3 {
-  if(capturedSurfaces3.has(surface))return surface;
-  return captureAssembled(cloneSurface3(surface));
-}
-/** Surfaces the API's own geometry paths build and hand straight to a
- * constructor: nobody else holds them, so capture freezes them in place
- * instead of cloning first. Advanced Surface3 inputs are always copied. */
-const ownedSurfaces3=new WeakSet<Surface3>();
-export function ownSurface3<S extends Surface3>(surface:S):S {ownedSurfaces3.add(surface);return surface;}
-export function captureSurface3(surface:Surface3):Surface3 {
-  if(capturedSurfaces3.has(surface))return surface;
-  return ownedSurfaces3.has(surface)?captureAssembled(surface):snapshotSurface3(surface);
-}
-function captureAssembled(snapshot:Surface3):Surface3 {
-  const freeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
-  // Array containers are already frozen by assembly; recurse through rows.
-  for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);for(const c of f.corners??[]){freeze(c.attributes);freeze(c);}freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
-  capturedSurfaces3.add(snapshot);sealAssembledTopology3(snapshot);
-  return Object.freeze(snapshot);
 }

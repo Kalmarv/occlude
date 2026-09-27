@@ -1,6 +1,6 @@
 import {ROW_TYPES,Selection,select,domainKind,rowRange,type Domain,type DomainKind,type Types} from '../../selection.js';
 import {describe} from '../../views.js';
-import type {Attributes3} from '../geometry/surface.js';
+import type {Attributes3} from '../geometry/model.js';
 import {type GeometryOptions} from './mesh.js';
 import {mesh3} from '../geometry/mesh3.js';
 import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,surfaceCurveNetwork3,bindingTriangle3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3,type SurfaceCurveRecipe3} from '../curves/network.js';

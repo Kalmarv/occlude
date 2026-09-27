@@ -1,16 +1,10 @@
 import {describe,it,expect} from 'vitest';
-import {surface3,assembleSurface3} from '../src/three/geometry/surface.js';
-import {snapshotSurface3,transformSurface3,cloneSurface3} from '../src/three/geometry/model.js';
 import {triangleCorners3} from '../src/three/geometry/corners.js';
 import {mesh3} from '../src/three/geometry/mesh3.js';
 import {Selection} from '../src/selection.js';
 import {mesh,pointCloud} from '../src/three/api/mesh.js';
 import {instanceOnPoints} from '../src/three/api/instances.js';
-function pair(){
- const s=surface3([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0],[2,1,0]],[[0,1,2,3],[1,4,5,2]]);
- return assembleSurface3(s.points,s.faces.map((f,i)=>({...f,corners:f.corners!.map((c,j)=>({...c,attributes:{uv:([[0,0],[1,0],[1,1],[0,1]][j]).map((v,k)=>v+(k===0?i*10:0)),island:i?'right':'left'}}))})),s.triangles,s);
-}
-/** `pair()` as a value: two quads that share a side, each with its own uv
+/** Two quads that share a side, each with its own uv
  * chart and island at its corners. */
 const pairValue=()=>mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0],[2,1,0]],[[0,1,2,3],[1,4,5,2]]).corners.set({
   uv:c=>[[0,0],[1,0],[1,1],[0,1]][c.index%4].map((v,k)=>v+(k===0?Math.floor(c.index/4)*10:0)),
@@ -18,15 +12,18 @@ const pairValue=()=>mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0],[2,1,0]],[[0,1
 });
 describe('owned polygon corner storage',()=>{
  it('stores independent values at a shared geometric vertex',()=>{
-  const s=snapshotSurface3(pair());expect(s.points.length).toBe(6);expect(s.faces.flatMap(f=>f.corners!).length).toBe(8);
-  expect(s.faces[0].corners![1].attributes.uv).toEqual([1,0]);expect(s.faces[1].corners![0].attributes.uv).toEqual([10,0]);
-  expect(Object.isFrozen(s.faces[0].corners![1].attributes.uv)).toBe(true);
-  expect(()=>{(s.faces[0].corners![1].attributes.uv as number[])[0]=99;}).toThrow();
-  expect(cloneSurface3(s).faces[0].corners).toEqual(s.faces[0].corners);
+  const m=pairValue();expect(m.points.length).toBe(6);expect(m.corners.length).toBe(8);
+  expect(m.faces.at(0)!.corners.at(1)!.uv).toEqual([1,0]);expect(m.faces.at(1)!.corners.at(0)!.uv).toEqual([10,0]);
+  const uv=m.faces.at(0)!.corners.at(1)!.uv;
+  expect(Object.isFrozen(uv)).toBe(true);
+  expect(()=>{(uv as number[])[0]=99;}).toThrow();
+  expect(m.faces.at(0)!.corners.at(1)!.uv).toEqual([1,0]);
  });
  it('keeps corner-to-vertex correspondence under mirrors and fixed nonplanar triangles',()=>{
-  const s=pair(),mirrored=transformSurface3(s,{scale:[-2,3,1]});
-  expect(mirrored.faces[0].corners!.map(c=>c.id)).toEqual([...s.faces[0].corners!].reverse().map(c=>c.id));
+  const s=pairValue(),mirrored=s.scale([-2,3,1]),names=(v:typeof s)=>mesh3(v).names.corners.slice(0,4);
+  expect(names(mirrored)).toEqual([...names(s)].reverse());
+  expect(mirrored.faces.at(0)!.corners.map(c=>c.uv)).toEqual([...s.faces.at(0)!.corners.map(c=>c.uv)].reverse());
+  expect(mirrored.faces.at(0)!.corners.map(c=>c.point.index)).toEqual([...s.faces.at(0)!.corners.map(c=>c.point.index)].reverse());
   const bent=mesh3(pairValue().displace(p=>[0,0,p.index===2?.5:0]));
   for(let i=0;i<bent.triangleCount;i++)expect(triangleCorners3(bent,i).map(c=>bent.loops[bent.triangleFace[i]][c])).toEqual([...bent.triangle(i)]);
  });
@@ -60,9 +57,10 @@ describe('owned polygon corner storage',()=>{
   // A realized face comes from the prototype face and its copy.
   expect(out.faces.at(2)!.source).toEqual([prototype.faces.at(0),placed.points.at(1)]);
  });
- it('rejects missing or duplicate explicit corner identities',()=>{
-  const s=pair();
-  expect(()=>assembleSurface3(s.points,[{...s.faces[0],corners:[]}],s.triangles.filter(t=>t.face===0))).toThrow('every polygon vertex');
-  expect(()=>assembleSurface3(s.points,s.faces.map(f=>({...f,corners:f.corners!.map(c=>({...c,id:'duplicate'}))})),s.triangles)).toThrow('unique');
+ it('names one corner per polygon vertex, uniquely',()=>{
+  const m=pairValue(),read=mesh3(m);
+  expect(m.faces.map(f=>f.corners.length)).toEqual(read.loops.map(l=>l.length));
+  expect(new Set(read.names.corners).size).toBe(read.cornerCount);
+  expect(m.faces.at(1)!.corners.map(c=>c.point.index)).toEqual([1,4,5,2]);
  });
 });

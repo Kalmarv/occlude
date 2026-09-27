@@ -1,26 +1,13 @@
 /**
- * @internal The 3D layer's door to the one geometry.
+ * @internal A value in space: what it carries besides its rows, and the
+ * motions that keep every row.
  *
  * A 3D value is a `Material` with a `z` column: points, edges, stated
- * polygon faces and their corners, typed columns, minted ids. The kernels
- * read and write the `Surface3` working view (parts.ts). This module is
- * where the two meet:
- *
- *   value3(surface, carry)  a kernel's surface as the one geometry, through
- *                           the core's `materialFromParts`; the view it was
- *                           made from is kept as its working view;
- *   surfaceOf(m)            the working view of any geometry, built from its
- *                           parts on first need and kept on the value
- *                           (`m.cache.surface`);
- *   mapPositions3(m, move)  every point moved, as a map over the x, y and z
- *                           columns: no view, no kernel.
- *
- * The core keeps what the view needs row by row: every row's kernel name
- * (`store.pointKeys`/`edgeKeys`, the stated faces' `faceKeys`/`cornerKeys`),
- * carried by every write that keeps the row; and the faces' FIXED
- * triangles, which are face data: the statement holds them as positions
- * round each loop (`FacePart.triangles`), and every write that keeps the
- * faces keeps them.
+ * polygon faces with their corners and fixed triangles, typed columns,
+ * minted ids and the kernels' row names. The kernels read it through
+ * `mesh3` and answer columns (mesh3.ts). A motion of space needs neither:
+ * `mapPositions3` maps the x, y and z columns and keeps every row, column
+ * and face.
  *
  * What is not a row's is the value's own, and a value field the core
  * carries through every write: its key, the prototype it places, its own
@@ -30,20 +17,13 @@
  */
 
 import {Column, type AnyColumn} from '../../column.js';
-import {Material, materialFromParts, partsOfMaterial, type MaterialParts} from '../../material.js';
+import {Material} from '../../material.js';
 import type {StatedFaces} from '../../faces.js';
 import {carryLinks} from '../../derivation.js';
 import {rotation3, type Rotation} from '../rotation.js';
 import type {Vec3} from '../math.js';
-import type {Surface3} from './surface.js';
-import {partsOfSurface, surfaceOfParts, type Columns3, type Lineage3} from './parts.js';
-import {captureSurface3} from './model.js';
-import {inheritTopology3, shareTopology3} from './topology.js';
 import {ownerOf} from '../../views.js';
-import {turnedOver3} from './mesh3.js';
-
-/** How a point column refines, as `set(…, { transfer })` declares it. */
-export type Transfers3 = Readonly<Record<string, 'interpolate' | 'nearest'>>;
+import {mesh3, turnedOver3} from './mesh3.js';
 
 /** @internal A value's own frame in space, as a rigid move reads and
  * gives it: its origin and orientation (the user origin and no turn when
@@ -53,23 +33,6 @@ export interface Frame3 {
   readonly origin: Vec3;
   readonly orientation: Rotation;
   readonly radialCentre?: Vec3;
-}
-
-/** What a kernel result carries besides its surface. */
-export interface Carry3 {
-  /** The value the kernel read first: a row it kept keeps its id, and its
-   * reference and placement columns ride across. */
-  readonly from?: Material;
-  readonly origin?: Vec3;
-  readonly orientation?: Rotation;
-  readonly radialCentre?: Vec3;
-  readonly transfers?: Transfers3;
-  readonly key?: string;
-  readonly prototype?: Material;
-  /** Where the rows came from (the core's `source` spec). */
-  readonly source?: MaterialParts['source'];
-  /** Point columns a kernel never sees (a sample's placement), one a point. */
-  readonly pointCols?: Readonly<Record<string, AnyColumn>>;
 }
 
 const ORIGIN: Vec3 = Object.freeze([0, 0, 0]) as unknown as Vec3;
@@ -83,86 +46,6 @@ export function frameOf(m: Material): Frame3 {
     orientation: m.orientation ?? IDENTITY,
     ...(m.radialCentre !== undefined ? {radialCentre: m.radialCentre} : {}),
   };
-}
-
-/** @internal A kernel's surface as the one geometry. */
-export function value3(surface: Surface3, carry: Carry3 = {}): Material {
-  const made = partsOfSurface(surface, carry.from === undefined ? undefined : partsOfMaterial(carry.from));
-  const m = materialFromParts({
-    ...made,
-    ...(carry.pointCols !== undefined ? {pointCols: {...made.pointCols, ...carry.pointCols}} : {}),
-    ...(carry.source !== undefined ? {source: carry.source} : {}),
-    ...(carry.transfers !== undefined ? {transfers: {...carry.transfers}} : {}),
-    ...(carry.key !== undefined ? {key: carry.key} : {}),
-    ...(carry.prototype !== undefined ? {prototype: carry.prototype} : {}),
-    ...(carry.origin !== undefined ? {origin: carry.origin} : {}),
-    ...(carry.orientation !== undefined ? {orientation: carry.orientation} : {}),
-    ...(carry.radialCentre !== undefined ? {radialCentre: carry.radialCentre} : {}),
-  });
-  // The view is the kernel's surface row for row and name for name: the
-  // surface itself when nothing was filled in, else one read from the
-  // value that takes the surface's topology revision, so adjacency and
-  // attachment lineage carry on.
-  let view: Surface3;
-  if (made.complete && carry.pointCols === undefined) view = captureSurface3(surface);
-  else {
-    view = surfaceOfParts(partsOfMaterial(m), made.lineage);
-    inheritTopology3(view, surface);
-  }
-  keepView(m, view);
-  return m;
-}
-
-/** @internal The working view of any geometry (see the module note), kept on
- * the value. A value with no `z` is at z = 0. */
-export function surfaceOf(m: Material): Surface3 {
-  const known = m.cache.surface;
-  if (known !== undefined) return known;
-  const view = surfaceOfParts(partsOfMaterial(m));
-  // A write that kept the topology — the same edge list, loops and names —
-  // keeps the adjacency built for the state it was made from; a mirror
-  // keeps the attachment lineage of the view it turned over.
-  const donor = DONORS.get(m.store.edgeList);
-  const from = m.cache.turnedFrom;
-  if (from !== undefined) m.cache.turnedFrom = undefined;
-  if (from === undefined && donor !== undefined && donor.cycles === m.stated?.cycles && donor.pointKeys === m.store.pointKeys && donor.n === m.n) {
-    shareTopology3(view, donor.view);
-    m.cache.surface = view;
-    VIEW_OWNER.set(view, m);
-  } else {
-    if (from !== undefined) inheritTopology3(view, surfaceOf(from));
-    keepView(m, view);
-  }
-  return view;
-}
-
-
-/** Keep `view` as the working view of `m`, and as the last view read for
- * its edge list. */
-function keepView(m: Material, view: Surface3): void {
-  m.cache.surface = view;
-  VIEW_OWNER.set(view, m);
-  DONORS.set(m.store.edgeList, {view, cycles: m.stated?.cycles, pointKeys: m.store.pointKeys, n: m.n});
-}
-
-/** Each working view's value. */
-const VIEW_OWNER = new WeakMap<Surface3, Material>();
-/** @internal The value `view` is the working view of, if it is one. */
-export const viewOwner = (view: Surface3): Material | undefined => VIEW_OWNER.get(view);
-
-/** The last view read for an edge list, with what makes its topology: a
- * view of the same edge list, loops, point names and point count shares
- * its adjacency. */
-const DONORS = new WeakMap<object, {readonly view: Surface3; readonly cycles: unknown; readonly pointKeys: unknown; readonly n: number}>();
-declare module '../../material.js' {
-  interface StateCache {
-    /** The working view (`surfaceOf`). */
-    surface?: Surface3;
-    /** A value turned over by a mirror: the value it was turned from. Its
-     * faces run the other way, and its attachment lineage is that value's
-     * view's, read when its own view is first built. */
-    turnedFrom?: Material;
-  }
 }
 
 // ─── positions as a column map ──────────────────────────────────────────
@@ -179,8 +62,8 @@ export interface Moved3 {
 /**
  * @internal `m` with every point moved through `move`: a map over the x,
  * y and z columns that keeps every row, id, kernel name, column and face,
- * every value field, and the links its rows answer `source` with. A mirror turns each stated
- * face over — its runs, its fixed triangles and its corners reversed — so
+ * every value field, and the links its rows answer `source` with. A
+ * mirror turns each stated face over — its runs, its fixed triangles and its corners reversed — so
  * it still faces out. A value with no `z` gets one.
  */
 export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, who: string, how: Moved3 = {}): Material {
@@ -203,7 +86,7 @@ export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, w
   const frame = how.frame;
   const faces = how.mirror === true && m.stated !== undefined ? turnedOver(m.stated) : m.stated;
   if (faces !== undefined && faces !== m.stated) turnedOver3(m.stated!, faces);
-  const out = carryLinks(m, new Material(nx, ny, {...s.attrs, z: nz}, s.edgeList, {
+  return carryLinks(m, new Material(nx, ny, {...s.attrs, z: nz}, s.edgeList, {
     iteration: m.iteration,
     history: [],
     edgeAttrs: s.edgeAttrs,
@@ -216,8 +99,6 @@ export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, w
     ...(frame !== undefined ? {origin: frame.origin, orientation: frame.orientation, radialCentre: frame.radialCentre} : {}),
     faces,
   }));
-  if (faces !== m.stated) out.cache.turnedFrom = m;
-  return out;
 }
 
 /** Faces turned over: each run reversed, each fixed triangle wound the other
@@ -249,20 +130,10 @@ function turnedOver(stated: StatedFaces): StatedFaces {
   };
 }
 
-// ─── the explicit stage, and questions a value answers without a view ───
-
-/** What the explicit stage reads: a surface, or a geometry, whose working
- * view is read — as a scene object's `surface` is. */
-export type StageSurface3 = Surface3 | Material;
-/** @internal The surface the explicit stage reads (see `StageSurface3`). */
-export function stageSurface3(input: StageSurface3): Surface3 {
-  if (input instanceof Material) return surfaceOf(input);
-  if (!Array.isArray((input as Surface3 | undefined)?.points)) throw new Error('expected a surface or a geometry with faces');
-  return input;
-}
+// ─── questions a value answers from its columns ─────────────────────────
 
 /** @internal Does a value state faces? A value with a `z` has the faces it
- * states or none, so the count needs no working view. */
+ * states or none. */
 export const hasFaces = (m: Material): boolean => (m.stated?.cycles.length ?? 0) > 0;
 
 /** @internal The value a row view belongs to. */
@@ -276,12 +147,5 @@ function ownerOfRow(row: object): Material {
 type Domain = 'points' | 'edges' | 'faces';
 /** @internal A row's kernel name: what the kernels made it under. */
 export function rowName(row: {readonly index: number}, domain: Domain): string {
-  return surfaceOf(ownerOfRow(row))[domain][row.index].id;
+  return mesh3(ownerOfRow(row)).names[domain][row.index];
 }
-/** @internal A row's columns as the kernels read them: numbers, booleans,
- * strings and vectors. */
-export function rowAttributes(row: {readonly index: number}, domain: Domain): Readonly<Record<string, unknown>> {
-  return surfaceOf(ownerOfRow(row))[domain][row.index].attributes;
-}
-
-export type {Columns3, Lineage3};

@@ -1,4 +1,3 @@
-import {Column,kinds,kindWords,type AnyColumn,type AnyKind} from '../../column.js';
 import {chainRecordOf,chainRecordsOf,isCurveRow,type ChainRecord} from '../../curves.js';
 
 /** 2D values read by the 3D doors. A 2D point is a 3D point at z = 0 and a
@@ -77,23 +76,4 @@ export function points2(value:unknown,who:string):readonly Lifted2[]|undefined {
   const rows=[...(source as Iterable<unknown>)];
   if(!rows.every(r=>isPair(r)||isRecord2(r)))return undefined;
   return rows.map((r,i)=>isPair(r)?Object.freeze({id:id2(undefined,i),x:r[0],y:r[1],attributes:{}}):Object.freeze({id:id2((r as {id?:unknown}).id,i),x:(r as {x:number}).x,y:(r as {y:number}).y,attributes:columns(r as Record<string,unknown>)}));
-}
-/** The columns of lifted rows: one per name any row has, in the order the
- * names are first met, of the kind its values are; a row without a value
- * takes the kind's default. A column holds one kind. */
-export function liftedColumns(rows:readonly Lifted2[]):Record<string,AnyColumn> {
-  const found=new Map<string,AnyKind>();
-  for(const row of rows)for(const name in row.attributes){
-    const value=row.attributes[name],kind=typeof value==='number'?kinds.number:typeof value==='boolean'?kinds.boolean:kinds.string;
-    const known=found.get(name);
-    if(known===undefined)found.set(name,kind);
-    else if(known!==kind)throw new Error(`the column '${name}' holds ${kindWords(known)} on one row and ${kindWords(kind)} on another: a column holds one kind`);
-  }
-  const out:Record<string,AnyColumn>={};
-  for(const [name,kind] of found){
-    if(kind===kinds.number)out[name]=Column.of(Float64Array.from(rows,r=>{const v=r.attributes[name];return v===undefined?0:v as number;}));
-    else if(kind===kinds.boolean)out[name]=kinds.boolean.of(Uint8Array.from(rows,r=>r.attributes[name]===true?1:0));
-    else out[name]=kinds.string.of(rows.map(r=>{const v=r.attributes[name];return v===undefined?'':v as string;}));
-  }
-  return out;
 }

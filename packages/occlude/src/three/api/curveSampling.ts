@@ -1,12 +1,11 @@
 import {emptySize} from '../degenerate.js';
-import {madeGeometry3,pointsMade3,type GeometryOptions} from './mesh.js';
-import {Column,kinds,kindWords,type AnyColumn,type AnyKind} from '../../column.js';
-import {kindOfValue} from '../../tables.js';
+import {geometry3,pointsMade3,type GeometryOptions} from './mesh.js';
+import {kinds,type AnyColumn} from '../../column.js';
 import {Material} from '../../material.js';
 import {isInstances,placedOf} from './instances.js';
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
-import type {Attribute3,Attributes3} from '../geometry/surface.js';
+import {columnsOfRecords3,type Attributes3} from '../geometry/model.js';
 import {surfaceLocation3,locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
 import {mesh3,kernelColumn,checkMade3,type Columns3} from '../geometry/mesh3.js';
 import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeights,ratioNumber,difference,abs,type Ratio,type EncodedPoint3} from '../geometry/exact.js';
@@ -66,33 +65,6 @@ export function curveSamplesOf(m:Material):readonly CurveSample[]|undefined {
  for(let i=0;i<m.n;i++){const s=column.get(i) as CurveSample;if(!attachments.has(s))return undefined;out.push(s);}
  return out;
 }
-/** The columns of the segment records under the points: one per name any
- * record holds, in the order the names are first met, of the kind its
- * values are; a point whose segment has none reads the kind's default. A
- * column holds one kind. */
-function segmentColumns(records:readonly Readonly<Attributes3>[]):Columns3 {
- const found=new Map<string,AnyKind>();
- for(const record of records)for(const name in record){
-  const value=record[name];if(value===undefined)continue;
-  const kind=kindOfValue(value);
-  if(kind===null||kind===undefined||kind===kinds.reference)throw new Error(`a geometry column holds numbers, booleans, strings or numeric vectors — got ${typeof value}`);
-  const known=found.get(name);
-  if(known===undefined)found.set(name,kind);
-  else if(known!==kind)throw new Error(`the column '${name}' holds ${kindWords(known)} on one row and ${kindWords(kind)} on another: a column holds one kind`);
- }
- const out:Record<string,AnyColumn>={},cell=(i:number,name:string):Attribute3|undefined=>records[i][name];
- for(const [name,kind] of found){
-  if(kind===kinds.number)out[name]=Column.of(Float64Array.from(records,(_,i)=>(cell(i,name) as number|undefined)??0));
-  else if(kind===kinds.boolean)out[name]=kinds.boolean.of(Uint8Array.from(records,(_,i)=>cell(i,name)===true?1:0));
-  else if(kind===kinds.string)out[name]=kinds.string.of(records.map((_,i)=>(cell(i,name) as string|undefined)??''));
-  else {
-   const k=kind.width,flat=new Float64Array(records.length*k);
-   records.forEach((_,i)=>{const v=cell(i,name) as readonly number[]|undefined;if(v!==undefined)for(let c=0;c<k;c++)flat[i*k+c]=v[c];});
-   out[name]=kinds.vector(k).of(flat);
-  }
- }
- return out;
-}
 /** Points on surface curves as the one geometry: the segment's columns,
  * `sample` each point's place on the curves, `source` the edge under it. */
 function curvePoints(target:SurfaceCurves<any>,names:readonly string[],samples:readonly CurveSample[],cols:Columns3,key:string|undefined,from?:Material):Material {
@@ -100,7 +72,7 @@ function curvePoints(target:SurfaceCurves<any>,names:readonly string[],samples:r
  const at=new Map(edges.map((e,i)=>[e.id,i]));
  const under=samples.map(s=>at.get(attachments.get(s)!.edgeId));
  const made=pointsMade3(samples.map(s=>s.position),names,cols);checkMade3(made);
- return madeGeometry3(made,{key,...(from?{from}:{}),pointCols:{sample:kinds.placement.from(samples)},source:{points:(i:number)=>{const e=under[i];return e===undefined?undefined:target.edges.at(e);}}});
+ return geometry3(made,{key,...(from?{from}:{}),pointCols:{sample:kinds.placement.from(samples)},source:{points:(i:number)=>{const e=under[i];return e===undefined?undefined:target.edges.at(e);}}});
 }
 /** `samples.rebind(curves)`: every point back on its place along curves
  * rebuilt from the same construction (an explicitly rebound curve set). */
@@ -158,5 +130,5 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
    names.push(id);records.push(segment.attributes);samples.push(sample);
   }
  }
- return curvePoints(target,names,samples,segmentColumns(records),options.key);
+ return curvePoints(target,names,samples,columnsOfRecords3(records),options.key);
 }

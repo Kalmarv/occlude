@@ -4,7 +4,7 @@ import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render } from '../src/host.js';
 import {sdf3,isosurface,view,orthographic} from '../src/three/api/index.js';
 import {manifold} from './helpers/surfaces.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import type {Material} from '../src/material.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
@@ -15,7 +15,7 @@ beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-cor
 function components(s:Material):number{
   const parent=s.points.map((_,i)=>i);
   const root=(i:number):number=>{while(parent[i]!==i)i=parent[i]=parent[parent[i]];return i;};
-  for(const f of surfaceOf(s).faces)for(const v of f.vertices){const a=root(f.vertices[0]),b=root(v);if(a!==b)parent[a]=b;}
+  for(const loop of mesh3(s).loops)for(const v of loop){const a=root(loop[0]),b=root(v);if(a!==b)parent[a]=b;}
   return new Set(s.points.map((_,i)=>root(i))).size;
 }
 const cube=(half:number):[readonly [number,number,number],readonly [number,number,number]]=>[[-half,-half,-half],[half,half,half]];
@@ -59,7 +59,7 @@ describe('isosurface, the field made a mesh',()=>{
   // The same field at the same step is the same mesh, point for point.
   const again=isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:span/cells});
   expect(again.points.map(p=>[p.x,p.y,p.z])).toEqual(ball.points.map(p=>[p.x,p.y,p.z]));
-  expect(surfaceOf(again).faces.map(f=>f.vertices)).toEqual(surfaceOf(ball).faces.map(f=>f.vertices));
+  expect(mesh3(again).loops).toEqual(mesh3(ball).loops);
  });
  it('joins a union into one closed piece and keeps a smoothed surface closed',()=>{
   const pair=sdf3.union(sdf3.sphere([-.5,0,0],.8),sdf3.sphere([.5,0,0],.8));
@@ -67,7 +67,7 @@ describe('isosurface, the field made a mesh',()=>{
   manifold(welded,2);expect(components(welded)).toBe(1);
   const eased=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],step:3.4/28,smooth:3});
   manifold(eased,2);
-  expect(surfaceOf(eased).faces.map(f=>f.vertices)).toEqual(surfaceOf(welded).faces.map(f=>f.vertices));
+  expect(mesh3(eased).loops).toEqual(mesh3(welded).loops);
   // Laplacian passes move the points and pull the surface in a little.
   expect(eased.points.map(p=>[p.x,p.y,p.z])).not.toEqual(welded.points.map(p=>[p.x,p.y,p.z]));
  });
@@ -91,7 +91,7 @@ describe('isosurface, the field made a mesh',()=>{
     ()=>isosurface(sdf3.union(),{bounds:cube(1.5),step:3/8}),
     ()=>isosurface((()=>Number.NaN) as never,{bounds:cube(1.5),step:3/8}),
     ()=>isosurface(sdf3.sphere([0,0,0],9),{bounds:cube(1.5),step:3/8}),
-  ])expect(surfaceOf(make()).faces.length).toBe(0);
+  ])expect(make().faces.length).toBe(0);
   expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),resolution:8} as never)).toThrow('resolution is now step');
   expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:3/200})).toThrow('budget');
   expect(()=>isosurface(null as never,{bounds:cube(1.5),step:3/8})).toThrow('function of (x, y, z)');

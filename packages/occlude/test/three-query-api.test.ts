@@ -8,7 +8,6 @@ import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3 } from '../src/host.js';
 import {perspective} from 'occlude/3d';
 import {toolkit} from './helpers/run.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 describe('prepared surface query facade',()=>{
  it('distinguishes world distance from ray and segment parameters, with owned typed face data',()=>{

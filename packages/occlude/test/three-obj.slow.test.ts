@@ -5,7 +5,7 @@ import {obj,view,orthographic} from '../src/three/api/index.js';
 import {manifold} from './helpers/surfaces.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { compileSketchAsync, renderAsync, initOcclude, exportSvg } from '../src/host.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import type {Material} from '../src/material.js';
 
 beforeAll(async()=>{
@@ -88,9 +88,10 @@ describe('obj() mesh source',()=>{
     // 1,113 of the file's vertices belong to no face (stray scan points); the import keeps only what the faces use.
     expect((text.match(/^v /gm)??[]).length).toBe(35947);
     expect(bunny.points.length).toBe(34834);expect(bunny.faces.length).toBe(69451);
-    expect(surfaceOf(bunny).triangles.length).toBe(69451);
-    expect(surfaceOf(bunny).edges.filter(e=>e.faces.length===1).length).toBe(223);
-    expect(surfaceOf(bunny).edges.every(e=>e.faces.length<=2)).toBe(true);
+    const read=mesh3(bunny);
+    expect(read.triangleCount).toBe(69451);
+    expect(read.edgeFaces.filter(faces=>faces.length===1).length).toBe(223);
+    expect(read.edgeFaces.every(faces=>faces.length<=2)).toBe(true);
     // Stood upright: the file's Y (its height) is occlude's Z, about 15 cm tall.
     const z=[...bunny.points].map(p=>p.z);
     expect(Math.max(...z)-Math.min(...z)).toBeCloseTo(0.154,2);

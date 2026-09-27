@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {mesh3} from '../src/three/geometry/mesh3.js';
 import {box,mesh} from 'occlude/3d';
-import {gridSurface as grid3} from './helpers/surfaces.js';
+import {gridMesh} from './helpers/surfaces.js';
 import {point,type H} from '../src/three/geometry/exact.js';
 import {runGeometryJob3} from '../src/three/geometry/job.js';
 import {surfaceBinding3,surfaceCurveNetwork3} from '../src/three/curves/network.js';
@@ -77,7 +77,7 @@ describe('intersection graph assembly',()=>{
   expect(asyncResult.value.network.segments.map(s=>s.id)).toEqual(sync.network.segments.map(s=>s.id));
   expect(asyncResult.value.network.nodes.map(n=>n.exact)).toEqual(sync.network.nodes.map(n=>n.exact));
   expect(asyncResult.value.stats.outputSegments).toBe(sync.stats.outputSegments);
-  const ca=surfaceBinding3(mesh3(mesh(grid3(40,40,[4,4])))),cb=surfaceBinding3(mesh3(mesh(grid3(40,40,[4,4]))));
+  const ca=surfaceBinding3(mesh3(gridMesh(40,40,[4,4]))),cb=surfaceBinding3(mesh3(gridMesh(40,40,[4,4])));
   const controller=new AbortController();
   const pending=intersectionsAsync3(ca,cb,{},controller.signal);
   setTimeout(()=>controller.abort(new Error('cancel intersections')),0);

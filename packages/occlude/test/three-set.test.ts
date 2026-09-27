@@ -14,7 +14,7 @@ import {plane,box,pointCloud,curve,grid,instanceOnPoints} from '../src/three/api
 import {placedOf} from '../src/three/api/instances.js';
 import {scatterSurface} from '../src/three/api/sampling.js';
 import type {Material} from '../src/material.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {toolkit} from './helpers/run.js';
 
 const sheet=()=>plane(2,2).subdivide(2);
@@ -25,7 +25,7 @@ describe('points.set in space',()=>{
     expect(b).not.toBe(a);
     expect(a.points.at(0)!.h).toBeUndefined();
     expect(b.faces.length).toBe(a.faces.length);expect(b.corners.length).toBe(a.corners.length);
-    expect(surfaceOf(b).triangles).toEqual(surfaceOf(a).triangles);
+    expect(mesh3(b).triangles).toEqual(mesh3(a).triangles);
   });
   it('moves points through z, and keeps the faces',()=>{
     const m=sheet(),out=m.points.set('z',(p)=>p.x>0?1:0);

@@ -14,7 +14,7 @@
  * `instanceOnFaces` — and it keeps that row's columns.
  */
 import {rotation3,alignAxis,storedRotation,type Rotation,type RotationInput} from '../rotation.js';
-import {pointCloud,madeGeometry3,pointsMade3,kernelRows3,rowsOfColumn3,derived,type GeometryOptions} from './mesh.js';
+import {pointCloud,geometry3,pointsMade3,kernelRows3,rowsOfColumn3,derived,type GeometryOptions} from './mesh.js';
 import {points2} from './lift.js';
 import {refuseDisplay} from './recipes.js';
 import {evaluate,type Field} from './columns.js';
@@ -22,12 +22,11 @@ import {hasFaces} from '../geometry/value.js';
 import {Material,inSpace3,type Vertex} from '../../material.js';
 import {Selection} from '../../selection.js';
 import {identity} from './identity.js';
-import type {Attributes3,Provenance3} from '../geometry/surface.js';
-import {rowColumns3,transformPosition3} from '../geometry/model.js';
+import {rowColumns3,transformPosition3,type Attributes3} from '../geometry/model.js';
+import {mesh3,faceEdges3,checkMade3,kernelColumn,type Provenance3,type Mesh3,type Columns3,type Domain3} from '../geometry/mesh3.js';
 import {add3,mul3,type Vec3} from '../math.js';
 import {captureSurfacePlacement3} from '../geometry/location.js';
 import {surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
-import {mesh3,faceEdges3,checkMade3,kernelColumn,type Mesh3,type Columns3,type Domain3} from '../geometry/mesh3.js';
 import {kinds,type AnyColumn} from '../../column.js';
 import type {Face} from '../../faces.js';
 
@@ -134,7 +133,7 @@ function instances(prototype:Material,copies:readonly {readonly name:string;read
     cols.rotate=kinds.vector(width).of(turn);cols.scale=kinds.vector(3).of(scale);
   }
   const made=pointsMade3(copies.map(c=>c.translate),copies.map(c=>c.name),cols);checkMade3(made);
-  return madeGeometry3(made,{...(key!==undefined?{key}:{}),prototype,source:{points:{source:source}}});
+  return geometry3(made,{...(key!==undefined?{key}:{}),prototype,source:{points:{source:source}}});
 }
 function checkPrototype(prototype:unknown,who:string):asserts prototype is Material {
   if(!(prototype instanceof Material)||!hasFaces(prototype)&&prototype.n>0)throw new Error(`${who}: the prototype is a value with faces — a mesh, a box, a sphere`);
@@ -249,5 +248,5 @@ export function realize(m:Material,options:RealizeOptions={}):Material {
   for(const d of ['points','edges','faces','corners'] as const)cols[d]=realizedColumns(copyCols,proto.cols[d],copies[d],rows[d]);
   const made={x,y,z,names,loops,triangles,edges:Uint32Array.from(edges),cols,lineage};checkMade3(made);
   const key=m.key;
-  return madeGeometry3(made,{...(key!==undefined?{key}:{}),transfers:prototype.transfers,derived:derived('realize',prototype,m)});
+  return geometry3(made,{...(key!==undefined?{key}:{}),transfers:prototype.transfers,derived:derived('realize',prototype,m)});
 }

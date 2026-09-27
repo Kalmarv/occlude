@@ -1,8 +1,8 @@
 import {describe,it,expect} from 'vitest';
-import {box3} from '../src/three/geometry/surface.js';
 import {plane,box,mesh,pointCloud} from '../src/three/api/mesh.js';
 import {toolkit} from './helpers/run.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
+import {mesh3,meshOfMade3} from '../src/three/geometry/mesh3.js';
+import {triangulation3} from '../src/three/geometry/triangulation.js';
 describe('immutable mesh values and frozen domains',()=>{
  it('shares the mesh contract across plane, box and raw topology',()=>{
   for(const shape of [plane(),box(),mesh([[0,0,0],[1,0,0],[0,1,0]],[[0,1,2]])]){
@@ -49,12 +49,18 @@ describe('immutable mesh values and frozen domains',()=>{
   const continued=t.steps(1,value,m=>m,{every:1});expect(continued.history.length).toBe(2);expect(continued.history[0].points.map(p=>p.z)).toEqual(value.points.map(p=>p.z));expect(continued.history[0].history).toEqual([]);
   expect(original.points.map(p=>p.z)).toEqual([0,0,0,0]);
  });
- it('imports owned mutable surfaces without losing IDs, attributes or fixed triangles',()=>{
-  const raw=box3();raw.faces[0].attributes.label='bottom';// preserve source identity
-  const imported=mesh(raw);raw.points[0].position=[99,99,99];raw.faces[0].attributes.label='changed';
-  expect(surfaceOf(imported).points[0].id).toBe('p0');expect(imported.points.at(0)?.x).toBe(-.5);
-  expect(imported.faces.at(0)?.label).toBe('bottom');
-  const invalid={...box3(),triangles:[]};expect(()=>mesh(invalid)).toThrow('triangulation');
+ it('builds values that own their raw inputs and keep names, columns and fixed triangles',()=>{
+  const labelled=box().faces.set('label',f=>f.index===0?'bottom':'side'),read=mesh3(labelled);
+  expect(read.names.points[0]).toBe('p0');expect(read.names.faces[0]).toBe('f0');expect(labelled.points.at(0)?.x).toBe(-.5);
+  expect(labelled.faces.at(0)?.label).toBe('bottom');
+  // Every quad holds its two triangles, fixed when it was built.
+  for(let f=0;f<read.faceCount;f++)expect(read.localTriangles(f)).toEqual([3,0,1,1,2,3]);
+  const positions:[number,number,number][]=[[0,0,0],[1,0,0],[1,1,0],[0,1,0]],faces=[[0,1,2,3]],quad=mesh(positions,faces);
+  positions[0]=[99,99,99];faces[0].reverse();
+  expect(quad.points.at(0)?.x).toBe(0);expect(mesh3(quad).loops[0]).toEqual([0,1,2,3]);expect(mesh3(quad).names.points[0]).toBe('p0');
+  // Faces whose fixed triangles do not cover them are refused by name.
+  const bare=meshOfMade3({x:read.x,y:read.y,z:read.z,names:read.names,loops:read.loops,triangles:read.loops.map(()=>[]),edges:read.edges});
+  expect(()=>triangulation3(bare)).toThrow('fixed triangles do not cover');
  });
  it('owns raw inputs, preserves edge transfer and leaves new interior attributes optional',()=>{
   const positions:[number,number,number][]=[[0,0,0],[1,0,0],[0,1,0]],source=mesh(positions,[[0,1,2]]).edges.set('pen',2);

@@ -4,7 +4,6 @@ import {GpuSceneCompute3} from '../src/compute/webgpu/scene.js';
 import {GpuIntervals3} from '../src/compute/webgpu/interval.js';
 import {GpuSurfaceQueries3} from '../src/compute/webgpu/queries.js';
 import {plane} from 'occlude/3d';
-import {surfaceOf} from '../src/three/geometry/value.js';
 afterEach(()=>vi.restoreAllMocks());
 function host(memoryBudgetBytes=4096){
   const disposed:ReturnType<typeof vi.fn>[]=[],budgets:number[]=[];

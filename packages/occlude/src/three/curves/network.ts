@@ -1,7 +1,6 @@
-import {transformPosition3} from '../geometry/model.js';
+import {transformPosition3,type Attributes3,type Attribute3} from '../geometry/model.js';
 import {rebindTriangle3,captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
 import type {SurfaceCurvePoint3} from './surface.js';
-import type {Attributes3,Attribute3} from '../geometry/surface.js';
 import {point,encodePoint,decodePoint,pointNumber,canonicalPoint,triangleWeights,verifiedTriangleWeights,ratioNumber,integerWeights,weightedPoint,type H,type EncodedPoint3,type V} from '../geometry/exact.js';
 import {sameAttachment3,type Mesh3} from '../geometry/mesh3.js';
 import {finite3,type Vec3} from '../math.js';

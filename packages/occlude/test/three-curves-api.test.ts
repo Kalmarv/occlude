@@ -4,14 +4,12 @@ import {curve,parametricCurve,box,view,orthographic,perspective} from 'occlude/3
 import {featureSnapshot3} from '../src/three/features/snapshot.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
-import {snapshotSurface3,transformSurface3} from '../src/three/geometry/model.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {toolkit} from './helpers/run.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 import {circle3} from './helpers/surfaces.js';
 
-/** The 3D profile circle, as the parametric curve it always was. */
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[0,0,5],up:[0,1,0],span:5});
 describe('owned 3D curve geometry',()=>{
@@ -20,25 +18,24 @@ describe('owned 3D curve geometry',()=>{
   const path=curve(points,{closed:true});points[0][0]=99;
   expect(path.points.length).toBe(3);expect(path.edges.length).toBe(3);
   expect([path.edges.at(-1)!.a.index,path.edges.at(-1)!.b.index].sort()).toEqual([0,2]);expect(path.points.at(0)!.x).toBe(0);
-  expect(surfaceOf(path).faces).toEqual([]);expect(path.faces.length).toBe(0);
-  expect(snapshotSurface3(surfaceOf(path))).toBe(surfaceOf(path));
-  const same=(c:typeof path)=>[surfaceOf(c).points.map(p=>p.position),surfaceOf(c).edges.map(e=>e.vertices)];
+  expect(mesh3(path).loops).toEqual([]);expect(path.faces.length).toBe(0);
+  const same=(c:typeof path)=>[mesh3(c).positions,[...mesh3(c).edges]];
   expect(same(curve([[0,0,0],[1,0,0],[1,1,0]],{closed:true}))).toEqual(same(path));
  });
  it('preserves typed attributes, IDs and topology through extraction and transformations',()=>{
   const source=box().points.set('height',p=>p.z).edges.set('tag',e=>e.index);
   const path=source.edges.filter(e=>e.a.z>0&&e.b.z>0).extract();
-  expect(path.points.length).toBe(4);expect(surfaceOf(path).faces.length).toBe(0);
+  expect(path.points.length).toBe(4);expect(path.faces.length).toBe(0);
   expect(path.edges.map(e=>e.tag)).toEqual(source.edges.filter(e=>e.a.z>0&&e.b.z>0).map(e=>e.tag));
   
   const changed=path.points.set('gain',2).displace(p=>[0,0,p.gain]).rotate([0,0,90]).scale([-2,3,1]).translate([0,0,1]).edges.set('lengthCopy',e=>e.length);
-  expect(surfaceOf(changed).edges.map(e=>e.id)).toEqual(surfaceOf(path).edges.map(e=>e.id));
+  expect(mesh3(changed).names.edges).toEqual(mesh3(path).names.edges);
   expect(changed.points.map(p=>p.z)).toEqual([3.5,3.5,3.5,3.5]);
   expect(changed.edges.map(e=>e.lengthCopy).sort()).toEqual([2,2,3,3]);
   expect(changed.points.owner).not.toBe(path.points.owner);
   expect(path.points.map(p=>p.z)).toEqual([.5,.5,.5,.5]);
   const selected=changed.edges.filter(e=>e.lengthCopy>2).extract();expect(selected.edges.length).toBe(2);expect(selected.points.length).toBe(4);
-  expect(transformSurface3(surfaceOf(path),{translate:[0,0,1]}).edges.length).toBe(4);
+  expect(path.translate([0,0,1]).edges.length).toBe(4);
  });
  it('runs passes over a curve, reads an earlier revision by id and retains history',()=>{
   const t=toolkit();
@@ -68,7 +65,7 @@ describe('owned 3D curve geometry',()=>{
   const snap=featureSnapshot3(drawing.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100}));
   const classified=classifySceneCpu3(snap),wire=classified.features.find(r=>r.feature.objectId==='object:1')!;
   expect(wire.visible).toEqual([[0,.375],[.625,1]]);expect(wire.hidden).toEqual([[.375,.625]]);
-  expect(wire.feature.sourceId).toBe(surfaceOf(path).edges[0].id);expect(wire.feature.attributes.ink).toBe('wire');
+  expect(wire.feature.sourceId).toBe(mesh3(path).names.edges[0]);expect(wire.feature.attributes.ink).toBe('wire');
   expect(snap.triangles.length).toBe(12);expect(snap.occluders.every(o=>!o.id.includes('object:1'))).toBe(true);
   const ring=circle3(1,{segments:8}),ringView=view(ring,{camera});
   const ringSnap=featureSnapshot3(ringView.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100}));

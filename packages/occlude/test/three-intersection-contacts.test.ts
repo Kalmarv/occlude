@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {mesh3,meshOfMade3} from '../src/three/geometry/mesh3.js';
 import {mesh,plane,box,sphere,cylinder,cone,torus} from 'occlude/3d';
-import {gridSurface as grid3} from './helpers/surfaces.js';
+import {gridMesh} from './helpers/surfaces.js';
 import {surfaceBinding3} from '../src/three/curves/network.js';
 import {intersectionContacts3,intersectionContactsAsync3} from '../src/three/curves/intersectionContacts.js';
 import {triangulation3} from '../src/three/geometry/triangulation.js';
@@ -33,11 +33,11 @@ describe('intersection spatial preparation',()=>{
   expect([...index.query([0,0,0,1,1,0])]).toEqual([0]);expect([...index.query([1,1,0,1,1,0])]).toEqual([0]);
  });
  it('streams fewer spatial candidates than the complete triangle product and reuses prepared sources',()=>{
-  const a=surfaceBinding3(mesh3(mesh(grid3(20,20,[20,20])))),b=surfaceBinding3(mesh3(mesh(grid3(20,20,[20,20]))));
+  const a=surfaceBinding3(mesh3(gridMesh(20,20,[20,20]))),b=surfaceBinding3(mesh3(gridMesh(20,20,[20,20])));
   const result=intersectionContacts3(a,b),product=a.source.triangleCount*b.source.triangleCount;
   expect(result.value.stats.candidates).toBeLessThan(product/20);expect(result.value.stats.areaContacts).toBeGreaterThan(0);expect(result.value.stats.sourceCacheHits).toBe(0);
   const warm=intersectionContacts3(a,b);expect(warm.value.stats.sourceCacheHits).toBe(2);expect(warm.value.contacts).toEqual(result.value.contacts);
-  const far=surfaceBinding3(mesh3(mesh(grid3(20,20,[20,20]))),{id:'far',transform:{translate:[100,0,0]}});expect(intersectionContacts3(a,far).value.stats.candidates).toBe(0);
+  const far=surfaceBinding3(mesh3(gridMesh(20,20,[20,20])),{id:'far',transform:{translate:[100,0,0]}});expect(intersectionContacts3(a,far).value.stats.candidates).toBe(0);
  });
  it('reports segment, point and area contacts with actual triangle provenance',()=>{
   const a=binding(box()),b=binding(box().translate([.3,.4,.2])),result=intersectionContacts3(a,b).value;
@@ -52,7 +52,7 @@ describe('intersection spatial preparation',()=>{
   const collapsed=surfaceBinding3(mesh3(plane()),{id:'collapsed',transform:{translate:[1e16,0,0]}});expect(()=>intersectionContacts3(a,collapsed)).toThrow('degenerate');
  });
  it('yields real tasks, observes cancellation, and agrees with synchronous contacts',async()=>{
-  const a=surfaceBinding3(mesh3(mesh(grid3(40,40,[4,4])))),b=surfaceBinding3(mesh3(mesh(grid3(40,40,[4,4])))),controller=new AbortController();
+  const a=surfaceBinding3(mesh3(gridMesh(40,40,[4,4]))),b=surfaceBinding3(mesh3(gridMesh(40,40,[4,4]))),controller=new AbortController();
   const pending=intersectionContactsAsync3(a,b,{},controller.signal);setTimeout(()=>controller.abort(new Error('cancel contacts')),0);
   await expect(pending).rejects.toThrow('cancel contacts');
   const x=binding(box()),y=binding(box().translate([.25,.25,.25])),asyncResult=await intersectionContactsAsync3(x,y);

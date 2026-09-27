@@ -2,8 +2,7 @@ import { identity } from './identity.js';
 import { orient2d, orient3d } from 'robust-predicates';
 import { kindOf, type AnyColumn } from '../../column.js';
 import { cross3, sub3 } from '../math.js';
-import type { Provenance3 } from '../geometry/surface.js';
-import { faceEdges3, kernelColumn, meshOfMade3, checkMade3, pairKey, type Columns3, type Made3, type Mesh3, type Lineage3 } from '../geometry/mesh3.js';
+import {faceEdges3,kernelColumn,meshOfMade3,checkMade3,pairKey,type Provenance3,type Columns3,type Made3,type Mesh3,type Lineage3} from '../geometry/mesh3.js';
 import type { PointTransfer } from '../../material.js';
 
 export interface SubdivisionOptions {

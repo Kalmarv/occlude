@@ -1,4 +1,4 @@
-import type {Attribute3} from '../geometry/surface.js';
+import type {Attribute3} from '../geometry/model.js';
 
 /** A value, or a function of the row that answers one. */
 export type Field<Row,Value> = Value | ((row:Row)=>Value);

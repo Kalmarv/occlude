@@ -4,12 +4,11 @@ import {estimateCurvature3,curvatureAt3} from '../src/three/geometry/curvature.j
 import {sphere,cylinder,torus} from '../src/three/api/primitives.js';
 import {plane,box} from '../src/three/api/mesh.js';
 import {dot3,cross3,unit3,type Vec3} from '../src/three/math.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 const angle=(a:Vec3,b:Vec3)=>Math.acos(Math.min(1,Math.abs(dot3(unit3(a),unit3(b)))))*180/Math.PI;
 function samples(mesh:Material,predicate:(p:Vec3)=>boolean){
-  const surface=surfaceOf(mesh),est=estimateCurvature3(mesh3(mesh)),out=[] as {p:Vec3;s:ReturnType<typeof curvatureAt3>}[];
-  surface.triangles.forEach((t,i)=>{const p=t.vertices.map((v:number)=>surface.points[v].position) as Vec3[];const c:Vec3=[(p[0][0]+p[1][0]+p[2][0])/3,(p[0][1]+p[1][1]+p[2][1])/3,(p[0][2]+p[1][2]+p[2][2])/3];if(predicate(c))out.push({p:c,s:curvatureAt3(est,i,[1/3,1/3,1/3])});});
+  const read=mesh3(mesh),est=estimateCurvature3(read),out=[] as {p:Vec3;s:ReturnType<typeof curvatureAt3>}[];
+  for(let i=0;i<read.triangleCount;i++){const p=read.triangle(i).map(v=>read.positions[v]);const c:Vec3=[(p[0][0]+p[1][0]+p[2][0])/3,(p[0][1]+p[1][1]+p[2][1])/3,(p[0][2]+p[1][2]+p[2][2])/3];if(predicate(c))out.push({p:c,s:curvatureAt3(est,i,[1/3,1/3,1/3])});}
   return out;
 }
 describe('mesh curvature estimation',()=>{
@@ -38,11 +37,12 @@ describe('mesh curvature estimation',()=>{
     for(const {s} of rows){expect(Math.abs(s.kMax-1)).toBeLessThan(.25);expect(Math.abs(s.kMin-.25)).toBeLessThan(.1);}
   });
   it('interpolates sign-consistent directions inside a triangle',()=>{
-    const model=cylinder(1,2,{segments:24}),est=estimateCurvature3(mesh3(model));
-    const i=surfaceOf(model).triangles.findIndex(t=>t.vertices.every(v=>Math.hypot(...surfaceOf(model).points[v].position.slice(0,2))>.9));
+    const model=cylinder(1,2,{segments:24}),read=mesh3(model),est=estimateCurvature3(read);
+    const triangles=Array.from({length:read.triangleCount},(_,t)=>read.triangle(t));
+    const i=triangles.findIndex(t=>t.every(v=>Math.hypot(read.x[v],read.y[v])>.9));
     const set=[[1,0,0],[0,1,0],[0,0,1],[1/3,1/3,1/3]].map(w=>curvatureAt3(est,i,w as unknown as Vec3));
     for(const a of set)for(const b of set){expect(angle(a.max,b.max)).toBeLessThan(10);expect(angle(a.min,b.min)).toBeLessThan(10);}
-    const t=surfaceOf(model).triangles[i],[a,b,c]=t.vertices.map(v=>surfaceOf(model).points[v].position),n=cross3([b[0]-a[0],b[1]-a[1],b[2]-a[2]],[c[0]-a[0],c[1]-a[1],c[2]-a[2]]);
+    const [a,b,c]=triangles[i].map(v=>read.positions[v]),n=cross3([b[0]-a[0],b[1]-a[1],b[2]-a[2]],[c[0]-a[0],c[1]-a[1],c[2]-a[2]]);
     for(const s of set){expect(Math.abs(dot3(s.max,unit3(n)))).toBeLessThan(1e-9);expect(Math.abs(dot3(s.min,s.max))).toBeLessThan(1e-9);}
   });
   it('does not average across creases, so box faces stay flat',()=>{

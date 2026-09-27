@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {SurfaceQueries3,nearestTriangle3,rayTriangle3} from '../src/three/queries/surface.js';
 import {box,mesh} from '../src/three/api/index.js';
 import {mesh3} from '../src/three/geometry/mesh3.js';
-import {gridSurface as grid3} from './helpers/surfaces.js';
+import {gridMesh} from './helpers/surfaces.js';
 describe('prepared batched surface queries',()=>{
   it('hits both sides, clips segment parameters, and retains face metadata',()=>{
     const query=new SurfaceQueries3(mesh3(box(2)));
@@ -19,7 +19,7 @@ describe('prepared batched surface queries',()=>{
     expect(query.rays([{origin:[.5,.5,0],direction:[1,0,0]}])[0]).toBeNull();
   });
   it('matches all triangles for rotated geometry and deterministic ties',()=>{
-    const query=new SurfaceQueries3(mesh3(mesh(grid3(12,9,[8,6])).rotate([15,30,5]).translate([1,2,3])));
+    const query=new SurfaceQueries3(mesh3(gridMesh(12,9,[8,6]).rotate([15,30,5]).translate([1,2,3])));
     for(let i=0;i<100;i++){
       const point=[Math.sin(i)*6,Math.cos(i)*5,4] as const,q={point};
       const expected=query.triangles.map((t,triangle)=>({triangle,...nearestTriangle3(t,point)})).sort((a,b)=>a.distance-b.distance||a.triangle-b.triangle)[0],actual=query.nearest([q])[0]!;

@@ -10,7 +10,6 @@ import {emptyCount,emptySize,clampSetting,sampleValue} from '../src/three/degene
 import {mesh3} from '../src/three/geometry/mesh3.js';
 import {placedMesh3} from '../src/three/features/snapshot.js';
 import {worldBounds3} from '../src/three/geometry/bounds.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -30,8 +29,8 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(grid({cols:3,rows:3,spacing:0}).points.length).toBe(0);
   for(const made of [parametricCurve(t=>[t,0,0],{segments:0}),curve([[1,1,1]]),curve([])])expect(made.edges.length).toBe(0);
   // Constructions over an empty curve are empty meshes, not failures.
-  expect(surfaceOf(sweep(curve([]),curve([[0,0,0],[0,0,1]]))).faces.length).toBe(0);
-  expect(surfaceOf(revolve(curve([]))).faces.length).toBe(0);
+  expect(sweep(curve([]),curve([[0,0,0],[0,0,1]])).faces.length).toBe(0);
+  expect(revolve(curve([])).faces.length).toBe(0);
  });
 
  it('drops the degenerate element and keeps the rest',()=>{
@@ -74,7 +73,7 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
 
  it('carries an empty mesh through view, hatch, isolines, sampling, intersections and the plan',async()=>{
   const nothing=empty(),real=box(1);
-  expect(surfaceOf(nothing).points.length).toBe(0);
+  expect(nothing.points.length).toBe(0);expect(mesh3(nothing).n).toBe(0);expect(mesh3(nothing).triangleCount).toBe(0);
   expect(worldBounds3([])[0]).toBe(Infinity);
   expect(isolines(nothing,()=>0,[0]).edges.length).toBe(0);
   expect(scatterSurface(nothing,{count:5},{rnd:()=>.5}).points.length).toBe(0);

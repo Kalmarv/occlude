@@ -21,7 +21,7 @@
  */
 
 import {type EdgeAttributes} from './three/api/mesh.js';
-import type {Attributes3} from './three/geometry/surface.js';
+import type {Attributes3} from './three/geometry/model.js';
 import {scatterSurface,type SurfaceScatterOptions} from './three/api/sampling.js';
 import {hasFaces} from './three/geometry/value.js';
 import {streamlinesInSpace,seedsInSpace,type Streamlines3Options} from './three/api/flow.js';
