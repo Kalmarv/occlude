@@ -11,13 +11,14 @@ import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 import { point } from '../src/three/geometry/exact.js';
 import { mesh } from '../src/three/api/mesh.js';
 import { surfaceBinding3, surfaceCurveNetwork3, selectSurfaceCurveNetwork3, type SurfaceCurveNetwork3 } from '../src/three/curves/network.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
 });
 
 const frame = cameraFrame3({ kind: 'orthographic', span: 12, eye: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0], near: .1, far: 10 }, { x: 0, y: 0, width: 120, height: 120 });
-const binding = surfaceBinding3(mesh([[0, 0, 0], [10, 0, 0], [0, 10, 0]], [[0, 1, 2]]).surface);
+const binding = surfaceBinding3(surfaceOf(mesh([[0, 0, 0], [10, 0, 0], [0, 10, 0]], [[0, 1, 2]])));
 const objects = [{ id: 'sheet', surface: binding.source, lineSource: false }];
 const p = (id: string, x: number, y: number) => ({ id, point: point([x, y, 0]), supports: [{ source: 0, triangle: 0 }] });
 

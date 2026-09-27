@@ -6,6 +6,7 @@ import {
 import { cameraFrame3, toPaper3, toCamera3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
 import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 const camera:Camera3={kind:'orthographic',span:10,eye:[0,0,10],target:[0,0,0],up:[0,1,0],near:.1,far:30};
 const frame=cameraFrame3(camera,{x:0,y:0,width:100,height:100});
 const quad=()=>surface3([[-4,-4,0],[4,-4,0],[4,4,0],[-4,4,0]],[[0,1,2,3]]);

@@ -1,16 +1,16 @@
 ---
 title: Curves and profiles
-description: "Polylines and sampled curves, and the meshes that revolve and sweep make from them."
+description: "Polylines and sampled curves, and the surfaces that revolve and sweep make from them."
 ---
 
-Curves are polygonal paths in 3D. On their own they are wires in a view. As profiles, `revolve` and `sweep` turn them into meshes.
+Curves are polygonal paths in 3D. On their own they are wires in a view. As profiles, `revolve` and `sweep` turn them into surfaces.
 
 ## curve() · parametricCurve()
 
 <include>/_sig/3d.curve.mdx</include>
 <include>/_sig/3d.parametricCurve.mdx</include>
 
-`curve` takes points, and `parametricCurve` samples a function of `t` from 0 to 1. A curve in a view is a wire: meshes hide it, and it hides nothing.
+`curve` takes points, and `parametricCurve` samples a function of `t` from 0 to 1. A curve is the one geometry with points and edges and no faces. A curve in a view is a wire: surfaces hide it, and it hides nothing.
 
 `curve` is the 2D word. It builds a chain from points in the order given. The chain is open unless you give `closed: true`. A 2D chain is a curve too. `curve(m)` puts a material in XY at z = 0, and it keeps the columns of its points. Each point's `source` is the 2D point it came from. The chain gives its own closure. 3D space is flat, so `curve`, `revolve` and `sweep` refuse a chain of a curved sketch space by name. Make that profile with `material(points)`, because it has no space. A function of `t` is a different input, so it has a different word: `parametricCurve`.
 
@@ -63,10 +63,10 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## length · along() · resample()
 
-<include>/_sig/3d.CurveGeometry.along.mdx</include>
-<include>/_sig/3d.CurveGeometry.resample.mdx</include>
+<include>/_sig/Material.along.mdx</include>
+<include>/_sig/Material.resample.mdx</include>
 
-A 3D curve has the chain words of a 2D material, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives points along the curve by arc length, as the 2D `along` does. The answer is a point set. Each point has `x`, `y` and `z` and the point columns of the curve. It also has the columns `s` (the arc length), `u` (the fraction of the length) and `tangent` (the unit direction). Its `source` is the edge of the curve under it. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it.
+A 3D curve has the chain words of a 2D material, because it is the same value. A value with a `z` column measures in space, in world units. `curve.length` is the length of all its edges. `curve.along({ count })` or `curve.along({ spacing })` gives points along the curve by arc length, as the 2D `along` does. The answer is a point set. Each point has `x`, `y` and `z` and the point columns of the curve. It also has the columns `s` (the arc length), `u` (the fraction of the length) and `tangent` (the unit direction). Its `source` is the edge of the curve under it. `curve.resample({ count })` or `curve.resample({ spacing })` gives the same path with its points moved to equal arc length. A curve with branches has no one arc length, so `along` refuses it.
 
 Below, beads sit on a helix at equal arc length.
 
@@ -88,7 +88,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 `t.streamlines` of a field of space, `(x, y, z) => [vx, vy, vz]`, gives evenly spaced streamlines as open curves. It is the 2D word, and the parameters of the field give the space it runs in. A view occludes the curves like any other geometry. The toolkit holds this word, because a count of seeds reads the sketch seed.
 
-Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }` to throw that many points into a closed mesh. `within` cuts every line to the runs inside a closed mesh, and interpolates the crossing point.
+Each seed runs both ways with an RK4 step. It stops where the field has no direction, at `maxLength`, or within half a `spacing` of ink already laid. That separation rule is the 2D one of Jobard and Lefer, lifted to a grid in space. `seeds` is a list of points, or `{ count, within }` to throw that many points into a closed surface. `within` cuts every line to the runs inside a closed surface, and interpolates the crossing point.
 
 `curl3` and `grad` read a field of space by central differences. The curl of any field has no divergence, so streamlines of `curl3` neither crowd nor thin out. Below, the flow is the ABC field, cut to a ball, and a box in front hides what is behind it.
 

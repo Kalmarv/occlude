@@ -5,7 +5,7 @@ import type { ModelingCompute3 } from './modeling.js';
 import type { SurfaceEvaluationTarget3, SurfaceEvaluationBatch3, SurfaceEvaluationResult3 } from './surface/evaluate.js';
 import type { ToneRecipe3 } from './surface/tone.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
-import { snapshotSurface3 } from './geometry/model.js';
+import { snapshotSurface3, stageSurface3 } from './geometry/model.js';
 import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
 import type { ClassifiedScene3 } from './visibility/scene.js';
 import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
@@ -19,9 +19,9 @@ export interface SceneCompute3 extends Partial<ModelingCompute3> {
 export interface LineArtOptions3 {
   /** Stable key for a camera override in sketch configuration. */
   readonly id?: string;
-  /** An object's `surface` may be a mesh value from `occlude/3d`; its
-   * surface is read. */
-  readonly objects?: readonly (Omit<SurfaceObject3, 'surface'> & { readonly surface: SurfaceObject3['surface'] | { readonly surface: SurfaceObject3['surface'] } })[];
+  /** An object's `surface` may be a geometry from `occlude/3d`; its
+   * working view is read. */
+  readonly objects?: readonly (Omit<SurfaceObject3, 'surface'> & { readonly surface: import('./geometry/model.js').StageSurface3 })[];
   readonly wires?: readonly WireObject3[];
   readonly curves?: readonly SurfaceCurveObject3[];
   readonly camera: Camera3;
@@ -53,8 +53,8 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     if (!owned) { owned = snapshotSurface3(surface); surfaces.set(surface, owned); }
     return owned;
   };
-  // A mesh value holds its surface; the stage reads that.
-  const objects: readonly SurfaceObject3[] = (options.objects ?? []).map(object => Array.isArray((object.surface as { points?: unknown }).points) ? object as SurfaceObject3 : { ...object, surface: (object.surface as { surface: SurfaceObject3['surface'] }).surface });
+  // A geometry is read through its working view.
+  const objects: readonly SurfaceObject3[] = (options.objects ?? []).map(object => ({ ...object, surface: stageSurface3(object.surface) }));
   for(const object of objects) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
     if(object.hatch)validateHatch3(object.hatch,object.surface);

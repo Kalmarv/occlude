@@ -1,8 +1,9 @@
 import {checkSampling} from '../../material.js';
 import {surface3,type Attributes3,type Attribute3,type Surface3,type SurfacePoint3} from '../geometry/surface.js';
 import {sub3,type Vec3} from '../math.js';
-import {curvePath} from './curveTopology.js';
-import type {CurveGeometry} from './mesh.js';
+import {surfacePath} from './curveTopology.js';
+import {surfaceOf} from '../geometry/value.js';
+import type {Material} from '../../material.js';
 
 /** The whole length of a curve, every edge once, in world units. */
 export function curveLength(surface:Surface3):number {
@@ -10,6 +11,7 @@ export function curveLength(surface:Surface3):number {
   for(const e of surface.edges)total+=Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position));
   return total;
 }
+const surfaceOfCurve=(c:Surface3|Material):Surface3=>'store' in c?surfaceOf(c as Material):c as Surface3;
 const unit=(v:Vec3):Vec3=>{const l=Math.hypot(...v);return l>0?[v[0]/l,v[1]/l,v[2]/l]:[0,0,0];};
 function mix(a:Attributes3,b:Attributes3,t:number):Attributes3 {
   const out:Record<string,Attribute3>={};
@@ -28,11 +30,11 @@ interface Place {readonly position:Vec3;readonly edge:string;readonly attributes
  * and the unit `tangent` (on a vertex, the mean of the two segments that
  * meet there), and the point columns, numbers interpolated linearly and
  * the rest from the nearer end. */
-function places(curve:CurveGeometry<any,any>,opts:{readonly count?:number;readonly spacing?:number},who:string):{readonly places:readonly Place[];readonly closed:boolean} {
+function places(surface:Surface3,opts:{readonly count?:number;readonly spacing?:number},who:string):{readonly places:readonly Place[];readonly closed:boolean} {
   if(!checkSampling(who,opts))return {places:[],closed:false};
   let path;
-  try{path=curvePath(curve);}catch{throw new Error(`${who}: a curve with branches has no one arc length — walk each piece (curve.edges.components())`);}
-  const {points,edges}=curve.surface,ids=path.points,n=ids.length;
+  try{path=surfacePath(surface);}catch{throw new Error(`${who}: a curve with branches has no one arc length — walk each piece (curve.edges.components())`);}
+  const {points,edges}=surface,ids=path.points,n=ids.length;
   if(n===0)return {places:[],closed:false};
   const segs=path.closed?n:n-1,cum=[0];
   for(let i=0;i<segs;i++)cum.push(cum[i]+Math.hypot(...sub3(points[ids[(i+1)%n]].position,points[ids[i]].position)));
@@ -59,18 +61,18 @@ function places(curve:CurveGeometry<any,any>,opts:{readonly count?:number;readon
 }
 /** The points `curve.along` answers, as a surface of points alone: ids
  * `p0`, `p1`, … in walk order, each point's lineage the edge under it. */
-export function alongSurface(curve:CurveGeometry<any,any>,opts:{readonly count?:number;readonly spacing?:number}):Surface3 {
-  const walked=places(curve,opts,'along').places,base=surface3(walked.map(w=>w.position),[]);
+export function alongSurface(curve:Surface3|Material,opts:{readonly count?:number;readonly spacing?:number}):Surface3 {
+  const walked=places(surfaceOfCurve(curve),opts,'along').places,base=surface3(walked.map(w=>w.position),[]);
   return {...base,points:base.points.map((p,i):SurfacePoint3=>({...p,attributes:Object.freeze(walked[i].attributes),provenance:{operation:'along',parents:[walked[i].edge]}}))};
 }
 /** The curve through its own places: the same path redistributed by arc
  * length, columns carried as `along` carries them, each point's lineage the
  * edge under it. */
-export function resampledSurface(curve:CurveGeometry<any,any>,opts:{readonly count?:number;readonly spacing?:number}):Surface3 {
-  const walked=places(curve,opts,'resample'),closed=walked.closed;
+export function resampledSurface(curve:Surface3|Material,opts:{readonly count?:number;readonly spacing?:number}):Surface3 {
+  const surface=surfaceOfCurve(curve),walked=places(surface,opts,'resample'),closed=walked.closed;
   const points=walked.places.map((w,i)=>{
     const {s:_s,u:_u,tangent:_t,...attributes}=w.attributes;
-    return {id:JSON.stringify(['resample',curve.surface.points[0]?.id??'curve',i]),position:w.position,attributes:Object.freeze(attributes),provenance:{operation:'resample',parents:[w.edge]}};
+    return {id:JSON.stringify(['resample',surface.points[0]?.id??'curve',i]),position:w.position,attributes:Object.freeze(attributes),provenance:{operation:'resample',parents:[w.edge]}};
   });
   const n=points.length,segments=closed?n:n-1;
   const edges=n<2?[]:Array.from({length:segments},(_,i)=>({id:`e:p${i}:p${(i+1)%n}`,vertices:[i,(i+1)%n] as [number,number],faces:[] as number[],attributes:{}}));

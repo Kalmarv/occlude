@@ -1,4 +1,5 @@
 import {SurfaceQueries3} from 'occlude/src/three/queries/surface.js';
+import {surfaceOf} from 'occlude/3d/advanced';
 import {GpuSurfaceQueries3} from 'occlude/src/compute/webgpu/queries.js';
 import {surface3} from 'occlude/src/three/geometry/surface.js';
 import {Rng} from 'occlude/src/random.js';
@@ -49,7 +50,7 @@ async function reliefModel():Promise<Surface3> {
     const cell=(v:number)=>Math.floor((v+2)/.5)%2===0;
     const sheet=plane(4,4).subdivide(3).faces.set('importance',f=>new Rng(`relief:42:${f.id}`).float());
     const raisedMesh=sheet.extrude(sheet.faces.filter(f=>cell(f.centroid[0])&&cell(f.centroid[1])),{distance:r=>.3+.9*Math.abs(Number(r.faces.at(0)?.importance))},{key:'relief:42'});
-    const raised=raisedMesh.surface;
+    const raised=surfaceOf(raisedMesh);
     const raisedPoints=raised.points.flatMap((p,i)=>p.position[2]>0?[i]:[]);
     const pinned=raised.points.flatMap((p,i)=>Math.abs(p.position[0])===2||Math.abs(p.position[1])===2?[i]:[]);
     const displacements=raised.points.map(p=>[0,0,.002*Math.sin(p.position[0]*3+p.position[1]*2)] as Vec3);

@@ -87,7 +87,7 @@ describe('isolines',()=>{
     expect(()=>isolines(sheet,'h',[.1],{maxSegments:1}).network).toThrow('segment budget');
     expect(()=>isolines(sheet,'h',[.1],{maxNodes:1}).network).toThrow('node budget');
     expect(()=>isolines(sheet,'h',[.1],{budget:{maxNodes:1}}).network).toThrow();
-    expect(()=>isolines({} as never,'h',[0])).toThrow('mesh');
+    expect(()=>isolines({} as never,'h',[0])).toThrow('geometry with faces');
   });
   it('renders through view as ordinary supported curves',async()=>{
     const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async()=>{

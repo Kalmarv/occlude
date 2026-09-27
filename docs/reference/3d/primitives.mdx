@@ -48,7 +48,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.geodesic.mdx</include>
 
-A geodesic polyhedron: the mesh of a dome. Every triangle of the base solid carries a triangular lattice, and every point moves out to `radius`. It has triangles only, no poles and no seam, so its faces are nearly equal everywhere. `sphere()` is a grid of latitude and longitude, and its quads crowd at the poles.
+A geodesic polyhedron: the surface of a dome. Every triangle of the base solid carries a triangular lattice, and every point moves out to `radius`. It has triangles only, no poles and no seam, so its faces are nearly equal everywhere. `sphere()` is a grid of latitude and longitude, and its quads crowd at the poles.
 
 `frequency` is the pair `[m, n]`: how many lattice steps along, then how many turned 60 degrees. A plain number `m` is the pair `[m, 0]`. `[m, 0]` is class I, the straight division, and `[2, 0]`, `[4, 0]` and `[8, 0]` are the shape that is usually called an icosphere. `[m, m]` is class II, and it puts a point at the middle of every base edge. Any other pair is class III, whose triangles cross the base edges and give the lattice a hand. `[n, m]` is the mirror of `[m, n]`.
 
@@ -96,7 +96,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.parametric.mdx</include>
 
-A formula as a quad grid. The grid reads `point(u, v)` over the unit square. `u` runs from 0 to 1 across `cols` samples, and `v` from 0 to 1 down `rows`. The mesh carries the unit square as its chart, exactly as `plane` does, so `t.hatch({ uv })`, `isolines` and `mapSurface` read it.
+A formula as a quad grid. The grid reads `point(u, v)` over the unit square. `u` runs from 0 to 1 across `cols` samples, and `v` from 0 to 1 down `rows`. The value carries the unit square as its chart, exactly as `plane` does, so `t.hatch({ uv })`, `isolines` and `mapSurface` read it.
 
 `closeU` and `closeV` weld the seam, so a torus from a formula is as closed as `torus()`. A ring of samples that all land on one place is a pole, and it becomes one shared point. Each quad is wound `(u, v)`, `(u+, v)`, `(u+, v+)`, `(u, v+)`, so the face normal is ∂p/∂u × ∂p/∂v. Swap `u` and `v` to turn the surface inside out.
 
@@ -122,7 +122,7 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
 
 <include>/_sig/3d.obj.mdx</include>
 
-A mesh from the text of a Wavefront OBJ file, such as a model from Blender. It occludes, hatches and plots like a box. The reader takes `v` and `f` lines only, and it skips normals, texture coordinates, materials and smoothing groups. Polygons keep their vertex count. OBJ files are Y-up and occlude is Z-up, so the model is stood upright. `up: 'z'` keeps a file's coordinates as they are. `objects` keeps only the named `o` objects, and each face carries its `object` and `group` name as an attribute. The reader refuses a mistake in the file and names its line. It stops at an index past the last vertex and at a face that visits a vertex twice. It also stops at two faces that wind one way along a shared edge. In a sketch, `t.asset('name.obj')` gives the text of an uploaded file.
+A value with faces from the text of a Wavefront OBJ file, such as a model from Blender. It occludes, hatches and plots like a box. The reader takes `v` and `f` lines only, and it skips normals, texture coordinates, materials and smoothing groups. Polygons keep their vertex count. OBJ files are Y-up and occlude is Z-up, so the model is stood upright. `up: 'z'` keeps a file's coordinates as they are. `objects` keeps only the named `o` objects, and each face carries its `object` and `group` name as an attribute. The reader refuses a mistake in the file and names its line. It stops at an index past the last vertex and at a face that visits a vertex twice. It also stops at two faces that wind one way along a shared edge. In a sketch, `t.asset('name.obj')` gives the text of an uploaded file.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -156,7 +156,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## translate() · rotate() · scale()
 
-A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. Translate then rotate turns the bar where it stands. Rotate then translate turns it first. The blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
+A value in space is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. Translate then rotate turns the bar where it stands. Rotate then translate turns it first. The blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -196,7 +196,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 <include>/_sig/distance.mdx</include>
 <include>/_sig/length.mdx</include>
 
-`distance(a, b)` is how far apart two points are, and `length(v)` is how long a vector is. They are the words of `occlude`, for the plane and for space. Both take triples or `{x, y, z}` rows, so a mesh point goes in as it is. Below, a sheet rises in two ripples. `length` measures the one around its middle, and `distance` measures the one around a drop.
+`distance(a, b)` is how far apart two points are, and `length(v)` is how long a vector is. They are the words of `occlude`, for the plane and for space. Both take triples or `{x, y, z}` rows, so a point of a value in space goes in as it is. Below, a sheet rises in two ripples. `length` measures the one around its middle, and `distance` measures the one around a drop.
 
 ```ts live
 import { sketch, pen, mm, distance, length } from 'occlude';
@@ -224,7 +224,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 A solid can be the field that measures it. `sdf3` is the 2D [`sdf`](/docs/reference/fields) algebra in space. Each word returns a function of `(x, y, z)`. The value is how far inside the point lies, and it is negative outside. That sign is why `union` is a **maximum**. The union is inside wherever one field is inside, and inside is the larger value. `intersect` is the minimum. `subtract` cuts each later field out of the first. `blend` is a union with a fillet of `radius` at the joint. `repeat` folds space, so one solid fills a lattice.
 
-The five primitives are exact. As in 2D, a solid takes its place first: `sphere(c, r)`, `box(c, size)`, `segment(a, b, r)` and `torus(c, major, minor)`. `plane` takes the normal that points out of the solid. `sdf3` reads no seed and no paper, so you import it, and you can write your own field as a plain function. `isosurface` turns any of them into a mesh.
+The five primitives are exact. As in 2D, a solid takes its place first: `sphere(c, r)`, `box(c, size)`, `segment(a, b, r)` and `torus(c, major, minor)`. `plane` takes the normal that points out of the solid. `sdf3` reads no seed and no paper, so you import it, and you can write your own field as a plain function. `isosurface` turns any of them into a surface.
 
 Below, `repeat` puts one ball on a lattice, and `union` threads a rod through the row. A plane cuts a flat foot under each bead.
 
@@ -245,9 +245,9 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.28), colo
 
 <include>/_sig/3d.isosurface.mdx</include>
 
-The surface of a field, as a mesh. `isosurface` divides `bounds` into cells of side `step`, and it puts a vertex on each cell edge that the surface crosses. Neighbouring cells share their vertices, so the mesh has no gaps. The faces wind outward. `step` is a length in the units of the scene. Each side of the box gets a whole number of cells, one or more. `level` takes the surface at a value other than zero. `smooth` runs Laplacian passes over the result, to round the steps of a coarse grid.
+The surface of a field, as a value with faces. `isosurface` divides `bounds` into cells of side `step`, and it puts a vertex on each cell edge that the surface crosses. Neighbouring cells share their vertices, so the surface has no gaps. The faces wind outward. `step` is a length in the units of the scene. Each side of the box gets a whole number of cells, one or more. `level` takes the surface at a value other than zero. `smooth` runs Laplacian passes over the result, to round the steps of a coarse grid.
 
-Give the box room around the solid. A solid that touches the wall of the box stops there, and the mesh is open along the cut. An empty box, a `step` that is not a positive length, and a field that is nowhere inside each draw nothing.
+Give the box room around the solid. A solid that touches the wall of the box stops there, and the surface is open along the cut. An empty box, a `step` that is not a positive length, and a field that is nowhere inside each draw nothing.
 
 Below, two spheres blend into one body, a box takes the top off the right one, and `light` shades the result. The straight marks on the flat top show the cut, and the curved marks show the ball.
 

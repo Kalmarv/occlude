@@ -1,6 +1,6 @@
 export {mesh,plane,box,pointCloud,parametric} from './mesh.js';
 export type {ParametricOptions} from './mesh.js';
-export type {Mesh,PointGeometry,CurveGeometry,GeometryPointRow,CurvePointRow,CurveEdgeRow,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,GeometryOptions,SetOptions3,SetManyOptions3,Transfer3,Where3} from './mesh.js';
+export type {Field,AttributeFields,GeometryOptions} from './mesh.js';
 export {view,orthographic,perspective} from './view.js';
 export type {ViewOptions,ViewObjectOptions,ViewInput,SuggestiveInput,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
@@ -27,9 +27,7 @@ export {revolve} from './revolve.js';
 export type {RevolveOptions} from './revolve.js';
 export {sweep} from './sweep.js';
 export type {SweepOptions} from './sweep.js';
-export type {SurfaceSamples,SurfaceSample,SurfaceSampleRow,SurfaceCoordinateOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
-
-export type {MeshPointRow,MeshEdgeRow,MeshFaceRow,MeshCornerRow} from './topology.js';
+export type {SurfaceSample,SurfaceCoordinateOptions,SurfaceScatterOptions} from './sampling.js';
 
 export {axisAngle,alignAxis} from '../rotation.js';
 export type {Rotation,RotationData,RotationInput,AlignAxisOptions,Axis3,Quaternion3,Vector3} from '../rotation.js';
@@ -39,7 +37,7 @@ export type {GridOptions} from './grid.js';
 export type {SurfaceCurves,SurfaceCurvePoint,SurfaceCurveEdge} from './supported.js';
 export {intersections} from './intersections.js';
 export type {IntersectionInput,IntersectionOptions,IntersectionAttributes} from './intersections.js';
-export type {CurveSamples,CurveSample,CurveSampleRow,CurveSamplingOptions} from './curveSampling.js';
+export type {CurveSample,CurveSamplingOptions} from './curveSampling.js';
 
 export type {SurfaceUV,SurfaceChart} from '../geometry/coordinates.js';
 export {mapSurface} from './mapping.js';

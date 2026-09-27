@@ -42,7 +42,7 @@ const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenanc
  * clip — yields no triangles rather than failing. The face keeps its identity,
  * its corners and its place in the face order (`triangle.face` indices and
  * chart callbacks stay aligned); it simply contributes nothing to draw. */
-function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [number, number, number][] {
+export function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [number, number, number][] {
   const origin = positions[vertices[0]];
   const local = vertices.map(i => sub3(positions[i], origin));
   const extent = Math.max(...local.map(p => Math.hypot(...p)));

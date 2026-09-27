@@ -4,9 +4,11 @@ import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync } from '../src/host.js';
 import {sphere,box,cylinder,view,orthographic,curl3,grad,type Vec3} from 'occlude/3d';
 import {streamlines3} from '../src/three/api/flow.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 const env={rnd:()=>0.5};
 const stream=()=>{let state=1;return ()=>{state=(state*1103515245+12345)%2147483648;return state/2147483648;};};
-const points=(curve:{surface:{points:readonly {position:Vec3}[]}}):Vec3[]=>curve.surface.points.map(p=>p.position);
+const points=(curve:Material):Vec3[]=>surfaceOf(curve).points.map(p=>p.position);
 
 describe('streamlines of a 3D field',()=>{
  it('follows a uniform field in a straight line',()=>{

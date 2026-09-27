@@ -8,13 +8,17 @@ import {lineArt3} from '../scene.js';
 import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
 import {section3} from '../curves/section.js';
-import {Mesh,CurveGeometry,mesh,evaluate,type PointRow,type EdgeAttributes} from './mesh.js';
+import {mesh,evaluate,isGeometry,hasFaces,surfaceOf,type EdgeAttributes} from './mesh.js';
+import {kernelOf,rowName} from '../geometry/value.js';
+import {radialCentreOf} from './words.js';
+import {viewKind} from '../../views.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {SurfaceCurves} from './supported.js';
 import type {SurfaceCurveObject3} from '../curves/network.js';
 import type {SurfaceObject3} from '../features/snapshot.js';
 import {projectedLines,projectedStrokes,captureValue,type ProjectedLines} from './projected.js';
 import {refuseStroke,hatchRecipes,type HatchRecipe,type ViewHatchInput} from './recipes.js';
+import type {Material,Vertex} from '../../material.js';
 export type {ViewHatch,ViewHatchInput} from './recipes.js';
 export interface CameraOptions {readonly eye:Vec3;readonly target?:Vec3;readonly up?:Vec3;readonly near?:number;readonly far?:number}
 export function orthographic(options:CameraOptions&{readonly span?:number}):Extract<Camera3,{kind:'orthographic'}>{
@@ -88,8 +92,8 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
 }
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
-type AnyMesh=Mesh<any,any,any,any>;
-type ViewGeometry=SurfaceCurves<any>|AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>|Surface3;
+type AnyMesh=Material;
+type ViewGeometry=SurfaceCurves<any>|AnyMesh|Material|Instances<any,any,any,any,any,any,any>|Surface3;
 /** Lists nest to any depth: a view takes what the sketch already holds
  * (`[boxes, intersections(boxes)]`) without flattening by hand. A pair
  * `[value, { pen, … }]` says how the view draws that value, or every value
@@ -134,7 +138,7 @@ function objectOptions(value:ViewObjectOptions<any>):ViewObjectOptions<any> {
 }
 interface Drawn {readonly value:Exclude<ViewGeometry,Surface3>;readonly options:ViewObjectOptions<any>}
 const NONE:ViewObjectOptions<any>=Object.freeze({});
-const isCurves=(value:unknown):boolean=>value instanceof CurveGeometry||value instanceof SurfaceCurves;
+const isCurves=(value:unknown):boolean=>(isGeometry(value)&&!hasFaces(value))||value instanceof SurfaceCurves;
 /** Every value a view draws, in list order, each with the options the pairs
  * around it give it (the inner pair's fields win). */
 function flattenGeometry(value:ViewInput,options:ViewObjectOptions<any>=NONE,out:Drawn[]=[]):Drawn[] {
@@ -155,9 +159,9 @@ function flattenGeometry(value:ViewInput,options:ViewObjectOptions<any>=NONE,out
 }
 const sameOptions=(a:ViewObjectOptions<any>,b:ViewObjectOptions<any>):boolean=>
   a.pen===b.pen&&a.fillPen===b.fillPen&&a.creaseAngle===b.creaseAngle&&a.suggestive===b.suggestive&&a.hatch===b.hatch;
-export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(geometry:Mesh<P,E,F,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends PointRow<{}>,C extends Attributes3>(geometry:Instances<P,E,F,A,S,R,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view(geometry:SurfaceCurves<any>|CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(geometry:Material,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends Vertex,C extends Attributes3>(geometry:Instances<P,E,F,A,S,R,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view(geometry:SurfaceCurves<any>|Material,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:ViewInput,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
   refuseStroke(options,'view');
@@ -171,7 +175,7 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
   // the objects come, so the default ink draws each family once.
   const families:string[]=recipes.map(r=>r.key);
   const ownRecipes=new Map<object,Map<unknown,readonly HatchRecipe[]>>();let ownFamilies=0;
-  const recipesOf=(mesh:Mesh<any,any,any,any>,hatch:ViewHatchInput<any>|undefined):readonly HatchRecipe[]=>{
+  const recipesOf=(mesh:Material,hatch:ViewHatchInput<any>|undefined):readonly HatchRecipe[]=>{
     if(hatch===undefined)return recipes;
     let byInput=ownRecipes.get(mesh);if(!byInput){byInput=new Map();ownRecipes.set(mesh,byInput);}
     let own=byInput.get(hatch);
@@ -200,8 +204,8 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
     const before=seen.get(value);
     if(before){if(!sameOptions(before,own))throw new Error('view: one value is listed twice with two ways to draw it — a view draws each value once; place copies with instanceOnPoints');return;}
     seen.set(value,own);
-    if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
-    const id=value.key??`object:${index}`;
+    if(!isGeometry(value)&&!(value instanceof Instances)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
+    const id=(isGeometry(value)?kernelOf(value).key:value.key)??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
     if(value instanceof SurfaceCurves){
       // Described curves stay a description here: the drawing resolves them
@@ -210,13 +214,13 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
       supported.push(value.recipe?{id,recipe:value.recipe,...attributes}:{id,network:value.network,...attributes});return;
     }
     // A curve's own pen is its own, the same way a mesh's is.
-    if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false,...(own.pen!==undefined?{stroke:own.pen}:{})});return;}
+    if(isGeometry(value)&&!hasFaces(value)){objects.push({id,surface:surfaceOf(value),occluder:false,...(own.pen!==undefined?{stroke:own.pen}:{})});return;}
     const mesh=value instanceof Instances?value.prototype:value;
     const faces=mesh.faces;
     // Eligibility belongs to the prototype; the hatch lattice is resolved on
     // each transformed surface in the existing renderer.
     const recipesHere=recipesOf(mesh,own.hatch);
-    const hatch=recipesHere.length?hatch3(mesh.surface,face=>{
+    const hatch=recipesHere.length?hatch3(surfaceOf(mesh),face=>{
       const row=faces.at(face.index)!;
       return recipesHere.flatMap(recipe=>{
         if(recipe.select&&!recipe.select(row))return [];
@@ -225,10 +229,10 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
         return [{id:recipe.key,spacing:evaluate(recipe.spacing,row),angle:evaluate(recipe.angle,row),offset:recipe.offset===undefined?undefined:evaluate(recipe.offset,row),...(pen===undefined?{}:{attributes:{pen}})}];
       });
     }):undefined;
-    const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
+    const curves=planes.length?section3(surfaceOf(mesh),planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.radialCentre?{radialCentre:mesh.radialCentre}:{}),...drawing(own),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
-    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.radialCentre?{radialCentre:mesh.radialCentre}:{}),...drawing(own)});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:surfaceOf(mesh),...(radialCentreOf(mesh)?{radialCentre:radialCentreOf(mesh)}:{}),...drawing(own),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:rowName(row.source,viewKind(row.source)==='face'?'faces':'points'),pointIndex:row.source.index,prototypeKey:kernelOf(mesh).key}});
+    }else objects.push({id,surface:surfaceOf(mesh),hatch,curves,...(radialCentreOf(mesh)?{radialCentre:radialCentreOf(mesh)}:{}),...drawing(own)});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});

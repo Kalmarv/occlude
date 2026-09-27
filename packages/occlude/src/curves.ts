@@ -29,8 +29,8 @@
  * material it draws.
  */
 
-import { at64 } from './column.js';
-import { Material, geodesicEdges, vertexView, type Edge, type Vertex } from './material.js';
+import { Column, at64, valueAt } from './column.js';
+import { Material, geodesicEdges, vertexView, typedCell, type Edge, type Vertex } from './material.js';
 import { walkChains, type Chain } from './chains.js';
 import { Selection, select, domainKind, rowRange, isSelectionOf, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
 import { pointDomain, edgesOf, pointsOf, extractRows, endpointRows, sameLineage, unrelated } from './relation.js';
@@ -371,9 +371,19 @@ function curveRow(table: CurveTable, r: number): Curve {
   const row = Object.create(CURVE_PROTO) as Record<string, unknown>;
   // The edge columns every edge of the curve agrees on, first, so the
   // row's own words win over a column of the same name.
-  for (const name of m.edgeAttrNames) {
+  for (const name of m.store.edgeAttrNames) {
     if (CURVE_WORDS.has(name) || c.edges.length === 0) continue;
     const col = m.store.edgeAttrs[name];
+    if (!(col instanceof Column)) {
+      // A column of another kind agrees by its kind's equality, and reads
+      // on the curve as it reads on an edge.
+      const kind = col.kind as { equal(a: unknown, b: unknown): boolean };
+      const first = valueAt(col, c.edges[0]);
+      let same = true;
+      for (let k = 1; k < c.edges.length && same; k++) same = kind.equal(valueAt(col, c.edges[k]), first);
+      if (same) typedCell(m, row, name, col, c.edges[0]);
+      continue;
+    }
     const v = at64(col, c.edges[0]);
     let same = true;
     for (let k = 1; k < c.edges.length && same; k++) same = at64(col, c.edges[k]) === v;

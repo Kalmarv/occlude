@@ -37,17 +37,18 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, readEdge, inheritEdge, ownedBy, ownerOfView, viewKind, viewProto, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, materialFromParts, readEdge, inheritEdge, ownedBy, ownerOfView, referenced, viewKind, viewProto, WORDS_3D, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
 import { curvesOfRows, type Curve } from './curves.js';
-import { writeFaces, writeFaceColumns, type FaceSetOpts } from './tables.js';
+import { writeFaces, writeFaceColumns, type CellValue, type FaceSetOpts, type FaceRecordSetOpts } from './tables.js';
 import { box, type Box } from './layout.js';
 import type { XY } from './vec.js';
 import { edgesOf, pointsOf, endpointRows, sameLineage, unrelated } from './relation.js';
 import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
 import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
-import { Column, columnOf, type ColumnLike } from './column.js';
+import { Column, at64, columnOf, gatherColumn, type AnyColumn, type ColumnLike } from './column.js';
 import { carryLinks, derivation, linkRows, record } from './derivation.js';
+import { cornerIndex, cornersOfFaces, type Corner } from './corners.js';
 
 const EVENT_TOL = 1e-9;
 
@@ -656,6 +657,94 @@ function faceWise(out: Material, rows: readonly number[], inside: (leaf: number)
 }
 
 /**
+ * The stated faces `rows` of `table`, in that order, as a value of their
+ * own that keeps the statement: the edges `edgeRows` (every edge of those
+ * faces, in that order), their ends and the loops' points in row order,
+ * each loop renamed to the new rows, and every column — point, edge, face
+ * and corner — with the ids, the kernel's names and the fixed triangles of
+ * what it keeps. Built through `materialFromParts`. With `wind`, an edge
+ * whose face (`wind` of the leaf on its left) is only on its right is
+ * turned round, as `faceWise` does.
+ *
+ * Undefined when the faces are read off the picture, or when a face named
+ * is not one loop — it has holes, or it holds others — which a face part
+ * cannot say: the caller extracts the edges, and the faces are read off
+ * the picture again.
+ */
+function extractStated(table: FaceTable, rows: readonly number[], edgeRows: readonly number[], wind: ((leaf: number) => boolean) | null): Material | undefined {
+  const m = table.source;
+  const stated = m.stated;
+  if (stated === undefined) return undefined;
+  const cycles = stated.cycles;
+  for (const f of rows) if (cycles[f].length !== 1) return undefined;
+  const s = m.store;
+  const list = s.edgeList;
+  const taken = new Set<number>();
+  for (const e of edgeRows) {
+    taken.add(list.get(2 * e));
+    taken.add(list.get(2 * e + 1));
+  }
+  for (const f of rows) for (const p of cycles[f][0]) taken.add(p);
+  const pointRows = [...taken].sort((a, b) => a - b);
+  const rowMap = new Map<number, number>();
+  pointRows.forEach((p, k) => rowMap.set(p, k));
+  const edges = new Uint32Array(2 * edgeRows.length);
+  edgeRows.forEach((e, k) => {
+    let a = list.get(2 * e);
+    let b = list.get(2 * e + 1);
+    if (wind !== null && wind(table.faceOf[2 * e + 1]) && !wind(table.faceOf[2 * e])) [a, b] = [b, a];
+    edges[2 * k] = rowMap.get(a)!;
+    edges[2 * k + 1] = rowMap.get(b)!;
+  });
+  const pointCols: Record<string, AnyColumn> = {};
+  for (const name of s.attrNames) pointCols[name] = gatherColumn(s.attrs[name], pointRows);
+  const edgeCols: Record<string, AnyColumn> = {};
+  for (const name of s.edgeAttrNames) edgeCols[name] = gatherColumn(s.edgeAttrs[name], edgeRows);
+  // The corners of the faces kept, face by face and round each loop.
+  const index = cornerIndex(cycles);
+  const cornerRows: number[] = [];
+  for (const f of rows) for (let c = index.start[f]; c < index.start[f + 1]; c++) cornerRows.push(c);
+  const cornerColumns: Record<string, AnyColumn> = {};
+  for (const [name, col] of Object.entries(stated.corners ?? {})) cornerColumns[name] = gatherColumn(col, cornerRows);
+  const pick = <T,>(of: ArrayLike<T> | undefined, at: readonly number[]): T[] | undefined => (of === undefined ? undefined : at.map((r) => of[r]));
+  const pointKeys = s.pointKeys?.flat();
+  const edgeKeys = s.edgeKeys?.flat();
+  const out = materialFromParts({
+    x: Float64Array.from(pointRows, (p) => m.x[p]),
+    y: Float64Array.from(pointRows, (p) => m.y[p]),
+    pointCols,
+    edges,
+    edgeCols,
+    faces: rows.map((f) => ({
+      loop: cycles[f][0].map((p) => rowMap.get(p)!),
+      ...(stated.triangles?.[f] !== undefined ? { triangles: stated.triangles[f] } : {}),
+    })),
+    ids: {
+      points: Float64Array.from(pointRows, (p) => at64(s.pointIds, p)),
+      edges: Float64Array.from(edgeRows, (e) => at64(s.edgeIds, e)),
+      edgeRoots: Float64Array.from(edgeRows, (e) => at64(s.edgeRoots, e)),
+      faces: pick(stated.faceIds, rows),
+      corners: pick(stated.cornerIds, cornerRows),
+    },
+    keys: {
+      points: pick(pointKeys, pointRows),
+      edges: pick(edgeKeys, edgeRows),
+      faces: pick(stated.faceKeys, rows),
+      corners: pick(stated.cornerKeys, cornerRows),
+    },
+    ...(stated.source !== undefined ? { source: { faces: (k: number) => table.sourceAt(rows[k]) } } : {}),
+    space: m.space,
+    transfers: m.transfers,
+    edgeTransfers: m.edgeTransfers,
+    // A face keeps its walls and their lineage, so its key: the face
+    // columns go as they are held.
+    faceColumns: m.faceAttrs,
+    cornerColumns,
+  });
+  return carryLinks(m, out);
+}
+
+/**
  * One face of a geometry, read-only: a region its walls bound.
  *
  * Its face columns read flat — `f.height` — the way a vertex's own columns
@@ -682,10 +771,16 @@ export interface Face {
    * an area in its own right. */
   readonly bounds: Box;
   /** Geometric centroid of the filled area, holes respected; `[NaN, NaN]`
-   * for a degenerate face. */
-  readonly centroid: readonly [number, number];
+   * for a degenerate face. A face of a value in space has three numbers. */
+  readonly centroid: readonly [number, number] | readonly [number, number, number];
   /** Steps from the root: 0 for a face nothing holds. */
   readonly depth: number;
+  /** The side the face looks to, a unit 3-vector: `[0, 0, 1]` for a face in
+   * the plane; for a face of a value in space, its own. */
+  readonly normal: readonly [number, number, number];
+  /** This face's corners, round its loop: none for a face read off the
+   * picture (corners.ts). */
+  readonly corners: Selection<Corner>;
   /** True for a face that holds no other face. */
   readonly leaf: boolean;
   /** This face's edges in the geometry, once: its walls and any edge
@@ -757,6 +852,30 @@ export interface StatedFaces {
   readonly edgeList: ColumnLike<Uint32Array>;
   /** The edge ids the faces were stated over. */
   readonly edgeIds: ColumnLike<Float64Array>;
+  /**
+   * The corner columns, by name, of any kind (column.ts): one row per
+   * corner — each face's runs in order, a corner per vertex of a run
+   * (corners.ts). Absent: the corners hold no columns. They go wherever
+   * the statement goes, and a write that drops it drops them.
+   */
+  readonly corners?: Readonly<Record<string, AnyColumn>>;
+  /** Minted ids, one per face row and one per corner row, for a statement
+   * that mints them (a 3D value's faces); absent, a face is known by its
+   * walls. Internal: the engine's identity, never a sketch's. */
+  readonly faceIds?: Float64Array;
+  readonly cornerIds?: Float64Array;
+  /** The kernel's names of the faces and of the corners (see
+   * `MaterialStore.pointKeys`). */
+  readonly faceKeys?: readonly string[];
+  readonly cornerKeys?: readonly string[];
+  /**
+   * A fixed triangulation per face row, where the statement has one: the
+   * face's triangles as positions round its loop (0 is the loop's first
+   * point), three a triangle; a face
+   * without one is undefined. The loops own it: it goes wherever they go,
+   * and a write that drops the statement drops it.
+   */
+  readonly triangles?: readonly (readonly number[] | undefined)[];
 }
 
 /** @internal `stated`, when a state has exactly the edges it was stated
@@ -1190,6 +1309,45 @@ export function faceKeyOf(roots: Iterable<number>): string {
 }
 
 /**
+ * @internal The key of every face a statement names, worked out from its
+ * runs and the edges of `m` — the same keys `FaceTable.keys()` reads off
+ * the incidence, without building the table: each face's walls are the
+ * edges its runs pass that have another face (or none) on their other
+ * side, each wall its lineage root. For faces that do not nest; a face
+ * that holds others has none. A run side no edge joins keys nothing.
+ */
+export function statedFaceKeys(m: Material, cycles: StatedFaces['cycles']): string[] {
+  const list = m.store.edgeList;
+  const roots = m.store.edgeRoots;
+  const n = Math.max(1, m.n);
+  // Half-edge claims: which face runs along each edge which way.
+  const edgeAt = new Map<number, number>();
+  for (let e = 0; e < m.edgeCount; e++) {
+    const a = list.get(2 * e);
+    const b = list.get(2 * e + 1);
+    edgeAt.set(a * n + b, 2 * e);
+    edgeAt.set(b * n + a, 2 * e + 1);
+  }
+  const faceOf = new Int32Array(2 * m.edgeCount).fill(-1);
+  cycles.forEach((runs, f) => {
+    for (const run of runs) for (let k = 0; k < run.length; k++) {
+      const h = edgeAt.get(run[k] * n + run[(k + 1) % run.length]);
+      if (h !== undefined) faceOf[h] = f;
+    }
+  });
+  const walls: number[][] = cycles.map(() => []);
+  for (let e = 0; e < m.edgeCount; e++) {
+    const l = faceOf[2 * e];
+    const r = faceOf[2 * e + 1];
+    if (l === r) continue;
+    const root = at64(roots, e);
+    if (l >= 0) walls[l].push(root);
+    if (r >= 0) walls[r].push(root);
+  }
+  return walls.map(faceKeyOf);
+}
+
+/**
  * @internal Face columns for faces a word states: each face's key from the
  * edges its runs pass (the ids the material is about to carry, every edge
  * its own root), and one column per entry of `values`, every face
@@ -1235,10 +1393,10 @@ export type FaceWhere = Selection<Face> | Face | ((f: Face) => unknown) | undefi
  * those `where` names, with the options record `{ transfer, fallback }`
  * last. */
 export interface FaceSet {
-  (column: string, value: number | ((f: Face) => number), where?: FaceWhere, opts?: FaceSetOpts): Material;
-  (column: string, value: number | ((f: Face) => number), opts: FaceSetOpts): Material;
-  (values: Record<string, number | ((f: Face) => number)>, where?: FaceWhere, opts?: FaceSetOpts): Material;
-  (values: Record<string, number | ((f: Face) => number)>, opts: FaceSetOpts): Material;
+  (column: string, value: CellValue | ((f: Face) => CellValue | undefined), where?: FaceWhere, opts?: FaceSetOpts): Material;
+  (column: string, value: CellValue | ((f: Face) => CellValue | undefined), opts: FaceSetOpts): Material;
+  (values: Record<string, CellValue | ((f: Face) => CellValue | undefined)>, where?: FaceWhere, opts?: FaceRecordSetOpts): Material;
+  (values: Record<string, CellValue | ((f: Face) => CellValue | undefined)>, opts: FaceRecordSetOpts): Material;
 }
 
 /** @internal What a selection of faces answers (see `ROW_TYPES`). */
@@ -1247,6 +1405,7 @@ export type FaceTypes = Types<{
   points: Selection<Vertex>;
   edges: Selection<Edge>;
   faces: Selection<Face>;
+  corners: Selection<Corner>;
   curves: Selection<Curve>;
   contours: () => IsoContour[];
   boundaryEdges: () => Selection<Edge>;
@@ -1318,6 +1477,10 @@ const FACES: DomainKind = domainKind('face', 'faces', {
   edges: { get(this: FaceSel) { return edgesOf(this.source, faceEdgeRows(this), undefined, true); } },
   /** Itself. */
   faces: { get(this: FaceSel) { return this; } },
+  /** The corners of the selected faces, face by face and round each face:
+   * the stated faces' corners (corners.ts); none where the faces are read
+   * off the picture. */
+  corners: { get(this: FaceSel): Selection<Corner> { return cornersOfFaces(this.source, this.indices); } },
   /** The walls of the faces as curves: each wall once, so `strokes(cells)`
    * draws a wall two faces share one time, not twice. */
   curves: { get(this: FaceSel): Selection<Curve> { return curvesOfRows(this, this.source, faceEdgeRows(this)); } },
@@ -1352,7 +1515,10 @@ const FACES: DomainKind = domainKind('face', 'faces', {
   /** Independent material of the selected faces: their edges and corners,
    * every point and edge column, the face columns, and the ids — an
    * extracted face is the face it was, so its columns and its id carry. */
-  extract: { value(this: FaceSel): Material { return edgesOf(this.source, faceEdgeRows(this), undefined, true).extract(); } },
+  extract: { value(this: FaceSel): Material {
+    const edgeRows = faceEdgeRows(this);
+    return extractStated(this.domain.table, this.indices, edgeRows, null) ?? edgesOf(this.source, edgeRows, undefined, true).extract();
+  } },
   /**
    * The material with face columns set on these faces — every one, or those
    * `where` names: a face selection, one face, or a predicate. A value is a
@@ -1483,6 +1649,9 @@ export function walkRuns(m: Material): number[][][] {
   return regionsOf(m).regions.map((r) => r!.cycles.map((cycle) => cycle.map(tailOf)));
 }
 
+/** No faces stated: what a value in space without a statement has. */
+const NO_CYCLES: StatedFaces['cycles'] = Object.freeze([]);
+
 /**
  * @internal The faces of one state: the face views, the incidence every
  * selection of them reads, the nesting, and the keys and ids that say who
@@ -1516,7 +1685,7 @@ export class FaceTable<F extends Face = Face> {
   /** @internal What each face carries of each face column, before the
    * column's `fallback`: its own value, or the one it inherited. A face the
    * column never reached has none. What a face write keeps of a column. */
-  readonly carried: ReadonlyMap<string, readonly (number | undefined)[]>;
+  readonly carried: ReadonlyMap<string, readonly unknown[]>;
   private readonly sourceOf: ((f: number) => unknown) | undefined;
   /** The half-edge runs of each leaf (null for a face that holds others). */
   private readonly regions: readonly (Region | null)[];
@@ -1525,7 +1694,10 @@ export class FaceTable<F extends Face = Face> {
    * statement of its faces, when a word made it with one. */
   constructor(m: Material, stated?: StatedFaces) {
     this.source = m;
-    const { regions, faceOf, next } = regionsOf(m, stated?.cycles);
+    // The planar walk reads x and y: in space it would read a shadow of the
+    // edges, not faces. A value with a z has the faces it states, or none.
+    const inSpace = m.store.attrs.z instanceof Column;
+    const { regions, faceOf, next } = regionsOf(m, stated?.cycles ?? (inSpace ? NO_CYCLES : undefined));
     const tailOf = (h: number): number => (h & 1 ? m.edgeList[2 * (h >> 1) + 1] : m.edgeList[2 * (h >> 1)]);
     const F = regions.length;
     const parentOf = stated?.parent !== undefined && stated.parent.some((p) => p >= 0) ? stated.parent : null;
@@ -1533,7 +1705,23 @@ export class FaceTable<F extends Face = Face> {
     this.sourceOf = stated?.source;
     this.regions = regions;
     // views
-    const edgeLength = (e: number) => Math.hypot(m.x[m.edgeList[2 * e + 1]] - m.x[m.edgeList[2 * e]], m.y[m.edgeList[2 * e + 1]] - m.y[m.edgeList[2 * e]]);
+    // A value in space measures its walls in space, and asks the 3D layer
+    // for each face's normal, area and centroid (`WORDS_3D.faceWords`).
+    const z = inSpace ? m.attrs.z : null;
+    const edgeLength = z === null
+      ? (e: number) => Math.hypot(m.x[m.edgeList[2 * e + 1]] - m.x[m.edgeList[2 * e]], m.y[m.edgeList[2 * e + 1]] - m.y[m.edgeList[2 * e]])
+      : (e: number) => { const a = m.edgeList[2 * e]; const b = m.edgeList[2 * e + 1]; return Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a], z[b] - z[a]); };
+    const measured = new Map<number, { readonly normal: readonly [number, number, number]; readonly area: number; readonly centroid: readonly [number, number, number] }>();
+    const spaceWords = (f: number) => {
+      let got = measured.get(f);
+      if (got === undefined) {
+        const words = WORDS_3D.faceWords;
+        if (words === undefined) throw new Error('face: a face of a value in space is measured in space — that comes with occlude/3d; import occlude/3d first');
+        got = words(m, f);
+        measured.set(f, got);
+      }
+      return got;
+    };
     const perimeterOf = (seq: number[]) => {
       const count = new Map<number, number>();
       for (const h of seq) count.set(h >> 1, (count.get(h >> 1) ?? 0) + 1);
@@ -1573,6 +1761,12 @@ export class FaceTable<F extends Face = Face> {
       children: { get(this: Face) { return select(collection.domain, collection.childRows()[this.index], undefined, true); } },
       source: { get(this: Face) { return collection.sourceAt(this.index); } },
       depth: { get(this: Face) { return depth[this.index]; } },
+      // The face's corners, round its loop (corners.ts); none where the
+      // faces are read off the picture.
+      corners: { get(this: Face) { return cornersOfFaces(m, [this.index]); } },
+      // The side the face looks to: +z for a face in the plane (its outer
+      // run turns counter-clockwise), the 3D layer's for a value in space.
+      normal: { get(this: Face) { return z === null ? PLANE_NORMAL : spaceWords(this.index).normal; } },
       leaf: { get(this: Face) { return holds[this.index] === 0; } },
       // The face's identity: its walls' lineage, read the first time any
       // face of the collection is asked.
@@ -1581,7 +1775,14 @@ export class FaceTable<F extends Face = Face> {
       // every column and id kept, as the selection of this one face gives —
       // and each wall stored the face's way round, so the chains it answers
       // wind as `contours()` does whatever order the walls were built in.
-      extract: { value(this: Face) { const edges = this.edges; return faceWise(edges.extract(), edges.indices, oneFace(this.index), collection.faceOf); } },
+      extract: { value(this: Face) {
+        const edges = this.edges;
+        const inside = oneFace(this.index);
+        return extractStated(collection, [this.index], edges.indices, inside) ?? faceWise(edges.extract(), edges.indices, inside, collection.faceOf);
+      } },
+      // One word for a face's middle: an edge answers `center`, a face
+      // `centroid` — the area's, not the box's — and says so by name.
+      center: { get(this: Face): never { throw new Error("face.center: a face's middle is its centroid — f.centroid"); } },
     });
     Object.freeze(faceProto);
     const curved = curvedSpaceOf(m.space);
@@ -1634,6 +1835,11 @@ export class FaceTable<F extends Face = Face> {
       // plain record it is.
       const held = Object.freeze(contours) as unknown as IsoContour[];
       Object.defineProperty(view, 'contours', { value: () => held });
+      if (z !== null) {
+        // In space, the area and centroid are the face's own, in space.
+        Object.defineProperty(view, 'area', { enumerable: true, get: () => spaceWords(f).area });
+        Object.defineProperty(view, 'centroid', { enumerable: true, get: () => spaceWords(f).centroid });
+      }
       views.push(view);
     }
     this.faces = views as readonly Face[] as readonly F[];
@@ -1647,8 +1853,8 @@ export class FaceTable<F extends Face = Face> {
     // values are keyed by the face's walls, so they are found once the
     // keys are known, and then baked onto the frozen view.
     const columns = Object.entries(m.faceAttrs);
-    const carried = new Map<string, (number | undefined)[]>();
-    for (const [name] of columns) carried.set(name, new Array<number | undefined>(views.length).fill(undefined));
+    const carried = new Map<string, unknown[]>();
+    for (const [name] of columns) carried.set(name, new Array<unknown>(views.length).fill(undefined));
     this.carried = carried;
     if (columns.length > 0) {
       const keys = this.keys();
@@ -1710,8 +1916,14 @@ export class FaceTable<F extends Face = Face> {
           }
           carried.get(name)![f] = value;
           // Dense: a face every write passed by and that inherits nothing
-          // reads the column's fallback, or 0 — a number, always.
-          Object.defineProperty(views[f], name, { value: value ?? column.fallback ?? 0, enumerable: true });
+          // reads the column's fallback, or its kind's default — 0 for a
+          // number. A reference reads as the row it names, when asked.
+          const kind = column.kind;
+          if (kind === undefined) Object.defineProperty(views[f], name, { value: value ?? column.fallback ?? 0, enumerable: true });
+          else if (kind.name === 'reference') {
+            const id = (value ?? null) as number | null;
+            Object.defineProperty(views[f], name, { get: () => referenced(m, id), enumerable: true });
+          } else Object.defineProperty(views[f], name, { value: value !== undefined ? value : column.fallback !== undefined ? column.fallback : kind.default, enumerable: true });
         }
       }
     }
@@ -1736,7 +1948,12 @@ export class FaceTable<F extends Face = Face> {
     for (let f = 0; f < F; f++) box4.set([Infinity, Infinity, -Infinity, -Infinity], 4 * f);
     const perimeter = new Float64Array(F);
     // Every wall once: its length goes to each face it bounds.
-    const edgeLength = (e: number) => Math.hypot(m.x[m.edgeList[2 * e + 1]] - m.x[m.edgeList[2 * e]], m.y[m.edgeList[2 * e + 1]] - m.y[m.edgeList[2 * e]]);
+    const z = m.store.attrs.z instanceof Column ? m.attrs.z : null;
+    const edgeLength = (e: number) => {
+      const a = m.edgeList[2 * e];
+      const b = m.edgeList[2 * e + 1];
+      return z === null ? Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a]) : Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a], z[b] - z[a]);
+    };
     this.eachWall((e, faces) => { const len = edgeLength(e); for (const f of faces) perimeter[f] += len; });
     for (const f of order) {
       if (holds[f]) continue;
@@ -2030,6 +2247,9 @@ export class FaceTable<F extends Face = Face> {
     return out;
   }
 }
+
+/** The normal of a face in the plane. */
+const PLANE_NORMAL: readonly [number, number, number] = Object.freeze([0, 0, 1] as [number, number, number]);
 
 /** A face whose source has not been read yet. */
 const NO_SOURCE = Symbol('unread');

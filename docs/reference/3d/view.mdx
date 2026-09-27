@@ -54,7 +54,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## creaseAngle
 
-The view draws a fold between two faces when the angle between them is larger than `creaseAngle`. The view's value is the default. An object's own value in its pair, `[mesh, { creaseAngle: 180 }]`, wins for that object. 180 draws no creases, so a curved mesh shows only its silhouette. 0 draws every fold.
+The view draws a fold between two faces when the angle between them is larger than `creaseAngle`. The view's value is the default. An object's own value in its pair, `[m, { creaseAngle: 180 }]`, wins for that object. 180 draws no creases, so a curved surface shows only its silhouette. 0 draws every fold.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -67,7 +67,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 Suggestive contours are the lines where the surface almost turns away from the eye. They are the silhouette that a nearby viewpoint shows. The two sheets below are one dune field, drawn twice. The outline alone says nothing about the sand. The suggestive contours draw every crest. The reading is from DeCarlo, Finkelstein, Rusinkiewicz and Santella (2003).
 
-`suggestive: {}` draws them, in the pair of one object or on the view for all of them. The default, `false`, draws none. An object's own value wins, so `[mesh, { suggestive: false }]` keeps one object plain. `threshold` is the derivative test: a larger number keeps fewer lines, and 12 is the default. The number is a ratio of the object's own size, so a model of any scale reads the same. These lines belong to one view, not to the model, so they move with the camera. The view classifies them with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them, and the default drawing gives them the object's pen.
+`suggestive: {}` draws them, in the pair of one object or on the view for all of them. The default, `false`, draws none. An object's own value wins, so `[m, { suggestive: false }]` keeps one object plain. `threshold` is the derivative test: a larger number keeps fewer lines, and 12 is the default. The number is a ratio of the object's own size, so a model of any scale reads the same. These lines belong to one view, not to the model, so they move with the camera. The view classifies them with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them, and the default drawing gives them the object's pen.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';
@@ -80,7 +80,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
     + 0.32 * Math.sin(0.55 * p.x + 0.35 * p.y + 1.1);
   const sand = plane(6, 4).subdivide(6).displace((p) => [0, 0, dunes(p)]);
   return view(
-    [sand.translate([0, 0, 2.4]).withKey('plain'), [sand.translate([0, 0, -2.4]).withKey('read'), { suggestive: {} }]],
+    [sand.translate([0, 0, 2.4]), [sand.translate([0, 0, -2.4]), { suggestive: {} }]],
     { camera: orthographic({ eye: [6.87, -8.19, 5.45], target: [0, 0, 0], span: 9.5 }), creaseAngle: 180 },
     (lines) => [
       strokes(lines.visible.kind('silhouette', 'boundary'), { stroke: 'ink' }),
@@ -92,7 +92,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## hatch
 
-`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the mesh, or a test on its face rows. The test gets the mesh's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. The call refuses a fill that is not parallel lines, and a spacing field of the paper. A recipe without a pen uses the `fillPen` of the object's pair, then the `pen` of the pair, then the view's `pen`. A `hatch` in the pair of an object replaces the view's hatch for that object. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
+`hatch: { spacing, angle?, offset?, pen?, select? }` on the view adds a family of hatch lines over the faces. `spacing` is a paper length and `angle` is a paper angle in degrees, clockwise on the sheet. `select` is a face selection of the value, or a test on its face rows. The test gets the value's own row, so `roof.has(f)` works. `hatch` also takes the 2D fill: `fill('hatch', { angle, spacing, offset? })` is one recipe, and `fill('crosshatch', { angles, spacing })` is one recipe for each angle. The call refuses a fill that is not parallel lines, and a spacing field of the paper. A recipe without a pen uses the `fillPen` of the object's pair, then the `pen` of the pair, then the view's `pen`. A `hatch` in the pair of an object replaces the view's hatch for that object. The lines lie flat on the paper: for lines that follow the surface, see [t.hatch](/docs/reference/3d/surface#thatch).
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -114,7 +114,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## sections
 
-`sections: [{ origin, normal, pen? }]` on the view cuts the mesh with planes in model space and draws the cut lines. Each section can name its own pen. A section is the line where a plane cuts the mesh. It does not change the mesh.
+`sections: [{ origin, normal, pen? }]` on the view cuts the surface with planes in model space and draws the cut lines. Each section can name its own pen. A section is the line where a plane cuts the surface. It does not change the surface.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -184,7 +184,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## opaque
 
-A view is ink, not an occluder. It hides nothing that is earlier in the tree, and a second view does not hide the first. Put the meshes that must hide each other in one view. `opaque: true` makes the paper under the view's solids opaque, as `opaque: true` does for a shape. The view then hides the earlier ink there, and its own lines stay visible. A later opaque shape hides the view in the same way.
+A view is ink, not an occluder. It hides nothing that is earlier in the tree, and a second view does not hide the first. Put the surfaces that must hide each other in one view. `opaque: true` makes the paper under the view's solids opaque, as `opaque: true` does for a shape. The view then hides the earlier ink there, and its own lines stay visible. A later opaque shape hides the view in the same way.
 
 ```ts live
 import { sketch, pen, mm, polygon, rect, fill } from 'occlude';

@@ -20,10 +20,11 @@
  */
 import {surface3} from '../geometry/surface.js';
 import {ownSurface3} from '../geometry/model.js';
-import {Mesh,emptyMesh,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,type GeometryOptions} from './mesh.js';
 import {clampSetting,emptyCount,emptySize} from '../degenerate.js';
 import {finite3,type Vec3} from '../math.js';
 import type {DistanceField3} from './sdf3.js';
+import type {Material} from '../../material.js';
 
 /** The cube's corners, in the order the case bits read them. */
 const CORNERS:readonly Vec3[]=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
@@ -110,7 +111,7 @@ const cellCounts=(step:number,size:Vec3):[number,number,number]|undefined=>{
  * extent, a step that is not a positive length, and a field that is nowhere inside
  * each draw nothing: the result is an empty mesh.
  */
-export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Mesh {
+export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Material {
   if(typeof field!=='function')throw new Error('isosurface: expected a distance field, a function of (x, y, z)');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isosurface options must be an object');
   const box=options.bounds;
@@ -168,7 +169,7 @@ export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Mesh 
   }
   budget(points.length,triangles.length);
   if(triangles.length===0)return emptyMesh(options);
-  return new Mesh(ownSurface3(surface3(relax(points,triangles,passes),triangles)),options);
+  return geometry3(ownSurface3(surface3(relax(points,triangles,passes),triangles)),options);
 }
 
 /** Laplacian passes: every point moves halfway to the mean of the points it

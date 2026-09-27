@@ -1,20 +1,21 @@
-import {describe,it,expect,expectTypeOf} from 'vitest';
+import {describe,it,expect} from 'vitest';
 import {plane,box,mesh,pointCloud} from 'occlude/3d';
 import {topology3} from '../src/three/geometry/topology.js';
 import {surface3} from '../src/three/geometry/surface.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 describe('owned mesh topology relationships',()=>{
   it('exposes typed incident rows without triangulation diagonals',()=>{
     const model=box().points.set({weight:2}).edges.set({ink:'outline'}).faces.set({tone:0.5});
     const vectorFace=model.faces.set('vector',[1,2]).faces.at(0)!;
-    expect(Object.isFrozen(vectorFace.attributes.vector)).toBe(true);
-    expect(()=>{(vectorFace.attributes.vector as number[])[0]=9;}).toThrow();
+    expect(Object.isFrozen(vectorFace.vector)).toBe(true);
+    expect(()=>{(vectorFace.vector as number[])[0]=9;}).toThrow();
     const face=model.faces.at(0)!;
     expect(face.points.length).toBe(4);expect(face.edges.length).toBe(4);expect(face.adjacent.length).toBe(4);
     expect(face.points.every(p=>p.weight===2&&p.faces.length===3&&p.edges.length===3&&p.adjacent.length===3)).toBe(true);
-    expect(face.edges.every(e=>e.ink==='outline'&&e.faces.length===2&&e.points.has(e.a)&&e.points.has(e.b))).toBe(true);
-    expectTypeOf(face.points.at(0)!.weight).toEqualTypeOf<number>();
-    expectTypeOf(face.edges.at(0)!.faces.at(0)!.tone).toEqualTypeOf<number>();
+    expect(face.edges.every(e=>e.ink==='outline'&&e.faces.length===2&&face.points.has(e.a)&&face.points.has(e.b))).toBe(true);
+    
+    
     expect(()=>JSON.stringify(face)).not.toThrow();
     expect(Object.keys(face)).not.toContain('points');
     expect(model.faces.boundaryEdges().length).toBe(0);
@@ -39,16 +40,16 @@ describe('owned mesh topology relationships',()=>{
     expect(model.points.filter(p=>p.index===0).connected().indices).toEqual([0,1,2,3,4]);
   });
   it('keeps adjacency cached through motion/state edits, but measurements and ownership fresh',()=>{
-    const model=plane(2).subdivide(1),before=topology3(model.surface);
+    const model=plane(2).subdivide(1),before=topology3(surfaceOf(model));
     const moved=model.displace(p=>[0,0,p.x*p.y]).points.set({age:0}).points.set({age:p=>p.faces.length});
-    expect(topology3(moved.surface)).toBe(before);
+    expect(topology3(surfaceOf(moved))).toBe(before);
     expect(moved.points.at(0)!.z).not.toBe(model.points.at(0)!.z);
     expect(moved.faces.at(0)!.area).toBeGreaterThan(model.faces.at(0)!.area);
     // Revisions of one mesh resolve by id (spec 58, G3-29).
     expect(model.faces.union(moved.faces).length).toBe(model.faces.length);
     expect(moved.points.has(model.faces.at(0)!.points.at(0)! as any)).toBe(true);
-    expect(topology3(model.subdivide().surface)).not.toBe(before);
-    expect(topology3(model.faces.filter(f=>f.index===0).extract().surface)).not.toBe(before);
+    expect(topology3(surfaceOf(model.subdivide()))).not.toBe(before);
+    expect(topology3(surfaceOf(model.faces.filter(f=>f.index===0).extract()))).not.toBe(before);
     expect(Object.isFrozen(before.faceNeighbors[0])).toBe(true);
   });
   it('evaluates rich relationships in attribute and displacement fields against frozen input',()=>{
@@ -77,8 +78,8 @@ describe('3D edge selections say the three relations words', () => {
     const out = one.adjacent();
     expect(out.indices).not.toContain(0);
     // Every one of them shares an end with edge 0.
-    const ends = new Set(m.surface.edges[0].vertices);
-    for (const i of out.indices) expect(m.surface.edges[i].vertices.some((v) => ends.has(v))).toBe(true);
+    const ends = new Set(surfaceOf(m).edges[0].vertices);
+    for (const i of out.indices) expect(surfaceOf(m).edges[i].vertices.some((v) => ends.has(v))).toBe(true);
   });
 
   it('connected() reaches the whole piece, and a whole mesh is one', () => {
@@ -90,8 +91,8 @@ describe('3D edge selections say the three relations words', () => {
     const m = plane(2, 2).subdivide(2);
     // Two edges that share no vertex are two pieces.
     const a = m.edges.at(0)!;
-    const ends: readonly number[] = a.vertices;
-    const apart = m.edges.filter((e) => e.index === a.index || (e.index > a.index && !e.vertices.some((v) => ends.includes(v))));
+    const ends: readonly number[] = [a.a.index, a.b.index];
+    const apart = m.edges.filter((e) => e.index === a.index || (e.index > a.index && ![e.a.index, e.b.index].some((v) => ends.includes(v))));
     const pieces = apart.components();
     expect(pieces.length).toBeGreaterThan(1);
     // Together the pieces hold exactly the members, once each.

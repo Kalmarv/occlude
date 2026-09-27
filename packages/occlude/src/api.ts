@@ -20,15 +20,14 @@
  *   stays usable — build() snapshots)
  */
 
-import {Mesh,type CurveGeometry,type EdgeAttributes} from './three/api/mesh.js';
-import {isSelection3} from './three/api/collection.js';
-import type {MeshFaceRow} from './three/api/topology.js';
+import {type EdgeAttributes} from './three/api/mesh.js';
 import type {Attributes3} from './three/geometry/surface.js';
-import {scatterSurface,type SurfaceSamples,type SurfaceScatterOptions} from './three/api/sampling.js';
+import {scatterSurface,type SurfaceScatterOptions} from './three/api/sampling.js';
+import {kernelOf} from './three/geometry/value.js';
 import {streamlinesInSpace,type Streamlines3Options} from './three/api/flow.js';
 import type {VectorField3} from './three/api/vec.js';
 import {SurfaceCurves} from './three/api/supported.js';
-import {sampleSurfaceCurves,type CurveSamples,type CurveSamplingOptions} from './three/api/curveSampling.js';
+import {sampleSurfaceCurves,type CurveSamplingOptions} from './three/api/curveSampling.js';
 import {ProjectedCurves,type ProjectedCurve,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
@@ -80,7 +79,7 @@ import { residualOf, type ResidualOpts } from './residual.js';
 import { geodesicBow, unitMm, userPointMm } from './record.js';
 import { areaLoops, isGeometry, numericLoops, type AreaInput, type Geometry, type Loop, isRectRecord } from './boundary.js';
 import {
-  Material, material as materialOf, alongChain, checkSampling, inSpace,
+  Material, material as materialOf, alongChain, checkSampling, inSpace, inSpace3,
   withinMaterial, areaCentroid, append, areaView, type Edge, type PointsLike, type Transfer, type Vertex,
 } from './material.js';
 import { chainLengths, chainRecordOf, chainRecordsOf, isCurveRow, type Curve } from './curves.js';
@@ -1743,19 +1742,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Field-modulated Poisson-disk points as point-only material with a
    * `density` column (the field at each point). `t.relax` and `t.settle`
    * refine it; `t.voronoi` reads its cells. */
-  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>|Selection<MeshFaceRow<F,P,E,C>>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
+  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Material|Selection<Face>,options:SurfaceScatterOptions<F>):Material;
   function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
   function scatter(area: AreaInput | ShapeValue, opts: Omit<ScatterOpts, 'within'>): Material;
   function scatter(opts: ScatterOpts): Material;
   function scatter(
-    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Mesh<any,any,any> | Selection<MeshFaceRow<any,any,any,any>> | undefined,
+    a: FieldFn2 | ScatterOpts | AreaInput | ShapeValue | Material | Selection<Face> | undefined,
     b?: ScatterOpts | Omit<ScatterOpts, 'within'> | SurfaceScatterOptions<any>,
-  ): Material | SurfaceSamples<any,any,any,any> {
-    // A face selection is the surface it names: its faces, ids kept.
-    if(isSelection3(a,'face'))a=(a as Selection<MeshFaceRow<any,any,any,any>>).extract();
+  ): Material {
+    // A face selection of a value in space is the surface it names: its
+    // faces, ids kept. (Faces of a value in the plane are an area.)
+    if(a instanceof Selection&&a.domain.kind.name==='face'&&a.source instanceof Material&&inSpace3(a.source))a=(a as Selection<Face>).extract() as Material;
     // One door, two forms; each form draws from its own stream, in call
     // order (the first call reads the plain key, as it always has).
-    if(a instanceof Mesh){const options=b as SurfaceScatterOptions<any>;const form=(options as {count?:unknown})?.count!==undefined?'__surface-sample:':'__surface-scatter:';return scatterSurface(a,options,{rnd:exec.freshStream(form+(options?.key??a.key??'default')).rnd,signal:scope?.signal});}
+    if(a instanceof Material&&inSpace3(a)){const options=b as SurfaceScatterOptions<any>;const form=(options as {count?:unknown})?.count!==undefined?'__surface-sample:':'__surface-scatter:';return scatterSurface(a,options,{rnd:exec.freshStream(form+(options?.key??kernelOf(a).key??'default')).rnd,signal:scope?.signal});}
     const field = typeof a === 'function' ? a : undefined;
     const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
     const raw = (b ?? a) as ScatterOpts;
@@ -2122,7 +2122,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       // What a pass derived answers within the pass: the next step keeps
       // only what the start answered (tables.ts `restamp`).
       if (value instanceof Material) value = restamp(value, base + k + 1, [], start) as T;
-      if (every && (k + 1) % every === 0 && k + 1 < count) snaps.push(value);
+      if (every && (k + 1) % every === 0 && k + 1 < count) snaps.push(value instanceof Material ? (restamp(value, value.iteration, [], start) as T) : value);
     }
     if (every && count > 0) snaps.push(value);
     if (!every) return value;
@@ -2264,8 +2264,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * Lines stop at the drawable edge, at a `t.within()` bound, and half a
    * spacing from ink already laid. Deterministic, no seed. */
   function streamlines(field: VectorFieldFn, opts?: StreamOpts): Material;
-  function streamlines(field: VectorField3, opts: Streamlines3Options): CurveGeometry[];
-  function streamlines(field: VectorFieldFn | VectorField3, opts: StreamOpts | Streamlines3Options = {}): Material | CurveGeometry[] {
+  function streamlines(field: VectorField3, opts: Streamlines3Options): Material[];
+  function streamlines(field: VectorFieldFn | VectorField3, opts: StreamOpts | Streamlines3Options = {}): Material | Material[] {
     // A field of space, (x, y, z) => …, runs in 3D: the curves a view occludes.
     if (typeof field === 'function' && field.length === 3) return streamlinesInSpace(exec, field as VectorField3, opts as Streamlines3Options);
     const b = exec.bounds();
@@ -2434,13 +2434,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * answers `source`, the input edge it lies on. Both are kept by a `set`
    * or a `move` of the result; a point added later has neither.
    */
-  function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
+  function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):Material;
   function sample(area:Area,options:{count?:number;spacing?:L;tolerance?:L}):Material;
   function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
     shape: Area | Material | SurfaceCurves<any>,
     options: { count?: number; spacing?: L; tolerance?: L } | CurveSamplingOptions = {},
-  ): Material | CurveSamples<any,any> {
+  ): Material {
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
     // A material is already geometry: redistributing along its chains by arc
     // length is `resample`, the same door in the material's own world. The

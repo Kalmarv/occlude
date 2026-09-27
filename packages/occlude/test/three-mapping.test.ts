@@ -127,7 +127,7 @@ describe('mapSurface',()=>{
 
   it('draws mapped marks as ordinary strokes, hidden by the rest of the surface',async()=>{
     // A folded sheet: the marks on the far half are behind the near half.
-    const sheet=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[-1,-1,2],[-1,1,2]],[[0,1,2,3],[2,1,4,5]]).corners.set({uv:c=>[c.point.x*.5+.5,c.point.y*.5+.5] as const,chart:c=>c.face.id});
+    const sheet=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[-1,-1,2],[-1,1,2]],[[0,1,2,3],[2,1,4,5]]).corners.set({uv:c=>[c.point.x*.5+.5,c.point.y*.5+.5] as const,chart:c=>`f${c.face.index}`});
     const marks=mapSurface(sheet,[stripe(.25),stripe(.75)]);
     expect(marks.edges.length).toBe(8);
     const draw=(select:(lines:import('../src/three/api/projected.js').ProjectedLines)=>import('../src/three/api/projected.js').ProjectedCurves)=>compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([sheet,marks],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),pen:'ink'},lines=>strokes(select(lines),{stroke:'ink'}))));

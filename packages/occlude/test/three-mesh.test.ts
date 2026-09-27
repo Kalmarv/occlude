@@ -8,13 +8,14 @@ import { featureSnapshot3, FeatureKind3 } from '../src/three/features/snapshot.j
 import { candidatePairs3, classifySceneCpu3, classifySceneGpu3 } from '../src/three/visibility/scene.js';
 import { hiddenInterval3, unionIntervals3 } from '../src/three/visibility/interval.js';
 import type { GpuIntervals3 } from '../src/compute/webgpu/interval.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 const frame = (perspective = false) => cameraFrame3({ ...(perspective ? {kind:'perspective' as const,fovDegrees:60} : {kind:'orthographic' as const,span:6}), eye:[4,-6,4],target:[0,0,0],near:.1,far:100 },{x:10,y:20,width:180,height:120});
 
 describe('polygon surfaces and topology features', () => {
   it('keeps flat relief ground edges crease-free across camera views', () => {
     const sheet = mesh(gridSurface(6, 6, [4, 4]));
-    const surface = sheet.extrude(sheet.faces.filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0), { distance: 1 }, { key: 'ground-regression' }).surface;
+    const surface = surfaceOf(sheet.extrude(sheet.faces.filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0), { distance: 1 }, { key: 'ground-regression' }));
     const ground = new Set(surface.edges.filter(e => e.faces.length === 2 && e.faces.every(f =>
       surface.faces[f].vertices.every(v => surface.points[v].position[2] === 0))).map(e => e.id));
     expect(ground.size).toBe(30);

@@ -2,26 +2,28 @@ import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render } from '../src/host.js';
-import {box,sphere,cylinder,view,orthographic,type Mesh} from '../src/three/api/index.js';
+import {box,sphere,cylinder,view,orthographic} from '../src/three/api/index.js';
 import {cross3,dot3} from '../src/three/math.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
 /** Closed, edge-manifold, consistently wound, and enclosing a positive volume. */
-function manifold(m:Mesh<any,any,any,any>,chi:number){
- const s=m.surface;
+function manifold(m:Material,chi:number){
+ const s=surfaceOf(m);
  expect(s.edges.every(e=>e.faces.length===2)).toBe(true);
  expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
  const directions=new Map<string,number>();
  for(const f of s.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length];directions.set([Math.min(a,b),Math.max(a,b)].join(':'),(directions.get([Math.min(a,b),Math.max(a,b)].join(':'))??0)+(a<b?1:-1));}
  expect([...directions.values()].every(n=>n===0)).toBe(true);
 }
-function volume(m:Mesh<any,any,any,any>):number{
- const s=m.surface;let total=0;
+function volume(m:Material):number{
+ const s=surfaceOf(m);let total=0;
  for(const t of s.triangles){const [a,b,c]=t.vertices.map(i=>s.points[i].position);total+=dot3(a,cross3(b,c))/6;}
  return total;
 }
-const shape=(m:Mesh<any,any,any,any>)=>JSON.stringify({points:m.surface.points.map(p=>[p.id,p.position]),faces:m.surface.faces.map(f=>[f.id,f.vertices,f.attributes])});
+const shape=(m:Material)=>JSON.stringify({points:surfaceOf(m).points.map(p=>[p.id,p.position]),faces:surfaceOf(m).faces.map(f=>[f.id,f.vertices,f.attributes])});
 
 describe('mesh booleans',()=>{
  it('bites one solid out of another and keeps a closed manifold result',()=>{
@@ -88,7 +90,7 @@ describe('mesh booleans',()=>{
   const shell=cylinder(1,2,{segments:8,caps:false});
   expect(()=>box(2).subtract(shell)).toThrow('subtract: the second mesh is not closed (16 boundary edges)');
   expect(()=>shell.union(box(2))).toThrow('union: the first mesh is not closed');
-  expect(()=>(box(2) as Mesh).intersect({} as Mesh)).toThrow('intersect: the second value is not a mesh');
+  expect(()=>(box(2) as Material).intersect({} as Material)).toThrow('intersect: the second value is not a mesh');
   // Two boxes that meet along one edge have no manifold union: the operation
   // says so instead of handing back a surface nothing can draw.
   expect(()=>box(2).union(box(2).translate([2,2,0]))).toThrow('union: the result is not a manifold surface');
@@ -98,17 +100,17 @@ describe('mesh booleans',()=>{
   const ball=sphere(1.2,{segments:12,rings:6}).translate([0.9,0.8,0.7]).faces.set('wall',()=>99);
   const bitten=cube.subtract(ball);
   // An untouched face of the first solid keeps its own identity.
-  expect(bitten.faces.some(f=>f.id==='f0')).toBe(true);
+  expect(surfaceOf(bitten).faces.some(f=>f.id==='f0')).toBe(true);
   // Every piece keeps the column of the face it came from, and the pieces of
   // the second solid keep theirs.
   expect(bitten.faces.every(f=>typeof f.wall==='number')).toBe(true);
   expect(bitten.faces.some(f=>f.wall===99)).toBe(true);
-  expect(new Set(bitten.surface.points.map(p=>p.id)).size).toBe(bitten.points.length);
-  expect(new Set(bitten.surface.faces.map(f=>f.id)).size).toBe(bitten.faces.length);
+  expect(new Set(surfaceOf(bitten).points.map(p=>p.id)).size).toBe(bitten.points.length);
+  expect(new Set(surfaceOf(bitten).faces.map(f=>f.id)).size).toBe(bitten.faces.length);
   // A seam point is a new point, with the column blended from the first
   // solid's triangle it was cut on, so a later displacement has a number to
   // read; the second solid's own points keep only the columns they had.
-  const seam=bitten.points.filter(p=>p.id.startsWith(`["subtract",0,"cut"`));
+  const seam=bitten.points.filter(p=>surfaceOf(bitten).points[p.index].id.startsWith(`["subtract",0,"cut"`));
   expect(seam.length).toBeGreaterThan(0);
   expect(seam.every(p=>Number.isFinite(p.h)&&Math.abs(p.h-p.z)<1e-9)).toBe(true);
   // `cut` accumulates down a chain: the second bite keeps the first bite's

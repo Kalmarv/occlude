@@ -3,6 +3,7 @@ import {beforeAll,describe,it,expect} from 'vitest';
 import { initOcclude } from '../src/host.js';
 import {box,sphere,plane,mesh} from '../src/three/api/index.js';
 import { selectionIn } from '../src/selection.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
@@ -13,11 +14,11 @@ const cell=(m:ReturnType<typeof sheet>,i:number,j:number)=>m.faces.filter(f=>Mat
 describe('G3-29 3D selections resolve by id',()=>{
   it('G3-29 corner read on solid after a boolean subtract keeps the top faces that survive, by id',()=>{
     const block=box(2).subdivide(1);
-    const corner=block.faces.filter(f=>f.centroid[2]>0.9).groupBy(()=>'top')[0];
+    const corner=block.faces.filter(f=>f.centroid[2]!>0.9).groupBy(()=>'top')[0];
     const solid=block.subtract(sphere(0.9,{segments:20,rings:10}).translate([1,1,1]));
     const stillTop=selectionIn(corner, solid);
     const ids=new Set(corner.map(f=>f.id));
-    expect(stillTop.source).toBe(solid.surface);
+    expect(stillTop.source).toBe(solid);
     expect(stillTop.map(f=>f.id)).toEqual(solid.faces.filter(f=>ids.has(f.id)).map(f=>f.id));
     expect(stillTop.length).toBeGreaterThan(0);
     expect(stillTop.length).toBeLessThanOrEqual(corner.length);
@@ -27,7 +28,7 @@ describe('G3-29 3D selections resolve by id',()=>{
     // Resolving among a selection of the target revision.
     expect(selectionIn(corner, solid.faces.filter(()=>false)).length).toBe(0);
     expect(()=>selectionIn(corner, solid.points as never)).toThrow('expected faces, got points');
-    expect(()=>selectionIn(corner, {} as never)).toThrow('has no faces');
+    expect(()=>selectionIn(corner, {} as never)).toThrow('faces: read on another state');
   });
   it('G3-29 rim.has(e) answers for the edges of an extruded revision by id',()=>{
     const m=sheet(),part=cell(m,1,1);
@@ -37,8 +38,8 @@ describe('G3-29 3D selections resolve by id',()=>{
     expect(kept.length).toBe(rim.length);
     expect(kept.map(e=>e.id).sort()).toEqual(rim.map(e=>e.id).sort());
     expect(out.edges.filter(e=>!rim.has(e)).length).toBe(out.edges.length-rim.length);
-    expect(()=>rim.has(out.faces.at(0) as never)).toThrow('expected a edge row, got a face row');
-    expect(()=>rim.has({...out.edges.at(0)!})).toThrow('expected a edge row');
+    expect(()=>rim.has(out.faces.at(0) as never)).toThrow('edges.has: expected an edge view');
+    expect(()=>rim.has({...out.edges.at(0)!})).toThrow('edges.has: an edge reference');
   });
   it('G3-29 set operations resolve a stale operand by id; a different domain still refuses',()=>{
     const m=sheet(),a=cell(m,0,0).union(cell(m,1,0)),b=cell(m,1,0);
@@ -70,10 +71,10 @@ describe('G3-29 3D selections resolve by id',()=>{
     const once=m.extrude(first,{distance:0.4});
     // grown comes from m, not from once: it is read on once by id.
     const twice=once.extrude(grown,{distance:0.2});
-    expect(unique(twice.surface.points.map(p=>p.id))).toBe(true);
-    expect(unique(twice.surface.faces.map(f=>f.id))).toBe(true);
+    expect(unique(surfaceOf(twice).points.map(p=>p.id))).toBe(true);
+    expect(unique(surfaceOf(twice).faces.map(f=>f.id))).toBe(true);
     const ids=new Set(grown.map(f=>f.id));
-    expect(twice.faces.filter(f=>ids.has(f.id)).every(f=>f.centroid[2]>0.1)).toBe(true);
+    expect(twice.faces.filter(f=>ids.has(f.id)).every(f=>f.centroid[2]!>0.1)).toBe(true);
   });
 });
 
@@ -82,12 +83,12 @@ describe('G3-30 extrusion mints a fresh id per copy of a shared corner',()=>{
     const m=sheet(),parts=cell(m,1,1).union(cell(m,2,2));
     expect(parts.components().length).toBe(2);
     const out=m.extrude(parts,{distance:0.4});
-    expect(unique(out.surface.points.map(p=>p.id))).toBe(true);
-    expect(unique(out.surface.faces.map(f=>f.id))).toBe(true);
+    expect(unique(surfaceOf(out).points.map(p=>p.id))).toBe(true);
+    expect(unique(surfaceOf(out).faces.map(f=>f.id))).toBe(true);
     // The shared corner (0, 0) is copied once per part, at each part's height.
-    const lifted=out.surface.points.filter(p=>p.position[0]===0&&p.position[1]===0).map(p=>p.position[2]).sort();
+    const lifted=surfaceOf(out).points.filter(p=>p.position[0]===0&&p.position[1]===0).map(p=>p.position[2]).sort();
     expect(lifted).toEqual([0,0.4,0.4]);
-    expect(out.surface.faces.length).toBe(16+8);
+    expect(surfaceOf(out).faces.length).toBe(16+8);
   });
   it('G3-30 parts extruded in two calls that share a corner, re-selected by id or stale',()=>{
     const m=sheet(),parts=cell(m,1,1).union(cell(m,2,2)).components();
@@ -96,17 +97,17 @@ describe('G3-30 extrusion mints a fresh id per copy of a shared corner',()=>{
     let stale=m;
     for(const part of parts)stale=stale.extrude(part,{distance:0.3+0.2*parts.indexOf(part)});
     for(const out of [byId,stale]){
-      expect(unique(out.surface.points.map(p=>p.id))).toBe(true);
-      expect(unique(out.surface.faces.map(f=>f.id))).toBe(true);
-      expect(out.surface.faces.length).toBe(16+8);
-      const lifted=out.surface.points.filter(p=>p.position[0]===0&&p.position[1]===0).map(p=>p.position[2]).sort();
+      expect(unique(surfaceOf(out).points.map(p=>p.id))).toBe(true);
+      expect(unique(surfaceOf(out).faces.map(f=>f.id))).toBe(true);
+      expect(surfaceOf(out).faces.length).toBe(16+8);
+      const lifted=surfaceOf(out).points.filter(p=>p.position[0]===0&&p.position[1]===0).map(p=>p.position[2]).sort();
       expect(lifted).toEqual([0,0.3,0.5]);
     }
-    expect(stale.surface.points.map(p=>p.id)).toEqual(byId.surface.points.map(p=>p.id));
+    expect(surfaceOf(stale).points.map(p=>p.id)).toEqual(surfaceOf(byId).points.map(p=>p.id));
   });
   it('G3-30 a non-shared extrusion keeps the plain generated ids',()=>{
     const m=sheet(),out=m.extrude(cell(m,1,1),[0,0,1]);
-    const minted=out.surface.points.filter(p=>p.provenance?.operation==='extrude').map(p=>JSON.parse(p.id));
+    const minted=surfaceOf(out).points.filter(p=>p.provenance?.operation==='extrude').map(p=>JSON.parse(p.id));
     expect(minted.length).toBe(4);
     expect(minted.every(parts=>parts.length===4&&parts[2]==='point')).toBe(true);
   });
@@ -119,8 +120,8 @@ describe('G3-30 extrusion mints a fresh id per copy of a shared corner',()=>{
     const both=bowtie.extrude(top.union(bottom),f=>f.index===0?[0,0,1]:[0,0,-1]);
     const apart=bowtie.extrude(top,[0,0,1]).extrude(bottom,[0,0,-1]);
     for(const out of [both,apart]){
-      expect(unique(out.surface.points.map(p=>p.id))).toBe(true);
-      const apex=out.surface.points.filter(p=>p.position[0]===0&&p.position[1]===0).map(p=>p.position[2]).sort();
+      expect(unique(surfaceOf(out).points.map(p=>p.id))).toBe(true);
+      const apex=surfaceOf(out).points.filter(p=>p.position[0]===0&&p.position[1]===0).map(p=>p.position[2]).sort();
       expect(apex).toEqual([-1,1]);
     }
   });

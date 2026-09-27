@@ -1,12 +1,13 @@
 import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3} from '../geometry/surface.js';
-import {Mesh,CurveGeometry,emptyMesh,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,surfaceOf,derived,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {kernelOf} from '../geometry/value.js';
 import {emptyCount,emptySize} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import type {Vec3} from '../math.js';
 import {profileCurve} from './curves.js';
-import {SOURCES,derived} from './source.js';
+import type {Material} from '../../material.js';
 export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
   readonly segments?:number;
   /** Signed sweep in degrees, nonzero and at most a full turn. */
@@ -17,9 +18,9 @@ export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
 /** Revolve an XZ meridian in x>=0 around Z. A 2D chain is that meridian:
  * its x is the radius and its y the height. Point columns follow the profile;
  * side faces inherit profile edge columns, while angular caps have no columns. */
-export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:CurveGeometry<P,E>|{readonly curves:unknown}|Curve2,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV> {
+export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:Material|{readonly curves:unknown}|Curve2,options:RevolveOptions={}):Material {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('revolve options must be an object');
-  const profile=profileCurve(input,'xz','revolve') as CurveGeometry<P,E>;
+  const profile=profileCurve(input,'xz','revolve') as Material;
   const path=curvePath(profile),angle=options.angle??360,n=options.segments??32,full=Math.abs(angle)===360;
   if(!Number.isFinite(angle)||Math.abs(angle)>360)throw new Error('revolve angle must be within -360 to 360 degrees');
   // No profile, no turn and no segments each revolve nothing. The angular step
@@ -29,7 +30,7 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:Cu
   if(options.caps!==undefined&&typeof options.caps!=='boolean')throw new Error('revolve caps must be boolean');
   const caps=options.caps===true&&!full;
   if(caps&&!path.closed)throw new Error('revolve angular caps require a closed profile');
-  const source=profile.surface,anchorZ=source.points[0].position[2],extent=source.points.reduce((m,p)=>Math.max(m,Math.abs(p.position[0]),Math.abs(p.position[2]-anchorZ)),0);
+  const source=surfaceOf(profile),anchorZ=source.points[0].position[2],extent=source.points.reduce((m,p)=>Math.max(m,Math.abs(p.position[0]),Math.abs(p.position[2]-anchorZ)),0);
   if(source.points.some(p=>p.position[0]<0||Math.abs(p.position[1])>extent*1e-10))throw new Error('revolve profile must lie in the XZ meridian with x >= 0');
   const axis=(i:number)=>source.points[i].position[0]===0&&source.points[i].position[1]===0;
   const usedEdges=path.edges.filter(i=>!source.edges[i].vertices.every(axis)),edgeSet=new Set(usedEdges);
@@ -83,5 +84,5 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(input:Cu
     add(JSON.stringify(['revolve','end']),boundary.map(i=>index(i,n)).reverse(),{},path.edges.map(i=>source.edges[i].id),boundary.map(i=>capByPoint!.get(i)!).reverse(), 'end');
   }
   const topology=surface3(points.map(p=>p.position as Vec3),faces.map(f=>f.vertices));
-  return new Mesh<P,{},Partial<E>&Attributes3&SurfaceChart,SurfaceUV>(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key,[SOURCES]:derived('revolve',input as object)});
+  return geometry3(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??kernelOf(profile).key,derived:derived('revolve',input as object)});
 }

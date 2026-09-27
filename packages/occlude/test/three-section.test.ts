@@ -5,6 +5,7 @@ import {
 import { cameraFrame3 } from '../src/three/camera.js';
 import { featureSnapshot3 } from '../src/three/features/snapshot.js';
 import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 const plane={id:'middle',origin:[0,0,0] as const,normal:[0,0,1] as const};
 const frame=cameraFrame3({kind:'orthographic',span:4,eye:[4,6,5],target:[0,0,0],near:.1,far:30},{x:0,y:0,width:100,height:100});
 const select=(f:{flags:number})=>(f.flags&FeatureKind3.section)!==0;

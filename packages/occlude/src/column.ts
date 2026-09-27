@@ -1107,3 +1107,97 @@ export type AnyColumn = Column<Float64Array> | BooleanColumn | StringColumn | Ve
 export function kindOf(c: AnyColumn): AnyKind {
   return c instanceof Column ? numberKind : c.kind;
 }
+
+// ─── any column, read and written by kind ─────────────────────────────
+//
+// A geometry holds its columns as one record of any kind (`AnyColumn`):
+// the numeric ones are plain `Column<Float64Array>`s, so a kernel that
+// reads numbers reads them as it always did, and the table writes reach
+// every kind through these few doors.
+
+/** A column any kind: the words every kind shares, values untyped. */
+type Untyped = TypedColumn<unknown, unknown>;
+
+/** Is `v` a column of a kind other than numbers (a boolean, string,
+ * vector, reference or placement column)? */
+export function isTypedColumn(v: unknown): v is Exclude<AnyColumn, Column<Float64Array>> {
+  return v instanceof CodedColumn || v instanceof VectorColumn || v instanceof ArrayColumn;
+}
+
+/** Is `v` a column of any kind a geometry holds? */
+export function isAnyColumn(v: unknown): v is AnyColumn {
+  return v instanceof Column || isTypedColumn(v);
+}
+
+/** The value at row `i` of any column, as its kind reads it: a number, a
+ * boolean, a string, a new array of `k` numbers, a row id or null, a
+ * placement. */
+export function valueAt(c: AnyColumn, i: number): unknown {
+  return c instanceof Column ? at64(c, i) : (c as Untyped).get(i);
+}
+
+/** `length` rows of `v`, a value of `kind` (checked by the caller). */
+export function constantColumn(kind: AnyKind, length: number, v: unknown): AnyColumn {
+  if (kind === kinds.number) return Column.of(new Float64Array(length).fill(v as number));
+  const values = new Array<unknown>(length);
+  for (let i = 0; i < length; i++) values[i] = v;
+  return (kind as ColumnKind<unknown, unknown, Untyped>).from(values) as unknown as AnyColumn;
+}
+
+/** `c` with `values` (of its kind) after its last row. */
+export function appendValues(c: AnyColumn, values: ArrayLike<unknown>): AnyColumn {
+  return (c as Untyped).append(values) as unknown as AnyColumn;
+}
+
+/** The rows `rows` of `c`, in that order. */
+export function keepRows(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
+  return (c as Untyped).keep(rows) as unknown as AnyColumn;
+}
+
+/** A new column of `c`'s kind holding rows `rows` of `c`, in that order:
+ * what an extraction takes, its own storage. */
+export function gatherColumn(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
+  if (c instanceof Column) return Column.of(c.gather(rows));
+  if (c instanceof VectorColumn) return c.kind.of(c.gather(rows));
+  if (c instanceof CodedColumn) return (c.kind as CodedKind<unknown, Numeric>).of(c.gather(rows)) as unknown as AnyColumn;
+  return (c.kind as ArrayKind<unknown>).of(c.gather(rows)) as unknown as AnyColumn;
+}
+
+/** `a`, then every row of `b`: two columns of one kind joined. */
+export function joinColumns(a: AnyColumn, b: AnyColumn): AnyColumn {
+  if (a instanceof Column) return Column.of(concat64(a.flat(), (b as Column).flat()));
+  const values = new Array<unknown>(b.length);
+  for (let i = 0; i < b.length; i++) values[i] = (b as Untyped).get(i);
+  return appendValues(a, values);
+}
+
+function concat64(a: Float64Array, b: Float64Array): Float64Array {
+  const out = new Float64Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+}
+
+/** One write of any column: `set` takes a value of the column's kind. */
+export interface AnyWriter {
+  get(i: number): unknown;
+  set(i: number, v: unknown): void;
+  done(): AnyColumn;
+}
+
+/** A writer of any column (see `Column.writer`). */
+export function writerOf(c: AnyColumn, reach: Reach): AnyWriter {
+  return (c as Untyped).writer(reach) as unknown as AnyWriter;
+}
+
+/** The kind's name as a message says it: `a number`, `a vector of 3`. */
+export function kindWords(kind: AnyKind): string {
+  switch (kind.name) {
+    case 'number': return 'a number';
+    case 'boolean': return 'a boolean';
+    case 'string': return 'a string';
+    case 'vector': return `a vector of ${kind.width}`;
+    case 'reference': return 'a reference to a row';
+    case 'placement': return 'a placement';
+  }
+}

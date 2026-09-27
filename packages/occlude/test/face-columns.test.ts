@@ -50,10 +50,11 @@ describe('a column on a face', () => {
     for (const f of run.faces) expect(f.height).toBe(3);
   });
 
-  it('refuses a name the face view already owns, and a value that is neither a number nor a function', () => {
+  it('refuses a name the face view already owns, and a value no column holds', () => {
     expect(() => twoFaces().faces.set('area', 1)).toThrow(/reserved field of a face/);
     expect(() => twoFaces().faces.set('contours', 1)).toThrow(/reserved field of a face/);
-    expect(() => twoFaces().faces.set('height', 'tall' as never)).toThrow(/a number or a function of the face/);
+    // A string is a column kind now (typed columns); a record is no kind.
+    expect(() => twoFaces().faces.set('height', { tall: true } as never)).toThrow(/a number, a boolean, a string, a list of numbers, a row or a placement/);
   });
 
   it('a value that is not finite leaves that face as it was', () => {

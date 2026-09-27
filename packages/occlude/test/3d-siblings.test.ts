@@ -14,6 +14,7 @@ import {
 import { sampleSurfaceCurves } from '../src/three/api/curveSampling.js';
 import type { ProjectedLines } from '../src/three/api/projected.js';
 import { rec } from './helpers/xy.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -61,10 +62,10 @@ describe('G3-18 · a face says centroid, as in 2D', () => {
   it('reads f.centroid on 3D faces and refuses f.center by name', () => {
     const house = box(2);
     // FRICTION G3-18: house.faces.filter((f) => f.centroid[2] > 1.1)
-    const top = house.faces.filter((f) => f.centroid[2] > 0.9);
+    const top = house.faces.filter((f) => f.centroid[2]! > 0.9);
     expect(top.length).toBe(1);
     expect(top.at(0)!.centroid).toEqual([0, 0, 1]);
-    expect(() => (top.at(0) as unknown as { center: unknown }).center).toThrow(/`centroid`/);
+    expect(() => (top.at(0) as unknown as { center: unknown }).center).toThrow(/middle is its centroid/);
     // An edge's middle is still `center`, the 2D edge word.
     expect(house.edges.at(0)!.center).toHaveLength(3);
   });
@@ -235,7 +236,7 @@ describe('G3-31 · G6-25 · a 2D chain is a profile', () => {
     expect(tube.points.map((p) => [p.x, p.y, p.z])).toEqual(lifted.points.map((p) => [p.x, p.y, p.z]));
     expect(tube.points.map((p) => p.k)).toEqual(lifted.points.map((_, i) => i % 4));
     const profile = ring.points.set('k', (p) => p.index);
-    expect(sweep(profile, path).points.at(0)!.source[0]).toBe(profile.points.at(0));
+    expect((sweep(profile, path).points.at(0)!.source as readonly unknown[])[0]).toBe(profile.points.at(0));
   });
   it('revolves a 2D chain as the XZ meridian', () => {
     const profile = curve2([[0, 0], [0.9, 0], [1.1, 0.8], [0.6, 1.6]], { closed: false });

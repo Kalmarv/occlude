@@ -2,6 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {axisAngle,alignAxis,pointCloud,box,instanceOnPoints,curve,type Rotation} from 'occlude/3d';
 import {rotation3,rotateVector3} from '../src/three/rotation.js';
 import type {Vec3} from '../src/three/math.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 function near(actual:Vec3,wanted:Vec3,precision=12){actual.forEach((v,i)=>expect(v).toBeCloseTo(wanted[i],precision));}
 describe('rotation values and alignment',()=>{
  it('uses right-handed degrees, explicit composition order and inverse',()=>{
@@ -57,13 +58,13 @@ describe('rotation values and alignment',()=>{
  it('applies pivoted rotations to point, curve and mesh data and mirrored instances',()=>{
    const r=axisAngle('z',90),point=pointCloud([[2,0,0]]).rotate(r,[1,0,0]).points.at(0)!;
    near([point.x,point.y,point.z],[1,1,0]);
-   const line=curve([[0,0,0],[1,0,0]]).rotate(r);near(line.surface.points[1].position,[0,1,0]);
+   const line=curve([[0,0,0],[1,0,0]]).rotate(r);near(surfaceOf(line).points[1].position,[0,1,0]);
    const prototype=box([2,4,6]),instances=instanceOnPoints(prototype,pointCloud([[10,0,0]]).points,{rotate:()=>r,scale:[-2,3,4]});
    expect(Array.isArray(instances.rows[0].transform.rotate)).toBe(false);
    const realized=instances.realize();
-   prototype.surface.points.forEach((p,i)=>near(realized.surface.points[i].position,[10-p.position[1]*3,-p.position[0]*2,p.position[2]*4]));
-   expect(realized.surface.faces[0].vertices).toEqual([...prototype.surface.faces[0].vertices].reverse());
-   near(prototype.rotate(r).surface.points[0].position,[-prototype.surface.points[0].position[1],prototype.surface.points[0].position[0],prototype.surface.points[0].position[2]]);
+   surfaceOf(prototype).points.forEach((p,i)=>near(surfaceOf(realized).points[i].position,[10-p.position[1]*3,-p.position[0]*2,p.position[2]*4]));
+   expect(surfaceOf(realized).faces[0].vertices).toEqual([...surfaceOf(prototype).faces[0].vertices].reverse());
+   near(surfaceOf(prototype.rotate(r)).points[0].position,[-surfaceOf(prototype).points[0].position[1],surfaceOf(prototype).points[0].position[0],surfaceOf(prototype).points[0].position[2]]);
  });
  it('agrees with legacy XYZ rotation without requiring Euler output',()=>{
    for(const angles of [[10,20,30],[0,90,40],[180,-90,240]] as Vec3[]){

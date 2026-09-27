@@ -10,7 +10,7 @@
  * 4. `rows` on the 3D collections, as `sel.rows` in 2D.
  */
 
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { box, cone, cylinder, curve, geodesic, mesh, parametric, plane, revolve, sphere, sweep, torus, parametricCurve } from 'occlude/3d';
 import { chordMiddle, metricGap } from '../src/chord.js';
 import { euclideanSpace, spaceOf, type Space } from '../src/space.js';
@@ -35,22 +35,12 @@ describe('a charted face row carries a typed chart', () => {
     sweep: sweep(circle(0.2), curve([[0, 0, 0], [0, 0, 1], [1, 0, 2]])),
   };
 
-  it('types `f.chart` as a string on every factory that charts, and not on a bare mesh', () => {
-    expectTypeOf(plane().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(box().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(factories.parametric.faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(sphere().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(geodesic().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(cylinder().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(cone().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(torus().faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(factories.revolve.faces.at(0)!.chart).toEqualTypeOf<string>();
-    expectTypeOf(factories.sweep.faces.at(0)!.chart).toEqualTypeOf<string>();
-    // The verbs that carry `F` carry the chart.
-    expectTypeOf(sphere().subdivide(1).faces.filter((f) => f.chart.length > 0).at(0)!.chart).toEqualTypeOf<string>();
+  it('answers `f.chart` as a string on every factory that charts, and none on a bare mesh', () => {
+    for (const made of Object.values(factories)) expect(typeof made.faces.at(0)!.chart).toBe('string');
+    // A subdivision carries the chart to every child face.
+    expect(sphere().subdivide(1).faces.every((f) => typeof f.chart === 'string' && f.chart.length > 0)).toBe(true);
     const bare = mesh([[0, 0, 0], [1, 0, 0], [0, 1, 0]], [[0, 1, 2]]);
-    // @ts-expect-error a mesh built from positions and faces has no chart
-    void bare.faces.at(0)!.chart;
+    expect(bare.faces.at(0)!.chart).toBeUndefined();
   });
 
   it('writes a non-empty string chart on every face row of every factory', () => {
@@ -219,15 +209,17 @@ describe('rows on the 3D collections', () => {
   });
 
   it('reads a row of another revision by id, and refuses another domain and an index out of range', () => {
-    // Spec 58 (G3-29): a row of another revision resolves by its id.
+    // A row of another state of the same rows resolves to its row here.
+    const later = m.translate([0, 0, 1]);
+    expect(m.faces.rows(later.faces.at(0)!).at(0)!.index).toBe(0);
+    expect(m.points.rows([0, later.points.at(0)!]).length).toBe(1);
+    expect(m.edges.rows(later.edges.at(1)!).at(0)!.index).toBe(1);
+    // Another construction of the same box is another geometry: its rows are
+    // not rows of this one.
     const other = box().subdivide(1);
-    expect(m.faces.rows(other.faces.at(0)!).at(0)!.id).toBe(other.faces.at(0)!.id);
-    expect(m.points.rows([0, other.points.at(0)!]).length).toBe(1);
-    expect(m.edges.rows(other.edges.at(1)!).at(0)!.id).toBe(other.edges.at(1)!.id);
-    const gone = box().subdivide(2).faces.find((f) => !m.faces.some((g) => g.id === f.id))!;
-    expect(() => m.faces.rows(gone)).toThrow(/is not in this state — it is gone/);
+    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow(/is not in this state — it is gone, or it belongs to another geometry/);
     // @ts-expect-error a point row is not a face row
-    expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face row, got a point row');
+    expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face view — got a vertex view');
     const n = m.faces.length;
     expect(() => m.faces.rows(n)).toThrow(`faces.rows: no face ${n} in this state (${n} rows)`);
     expect(() => m.points.rows(-1)).toThrow('points.rows: no point -1');

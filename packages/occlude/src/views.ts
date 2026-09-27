@@ -29,8 +29,8 @@ const KIND = Symbol('view');
 /** Which kind of view this is — decided by the material that made it,
  * never by the presence of attribute names (an artist may call a column
  * `a`, `b` or `x`). `undefined` for anything that is not a view. */
-export function viewKind(view: unknown): 'vertex' | 'edge' | 'face' | undefined {
-  return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge' | 'face'>)[KIND] : undefined;
+export function viewKind(view: unknown): 'vertex' | 'edge' | 'face' | 'corner' | undefined {
+  return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge' | 'face' | 'corner'>)[KIND] : undefined;
 }
 
 /**
@@ -67,7 +67,7 @@ export function rowViewKind(cls: abstract new (...args: never[]) => RowView, kin
  * symbol was, so a spread copy is still unowned. `words` is what the brand
  * sits on: the getters every view of this kind answers, shared by every
  * owner. */
-export function viewProto(owner: object, kind: 'vertex' | 'edge' | 'face', words: object = Object.prototype): object {
+export function viewProto(owner: object, kind: 'vertex' | 'edge' | 'face' | 'corner', words: object = Object.prototype): object {
   const proto = Object.create(words) as object;
   Object.defineProperty(proto, OWNER, { value: owner, enumerable: false });
   Object.defineProperty(proto, KIND, { value: kind, enumerable: false });

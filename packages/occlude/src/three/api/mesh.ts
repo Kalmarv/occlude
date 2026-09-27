@@ -1,567 +1,97 @@
-import {chartSurface3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
-import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInput,type RotationData,type Axis3} from '../rotation.js';
-import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow,type MeshCornerRow} from './topology.js';
-import {assembleSurface3,surface3,box3,type Surface3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
-import {captureSurface3,ownSurface3,editAttributes3,transformSurface3,transformPosition3} from '../geometry/model.js';
-import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
-import {clampSetting,emptyCount,emptySize,sampleValue} from '../degenerate.js';
-import {Table3,select3,domainOf,isSelection3,POINTS3,EDGES3,type Where3} from './collection.js';
-import {ROW_TYPES,selectionIn,type Selection,type Types} from '../../selection.js';
-import {attributeName,attributeValue,evaluate,POSITION3,describe3,type Field,type AttributeFields,type ColumnWrite,type Widen3,type Widened3,type PointColumns3,type PointFields3} from './columns.js';
-import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
-import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
-import {dualSurface3,type DualOptions} from '../geometry/dual.js';
-import {isSpacePlacement,type Placement as Isometry} from '../../placement.js';
-import {booleanSurface3} from '../geometry/boolean.js';
+/**
+ * The 3D factories: a plane, a box, a formula surface, an imported mesh,
+ * points in space. Each answers the one geometry — a `Material` with a `z`
+ * column, stated polygon faces and their corners where it has them — and
+ * the 3D words on it (`subdivide`, `extrude` of faces, the booleans, `dual`,
+ * `displace`, 3D `translate`/`rotate`/`scale`) are its own methods
+ * (words.ts). An empty domain is empty: points have no edges, a curve has
+ * no faces, and a word that needs faces refuses a value with none by name.
+ */
+
+import {chartSurface3} from '../geometry/coordinates.js';
+import {surface3,box3,assembleSurface3,type Surface3,type Attributes3,type Attribute3} from '../geometry/surface.js';
+import {ownSurface3} from '../geometry/model.js';
+import {add3,mul3,sub3,type Vec3} from '../math.js';
+import {emptyCount,emptySize} from '../degenerate.js';
+import {attributeName,attributeValue,evaluate,type Field,type AttributeFields} from './columns.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
 import {points2} from './lift.js';
-import {curveLength,alongSurface,resampledSurface} from './curveWalk.js';
-import {SOURCES,derived,recordSources,withSource,type Sourced,type SourceRecord,type Source3} from './source.js';
-/** One connected component of an extrusion selection, measured on the frozen input. */
-export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
-  readonly index:number;readonly faces:Selection<MeshFaceRow<F,P,E,C>>;
-  /** Unit area-weighted mean normal; undefined when the region's faces cancel. */
-  readonly normal?:Vec3;readonly centroid:Vec3;readonly area:number;
-}
-const regionCenterRefused=():never=>{throw new Error('an extrude region\'s middle is `centroid` (the 2D face word)');};
-export type ExtrudeOffset<R>=number|Vec3|((region:R)=>Vec3)|{readonly distance:Field<R,number>};
-export interface ExtrudeOptions {
-  /** Stable identity for generated points, walls and corners; default 'extrude'. */
-  readonly key?:string;
-}
+import {value3,surfaceOf,type Carry3} from '../geometry/value.js';
+import {sourceOf3,type Input3} from './words.js';
+import type {Material,Vertex,Edge} from '../../material.js';
+import type {Face} from '../../faces.js';
+import type {Corner} from '../../corners.js';
+import {Selection} from '../../selection.js';
+import type {Rotation} from '../rotation.js';
+import './words.js';
+
 export {attributeName,attributeValue,evaluate};
 export type {Field,AttributeFields};
 export type {SetOptions3,SetManyOptions3,Transfer3} from './columns.js';
 export type {Where3} from './collection.js';
+export type {DisplaceOptions,RotateOptions3 as RotateOptions,ScaleOptions3 as ScaleOptions,Origin3,ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './words.js';
 export type EdgeAttributes = Record<string,Attribute3|undefined>;
+
 export interface GeometryOptions {
+  /** The name a scatter on this value draws its stream under, and the
+   * value's identity in a view. */
   readonly key?:string;
 }
-/** Every 3D row answers `source`: what a derivation made it from (see
- * source.ts) — a row, a selection, or one answer per input; undefined on a
- * value no derivation made. */
-export type PointRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;x:number;y:number;z:number;attributes:Readonly<A>;source?:Source3}>;
-export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly [number,number];a:PointRow<P>; b:PointRow<P>;length:number;
-  /** The middle of the edge — the same word a face answers, the same word
-   * `EdgeMeasure3` answers, and the same word 2D's `Edge` answers. */
-  center:Vec3;attributes:Readonly<A>;source?:Source3}>;
-/** `centroid` is the area centroid of the face, the 2D face word. */
-export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;centroid:Vec3;area:number;attributes:Readonly<A>;source?:Source3}>;
-export type CornerRow<A extends Attributes3={}> = Readonly<A&{id:string;index:number;localIndex:number;attributes:Readonly<A>;source?:Source3}>;
-const pointCache=new WeakMap<Surface3,readonly PointRow[]>();
-function pointRows<P extends Attributes3>(surface:Surface3):readonly PointRow<P>[] {
-  let rows=pointCache.get(surface);
-  if(!rows){rows=Object.freeze(surface.points.map((p,index)=>Object.freeze(withSource({...p.attributes,id:p.id,index,x:p.position[0],y:p.position[1],z:p.position[2],attributes:p.attributes},surface,p))));pointCache.set(surface,rows);}
-  return rows as unknown as readonly PointRow<P>[];
+/** @internal The inputs of the derivation that made a value: its name and
+ * the values it read, which its rows' `source` answers rows of. */
+export interface Derived3 {readonly operation:string;readonly inputs:readonly object[]}
+export const derived=(operation:string,...inputs:object[]):Derived3=>Object.freeze({operation,inputs:Object.freeze(inputs)});
+/** @internal What a factory hands `geometry3` besides the surface. */
+export interface Geometry3Options extends GeometryOptions {
+  readonly radialCentre?:Vec3;
+  readonly origin?:Vec3;
+  readonly orientation?:Rotation;
+  readonly transfers?:Carry3['transfers'];
+  readonly derived?:Derived3;
+  /** The value the surface was made from: a row it kept keeps its id. */
+  readonly from?:Material;
+  /** Point columns a kernel never sees (a sample's placement). */
+  readonly pointCols?:Carry3['pointCols'];
+  /** Where the rows came from, said outright (the core's `source`). */
+  readonly source?:Carry3['source'];
 }
 function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');refuseStroke(options,'geometry options');refuseDisplay(options,'geometry options');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
-// Attribute records are frozen and shared between a surface and every surface
-// derived from it (transforms, subdivisions, further attribute edits), so a
-// record validated once is valid wherever it appears: the check runs per new
-// record, not per new mesh. (A torus with 40k faces edited three times used
-// to validate 120k unchanged records.)
-const validatedAttributes=new WeakSet<object>();
+/** Column names and values a kernel's surface carries are the ones a
+ * geometry column may hold. */
 function validateAttributes(surface:Surface3):void {
   for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows){
-    const record=row.attributes;
-    if(validatedAttributes.has(record))continue;
-    for(const [name,value] of Object.entries(record)){attributeName(name);attributeValue(value);}
-    if(Object.isFrozen(record))validatedAttributes.add(record);
+    for(const [name,value] of Object.entries(row.attributes)){attributeName(name);if(value!==undefined)attributeValue(value);}
   }
 }
-function pointsOnly(surface:Surface3,indices:readonly number[]):Surface3{return ownSurface3(assembleSurface3(indices.map(i=>surface.points[i]),[],[]));}
-const transformed=(surface:Surface3,options:Parameters<typeof transformSurface3>[1]):Surface3=>ownSurface3(transformSurface3(surface,options));
-/** Recorded radial centres: the point a generator built a star-shaped shell
- * about, in the value's own coordinates. Provenance, not a claim — every
- * certificate that reads one re-proves radiality from the triangles, so a
- * stale centre costs a failed proof and can never grant one.
- *
- * It lives beside the values rather than on them because `{...this}` carries
- * an object's own properties into everything derived from it, and provenance
- * must be DROPPED by default: only the operations that keep a star-shaped
- * solid star-shaped pass it on, and each says so in its own line. */
-const radialCentres=new WeakMap<object,Vec3>();
-function recordRadial(value:object,centre:Vec3|undefined):void {
-  if(!centre)return;finite3(centre);
-  radialCentres.set(value,Object.freeze([centre[0],centre[1],centre[2]]) as unknown as Vec3);
-}
-/** The image of a recorded centre under the same affine edit the points took. */
-const movedCentre=(centre:Vec3|undefined,options:Parameters<typeof transformSurface3>[1]):Vec3|undefined=>
-  centre&&transformPosition3(centre,options);
-/** Every point through a hyperbolic placement, every id and column kept.
- * A Lorentz isometry moves the Klein ball projectively, so a straight
- * segment stays straight and a flat face stays flat: the stored edges and
- * triangles are still exact. A placement that turns space over turns every
- * face over too, as a mirrored `scale` does, so a closed solid stays wound
- * outward. */
-function placedSurface(surface:Surface3,placement:Isometry<Vec3>):Surface3 {
-  if(!isSpacePlacement(placement))throw new Error('transform takes a placement of 3D space — an observer, or one of a honeycomb\'s placements; a placement of the plane moves sketch points');
-  const points=surface.points.map(p=>({...p,position:placement.point(p.position)}));
-  if(placement.orientation>0)return ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
-  const faces=surface.faces.map(f=>({...f,vertices:[...f.vertices].reverse(),corners:f.corners&&[...f.corners].reverse()}));
-  const triangles=surface.triangles.map(t=>({...t,vertices:[t.vertices[0],t.vertices[2],t.vertices[1]] as [number,number,number]}));
-  return ownSurface3(assembleSurface3(points,faces,triangles,surface));
-}
-/** The private provenance channel of the geometry constructors. */
-export interface RadialProvenance {readonly radialCentre?:Vec3}
-export interface DisplaceOptions {
-  /** Direction of a scalar displacement: the vertex normal (default), an axis, or a fixed vector. */
-  readonly along?:'normal'|'x'|'y'|'z'|Vec3;
-}
-/** Angle-weighted vertex normals over the represented triangles; a point with
- * no faces has no normal and a scalar displacement there is an error. */
-function vertexNormals(surface:Surface3):(Vec3|null)[] {
-  const sums=surface.points.map(()=>[0,0,0] as number[]);
-  for(const t of surface.triangles){
-    const p=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(p[1],p[0]),sub3(p[2],p[0]));
-    for(let k=0;k<3;k++){const a=sub3(p[(k+1)%3],p[k]),b=sub3(p[(k+2)%3],p[k]),la=Math.hypot(...a),lb=Math.hypot(...b);
-      const angle=la&&lb?Math.acos(Math.max(-1,Math.min(1,dot3(a,b)/(la*lb)))):0;const s=sums[t.vertices[k]];s[0]+=n[0]*angle;s[1]+=n[1]*angle;s[2]+=n[2]*angle;}
-  }
-  return sums.map(s=>{const l=Math.hypot(s[0],s[1],s[2]);return l>0?[s[0]/l,s[1]/l,s[2]/l] as Vec3:null;});
-}
-function displaced<R extends PointRow<any>>(surface:Surface3,field:Field<R,Vec3|number>,rows:readonly R[]=pointRows(surface) as readonly R[],options:DisplaceOptions={}):Surface3 {
-  const along=options.along??'normal';
-  const axis:Vec3|undefined=along==='x'?[1,0,0]:along==='y'?[0,1,0]:along==='z'?[0,0,1]:along==='normal'?undefined:along;
-  if(axis)finite3(axis);
-  let normals:(Vec3|null)[]|undefined;
-  const points=rows.map((row,i)=>{
-    const value=evaluate(field,row);
-    let delta:Vec3;
-    if(typeof value==='number'){
-      // A sample the field could not answer, or a point with no normal to
-      // follow, leaves that point where it is. The rest still move.
-      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(surface))[i];
-      delta=direction?mul3(direction,amount):[0,0,0];
-    }else{delta=value;finite3(delta);}
-    return {...surface.points[i],position:add3(surface.points[i].position,delta)};
+/** The value a derivation read, as a geometry: a selection is read on the
+ * geometry it selects from. */
+const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.source as Material):'store' in v?v as Material:'rows' in v&&'prototype' in v?v as Input3:undefined;
+
+/** @internal A kernel's surface as a value in space. */
+export function geometry3(surface:Surface3,options:Geometry3Options={}):Material {
+  checkOptions(options);validateAttributes(surface);
+  const key=checkedKey(options.key);
+  const inputs=options.derived?.inputs.map(inputOf).filter((m):m is Input3=>m!==undefined);
+  return value3(surface,{
+    ...(key!==undefined?{key}:{}),
+    ...(options.origin!==undefined?{origin:options.origin}:{}),
+    ...(options.orientation!==undefined?{orientation:options.orientation}:{}),
+    ...(options.radialCentre!==undefined?{radialCentre:options.radialCentre}:{}),
+    ...(options.transfers!==undefined?{transfers:options.transfers}:{}),
+    ...(options.from!==undefined?{from:options.from}:{}),
+    ...(options.pointCols!==undefined?{pointCols:options.pointCols}:{}),
+    ...(options.source!==undefined?{source:options.source}:options.derived&&inputs&&inputs.length?{source:sourceOf3(options.derived.operation,surface,inputs)}:{}),
   });
-  return ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
 }
-
-/** The states `t.steps` kept, beside the value as its radial centre is: a
- * spread of the value, which every derived value is made from, does not
- * carry them, so any other operation starts with none. */
-const histories=new WeakMap<object,readonly unknown[]>();
-const NO_HISTORY:readonly never[]=Object.freeze([]);
-function recordHistory(owner:object,history:readonly unknown[]|undefined):void{if(history&&history.length>0)histories.set(owner,Object.freeze([...history]));}
-
-
-
-/** Where an object turns and scales: its own origin, which primitives are
- * born with at [0,0,0] and which `translate` carries along (Blender's
- * object origin). Rotations accumulate an orientation so `{ local: true }`
- * can turn about the object's own current axes. */
-export interface PlacementOptions {readonly origin?:Vec3;readonly orientation?:RotationInput}
-/** A pivot in 3D, the words `Origin` has in 2D: a point, `'center'` for
- * the middle of the value's own bounds, or `'centroid'` for its area
- * centroid (the mean of its points when it has no triangles). */
-export type Origin3='center'|'centroid'|Vec3;
-export interface RotateOptions {
-  /** Pivot (see `Origin3`); the object's own origin when unset, and the
-   * world's is the point [0, 0, 0]. */
-  readonly origin?:Origin3;
-  /** Read the axis in the object's current frame instead of world axes. */
-  readonly local?:boolean;
-}
-export interface ScaleOptions {
-  /** Pivot (see `Origin3`); the object's own origin when unset. */
-  readonly origin?:Origin3;
-}
-interface Placement {readonly origin:Vec3;readonly orientation:Rotation}
-function placement(options:PlacementOptions):Placement {
-  const origin=options.origin??[0,0,0];finite3(origin);
-  return {origin:Object.freeze([origin[0],origin[1],origin[2]]) as unknown as Vec3,orientation:rotation3(options.orientation??[0,0,0])};
-}
-interface Pivoted extends Placement {readonly surface:Surface3}
-/** The pivot a verb turns or scales about. `about` is the old spelling and
- * is refused by name; an unknown word is refused before it is a NaN. */
-function pivotOf(verb:string,options:RotateOptions|ScaleOptions|undefined,self:Pivoted):Vec3 {
-  if(options&&(options as {about?:unknown}).about!==undefined)throw new Error(`${verb}: 'about' is spelled origin — { origin: [x, y, z] | 'center' | 'centroid' }; the object's own origin is the default and the world's is [0, 0, 0]`);
-  const o=options?.origin;
-  if(o===undefined)return self.origin;
-  if(Array.isArray(o)){finite3(o as Vec3);return o as Vec3;}
-  if(o!=='center'&&o!=='centroid')throw new Error(`${verb}: origin is a point [x, y, z], 'center' or 'centroid' — got ${typeof o==='string'?`'${o}'`:JSON.stringify(o)}`);
-  const pts=self.surface.points;
-  if(pts.length===0)return self.origin;
-  if(o==='center'){
-    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
-    for(const p of pts)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
-    return [(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2];
-  }
-  // Area-weighted triangle centroids: the centroid of the surface itself.
-  let area=0;const c=[0,0,0];
-  for(const t of self.surface.triangles){
-    const [a,b,d]=t.vertices.map(i=>pts[i].position);
-    const u=sub3(b,a),v=sub3(d,a);
-    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
-    const w=Math.hypot(n[0],n[1],n[2])/2;
-    area+=w;for(let k=0;k<3;k++)c[k]+=w*(a[k]+b[k]+d[k])/3;
-  }
-  if(area>0)return [c[0]/area,c[1]/area,c[2]/area];
-  for(const p of pts)for(let k=0;k<3;k++)c[k]+=p.position[k];
-  return [c[0]/pts.length,c[1]/pts.length,c[2]/pts.length];
-}
-function isRotationInput(value:unknown):value is RotationInput {
-  return Array.isArray(value)||(typeof value==='object'&&value!==null&&(value as RotationData).kind==='rotation');
-}
-/** `rotate(angles | rotation, pivot?)` or `rotate(axis, degrees, { about, local })`. */
-/** The object's origin after turning about a pivot: it rides along like every
- * other point, so a later default rotation still turns in place. */
-function movedOrigin(self:Placement,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3{return Object.freeze(add3(pivot,move(sub3(self.origin,pivot)))) as unknown as Vec3;}
-function rotationArguments(self:Pivoted,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3} {
-  let rotate:Rotation,options:RotateOptions={};
-  if(typeof b==='number'){
-    if(!Number.isFinite(b))throw new Error('rotate degrees must be finite');
-    options=c??{};
-    const axis:Axis3=options.local?rotateVector3(typeof a==='string'?(a==='x'?[1,0,0]:a==='y'?[0,1,0]:[0,0,1]):vector3(a as Vec3),self.orientation):a as Axis3;
-    rotate=axisAngle(axis,b);
-  }else{
-    if(!isRotationInput(a))throw new Error('rotate takes Euler degrees, a rotation value, or an axis with degrees');
-    rotate=rotation3(a);
-    if(Array.isArray(b)){finite3(b as Vec3);return {rotate,origin:b as Vec3,orientation:self.orientation.then(rotate),moved:movedOrigin(self,b as Vec3,v=>rotate.apply(v))};}
-    options=(b as RotateOptions|undefined)??{};
-  }
-  const origin=pivotOf('rotate',options,self);
-  return {rotate,origin,orientation:self.orientation.then(rotate),moved:movedOrigin(self,origin,v=>rotate.apply(v))};
-}
-/** A zero factor is allowed at this level: an object scaled to nothing is
- * nothing (`empty`), drawing and occluding nothing, so loops that pass through
- * zero carry on. The exact kernel below still refuses singular transforms. */
-function scaleArguments(self:Pivoted,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3;empty:boolean} {
-  const factors:Vec3=typeof scale==='number'?[scale,scale,scale]:scale;finite3(factors);
-  const origin=Array.isArray(b)?b as Vec3:pivotOf('scale',b as ScaleOptions|undefined,self);if(Array.isArray(b))finite3(origin);
-  return {scale:factors,origin,moved:movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]),empty:factors.some(f=>f===0)};
-}
-/** Points collapsed by a scale with a zero factor: no faces or edges to break, so the points simply move. */
-function collapsedPoints(surface:Surface3,factors:Vec3,origin:Vec3):Surface3 {
-  return ownSurface3(assembleSurface3(surface.points.map(p=>({...p,position:add3(origin,sub3(p.position,origin).map((v,i)=>v*factors[i]) as unknown as Vec3)})),[],[]));
-}
-const emptySurface=():Surface3=>ownSurface3(assembleSurface3([],[],[]));
-
-type Domain3='point'|'edge'|'face'|'corner';
-/** The surface with one write landed: the columns on the domain's rows and,
- * on points, the position columns `x`, `y` and `z`. Topology, ids and every
- * other row are kept. */
-function writtenSurface(surface:Surface3,domain:Domain3,write:ColumnWrite):Surface3 {
-  const count=domain==='point'?surface.points.length:domain==='edge'?surface.edges.length:domain==='face'?surface.faces.length:surface.faces.reduce((n,f)=>n+f.vertices.length,0);
-  const patches:(Attributes3|undefined)[]=new Array(count).fill(undefined),moved=new Map<number,Vec3>();
-  let columns=false;
-  write.rows.forEach((row,k)=>{
-    let attributes:Attributes3|undefined,position:number[]|undefined;
-    for(const [name,value] of Object.entries(write.values[k])){
-      const axis=domain==='point'?POSITION3[name]:undefined;
-      if(axis===undefined){(attributes??={})[name]=value;continue;}
-      position??=[...surface.points[row].position];position[axis]=value as number;
-    }
-    if(attributes){patches[row]=attributes;columns=true;}
-    if(position)moved.set(row,position as unknown as Vec3);
-  });
-  const key=({point:'points',edge:'edges',face:'faces',corner:'corners'} as const)[domain];
-  let out=columns?editAttributes3(surface,{[key]:patches}):surface;
-  if(moved.size){
-    const points=out.points.map((p,i)=>{const at=moved.get(i);return at?{...p,position:at}:p;});
-    out=ownSurface3(assembleSurface3(points,out.faces,out.triangles,out));
-  }
-  return out;
-}
-/** A domain whose columns carry no transfer policy refuses one by name. */
-function noTransfer(write:ColumnWrite,what:string):void {
-  const named=Object.keys(write.transfer);
-  if(named.length)throw new Error(`${write.who}: ${what} columns carry no transfer policy — nothing refines them ('${named[0]}')`);
-}
-/** The transfer policies after a write: the ones it declares, over the
- * ones declared before; a column it only sets keeps its policy. */
-function declaredTransfers(previous:PointTransfers,write:ColumnWrite):PointTransfers {
-  const result:Record<string,'interpolate'|'nearest'>={...previous};
-  for(const [name,policy] of Object.entries(write.transfer)){
-    if(POSITION3[name]!==undefined)throw new Error(`${write.who}: '${name}' is a position, not a column with a transfer policy`);
-    if(policy!=='interpolate'&&policy!=='nearest')throw new Error(`${write.who}: the transfer of '${name}' is 'interpolate' or 'nearest' — got ${describe3(policy)}`);
-    result[name]=policy;
-  }
-  return result;
-}
-/** @internal A write on a mesh's rows, as the mesh collections land it:
- * points and corners declare transfer policies, edges and faces carry none.
- * Nothing written is the same mesh. */
-export function writeMesh3<M extends Mesh<any,any,any,any>>(mesh:M,domain:Domain3,write:ColumnWrite):M {
-  if(domain==='edge'||domain==='face')noTransfer(write,`a mesh's ${domain}`);
-  if(!write.rows.length)return mesh;
-  const surface=writtenSurface(mesh.surface,domain,write);
-  const policies=domain==='point'?{transfers:declaredTransfers(mesh.transfers,write)}:domain==='corner'?{cornerTransfers:declaredTransfers(mesh.cornerTransfers,write)}:{};
-  // Columns and moved points keep a star-shaped solid's recorded centre, as
-  // `displace` does: nothing trusts it, every certificate re-proves it.
-  return new Mesh(surface,{...mesh,...policies,radialCentre:mesh.radialCentre}) as M;
-}
-/** @internal A write on the points of point geometry (samples included). */
-export function writePoints3(surface:Surface3,write:ColumnWrite):Surface3 {
-  noTransfer(write,'point geometry\'s');
-  return writtenSurface(surface,'point',write);
-}
-
-/** A point row of point geometry. */
-export type GeometryPointRow<P extends Attributes3={}> = PointRow<P>&{readonly [ROW_TYPES]?:GeometryPointTypes<P>};
-/** @internal What a selection of point geometry's points answers: its one
- * write, `set(column, value, where?)` or `set({ column: value, … }, where?)`,
- * answers the new geometry. A value is a number, string, boolean or numeric
- * vector, or a function of the point; the record form reads every point as
- * it was before the write. `x`, `y` and `z` are the position. */
-export type GeometryPointTypes<P extends Attributes3> = Types<{
-  source:Surface3;points:Selection<GeometryPointRow<P>>;extract:()=>PointGeometry<P>;
-  set:{
-    <Name extends string,V extends Attribute3>(column:Name,value:Field<GeometryPointRow<P>,V>,where?:Where3<GeometryPointRow<P>>):PointGeometry<PointColumns3<P,NoInfer<Name>,NoInfer<V>>>;
-    <A extends Attributes3>(values:AttributeFields<GeometryPointRow<P>,A>,where?:Where3<GeometryPointRow<P>>):PointGeometry<PointFields3<P,NoInfer<A>>>;
-  };
-}>;
-/** A point row of curve geometry. */
-export type CurvePointRow<P extends Attributes3={},E extends EdgeAttributes={}> = PointRow<P>&{readonly [ROW_TYPES]?:CurvePointTypes<P,E>};
-/** @internal What a selection of curve geometry's points answers: the
- * write answers the new curve. */
-export type CurvePointTypes<P extends Attributes3,E extends EdgeAttributes> = Types<{
-  source:Surface3;points:Selection<CurvePointRow<P,E>>;extract:()=>PointGeometry<P>;
-  set:{
-    <Name extends string,V extends Attribute3>(column:Name,value:Field<CurvePointRow<P,E>,V>,where?:Where3<CurvePointRow<P,E>>):CurveGeometry<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,E>;
-    <A extends Attributes3>(values:AttributeFields<CurvePointRow<P,E>,A>,where?:Where3<CurvePointRow<P,E>>):CurveGeometry<PointFields3<P,NoInfer<A>>,E>;
-  };
-}>;
-/** An edge row of curve geometry. */
-export type CurveEdgeRow<E extends EdgeAttributes={},P extends Attributes3={}> = EdgeRow<E,P>&{readonly [ROW_TYPES]?:CurveEdgeTypes<P,E>};
-/** @internal What a selection of curve geometry's edges answers. */
-export type CurveEdgeTypes<P extends Attributes3,E extends EdgeAttributes> = Types<{
-  source:Surface3;edges:Selection<CurveEdgeRow<E,P>>;extract:()=>CurveGeometry<P,E>;
-  set:{
-    <Name extends string,V extends Attribute3>(column:Name,value:Field<CurveEdgeRow<E,P>,V>,where?:Where3<CurveEdgeRow<E,P>>):CurveGeometry<P,Omit<E,NoInfer<Name>>&Record<NoInfer<Name>,Widen3<NoInfer<V>>>>;
-    <A extends Attributes3>(values:AttributeFields<CurveEdgeRow<E,P>,A>,where?:Where3<CurveEdgeRow<E,P>>):CurveGeometry<P,Omit<E,keyof NoInfer<A>>&Widened3<NoInfer<A>>>;
-  };
-}>;
-
-/** Point geometry has a point domain; it never claims editable mesh faces. */
-export class PointGeometry<P extends Attributes3={}> {
-  readonly surface:Surface3;readonly key?:string;
-  /** The object's own pivot, carried along by `translate`. */
-  readonly origin:Vec3;readonly orientation:Rotation;
-  /** @internal The inputs of the derivation that made it (source.ts). */
-  declare readonly [SOURCES]?:SourceRecord;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&Sourced&{history?:readonly unknown[]}={}){
-    checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
-    recordSources(this,this.surface,options[SOURCES]);recordHistory(this,options.history);Object.freeze(this);
-  }
-  /** The states a `t.steps` run with `{ every }` kept, the start first and
-   * this one last; empty on every other value. */
-  get history():readonly PointGeometry<P>[]{return (histories.get(this)??NO_HISTORY) as readonly PointGeometry<P>[];}
-  /** @internal This geometry with the states `t.steps` kept. */
-  withHistory(history:readonly unknown[]):PointGeometry<P>{return new PointGeometry<P>(this.surface,{...this,history});}
-  /** The points, and their one write (see `GeometryPointTypes`). */
-  get points():Selection<GeometryPointRow<P>>{
-    return select3(domainOf(this,'points',()=>new Table3(POINTS3,this.surface,'point',pointRows<P>(this.surface),{
-      extract:indices=>new PointGeometry<P>(pointsOnly(this.surface,indices)),
-      write:write=>write.rows.length?new PointGeometry<P>(writePoints3(this.surface,write),{...this}):this,
-    }))) as unknown as Selection<GeometryPointRow<P>>;
-  }
-  displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):PointGeometry<P>{return new PointGeometry(displaced(this.surface,field,undefined,options),{...this});}
-  translate(offset:Vec3):PointGeometry<P>{finite3(offset);return new PointGeometry(transformed(this.surface,{translate:offset}),{...this,origin:add3(this.origin,offset)});}
-  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):PointGeometry<P>;
-  rotate(axis:Axis3,degrees:number,options?:RotateOptions):PointGeometry<P>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(r.empty?collapsedPoints(this.surface,r.scale,r.origin):transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,origin:r.moved});}
-  withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{...this,key,history:this.history});}
-}
-
-/** Owned polyline/edge-graph data with point and edge domains, never faces. */
-export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}> {
-  readonly surface:Surface3;readonly key?:string;
-  readonly origin:Vec3;readonly orientation:Rotation;
-  readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>}[];
-  /** @internal The inputs of the derivation that made it (source.ts). */
-  declare readonly [SOURCES]?:SourceRecord;
-  constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&PlacementOptions&Sourced&{history?:readonly unknown[]}={}) {
-    checkOptions(options);validateAttributes(surface);
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
-    if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
-    const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
-    const mapping=new Map(used.map((v,i)=>[v,i]));
-    const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
-    this.surface=captureSurface3(source);this.key=checkedKey(options.key);
-    this.segments=this.surface.edges as unknown as typeof this.segments;recordSources(this,this.surface,options[SOURCES]);recordHistory(this,options.history);Object.freeze(this);
-  }
-  /** The states a `t.steps` run with `{ every }` kept, the start first and
-   * this one last; empty on every other value. */
-  get history():readonly CurveGeometry<P,E>[]{return (histories.get(this)??NO_HISTORY) as readonly CurveGeometry<P,E>[];}
-  /** @internal This curve with the states `t.steps` kept. */
-  withHistory(history:readonly unknown[]):CurveGeometry<P,E>{return this.changed(this.surface,{history});}
-  /** The points, and their one write, as point geometry's (`x`, `y`, `z` are the position). */
-  get points():Selection<CurvePointRow<P,E>>{
-    return select3(domainOf(this,'points',()=>new Table3(POINTS3,this.surface,'point',pointRows<P>(this.surface),{
-      extract:ids=>new PointGeometry<P>(pointsOnly(this.surface,ids)),
-      write:write=>write.rows.length?this.changed(writePoints3(this.surface,write)):this,
-    }))) as unknown as Selection<CurvePointRow<P,E>>;
-  }
-  /** The whole length, every edge once, in world units — a 2D chain's word. */
-  get length():number{return curveLength(this.surface);}
-  /** Points along the curve by arc length, `{ count }` or `{ spacing }`, as
-   * a 2D material's `along` answers them: point geometry whose points have
-   * the columns `s` (arc length from the start), `u` (its fraction of the
-   * length) and `tangent` (the unit direction there), the curve's point
-   * columns carried by the nearer end or interpolated when numeric, and
-   * `source`, the edge under each point. One unbranched curve; a branched
-   * one is refused by name. */
-  along(opts:{readonly count?:number;readonly spacing?:number}):PointGeometry<P&{s:number;u:number;tangent:number[]}>{return new PointGeometry(alongSurface(this,opts),{[SOURCES]:derived('along',this)});}
-  /** The same path with its points redistributed by arc length, `{ count }`
-   * or `{ spacing }`, as a 2D material's `resample`. Each point's `source`
-   * is the edge of this curve under it. */
-  resample(opts:{readonly count?:number;readonly spacing?:number}):CurveGeometry<P,{}>{const surface=resampledSurface(this,opts);return new CurveGeometry<P,{}>(surface,surface.edges.map((_,i)=>i),{key:this.key,[SOURCES]:derived('resample',this)});}
-  /** The edges, and their one write: `edges.set(column, value, where?)`
-   * or the record form answers the new curve. */
-  get edges():Selection<CurveEdgeRow<E,P>>{
-    return select3(domainOf(this,'edges',()=>{
-      const points=pointRows<P>(this.surface);
-      const rows=Object.freeze(this.surface.edges.map((e,index)=>Object.freeze(withSource({...e.attributes,id:e.id,index,vertices:e.vertices,a:points[e.vertices[0]],b:points[e.vertices[1]],length:Math.hypot(...sub3(this.surface.points[e.vertices[0]].position,this.surface.points[e.vertices[1]].position)),attributes:e.attributes},this.surface,e))));
-      return new Table3(EDGES3,this.surface,'edge',rows,{
-        extract:indices=>new CurveGeometry<P,E>(this.surface,indices),
-        write:write=>{noTransfer(write,'a curve\'s edge');return write.rows.length?this.changed(writtenSurface(this.surface,'edge',write)):this;},
-      });
-    })) as unknown as Selection<CurveEdgeRow<E,P>>;
-  }
-  private changed(surface:Surface3,placed:PlacementOptions&{history?:readonly unknown[]}={}):CurveGeometry<P,E>{return new CurveGeometry(surface,surface.edges.map((_,i)=>i),{...this,...placed});}
-  displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveGeometry<P,E>{return this.changed(displaced(this.surface,field,undefined,options));}
-  translate(offset:Vec3):CurveGeometry<P,E>{finite3(offset);return this.changed(transformed(this.surface,{translate:offset}),{origin:add3(this.origin,offset)});}
-  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveGeometry<P,E>;
-  rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveGeometry<P,E>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
-  /** Every point through a hyperbolic placement (`observer`, a honeycomb's
-   * `placements`), every id and column kept. A two-point wire stays exact,
-   * because a Klein chord stays a chord. */
-  transform(placement:Isometry<Vec3>):CurveGeometry<P,E>{return this.changed(placedSurface(this.surface,placement),{origin:placement.point(this.origin)});}
-  withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key,history:this.history});}
-}
-
-/** One common immutable polygon-mesh contract, regardless of its factory. */
-export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
-  readonly surface:Surface3;readonly key?:string;
-  readonly transfers:PointTransfers;readonly cornerTransfers:PointTransfers;
-  /** The object's own pivot, carried along by `translate`; rotations and
-   * scales turn about it unless told otherwise. */
-  readonly origin:Vec3;readonly orientation:Rotation;
-  /** @internal The inputs of the derivation that made it (source.ts). */
-  declare readonly [SOURCES]?:SourceRecord;
-  constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&RadialProvenance&Sourced&{history?:readonly unknown[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
-    checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
-    this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});recordRadial(this,options.radialCentre);recordSources(this,this.surface,options[SOURCES]);recordHistory(this,options.history);Object.freeze(this);
-  }
-  /** The states a `t.steps` run with `{ every }` kept, the start first and
-   * this one last; empty on every other mesh. */
-  get history():readonly Mesh<P,E,F,C>[]{return (histories.get(this)??NO_HISTORY) as readonly Mesh<P,E,F,C>[];}
-  /** @internal This mesh with the states `t.steps` kept. */
-  withHistory(history:readonly unknown[]):Mesh<P,E,F,C>{return new Mesh<P,E,F,C>(this.surface,{...this,history,radialCentre:this.radialCentre});}
-  get points():Selection<MeshPointRow<P,E,F,C>>{return meshPoints(this);}
-  get edges():Selection<MeshEdgeRow<E,P,F,C>>{return meshEdges(this);}
-  get corners():Selection<MeshCornerRow<C,P,E,F>>{return meshCorners(this);}
-  get faces():Selection<MeshFaceRow<F,P,E,C>>{return meshFaces(this);}
-  /** The centre this mesh's geometry was generated radially about, when a
-   * generator minted one and every edit since kept a star-shaped solid star
-   * shaped: `geodesic`, `sphere` and their `dual`s mint it; `translate`,
-   * `rotate` and `scale` move it with the points; `displace`, a `set` on its rows and
-   * `withKey` keep it; everything else drops it. Nothing trusts it — the
-   * certificates that read it prove radiality from the triangles. */
-  get radialCentre():Vec3|undefined{return radialCentres.get(this);}
-  /** Replace an attribute by the mean of itself and its neighbours, `steps`
-   * times: points over edges, faces over shared edges, corners over the
-   * corners of their point and face. Numbers and numeric vectors only. Each
-   * time is one `set`, so every row reads its neighbours as they were. */
-  smooth(name:string,options:{readonly steps?:number}={}):Mesh<P,E,F,C>{
-    const steps=options.steps??1;if(!Number.isSafeInteger(steps)||steps<0)throw new Error('smooth steps must be a nonnegative integer');
-    const domain=Object.hasOwn(this.surface.points[0]?.attributes??{},name)?'point':Object.hasOwn(this.surface.faces[0]?.attributes??{},name)?'face':Object.hasOwn(this.surface.faces[0]?.corners?.[0]?.attributes??{},name)?'corner':undefined;
-    if(!domain)throw new Error(`no point, face or corner attribute '${name}' to smooth`);
-    const mean=(values:readonly (Attribute3|undefined)[]):Attribute3=>{if(values.every(v=>typeof v==='number'))return (values as number[]).reduce((a,b)=>a+b,0)/values.length;if(values.every(v=>Array.isArray(v)&&v.length===(values[0] as number[]).length))return (values[0] as number[]).map((_,k)=>values.reduce<number>((a,v)=>a+(v as number[])[k],0)/values.length);throw new Error(`smooth needs numeric values in '${name}'`);};
-    let current:Mesh<P,E,F,C>=this;
-    for(let i=0;i<steps;i++){
-      if(domain==='point')current=current.points.set(name,p=>mean([p.attributes[name],...p.adjacent.map(q=>q.attributes[name])])) as unknown as Mesh<P,E,F,C>;
-      else if(domain==='face')current=current.faces.set(name,f=>mean([f.attributes[name],...f.adjacent.map(g=>g.attributes[name])])) as unknown as Mesh<P,E,F,C>;
-      else current=current.corners.set(name,c=>mean([c.attributes[name],...c.point.corners.map(d=>d.attributes[name]),...c.face.corners.map(d=>d.attributes[name])])) as unknown as Mesh<P,E,F,C>;
-    }
-    return current;
-  }
-  /** Connected-region extrusion: one vector per connected component of the
-   * selection, a translated cap with retained IDs/corners, and one wall per
-   * region boundary edge (holes and open sheet edges included). Faces that
-   * touch no other selected face are each their own region, so a scattered
-   * selection extrudes face by face. */
-  extrude(faces:Selection<MeshFaceRow<F,P,E,C>>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
-    checkOptions(options);
-    if(!isSelection3(faces,'face'))throw new Error('extrude requires a face selection; select from mesh.faces');
-    // A selection from an earlier revision is read on this one by id; faces
-    // that are gone are skipped.
-    if(faces.source!==this.surface)faces=selectionIn(faces,this);
-    if(typeof offset==='number')offset={distance:offset};
-    if(offset===undefined||offset===null||typeof offset!=='function'&&!Array.isArray(offset)&&(typeof offset!=='object'||!('distance'in offset)))throw new Error('extrude offset must be a distance, a vector, a region callback or { distance }');
-    const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');
-    const components=faces.components().map((component,index)=>{
-      const measure=regionDirection3(this.surface,component.indices);
-      const region:ExtrudeRegion<P,E,F,C>=Object.freeze(Object.defineProperty({index,faces:component,normal:measure.normal&&Object.freeze(measure.normal) as Vec3,centroid:Object.freeze(measure.center) as Vec3,area:measure.area},'center',{get:regionCenterRefused,enumerable:false}));
-      let vector:Vec3;
-      if(Array.isArray(offset))vector=offset as Vec3;
-      else if(typeof offset==='function')vector=offset(region);
-      else {
-        // A region whose faces cancel has no direction to follow, and a
-        // distance the field could not answer is no distance: that region
-        // stays where it is and the others still extrude.
-        const distance=sampleValue(evaluate(offset.distance,region),0);
-        vector=region.normal?[region.normal[0]*distance,region.normal[1]*distance,region.normal[2]*distance]:[0,0,0];
-      }
-      if(!Array.isArray(vector)||vector.length!==3)throw new Error(`extrude offset must produce a 3-vector for region ${index}`);
-      finite3(vector);
-      return {index,faces:component.indices,vector:[vector[0],vector[1],vector[2]] as Vec3};
-    });
-    return new Mesh<P,E,F,C>(extrudeRegion3(this.surface,components,key),{...this,[SOURCES]:derived('extrude',this)});
-  }
-  subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F,C>{return new Mesh<P,Partial<E>,F,C>(subdivideSurface(this.surface,levels,options,this.transfers,this.cornerTransfers),{...this,[SOURCES]:derived('subdivide',this)});}
-  /** Everything in either solid. Both meshes must be closed; an open shell
-   * refuses by name. The seam is exact: every triangle the other solid crosses
-   * is cut along the true intersection curve, and the faces along it answer
-   * `cut`. An uncut face of this mesh keeps its identity and its columns; a
-   * face of the other mesh keeps its columns under a minted id. */
-  union(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('union',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{},[SOURCES]:derived('union',this,other)});}
-  /** This solid with the other bitten out of it. The other mesh's kept faces
-   * are turned inside out, so the bite's wall faces into the hollow. */
-  subtract(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('subtract',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{},[SOURCES]:derived('subtract',this,other)});}
-  /** Only what lies in both solids. Two solids that never meet have nothing in
-   * common, which is an empty mesh: nothing to draw, not a fault. */
-  intersect(other:Mesh<any,any,any,any>):Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>{return new Mesh<P,{},Omit<F,'cut'>&{cut:boolean},{}>(ownSurface3(booleanSurface3('intersect',this.surface,(other as Mesh).surface)),{...this,transfers:{},cornerTransfers:{},[SOURCES]:derived('intersect',this,other)});}
-  /** The dual: one point per face, at its middle, and one face per vertex,
-   * walking the faces around it. A cube duals to an octahedron, a geodesic
-   * polyhedron to its Goldberg — `geodesic(1, { frequency: [3, 1] }).dual({
-   * project: 1 })` is twelve pentagons and the rest hexagons on the sphere.
-   * `project` pushes every dual point out to that radius from the origin.
-   *
-   * Numeric face columns become point columns and point columns become face
-   * columns, keyed `dual:<id>` either way. A vertex on a boundary has no ring
-   * of faces to walk and gets no face, so an open mesh loses its rim; a mesh
-   * with no faces duals to nothing. A projected dual face is not exactly
-   * planar, and is drawn as the triangles its own average plane gives. */
-  dual(options:DualOptions={}):Mesh<F,{},P,{}>{
-    if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
-    // The dual of a shell star-shaped about a point is star-shaped about it.
-    return new Mesh<F,{},P,{}>(ownSurface3(dualSurface3(this.surface,options)),{...this,transfers:{},cornerTransfers:{},radialCentre:this.radialCentre,[SOURCES]:derived('dual',this)});
-  }
-  /** Move every point by a vector, or by a scalar along its vertex normal (`along` chooses another direction). */
-  displace(field:Field<MeshPointRow<P,E,F,C>,Vec3|number>,options:DisplaceOptions={}):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points],options),{...this,radialCentre:this.radialCentre});}
-  translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformed(this.surface,{translate:offset}),{...this,origin:add3(this.origin,offset),radialCentre:movedCentre(this.radialCentre,{translate:offset})});}
-  /** Turn about the object's origin: Euler degrees or a rotation value
-   * (optionally with an explicit pivot), or an axis and degrees with
-   * `{ about, local }`. */
-  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):Mesh<P,E,F,C>;
-  rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,orientation:r.orientation,origin:r.moved,radialCentre:movedCentre(this.radialCentre,{rotate:r.rotate,origin:r.origin})});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,origin:r.moved,radialCentre:r.empty?undefined:movedCentre(this.radialCentre,{scale:r.scale,origin:r.origin})});}
-  /** Every point through a hyperbolic placement (`observer`, a honeycomb's
-   * `placements`), every id and column kept. Flat faces stay flat, because a
-   * Lorentz isometry moves the Klein ball projectively; a placement that
-   * turns space over rewinds every face so a solid stays wound outward. */
-  transform(placement:Isometry<Vec3>):Mesh<P,E,F,C>{return new Mesh(placedSurface(this.surface,placement),{...this,origin:placement.point(this.origin)});}
-  withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key,radialCentre:this.radialCentre,history:this.history});}
+/** @internal The edges `indices` of a surface, with the points they join,
+ * as a curve in space: no faces. */
+export function curveGeometry3(surface:Surface3,indices:readonly number[],options:Geometry3Options={}):Material {
+  if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
+  const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
+  const mapping=new Map(used.map((v,i)=>[v,i]));
+  const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
+  return geometry3(source,options);
 }
 
 function validateImportedSurface(surface:Surface3):void {
@@ -587,22 +117,27 @@ function validateImportedSurface(surface:Surface3):void {
     if([...edges.values()].some(n=>n!==0))throw new Error('mesh import triangulation does not match its polygon boundary');
   });
 }
-export function mesh(source:Surface3,options?:GeometryOptions):Mesh<Attributes3,Attributes3,Attributes3,Attributes3>;
-export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options?:GeometryOptions):Mesh;
-export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Mesh<any,any,any,any>{
+/** A geometry with faces from positions and polygon index lists, or from a
+ * `Surface3` of the explicit stage (its ids, columns and fixed triangles
+ * kept). */
+export function mesh(source:Surface3,options?:GeometryOptions):Material;
+export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options?:GeometryOptions):Material;
+export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Material{
   if(Array.isArray(source)){
     if(!Array.isArray(facesOrOptions))throw new Error('mesh positions require polygon index arrays');
-    return new Mesh(ownSurface3(surface3(source,facesOrOptions)),options);
+    return geometry3(ownSurface3(surface3(source,facesOrOptions)),options);
   }
   validateImportedSurface(source as Surface3);
-  return new Mesh(source as Surface3,facesOrOptions as GeometryOptions);
+  // An advanced input may be written after this: its rows are read now.
+  const s=source as Surface3;
+  return geometry3(assembleSurface3(s.points,s.faces,s.triangles,s),facesOrOptions as GeometryOptions);
 }
 /** One quad with a stored unit-square XY chart. Subdivision preserves this chart. */
-export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV>{
+export function plane(width=1,height=width,options:GeometryOptions={}):Material{
   if(emptySize(width,height))return emptyMesh(options);
   const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return new Mesh(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
+  return geometry3(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
 }
 export interface ParametricOptions extends GeometryOptions {
   /** Samples across u and down v. A closed direction needs at least three. */
@@ -624,8 +159,8 @@ export interface ParametricOptions extends GeometryOptions {
  * normal is ∂p/∂u × ∂p/∂v. A formula whose cross product points out of the
  * solid draws as an outward surface; swap u and v to turn it inside out.
  *
- * Too few samples, or a point the formula could not answer, is an empty mesh. */
-export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Mesh<{},{},SurfaceChart,SurfaceUV>{
+ * Too few samples, or a point the formula could not answer, is an empty value. */
+export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOptions):Material{
   checkOptions(options);
   if(typeof point!=='function')throw new Error('parametric requires a point formula (u, v) => [x, y, z]');
   for(const [name,value] of [['closeU',options.closeU],['closeV',options.closeV]] as const)if(value!==undefined&&typeof value!=='boolean')throw new Error(`parametric ${name} must be boolean`);
@@ -676,29 +211,33 @@ export function parametric(point:(u:number,v:number)=>Vec3,options:ParametricOpt
     faces.push(kept);charts.push(uv);
   }
   if(!faces.length)return emptyMesh(options);
-  return new Mesh(ownSurface3(chartSurface3(surface3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'}))),options);
+  return geometry3(ownSurface3(chartSurface3(surface3(positions,faces),(f,c)=>({uv:charts[f][c],chart:'parametric'}))),options);
 }
 /** Each outward-wound face has its own unit-square chart; vertices stay shared. */
-export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},SurfaceChart,SurfaceUV>{
+export function box(size:number|Vec3=1,options:GeometryOptions={}):Material{
   const source=box3(typeof size==='number'?[size,size,size]:size),uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return new Mesh(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
+  return geometry3(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
 }
 /** Nothing to draw, as a value. A degenerate construction returns one of these
  * rather than failing, and it flows through view, hatch, sampling and the plan
  * like any other geometry. */
-export function emptyMesh(options:GeometryOptions={}):Mesh<any,any,any,any>{return new Mesh(ownSurface3(surface3([],[])),options);}
-export function emptyCurve(options:GeometryOptions={}):CurveGeometry<any,any>{return new CurveGeometry(surface3([],[]),[],options);}
+export function emptyMesh(options:GeometryOptions={}):Material{return geometry3(ownSurface3(surface3([],[])),options);}
+export const emptyCurve=emptyMesh;
 /** Points from positions, or 2D points (a point collection or selection, a
- * material, `[x, y]` pairs) at z = 0 with their ids and columns kept. */
-export function pointCloud(positions:readonly Vec3[],options?:GeometryOptions):PointGeometry;
-export function pointCloud(points:Iterable<{readonly x:number;readonly y:number}>|{readonly points:Iterable<{readonly x:number;readonly y:number}>}|readonly (readonly [number,number])[],options?:GeometryOptions):PointGeometry<Attributes3>;
-export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly points:unknown},options:GeometryOptions={}):PointGeometry<any>{
+ * material, `[x, y]` pairs) at z = 0 with their columns kept; each lifted
+ * point's `source` is the 2D row it stands for. */
+export function pointCloud(positions:readonly Vec3[]|Iterable<unknown>|{readonly points:unknown},options:GeometryOptions={}):Material{
   const lifted=points2(positions,'pointCloud');
   if(lifted){
     const base=surface3(lifted.map(p=>[p.x,p.y,0] as Vec3),[]);
-    // Each lifted point's source is the 2D row it stands for.
-    return new PointGeometry(ownSurface3({...base,points:base.points.map((p,i)=>({...p,id:lifted[i].id,attributes:Object.freeze({...lifted[i].attributes})}))}),{...options,...(Array.isArray(positions)?{}:{[SOURCES]:derived('lift',positions as object)})});
+    return geometry3(ownSurface3({...base,points:base.points.map((p,i)=>({...p,id:lifted[i].id,attributes:Object.freeze({...lifted[i].attributes})}))}),{...options,...(Array.isArray(positions)?{}:{derived:derived('lift',positions as object)})});
   }
   if(!Array.isArray(positions))throw new Error('pointCloud takes [x, y, z] positions or 2D points');
-  return new PointGeometry(ownSurface3(surface3(positions as readonly Vec3[],[])),options);
+  return geometry3(ownSurface3(surface3(positions as readonly Vec3[],[])),options);
 }
+/** Does a value hold faces? */
+export const hasFaces=(m:Material):boolean=>surfaceOf(m).faces.length>0;
+/** Is `v` the one geometry? */
+export const isGeometry=(v:unknown):v is Material=>typeof v==='object'&&v!==null&&'store' in v&&'stated' in (v as object);
+export {surfaceOf};
+export type {Attributes3};

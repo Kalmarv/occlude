@@ -1,9 +1,9 @@
 import type {L} from '../../units.js';
 import type {FillSpec} from '../../fills.js';
 import type {Attributes3} from '../geometry/surface.js';
-import type {Field,FaceRow} from './mesh.js';
-import type {MeshFaceRow} from './topology.js';
+import type {Field} from './mesh.js';
 import {Selection} from '../../selection.js';
+import type {Face} from '../../faces.js';
 
 /** The 2D words for a pen, said once for every 3D option record: a record
  * that names a pen names it `pen`. `stroke` is the 2D outline switch; in
@@ -28,7 +28,7 @@ export function refuseDisplay(options:unknown,who:string):void {
 }
 /** The face row a hatch recipe reads: the mesh's own row, so a selection's
  * `has(f)` answers for it. */
-export type HatchRow<F extends Attributes3>=MeshFaceRow<F,any,any,any>&FaceRow<F>;
+export type HatchRow<F extends Attributes3>=Face&Face;
 /** One view hatch recipe: parallel lines on the faces it selects. Per-face
  * fields read the mesh's own face row. */
 export interface ViewHatch<F extends Attributes3=Attributes3> {
@@ -50,7 +50,7 @@ export type ViewHatchInput<F extends Attributes3=Attributes3>=ViewHatch<F>|FillS
 export interface HatchRecipe {
   readonly key:string;
   readonly spacing:Field<any,L>;readonly angle:Field<any,number>;readonly offset?:Field<any,L>;
-  readonly pen?:Field<any,string>;readonly select?:(face:MeshFaceRow<any,any,any,any>)=>boolean;
+  readonly pen?:Field<any,string>;readonly select?:(face:Face)=>boolean;
 }
 
 const isFillSpec=(value:unknown):value is FillSpec=>!!value&&typeof value==='object'&&typeof (value as {type?:unknown}).type==='string'&&['use','asset','custom','mask'].includes((value as {type:string}).type);

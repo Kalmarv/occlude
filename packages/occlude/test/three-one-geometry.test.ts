@@ -20,9 +20,9 @@ describe('source',()=>{
     const flat=plane(2,2),fine=flat.subdivide(1);
     for(const f of fine.faces)expect(f.source).toBe(flat.faces.at(0));
     const kept=fine.points.filter(p=>flat.points.some(q=>q.x===p.x&&q.y===p.y));
-    for(const p of kept)expect(flat.points.has(p.source)).toBe(true);
+    for(const p of kept)expect(flat.points.has(p.source as never)).toBe(true);
     const middle=fine.points.find(p=>p.x===0&&p.y===0)!;
-    expect([...middle.source].sort((a:any,b:any)=>a.index-b.index)).toEqual([...flat.points]);
+    expect([...middle.source as Iterable<unknown>].sort((a:any,b:any)=>a.index-b.index)).toEqual([...flat.points]);
     // A write or a move of the result keeps it.
     const moved=fine.points.set('h',1).displace([0,0,1]);
     expect(moved.faces.at(0)!.source).toBe(flat.faces.at(0));
@@ -35,7 +35,7 @@ describe('source',()=>{
     expect(walls.length).toBe(4);
     expect(raised.faces.filter(f=>f.source===sheet.faces.at(0)).length).toBe(1);
     const cube=box(1),d=cube.dual();
-    for(const p of d.points)expect(cube.faces.has(p.source)).toBe(true);
+    for(const p of d.points)expect(cube.faces.has(p.source as never)).toBe(true);
     for(const f of d.faces)expect(cube.points.has(f.source)).toBe(true);
   });
   it('booleans: a face its face in either input',()=>{
@@ -44,13 +44,13 @@ describe('source',()=>{
   });
   it('a scatter on a surface: each point the face under it',()=>{
     const ball=sphere(1,{segments:8,rings:4}),dots=scatterSurface(ball,{count:12},{rnd:rnd(3)});
-    for(const p of dots.points){expect(ball.faces.has(p.source)).toBe(true);expect(p.source).toBe(ball.faces.at(p.sample.face.index));}
+    for(const p of dots.points){expect(ball.faces.has(p.source as never)).toBe(true);expect(p.source).toBe(ball.faces.at(p.sample.face.index));}
   });
   it('a lifted 2D chain: each point the 2D point it came from',()=>{
     const ring=chain([[0,0],[1,0],[1,1]]),lifted=curve(ring);
     expect([...lifted.points].map(p=>p.source)).toEqual([...ring.points]);
     const tube=sweep(ring,parametricCurve(u=>[0,0,u],{segments:2}));
-    const [across,alongPath]=tube.points.at(0)!.source;
+    const [across,alongPath]=tube.points.at(0)!.source as readonly any[];
     expect(ring.points.has(across)).toBe(true);expect(alongPath.z).toBe(0);
   });
 });

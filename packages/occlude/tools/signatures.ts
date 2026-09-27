@@ -34,8 +34,7 @@ const entryHost = join(pkg, 'src/host.ts');
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
   Material: 'm', Tiling: 'tiles', Face: 'face', Edge: 'edge', Vertex: 'p',
-  Selection: 'sel', Curve: 'c', Placement: 'placement', Lattice: 'l', Toolkit: 't', '3d.Mesh': 'mesh',
-  '3d.CurveGeometry': 'curve', '3d.Honeycomb': 'h',
+  Selection: 'sel', Curve: 'c', Placement: 'placement', Lattice: 'l', Toolkit: 't', '3d.Honeycomb': 'h',
   connect: 'connect', force: 'force', ease: 'ease', sdf: 'sdf', '3d.sdf3': 'sdf3',
   ImageSampler: 'img',
 };
@@ -51,7 +50,7 @@ const PAGE: Record<string, string> = {
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Geometry: 'material', L: 'shapes', Toolkit: 'sketch',
   Placement: 'geometry', ModelDoor: 'geometry', Space: 'geometry', Tiling: 'geometry', TransformOp: 'transforms',
   Honeycomb: 'geometry', HoneycombFace: 'geometry', HoneycombPoint: 'geometry',
-  ViewObjectOptions: '3d/view', ViewOptions: '3d/view', Mesh: '3d/primitives', MeshPointRow: '3d/edits', MeshEdgeRow: '3d/edits', MeshFaceRow: '3d/edits', MeshCornerRow: '3d/edits', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
+  ViewObjectOptions: '3d/view', ViewOptions: '3d/view', Vec3: '3d/primitives', DistanceField3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
   ImageSampler: 'images', PaletteEntry: 'images', ImageRegion: 'images', RegionOpts: 'images', ImageChannel: 'images',
 };
 
@@ -116,7 +115,13 @@ function add(key: string, line: string): void {
 function callable(type: ts.Type, prefix: string, key: string, decl?: ts.Node): boolean {
   const sigs = type.getCallSignatures();
   if (sigs.length === 0) return false;
-  for (const sig of sigs) add(key, `${prefix}${checker.signatureToString(sig, decl, FLAGS, ts.SignatureKind.Call)}`);
+  const lines = sigs.map((sig) => `${prefix}${checker.signatureToString(sig, decl, FLAGS, ts.SignatureKind.Call)}`);
+  // A word the core declares loosely (`unknown`, `object`) and the 3D layer
+  // types by declaration merging reads as its typed forms only.
+  const loose = (line: string): boolean => /: (unknown|object)[,)]/.test(line);
+  const names = (line: string): string => (line.slice(prefix.length).match(/(?:^\(|, )(\w+)\??:/g) ?? []).join('');
+  const kept = lines.filter((line) => !loose(line) || !lines.some((other) => other !== line && !loose(other) && names(other) === names(line)));
+  for (const line of kept) add(key, line);
   return true;
 }
 function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
@@ -153,7 +158,7 @@ const NAMESPACES = ['connect', 'force', 'ease', 'sdf'];
  * object type on one line. */
 const SUBNAMESPACES: string[] = [];
 /** The 3D values whose members a page documents, keyed `3d.<Owner>.<word>`. */
-const OWNERS3 = ['Mesh', 'CurveGeometry', 'Honeycomb'];
+const OWNERS3 = ['Honeycomb'];
 /**
  * The one selection (selection.ts). Its shared words are written once,
  * spelled over `Row`, as `sel.<word>`. The words a kind brings — the writes,
@@ -200,15 +205,6 @@ function kindWord(kt: ts.Type, name: string, recv: string, keys: string[], decl?
     if (!text.includes('RowTypes<')) add(key, `${recv}.${name}: ${text}`);
   }
 }
-/** The mesh kinds, keyed `3d.points.set`, `3d.faces.boundaryEdges`, … and
- * spelled `mesh.points.set(…)`. */
-function meshSelectionWords(mesh: ts.Type): void {
-  for (const domain of ['points', 'edges', 'faces', 'corners']) {
-    const kt = propertyType(mesh, domain);
-    if (!kt) continue;
-    for (const name of KIND_WORDS) if (name !== 'source') kindWord(kt, name, `mesh.${domain}`, [`3d.${domain}.${name}`]);
-  }
-}
 function selectionWords(sym: ts.Symbol): void {
   const t = checker.getDeclaredTypeOfSymbol(sym);
   const material = exportedType(moduleSymbol!, 'Material');
@@ -253,7 +249,6 @@ if (mod3) {
     if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, `3d.${name}`, decl);
-    if (name === 'Mesh') meshSelectionWords(checker.getDeclaredTypeOfSymbol(sym));
     if (OWNERS3.includes(name)) {
       const t = checker.getDeclaredTypeOfSymbol(sym);
       for (const m of checker.getPropertiesOfType(t)) member(`3d.${name}`, m, t);

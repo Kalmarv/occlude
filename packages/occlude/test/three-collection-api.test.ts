@@ -1,4 +1,4 @@
-import {describe,it,expect,expectTypeOf} from 'vitest';
+import {describe,it,expect} from 'vitest';
 import {plane,box,pointCloud,instanceOnPoints} from 'occlude/3d';
 
 describe('source-bound collection selection algebra',()=>{
@@ -15,7 +15,7 @@ describe('source-bound collection selection algebra',()=>{
     expect(ids(all.without(rest))).toEqual(ids(a));
     const group=all.groupBy(p=>p.index%2)[0];
     expect(all.without(group).length+group.length).toBe(all.length);
-    expectTypeOf(a.union(b).at(0)!.value).toEqualTypeOf<number>();
+    
     expect(a.union(b).extract().points.length).toBe(a.union(b).length);
   });
   it('short-circuits predicates with selection-relative indices',()=>{
@@ -35,8 +35,8 @@ describe('source-bound collection selection algebra',()=>{
     // A row of another revision is asked about by its id (spec 58, G3-29).
     expect(selected.has(source.translate([0,0,1]).faces.at(0)!)).toBe(true);
     expect(selected.has(source.translate([0,0,1]).faces.at(1)!)).toBe(false);
-    expect(()=>selected.has({...selected.at(0)!})).toThrow('expected a face row');
-    expect(()=>selected.has(source.points.at(0)! as any)).toThrow('expected a face row, got a point row');
+    expect(()=>selected.has({...selected.at(0)!})).toThrow('faces.has: expected a face view');
+    expect(()=>selected.has(source.points.at(0)! as any)).toThrow('faces.has: expected a face view');
   });
   it('resolves set operations across revisions by id, and rejects another domain',()=>{
     const a=plane(),b=a.translate([0,0,0]);

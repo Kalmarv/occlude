@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { image } from '../src/imageAsset.js';
 import { areaLoops } from '../src/boundary.js';
-import { alignAxis, box, cone, instanceOnPoints, plane, pointCloud, sphere, type Mesh } from '../src/three/api/index.js';
+import {alignAxis,box,cone,instanceOnPoints,plane,pointCloud,sphere} from '../src/three/api/index.js';
 import { add3, cross3, dot3, mul3, sub3, type Vec3 } from '../src/three/math.js';
 import { captureHatch, hatchSurface, hatchTraceJob } from '../src/three/api/hatch.js';
 import { runGeometryJob3 } from '../src/three/geometry/job.js';
@@ -22,6 +22,7 @@ import {
 } from '../src/index.js';
 import { assetTable, evalPrim, exportPng, exportSvg, initOcclude, render } from '../src/host.js';
 import { rec } from './helpers/xy.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -276,7 +277,7 @@ const stream = (seed = 1) => { let v = seed >>> 0 || 1; return () => { v ^= v <<
 
 describe('G3-40 a location has uv where its face has a chart, as the fields page says', () => {
   it('reads uv and tangentU on a primitive, and neither on a boolean\'s result', () => {
-    const at = (m: { surface: Parameters<typeof surfaceLocation3>[0] }) => surfaceLocation3(m.surface, 0, [1 / 3, 1 / 3, 1 / 3]);
+    const at = (m: Parameters<typeof surfaceOf>[0]) => surfaceLocation3(surfaceOf(m), 0, [1 / 3, 1 / 3, 1 / 3]);
     for (const primitive of [box(2), plane(2), sphere(1)]) {
       const s = at(primitive);
       expect(s.chartStatus).toBe('regular');
@@ -304,10 +305,10 @@ describe('G3-41 a lane that turns back on itself is a lane, not an assert', () =
   });
   it('returns a loop found walking backward as one closed lane, its distances running forward', () => {
     const sheet = plane(4, 4).subdivide(4);
-    const env = traceEnvironment3(sheet.surface, surfaceBinding3(sheet.surface));
+    const env = traceEnvironment3(surfaceOf(sheet), surfaceBinding3(surfaceOf(sheet)));
     // A seed about one unit from the middle, on a field that turns round it.
-    const centre = (t: number) => { const [a, b, c] = sheet.surface.triangles[t].vertices.map((v) => sheet.surface.points[v].position); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
-    const triangle = sheet.surface.triangles.map((_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;
+    const centre = (t: number) => { const [a, b, c] = surfaceOf(sheet).triangles[t].vertices.map((v) => surfaceOf(sheet).points[v].position); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
+    const triangle = surfaceOf(sheet).triangles.map((_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;
     const round = (s: { position: readonly number[] }) => [-s.position[1], s.position[0], 0] as [number, number, number];
     // The forward half is stopped at once; the backward half goes round.
     let calls = 0;
@@ -328,7 +329,7 @@ describe('G3-42 t.hatch reaches every face the direction crosses', () => {
   const solid = () => box(2).subtract(sphere(1.1, { segments: 24, rings: 12 }).translate([1, 1, 1]));
   it('hatches the scoop a boolean cut, whatever the random stream (reference-3d-fields-4)', () => {
     const m = solid();
-    const s = m.surface;
+    const s = surfaceOf(m);
     const onScoop = (tri: number) => {
       const c = s.triangles[tri].vertices.map((v) => s.points[v].position).reduce((a, p) => [a[0] + p[0] / 3, a[1] + p[1] / 3, a[2] + p[2] / 3], [0, 0, 0]);
       return Math.abs(Math.hypot(c[0] - 1, c[1] - 1, c[2] - 1) - 1.1) < 0.08;
@@ -349,19 +350,19 @@ describe('G3-42 t.hatch reaches every face the direction crosses', () => {
 
 describe('G3-35 a cone base that lies on a sphere facet and crosses its edges unites exactly',()=>{
  /** Closed, edge-manifold, consistently wound: every edge has two faces that walk it in opposite directions. */
- const manifold=(m:Mesh<any,any,any,any>,chi:number)=>{
-  const s=m.surface;
+ const manifold=(m:Material,chi:number)=>{
+  const s=surfaceOf(m);
   expect(s.edges.filter(e=>e.faces.length!==2)).toHaveLength(0);
   expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
   const walk=new Map<string,number>();
   for(const f of s.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=`${Math.min(a,b)}:${Math.max(a,b)}`;walk.set(key,(walk.get(key)??0)+(a<b?1:-1));}
   expect([...walk.values()].every(n=>n===0)).toBe(true);
  };
- const volume=(m:Mesh<any,any,any,any>)=>{let total=0;const s=m.surface;for(const t of s.triangles){const [a,b,c]=t.vertices.map(i=>s.points[i].position);total+=dot3(a,cross3(b,c))/6;}return total;};
+ const volume=(m:Material)=>{let total=0;const s=surfaceOf(m);for(const t of s.triangles){const [a,b,c]=t.vertices.map(i=>s.points[i].position);total+=dot3(a,cross3(b,c))/6;}return total;};
  const spike=()=>cone(0.06,0.3,{segments:8}).translate([0,0,0.15]);
 
  it('unites a few cones stood on facets by the facet normal, near each facet edge in turn',()=>{
-  const ball=sphere(1.2,{segments:32,rings:16}),s=ball.surface;
+  const ball=sphere(1.2,{segments:32,rings:16}),s=surfaceOf(ball);
   // Three triangles well apart in the upper hemisphere; each cone sits 0.03
   // from a different edge of its triangle, so its 0.06 base crosses that edge.
   const upper=s.triangles.map((t,i)=>({i,c:t.vertices.map(v=>s.points[v].position)})).filter(({c})=>c.every(p=>p[2]>0.3&&p[2]<1.0));
@@ -383,7 +384,7 @@ describe('G3-35 a cone base that lies on a sphere facet and crosses its edges un
  });
 
  it('unites the instances page recipe: the realized scattered spikes and the ball, either way round',()=>{
-  const out:{united?:Mesh<any,any,any,any>;reversed?:Mesh<any,any,any,any>;ball?:Mesh<any,any,any,any>;spikes?:Mesh<any,any,any,any>}={};
+  const out:{united?:Material;reversed?:Material;ball?:Material;spikes?:Material}={};
   render(sketch({aspect:[1,1],seed:7,pens:{ink:pen({width:mm(0.25),color:'#18202A'})}},(t)=>{
    const ball=sphere(1.2,{segments:32,rings:16});
    const pts=t.scatter(ball,{spacing:0.35,weight:(f)=>(f.normal[2]>0?1:0)});

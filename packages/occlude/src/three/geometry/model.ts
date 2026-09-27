@@ -33,9 +33,14 @@ export function measureFaces3(surface:Surface3):readonly FaceMeasure3[] {
 }
 /** What the explicit stage reads: a surface, or a mesh value from
  * `occlude/3d`, whose surface is read — as a scene object's `surface` is. */
-export type StageSurface3=Surface3|{readonly surface:Surface3};
+export type StageSurface3=Surface3|{readonly surfaceBox:{surface:unknown}};
+/** A geometry's working view, as the 3D layer installs the reader of it
+ * (value.ts): the stage reads a geometry the way a view does. */
+export const STAGE_VIEW:{surfaceOf?:(m:never)=>Surface3}={};
 export function stageSurface3(input:StageSurface3):Surface3 {
-  return Array.isArray((input as Surface3).points)?input as Surface3:(input as {surface:Surface3}).surface;
+  if(Array.isArray((input as Surface3).points))return input as Surface3;
+  if(STAGE_VIEW.surfaceOf===undefined||!('surfaceBox' in input))throw new Error('expected a surface or a geometry with faces');
+  return STAGE_VIEW.surfaceOf(input as never);
 }
 export function cloneSurface3(surface:Surface3):Surface3 {return assembleSurface3(surface.points,surface.faces,surface.triangles,surface);}
 

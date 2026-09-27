@@ -1,11 +1,13 @@
-import {Mesh} from './mesh.js';
+import {isGeometry,surfaceOf} from './mesh.js';
+import {kernelOf} from '../geometry/value.js';
 import type {IsoLevels} from '../../isolines.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
-import type {MeshCornerRow} from './topology.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {isolines3} from '../curves/isolines.js';
 import {snapshotSurface3} from '../geometry/model.js';
 import {surfaceBinding3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3,type SurfaceCurveRecipe3,type SurfaceCurveView3} from '../curves/network.js';
+import type {Material} from '../../material.js';
+import type {Corner} from '../../corners.js';
 
 /** Which levels to trace: the 2D `t.isolines` `at` — one level, a list,
  * `{ count }` levels spread inside the field's range (`min`/`max` pin it),
@@ -19,7 +21,7 @@ export type IsolineAttributes={level:number;levelIndex:number};
 /** The field's row: the corner (uv, chart, `.point`, `.face`) with its point's
  * `x`, `y`, `z` and point attributes merged in, so `p => p.z` and
  * `c => c.uv[1]` both read naturally. */
-export type IsolineRow=MeshCornerRow<any,any,any,any>&{readonly x:number;readonly y:number;readonly z:number};
+export type IsolineRow=Corner&{readonly x:number;readonly y:number;readonly z:number};
 export type IsolineField=string|((row:IsolineRow)=>number);
 /** No levels is no contours. A level list, a flat field, a spacing of zero and
  * a field with no finite values all resolve to nothing to draw; the level
@@ -62,8 +64,8 @@ function checkedLevels(at:unknown):IsoLevels {
   if(('count' in at)===('spacing' in at))throw new Error('isolines: at takes one of { count } or { spacing }');
   return at as IsoLevels;
 }
-export function captureIsolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):CapturedIsolines {
-  if(!(mesh instanceof Mesh))throw new Error('isolines require a mesh');
+export function captureIsolines(mesh:Material,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):CapturedIsolines {
+  if(!isGeometry(mesh))throw new Error('isolines require a geometry with faces');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isolines options must be an object');
   const moved=(levelWords as readonly string[]).find(k=>k in options);
   if(moved)throw new Error(`isolines: '${moved}' is a level, not an option — the levels are the third argument, as in 2D: isolines(mesh, field, ${moved==='levels'?'[0, 0.5]':`{ ${moved}: … }`})`);
@@ -71,17 +73,19 @@ export function captureIsolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at
   const spec=checkedLevels(at);
   const corners=[...mesh.corners];
   const values=Float64Array.from(corners,c=>{
-    const row:IsolineRow=Object.freeze(Object.assign(Object.create(c) as IsolineRow,{...c.point.attributes,x:c.point.x,y:c.point.y,z:c.point.z}));
+    // The point's columns and position over the corner's own words; the
+    // point's `index` is not the corner's.
+    const {index:_index,...point}=c.point as unknown as Record<string,unknown>,row:IsolineRow=Object.freeze(Object.assign(Object.create(c) as IsolineRow,point));
     // A named column that is not numeric is the wrong column and still throws;
     // a value the field could not answer leaves that corner out, so only the
     // triangles touching it are skipped.
-    const v=typeof field==='string'?(c.point.attributes[field]??c.attributes[field]):field(row);
+    const v=typeof field==='string'?(point[field]??(c as unknown as Record<string,unknown>)[field]):field(row);
     if(typeof v!=='number')throw new Error(typeof field==='string'?`isolines require a finite numeric point attribute '${field}'`:'isolines field must return finite numbers');
     return v;
   });
   const levels=resolveLevels(spec,values);
-  const surface=snapshotSurface3(mesh.surface);
-  return {surface,binding:surfaceBinding3(surface),values,levels:Object.freeze([...levels]),key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
+  const surface=snapshotSurface3(surfaceOf(mesh));
+  return {surface,binding:surfaceBinding3(surface),values,levels:Object.freeze([...levels]),key:options.key??kernelOf(mesh).key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
 }
 /** The contours as a description a view resolves once it knows its camera.
  *
@@ -120,7 +124,7 @@ export function isolineRecipe(captured:CapturedIsolines):SurfaceCurveRecipe3 {
  * are interpolated linearly inside each represented triangle; a nonlinear
  * field is approximated by its corner samples, so refine the mesh for
  * accuracy. Reusable supported construction geometry, not a view feature. */
-export function isolines(mesh:Mesh<any,any,any,any>,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):SurfaceCurves<IsolineAttributes> {
+export function isolines(mesh:Material,field:IsolineField,at:IsoLevels,options:IsolineOptions={}):SurfaceCurves<IsolineAttributes> {
   const captured=captureIsolines(mesh,field,at,options);
   return new SurfaceCurves<IsolineAttributes>(isolineRecipe(captured),{key:options.key});
 }

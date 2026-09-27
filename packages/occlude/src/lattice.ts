@@ -763,7 +763,7 @@ const OWNER = Symbol('lattice');
 /** The names a face row owns; a column may not be called one of these. */
 const RESERVED_FACE_FIELDS: readonly string[] = [
   'index', 'i', 'j', 'area', 'perimeter', 'centroid', 'bounds', 'contours', 'adjacent',
-  'source', 'parent', 'children', 'depth', 'leaf', 'laplacian',
+  'source', 'parent', 'children', 'depth', 'leaf', 'laplacian', 'center',
 ];
 
 function checkColumnName(name: string, who: string): void {
@@ -832,6 +832,8 @@ const FACE_PROTO = Object.freeze(Object.create(Object.prototype, {
   },
   adjacent: { get(this: Owned): Selection<LatticeFace> { return this[OWNER].adjacentFaces(this.index); } },
   area: { get(this: Owned): number { const s = this[OWNER].spacing; return s * s; } },
+  // One word for a face's middle, as on every face: `centroid`.
+  center: { get(): never { throw new Error("face.center: a face's middle is its centroid — f.centroid"); } },
   perimeter: { get(this: Owned): number { return 4 * this[OWNER].spacing; } },
   centroid: {
     get(this: Owned): readonly [number, number] {

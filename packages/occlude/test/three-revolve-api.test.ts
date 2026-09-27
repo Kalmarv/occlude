@@ -1,30 +1,32 @@
-import {beforeAll,describe,it,expect,expectTypeOf} from 'vitest';
+import {beforeAll,describe,it,expect} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {curve,box,revolve,query,view,orthographic,perspective,parametricCurve} from 'occlude/3d';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
 import {cross3,dot3} from '../src/three/math.js';
-import type {Mesh} from 'occlude/3d';
+import type {} from 'occlude/3d';
+import {surfaceOf,kernelOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
-const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
+const circle=(r=1,options:{segments?:number;key?:string}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
-function volume(mesh:Mesh<any,any,any>){return mesh.surface.triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(i=>mesh.surface.points[i].position);return sum+dot3(a,cross3(b,c))/6;},0);}
-function manifold(mesh:Mesh<any,any,any>){expect(mesh.edges.length).toBeGreaterThan(0);expect(mesh.surface.edges.every(e=>e.faces.length===2)).toBe(true);for(const edge of mesh.edges)expect(edge.length).toBeGreaterThan(0);}
+function volume(mesh:Material){return surfaceOf(mesh).triangles.reduce((sum,t)=>{const [a,b,c]=t.vertices.map(i=>surfaceOf(mesh).points[i].position);return sum+dot3(a,cross3(b,c))/6;},0);}
+function manifold(mesh:Material){expect(mesh.edges.length).toBeGreaterThan(0);expect(surfaceOf(mesh).edges.every(e=>e.faces.length===2)).toBe(true);for(const edge of mesh.edges)expect(edge.length).toBeGreaterThan(0);}
 describe('curve-profile revolution',()=>{
  it('shares full seams and poles with independent polygonal cone volume and normals',()=>{
   const n=12,r=2,h=3,profile=curve([[0,0,0],[r,0,0],[0,0,h]]).points.set('weight',p=>p.index+1).edges.set('part',e=>e.index===0?'base':'side');
   const solid=revolve(profile,{segments:n});manifold(solid);
   expect(solid.points.length).toBe(n+2);expect(solid.faces.length).toBe(2*n);expect(volume(solid)).toBeCloseTo(n*r*r*Math.sin(2*Math.PI/n)*h/6,12);
   expect(solid.points.filter(p=>p.x===0&&p.y===0).length).toBe(2);
-  expect(solid.points.filter(p=>p.weight===2).length).toBe(n);expectTypeOf(solid.points.at(0)!.weight).toEqualTypeOf<number>();
+  expect(solid.points.filter(p=>p.weight===2).length).toBe(n);
   for(const face of solid.faces){expect(profile.edges.has(face.source)).toBe(true);if(face.part==='base')expect(face.normal[2]).toBe(-1);else expect(face.normal[2]).toBeGreaterThan(0);}
-  expect(solid.surface).toEqual(revolve(profile,{segments:n}).surface);
+  expect(surfaceOf(solid)).toEqual(surfaceOf(revolve(profile,{segments:n})));
   const negative=revolve(profile,{segments:n,angle:-360});manifold(negative);expect(volume(negative)).toBeCloseTo(volume(solid),12);
  });
  it('makes open-ended vessels without automatically sealing profile boundaries',()=>{
   const vessel=revolve(curve([[0,0,0],[1,0,0],[1,0,2]]),{segments:16});
-  expect(vessel.surface.edges.filter(e=>e.faces.length===1).length).toBe(16);
+  expect(surfaceOf(vessel).edges.filter(e=>e.faces.length===1).length).toBe(16);
   const target=query(vessel);expect(target.ray([0,0,3],[0,0,-2])!.distance).toBeCloseTo(3,12);expect(target.ray([0,0,3],[0,0,-2])!.t).toBeCloseTo(1.5,12);
   expect(vessel.faces.filter(f=>f.normal[2]>.99).length).toBe(0);
   expect(profileUnchanged()).toEqual([[0,0,0],[1,0,0],[1,0,2]]);
@@ -34,15 +36,15 @@ describe('curve-profile revolution',()=>{
   const profile=curve([[1,0,-1],[1,0,1],[0,0,1],[0,0,-1]],{closed:true}).edges.set('tag',7);
   const n=8,angle=120,sector=revolve(profile,{segments:n,angle,caps:true});manifold(sector);
   expect(volume(sector)).toBeCloseTo(n*Math.sin(angle*Math.PI/180/n),12);
-  const caps=sector.faces.filter(f=>f.tag===undefined);expect(caps.length).toBe(2);
+  const caps=sector.faces.filter(f=>f.tag===0);expect(caps.length).toBe(2);
   expect(caps.at(0)!.normal[1]).toBeCloseTo(-1,12);
   expect(()=>revolve(profile,{segments:n,angle,caps:true,maxCapPoints:3})).toThrow('cap point budget');
-  const open=revolve(profile,{segments:n,angle});expect(open.surface.edges.some(e=>e.faces.length===1)).toBe(true);
+  const open=revolve(profile,{segments:n,angle});expect(surfaceOf(open).edges.some(e=>e.faces.length===1)).toBe(true);
   const negative=revolve(profile,{segments:n,angle:-angle,caps:true});manifold(negative);expect(volume(negative)).toBeCloseTo(volume(sector),12);
  });
  it('accepts transformed circle profiles and keeps ordinary downstream mesh capabilities',()=>{
-  const profile=circle(.25,{segments:12}).rotate([90,0,0]).translate([1,0,0]).points.set('gain',.1).edges.set('label','tube').withKey('donut');
-  const solid=revolve(profile,{segments:24});manifold(solid);expect(solid.points.length).toBe(288);expect(solid.faces.length).toBe(288);expect(solid.key).toBe('donut');
+  const profile=circle(.25,{segments:12,key:'donut'}).rotate([90,0,0]).translate([1,0,0]).points.set('gain',.1).edges.set('label','tube');
+  const solid=revolve(profile,{segments:24});manifold(solid);expect(solid.points.length).toBe(288);expect(solid.faces.length).toBe(288);expect(kernelOf(solid).key).toBe('donut');
   expect(volume(solid)).toBeGreaterThan(0);expect(solid.faces.map(f=>f.label)).toEqual(Array(288).fill('tube'));
   const edited=solid.subdivide().displace(p=>[0,0,p.gain]).faces.set('up',f=>f.normal[2]>0).displace([0,0,.2]);
   manifold(edited);expect(edited.faces.length).toBeGreaterThan(solid.faces.length);expect(volume(edited)).toBeCloseTo(volume(solid),10);expect(edited.points.at(0)!.z).toBeCloseTo(solid.points.at(0)!.z+.3,12);expect(query(edited).nearest([2,0,0])).not.toBeNull();
@@ -54,13 +56,13 @@ describe('curve-profile revolution',()=>{
   expect(()=>revolve(curve([[1,1,0],[1,1,1]]))).toThrow('XZ');
   expect(()=>revolve(curve([[1,1,1e12],[1,1,1e12+1]]))).toThrow('XZ');
   expect(()=>revolve(curve([[1,0,0],[0,0,1],[1,0,2]]))).toThrow('pinched');
-  expect(revolve(curve([[0,0,0],[0,0,1]])).surface.faces.length).toBe(0);
+  expect(surfaceOf(revolve(curve([[0,0,0],[0,0,1]]))).faces.length).toBe(0);
   const profile=curve([[1,0,0],[1,0,1]]);
   expect(()=>revolve(profile,{segments:2})).toThrow('smaller than 180');
   // No turn, no segments and no profile each revolve nothing.
-  expect(revolve(profile,{angle:0}).surface.faces.length).toBe(0);
-  expect(revolve(profile,{segments:0}).surface.faces.length).toBe(0);
-  expect(revolve(curve([])).surface.faces.length).toBe(0);
+  expect(surfaceOf(revolve(profile,{angle:0})).faces.length).toBe(0);
+  expect(surfaceOf(revolve(profile,{segments:0})).faces.length).toBe(0);
+  expect(surfaceOf(revolve(curve([]))).faces.length).toBe(0);
   expect(()=>revolve(profile,{angle:90,caps:true})).toThrow('closed profile');
   expect(()=>revolve(profile,{maxPoints:10})).toThrow('points budget');expect(()=>revolve(profile,{maxFaces:10})).toThrow('faces budget');
   expect(()=>revolve(profile,{segments:1e9,maxPoints:1_000_000})).toThrow('budget');

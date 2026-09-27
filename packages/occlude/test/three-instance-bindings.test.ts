@@ -6,6 +6,7 @@ import {intersections3} from '../src/three/curves/intersections.js';
 import {SurfaceCurves} from '../src/three/api/supported.js';
 import {cameraFrame3} from '../src/three/camera.js';
 import {featureSnapshot3,FeatureKind3} from '../src/three/features/snapshot.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 describe('instance surface binding ownership',()=>{
   it('retains the binding through selections, keys, and attribute edits',()=>{
@@ -41,7 +42,7 @@ describe('instance surface binding ownership',()=>{
   it('resolves a selected supported seam against the original full surfaces',()=>{
     const horizontal=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]],[[0,1,2,3]],{key:'horizontal'});
     const vertical=mesh([[0,-1,-1],[0,1,-1],[0,1,1],[0,-1,1]],[[0,1,2,3]],{key:'vertical'});
-    const network=intersections3(surfaceBinding3(horizontal.surface),surfaceBinding3(vertical.surface)).value.network;
+    const network=intersections3(surfaceBinding3(surfaceOf(horizontal)),surfaceBinding3(surfaceOf(vertical))).value.network;
     expect(network.segments.length).toBeGreaterThan(0);
     const seam=new SurfaceCurves(network).edges.at(0)!;
     const selected=new SurfaceCurves(network).edges.filter(edge=>edge.id===seam.id).extract().withKey('seam');

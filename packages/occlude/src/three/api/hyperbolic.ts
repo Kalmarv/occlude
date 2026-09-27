@@ -29,9 +29,10 @@ import {
   honeycombComplex,
 } from '../../hyperbolicSpace.js';
 import {surface3,type Surface3} from '../geometry/surface.js';
-import {mesh,CurveGeometry,type Mesh} from './mesh.js';
+import {mesh,curveGeometry3} from './mesh.js';
 import {spacePlacement,type Placement} from '../../placement.js';
 import type { Vec3 } from '../math.js';
+import type {Material} from '../../material.js';
 
 export interface HoneycombOptions {
   /** Generations of neighbours to reflect out to. Depth 0 is the
@@ -86,7 +87,7 @@ export interface HoneycombFace {
  * A regular honeycomb, as a CELL COMPLEX: shared vertices, each wall once,
  * each edge once.
  *
- * It is not a `Mesh`. A mesh is a surface, where an edge has one wall on
+ * It is not a `Material`. A mesh is a surface, where an edge has one wall on
  * each side; inside a honeycomb `r` walls meet at every edge. So the
  * complex answers what it holds: its `points` and its `faces` as rows, its
  * edges as `wires`, and the `cell` and `placements` it was made from.
@@ -94,7 +95,7 @@ export interface HoneycombFace {
 export interface Honeycomb {
   /** The regular cell, centred on the centre of the ball, as a closed
    * mesh. Its faces are wound outward. */
-  readonly cell: Mesh;
+  readonly cell: Material;
   /** One placement per copy of the cell, the identity first, in flood
    * order. */
   readonly placements: readonly Placement<Vec3>[];
@@ -105,7 +106,7 @@ export interface Honeycomb {
   /** Every edge of the complex, once, as a two-point wire with the edge
    * columns `cell` and `generation`. A Klein chord IS the geodesic, so the
    * two ends draw it. The points are `points`, id for id. */
-  readonly wires: CurveGeometry<{}, HoneycombEdgeColumns>;
+  readonly wires: Material;
 }
 
 /**
@@ -135,7 +136,7 @@ export function honeycomb(p: number, q: number, r: number, options: HoneycombOpt
     placements: Object.freeze(complex.copies.map((c) => spacePlacement(c.transform))),
     points: Object.freeze(complex.points.map(([x, y, z], index) => Object.freeze({ id: id(index), index, x, y, z }))),
     faces: Object.freeze(complex.faces.map((f, index) => Object.freeze({ id: `f${index}`, index, vertices: f.vertices, cell: f.cell, generation: f.generation, mirrored: f.mirrored }))),
-    wires: new CurveGeometry<{}, HoneycombEdgeColumns>(wires, edges.map((_, i) => i)),
+    wires: curveGeometry3(wires, edges.map((_, i) => i)),
   });
 }
 

@@ -66,6 +66,10 @@
  *    layer on a point the split did not touch: -1, NaN or a hole), and that
  *    row, being the same row, answers what it answered before.
  *
+ *    Node and links live on the value (`Material.linkBox`), never in a
+ *    global weak map, so they die with it at the first collection that
+ *    finds it unreachable.
+ *
  *    A link holds its input value, and that value its own links: a value
  *    derived from a derived value keeps the whole line of them alive. A
  *    run (`t.steps`) cuts the line at every step (`carryRunLinks`): what
@@ -81,7 +85,8 @@
 
 import type { Edge, Material, Vertex } from './material.js';
 import { pointsOf, edgesOf } from './relation.js';
-import type { Selection } from './selection.js';
+import { select, type Selection } from './selection.js';
+import type { Face } from './faces.js';
 import { at64 } from './column.js';
 
 // ---- the node ----------------------------------------------------------------
@@ -94,6 +99,19 @@ export interface Derivation {
   readonly seeded: boolean;
   readonly kept: Readonly<Record<string, unknown>>;
 }
+
+/**
+ * Where a value keeps its derivation: a geometry holds its node and its
+ * links in a box of its own (`Material.linkBox`), so what a derivation
+ * keeps lives exactly as long as the value that keeps it. A global weak
+ * map would do the same for the program, but not for the collector: an
+ * entry of a weak map is only let go by a full collection, so a run of
+ * splits kept every short-lived state alive through the minor ones. A
+ * value that has no box (anything but a geometry) keeps its node in the
+ * weak map.
+ */
+interface LinkBox { links: Links | undefined; node: Derivation | undefined }
+const boxOf = (v: object): LinkBox | undefined => (v as { readonly linkBox?: LinkBox }).linkBox;
 
 const NODES = new WeakMap<object, Derivation>();
 
@@ -122,14 +140,17 @@ export function derivation(
 export function record<T>(value: T, node: Derivation): T {
   if (typeof value !== 'object' || value === null) return value;
   if (node.inputs.includes(value)) return value;
-  NODES.set(value, node);
+  const box = boxOf(value);
+  if (box !== undefined) box.node = node;
+  else NODES.set(value, node);
   return value;
 }
 
 /** @internal The node of a derived value, or undefined for a value no
  * derivation made (a pure `material(points)`, a write's result). */
 export function nodeOf(value: unknown): Derivation | undefined {
-  return typeof value === 'object' && value !== null ? NODES.get(value) : undefined;
+  if (typeof value !== 'object' || value === null) return undefined;
+  return boxOf(value)?.node ?? NODES.get(value);
 }
 
 /** @internal May a memo return an earlier result for this node? Not when
@@ -143,15 +164,22 @@ export function memoisable(node: Derivation): boolean {
 // ---- the links ---------------------------------------------------------------
 
 /** @internal Where a derived row came from: one input row per row (-1:
- * none), or a list of input rows per row. */
+ * none), or a list of input rows per row — rows of the input's points,
+ * edges or (stated) faces. */
 export type SourceSpec =
-  | { readonly of: Material; readonly domain: 'points' | 'edges'; readonly rows: ArrayLike<number> }
-  | { readonly of: Material; readonly domain: 'points' | 'edges'; readonly many: readonly (readonly number[] | undefined)[] };
+  | { readonly of: Material; readonly domain: 'points' | 'edges' | 'faces'; readonly rows: ArrayLike<number> }
+  | { readonly of: Material; readonly domain: 'points' | 'edges' | 'faces'; readonly many: readonly (readonly number[] | undefined)[] }
+  /** A source read row by row, the first time a row asks (undefined:
+   * none): for a derivation whose rows come from different places — a
+   * point of one input or the other, a point of a face. */
+  | { readonly read: (row: number) => unknown };
 
-/** @internal What one domain of a value links, row by row of `at`. */
+/** @internal What one domain of a value links, row by row of `at`. A list
+ * of specs is a row made from several inputs: its `source` is a list, one
+ * answer per input, in the order the derivation takes them. */
 export interface DomainLinks {
   readonly at: Material;
-  readonly source?: SourceSpec;
+  readonly source?: SourceSpec | readonly SourceSpec[];
   readonly params: Readonly<Record<string, ArrayLike<number>>>;
   /** Resolved sources, row by row, so a row's `source` is one value. */
   readonly resolved: unknown[];
@@ -166,11 +194,12 @@ export interface Links {
 
 /** What a derivation hands `linkRows` for one domain. */
 export interface DomainSpec {
-  readonly source?: SourceSpec;
+  readonly source?: SourceSpec | readonly SourceSpec[];
   readonly params?: Readonly<Record<string, ArrayLike<number>>>;
 }
 
-const LINKS = new WeakMap<object, Links>();
+/** The links a geometry carries: in its own box (see `LinkBox`). */
+const linksOf = (m: Material): Links | undefined => m.linkBox.links;
 
 /**
  * @internal Link the rows of `value` (a derivation's result) to where they
@@ -186,8 +215,8 @@ export function linkRows(value: Material, spec: { points?: DomainSpec; edges?: D
   const points = domain(spec.points);
   const edges = domain(spec.edges);
   if (points === undefined && edges === undefined) return value;
-  const under = LINKS.get(value);
-  LINKS.set(value, { points, edges, next: under });
+  const under = linksOf(value);
+  value.linkBox.links = { points, edges, next: under };
   return value;
 }
 
@@ -197,8 +226,8 @@ export function linkRows(value: Material, spec: { points?: DomainSpec; edges?: D
  * has none, or when `to` is `from`. */
 export function carryLinks<T extends Material>(from: Material, to: T): T {
   if (to === (from as unknown)) return to;
-  const links = LINKS.get(from);
-  if (links !== undefined && !LINKS.has(to)) LINKS.set(to, links);
+  const links = linksOf(from);
+  if (links !== undefined && linksOf(to) === undefined) to.linkBox.links = links;
   return to;
 }
 
@@ -214,11 +243,11 @@ export function carryLinks<T extends Material>(from: Material, to: T): T {
  */
 export function carryRunLinks<T extends Material>(from: Material, to: T, start: unknown): T {
   if (to === (from as unknown) || typeof start !== 'object' || start === null) return to;
-  const keep = LINKS.get(start);
-  if (keep === undefined || LINKS.has(to)) return to;
-  for (let links = LINKS.get(from); links !== undefined; links = links.next) {
+  const keep = boxOf(start)?.links;
+  if (keep === undefined || linksOf(to) !== undefined) return to;
+  for (let links = linksOf(from); links !== undefined; links = links.next) {
     if (links === keep) {
-      LINKS.set(to, keep);
+      to.linkBox.links = keep;
       break;
     }
   }
@@ -231,7 +260,7 @@ export function carryRunLinks<T extends Material>(from: Material, to: T, start: 
  * (a split's layer on a row the split did not touch) leaves the row to the
  * layers beneath, since the row is still the row they linked. */
 function* slots(m: Material, domain: 'points' | 'edges', index: number): Generator<{ d: DomainLinks; k: number }> {
-  let links = LINKS.get(m);
+  let links = linksOf(m);
   if (links === undefined) return;
   const ids = domain === 'points' ? m.store.pointIds : m.store.edgeIds;
   let id = NaN;
@@ -250,11 +279,31 @@ function* slots(m: Material, domain: 'points' | 'edges', index: number): Generat
   }
 }
 
-/** Does this link say where row `k` came from? */
-function claims(src: SourceSpec, k: number): boolean {
+/** Does this link say where row `k` came from? (A source read row by row
+ * says so by answering.) */
+function claims(src: SourceSpec | readonly SourceSpec[], k: number): boolean {
+  if (isList(src)) return src.some((one) => claims(one, k));
+  if ('read' in src) return true;
   if ('many' in src) return src.many[k] !== undefined;
   const r = src.rows[k];
   return r !== undefined && r >= 0;
+}
+
+const isList = (src: SourceSpec | readonly SourceSpec[]): src is readonly SourceSpec[] => Array.isArray(src);
+
+/** The input row (or rows, as a selection) one spec names for row `k`,
+ * or undefined where it names none. */
+function answer(src: SourceSpec, k: number): unknown {
+  if ('read' in src) return src.read(k);
+  if (!claims(src, k)) return undefined;
+  if ('many' in src) {
+    const rows = [...src.many[k]!];
+    if (src.domain === 'faces') return select(src.of.faces.domain, rows, undefined, true);
+    return src.domain === 'points' ? pointsOf(src.of, rows, undefined, true) : edgesOf(src.of, rows, undefined, true);
+  }
+  const r = src.rows[k];
+  if (src.domain === 'faces') return src.of.faces.at(r);
+  return src.domain === 'points' ? src.of.vertex(r) : src.of.edge(r);
 }
 
 /** @internal `row.source` for row `index` of `m`: the input row it came
@@ -264,18 +313,23 @@ export function rowSource(m: Material, domain: 'points' | 'edges', index: number
   for (const { d, k } of slots(m, domain, index)) {
     const src = d.source;
     if (src === undefined || !claims(src, k)) continue;
-    if (k in d.resolved) return d.resolved[k] as RowSource;
-    const out: RowSource = 'many' in src
-      ? (src.domain === 'points' ? pointsOf(src.of, [...src.many[k]!], undefined, true) : edgesOf(src.of, [...src.many[k]!], undefined, true))
-      : (src.domain === 'points' ? src.of.vertex(src.rows[k]) : src.of.edge(src.rows[k]));
+    if (k in d.resolved) {
+      const got = d.resolved[k] as RowSource;
+      if (got !== undefined) return got;
+      continue;
+    }
+    const out = (isList(src) ? Object.freeze(src.map((one) => answer(one, k))) : answer(src, k)) as RowSource;
     d.resolved[k] = out;
-    return out;
+    // A row a source read row by row has no answer for is left to the
+    // layers beneath, as a row a layer makes no claim about is.
+    if (out !== undefined) return out;
   }
   return undefined;
 }
 
-/** @internal What `source` answers: a row, a selection of rows, or nothing. */
-export type RowSource = Vertex | Edge | Selection<Vertex> | Selection<Edge> | undefined;
+/** @internal What `source` answers: a row, a selection of rows, a list of
+ * those (one per input), or nothing. */
+export type RowSource = Vertex | Edge | Face | Selection<Vertex> | Selection<Edge> | Selection<Face> | readonly unknown[] | undefined;
 
 /** @internal A parameter column (`u`) for row `index` of `m`, from the
  * newest link that has a value there; undefined where none has. */

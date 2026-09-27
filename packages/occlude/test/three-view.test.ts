@@ -9,6 +9,7 @@ import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
 import {pensToJson} from '../src/render.js';
 import {plane,box,view,orthographic,perspective} from 'occlude/3d';
 import {projectedLines} from 'occlude/3d/advanced';
+import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const config={seed:42,margin:0,pens:{ink:pen({width:mm(.25),color:'#112233'}),shade:pen({width:mm(.18),color:'#a84932'})}};
 const camera=orthographic({eye:[5,7,6],span:5});

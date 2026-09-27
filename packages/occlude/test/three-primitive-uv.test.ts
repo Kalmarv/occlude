@@ -1,27 +1,29 @@
 import {describe,expect,it,expectTypeOf} from 'vitest';
-import {box,cone,cylinder,plane,curve,revolve,sphere,sweep,torus,instanceOnPoints,type Mesh,parametricCurve} from '../src/three/api/index.js';
+import {box,cone,cylinder,plane,curve,revolve,sphere,sweep,torus,instanceOnPoints,parametricCurve} from '../src/three/api/index.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
 const circle=(r=1,options:{segments?:number}={})=>parametricCurve(u=>[r*Math.cos(2*Math.PI*u),r*Math.sin(2*Math.PI*u),0],{...options,closed:true});
 
 type UV = readonly [number,number];
-type ChartedMesh = Mesh<any,any,any,{readonly uv:UV;readonly chart:string}>;
+type ChartedMesh = Material;
 
-function corners(mesh:Mesh):readonly {position:readonly [number,number,number];uv:UV;chart:string}[]{
-  return mesh.surface.faces.flatMap(face=>face.vertices.map((vertex,localIndex)=>({
-    position:mesh.surface.points[vertex].position,
+function corners(mesh:Material):readonly {position:readonly [number,number,number];uv:UV;chart:string}[]{
+  return surfaceOf(mesh).faces.flatMap(face=>face.vertices.map((vertex,localIndex)=>({
+    position:surfaceOf(mesh).points[vertex].position,
     uv:face.corners![localIndex].attributes.uv as UV,
     chart:face.corners![localIndex].attributes.chart as string,
   })));
 }
 
-function checkLocations<C extends {readonly uv:UV;readonly chart:string}>(mesh:Mesh<any,any,any,C>):void {
+function checkLocations<C extends {readonly uv:UV;readonly chart:string}>(mesh:Material):void {
   const typedUV:UV=mesh.corners.at(0)!.uv;
   const typedChart:string=mesh.corners.at(0)!.chart;
   void typedUV; void typedChart;
-  for(let i=0;i<mesh.surface.triangles.length;i++){
-    const location=surfaceLocation3(mesh.surface,i,[.2,.3,.5]);
+  for(let i=0;i<surfaceOf(mesh).triangles.length;i++){
+    const location=surfaceLocation3(surfaceOf(mesh),i,[.2,.3,.5]);
     expect(location.chartStatus).toBe('regular');
     expect(location.uv).toBeDefined();
     expect(location.chart).toEqual(expect.any(String));
@@ -30,7 +32,7 @@ function checkLocations<C extends {readonly uv:UV;readonly chart:string}>(mesh:M
 
 function positionKey(position:readonly number[]):string{return position.map(value=>value.toPrecision(12)).join(',');}
 
-function seamMultiplicity(mesh:Mesh):number {
+function seamMultiplicity(mesh:Material):number {
   const byPosition=new Map<string,Set<string>>();
   for(const corner of corners(mesh)){
     const key=positionKey(corner.position),values=byPosition.get(key)??new Set<string>();
@@ -59,13 +61,13 @@ describe('primitive UV charts',()=>{
       for(const chart of required)expect(new Set(values.map(value=>value.chart)).has(chart)).toBe(true);
     }
     const sixFaceBox=box();
-    expect(new Set(sixFaceBox.surface.faces.map(face=>face.corners![0].attributes.chart)).size).toBe(6);
-    expect(sixFaceBox.surface.faces.every(face=>new Set(face.corners!.map(c=>c.attributes.chart)).size===1)).toBe(true);
+    expect(new Set(surfaceOf(sixFaceBox).faces.map(face=>face.corners![0].attributes.chart)).size).toBe(6);
+    expect(surfaceOf(sixFaceBox).faces.every(face=>new Set(face.corners!.map(c=>c.attributes.chart)).size===1)).toBe(true);
   });
 
   it('keeps geometric seams shared while representing chart seams in corners',()=>{
     const orb=sphere(1,{segments:8,rings:4}),ring=torus(2,.3,{segments:8,tubeSegments:5});
-    expect(new Set(orb.surface.points.filter(point=>Math.hypot(point.position[0],point.position[1])<1e-12).map(pointKey=>positionKey(pointKey.position))).size).toBe(2);
+    expect(new Set(surfaceOf(orb).points.filter(point=>Math.hypot(point.position[0],point.position[1])<1e-12).map(pointKey=>positionKey(pointKey.position))).size).toBe(2);
     expect(seamMultiplicity(orb)).toBeGreaterThan(0);
     expect(seamMultiplicity(ring)).toBeGreaterThan(0);
     expect(seamMultiplicity(cylinder(1,2,{segments:8}))).toBeGreaterThan(0);
@@ -74,25 +76,25 @@ describe('primitive UV charts',()=>{
   });
 
   it('preserves corner UV values through edits, mirrors, extraction, subdivision and realization',()=>{
-    const source=box(2),before=source.surface.faces.flatMap(face=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})));
+    const source=box(2),before=surfaceOf(source).faces.flatMap(face=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})));
     const edited=source.displace(point=>[0,0,point.x*.1]).translate([2,3,4]);
-    expect(edited.surface.faces.flatMap(face=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})))).toEqual(before);
+    expect(surfaceOf(edited).faces.flatMap(face=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})))).toEqual(before);
     const mirrored=source.scale([-1,1,1]);
-    expect(mirrored.surface.faces.map((face,index)=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart}))).flat()).toEqual(source.surface.faces.map((face,index)=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})).reverse()).flat());
-    expect(source.faces.filter(face=>face.index===0).extract().surface.faces[0].corners!.map(c=>c.attributes)).toEqual(source.surface.faces[0].corners!.map(c=>c.attributes));
+    expect(surfaceOf(mirrored).faces.map((face,index)=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart}))).flat()).toEqual(surfaceOf(source).faces.map((face,index)=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})).reverse()).flat());
+    expect(surfaceOf(source.faces.filter(face=>face.index===0).extract()).faces[0].corners!.map(c=>c.attributes)).toEqual(surfaceOf(source).faces[0].corners!.map(c=>c.attributes));
     const refined=source.subdivide();
-    expect(refined.surface.faces.flatMap(face=>face.corners!.map(c=>c.attributes.chart)).every(chart=>typeof chart==='string')).toBe(true);
+    expect(surfaceOf(refined).faces.flatMap(face=>face.corners!.map(c=>c.attributes.chart)).every(chart=>typeof chart==='string')).toBe(true);
     const realized=instanceOnPoints(source,source.points.filter(point=>point.index<2)).realize();
-    expect(realized.surface.faces.flatMap(face=>face.corners!.map(c=>c.attributes.uv)).filter(Boolean)).toHaveLength(before.length*2);
+    expect(surfaceOf(realized).faces.flatMap(face=>face.corners!.map(c=>c.attributes.uv)).filter(Boolean)).toHaveLength(before.length*2);
   });
 
   it('uses profile and path arclength for sweep UVs',()=>{
     const profile=curve([[0,0,0],[1,0,0],[1,.5,0],[0,.5,0]],{closed:true});
     const path=curve([[0,0,0],[0,0,1],[0,0,4]]);
     const mesh=sweep(profile,path);
-    const first=mesh.surface.faces[0].corners!.map(c=>c.attributes.uv as UV);
+    const first=surfaceOf(mesh).faces[0].corners!.map(c=>c.attributes.uv as UV);
     expect(first).toEqual([[0,0],[1/3,0],[1/3,1/4],[0,1/4]]);
-    const second=mesh.surface.faces[1].corners!.map(c=>c.attributes.uv as UV);
+    const second=surfaceOf(mesh).faces[1].corners!.map(c=>c.attributes.uv as UV);
     expect(second[0][0]).toBeCloseTo(1/3);
     expect(second[1][0]).toBeCloseTo(1/2);
     expect(second[2][1]).toBeCloseTo(1/4);
@@ -102,13 +104,13 @@ describe('primitive UV charts',()=>{
     const profile=curve([[1,0,0],[2,0,0],[2,0,2],[1,0,2]],{closed:true});
     const positive=revolve(profile,{angle:180,segments:4,caps:true});
     const negative=revolve(profile,{angle:-180,segments:4,caps:true});
-    const side=positive.surface.faces[0].corners!.map(c=>c.attributes.uv as UV);
+    const side=surfaceOf(positive).faces[0].corners!.map(c=>c.attributes.uv as UV);
     expect(side.map(uv=>uv[0])).toEqual([0,1/4,1/4,0]);
     expect(side.map(uv=>uv[1])).toEqual([0,0,1/6,1/6]);
-    expect(positive.surface.faces.at(-2)!.corners!.every(c=>c.attributes.chart==='start')).toBe(true);
-    expect(positive.surface.faces.at(-1)!.corners!.every(c=>c.attributes.chart==='end')).toBe(true);
-    expect(negative.surface.faces[0].vertices).toEqual([...positive.surface.faces[0].vertices].reverse());
-    expect(negative.surface.faces[0].corners!.every(c=>{
+    expect(surfaceOf(positive).faces.at(-2)!.corners!.every(c=>c.attributes.chart==='start')).toBe(true);
+    expect(surfaceOf(positive).faces.at(-1)!.corners!.every(c=>c.attributes.chart==='end')).toBe(true);
+    expect(surfaceOf(negative).faces[0].vertices).toEqual([...surfaceOf(positive).faces[0].vertices].reverse());
+    expect(surfaceOf(negative).faces[0].corners!.every(c=>{
       const uv=c.attributes.uv as UV;return uv[0]>=0&&uv[0]<=1&&uv[1]>=0&&uv[1]<=1;
     })).toBe(true);
   });

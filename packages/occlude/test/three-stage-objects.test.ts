@@ -4,6 +4,7 @@ import { gridSurface } from './helpers/surfaces.js';
 import { featureSnapshot3, FeatureKind3 } from '../src/three/features/snapshot.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { transformSurface3 } from '../src/three/geometry/model.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 const camera = { kind: 'orthographic' as const, span: 8, eye: [5,7,6] as const, target: [0,0,0] as const, near: .1, far: 30 };
 const frame = cameraFrame3(camera, { x:0,y:0,width:100,height:100 });
 

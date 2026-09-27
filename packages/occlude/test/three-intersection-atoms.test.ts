@@ -5,9 +5,10 @@ import {intersectionContacts3} from '../src/three/curves/intersectionContacts.js
 import {intersectionAtomsJob3,triangleSideOccupancy3} from '../src/three/curves/intersectionAtoms.js';
 import {runGeometryJob3,runGeometryJobAsync3} from '../src/three/geometry/job.js';
 import {point,type H} from '../src/three/geometry/exact.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 const atoms=(a:any,b:any,options:any={})=>{
- const contacts=intersectionContacts3(surfaceBinding3(a.surface),surfaceBinding3(b.surface)).value;
+ const contacts=intersectionContacts3(surfaceBinding3(surfaceOf(a)),surfaceBinding3(surfaceOf(b))).value;
  return runGeometryJob3(intersectionAtomsJob3(contacts,options)).value;
 };
 const atomsFromSurfaces=(a:any,b:any,options:any={})=>runGeometryJob3(intersectionAtomsJob3(
@@ -53,7 +54,7 @@ describe('intersection atomic seams',()=>{
   expect(result.segments).toHaveLength(8);
  });
  it('preserves coverage when triangle order is permuted',()=>{
-  const a=square(0,0,2,2).surface,b=square(1,0,2,2).surface;
+  const a=surfaceOf(square(0,0,2,2)),b=surfaceOf(square(1,0,2,2));
   const permuted={...a,triangles:Object.freeze([...a.triangles].reverse())};
   const first=atomsFromSurfaces(a,b),second=atomsFromSurfaces(permuted,b);
   const geometry=(rows:readonly {readonly a:H;readonly b:H}[])=>rows.map(s=>[s.a.join(','),s.b.join(',')].sort().join('|')).sort();
@@ -62,7 +63,7 @@ describe('intersection atomic seams',()=>{
  it('uses exact side occupancy and enforces assembly budgets/cancellation',async()=>{
   const tri=[p(0,0),p(2,0),p(0,2)] as unknown as [H,H,H], n=[0n,0n,1n,0n] as H;
   expect(triangleSideOccupancy3(tri,p(1,0),p(0,0),p(2,0),n)).toEqual([true,false]);
-  const contacts=intersectionContacts3(surfaceBinding3(plane(2,2).surface),surfaceBinding3(plane(2,2).surface)).value;
+  const contacts=intersectionContacts3(surfaceBinding3(surfaceOf(plane(2,2))),surfaceBinding3(surfaceOf(plane(2,2)))).value;
   expect(()=>runGeometryJob3(intersectionAtomsJob3(contacts,{maxSegments:0}))).toThrow('raw segment budget');
   expect(()=>runGeometryJob3(intersectionAtomsJob3(contacts,{maxSupportCandidates:0}))).toThrow('support candidate budget');
   const controller=new AbortController(),pending=runGeometryJobAsync3(intersectionAtomsJob3(contacts),controller.signal);controller.abort(new Error('cancel atoms'));

@@ -299,7 +299,7 @@ describe('the interim 3D words', () => {
     // placement leaves it where it is.
     const corners = cell.points.map((p) => [p.x, p.y, p.z] as Vec3);
     expect(corners).toEqual(polyhedron(4, 3, 5).points);
-    expect(cell.faces.map((f) => f.vertices)).toEqual(polyhedron(4, 3, 5).faces);
+    expect(cell.faces.map((f) => f.corners.map((c) => c.point.index))).toEqual(polyhedron(4, 3, 5).faces);
     for (const p of corners) expect(away(placements[0].point(p), p)).toBeLessThan(1e-12);
     // Every placement is an isometry: it keeps every hyperbolic length.
     const probe = ballPoints(8, 3, 0.4);

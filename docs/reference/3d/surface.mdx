@@ -3,13 +3,13 @@ title: Surface curves
 description: "Curves that live on a surface, and queries against it."
 ---
 
-These words derive curves from a mesh, or ask it questions. The mesh hides a curve on its surface in the same way as its own lines.
+These words derive curves from a surface, or ask it questions. The surface hides a curve on it in the same way as its own lines.
 
 ## intersections()
 
 <include>/_sig/3d.intersections.1.mdx</include>
 
-The curve where two meshes cross. Give two meshes, or a list. In a list, every pair that can meet gives its curve. Both meshes must be in the view with it. The curves take the view's pen. A pair in the view's list, `[curves, { pen }]`, gives them a pen of their own, as the example does.
+The curve where two surfaces cross. Give two values with faces, or a list. In a list, every pair that can meet gives its curve. Both values must be in the view with it. The curves take the view's pen. A pair in the view's list, `[curves, { pen }]`, gives them a pen of their own, as the example does.
 
 The call returns a description, not the computed curves. The view first drops every object outside the camera. Then it computes only the pairs that can meet. A big list of far-apart objects costs little. A direct read of the curves, such as `.edges`, computes every pair.
 
@@ -28,7 +28,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.isolines.mdx</include>
 
-The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(mesh, field, at, { key })`. The call refuses `levels` in the options by name.
+The level lines of a field over the surface. The field reads a point row, so `(p) => p.z` gives horizontal rings. The third argument is `at`, the levels that the 2D `t.isolines` takes. It is one level, a list of levels, `{ count }` for even levels, or `{ spacing, offset? }`. The options come after it, as in 2D: `isolines(m, field, at, { key })`. The call refuses `levels` in the options by name.
 
 The result is a collection of chains. `rings.curves` gives each chain with its `points`, `closed` and its columns, so `c.level` is the level of a ring. `filter`, `map`, `find`, `some`, `every` and `groupBy` work on the chains. `rings.filter((c) => c.points.every((p) => p.z > 0))` keeps the upper rings as curves that a view draws. `groupBy` gives a list of `{ key, curves }`.
 
@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/3d.trace.mdx</include>
 
-Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample on the traced mesh. `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. The call refuses a curve sample that is not on the traced mesh, by name.
+Follows a direction field across the surface from each seed, triangle to triangle, and returns the paths as curves. The direction is a vector or a field of the surface location. A seed is a surface sample, a location, or a curve sample on the traced surface. `trace(ball, t.sample(intersections(ball, block), { count: 12 }).points, …)` starts on the seam. The call refuses a curve sample that is not on the traced surface, by name.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -64,7 +64,7 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/3d.mapSurface.mdx</include>
 
-Lays a 2D material onto the surface through the mesh's stored chart coordinates. Numeric coordinates are chart units. Every mapped point lies on its triangle, so the mesh occludes the marks like its own lines.
+Lays a 2D material onto the surface through its stored chart coordinates. Numeric coordinates are chart units. Every mapped point lies on its triangle, so the surface occludes the marks like its own lines.
 
 ```ts live
 import { sketch, pen, mm, curve, append } from 'occlude';
@@ -98,7 +98,7 @@ export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0
 
 ## Charts and corner columns
 
-Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `mesh.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `mesh.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `mesh.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead. Each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. Each face also carries the `chart` of its primitive, so `m.faces.filter((f) => f.chart === 'side')` selects the side of a cylinder. `mapSurface`, `m.corners.set(name, value)` and the sampled point's `.sample.uv` all read them. `m.corners.set({ uv: (c) => …, chart })` stores a projection of your own instead. Each corner reads its `point`, and its `face` for a projection that unwraps a seam. Below, a corner column marks two of the four quarters around the side chart, and the sampled points read it back.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -113,7 +113,7 @@ export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.
 
 ## rebind()
 
-A sampled point remembers its triangle and its weights inside it. `samples.rebind(editedMesh)` places the same samples onto an edited revision of the mesh that kept its topology. The marks move with the surface, with no new sampling and no projection.
+A sampled point remembers its triangle and its weights inside it. `samples.rebind(edited)` places the same samples onto an edited state of the surface that kept its topology. The points keep their columns, and each `source` and `.sample` is a face of the edited surface. The marks move with the surface, with no new sampling and no projection.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -149,7 +149,7 @@ export default sketch({ aspect: [1, 1], seed: 2, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/3d.query.mdx</include>
 
-A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `pointCloud(positions)` makes a point set from the hits, for `instanceOnPoints`. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in an async sketch the batch can run on the GPU. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
+A prepared spatial index over a surface. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `pointCloud(positions)` makes a point set from the hits, for `instanceOnPoints`. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in an async sketch the batch can run on the GPU. A query reads the state of the surface that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

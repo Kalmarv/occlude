@@ -1,19 +1,17 @@
-import {Table3,select3,domainOf,POINTS3,type Where3} from './collection.js';
-import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
-import type {AttributeFields,PointColumns3,PointFields3} from './columns.js';
 import {emptySize} from '../degenerate.js';
-import {Mesh,PointGeometry,evaluate,writePoints3,type PointRow,type Field,type GeometryOptions} from './mesh.js';
-import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
+import {geometry3,isGeometry,surfaceOf,type GeometryOptions} from './mesh.js';
+import {kinds} from '../../column.js';
+import type {Material} from '../../material.js';
+import {kernelOf} from '../geometry/value.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
+export type {Attributes3};
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
-import {assembleSurface3,type Attributes3,type Attribute3,type SurfacePoint3,type Surface3} from '../geometry/surface.js';
+import {assembleSurface3,type Attributes3,type SurfacePoint3} from '../geometry/surface.js';
 import {surfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
 import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeights,ratioNumber,difference,abs,type Ratio,type EncodedPoint3} from '../geometry/exact.js';
 import {bindingTriangle3,sameSurfaceCurveLineage3,type SurfaceCurveNetwork3,type SupportedCurveSegment3} from '../curves/network.js';
 import type {Vec3} from '../math.js';
-import type {RotationInput,Axis3} from '../rotation.js';
-import {SOURCES,derived,withSource} from './source.js';
 
 export interface CurveSamplingOptions extends GeometryOptions {
  readonly count?:number;
@@ -27,21 +25,12 @@ export interface CurveSample {
  /** All incident triangle contexts remain distinct at creases and UV seams. */
  readonly locations:readonly SurfaceLocation3[];
  /** Select actual mesh/placement ownership; multiple face contexts stay explicit. */
- on(target:Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>):readonly SurfaceLocation3[];
+ on(target:Material|Instances<any,any,any,any,any,any,any>):readonly SurfaceLocation3[];
 }
-export type CurveSampleRow<P extends Attributes3={},A extends Attributes3={}> = PointRow<P>&{readonly sample:CurveSample;readonly [ROW_TYPES]?:CurveSampleTypes<P,A>};
-/** @internal What a selection of curve samples answers: the write, as
- * point geometry's, keeps each point's attachment. */
-export type CurveSampleTypes<P extends Attributes3,A extends Attributes3> = Types<{
- source:Surface3;points:Selection<CurveSampleRow<P,A>>;extract:()=>CurveSamples<P,A>;
- set:{
-  <Name extends string,V extends Attribute3>(column:Name,value:Field<CurveSampleRow<P,A>,V>,where?:Where3<CurveSampleRow<P,A>>):CurveSamples<PointColumns3<P,NoInfer<Name>,NoInfer<V>>,A>;
-  <Q extends Attributes3>(values:AttributeFields<CurveSampleRow<P,A>,Q>,where?:Where3<CurveSampleRow<P,A>>):CurveSamples<PointFields3<P,NoInfer<Q>>,A>;
- };
-}>;
-interface Attachment {readonly edgeId:string;readonly fraction:Ratio}
-interface SampleState {readonly target:SurfaceCurves<any>;readonly attachments:ReadonlyMap<string,Attachment>;readonly rows:readonly CurveSampleRow<any,any>[]}
-const states=new WeakMap<object,SampleState>();
+interface Attachment {readonly network:SurfaceCurveNetwork3;readonly edgeId:string;readonly fraction:Ratio}
+/** Where each curve sample sits on its network, kept beside the record a
+ * row answers: a rebind reads it. */
+const attachments=new WeakMap<CurveSample,Attachment>();
 function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fraction:Ratio):CurveSample {
  const a=decodePoint(network.nodes[segment.a].exact),b=decodePoint(network.nodes[segment.b].exact),p=mixPoint(a,b,fraction),position=pointNumber(p);
  const direction=difference(b,a),scale=direction.reduce((n,v)=>abs(v)>n?abs(v):n,0n),d=direction.map(n=>ratioNumber([n,scale])) as unknown as Vec3,length=Math.hypot(...d);
@@ -54,68 +43,60 @@ function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fra
   const total=weights.reduce((a,b)=>a+b,0n),barycentric=weights.map(n=>ratioNumber([n,total])) as unknown as Vec3;
   return surfaceLocation3(binding.source,s.triangle,barycentric,{placement:binding.placement,exactWeights:weights});
  })));
- return Object.freeze({chainId:segment.chainId,edgeId:segment.id,parameter:segment.range[0]+ratioNumber(fraction)*(segment.range[1]-segment.range[0]),exact:encodePoint(p),position,tangent,
+ const sample=Object.freeze({chainId:segment.chainId,edgeId:segment.id,parameter:segment.range[0]+ratioNumber(fraction)*(segment.range[1]-segment.range[0]),exact:encodePoint(p),position,tangent,
   get locations(){return rows();},
-  on(target:Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>){
-   if(target instanceof Mesh)return Object.freeze(rows().filter(row=>row.source===target.surface&&!row.placement));
+  on(target:Material|Instances<any,any,any,any,any,any,any>){
+   if(isGeometry(target))return Object.freeze(rows().filter(row=>row.source===surfaceOf(target)&&!row.placement));
    if(!(target instanceof Instances))throw new Error('curve sample source requires a mesh or instance set');
    const bindings=target.rows.map(row=>instanceSurfaceBinding3(target,row));
    return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===row.source&&b.placement===row.placement)));
   },
  });
+ attachments.set(sample,{network,edgeId:segment.id,fraction});
+ return sample;
 }
-/** Ordinary editable point geometry retaining its original curve interpretation.
- * Moving points edits their positions; explicit rebind refreshes attachments. */
-export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> extends PointGeometry<P> {
- constructor(geometry:PointGeometry<P>,target:SurfaceCurves<A>,attachments:ReadonlyMap<string,Attachment>){
-  super(geometry.surface,geometry);
-  const network=target.network.reference??target.network,segments=new Map(network.segments.map(s=>[s.id,s])),owned=new Map<string,Attachment>();
-  const rows=Object.freeze(geometry.points.map(p=>{
-   const attachment=attachments.get(p.id),segment=attachment&&segments.get(attachment.edgeId);
-   if(!attachment||!segment)throw new Error('curve sample provenance is missing');
-   owned.set(p.id,attachment);return Object.freeze(withSource({...p,sample:context(network,segment,attachment.fraction)},geometry.surface,geometry.surface.points[p.index])) as unknown as CurveSampleRow<P,A>;
-  }));
-  states.set(this,{target,attachments:owned,rows});
- }
- private get state(){return states.get(this)!;}
- get target():SurfaceCurves<A>{return this.state.target;}
- /** The sampled points, and their one write (see `CurveSampleTypes`). */
- get points():Selection<CurveSampleRow<P,A>> {
-  const plain=super.points;
-  return select3(domainOf(this,'samples',()=>new Table3(POINTS3,this.surface,'point',this.state.rows as readonly CurveSampleRow<P,A>[],{
-   extract:indices=>{const selected=new Set(indices);return this.changed(plain.filter(p=>selected.has(p.index)).extract());},
-   write:write=>write.rows.length?this.changed(new PointGeometry<P>(writePoints3(this.surface,write),{...this})):this,
-  }))) as unknown as Selection<CurveSampleRow<P,A>>;
- }
- private changed<Q extends Attributes3>(geometry:PointGeometry<Q>):CurveSamples<Q,A>{return new CurveSamples(geometry,this.target,this.state.attachments);}
- displace(field:Field<CurveSampleRow<P,A>,Vec3|number>,options:DisplaceOptions={}):CurveSamples<P,A>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
- translate(offset:Vec3):CurveSamples<P,A>{return this.changed(super.translate(offset));}
- rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveSamples<P,A>;
- rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveSamples<P,A>;
- rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveSamples<P,A>{return this.changed((super.rotate as (...args:unknown[])=>PointGeometry<P>)(a,b,c));}
- scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveSamples<P,A>{return this.changed(super.scale(scale,pivot));}
- withKey(key:string):CurveSamples<P,A>{return this.changed(super.withKey(key));}
- get history():readonly CurveSamples<P,A>[]{return super.history as readonly CurveSamples<P,A>[];}
- /** @internal These samples with the states `t.steps` kept. */
- withHistory(history:readonly unknown[]):CurveSamples<P,A>{return this.changed(super.withHistory(history));}
- rebind(target:SurfaceCurves<A>):CurveSamples<P,A>{
-  if(!(target instanceof SurfaceCurves))throw new Error('curve samples rebind to regenerated or rebound source curves');
-  const previous=this.target.network.reference??this.target.network,next=target.network.reference??target.network;
+/** The curve samples a value's points carry, or undefined when it carries none. */
+export function curveSamplesOf(m:Material):readonly CurveSample[]|undefined {
+ const column=m.store.attrs.sample as {get(i:number):unknown}|undefined;
+ if(column===undefined)return undefined;
+ const out:CurveSample[]=[];
+ for(let i=0;i<m.n;i++){const s=column.get(i) as CurveSample;if(!attachments.has(s))return undefined;out.push(s);}
+ return out;
+}
+/** Points on surface curves as the one geometry: the segment's columns,
+ * `sample` each point's place on the curves, `source` the edge under it. */
+function curvePoints(target:SurfaceCurves<any>,points:readonly SurfacePoint3[],samples:readonly CurveSample[],key:string|undefined,from?:Material):Material {
+ const edges=[...target.edges] as readonly {readonly id:string}[];
+ const at=new Map(edges.map((e,i)=>[e.id,i]));
+ const under=samples.map(s=>at.get(attachments.get(s)!.edgeId));
+ return geometry3(assembleSurface3(points,[],[]),{key,...(from?{from}:{}),pointCols:{sample:kinds.placement.from(samples)},source:{points:(i:number)=>{const e=under[i];return e===undefined?undefined:target.edges.at(e);}}});
+}
+/** `samples.rebind(curves)`: every point back on its place along curves
+ * rebuilt from the same construction (an explicitly rebound curve set). */
+export function rebindCurveSamples(m:Material,target:SurfaceCurves<any>):Material {
+ if(!(target instanceof SurfaceCurves))throw new Error('curve samples rebind to regenerated or rebound source curves');
+ const samples=curveSamplesOf(m);
+ if(samples===undefined)throw new Error('rebind: these points carry no curve samples');
+ const next=target.network.reference??target.network,segments=new Map(next.segments.map(s=>[s.id,s]));
+ const own=surfaceOf(m),fresh:CurveSample[]=[];
+ const points=own.points.map((p,i)=>{
+  const a=attachments.get(samples[i])!;
   // Matching string IDs alone never authorize moving to an unrelated graph.
-  if(!sameSurfaceCurveLineage3(previous,next))throw new Error('curve construction changed; regenerate samples');
-  const segments=new Map(next.segments.map(s=>[s.id,s]));
-  const points=this.surface.points.map(p=>{const a=this.state.attachments.get(p.id)!,segment=segments.get(a.edgeId);if(!segment)throw new Error('curve edge was not retained; regenerate samples');return {...p,position:context(next,segment,a.fraction).position};});
-  return new CurveSamples(new PointGeometry<P>(assembleSurface3(points,[],[]),{key:this.key,[SOURCES]:derived('sample',target)}),target,this.state.attachments);
- }
+  if(!sameSurfaceCurveLineage3(a.network,next))throw new Error('curve construction changed; regenerate samples');
+  const segment=segments.get(a.edgeId);if(!segment)throw new Error('curve edge was not retained; regenerate samples');
+  const sample=context(next,segment,a.fraction);fresh.push(sample);
+  return {...p,position:sample.position};
+ });
+ return curvePoints(target,points,fresh,kernelOf(m).key,m);
 }
-export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):CurveSamples<A,A> {
+export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):Material {
  const {count,spacing}=options,maxPoints=options.maxPoints??Infinity,maxSupports=options.maxSupports??Infinity;
  if(count!==undefined&&spacing!==undefined)throw new Error('curve sample chooses count or spacing');
  // A non-integer count, a spacing that is not a number and an invalid budget
  // are mistakes; a count below one or a spacing with no length simply asks for
  // no samples.
  if(count!==undefined&&!Number.isSafeInteger(count)||spacing!==undefined&&typeof spacing!=='number'||[maxPoints,maxSupports].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('invalid curve sampling count, spacing or budget');
- if(count!==undefined&&count<1||spacing!==undefined&&emptySize(spacing))return new CurveSamples(new PointGeometry<A>(assembleSurface3([],[],[]),{key:options.key}),target,new Map());
+ if(count!==undefined&&count<1||spacing!==undefined&&emptySize(spacing))return curvePoints(target,[],[],options.key);
  const network=target.network,groups=new Map<string,SupportedCurveSegment3[]>(),chains:SupportedCurveSegment3[][]=[];
  const degree=new Map<number,number>();for(const segment of network.reference?.segments??network.segments)for(const node of [segment.a,segment.b])degree.set(node,(degree.get(node)??0)+1);
  for(const segment of network.segments){const rows=groups.get(segment.chainId)??[];rows.push(segment);groups.set(segment.chainId,rows);}
@@ -123,7 +104,7 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
   rows.sort((a,b)=>a.range[0]-b.range[0]||a.range[1]-b.range[1]);let chain:SupportedCurveSegment3[]=[];
   for(const row of rows){const last=chain.at(-1);if(last&&(last.b!==row.a||last.range[1]!==row.range[0]||degree.get(row.a)!==2)){chains.push(chain);chain=[];}chain.push(row);}if(chain.length)chains.push(chain);
  }
- const points:SurfacePoint3[]=[],attachments=new Map<string,Attachment>();let supports=0;
+ const points:SurfacePoint3[]=[],samples:CurveSample[]=[];let supports=0;
  for(const chain of chains){
   const closed=chain[0].a===chain.at(-1)!.b,length=chain.reduce((sum,s)=>sum+s.length,0);
   // A chain with no length has nowhere to place a sample: skip it and sample
@@ -140,8 +121,8 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
    supports+=t===0?network.nodes[segment.a].supports.length:t===1?network.nodes[segment.b].supports.length:segment.supports.length;
    if(supports>maxSupports)throw new Error('curve sampling exceeds support budget');
    const id=identity('curve-sample',segment.chainId,chain[0].id,i,n,options.key??target.key??'default'),sample=context(network,segment,fraction);
-   points.push({id,position:sample.position,attributes:{...segment.attributes},provenance:{operation:'sample',parents:[segment.id]}});attachments.set(id,{edgeId:segment.id,fraction});
+   points.push({id,position:sample.position,attributes:{...segment.attributes},provenance:{operation:'sample',parents:[segment.id]}});samples.push(sample);
   }
  }
- return new CurveSamples(new PointGeometry<A>(assembleSurface3(points,[],[]),{key:options.key,[SOURCES]:derived('sample',target)}),target,attachments);
+ return curvePoints(target,points,samples,options.key);
 }

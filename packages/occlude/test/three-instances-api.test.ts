@@ -6,6 +6,7 @@ import {cameraFrame3} from '../src/three/camera.js';
 import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, commitCamera3, exportSvg } from '../src/host.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[5,7,6],span:7});
 describe('shared mesh instances',()=>{
@@ -16,8 +17,8 @@ describe('shared mesh instances',()=>{
   expect(placed.instances.at(1)!.source).toBe(sites.points.at(1));expect(placed.instances.map(r=>r.transform.scale[2])).toEqual([1,2,3]);
   const drawing=view(placed,{camera});
   const classified=classifySceneCpu3(featureSnapshot3(drawing.scene.objects,[],cameraFrame3(camera,{x:0,y:0,width:100,height:100})));
-  for(const feature of classified.features){expect(feature.feature.instance).toEqual(drawing.scene.objects.find(o=>o.id===feature.feature.objectId)!.instance);expect(placed.rows.some(r=>r.id===feature.feature.instance!.id&&r.source.id===feature.feature.instance!.pointId)).toBe(true);}
-  expect(new Set(drawing.scene.objects.map(o=>o.surface)).size).toBe(1);expect(drawing.scene.objects[0].surface).toBe(prototype.surface);
+  for(const feature of classified.features){expect(feature.feature.instance).toEqual(drawing.scene.objects.find(o=>o.id===feature.feature.objectId)!.instance);expect(placed.rows.some(r=>r.id===feature.feature.instance!.id&&surfaceOf(sites).points[r.source.index].id===feature.feature.instance!.pointId)).toBe(true);}
+  expect(new Set(drawing.scene.objects.map(o=>o.surface)).size).toBe(1);expect(drawing.scene.objects[0].surface).toBe(surfaceOf(prototype));
   const group=placed.instances.groupBy(r=>r.ink)[0];expect(group.key).toBe('a');const selected=group.extract();expect(selected.prototype).toBe(prototype);expect(selected.instances.map(r=>r.id)).toEqual([placed.rows[0].id,placed.rows[2].id]);
   expect(selected.instances.source).not.toBe(placed.instances.source);
   expect(instanceOnPoints(prototype,sites.points).instances.map(r=>r.id)).toEqual(placed.instances.map(r=>r.id));
@@ -38,11 +39,11 @@ describe('shared mesh instances',()=>{
   const prototype=box().points.set('tag','prototype').edges.set('edgeTag',7).faces.set('faceTag',9);
   const sites=pointCloud([[0,0,0],[2,0,0]]).points.set({tag:'instance',height:2});
   const placed=instanceOnPoints(prototype,sites.points),a=placed.realize(),b=placed.realize();
-  expect(a.surface).toEqual(b.surface);expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(a.surface.edges.every(e=>e.faces.length===2)).toBe(true);
+  expect(surfaceOf(a)).toEqual(surfaceOf(b));expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(surfaceOf(a).edges.every(e=>e.faces.length===2)).toBe(true);
   expect(a.points.map(p=>p.tag)).toEqual(Array(16).fill('prototype'));expect(a.edges.at(0)!.edgeTag).toBe(7);expect(a.faces.at(0)!.faceTag).toBe(9);expect(a.faces.at(0)!.height).toBe(2);
   // A realized row comes from a prototype row and an instance: its source is the two, in that order.
-  const [from,copy]=a.points.at(0)!.source;expect(from).toBe(prototype.points.at(0));expect(copy).toBe(placed.rows[0]);expect(copy.source).toBe(sites.points.at(0));
-  const selected=placed.instances.filter(r=>r.index===1).extract().realize();expect(selected.points.map(p=>p.id)).toEqual(a.points.map(p=>p.id).slice(8));
+  const [from,copy]=a.points.at(0)!.source as readonly any[];expect(from).toBe(prototype.points.at(0));expect(copy).toBe(placed.rows[0]);expect(copy.source).toBe(sites.points.at(0));
+  const selected=placed.instances.filter(r=>r.index===1).extract().realize();expect(surfaceOf(selected).points.map(p=>p.id)).toEqual(surfaceOf(a).points.map(p=>p.id).slice(8));
   expect(()=>placed.realize({maxPoints:15})).toThrow('points budget');expect(()=>placed.realize({maxFaces:11})).toThrow('faces budget');
   expect(instanceOnPoints(prototype,sites.points.filter(()=>false)).realize().points.length).toBe(0);
  });

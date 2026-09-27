@@ -2,9 +2,11 @@ import {rotation3,alignAxis,type RotationInput} from '../rotation.js';
 import {pointCloud} from './mesh.js';
 import {points2} from './lift.js';
 import {refuseDisplay} from './recipes.js';
-import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow} from './mesh.js';
-import {Table3,select3,domainOf,kind3,isSelection3,type Where3} from './collection.js';
-import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
+import {geometry3,isGeometry,hasFaces,surfaceOf,derived,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions} from './mesh.js';
+import {kernelOf,rowName,rowAttributes} from '../geometry/value.js';
+import {inSpace3,type Material} from '../../material.js';
+import {Table3,select3,domainOf,kind3,type Where3} from './collection.js';
+import {ROW_TYPES,Selection,type Types} from '../../selection.js';
 import type {AttributeFields,Widen3,Widened3} from './columns.js';
 import {identity} from './identity.js';
 import {assembleSurface3,type Attribute3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceEdge3,type SurfaceTriangle3} from '../geometry/surface.js';
@@ -12,21 +14,22 @@ import {transformSurface3} from '../geometry/model.js';
 import {add3,mul3,finite3,type Vec3} from '../math.js';
 import {captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
 import {surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
-import {SOURCES,derived} from './source.js';
+import type {Vertex} from '../../material.js';
+import type {Face} from '../../faces.js';
 
 export interface InstanceTransform {readonly translate:Vec3;readonly rotate:RotationInput;readonly scale:Vec3}
 export interface InstanceTransformInput {readonly translate?:Vec3;readonly rotate?:RotationInput;readonly scale?:number|Vec3}
 /** A source row an instance came from: a point row, or a face row for instanceOnFaces. */
-export type InstanceSource={readonly id:string;readonly index:number;readonly attributes:Readonly<Attributes3>};
-interface InstanceData<A extends Attributes3,S extends Attributes3,R extends InstanceSource=PointRow<S>> {readonly id:string;readonly source:R;readonly attributes:Readonly<A>;readonly transform:InstanceTransform}
+export type InstanceSource={readonly index:number};
+interface InstanceData<A extends Attributes3,S extends Attributes3,R extends InstanceSource=Vertex> {readonly id:string;readonly source:R;readonly attributes:Readonly<A>;readonly transform:InstanceTransform}
 // Selection and attribute edits retain actual placement ownership. Labels and
 // numerically equal transforms never establish identity between unrelated rows.
 const placements=new WeakMap<object,SurfacePlacement3>();
 function retainPlacement<T extends object>(source:object,target:T):T {
   const placement=placements.get(source);if(placement)placements.set(target,placement);return target;
 }
-export type InstanceRow<A extends Attributes3={},S extends Attributes3={},R extends InstanceSource=PointRow<S>> = Readonly<Omit<A,'id'|'index'|'source'|'attributes'|'transform'> & InstanceData<A,S,R> & {index:number}>;
-export interface InstanceOnPointsOptions<S extends Attributes3,R extends InstanceSource=PointRow<S>> extends GeometryOptions {
+export type InstanceRow<A extends Attributes3={},S extends Attributes3={},R extends InstanceSource=Vertex> = Readonly<Omit<A,'id'|'index'|'source'|'attributes'|'transform'> & InstanceData<A,S,R> & {index:number}>;
+export interface InstanceOnPointsOptions<S extends Attributes3,R extends InstanceSource=Vertex> extends GeometryOptions {
   readonly scale?:Field<R,number|Vec3>;
   readonly rotate?:Field<R,RotationInput>;
   /** World-space offset from each source point. */
@@ -67,11 +70,11 @@ export type InstanceTypes<P extends Attributes3,E extends EdgeAttributes,F exten
 const INSTANCES=kind3('instance');
 /** One shared mesh prototype plus owned per-instance data. Rendering may expand
  * transformed coordinates, but authoring topology is duplicated only by realize. */
-export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},A extends Attributes3={},S extends Attributes3={},R extends InstanceSource=PointRow<S>,C extends Attributes3={}> {
+export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},A extends Attributes3={},S extends Attributes3={},R extends InstanceSource=Vertex,C extends Attributes3={}> {
   readonly key?:string;
   readonly rows:readonly InstanceRow<A,S,R>[];
-  constructor(readonly prototype:Mesh<P,E,F,C>,rows:readonly InstanceData<A,S,R>[],options:GeometryOptions={}) {
-    if(!(prototype instanceof Mesh))throw new Error('mesh instances require a mesh prototype');
+  constructor(readonly prototype:Material,rows:readonly InstanceData<A,S,R>[],options:GeometryOptions={}) {
+    if(!isGeometry(prototype)||!hasFaces(prototype)&&prototype.n>0)throw new Error('mesh instances require a mesh prototype: a geometry with faces');
     refuseDisplay(options,'instances');this.key=key(options.key);
     if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('instance IDs must be unique');
     this.rows=Object.freeze(rows.map((row,index)=>{
@@ -105,8 +108,8 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
   translate(field:Field<InstanceRow<A,S,R>,Vec3>):Instances<P,E,F,A,S,R,C>{
     return this.transform(row=>{const delta=evaluate(field,row);finite3(delta);return {translate:add3(row.transform.translate,delta)};});
   }
-  realize(options:RealizeOptions={}):Mesh<Combined<A,P>,Combined<A,E>,Combined<A,F>,Combined<A,C>> {
-    const prototype=this.prototype.surface;
+  realize(options:RealizeOptions={}):Material {
+    const prototype=surfaceOf(this.prototype);
     budget(this.length*prototype.points.length,options.maxPoints??Infinity,'points');budget(this.length*prototype.faces.length,options.maxFaces??Infinity,'faces');
     const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],edges:SurfaceEdge3[]=[],triangles:SurfaceTriangle3[]=[];
     for(const row of this.rows){
@@ -117,14 +120,14 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
       for(const t of surface.triangles)triangles.push({face:t.face+faceOffset,vertices:t.vertices.map(v=>v+pointOffset) as [number,number,number]});
       for(const e of surface.edges)edges.push({...e,...metadata('e',e.id,e.attributes),vertices:e.vertices.map(v=>v+pointOffset) as [number,number],faces:e.faces.map(f=>f+faceOffset)});
     }
-    return new Mesh(assembleSurface3(points,faces,triangles,{points,faces,edges,triangles}),{key:this.key,transfers:this.prototype.transfers,cornerTransfers:this.prototype.cornerTransfers,[SOURCES]:derived('realize',this.prototype,this)});
+    return geometry3(assembleSurface3(points,faces,triangles,{points,faces,edges,triangles}),{key:this.key,transfers:this.prototype.transfers,derived:derived('realize',this.prototype,this)});
   }
 }
 /** Internal bridge shared by surface generators and ordinary view capture. */
 export function instanceSurfaceBinding3(instances:Instances<any,any,any,any,any,any,any>,row:InstanceRow<any,any,any>):SurfaceBinding3 {
   if(instances.rows[row.index]!==row)throw new Error('instance placement belongs to another collection');
   const placement=placements.get(row);if(!placement)throw new Error('instance requires an owned placement');
-  return surfaceBinding3(instances.prototype.surface,placement);
+  return surfaceBinding3(surfaceOf(instances.prototype),placement);
 }
 
 /** Points as a collection, or anything that has one: sampled or scattered
@@ -132,32 +135,34 @@ export function instanceSurfaceBinding3(instances:Instances<any,any,any,any,any,
 /** 2D points at z = 0: a 2D point collection or selection, a material, or
  * `[x, y]` pairs. */
 export type Points2Input=Iterable<{readonly x:number;readonly y:number}>|{readonly points:Iterable<{readonly x:number;readonly y:number}>}|readonly (readonly [number,number])[];
-export type PointsInput<R extends PointRow<{}>>=Selection<R>|{readonly points:Selection<R>}|Points2Input;
-export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends PointRow<{}>>(
-  prototype:Mesh<P,E,F,C>,input:Selection<R>|{readonly points:Selection<R>},options?:InstanceOnPointsOptions<R['attributes'],R>,
+export type PointsInput<R extends Vertex>=Selection<R>|{readonly points:Selection<R>}|Points2Input;
+export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends Vertex>(
+  prototype:Material,input:Selection<R>|{readonly points:Selection<R>},options?:InstanceOnPointsOptions<R['attributes'],R>,
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>;
 /** 2D points stand at z = 0; their columns are numbers. */
 export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(
-  prototype:Mesh<P,E,F,C>,input:Points2Input,options?:InstanceOnPointsOptions<Record<string,number>,PointRow<Record<string,number>>>,
-):Instances<P,E,F,Record<string,number>,Record<string,number>,PointRow<Record<string,number>>,C>;
-export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends PointRow<{}>>(
-  prototype:Mesh<P,E,F,C>,input:PointsInput<R>,options:InstanceOnPointsOptions<R['attributes'],R>={},
+  prototype:Material,input:Points2Input,options?:InstanceOnPointsOptions<Record<string,number>,Vertex>,
+):Instances<P,E,F,Record<string,number>,Record<string,number>,Vertex,C>;
+export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends Vertex>(
+  prototype:Material,input:PointsInput<R>,options:InstanceOnPointsOptions<R['attributes'],R>={},
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>{
-  if(!(prototype instanceof Mesh))throw new Error('instanceOnPoints requires a mesh prototype');
-  const held=isSelection3(input)?input:input&&typeof input==='object'&&'points'in input?input.points:undefined;
+  if(!isGeometry(prototype)||!hasFaces(prototype)&&prototype.n>0)throw new Error('instanceOnPoints requires a mesh prototype: a geometry with faces');
+  const isPoints=(v:unknown):v is Selection<R>=>v instanceof Selection&&v.domain.kind.name==='point';
+  const inSpace=(v:Selection<R>):boolean=>inSpace3(v.source as Material);
+  const held=input instanceof Selection?input:input&&typeof input==='object'&&'points'in input?input.points:undefined;
   // 2D points stand on the ground plane: z = 0, ids and columns kept.
-  const points=isSelection3(held)?held as Selection<R>:points2(input,'instanceOnPoints')?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Selection<R>:undefined;
-  if(!isSelection3(points,'point'))throw new Error('instanceOnPoints requires points: a point collection, sampled points, a mesh, or 2D points');
+  const points=isPoints(held)&&inSpace(held)?held:points2(input,'instanceOnPoints')?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Selection<R>:undefined;
+  if(!isPoints(points))throw new Error('instanceOnPoints requires points: a point collection, sampled points, a mesh, or 2D points');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('instance options must be an object');
   key(options.key);if(points.length>100000)throw new Error('instance count exceeds budget (100000)');
   return new Instances<P,E,F,R['attributes'],R['attributes'],R,C>(prototype,points.map(source=>{
     const offset=evaluate(options.offset??([0,0,0] as Vec3),source);finite3(offset);
-    return {id:identity('instance',prototype.key??'prototype',source.id),source,attributes:source.attributes,
+    return {id:identity('instance',kernelOf(prototype).key??'prototype',rowName(source,'points')),source,attributes:rowAttributes(source,'points') as Attributes3,
       transform:transform({translate:add3([source.x,source.y,source.z],offset),rotate:evaluate(options.rotate??([0,0,0] as Vec3),source),scale:evaluate(options.scale??1,source)})};
-  }),options);
+  }) as never,options);
 }
 
-export interface InstanceOnFacesOptions<F extends Attributes3,R extends FaceRow<F>=FaceRow<F>> extends GeometryOptions {
+export interface InstanceOnFacesOptions<F extends Attributes3,R extends Face=Face> extends GeometryOptions {
   readonly scale?:Field<R,number|Vec3>;
   /** Extra rotation applied after the prototype's +Z is aligned to the face normal. */
   readonly rotate?:Field<R,RotationInput>;
@@ -167,17 +172,17 @@ export interface InstanceOnFacesOptions<F extends Attributes3,R extends FaceRow<
 /** One prototype at every selected face: at the face center, its +Z along the
  * face normal (Blender's Instance on Points after Distribute on Faces, with
  * Align Rotation to Normal). Rows keep the face's attributes. */
-export function instanceOnFaces<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends FaceRow<F>>(
-  prototype:Mesh<P,E,F,C>,faces:Selection<R>,options:InstanceOnFacesOptions<F,R>={},
+export function instanceOnFaces<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends Face>(
+  prototype:Material,faces:Selection<R>,options:InstanceOnFacesOptions<F,R>={},
 ):Instances<P,E,F,R['attributes'],R['attributes'],R,C>{
-  if(!(prototype instanceof Mesh))throw new Error('instanceOnFaces requires a mesh prototype');
-  if(!isSelection3(faces,'face'))throw new Error('instanceOnFaces requires a face collection, e.g. mesh.faces');
+  if(!isGeometry(prototype)||!hasFaces(prototype)&&prototype.n>0)throw new Error('instanceOnFaces requires a mesh prototype: a geometry with faces');
+  if(!(faces instanceof Selection&&faces.domain.kind.name==='face'))throw new Error('instanceOnFaces requires a face collection, e.g. mesh.faces');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('instance options must be an object');
   key(options.key);
   return new Instances<P,E,F,R['attributes'],R['attributes'],R,C>(prototype,faces.map(face=>{
     const along=evaluate(options.offset??0,face),offset=typeof along==='number'?mul3(face.normal,along):along;finite3(offset);
     const aligned=alignAxis('z',face.normal),extra=options.rotate?rotation3(evaluate(options.rotate,face)):undefined;
-    return {id:identity('instance',prototype.key??'prototype',face.id),source:face as unknown as R,attributes:face.attributes,
-      transform:transform({translate:add3(face.centroid,offset),rotate:extra?aligned.then(extra):aligned,scale:evaluate(options.scale??1,face)})};
+    return {id:identity('instance',kernelOf(prototype).key??'prototype',rowName(face,'faces')),source:face as unknown as R,attributes:rowAttributes(face,'faces') as Attributes3,
+      transform:transform({translate:add3(face.centroid as Vec3,offset),rotate:extra?aligned.then(extra):aligned,scale:evaluate(options.scale??1,face)})};
   }) as never,options);
 }

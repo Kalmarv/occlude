@@ -3,8 +3,9 @@ import {surface3,assembleSurface3} from '../src/three/geometry/surface.js';
 import {snapshotSurface3,transformSurface3,cloneSurface3} from '../src/three/geometry/model.js';
 import {triangleCorners3} from '../src/three/geometry/corners.js';
 import {subdivideSurface} from '../src/three/api/subdivide.js';
-import {Mesh,pointCloud} from '../src/three/api/mesh.js';
+import {mesh,pointCloud} from '../src/three/api/mesh.js';
 import {instanceOnPoints} from '../src/three/api/instances.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 function pair(){
  const s=surface3([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[2,0,0],[2,1,0]],[[0,1,2,3],[1,4,5,2]]);
  return assembleSurface3(s.points,s.faces.map((f,i)=>({...f,corners:f.corners!.map((c,j)=>({...c,attributes:{uv:([[0,0],[1,0],[1,1],[0,1]][j]).map((v,k)=>v+(k===0?i*10:0)),island:i?'right':'left'}}))})),s.triangles,s);
@@ -43,7 +44,7 @@ describe('owned polygon corner storage',()=>{
   for(const face of refined.faces)for(const c of face.corners!)expect(c.provenance?.parents.length).toBeLessThanOrEqual(2);
  });
  it('namespaces realized corners while preserving their values',()=>{
-  const prototype=new Mesh(pair()),out=instanceOnPoints(prototype,pointCloud([[0,0,0],[3,0,0]]).points).realize().surface;
+  const prototype=mesh(pair()),out=surfaceOf(instanceOnPoints(prototype,pointCloud([[0,0,0],[3,0,0]]).points).realize());
   expect(new Set(out.faces.flatMap(f=>f.corners!.map(c=>c.id))).size).toBe(16);
   expect(out.faces[0].corners!.map(c=>c.attributes.uv)).toEqual(out.faces[2].corners!.map(c=>c.attributes.uv));
   expect(out.faces[2].corners!.every(c=>c.provenance?.operation==='realize')).toBe(true);

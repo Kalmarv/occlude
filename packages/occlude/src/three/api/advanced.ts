@@ -33,3 +33,4 @@ export type {PhaseTimings3,Phase3} from '../timing.js';
 export {SurfaceCurves} from './supported.js';
 export {surfaceBinding3,surfaceCurveNetwork3} from '../curves/network.js';
 export type {SurfaceBinding3,SurfaceCurveNetwork3,SurfaceCurveNetworkInput3,SurfaceCurveBudget3} from '../curves/network.js';
+export { surfaceOf } from '../geometry/value.js';

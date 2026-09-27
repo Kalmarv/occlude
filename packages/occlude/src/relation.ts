@@ -16,8 +16,8 @@
  * from `near`, and a mean from `sel.mean(column)`.
  */
 
-import { at64, atU32 } from './column.js';
-import { Material, alongMaterial, ownedBy, resampleMaterial, viewKind, type Edge, type Vertex } from './material.js';
+import { at64, atU32, gatherColumn, type AnyColumn } from './column.js';
+import { Material, alongMaterial, inSpace3, ownedBy, resampleMaterial, viewKind, type Edge, type Vertex } from './material.js';
 import { ownerOf } from './views.js';
 import { carryLinks } from './derivation.js';
 import { degreesWithin } from './chains.js';
@@ -27,7 +27,7 @@ import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, ty
 import { neighbours } from './forces.js';
 import {
   addPoints, removePoints, setPoints, addEdges, removeEdges, setEdges, pointRow, edgeRow,
-  type ColumnValue, type EdgeEnd, type EdgeRowSpec, type PointEnd, type PointWhere, type EdgeWhere, type PointSetOpts, type EdgeSetOpts,
+  type CellValue, type ColumnValue, type EdgeEnd, type EdgeRowSpec, type PointEnd, type PointWhere, type EdgeWhere, type PointSetOpts, type EdgeSetOpts, type PointRecordSetOpts, type EdgeRecordSetOpts,
 } from './tables.js';
 import { vx, vy, type XY } from './vec.js';
 import { edges as buildEdgeQuery, type EdgeQuery, type NearestHit, type FirstHit } from './query.js';
@@ -71,15 +71,15 @@ const viewName = (kind: string | undefined, v: unknown): string =>
 export interface PointSet {
   (column: string, value: ColumnValue<Vertex>, where?: PointWhere, opts?: PointSetOpts): Material;
   (column: string, value: ColumnValue<Vertex>, opts: PointSetOpts): Material;
-  (values: Record<string, ColumnValue<Vertex>>, where?: PointWhere, opts?: PointSetOpts): Material;
-  (values: Record<string, ColumnValue<Vertex>>, opts: PointSetOpts): Material;
+  (values: Record<string, ColumnValue<Vertex>>, where?: PointWhere, opts?: PointRecordSetOpts): Material;
+  (values: Record<string, ColumnValue<Vertex>>, opts: PointRecordSetOpts): Material;
 }
 /** The edge write, as the point write. */
 export interface EdgeSet {
   (column: string, value: ColumnValue<Edge>, where?: EdgeWhere, opts?: EdgeSetOpts): Material;
   (column: string, value: ColumnValue<Edge>, opts: EdgeSetOpts): Material;
-  (values: Record<string, ColumnValue<Edge>>, where?: EdgeWhere, opts?: EdgeSetOpts): Material;
-  (values: Record<string, ColumnValue<Edge>>, opts: EdgeSetOpts): Material;
+  (values: Record<string, ColumnValue<Edge>>, where?: EdgeWhere, opts?: EdgeRecordSetOpts): Material;
+  (values: Record<string, ColumnValue<Edge>>, opts: EdgeRecordSetOpts): Material;
 }
 
 /** @internal What a selection of vertices answers (see `ROW_TYPES`). */
@@ -90,7 +90,7 @@ export type PointTypes = Types<{
   curves: Selection<Curve>;
   extract: () => Material;
   set: PointSet;
-  add: (at: XY | PointEnd | Iterable<XY | PointEnd> | undefined, cols?: Record<string, number>) => Material;
+  add: (at: XY | readonly [number, number, number] | PointEnd | Iterable<XY | readonly [number, number, number] | PointEnd> | undefined, cols?: Record<string, CellValue>) => Material;
   remove: (what: Selection<Vertex> | PointEnd | undefined) => Material;
   thicken: (opts: ThickenOpts) => Material;
 }>;
@@ -103,7 +103,7 @@ export type EdgeTypes = Types<{
   curves: Selection<Curve>;
   extract: () => Material;
   set: EdgeSet;
-  add: (rows: EdgeRowSpec | EdgeEnd | readonly (EdgeRowSpec | EdgeEnd)[] | undefined, cols?: Record<string, number>) => Material;
+  add: (rows: EdgeRowSpec | EdgeEnd | readonly (EdgeRowSpec | EdgeEnd)[] | undefined, cols?: Record<string, CellValue>) => Material;
   remove: (what: Selection<Edge> | EdgeEnd | undefined) => Material;
   thicken: (opts: ThickenOpts) => Material;
   resample: (opts: Parameters<Material['resample']>[0]) => Material;
@@ -157,6 +157,8 @@ class PointDomain implements Domain<Vertex> {
   near(p: unknown, radius: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
     if (!(typeof radius === 'number' && radius > 0)) throw new Error(`${who}: radius must be a positive distance`);
     const m = this.source;
+    const z = zColumn(m);
+    if (z !== null && m.space !== undefined && m.space.kind !== 'euclidean') throw inCurvedSpace(who);
     const box = m.nearBox;
     let index = box.byRadius.get(radius);
     if (index === undefined) {
@@ -172,6 +174,24 @@ class PointDomain implements Domain<Vertex> {
     const px = vx(p as XY);
     const py = vy(p as XY);
     const space = m.space;
+    if (z !== null) {
+      // In space the distance is the straight one, z counted. The plane's
+      // grid finds every candidate — a point nearer than the radius in
+      // space is nearer than it in x and y — and each is judged in space.
+      const pz = placeZ(p, who);
+      const x = m.x;
+      const y = m.y;
+      const rows: number[] = [];
+      const distances: number[] = [];
+      for (const r of index(p as XY)) {
+        const d = Math.hypot(px - x[r], py - y[r], pz - z[r]);
+        if (d < radius) {
+          rows.push(r);
+          distances.push(d);
+        }
+      }
+      return { rows, distances };
+    }
     const rows = index(p as XY);
     const distances = new Float64Array(rows.length);
     // The index is built over every position, so the flats are joined
@@ -235,6 +255,26 @@ class EdgeDomain implements Domain<Edge> {
     const space = m.space;
     const px = vx(p as XY);
     const py = vy(p as XY);
+    const z = zColumn(m);
+    if (z !== null) {
+      if (space !== undefined && space.kind !== 'euclidean') throw inCurvedSpace(who);
+      // As for points: the plane's grid finds every candidate (a segment is
+      // no farther in x and y than in space), and each is judged by the
+      // straight distance to the whole segment in space.
+      const pz = placeZ(p, who);
+      const rows: number[] = [];
+      const distances: number[] = [];
+      for (const e of edgeQuery(m).within([px, py], radius)) {
+        const a = m.edgeList[2 * e];
+        const b = m.edgeList[2 * e + 1];
+        const d = segmentDistance3(px, py, pz, m.x[a], m.y[a], z[a], m.x[b], m.y[b], z[b]);
+        if (d < radius) {
+          rows.push(e);
+          distances.push(d);
+        }
+      }
+      return { rows, distances };
+    }
     if (space === undefined || space.kind === 'euclidean') {
       const distances: number[] = [];
       return { rows: edgeQuery(m).within([px, py], radius, distances), distances };
@@ -244,6 +284,35 @@ class EdgeDomain implements Domain<Edge> {
     const distances = rows.map((e) => geodesicSegmentDistance(space, at, [m.x[m.edgeList[2 * e]], m.y[m.edgeList[2 * e]]], [m.x[m.edgeList[2 * e + 1]], m.y[m.edgeList[2 * e + 1]]]));
     return { rows, distances };
   }
+}
+
+/** The `z` numbers of a value in space, or null for a value in the plane. */
+function zColumn(m: Material): Float64Array | null {
+  return inSpace3(m) ? m.attrs.z : null;
+}
+
+/** The third number of a place a question about a value in space asks
+ * with: `[x, y, z]`, `{ x, y, z }` or a point of a value in space. */
+function placeZ(p: unknown, who: string): number {
+  const z = Array.isArray(p) ? p[2] : typeof p === 'object' && p !== null ? (p as { z?: unknown }).z : undefined;
+  if (typeof z !== 'number' || !Number.isFinite(z)) throw new Error(`${who}: this value is in space — ask with a place in space: [x, y, z], { x, y, z } or a point of a value in space`);
+  return z;
+}
+
+const inCurvedSpace = (who: string): Error =>
+  new Error(`${who}: a value with a z is measured straight in space — it cannot also lie in a curved space of the plane`);
+
+/** The straight distance from `p` to the segment `a`–`b`, in space. */
+function segmentDistance3(px: number, py: number, pz: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const wx = px - ax;
+  const wy = py - ay;
+  const wz = pz - az;
+  const l = dx * dx + dy * dy + dz * dz;
+  const t = l > 0 ? Math.max(0, Math.min(1, (wx * dx + wy * dy + wz * dz) / l)) : 0;
+  return Math.hypot(wx - t * dx, wy - t * dy, wz - t * dz);
 }
 
 /** @internal The point domain of a material, made once per state. */
@@ -326,7 +395,7 @@ const POINTS: DomainKind = domainKind('point', 'points', {
    * column, with NO edges (`sel.edges.extract()` keeps them). */
   extract: { value(this: Sel): Material { return extractRows(this.source, this.indices, []); } },
   set: { value(this: Sel, ...args: unknown[]): Material { return setPoints(this.source, this.members, args); } },
-  add: { value(this: Sel, at: unknown, cols?: Record<string, number>): Material { return addPoints(this.source, at as never, cols); } },
+  add: { value(this: Sel, at: unknown, cols?: Record<string, CellValue>): Material { return addPoints(this.source, at as never, cols); } },
   remove: { value(this: Sel, what: unknown): Material { return removePoints(this.source, what); } },
   thicken: { value(this: Sel, opts: ThickenOpts): Material { return thickenKernel(this, opts); } },
 });
@@ -344,7 +413,7 @@ const EDGES: DomainKind = domainKind('edge', 'edges', {
    * with their stored direction. */
   extract: { value(this: Sel): Material { return extractRows(this.source, endpointRows(this), this.indices); } },
   set: { value(this: Sel, ...args: unknown[]): Material { return setEdges(this.source, this.members, args); } },
-  add: { value(this: Sel, rows: unknown, cols?: Record<string, number>): Material { return addEdges(this.source, rows, cols); } },
+  add: { value(this: Sel, rows: unknown, cols?: Record<string, CellValue>): Material { return addEdges(this.source, rows, cols); } },
   remove: { value(this: Sel, what: unknown): Material { return removeEdges(this.source, what); } },
   thicken: { value(this: Sel, opts: ThickenOpts): Material { return thickenKernel(this, opts); } },
   // A resample or an along of the members answers rows of their material.
@@ -415,18 +484,22 @@ export function extractRows(m: Material, pointRows: readonly number[], edgeRows:
   for (let k = 0; k < pointRows.length; k++) rowMap.set(pointRows[k], k);
   // An extracted row is the row it came from, so it keeps its identity: a
   // selection pulled out and grown is still made of the same points.
-  const attrs: Record<string, Float64Array> = {};
-  for (const name in s.attrs) attrs[name] = s.attrs[name].gather(pointRows);
+  const attrs: Record<string, AnyColumn> = {};
+  for (const name in s.attrs) attrs[name] = gatherColumn(s.attrs[name], pointRows);
   const edges = new Uint32Array(edgeRows.length * 2);
   for (let k = 0; k < edgeRows.length; k++) {
     const e = edgeRows[k];
     edges[2 * k] = rowMap.get(s.edgeList.get(2 * e))!;
     edges[2 * k + 1] = rowMap.get(s.edgeList.get(2 * e + 1))!;
   }
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name in s.edgeAttrs) edgeAttrs[name] = s.edgeAttrs[name].gather(edgeRows);
+  const edgeAttrs: Record<string, AnyColumn> = {};
+  for (const name in s.edgeAttrs) edgeAttrs[name] = gatherColumn(s.edgeAttrs[name], edgeRows);
   const ids = { points: s.pointIds.gather(pointRows), edges: s.edgeIds.gather(edgeRows), edgeRoots: s.edgeRoots.gather(edgeRows) };
-  return carryLinks(m, new Material(s.x.gather(pointRows), s.y.gather(pointRows), attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
+  const keys = {
+    points: s.pointKeys === null ? null : (gatherColumn(s.pointKeys, pointRows) as typeof s.pointKeys),
+    edges: s.edgeKeys === null ? null : (gatherColumn(s.edgeKeys, edgeRows) as typeof s.edgeKeys),
+  };
+  return carryLinks(m, new Material(s.x.gather(pointRows), s.y.gather(pointRows), attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids, keys, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
 }
 
 /**

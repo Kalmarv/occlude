@@ -1,15 +1,15 @@
 import {add3,mul3,sub3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
-import {Mesh,type GeometryOptions} from './mesh.js';
-import {CurveGeometry} from './mesh.js';
+import {isGeometry,surfaceOf,type GeometryOptions} from './mesh.js';
 import {curve} from './curves.js';
 import {query,type PreparedQuery} from './query.js';
 import {checkedField3,type VectorField3} from './vec.js';
 import {refuseDisplay} from './recipes.js';
+import type {Material} from '../../material.js';
 
 /** Where the lines start: the points themselves, or a count thrown into a
  * closed mesh — `{ count: 40, within: sphere(2) }`. */
-export type Seeds3=readonly Vec3[]|{readonly count:number;readonly within:Mesh<any,any,any,any>};
+export type Seeds3=readonly Vec3[]|{readonly count:number;readonly within:Material};
 export interface Streamlines3Options extends GeometryOptions {
   readonly seeds:Seeds3;
   /** Closest another line may come, in world units. Lines stop half of it from
@@ -25,7 +25,7 @@ export interface Streamlines3Options extends GeometryOptions {
   /** A closed mesh the lines are cut to: only the runs inside it are kept,
    * with the crossing point interpolated. An open mesh has no inside, so
    * nothing comes back. */
-  readonly within?:Mesh<any,any,any,any>;
+  readonly within?:Material;
 }
 export interface Streamlines3Env {readonly rnd:()=>number}
 const unit=(v:Vec3):Vec3|null=>{
@@ -76,7 +76,7 @@ class Separation3 {
     return false;
   }
 }
-const closed=(mesh:Mesh<any,any,any,any>):boolean=>mesh.surface.faces.length>0&&mesh.surface.edges.every(e=>e.faces.length===2);
+const closed=(mesh:Material):boolean=>{const s=surfaceOf(mesh);return s.faces.length>0&&s.edges.every(e=>e.faces.length===2);};
 function bounds(points:readonly Vec3[]):{low:Vec3;high:Vec3;extent:number} {
   const low:number[]=[Infinity,Infinity,Infinity],high:number[]=[-Infinity,-Infinity,-Infinity];
   for(const p of points)for(let k=0;k<3;k++){low[k]=Math.min(low[k],p[k]);high[k]=Math.max(high[k],p[k]);}
@@ -130,7 +130,7 @@ function cutInside(prepared:PreparedQuery,path:readonly Vec3[],scale:number):Vec
  *
  * A field with no direction, a spacing that is not positive, or an open
  * `within` mesh draws nothing for that piece. */
-export function streamlines3(field:VectorField3,options:Streamlines3Options,env:Streamlines3Env):CurveGeometry[] {
+export function streamlines3(field:VectorField3,options:Streamlines3Options,env:Streamlines3Env):Material[] {
   checkedField3(field,'t.streamlines');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('t.streamlines of a field of space requires its options, { seeds }');
   refuseDisplay(options,'t.streamlines');
@@ -138,11 +138,11 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
   if(options.step!==undefined&&emptySize(options.step))return [];
   if(options.maxLength!==undefined&&emptySize(options.maxLength))return [];
   const bound=options.within;
-  if(bound!==undefined&&!(bound instanceof Mesh))throw new Error('t.streamlines within requires a closed mesh');
+  if(bound!==undefined&&!isGeometry(bound))throw new Error('t.streamlines within requires a closed mesh');
   if(bound&&!closed(bound))return [];
   const seeds=seedPoints(options.seeds,env);
   if(!seeds.length)return [];
-  const region=bound?bounds(bound.surface.points.map(p=>p.position)):undefined;
+  const region=bound?bounds(surfaceOf(bound).points.map(p=>p.position)):undefined;
   const spread=Math.max(bounds(seeds).extent,region?.extent??0);
   const extent=spread>0?spread:1;
   const spacing=options.spacing;
@@ -169,7 +169,7 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
     }
     return out;
   };
-  const curves:CurveGeometry[]=[];
+  const curves:Material[]=[];
   const {key,seeds:_seeds,spacing:_spacing,step:_step,maxLength:_max,within:_within,...rest}=options;
   for(const seed of seeds){
     if(!seed.every(Number.isFinite)||!direction(field,seed))continue;
@@ -186,11 +186,11 @@ export function streamlines3(field:VectorField3,options:Streamlines3Options,env:
 }
 function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
   if(Array.isArray(seeds))return (seeds as readonly Vec3[]).map(p=>[...p] as Vec3);
-  const request=seeds as {count:number;within:Mesh<any,any,any,any>};
-  if(!request||typeof request!=='object'||!(request.within instanceof Mesh))throw new Error('t.streamlines seeds require a list of points, or { count, within }');
+  const request=seeds as {count:number;within:Material};
+  if(!request||typeof request!=='object'||!isGeometry(request.within))throw new Error('t.streamlines seeds require a list of points, or { count, within }');
   if(!Number.isSafeInteger(request.count)||request.count<0)throw new Error('t.streamlines seed count must be a nonnegative integer');
   if(!closed(request.within))return [];
-  const box=bounds(request.within.surface.points.map(p=>p.position));
+  const box=bounds(surfaceOf(request.within).points.map(p=>p.position));
   if(!(box.extent>0))return [];
   const prepared=query(request.within),out:Vec3[]=[];
   // Rejection sampling in the mesh's own box: the points are where the shape
@@ -207,6 +207,6 @@ function seedPoints(seeds:Seeds3,env:Streamlines3Env):Vec3[] {
  * => …`: the same word as for a field of the plane, read from the field's
  * arity. Seeds given as a count are thrown into their mesh with the sketch's
  * seeded stream, keyed by the options' `key`. */
-export function streamlinesInSpace(exec:{stream(name:string):{rnd:()=>number}},field:VectorField3,options:Streamlines3Options):CurveGeometry[] {
+export function streamlinesInSpace(exec:{stream(name:string):{rnd:()=>number}},field:VectorField3,options:Streamlines3Options):Material[] {
   return streamlines3(field,options,{rnd:exec.stream('__streamlines3:'+(options?.key??'default')).rnd});
 }

@@ -1,14 +1,16 @@
 import {Table3,select3,kind3,POINTS3,EDGES3} from './collection.js';
 import {ROW_TYPES,type Selection,type Types} from '../../selection.js';
 import type {Attributes3} from '../geometry/surface.js';
-import {Mesh,type GeometryOptions,type PointRow} from './mesh.js';
+import {isGeometry,surfaceOf,type GeometryOptions} from './mesh.js';
 import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,surfaceCurveNetwork3,bindingTriangle3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3,type SurfaceCurveRecipe3} from '../curves/network.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {identity} from './identity.js';
 import {weightedPoint} from '../geometry/exact.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
+import type {Material} from '../../material.js';
 /** Multiple support contexts remain distinct at seams and intersections. */
-export interface SurfaceCurvePoint extends PointRow<{}> {
+export interface SurfaceCurvePoint {
+ readonly id:string;readonly index:number;readonly x:number;readonly y:number;readonly z:number;
  readonly exact:SurfaceCurveNode3['exact'];readonly supports:SurfaceCurveNode3['supports'];
  readonly attributes:SurfaceCurveNode3['attributes'];
  readonly [ROW_TYPES]?:SurfaceCurvePointTypes;
@@ -137,10 +139,10 @@ export class SurfaceCurves<A extends Attributes3={}> {
  get points():Selection<SurfaceCurvePoint>{return this.#build().points;}
  get edges():Selection<SurfaceCurveEdge<A>>{return this.#build().edges;}
  get sources():SurfaceCurveNetwork3['sources']{return this.network.sources;}
- rebind(target:Mesh<any,any,any,any>|readonly Mesh<any,any,any,any>[]):SurfaceCurves<A> {
-  const targets=target instanceof Mesh?[target]:target;
-  if(!Array.isArray(targets)||targets.length!==this.sources.length||targets.some(t=>!(t instanceof Mesh)))throw new Error('curve rebind requires one mesh per source');
-  const bindings=targets.map((t,i)=>surfaceBinding3(t.surface,this.sources[i].binding.placement));
+ rebind(target:Material|readonly Material[]):SurfaceCurves<A> {
+  const targets=isGeometry(target)?[target]:target;
+  if(!Array.isArray(targets)||targets.length!==this.sources.length||targets.some(t=>!isGeometry(t)))throw new Error('curve rebind requires one mesh per source');
+  const bindings=(targets as readonly Material[]).map((t,i)=>surfaceBinding3(surfaceOf(t),this.sources[i].binding.placement));
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
  withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.#source,{key});}
@@ -152,7 +154,7 @@ export class SurfaceCurves<A extends Attributes3={}> {
   if(!(instances instanceof Instances))throw new Error('curve placement requires an instance set');
   const network=this.network.reference??this.network;
   if(network.sources.length!==1||network.sources[0].binding.placement)throw new Error('curve placement requires marks attached to one unplaced prototype');
-  if(network.sources[0].binding.source!==instances.prototype.surface)throw new Error('curves are attached to a different prototype than these instances');
+  if(network.sources[0].binding.source!==surfaceOf(instances.prototype))throw new Error('curves are attached to a different prototype than these instances');
   const selected=new Set(this.network.segments.map(s=>s.id));
   const sources=instances.rows.map(row=>({id:row.id,binding:instanceSurfaceBinding3(instances,row)}));
   const nodes=sources.flatMap((source,si)=>network.nodes.map(node=>{

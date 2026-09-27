@@ -61,6 +61,7 @@
  */
 
 import { Material, mintIds } from './material.js';
+import { isTypedColumn, type AnyColumn } from './column.js';
 import { Selection } from './selection.js';
 import { Len } from './units.js';
 import type { Execution } from './execution.js';
@@ -286,6 +287,10 @@ function materialContent(h: Hasher, m: Material, open: Set<object>): void {
   const edgeNames = Object.keys(edgeAttrs);
   h.word(edgeNames.length);
   for (const name of edgeNames) { h.str(name); h.bytes(edgeAttrs[name]); }
+  // Columns of another kind than numbers ride beside the flats: each by
+  // its kind and what it stores.
+  typedContent(h, m.store.attrs, open);
+  typedContent(h, m.store.edgeAttrs, open);
   walk(h, m.transfers, 'content', open);
   walk(h, m.edgeTransfers, 'content', open);
   const faceNames = Object.keys(m.faceAttrs);
@@ -294,7 +299,7 @@ function materialContent(h: Hasher, m: Material, open: Set<object>): void {
     h.str(name);
     const values = [...m.faceAttrs[name].values].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     h.word(values.length);
-    for (const [k, x] of values) { h.str(k); h.num(x); }
+    for (const [k, x] of values) { h.str(k); if (typeof x === 'number') h.num(x); else walk(h, x, 'content', open); }
   }
   h.str(m.space?.kind ?? 'none');
   h.num(m.space?.curvature ?? 0);
@@ -435,6 +440,21 @@ export class MemoStore {
     this.entries.clear();
     this.held = 0;
     this.drew.clear();
+  }
+}
+
+/** The columns of another kind than numbers of a column record, hashed by
+ * name, kind and stored values. */
+function typedContent(h: Hasher, cols: Readonly<Record<string, AnyColumn>>, open: Set<object>): void {
+  for (const name in cols) {
+    const col = cols[name];
+    if (!isTypedColumn(col)) continue;
+    h.str(name);
+    h.str(col.kind.name);
+    h.word(col.kind.width);
+    const flat = col.flat();
+    if (ArrayBuffer.isView(flat)) h.bytes(flat);
+    else walk(h, flat, 'content', open);
   }
 }
 

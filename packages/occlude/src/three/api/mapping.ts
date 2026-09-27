@@ -1,6 +1,7 @@
 import {chainsOf} from '../../curves.js';
 import {Material} from '../../material.js';
-import {Mesh} from './mesh.js';
+import {isGeometry,surfaceOf} from './mesh.js';
+import {kernelOf} from '../geometry/value.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {chartIndexJob3} from '../curves/chartIndex.js';
@@ -47,14 +48,14 @@ function checkFrame(frame:ChartFrame|undefined):Required<ChartFrame>|undefined {
   return Object.values(value).every(Number.isFinite)&&value.width>0&&value.height>0?value:undefined;
 }
 /** Capture mutable material columns before any asynchronous task boundary. */
-export function captureSurfaceMapping(mesh:Mesh<any,any,any,any>,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {
-  if(!(mesh instanceof Mesh))throw new Error('mapSurface requires a mesh');
+export function captureSurfaceMapping(mesh:Material,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {
+  if(!isGeometry(mesh))throw new Error('mapSurface requires a mesh');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('surface mapping options must be an object');
   refuseStroke(options,'mapSurface');refuseDisplay(options,'mapSurface');
   const settings=structuredClone(options),patterns=pattern instanceof Material?[pattern]:pattern;
   if(!Array.isArray(patterns)||!patterns.length||patterns.some(p=>!(p instanceof Material)))throw new Error('mapSurface requires resolved numeric materials; use t.material or t.sample for frame-dependent shapes');
   const maxPoints=limit(settings.maxInputPoints,Infinity,'input points'),maxSegments=limit(settings.maxInputSegments,Infinity,'input segments');
-  if(mesh.surface.triangles.length>limit(settings.maxTriangles,Infinity,'triangles'))throw new Error('surface mapping exceeds triangle budget');
+  if(surfaceOf(mesh).triangles.length>limit(settings.maxTriangles,Infinity,'triangles'))throw new Error('surface mapping exceeds triangle budget');
   limit(settings.maxCandidates,Infinity,'candidate');
   for(const name of [settings.uv??'uv',settings.chartAttribute??'chart'])if(typeof name!=='string'||!name)throw new Error('surface mapping coordinate columns must be nonempty strings');
   if(settings.chart!==undefined&&!(typeof settings.chart==='string'||typeof settings.chart==='number'&&Number.isFinite(settings.chart)))throw new Error('surface mapping chart must be a string or finite number');
@@ -78,7 +79,7 @@ function parameter(edge:number,count:number,t:Ratio):Ratio {
 const sameRatio=(a:Ratio,b:Ratio)=>a[0]*b[1]===b[0]*a[1];
 /** Generator orchestration keeps exact construction and graph adoption atomic. */
 export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapping>,onProgress?:(event:{operation:'mapSurface';done:number;total?:number})=>void) {
-  const {mesh,patterns,settings}=captured,surface=mesh.surface,binding=surfaceBinding3(surface);
+  const {mesh,patterns,settings}=captured,surface=surfaceOf(mesh),binding=surfaceBinding3(surface);
   const charts=yield*chartIndexJob3(surface,settings.uv,settings.chartAttribute,settings.chart);
   const budget=settings.budget??{},maxNodes=limit(budget.maxNodes,Infinity,'node'),maxSegments=limit(budget.maxSegments,Infinity,'segment'),maxSupports=limit(budget.maxSupports,Infinity,'support'),maxBytes=limit(budget.maxExactBytes,Infinity,'exact byte'),maxBits=limit(budget.maxCoordinateBits,32768,'coordinate bit'),maxCandidates=settings.maxCandidates??Infinity;
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
@@ -121,7 +122,7 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
     const chains=chainsOf(material);yield;
     const pointColumns=Object.entries(material.attrs);
     for(let ci=0;ci<chains.length;ci++){
-      const path=chains[ci],count=path.indices.length-(path.closed?0:1),chain=identity('mapped-chain',settings.key??mesh.key??'default',pi,ci);
+      const path=chains[ci],count=path.indices.length-(path.closed?0:1),chain=identity('mapped-chain',settings.key??kernelOf(mesh).key??'default',pi,ci);
       for(let e=0;e<count;e++){
         const ia=path.indices[e],ib=path.indices[(e+1)%path.indices.length],a:UV2=[material.x[ia],material.y[ia]],b:UV2=[material.x[ib],material.y[ib]];
         stats.inputSegments++;
@@ -167,6 +168,6 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
  * represented by the polyline you supply (its flattening contract is the 2D
  * conversion's own count/spacing/tolerance). Use `await t.mapSurface(...)` in
  * `sketchAsync` for substantial cancellable workloads. */
-export function mapSurface(mesh:Mesh<any,any,any,any>,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}):SurfaceCurves<MappedAttributes> {
+export function mapSurface(mesh:Material,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}):SurfaceCurves<MappedAttributes> {
   return runGeometryJob3(surfaceMappingJob(captureSurfaceMapping(mesh,pattern,options))).value.curves;
 }

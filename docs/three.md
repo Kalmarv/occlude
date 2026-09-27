@@ -2,13 +2,13 @@
 
 Ordinary sketches import their 3D vocabulary from `occlude/3d`: `plane`, `box`, `sphere`, `cylinder`, `cone`, `torus`, `mesh`, `sweep`, `revolve` and point `grid` build geometry; `subdivide`, `displace`, `extrude` and the `set` of each collection edit it as immutable values, and `t.steps` runs passes of them; `instanceOnPoints` repeats it; `intersections`, `mapSurface`, `isolines`, `trace` and `t.hatch` derive supported curves on it; `view` projects everything through a camera into the sketch's drawable frame, where ordinary `strokes`, clips, masks, labels and named pens apply. Nothing draws itself: geometry and marks stay inspectable data until a view interprets them. Hidden lines are computed by the exact geometric classifier on the CPU, in Studio's worker as in headless rendering, so both produce the same strokes; Studio's WebGPU device serves surface evaluation and the construction viewport. The strokes go through the same pen, preview, planning and export pipeline as 2D drawings. The explicit scene stages (`lineArt3`, feature masks, classification) remain available for advanced work at the end of this page.
 
-## Procedural mesh values
+## Geometry in space
 
-Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. `obj(text)` reads a Wavefront OBJ file from a modeller into the same value, stood upright from the file's Y-up frame. Each returns the same immutable mesh value with `.points`, `.edges` and `.faces` collections.
+Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. `obj(text)` reads a Wavefront OBJ file from a modeller into the same value, stood upright from the file's Y-up frame. Each returns the one geometry of occlude: the same value as a 2D material, with a `z` column. A value with faces has `.points`, `.edges`, `.faces` and `.corners`. A curve has no faces and a point set has no edges; an empty domain is empty, not another type. The words that need faces refuse a value with none by name.
 
 `subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
 
-Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `points.set(name, field)` writes a typed column and preserves its type in later fields; `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Each row of a derived value answers `source`: the row it came from in the input. That is a row when one row made it, and a selection when several did (a subdivided face's middle point has the corners of its parent face as its `source`). Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
+Point rows answer `index`, `x/y/z` and their columns by name. A column is typed: it holds numbers, booleans, strings, numeric vectors of one length, rows or placements, one kind on every row. `points.set(name, field)` writes a column; a write of another kind to the same column refuses by name. A row a write does not reach holds the kind's default (0, `false`, `''`, a zero vector, no row, no placement): a column has no holes. `points.set(name, field, { transfer: 'nearest' })` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Booleans, strings, rows and placements never blend: a new row takes one parent's value. Child faces inherit their columns, and child boundary edges copy their parent's edge columns. Newly introduced interior edges hold the defaults. Each row of a derived value answers `source`: the row it came from in the input. That is a row when one row made it, and a selection when several did (a subdivided face's middle point has the corners of its parent face as its `source`). Built-in row names—including coordinates, `id`, `index`, `normal`, `area` and `length`—are reserved.
 
 `displace(field)` is one immutable displacement pass: a triple per point, or a number along the vertex normal (`{ along: 'z' }` or a triple picks another direction). A run is the 2D one: `t.steps(count, mesh, (m) => m.displace(…).points.set(…), { every })`. A pass takes the geometry and returns the next; a field in a write reads the rows as they were before that write. With `{ every }`, `history` is a plain list of the initial state, every requested step and the final state. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
 
@@ -36,9 +36,9 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
 
 `view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees on the view to change that default. 180 never draws a crease (smooth shading), 0 draws every fold.
 
-The view also says how each object is drawn, and it is the only place that does. A geometry holds no pen, crease angle or hatch, so a change in how it is drawn does not change the geometry. Write the object as a pair in the view's list: `view([[torus(1.2, 0.1), { creaseAngle: 180 }], box(1)], { camera, pen: 'ink' })`. The pair takes `pen`, `fillPen` (the pen for its hatch where the recipe names none), `creaseAngle`, `suggestive` and `hatch`, and each field it names wins over the view's for that object. A list in a pair gives each object in the list the same options: `[[ringA, ringB], { fillPen: 'red', creaseAngle: 180 }]`. An inner pair's fields win over an outer pair's. Instances are drawn as one object, and curves take only `pen`. A mesh scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
+The view also says how each object is drawn, and it is the only place that does. A geometry holds no pen, crease angle or hatch, so a change in how it is drawn does not change the geometry. Write the object as a pair in the view's list: `view([[torus(1.2, 0.1), { creaseAngle: 180 }], box(1)], { camera, pen: 'ink' })`. The pair takes `pen`, `fillPen` (the pen for its hatch where the recipe names none), `creaseAngle`, `suggestive` and `hatch`, and each field it names wins over the view's for that object. A list in a pair gives each object in the list the same options: `[[ringA, ringB], { fillPen: 'red', creaseAngle: 180 }]`. An inner pair's fields win over an outer pair's. Instances are drawn as one object, and curves take only `pen`. A value scaled by zero on any axis becomes nothing: no faces, drawing and hiding nothing, so a loop that passes through zero carries on. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
-Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `without` require the same domain, and read a selection of another revision by id; a selection keeps its order, and `union` appends the other's new members. `mesh.faces.without(sel)` is the remaining rows of the complete domain. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faces.set` stores face fields and `edges.set` edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
+Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object. `union`, `intersect` and `without` require the same domain, and read a selection of another state of the same rows; a selection keeps its order, and `union` appends the other's new members. Another construction of the same shape is another value, and its rows name nothing here. `m.faces.without(sel)` is the remaining rows of the complete domain. Groups are selections with a `.key`. Face extraction keeps the stated faces, their corners and their fixed triangles; extracting points gives points and extracting edges gives a curve. `faces.set` stores face fields and `edges.set` edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Turning or scaling about another pivot carries the origin along with the rest of the object, so the next default rotation still turns in place. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
 
 ## Interpreting projected intervals
 
@@ -84,7 +84,7 @@ lies in XY. Its radius measures the tube centerline, so its outer radius is
 `radius + tubeRadius`. The tube radius must be smaller than the centerline
 radius; self-intersecting and pinched tori are not accepted.
 
-These are ordinary polygon meshes. They support the same attributes,
+These are ordinary values with faces. They support the same columns,
 selections, transforms, `t.steps` and subdivision as imported geometry.
 Increasing construction resolution samples the curved form more closely;
 `.subdivide()` preserves the existing polygon surface and does not round it.
@@ -130,7 +130,7 @@ export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),colo
 ### Instances on points
 
 `instanceOnPoints(prototype, points, {scale?, rotate?, offset?, key?})` places
-one shared mesh prototype at every selected point. The optional fields read
+one shared prototype with faces at every selected point. The optional fields read
 the source point rows. Scale accepts a scalar or triple; rotation accepts XYZ
 Euler degrees or a rotation value about the prototype origin; offset is added to the point's world
 position. The resulting value owns transforms and attributes and retains its
@@ -142,11 +142,11 @@ copied from its source point. `.instances.set(name, field, where?)` adds or repl
 instance column. `.transform(field)` replaces the supplied `translate`,
 `rotate` or `scale` components and retains omitted components; `.translate(field)`
 adds a world-space displacement. Scale, then rotation, then translation apply
-to the prototype. These edits return a new instance value and reuse its mesh.
-The row name `transform` is reserved in addition to the ordinary mesh row names.
+to the prototype. These edits return a new instance value and reuse its prototype.
+The row name `transform` is reserved in addition to the ordinary row names.
 
 `view(instances, options)` accepts instances directly, including in arrays with
-ordinary meshes. Hatch eligibility is selected once on prototype faces; the
+ordinary surfaces. Hatch eligibility is selected once on prototype faces; the
 paper hatch lattice is resolved for each transformed instance. Feature
 attributes include instance columns; projected rows expose `.instance` with
 placement ID, source point ID/index and optional prototype key. Prototype
@@ -155,7 +155,7 @@ precedence on collisions. Rendering computes transformed coordinates and
 visibility for each object; sharing authoring geometry is not a claim of GPU
 instanced drawing or a visibility speedup.
 
-`.realize({maxPoints?, maxFaces?})` explicitly produces one ordinary mesh with
+`.realize({maxPoints?, maxFaces?})` explicitly produces one ordinary value with
 a disconnected copy of each instance's topology. It preserves shared edges
 within each copy and mirrors winding for negative scales. Each row's `source`
 is a list of two: the prototype row it copies and the instance it belongs
@@ -164,7 +164,7 @@ copied to the point/edge/face domains; existing prototype columns win collisions
 Realization derives new IDs deterministically; selecting a subset preserves
 those IDs. Realization is unlimited by default; an explicit `maxPoints`/`maxFaces`
 is checked before duplication.
-An instance value has no editable mesh faces: realize it before mesh operations.
+An instance value has no editable faces: realize it before the words of faces.
 
 ```ts live
 import {sketch,pen,mm} from 'occlude';
@@ -179,8 +179,8 @@ export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},
 
 ### Prepared queries and forces
 
-`query(mesh)` captures a target revision and prepares its CPU spatial index.
-It accepts any ordinary mesh, including a realized instance collection. Edits
+`query(m)` captures a target state and prepares its CPU spatial index.
+It accepts any value with faces, including a realized instance collection. Edits
 produce a different target; an existing query continues to read its captured
 revision. Positions accept triples or point rows with `x/y/z`.
 
@@ -278,18 +278,19 @@ sampling or topology allocation. Adjacent duplicate points and malformed or non-
 rejected. A closed curve has at least three points. Geometry coordinates are world
 units; `view` handles camera projection into the explicit paper frame.
 
-Curves expose `.points` and `.edges` with their typed `set`, selection
-and extraction, `.translate`, `.rotate`, `.scale` and `.displace`, and run in
-`t.steps` as meshes do, history included. Curve edits keep point and
-edge IDs and attributes; extracted mesh edges retain those same IDs while
-becoming independent curve geometry. Curves have no face domain. Extracting
-points removes connectivity; extracting edges retains only their used points.
+A curve is the one geometry with points and edges and no faces. It answers
+`.points` and `.edges` with their typed `set`, selection and extraction,
+`.translate`, `.rotate`, `.scale` and `.displace`, and runs in `t.steps` as
+any value does, history included. Curve edits keep the rows and their columns;
+extracted edges of a surface keep theirs while becoming an independent curve.
+Extracting points removes connectivity; extracting edges keeps only their used
+points.
 
-The ordinary `view` accepts curves alongside meshes and instances. Curve edges
-are wire features with shared endpoint IDs and source edge attributes; meshes
+The ordinary `view` accepts curves alongside surfaces and instances. Curve edges
+are wire features with shared endpoints and their edge columns; surfaces
 can hide them, but a curve does not occlude another object. The existing visible
 and hidden projected collections, named pens and retained camera commits apply.
-A view-wide hatch recipe decorates mesh surfaces and does not fill curve loops.
+A view-wide hatch recipe decorates surfaces and does not fill curve loops.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -317,7 +318,7 @@ export default sketch({ seed: 42, pens: {
 ```
 
 
-## Constructing meshes from profiles
+## Constructing surfaces from profiles
 
 `revolve(profile, options)` rotates an XZ meridian in x >= 0 around the Z axis.
 `segments` defaults to 32; `angle` defaults to 360 degrees and may be negative.
@@ -345,16 +346,16 @@ once. `twist` is a total angle in degrees distributed along path length; closed
 paths require whole turns. `caps: true` closes the two ends of an open path with
 a closed profile. Closed paths share their seam; an open profile stays a ribbon.
 
-Both operations return ordinary meshes. Subdivision, displacement,
+Both operations return ordinary values with faces. Subdivision, displacement,
 `t.steps`, queries, face selection, hatching, instancing and the normal view all
-continue to work. Revolve copies profile point attributes and transfers profile
-edge attributes to side faces. Sweep combines path and profile point columns
+continue to work. Revolve copies profile point columns and transfers profile
+edge columns to side faces. Sweep combines path and profile point columns
 and transfers both edge domains to side faces; profile columns win name
-collisions. Angular/end caps have empty face attributes, so inherited face
-columns are optional. A revolved point's `source` is the profile point it
+collisions. Angular/end caps hold the defaults of the inherited face
+columns. A revolved point's `source` is the profile point it
 turns, and a side face's `source` is the profile edge. A swept point's `source`
-is a list of two: the profile point and the path point. Generated edges start
-with empty attributes. No ambient counters are involved.
+is a list of two: the profile point and the path point. Generated edges hold
+the defaults of the edge columns. No ambient counters are involved.
 
 Construction budgets are unlimited by default; set explicit `maxPoints`/`maxFaces` with
 `maxPoints` and `maxFaces`. General cap triangulation has a separate
@@ -403,44 +404,41 @@ export default sketch({ seed: 42, pens: {
 
 ## Sampling and scattering on surfaces
 
-`t.scatter(mesh, { count })` generates independent area-weighted points on the
-mesh's represented triangles. `t.scatter(mesh, { spacing })` rejects candidates
+`t.scatter(m, { count })` on a value with faces generates independent
+area-weighted points on its represented triangles. `t.scatter(m, { spacing })` rejects candidates
 that are too close to previously accepted points. Its spacing is a bare number
 in **world units**, measured by Euclidean distance across all selected surfaces,
 including disconnected or nearby sheets. It is not paper spacing or geodesic
-distance. The mesh forms coexist with the 2D scatter of a field or an area;
-2D behavior is unchanged.
+distance. A value with a `z` column is scattered on its surface; the 2D scatter
+of a field or an area is unchanged.
 
 Both forms accept `weight: face => number` (or a constant): a nonnegative finite
 per-face candidate weight, captured once. Sampling probability is proportional
 to triangle area times that weight; zero excludes a face. Scatter uses the same
 candidate distribution, with fixed minimum spacing. Weight affects candidate
 probability, not the spacing radius, and does not promise a particular final
-density after rejection. Select faces through zero weights or extract a face
-selection into a mesh first. Mesh instances must be explicitly realized before
-surface sampling.
+density after rejection. Select faces through zero weights, or pass a face
+selection (`t.scatter(m.faces.filter(…), …)`). Instances must be explicitly
+realized before surface sampling.
 
-Both return `SurfaceSamples`, point geometry with ordinary `.points`, attributes,
-selection/extraction, displacement and translation. Every row adds `.sample`:
-an owned original `position`, triangle `normal`, `triangle` index, original
-triangle `vertices`, `barycentric` weights, a typed `face` row and the immutable
-source surface in `.sample.source`.
-`.target` retains the original immutable mesh. Moving a sample does not silently
-reproject it: `.sample` continues to describe where it was generated. The name
-`sample` is reserved alongside the existing geometry row names.
+Both return the one geometry: points with no edges, with ordinary `.points`,
+columns, selection/extraction, displacement and translation. Every row adds
+`.sample`, held in a placement column: an owned original `position`, triangle
+`normal`, `triangle` index, original triangle `vertices`, `barycentric` weights
+and the `face` row under it. Moving a sample does not silently
+reproject it: `.sample` continues to describe where it was generated.
 
 Continuous numeric point columns and equal-sized numeric vectors interpolate
 barycentrically. Categorical columns and columns declared with transfer
-`'nearest'` use the largest barycentric weight, breaking ties by source point ID.
-Missing point columns remain missing; face columns are inherited and point
-columns take precedence on name collisions. Each sample's `source` is the face
+`'nearest'` use the largest barycentric weight, breaking ties by source point.
+Face columns are inherited and point columns take precedence on name collisions. Each sample's `source` is the face
 under it. Instancing and query batches preserve the full point-row type, so placement
 fields, `instance.source` and query `result.source` retain sample normals and
 typed source faces.
 
 Randomness comes from an independent stream of the sketch seed, drawn in call
 order: a second call gives new points, and the same sketch gives the same points
-on every run. `key` names the stream (otherwise the mesh key, then a default
+on every run. `key` names the stream (otherwise the surface's own key, then a default
 key). The `count` and `spacing` forms draw from separate streams. Camera-only commits reuse generated geometry and consume no sampling
 randomness.
 
@@ -448,9 +446,8 @@ The `count` form returns exactly `count` points (an explicit `maxPoints` caps it
 positive count with no positive weighted area is an error. The `spacing` form has no point
 limit by default and stops after `maxAttempts: 100000` rejected candidates. It stops at the first
 limit, so the point limit is a cap, not a promised count or proof of maximal
-packing. Empty weighted domains produce no scatter points. `.generation` records
-the original `attempts`, `accepted` count and stopping `reason`, retained after
-selection or editing. Limits are checked before expanded output allocation.
+packing. Empty weighted domains produce no scatter points. Limits are checked
+before expanded output allocation.
 The sparse neighbor grid diagnoses spacing too small for its coordinate range.
 This is CPU modeling; the resulting instances and view use the existing renderer.
 
@@ -609,8 +606,8 @@ This relief uses one batched roof query. The resulting field reads each source
 point and its captured hit directly; points outside the roof keep their original
 height. Query fields work with ordinary geometry fields and do not submit GPU
 work when evaluated. To retain a measurement through later motion, first call
-`mesh.points.set('restDistance', hits.field((point, hit) => hit?.distance ?? 10))`,
-then transform that returned mesh. The attribute is intentionally a stored
+`m.points.set('restDistance', hits.field((point, hit) => hit?.distance ?? 10))`,
+then transform that returned value. The column is intentionally a stored
 measurement; it does not become a fresh spatial query after the move.
 
 ```ts live
@@ -640,20 +637,20 @@ export default sketch({ seed: 42, pens: {
 });
 ```
 
-### Evolving attributes in passes
+### Evolving columns in passes
 
 Write several columns at once with `.points.set({ name: field, ... })`. Every
 field reads the same incoming geometry, including when it replaces an existing
-column. Edges, faces and corners have the same write: `mesh.edges.set`,
-`mesh.faces.set` and `mesh.corners.set`. A mesh point column declares its
+column. Edges, faces and corners have the same write: `m.edges.set`,
+`m.faces.set` and `m.corners.set`. A point column declares its
 transfer policy with a trailing record, `.points.set('category', field, { transfer: 'nearest' })`,
 or `{ transfer: { category: 'nearest' } }` after the record form; a later value
-keeps the declared policy.
+keeps the declared policy. A corner has no transfer: it lives and dies with its face.
 
-A run is `t.steps(n, mesh, (m) => …)`, and a pass writes with the same `set`. A
+A run is `t.steps(n, m, (m) => …)`, and a pass writes with the same `set`. A
 `where` after the value writes only some rows: a selection, one row, or a test
-of the row. A column keeps its value kind and numeric-vector dimension; a
-literal such as `0` widens to `number`. A value that is not finite leaves its
+of the row. A column keeps its value kind and numeric-vector dimension; a write
+of another kind refuses by name. A value that is not finite leaves its
 row as it was.
 
 Each write reads the geometry it is called on, so a chain of writes sees every
@@ -684,23 +681,25 @@ export default sketch({ seed: 42, pens: {
 
 ### Topology relationships
 
-Mesh rows expose ordinary collections: `face.points`, `face.edges`,
-`face.adjacent`, `edge.points`, `edge.faces`, and `point.edges`, `point.faces`,
-`point.adjacent`. Edge endpoints `a` and `b` are the same typed point rows.
+The rows of a value with faces expose ordinary collections: `face.points`,
+`face.edges`, `face.adjacent`, `face.corners`, `edge.faces`, and `point.edges`,
+`point.faces`, `point.corners`, `point.adjacent`; a corner answers its `point`
+and its `face`. Edge endpoints `a` and `b` are the same point rows.
 Relations follow polygon edges, without adding triangulation diagonals.
 
 A face selection has `.points` and `.edges`, plus `.boundaryEdges()`,
 `.adjacent()`, `.connected()` and `.components()`. Point selections have
-`.edges` and `.faces`, plus `.adjacent()`, `.connected()` and `.components()`;
-edge selections have `.points`, `.edges` (themselves), `.faces`, plus
-`.adjacent()`, `.connected()` and `.components()`. Filtering, grouping and set
-operations preserve these capabilities. Row fields retain attributes across
+`.edges`, plus `.adjacent()`, `.connected()` and `.components()`;
+edge selections have `.points`, `.edges` (themselves), plus
+`.adjacent()`, `.connected()` and `.components()`. The faces of one point or one
+edge are the row word `p.faces` or `e.faces`. Filtering, grouping and set
+operations preserve these capabilities. Rows keep their columns across
 every relation.
 
 Distance is a different question from topology. `points.near(p, { radius })`
 and `edges.near(p, { radius })` give the members closer than `radius` to `p`
-(a row, a triple or `{ x, y, z }`), nearest first, the edges by the true distance to each
-edge, as the 2D words do. A point is never near to itself. A face's middle is
+(a row, a triple or `{ x, y, z }`), nearest first, measured in space, the edges
+by the true distance to each edge, as the 2D words do. A point is never near to itself. A face's middle is
 `centroid`, the 2D face word; an edge's is `center`, as in 2D.
 
 `.adjacent()` collects one-hop neighbors and LEAVES THE MEMBERS OUT, so it is
@@ -711,12 +710,12 @@ source domain and includes its starting rows. `.components()` instead partitions
 the selected induced graph. Faces connect through shared edges, not merely a
 shared vertex or equal coordinates. `.boundaryEdges()` selects edges incident to
 exactly one selected face. All results use deterministic source order and keep
-the original revision's ownership checks.
+the original state's ownership checks.
 
-Adjacency is cached by topology revision and reused through point motion and
-attribute edits. Measurements still follow the current positions. Extraction,
-subdivision, winding changes and topology edits establish a new revision.
-Point-only geometry does not acquire mesh face or edge capabilities.
+Adjacency is cached by topology and reused through point motion and
+column edits. Measurements still follow the current positions. Extraction,
+subdivision, winding changes and topology edits make a new topology.
+A point set has no faces and no edges: its face and edge domains are empty.
 
 
 ### Axis rotations and alignment
@@ -724,7 +723,7 @@ Point-only geometry does not acquire mesh face or edge capabilities.
 `axisAngle(axis, degrees)` creates a right-handed rotation around `'x'`, `'y'`,
 `'z'` or a nonzero direction. `alignAxis(localAxis, direction, options?)` rotates
 one local axis onto a target direction. Directions may be triples or point rows.
-Both return immutable rotation values accepted by mesh/curve/point `.rotate`
+Both return immutable rotation values accepted by `.rotate` on any value in space
 and instance `rotate` fields. Geometry's optional second `.rotate` argument is
 its origin pivot; instance transforms scale about the prototype origin, rotate,
 then translate. Negative scale still mirrors geometry and reverses winding.
@@ -778,19 +777,19 @@ export default sketch({ seed: 42, pens: {
 ### Regular point grids
 
 `grid({ cols, rows, layers?: 1, spacing?: 1, maxPoints?: 100000, key? })`
-from `occlude/3d` creates centered point geometry in model coordinates. A scalar
+from `occlude/3d` creates centered points in model coordinates. A scalar
 spacing applies to every axis; an XYZ triple sets each axis separately. One
 layer gives an XY grid. Counts are nonnegative integers, spacing is positive,
 and the point budget is checked before allocation. A zero count gives an empty
 grid. Use ordinary `.translate`, `.rotate`, `.scale`, `.points.set` and `t.steps`
 to place and edit the result.
 
-Each point has `i`, `j` and `k` attributes for its column, row and layer. X varies
-fastest, then Y, then Z; filtering preserves the original coordinates and IDs.
+Each point has `i`, `j` and `k` columns for its column, row and layer. X varies
+fastest, then Y, then Z; filtering preserves the original coordinates and rows.
 This is a point domain for placement and construction. `t.grid` continues to
-lay out flat faces on the paper, and mesh topology remains explicit through mesh factories.
+lay out flat faces on the paper, and faces in space come from the factories that make them.
 
-### Corner attributes
+### Corner columns
 
 A corner is a point as used by one polygon. A box has eight geometric points
 and 24 corners, so neighboring faces can keep different values at a shared
@@ -798,11 +797,10 @@ point. Corners do not duplicate or move geometric points.
 
 Use `.corners.set({ name: valueOrField })` or
 `.corners.set(name, valueOrField, where?)` to write columns. A corner exposes
-`point`, `face`, `localIndex`, and the ordinary row identity and attributes.
-`face.corners` and `point.corners` are owned collections; face and point
-selections also provide `.corners`. A corner selection can recover `.points`
-and `.faces`. Its `.extract()` returns readonly corner rows, since corners
-alone do not define a mesh.
+`point`, `face`, `index` and its columns. `face.corners` and `point.corners`
+are owned collections, and a face selection also provides `.corners`. A corner
+selection can recover `.points` and `.faces`. Corners belong to their faces, so
+a corner selection has no `.extract()`: extract the faces.
 
 The same `corners.set` writes columns in the passes of `t.steps`. Every field
 reads the incoming revision, including fields reached through another domain.
@@ -810,10 +808,10 @@ reads the incoming revision, including fields reached through another domain.
 Transforms, face extraction and realization preserve corner values and their
 `source`. Subdivision interpolates numeric columns within each parent face;
 it never averages across a seam. Categorical columns use a deterministic
-source, and `corners.set('label', field, { transfer: 'nearest' })` preserves numeric labels.
-If a quad's numeric corner field is not affine, subdivision refines its fixed
-triangles to preserve the field across the original diagonal. Missing columns
-remain missing. Corner attributes store data; drawing remains explicit.
+source. A corner has no transfer policy; a label that must not blend is a
+string column. If a quad's numeric corner field is not affine, subdivision refines its fixed
+triangles to preserve the field across the original diagonal. Corner columns
+store data; drawing remains explicit.
 
 This sheet stores heat per corner, then exchanges it through shared points and faces.
 Each pass reads the preceding heat values. The resulting face averages select
@@ -846,17 +844,16 @@ export default sketch({ seed: 42, pens: {
 
 ### Surface locations and rebinding
 
-A sampled point's `.sample` retains its owned source revision, triangle,
-vertex identities and barycentric coordinates. `position` and `normal` describe
+A sampled point's `.sample` retains its triangle, the face under it and its
+barycentric coordinates. `position` and `normal` describe
 that attachment; `modelPosition` and `modelNormal` make the model interpretation
-explicit. `space` is `'model'` for ordinary mesh sampling. These values do not
-follow later independent edits to the sampled point geometry.
+explicit. `space` is `'model'` for ordinary surface sampling. These values do not
+follow later independent edits to the sampled points.
 
 The context separates typed `pointAttributes`, `faceAttributes` and
 `cornerAttributes`. Numeric source values interpolate inside the triangle;
 nearest and categorical values choose the largest barycentric weight, with
-source ID breaking ties. Missing source columns stay missing. `.face` retains
-the existing typed face row.
+the source point breaking ties. `.face` is the face row under the point.
 
 When triangle corners contain finite `uv` pairs and a consistent optional
 `chart` identity, `.sample.uv` gives affine chart coordinates. `frame.du` and
@@ -870,22 +867,22 @@ transfer policy belongs on discrete columns instead. Different seam sides keep
 their own corner values. Mixed chart identities or
 partially specified UVs on one triangle are diagnosed.
 
-Use `samples.rebind(editedMesh)` to place the samples onto a topology-preserving
-revision. This evaluates the retained triangle weights; it does not sample again
-or search for a nearby surface. Point IDs, captured point columns and generation
-statistics remain unchanged. The sample context refreshes from the target,
-including its new attribute types. Rebinding resets point positions to their
+Use `samples.rebind(edited)` to place the samples onto a topology-preserving
+state of the surface. This evaluates the retained triangle weights; it does not
+sample again or search for a nearby surface. The points and their columns
+remain. The sample context and each `source` refresh from the edited surface,
+including its new columns. Rebinding resets point positions to their
 attachments and starts a new edit history. Previously captured samples remain
 unchanged.
 
 Rebinding requires shared authoring lineage and unchanged face/triangle/corner
-relationships. Point motion, attribute edits and mirrors qualify. An unrelated
-mesh with matching generated IDs does not. Subdivision and other topology
+relationships. Point motion, column edits and mirrors qualify. Another
+construction of the same shape does not. Subdivision and other topology
 changes require regeneration or an explicit topology transfer.
 
 This example repeats the same sampled sites before and after a deformation.
 Corner coordinates control pin height, and retained triangle normals orient the
-pins. The two placements use the same point IDs and chart values.
+pins. The two placements use the same points and chart values.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -1017,10 +1014,10 @@ export default sketch({ seed: 42, pens: {
 });
 ```
 
-The result is ordinary editable point geometry: select, capture attributes,
+The result is the one geometry, points with no edges: select, capture columns,
 transform, run `t.steps`, issue spatial queries from its points, or instance
-another mesh on them. Each point's `sample` retains its curve chain, source
-parameter, world tangent and exact position. Spacing uses a floating arc-length
+a prototype on them. Each point's `source` is the curve edge under it, and its
+`sample` retains the curve parameter, world tangent and exact position. Spacing uses a floating arc-length
 metric; each resulting attachment is constructed exactly on its support triangles.
 `maxPoints` and `maxSupports` bound the generation.
 
@@ -1427,9 +1424,9 @@ export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#1
 
 ## Connected-region extrusion
 
-`mesh.extrude(faces, offset, { key })` raises a connected selection as one
+`m.extrude(faces, offset, { key })` raises a connected selection as one
 region. Each connected component of the selection becomes a translated cap
-that keeps its face and corner IDs, attributes and UVs, and every region
+that keeps its faces, corners, columns and UVs, and every region
 boundary edge (open sheet edges and hole loops included) grows one wall.
 `offset` is a model vector, a callback over the frozen region (`index`,
 `faces`, `normal`, `centroid`, `area`), or `{ distance }` along the region's
@@ -1519,9 +1516,10 @@ export default sketch({ seed: 42, paper: paper({ width: mm(210), height: mm(148)
 
 ## 2D and 3D words
 
-3D says the 2D word where the meaning is the same: `pen` names a pen on every drawing option of the view, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, `distance` and `length` from `occlude` measure triples and 3D rows, `grad` is the gradient, `t.streamlines` and `t.scatter` read what they are given, `union` and `intersect` combine solids as they combine selections, a field of space takes `(x, y, z)`, `curve.along` answers points with `s`, `u` and `tangent` as a 2D `along` does, a row's `source` is what it came from, a placement of space is `Placement<Vec3>` with the verbs of a placement of the plane, and a 2D point or chain is a 3D one at z = 0. A 2D chain of a curved sketch space is refused by `curve`, `sweep` and `revolve`, because 3D space is flat. Some words differ because the meaning differs:
+A value in space is the 2D value with a `z` column, so 3D says the 2D word where the meaning is the same: `pen` names a pen on every drawing option of the view, a face's middle is `centroid`, a column is a property of its row (`p.mobility`, a projected line's `c.rim`), `isolines` takes the 2D `at`, `curve(points)` builds a chain from points, `near` measures distance, `distance` and `length` from `occlude` measure triples and 3D rows, `grad` is the gradient, `t.streamlines` and `t.scatter` read what they are given, `union` and `intersect` combine solids as they combine selections, a field of space takes `(x, y, z)`, `curve.along` answers points with `s`, `u` and `tangent` as a 2D `along` does, a row's `source` is what it came from, a placement of space is `Placement<Vec3>` with the verbs of a placement of the plane, and a 2D point or chain is a 3D one at z = 0. A 2D chain of a curved sketch space is refused by `curve`, `sweep` and `revolve`, because 3D space is flat. Some words differ because the meaning differs:
 
-- A mesh step moves points and writes columns. The topology changes between steps, with `subdivide`, `extrude` and the booleans, because a mesh's faces must stay closed polygons.
+- A word that needs faces (`subdivide`, `extrude` of faces, the booleans, `dual`) refuses a value with no faces by name, and a word that needs a surface (`t.scatter` on a surface, `isolines`, `trace`) reads the stated faces only: a value in space has no faces read off the picture.
+- `translate`, `rotate`, `scale` and `extrude` are told apart by what they take: a 3-vector, angles or an axis, three factors (or one on a value with `z`), a face selection. `rotate` and `scale` of a value in space pivot on its own origin, which primitives are born with at the world origin and `translate` carries.
 - A surface field reads a row (`s.normal`, `p.z`), so it is the sibling of a 2D attribute field, not of a 2D field of the plane.
 
 ## Advanced: explicit scenes and stages

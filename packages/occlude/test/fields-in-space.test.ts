@@ -364,6 +364,8 @@ describe('a material carries the space its coordinates belong to', () => {
     const notMaterial = new Set([
       'constructor', 'rowOfPoint', 'rowOfEdge', 'pointOf', 'edgeOf', 'vertex', 'edge', 'adjacentRows', 'incidentEdgeRows',
       'rowOfVertex', 'faces', 'cellOf', 'siteOf', 'contours', 'pivot',
+      // The 3D words: a value in space, made by the 3D layer (WORDS_3D).
+      'subdivide', 'union', 'subtract', 'intersect', 'dual', 'displace', 'rebind', 'place',
     ]);
     const names = Object.getOwnPropertyNames(Material.prototype).filter((k) => typeof Object.getOwnPropertyDescriptor(Material.prototype, k)?.value === 'function');
     expect(names.filter((k) => !covered.has(k) && !notMaterial.has(k))).toEqual([]);

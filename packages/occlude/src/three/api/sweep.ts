@@ -2,16 +2,16 @@ import type {Curve as Curve2} from '../../curves.js';
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV,type SurfaceChart} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
-import {Mesh,CurveGeometry,emptyMesh,evaluate,type PointRow,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {geometry3,emptyMesh,evaluate,surfaceOf,derived,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
 import {sampleValue} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import {profileCurve} from './curves.js';
-import {SOURCES,derived} from './source.js';
+import type {Material,Vertex} from '../../material.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SweepOptions<A extends Attributes3={}> extends GeometryOptions,ConstructionBudget {
   /** World direction for the profile's initial +X, projected off the tangent. */
   readonly normal?:Vec3;
-  readonly scale?:Field<PointRow<A>,number>;
+  readonly scale?:Field<Vertex,number>;
   /** Total twist in degrees; closed paths require whole turns. */
   readonly twist?:number;
   /** Close a closed profile at the two ends of an open path. Default false. */
@@ -33,10 +33,10 @@ function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
 /** Carry an XY profile along an unbranched 3D path using transported frames.
  * The profile (and the path) may be a 2D chain, read in XY at z = 0.
  * Closed paths distribute frame-closure twist by arc length. */
-export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(input:CurveGeometry<P,E>|{readonly curves:unknown}|Curve2,along:CurveGeometry<A,B>|{readonly curves:unknown}|Curve2,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV> {
+export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(input:Material|{readonly curves:unknown}|Curve2,along:Material|{readonly curves:unknown}|Curve2,options:SweepOptions<A>={}):Material {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('sweep options must be an object');
-  const profile=profileCurve(input,'xy','sweep') as CurveGeometry<P,E>,path=profileCurve(along,'xy','sweep path') as CurveGeometry<A,B>;
-  const section=curvePath(profile),route=curvePath(path),shape=profile.surface,source=path.surface;
+  const profile=profileCurve(input,'xy','sweep') as Material,path=profileCurve(along,'xy','sweep path') as Material;
+  const section=curvePath(profile),route=curvePath(path),shape=surfaceOf(profile),source=surfaceOf(path);
   // Nothing to carry, or nowhere to carry it: an empty sweep, not a failure.
   if(!section.edges.length||!route.edges.length)return emptyMesh(options);
   const count=route.points.length,width=section.points.length,caps=options.caps===true&&!route.closed;
@@ -72,7 +72,7 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
   // A section the scale field collapses (zero, or a value it could not answer)
   // contributes no width at that point; the sweep still runs and the triangles
   // that collapse there are dropped below.
-  const rows=path.points.map(p=>p),scales=route.points.map(i=>Math.max(0,sampleValue(evaluate(options.scale??1,rows[i]),0)));
+  const rows=path.points.map(p=>p as Vertex),scales=route.points.map(i=>Math.max(0,sampleValue(evaluate(options.scale??1,rows[i]),0)));
   const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],triangles:SurfaceTriangle3[]=[];
   for(let ring=0;ring<count;ring++){
     const normal=rotate(normals[ring],tangents[ring],(closure+twist*Math.PI/180)*distances[ring]/length),binormal=unit3(cross3(tangents[ring],normal)),pathPoint=source.points[route.points[ring]];
@@ -109,5 +109,5 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     const uv:readonly (readonly [number,number])[]=[[u[edge],v[ring]],[u[edge+1],v[ring]],[u[edge+1],v[ring+1]],[u[edge],v[ring+1]]];
     return {uv:uv[c],chart:'side'};
   });
-  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3&SurfaceChart,SurfaceUV>(surface,{...options,[SOURCES]:derived('sweep',input as object,along as object)});
+  return geometry3(surface,{...options,derived:derived('sweep',input as object,along as object)});
 }

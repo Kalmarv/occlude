@@ -9,6 +9,7 @@ beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-cor
 import type {ProjectedLines} from '../src/three/api/projected.js';
 import type {Vec3} from '../src/three/math.js';
 import {toolkit} from './helpers/run.js';
+import {kernelOf} from '../src/three/geometry/value.js';
 
 const near=(a:readonly number[],b:readonly number[],eps=1e-9)=>a.every((v,i)=>Math.abs(v-b[i])<eps);
 const centroid=(g:{readonly points:Iterable<{x:number;y:number;z:number}>}):Vec3=>{const rows=[...g.points];return rows.reduce<Vec3>((s,p)=>[s[0]+p.x,s[1]+p.y,s[2]+p.z],[0,0,0]).map(v=>v/rows.length) as unknown as Vec3;};
@@ -55,7 +56,7 @@ describe('isolines',()=>{
 describe('object origin and rotation',()=>{
   it('rotate pivots on the object origin, which translate carries along',()=>{
     const b=box(1).translate([5,0,0]);
-    expect(near(b.origin,[5,0,0])).toBe(true);
+    expect(near(kernelOf(b).origin,[5,0,0])).toBe(true);
     const turned=b.rotate([0,0,90]);
     // Turning in place: the centroid stays at the origin the box was carried to.
     const centroid1=centroid(turned);
@@ -74,17 +75,17 @@ describe('object origin and rotation',()=>{
   it('the origin rides along with a rotation or scale about another pivot',()=>{
     const b=box(1).translate([5,0,0]);
     const turned=b.rotate('z',90,{origin:[0,0,0]});
-    expect(near(turned.origin,[0,5,0],1e-9)).toBe(true);
+    expect(near(kernelOf(turned).origin,[0,5,0],1e-9)).toBe(true);
     // A later default rotation now turns in place at the carried origin.
     expect(near(centroid(turned.rotate([0,0,45])),[0,5,0],1e-9)).toBe(true);
     const value=b.rotate(axisAngle('z',180),[6,0,0]);
-    expect(near(value.origin,[7,0,0],1e-9)).toBe(true);
+    expect(near(kernelOf(value).origin,[7,0,0],1e-9)).toBe(true);
     const grown=b.scale(2,{origin:[0,0,0]});
-    expect(near(grown.origin,[10,0,0])).toBe(true);
+    expect(near(kernelOf(grown).origin,[10,0,0])).toBe(true);
     expect(near(centroid(grown.scale(0.5)),[10,0,0],1e-9)).toBe(true);
     const line=curve([[5,0,0],[6,0,0]]).translate([1,0,0]).rotate('z',90,{origin:[0,0,0]});
-    expect(near(line.origin,[0,1,0],1e-9)).toBe(true);
-    expect(near(pointCloud([[0,0,0]]).translate([2,0,0]).scale([3,1,1],[1,0,0]).origin,[4,0,0])).toBe(true);
+    expect(near(kernelOf(line).origin,[0,1,0],1e-9)).toBe(true);
+    expect(near(kernelOf(pointCloud([[0,0,0]]).translate([2,0,0]).scale([3,1,1],{origin:[1,0,0]})).origin,[4,0,0])).toBe(true);
   });
   it('local rotation reads the axis in the accumulated orientation',()=>{
     const tilted=box(1).rotate('z',90);
@@ -92,11 +93,11 @@ describe('object origin and rotation',()=>{
     // After a 90° turn about z the object's x axis is world +y, so a local x turn equals a world y turn.
     const wy=[...worldY.points];
     expect([...localX.points].every((p,i)=>near([p.x,p.y,p.z],[wy[i].x,wy[i].y,wy[i].z],1e-9))).toBe(true);
-    expect(near(localX.orientation.apply([1,0,0]),tilted.orientation.apply([1,0,0]),1e-9)).toBe(true);
+    expect(near(kernelOf(localX).orientation.apply([1,0,0]),kernelOf(tilted).orientation.apply([1,0,0]),1e-9)).toBe(true);
   });
   it('a zero scale makes nothing, and nothing flows through views and intersections',async()=>{
     const gone=box(1).translate([2,0,0]).scale(0);
-    expect(gone.faces.length).toBe(0);expect(gone.points.length).toBe(0);expect(near(gone.origin,[2,0,0])).toBe(true);
+    expect(gone.faces.length).toBe(0);expect(gone.points.length).toBe(0);expect(near(kernelOf(gone).origin,[2,0,0])).toBe(true);
     expect(box(1).scale([1,0,1]).faces.length).toBe(0);
     expect(curve([[0,0,0],[1,0,0]]).scale(0).edges.length).toBe(0);
     const dots=[...pointCloud([[1,0,0],[2,0,0]]).translate([1,0,0]).scale(0).points];
@@ -132,7 +133,7 @@ describe('mesh editing shorthands',()=>{
     expect(stepped.points.every(p=>Math.abs(p.z-3)<1e-12)).toBe(true);
     const set=t.steps(2,plane(1,1).points.set('n',0),m=>m.points.set('n',p=>p.n+1),m=>m.displace(p=>[0,0,p.n-1]));
     // The passes of one step run in order: n reaches 1 before the first move, so z climbs 0 then 1.
-    expect(set.points.every(p=>p.attributes.n===2&&Math.abs(p.z-1)<1e-12)).toBe(true);
+    expect(set.points.every(p=>p.n===2&&Math.abs(p.z-1)<1e-12)).toBe(true);
     // Point and curve geometry run the same way; a scalar has no normal to follow there, and moves nothing.
     const line=t.steps(2,curve([[0,0,0],[1,0,0]]),c=>c.displace(p=>[0,0,p.x]));
     expect([...line.points].map(p=>p.z)).toEqual([0,2]);

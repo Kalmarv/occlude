@@ -5,7 +5,7 @@ description: A displaced plane, trees stood on it by their normals, and a hatch 
 
 A subdivided plane gets a noise height. `t.scatter` places sites on the faces that are near flat, and a cone stands at each one, turned by the normal there. A few spheres are stones at random samples. The view hatches only the ground, through a face column, so the trees stay clean.
 
-Uses: `plane`, `subdivide`, `displace`, `faces.set`, `points.set`, `t.scatter` on a mesh, `instanceOnPoints`, `alignAxis`, `view` with `hatch` and `select`.
+Uses: `plane`, `subdivide`, `displace`, `faces.set`, `points.set`, `t.scatter` on a surface, `instanceOnPoints`, `alignAxis`, `view` with `hatch` and `select`.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

@@ -21,6 +21,7 @@ import { classifyScene3 } from '../src/three/visibility/scene.js';
 import { unionIntervals3, type Interval3 } from '../src/three/visibility/interval.js';
 import { captureSnapshot, globeScene } from './fixtures/globe-scene.js';
 import type { Vec3 } from '../src/three/math.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 const mesh = (
   positions: readonly (readonly [number, number, number])[],
@@ -159,7 +160,7 @@ describe('the pre-pass reads the snapshot the classifier holds', () => {
   // A tetrahedron is too coarse to certify anything — every one of its four
   // vertices touches a front-facing face. A sphere is the shape the rule is
   // for, and the orthographic camera is the bench's own.
-  const solid = sphere(1.2, { segments: 24, rings: 12 }).surface;
+  const solid = surfaceOf(sphere(1.2, { segments: 24, rings: 12 }));
   const tetra = surface3([[0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]], [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]]);
 
   it('records one complete mesh per occluding object and none for a pass-through one', () => {

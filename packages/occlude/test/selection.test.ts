@@ -52,7 +52,8 @@ describe('one class over every domain', () => {
     expect('contours' in m.edges).toBe(false);
     expect(m.points.curves.length).toBeGreaterThan(0);
     expect(m.points.curves).toBe(m.points.curves); // read once, kept
-    expect('curves' in mesh.points).toBe(false);
+    // A value in space is the one geometry: its points walk into chains too.
+    expect(mesh.points.curves).toBeDefined();
     expect('faces' in all['cloud points']).toBe(false);
     expect('faces' in m.points).toBe(false);
     expect('points' in lattice().faces).toBe(false);
@@ -74,8 +75,9 @@ describe('one class over every domain', () => {
     expect(() => (m.points.nearest as (p: unknown, o: unknown) => unknown)([0, 0], { within: 5 })).toThrow('points.nearest: points have no nearest');
     expect(() => (m.points.boundaryEdges as () => unknown)()).toThrow('points.boundaryEdges: points have no boundaryEdges');
     expect(() => (m.edges.measure as () => unknown)()).toThrow('edges.measure: edges have no measure');
-    expect(() => mesh.corners.adjacent()).toThrow('corners.adjacent: corners have no adjacent');
-    expect(() => all['cloud points'].connected()).toThrow('points.connected: points have no connected');
+    expect(() => mesh.corners.adjacent()).toThrow('corners.adjacent: a corner has no');
+    // Points with no edges are the one geometry too: each is its own piece.
+    expect(all['cloud points'].components().length).toBe(2);
     expect(() => (all['mesh faces'].near as (p: unknown, o: unknown) => unknown)([0, 0, 0], { radius: 1 })).toThrow('faces.near: faces have no near');
     // A kind may say why.
     expect(() => (lattice().faces.extract as () => unknown)()).toThrow(/faces\.extract: a lattice's faces are squares of its own grid/);
@@ -294,8 +296,9 @@ describe('relations answer selections', () => {
     const top = cube.faces.filter((f) => f.normal[2] > 0.5);
     expect(top.corners.length).toBe(4);
     expect(top.corners.faces.length).toBe(1);
-    expect(cube.edges.filter((e) => e.index === 0).faces.length).toBe(2);
-    expect(cube.points.filter((p) => p.index === 0).faces.length).toBe(3);
+    // One edge's faces and one point's faces are row words.
+    expect(cube.edges.at(0)!.faces.length).toBe(2);
+    expect(cube.points.at(0)!.faces.length).toBe(3);
   });
 
   it('a group keeps its key type through filter, union and slice', () => {

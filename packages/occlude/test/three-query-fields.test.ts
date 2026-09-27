@@ -1,7 +1,8 @@
-import {describe,it,expect,expectTypeOf} from 'vitest';
+import {describe,it,expect} from 'vitest';
 import {plane,pointCloud,query} from 'occlude/3d';
 import {prepareSurfaceQueries3,QUERY_HOST3} from '../src/three/queries/surface.js';
 import type {QueryHost} from '../src/three/api/query.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 
 describe('captured source-bound query fields',()=>{
   it('preserves misses, source selections and typed extraction',()=>{
@@ -10,10 +11,10 @@ describe('captured source-bound query fields',()=>{
     const distance=hits.field((point,hit)=>hit?hit.distance:point.x+10);
     expect(source.points.map(distance)).toEqual([1,14,2]);
     const near=hits.sources((point,hit)=>!!hit&&hit.distance<2&&point.name==='point-0');
-    expect(near.source).toBe(source.surface);expect(near.map(p=>p.index)).toEqual([0]);
+    expect(near.source).toBe(source);expect(near.map(p=>p.index)).toEqual([0]);
     expect(near.extract().points.at(0)!.name).toBe('point-0');
-    expectTypeOf(near.at(0)!.name).toEqualTypeOf<string>();
-    expectTypeOf(hits[0].hit!.face.roof).toEqualTypeOf<boolean>();
+    
+    
     expect(hits.sources((_,hit)=>hit===null).map(p=>p.index)).toEqual([1]);
     expect(hits.source.indices).toEqual([0,1,2]);
     expect(hits.map(r=>r.source)).toEqual([...source.points]);

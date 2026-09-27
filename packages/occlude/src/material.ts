@@ -26,11 +26,11 @@
 import { pointsOf, edgesOf, isPointSelection, isEdgeSelection, whereRows, type Where, type PointTypes, type EdgeTypes } from './relation.js';
 import { ROW_TYPES, selectionIn, type Selection } from './selection.js';
 import { euclideanSpace, type Space } from './space.js';
-import { framePlacement, isPlacement, spaceOfDoor, type Placement } from './placement.js';
+import { framePlacement, isPlacement, isSpacePlacement, spaceOfDoor, type Placement } from './placement.js';
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
 import { chainsOf, curvesOf, chainTangents, chainLengths, type Curve } from './curves.js';
-import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
+import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceKeys, isFaceSelection, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -51,13 +51,14 @@ import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, RowView, rowViewKind } from './views.js';
 import type { EdgeQuery } from './query.js';
-import { Column, at64, atU32, columnOf, type ColumnLike } from './column.js';
-import { carryLinks, derivation, linkRows, record, rowParam, rowSource, type RowSource } from './derivation.js';
+import { Column, at64, atU32, columnOf, isTypedColumn, kinds, kindOf, kindWords, joinColumns, constantColumn, type AnyColumn, type AnyKind, type ArrayColumn, type ColumnLike } from './column.js';
+import { carryLinks, derivation, linkRows, record, rowParam, rowSource, type Derivation, type DomainSpec, type Links, type RowSource } from './derivation.js';
 import { memoMethod } from './memo.js';
+import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, RESERVED_CORNER_FIELDS, type Corner } from './corners.js';
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
 // is safe, as it is for the kernels above.
-import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, setPoints, setEdges, addEdgeRows, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, setPoints, setEdges, addEdgeRows, cellOf, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
 
 // The vocabulary this module was one file with, re-exported so its
 // importers keep one door: vectors (vec.ts), view identity (views.ts) and
@@ -84,8 +85,12 @@ export type Vertex = {
   readonly index: number;
   readonly x: number;
   readonly y: number;
-  /** This vertex, for as long as it exists. Opaque and never reused: store
-   * it in a column and `cur.point(id)` finds the row it became. */
+  /** The third coordinate, for a point of a value in space (one whose
+   * points have a `z` column); undefined for a point in the plane. */
+  readonly z: number;
+  /** @internal This vertex, for as long as it exists: the minted id, opaque
+   * and never reused. The engine's own name for the row (ids are internal);
+   * a sketch holds the view, which is the name. */
   readonly id: PointId;
   /** The vertices an edge joins this one to, in adjacency order. Topology
    * only: no spatial search — `cur.points.near(p, { radius })` is that. An
@@ -94,6 +99,14 @@ export type Vertex = {
   /** The edges that meet this vertex, in edge order. `p.edges.length` is
    * the degree; an isolated vertex has none. */
   readonly edges: Selection<Edge>;
+  /** The faces that meet this point, in row order: a stated face whose
+   * loop passes it, or a face read off the picture on either side of an
+   * edge that meets it. */
+  readonly faces: Selection<Face>;
+  /** The corners at this point, in row order: one per stated face whose
+   * loop passes it (corners.ts); none where the faces are read off the
+   * picture. */
+  readonly corners: Selection<Corner>;
   /** The unit direction of `heading`, for a point that has one — a point
    * of `m.along()` or of a curve (`c.points`); undefined otherwise. */
   readonly tangent: Vec;
@@ -111,7 +124,10 @@ export type Vertex = {
    * Undefined for a row no derivation made. */
   readonly source: RowSource;
   readonly [ROW_TYPES]?: PointTypes;
-} & Readonly<Record<string, number>>;
+  /** The point columns, read flat — `p.age` — of whatever kind each holds
+   * (a number, a boolean, a string, a vector, the row a reference names, a
+   * placement). */
+} & { readonly [column: string]: any };
 
 /** An edge view. Its columns read as properties of the row (`e.level`), as
  * a vertex's do and as 3D rows' do. */
@@ -123,11 +139,14 @@ export type Edge = {
   readonly length: number;
   /** Row of this edge in the material's edge list. */
   readonly index: number;
-  /** This edge, for as long as it exists. A split retires it and gives its
-   * children ids of their own. */
+  /** @internal This edge, for as long as it exists: the minted id. A split
+   * retires it and gives its children ids of their own. The engine's own
+   * name for the row; a sketch holds the view. */
   readonly id: EdgeId;
   /**
-   * The oldest edge this one descends from — the WALL it is part of.
+   * @internal The oldest edge this one descends from — the WALL it is part
+   * of. Lineage is identity, and identity is internal: a sketch asks a
+   * split piece for its `source` (the edge it was cut from).
    *
    * A split retires the parent and mints two children, so `id` tells you
    * this edge and `root` tells you which wall it belongs to. That is the
@@ -157,7 +176,8 @@ export type Edge = {
    * it on a material that is not planar throws the same error as `faces`. */
   readonly faces: Selection<Face>;
   readonly [ROW_TYPES]?: EdgeTypes;
-} & Readonly<Record<string, number>>;
+  /** The edge columns, read flat, as a vertex's are. */
+} & { readonly [column: string]: any };
 
 /** How a column carries over when `resample` places new vertices:
  * `'interpolate'` linearly between the surrounding source vertices (the
@@ -197,11 +217,14 @@ export type EdgeTransfer = 'copy' | 'distribute';
 export type FaceTransfer = 'nearest' | 'drop';
 
 /** A face column: its values by face key, its policy, and the value a face
- * that shares no wall with any old face starts from. */
+ * that shares no wall with any old face starts from. `kind` is the kind of
+ * its values (column.ts), absent for numbers; a reference is kept as the
+ * row's id, a vector as a frozen array. */
 export interface FaceColumn {
-  values: ReadonlyMap<string, number>;
+  values: ReadonlyMap<string, unknown>;
   transfer: FaceTransfer;
-  fallback?: number;
+  fallback?: unknown;
+  kind?: AnyKind;
   /**
    * The keys of every face of the state this column was written against.
    *
@@ -219,7 +242,7 @@ export interface FaceColumn {
  * column may not be called one of these.
  */
 export const RESERVED_FACE_FIELDS: readonly string[] = [
-  'index', 'id', 'area', 'perimeter', 'bounds', 'centroid',
+  'index', 'id', 'area', 'perimeter', 'bounds', 'centroid', 'center', 'normal', 'corners',
   'edges', 'points', 'boundaryEdges', 'adjacent', 'contours', 'extract',
   'parent', 'children', 'depth', 'leaf', 'source',
 ];
@@ -288,12 +311,17 @@ export function mintIds(count: number): Float64Array {
 export interface MaterialStore {
   readonly x: Column;
   readonly y: Column;
-  /** The point columns by name, each `n` long. */
-  readonly attrs: Readonly<Record<string, Column>>;
+  /** The point columns by name, each `n` long, of any kind (column.ts):
+   * the numeric ones are `Column<Float64Array>`s, which is all a kernel
+   * reads (`m.attrs`); a boolean, string, vector, reference or placement
+   * column sits beside them in the same record, so the table writes keep,
+   * append and gather every kind the one way. `z`, when the points have
+   * one, is a numeric column like any other. */
+  readonly attrs: Readonly<Record<string, AnyColumn>>;
   /** Their names and the columns, in the record's order: what a row view
    * reads. */
   readonly attrNames: readonly string[];
-  readonly attrList: readonly Column[];
+  readonly attrList: readonly AnyColumn[];
   /** One id per vertex row. Outside `attrs` on purpose: a column would be
    * interpolated at every split (a mean of two ids is a forged id), would
    * be demanded of every `points.add` caller, and would appear as a plain
@@ -301,10 +329,11 @@ export interface MaterialStore {
   readonly pointIds: Column;
   /** The edge list, two values a row: `[a0, b0, a1, b1, …]`. */
   readonly edgeList: Column<Uint32Array>;
-  /** The edge columns by name, each one value a row. */
-  readonly edgeAttrs: Readonly<Record<string, Column>>;
+  /** The edge columns by name, each one value a row, of any kind (as
+   * `attrs`). */
+  readonly edgeAttrs: Readonly<Record<string, AnyColumn>>;
   readonly edgeAttrNames: readonly string[];
-  readonly edgeAttrList: readonly Column[];
+  readonly edgeAttrList: readonly AnyColumn[];
   /** The edge rows' ids, as `pointIds` is for points. */
   readonly edgeIds: Column;
   /**
@@ -318,6 +347,16 @@ export interface MaterialStore {
    * nothing is its own root.
    */
   readonly edgeRoots: Column;
+  /**
+   * The kernel's own name for each point row, and for each edge row: a
+   * string the 3D layer's kernels order by and seed from (a structural
+   * name such as `v3` or `f2:v1`), carried beside the ids by every write
+   * that keeps the row, `''` for a row a write made. Null for a value no
+   * 3D word made. Never a column, never public: the id is the identity,
+   * and this is the name a kernel knows the row by.
+   */
+  readonly pointKeys: ArrayColumn<string> | null;
+  readonly edgeKeys: ArrayColumn<string> | null;
 }
 
 /** @internal A new, unfrozen view of row `i` of `m`: what `m.vertex(i)`
@@ -331,8 +370,41 @@ export function vertexView(m: Material, i: number): Vertex {
   v.y = at64(store.y, i);
   const names = store.attrNames;
   const cols = store.attrList;
-  for (let k = 0; k < names.length; k++) v[names[k]] = at64(cols[k], i);
+  for (let k = 0; k < names.length; k++) {
+    const col = cols[k];
+    if (col instanceof Column) v[names[k]] = at64(col, i);
+    else typedCell(m, v, names[k], col, i);
+  }
   return v as unknown as Vertex;
+}
+
+/**
+ * @internal Row `i` of a column that is not numbers, onto the view `v`
+ * of `m`: a boolean, a string or a placement as it is, a vector as a
+ * frozen array, and a reference as the row it names in `m` — read when it
+ * is asked for, so a view never makes the view it points at — or null
+ * when it names none, or a row that is gone.
+ */
+export function typedCell(m: Material, v: Record<string, unknown>, name: string, col: Exclude<AnyColumn, Column>, i: number): void {
+  const kind = col.kind;
+  if (kind.name === 'reference') {
+    const id = (col as { get(i: number): number | null }).get(i);
+    Object.defineProperty(v, name, { get: () => referenced(m, id), enumerable: true });
+  } else if (kind.name === 'vector') {
+    v[name] = Object.freeze((col as { get(i: number): number[] }).get(i));
+  } else {
+    v[name] = (col as { get(i: number): unknown }).get(i);
+  }
+}
+
+/** @internal The row an id names in `m` — a vertex, else an edge (one id
+ * counter serves both) — or null for none. */
+export function referenced(m: Material, id: number | null): Vertex | Edge | null {
+  if (id === null) return null;
+  const p = m.rowOfPoint(id as PointId);
+  if (p >= 0) return m.vertex(p);
+  const e = m.rowOfEdge(id as EdgeId);
+  return e >= 0 ? m.edge(e) : null;
 }
 
 /** @internal The vertex a write or a kernel hands to a callback for row `i`
@@ -428,24 +500,41 @@ function edgeView(m: Material, e: number): Edge {
   // from ever shadowing one of the view's own words.
   const names = store.edgeAttrNames;
   const cols = store.edgeAttrList;
-  for (let k = 0; k < names.length; k++) v[names[k]] = at64(cols[k], e);
+  for (let k = 0; k < names.length; k++) {
+    const col = cols[k];
+    if (col instanceof Column) v[names[k]] = at64(col, e);
+    else typedCell(m, v, names[k], col, e);
+  }
   v.a = a;
   v.b = b;
-  // A length of the material's space; the flat plane keeps the old expression.
-  v.length = m.space !== undefined && m.space.kind !== 'euclidean' ? m.space.distance(a, b) : distance(a, b);
+  // A length of the material's space; the flat plane keeps the old
+  // expression, and a value whose points have a `z` measures in 3D.
+  const z = store.attrs.z;
+  v.length = m.space !== undefined && m.space.kind !== 'euclidean'
+    ? m.space.distance(a, b)
+    : z instanceof Column ? Math.hypot(b.x - a.x, b.y - a.y, at64(z, b.index) - at64(z, a.index)) : distance(a, b);
   v.index = e;
   return Object.freeze(v) as unknown as Edge;
 }
 
-/** A frozen record of flat columns by name, each joined the first time
- * its name is read: the kernels' view of a column record. */
-function flatRecord(cols: Readonly<Record<string, Column>>): Readonly<Record<string, Float64Array>> {
+/** A frozen record of the NUMERIC flat columns by name, each joined the
+ * first time its name is read: the kernels' view of a column record. A
+ * column of another kind is not in it — kernels and the engine read
+ * numbers — and rides beside it in the store. */
+function flatRecord(cols: Readonly<Record<string, AnyColumn>>): Readonly<Record<string, Float64Array>> {
   const out: Record<string, Float64Array> = {};
   for (const name in cols) {
     const col = cols[name];
+    if (!(col instanceof Column)) continue;
     Object.defineProperty(out, name, { get: () => col.flat(), enumerable: true });
   }
   return Object.freeze(out);
+}
+
+/** The column of a column record's entry: a column of any kind as it is,
+ * a typed array adopted as a numeric column. */
+function anyColumnOf(v: ColumnLike<Float64Array> | AnyColumn): AnyColumn {
+  return isTypedColumn(v) ? v : columnOf(v as ColumnLike<Float64Array>);
 }
 
 /** id → row over an id column, the later row winning a repeat. */
@@ -497,23 +586,35 @@ const VERTEX_WORDS: PropertyDescriptorMap = {
   edges: {
     get(this: Vertex) { const m = stateOf(this); return edgesOf(m, m.incidentEdgeRows(this.index), undefined, true); },
   },
+  // The faces that meet this point, and its corners (corners.ts).
+  faces: { get(this: Vertex) { return facesAtPoint(stateOf(this), this.index); } },
+  corners: { get(this: Vertex) { return cornersAtPoint(stateOf(this), this.index); } },
   // A point with a heading — a point of `along`, a point of a curve —
   // has a frame: the unit tangent, the normal (`perp` of it), and the
   // placement there. Derived from the heading on every read.
+  // A column of the row's own with one of these names wins, as `u` does: a
+  // point of a curve in space carries its `tangent` (there is no heading
+  // in space), and the setter is how a view is given one.
   tangent: {
     get(this: Vertex) { const h = (this as Record<string, number>).heading; return typeof h === 'number' ? [Math.cos(h), Math.sin(h)] as Vec : undefined; },
+    set(this: Vertex, v: unknown) { Object.defineProperty(this, 'tangent', { value: v, writable: true, enumerable: true, configurable: true }); },
   },
   normal: {
     get(this: Vertex) { const h = (this as Record<string, number>).heading; return typeof h === 'number' ? [-Math.sin(h), Math.cos(h)] as Vec : undefined; },
+    set(this: Vertex, v: unknown) { Object.defineProperty(this, 'normal', { value: v, writable: true, enumerable: true, configurable: true }); },
   },
   placement: {
-    value(this: Vertex): Placement {
-      const h = (this as Record<string, number>).heading;
-      if (typeof h !== 'number') throw new Error('p.placement: this point has no heading — the points of m.along() and of a curve (c.points) have one');
-      return framePlacement((stateOf(this).space ?? euclideanSpace()).model, { x: this.x, y: this.y, heading: h });
-    },
+    set(this: Vertex, v: unknown) { Object.defineProperty(this, 'placement', { value: v, writable: true, enumerable: true, configurable: true }); },
+    get(this: Vertex) { return placementOf; },
   },
 };
+
+/** `p.placement()`: the frame at a point with a heading. */
+function placementOf(this: Vertex): Placement {
+  const h = (this as Record<string, number>).heading;
+  if (typeof h !== 'number') throw new Error('p.placement: this point has no heading — the points of m.along() and of a curve (c.points) have one');
+  return framePlacement((stateOf(this).space ?? euclideanSpace()).model, { x: this.x, y: this.y, heading: h });
+}
 
 /** What every edge view answers beyond its columns, as `VERTEX_WORDS`. */
 const EDGE_WORDS: PropertyDescriptorMap = {
@@ -532,7 +633,17 @@ const EDGE_WORDS: PropertyDescriptorMap = {
   },
   id: { get(this: Edge) { return at64(stateOf(this).store.edgeIds, this.index) as EdgeId; } },
   root: { get(this: Edge) { return at64(stateOf(this).store.edgeRoots, this.index) as EdgeId; } },
-  center: { get(this: Edge) { return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec; } },
+  // In space, the middle in space: the 3D layer's when it is loaded.
+  center: {
+    get(this: Edge) {
+      const m = stateOf(this);
+      const z = m.store.attrs.z;
+      if (!(z instanceof Column)) return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec;
+      const own = WORDS_3D.edgeCenter;
+      if (own !== undefined) return own(m, this.index);
+      return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2, (at64(z, this.a.index) + at64(z, this.b.index)) / 2];
+    },
+  },
   adjacent: {
     get(this: Edge) {
       // Every edge at either end, minus this one. A ring of two would
@@ -604,7 +715,7 @@ export class Material {
   /** @internal The point and edge domains of this state (relation.ts),
    * made the first time a selection of them is: every selection of this
    * state shares them. A box, like the others. */
-  readonly domainBox: { points: unknown; edges: unknown } = { points: null, edges: null };
+  readonly domainBox: { points: unknown; edges: unknown; corners: unknown } = { points: null, edges: null, corners: null };
   /** @internal The curves of this state (curves.ts): the walk and its
    * selection, made the first time `curves` is read. A box, like the others. */
   readonly curvesBox: { table: unknown; all: unknown } = { table: null, all: null };
@@ -635,6 +746,10 @@ export class Material {
    * first time the row is read and kept: `===` names a row within a state.
    * A box, like the others, because the state is frozen. */
   readonly viewBox: { points: RowViews<Vertex> | null; edges: RowViews<Edge> | null } = { points: null, edges: null };
+  /** @internal What a derivation keeps on the value it made (derivation.ts):
+   * its node, and the links that answer each row's `source` and `u`. On
+   * the value, so they live exactly as long as it does. */
+  readonly linkBox: { links: Links | undefined; node: Derivation | undefined } = { links: undefined, node: undefined };
   /** @internal The flat attribute records, made on first read. */
   private readonly flatBox: { attrs: Readonly<Record<string, Float64Array>> | null; edgeAttrs: Readonly<Record<string, Float64Array>> | null } = { attrs: null, edgeAttrs: null };
 
@@ -648,7 +763,7 @@ export class Material {
   constructor(
     x: ColumnLike<Float64Array>,
     y: ColumnLike<Float64Array>,
-    attrs: Readonly<Record<string, ColumnLike<Float64Array>>>,
+    attrs: Readonly<Record<string, ColumnLike<Float64Array> | AnyColumn>>,
     edgeList: ColumnLike<Uint32Array>,
     /**
      * Everything a rebuild carries over, by name.
@@ -663,7 +778,7 @@ export class Material {
     carry: {
       iteration?: number;
       history?: readonly Material[];
-      edgeAttrs?: Readonly<Record<string, ColumnLike<Float64Array>>>;
+      edgeAttrs?: Readonly<Record<string, ColumnLike<Float64Array> | AnyColumn>>;
       transfers?: Record<string, TransferPolicy>;
       edgeTransfers?: Record<string, EdgeTransfer>;
       /** The identity of each row, carried from wherever these rows came
@@ -671,6 +786,8 @@ export class Material {
        * mints. `edgeRoots` says which older edge each edge descends from;
        * absent means each edge is its own root. */
       ids?: { points?: ColumnLike<Float64Array>; edges?: ColumnLike<Float64Array>; edgeRoots?: ColumnLike<Float64Array> };
+      /** The kernel's name of each row (see `MaterialStore.pointKeys`). */
+      keys?: { points?: ArrayColumn<string> | null; edges?: ArrayColumn<string> | null };
       /** Face columns, carried from the state these rows came from. */
       faceAttrs?: Record<string, FaceColumn>;
       /** The space the coordinates belong to (see `Material.space`). */
@@ -702,9 +819,9 @@ export class Material {
     if (list.length % 2 !== 0) throw new Error('material: edge list must be pairs');
     const n = xs.length;
     const edgeCount = list.length / 2;
-    const edgeCols: Record<string, Column> = {};
+    const edgeCols: Record<string, AnyColumn> = {};
     for (const name in carry.edgeAttrs ?? {}) {
-      const col = columnOf(carry.edgeAttrs![name]);
+      const col = anyColumnOf(carry.edgeAttrs![name]);
       if (col.length !== edgeCount) {
         throw new Error(`material: edge attribute '${name}' has ${col.length} values for ${edgeCount} edges`);
       }
@@ -713,13 +830,13 @@ export class Material {
       }
       edgeCols[name] = col;
     }
-    const pointCols: Record<string, Column> = {};
+    const pointCols: Record<string, AnyColumn> = {};
     for (const name in attrs) {
-      const col = columnOf(attrs[name]);
+      const col = anyColumnOf(attrs[name]);
       if (col.length !== n) {
         throw new Error(`material: attribute '${name}' has ${col.length} values for ${n} vertices`);
       }
-      if (name === 'x' || name === 'y' || name === 'index' || name === 'adjacent' || name === 'edges' || name === 'id' || name === 'source') {
+      if (name === 'x' || name === 'y' || name === 'index' || name === 'adjacent' || name === 'edges' || name === 'id' || name === 'source' || name === 'faces' || name === 'corners') {
         throw new Error(`material: '${name}' is a reserved vertex field`);
       }
       pointCols[name] = col;
@@ -758,9 +875,14 @@ export class Material {
     // An edge born from nothing is its own root: the same numbers as its
     // id, so the same column.
     const edgeRoots = givenRoots ?? edgeIds;
+    const pointKeys = carry.keys?.points ?? null;
+    const edgeKeys = carry.keys?.edges ?? null;
+    if (pointKeys !== null && pointKeys.length !== n) throw new Error(`material: ${pointKeys.length} point keys for ${n} vertices`);
+    if (edgeKeys !== null && edgeKeys.length !== edgeCount) throw new Error(`material: ${edgeKeys.length} edge keys for ${edgeCount} edges`);
     this.store = Object.freeze({
       x: xs, y: ys, attrs: Object.freeze(pointCols), attrNames: Object.freeze(Object.keys(pointCols)), attrList: Object.freeze(Object.values(pointCols)), pointIds,
       edgeList: list, edgeAttrs: Object.freeze(edgeCols), edgeAttrNames: Object.freeze(Object.keys(edgeCols)), edgeAttrList: Object.freeze(Object.values(edgeCols)), edgeIds, edgeRoots,
+      pointKeys, edgeKeys,
     });
     for (const name of Object.keys(faceAttrs)) {
       if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`material: '${name}' is a reserved face field`);
@@ -843,9 +965,10 @@ export class Material {
     return rows;
   }
 
-  /** @internal Names of the attribute columns. */
+  /** @internal Names of the NUMERIC point columns: the kernels' door, as
+   * `attrs` is. Every column, of any kind, is `store.attrNames`. */
   get attrNames(): string[] {
-    return Object.keys(this.store.attrs);
+    return Object.keys(this.attrs);
   }
 
   /**
@@ -876,7 +999,10 @@ export class Material {
   }
 
   /**
-   * The vertex an id names in this state, or undefined when it is gone.
+   * @internal The vertex an id names in this state, or undefined when it
+   * is gone. The engine's door: ids are internal, and a sketch finds a row
+   * of another state through the view it holds (`sel.has(p)`,
+   * `g.points.without(held)`, a write's `where`).
    *
    * Named apart from `vertex(row)` on purpose: an id and a row are both
    * numbers, so one word taking either would have to guess which you meant,
@@ -888,9 +1014,9 @@ export class Material {
     return row < 0 ? undefined : this.vertex(row);
   }
 
-  /** The edge an id names in this state, or undefined when it is gone; a
-   * split retires the parent, so its id resolves to nothing. `edge(row)`
-   * is the same question asked by position. */
+  /** @internal The edge an id names in this state, or undefined when it is
+   * gone; a split retires the parent, so its id resolves to nothing.
+   * `edge(row)` is the same question asked by position. */
   edgeOf(id: EdgeId): Edge | undefined {
     const row = this.rowOfEdge(id);
     return row < 0 ? undefined : this.edge(row);
@@ -919,9 +1045,9 @@ export class Material {
     return this.store.edgeList.length / 2;
   }
 
-  /** @internal Names of the edge attribute columns. */
+  /** @internal Names of the NUMERIC edge columns (see `attrNames`). */
   get edgeAttrNames(): string[] {
-    return Object.keys(this.store.edgeAttrs);
+    return Object.keys(this.edgeAttrs);
   }
 
   /** @internal The edge at row `e` as a view (a → b in stored order, with
@@ -1020,6 +1146,19 @@ export class Material {
   }
 
   /**
+   * The corners: one row per place a stated face's loop passes a point —
+   * a face-vertex pair — face by face, round each face (corners.ts). A
+   * corner answers its `point` and its `face`, and holds columns of any
+   * kind (`corners.set`). They are the stated faces' own: kept by every
+   * write that keeps the edges, gone with the faces when one changes them.
+   * A geometry whose faces are read off the picture, or that has none, has
+   * no corners — an empty selection.
+   */
+  get corners(): Selection<Corner> {
+    return cornersOf(this);
+  }
+
+  /**
    * The curves: the chains the edges walk, as a selection of curve rows
    * (curves.ts). Read on first ask and kept. A chain starts at an endpoint
    * or a junction (a point with other than two edges), the first by row, and
@@ -1057,6 +1196,8 @@ export class Material {
     if (!Number.isInteger(steps) || steps < 0) throw new Error(`smooth: { steps } must be a whole number of passes, at least 0 (got ${String(opts.steps)})`);
     const onPoints = Object.hasOwn(this.attrs, name);
     const onEdges = Object.hasOwn(this.edgeAttrs, name);
+    // A face or corner column is smoothed over the faces (3D).
+    if (!onPoints && !onEdges && (Object.hasOwn(this.faceAttrs, name) || Object.hasOwn(this.stated?.corners ?? {}, name))) return word3('smooth')(this, name, opts);
     if (!onPoints && !onEdges) throw new Error(`smooth: no point or edge column '${name}' to smooth`);
     if (steps === 0) return material(this);
     const src = material(this);
@@ -1117,6 +1258,7 @@ export class Material {
    * a partial resample.
    */
   resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: Where }): Material {
+    if (inSpace3(this)) return word3('resample')(this, opts);
     return resampleMaterial(this, opts, null);
   }
 
@@ -1484,6 +1626,8 @@ export class Material {
    * `step` walks in.
    */
   along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> } = {}): Material {
+    // A value in space is walked in space.
+    if (inSpace3(this)) return word3('along')(this, opts);
     return alongMaterial(this, opts, null);
   }
 
@@ -1524,7 +1668,14 @@ export class Material {
    * face columns, keyed by lineage, carry. So a selection of the source names every
    * vertex and every unsplit edge, and a face keeps its columns.
    */
-  transform(op: Placement | TransformRecord): Material {
+  transform(op: Placement | Placement<Vec3> | TransformRecord): Material {
+    if (isSpacePlacement(op)) return word3('transform')(this, op);
+    // A placement or a record of the plane moves sketch points: on a value
+    // in space it would move x and y and leave z, which is no motion of
+    // space at all.
+    if (inSpace3(this) && typeof op === 'object' && op !== null) {
+      throw new Error('m.transform: transform takes a placement of 3D space — an observer, or one of a honeycomb\'s placements; a placement of the plane moves sketch points');
+    }
     if (!isPlacement(op)) {
       if (typeof op !== 'object' || op === null) {
         throw new Error('m.transform: expected a placement — t.placement(…), p.placement(), one of a tiling\'s placements, or reflection(space.model, a, b) — or a transform record such as one of t.symmetry(…)');
@@ -1603,7 +1754,7 @@ export class Material {
     }
     if (!split) {
       const s = this.store;
-      return carryLinks(this, new Material(Float64Array.from(nx), Float64Array.from(ny), s.attrs, s.edgeList, { iteration: this.iteration, history: [], edgeAttrs: s.edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, faceAttrs: this.faceAttrs, from: this, faces: this.stated }));
+      return carryLinks(this, new Material(Float64Array.from(nx), Float64Array.from(ny), s.attrs, s.edgeList, { iteration: this.iteration, history: [], edgeAttrs: s.edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys }, faceAttrs: this.faceAttrs, from: this, faces: this.stated }));
     }
     const names = this.attrNames;
     const enames = this.edgeAttrNames;
@@ -1687,7 +1838,9 @@ export class Material {
    * `transform` is the word for an isometry. It is `map` underneath, so
    * every id and every column carries.
    */
-  scale(k: number | readonly [number, number], opts: { origin?: Origin } = {}): Material {
+  scale(k: number | readonly [number, number] | Vec3, opts: { origin?: Origin | Vec3 } = {}): Material {
+    // Three factors scale in space, and so does one on a value in space.
+    if ((Array.isArray(k) && k.length === 3) || (typeof k === 'number' && inSpace3(this))) return word3('scale')(this, k as number | Vec3, opts);
     const [kx, ky] = typeof k === 'number' ? [k, k] : [k[0], k[1]];
     if (!Number.isFinite(kx) || !Number.isFinite(ky)) throw new Error(`m.scale: [${kx}, ${ky}] is not a scale factor`);
     const [ox, oy] = this.pivot('m.scale', opts.origin);
@@ -1699,9 +1852,18 @@ export class Material {
    * `turn` and a group's `rotate` read them. The pivot is the one `scale`
    * reads. It is `map` underneath, so every id and every column carries.
    */
-  rotate(degrees: number, opts: { origin?: Origin } = {}): Material {
+  rotate(degrees: number, opts?: { origin?: Origin }): Material;
+  /** In space: by angles about the axes (degrees), or a rotation, about a
+   * pivot. */
+  rotate(angles: Vec3 | object, pivot?: Vec3 | object): Material;
+  /** In space: about an axis — `'x'`, `'y'`, `'z'` or a direction — by
+   * `degrees`. */
+  rotate(axis: 'x' | 'y' | 'z' | Vec3, degrees: number, options?: object): Material;
+  rotate(degrees: unknown, opts: unknown = {}, more?: unknown): Material {
+    if (typeof degrees !== 'number') return word3('rotate')(this, degrees, opts, more);
+    const o = (opts ?? {}) as { origin?: Origin };
     if (!Number.isFinite(degrees)) throw new Error(`m.rotate: ${degrees} is not an angle`);
-    const [ox, oy] = this.pivot('m.rotate', opts.origin);
+    const [ox, oy] = this.pivot('m.rotate', o.origin);
     const a = radians(degrees);
     const c = Math.cos(a);
     const s = Math.sin(a);
@@ -1714,7 +1876,8 @@ export class Material {
 
   /** Every vertex moved by `by`. It is `map` underneath, so every id and
    * every column carries. */
-  translate(by: XY): Material {
+  translate(by: XY | Vec3): Material {
+    if (isVec3(by)) return word3('translate')(this, (Array.isArray(by) ? by : [vx(by as XY), vy(by as XY), (by as unknown as { z: number }).z]) as unknown as Vec3);
     const dx = vx(by);
     const dy = vy(by);
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error(`m.translate: [${dx}, ${dy}] is not an offset`);
@@ -1799,8 +1962,16 @@ export class Material {
    * material. To name the new point later, write the two writes with a
    * point value: `g.points.add(q).edges.add([from, q])`.
    */
-  extrude(from: PointEnd | undefined, offset: XY, cols?: Record<string, number>): Material {
-    return extrudeRecipe(this, from, offset, cols);
+  extrude(from: PointEnd | undefined, offset: XY | Vec3, cols?: Record<string, CellValue>): Material;
+  /** In space: the faces pushed out by `offset` — a distance along each
+   * face's normal, a 3-vector, a function of the extruded region, or
+   * `{ distance }` — with walls round each region (3D). */
+  extrude(faces: Selection<Face>, offset: number | Vec3 | ((region: any) => Vec3) | { readonly distance: unknown }, options?: object): Material;
+  extrude(from: PointEnd | Selection<Face> | undefined, offset: unknown, cols?: unknown): Material {
+    // Faces extrude in 3D (the words a 2D and a 3D value share are told
+    // apart by what they take): see `WORDS_3D`.
+    if (isFaceSelection(from)) return word3('extrude')(this, from, offset, cols);
+    return extrudeRecipe(this, from, offset as XY | Vec3, cols as Record<string, CellValue> | undefined);
   }
 
   /**
@@ -1852,6 +2023,82 @@ export class Material {
   withHistory(states: readonly Material[]): Material {
     return restamp(this, this.iteration, states);
   }
+
+  // ---- the 3D words (see `Words3`) ----
+
+  /** Every face cut into smaller faces, `levels` times, the surface
+   * smoothed as it goes (3D). */
+  subdivide(levels?: number, options?: object): Material {
+    return word3('subdivide')(this, levels, options);
+  }
+
+  /** The solid this geometry and `other` fill together (3D). */
+  union(other: Material): Material {
+    return word3('union')(this, other);
+  }
+
+  /** The solid this geometry fills and `other` does not (3D). */
+  subtract(other: Material): Material {
+    return word3('subtract')(this, other);
+  }
+
+  /** The solid both fill (3D). */
+  intersect(other: Material): Material {
+    return word3('intersect')(this, other);
+  }
+
+  /** Re-attach what was made on a surface — scattered samples, points
+   * sampled on surface curves, the surface curves themselves — to an
+   * edited revision of that surface, or of each surface (3D). */
+  rebind(target: Material | readonly Material[]): Material {
+    return word3('rebind')(this, target);
+  }
+
+  /** Curves attached to a prototype, repeated at every placement of an
+   * instance set (3D). */
+  place(instances: unknown): Material {
+    return word3('place')(this, instances);
+  }
+
+  /**
+   * The length of every edge, summed: a curve's length. Measured in the
+   * value's space, and in space for a value whose points have a `z`.
+   */
+  get length(): number {
+    const { x, y, edgeList } = this.store;
+    const z = this.store.attrs.z;
+    const sp = this.space !== undefined && this.space.kind !== 'euclidean' ? this.space : null;
+    let sum = 0;
+    for (let e = 0; e < this.edgeCount; e++) {
+      const a = atU32(edgeList, 2 * e);
+      const b = atU32(edgeList, 2 * e + 1);
+      const ax = at64(x, a);
+      const ay = at64(y, a);
+      const bx = at64(x, b);
+      const by = at64(y, b);
+      if (z instanceof Column) sum += Math.hypot(bx - ax, by - ay, at64(z, b) - at64(z, a));
+      else if (sp !== null) sum += sp.distance([ax, ay], [bx, by]);
+      else sum += Math.hypot(bx - ax, by - ay);
+    }
+    return sum;
+  }
+
+  /** The dual: a point per face, a face per point (3D). */
+  dual(options?: object): Material {
+    return word3('dual')(this, options);
+  }
+
+  /** Every point moved by a field: a vector, or a distance along its
+   * normal (3D). */
+  displace(field: unknown, options?: object): Material {
+    return word3('displace')(this, field, options);
+  }
+
+  /** @internal The derived views the 3D layer builds from the columns on
+   * first need and keeps here — its working surface (`surfaceOf(m)`),
+   * never a public word. A box, like the others, because the state is
+   * frozen. */
+  readonly surfaceBox: { surface: unknown } = { surface: null };
 }
 
 /** A derivation's input as the sketch passed it: the value a source row is
@@ -2468,7 +2715,7 @@ export function withFaces(m: Material, faces: Omit<StatedFaces, 'edgeList' | 'ed
   const s = m.store;
   return carryLinks(m, new Material(s.x, s.y, s.attrs, s.edgeList, {
     iteration: m.iteration, history: m.history, edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
-    ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots },
+    ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys },
     faceAttrs: m.faceAttrs as Record<string, FaceColumn>, from: m,
     faces: { ...faces, edgeList: s.edgeList, edgeIds: s.edgeIds },
   }));
@@ -2489,7 +2736,7 @@ export function inSpace(m: Material, space: Space): Material {
   const s = m.store;
   return carryLinks(m, new Material(s.x, s.y, s.attrs, s.edgeList, {
     iteration: m.iteration, history: m.history, edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
-    ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots },
+    ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys },
     faceAttrs: m.faceAttrs, space, faces: m.stated,
     ...(own ? { area: () => inSpace(areaMaterial(m), space) } : {}),
   }));
@@ -2944,12 +3191,18 @@ export function material(
     const own = new Set<string>();
     if (!isArr(p)) {
       for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && typeof v === 'number') own.add(k);
+    } else if ((p as readonly number[]).length > 2 && typeof (p as readonly number[])[2] === 'number') {
+      // A place with a third number, [x, y, z], is a point in space.
+      own.add('z');
     }
     shared = shared === null ? [...own] : shared.filter((k) => own.has(k));
   }
   for (const k of shared ?? []) {
     const col = new Float64Array(n);
-    for (let i = 0; i < n; i++) col[i] = (list[i] as Record<string, number>)[k];
+    for (let i = 0; i < n; i++) {
+      const p = list[i];
+      col[i] = isArr(p) ? (p as readonly number[])[2] : (p as Record<string, number>)[k];
+    }
     attrs[k] = col;
   }
   let edges: Uint32Array = new Uint32Array(0);
@@ -3063,7 +3316,7 @@ export function mapPositions(m: Material, fn: (p: Vertex) => XY, who: string): M
     ny[i] = y;
   }
   const s = m.store;
-  return carryLinks(m, new Material(nx, ny, s.attrs, s.edgeList, { iteration: m.iteration, history: [], edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
+  return carryLinks(m, new Material(nx, ny, s.attrs, s.edgeList, { iteration: m.iteration, history: [], edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys }, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
 }
 
 // ---- connections ----------------------------------------------------------------
@@ -3832,8 +4085,8 @@ export const connect = {
  * side. `append(pile, ...children.map((c) => t.material(c)))` piles a list.
  */
 export interface AppendOpts {
-  fill?: Record<string, number>;
-  edgeFill?: Record<string, number>;
+  fill?: Record<string, CellValue>;
+  edgeFill?: Record<string, CellValue>;
 }
 export function append(...materials: Material[]): Material;
 export function append(...args: [...Material[], AppendOpts]): Material;
@@ -3895,9 +4148,9 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   for (const k of names) {
     const col = new Float64Array(a.n + b.n);
     if (k in a.attrs) col.set(a.attrs[k]);
-    else col.fill(fill[k], 0, a.n);
+    else col.fill(fill[k] as number, 0, a.n);
     if (k in b.attrs) col.set(b.attrs[k], a.n);
-    else col.fill(fill[k], a.n);
+    else col.fill(fill[k] as number, a.n);
     attrs[k] = col;
   }
   const edges = new Uint32Array(a.edgeList.length + b.edgeList.length);
@@ -3907,11 +4160,15 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   for (const k of enames) {
     const col = new Float64Array(a.edgeCount + b.edgeCount);
     if (k in a.edgeAttrs) col.set(a.edgeAttrs[k]);
-    else col.fill(edgeFill[k], 0, a.edgeCount);
+    else col.fill(edgeFill[k] as number, 0, a.edgeCount);
     if (k in b.edgeAttrs) col.set(b.edgeAttrs[k], a.edgeCount);
-    else col.fill(edgeFill[k], a.edgeCount);
+    else col.fill(edgeFill[k] as number, a.edgeCount);
     edgeAttrs[k] = col;
   }
+  // Columns of another kind than numbers join the same way: one kind on
+  // both sides, and a side without one filled by `fill`.
+  const typedAttrs = joinTyped(a.store.attrs, b.store.attrs, a.n, b.n, fill, 'append', '');
+  const typedEdgeAttrs = joinTyped(a.store.edgeAttrs, b.store.edgeAttrs, a.edgeCount, b.edgeCount, edgeFill, 'append', 'edge ');
   // Appending changes no row: every point and edge of both sides is the one
   // it was, so it keeps the id it had. Minting fresh ones here would retire
   // identities nothing retired, and a selection held across the append —
@@ -3949,7 +4206,128 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   if (a.space !== undefined && b.space !== undefined && a.space.model.id !== b.space.model.id) {
     throw new Error(`append: the two materials are in different spaces (${a.space.kind} and ${b.space.kind}) — their coordinates name different places`);
   }
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs }, space: a.space ?? b.space });
+  // The kernel's names ride along, `''` on a side that has none.
+  const keys = {
+    points: joinKeys(a.store.pointKeys, a.n, b.store.pointKeys, b.n),
+    edges: joinKeys(a.store.edgeKeys, a.edgeCount, b.store.edgeKeys, b.edgeCount),
+  };
+  const faces = joinStated(a, b, edges, edgeIds);
+  return new Material(x, y, { ...attrs, ...typedAttrs }, edges, { iteration: 0, history: [], edgeAttrs: { ...edgeAttrs, ...typedEdgeAttrs }, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, keys, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs }, space: a.space ?? b.space, ...(faces !== undefined ? { faces } : {}) });
+}
+
+/**
+ * The stated faces of `a` and `b` appended — a's faces, then b's over its
+ * re-based rows — when every side that has edges states its faces: a side
+ * whose faces are read off the picture cannot join a statement (the
+ * statement would hide them), so then there is none and the faces of the
+ * whole are read off the picture. Everything a statement holds is joined:
+ * the loops, the nesting, each face's source, the corner columns (a side
+ * without one takes its kind's default; two kinds refused by name), the
+ * minted ids (the second side's re-minted on a collision, as its points'
+ * are), the kernel's names and the fixed triangles.
+ */
+function joinStated(a: Material, b: Material, edges: Uint32Array, edgeIds: Float64Array): StatedFaces | undefined {
+  const sa = a.stated;
+  const sb = b.stated;
+  if (sa === undefined && sb === undefined) return undefined;
+  if ((sa === undefined && a.edgeCount > 0) || (sb === undefined && b.edgeCount > 0)) return undefined;
+  const ca = sa?.cycles ?? [];
+  const cb = sb?.cycles ?? [];
+  const fa = ca.length;
+  const fb = cb.length;
+  const na = cornerIndex(ca).count;
+  const nb = cornerIndex(cb).count;
+  const shift = a.n;
+  const cycles = Object.freeze([...ca, ...cb.map((runs) => Object.freeze(runs.map((run) => Object.freeze(run.map((p) => p + shift)))))]);
+  const parent = sa?.parent === undefined && sb?.parent === undefined ? undefined : Int32Array.from([
+    ...(sa?.parent ?? new Int32Array(fa).fill(-1)),
+    ...Array.from(sb?.parent ?? new Int32Array(fb).fill(-1), (p) => (p < 0 ? -1 : p + fa)),
+  ]);
+  const source = sa?.source === undefined && sb?.source === undefined ? undefined
+    : (f: number) => (f < fa ? sa?.source?.(f) : sb?.source?.(f - fa));
+  // Corner columns: one kind a name, a side without it at the default.
+  const corners: Record<string, AnyColumn> = {};
+  const colsA = sa?.corners ?? {};
+  const colsB = sb?.corners ?? {};
+  for (const name of new Set([...Object.keys(colsA), ...Object.keys(colsB)])) {
+    const x = colsA[name];
+    const y = colsB[name];
+    const kind = kindOf((x ?? y)!);
+    if (x !== undefined && y !== undefined && kindOf(y) !== kind) throw new Error(`append: the corner column '${name}' holds ${kindWords(kind)} a corner on one side and ${kindWords(kindOf(y))} on the other`);
+    corners[name] = joinColumns(x ?? constantColumn(kind, na, kind.default), y ?? constantColumn(kind, nb, kind.default));
+  }
+  const ids = (x: Float64Array | undefined, y: Float64Array | undefined, cx: number, cy: number): Float64Array | undefined => {
+    if (x === undefined && y === undefined) return undefined;
+    const first = x ?? mintIds(cx);
+    const seen = new Set(first);
+    const second = y === undefined || y.some((id) => seen.has(id)) ? mintIds(cy) : y;
+    const out = new Float64Array(cx + cy);
+    out.set(first);
+    out.set(second, cx);
+    return out;
+  };
+  const names = (x: readonly string[] | undefined, y: readonly string[] | undefined, cx: number, cy: number): readonly string[] | undefined =>
+    x === undefined && y === undefined ? undefined : Object.freeze([...(x ?? new Array<string>(cx).fill('')), ...(y ?? new Array<string>(cy).fill(''))]);
+  const faceIds = ids(sa?.faceIds, sb?.faceIds, fa, fb);
+  const cornerIds = ids(sa?.cornerIds, sb?.cornerIds, na, nb);
+  const faceKeys = names(sa?.faceKeys, sb?.faceKeys, fa, fb);
+  const cornerKeys = names(sa?.cornerKeys, sb?.cornerKeys, na, nb);
+  const triangles = sa?.triangles === undefined && sb?.triangles === undefined ? undefined
+    : Object.freeze([...(sa?.triangles ?? new Array<undefined>(fa)), ...(sb?.triangles ?? new Array<undefined>(fb))]);
+  return {
+    cycles,
+    ...(parent !== undefined ? { parent } : {}),
+    ...(source !== undefined ? { source } : {}),
+    edgeList: Column.of(edges),
+    edgeIds: Column.of(edgeIds),
+    ...(Object.keys(corners).length > 0 ? { corners: Object.freeze(corners) } : {}),
+    ...(faceIds !== undefined ? { faceIds } : {}),
+    ...(cornerIds !== undefined ? { cornerIds } : {}),
+    ...(faceKeys !== undefined ? { faceKeys } : {}),
+    ...(cornerKeys !== undefined ? { cornerKeys } : {}),
+    ...(triangles !== undefined ? { triangles } : {}),
+  };
+}
+
+/** Two sides' kernel names joined, or null when neither has any. */
+function joinKeys(a: ArrayColumn<string> | null, na: number, b: ArrayColumn<string> | null, nb: number): ArrayColumn<string> | null {
+  if (a === null && b === null) return null;
+  return joinColumns(a ?? constantColumn(kinds.string, na, ''), b ?? constantColumn(kinds.string, nb, '')) as ArrayColumn<string>;
+}
+
+/** The columns of another kind than numbers of two column records, `na`
+ * and `nb` rows long, joined: one kind on both sides, and the side that
+ * lacks one filled by `fill` (refused by name without it). A name that is
+ * numbers on one side and another kind on the other is refused. */
+function joinTyped(
+  a: Readonly<Record<string, AnyColumn>>,
+  b: Readonly<Record<string, AnyColumn>>,
+  na: number,
+  nb: number,
+  fill: Readonly<Record<string, unknown>>,
+  who: string,
+  what: string,
+): Record<string, AnyColumn> {
+  const out: Record<string, AnyColumn> = {};
+  const names = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of names) {
+    const ca = a[k];
+    const cb = b[k];
+    if (!isTypedColumn(ca) && !isTypedColumn(cb)) continue;
+    if (ca !== undefined && cb !== undefined) {
+      const ka = kindOf(ca);
+      const kb = kindOf(cb);
+      if (ka !== kb) throw new Error(`${who}: the ${what}column '${k}' holds ${kindWords(ka)} a row on one side and ${kindWords(kb)} on the other`);
+      out[k] = joinColumns(ca, cb);
+      continue;
+    }
+    if (!(k in fill)) throw new Error(`${who}: the ${ca === undefined ? 'first' : 'second'} material has no ${what}column '${k}' — give ${what === '' ? 'fill' : 'edgeFill'}: { ${k}: … } or match the columns`);
+    const { kind, value } = cellOf(fill[k], who, k);
+    const held = (ca ?? cb)!;
+    if (kind !== kindOf(held)) throw new Error(`${who}: the fill of '${k}' is ${kindWords(kind)}, and the column holds ${kindWords(kindOf(held))} a row`);
+    out[k] = ca !== undefined ? joinColumns(ca, constantColumn(kind, nb, value)) : joinColumns(constantColumn(kind, na, value), cb!);
+  }
+  return out;
 }
 
 // ---- interpretation ---------------------------------------------------------------
@@ -4103,4 +4481,477 @@ export function areaView<T>(input: T): T | Material | Selection<Edge> {
     if (cut[e] !== 0 && keep.get(find(area.edgeList[2 * e])) === true) rows.push(e);
   }
   return edgesOf(area, rows);
+}
+
+// ---- the 3D section: the words a 2D and a 3D value share ---------------------------
+
+/** A point or a step in space: three numbers. */
+export type Vec3 = readonly [number, number, number];
+
+/**
+ * @internal The 3D words of the one geometry, installed by the 3D layer
+ * when it loads (src/three/api/words.ts fills this record; this module
+ * never imports it — no cycle, no prototype patching). Each `Material`
+ * word below that is 3D, or has a 3D half, is a real method here that
+ * hands the value and its arguments, as it took them, to its entry; an
+ * entry that is missing is refused by name ("import occlude/3d").
+ *
+ * The shared words are told apart by what they take, never by a flag:
+ * `translate` by a 3-vector, `rotate` by anything but a number of degrees
+ * (angles, or an axis and degrees), `scale` by three factors — or by one
+ * on a value with a `z`, which scales in space — `transform` by a placement
+ * of space, `extrude` by a face selection, `smooth` by a face or corner
+ * column, `along` and `resample` by a value with a `z`. The 3D-only words
+ * (`subdivide`, the booleans, `dual`, `displace`) are 3D whatever they take.
+ * `faceWords` and `edgeCenter` answer row words of a value with a `z`.
+ */
+export interface Words3 {
+  translate(m: Material, offset: Vec3): Material;
+  rotate(m: Material, a: unknown, b?: unknown, c?: unknown): Material;
+  scale(m: Material, scale: number | Vec3, pivot?: unknown): Material;
+  transform(m: Material, placement: Placement<Vec3>): Material;
+  extrude(m: Material, faces: Selection<Face>, offset: unknown, options?: unknown): Material;
+  smooth(m: Material, name: string, options: { readonly steps?: number }): Material;
+  subdivide(m: Material, levels?: number, options?: unknown): Material;
+  union(m: Material, other: Material): Material;
+  subtract(m: Material, other: Material): Material;
+  intersect(m: Material, other: Material): Material;
+  dual(m: Material, options?: unknown): Material;
+  displace(m: Material, field: unknown, options?: unknown): Material;
+  along(m: Material, options: unknown): Material;
+  resample(m: Material, options: unknown): Material;
+  /** Samples, sampled curve points or surface curves re-attached to an
+   * edited revision of the surface(s) they were made on. */
+  rebind(m: Material, target: Material | readonly Material[]): Material;
+  /** Curves attached to a prototype, repeated at every placement of an
+   * instance set. */
+  place(m: Material, instances: unknown): Material;
+  /** Face `f`'s normal, area and centroid, measured in space. */
+  faceWords(m: Material, f: number): { readonly normal: Vec3; readonly area: number; readonly centroid: Vec3 };
+  /** Edge `e`'s middle, in space. */
+  edgeCenter(m: Material, e: number): Vec3;
+}
+
+/** @internal The 3D words, as the 3D layer installs them (see `Words3`). */
+export const WORDS_3D: Partial<Words3> = {};
+
+/** The 3D half of a word, or refused by name when the 3D layer is not
+ * loaded. */
+function word3<K extends keyof Words3>(name: K): Words3[K] {
+  const f = WORDS_3D[name];
+  if (f === undefined) throw new Error(`m.${name}: that is a 3D word — it comes with occlude/3d; import occlude/3d first`);
+  return f as Words3[K];
+}
+
+/** @internal Does this value's points have a `z` — is it a value in space? */
+export function inSpace3(m: Material): boolean {
+  return m.store.attrs.z instanceof Column;
+}
+
+/** A 3-vector: three numbers, as an array or `{ x, y, z }`. */
+function isVec3(v: unknown): boolean {
+  if (Array.isArray(v)) return v.length === 3;
+  return typeof v === 'object' && v !== null && typeof (v as { z?: unknown }).z === 'number';
+}
+
+// ---- the 3D section: the constructor doors ----------------------------------------
+//
+// The one geometry holds 2D and 3D alike: points (x, y, a `z` column when
+// they have one, and columns of any kind), edges, stated faces, and the
+// corners of those faces. The 3D layer (src/three) builds a value and reads
+// it back through these doors, never through the public words — they check
+// what a program gets wrong, and they read a sketch's intent (a position,
+// a view) where the 3D layer holds plain rows.
+//
+//   materialFromParts(parts)  the value of these parts:
+//     { x, y, z?, pointCols?, edges?, edgeCols?,
+//       faces?: [{ loop, cols?, corners?, triangles? }], ids?, keys?,
+//       source?, space?, transfers?, edgeTransfers?,
+//       faceColumns?, cornerColumns? }
+//   partsOfMaterial(m)        the same parts read back: the columns as they
+//                             are held, the edge list, the ids, and the
+//                             stated faces (`statedPartsOf`).
+//   statedPartsOf(m)          the stated faces alone: their loops, their
+//                             columns by face row, their corners, their
+//                             fixed triangles.
+//
+// Rows are rows of the value: a loop names point rows, an edge names point
+// rows, a corner record is by position round its loop. Ids are the run's
+// minted numbers (`mintIds`); given ones are kept, absent ones minted. A
+// column is a column of any kind (`kinds.*` in column.ts) or a Float64Array
+// of numbers, each exactly as long as its domain.
+
+/** @internal One stated polygon face of `materialFromParts`. */
+export interface FacePart {
+  /** The face's point rows, in order round it — three or more. The face is
+   * on the left of the loop as it runs: counter-clockwise seen from the
+   * side it faces. */
+  readonly loop: ArrayLike<number>;
+  /** The face's columns: one value each, of any kind a column holds. */
+  readonly cols?: Readonly<Record<string, CellValue>>;
+  /** The corners' columns, one record per point of the loop, in loop
+   * order (absent, or a record left out: the kind's default). */
+  readonly corners?: readonly (Readonly<Record<string, CellValue>> | undefined)[];
+  /** A fixed triangulation of the face: positions round `loop` (0 is its
+   * first point), three a triangle. Absent: none — a reader triangulates
+   * the loop itself. The statement keeps it with the loop (see
+   * `StatedFaces.triangles`). */
+  readonly triangles?: ArrayLike<number>;
+}
+
+/** @internal Where the rows of a `materialFromParts` value came from
+ * (derivation.ts): the node the derivation records on it, and what each
+ * row's `source` answers — row links (an input's points, edges or stated
+ * faces, one input or a list of them, and parameter columns such as `u`),
+ * or a function of the row read the first time the row asks. Every write
+ * that keeps a row keeps its answer. */
+export interface PartsSource {
+  readonly node?: Derivation;
+  readonly points?: DomainSpec | ((row: number) => unknown);
+  readonly edges?: DomainSpec | ((row: number) => unknown);
+  readonly faces?: (f: number) => unknown;
+}
+
+/** @internal The parts `materialFromParts` takes. */
+export interface MaterialParts {
+  readonly x: ArrayLike<number>;
+  readonly y: ArrayLike<number>;
+  /** The third coordinate, one a point: a value with it is a 3D value. */
+  readonly z?: ArrayLike<number>;
+  /** Point columns by name (not `x`, `y`, `z`). */
+  readonly pointCols?: Readonly<Record<string, AnyColumn | Float64Array>>;
+  /** Edges as point rows, two a row: `[a0, b0, a1, b1, …]`. A side of a
+   * face loop no edge joins is added after these, in face and loop order,
+   * with its columns' defaults and a minted id. */
+  readonly edges?: ArrayLike<number>;
+  /** Edge columns by name, one value per edge given in `edges`. */
+  readonly edgeCols?: Readonly<Record<string, AnyColumn | Float64Array>>;
+  /** Stated polygon faces, in face order. */
+  readonly faces?: readonly FacePart[];
+  /** Ids to keep: one per point, one per edge given in `edges`, each
+   * edge's lineage root (absent: its own id), one per face and one per
+   * corner. Absent: minted (an edge the door adds always is). */
+  readonly ids?: {
+    readonly points?: ArrayLike<number>;
+    readonly edges?: ArrayLike<number>;
+    readonly edgeRoots?: ArrayLike<number>;
+    readonly faces?: ArrayLike<number>;
+    readonly corners?: ArrayLike<number>;
+  };
+  /** The kernel's own names of the rows, kept beside the ids and never
+   * public (see `MaterialStore.pointKeys`): one per point, per edge given
+   * in `edges` (an added edge's is `''`), per face, per corner. */
+  readonly keys?: {
+    readonly points?: readonly string[];
+    readonly edges?: readonly string[];
+    readonly faces?: readonly string[];
+    readonly corners?: readonly string[];
+  };
+  readonly source?: PartsSource;
+  /** The space the coordinates belong to. */
+  readonly space?: Space;
+  /** Declared transfer policies, as `points.set(…, { transfer })` keeps them. */
+  readonly transfers?: Readonly<Record<string, TransferPolicy>>;
+  readonly edgeTransfers?: Readonly<Record<string, EdgeTransfer>>;
+  /** Face columns as a value holds them, keyed by each face's walls — for
+   * a rebuild that keeps the walls and their lineage roots, and so every
+   * face's key: its declared transfer and fallback go with it. Not with a
+   * face part's `cols`. */
+  readonly faceColumns?: Readonly<Record<string, FaceColumn>>;
+  /** Corner columns as a value holds them: one row per loop point, in face
+   * and loop order, of any kind. Not with a face part's `corners`. */
+  readonly cornerColumns?: Readonly<Record<string, AnyColumn>>;
+}
+
+/** @internal The parts of a value, read back (`partsOfMaterial`). The
+ * columns are the value's own: read them, never write them. */
+export interface MaterialPartsOut {
+  readonly x: Float64Array;
+  readonly y: Float64Array;
+  /** The `z` column's numbers, or undefined for a value in the plane. */
+  readonly z: Float64Array | undefined;
+  /** Every point column but `z`, as held (a numeric one a `Column`). */
+  readonly pointCols: Readonly<Record<string, AnyColumn>>;
+  readonly edges: Uint32Array;
+  readonly edgeCols: Readonly<Record<string, AnyColumn>>;
+  readonly ids: { readonly points: Float64Array; readonly edges: Float64Array; readonly edgeRoots: Float64Array };
+  /** The kernel's names of the points and edges, or null where none. */
+  readonly keys: { readonly points: readonly string[] | null; readonly edges: readonly string[] | null };
+  readonly faces: StatedParts | undefined;
+}
+
+/** @internal A value's stated faces, read back (`statedPartsOf`). */
+export interface StatedParts {
+  /** Per face row, its loop of point rows (a face with holes: its outer
+   * run; a face that holds others: empty). */
+  readonly loops: readonly (readonly number[])[];
+  /** Face columns by name, one value per face row: its own, else the
+   * column's fallback, else the kind's default. */
+  readonly cols: Readonly<Record<string, readonly unknown[]>>;
+  /** The corners: each one's face row and point row, where each face's
+   * corners start, and the corner columns as held. */
+  readonly corners: { readonly face: Uint32Array; readonly point: Uint32Array; readonly start: Uint32Array; readonly cols: Readonly<Record<string, AnyColumn>> };
+  /** The faces' and corners' minted ids, where the statement has them. */
+  readonly ids: { readonly faces: Float64Array | undefined; readonly corners: Float64Array | undefined };
+  /** The kernel's names of the faces and corners, where given. */
+  readonly keys: { readonly faces: readonly string[] | undefined; readonly corners: readonly string[] | undefined };
+  /** Per face row, its fixed triangles as positions round its loop (see
+   * `FacePart.triangles`), undefined for a face without; undefined when
+   * no face has any. */
+  readonly triangles: readonly (readonly number[] | undefined)[] | undefined;
+}
+
+/**
+ * @internal The one geometry of these parts: see the section header. A
+ * wrong part — a column of the wrong length, a loop of fewer than three
+ * points or naming a point that is not there, a value no column holds, a
+ * column that holds two kinds — is refused by name.
+ */
+export function materialFromParts(parts: MaterialParts): Material {
+  const who = 'materialFromParts';
+  const n = parts.x.length;
+  if (parts.y.length !== n) throw new Error(`${who}: ${parts.x.length} x and ${parts.y.length} y`);
+  const x = Float64Array.from(parts.x);
+  const y = Float64Array.from(parts.y);
+  const pointCols: Record<string, ColumnLike<Float64Array> | AnyColumn> = {};
+  if (parts.z !== undefined) {
+    if (parts.z.length !== n) throw new Error(`${who}: ${parts.z.length} z for ${n} points`);
+    pointCols.z = Float64Array.from(parts.z);
+  }
+  for (const [name, col] of Object.entries(parts.pointCols ?? {})) {
+    if (name === 'z' && parts.z !== undefined) throw new Error(`${who}: 'z' is given twice — as z and as a point column`);
+    pointCols[name] = col;
+  }
+  // The edges given, then every loop side no edge joins.
+  const given = parts.edges ?? [];
+  if (given.length % 2 !== 0) throw new Error(`${who}: edges are pairs of point rows`);
+  const ends: number[] = Array.from(given);
+  const have = new Set<number>();
+  for (let k = 0; k < ends.length; k += 2) have.add(pairKey(ends[k], ends[k + 1]));
+  const faces = parts.faces ?? [];
+  const loops = faces.map((f, i) => {
+    const loop = Array.from(f.loop);
+    if (loop.length < 3) throw new Error(`${who}: face ${i} has a loop of ${loop.length} points — a face is three or more`);
+    for (const p of loop) if (!Number.isInteger(p) || p < 0 || p >= n) throw new Error(`${who}: face ${i} names point ${p}, and there are ${n}`);
+    const tri = f.triangles;
+    if (tri !== undefined) {
+      if (tri.length % 3 !== 0) throw new Error(`${who}: face ${i} gives ${tri.length} triangle corners — three a triangle`);
+      for (let k = 0; k < tri.length; k++) {
+        const t = tri[k];
+        if (!Number.isInteger(t) || t < 0 || t >= loop.length) throw new Error(`${who}: face ${i} has a triangle at loop position ${t}, and its loop has ${loop.length} points`);
+      }
+    }
+    for (let k = 0; k < loop.length; k++) {
+      const a = loop[k];
+      const b = loop[(k + 1) % loop.length];
+      if (!have.has(pairKey(a, b))) {
+        have.add(pairKey(a, b));
+        ends.push(a, b);
+      }
+    }
+    return loop;
+  });
+  const givenEdges = given.length / 2;
+  const edgeCount = ends.length / 2;
+  const added = edgeCount - givenEdges;
+  const edgeCols: Record<string, AnyColumn> = {};
+  for (const [name, col] of Object.entries(parts.edgeCols ?? {})) {
+    const c = isTypedColumn(col) ? col : columnOf(col as Float64Array);
+    if (c.length !== givenEdges) throw new Error(`${who}: edge column '${name}' has ${c.length} values for ${givenEdges} edges`);
+    edgeCols[name] = added === 0 ? c : joinColumns(c, constantColumn(kindOf(c), added, kindOf(c).default));
+  }
+  const edgeList = Column.of(Uint32Array.from(ends));
+  const ids = parts.ids ?? {};
+  const pointIds = ids.points === undefined ? undefined : Float64Array.from(ids.points);
+  const extra = added === 0 ? null : mintIds(added);
+  const withAdded = (given: ArrayLike<number> | undefined, what: string): Float64Array | undefined => {
+    if (given === undefined) return undefined;
+    if (given.length !== givenEdges) throw new Error(`${who}: ${given.length} ${what} for ${givenEdges} edges`);
+    const out = new Float64Array(edgeCount);
+    out.set(Array.from(given));
+    if (extra !== null) out.set(extra, givenEdges);
+    return out;
+  };
+  const edgeIdsFlat = withAdded(ids.edges, 'edge ids') ?? mintIds(edgeCount);
+  const edgeRootsFlat = withAdded(ids.edgeRoots, 'edge roots');
+  const edgeIds = Column.of(edgeIdsFlat);
+  const cycles = Object.freeze(loops.map((l) => Object.freeze([Object.freeze(l)])));
+  const cornerCount = loops.reduce((sum, l) => sum + l.length, 0);
+  if (parts.cornerColumns !== undefined && faces.some((f) => f.corners !== undefined)) throw new Error(`${who}: corner columns are given as held and as face parts' corners — give one`);
+  if (parts.faceColumns !== undefined && faces.some((f) => f.cols !== undefined)) throw new Error(`${who}: face columns are given as held and as face parts' cols — give one`);
+  for (const [name, col] of Object.entries(parts.cornerColumns ?? {})) {
+    if (RESERVED_CORNER_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a corner, not a column`);
+    if (col.length !== cornerCount) throw new Error(`${who}: corner column '${name}' has ${col.length} values for ${cornerCount} corners`);
+  }
+  const corners = faces.length === 0 ? undefined
+    : parts.cornerColumns !== undefined ? (Object.keys(parts.cornerColumns).length === 0 ? undefined : Object.freeze({ ...parts.cornerColumns }))
+    : cornerColumns(faces, loops, who);
+  const triangles = faces.some((f) => f.triangles !== undefined)
+    ? Object.freeze(faces.map((f) => (f.triangles === undefined ? undefined : Object.freeze(Array.from(f.triangles)))))
+    : undefined;
+  const counted = (given: ArrayLike<number> | readonly string[] | undefined, count: number, what: string): void => {
+    if (given !== undefined && given.length !== count) throw new Error(`${who}: ${given.length} ${what} for ${count}`);
+  };
+  const keys = parts.keys ?? {};
+  counted(ids.faces, faces.length, 'face ids');
+  counted(ids.corners, cornerCount, 'corner ids');
+  counted(keys.points, n, 'point keys');
+  counted(keys.edges, givenEdges, 'edge keys');
+  counted(keys.faces, faces.length, 'face keys');
+  counted(keys.corners, cornerCount, 'corner keys');
+  const stated: StatedFaces | undefined = faces.length === 0 ? undefined : {
+    cycles,
+    ...(parts.source?.faces ? { source: parts.source.faces } : {}),
+    edgeList,
+    edgeIds,
+    ...(corners !== undefined ? { corners } : {}),
+    faceIds: ids.faces === undefined ? mintIds(faces.length) : Float64Array.from(ids.faces),
+    cornerIds: ids.corners === undefined ? mintIds(cornerCount) : Float64Array.from(ids.corners),
+    ...(keys.faces !== undefined ? { faceKeys: Object.freeze([...keys.faces]) } : {}),
+    ...(keys.corners !== undefined ? { cornerKeys: Object.freeze([...keys.corners]) } : {}),
+    ...(triangles !== undefined ? { triangles } : {}),
+  };
+  const nameCols = {
+    points: keys.points === undefined ? null : (kinds.string.from(keys.points) as ArrayColumn<string>),
+    edges: keys.edges === undefined ? null : (kinds.string.from([...keys.edges, ...new Array<string>(added).fill('')]) as ArrayColumn<string>),
+  };
+  let m = new Material(x, y, pointCols, edgeList, {
+    edgeAttrs: edgeCols,
+    transfers: { ...(parts.transfers ?? {}) },
+    edgeTransfers: { ...(parts.edgeTransfers ?? {}) },
+    ids: { points: pointIds, edges: edgeIds, edgeRoots: edgeRootsFlat },
+    keys: nameCols,
+    space: parts.space,
+    faces: stated,
+  });
+  // Face columns are keyed by the walls each face is made of, as every
+  // face column is, so they follow the faces the way `faces.set`'s do.
+  const heldFaces = parts.faceColumns !== undefined && Object.keys(parts.faceColumns).length > 0;
+  if (heldFaces || faces.some((f) => f.cols !== undefined && Object.keys(f.cols).length > 0)) {
+    m = new Material(m.store.x, m.store.y, m.store.attrs, m.store.edgeList, {
+      edgeAttrs: m.store.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
+      ids: { points: m.store.pointIds, edges: m.store.edgeIds, edgeRoots: m.store.edgeRoots },
+      keys: nameCols,
+      space: parts.space, faces: stated,
+      faceAttrs: heldFaces ? { ...parts.faceColumns } : faceColumnsOfParts(faces, statedFaceKeys(m, cycles), who),
+    });
+  }
+  const src = parts.source;
+  const spec = (d: DomainSpec | ((row: number) => unknown) | undefined): DomainSpec | undefined =>
+    typeof d === 'function' ? { source: { read: d } } : d;
+  if (src?.points !== undefined || src?.edges !== undefined) linkRows(m, { points: spec(src.points), edges: spec(src.edges) });
+  return src?.node !== undefined ? record(m, src.node) : m;
+}
+
+/** The corner columns of a list of face parts: one row per loop point, in
+ * face order; each column of one kind, its first value's, and a corner that
+ * gives none its kind's default. Undefined when no corner has a column. */
+function cornerColumns(faces: readonly FacePart[], loops: readonly (readonly number[])[], who: string): Readonly<Record<string, AnyColumn>> | undefined {
+  const count = loops.reduce((s, l) => s + l.length, 0);
+  const found = new Map<string, { kind: AnyKind; values: unknown[] }>();
+  let at = 0;
+  faces.forEach((f, i) => {
+    const records = f.corners;
+    if (records !== undefined && records.length !== loops[i].length) throw new Error(`${who}: face ${i} gives ${records.length} corner records for a loop of ${loops[i].length}`);
+    for (let k = 0; k < loops[i].length; k++, at++) {
+      const rec = records?.[k];
+      if (rec === undefined) continue;
+      for (const [name, v] of Object.entries(rec)) {
+        if (v === undefined) continue;
+        const cell = cellOf(v, who, name);
+        let col = found.get(name);
+        if (col === undefined) {
+          col = { kind: cell.kind, values: new Array<unknown>(count).fill(undefined) };
+          found.set(name, col);
+        } else if (col.kind !== cell.kind) {
+          throw new Error(`${who}: the corner column '${name}' would hold ${kindWords(col.kind)} and ${kindWords(cell.kind)} — a column keeps one kind`);
+        }
+        col.values[at] = cell.value;
+      }
+    }
+  });
+  if (found.size === 0) return undefined;
+  const out: Record<string, AnyColumn> = {};
+  for (const [name, { kind, values }] of found) {
+    if (RESERVED_CORNER_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a corner, not a column`);
+    const filled = values.map((v) => (v === undefined ? kind.default : v));
+    out[name] = kind === kinds.number ? Column.of(Float64Array.from(filled as number[])) : ((kind as unknown as { from(v: unknown[]): AnyColumn }).from(filled));
+  }
+  return Object.freeze(out);
+}
+
+/** The face columns of a list of face parts, keyed by `keys` (one per
+ * face): each column of one kind, and every face seen. */
+function faceColumnsOfParts(faces: readonly FacePart[], keys: readonly string[], who: string): Record<string, FaceColumn> {
+  const out: Record<string, FaceColumn> = {};
+  const kindOfName = new Map<string, AnyKind>();
+  const values = new Map<string, Map<string, unknown>>();
+  faces.forEach((f, i) => {
+    for (const [name, v] of Object.entries(f.cols ?? {})) {
+      if (v === undefined) continue;
+      if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a face, not a column`);
+      const cell = cellOf(v, who, name);
+      const had = kindOfName.get(name);
+      if (had !== undefined && had !== cell.kind) throw new Error(`${who}: the face column '${name}' would hold ${kindWords(had)} and ${kindWords(cell.kind)} — a column keeps one kind`);
+      kindOfName.set(name, cell.kind);
+      let map = values.get(name);
+      if (map === undefined) values.set(name, (map = new Map()));
+      map.set(keys[i], Array.isArray(cell.value) ? Object.freeze(cell.value) : cell.value);
+    }
+  });
+  const seen = new Set(keys);
+  for (const [name, map] of values) {
+    const kind = kindOfName.get(name)!;
+    out[name] = { values: map, transfer: 'nearest', seen, ...(kind === kinds.number ? {} : { kind }) };
+  }
+  return out;
+}
+
+/** @internal The parts of `m` (see `MaterialPartsOut`). */
+export function partsOfMaterial(m: Material): MaterialPartsOut {
+  const s = m.store;
+  const pointCols: Record<string, AnyColumn> = {};
+  for (const name of s.attrNames) if (name !== 'z') pointCols[name] = s.attrs[name];
+  const z = s.attrs.z;
+  return {
+    x: s.x.flat(),
+    y: s.y.flat(),
+    z: z instanceof Column ? z.flat() : undefined,
+    pointCols,
+    edges: s.edgeList.flat(),
+    edgeCols: s.edgeAttrs,
+    ids: { points: s.pointIds.flat(), edges: s.edgeIds.flat(), edgeRoots: s.edgeRoots.flat() },
+    keys: { points: s.pointKeys === null ? null : s.pointKeys.flat(), edges: s.edgeKeys === null ? null : s.edgeKeys.flat() },
+    faces: statedPartsOf(m),
+  };
+}
+
+/** @internal The stated faces of `m` read back (see `StatedParts`), or
+ * undefined when its faces are read off the picture. */
+export function statedPartsOf(m: Material): StatedParts | undefined {
+  const stated = m.stated;
+  if (stated === undefined) return undefined;
+  const loops = stated.cycles.map((runs) => (runs.length === 0 ? [] : runs[0]));
+  const cols: Record<string, readonly unknown[]> = {};
+  const names = Object.keys(m.faceAttrs);
+  if (names.length > 0) {
+    const keys = statedFaceKeys(m, stated.cycles);
+    for (const name of names) {
+      const column = m.faceAttrs[name];
+      const fallback = column.fallback !== undefined ? column.fallback : (column.kind?.default ?? 0);
+      cols[name] = keys.map((key) => {
+        const v = column.values.get(key);
+        return v === undefined ? fallback : v;
+      });
+    }
+  }
+  const index = cornerIndex(stated.cycles);
+  return {
+    loops,
+    cols,
+    corners: { face: index.face, point: index.point, start: index.start, cols: stated.corners ?? {} },
+    ids: { faces: stated.faceIds, corners: stated.cornerIds },
+    keys: { faces: stated.faceKeys, corners: stated.cornerKeys },
+    triangles: stated.triangles,
+  };
 }

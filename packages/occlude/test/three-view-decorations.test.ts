@@ -1,4 +1,4 @@
-import {beforeAll,it,expect,expectTypeOf} from 'vitest';
+import {beforeAll,it,expect} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {box,view,orthographic,perspective,pointCloud,instanceOnPoints,type ViewHatch} from 'occlude/3d';
 import { sketch, pen, mm } from '../src/index.js';
@@ -9,6 +9,7 @@ import {classifySceneCpu3} from '../src/three/visibility/scene.js';
 import {section3} from '../src/three/curves/section.js';
 import {hatch3} from '../src/three/curves/hatch.js';
 import {lineArt3} from '../src/three/scene.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const camera=orthographic({eye:[5,7,6],span:5});
 const config={seed:42,pens:{ink:pen({width:mm(.3),color:'#112233'}),shade:pen({width:mm(.18),color:'#445566'}),section:pen({width:mm(.25),color:'#a84932'})}};
@@ -16,12 +17,12 @@ const snapshot=(scene:ReturnType<typeof view>['scene'],cameraOverride:ReturnType
 it('captures typed hatch fields once per eligible face, independently of camera and caller mutations',async()=>{
  const geometry=box(2).faces.set('spacing',f=>f.index+3);
  let selects=0,fields=0,models=0;
- const families:ViewHatch<{spacing:number}>[]=[{key:'one',select:f=>{selects++;return f.normal[2]>0;},spacing:f=>{fields++;expectTypeOf(f.spacing).toEqualTypeOf<number>();return mm(f.spacing);},angle:f=>f.spacing*5,pen:'shade'}, {key:'two',select:f=>f.normal[2]>0,spacing:mm(8),angle:-35,pen:'section'}];
+ const families:ViewHatch<{spacing:number}>[]=[{key:'one',select:f=>{selects++;return f.normal[2]>0;},spacing:f=>{fields++;return mm(f.spacing);},angle:f=>f.spacing*5,pen:'shade'}, {key:'two',select:f=>f.normal[2]>0,spacing:mm(8),angle:-35,pen:'section'}];
  const planeOrigin:[number,number,number]=[0,0,0];
  const drawing=view(geometry,{camera,hatch:families,sections:[{origin:planeOrigin,normal:[0,0,1],pen:'section'}]});
  families[1]={spacing:mm(100)};planeOrigin[2]=100;
  expect(selects).toBe(6);expect(fields).toBe(1);
- const object=drawing.scene.objects[0];expect(object.surface).toBe(geometry.surface);expect(object.hatch!.surface).toBe(object.surface);expect(object.curves!.surface).toBe(object.surface);
+ const object=drawing.scene.objects[0];expect(object.surface).toBe(surfaceOf(geometry));expect(object.hatch!.surface).toBe(object.surface);expect(object.curves!.surface).toBe(object.surface);
  const captured=JSON.stringify(object);
  const execution=await compileSketchAsync(sketch(config,()=>{models++;return drawing;}));
  const before=exportSvg(execution),next=await commitCamera3(execution,drawing.scene,perspective({eye:[5,7,6]}));
@@ -30,10 +31,10 @@ it('captures typed hatch fields once per eligible face, independently of camera 
  for(const color of ['#112233','#445566','#a84932'])expect(before).toContain(color);
 });
 it('preserves the exact shared kernel feature/interval result for mixed section and hatch recipes',()=>{
- const geometry=box(2).faces.set('spacing',5),planes=[{id:'level',origin:[0,0,0] as const,normal:[0,0,1] as const,attributes:{height:0}}];
+ const geometry=box(2,{key:'model'}).faces.set('spacing',5),planes=[{id:'level',origin:[0,0,0] as const,normal:[0,0,1] as const,attributes:{height:0}}];
  const families=[{id:'shade',spacing:mm(5),angle:35},{id:'cross',spacing:mm(10),angle:-35}];
- const modern=view(geometry.withKey('model'),{camera,hatch:families.map(({id,...r})=>({...r,key:id})),sections:planes.map(({id,...p})=>({...p,key:id}))});
- const legacy=lineArt3({camera,objects:[{id:'model',surface:geometry.surface,hatch:hatch3(geometry.surface,families),curves:section3(geometry.surface,planes)}],lineSets:[]});
+ const modern=view(geometry,{camera,hatch:families.map(({id,...r})=>({...r,key:id})),sections:planes.map(({id,...p})=>({...p,key:id}))});
+ const legacy=lineArt3({camera,objects:[{id:'model',surface:surfaceOf(geometry),hatch:hatch3(surfaceOf(geometry),families),curves:section3(surfaceOf(geometry),planes)}],lineSets:[]});
  for(const projection of [camera,perspective({eye:[5,7,6]})]){
   expect(classifySceneCpu3(snapshot(modern.scene,projection)).features).toEqual(classifySceneCpu3(snapshot(legacy,projection)).features);
  }

@@ -40,7 +40,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
   const network = append(t.material(rect(10, 10, 80, 80)), chord(10, 34, 90, 62), chord(28, 10, 60, 90), chord(10, 74, 90, 26));
   const planar = network.planarize();
-  const junctions = planar.points.filter((p) => network.pointOf(p.id) === undefined);
+  const junctions = planar.points.without(network.points);
   return [
     strokes(network), label(`${network.edges.length} connections`, 12, 6, 3.4),
     group({ translate: [100, 0] },

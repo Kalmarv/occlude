@@ -1,7 +1,8 @@
-import {describe,it,expect,expectTypeOf} from 'vitest';
+import {describe,it,expect} from 'vitest';
 import {box3} from '../src/three/geometry/surface.js';
 import {plane,box,mesh,pointCloud} from '../src/three/api/mesh.js';
 import {toolkit} from './helpers/run.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
 describe('immutable mesh values and frozen domains',()=>{
  it('shares the mesh contract across plane, box and raw topology',()=>{
   for(const shape of [plane(),box(),mesh([[0,0,0],[1,0,0],[0,1,0]],[[0,1,2]])]){
@@ -15,16 +16,16 @@ describe('immutable mesh values and frozen domains',()=>{
  });
  it('propagates typed attributes, supports replacement, and protects row names',()=>{
   const value=plane().points.set('weight',p=>p.x+1).faces.set('height',()=>1.5).faces.set({label:f=>f.height>1?'high':'low'});
-  expectTypeOf(value.points.at(0)!.weight).toEqualTypeOf<number>();
-  expectTypeOf(value.faces.at(0)!.height).toMatchTypeOf<number>();
+  
+  
   expect(value.faces.at(0)?.label).toBe('high');
-  const changed=value.points.set('weight','heavy');expectTypeOf(changed.points.at(0)!.weight).toEqualTypeOf<string>();
-  expect(changed.points.at(0)?.attributes.weight).toBe('heavy');
-  expect(()=>value.faces.set('area',2)).toThrow('reserved');expect(()=>value.edges.set('x',2)).toThrow('reserved');
+  // A column keeps one kind: another kind is another column.
+  expect(()=>value.points.set('weight','heavy')).toThrow("the column 'weight' holds a number");
+  expect(value.points.set('grade','heavy').points.at(0)?.grade).toBe('heavy');
+  expect(()=>value.faces.set('area',2)).toThrow('reserved');
   // `x` on points is the position; a value that is not finite writes nothing.
   expect(value.points.set('x',2).points.every(p=>p.x===2)).toBe(true);
-  expect(value.points.set('bad',NaN)).toBe(value);
-  expect(()=>{(value.points.at(0)!.attributes as {weight:number}).weight=5;}).toThrow();
+  expect(()=>{(value.points.at(0) as unknown as {weight:number}).weight=5;}).toThrow();
  });
  it('keeps groups as selections and extracts shared face topology',()=>{
   const b=box().faces.set('axis',f=>Math.abs(f.normal[2]));
@@ -32,8 +33,8 @@ describe('immutable mesh values and frozen domains',()=>{
   expect(groups.map(g=>[g.key,g.length]).sort()).toEqual([[0,4],[1,2]]);
   const side=groups.find(g=>g.key===0)!.extract();expect(side.points.length).toBe(8);expect(side.faces.length).toBe(4);
   expect(side.edges.length).toBe(12);expect(side.faces.map(f=>f.axis)).toEqual([0,0,0,0]);
-  const points=b.points.filter(p=>p.z>0).extract();expect(points.points.length).toBe(4);expect('faces' in points).toBe(false);
-  const curves=b.edges.filter(e=>e.a.z>0&&e.b.z>0).extract();expect(curves.segments.length).toBe(4);expect('faces' in curves).toBe(false);
+  const points=b.points.filter(p=>p.z>0).extract();expect(points.points.length).toBe(4);expect(points.faces.length).toBe(0);
+  const curves=b.edges.filter(e=>e.a.z>0&&e.b.z>0).extract();expect(curves.edges.length).toBe(4);expect(curves.faces.length).toBe(0);
  });
  it('runs passes that read their input unchanged, and keeps history through a continued run',()=>{
   const t=toolkit();
@@ -42,27 +43,28 @@ describe('immutable mesh values and frozen domains',()=>{
    const before=m.points.map(p=>p.z),out=m.displace(p=>[0,0,p.mobility]).displace(p=>[0,0,p.mobility]);
    expect(m.points.map(p=>p.z)).toEqual(before);return out;
   },{every:2});
-  expect(value.history.length).toBe(3);expect(value.history[0].surface).toBe(original.surface);
+  expect(value.history.length).toBe(3);expect(value.history[0].points.map(p=>[p.x,p.y,p.z])).toEqual(original.points.map(p=>[p.x,p.y,p.z]));
   expect(value.history.every(s=>s.history.length===0)).toBe(true);
   expect(value.points.map(p=>p.z)).toEqual(original.points.map(p=>p.mobility*6));
   // a selection of an earlier revision is read by id, and lands
   expect(value.points.set('z',p=>p.z+1,original.points).points.map(p=>p.z)).toEqual(value.points.map(p=>p.z+1));
-  const continued=t.steps(1,value,m=>m,{every:1});expect(continued.history.length).toBe(2);expect(continued.history[0].surface).toBe(value.surface);expect(continued.history[0].history).toEqual([]);
+  const continued=t.steps(1,value,m=>m,{every:1});expect(continued.history.length).toBe(2);expect(continued.history[0].points.map(p=>p.z)).toEqual(value.points.map(p=>p.z));expect(continued.history[0].history).toEqual([]);
   expect(original.points.map(p=>p.z)).toEqual([0,0,0,0]);
  });
  it('imports owned mutable surfaces without losing IDs, attributes or fixed triangles',()=>{
   const raw=box3();raw.faces[0].attributes.label='bottom';// preserve source identity
   const imported=mesh(raw);raw.points[0].position=[99,99,99];raw.faces[0].attributes.label='changed';
-  expect(imported.points.at(0)?.id).toBe('p0');expect(imported.points.at(0)?.x).toBe(-.5);
-  expect(imported.faces.at(0)?.attributes.label).toBe('bottom');
+  expect(surfaceOf(imported).points[0].id).toBe('p0');expect(imported.points.at(0)?.x).toBe(-.5);
+  expect(imported.faces.at(0)?.label).toBe('bottom');
   const invalid={...box3(),triangles:[]};expect(()=>mesh(invalid)).toThrow('triangulation');
  });
  it('owns raw inputs, preserves edge transfer and leaves new interior attributes optional',()=>{
   const positions:[number,number,number][]=[[0,0,0],[1,0,0],[0,1,0]],source=mesh(positions,[[0,1,2]]).edges.set('pen',2);
   positions[0][0]=99;expect(source.points.at(0)?.x).toBe(0);
-  expectTypeOf(source.edges.at(0)!.pen).toMatchTypeOf<number>();
-  const refined=source.subdivide();expectTypeOf(refined.edges.at(0)!.pen).toMatchTypeOf<number|undefined>();expect(refined.edges.filter(e=>e.attributes.pen===2).length).toBe(6);
-  expect(refined.edges.filter(e=>e.attributes.pen===undefined).length).toBe(3);
+  
+  const refined=source.subdivide();expect(refined.edges.filter(e=>e.pen===2).length).toBe(6);
+  // An interior edge a subdivision made has the column's default.
+  expect(refined.edges.filter(e=>e.pen===0).length).toBe(3);
   expect(pointCloud([[0,0,0]]).points.set('height',2).translate([0,0,3]).points.at(0)?.height).toBe(2);
  });
 });

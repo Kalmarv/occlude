@@ -2,28 +2,30 @@ import {readFileSync} from 'node:fs';
 import {beforeAll,describe,it,expect} from 'vitest';
 import { sketch, pen, mm } from '../src/index.js';
 import { initOcclude, compileSketchAsync, render } from '../src/host.js';
-import {sdf3,isosurface,view,orthographic,type Mesh} from '../src/three/api/index.js';
+import {sdf3,isosurface,view,orthographic} from '../src/three/api/index.js';
 import {cross3,dot3,sub3} from '../src/three/math.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
 /** The primitive catalog's own closed-surface test: two faces on every edge,
  * the expected Euler characteristic, opposed winding across every edge, no
  * degenerate triangle, and a positive enclosed volume (outward winding). */
-function manifold(s:Mesh,chi:number){
-  expect(s.surface.edges.every(e=>e.faces.length===2)).toBe(true);
+function manifold(s:Material,chi:number){
+  expect(surfaceOf(s).edges.every(e=>e.faces.length===2)).toBe(true);
   expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
   const directions=new Map<string,number>();
-  for(const f of s.surface.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=[Math.min(a,b),Math.max(a,b)].join(':');directions.set(key,(directions.get(key)??0)+(a<b?1:-1));}
+  for(const f of surfaceOf(s).faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=[Math.min(a,b),Math.max(a,b)].join(':');directions.set(key,(directions.get(key)??0)+(a<b?1:-1));}
   expect([...directions.values()].every(n=>n===0)).toBe(true);
-  let volume=0;for(const t of s.surface.triangles){const [a,b,c]=t.vertices.map(i=>s.surface.points[i].position);expect(Math.hypot(...cross3(sub3(b,a),sub3(c,a)))).toBeGreaterThan(0);volume+=dot3(a,cross3(b,c))/6;}
+  let volume=0;for(const t of surfaceOf(s).triangles){const [a,b,c]=t.vertices.map(i=>surfaceOf(s).points[i].position);expect(Math.hypot(...cross3(sub3(b,a),sub3(c,a)))).toBeGreaterThan(0);volume+=dot3(a,cross3(b,c))/6;}
   expect(volume).toBeGreaterThan(0);
   return volume;
 }
 /** Connected pieces, by the faces that share a point. */
-function components(s:Mesh):number{
+function components(s:Material):number{
   const parent=s.points.map((_,i)=>i);
   const root=(i:number):number=>{while(parent[i]!==i)i=parent[i]=parent[parent[i]];return i;};
-  for(const f of s.surface.faces)for(const v of f.vertices){const a=root(f.vertices[0]),b=root(v);if(a!==b)parent[a]=b;}
+  for(const f of surfaceOf(s).faces)for(const v of f.vertices){const a=root(f.vertices[0]),b=root(v);if(a!==b)parent[a]=b;}
   return new Set(s.points.map((_,i)=>root(i))).size;
 }
 const cube=(half:number):[readonly [number,number,number],readonly [number,number,number]]=>[[-half,-half,-half],[half,half,half]];
@@ -67,7 +69,7 @@ describe('isosurface, the field made a mesh',()=>{
   // The same field at the same step is the same mesh, point for point.
   const again=isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:span/cells});
   expect(again.points.map(p=>[p.x,p.y,p.z])).toEqual(ball.points.map(p=>[p.x,p.y,p.z]));
-  expect(again.surface.faces.map(f=>f.vertices)).toEqual(ball.surface.faces.map(f=>f.vertices));
+  expect(surfaceOf(again).faces.map(f=>f.vertices)).toEqual(surfaceOf(ball).faces.map(f=>f.vertices));
  });
  it('joins a union into one closed piece and keeps a smoothed surface closed',()=>{
   const pair=sdf3.union(sdf3.sphere([-.5,0,0],.8),sdf3.sphere([.5,0,0],.8));
@@ -75,7 +77,7 @@ describe('isosurface, the field made a mesh',()=>{
   manifold(welded,2);expect(components(welded)).toBe(1);
   const eased=isosurface(pair,{bounds:[[-1.7,-1.2,-1.2],[1.7,1.2,1.2]],step:3.4/28,smooth:3});
   manifold(eased,2);
-  expect(eased.surface.faces.map(f=>f.vertices)).toEqual(welded.surface.faces.map(f=>f.vertices));
+  expect(surfaceOf(eased).faces.map(f=>f.vertices)).toEqual(surfaceOf(welded).faces.map(f=>f.vertices));
   // Laplacian passes move the points and pull the surface in a little.
   expect(eased.points.map(p=>[p.x,p.y,p.z])).not.toEqual(welded.points.map(p=>[p.x,p.y,p.z]));
  });
@@ -99,7 +101,7 @@ describe('isosurface, the field made a mesh',()=>{
     ()=>isosurface(sdf3.union(),{bounds:cube(1.5),step:3/8}),
     ()=>isosurface((()=>Number.NaN) as never,{bounds:cube(1.5),step:3/8}),
     ()=>isosurface(sdf3.sphere([0,0,0],9),{bounds:cube(1.5),step:3/8}),
-  ])expect(make().surface.faces.length).toBe(0);
+  ])expect(surfaceOf(make()).faces.length).toBe(0);
   expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),resolution:8} as never)).toThrow('resolution is now step');
   expect(()=>isosurface(sdf3.sphere([0,0,0],1),{bounds:cube(1.5),step:3/200})).toThrow('budget');
   expect(()=>isosurface(null as never,{bounds:cube(1.5),step:3/8})).toThrow('function of (x, y, z)');

@@ -3,10 +3,12 @@ import {estimateCurvature3,curvatureAt3} from '../src/three/geometry/curvature.j
 import {sphere,cylinder,torus} from '../src/three/api/primitives.js';
 import {plane,box} from '../src/three/api/mesh.js';
 import {dot3,cross3,unit3,type Vec3} from '../src/three/math.js';
+import {surfaceOf} from '../src/three/geometry/value.js';
+import type {Material} from '../src/material.js';
 const angle=(a:Vec3,b:Vec3)=>Math.acos(Math.min(1,Math.abs(dot3(unit3(a),unit3(b)))))*180/Math.PI;
-function samples(mesh:{surface:any},predicate:(p:Vec3)=>boolean){
-  const est=estimateCurvature3(mesh.surface),out=[] as {p:Vec3;s:ReturnType<typeof curvatureAt3>}[];
-  mesh.surface.triangles.forEach((t:any,i:number)=>{const p=t.vertices.map((v:number)=>mesh.surface.points[v].position) as Vec3[];const c:Vec3=[(p[0][0]+p[1][0]+p[2][0])/3,(p[0][1]+p[1][1]+p[2][1])/3,(p[0][2]+p[1][2]+p[2][2])/3];if(predicate(c))out.push({p:c,s:curvatureAt3(est,i,[1/3,1/3,1/3])});});
+function samples(mesh:Material,predicate:(p:Vec3)=>boolean){
+  const surface=surfaceOf(mesh),est=estimateCurvature3(surface),out=[] as {p:Vec3;s:ReturnType<typeof curvatureAt3>}[];
+  surface.triangles.forEach((t,i)=>{const p=t.vertices.map((v:number)=>surface.points[v].position) as Vec3[];const c:Vec3=[(p[0][0]+p[1][0]+p[2][0])/3,(p[0][1]+p[1][1]+p[2][1])/3,(p[0][2]+p[1][2]+p[2][2])/3];if(predicate(c))out.push({p:c,s:curvatureAt3(est,i,[1/3,1/3,1/3])});});
   return out;
 }
 describe('mesh curvature estimation',()=>{
@@ -35,21 +37,21 @@ describe('mesh curvature estimation',()=>{
     for(const {s} of rows){expect(Math.abs(s.kMax-1)).toBeLessThan(.25);expect(Math.abs(s.kMin-.25)).toBeLessThan(.1);}
   });
   it('interpolates sign-consistent directions inside a triangle',()=>{
-    const model=cylinder(1,2,{segments:24}),est=estimateCurvature3(model.surface);
-    const i=model.surface.triangles.findIndex(t=>t.vertices.every(v=>Math.hypot(...model.surface.points[v].position.slice(0,2))>.9));
+    const model=cylinder(1,2,{segments:24}),est=estimateCurvature3(surfaceOf(model));
+    const i=surfaceOf(model).triangles.findIndex(t=>t.vertices.every(v=>Math.hypot(...surfaceOf(model).points[v].position.slice(0,2))>.9));
     const set=[[1,0,0],[0,1,0],[0,0,1],[1/3,1/3,1/3]].map(w=>curvatureAt3(est,i,w as unknown as Vec3));
     for(const a of set)for(const b of set){expect(angle(a.max,b.max)).toBeLessThan(10);expect(angle(a.min,b.min)).toBeLessThan(10);}
-    const t=model.surface.triangles[i],[a,b,c]=t.vertices.map(v=>model.surface.points[v].position),n=cross3([b[0]-a[0],b[1]-a[1],b[2]-a[2]],[c[0]-a[0],c[1]-a[1],c[2]-a[2]]);
+    const t=surfaceOf(model).triangles[i],[a,b,c]=t.vertices.map(v=>surfaceOf(model).points[v].position),n=cross3([b[0]-a[0],b[1]-a[1],b[2]-a[2]],[c[0]-a[0],c[1]-a[1],c[2]-a[2]]);
     for(const s of set){expect(Math.abs(dot3(s.max,unit3(n)))).toBeLessThan(1e-9);expect(Math.abs(dot3(s.min,s.max))).toBeLessThan(1e-9);}
   });
   it('does not average across creases, so box faces stay flat',()=>{
-    const est=estimateCurvature3(box(2).surface);
+    const est=estimateCurvature3(surfaceOf(box(2)));
     for(const row of est.corners)for(const c of row){expect(Math.abs(c.kMax)).toBeLessThan(1e-9);expect(Math.abs(c.kMin)).toBeLessThan(1e-9);expect(Math.abs(Math.abs(c.normal[0])+Math.abs(c.normal[1])+Math.abs(c.normal[2])-1)).toBeLessThan(1e-9);}
-    const smooth=estimateCurvature3(box(2).surface,{creaseDegrees:180});
+    const smooth=estimateCurvature3(surfaceOf(box(2)),{creaseDegrees:180});
     expect(smooth.corners.some(row=>row.some(c=>Math.abs(c.kMax)>.1))).toBe(true);
   });
   it('caches per surface and validates options',()=>{
-    const s=sphere(1).surface;expect(estimateCurvature3(s)).toBe(estimateCurvature3(s));expect(estimateCurvature3(s,{smoothing:0})).not.toBe(estimateCurvature3(s));
+    const s=surfaceOf(sphere(1));expect(estimateCurvature3(s)).toBe(estimateCurvature3(s));expect(estimateCurvature3(s,{smoothing:0})).not.toBe(estimateCurvature3(s));
     expect(()=>estimateCurvature3(s,{smoothing:-1})).toThrow('smoothing');expect(estimateCurvature3(s,{creaseDegrees:200})).toBe(estimateCurvature3(s,{creaseDegrees:180}));
     expect(()=>curvatureAt3(estimateCurvature3(s),9999,[1,0,0])).toThrow('triangle');
   });
