@@ -4,7 +4,6 @@ import {describe,it,expect} from 'vitest';
 import {mesh} from 'occlude/3d';
 import {surfaceBinding3} from '../src/three/curves/network.js';
 import {intersections3} from '../src/three/curves/intersections.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 type Fixture={id:string;a:number[][];b:number[][];expected:{segments:string[][][];points:string[][]}};
 const fixtures=JSON.parse(readFileSync(new URL('./fixtures/intersection-boxes.json',import.meta.url),'utf8')) as Fixture[];

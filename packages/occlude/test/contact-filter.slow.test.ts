@@ -6,7 +6,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import {mesh3} from '../src/three/geometry/mesh3.js';
-import { surfaceOf } from '../src/three/geometry/value.js';
 import type { Material } from '../src/material.js';
 import { orient3d } from 'robust-predicates';
 import { separatedTriangles3 } from '../src/three/curves/contactFilter.js';

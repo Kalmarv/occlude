@@ -9,7 +9,6 @@ import {intersectionContacts3} from '../src/three/curves/intersectionContacts.js
 import {intersectionAtomsJob3,type IntersectionAtom3} from '../src/three/curves/intersectionAtoms.js';
 import {intersectionGraphInputJob3} from '../src/three/curves/intersectionGraph.js';
 import {intersections3,intersectionsAsync3} from '../src/three/curves/intersections.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const support={source:0,triangle:0};
 const sheet=()=>surfaceBinding3(mesh3(mesh([[0,0,0],[4,0,0],[0,4,0]],[[0,1,2]])));

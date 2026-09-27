@@ -98,7 +98,7 @@ const noLocation=Object.freeze({}) as unknown as SurfaceLocation3;
 /** One directional walk. The first node is the start; `direction` is read at
  * every node. Returns at least the start node; a trace of one node has no
  * segment. `startDirection` seeds the sign for unoriented fields. */
-export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weights:Vec3},direction:DirectionField,options:TraceOptions3,hooks:TraceHooks3={},startDirection?:Vec3):Trace3 {
+export function traceOneWay3(env:TraceEnvironment3,start:{triangle:number;weights:Vec3},direction:DirectionField,options:TraceOptions3,hooks:TraceHooks3={},startDirection?:Vec3):Trace3 {
   const {step,maxLength,maxSteps}=options;
   if(!(maxSteps===Infinity||Number.isSafeInteger(maxSteps))||maxSteps<0)throw new Error('trace requires positive step and length and a nonnegative step budget');
   // No step and no length are no walk: the trace is its start node alone.
@@ -197,10 +197,10 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
  * the seed's own direction as its sign on both sides. A forward loop skips the
  * backward half. */
 export function traceBoth3(env:TraceEnvironment3,start:{triangle:number;weights:Vec3},direction:DirectionField,options:TraceOptions3,hooks:TraceHooks3={}):Trace3 {
-  const forward=traceSurface3(env,start,direction,options,hooks);
+  const forward=traceOneWay3(env,start,direction,options,hooks);
   if(forward.closed||forward.stop==='budget')return forward;
   const seedDirection=forward.nodes.length>1?unit(sub3(forward.nodes[1].position,forward.nodes[0].position)):undefined;
-  const backward=traceSurface3(env,start,(s,previous)=>{const d=direction(s,previous&&mul3(previous,-1));return d&&mul3(d,-1);},options,hooks,seedDirection?mul3(seedDirection,-1):undefined);
+  const backward=traceOneWay3(env,start,(s,previous)=>{const d=direction(s,previous&&mul3(previous,-1));return d&&mul3(d,-1);},options,hooks,seedDirection?mul3(seedDirection,-1):undefined);
   // A lane that turns back on itself: walking backward came round to the
   // seed, so the loop is the whole lane and the forward half only retraces
   // part of it. The loop is the lane, run the field's way round.

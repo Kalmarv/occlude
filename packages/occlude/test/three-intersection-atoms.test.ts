@@ -6,7 +6,6 @@ import {intersectionContacts3} from '../src/three/curves/intersectionContacts.js
 import {intersectionAtomsJob3,triangleSideOccupancy3} from '../src/three/curves/intersectionAtoms.js';
 import {runGeometryJob3,runGeometryJobAsync3} from '../src/three/geometry/job.js';
 import {point,type H} from '../src/three/geometry/exact.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 const atoms=(a:any,b:any,options:any={})=>{
  const contacts=intersectionContacts3(surfaceBinding3(mesh3(a)),surfaceBinding3(mesh3(b))).value;

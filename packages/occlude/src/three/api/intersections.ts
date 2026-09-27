@@ -1,5 +1,4 @@
-import {surfaceOf} from '../geometry/value.js';
-import {mesh3} from '../geometry/mesh3.js';
+import {mesh3,type Mesh3} from '../geometry/mesh3.js';
 import {isInstances,prototypeOf,placedOf} from './instances.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
@@ -35,7 +34,8 @@ export function captureIntersections(...args:IntersectionArguments) {
  if(!(maxPairs===Infinity||Number.isSafeInteger(maxPairs))||maxPairs<0)throw new Error('intersection pair budget must be a nonnegative integer');
  const count=(value:IntersectionInput)=>isInstances(value)?value.points.length:(value instanceof Material)?1:(()=>{throw new Error('intersections require meshes or mesh instances');})();
  inputs.forEach(count);const budget=settings.budget??{};
- const size=(value:IntersectionInput,kind:'points'|'triangles')=>isInstances(value)?value.points.length*surfaceOf(prototypeOf(value)!)[kind].length:surfaceOf(value)[kind].length;
+ const counts={points:(mesh:Mesh3)=>mesh.n,triangles:(mesh:Mesh3)=>mesh.triangleCount};
+ const size=(value:IntersectionInput,kind:'points'|'triangles')=>isInstances(value)?value.points.length*counts[kind](mesh3(prototypeOf(value)!)):counts[kind](mesh3(value));
  const total=(kind:'points'|'triangles')=>inputs.reduce((n,v)=>n+size(v,kind),0);
  const sources:Source[]=[],owner:number[]=[];
  inputs.forEach((value,i)=>{for(const s of isInstances(value)?placedOf(value).map(copy=>({id:copy.id,binding:copy.binding})):[{id:value.key??'mesh',binding:surfaceBinding3(mesh3(value))}]){sources.push(s);owner.push(groups[i]);}});

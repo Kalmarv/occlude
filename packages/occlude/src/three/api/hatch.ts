@@ -11,7 +11,7 @@ import type {Attributes3} from '../geometry/surface.js';
 import {integerWeights,weightedPoint} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
 import {surfaceBinding3,bindingTriangle3,surfaceCurveNetworkJob3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetworkInput3} from '../curves/network.js';
-import {traceEnvironment3,traceBoth3,traceSurface3,traceLocation3,type Trace3,type TraceEnvironment3,type TraceNode3,type TraceOptions3,type TraceStop3} from '../surface/trace.js';
+import {traceEnvironment3,traceBoth3,traceOneWay3,traceLocation3,type Trace3,type TraceEnvironment3,type TraceNode3,type TraceOptions3,type TraceStop3} from '../surface/trace.js';
 import {directionField,toneField,type DirectionInput,type ToneInput,type DirectionField,type ToneField} from '../surface/fields.js';
 import {toneRecipe3,decideTone3,type ToneRecipe3} from '../surface/tone.js';
 import {evaluateSurfaceCpu3,type SurfaceEvaluationResult3,type SurfaceEvaluationStats3} from '../surface/evaluate.js';
@@ -222,7 +222,7 @@ export function* hatchTraceJob(captured:ReturnType<typeof captureHatch>,rnd:()=>
           if(!tangent)continue;
           for(const sign of [1,-1]){
             const side=mul3(cross3(node.normal,tangent),sign);
-            const reached=traceSurface3(env,{triangle:node.triangle,weights:node.weights},(_,previous)=>previous??side,walk,{budget,blind:true});
+            const reached=traceOneWay3(env,{triangle:node.triangle,weights:node.weights},(_,previous)=>previous??side,walk,{budget,blind:true});
             if(reached.length<spacing*0.9)continue;
             const end=reached.nodes[reached.nodes.length-1];
             if(occupancy.blocked(end.position,end.normal,end.triangle,dtest)){stats.occupancyRejections++;continue;}

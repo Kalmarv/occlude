@@ -308,8 +308,9 @@ describe('G3-41 a lane that turns back on itself is a lane, not an assert', () =
     const sheet = plane(4, 4).subdivide(4);
     const env = traceEnvironment3(surfaceBinding3(mesh3(sheet)));
     // A seed about one unit from the middle, on a field that turns round it.
-    const centre = (t: number) => { const [a, b, c] = surfaceOf(sheet).triangles[t].vertices.map((v) => surfaceOf(sheet).points[v].position); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
-    const triangle = surfaceOf(sheet).triangles.map((_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;
+    const read = mesh3(sheet);
+    const centre = (t: number) => { const [a, b, c] = read.triangle(t).map((v) => read.position(v)); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
+    const triangle = Array.from({ length: read.triangleCount }, (_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;
     const round = (s: { position: readonly number[] }) => [-s.position[1], s.position[0], 0] as [number, number, number];
     // The forward half is stopped at once; the backward half goes round.
     let calls = 0;

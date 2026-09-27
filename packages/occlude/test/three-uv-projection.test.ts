@@ -2,7 +2,6 @@ import {describe,it,expect} from 'vitest';
 import {mesh3} from '../src/three/geometry/mesh3.js';
 import {mesh,plane} from 'occlude/3d';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 
 // A projection of your own is a corner write: `corners.set({ uv, chart })`
 // reads each corner's point, so there is no separate projection helper.

@@ -1,10 +1,8 @@
-import {mesh3} from '../geometry/mesh3.js';
-import {surfaceOf} from '../geometry/value.js';
+import {mesh3,type Mesh3} from '../geometry/mesh3.js';
 import type {IsoLevels} from '../../isolines.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {isolines3} from '../curves/isolines.js';
-import {snapshotSurface3} from '../geometry/model.js';
 import {surfaceBinding3,type SurfaceBinding3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3,type SurfaceCurveRecipe3,type SurfaceCurveView3} from '../curves/network.js';
 import {Material} from '../../material.js';
 import type {Corner} from '../../corners.js';
@@ -45,11 +43,11 @@ function resolveLevels(spec:IsolineLevels,values:ArrayLike<number>):number[] {
   return out;
 }
 /** Everything the network is a function of, owned before the async boundary:
- * the captured surface, its per-corner values and the resolved levels. The
+ * the value's reader, its per-corner values and the resolved levels. The
  * field is read exactly once, here, so a view never re-runs the sketch's
  * lambda and a level list cannot drift between two resolutions. */
 export interface CapturedIsolines {
-  readonly surface:ReturnType<typeof snapshotSurface3>;readonly binding:SurfaceBinding3;
+  readonly mesh:Mesh3;readonly binding:SurfaceBinding3;
   readonly values:Float64Array;readonly levels:readonly number[];
   readonly key?:string;readonly maxSegments?:number;readonly maxNodes?:number;readonly budget?:SurfaceCurveBudget3;
 }
@@ -83,9 +81,8 @@ export function captureIsolines(mesh:Material,field:IsolineField,at:IsoLevels,op
     if(typeof v!=='number')throw new Error(typeof field==='string'?`isolines require a finite numeric point attribute '${field}'`:'isolines field must return finite numbers');
     return v;
   });
-  const levels=resolveLevels(spec,values);
-  const surface=snapshotSurface3(surfaceOf(mesh));
-  return {surface,binding:surfaceBinding3(mesh3(mesh)),values,levels:Object.freeze([...levels]),key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
+  const levels=resolveLevels(spec,values),reader=mesh3(mesh);
+  return {mesh:reader,binding:surfaceBinding3(reader),values,levels:Object.freeze([...levels]),key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
 }
 /** The contours as a description a view resolves once it knows its camera.
  *
@@ -103,9 +100,9 @@ export function captureIsolines(mesh:Material,field:IsolineField,at:IsoLevels,op
  * marks it asked for, so the recipe resolves whether or not its mesh is kept
  * and the snapshot refuses a missing placement by name, as it always did. */
 export function isolineRecipe(captured:CapturedIsolines):SurfaceCurveRecipe3 {
-  const {surface,values,levels,key,maxSegments,maxNodes,budget}=captured;
+  const {mesh,values,levels,key,maxSegments,maxNodes,budget}=captured;
   const build=(hidden?:(level:number,triangle:number)=>boolean):SurfaceCurveNetwork3=>
-    isolines3(surface,values,levels,{key,maxSegments,maxNodes,budget,...(hidden?{hidden}:{})}).network;
+    isolines3(mesh,values,levels,{key,maxSegments,maxNodes,budget,...(hidden?{hidden}:{})}).network;
   let full:SurfaceCurveNetwork3|undefined;
   return Object.freeze({
     bindings:Object.freeze([captured.binding]),
