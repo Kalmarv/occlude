@@ -50,14 +50,14 @@ import { interlace as interlaceKernel, type InterlaceOpts } from './interlace.js
 import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, pairKey, viewKind, RowView, rowViewKind } from './views.js';
-import { Column, at64, atU32, columnOf, isTypedColumn, kinds, kindOf, kindWords, joinColumns, constantColumn, type AnyColumn, type AnyKind, type ArrayColumn, type ColumnLike } from './column.js';
+import { Column, at64, atU32, columnOf, isTypedColumn, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type ColumnLike, type StringColumn } from './column.js';
 import { carryLinks, derivation, linkRows, record, rowParam, rowSource, type Derivation, type DomainSpec, type Links, type RowSource } from './derivation.js';
 import { memoMethod } from './memo.js';
 import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, type Corner } from './corners.js';
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
 // is safe, as it is for the kernels above.
-import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, addEdgeRows, cellOf, checkColumnName, checkNewColumnName, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, addEdgeRows, storedValueOf, checkColumnName, checkNewColumnName, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
 
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
@@ -186,7 +186,7 @@ export type Transfer =
 /** Column transfer policies a material remembers for its point columns
  * (`points.set(name, value, { transfer })`), used as the default by
  * `split`, `replace` and `resample`; a per-operation override wins. */
-export type TransferPolicy = 'interpolate' | 'nearest';
+export type PointTransfer = 'interpolate' | 'nearest';
 
 /** How an EDGE column carries over when an edge is subdivided (split,
  * planarize) or re-sampled: `'copy'` (the default) treats the value as a
@@ -356,8 +356,8 @@ export interface MaterialStore {
    * 3D word made. Never a column, never public: the id is the identity,
    * and this is the name a kernel knows the row by.
    */
-  readonly pointKeys: ArrayColumn<string> | null;
-  readonly edgeKeys: ArrayColumn<string> | null;
+  readonly pointKeys: StringColumn | null;
+  readonly edgeKeys: StringColumn | null;
 }
 
 /** @internal A new, unfrozen view of row `i` of `m`: what `m.vertex(i)`
@@ -711,7 +711,7 @@ export class Material {
    * step does touches it. */
   readonly history: readonly Material[];
   /** @internal Declared transfer policy per point column (default interpolate). */
-  readonly transfers: Readonly<Record<string, TransferPolicy>>;
+  readonly transfers: Readonly<Record<string, PointTransfer>>;
   /** @internal Declared transfer policy per edge column (default copy). */
   readonly edgeTransfers: Readonly<Record<string, EdgeTransfer>>;
   /** @internal What this state works out on first ask and keeps
@@ -782,7 +782,7 @@ export class Material {
       iteration?: number;
       history?: readonly Material[];
       edgeAttrs?: Readonly<Record<string, ColumnLike<Float64Array> | AnyColumn>>;
-      transfers?: Record<string, TransferPolicy>;
+      transfers?: Record<string, PointTransfer>;
       edgeTransfers?: Record<string, EdgeTransfer>;
       /** The identity of each row, carried from wherever these rows came
        * from. Absent means this is new geometry, and the constructor
@@ -790,7 +790,7 @@ export class Material {
        * absent means each edge is its own root. */
       ids?: { points?: ColumnLike<Float64Array>; edges?: ColumnLike<Float64Array>; edgeRoots?: ColumnLike<Float64Array> };
       /** The kernel's name of each row (see `MaterialStore.pointKeys`). */
-      keys?: { points?: ArrayColumn<string> | null; edges?: ArrayColumn<string> | null };
+      keys?: { points?: StringColumn | null; edges?: StringColumn | null };
       /** Face columns, carried from the state these rows came from. */
       faceAttrs?: Record<string, FaceColumn>;
       /** The space the coordinates belong to (see `Material.space`). */
@@ -2392,7 +2392,7 @@ function samplesMaterial(samples: readonly ChainSample[], source: Material, tran
   cols.s = Column.of(Float64Array.from(samples, (q) => q.s));
   cols.u = Column.of(Float64Array.from(samples, (q) => q.u));
   cols.heading = Column.of(Float64Array.from(samples, (q) => q.heading));
-  const transfers: Record<string, TransferPolicy> = {};
+  const transfers: Record<string, PointTransfer> = {};
   for (const name of s.attrNames) if (source.transfers[name] && name !== 's' && name !== 'u' && name !== 'heading') transfers[name] = source.transfers[name];
   return new Material(rows.x, rows.y, cols, new Uint32Array(0), { transfers, ids: { points: rows.pointIds }, keys: { points: rows.pointKeys }, from: source });
 }
@@ -3903,7 +3903,7 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   // Policies are compared as they take effect — an undeclared column
   // interpolates — so joining sides cannot silently change how a column
   // splits afterwards.
-  const effective = (m: Material, k: string): TransferPolicy => m.transfers[k] ?? 'interpolate';
+  const effective = (m: Material, k: string): PointTransfer => m.transfers[k] ?? 'interpolate';
   for (const k in a.store.attrs) {
     if (k in b.store.attrs && effective(a, k) !== effective(b, k)) {
       throw new Error(`append: '${k}' has transfer '${effective(a, k)}' on one side and '${effective(b, k)}' on the other`);
@@ -4010,7 +4010,7 @@ function joinStated(a: Material, b: Material, edges: Uint32Array, edgeIds: Float
     const y = colsB[name];
     const kind = kindOf((x ?? y)!);
     if (x !== undefined && y !== undefined && kindOf(y) !== kind) throw new Error(`append: the corner column '${name}' holds ${kindWords(kind)} a corner on one side and ${kindWords(kindOf(y))} on the other`);
-    corners[name] = joinColumns(x ?? constantColumn(kind, na, kind.default), y ?? constantColumn(kind, nb, kind.default));
+    corners[name] = joinColumns(x ?? kind.filled(na), y ?? kind.filled(nb));
   }
   const ids = (x: Float64Array | undefined, y: Float64Array | undefined, cx: number, cy: number): Float64Array | undefined => {
     if (x === undefined && y === undefined) return undefined;
@@ -4046,9 +4046,9 @@ function joinStated(a: Material, b: Material, edges: Uint32Array, edgeIds: Float
 }
 
 /** Two sides' kernel names joined, or null when neither has any. */
-function joinKeys(a: ArrayColumn<string> | null, na: number, b: ArrayColumn<string> | null, nb: number): ArrayColumn<string> | null {
+function joinKeys(a: StringColumn | null, na: number, b: StringColumn | null, nb: number): StringColumn | null {
   if (a === null && b === null) return null;
-  return joinColumns(a ?? constantColumn(kinds.string, na, ''), b ?? constantColumn(kinds.string, nb, '')) as ArrayColumn<string>;
+  return joinColumns(a ?? kinds.string.filled(na), b ?? kinds.string.filled(nb)) as StringColumn;
 }
 
 /** Two column records, `na` and `nb` rows long, joined: every column of
@@ -4076,10 +4076,10 @@ function joinColumnRecords(
       continue;
     }
     if (!(k in fill)) throw new Error(`${who}: the ${ca === undefined ? 'first' : 'second'} material has no ${what}column '${k}' — give ${what === '' ? 'fill' : 'edgeFill'}: { ${k}: … } or match the columns`);
-    const { kind, value } = cellOf(fill[k], who, k);
+    const { kind, value } = storedValueOf(fill[k], who, k);
     const held = (ca ?? cb)!;
     if (kind !== kindOf(held)) throw new Error(`${who}: the fill of '${k}' is ${kindWords(kind)}, and the ${what}column holds ${kindWords(kindOf(held))} a row`);
-    out[k] = ca !== undefined ? joinColumns(ca, constantColumn(kind, nb, value)) : joinColumns(constantColumn(kind, na, value), cb!);
+    out[k] = ca !== undefined ? joinColumns(ca, kind.filled(nb, value)) : joinColumns(kind.filled(na, value), cb!);
   }
   return out;
 }
@@ -4354,7 +4354,7 @@ export interface MaterialParts {
   /** The prototype the points place (see `Material.prototype`). */
   readonly prototype?: Material;
   /** Declared transfer policies, as `points.set(…, { transfer })` keeps them. */
-  readonly transfers?: Readonly<Record<string, TransferPolicy>>;
+  readonly transfers?: Readonly<Record<string, PointTransfer>>;
   readonly edgeTransfers?: Readonly<Record<string, EdgeTransfer>>;
   /** Face columns as a value holds them, keyed by each face's walls — for
    * a rebuild that keeps the walls and their lineage roots, and so every
@@ -4459,9 +4459,9 @@ export function materialFromParts(parts: MaterialParts): Material {
   const added = edgeCount - givenEdges;
   const edgeCols: Record<string, AnyColumn> = {};
   for (const [name, col] of Object.entries(parts.edgeCols ?? {})) {
-    const c = isTypedColumn(col) ? col : columnOf(col as Float64Array);
+    const c = anyColumnOf(col);
     if (c.length !== givenEdges) throw new Error(`${who}: edge column '${name}' has ${c.length} values for ${givenEdges} edges`);
-    edgeCols[name] = added === 0 ? c : joinColumns(c, constantColumn(kindOf(c), added, kindOf(c).default));
+    edgeCols[name] = added === 0 ? c : joinColumns(c, kindOf(c).filled(added));
   }
   const edgeList = Column.of(Uint32Array.from(ends));
   const ids = parts.ids ?? {};
@@ -4515,8 +4515,8 @@ export function materialFromParts(parts: MaterialParts): Material {
     ...(triangles !== undefined ? { triangles } : {}),
   };
   const nameCols = {
-    points: keys.points === undefined ? null : (kinds.string.from(keys.points) as ArrayColumn<string>),
-    edges: keys.edges === undefined ? null : (kinds.string.from([...keys.edges, ...new Array<string>(added).fill('')]) as ArrayColumn<string>),
+    points: keys.points === undefined ? null : kinds.string.from(keys.points),
+    edges: keys.edges === undefined ? null : kinds.string.from([...keys.edges, ...new Array<string>(added).fill('')]),
   };
   let m = new Material(x, y, pointCols, edgeList, {
     edgeAttrs: edgeCols,
@@ -4557,7 +4557,7 @@ function cornerColumns(faces: readonly FacePart[], loops: readonly (readonly num
       if (rec === undefined) continue;
       for (const [name, v] of Object.entries(rec)) {
         if (v === undefined) continue;
-        const cell = cellOf(v, who, name);
+        const cell = storedValueOf(v, who, name);
         let col = found.get(name);
         if (col === undefined) {
           col = { kind: cell.kind, values: new Array<unknown>(count).fill(undefined) };
@@ -4574,7 +4574,7 @@ function cornerColumns(faces: readonly FacePart[], loops: readonly (readonly num
   for (const [name, { kind, values }] of found) {
     checkColumnName('corner', name, who);
     const filled = values.map((v) => (v === undefined ? kind.default : v));
-    out[name] = kind === kinds.number ? Column.of(Float64Array.from(filled as number[])) : ((kind as unknown as { from(v: unknown[]): AnyColumn }).from(filled));
+    out[name] = kind.from(filled);
   }
   return Object.freeze(out);
 }
@@ -4589,7 +4589,7 @@ function faceColumnsOfParts(faces: readonly FacePart[], keys: readonly string[],
     for (const [name, v] of Object.entries(f.cols ?? {})) {
       if (v === undefined) continue;
       checkColumnName('face', name, who);
-      const cell = cellOf(v, who, name);
+      const cell = storedValueOf(v, who, name);
       const had = kindOfName.get(name);
       if (had !== undefined && had !== cell.kind) throw new Error(`${who}: the face column '${name}' would hold ${kindWords(had)} and ${kindWords(cell.kind)} — a column keeps one kind`);
       kindOfName.set(name, cell.kind);

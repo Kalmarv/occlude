@@ -175,7 +175,7 @@ export function tileOps(door: ModelDoor, centre: Model): TileOps<Placement> {
  * sign the geometry itself supplies. The Euclidean case has no such
  * radius — its cells come in every size — so it takes an edge of 1.
  */
-export function cellOf(geometry: TilingGeometry, p: number, q: number): Vec[] {
+export function modelCell(geometry: TilingGeometry, p: number, q: number): Vec[] {
   const u = Math.PI / p;
   const v = Math.PI / q;
   const r = geometry === 'euclidean'
@@ -437,7 +437,7 @@ export function tiling(
   place: { door: ModelDoor; up: (z: XY) => Vec; bow: number; space?: Space },
 ): Tiling {
   const geometry = tilingGeometry(p, q);
-  const cell = cellOf(geometry, p, q).map(place.up);
+  const cell = modelCell(geometry, p, q).map(place.up);
   const depth = geometry === 'spherical'
     ? CLOSURE
     : opts.depth === undefined ? 3 : Math.floor(opts.depth);
@@ -494,7 +494,7 @@ export function coverTiling(
 ): Tiling {
   const geometry = tilingGeometry(p, q);
   if (geometry !== 'euclidean') throw new Error(`tiling: {${p}, ${q}} is not a flat tiling`);
-  const model = cellOf(geometry, p, q);
+  const model = modelCell(geometry, p, q);
   const cell = model.map(place.up);
   const r = place.bounds;
   const bx0 = r.x ?? 0;
@@ -597,7 +597,7 @@ export function coverTiling(
       edges.push(a, b);
     }
     cycles.push([rows]);
-    faces.push({ m, generation: flood.generation[t], ...latticeOf(p, place.down(c)) });
+    faces.push({ m, generation: flood.generation[t], ...latticeCoords(p, place.down(c)) });
   }
   const edgeList = Uint32Array.from(edges);
   const points = mintIds(xs.length);
@@ -635,7 +635,7 @@ const WELD = 1e-6;
  * for `{3, 6}` the turned ones are that lattice shifted by the
  * neighbour's centre, and `i` says which with its parity.
  */
-function latticeOf(p: number, z: Vec): { i: number; j: number } {
+function latticeCoords(p: number, z: Vec): { i: number; j: number } {
   const [x, y] = z;
   if (p === 4) {
     // Neighbours across the walls, at 45° and 135°.

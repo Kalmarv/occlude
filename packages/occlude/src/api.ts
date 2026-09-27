@@ -39,8 +39,8 @@ import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest,
 import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
 import { INK_TOL, carriedSpace, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { cellOf, coverTiling, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
-import { framePlacement, isPlacement, type Placement } from './placement.js';
+import { modelCell, coverTiling, tiling as tilingKernel, tilingGeometry, type Tiling, type TilingOpts } from './tiling.js';
+import { framePlacement, isPlacement, reflection as reflectionIn, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
@@ -301,7 +301,7 @@ function checkOrigin(who: string, origin: unknown): void {
 
 /** What a refusal calls a value in a drawing tree: a clip and a modifier
  * by their words, anything else as every refusal says it (`describe`). */
-function kindOf(v: unknown): string {
+function treeWords(v: unknown): string {
   if ((v as ClipValue | null)?.__occludeClip) return 'a clip';
   if ((v as { __occludeModifier?: true } | null)?.__occludeModifier) return 'a modifier';
   return describe(v);
@@ -450,7 +450,7 @@ function refuseNonArea(who: string, v: unknown, pure = false): void {
     const o = v as { contours?: unknown; pts?: unknown };
     if (typeof o.contours === 'function' || 'curves' in o || Array.isArray(o.pts)) return;
   }
-  throw new Error(`${name}: ${kindOf(v)} is not an area — give a face, contours, a closed material, a shape or a rect`);
+  throw new Error(`${name}: ${treeWords(v)} is not an area — give a face, contours, a closed material, a shape or a rect`);
 }
 
 /** One outline of a lowered area in sketch coordinates, with its own
@@ -637,7 +637,7 @@ function treeLeaves(
     return treeLeaves(run, g.children, op ? [...chain, op] : chain, who, tolerance, refine);
   }
   if (isShapeValue(tree)) return [{ shape: tree, outlines: shapeContours(run, tree, tolerance, refine, chain) }];
-  throw new Error(`${who}: ${kindOf(tree)} in a group is not an area — a group is an area through the shapes it holds`);
+  throw new Error(`${who}: ${treeWords(tree)} in a group is not an area — a group is an area through the shapes it holds`);
 }
 
 /** A face: one area of a face collection, which knows its own walls. */
@@ -1501,7 +1501,7 @@ function maskTree(tree: Tree): Tree {
   if (!tree) return tree;
   if (Array.isArray(tree)) return tree.map(maskTree);
   if (isShapeValue(tree) || isGroupValue(tree)) return mask(tree);
-  throw new Error(`mask: ${kindOf(tree)} in a group is not an area — a group is an area through the shapes it holds`);
+  throw new Error(`mask: ${treeWords(tree)} in a group is not an area — a group is an area through the shapes it holds`);
 }
 
 // ---- the sketch ----
@@ -1880,7 +1880,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const k = chart.scale;
     const up = (z: XY): Vec => { const t = turn(z); return sp.fromChart([cx + k * t[0], cy + k * t[1]]); };
     if (side !== undefined) {
-      const model = cellOf(geometry, p, q);
+      const model = modelCell(geometry, p, q);
       const fixed = sp.distance(up(model[0]), up(model[1]));
       throw new Error(`tiling: {${p}, ${q}} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
     }
@@ -2520,9 +2520,25 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function placement(at: XY | readonly [L, L], heading: number = 0): Placement {
     if (!isPointArg(at, 't.placement')) throw new Error('t.placement: expected a point — [x, y] or { x, y } — and then a heading in degrees: t.placement([x, y], 90)');
     if (typeof heading !== 'number') throw new Error('t.placement: the heading is a number of degrees, after the point — t.placement([x, y], 90)');
-    const x = Array.isArray(at) ? exec.len(at[0] as L) : vx(at as XY);
-    const y = Array.isArray(at) ? exec.len(at[1] as L) : vy(at as XY);
+    const [x, y] = sketchPoint(at);
     return framePlacement(exec.space.model, { x, y, heading: radians(heading) });
+  }
+
+  /**
+   * The mirror in the geodesic through `a` and `b`, in the sketch's own
+   * space: a placement that turns what it places over. `a` and `b` are
+   * points — pairs of numbers or lengths, or `{ x, y }` records — and two
+   * distinct places.
+   */
+  function reflection(a: XY | readonly [L, L], b: XY | readonly [L, L]): Placement {
+    for (const p of [a, b]) if (!isPointArg(p, 't.reflection')) throw new Error('t.reflection: expected two points — [x, y] or { x, y } — the mirror runs through both: t.reflection(a, b)');
+    return reflectionIn(exec.space.model, sketchPoint(a), sketchPoint(b), 't.reflection');
+  }
+
+  /** A point argument in sketch units: a pair of numbers or lengths, or an
+   * `{ x, y }` record. */
+  function sketchPoint(at: XY | readonly [L, L]): Vec {
+    return Array.isArray(at) ? [exec.len(at[0] as L), exec.len(at[1] as L)] : [vx(at as XY), vy(at as XY)];
   }
 
   /**
@@ -2662,7 +2678,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** An area's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, placement, probe, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
+    sample, placement, reflection, probe, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, spacefill: spacefillTk,
     text,
     /**
      * The distance field of an area, taking a shape as well as resolved

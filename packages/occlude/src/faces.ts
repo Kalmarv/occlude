@@ -48,7 +48,7 @@ import { ownedBy, ownerOf, viewKind, viewProto, describe } from './views.js';
 import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
 import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
-import { Column, at64, columnOf, gatherColumn, type AnyColumn, type ColumnLike } from './column.js';
+import { Column, at64, columnOf, kindOf, type AnyColumn, type ColumnLike } from './column.js';
 import { carryLinks, derivation, linkRows, record } from './derivation.js';
 import { cornerIndex, cornersOfFaces, type Corner } from './corners.js';
 
@@ -695,15 +695,15 @@ function extractStated(table: FaceTable, rows: readonly number[], edgeRows: read
     edges[2 * k + 1] = rowMap.get(b)!;
   });
   const pointCols: Record<string, AnyColumn> = {};
-  for (const name of s.attrNames) pointCols[name] = gatherColumn(s.attrs[name], pointRows);
+  for (const name of s.attrNames) pointCols[name] = kindOf(s.attrs[name]).of(s.attrs[name].gather(pointRows));
   const edgeCols: Record<string, AnyColumn> = {};
-  for (const name of s.edgeAttrNames) edgeCols[name] = gatherColumn(s.edgeAttrs[name], edgeRows);
+  for (const name of s.edgeAttrNames) edgeCols[name] = kindOf(s.edgeAttrs[name]).of(s.edgeAttrs[name].gather(edgeRows));
   // The corners of the faces kept, face by face and round each loop.
   const index = cornerIndex(cycles);
   const cornerRows: number[] = [];
   for (const f of rows) for (let c = index.start[f]; c < index.start[f + 1]; c++) cornerRows.push(c);
   const cornerColumns: Record<string, AnyColumn> = {};
-  for (const [name, col] of Object.entries(stated.corners ?? {})) cornerColumns[name] = gatherColumn(col, cornerRows);
+  for (const [name, col] of Object.entries(stated.corners ?? {})) cornerColumns[name] = kindOf(col).of(col.gather(cornerRows));
   const pick = <T,>(of: ArrayLike<T> | undefined, at: readonly number[]): T[] | undefined => (of === undefined ? undefined : at.map((r) => of[r]));
   const pointKeys = s.pointKeys?.flat();
   const edgeKeys = s.edgeKeys?.flat();

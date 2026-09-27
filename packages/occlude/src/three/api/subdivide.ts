@@ -2,12 +2,13 @@ import { identity } from './identity.js';
 import { orient2d, orient3d } from 'robust-predicates';
 import { assembleSurface3, type Attributes3, type Surface3, type SurfacePoint3, type SurfaceFace3, type SurfaceTriangle3, type SurfaceCorner3 } from '../geometry/surface.js';
 import { cross3, sub3, type Vec3 } from '../math.js';
+import type { PointTransfer } from '../../material.js';
 
 export interface SubdivisionOptions {
   readonly maxFaces?: number;
   readonly maxPoints?: number;
 }
-export type PointTransfers = Readonly<Record<string, 'interpolate' | 'nearest'>>;
+export type PointTransfers = Readonly<Record<string, PointTransfer>>;
 const pair = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
 
 /** Continuous numeric columns interpolate; categorical columns use the first

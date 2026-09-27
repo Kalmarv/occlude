@@ -914,38 +914,3 @@ export function kindWords(kind: AnyKind): string {
     case 'placement': return 'a placement';
   }
 }
-
-// ─── spec-74 handoff: kept until their callers take the words above ───
-
-/** @deprecated spec-74 handoff: `c.get(i)`. */
-export function valueAt(c: AnyColumn, i: number): unknown {
-  return c.get(i);
-}
-
-/** @deprecated spec-74 handoff: `kind.filled(length, v)`. */
-export function constantColumn(kind: AnyKind, length: number, v: unknown): AnyColumn {
-  return kind.filled(length, v);
-}
-
-/** @deprecated spec-74 handoff: `joinColumns(c, kindOf(c).from(values))`. */
-export function appendValues(c: AnyColumn, values: ArrayLike<unknown>): AnyColumn {
-  return joinColumns(c, kindOf(c).from(values));
-}
-
-/** @deprecated spec-74 handoff: `c.keep(rows)`. */
-export function keepRows(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
-  return c.keep(rows);
-}
-
-/** @deprecated spec-74 handoff: `kindOf(c).of(c.gather(rows))`. */
-export function gatherColumn(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
-  return kindOf(c).of(c.gather(rows));
-}
-
-/** @deprecated spec-74 handoff: `c.writer(reach)`. */
-export function writerOf(c: AnyColumn, reach: Reach): AnyWriter {
-  return c.writer(reach);
-}
-
-/** @deprecated spec-74 handoff: `StringColumn`. */
-export type ArrayColumn<V> = StoredColumn<V, readonly V[]>;

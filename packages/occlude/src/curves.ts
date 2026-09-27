@@ -32,7 +32,7 @@
  * material it draws.
  */
 
-import { Column, at64, valueAt } from './column.js';
+import { Column, at64 } from './column.js';
 import { Material, cached, geodesicEdges, vertexView, typedCell, type Edge, type Vertex } from './material.js';
 import { walkChains, type Chain } from './chains.js';
 import { Selection, select, domainKind, rowRange, isSelectionOf, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
@@ -365,9 +365,9 @@ function curveRow(table: CurveTable, r: number): Curve {
       // A column of another kind agrees by its kind's equality, and reads
       // on the curve as it reads on an edge.
       const kind = col.kind as { equal(a: unknown, b: unknown): boolean };
-      const first = valueAt(col, c.edges[0]);
+      const first = col.get(c.edges[0]);
       let same = true;
-      for (let k = 1; k < c.edges.length && same; k++) same = kind.equal(valueAt(col, c.edges[k]), first);
+      for (let k = 1; k < c.edges.length && same; k++) same = kind.equal(col.get(c.edges[k]), first);
       if (same) typedCell(m, row, name, col, c.edges[0]);
       continue;
     }

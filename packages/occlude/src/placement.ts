@@ -358,7 +358,9 @@ export function identity(door: ModelDoor): Placement {
 }
 
 /**
- * The reflection in the geodesic through `a` and `b`.
+ * The reflection in the geodesic through `a` and `b`. The toolkit's
+ * `t.reflection(a, b)` is this in the sketch's own space; `who` is the word
+ * a refusal names.
  *
  * `n = up(a) × up(b)` is the covector of the plane through the origin that
  * carries the geodesic — in all three models, because in all three a
@@ -366,17 +368,17 @@ export function identity(door: ModelDoor): Placement {
  * with the model's own product gives `n♯ = [n0, n1, sign·n2]`, and the
  * mirror is the Householder reflection `v ↦ v − 2·(n·v)/(n·n♯)·n♯`.
  */
-export function reflection(door: ModelDoor, a: XY, b: XY): Placement {
+export function reflection(door: ModelDoor, a: XY, b: XY, who = 'reflection'): Placement {
   const A = door.up(a);
   const B = door.up(b);
   const n = cross(A, B);
   const sharp: Model = [n[0], n[1], door.sign * n[2]];
   const d = n[0] * sharp[0] + n[1] * sharp[1] + n[2] * sharp[2];
   if (!(Math.hypot(n[0], n[1], n[2]) > 1e-12)) {
-    throw new Error(`reflection: ${here(a)} and ${here(b)} are the same place — a mirror needs two distinct points`);
+    throw new Error(`${who}: ${here(a)} and ${here(b)} are the same place — a mirror needs two distinct points`);
   }
   if (!(Math.abs(d) > 0)) {
-    throw new Error(`reflection: ${here(a)} and ${here(b)} name no geodesic of ${door.kind} space`);
+    throw new Error(`${who}: ${here(a)} and ${here(b)} name no geodesic of ${door.kind} space`);
   }
   const m = new Array<number>(9);
   for (let r = 0; r < 3; r++) {

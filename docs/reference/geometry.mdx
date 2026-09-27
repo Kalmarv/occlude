@@ -195,19 +195,19 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }),
 
 <include>/_sig/Toolkit.placement.mdx</include>
 <include>/_sig/Vertex.placement.mdx</include>
-<include>/_sig/reflection.mdx</include>
+<include>/_sig/Toolkit.reflection.mdx</include>
 <include>/_sig/Material.transform.mdx</include>
 
 A placement is an isometry of the space. It moves a point, a material or a whole drawing, and it keeps every length and every angle. A placement is also a frame. `x` and `y` are the place where it puts the origin. `heading` is the direction in radians that it turns `+x` to at that place. So a placement goes in where a point goes. `orientation` is `1` when it keeps the hand of a motif and `-1` when it turns the motif over.
 
-Four ways to get one: `t.placement([x, y], heading)` carries the origin frame, at `(0, 0)` facing `+x`, to that place and heading. `p.placement()` is the frame at a point that has a `heading`. The points of `m.along()` and of a curve have one. A tiling gives one for each copy of its cell. `reflection(door, a, b)` is the mirror in the geodesic through two points, and `t.space.model` is the door of the sketch's space. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every row and every column. `placement.point(q)` moves one point. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`. So `a.inverse().then(b)` carries the frame `a` onto the frame `b`. `s.then(placement)` moves the frame `s` with its heading. To turn the motif over on the way, apply the mirror in the heading line of `a` first.
+Four ways to get one: `t.placement([x, y], heading)` carries the origin frame, at `(0, 0)` facing `+x`, to that place and heading. `p.placement()` is the frame at a point that has a `heading`. The points of `m.along()` and of a curve have one. A tiling gives one for each copy of its cell. `t.reflection(a, b)` is the mirror in the geodesic through two points. Three ways to use one: `group(placement, …children)` draws a subtree there. `m.transform(placement)` moves a material and keeps every row and every column. `placement.point(q)` moves one point. `a.then(b)` applies `a` and then `b`, and `a.inverse()` undoes `a`. So `a.inverse().then(b)` carries the frame `a` onto the frame `b`. `s.then(placement)` moves the frame `s` with its heading. To turn the motif over on the way, apply the mirror in the heading line of `a` first.
 
 A placing group and a deforming group never share a group. Nest them: the inner group holds `translate`, `rotate` or `scale` in the motif's own coordinates, and the outer group holds the placement. The library refuses a group that names both, and the error names the keys.
 
 Below, one arrow motif, written once about the origin. `group(s, arrow)` puts it at each corner of the cell (black). The blue copies go through `m.transform` and then the mirror in the first side. A mirror turns a motif over, so the barbs lean the other way. The green arrow is the first corner's arrow, turned over in the first side. Then `stops[0].inverse().then(stops[2])` carries it to the third corner. It stands at that corner turned over, so it points the other way along the side.
 
 ```ts live
-import { sketch, group, strokes, line, circle, space, reflection } from 'occlude';
+import { sketch, group, strokes, line, circle, space } from 'occlude';
 
 export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) }, (t) => {
   const tiles = t.tiling(5, 4, { depth: 1 });
@@ -215,7 +215,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
   const stops = cell.map((v, i) => t.placement(v).toward(cell[(i + 1) % cell.length]));
   const arrow = [line(0, 0, 6, 0), line(6, 0, 3.4, 1.7), line(6, 0, 3.4, -1.7)];
   const motif = t.material(...arrow);
-  const mirror = reflection(t.space.model, cell[0], cell[1]);
+  const mirror = t.reflection(cell[0], cell[1]);
   return [
     circle(t.space.center, 300),
     strokes(tiles, { pen: 'pigma-005-black' }),

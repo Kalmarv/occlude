@@ -27,7 +27,7 @@
  * value the geometry does not hold, used as a reference.
  */
 
-import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, type Vertex, type Edge, type PointId, type EdgeId, type Transfer, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
+import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, type Vertex, type Edge, type PointId, type EdgeId, type Transfer, type PointTransfer, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
 import { chainsOf } from './curves.js';
 import { pointDomain, edgeDomain, pointsOf, edgesOf, notAPoint } from './relation.js';
 import { faceTableOf, type Face, type FaceTable, type StatedFaces } from './faces.js';
@@ -37,7 +37,7 @@ import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
 import type { Space } from './space.js';
 import { ownerOf, pairKey, viewKind, valueKind, valueProto, describe } from './views.js';
-import { Column, at64, atU32, kinds, kindOf, kindWords, valueAt, appendValues, keepRows as keepColumn, writerOf, type AnyColumn, type AnyKind, type AnyWriter, type ArrayColumn, type ColumnWriter } from './column.js';
+import { Column, at64, atU32, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type AnyWriter, type ColumnWriter, type StringColumn } from './column.js';
 import { isPlacement, type Placement } from './placement.js';
 import { carryLinks, derivation, linkRows, record } from './derivation.js';
 
@@ -87,7 +87,7 @@ export type Displacement = XY | readonly [number, number, number] | ((p: Vertex)
 
 /** How a point column crosses a split, a resample or a replace: the
  * trailing options record of `points.set`. */
-export interface PointSetOpts { readonly transfer?: TransferPolicy }
+export interface PointSetOpts { readonly transfer?: PointTransfer }
 /** How an edge column is shared by the children of a split edge: the
  * trailing options record of `edges.set`. */
 export interface EdgeSetOpts { readonly transfer?: EdgeTransfer }
@@ -98,7 +98,7 @@ export interface FaceSetOpts { readonly transfer?: FaceTransfer; readonly fallba
 /** The options record after the record form of `points.set`, which names
  * several columns: one policy for all of them, or a policy by column —
  * `{ transfer: { b: 'nearest' } }` — for those it names. */
-export interface PointRecordSetOpts { readonly transfer?: TransferPolicy | Readonly<Record<string, TransferPolicy>> }
+export interface PointRecordSetOpts { readonly transfer?: PointTransfer | Readonly<Record<string, PointTransfer>> }
 /** The options record after the record form of `edges.set`: one policy,
  * or a policy by column. */
 export interface EdgeRecordSetOpts { readonly transfer?: EdgeTransfer | Readonly<Record<string, EdgeTransfer>> }
@@ -167,8 +167,8 @@ export interface Parts {
   edgeIds: Column;
   edgeRoots: Column;
   /** The kernel's names of the rows (see `MaterialStore.pointKeys`). */
-  pointKeys: ArrayColumn<string> | null;
-  edgeKeys: ArrayColumn<string> | null;
+  pointKeys: StringColumn | null;
+  edgeKeys: StringColumn | null;
 }
 
 /** Every column of `m`, shared: the parts a write starts from. */
@@ -194,7 +194,7 @@ export function partsOf(m: Material): Parts {
 export interface Carry {
   iteration?: number;
   history?: readonly Material[];
-  transfers?: Record<string, TransferPolicy>;
+  transfers?: Record<string, PointTransfer>;
   edgeTransfers?: Record<string, EdgeTransfer>;
   faceAttrs?: Record<string, FaceColumn>;
   /** The stated faces, when the write changes their corners. */
@@ -365,7 +365,7 @@ export class PointRows {
       y: Column.of(Float64Array.from(this.y)),
       attrs,
       pointIds: Column.of(withMinted(this.ids)),
-      pointKeys: keys === null ? null : (kinds.string.from(this.kept.map((i) => (i < 0 ? '' : keys.get(i)))) as ArrayColumn<string>),
+      pointKeys: keys === null ? null : (kinds.string.from(this.kept.map((i) => (i < 0 ? '' : keys.get(i)))) as StringColumn),
     };
   }
 
@@ -393,8 +393,8 @@ export class PointRows {
     if (typeof rule !== 'string') throw new Error(`${this.who}: the transfer of '${name}' is ${typeof rule === 'number' ? 'a number' : 'a function'}, a rule for a column of numbers — '${name}' holds ${kindWords(kind)} a row; its transfer is 'interpolate' or 'nearest'`);
     const interpolate = rule === 'interpolate';
     const values = new Array<unknown>(n);
-    for (let r = 0; r < n; r++) values[r] = b[r] < 0 ? valueAt(col, a[r]) : typedBetween(col, a[r], b[r], t[r], interpolate);
-    return columnFrom(kind, values);
+    for (let r = 0; r < n; r++) values[r] = b[r] < 0 ? col.get(a[r]) : typedBetween(col, a[r], b[r], t[r], interpolate);
+    return kind.from(values);
   }
 }
 
@@ -409,11 +409,6 @@ function withMinted(given: readonly number[]): Float64Array {
   let next = 0;
   for (let k = 0; k < out.length; k++) if (out[k] !== out[k]) out[k] = minted[next++];
   return out;
-}
-
-/** A column of `kind` holding `values` (each a stored value of it). */
-function columnFrom(kind: AnyKind, values: readonly unknown[]): AnyColumn {
-  return (kind as unknown as { from(values: readonly unknown[]): AnyColumn }).from(values);
 }
 
 /**
@@ -490,13 +485,13 @@ export class EdgeCells {
         const p = parts[r]!;
         const sum = new Array<number>(kind.width).fill(0);
         for (let k = 0; k < p.length; k += 2) {
-          const v = valueAt(col, p[k]) as number[];
+          const v = col.get(p[k]) as number[];
           for (let c = 0; c < sum.length; c++) sum[c] += v[c] * p[k + 1];
         }
         values[r] = sum;
       }
     }
-    return columnFrom(kind, values);
+    return kind.from(values);
   }
 }
 
@@ -578,7 +573,7 @@ export class EdgeRows extends EdgeCells {
       edgeAttrs: this.columns(),
       edgeIds: Column.of(ids),
       edgeRoots: Column.of(roots),
-      edgeKeys: keys === null ? null : (kinds.string.from(this.kept.map((e) => (e < 0 ? '' : keys.get(e)))) as ArrayColumn<string>),
+      edgeKeys: keys === null ? null : (kinds.string.from(this.kept.map((e) => (e < 0 ? '' : keys.get(e)))) as StringColumn),
     };
   }
 }
@@ -646,7 +641,7 @@ function storedCell(kind: AnyKind, v: unknown): unknown {
 /** @internal A value a column holds, as its kind and the stored value —
  * or refused by name. What a record of values (a fill, a part's columns)
  * turns into a column through. */
-export function cellOf(v: unknown, who: string, name: string): { kind: AnyKind; value: unknown } {
+export function storedValueOf(v: unknown, who: string, name: string): { kind: AnyKind; value: unknown } {
   const kind = kindOfValue(v);
   if (kind === undefined || kind === null) throw notACell(who, name, v);
   const value = storedCell(kind, v);
@@ -735,9 +730,9 @@ const isEdgeValue = (v: unknown): v is EdgeValue => valueKind(v) === 'edge';
  * any other kind — or a vector that does not — the nearer row's (the
  * first on a tie). The rule `PointRows` builds by. */
 function typedBetween(col: Exclude<AnyColumn, Column>, i: number, j: number, t: number, interpolate: boolean): unknown {
-  if (!col.kind.interpolates || !interpolate) return valueAt(col, t <= 0.5 ? i : j);
-  const va = valueAt(col, i) as number[];
-  const vb = valueAt(col, j) as number[];
+  if (!col.kind.interpolates || !interpolate) return col.get(t <= 0.5 ? i : j);
+  const va = col.get(i) as number[];
+  const vb = col.get(j) as number[];
   return va.map((x, k) => x + (vb[k] - x) * t);
 }
 
@@ -745,7 +740,7 @@ function typedBetween(col: Exclude<AnyColumn, Column>, i: number, j: number, t: 
  * holding `share` of edge `e`: a distributed vector's share, any other
  * value the edge's. The rule `EdgeCells` builds by. */
 function typedShare(col: Exclude<AnyColumn, Column>, e: number, share: number, distribute: boolean): unknown {
-  const v = valueAt(col, e);
+  const v = col.get(e);
   return distribute && col.kind.name === 'vector' ? (v as number[]).map((x) => x * share) : v;
 }
 
@@ -980,8 +975,8 @@ export function addPointRows(m: Material, xs: readonly number[], ys: readonly nu
   p.y = p.y.append(keep.map((k) => ys[k]));
   // A column a new row declares is its kind's default — 0 for numbers — on
   // every row that was already there.
-  for (const name of extra) p.attrs[name] = newColumn(reader.kindOf(name), m.n);
-  for (const name in p.attrs) p.attrs[name] = appendValues(p.attrs[name], keep.map((k) => cells[k][name]));
+  for (const name of extra) p.attrs[name] = reader.kindOf(name).filled(m.n);
+  for (const name in p.attrs) p.attrs[name] = joinColumns(p.attrs[name], kindOf(p.attrs[name]).from(keep.map((k) => cells[k][name])));
   const given = keep.map((k) => (ids === null ? NaN : ids[k]));
   const minted = mintIds(given.filter((id) => Number.isNaN(id)).length);
   let next = 0;
@@ -989,11 +984,6 @@ export function addPointRows(m: Material, xs: readonly number[], ys: readonly nu
   // A row a write makes has no kernel name: the 3D layer names it.
   if (p.pointKeys !== null) p.pointKeys = p.pointKeys.append(keep.map(() => ''));
   return make(m, p);
-}
-
-/** A new column of `kind`, `length` rows of its default. */
-function newColumn(kind: AnyKind, length: number): AnyColumn {
-  return kind === kinds.number ? Column.zeros(Float64Array, length) : (kind.filled(length) as AnyColumn);
 }
 
 /** @internal Remove point rows and every edge row that names one of them. */
@@ -1018,12 +1008,12 @@ function keepRows(m: Material, points: readonly number[] | null, edges: readonly
   if (points !== null) {
     p.x = p.x.keep(points);
     p.y = p.y.keep(points);
-    for (const name in p.attrs) p.attrs[name] = keepColumn(p.attrs[name], points);
+    for (const name in p.attrs) p.attrs[name] = p.attrs[name].keep(points);
     p.pointIds = p.pointIds.keep(points);
     if (p.pointKeys !== null) p.pointKeys = p.pointKeys.keep(points);
   }
   if (p.edgeKeys !== null) p.edgeKeys = p.edgeKeys.keep(edges);
-  for (const name in p.edgeAttrs) p.edgeAttrs[name] = keepColumn(p.edgeAttrs[name], edges);
+  for (const name in p.edgeAttrs) p.edgeAttrs[name] = p.edgeAttrs[name].keep(edges);
   p.edgeIds = p.edgeIds.keep(edges);
   p.edgeRoots = p.edgeRoots.keep(edges);
   if (rowMap === null) {
@@ -1191,7 +1181,7 @@ class ColumnSink {
       this.kind = kinds.number;
       this.open = !position;
     }
-    this.start(base ?? newColumn(this.kind, count));
+    this.start(base ?? this.kind.filled(count));
   }
 
   private start(col: AnyColumn): void {
@@ -1204,7 +1194,7 @@ class ColumnSink {
       else this.num = w;
       this.anyDone = () => w.done();
     } else {
-      const w = writerOf(col, this.reach);
+      const w: AnyWriter = col.writer(this.reach);
       this.any = w;
       this.anyDone = () => w.done();
     }
@@ -1218,7 +1208,7 @@ class ColumnSink {
   slow(i: number, value: unknown): void {
     const was = this.kind;
     const cell = landCell(this, value, this.who, this.name, this.position);
-    if (this.kind !== was) this.start(newColumn(this.kind, this.count));
+    if (this.kind !== was) this.start(this.kind.filled(this.count));
     if (cell === SKIP) return;
     if (this.out !== null) this.out[i] = cell as number;
     else if (this.num !== null) this.num.set(i, cell as number);
@@ -1303,7 +1293,7 @@ function setMaterial<V>(sel: Selection<V>, table: WriteTable, args: readonly unk
     if (t === table.transfers![0]) delete policies[name];
     else policies[name] = t;
   }
-  return make(m, p, points ? { transfers: policies as Record<string, TransferPolicy>, area } : { edgeTransfers: policies as Record<string, EdgeTransfer>, area });
+  return make(m, p, points ? { transfers: policies as Record<string, PointTransfer>, area } : { edgeTransfers: policies as Record<string, EdgeTransfer>, area });
 }
 
 /** A write over `rows` (null: every row): each column's value worked out
@@ -1584,8 +1574,8 @@ export function addEdgeRows(
   const ends: number[] = [];
   for (const k of keep) ends.push(pairs[k][0], pairs[k][1]);
   p.edgeList = p.edgeList.append(ends);
-  for (const name of extra) p.edgeAttrs[name] = newColumn(reader.kindOf(name), m.edgeCount);
-  for (const name in p.edgeAttrs) p.edgeAttrs[name] = appendValues(p.edgeAttrs[name], records.map((r) => r[name] ?? reader.fallback(name)));
+  for (const name of extra) p.edgeAttrs[name] = reader.kindOf(name).filled(m.edgeCount);
+  for (const name in p.edgeAttrs) p.edgeAttrs[name] = joinColumns(p.edgeAttrs[name], kindOf(p.edgeAttrs[name]).from(records.map((r) => r[name] ?? reader.fallback(name))));
   const given = keep.map((k) => (ids === null ? NaN : ids[k]));
   const minted = mintIds(given.filter((id) => Number.isNaN(id)).length);
   let next = 0;
@@ -2104,7 +2094,7 @@ export function move(m: Material, args: readonly unknown[]): Material {
   const Z = m.store.attrs.z;
   let nz: ColumnWriter<Float64Array> | null = null;
   const lift = (i: number): void => {
-    nz ??= (Z instanceof Column ? Z : Column.zeros(Float64Array, m.n)).writer(reach);
+    nz ??= (Z instanceof Column ? Z : kinds.number.filled(m.n)).writer(reach);
     nz.set(i, nz.get(i) + to[2]);
   };
   if (rows === null) {

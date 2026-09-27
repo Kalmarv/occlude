@@ -16,7 +16,7 @@
  * from `near`, and a mean from `sel.mean(column)`.
  */
 
-import { at64, atU32, gatherColumn, type AnyColumn } from './column.js';
+import { at64, atU32, kinds, kindOf, type AnyColumn } from './column.js';
 import { Material, alongMaterial, cached, inSpace3, resampleMaterial, vertexReader, edgeReader, type Edge, type Vertex, type PointId, type EdgeId } from './material.js';
 import { ownerOf, viewKind, valueKind, describe } from './views.js';
 import { carryLinks } from './derivation.js';
@@ -574,7 +574,7 @@ export function extractRows(m: Material, pointRows: readonly number[], edgeRows:
   // An extracted row is the row it came from, so it keeps its identity: a
   // selection pulled out and grown is still made of the same points.
   const attrs: Record<string, AnyColumn> = {};
-  for (const name in s.attrs) attrs[name] = gatherColumn(s.attrs[name], pointRows);
+  for (const name in s.attrs) attrs[name] = kindOf(s.attrs[name]).of(s.attrs[name].gather(pointRows));
   const edges = new Uint32Array(edgeRows.length * 2);
   for (let k = 0; k < edgeRows.length; k++) {
     const e = edgeRows[k];
@@ -582,11 +582,11 @@ export function extractRows(m: Material, pointRows: readonly number[], edgeRows:
     edges[2 * k + 1] = rowMap.get(s.edgeList.get(2 * e + 1))!;
   }
   const edgeAttrs: Record<string, AnyColumn> = {};
-  for (const name in s.edgeAttrs) edgeAttrs[name] = gatherColumn(s.edgeAttrs[name], edgeRows);
+  for (const name in s.edgeAttrs) edgeAttrs[name] = kindOf(s.edgeAttrs[name]).of(s.edgeAttrs[name].gather(edgeRows));
   const ids = { points: s.pointIds.gather(pointRows), edges: s.edgeIds.gather(edgeRows), edgeRoots: s.edgeRoots.gather(edgeRows) };
   const keys = {
-    points: s.pointKeys === null ? null : (gatherColumn(s.pointKeys, pointRows) as typeof s.pointKeys),
-    edges: s.edgeKeys === null ? null : (gatherColumn(s.edgeKeys, edgeRows) as typeof s.edgeKeys),
+    points: s.pointKeys === null ? null : kinds.string.of(s.pointKeys.gather(pointRows)),
+    edges: s.edgeKeys === null ? null : kinds.string.of(s.edgeKeys.gather(edgeRows)),
   };
   return carryLinks(m, new Material(s.x.gather(pointRows), s.y.gather(pointRows), attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids, keys, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
 }

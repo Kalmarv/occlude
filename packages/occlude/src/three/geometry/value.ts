@@ -32,7 +32,6 @@ import {Column, type AnyColumn} from '../../column.js';
 import {Material, materialFromParts, partsOfMaterial, type MaterialParts} from '../../material.js';
 import type {StatedFaces} from '../../faces.js';
 import {carryLinks} from '../../derivation.js';
-import {keepRows} from '../../column.js';
 import {rotation3, type Rotation} from '../rotation.js';
 import type {Vec3} from '../math.js';
 import type {Surface3} from './surface.js';
@@ -235,7 +234,7 @@ function turnedOver(stated: StatedFaces): StatedFaces {
     return Object.freeze(out);
   });
   const corners: Record<string, AnyColumn> | undefined = stated.corners === undefined ? undefined : {};
-  for (const name in stated.corners ?? {}) corners![name] = keepRows(stated.corners![name], order);
+  for (const name in stated.corners ?? {}) corners![name] = stated.corners![name].keep(order);
   return {
     ...stated,
     cycles: Object.freeze(cycles.map((runs) => Object.freeze(runs))),

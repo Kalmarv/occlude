@@ -86,7 +86,7 @@ export type { Selection, Keyed } from './selection.js';
 export type { Face, FaceWhere, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { NearestHit, FirstHit } from './query.js';
 export type {
-  Vertex, Edge, Transfer, TransferPolicy, PointsLike,
+  Vertex, Edge, Transfer, PointTransfer, PointsLike,
 } from './material.js';
 // The ordered domain: `g.curves`, a selection of curve rows.
 export type { Curve } from './curves.js';
@@ -147,9 +147,9 @@ export type { EscapeOpts, EscapeField, EscapeStep } from './escape.js';
 // ONE isometry value for every door: a walk's frame, a tiling's copies, a
 // mirror in a geodesic. `group(placement, …)` places a drawing,
 // `m.transform(placement)` a material; `step`, `turn` and `toward` walk it.
-// Pure — the toolkit hands it the space's model door.
-export { reflection } from './placement.js';
-export type { Placement, ModelDoor, Model } from './placement.js';
+// It needs the sketch's space, so it is made on the toolkit: `t.placement`,
+// `t.reflection`.
+export type { Placement, Model } from './placement.js';
 export { space, spaceOf } from './space.js';
 export type { Space, SpaceKind, SpaceSpec, CurvatureSpec, SpaceOption, Projection, ProjectionSpec, ProjectionOption } from './space.js';
 // `t.tiling(p, q)` is one word for the regular tilings of all three
