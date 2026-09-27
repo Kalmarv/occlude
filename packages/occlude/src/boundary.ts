@@ -24,7 +24,7 @@
 
 import type { IsoContour } from './isolines.js';
 import { areaView } from './material.js';
-import { chainRecordsOf } from './curves.js';
+import { chainRecordOf, chainRecordsOf, isCurveRow } from './curves.js';
 import { Selection } from './selection.js';
 import type { Vertex } from './material.js';
 import { Len, type L } from './units.js';
@@ -196,8 +196,8 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
   refuseShape(input, who);
   if (isFaceCollection(input)) {
     throw new Error(
-      `${who}: a face collection is several areas — draw each one, \`cells.map((f) => polygon(f, …))\`, ` +
-        'or take their union outline with cells.contours()',
+      `${who}: a face collection is several areas — draw each one, \`faces.map((f) => polygon(f, …))\`, ` +
+        'or take their union outline with faces.contours()',
     );
   }
   // A material or a selection that branches has no single inside of its
@@ -235,7 +235,11 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
     // behaviour every open input has always had here, and the one the docs
     // and the ink baseline pin. `contours()` first means a material that
     // has both is read by what is closed.
-    if (areas.length > 0 || !hasCurves(input)) return areas.map((c) => c.pts as LoopPoints);
+    if (areas.length > 0) return areas.map((c) => c.pts as LoopPoints);
+    // One open curve row reads as its selection does: its chain, closed
+    // with a chord.
+    if (isCurveRow(input)) return [chainRecordOf(input).pts as LoopPoints];
+    if (!hasCurves(input)) return [];
   }
   if (hasCurves(input)) return (chainRecordsOf(input) ?? []).map((c) => c.pts as LoopPoints);
   if (isContourRecord(input)) return [input.pts as LoopPoints];

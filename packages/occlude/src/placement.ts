@@ -123,6 +123,7 @@ export type Placement<P extends XY | Vec3 = XY> = [P] extends [Vec3] ? SpacePlac
 
 /** A placement of the sketch's plane (see `Placement`). */
 export interface PlanePlacement {
+  /** @internal The model door of the space this placement acts in. */
   readonly door: ModelDoor;
   readonly orientation: 1 | -1;
   /** The 3×3 on model vectors, row-major. Internal: the value a sketch

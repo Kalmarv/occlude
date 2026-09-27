@@ -432,7 +432,7 @@ export interface PolygonOpts extends ShapeOpts {
  * What `polygon` says, as a type, to a face collection: it is several
  * areas, and the sketch names which. The refusal at run time says the same.
  */
-type FacesAreSeveralAreas = 'polygon: a face collection is several areas — polygon(cells.contours()) for their union, or cells.map((f) => polygon(f)) for each';
+type FacesAreSeveralAreas = 'polygon: a face collection is several areas — polygon(faces.contours()) for their union, or faces.map((f) => polygon(f)) for each';
 
 /**
  * Refuse, by name, a value no area consumer can read: not a shape, a group,
