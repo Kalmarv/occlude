@@ -185,8 +185,8 @@ describe('the closure decides', () => {
     expect([...cut.edgeList]).toEqual(g.edges);
     for (const name of Object.keys(g.attrs)) expect([...cut.attrs[name]]).toEqual(g.attrs[name]);
     for (const name of Object.keys(g.edgeAttrs)) expect([...cut.edgeAttrs[name]]).toEqual(g.edgeAttrs[name]);
-    expect(cut.attrNames.sort()).toEqual(Object.keys(g.attrs).sort());
-    expect(cut.edgeAttrNames.sort()).toEqual(Object.keys(g.edgeAttrs).sort());
+    expect(Object.keys(cut.attrs).sort()).toEqual(Object.keys(g.attrs).sort());
+    expect(Object.keys(cut.edgeAttrs).sort()).toEqual(Object.keys(g.edgeAttrs).sort());
     expect([...cut.pointIds].map((id) => [...hatch.pointIds].indexOf(id))).toEqual(g.keptIds);
     // an open chain's own cut column is just a column: it travels as one
     const own = t.within(hatch.edges.set({ cut: 3 }), rect(20, 15, 60, 50));
@@ -195,7 +195,7 @@ describe('the closure decides', () => {
 
   it('a bounded scatter stays a point cloud: no cut column for connect and steps to trip on', () => {
     const pts = t.scatter({ spacing: 13, within: circle(48, 50, 42) });
-    expect(pts.edgeAttrNames).toEqual([]);
+    expect(Object.keys(pts.edgeAttrs)).toEqual([]);
   });
 
   it('a lattice whose cut closes nothing still says so: a cut column of zeros', () => {

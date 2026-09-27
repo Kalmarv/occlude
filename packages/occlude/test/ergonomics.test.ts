@@ -107,7 +107,7 @@ describe('append with missing columns', () => {
   const a = material([[0, 0], [1, 0]], { active: [1, 1], heading: [0.5, 0.5] });
   const b = material([[5, 0], [6, 0]]);
   it('refuses a missing column without a fill, and fills only the side that lacks it', () => {
-    expect(() => append(a, b)).toThrow(/no 'active'.*fill/);
+    expect(() => append(a, b)).toThrow(/no column 'active'.*fill/);
     const joined = append(a, b, { fill: { active: 0, heading: 0 } });
     expect(Array.from(joined.attrs.active)).toEqual([1, 1, 0, 0]);
     expect(Array.from(joined.attrs.heading)).toEqual([0.5, 0.5, 0, 0]);

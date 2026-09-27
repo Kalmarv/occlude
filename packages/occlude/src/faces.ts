@@ -37,9 +37,9 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, materialFromParts, readEdge, inheritEdge, ownedBy, ownerOfView, referenced, viewKind, viewProto, WORDS_3D, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, materialFromParts, readEdge, ownedBy, ownerOfView, referenced, viewKind, viewProto, WORDS_3D, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
 import { curvesOfRows, type Curve } from './curves.js';
-import { writeFaces, writeFaceColumns, type CellValue, type FaceSetOpts, type FaceRecordSetOpts } from './tables.js';
+import { writeFaces, writeFaceColumns, rebuild, PointRows, EdgeRows, type CellValue, type FaceSetOpts, type FaceRecordSetOpts } from './tables.js';
 import { box, type Box } from './layout.js';
 import type { XY } from './vec.js';
 import { edgesOf, pointsOf, endpointRows, sameLineage, unrelated } from './relation.js';
@@ -244,43 +244,64 @@ function checkSharedOverlap(s: Seg, u: Seg, shared: number): void {
 }
 
 function validate(m: Material, what: string): void {
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
   for (let i = 0; i < m.n; i++) {
-    if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) throw new Error(`${what}: vertex ${i} is not finite`);
+    if (!Number.isFinite(X[i]) || !Number.isFinite(Y[i])) throw new Error(`${what}: vertex ${i} is not finite`);
   }
   const zero: number[] = [];
   for (let e = 0; e < m.edgeCount; e++) {
-    const a = m.edgeList[2 * e];
-    const b = m.edgeList[2 * e + 1];
-    if (a === b || (m.x[a] === m.x[b] && m.y[a] === m.y[b])) zero.push(e);
+    const a = L[2 * e];
+    const b = L[2 * e + 1];
+    if (a === b || (X[a] === X[b] && Y[a] === Y[b])) zero.push(e);
   }
   if (zero.length) throw new Error(`${what}: zero-length edge${zero.length > 1 ? 's' : ''} ${zero.join(', ')} — remove or move ${zero.length > 1 ? 'them' : 'it'} first (attributes are never dropped silently)`);
 }
 
-function interpolateAttrs(m: Material, a: number, b: number, t: number): Record<string, number> {
+/** A candidate's numbers: the numeric point columns of `m` (`names`)
+ * read `t` of the way from row `a` to row `b`, by the rule a split reads
+ * them by. */
+function interpolateAttrs(m: Material, names: readonly string[], a: number, b: number, t: number): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const name of m.attrNames) {
-    const va = m.attrs[name][a];
-    const vb = m.attrs[name][b];
+  for (const name of names) {
+    const col = m.attrs[name];
+    const va = col[a];
+    const vb = col[b];
     out[name] = m.transfers[name] === 'nearest' ? (t <= 0.5 ? va : vb) : va + (vb - va) * t;
   }
   return out;
 }
 
-/** The first candidate's values, overridden by the resolver. Candidates
- * come in a fixed order (vertex row, then edge row), so where they disagree
- * the rule is stated: a vertex that survives keeps its own values, and a
- * crossing takes the values interpolated along its lowest edge row — the
- * value a split of that edge would give, by the column's transfer policy. */
-function reconcile(m: Material, event: PlanarEvent, resolver: PlanarizeOpts['point']): Record<string, number> {
-  const names = m.attrNames;
-  const out: Record<string, number> = { ...event.candidates[0].attrs };
-  if (!resolver) return out;
+/** What the resolver sets at an event, checked: numbers for columns the
+ * material has (`names`). The rest of the row is the first candidate's —
+ * candidates come in a fixed order (vertex row, then edge row), so where
+ * they disagree the rule is stated: a vertex that survives keeps its own
+ * values, and a crossing takes the values read along its lowest edge row,
+ * the value a split of that edge would give, by the column's policy. */
+function resolved(names: readonly string[], event: PlanarEvent, resolver: NonNullable<PlanarizeOpts['point']>): Record<string, number> {
   const chosen = resolver(event) ?? {};
   for (const name in chosen) {
     if (!names.includes(name)) throw new Error(`planarize: no attribute '${name}' — declare it first`);
     if (!Number.isFinite(chosen[name])) throw new Error(`planarize: '${name}' from the point resolver is not a finite number`);
-    out[name] = chosen[name];
   }
+  return chosen;
+}
+
+/** Numeric columns of `cols` with the values of `patch` (row → name →
+ * value) written over them: a resolver's word at the rows it answered. */
+function patched(cols: Record<string, AnyColumn>, patch: ReadonlyMap<number, Readonly<Record<string, number>>>): Record<string, AnyColumn> {
+  if (patch.size === 0) return cols;
+  const flats = new Map<string, Float64Array>();
+  for (const [row, values] of patch) {
+    for (const name in values) {
+      let flat = flats.get(name);
+      if (flat === undefined) flats.set(name, (flat = (cols[name] as Column).copy()));
+      flat[row] = values[name];
+    }
+  }
+  const out = { ...cols };
+  for (const [name, flat] of flats) out[name] = Column.of(flat);
   return out;
 }
 
@@ -303,16 +324,20 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   validate(m, 'planarize');
   const n = m.n;
   const E = m.edgeCount;
-  const names = m.attrNames;
-  const enames = m.edgeAttrNames;
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
+  // The numeric columns: what a candidate carries and a resolver may set.
+  const names = Object.keys(m.attrs);
+  const enames = Object.keys(m.edgeAttrs);
 
   // ---- merge exactly coincident endpoints of the network ----
   const rep = new Int32Array(n);
   for (let i = 0; i < n; i++) rep[i] = i;
   const participates = new Uint8Array(n);
   for (let e = 0; e < E; e++) {
-    participates[m.edgeList[2 * e]] = 1;
-    participates[m.edgeList[2 * e + 1]] = 1;
+    participates[L[2 * e]] = 1;
+    participates[L[2 * e + 1]] = 1;
   }
   // Exact coincidence, hashed rather than spelled out: `positionHash` keys
   // the bit patterns (0 and −0 together, as `===` has them), and the
@@ -322,17 +347,17 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   const byPos = new Map<number, number | number[]>();
   for (let i = 0; i < n; i++) {
     if (!participates[i]) continue;
-    const x = m.x[i];
-    const y = m.y[i];
+    const x = X[i];
+    const y = Y[i];
     const h = positionHash(x, y);
     const slot = byPos.get(h);
     if (slot === undefined) { byPos.set(h, i); continue; }
     let r = -1;
     if (typeof slot === 'number') {
-      if (m.x[slot] === x && m.y[slot] === y) r = slot;
+      if (X[slot] === x && Y[slot] === y) r = slot;
       else byPos.set(h, [slot, i]);
     } else {
-      for (const other of slot) if (m.x[other] === x && m.y[other] === y) { r = other; break; }
+      for (const other of slot) if (X[other] === x && Y[other] === y) { r = other; break; }
       if (r < 0) slot.push(i);
     }
     if (r < 0) continue;
@@ -347,14 +372,14 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   // same key `checkPlanar` uses, and no string per edge.
   const seenPair = new Map<number, number>();
   for (let e = 0; e < E; e++) {
-    const a = rep[m.edgeList[2 * e]];
-    const b = rep[m.edgeList[2 * e + 1]];
+    const a = rep[L[2 * e]];
+    const b = rep[L[2 * e + 1]];
     if (a === b) throw new Error(`planarize: edge ${e} joins two coincident endpoints — a zero-length edge after merging`);
     const key = a < b ? a * n + b : b * n + a;
     const dup = seenPair.get(key);
     if (dup !== undefined) throw new Error(`planarize: edges ${dup} and ${e} are the same segment — duplicate edges are overlaps and are not supported — m.merge() resolves overlaps and duplicates`);
     seenPair.set(key, e);
-    segs.push({ a, b, ax: m.x[a], ay: m.y[a], bx: m.x[b], by: m.y[b], row: e });
+    segs.push({ a, b, ax: X[a], ay: Y[a], bx: X[b], by: Y[b], row: e });
   }
 
   // ---- events ----
@@ -452,7 +477,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     const mentions = groupEdges.get(g) ?? [];
     if (ev.kind === 'contact') {
       groupVertex.set(g, ev.vertex);
-      groupPos.set(g, [m.x[ev.vertex], m.y[ev.vertex]]);
+      groupPos.set(g, [X[ev.vertex], Y[ev.vertex]]);
       mentions.push({ edge: ev.edge, t: ev.t });
     } else {
       if (!groupPos.has(g)) groupPos.set(g, [ev.x, ev.y]);
@@ -464,41 +489,40 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     if (!key || mine[0] < key[0] || (mine[0] === key[0] && mine[1] < key[1])) groupKey.set(g, mine);
   }
 
-  // ---- point attributes at existing vertices: merged rows and contacts reconcile alike ----
-  const resolvedAttrs = new Map<number, Record<string, number>>();
+  // ---- point columns at existing vertices: merged rows and contacts reconcile alike ----
+  // A vertex keeps its own values; the resolver, when there is one and
+  // columns of numbers for it to set, has its word at every event.
+  const pointWords = new Map<number, Record<string, number>>();
   const contactVertices = new Set<number>();
   for (const v of groupVertex.values()) contactVertices.add(rep[v]);
   const touched = new Set<number>([...mergedRows.keys(), ...contactVertices]);
-  if (names.length) {
+  const resolver = names.length > 0 ? opts.point : undefined;
+  if (resolver) {
     for (const v of Array.from(touched).sort((p, q) => p - q)) {
       const rows = mergedRows.get(v) ?? [v];
-      const candidates: EventCandidate[] = rows.map((i) => ({ vertex: i, attrs: interpolateAttrs(m, i, i, 0) }));
+      const candidates: EventCandidate[] = rows.map((i) => ({ vertex: i, attrs: interpolateAttrs(m, names, i, i, 0) }));
       const contacts = rows.flatMap((i) => contactsAt.get(i) ?? []).map((k) => events[k] as Extract<Event, { kind: 'contact' }>).sort((p, q) => p.edge - q.edge);
-      for (const c of contacts) candidates.push({ edge: c.edge, t: c.t, attrs: interpolateAttrs(m, segs[c.edge].a, segs[c.edge].b, c.t) });
+      for (const c of contacts) candidates.push({ edge: c.edge, t: c.t, attrs: interpolateAttrs(m, names, segs[c.edge].a, segs[c.edge].b, c.t) });
       if (candidates.length < 2) continue;
-      const event: PlanarEvent = { position: [m.x[v], m.y[v]], candidates };
-      resolvedAttrs.set(v, reconcile(m, event, opts.point));
+      pointWords.set(v, resolved(names, { position: [X[v], Y[v]], candidates }, resolver));
     }
   }
 
   // ---- rows: surviving source vertices, then new event vertices ----
   const rowMap = new Int32Array(n).fill(-1);
-  const ox: number[] = [];
-  const oy: number[] = [];
-  const oattrs: Record<string, number[]> = {};
-  for (const name of names) oattrs[name] = [];
+  const points = new PointRows(m, 'planarize');
+  const edges = new EdgeRows(m);
+  // What the resolvers said, by row of the answer.
+  const pointPatch = new Map<number, Record<string, number>>();
+  const edgePatch = new Map<number, Record<string, number>>();
   // A vertex that survives planarizing is the vertex it was. Coincident
   // endpoints merge into the lowest row, and that row's identity is the one
   // that carries; the others are gone. A crossing is a new vertex.
-  const oids: number[] = [];
   for (let i = 0; i < n; i++) {
     if (rep[i] !== i) continue;
-    rowMap[i] = ox.length;
-    ox.push(m.x[i]);
-    oy.push(m.y[i]);
-    oids.push(m.pointIds[i]);
-    const resolved = resolvedAttrs.get(i);
-    for (const name of names) oattrs[name].push(resolved ? resolved[name] : m.attrs[name][i]);
+    rowMap[i] = points.keep(i);
+    const words = pointWords.get(i);
+    if (words !== undefined) pointPatch.set(rowMap[i], words);
   }
   const roots = Array.from(new Set(parent.map((_, g) => find(g)))).filter((g) => !groupVertex.has(g));
   roots.sort((a, b) => groupKey.get(a)![0] - groupKey.get(b)![0] || groupKey.get(a)![1] - groupKey.get(b)![1]);
@@ -513,26 +537,26 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   const crossingIds = mintIds(roots.length);
   for (let r = 0; r < roots.length; r++) {
     const g = roots[r];
-    let attrs: Record<string, number> = {};
-    if (names.length) {
-      const mentions = groupEdges.get(g)!.slice().sort((p, q) => p.edge - q.edge || p.t - q.t);
+    // A crossing's columns are read along its lowest edge row.
+    const mentions = groupEdges.get(g)!.slice().sort((p, q) => p.edge - q.edge || p.t - q.t);
+    const first = mentions[0];
+    const pos = groupPos.get(g)!;
+    pointSource[points.length] = Array.from(new Set(groupEdges.get(g)!.map((q) => q.edge))).sort((p, q) => p - q);
+    const row = points.between(segs[first.edge].a, segs[first.edge].b, first.t, pos[0], pos[1], crossingIds[r]);
+    groupRow.set(g, row);
+    if (resolver) {
       const seen = new Set<number>();
       const candidates: EventCandidate[] = [];
       for (const { edge, t } of mentions) {
         if (seen.has(edge)) continue;
         seen.add(edge);
-        candidates.push({ edge, t, attrs: interpolateAttrs(m, segs[edge].a, segs[edge].b, t) });
+        candidates.push({ edge, t, attrs: interpolateAttrs(m, names, segs[edge].a, segs[edge].b, t) });
       }
-      attrs = reconcile(m, { position: groupPos.get(g)!, candidates }, opts.point);
+      pointPatch.set(row, resolved(names, { position: pos, candidates }, resolver));
     }
-    const pos = groupPos.get(g)!;
-    pointSource[ox.length] = Array.from(new Set(groupEdges.get(g)!.map((q) => q.edge))).sort((p, q) => p - q);
-    groupRow.set(g, ox.length);
-    ox.push(pos[0]);
-    oy.push(pos[1]);
-    oids.push(crossingIds[r]);
-    for (const name of names) oattrs[name].push(attrs[name]);
   }
+  const ox = points.x;
+  const oy = points.y;
   const rowOfGroup = (g: number): number => {
     const r = find(g);
     const v = groupVertex.get(r);
@@ -540,14 +564,8 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   };
 
   // ---- child edges in parent, parameter order ----
-  const edges: number[] = [];
   // Every piece is a piece of one input edge: its `source`.
   const edgeSource: number[] = [];
-  const eids: number[] = [];
-  const minted: number[] = []; // rows of `eids` waiting for a fresh id
-  const eroots: number[] = [];
-  const eattrs: Record<string, number[]> = {};
-  for (const name of enames) eattrs[name] = [];
   for (let e = 0; e < E; e++) {
     const s = segs[e];
     const stops: { t: number; row: number }[] = [{ t: 0, row: rowMap[s.a] }];
@@ -579,50 +597,27 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
         throw new Error(`planarize: two distinct events on edge ${e} (parameters ${stops[k - 1].t} and ${stops[k].t}) land on the same coordinates but are not provably one point — numerically ambiguous input; move the lines apart or make them meet exactly`);
       }
     }
-    // Nothing to carry and nobody asking: the whole per-child record —
-    // interval, resolver call, inherited columns — is for the columns, and
-    // a material without any skips it.
-    const carries = enames.length > 0 || opts.edges !== undefined;
-    const parentView = carries ? readEdge(m, e) : undefined!;
-    const parentAttrs: Record<string, number> = {};
-    for (const name of enames) parentAttrs[name] = m.edgeAttrs[name][e];
+    const parentView = opts.edges !== undefined ? readEdge(m, e) : undefined!;
     for (let k = 0; k + 1 < stops.length; k++) {
-      edges.push(stops[k].row, stops[k + 1].row);
       edgeSource.push(e);
       // A piece of a wall is a new edge, and still that wall: a fresh id,
-      // the parent's root. An edge no crossing touched comes through this
-      // loop as its own single child, so it keeps its id too. The fresh
-      // ones are minted in one block below, in this order.
-      if (stops.length === 2) eids.push(m.edgeIds[e]);
-      else { minted.push(eids.length); eids.push(0); }
-      eroots.push(m.edgeRoots[e]);
-      if (!carries) continue;
+      // the parent's root, the parent's columns and a distributed one its
+      // share. An edge no crossing touched comes through this loop as its
+      // own single child: the edge it was.
       const child = { from: stops[k].t, to: stops[k + 1].t, fraction: stops[k + 1].t - stops[k].t };
-      const extra = opts.edges ? opts.edges(parentView, child) : {};
+      if (stops.length === 2) edges.keep(e, stops[k].row, stops[k + 1].row);
+      else edges.from(e, stops[k].row, stops[k + 1].row, child.fraction);
+      if (opts.edges === undefined) continue;
+      const extra = opts.edges(parentView, child);
       for (const name in extra) {
         if (!enames.includes(name)) throw new Error(`planarize: no edge column '${name}' — declare it with edges.set()`);
         if (!Number.isFinite(extra[name])) throw new Error(`planarize: '${name}' for a child edge is not a finite number`);
       }
-      const inherited = inheritEdge(m, parentAttrs, child.fraction);
-      for (const name of enames) eattrs[name].push(name in extra ? extra[name] : inherited[name]);
+      edgePatch.set(edges.length - 1, extra);
     }
   }
-  const childIds = mintIds(minted.length);
-  for (let i = 0; i < minted.length; i++) eids[minted[i]] = childIds[i];
-  const attrs: Record<string, Float64Array> = {};
-  for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  const out = carryLinks(m, new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
-    iteration: 0,
-    edgeAttrs,
-    transfers: { ...m.transfers },
-    edgeTransfers: { ...m.edgeTransfers },
-    ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
-    faceAttrs: m.faceAttrs,
-    from: m,
-    faces: m.stated,
-  }));
+  const made = { ...points.done(), ...edges.done() };
+  const out = rebuild(m, { ...made, attrs: patched(made.attrs, pointPatch), edgeAttrs: patched(made.edgeAttrs, edgePatch) }, { iteration: 0 });
   pointSource.length = ox.length;
   linkRows(out, {
     points: { source: { of: m, domain: 'edges', many: pointSource } },
@@ -643,17 +638,18 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
  * keeps the direction it was stored in.
  */
 function faceWise(out: Material, rows: readonly number[], inside: (leaf: number) => boolean, faceOf: Int32Array): Material {
+  const list = out.edgeList;
   let edges: Uint32Array | undefined;
   for (let k = 0; k < rows.length; k++) {
     const forward = inside(faceOf[2 * rows[k]]);
     const backward = inside(faceOf[2 * rows[k] + 1]);
     if (!backward || forward) continue;
-    edges ??= Uint32Array.from(out.edgeList);
-    edges[2 * k] = out.edgeList[2 * k + 1];
-    edges[2 * k + 1] = out.edgeList[2 * k];
+    edges ??= Uint32Array.from(list);
+    edges[2 * k] = list[2 * k + 1];
+    edges[2 * k + 1] = list[2 * k];
   }
   if (!edges) return out;
-  return carryLinks(out, new Material(out.x, out.y, out.attrs as Record<string, Float64Array>, edges, { iteration: out.iteration, history: [], edgeAttrs: out.edgeAttrs as Record<string, Float64Array>, transfers: { ...out.transfers }, edgeTransfers: { ...out.edgeTransfers }, ids: { points: out.pointIds, edges: out.edgeIds, edgeRoots: out.edgeRoots }, faceAttrs: out.faceAttrs, from: out, faces: out.stated }));
+  return rebuild(out, { edgeList: Column.of(edges) });
 }
 
 /**
@@ -710,8 +706,8 @@ function extractStated(table: FaceTable, rows: readonly number[], edgeRows: read
   const pointKeys = s.pointKeys?.flat();
   const edgeKeys = s.edgeKeys?.flat();
   const out = materialFromParts({
-    x: Float64Array.from(pointRows, (p) => m.x[p]),
-    y: Float64Array.from(pointRows, (p) => m.y[p]),
+    x: s.x.gather(pointRows),
+    y: s.y.gather(pointRows),
     pointCols,
     edges,
     edgeCols,
@@ -734,6 +730,7 @@ function extractStated(table: FaceTable, rows: readonly number[], edgeRows: read
     },
     ...(stated.source !== undefined ? { source: { faces: (k: number) => table.sourceAt(rows[k]) } } : {}),
     space: m.space,
+    key: m.key,
     transfers: m.transfers,
     edgeTransfers: m.edgeTransfers,
     // A face keeps its walls and their lineage, so its key: the face
@@ -901,37 +898,40 @@ interface Region {
 /** Throw unless `m` is a valid planar embedding as far as its edges go. */
 function checkPlanar(m: Material): void {
   validate(m, 'faces');
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
   const segs: Seg[] = [];
   // the unordered pair packs into one exact integer while n² < 2^53 — that is
   // every material whose coordinates fit in memory
   const seenPair = new Set<number>();
   for (let e = 0; e < m.edgeCount; e++) {
-    const a = m.edgeList[2 * e];
-    const b = m.edgeList[2 * e + 1];
+    const a = L[2 * e];
+    const b = L[2 * e + 1];
     const key = a < b ? a * m.n + b : b * m.n + a;
     if (seenPair.has(key)) throw new Error(`faces: duplicate edge ${e} — duplicate edges are overlaps and are not supported`);
     seenPair.add(key);
-    segs.push({ a, b, ax: m.x[a], ay: m.y[a], bx: m.x[b], by: m.y[b], row: e });
+    segs.push({ a, b, ax: X[a], ay: Y[a], bx: X[b], by: Y[b], row: e });
   }
   // A distinct vertex at an already-claimed position throws at once, so a
   // bucket only ever holds vertices whose hashes collided but whose
   // coordinates differ; it stays one deep in practice.
   const byPos = new Map<number, number | number[]>();
   const claim = (v: number): void => {
-    const x = m.x[v];
-    const y = m.y[v];
+    const x = X[v];
+    const y = Y[v];
     const h = positionHash(x, y);
     const slot = byPos.get(h);
     if (slot === undefined) { byPos.set(h, v); return; }
     if (typeof slot === 'number') {
       if (slot === v) return;
-      if (m.x[slot] === x && m.y[slot] === y) throw new Error(`faces: vertices ${slot} and ${v} coincide but are distinct — run planarize() first`);
+      if (X[slot] === x && Y[slot] === y) throw new Error(`faces: vertices ${slot} and ${v} coincide but are distinct — run planarize() first`);
       byPos.set(h, [slot, v]);
       return;
     }
     for (const other of slot) {
       if (other === v) return;
-      if (m.x[other] === x && m.y[other] === y) throw new Error(`faces: vertices ${other} and ${v} coincide but are distinct — run planarize() first`);
+      if (X[other] === x && Y[other] === y) throw new Error(`faces: vertices ${other} and ${v} coincide but are distinct — run planarize() first`);
     }
     slot.push(v);
   };
@@ -956,7 +956,7 @@ function checkPlanar(m: Material): void {
         for (const a of [segs[ev.i].a, segs[ev.i].b]) {
           for (const b of [segs[ev.j].a, segs[ev.j].b]) {
             if (a === b) continue;
-            const d = Math.hypot(m.x[a] - m.x[b], m.y[a] - m.y[b]);
+            const d = Math.hypot(X[a] - X[b], Y[a] - Y[b]);
             if (d < gap) {
               gap = d;
               pair = [a, b];
@@ -1005,14 +1005,16 @@ function splitWalk(walk: number[], tailOf: (h: number) => number): number[][] {
 }
 
 function pointInWalk(m: Material, walk: number[], tail: (h: number) => number, px: number, py: number): boolean {
+  const X = m.x;
+  const Y = m.y;
   let inside = false;
   for (let k = 0; k < walk.length; k++) {
     const a = tail(walk[k]);
     const b = tail(walk[(k + 1) % walk.length]);
-    const ax = m.x[a];
-    const ay = m.y[a];
-    const bx = m.x[b];
-    const by = m.y[b];
+    const ax = X[a];
+    const ay = Y[a];
+    const bx = X[b];
+    const by = Y[b];
     if (ay > py !== by > py) {
       const x = ax + ((py - ay) * (bx - ax)) / (by - ay);
       if (px < x) inside = !inside;
@@ -1126,6 +1128,8 @@ function fromWalk(
   tailOf: (h: number) => number,
   headOf: (h: number) => number,
 ): { regions: Region[]; faceOf: Int32Array } {
+  const X = m.x;
+  const Y = m.y;
   const n = m.n;
   const H = 2 * m.edgeCount;
   // components over vertices
@@ -1166,12 +1170,12 @@ function fromWalk(
     const cycles = splitWalk(seq, tailOf);
     let area = 0;
     for (const cycle of cycles) {
-      const x0 = m.x[tailOf(cycle[0])]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
-      const y0 = m.y[tailOf(cycle[0])];
+      const x0 = X[tailOf(cycle[0])]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
+      const y0 = Y[tailOf(cycle[0])];
       for (const c of cycle) {
         const a = tailOf(c);
         const b = headOf(c);
-        area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
+        area += (X[a] - x0) * (Y[b] - y0) - (X[b] - x0) * (Y[a] - y0);
       }
     }
     walks.push({ halfEdges: seq, cycles, area: area / 2, comp: comp[tailOf(h0)] });
@@ -1199,7 +1203,7 @@ function fromWalk(
     for (let f = 0; f < faceWalk.length; f++) {
       const fw = walks[faceWalk[f]];
       if (fw.comp === walks[w].comp || fw.area >= bestArea) continue;
-      if (pointInWalk(m, fw.halfEdges, tailOf, m.x[v], m.y[v])) {
+      if (pointInWalk(m, fw.halfEdges, tailOf, X[v], Y[v])) {
         best = f;
         bestArea = fw.area;
       }
@@ -1251,6 +1255,8 @@ function fromCycles(
   start: Int32Array,
   outgoing: Int32Array,
 ): { regions: (Region | null)[]; faceOf: Int32Array } {
+  const X = m.x;
+  const Y = m.y;
   const H = 2 * m.edgeCount;
   // The half-edge from one vertex row to another: a vertex has a handful
   // of edges, so its run of outgoing half-edges is read where it lies.
@@ -1282,13 +1288,13 @@ function fromCycles(
       for (let k = 0; k < seq.length; k++) next[seq[k]] = seq[(k + 1) % seq.length];
       // The shoelace about a local origin, as the walk path takes it:
       // absolute coordinates cancel to zero far from (0, 0).
-      const x0 = m.x[tailOf(seq[0])];
-      const y0 = m.y[tailOf(seq[0])];
+      const x0 = X[tailOf(seq[0])];
+      const y0 = Y[tailOf(seq[0])];
       let area = 0;
       for (const h of seq) {
         const a = tailOf(h);
         const b = headOf(h);
-        area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
+        area += (X[a] - x0) * (Y[b] - y0) - (X[b] - x0) * (Y[a] - y0);
       }
       region.area += area / 2;
       region.cycles.push(seq);
@@ -1559,8 +1565,11 @@ function regionsOf(m: Material, cycles?: readonly (readonly (readonly number[])[
   const n = m.n;
   const E = m.edgeCount;
   const H = 2 * E;
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
   // half-edge h = 2e (a → b) or 2e+1 (b → a); tailOf(h) is where it starts
-  const tailOf = (h: number): number => (h & 1 ? m.edgeList[2 * (h >> 1) + 1] : m.edgeList[2 * (h >> 1)]);
+  const tailOf = (h: number): number => (h & 1 ? L[2 * (h >> 1) + 1] : L[2 * (h >> 1)]);
   const headOf = (h: number): number => tailOf(h ^ 1);
   // Outgoing half-edges per vertex — one run of rows per vertex inside
   // one array, rather than an array per vertex, filled in half-edge order.
@@ -1585,7 +1594,7 @@ function regionsOf(m: Material, cycles?: readonly (readonly (readonly number[])[
     for (let k = from; k < to; k++) {
       const h = outgoing[k];
       const head = headOf(h);
-      angle[h] = Math.atan2(m.y[head] - m.y[v], m.x[head] - m.x[v]);
+      angle[h] = Math.atan2(Y[head] - Y[v], X[head] - X[v]);
     }
     if (to - from > 32) {
       outgoing.subarray(from, to).sort((p, q) => angle[p] - angle[q] || p - q);
@@ -1645,7 +1654,8 @@ function regionsOf(m: Material, cycles?: readonly (readonly (readonly number[])[
  * states them from, without building a face table.
  */
 export function walkRuns(m: Material): number[][][] {
-  const tailOf = (h: number): number => (h & 1 ? m.edgeList[2 * (h >> 1) + 1] : m.edgeList[2 * (h >> 1)]);
+  const L = m.edgeList;
+  const tailOf = (h: number): number => (h & 1 ? L[2 * (h >> 1) + 1] : L[2 * (h >> 1)]);
   return regionsOf(m).regions.map((r) => r!.cycles.map((cycle) => cycle.map(tailOf)));
 }
 
@@ -1949,10 +1959,13 @@ export class FaceTable<F extends Face = Face> {
     const perimeter = new Float64Array(F);
     // Every wall once: its length goes to each face it bounds.
     const z = m.store.attrs.z instanceof Column ? m.attrs.z : null;
+    const X = m.x;
+    const Y = m.y;
+    const L = m.edgeList;
     const edgeLength = (e: number) => {
-      const a = m.edgeList[2 * e];
-      const b = m.edgeList[2 * e + 1];
-      return z === null ? Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a]) : Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a], z[b] - z[a]);
+      const a = L[2 * e];
+      const b = L[2 * e + 1];
+      return z === null ? Math.hypot(X[b] - X[a], Y[b] - Y[a]) : Math.hypot(X[b] - X[a], Y[b] - Y[a], z[b] - z[a]);
     };
     this.eachWall((e, faces) => { const len = edgeLength(e); for (const f of faces) perimeter[f] += len; });
     for (const f of order) {
@@ -2223,7 +2236,10 @@ export class FaceTable<F extends Face = Face> {
   boundaryContours(selected: (face: number) => boolean, starts?: readonly number[]): IsoContour[] {
     const m = this.source;
     const H = this.faceOf.length;
-    const tailOf = (h: number): number => (h & 1 ? m.edgeList[2 * (h >> 1) + 1] : m.edgeList[2 * (h >> 1)]);
+    const X = m.x;
+    const Y = m.y;
+    const L = m.edgeList;
+    const tailOf = (h: number): number => (h & 1 ? L[2 * (h >> 1) + 1] : L[2 * (h >> 1)]);
     const inside = this.leafTest(selected);
     const isBoundary = (h: number) => inside(this.faceOf[h]) && !inside(this.faceOf[h ^ 1]);
     const used = new Uint8Array(H);
@@ -2242,7 +2258,7 @@ export class FaceTable<F extends Face = Face> {
         h = g;
       } while (h !== h0);
       // a walk through a vertex twice (holes touching at a corner) is two contours, not a figure eight
-      for (const cycle of splitWalk(seq, tailOf)) out.push({ pts: cycle.map((g) => [m.x[tailOf(g)], m.y[tailOf(g)]] as [number, number]), closed: true });
+      for (const cycle of splitWalk(seq, tailOf)) out.push({ pts: cycle.map((g) => [X[tailOf(g)], Y[tailOf(g)]] as [number, number]), closed: true });
     }
     return out;
   }

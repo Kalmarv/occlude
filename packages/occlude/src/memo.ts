@@ -463,8 +463,8 @@ function typedContent(h: Hasher, cols: Readonly<Record<string, AnyColumn>>, open
  * guess. The lazy caches a value grows later are not counted. */
 function bytesOf(v: unknown, depth = 0): number {
   if (v instanceof Material) {
-    const perPoint = 8 * (3 + v.attrNames.length);
-    const perEdge = 8 + 8 * (2 + v.edgeAttrNames.length);
+    const perPoint = 8 * (3 + v.store.attrNames.length);
+    const perEdge = 8 + 8 * (2 + v.store.edgeAttrNames.length);
     return 512 + v.n * perPoint + v.edgeCount * perEdge;
   }
   if (typeof v !== 'object' || v === null) return 16;

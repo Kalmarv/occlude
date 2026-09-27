@@ -323,7 +323,7 @@ describe('P6 · identity survives every verb', () => {
       return out.points.set('tip', 0, tips);
     }).oscillate({ wavelength: 13, amplitude: 1.6 });
     const woven = grown.interlace({ gap: 2.2 });
-    expect(woven.attrNames).toContain('strand');
+    expect(Object.keys(woven.attrs)).toContain('strand');
     const odd = woven.points.filter((p) => p.strand % 2 === 1);
     expect(odd.length).toBeGreaterThan(0);
     const even = woven.edges.filter((e) => e.a.strand % 2 === 0);

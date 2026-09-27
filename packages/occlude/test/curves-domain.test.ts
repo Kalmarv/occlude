@@ -149,7 +149,7 @@ describe('a curve row', () => {
     expect(c.points.at(1).heading).toBeCloseTo(Math.PI / 4, 12);
     near(c.points.at(0).normal, [0, 1]); // perp(tangent)
     // The material's own points do not carry them.
-    expect(open.attrNames).toEqual(['age']);
+    expect(Object.keys(open.attrs)).toEqual(['age']);
     expect(open.points.at(1).s).toBeUndefined();
     expect(open.points.at(1).tangent).toBeUndefined();
     // A filter of a curve's points keeps the walk order and the columns.
@@ -264,7 +264,7 @@ describe('along answers points', () => {
     const m = curve([[0, 0], [10, 0], [10, 10]], { age: [0, 10, 20] }).edges.set('pen', 3);
     const a = m.along({ count: 5 });
     expect(a.edges).toHaveLength(0);
-    expect(a.attrNames.sort()).toEqual(['age', 'heading', 'pen', 's', 'u']);
+    expect(Object.keys(a.attrs).sort()).toEqual(['age', 'heading', 'pen', 's', 'u']);
     expect(a.points.map(xy)).toEqual([[0, 0], [5, 0], [10, 0], [10, 5], [10, 10]]);
     const p = a.points.at(1);
     expect([p.s, p.u, p.heading, p.age, p.pen]).toEqual([5, 0.25, 0, 5, 3]);

@@ -316,11 +316,17 @@ A column belongs to the material that declares it. An operation that makes a new
 
 | operation | point columns | edge columns | transfer policies |
 |---|---|---|---|
-| `warp`, `resample`, `trails`, `planarize`, `append`, the writes and recipes, `t.steps` | kept | kept | kept |
+| `warp`, `resample`, `spline`, `trim`, `planarize`, `merge`, `interlace`, `append`, the transforms, the writes and recipes, `t.within`, `t.relax`, `t.steps` | kept | kept | kept |
 | `oscillate` | kept | kept, and each new span reads the source edge it starts on | kept |
-| `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
+| `along` | kept, and `s`, `u` and `heading` are added | read at each point, as point columns | kept |
+| `t.settle` | kept: a new point copies the values of its parent, and `demand` is added | none | kept |
+| `trails` | numbers kept, other kinds dropped | numbers kept, other kinds dropped | kept |
+| `envelope` | dropped, and `member` is added | dropped | `member` is `'nearest'` |
+| `thicken` | dropped | dropped | dropped |
 
-The third row makes new vertices that come from no one source row. `thicken` can trace an output vertex back: `{ point: (event) => … }` gets every source candidate for that vertex, and what you return becomes the row. `oscillate` refuses an edge column with the `'distribute'` policy, because the swung chain is longer than its source. To keep a column through the third row, read it off the source and set it again on the result.
+These operations keep every kind of column: numbers, booleans, strings, vectors, references and placements. At a new point between two points, a number and a vector interpolate by the policy of the column. The other kinds never interpolate: the new point takes the value of the nearer point. A new edge takes the values of the edge that it comes from, and a `'distribute'` column its part of that value. `t.within` also adds the edge column `cut` to a material that has faces.
+
+`thicken` and `envelope` make new vertices that come from no one source row. `thicken` can trace an output vertex back: `{ point: (event) => … }` gets every source candidate for that vertex, and what you return becomes the row. `oscillate` refuses an edge column with the `'distribute'` policy, because the swung chain is longer than its source. To keep a column through `thicken` or `envelope`, read it off the source and set it again on the result.
 
 Below, a ring carries a size column through `warp`. The bent ring still reads it.
 

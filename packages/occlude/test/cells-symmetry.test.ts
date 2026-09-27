@@ -148,7 +148,7 @@ describe('a flat t.tiling covers the drawable', () => {
       const one = whole.at(0);
       for (const n of one.adjacent) expect(one.boundaryEdges.indices.filter((e) => n.edges.indices.includes(e))).toHaveLength(1);
       // Each face carries whole-number lattice coordinates, one place each.
-      expect(m.faceAttrNames.sort()).toEqual(['generation', 'i', 'j', 'mirrored']);
+      expect(Object.keys(m.faceAttrs).sort()).toEqual(['generation', 'i', 'j', 'mirrored']);
       const seen = new Set<string>();
       for (const f of cells) {
         expect(Number.isInteger(f.i) && Number.isInteger(f.j)).toBe(true);

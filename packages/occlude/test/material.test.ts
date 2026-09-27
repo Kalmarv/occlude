@@ -16,7 +16,7 @@ describe('curve values', () => {
     const c = curve([[0, 0], [10, 0], { x: 10, y: 10 }], { closed: true, age: [1, 2, 3], energy: 0.5 });
     expect(c.n).toBe(3);
     expect(oneRing(c)).toBe(true);
-    expect(c.attrNames).toEqual(['age', 'energy']);
+    expect(Object.keys(c.attrs)).toEqual(['age', 'energy']);
     expect(c.points.at(1)).toEqual({ index: 1, x: 10, y: 0, age: 2, energy: 0.5 });
     expect(c.points.map(xy)).toEqual([[0, 0], [10, 0], [10, 10]]);
     expect(c.curves.map(rec)).toEqual([{ pts: [[0, 0], [10, 0], [10, 10]], closed: true, indices: [0, 1, 2] }]);
@@ -424,7 +424,7 @@ describe('edges.groupBy, then curves (what segmentRuns was)', () => {
 describe('material: material beyond one chain', () => {
   it('material() from tuples, objects with extra columns, and constant options; connect.* builds topology', () => {
     const cloud = material([{ x: 0, y: 0, w: 0.5 }, { x: 3, y: 0, w: 1 }, { x: 0, y: 4, w: 2 }], { age: 0 });
-    expect(cloud.attrNames.sort()).toEqual(['age', 'w']);
+    expect(Object.keys(cloud.attrs).sort()).toEqual(['age', 'w']);
     expect(Array.from(cloud.attrs.w)).toEqual([0.5, 1, 2]);
     expect(cloud.edgeCount).toBe(0);
     expect(cloud.curves.map(rec)).toEqual([]);
@@ -684,7 +684,7 @@ describe('boundaries (review 2026-09-07)', () => {
     const c = curve([[0, 0], [5, 0], [5, 5]], { closed: true, age: 7 });
     const again = material(c.points);
     expect(again.n).toBe(3);
-    expect(again.attrNames).toEqual(['age']);
+    expect(Object.keys(again.attrs)).toEqual(['age']);
     expect(Array.from(again.attrs.age)).toEqual([7, 7, 7]);
     const repel = separation(c.points, { radius: 100 });
     expect(Number.isFinite(repel(c.points.at(0))[0])).toBe(true);
@@ -693,10 +693,10 @@ describe('boundaries (review 2026-09-07)', () => {
   it('6. append refuses to drop a column silently; fill makes the choice explicit', () => {
     const a = curve([[0, 0], [1, 0]], { closed: false, age: 3 });
     const b = curve([[5, 5], [6, 5]], { closed: false });
-    expect(() => append(a, b)).toThrow(/no 'age'.*fill/);
+    expect(() => append(a, b)).toThrow(/no column 'age'.*fill/);
     const joined = append(a, b, { fill: { age: 0 } });
     expect(Array.from(joined.attrs.age)).toEqual([3, 3, 0, 0]);
-    expect(() => append(b, a)).toThrow(/first material has no 'age'/);
+    expect(() => append(b, a)).toThrow(/first material has no column 'age'/);
   });
 
   it('7. derived materials share the columns they did not write, and leave their source as it was', () => {
@@ -704,7 +704,7 @@ describe('boundaries (review 2026-09-07)', () => {
     const derived = src.points.set('extra', 2);
     expect(derived.store.x).toBe(src.store.x);
     expect(derived.store.attrs.age).toBe(src.store.attrs.age);
-    expect(src.attrNames).toEqual(['age']);
+    expect(Object.keys(src.attrs)).toEqual(['age']);
     const moved = src.points.set('x', 5);
     expect(moved.store.x).not.toBe(src.store.x);
     expect(Array.from(src.x)).toEqual([0, 1, 1]);
@@ -723,7 +723,7 @@ describe('structural editing (edges brief)', () => {
 
   it('edge columns: per-edge rows, views expose them, columns survive moves and sets', () => {
     const y = Y();
-    expect(y.edgeAttrNames).toEqual(['rest', 'strength']);
+    expect(Object.keys(y.edgeAttrs)).toEqual(['rest', 'strength']);
     expect(y.edge(0).rest).toBeCloseTo(10);
     expect(y.edge(1).rest).toBeCloseTo(Math.hypot(10, 5));
     const moved = y.move([1, 0]);

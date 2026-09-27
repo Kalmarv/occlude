@@ -90,7 +90,7 @@ describe('extraction', () => {
     expect(pts.n).toBe(4);
     expect(pts.edgeCount).toBe(0);
     expect(Array.from(pts.attrs.age)).toEqual([2, 3, 4, 9]);
-    expect(pts.edgeAttrNames).toEqual(['strength']); // schema kept, empty
+    expect(Object.keys(pts.edgeAttrs)).toEqual(['strength']); // schema kept, empty
     expect(pts.edgeAttrs.strength.length).toBe(0);
     expect(pts.iteration).toBe(0);
     expect(pts.history).toEqual([]);

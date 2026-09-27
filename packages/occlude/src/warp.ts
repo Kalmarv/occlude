@@ -29,7 +29,8 @@
  */
 
 import { Material, material as makeMaterial } from './material.js';
-import { inherits } from './space.js';
+import { rebuild } from './tables.js';
+import { Column } from './column.js';
 import { whereRows, type Where } from './relation.js';
 
 export type Corner = readonly [number, number];
@@ -48,7 +49,9 @@ export interface WarpOpts {
 function corners(v: readonly Corner[] | Material, what: string): [number, number][] {
   if (v && typeof v === 'object' && 'x' in v && 'y' in v && typeof (v as Material).n === 'number') {
     const m = v as Material;
-    return Array.from({ length: m.n }, (_, i) => [m.x[i], m.y[i]] as [number, number]);
+    const X = m.x;
+    const Y = m.y;
+    return Array.from({ length: m.n }, (_, i) => [X[i], Y[i]] as [number, number]);
   }
   if (!Array.isArray(v)) throw new Error(`warp: { ${what} } must be a loop of corners, or a material to read one from`);
   return v.map((p, i) => {
@@ -71,9 +74,11 @@ export function warp(m: Material, opts: WarpOpts): Material {
   const x = new Float64Array(src.n);
   const y = new Float64Array(src.n);
   const w = new Float64Array(n);
+  const X = src.x;
+  const Y = src.y;
   for (let i = 0; i < src.n; i++) {
-    const px = src.x[i];
-    const py = src.y[i];
+    const px = X[i];
+    const py = Y[i];
     // Not in the eligible region: it stays exactly where it is.
     if (bends && !bends.has(i)) {
       x[i] = px;
@@ -141,5 +146,7 @@ export function warp(m: Material, opts: WarpOpts): Material {
     x[i] = nx;
     y[i] = ny;
   }
-  return new Material(x, y, Object.fromEntries(Object.entries(src.attrs).map(([k, col]) => [k, Float64Array.from(col)])), Uint32Array.from(src.edgeList), { iteration: src.iteration, history: src.history, edgeAttrs: Object.fromEntries(Object.entries(src.edgeAttrs).map(([k, col]) => [k, Float64Array.from(col)])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, ids: { points: Float64Array.from(src.pointIds), edges: Float64Array.from(src.edgeIds), edgeRoots: Float64Array.from(src.edgeRoots) }, faceAttrs: src.faceAttrs, ...inherits(src) });
+  // The same rows, moved: every column, id and face column is the one it
+  // was, and the history comes with them.
+  return rebuild(src, { x: Column.of(x), y: Column.of(y) }, { history: src.history });
 }

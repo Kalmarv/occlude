@@ -53,7 +53,7 @@ describe('typed columns on points, edges and faces', () => {
     expect(p.frame).toBe(place);
     // Kernels and the engine read numbers only: the flat record holds none.
     expect(Object.keys(g.attrs)).toEqual([]);
-    expect(g.attrNames).toEqual([]);
+    expect(Object.keys(g.attrs)).toEqual([]);
     expect(Object.keys(g.store.attrs)).toEqual(['ground', 'tag', 'n', 'parent', 'frame']);
   });
 

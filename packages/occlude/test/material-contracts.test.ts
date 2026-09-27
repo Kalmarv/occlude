@@ -26,7 +26,7 @@ describe('ownership: derived states share what they did not write', () => {
     expect(e.store.pointIds).toBe(m.store.pointIds);
     expect(e.store.edgeList).not.toBe(m.store.edgeList);
     // ...and the source reads as it did.
-    expect(m.attrNames).toEqual([]);
+    expect(Object.keys(m.attrs)).toEqual([]);
     expect(Array.from(m.edgeList)).toEqual([0, 1, 1, 2, 2, 3, 3, 0]);
     // The flat arrays are the shared storage, read-only by contract: a
     // direct write reaches every state that shares the column.

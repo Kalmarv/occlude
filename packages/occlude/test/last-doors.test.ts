@@ -181,10 +181,10 @@ describe('G6-11 · a mixed pair and record array keeps the shared columns', () =
     const p = t.scatter({ spacing: 10 }).points.at(0)!;
     // FRICTION G6-11: curve([beacon, p], { closed: false }) — p is a scatter vertex
     const pair = material([[18, 20], p]);
-    expect(pair.attrNames).toEqual([]);
+    expect(Object.keys(pair.attrs)).toEqual([]);
     expect(pair.points.map(xy)).toEqual([[18, 20], [p.x, p.y]]);
     const some = material([{ x: 0, y: 0, a: 1, b: 2 }, { x: 1, y: 1, a: 3 }]);
-    expect(some.attrNames).toEqual(['a']);
+    expect(Object.keys(some.attrs)).toEqual(['a']);
   });
 });
 

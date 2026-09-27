@@ -36,7 +36,7 @@ function fingerprint(fn: ThickenFn, source: Material, opts: ThickenOpts): string
     for (const array of [out.x, out.y, out.edgeList]) {
       hash.update(Buffer.from(array.buffer, array.byteOffset, array.byteLength));
     }
-    for (const name of out.attrNames) {
+    for (const name of Object.keys(out.attrs)) {
       hash.update(name);
       const values = Float64Array.from({ length: out.n }, (_, i) => out.vertex(i)[name]);
       hash.update(Buffer.from(values.buffer));

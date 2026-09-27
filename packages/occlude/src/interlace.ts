@@ -34,10 +34,10 @@
  * coordinates, as `thicken` and `oscillate` take theirs.
  */
 
-import { Material, material as makeMaterial, mintIds, inheritEdge } from './material.js';
+import { Material, material as makeMaterial } from './material.js';
+import { PointRows, EdgeRows, rebuild } from './tables.js';
 import { chainsOf } from './curves.js';
 import { pairKey } from './views.js';
-import { inherits } from './space.js';
 
 /** One place two strands cross, as `over` sees it. */
 export interface Crossing {
@@ -163,7 +163,8 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
   const pointFrom: ({ row: number } | { a: number; b: number; f: number })[] = [];
   const edgeFrom: { edge: number; fraction: number; whole: boolean }[] = [];
   const storedRow = new Map<number, number>();
-  for (let e = 0; e < src.edgeCount; e++) storedRow.set(pairKey(src.edgeList[2 * e], src.edgeList[2 * e + 1]), e);
+  const list = src.edgeList;
+  for (let e = 0; e < src.edgeCount; e++) storedRow.set(pairKey(list[2 * e], list[2 * e + 1]), e);
   const segmentAt = (c: number, s: number): number => {
     const a = arcs[c];
     let i = 1;
@@ -244,46 +245,26 @@ export function interlace(m: Material, opts: InterlaceOpts): Material {
       }
     }
   }
-  // Columns and identity, carried the way a split carries them.
-  const n = xs.length;
-  const attrs: Record<string, Float64Array> = {};
-  for (const name of src.attrNames) {
-    const col = src.attrs[name];
-    const nearest = src.transfers[name] === 'nearest';
-    attrs[name] = Float64Array.from(pointFrom, (p) => ('row' in p ? col[p.row] : nearest ? (p.f <= 0.5 ? col[p.a] : col[p.b]) : col[p.a] + (col[p.b] - col[p.a]) * p.f));
-  }
-  // A vertex that comes through keeps its id once. The same vertex again —
-  // the seam of a closed chain, a junction met by two chains — is a copy,
-  // and a copy is a new point.
+  // Columns and identity, carried the way a split carries them. A vertex
+  // that comes through keeps its id once. The same vertex again — the seam
+  // of a closed chain, a junction met by two chains — is a copy, and a copy
+  // is a new point.
+  const points = new PointRows(src, 'interlace');
   const used = new Set<number>();
-  const keeps = pointFrom.map((p) => ('row' in p && !used.has(p.row) ? (used.add(p.row), true) : false));
-  const freshPoints = mintIds(keeps.reduce((k, kept) => k + (kept ? 0 : 1), 0));
-  const pointIds = new Float64Array(n);
-  let nextPoint = 0;
-  pointFrom.forEach((p, i) => { pointIds[i] = keeps[i] ? src.pointIds[(p as { row: number }).row] : freshPoints[nextPoint++]; });
-  const freshEdges = mintIds(edgeFrom.reduce((k, e) => k + (e.whole ? 0 : 1), 0));
-  const edgeIds = new Float64Array(edgeFrom.length);
-  const edgeRoots = new Float64Array(edgeFrom.length);
-  let nextEdge = 0;
+  pointFrom.forEach((p, i) => {
+    if (!('row' in p)) points.between(p.a, p.b, p.f, xs[i], ys[i]);
+    else if (used.has(p.row)) points.copy(p.row, xs[i], ys[i]);
+    else {
+      used.add(p.row);
+      points.keep(p.row, xs[i], ys[i]);
+    }
+  });
+  // A piece that is its whole source edge is that edge; any other is a new
+  // edge of its lineage holding its share.
+  const pieces = new EdgeRows(src);
   edgeFrom.forEach((e, i) => {
-    edgeIds[i] = e.whole ? src.edgeIds[e.edge] : freshEdges[nextEdge++];
-    edgeRoots[i] = src.edgeRoots[e.edge];
+    if (e.whole) pieces.keep(e.edge, edges[2 * i], edges[2 * i + 1]);
+    else pieces.from(e.edge, edges[2 * i], edges[2 * i + 1], e.fraction);
   });
-  const enames = src.edgeAttrNames;
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of enames) edgeAttrs[name] = new Float64Array(edgeFrom.length);
-  edgeFrom.forEach((e, i) => {
-    const parent: Record<string, number> = {};
-    for (const name of enames) parent[name] = src.edgeAttrs[name][e.edge];
-    const child = inheritEdge(src, parent, e.fraction);
-    for (const name of enames) edgeAttrs[name][i] = child[name];
-  });
-  return new Material(Float64Array.from(xs), Float64Array.from(ys), attrs, Uint32Array.from(edges), {
-    edgeAttrs,
-    transfers: { ...src.transfers },
-    edgeTransfers: { ...src.edgeTransfers },
-    ids: { points: pointIds, edges: edgeIds, edgeRoots },
-    faceAttrs: src.faceAttrs,
-    ...inherits(src),
-  });
+  return rebuild(src, { ...points.done(), ...pieces.done() }, { iteration: 0 });
 }

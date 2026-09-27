@@ -27,7 +27,7 @@
  * value the geometry does not hold, used as a reference.
  */
 
-import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, RESERVED_FACE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
+import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, RESERVED_FACE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId, type Transfer, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
 import { chainsOf } from './curves.js';
 import { pointDomain, edgeDomain, isPointSelection, isEdgeSelection } from './relation.js';
 import { faceTableOf, type Face, type FaceTable, type StatedFaces } from './faces.js';
@@ -35,6 +35,7 @@ import { RESERVED_CORNER_FIELDS, type Corner, type CornerDomain } from './corner
 import { Selection, rowsIn } from './selection.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
+import type { Space } from './space.js';
 import { ownedBy, ownerOfView, pairKey, viewKind } from './views.js';
 import { Column, at64, atU32, kinds, kindOf, kindWords, valueAt, appendValues, keepRows as keepColumn, writerOf, type AnyColumn, type AnyKind, type AnyWriter, type ArrayColumn, type ColumnWriter } from './column.js';
 import { isPlacement, type Placement } from './placement.js';
@@ -112,7 +113,7 @@ const RESERVED_POINT_FIELDS: readonly string[] = ['index', 'adjacent', 'edges', 
 /** The columns a write builds its new state from: `m`'s own, shared, until
  * the write replaces one. A write never copies a column it does not
  * change, and a column it changes shares every leaf it does not touch. */
-interface Parts {
+export interface Parts {
   x: Column;
   y: Column;
   attrs: Record<string, AnyColumn>;
@@ -127,7 +128,7 @@ interface Parts {
 }
 
 /** Every column of `m`, shared: the parts a write starts from. */
-function partsOf(m: Material): Parts {
+export function partsOf(m: Material): Parts {
   const s = m.store;
   return {
     x: s.x,
@@ -143,8 +144,10 @@ function partsOf(m: Material): Parts {
   };
 }
 
-/** What a write hands on besides the rows: by default `m`'s own. */
-interface Carry {
+/** @internal What a new state hands on besides the rows: by default `m`'s
+ * own — its policies, face columns, stated faces, space and key — at its
+ * iteration, with no history. */
+export interface Carry {
   iteration?: number;
   history?: readonly Material[];
   transfers?: Record<string, TransferPolicy>;
@@ -152,12 +155,19 @@ interface Carry {
   faceAttrs?: Record<string, FaceColumn>;
   /** The stated faces, when the write changes their corners. */
   faces?: StatedFaces;
+  /** The space the coordinates belong to, when it is not `m`'s. */
+  space?: Space;
+  /** The value's key (see `Material.key`), when it is not `m`'s. */
+  key?: string;
+  /** The value's area, when it is not its own closed chains (see
+   * `areaMaterial`). */
+  area?: () => Material;
 }
 
-/** The new state: `m`'s policies, face columns, space and iteration, with
- * these rows — and `m`'s stated faces, which the new state keeps only when
- * its edges are `m`'s (see `statedFor`). A write keeps row identity, so
- * what a row answers as `source` and `u` (derivation.ts) goes with it. */
+/** The new state: `m`'s policies, face columns, space, key and iteration,
+ * with these rows — and `m`'s stated faces, which the new state keeps only
+ * when its edges are `m`'s (see `statedFor`). A write keeps row identity,
+ * so what a row answers as `source` and `u` (derivation.ts) goes with it. */
 function make(m: Material, p: Parts, carry: Carry = {}): Material {
   return carryLinks(m, build(m, p, carry));
 }
@@ -174,8 +184,24 @@ function build(m: Material, p: Parts, carry: Carry): Material {
     keys: { points: p.pointKeys, edges: p.edgeKeys },
     faceAttrs: carry.faceAttrs ?? m.faceAttrs,
     from: m,
+    ...(carry.space !== undefined ? { space: carry.space } : {}),
+    ...(carry.key !== undefined ? { key: carry.key } : {}),
+    ...(carry.area !== undefined ? { area: carry.area } : {}),
     faces: carry.faces ?? m.stated,
   });
+}
+
+/**
+ * @internal A new state of `m`: its columns, shared, with `changes` in
+ * place of the ones a verb made anew, and what it hands on (`carry`, by
+ * default `m`'s own). The one door every rebuild goes through — a table
+ * write, a kernel's rows (`PointRows`, `EdgeRows`), a new position column,
+ * a statement of faces — so every column of every kind, the ids, the
+ * kernel's names, the key and the links of the rows it keeps go with it,
+ * and a column no verb changed is the same column.
+ */
+export function rebuild(m: Material, changes: Partial<Parts> = {}, carry: Carry = {}): Material {
+  return make(m, { ...partsOf(m), ...changes }, carry);
 }
 
 /** @internal `m` at another iteration and with a history: what `t.steps`
@@ -186,6 +212,323 @@ function build(m: Material, p: Parts, carry: Carry): Material {
 export function restamp(m: Material, iteration: number, history: readonly Material[] = [], start?: unknown): Material {
   const out = build(m, partsOf(m), { iteration, history });
   return start === undefined ? carryLinks(m, out) : carryRunLinks(m, out, start);
+}
+
+// ---- rows a kernel builds ----------------------------------------------------------
+//
+// A kernel that rebuilds a geometry — a resample, a spline, a cut, a planar
+// walk — says where each row of its answer comes from, and these build every
+// column of every kind from that, by one rule: a number and a vector
+// interpolate by the column's policy; a boolean, a string, a reference and a
+// placement never do — a row made between two rows takes the nearer one's
+// value, the first on a tie, as a split's point does. An edge made from an
+// edge takes its values, a `'distribute'` number or vector its share.
+
+/**
+ * @internal The point rows a kernel builds from `m`, each said by where it
+ * comes from: a row of `m` kept as it is, identity and all (`keep`), a new
+ * row with its values (`copy`), or a new row `t` of the way from one row to
+ * another (`between`). The kernel works out each position and gives it.
+ * `transfer` overrides the columns' policies for this call, as
+ * `resample({ transfer })` does: a number or a function is a rule for a
+ * column of numbers, and refused by name on any other kind.
+ */
+export class PointRows {
+  /** Each row's position: what the kernel reads back as it goes. */
+  readonly x: number[] = [];
+  readonly y: number[] = [];
+  /** Each row's row of `m` (its value, or the start of its blend), the
+   * other end (-1: none), the parameter, its id (NaN: a new one, minted by
+   * `done` in row order) and the row of `m` whose kernel name it keeps
+   * (-1: none). */
+  private readonly a: number[] = [];
+  private readonly b: number[] = [];
+  private readonly t: number[] = [];
+  private readonly ids: number[] = [];
+  private readonly kept: number[] = [];
+  private readonly rules: Readonly<Record<string, Transfer>>;
+
+  constructor(private readonly m: Material, private readonly who: string, transfer?: Readonly<Record<string, Transfer>>) {
+    this.rules = transfer === undefined ? m.transfers : { ...m.transfers, ...transfer };
+  }
+
+  /** How many rows so far. */
+  get length(): number {
+    return this.x.length;
+  }
+
+  /** Row `i` of `m`, kept: its values and its identity, at (x, y) — where
+   * it is, unless the kernel moves it. */
+  keep(i: number, x = at64(this.m.store.x, i), y = at64(this.m.store.y, i)): number {
+    return this.push(i, -1, 0, x, y, at64(this.m.store.pointIds, i), i);
+  }
+
+  /** A new row with the values of row `i` of `m`, at (x, y); its id is
+   * `id`, or minted. */
+  copy(i: number, x = at64(this.m.store.x, i), y = at64(this.m.store.y, i), id = NaN): number {
+    return this.push(i, -1, 0, x, y, id, -1);
+  }
+
+  /** A new row at (x, y), `t` of the way from row `a` of `m` to row `b`;
+   * its id is `id`, or minted. */
+  between(a: number, b: number, t: number, x: number, y: number, id = NaN): number {
+    return this.push(a, b, t, x, y, id, -1);
+  }
+
+  private push(a: number, b: number, t: number, x: number, y: number, id: number, kept: number): number {
+    this.a.push(a);
+    this.b.push(b);
+    this.t.push(t);
+    this.x.push(x);
+    this.y.push(y);
+    this.ids.push(id);
+    this.kept.push(kept);
+    return this.x.length - 1;
+  }
+
+  /** The rows as parts: positions, every column of `m`, the ids (the new
+   * ones minted now, in row order) and the kernel's names. */
+  done(): Pick<Parts, 'x' | 'y' | 'attrs' | 'pointIds' | 'pointKeys'> {
+    const s = this.m.store;
+    const n = this.x.length;
+    const attrs: Record<string, AnyColumn> = {};
+    // A rule that is a function is the sketch's code: it runs row by row,
+    // each row's columns in the record's order, as the rows were made.
+    const called: Record<string, Float64Array> = {};
+    for (const name of s.attrNames) if (typeof this.rules[name] === 'function' && s.attrs[name] instanceof Column) called[name] = new Float64Array(n);
+    const calls = Object.keys(called);
+    if (calls.length > 0) {
+      for (let r = 0; r < n; r++) {
+        if (this.b[r] < 0) continue;
+        for (const name of calls) {
+          const rule = this.rules[name] as (a: Vertex, b: Vertex, t: number) => number;
+          called[name][r] = rule(this.m.vertex(this.a[r]), this.m.vertex(this.b[r]), this.t[r]);
+        }
+      }
+    }
+    for (const name of s.attrNames) attrs[name] = this.column(name, s.attrs[name], called[name]);
+    const keys = s.pointKeys;
+    return {
+      x: Column.of(Float64Array.from(this.x)),
+      y: Column.of(Float64Array.from(this.y)),
+      attrs,
+      pointIds: Column.of(withMinted(this.ids)),
+      pointKeys: keys === null ? null : (kinds.string.from(this.kept.map((i) => (i < 0 ? '' : keys.get(i)))) as ArrayColumn<string>),
+    };
+  }
+
+  /** One column of `m` over the rows (`called`: a function rule's values,
+   * worked out already). */
+  private column(name: string, col: AnyColumn, called: Float64Array | undefined): AnyColumn {
+    const { a, b, t } = this;
+    const n = a.length;
+    const rule = this.rules[name] ?? 'interpolate';
+    if (col instanceof Column) {
+      const v = col.flat();
+      const out = new Float64Array(n);
+      for (let r = 0; r < n; r++) {
+        const i = a[r];
+        const j = b[r];
+        if (j < 0) out[r] = v[i];
+        else if (called !== undefined) out[r] = called[r];
+        else if (rule === 'nearest') out[r] = t[r] <= 0.5 ? v[i] : v[j];
+        else if (typeof rule === 'number') out[r] = rule;
+        else out[r] = v[i] + (v[j] - v[i]) * t[r];
+      }
+      return Column.of(out);
+    }
+    const kind = col.kind;
+    if (typeof rule !== 'string') throw new Error(`${this.who}: the transfer of '${name}' is ${typeof rule === 'number' ? 'a number' : 'a function'}, a rule for a column of numbers — '${name}' holds ${kindWords(kind)} a row; its transfer is 'interpolate' or 'nearest'`);
+    const interpolate = rule === 'interpolate';
+    const values = new Array<unknown>(n);
+    for (let r = 0; r < n; r++) values[r] = b[r] < 0 ? valueAt(col, a[r]) : typedBetween(col, a[r], b[r], t[r], interpolate);
+    return columnFrom(kind, values);
+  }
+}
+
+/** Ids a kernel gave its rows, NaN where a row is new: the new ones
+ * minted, in row order. */
+function withMinted(given: readonly number[]): Float64Array {
+  const out = Float64Array.from(given);
+  let fresh = 0;
+  for (let k = 0; k < out.length; k++) if (out[k] !== out[k]) fresh++;
+  if (fresh === 0) return out;
+  const minted = mintIds(fresh);
+  let next = 0;
+  for (let k = 0; k < out.length; k++) if (out[k] !== out[k]) out[k] = minted[next++];
+  return out;
+}
+
+/** A column of `kind` holding `values` (each a stored value of it). */
+function columnFrom(kind: AnyKind, values: readonly unknown[]): AnyColumn {
+  return (kind as unknown as { from(values: readonly unknown[]): AnyColumn }).from(values);
+}
+
+/**
+ * @internal The edge columns of `m` read at rows a kernel makes, each row
+ * said by the edge of `m` whose values it takes (`copy`) and, for a
+ * `'distribute'` column, what share of them: `share` of that edge's value,
+ * or the sum of `parts` — `[e0, w0, e1, w1, …]`, each edge's value times
+ * its weight — for a row that covers several. A row of an edge rebuild
+ * (`EdgeRows`) is one, and so is a point of `along`, which reads the edge
+ * under it.
+ */
+export class EdgeCells {
+  /** Per row: the edge it copies, its share (NaN: its `parts`). */
+  protected readonly src: number[] = [];
+  protected readonly share: number[] = [];
+  protected readonly parts: (readonly number[] | undefined)[] = [];
+  /** Does some column of `m` distribute? A kernel works out `parts` only
+   * then. */
+  readonly distributes: boolean;
+
+  constructor(protected readonly m: Material) {
+    let any = false;
+    for (const name of m.store.edgeAttrNames) if (m.edgeTransfers[name] === 'distribute') any = true;
+    this.distributes = any;
+  }
+
+  /** A row with the values of edge `e`, a distributed one `share` of it. */
+  copyOf(e: number, share = 1): void {
+    this.src.push(e);
+    this.share.push(share);
+    this.parts.push(undefined);
+  }
+
+  /** A row with the values of edge `e`, a distributed one the sum of
+   * `parts`. */
+  over(e: number, parts: readonly number[]): void {
+    this.src.push(e);
+    this.share.push(NaN);
+    this.parts.push(parts);
+  }
+
+  /** Every edge column of `m` over the rows. */
+  columns(): Record<string, AnyColumn> {
+    const s = this.m.store;
+    const out: Record<string, AnyColumn> = {};
+    for (const name of s.edgeAttrNames) out[name] = this.column(s.edgeAttrs[name], this.m.edgeTransfers[name] === 'distribute');
+    return out;
+  }
+
+  private column(col: AnyColumn, distribute: boolean): AnyColumn {
+    const { src, share, parts } = this;
+    const n = src.length;
+    if (col instanceof Column) {
+      const v = col.flat();
+      const out = new Float64Array(n);
+      for (let r = 0; r < n; r++) {
+        if (!distribute) out[r] = v[src[r]];
+        else if (!Number.isNaN(share[r])) out[r] = v[src[r]] * share[r];
+        else {
+          const p = parts[r]!;
+          let sum = 0;
+          for (let k = 0; k < p.length; k += 2) sum += v[p[k]] * p[k + 1];
+          out[r] = sum;
+        }
+      }
+      return Column.of(out);
+    }
+    const kind = col.kind;
+    const values = new Array<unknown>(n);
+    // Only a vector distributes: no other kind can declare it.
+    for (let r = 0; r < n; r++) {
+      if (!Number.isNaN(share[r]) || !distribute || kind.name !== 'vector') values[r] = typedShare(col, src[r], share[r], distribute);
+      else {
+        const p = parts[r]!;
+        const sum = new Array<number>(kind.width).fill(0);
+        for (let k = 0; k < p.length; k += 2) {
+          const v = valueAt(col, p[k]) as number[];
+          for (let c = 0; c < sum.length; c++) sum[c] += v[c] * p[k + 1];
+        }
+        values[r] = sum;
+      }
+    }
+    return columnFrom(kind, values);
+  }
+}
+
+/**
+ * @internal The edge rows a kernel builds from `m`, between point rows of
+ * its answer: an edge of `m` kept as it is, identity and lineage too
+ * (`keep`); a piece of one — a new edge of its lineage, its columns the
+ * parent's and a distributed one `share` of it (`from`); or a new edge
+ * that covers edges of `m` — their sum for a distributed column, the
+ * columns of the one under it for the rest — of its lineage or its own
+ * (`cover`).
+ */
+export class EdgeRows extends EdgeCells {
+  private readonly list: number[] = [];
+  private readonly ids: number[] = [];
+  /** Each row's lineage root (NaN: its own id). */
+  private readonly roots: number[] = [];
+  private readonly kept: number[] = [];
+
+  /** How many rows so far. */
+  get length(): number {
+    return this.ids.length;
+  }
+
+  /** Edge `e` of `m`, kept, from point row `a` to point row `b`. */
+  keep(e: number, a: number, b: number): void {
+    this.copyOf(e);
+    this.push(a, b, at64(this.m.store.edgeIds, e), at64(this.m.store.edgeRoots, e), e);
+  }
+
+  /** A piece of edge `e`, from `a` to `b`, holding `share` of it; its id
+   * is `id`, or minted. */
+  from(e: number, a: number, b: number, share = 1, id = NaN): void {
+    this.copyOf(e, share);
+    this.push(a, b, id, at64(this.m.store.edgeRoots, e), -1);
+  }
+
+  /** A new edge from `a` to `b` with the columns of edge `e`, a
+   * distributed one the sum over the edges it covers (`parts`, see
+   * `EdgeCells.over`; none: no share of any). Its lineage is `e`'s, or its
+   * own; its id is `id`, or minted. */
+  cover(e: number, a: number, b: number, parts: readonly number[], lineage: 'lineage' | 'own' = 'lineage', id = NaN): void {
+    this.over(e, parts);
+    this.push(a, b, id, lineage === 'own' ? NaN : at64(this.m.store.edgeRoots, e), -1);
+  }
+
+  /** Row `k`'s ends, as point rows of the answer. */
+  endA(k: number): number {
+    return this.list[2 * k];
+  }
+
+  endB(k: number): number {
+    return this.list[2 * k + 1];
+  }
+
+  /** The edge of `m` row `k` was made from; -1 for an edge kept as it
+   * was, which is that edge and says nothing new. */
+  madeFrom(k: number): number {
+    return this.kept[k] >= 0 ? -1 : this.src[k];
+  }
+
+  private push(a: number, b: number, id: number, root: number, kept: number): void {
+    this.list.push(a, b);
+    this.ids.push(id);
+    this.roots.push(root);
+    this.kept.push(kept);
+  }
+
+  /** The rows as parts: the edge list, every edge column of `m`, the ids
+   * (the new ones minted now, in row order), the roots and the kernel's
+   * names. */
+  done(): Pick<Parts, 'edgeList' | 'edgeAttrs' | 'edgeIds' | 'edgeRoots' | 'edgeKeys'> {
+    const ids = withMinted(this.ids);
+    const roots = new Float64Array(ids.length);
+    for (let k = 0; k < roots.length; k++) roots[k] = Number.isNaN(this.roots[k]) ? ids[k] : this.roots[k];
+    const keys = this.m.store.edgeKeys;
+    return {
+      edgeList: Column.of(Uint32Array.from(this.list)),
+      edgeAttrs: this.columns(),
+      edgeIds: Column.of(ids),
+      edgeRoots: Column.of(roots),
+      edgeKeys: keys === null ? null : (kinds.string.from(this.kept.map((e) => (e < 0 ? '' : keys.get(e)))) as ArrayColumn<string>),
+    };
+  }
 }
 
 // ---- column values -------------------------------------------------------------------
@@ -302,34 +645,62 @@ export const isPointValue = (v: unknown): v is PointValue =>
 export const isEdgeValue = (v: unknown): v is EdgeValue =>
   typeof v === 'object' && v !== null && (v as Record<symbol, unknown>)[VALUE] === 'edge';
 
-/** The NUMERIC edge columns of row `e` of `m`, as a record: what a child
- * edge shares out (`inheritEdge`). */
-function edgeColumns(m: Material, e: number): Record<string, number> {
-  const out: Record<string, number> = {};
+/** The stored value of a column that is not numbers, at a row made `t` of
+ * the way from row `i` to row `j`: a vector blended when it interpolates,
+ * any other kind — or a vector that does not — the nearer row's (the
+ * first on a tie). The rule `PointRows` builds by. */
+function typedBetween(col: Exclude<AnyColumn, Column>, i: number, j: number, t: number, interpolate: boolean): unknown {
+  if (!col.kind.interpolates || !interpolate) return valueAt(col, t <= 0.5 ? i : j);
+  const va = valueAt(col, i) as number[];
+  const vb = valueAt(col, j) as number[];
+  return va.map((x, k) => x + (vb[k] - x) * t);
+}
+
+/** The stored value of an edge column that is not numbers, at a row
+ * holding `share` of edge `e`: a distributed vector's share, any other
+ * value the edge's. The rule `EdgeCells` builds by. */
+function typedShare(col: Exclude<AnyColumn, Column>, e: number, share: number, distribute: boolean): unknown {
+  const v = valueAt(col, e);
+  return distribute && col.kind.name === 'vector' ? (v as number[]).map((x) => x * share) : v;
+}
+
+/** Every column of a point made between point rows `a` and `b` of `m`, `t`
+ * of the way along, by the rule `PointRows` builds by, as a record a write
+ * lands: a number as it is, any other kind its stored value. */
+function cellsBetween(m: Material, a: number, b: number, t: number): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const cols = m.store.attrs;
+  for (const name in cols) {
+    const col = cols[name];
+    const nearest = m.transfers[name] === 'nearest';
+    if (col instanceof Column) {
+      const va = at64(col, a);
+      const vb = at64(col, b);
+      out[name] = nearest ? (t <= 0.5 ? va : vb) : va + (vb - va) * t;
+    } else {
+      out[name] = new Stored(typedBetween(col, a, b, t, !nearest));
+    }
+  }
+  return out;
+}
+
+/** Every column of an edge that holds `share` of edge row `e` of `m` — a
+ * split's child, a piece of a replaced edge, the edge itself at 1 — by
+ * the rule `EdgeCells` builds by, as a record a write lands. */
+function edgeCells(m: Material, e: number, share = 1): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   const cols = m.store.edgeAttrs;
   for (const name in cols) {
     const col = cols[name];
-    if (col instanceof Column) out[name] = at64(col, e);
+    const distribute = m.edgeTransfers[name] === 'distribute';
+    if (col instanceof Column) {
+      const v = at64(col, e);
+      out[name] = distribute ? v * share : v;
+    } else {
+      out[name] = new Stored(typedShare(col, e, share, distribute));
+    }
   }
   return out;
-}
-
-/** The columns of another kind of row `r` of a column record, each as its
- * stored value: what a row made from that row copies whatever its policy
- * (a boolean, a string, a reference, a placement never interpolates). */
-function storedCells(cols: Readonly<Record<string, AnyColumn>>, r: number): Record<string, Stored> {
-  const out: Record<string, Stored> = {};
-  for (const name in cols) {
-    const col = cols[name];
-    if (!(col instanceof Column)) out[name] = new Stored(valueAt(col, r));
-  }
-  return out;
-}
-
-/** Every column of edge row `e` of `m`: the numbers, and the stored
- * values of the other kinds. */
-function edgeCells(m: Material, e: number): Record<string, unknown> {
-  return { ...edgeColumns(m, e), ...storedCells(m.store.edgeAttrs, e) };
 }
 
 /** A value's columns: a point value's or a view's own enumerable values,
@@ -1448,11 +1819,7 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
   const who = 'split';
   if (typeof at !== 'number' && typeof at !== 'function') throw new Error(`${who}: at is a number along the edge, or a function of the edge — got ${typeof at}`);
   const rows = edgeRowsOf(m, edges, who);
-  const names = m.attrNames;
-  const { x: X, y: Y, attrs: A, edgeList: list, edgeRoots } = m.store;
-  // Columns of another kind than numbers, on either domain.
-  const typed = names.length !== m.store.attrNames.length;
-  const typedEdges = m.edgeAttrNames.length !== m.store.edgeAttrNames.length;
+  const { x: X, y: Y, edgeList: list, edgeRoots } = m.store;
   const cut: { e: number; t: number }[] = [];
   const view = typeof at === 'function' ? edgeReader(m, rows.length) : null;
   for (const e of rows) {
@@ -1477,16 +1844,8 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     const b = atU32(list, 2 * e + 1);
     xs.push(at64(X, a) + (at64(X, b) - at64(X, a)) * t);
     ys.push(at64(Y, a) + (at64(Y, b) - at64(Y, a)) * t);
-    // A point column crosses by its policy; the values at both ends are
-    // finite, so the new one is too.
-    const rec: Record<string, unknown> = {};
-    for (const name of names) {
-      const va = at64(A[name] as Column, a);
-      const vb = at64(A[name] as Column, b);
-      rec[name] = m.transfers[name] === 'nearest' ? (t <= 0.5 ? va : vb) : va + (vb - va) * t;
-    }
-    if (typed) Object.assign(rec, betweenCells(m, a, b, t));
-    cols.push(rec);
+    // A point column crosses by its policy.
+    cols.push(cellsBetween(m, a, b, t));
   }
   const withPoints = addPointRows(m, xs, ys, cols, null, who);
   const without = removeEdgeRows(withPoints, cut.map((c) => c.e));
@@ -1497,10 +1856,8 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     const a = atU32(list, 2 * e);
     const b = atU32(list, 2 * e + 1);
     const mid = m.n + k;
-    const parent = edgeColumns(m, e);
     pairs.push([a, mid], [mid, b]);
-    if (typedEdges) childCols.push({ ...inheritEdge(m, parent, t), ...inheritCells(m, e, t) }, { ...inheritEdge(m, parent, 1 - t), ...inheritCells(m, e, 1 - t) });
-    else childCols.push(inheritEdge(m, parent, t), inheritEdge(m, parent, 1 - t));
+    childCols.push(edgeCells(m, e, t), edgeCells(m, e, 1 - t));
     roots.push(at64(edgeRoots, e), at64(edgeRoots, e));
   });
   const out = addEdgeRows(without, pairs, childCols, roots, who);
@@ -1537,53 +1894,6 @@ function linkMade(m: Material, out: Material, pointFrom: readonly number[], edge
     edges: { source: { of: m, domain: 'edges', rows: edges } },
   });
   return record(out, node);
-}
-
-/** @internal A child edge's columns: a `'copy'` column the parent's value, a
- * `'distribute'` one the parent's value times the child's share. */
-export function inheritEdge(m: Material, parent: Readonly<Record<string, number>>, fraction: number): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const name in parent) out[name] = m.edgeTransfers[name] === 'distribute' ? parent[name] * fraction : parent[name];
-  return out;
-}
-
-/**
- * The columns of another kind than numbers of a point made between point
- * rows `a` and `b` of `m`, `t` of the way along: a vector interpolates by
- * its policy as a number does; a boolean, a string, a reference and a
- * placement never interpolate — the new point takes the nearer end's
- * value, which is the parent's, whatever the policy says.
- */
-function betweenCells(m: Material, a: number, b: number, t: number): Record<string, Stored> {
-  const out: Record<string, Stored> = {};
-  const cols = m.store.attrs;
-  for (const name in cols) {
-    const col = cols[name];
-    if (col instanceof Column) continue;
-    if (col.kind.name === 'vector' && m.transfers[name] !== 'nearest') {
-      const va = valueAt(col, a) as number[];
-      const vb = valueAt(col, b) as number[];
-      out[name] = new Stored(va.map((x, k) => x + (vb[k] - x) * t));
-    } else {
-      out[name] = new Stored(valueAt(col, t <= 0.5 ? a : b));
-    }
-  }
-  return out;
-}
-
-/** The columns of another kind than numbers of a child of edge row `e`
- * of `m` that holds `fraction` of it: a copy of the parent's value, or for
- * a `'distribute'` vector its share. */
-function inheritCells(m: Material, e: number, fraction: number): Record<string, Stored> {
-  const out: Record<string, Stored> = {};
-  const cols = m.store.edgeAttrs;
-  for (const name in cols) {
-    const col = cols[name];
-    if (col instanceof Column) continue;
-    const v = valueAt(col, e);
-    out[name] = new Stored(col.kind.name === 'vector' && m.edgeTransfers[name] === 'distribute' ? (v as number[]).map((x) => x * fraction) : v);
-  }
-  return out;
 }
 
 /** How a motif lands on an edge in `replace`. */
@@ -1684,10 +1994,6 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
   });
   const rows = edgeRowsOf(m, edges, who);
   if (rows.length === 0) return m;
-  const names = m.attrNames;
-  const enames = m.edgeAttrNames;
-  const typed = names.length !== m.store.attrNames.length;
-  const typedEdges = enames.length !== m.store.edgeAttrNames.length;
   const landed = new Landing(m);
   const xs: number[] = [];
   const ys: number[] = [];
@@ -1709,19 +2015,8 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
     if (!places.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))) continue;
     gone.push(row);
     // A motif point stands between the edge's ends, so it takes their
-    // columns the way a split point does.
-    const inherit = (at: number): Record<string, unknown> => {
-      const out: Record<string, unknown> = {};
-      for (const name of names) {
-        const va = e.a[name];
-        const vb = e.b[name];
-        out[name] = m.transfers[name] === 'nearest' ? (at <= 0.5 ? va : vb) : va + (vb - va) * at;
-      }
-      return typed ? Object.assign(out, betweenCells(m, e.a.index, e.b.index, at)) : out;
-    };
-    const share = 1 / (local.length + 1);
-    const child: Record<string, unknown> = enames.length > 0 ? inheritEdge(m, edgeColumns(m, row), share) : {};
-    if (typedEdges) Object.assign(child, inheritCells(m, row, share));
+    // columns the way a split point does, and each piece an equal share.
+    const child = edgeCells(m, row, 1 / (local.length + 1));
     // Two positions this close are one place worked out twice: the motifs
     // of two walls that meet at a tip, or a tip on a corner.
     const tol = WELD * Math.hypot(ex, ey);
@@ -1732,7 +2027,7 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
         at = m.n + xs.length;
         xs.push(x);
         ys.push(y);
-        cols.push(inherit(local[k][0]));
+        cols.push(cellsBetween(m, e.a.index, e.b.index, local[k][0]));
         pointFrom.push(row);
         landed.add(x, y, at);
       }

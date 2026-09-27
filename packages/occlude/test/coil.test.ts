@@ -108,7 +108,7 @@ describe('oscillate with a rolled circle: a coil', () => {
   it('carries the point columns and refuses a distributed edge column', () => {
     const src = line(0, 50, 100, 50).points.set('heat', (p) => p.x / 100);
     const out = coil(src, { radius: 2, pitch: 10 });
-    expect(out.attrNames).toEqual(['heat']);
+    expect(Object.keys(out.attrs)).toEqual(['heat']);
     for (const p of out.points) expect(p.heat).toBeGreaterThanOrEqual(0);
     const shared = src.edges.set('ink', () => 1, { transfer: 'distribute' });
     expect(() => coil(shared, { radius: 2, pitch: 10 })).toThrow('distribute');

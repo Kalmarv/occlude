@@ -88,7 +88,7 @@ describe('Stage A repairs (con2)', () => {
         return stroke([[0, 0], [1, 1]]);
       }), { paper: 'Square20' });
       expect(notes).toEqual(['ok']);
-      expect(material([{ x: 1, y: 2, w: 0.5 }]).attrNames).toEqual(['w']); // material(points) is the route
+      expect(Object.keys(material([{ x: 1, y: 2, w: 0.5 }]).attrs)).toEqual(['w']); // material(points) is the route
     });
   });
 });

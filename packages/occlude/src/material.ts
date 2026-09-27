@@ -58,7 +58,7 @@ import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, RESERVED_CORNER_F
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
 // is safe, as it is for the kernels above.
-import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, setPoints, setEdges, addEdgeRows, cellOf, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, setPoints, setEdges, addEdgeRows, cellOf, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
 
 // The vocabulary this module was one file with, re-exported so its
 // importers keep one door: vectors (vec.ts), view identity (views.ts) and
@@ -69,7 +69,6 @@ export {
 } from './vec.js';
 export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
-export { inheritEdge } from './tables.js';
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
 
@@ -739,6 +738,14 @@ export class Material {
    * and a material compared or copied as data is compared by its rows.
    */
   declare readonly space: Space | undefined;
+  /**
+   * The value's own name, when a word gave it one: a 3D object's `key`,
+   * which names the random stream a scatter on it draws from and the
+   * object in a view. Carried as the space is — by every write, every verb
+   * that rebuilds the value and every step of `t.steps` — and absent on a
+   * value nothing named. Non-enumerable, as `space` is.
+   */
+  declare readonly key: string | undefined;
   /** @internal id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -792,10 +799,12 @@ export class Material {
       faceAttrs?: Record<string, FaceColumn>;
       /** The space the coordinates belong to (see `Material.space`). */
       space?: Space;
-      /** The value these rows were made from: the space is taken from it
-       * when `space` is not given, so a derived material is in the space
-       * of its source without a word to say so. */
-      from?: { readonly space?: Space | undefined };
+      /** The value's key (see `Material.key`). */
+      key?: string;
+      /** The value these rows were made from: the space and the key are
+       * taken from it when not given, so a derived material is in the
+       * space of its source, and keeps its name, without a word to say so. */
+      from?: { readonly space?: Space | undefined; readonly key?: string | undefined };
       /** The material's area, when it is not its own closed chains: built
        * the first time an area consumer asks (see `areaMaterial`). */
       area?: () => Material;
@@ -889,6 +898,9 @@ export class Material {
     }
     this.faceAttrs = faceAttrs;
     Object.defineProperty(this, 'space', { value: carry.space ?? carry.from?.space, enumerable: false });
+    const key = carry.key ?? carry.from?.key;
+    if (key !== undefined && typeof key !== 'string') throw new Error(`material: a key is a string — got ${typeof key}`);
+    Object.defineProperty(this, 'key', { value: key, enumerable: false });
     Object.defineProperty(this, 'stated', { value: statedFor(carry.faces, list, edgeIds), enumerable: false });
     this.idBox = { points: null, edges: null };
     Object.freeze(this.faceAttrs);
@@ -965,12 +977,6 @@ export class Material {
     return rows;
   }
 
-  /** @internal Names of the NUMERIC point columns: the kernels' door, as
-   * `attrs` is. Every column, of any kind, is `store.attrNames`. */
-  get attrNames(): string[] {
-    return Object.keys(this.attrs);
-  }
-
   /**
    * @internal The row an id is at in THIS state, or -1 when it is gone.
    *
@@ -1043,11 +1049,6 @@ export class Material {
   /** @internal Number of edges. A sketch reads `m.edges.length`. */
   get edgeCount(): number {
     return this.store.edgeList.length / 2;
-  }
-
-  /** @internal Names of the NUMERIC edge columns (see `attrNames`). */
-  get edgeAttrNames(): string[] {
-    return Object.keys(this.edgeAttrs);
   }
 
   /** @internal The edge at row `e` as a view (a → b in stored order, with
@@ -1205,11 +1206,12 @@ export class Material {
     // The neighbourhood, once: a point's joined points, or an edge's
     // edges through either end.
     const rows = cur.length;
+    const L = src.edgeList;
     const nb: readonly number[][] = onPoints
       ? Array.from({ length: rows }, (_, i) => [...src.adjacentRows(i)])
       : Array.from({ length: rows }, (_, e) => {
           const out = new Set<number>();
-          for (const end of [src.edgeList[2 * e], src.edgeList[2 * e + 1]]) for (const f of src.incidentEdgeRows(end)) out.add(f);
+          for (const end of [L[2 * e], L[2 * e + 1]]) for (const f of src.incidentEdgeRows(end)) out.add(f);
           out.delete(e);
           return [...out];
         });
@@ -1223,11 +1225,6 @@ export class Material {
       cur = next;
     }
     return onPoints ? setPoints(src, null, [name, (p: Vertex) => cur[p.index]]) : setEdges(src, null, [name, (e: Edge) => cur[e.index]]);
-  }
-
-  /** @internal The face columns this material declares. */
-  get faceAttrNames(): string[] {
-    return Object.keys(this.faceAttrs);
   }
 
   /**
@@ -1299,61 +1296,26 @@ export class Material {
     if (!Number.isInteger(steps) || steps < 1) {
       throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
     }
-    const names = this.attrNames;
-    const enames = this.edgeAttrNames;
-    const transfer: Record<string, Transfer> = { ...this.transfers };
-    const ox: number[] = [];
-    const oy: number[] = [];
-    const oattrs: Record<string, number[]> = {};
-    for (const name of names) oattrs[name] = [];
-    const edges: number[] = [];
-    const eattrs: Record<string, number[]> = {};
-    for (const name of enames) eattrs[name] = [];
-    // Where each output row came from: a source row, or -1 for a row this
-    // call made. The same bookkeeping `resample` keeps under `where`.
-    const osrc: number[] = [];
-    const esrc: number[] = [];
-    const eroot: number[] = [];
+    const X = this.x;
+    const Y = this.y;
+    const L = this.edgeList;
+    const points = new PointRows(this, 'spline');
+    const edges = new EdgeRows(this);
     const storedRow = new Map<number, number>();
-    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
+    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
     const rowOf = new Map<number, number>();
-    // A source vertex, verbatim — not through `transfer`, which says what a
-    // value does at a NEW vertex. A vertex two segments share is one row.
+    // A source vertex, verbatim — not through the transfer policy, which
+    // says what a value does at a NEW vertex. A vertex two segments share is
+    // one row.
     const rowFor = (v: number): number => {
       const had = rowOf.get(v);
       if (had !== undefined) return had;
-      ox.push(this.x[v]);
-      oy.push(this.y[v]);
-      osrc.push(v);
-      for (const name of names) oattrs[name].push(this.attrs[name][v]);
-      rowOf.set(v, ox.length - 1);
-      return ox.length - 1;
-    };
-    /** A new vertex at (x, y), its columns read between a and b at t. */
-    const place = (x: number, y: number, a: number, b: number, t: number): number => {
-      ox.push(x);
-      oy.push(y);
-      osrc.push(-1);
-      for (const name of names) {
-        const rule = transfer[name] ?? 'interpolate';
-        const va = this.attrs[name][a];
-        const vb = this.attrs[name][b];
-        let v: number;
-        if (rule === 'interpolate') v = va + (vb - va) * t;
-        else if (rule === 'nearest') v = t <= 0.5 ? va : vb; // ties to the start vertex
-        else if (typeof rule === 'number') v = rule;
-        else v = rule(readVertex(this, a), readVertex(this, b), t);
-        oattrs[name].push(v);
-      }
-      return ox.length - 1;
+      const row = points.keep(v);
+      rowOf.set(v, row);
+      return row;
     };
     /** One source edge through as it is: same row, same lineage. */
-    const keep = (a: number, b: number, row: number) => {
-      edges.push(rowFor(a), rowFor(b));
-      esrc.push(row);
-      eroot.push(row);
-      for (const name of enames) eattrs[name].push(this.edgeAttrs[name][row]);
-    };
+    const keep = (a: number, b: number, row: number) => edges.keep(row, rowFor(a), rowFor(b));
     // Isolated vertices are not chains: they come through unchanged.
     for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) rowFor(i);
     for (const c of chainsOf(this)) {
@@ -1381,10 +1343,10 @@ export class Material {
         const p1 = at(s);
         const p2 = at(s + 1);
         const p3 = at(s + 2);
-        const m0x = tension * (this.x[p2] - this.x[p0]);
-        const m0y = tension * (this.y[p2] - this.y[p0]);
-        const m1x = tension * (this.x[p3] - this.x[p1]);
-        const m1y = tension * (this.y[p3] - this.y[p1]);
+        const m0x = tension * (X[p2] - X[p0]);
+        const m0y = tension * (Y[p2] - Y[p0]);
+        const m1x = tension * (X[p3] - X[p1]);
+        const m1y = tension * (Y[p3] - Y[p1]);
         const rows: number[] = [rowFor(p1)];
         for (let i = 1; i < steps; i++) {
           const u = i / steps;
@@ -1394,10 +1356,11 @@ export class Material {
           const h10 = u3 - 2 * u2 + u;
           const h01 = -2 * u3 + 3 * u2;
           const h11 = u3 - u2;
-          rows.push(place(
-            h00 * this.x[p1] + h10 * m0x + h01 * this.x[p2] + h11 * m1x,
-            h00 * this.y[p1] + h10 * m0y + h01 * this.y[p2] + h11 * m1y,
+          // A new vertex, its columns read between p1 and p2 at u.
+          rows.push(points.between(
             p1, p2, u,
+            h00 * X[p1] + h10 * m0x + h01 * X[p2] + h11 * m1x,
+            h00 * Y[p1] + h10 * m0y + h01 * Y[p2] + h11 * m1y,
           ));
         }
         rows.push(rowFor(p2));
@@ -1407,36 +1370,14 @@ export class Material {
         const spans: number[] = [];
         let total = 0;
         for (let i = 1; i < rows.length; i++) {
-          const d = Math.hypot(ox[rows[i]] - ox[rows[i - 1]], oy[rows[i]] - oy[rows[i - 1]]);
+          const d = Math.hypot(points.x[rows[i]] - points.x[rows[i - 1]], points.y[rows[i]] - points.y[rows[i - 1]]);
           spans.push(d);
           total += d;
         }
-        for (let i = 1; i < rows.length; i++) {
-          edges.push(rows[i - 1], rows[i]);
-          esrc.push(-1);
-          eroot.push(row);
-          for (const name of enames) {
-            const value = this.edgeAttrs[name][row];
-            eattrs[name].push(this.edgeTransfers[name] === 'distribute' ? (total > 0 ? value * (spans[i - 1] / total) : value / spans.length) : value);
-          }
-        }
+        for (let i = 1; i < rows.length; i++) edges.from(row, rows[i - 1], rows[i], total > 0 ? spans[i - 1] / total : 1 / spans.length);
       }
     }
-    const attrs: Record<string, Float64Array> = {};
-    for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-    const edgeAttrs: Record<string, Float64Array> = {};
-    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    const freshPoints = mintIds(osrc.reduce((n, v) => n + (v < 0 ? 1 : 0), 0));
-    const freshEdges = mintIds(esrc.reduce((n, v) => n + (v < 0 ? 1 : 0), 0));
-    let fp = 0;
-    let fe = 0;
-    const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
-    const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
-    const edgeRoots = Float64Array.from(esrc, (v, i) => (v >= 0 ? this.edgeRoots[v] : this.edgeRoots[eroot[i]]));
-    return carryLinks(this, new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
-      iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
-      ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs, from: this, faces: this.stated,
-    }));
+    return rebuild(this, { ...points.done(), ...edges.done() });
   }
 
   /**
@@ -1477,63 +1418,36 @@ export class Material {
       if (v < 0) throw new Error(`trim: { ${name} } must not be negative — a cut removes length, it does not add any`);
     }
     if (head === 0 && tail === 0) return material(this);
-    const names = this.attrNames;
-    const enames = this.edgeAttrNames;
-    const transfer: Record<string, Transfer> = { ...this.transfers };
-    const ox: number[] = [];
-    const oy: number[] = [];
-    const oattrs: Record<string, number[]> = {};
-    for (const name of names) oattrs[name] = [];
-    const eattrs: Record<string, number[]> = {};
-    for (const name of enames) eattrs[name] = [];
-    const edges: number[] = [];
-    const osrc: number[] = [];
-    const esrc: number[] = [];
-    // The source edge each new edge is a piece of, whose LINEAGE it keeps
-    // even when its own id is retired. An edge that survives whole names
-    // itself here, so one expression gives both.
-    const eroot: number[] = [];
+    const X = this.x;
+    const Y = this.y;
+    const L = this.edgeList;
+    const points = new PointRows(this, 'trim');
+    const edges = new EdgeRows(this);
     const storedRow = new Map<number, number>();
-    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
+    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
     // A vertex this call does not touch, verbatim, and once: a junction the
     // chains share is one row. A cut end, blended.
     const rowOf = new Map<number, number>();
     const keep = (v: number): number => {
       const had = rowOf.get(v);
       if (had !== undefined) return had;
-      ox.push(this.x[v]);
-      oy.push(this.y[v]);
-      osrc.push(v);
-      for (const name of names) oattrs[name].push(this.attrs[name][v]);
-      rowOf.set(v, ox.length - 1);
-      return ox.length - 1;
+      const row = points.keep(v);
+      rowOf.set(v, row);
+      return row;
     };
     const cut = (a: number, b: number, t: number): number => {
       if (curved) {
-        const g = curved.geodesic([this.x[a], this.y[a]], [this.x[b], this.y[b]], t);
-        ox.push(g[0]);
-        oy.push(g[1]);
-      } else {
-        ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
-        oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+        const g = curved.geodesic([X[a], Y[a]], [X[b], Y[b]], t);
+        return points.between(a, b, t, g[0], g[1]);
       }
-      osrc.push(-1);
-      for (const name of names) {
-        const rule = transfer[name] ?? 'interpolate';
-        const va = this.attrs[name][a];
-        const vb = this.attrs[name][b];
-        if (rule === 'interpolate') oattrs[name].push(va + (vb - va) * t);
-        else if (rule === 'nearest') oattrs[name].push(t <= 0.5 ? va : vb);
-        else if (typeof rule === 'number') oattrs[name].push(rule);
-        else oattrs[name].push(rule(readVertex(this, a), readVertex(this, b), t));
-      }
-      return ox.length - 1;
+      return points.between(a, b, t, X[a] + (X[b] - X[a]) * t, Y[a] + (Y[b] - Y[a]) * t);
     };
+    // A piece keeps the LINEAGE of the source edge it is a piece of even
+    // when its own id is retired; an edge that survives whole is that edge.
+    // Either way it takes the edge's columns as they are.
     const join = (from: number, to: number, sourceEdge: number, whole: boolean) => {
-      edges.push(from, to);
-      esrc.push(whole ? sourceEdge : -1);
-      eroot.push(sourceEdge);
-      for (const name of enames) eattrs[name].push(this.edgeAttrs[name][sourceEdge]);
+      if (whole) edges.keep(sourceEdge, from, to);
+      else edges.from(sourceEdge, from, to);
     };
     for (const c of chainsOf(this)) {
       const idx = c.indices;
@@ -1545,7 +1459,7 @@ export class Material {
         }
         continue;
       }
-      const pts = idx.map((i) => [this.x[i], this.y[i]] as [number, number]);
+      const pts = idx.map((i) => [X[i], Y[i]] as [number, number]);
       const cum = chainLengths(pts, false, space);
       const total = cum[cum.length - 1];
       // A junction is not an end: nothing is cut there.
@@ -1553,9 +1467,14 @@ export class Material {
       const to = this.adj[idx[idx.length - 1]].length > 2 ? total : total - tail;
       // Nothing survives the cut: this chain draws nothing.
       if (!(to > from)) continue;
-      // The segment a distance falls on, and how far along it.
+      // The segment a distance falls on, and how far along it. Distances
+      // are asked for in increasing order, so the walk goes on from the
+      // last answer, and starts over only for a shorter one.
+      let s = 0;
+      let last = -Infinity;
       const at = (d: number): [number, number] => {
-        let s = 0;
+        if (d < last) s = 0;
+        last = d;
         while (s < cum.length - 2 && cum[s + 1] <= d) s++;
         const span = cum[s + 1] - cum[s];
         return [s, span > 0 ? (d - cum[s]) / span : 0];
@@ -1583,17 +1502,7 @@ export class Material {
         join(rows[k], rows[k + 1], storedRow.get(pairKey(idx[seg], idx[seg + 1]))!, whole);
       }
     }
-    const attrs: Record<string, Float64Array> = {};
-    for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-    const edgeAttrs: Record<string, Float64Array> = {};
-    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    const freshPoints = mintIds(osrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
-    const freshEdges = mintIds(esrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
-    let fp = 0;
-    let fe = 0;
-    const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
-    const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
-    return carryLinks(this, new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots: Float64Array.from(eroot, (e) => this.edgeRoots[e]) }, faceAttrs: this.faceAttrs, from: this, faces: this.stated }));
+    return rebuild(this, { ...points.done(), ...edges.done() });
   }
 
   /**
@@ -1712,16 +1621,19 @@ export class Material {
         return Math.hypot(w[0] - (u[0] + dx * s), w[1] - (u[1] + dy * s)) > TRANSFORM_TOL;
       };
     }
+    const X = this.x;
+    const Y = this.y;
+    const L = this.edgeList;
     /** An edge's SOURCE curve, as the ink reads it. */
     const source = (e: number): [Vec, Vec] => {
-      const a = this.edgeList[2 * e];
-      const b = this.edgeList[2 * e + 1];
-      return chord([this.x[a], this.y[a]], [this.x[b], this.y[b]]);
+      const a = L[2 * e];
+      const b = L[2 * e + 1];
+      return chord([X[a], Y[a]], [X[b], Y[b]]);
     };
     const nx: number[] = [];
     const ny: number[] = [];
     for (let i = 0; i < this.n; i++) {
-      const q = move(this.x[i], this.y[i]);
+      const q = move(X[i], Y[i]);
       if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) throw new Error(`m.transform: vertex ${i} moves to [${q[0]}, ${q[1]}], which is not a point`);
       nx.push(q[0]);
       ny.push(q[1]);
@@ -1752,74 +1664,30 @@ export class Material {
       cuts.push(ts);
       if (ts.length > 0) split = true;
     }
-    if (!split) {
-      const s = this.store;
-      return carryLinks(this, new Material(Float64Array.from(nx), Float64Array.from(ny), s.attrs, s.edgeList, { iteration: this.iteration, history: [], edgeAttrs: s.edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys }, faceAttrs: this.faceAttrs, from: this, faces: this.stated }));
-    }
-    const names = this.attrNames;
-    const enames = this.edgeAttrNames;
-    const oattrs: Record<string, number[]> = {};
-    for (const name of names) oattrs[name] = Array.from(this.attrs[name]);
-    const eattrs: Record<string, number[]> = {};
-    for (const name of enames) eattrs[name] = [];
-    const pointIds = Array.from(this.pointIds);
-    const edges: number[] = [];
-    const edgeIds: number[] = [];
-    const edgeRoots: number[] = [];
-    const freshPoints = mintIds(cuts.reduce((k, ts) => k + ts.length, 0));
-    const freshEdges = mintIds(cuts.reduce((k, ts) => k + (ts.length > 0 ? ts.length + 1 : 0), 0));
-    let fp = 0;
-    let fe = 0;
-    const columnValue = (name: string, i: number, j: number, t: number): number => {
-      const va = this.attrs[name][i];
-      const vb = this.attrs[name][j];
-      return this.transfers[name] === 'nearest' ? (t <= 0.5 ? va : vb) : va + (vb - va) * t;
-    };
+    if (!split) return rebuild(this, { x: Column.of(Float64Array.from(nx)), y: Column.of(Float64Array.from(ny)) });
+    // Every vertex keeps its row and its id, moved; the samples come after.
+    const points = new PointRows(this, 'm.transform');
+    for (let i = 0; i < this.n; i++) points.keep(i, nx[i], ny[i]);
+    const edges = new EdgeRows(this);
     for (let e = 0; e < this.edgeCount; e++) {
-      const a = this.edgeList[2 * e];
-      const b = this.edgeList[2 * e + 1];
+      const a = L[2 * e];
+      const b = L[2 * e + 1];
       const ts = cuts[e];
       if (ts.length === 0) {
-        edges.push(a, b);
-        edgeIds.push(this.edgeIds[e]);
-        edgeRoots.push(this.edgeRoots[e]);
-        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][e]);
+        edges.keep(e, a, b);
         continue;
       }
       const [p0, p1] = source(e);
       const rows = [a];
       for (const t of ts) {
         const q = move(p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t);
-        rows.push(nx.length);
-        nx.push(q[0]);
-        ny.push(q[1]);
-        pointIds.push(freshPoints[fp++]);
-        for (const name of names) oattrs[name].push(columnValue(name, a, b, t));
+        rows.push(points.between(a, b, t, q[0], q[1]));
       }
       rows.push(b);
       const params = [0, ...ts, 1];
-      for (let k = 0; k + 1 < rows.length; k++) {
-        edges.push(rows[k], rows[k + 1]);
-        edgeIds.push(freshEdges[fe++]);
-        edgeRoots.push(this.edgeRoots[e]);
-        const share = params[k + 1] - params[k];
-        for (const name of enames) {
-          const v = this.edgeAttrs[name][e];
-          eattrs[name].push(this.edgeTransfers[name] === 'distribute' ? v * share : v);
-        }
-      }
+      for (let k = 0; k + 1 < rows.length; k++) edges.from(e, rows[k], rows[k + 1], params[k + 1] - params[k]);
     }
-    const attrs: Record<string, Float64Array> = {};
-    for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-    const edgeAttrs: Record<string, Float64Array> = {};
-    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    return carryLinks(this, new Material(Float64Array.from(nx), Float64Array.from(ny), attrs, Uint32Array.from(edges), {
-      iteration: this.iteration, history: [], edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers },
-      ids: { points: Float64Array.from(pointIds), edges: Float64Array.from(edgeIds), edgeRoots: Float64Array.from(edgeRoots) },
-      faceAttrs: this.faceAttrs,
-      faces: this.stated,
-      from: this,
-    }));
+    return rebuild(this, { ...points.done(), ...edges.done() });
   }
 
   /**
@@ -1891,17 +1759,19 @@ export class Material {
     if (origin === undefined) return [0, 0];
     if (origin === 'center' || origin === 'centroid') {
       if (this.n === 0) return [0, 0];
+      const X = this.x;
+      const Y = this.y;
       if (origin === 'centroid') {
         const c = areaCentroid(this.contours());
         if (c) return c;
         let mx = 0, my = 0;
-        for (let i = 0; i < this.n; i++) { mx += this.x[i]; my += this.y[i]; }
+        for (let i = 0; i < this.n; i++) { mx += X[i]; my += Y[i]; }
         return [mx / this.n, my / this.n];
       }
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (let i = 0; i < this.n; i++) {
-        x0 = Math.min(x0, this.x[i]); x1 = Math.max(x1, this.x[i]);
-        y0 = Math.min(y0, this.y[i]); y1 = Math.max(y1, this.y[i]);
+        x0 = Math.min(x0, X[i]); x1 = Math.max(x1, X[i]);
+        y0 = Math.min(y0, Y[i]); y1 = Math.max(y1, Y[i]);
       }
       return [(x0 + x1) / 2, (y0 + y1) / 2];
     }
@@ -2129,24 +1999,17 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
   // The eligible region is a set of EDGES: a redistribution is about the
   // stretch between two vertices, not about the vertices.
   const eligible = whereRows(self, opts.where, 'edges', 'resample');
-  const names = self.attrNames;
-  const transfer: Record<string, Transfer> = { ...self.transfers, ...(opts.transfer ?? {}) };
-  const ox: number[] = [];
-  const oy: number[] = [];
-  const oattrs: Record<string, number[]> = {};
-  for (const name of names) oattrs[name] = [];
-  const edges: number[] = [];
-  const enames = self.edgeAttrNames;
-  const eattrs: Record<string, number[]> = {};
-  for (const name of enames) eattrs[name] = [];
-  // Where each output row came from, for identity: a source row, or -1 for
-  // something this call made. Only `where` reads them — a whole resample
-  // rebuilds the material and mints as it always has.
-  const osrc: number[] = [];
-  const esrc: number[] = [];
-  const eroot: number[] = [];
+  const X = self.x;
+  const Y = self.y;
+  const L = self.edgeList;
+  // A vertex this call does not touch keeps its row and its id only when
+  // part of the material stays: a whole resample rebuilds the material and
+  // mints, as it always has.
+  const keepsIds = eligible !== null || network;
+  const points = new PointRows(self, 'resample', opts.transfer);
+  const edges = new EdgeRows(self);
   const storedRow = new Map<number, number>();
-  for (let e = 0; e < self.edgeCount; e++) storedRow.set(pairKey(self.edgeList[2 * e], self.edgeList[2 * e + 1]), e);
+  for (let e = 0; e < self.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
   // What each output row answers (derivation.ts): the input edge under it
   // (-1: none) and its fraction along its chain, one entry a row, set once,
   // by the first chain that places the row. A row no chain placed says
@@ -2158,35 +2021,21 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
     underRow[row] = edge;
     uRow[row] = u;
   };
-  const place = (a: number, b: number, t: number, src = -1) => {
+  const place = (a: number, b: number, t: number) => {
     if (curved) {
-      const g = curved.geodesic([self.x[a], self.y[a]], [self.x[b], self.y[b]], t);
-      ox.push(g[0]);
-      oy.push(g[1]);
+      const g = curved.geodesic([X[a], Y[a]], [X[b], Y[b]], t);
+      points.between(a, b, t, g[0], g[1]);
     } else {
-      ox.push(self.x[a] + (self.x[b] - self.x[a]) * t);
-      oy.push(self.y[a] + (self.y[b] - self.y[a]) * t);
+      points.between(a, b, t, X[a] + (X[b] - X[a]) * t, Y[a] + (Y[b] - Y[a]) * t);
     }
-    osrc.push(src);
     underRow.push(-1);
     uRow.push(NaN);
-    for (const name of names) {
-      const rule = transfer[name] ?? 'interpolate';
-      const va = self.attrs[name][a];
-      const vb = self.attrs[name][b];
-      let v: number;
-      if (rule === 'interpolate') v = va + (vb - va) * t;
-      else if (rule === 'nearest') v = t <= 0.5 ? va : vb; // ties to the start vertex
-      else if (typeof rule === 'number') v = rule;
-      else v = rule(readVertex(self, a), readVertex(self, b), t);
-      oattrs[name].push(v);
-    }
   };
   // One piece of a chain, as its own little walk: `rows` are the material
   // rows it runs through, in order. A whole chain is one piece; with
   // `where`, a run of eligible edges is one.
   const piece = (rows: readonly number[], closed: boolean) => {
-    const pts = rows.map((i) => [self.x[i], self.y[i]] as [number, number]);
+    const pts = rows.map((i) => [X[i], Y[i]] as [number, number]);
     const cum = chainLengths(pts, closed, space);
     const total = cum[cum.length - 1];
     const rowOfSeg = (s: number) => storedRow.get(pairKey(rows[s], rows[(s + 1) % rows.length]))!;
@@ -2203,26 +2052,23 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
     // the midpoint; a 'distribute' column sums each covered source edge's
     // value times the share of that edge the new one covers.
     const link = (from: number, to: number, d0: number, d1: number) => {
-      edges.push(from, to);
       const mid = rowOfSeg(segUnder((d0 + d1) / 2));
-      esrc.push(-1);
-      eroot.push(mid);
-      for (const name of enames) {
-        if (self.edgeTransfers[name] !== 'distribute') {
-          eattrs[name].push(self.edgeAttrs[name][mid]);
-          continue;
-        }
-        let sum = 0;
+      const parts: number[] = edges.distributes ? [] : NO_PARTS;
+      if (edges.distributes) {
         if (cum[spread] > d0) spread = 0; // a closed chain's seam wraps once
         while (spread < cum.length - 2 && cum[spread + 1] <= d0) spread++; // the first segment the range touches
         for (let s = spread; s + 1 < cum.length && cum[s] < d1; s++) {
           const len = cum[s + 1] - cum[s];
           if (len <= 0) continue;
           const overlap = Math.min(d1, cum[s + 1]) - Math.max(d0, cum[s]);
-          if (overlap > 0) sum += self.edgeAttrs[name][rowOfSeg(s)] * (overlap / len);
+          if (overlap > 0) parts.push(rowOfSeg(s), overlap / len);
         }
-        eattrs[name].push(sum);
       }
+      // A new edge takes the lineage root of the source edge under its
+      // middle, the way a split's children take their parent's — so the
+      // face columns keyed on those roots still find their cells — unless
+      // the whole material is new.
+      edges.cover(mid, from, to, parts, keepsIds ? 'lineage' : 'own');
     };
     const at = (samples: { seg: number; t: number }[], k: number) =>
       cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
@@ -2231,21 +2077,18 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
   // A vertex this call does not touch: verbatim, not through `transfer`.
   // A transfer rule says what a value does at a NEW vertex, and this is
   // not one.
-  const keepsIds = eligible !== null || network;
   const copy = (v: number) => {
-    ox.push(self.x[v]);
-    oy.push(self.y[v]);
-    osrc.push(keepsIds ? v : -1);
+    if (keepsIds) points.keep(v);
+    else points.copy(v);
     underRow.push(-1);
     uRow.push(NaN);
-    for (const name of names) oattrs[name].push(self.attrs[name][v]);
   };
   // Isolated vertices are not chains: they come through unchanged.
   for (let i = 0; i < self.n; i++) if (self.adjacentRows(i).length === 0) copy(i);
   // A whole piece, redistributed: the path a resample without `where` takes
   // for every chain, and the one a fully eligible ring takes too.
   const whole = (rows: readonly number[], closed: boolean) => {
-    const first = ox.length;
+    const first = points.length;
     const p = piece(rows, closed);
     const samples = alongChain(p.pts, closed, sampling);
     // `alongChain` places sample k at arc length total·k/gaps: its
@@ -2280,7 +2123,7 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
     // own lengths, walked the first time a run asks.
     let chainCum: number[] | null = null;
     const fraction = (s0: number, d: number): number => {
-      chainCum ??= chainLengths(idx.map((i) => [self.x[i], self.y[i]] as [number, number]), closed, space);
+      chainCum ??= chainLengths(idx.map((i) => [X[i], Y[i]] as [number, number]), closed, space);
       const total = chainCum[segs];
       if (!(total > 0)) return 0;
       const pos = chainCum[s0 % segs] + d;
@@ -2296,17 +2139,13 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
       const had = rowOf.get(v);
       if (had !== undefined) return had;
       copy(v);
-      rowOf.set(v, ox.length - 1);
-      return ox.length - 1;
+      rowOf.set(v, points.length - 1);
+      return points.length - 1;
     };
     const keep = (s: number) => {
       const a = rowFor(idx[s]);
       const b = rowFor(idx[(s + 1) % m]);
-      const row = rowOfSeg(s);
-      edges.push(a, b);
-      esrc.push(row);
-      eroot.push(row);
-      for (const name of enames) eattrs[name].push(self.edgeAttrs[name][row]);
+      edges.keep(rowOfSeg(s), a, b);
     };
     // A run of eligible edges, redistributed as an OPEN piece: the two
     // vertices at its ends are the run's own first and last samples, so
@@ -2330,7 +2169,7 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
         else if (k === last) out.push(rowFor(rows[rows.length - 1]));
         else {
           place(rows[samples[k].seg], rows[samples[k].seg + 1], samples[k].t);
-          out.push(ox.length - 1);
+          out.push(points.length - 1);
         }
         note(out[k], p.rowOfSeg(samples[k].seg), fraction(s0, p.at(samples, k)));
         if (k > 0) p.link(out[k - 1], out[k], p.at(samples, k - 1), p.at(samples, k));
@@ -2358,11 +2197,6 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
       s += len;
     }
   }
-  const attrs: Record<string, Float64Array> = {};
-  for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  const base = { iteration: self.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...self.transfers }, edgeTransfers: { ...self.edgeTransfers }, from: self };
   // The links, in the rows of the value the sketch passed: a point to the
   // edge under it, a new edge to the edge under its middle (a kept edge is
   // the edge it was, and says nothing new).
@@ -2370,31 +2204,22 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
   const map = origin?.edges ?? null;
   // The row lists are adopted as they are (linkRows copies nothing).
   const pointRows = map === null ? underRow : underRow.map((e) => (e < 0 ? -1 : map[e]));
-  const pointU = uRow;
-  const edgeRows = new Int32Array(esrc.length);
-  for (let k = 0; k < esrc.length; k++) {
-    const e = eroot[k];
-    edgeRows[k] = esrc[k] >= 0 || e < 0 ? -1 : map === null ? e : map[e];
+  const edgeRows = new Int32Array(edges.length);
+  for (let k = 0; k < edgeRows.length; k++) {
+    const e = edges.madeFrom(k);
+    edgeRows[k] = e < 0 ? -1 : map === null ? e : map[e];
   }
-  const linked = (out: Material): Material => record(linkRows(out, {
-    points: { source: { of, domain: 'edges', rows: pointRows }, params: { u: pointU } },
+  // A row that came through untouched keeps what it had; a whole resample
+  // is new rows, and new walls, so no face column of the source is its.
+  const out = rebuild(self, { ...points.done(), ...edges.done() }, keepsIds ? {} : { faceAttrs: {} });
+  return record(linkRows(out, {
+    points: { source: { of, domain: 'edges', rows: pointRows }, params: { u: uRow } },
     edges: { source: { of, domain: 'edges', rows: edgeRows } },
   }), derivation('resample', [of], { ...opts }));
-  // Every row new: nothing the input's rows answered is this value's.
-  if (!keepsIds) return linked(new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), base));
-  // A row that came through untouched keeps what it had. A new vertex is
-  // minted, and a new edge takes the lineage root of the source edge under
-  // its middle — the way a split's children take their parent's, so the
-  // face columns keyed on those roots still find their cells.
-  const freshPoints = mintIds(osrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
-  const freshEdges = mintIds(esrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
-  let fp = 0;
-  let fe = 0;
-  const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : self.pointIds[v]));
-  const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : self.edgeIds[v]));
-  const edgeRoots = Float64Array.from(esrc, (v, k) => (v >= 0 ? self.edgeRoots[v] : eroot[k] >= 0 ? self.edgeRoots[eroot[k]] : edgeIds[k]));
-  return linked(carryLinks(self, new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { ...base, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: self.faceAttrs, faces: self.stated })));
 }
+
+/** The share list of an edge when no column distributes. */
+const NO_PARTS: number[] = [];
 
 /** Sampling options shared by `t.sample`, `resample` and `along`: exactly
  * one of `count` or `spacing`, and a count in whole samples — a missing,
@@ -2419,8 +2244,10 @@ export function checkSampling(who: string, opts: { count?: number; spacing?: num
  * Position, the unit tangent of the polyline under it (on a vertex, the
  * bisector of the segments that meet there), the normal (`perp`), the
  * heading, arc length `s` from the chain's start, its fraction `u`, the
- * chain's whole `length`, the chain (a row of `curves`), and the columns
- * by their policies: point columns in `attrs`, edge columns in `edgeAttrs`.
+ * chain's whole `length`, the chain (a row of `curves`), and where its
+ * columns come from: its point columns `t` of the way from source row `a`
+ * to row `b` (`PointRows.between`), its edge columns those of edge `copy`
+ * and, for a `'distribute'` one, the sum of `shares` (`EdgeCells.over`).
  */
 export interface ChainSample {
   x: number;
@@ -2435,30 +2262,30 @@ export interface ChainSample {
   closed: boolean;
   /** The edge row the sample lies on: the segment it was placed on. */
   edge: number;
-  attrs: Record<string, number>;
-  edgeAttrs: Record<string, number>;
-  /** The source's point-column policies. */
-  transfers?: Readonly<Record<string, TransferPolicy>>;
-  /** The space the chain was walked in; absent is the flat plane. */
-  space?: Space;
+  a: number;
+  b: number;
+  t: number;
+  copy: number;
+  /** Null when no edge column distributes. */
+  shares: readonly number[] | null;
 }
 
-export function alongSamples(m: Material, opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> } = {}): ChainSample[] {
+export function alongSamples(m: Material, opts: { spacing?: number; count?: number } = {}): ChainSample[] {
   const atVertices = opts.spacing === undefined && opts.count === undefined;
   // A curved material is walked in its own geometry.
   const space = m.space;
   const curved = space !== undefined && space.kind !== 'euclidean' ? space : null;
   if (!atVertices && !checkSampling('along', opts)) return [];
-  const names = m.attrNames;
-  const sampleTransfers = Object.freeze({ ...m.transfers });
-  const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
-  const enames = m.edgeAttrNames;
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
+  const distributes = new EdgeCells(m).distributes;
   const storedRow = new Map<number, number>();
-  for (let e = 0; e < m.edgeCount; e++) storedRow.set(pairKey(m.edgeList[2 * e], m.edgeList[2 * e + 1]), e);
+  for (let e = 0; e < m.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
   const out: ChainSample[] = [];
   chainsOf(m).forEach((c, chain) => {
     const idx = c.indices;
-    const pts = idx.map((i) => [m.x[i], m.y[i]] as [number, number]);
+    const pts = idx.map((i) => [X[i], Y[i]] as [number, number]);
     const segs = c.closed ? idx.length : idx.length - 1;
     // No sampling option: the chain's own vertices, in walk order.
     const samples = atVertices
@@ -2484,21 +2311,21 @@ export function alongSamples(m: Material, opts: { spacing?: number; count?: numb
       }
       return [k === 0 ? 0 : (at(k - 1) + here) / 2, k === samples.length - 1 ? total : (here + at(k + 1)) / 2];
     };
-    const shareOver = (name: string, d0: number, d1: number): number => {
-      let sum = 0;
+    const shareOver = (d0: number, d1: number): number[] => {
+      const parts: number[] = [];
       const span = (from: number, to: number) => {
         for (let sg = 0; sg < segs; sg++) {
           const len = cum[sg + 1] - cum[sg];
           if (len <= 0) continue;
           const overlap = Math.min(to, cum[sg + 1]) - Math.max(from, cum[sg]);
-          if (overlap > 0) sum += m.edgeAttrs[name][rowOfSeg(sg)] * (overlap / len);
+          if (overlap > 0) parts.push(rowOfSeg(sg), overlap / len);
         }
       };
       // a wrapped range on a closed chain is two plain ranges
       if (d0 < 0) { span(d0 + total, total); span(0, d1); }
       else if (d1 > total) { span(d0, total); span(0, d1 - total); }
       else span(d0, d1);
-      return sum;
+      return parts;
     };
     samples.forEach(({ seg, t }, k) => {
       const a = idx[seg];
@@ -2506,27 +2333,8 @@ export function alongSamples(m: Material, opts: { spacing?: number; count?: numb
       const onVertexAhead = t >= 1 - 1e-9 && seg + 1 < segs;
       const at2 = curved ? curved.geodesic(pts[seg], pts[(seg + 1) % idx.length], t) : null;
       const tangent = frames.at(seg, t, at2 ? [at2[0], at2[1]] : null);
-      const attrs: Record<string, number> = {};
-      for (const name of names) {
-        const rule = transfer[name] ?? 'interpolate';
-        const va = m.attrs[name][a];
-        const vb = m.attrs[name][b];
-        if (rule === 'interpolate') attrs[name] = va + (vb - va) * t;
-        else if (rule === 'nearest') attrs[name] = t <= 0.5 ? va : vb;
-        else if (typeof rule === 'number') attrs[name] = rule;
-        else attrs[name] = rule(readVertex(m, a), readVertex(m, b), t);
-      }
-      const edgeAttrs: Record<string, number> = {};
-      for (const name of enames) {
-        if (m.edgeTransfers[name] === 'distribute') {
-          const [d0, d1] = owned(k);
-          edgeAttrs[name] = shareOver(name, d0, d1);
-        } else {
-          edgeAttrs[name] = m.edgeAttrs[name][rowOfSeg(onVertexAhead ? seg + 1 : seg)];
-        }
-      }
       const sAt = at(k);
-      const st: ChainSample = {
+      out.push({
         x: at2 ? at2[0] : pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
         y: at2 ? at2[1] : pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
         tangent,
@@ -2538,12 +2346,12 @@ export function alongSamples(m: Material, opts: { spacing?: number; count?: numb
         chain,
         closed: c.closed,
         edge: rowOfSeg(seg),
-        attrs,
-        edgeAttrs,
-        transfers: sampleTransfers,
-        space,
-      };
-      out.push(st);
+        a,
+        b,
+        t,
+        copy: rowOfSeg(onVertexAhead ? seg + 1 : seg),
+        shares: distributes ? shareOver(...owned(k)) : null,
+      });
     });
   });
   return out;
@@ -2554,33 +2362,39 @@ export function alongSamples(m: Material, opts: { spacing?: number; count?: numb
  * selection's material) or of `m`. */
 export function alongMaterial(m: Material, opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> }, origin: InputRows | null): Material {
   const samples = alongSamples(m, opts);
-  const out = samplesMaterial(samples, m);
+  const out = samplesMaterial(samples, m, opts.transfer);
   const of = origin?.of ?? m;
   const rows = Int32Array.from(samples, (q) => (origin?.edges ? origin.edges[q.edge] : q.edge));
   return record(linkRows(out, { points: { source: { of, domain: 'edges', rows } } }), derivation('along', [of], { ...opts }));
 }
 
-/** The points `along` answers: a row per sample, the columns `s`, `u` and
- * `heading`, and the transferred point and edge columns. No edges. */
-function samplesMaterial(samples: readonly ChainSample[], source: Material): Material {
-  const pointNames = source.attrNames;
-  for (const name of source.edgeAttrNames) {
-    if (pointNames.includes(name)) throw new Error(`m.along: '${name}' is both a point column and an edge column, and a point of along() has one column of that name — rename one first`);
+/** The points `along` answers: a row per sample with every point column
+ * by its transfer policy (`transfer` overrides one per call) and every edge
+ * column by its own, of every kind, and the columns `s`, `u` and
+ * `heading`. No edges. */
+function samplesMaterial(samples: readonly ChainSample[], source: Material, transfer: Readonly<Record<string, Transfer>> | undefined): Material {
+  const s = source.store;
+  for (const name of s.edgeAttrNames) {
+    if (name in s.attrs) throw new Error(`m.along: '${name}' is both a point column and an edge column, and a point of along() has one column of that name — rename one first`);
   }
-  const n = samples.length;
-  const cols: Record<string, Float64Array> = {};
+  const points = new PointRows(source, 'm.along', transfer);
+  const cells = new EdgeCells(source);
+  for (const q of samples) {
+    points.between(q.a, q.b, q.t, q.x, q.y);
+    if (q.shares === null) cells.copyOf(q.copy);
+    else cells.over(q.copy, q.shares);
+  }
+  const rows = points.done();
   // The chain's own columns first; the place on the chain is along's own
   // and wins over a column of the same name.
-  for (const name of pointNames) cols[name] = Float64Array.from(samples, (q) => q.attrs[name]);
-  for (const name of source.edgeAttrNames) cols[name] = Float64Array.from(samples, (q) => q.edgeAttrs[name]);
-  cols.s = Float64Array.from(samples, (q) => q.s);
-  cols.u = Float64Array.from(samples, (q) => q.u);
-  cols.heading = Float64Array.from(samples, (q) => q.heading);
+  const cols: Record<string, AnyColumn> = { ...rows.attrs, ...cells.columns() };
+  cols.s = Column.of(Float64Array.from(samples, (q) => q.s));
+  cols.u = Column.of(Float64Array.from(samples, (q) => q.u));
+  cols.heading = Column.of(Float64Array.from(samples, (q) => q.heading));
   const transfers: Record<string, TransferPolicy> = {};
-  for (const name of pointNames) if (source.transfers[name] && name !== 's' && name !== 'u' && name !== 'heading') transfers[name] = source.transfers[name];
-  return new Material(Float64Array.from(samples, (q) => q.x), Float64Array.from(samples, (q) => q.y), cols, new Uint32Array(0), { transfers, from: source });
+  for (const name of s.attrNames) if (source.transfers[name] && name !== 's' && name !== 'u' && name !== 'heading') transfers[name] = source.transfers[name];
+  return new Material(rows.x, rows.y, cols, new Uint32Array(0), { transfers, ids: { points: rows.pointIds }, keys: { points: rows.pointKeys }, from: source });
 }
-
 
 /**
  * Even samples along a polyline by arc length: for each sample, the
@@ -2713,12 +2527,7 @@ export function loopCrossings(
  */
 export function withFaces(m: Material, faces: Omit<StatedFaces, 'edgeList' | 'edgeIds'>): Material {
   const s = m.store;
-  return carryLinks(m, new Material(s.x, s.y, s.attrs, s.edgeList, {
-    iteration: m.iteration, history: m.history, edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
-    ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys },
-    faceAttrs: m.faceAttrs as Record<string, FaceColumn>, from: m,
-    faces: { ...faces, edgeList: s.edgeList, edgeIds: s.edgeIds },
-  }));
+  return rebuild(m, {}, { history: m.history, faces: { ...faces, edgeList: s.edgeList, edgeIds: s.edgeIds } });
 }
 
 /**
@@ -2733,13 +2542,7 @@ export function inSpace(m: Material, space: Space): Material {
   // The rows are the same rows, so an area of their own is the same area,
   // in the same space.
   const own = m.areaBox.make !== null || m.areaBox.material !== null;
-  const s = m.store;
-  return carryLinks(m, new Material(s.x, s.y, s.attrs, s.edgeList, {
-    iteration: m.iteration, history: m.history, edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
-    ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys },
-    faceAttrs: m.faceAttrs, space, faces: m.stated,
-    ...(own ? { area: () => inSpace(areaMaterial(m), space) } : {}),
-  }));
+  return rebuild(m, {}, { history: m.history, space, ...(own ? { area: () => inSpace(areaMaterial(m), space) } : {}) });
 }
 
 /**
@@ -2792,50 +2595,28 @@ export function withinMaterial(
   const inside = opts.inside ?? distanceField(loops);
   const crossings = opts.crossings
     ?? ((ax: number, ay: number, bx: number, by: number) => loopCrossings(loops, ax, ay, bx, by));
-  const names = m.attrNames;
-  const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
-  // `cut` is this function's answer when the source has faces: it is then
-  // written fresh. Otherwise it is an ordinary column and travels as one.
-  const enames = m.edgeAttrNames;
-  const ox: number[] = [];
-  const oy: number[] = [];
-  const oattrs: Record<string, number[]> = {};
-  for (const name of names) oattrs[name] = [];
-  const edges: number[] = [];
-  const eattrs: Record<string, number[]> = {};
-  for (const name of enames) eattrs[name] = [];
-  const sourceRow = new Map<number, number>();
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
   // A vertex the trim kept is the vertex it was, and an edge the trim did
   // not cut is the edge it was: the trim is a subtraction, not a rebuild.
   // A cut mints a new point and a new edge, and the piece keeps the edge's
   // lineage root, so a face whose wall was merely shortened keeps its
-  // columns.
-  const oids: number[] = [];
-  const eids: number[] = [];
-  const eroots: number[] = [];
+  // columns. A cut vertex is read by its column's policy (`transfer`
+  // overrides one per call), an edge column copied or, when `'distribute'`,
+  // shared.
+  const points = new PointRows(m, 'within', opts.transfer);
+  const edges = new EdgeRows(m);
+  const sourceRow = new Map<number, number>();
   // Two edges crossing the boundary at the same point must end at ONE
   // vertex, or the trimmed material is quietly disconnected there. Cut
   // points are matched on their coordinates, quantised well below the
   // 0.005 mm input grid and well above float noise (first edge's columns win).
   const cutRow = new Map<string, number>();
-
-  const columnValue = (name: string, i: number, j: number, t: number): number => {
-    const rule = transfer[name] ?? 'interpolate';
-    const va = m.attrs[name][i];
-    const vb = m.attrs[name][j];
-    if (rule === 'interpolate') return va + (vb - va) * t;
-    if (rule === 'nearest') return t <= 0.5 ? va : vb;
-    if (typeof rule === 'number') return rule;
-    return rule(readVertex(m, i), readVertex(m, j), t);
-  };
   const copyVertex = (i: number): number => {
     const seen = sourceRow.get(i);
     if (seen !== undefined) return seen;
-    const row = ox.length;
-    ox.push(m.x[i]);
-    oy.push(m.y[i]);
-    oids.push(m.pointIds[i]);
-    for (const name of names) oattrs[name].push(m.attrs[name][i]);
+    const row = points.keep(i);
     sourceRow.set(i, row);
     return row;
   };
@@ -2843,52 +2624,42 @@ export function withinMaterial(
     const key = `${x.toFixed(6)},${y.toFixed(6)}`;
     const seen = cutRow.get(key);
     if (seen !== undefined) return seen;
-    const row = ox.length;
-    ox.push(x);
-    oy.push(y);
-    oids.push(mintIds(1)[0]);
-    for (const name of names) oattrs[name].push(columnValue(name, i, j, t));
+    const row = points.between(i, j, t, x, y, mintIds(1)[0]);
     cutRow.set(key, row);
     return row;
   };
 
   for (let e = 0; e < m.edgeCount; e++) {
-    const a = m.edgeList[2 * e];
-    const b = m.edgeList[2 * e + 1];
-    const cuts = crossings(m.x[a], m.y[a], m.x[b], m.y[b]);
+    const a = L[2 * e];
+    const b = L[2 * e + 1];
+    const cuts = crossings(X[a], Y[a], X[b], Y[b]);
     const marks: { t: number; x: number; y: number }[] = [
-      { t: 0, x: m.x[a], y: m.y[a] },
+      { t: 0, x: X[a], y: Y[a] },
       ...cuts,
-      { t: 1, x: m.x[b], y: m.y[b] },
+      { t: 1, x: X[b], y: Y[b] },
     ];
     for (let k = 0; k + 1 < marks.length; k++) {
       const from0 = marks[k];
       const to1 = marks[k + 1];
       const mid = (from0.t + to1.t) / 2;
-      if (!(inside(m.x[a] + (m.x[b] - m.x[a]) * mid, m.y[a] + (m.y[b] - m.y[a]) * mid) > 0)) continue;
+      if (!(inside(X[a] + (X[b] - X[a]) * mid, Y[a] + (Y[b] - Y[a]) * mid) > 0)) continue;
       const from = from0.t === 0 ? copyVertex(a) : splitAt(a, b, from0.t, from0.x, from0.y);
       const to = to1.t === 1 ? copyVertex(b) : splitAt(a, b, to1.t, to1.x, to1.y);
-      edges.push(from, to);
       // Whole edge: the same edge. A cut piece is a new edge of the same
       // lineage, exactly as a split's children are.
-      const whole = from0.t === 0 && to1.t === 1;
-      eids.push(whole ? m.edgeIds[e] : mintIds(1)[0]);
-      eroots.push(m.edgeRoots[e]);
-      const share = to1.t - from0.t;
-      for (const name of enames) {
-        const v = m.edgeAttrs[name][e];
-        eattrs[name].push(m.edgeTransfers[name] === 'distribute' ? v * share : v);
-      }
+      if (from0.t === 0 && to1.t === 1) edges.keep(e, from, to);
+      else edges.from(e, from, to, to1.t - from0.t, mintIds(1)[0]);
     }
   }
   // A vertex with no edges is not part of the trim's topology: it is a point,
   // and it survives when it is inside.
   const degree = new Uint32Array(m.n);
-  for (let k = 0; k < m.edgeList.length; k++) degree[m.edgeList[k]]++;
+  for (let k = 0; k < L.length; k++) degree[L[k]]++;
   for (let i = 0; i < m.n; i++) {
-    if (degree[i] === 0 && inside(m.x[i], m.y[i]) > 0) copyVertex(i);
+    if (degree[i] === 0 && inside(X[i], Y[i]) > 0) copyVertex(i);
   }
-  const cutFlags: number[] = new Array(edges.length / 2).fill(0);
+  // The rows of the closing edges.
+  const closing: number[] = [];
 
   // Closing along the boundary: the part of a face inside the area is an
   // area, so the boundary pieces that run through a face become its walls.
@@ -2896,18 +2667,18 @@ export function withinMaterial(
   if (cells) {
     const incident = new Int32Array(m.n).fill(-1);
     for (let e = 0; e < m.edgeCount; e++) {
-      for (const v of [m.edgeList[2 * e], m.edgeList[2 * e + 1]]) if (incident[v] < 0) incident[v] = e;
+      for (const v of [L[2 * e], L[2 * e + 1]]) if (incident[v] < 0) incident[v] = e;
     }
     const faceAt = faceLocator(cells);
     const edgeBoxes = new Float64Array(4 * m.edgeCount);
     for (let e = 0; e < m.edgeCount; e++) {
-      const a = m.edgeList[2 * e];
-      const b = m.edgeList[2 * e + 1];
-      edgeBoxes.set([Math.min(m.x[a], m.x[b]), Math.min(m.y[a], m.y[b]), Math.max(m.x[a], m.x[b]), Math.max(m.y[a], m.y[b])], 4 * e);
+      const a = L[2 * e];
+      const b = L[2 * e + 1];
+      edgeBoxes.set([Math.min(X[a], X[b]), Math.min(Y[a], Y[b]), Math.max(X[a], X[b]), Math.max(Y[a], Y[b])], 4 * e);
     }
     const walls = boxGrid(edgeBoxes);
     const kept = new Set<number>();
-    for (let k = 0; k < edges.length; k += 2) kept.add(pairKey(edges[k], edges[k + 1]));
+    for (let k = 0; k < edges.length; k++) kept.add(pairKey(edges.endA(k), edges.endB(k)));
     let magnitude = 1;
     for (const loop of loops) for (const [x, y] of loop) magnitude = Math.max(magnitude, Math.abs(x), Math.abs(y));
     // A roundoff tolerance for "on the boundary" and a side offset for "which
@@ -2945,11 +2716,12 @@ export function withinMaterial(
       }
       if (!any) continue;
       // Rows, walked from a mark the source already has (a crossing or a
-      // vertex) so a corner always has a previous vertex to copy.
+      // vertex) so a corner always has a previous vertex to copy: a corner
+      // is a new vertex whose columns are those of the mark before it.
       const start = Math.max(0, marks.findIndex((mk) => mk.kind !== 'corner'));
       const firstFace = pieceFace.find((f) => f >= 0)!;
       const fallback = cells.faces[firstFace];
-      let lastValues: number[] = names.map((name) => m.attrs[name][fallback.points.indices[0]]);
+      let lastFrom: { a: number; b: number; t: number } = { a: fallback.points.indices[0], b: -1, t: 0 };
       let lastEdge = fallback.boundaryEdges.indices[0];
       const rowOf = new Int32Array(M).fill(-1);
       const edgeFrom = new Int32Array(M);
@@ -2958,19 +2730,17 @@ export function withinMaterial(
         const mk = marks[i];
         const used = pieceFace[i] >= 0 || pieceFace[(i + M - 1) % M] >= 0;
         if (mk.kind === 'crossing') {
-          lastValues = names.map((name) => columnValue(name, mk.a, mk.b, mk.t));
+          lastFrom = { a: mk.a, b: mk.b, t: mk.t };
           lastEdge = mk.edge;
           if (used) rowOf[i] = splitAt(mk.a, mk.b, mk.t, mk.x, mk.y);
         } else if (mk.kind === 'vertex') {
-          lastValues = names.map((name) => m.attrs[name][mk.a]);
+          lastFrom = { a: mk.a, b: -1, t: 0 };
           lastEdge = mk.edge;
           if (used) rowOf[i] = copyVertex(mk.a);
         } else if (used) {
-          rowOf[i] = ox.length;
-          ox.push(mk.x);
-          oy.push(mk.y);
-          oids.push(mintIds(1)[0]);
-          names.forEach((name, k) => oattrs[name].push(lastValues[k]));
+          rowOf[i] = lastFrom.b < 0
+            ? points.copy(lastFrom.a, mk.x, mk.y, mintIds(1)[0])
+            : points.between(lastFrom.a, lastFrom.b, lastFrom.t, mk.x, mk.y, mintIds(1)[0]);
         }
         edgeFrom[i] = lastEdge;
       }
@@ -2980,25 +2750,24 @@ export function withinMaterial(
         const pair = pairKey(rowOf[i], rowOf[(i + 1) % M]);
         if (kept.has(pair)) continue;
         kept.add(pair);
-        edges.push(rowOf[i], rowOf[(i + 1) % M]);
-        const id = mintIds(1)[0];
-        eids.push(id);
-        eroots.push(id);
-        for (const name of enames) {
-          // The closing edge is a piece of the lowered boundary polyline: a
-          // coordinate segment, whatever the wall before it was.
-          if (name === 'geodesic') eattrs[name].push(0);
-          else eattrs[name].push(m.edgeTransfers[name] === 'distribute' ? 0 : m.edgeAttrs[name][edgeFrom[i]]);
-        }
-        cutFlags.push(1);
+        // The closing edge is a new wall of its own, with the columns of the
+        // source wall before it and no share of that wall.
+        closing.push(edges.length);
+        edges.cover(edgeFrom[i], rowOf[i], rowOf[(i + 1) % M], [], 'own', mintIds(1)[0]);
       }
     }
   }
 
-  const attrs: Record<string, Float64Array> = {};
-  for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+  const made = { ...points.done(), ...edges.done() };
+  const edgeAttrs = { ...made.edgeAttrs };
+  // The closing edge is a piece of the lowered boundary polyline: a
+  // coordinate segment, whatever the wall before it was.
+  const geodesic = edgeAttrs.geodesic;
+  if (geodesic instanceof Column && closing.length > 0) {
+    const flat = geodesic.copy();
+    for (const k of closing) flat[k] = 0;
+    edgeAttrs.geodesic = Column.of(flat);
+  }
   // The column belongs to a cut that can close: a material with faces. An
   // open chain or a point cloud keeps the columns it had — a `cut` column it
   // never asked for would be one more column every later edge must give.
@@ -3006,11 +2775,14 @@ export function withinMaterial(
   if (cells) {
     // A source that already carries `cut` (a level set closed along the
     // drawable) keeps its marks: the two are OR-ed, never replaced.
-    const priorCut = edgeAttrs.cut;
-    edgeAttrs.cut = Float64Array.from(cutFlags, (f, i) => (f || (priorCut !== undefined && priorCut[i] !== 0) ? 1 : 0));
+    const prior = edgeAttrs.cut instanceof Column ? edgeAttrs.cut.flat() : undefined;
+    const flags = new Float64Array(edges.length);
+    for (const k of closing) flags[k] = 1;
+    if (prior !== undefined) for (let k = 0; k < flags.length; k++) if (prior[k] !== 0) flags[k] = 1;
+    edgeAttrs.cut = Column.of(flags);
     delete edgeTransfers.cut;
   }
-  return carryLinks(m, new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
+  return rebuild(m, { ...made, edgeAttrs }, { edgeTransfers });
 }
 
 /** The faces a cut can close, or null: a material with no cycle encloses
@@ -3024,9 +2796,10 @@ function readableFaces(m: Material): FaceTable | null {
     return v;
   };
   let cyclic = false;
+  const L = m.edgeList;
   for (let e = 0; e < m.edgeCount && !cyclic; e++) {
-    const a = root(m.edgeList[2 * e]);
-    const b = root(m.edgeList[2 * e + 1]);
+    const a = root(L[2 * e]);
+    const b = root(L[2 * e + 1]);
     if (a === b) cyclic = true;
     else parent[a] = b;
   }
@@ -3059,6 +2832,9 @@ function boundaryMarks(
   onTol: number,
 ): BoundaryMark[] {
   const out: BoundaryMark[] = [];
+  const X = m.x;
+  const Y = m.y;
+  const list = m.edgeList;
   const L = loop.length;
   for (let k = 0; k < L; k++) {
     const p = loop[k];
@@ -3074,17 +2850,17 @@ function boundaryMarks(
     // A vertex on the segment is reported once, by its first wall.
     const onSeg = new Set<number>();
     for (const e of walls.near(lo[0], lo[1], hi[0], hi[1]).sort((i, j) => i - j)) {
-      const a = m.edgeList[2 * e];
-      const b = m.edgeList[2 * e + 1];
-      const ax = m.x[a];
-      const ay = m.y[a];
-      const bx = m.x[b];
-      const by = m.y[b];
+      const a = list[2 * e];
+      const b = list[2 * e + 1];
+      const ax = X[a];
+      const ay = Y[a];
+      const bx = X[b];
+      const by = Y[b];
       if (Math.max(ax, bx) < lo[0] || Math.min(ax, bx) > hi[0] || Math.max(ay, by) < lo[1] || Math.min(ay, by) > hi[1]) continue;
       for (const v of [a, b]) {
         if (onSeg.has(v)) continue;
-        const vx = m.x[v];
-        const vy = m.y[v];
+        const vx = X[v];
+        const vy = Y[v];
         if (vx < lo[0] || vx > hi[0] || vy < lo[1] || vy > hi[1]) continue;
         if (Math.abs(ex * (vy - p[1]) - ey * (vx - p[0])) / len > onTol) continue;
         // A vertex a rounding past a corner is still on the loop: both
@@ -3246,12 +3022,10 @@ export function curve(
   // A curve is the points and the chain through them, in the order given:
   // edges the points had where they came from (a selection keeps them on
   // extract) are not part of it, nor are those edges' columns.
-  const m = given.edgeCount === 0 && given.edgeAttrNames.length === 0 ? given : carryLinks(given, new Material(given.x, given.y, given.attrs, new Uint32Array(0), {
-    iteration: given.iteration,
-    transfers: { ...given.transfers },
-    ids: { points: given.pointIds },
-    from: given,
-  }));
+  const none = new Float64Array(0);
+  const m = given.edgeCount === 0 && given.store.edgeAttrNames.length === 0 ? given : rebuild(given, {
+    edgeList: Column.of(new Uint32Array(0)), edgeAttrs: {}, edgeIds: Column.of(none), edgeRoots: Column.of(none), edgeKeys: null,
+  }, { edgeTransfers: {}, faceAttrs: {} });
   return addEdges(m, chainEdges(m.n, closed));
 }
 
@@ -3315,8 +3089,7 @@ export function mapPositions(m: Material, fn: (p: Vertex) => XY, who: string): M
     nx[i] = x;
     ny[i] = y;
   }
-  const s = m.store;
-  return carryLinks(m, new Material(nx, ny, s.attrs, s.edgeList, { iteration: m.iteration, history: [], edgeAttrs: s.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: s.pointIds, edges: s.edgeIds, edgeRoots: s.edgeRoots }, keys: { points: s.pointKeys, edges: s.edgeKeys }, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
+  return rebuild(m, { x: Column.of(nx), y: Column.of(ny) });
 }
 
 // ---- connections ----------------------------------------------------------------
@@ -3476,7 +3249,9 @@ function headedPlaces(given: unknown, who: string): { list: { x: number; y: numb
   if (given instanceof Material) {
     if (given.n > 0 && given.attrs.heading === undefined) throw new Error(noHeading);
     const h = given.attrs.heading;
-    return { list: Array.from({ length: given.n }, (_, i) => ({ x: given.x[i], y: given.y[i], heading: h[i] })), space: given.space };
+    const X = given.x;
+    const Y = given.y;
+    return { list: Array.from({ length: given.n }, (_, i) => ({ x: X[i], y: Y[i], heading: h[i] })), space: given.space };
   }
   if (isPointSelection(given)) {
     const src = given.source as Material;
@@ -3508,6 +3283,8 @@ export const connect = {
    * duplicates, self excluded; ties broken by lower row). */
   nearest(m: PointsLike, opts: { count: number; edgeColumns?: Record<string, number> }): Material {
     const mm = material(m);
+    const X = mm.x;
+    const Y = mm.y;
     const pairs: [number, number][] = [];
     // Grid search: rings of cells outward until the ring can hold nothing
     // nearer than the k-th candidate found. Ties by (distance, row) exactly
@@ -3518,13 +3295,13 @@ export const connect = {
     const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(mm.n / 2))));
     for (let i = 0; i < mm.n; i++) {
       const cand: [number, number][] = [];
-      const cx = grid.col(mm.x[i]);
-      const cy = grid.row(mm.y[i]);
+      const cx = grid.col(X[i]);
+      const cy = grid.row(Y[i]);
       for (let r = 0; ; r++) {
         for (const j of grid.ring(cx, cy, r)) {
           if (j === i) continue;
-          const dx = mm.x[j] - mm.x[i];
-          const dy = mm.y[j] - mm.y[i];
+          const dx = X[j] - X[i];
+          const dy = Y[j] - Y[i];
           cand.push([dx * dx + dy * dy, j]);
         }
         cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
@@ -3574,6 +3351,8 @@ export const connect = {
    */
   tour(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; closed?: boolean; candidates?: number; edgeColumns?: Record<string, number> } = {}): Material {
     const mm = material(m);
+    const X = mm.x;
+    const Y = mm.y;
     const n = mm.n;
     const asked = opts.candidates ?? 12;
     if (!Number.isInteger(asked)) throw new Error(`connect.tour: candidates must be a whole number of neighbours, at least 2 (got ${String(opts.candidates)})`);
@@ -3585,7 +3364,7 @@ export const connect = {
     const raw = opts.cost;
     const cache = new Map<number, number>();
     const cost = (i: number, j: number): number => {
-      if (!raw) return Math.hypot(mm.x[i] - mm.x[j], mm.y[i] - mm.y[j]);
+      if (!raw) return Math.hypot(X[i] - X[j], Y[i] - Y[j]);
       const key = i < j ? i * n + j : j * n + i;
       let v = cache.get(key);
       if (v === undefined) {
@@ -3605,14 +3384,14 @@ export const connect = {
     used[0] = 1;
     for (let step = 1; step < n; step++) {
       const from = order[order.length - 1];
-      const cx = grid.col(mm.x[from]);
-      const cy = grid.row(mm.y[from]);
+      const cx = grid.col(X[from]);
+      const cy = grid.row(Y[from]);
       let best = -1;
       let bestD = Infinity;
       for (let r = 0; ; r++) {
         for (const j of grid.ring(cx, cy, r)) {
           if (used[j]) continue;
-          const d = Math.hypot(mm.x[j] - mm.x[from], mm.y[j] - mm.y[from]);
+          const d = Math.hypot(X[j] - X[from], Y[j] - Y[from]);
           if (d < bestD || (d === bestD && j < best)) {
             bestD = d;
             best = j;
@@ -3627,11 +3406,11 @@ export const connect = {
     // Candidate neighbours, by distance, for the exchange search.
     const near: number[][] = Array.from({ length: n }, (_, i) => {
       const cand: [number, number][] = [];
-      const cx = grid.col(mm.x[i]);
-      const cy = grid.row(mm.y[i]);
+      const cx = grid.col(X[i]);
+      const cy = grid.row(Y[i]);
       for (let r = 0; ; r++) {
         for (const j of grid.ring(cx, cy, r)) {
-          if (j !== i) cand.push([Math.hypot(mm.x[j] - mm.x[i], mm.y[j] - mm.y[i]), j]);
+          if (j !== i) cand.push([Math.hypot(X[j] - X[i], Y[j] - Y[i]), j]);
         }
         cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
         const reach = r * grid.cell;
@@ -3695,7 +3474,7 @@ export const connect = {
     const segAt = (i: number): [number, number, number, number] => {
       const a = order[i];
       const b = order[(i + 1) % n];
-      return [mm.x[a], mm.y[a], mm.x[b], mm.y[b]];
+      return [X[a], Y[a], X[b], Y[b]];
     };
     const properCross = (i: number, j: number): boolean => {
       const [ax, ay, bx, by] = segAt(i);
@@ -3788,13 +3567,15 @@ export const connect = {
    */
   tree(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; edgeColumns?: Record<string, number> } = {}): Material {
     const mm = material(m);
+    const X = mm.x;
+    const Y = mm.y;
     const n = mm.n;
     if (opts.cost !== undefined && typeof opts.cost !== 'function') throw new Error('connect.tree: cost must be a function of two vertex views');
     if (n < 2) return addEdges(mm, [], opts.edgeColumns);
     const views = Array.from({ length: n }, (_, i) => readVertex(mm, i));
     const raw = opts.cost;
     const cost = (i: number, j: number): number => {
-      if (!raw) return Math.hypot(mm.x[i] - mm.x[j], mm.y[i] - mm.y[j]);
+      if (!raw) return Math.hypot(X[i] - X[j], Y[i] - Y[j]);
       const v = raw(views[i], views[j]);
       if (typeof v !== 'number') throw new Error(`connect.tree: cost(${i}, ${j}) is ${String(v)} — it must be a number`);
       // A cost with no number on it is an infinitely expensive link: the
@@ -3808,7 +3589,7 @@ export const connect = {
     for (let e = 0; e < delaunay.length; e += 2) candidates.push([delaunay[e], delaunay[e + 1]]);
     const firstAt = new Map<string, number>();
     for (let i = 0; i < n; i++) {
-      const key = `${mm.x[i]},${mm.y[i]}`;
+      const key = `${X[i]},${Y[i]}`;
       const first = firstAt.get(key);
       if (first === undefined) firstAt.set(key, i);
       else candidates.push([first, i]);
@@ -3870,6 +3651,8 @@ export const connect = {
    */
   unimpeded(m: PointsLike, opts: { room?: number | ((x: number, y: number) => number); edgeColumns?: Record<string, number> } = {}): Material {
     const mm = material(m);
+    const X = mm.x;
+    const Y = mm.y;
     const asked = opts.room ?? 1;
     if (typeof asked !== 'number' && typeof asked !== 'function') throw new Error('connect.unimpeded: { room } must be a number, or a field of them read at the middle of each pair');
     // Below 1 the region between two rows is not a lune and the family is
@@ -3893,7 +3676,7 @@ export const connect = {
       const seen = new Set<string>();
       const first: number[] = [];
       for (let i = 0; i < mm.n; i++) {
-        const k = `${mm.x[i]},${mm.y[i]}`;
+        const k = `${X[i]},${Y[i]}`;
         if (seen.has(k)) continue;
         seen.add(k);
         first.push(i);
@@ -3902,10 +3685,10 @@ export const connect = {
     }
     const pairs: [number, number][] = [];
     for (const [a, b] of candidates) {
-      const ax = mm.x[a];
-      const ay = mm.y[a];
-      const bx = mm.x[b];
-      const by = mm.y[b];
+      const ax = X[a];
+      const ay = Y[a];
+      const bx = X[b];
+      const by = Y[b];
       const d2 = (bx - ax) ** 2 + (by - ay) ** 2;
       if (!(d2 > 0)) continue;
       // The two disc centres, pushed apart from the midpoint by the room asked
@@ -3938,8 +3721,8 @@ export const connect = {
         for (let rj = rj0; rj <= rj1 && !blocked; rj++) {
           for (const q of grid.at(ci, rj)) {
             if (q === a || q === b) continue;
-            const qx = mm.x[q];
-            const qy = mm.y[q];
+            const qx = X[q];
+            const qy = Y[q];
             // A row at an end's very place is that end read twice, as
             // `triangulate` reads it, and stands in nobody's way.
             if ((qx === ax && qy === ay) || (qx === bx && qy === by)) continue;
@@ -4042,10 +3825,12 @@ export const connect = {
    * than three distinct positions, or all collinear, give no edges. */
   triangulate(m: PointsLike, edgeColumns?: Record<string, number>): Material {
     const mm = material(m);
+    const X = mm.x;
+    const Y = mm.y;
     const firstAt = new Map<string, number>();
     const unique: number[] = [];
     for (let i = 0; i < mm.n; i++) {
-      const k = `${mm.x[i]},${mm.y[i]}`;
+      const k = `${X[i]},${Y[i]}`;
       if (firstAt.has(k)) continue;
       firstAt.set(k, i);
       unique.push(i);
@@ -4054,8 +3839,8 @@ export const connect = {
     // All collinear: no triangle exists (d3 would perturb the points into a
     // sliver); decided exactly.
     const [u0, u1] = unique;
-    if (unique.every((row) => orient2d(mm.x[u0], mm.y[u0], mm.x[u1], mm.y[u1], mm.x[row], mm.y[row]) === 0)) return addEdges(mm, [], edgeColumns);
-    const tri = Delaunay.from(unique.map((row) => [mm.x[row], mm.y[row]] as [number, number])).triangles;
+    if (unique.every((row) => orient2d(X[u0], Y[u0], X[u1], Y[u1], X[row], Y[row]) === 0)) return addEdges(mm, [], edgeColumns);
+    const tri = Delaunay.from(unique.map((row) => [X[row], Y[row]] as [number, number])).triangles;
     const pairs: [number, number][] = [];
     for (let k = 0; k + 2 < tri.length; k += 3) {
       const a = unique[tri[k]];
@@ -4105,36 +3890,22 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   const fill = opts.fill ?? {};
   // A column whose absence means something fills the side that lacks it.
   const edgeFill = { ...EDGE_ABSENT, ...(opts.edgeFill ?? {}) };
-  const names = Array.from(new Set([...a.attrNames, ...b.attrNames]));
-  for (const k of names) {
-    if (!(k in a.attrs) || !(k in b.attrs)) {
-      if (!(k in fill)) {
-        const side = k in a.attrs ? 'second' : 'first';
-        throw new Error(`append: the ${side} material has no '${k}' — give fill: { ${k}: … } or match the columns`);
-      }
-    }
-  }
-  const enames = Array.from(new Set([...a.edgeAttrNames, ...b.edgeAttrNames]));
-  for (const k of enames) {
-    if (!(k in a.edgeAttrs) || !(k in b.edgeAttrs)) {
-      if (!(k in edgeFill)) {
-        const side = k in a.edgeAttrs ? 'second' : 'first';
-        throw new Error(`append: the ${side} material has no edge column '${k}' — give edgeFill: { ${k}: … } or match the columns`);
-      }
-    }
-  }
+  // Every column, of every kind, joins the one way: one kind on both
+  // sides, and a side without one filled by `fill`.
+  const attrs = joinColumnRecords(a.store.attrs, b.store.attrs, a.n, b.n, fill, '');
+  const edgeAttrs = joinColumnRecords(a.store.edgeAttrs, b.store.edgeAttrs, a.edgeCount, b.edgeCount, edgeFill, 'edge ');
   // Policies are compared as they take effect — an undeclared column
   // interpolates — so joining sides cannot silently change how a column
   // splits afterwards.
   const effective = (m: Material, k: string): TransferPolicy => m.transfers[k] ?? 'interpolate';
-  for (const k of names) {
-    if (k in a.attrs && k in b.attrs && effective(a, k) !== effective(b, k)) {
+  for (const k in a.store.attrs) {
+    if (k in b.store.attrs && effective(a, k) !== effective(b, k)) {
       throw new Error(`append: '${k}' has transfer '${effective(a, k)}' on one side and '${effective(b, k)}' on the other`);
     }
   }
   const effectiveEdge = (m: Material, k: string): EdgeTransfer => m.edgeTransfers[k] ?? 'copy';
-  for (const k of enames) {
-    if (k in a.edgeAttrs && k in b.edgeAttrs && effectiveEdge(a, k) !== effectiveEdge(b, k)) {
+  for (const k in a.store.edgeAttrs) {
+    if (k in b.store.edgeAttrs && effectiveEdge(a, k) !== effectiveEdge(b, k)) {
       throw new Error(`append: edge column '${k}' has transfer '${effectiveEdge(a, k)}' on one side and '${effectiveEdge(b, k)}' on the other`);
     }
   }
@@ -4144,31 +3915,10 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   x.set(b.x, a.n);
   y.set(a.y);
   y.set(b.y, a.n);
-  const attrs: Record<string, Float64Array> = {};
-  for (const k of names) {
-    const col = new Float64Array(a.n + b.n);
-    if (k in a.attrs) col.set(a.attrs[k]);
-    else col.fill(fill[k] as number, 0, a.n);
-    if (k in b.attrs) col.set(b.attrs[k], a.n);
-    else col.fill(fill[k] as number, a.n);
-    attrs[k] = col;
-  }
   const edges = new Uint32Array(a.edgeList.length + b.edgeList.length);
   edges.set(a.edgeList);
-  for (let e = 0; e < b.edgeList.length; e++) edges[a.edgeList.length + e] = b.edgeList[e] + a.n;
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const k of enames) {
-    const col = new Float64Array(a.edgeCount + b.edgeCount);
-    if (k in a.edgeAttrs) col.set(a.edgeAttrs[k]);
-    else col.fill(edgeFill[k] as number, 0, a.edgeCount);
-    if (k in b.edgeAttrs) col.set(b.edgeAttrs[k], a.edgeCount);
-    else col.fill(edgeFill[k] as number, a.edgeCount);
-    edgeAttrs[k] = col;
-  }
-  // Columns of another kind than numbers join the same way: one kind on
-  // both sides, and a side without one filled by `fill`.
-  const typedAttrs = joinTyped(a.store.attrs, b.store.attrs, a.n, b.n, fill, 'append', '');
-  const typedEdgeAttrs = joinTyped(a.store.edgeAttrs, b.store.edgeAttrs, a.edgeCount, b.edgeCount, edgeFill, 'append', 'edge ');
+  const bl = b.edgeList;
+  for (let e = 0; e < bl.length; e++) edges[a.edgeList.length + e] = bl[e] + a.n;
   // Appending changes no row: every point and edge of both sides is the one
   // it was, so it keeps the id it had. Minting fresh ones here would retire
   // identities nothing retired, and a selection held across the append —
@@ -4212,7 +3962,7 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
     edges: joinKeys(a.store.edgeKeys, a.edgeCount, b.store.edgeKeys, b.edgeCount),
   };
   const faces = joinStated(a, b, edges, edgeIds);
-  return new Material(x, y, { ...attrs, ...typedAttrs }, edges, { iteration: 0, history: [], edgeAttrs: { ...edgeAttrs, ...typedEdgeAttrs }, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, keys, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs }, space: a.space ?? b.space, ...(faces !== undefined ? { faces } : {}) });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots }, keys, faceAttrs: { ...b.faceAttrs, ...a.faceAttrs }, space: a.space ?? b.space, ...(faces !== undefined ? { faces } : {}) });
 }
 
 /**
@@ -4295,25 +4045,23 @@ function joinKeys(a: ArrayColumn<string> | null, na: number, b: ArrayColumn<stri
   return joinColumns(a ?? constantColumn(kinds.string, na, ''), b ?? constantColumn(kinds.string, nb, '')) as ArrayColumn<string>;
 }
 
-/** The columns of another kind than numbers of two column records, `na`
- * and `nb` rows long, joined: one kind on both sides, and the side that
- * lacks one filled by `fill` (refused by name without it). A name that is
- * numbers on one side and another kind on the other is refused. */
-function joinTyped(
+/** Two column records, `na` and `nb` rows long, joined: every column of
+ * every kind, one kind on both sides, and the side that lacks one filled
+ * by `fill` (refused by name without it). A name that holds one kind on
+ * one side and another on the other is refused. */
+function joinColumnRecords(
   a: Readonly<Record<string, AnyColumn>>,
   b: Readonly<Record<string, AnyColumn>>,
   na: number,
   nb: number,
   fill: Readonly<Record<string, unknown>>,
-  who: string,
-  what: string,
+  what: '' | 'edge ',
 ): Record<string, AnyColumn> {
+  const who = 'append';
   const out: Record<string, AnyColumn> = {};
-  const names = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const k of names) {
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
     const ca = a[k];
     const cb = b[k];
-    if (!isTypedColumn(ca) && !isTypedColumn(cb)) continue;
     if (ca !== undefined && cb !== undefined) {
       const ka = kindOf(ca);
       const kb = kindOf(cb);
@@ -4324,7 +4072,7 @@ function joinTyped(
     if (!(k in fill)) throw new Error(`${who}: the ${ca === undefined ? 'first' : 'second'} material has no ${what}column '${k}' — give ${what === '' ? 'fill' : 'edgeFill'}: { ${k}: … } or match the columns`);
     const { kind, value } = cellOf(fill[k], who, k);
     const held = (ca ?? cb)!;
-    if (kind !== kindOf(held)) throw new Error(`${who}: the fill of '${k}' is ${kindWords(kind)}, and the column holds ${kindWords(kindOf(held))} a row`);
+    if (kind !== kindOf(held)) throw new Error(`${who}: the fill of '${k}' is ${kindWords(kind)}, and the ${what}column holds ${kindWords(kindOf(held))} a row`);
     out[k] = ca !== undefined ? joinColumns(ca, constantColumn(kind, nb, value)) : joinColumns(constantColumn(kind, na, value), cb!);
   }
   return out;
@@ -4446,11 +4194,12 @@ export function areaView<T>(input: T): T | Material | Selection<Edge> {
   if (input.length === source.edgeCount) return area.edges;
   const lines = selectionIn(input, area);
   const cut = area.edgeAttrs.cut;
+  const L = area.edgeList;
   if (cut === undefined) return lines;
   const ends = new Set<number>();
   for (const e of lines.indices) {
-    ends.add(area.edgeList[2 * e]);
-    ends.add(area.edgeList[2 * e + 1]);
+    ends.add(L[2 * e]);
+    ends.add(L[2 * e + 1]);
   }
   // The closing runs: the components of the cut edges, each a path from one
   // line end to another (or a ring with no ends, which no line names).
@@ -4462,8 +4211,8 @@ export function areaView<T>(input: T): T | Material | Selection<Edge> {
   const rimDegree = new Uint32Array(area.n);
   for (let e = 0; e < area.edgeCount; e++) {
     if (cut[e] === 0) continue;
-    const a = area.edgeList[2 * e];
-    const b = area.edgeList[2 * e + 1];
+    const a = L[2 * e];
+    const b = L[2 * e + 1];
     rimDegree[a]++;
     rimDegree[b]++;
     parent[find(a)] = find(b);
@@ -4478,7 +4227,7 @@ export function areaView<T>(input: T): T | Material | Selection<Edge> {
   }
   const rows = [...lines.indices];
   for (let e = 0; e < area.edgeCount; e++) {
-    if (cut[e] !== 0 && keep.get(find(area.edgeList[2 * e])) === true) rows.push(e);
+    if (cut[e] !== 0 && keep.get(find(L[2 * e])) === true) rows.push(e);
   }
   return edgesOf(area, rows);
 }
@@ -4650,6 +4399,8 @@ export interface MaterialParts {
   readonly source?: PartsSource;
   /** The space the coordinates belong to. */
   readonly space?: Space;
+  /** The value's key (see `Material.key`). */
+  readonly key?: string;
   /** Declared transfer policies, as `points.set(…, { transfer })` keeps them. */
   readonly transfers?: Readonly<Record<string, TransferPolicy>>;
   readonly edgeTransfers?: Readonly<Record<string, EdgeTransfer>>;
@@ -4822,19 +4573,14 @@ export function materialFromParts(parts: MaterialParts): Material {
     ids: { points: pointIds, edges: edgeIds, edgeRoots: edgeRootsFlat },
     keys: nameCols,
     space: parts.space,
+    ...(parts.key !== undefined ? { key: parts.key } : {}),
     faces: stated,
   });
   // Face columns are keyed by the walls each face is made of, as every
   // face column is, so they follow the faces the way `faces.set`'s do.
   const heldFaces = parts.faceColumns !== undefined && Object.keys(parts.faceColumns).length > 0;
   if (heldFaces || faces.some((f) => f.cols !== undefined && Object.keys(f.cols).length > 0)) {
-    m = new Material(m.store.x, m.store.y, m.store.attrs, m.store.edgeList, {
-      edgeAttrs: m.store.edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers },
-      ids: { points: m.store.pointIds, edges: m.store.edgeIds, edgeRoots: m.store.edgeRoots },
-      keys: nameCols,
-      space: parts.space, faces: stated,
-      faceAttrs: heldFaces ? { ...parts.faceColumns } : faceColumnsOfParts(faces, statedFaceKeys(m, cycles), who),
-    });
+    m = rebuild(m, {}, { faceAttrs: heldFaces ? { ...parts.faceColumns } : faceColumnsOfParts(faces, statedFaceKeys(m, cycles), who) });
   }
   const src = parts.source;
   const spec = (d: DomainSpec | ((row: number) => unknown) | undefined): DomainSpec | undefined =>

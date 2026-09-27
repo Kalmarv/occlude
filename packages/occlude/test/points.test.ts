@@ -59,7 +59,7 @@ describe('scatter as material', () => {
     run((t) => { a = t.scatter(field, { spacing: 4 }); }, 11);
     run((t) => { b = t.scatter(field, { spacing: 4 }); }, 11);
     expect(a!.edgeCount).toBe(0);
-    expect(a!.attrNames).toEqual(['density']);
+    expect(Object.keys(a!.attrs)).toEqual(['density']);
     expect(a!.points.map(xy)).toEqual(b!.points.map(xy));
     for (let i = 0; i < a!.n; i++) expect(a!.attrs.density[i]).toBeCloseTo(Math.min(1, field(a!.x[i], a!.y[i])), 12);
     // The baseline captured from the old Points API at seed 11: same points, same values (w was the density).
@@ -92,7 +92,7 @@ describe('relax and settle as explicit operations', () => {
       ringRelaxed = t.relax(ring, { iterations: 2 });
     }, 11);
     expect(relaxed!.n).toBe(cloud!.n);
-    expect(relaxed!.attrNames).toEqual(['density', 'tag']);
+    expect(Object.keys(relaxed!.attrs)).toEqual(['density', 'tag']);
     expect(Array.from(relaxed!.attrs.tag)).toEqual(Array.from(cloud!.attrs.tag));
     expect(cloud!.x[0]).toBeCloseTo(base.scatter[0][0], 9); // the source did not move
     for (let i = 0; i < relaxed!.n; i++) {
@@ -118,7 +118,7 @@ describe('relax and settle as explicit operations', () => {
       expect(t.settle(src!, { density: field, spacing: 0 }).n).toBe(src!.n);
       expect(t.settle(material([]), { density: field, spacing: 4 }).n).toBe(0);
     }, 11);
-    expect(out!.attrNames).toEqual(['tag', 'mass', 'demand']);
+    expect(Object.keys(out!.attrs)).toEqual(['tag', 'mass', 'demand']);
     expect(out!.n).toBe(base.liftSettle.length); // same count as the old algorithm on this grid
     // Demand is the old w: every surviving point's cell demand at the last round.
     const demands = Array.from(out!.attrs.demand).sort((a, b) => a - b);
@@ -130,7 +130,7 @@ describe('relax and settle as explicit operations', () => {
       expect(p.mass).toBe(1);
     }
     expect(new Set(Array.from(out!.attrs.tag)).size).toBeLessThan(out!.n); // splits happened
-    expect(src!.attrNames).toEqual(['tag', 'mass']); // the source is untouched
+    expect(Object.keys(src!.attrs)).toEqual(['tag', 'mass']); // the source is untouched
   });
 
   it('the raster kernel and faces.measure agree cell by cell on Voronoi cells', () => {
@@ -498,7 +498,7 @@ describe('review of fe26c3f', () => {
       const dAges = Array.from(derived.attrs.age);
       expect(Math.min(...dAges)).toBeLessThan(8); // a child of a child
       expect(dAges.every((a) => a <= 9)).toBe(true);
-      expect(derived.attrNames).toEqual(['species', 'age', 'demand']);
+      expect(Object.keys(derived.attrs)).toEqual(['species', 'age', 'demand']);
       // bounded: only declared columns, never demand, finite values
       expect(() => t.settle(src, { density: dense, spacing: 12, iterations: 2, point: { colour: 1 } })).toThrow(/no attribute 'colour'/);
       expect(() => t.settle(src, { density: dense, spacing: 12, iterations: 2, point: { demand: 1 } })).toThrow(/'demand' is computed/);

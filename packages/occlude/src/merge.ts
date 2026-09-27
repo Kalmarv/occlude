@@ -34,9 +34,9 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { Material, mintIds, inheritEdge } from './material.js';
+import type { Material } from './material.js';
 import { overlapSpan, positionHash } from './faces.js';
-import { inherits } from './space.js';
+import { PointRows, EdgeRows, rebuild } from './tables.js';
 
 export interface MergeOpts {
   /** Two vertices closer than this are one vertex; two edges within this of
@@ -122,33 +122,34 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
   if (!Number.isFinite(tol) || tol < 0) throw new Error('merge: tolerance must be a finite length of zero or more');
   const n = m.n;
   const E = m.edgeCount;
+  const X = m.x;
+  const Y = m.y;
+  const L = m.edgeList;
   for (let i = 0; i < n; i++) {
-    if (!Number.isFinite(m.x[i]) || !Number.isFinite(m.y[i])) throw new Error(`merge: vertex ${i} is not finite`);
+    if (!Number.isFinite(X[i]) || !Number.isFinite(Y[i])) throw new Error(`merge: vertex ${i} is not finite`);
   }
-  const names = m.attrNames;
-  const enames = m.edgeAttrNames;
 
   // ---- 1. vertices within tolerance are one vertex (lowest row survives) ----
   const verts = new Union(n);
-  if (tol > 0) pairsWithin(m.x, m.y, n, tol, (i, j) => verts.join(i, j));
+  if (tol > 0) pairsWithin(X, Y, n, tol, (i, j) => verts.join(i, j));
   else {
     // Exact coincidence by hash and compare, not by a string per vertex:
     // `positionHash` reads the bit patterns (0 and −0 together, as `===`
     // has them) and the coordinates decide inside the bucket.
     const byPos = new Map<number, number | number[]>();
     for (let i = 0; i < n; i++) {
-      const x = m.x[i];
-      const y = m.y[i];
+      const x = X[i];
+      const y = Y[i];
       const h = positionHash(x, y);
       const slot = byPos.get(h);
       if (slot === undefined) { byPos.set(h, i); continue; }
       if (typeof slot === 'number') {
-        if (m.x[slot] === x && m.y[slot] === y) verts.join(slot, i);
+        if (X[slot] === x && Y[slot] === y) verts.join(slot, i);
         else byPos.set(h, [slot, i]);
         continue;
       }
       let first = -1;
-      for (const other of slot) if (m.x[other] === x && m.y[other] === y) { first = other; break; }
+      for (const other of slot) if (X[other] === x && Y[other] === y) { first = other; break; }
       if (first < 0) slot.push(i); else verts.join(first, i);
     }
   }
@@ -160,13 +161,13 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
   // The unordered pair packs into one exact integer while n² < 2^53.
   const seenPair = new Set<number>();
   for (let e = 0; e < E; e++) {
-    const a = rep[m.edgeList[2 * e]];
-    const b = rep[m.edgeList[2 * e + 1]];
+    const a = rep[L[2 * e]];
+    const b = rep[L[2 * e + 1]];
     if (a === b) continue; // both ends are one vertex now: it was a duplicate of a point
     const key = a < b ? a * n + b : b * n + a;
     if (seenPair.has(key)) continue; // the same two vertices, either way round
     seenPair.add(key);
-    segs.push({ row: e, a, b, ax: m.x[a], ay: m.y[a], bx: m.x[b], by: m.y[b] });
+    segs.push({ row: e, a, b, ax: X[a], ay: Y[a], bx: X[b], by: Y[b] });
   }
 
   // ---- 3. collinear overlapping edges become line groups ----
@@ -210,35 +211,18 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
 
   // ---- rows out: surviving vertices in source order ----
   const rowMap = new Int32Array(n).fill(-1);
-  const ox: number[] = [];
-  const oy: number[] = [];
-  const oids: number[] = [];
-  const oattrs: Record<string, number[]> = {};
-  for (const name of names) oattrs[name] = [];
-  for (let i = 0; i < n; i++) {
-    if (rep[i] !== i) continue;
-    rowMap[i] = ox.length;
-    ox.push(m.x[i]);
-    oy.push(m.y[i]);
-    oids.push(m.pointIds[i]);
-    for (const name of names) oattrs[name].push(m.attrs[name][i]);
-  }
+  const points = new PointRows(m, 'merge');
+  for (let i = 0; i < n; i++) if (rep[i] === i) rowMap[i] = points.keep(i);
 
   // ---- edges out: source order; a line group is emitted where its first member was ----
-  const edges: number[] = [];
-  const eids: number[] = [];
-  const eroots: number[] = [];
-  const eattrs: Record<string, number[]> = {};
-  for (const name of enames) eattrs[name] = [];
+  // An edge kept whole is the edge it was; a span of a line group is a new
+  // edge of the lineage of the lowest source row covering it, its columns
+  // that row's and a distributed one its share.
+  const edges = new EdgeRows(m);
   const emitted = new Set<number>();
   const push = (a: number, b: number, source: number, fraction: number, keepId: boolean) => {
-    edges.push(rowMap[a], rowMap[b]);
-    eids.push(keepId ? m.edgeIds[source] : mintIds(1)[0]);
-    eroots.push(m.edgeRoots[source]);
-    const parent: Record<string, number> = {};
-    for (const name of enames) parent[name] = m.edgeAttrs[name][source];
-    const inherited = inheritEdge(m, parent, fraction);
-    for (const name of enames) eattrs[name].push(inherited[name]);
+    if (keepId) edges.keep(source, rowMap[a], rowMap[b]);
+    else edges.from(source, rowMap[a], rowMap[b], fraction);
   };
   for (let k = 0; k < segs.length; k++) {
     const g = groups.find(k);
@@ -264,7 +248,7 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
     const dy = axis.by - axis.ay;
     const l2 = dx * dx + dy * dy;
     const len = Math.sqrt(l2);
-    const param = (v: number) => ((m.x[v] - axis.ax) * dx + (m.y[v] - axis.ay) * dy) / l2;
+    const param = (v: number) => ((X[v] - axis.ax) * dx + (Y[v] - axis.ay) * dy) / l2;
     const stops = new Map<number, number>(); // vertex → parameter
     const ranges: { lo: number; hi: number; row: number; length: number }[] = [];
     for (const i of list) {
@@ -302,18 +286,5 @@ export function merge(m: Material, opts: MergeOpts = {}): Material {
       push(va, vb, cover.row, alone ? 1 : Math.min(1, share), alone);
     }
   }
-  const attrs: Record<string, Float64Array> = {};
-  for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
-    iteration: 0,
-    edgeAttrs,
-    transfers: { ...m.transfers },
-    edgeTransfers: { ...m.edgeTransfers },
-    ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
-    faceAttrs: m.faceAttrs,
-    faces: m.stated,
-    ...inherits(m),
-  });
+  return rebuild(m, { ...points.done(), ...edges.done() }, { iteration: 0 });
 }

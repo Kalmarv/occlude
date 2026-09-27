@@ -19,6 +19,8 @@
 import { Delaunay } from 'd3-delaunay';
 import { Material, material as makeMaterial, withinMaterial } from './material.js';
 import { carryLinks, linkRows } from './derivation.js';
+import { PointRows, rebuild } from './tables.js';
+import { Column, type AnyColumn } from './column.js';
 import { numericLoops, type AreaInput } from './boundary.js';
 import { distanceField } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
@@ -166,17 +168,13 @@ export function accumulateCells(coords: Float64Array, raster: DensityRaster): { 
 
 const coordsOf = (m: Material): Float64Array => {
   const c = new Float64Array(m.n * 2);
+  const X = m.x;
+  const Y = m.y;
   for (let i = 0; i < m.n; i++) {
-    c[2 * i] = m.x[i];
-    c[2 * i + 1] = m.y[i];
+    c[2 * i] = X[i];
+    c[2 * i + 1] = Y[i];
   }
   return c;
-};
-
-const copyColumns = (cols: Readonly<Record<string, Float64Array>>): Record<string, Float64Array> => {
-  const out: Record<string, Float64Array> = {};
-  for (const k in cols) out[k] = Float64Array.from(cols[k]);
-  return out;
 };
 
 /** An area written as the four corners of its own box, each edge
@@ -272,7 +270,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
   }
   // Relaxing moves points; it makes and unmakes nothing, so every row
   // keeps what it answers as `source` and `u`.
-  const out = carryLinks(m, new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs, from: m, faces: m.stated }));
+  const out = rebuild(m, { x: Column.of(x), y: Column.of(y) });
   return region?.loops ? carryLinks(out, withinMaterial(out, region.loops)) : out;
 }
 
@@ -310,7 +308,9 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts, or
   // a full-demand hex cell at `spacing` holds. Cells above split, below die.
   const cap = ((spacingU * spacingU * 0.866) / (cw * cw)) * 1.0;
 
-  const names = m.attrNames.filter((name) => name !== 'demand');
+  // The numeric columns a child's record may set; every column of any kind
+  // comes down from the parent.
+  const names = Object.keys(m.attrs).filter((name) => name !== 'demand');
   const hook = opts.point;
   if (hook !== undefined && typeof hook !== 'function' && (typeof hook !== 'object' || hook === null)) throw new Error('settle: point must be a record of attributes or a callback of the parent');
   const checkOverride = (o: Record<string, number>): Record<string, number> => {
@@ -328,9 +328,10 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts, or
   let over: (Record<string, number> | null)[] = Array.from({ length: m.n }, () => null);
   let demand = new Float64Array(m.n);
   /** The parent as the hook sees it: current position, inherited and overridden attributes, demand. */
+  const flats = names.map((name) => m.attrs[name]);
   const parentRecord = (p: number, x: number, y: number, d: number): SettleParent => {
     const r: Record<string, number> = { x, y };
-    for (const name of names) r[name] = m.attrs[name][parent[p]];
+    names.forEach((name, k) => { r[name] = flats[k][parent[p]]; });
     Object.assign(r, over[p]);
     r.demand = d;
     return Object.freeze(r) as SettleParent;
@@ -387,15 +388,29 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts, or
     x[k] = coords[2 * k];
     y[k] = coords[2 * k + 1];
   }
-  const attrs: Record<string, Float64Array> = {};
+  // A child is a new point with its parent's columns, of every kind — the
+  // ones its line of descent was given a value for overridden — and the
+  // demand its cell had.
+  const rows = new PointRows(m, 'settle');
+  for (let k = 0; k < count; k++) rows.copy(parent[k], x[k], y[k]);
+  const made = rows.done();
+  const attrs: Record<string, AnyColumn> = { ...made.attrs };
+  delete attrs.demand;
   for (const name of names) {
-    const src = m.attrs[name];
-    const col = new Float64Array(count);
-    for (let k = 0; k < count; k++) col[k] = over[k]?.[name] ?? src[parent[k]];
-    attrs[name] = col;
+    if (!over.some((o) => o !== null && name in o)) continue;
+    const col = (attrs[name] as Column).copy();
+    for (let k = 0; k < count; k++) {
+      const v = over[k]?.[name];
+      if (v !== undefined) col[k] = v;
+    }
+    attrs[name] = Column.of(col);
   }
-  attrs.demand = demand;
-  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {}, from: m });
+  attrs.demand = Column.of(demand);
+  const none = new Float64Array(0);
+  const out = rebuild(m, {
+    ...made, attrs,
+    edgeList: Column.of(new Uint32Array(0)), edgeAttrs: {}, edgeIds: Column.of(none), edgeRoots: Column.of(none), edgeKeys: null,
+  }, { edgeTransfers: {}, faceAttrs: {} });
   linkRows(out, { points: { source: { of: origin.of, domain: 'points', rows: Int32Array.from(parent, (r) => origin.rows[r]) } } });
   // The cut keeps the ids of what it keeps, and so their sources.
   return region?.loops ? carryLinks(out, withinMaterial(out, region.loops)) : out;

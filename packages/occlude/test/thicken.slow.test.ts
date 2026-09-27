@@ -81,7 +81,7 @@ describe('thicken: geometry and topology', () => {
     const empty = material([]).thicken({ radius: 2 });
     expect(empty.n).toBe(0);
     expect(empty.edgeCount).toBe(0);
-    expect(empty.attrNames).toEqual([]);
+    expect(Object.keys(empty.attrs)).toEqual([]);
     const sel = material([[0, 0]]).points.filter(() => false);
     const viaSel = sel.thicken({ radius: 2 });
     expect(viaSel.n).toBe(0);
@@ -366,13 +366,13 @@ describe('thicken: material and callback contract', () => {
 
   it('geometry-only output has empty domains, iteration 0, empty history and own arrays', () => {
     const body = tree.thicken({ radius: 1 });
-    expect(body.attrNames).toEqual([]);
-    expect(body.edgeAttrNames).toEqual([]);
+    expect(Object.keys(body.attrs)).toEqual([]);
+    expect(Object.keys(body.edgeAttrs)).toEqual([]);
     expect(body.iteration).toBe(0);
     expect(body.history).toEqual([]);
     // The source is untouched.
     expect(tree.n).toBe(4);
-    expect(tree.attrNames).toEqual(['radius', 'age']);
+    expect(Object.keys(tree.attrs)).toEqual(['radius', 'age']);
     expect(Array.from(tree.edgeList)).toEqual([0, 1, 0, 2, 1, 3]);
     // A later write to the result does not touch the source.
     body.x[0] = 999;
@@ -387,7 +387,7 @@ describe('thicken: material and callback contract', () => {
         support: candidates.length,
       }),
     });
-    expect(body.attrNames).toEqual(['age', 'support']);
+    expect(Object.keys(body.attrs)).toEqual(['age', 'support']);
     for (let i = 0; i < body.n; i++) {
       expect(Number.isFinite(body.attrs.age[i])).toBe(true);
       expect(body.attrs.support[i]).toBeGreaterThanOrEqual(1);

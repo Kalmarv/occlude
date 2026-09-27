@@ -122,7 +122,7 @@ function canonicalize(loop: OutVert[]): OutVert[] {
 function candidateAttrs(c: Cand, source: Material): Record<string, number> {
   const out: Record<string, number> = {};
   if (c.vertex !== undefined) {
-    for (const name of source.attrNames)
+    for (const name of Object.keys(source.attrs))
       out[name] = source.attrs[name][c.vertex];
     return out;
   }
@@ -130,7 +130,7 @@ function candidateAttrs(c: Cand, source: Material): Record<string, number> {
   const t = c.t!;
   const a = source.edgeList[2 * e];
   const b = source.edgeList[2 * e + 1];
-  for (const name of source.attrNames) {
+  for (const name of Object.keys(source.attrs)) {
     const va = source.attrs[name][a];
     const vb = source.attrs[name][b];
     out[name] =

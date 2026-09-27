@@ -138,7 +138,7 @@ describe('groupBy', () => {
     // Empty input, empty result.
     expect(m.points.filter(() => false).groupBy((p) => p.kind)).toEqual([]);
     // Nothing written to the geometry.
-    expect(m.attrNames).toEqual(['kind']);
+    expect(Object.keys(m.attrs)).toEqual(['kind']);
     expect(m.edgeCount).toBe(3);
   });
 

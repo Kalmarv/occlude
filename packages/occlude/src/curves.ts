@@ -307,10 +307,11 @@ export function walkOf(m: Material, edgeRows: ArrayLike<number> | null): Chain[]
     for (let e = 0; e < all.length; e++) all[e] = e;
     rows = all;
   }
+  const list = m.edgeList;
   return walkChains({
     vertexCount: m.n,
     edgeRows: rows,
-    endpoints: (e) => [m.edgeList[2 * e], m.edgeList[2 * e + 1]],
+    endpoints: (e) => [list[2 * e], list[2 * e + 1]],
     x: m.x,
     y: m.y,
     geodesic: geodesicEdges(m),
