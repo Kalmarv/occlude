@@ -252,7 +252,7 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
   // (a boundary, a marked edge) stays, and answers to that kind.
   const line=(c:{kinds:ReadonlySet<string>;feature:{creaseAngle:number;creaseThreshold?:number}})=>!c.kinds.has('crease')||c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)||c.kinds.size>1;
   return drawing3(scene,(classified,paper)=>{
-    const all=projectedLines(classified,paper.toUser),lines:ProjectedLines=Object.freeze({visible:all.visible.filter(line),hidden:all.hidden.filter(line)});
+    const all=projectedLines(classified,paper.toUser),lines:ProjectedLines=Object.freeze({visible:all.visible.filter(line),hidden:all.hidden.filter(line),stats:all.stats});
     const ink=draw?draw(lines):defaultInk(lines);
     return settings.opaque?[paper.mask3(classified),ink]:ink;
   });

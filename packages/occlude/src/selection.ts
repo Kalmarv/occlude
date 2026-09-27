@@ -83,6 +83,8 @@ export interface DomainTypes {
   spline: unknown;
   oscillate: unknown;
   along: unknown;
+  kind: unknown;
+  except: unknown;
 }
 /** Every word absent. */
 interface Absent extends DomainTypes {
@@ -105,6 +107,8 @@ interface Absent extends DomainTypes {
   spline: never;
   oscillate: never;
   along: never;
+  kind: never;
+  except: never;
 }
 /** A row type's declaration: the words it names, every other word absent. */
 export type Types<T extends Partial<DomainTypes>> = Omit<Absent, keyof T> & T;
@@ -645,6 +649,10 @@ export interface Selection<Row> {
   oscillate: RowTypes<Row>['oscillate'];
   /** 2D edges: points spaced along each chain, with a heading. */
   along: RowTypes<Row>['along'];
+  /** Projected lines: the members of any of these kinds. */
+  kind: RowTypes<Row>['kind'];
+  /** Projected lines: the members of none of these kinds. */
+  except: RowTypes<Row>['except'];
 }
 
 
@@ -659,7 +667,7 @@ export function refuse(sel: { domain: Domain<any> }, word: string): never {
 }
 
 // The kind-only words, refused on every kind that does not bring its own.
-for (const word of ['nearest', 'firstHit', 'crossing', 'boundaryEdges', 'measure', 'thicken', 'resample', 'trim', 'spline', 'oscillate', 'along', 'set', 'add', 'remove', 'extract']) {
+for (const word of ['nearest', 'firstHit', 'crossing', 'boundaryEdges', 'measure', 'thicken', 'resample', 'trim', 'spline', 'oscillate', 'along', 'kind', 'except', 'set', 'add', 'remove', 'extract']) {
   Object.defineProperty(Selection.prototype, word, {
     value: function (this: Selection<any>): never {
       return refuse(this, word);

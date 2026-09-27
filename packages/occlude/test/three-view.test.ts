@@ -51,3 +51,34 @@ it('preserves full wire dash phase through interval filtering and actual planned
  expect(spans).toEqual([[55,61],[65,72],[76,83],[87,90]]);
  expect(execution.fixedStrokes3.size).toBe(1);
 });
+it('keeps full wire dash phase through a group and a cut, which are selections of the same lines',async()=>{
+ const spans=async(pick:(lines:ReturnType<typeof projectedLines>,t:Parameters<Parameters<typeof sketch>[1]>[0])=>Parameters<typeof strokes>[0])=>{
+  const execution=await compileSketchAsync(sketch(config,async t=>{
+   const classified=await t.classify3(lineArt3({camera:orthographic({eye:[0,0,5],up:[0,1,0],span:10}),objects:[{id:'box',surface:box3(),lineSource:false}],wires:[{id:'wire',points:[[-4,0,0],[0,0,0],[4,0,0]]}],lineSets:[]}));
+   return strokes(pick(projectedLines(classified),t) as never,{stroke:'ink',modifiers:[dash(mm(7),mm(4))]});
+  }),{paper:{w:100,h:100}});
+  const result=render(execution),plan=core.wasm_plan(result.raw.prims,result.raw.frags,pensToJson(result.pens),200000,.01);
+  return decodePlanBuffer(plan).map(chain=>{const xs=chain.prims.flatMap(p=>[evalPrim(p,0)[0],evalPrim(p,1)[0]]);return [Math.min(...xs),Math.max(...xs)].map(x=>Math.round(x*1e6)/1e6);}).sort((a,b)=>a[0]-b[0]);
+ };
+ const right=[[55,61],[65,72],[76,83],[87,90]];
+ // A group is a selection with its key; it draws as the filter does.
+ expect(await spans(lines=>{const groups=lines.visible.groupBy(c=>c.b[0]>50);expect(groups.map(g=>g.key)).toEqual([false,true]);expect(groups[1].kind('wire').length).toBe(groups[1].length);return groups[1];})).toEqual(right);
+ // A cut at the wire's middle keeps the right half whole, and its phase.
+ expect(await spans((lines,t)=>t.within(lines.visible,rect(50,0,50,100)))).toEqual(right);
+ // A cut through the middle of a dash reads its range back: the ink is the uncut ink, cut.
+ expect(await spans((lines,t)=>t.within(lines.visible,rect(58,0,42,100)))).toEqual([[58,61],[65,72],[76,83],[87,90]]);
+});
+it('answers the selection words and refuses the ones lines do not have, by name',async()=>{
+ await compileSketchAsync(sketch(config,()=>view(box(),{camera},lines=>{
+  expect(typeof lines.stats.candidates).toBe('number');
+  expect(()=>(lines.visible as unknown as {source:unknown}).source).toThrow(/lines.source: .*lines.stats/);
+  expect(()=>lines.visible.adjacent()).toThrow(/lines.adjacent: .*lines.curves/);
+  // A hidden line is no visible line: not a member, and not a name for one.
+  expect(lines.visible.has(lines.hidden.at(0))).toBe(false);
+  expect(()=>lines.visible.rows(lines.hidden.at(0))).toThrow(/another view or the other visibility/);
+  const [first,...rest]=lines.visible.groupBy((_,i)=>i%2);
+  expect(first.union(...rest).length).toBe(lines.visible.length);
+  expect(lines.visible.without(first).intersect(first).length).toBe(0);
+  return strokes(lines.visible);
+ })));
+});

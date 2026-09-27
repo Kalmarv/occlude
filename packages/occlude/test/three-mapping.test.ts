@@ -130,7 +130,7 @@ describe('mapSurface',()=>{
     const sheet=mesh([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0],[-1,-1,2],[-1,1,2]],[[0,1,2,3],[2,1,4,5]]).corners.set({uv:c=>[c.point.x*.5+.5,c.point.y*.5+.5] as const,chart:c=>`f${c.face.index}`});
     const marks=mapSurface(sheet,[stripe(.25),stripe(.75)]);
     expect(marks.edges.length).toBe(8);
-    const draw=(select:(lines:import('../src/three/api/projected.js').ProjectedLines)=>import('../src/three/api/projected.js').ProjectedCurves)=>compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([sheet,marks],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),pen:'ink'},lines=>strokes(select(lines),{stroke:'ink'}))));
+    const draw=(select:(lines:import('../src/three/api/projected.js').ProjectedLines)=>import('../src/selection.js').Selection<import('../src/three/api/projected.js').ProjectedCurve>)=>compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([sheet,marks],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),pen:'ink'},lines=>strokes(select(lines),{stroke:'ink'}))));
     const run=await draw(lines=>lines.visible.filter(c=>c.kinds.has('mapped')));
     const classified=[...run.scenes3.values()][0],mapped=classified.features.filter(f=>f.feature.supportedCurve);
     expect(mapped.length).toBe(8);

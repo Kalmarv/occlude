@@ -4,11 +4,11 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  sketch, pen, mm, strokes, circle, rect, group, material, distance, grad, rotate, space, type Material, type SketchConfig, type Vertex, type XY,
+  sketch, pen, mm, strokes, circle, rect, group, material, distance, grad, rotate, space, type Material, type Selection, type SketchConfig, type Vertex, type XY,
 } from '../src/index.js';
 import { initOcclude, renderAsync, render, type RenderResult } from '../src/host.js';
 import { box, plane, sphere, view, orthographic, perspective, curve } from '../src/three/api/index.js';
-import { ProjectedCurves, type ProjectedLines } from '../src/three/api/projected.js';
+import type { ProjectedCurve, ProjectedLines, ProjectedStrokes } from '../src/three/api/projected.js';
 import { toPaper3 } from '../src/three/camera.js';
 import { lerp3 } from '../src/three/math.js';
 import { paperToUser } from '../src/record.js';
@@ -31,17 +31,19 @@ describe('O1 · G3-21 · t.within cuts projected lines', () => {
   ] as const) {
     it(`keeps the lines inside a lens and cuts the rest at its edge (${name})`, async () => {
       let all: ProjectedLines | undefined;
-      let cut: ProjectedCurves | undefined;
+      let cut: Selection<ProjectedCurve> | undefined;
+      let drawn: ProjectedStrokes | undefined;
       const out = await draw((t) => view(scene(), { camera }, (lines) => {
         // FRICTION G3-21: strokes(t.within(lines.hidden, circle(50, 50, 25)), …)
         all = lines;
         cut = t.within(lines.hidden, circle(50, 50, r));
-        return strokes(cut, { pen: 'ghost' });
+        return (drawn = strokes(cut, { pen: 'ghost' }));
       }));
       const toUser = paperToUser(out.frame);
-      expect(cut).toBeInstanceOf(ProjectedCurves);
-      expect(cut!.source).toBe(all!.hidden.source);
       expect(cut!.length).toBeGreaterThan(0);
+      // The cut lines are lines of the same view: its kind words answer, and
+      // the lines it kept whole are found in the uncut lines by identity.
+      expect(cut!.kind('crease').length + cut!.except('crease').length).toBe(cut!.length);
       // Every piece ends inside the lens or on its edge.
       for (const row of cut!) {
         for (const p of [row.a, row.b]) {
@@ -51,19 +53,21 @@ describe('O1 · G3-21 · t.within cuts projected lines', () => {
       }
       // A cut piece's range is read back through the camera: its paper
       // ends are where its source ends project.
-      const pieces = [...cut!].filter((r) => !all!.hidden.rows.includes(r));
+      const pieces = [...cut!].filter((r) => !all!.hidden.has(r));
       expect(pieces.length).toBeGreaterThan(0);
       for (const row of pieces) {
         const f = row.feature;
         for (const [end, s] of [[row.a, row.range[0]], [row.b, row.range[1]]] as const) {
-          const q = toPaper3(cut!.source.frame, lerp3(f.a, f.b, s));
+          const q = toPaper3(drawn!.scene.frame, lerp3(f.a, f.b, s));
           expect(Math.hypot(q[0] - end[0], q[1] - end[1])).toBeLessThan(1e-6);
         }
       }
-      // A line wholly inside is the same row, id and all.
-      const whole = [...cut!].filter((r) => all!.hidden.rows.includes(r));
+      // A line wholly inside is the same line: the uncut lines name it, and
+      // only it — a piece is a new line.
+      const whole = [...cut!].filter((r) => all!.hidden.has(r));
       expect(whole.length).toBeGreaterThan(0);
-      expect(new Set([...cut!].map((r) => r.id)).size).toBe(cut!.length);
+      expect(all!.hidden.intersect(cut!).length).toBe(whole.length);
+      expect(cut!.intersect(all!.hidden).length).toBe(whole.length);
       // The cut lines draw.
       const ghost = out.pens.findIndex((p) => p.name === 'ghost');
       expect(out.frags.some((f) => f.pen === ghost)).toBe(true);
@@ -73,7 +77,7 @@ describe('O1 · G3-21 · t.within cuts projected lines', () => {
   it('refuses keep and transfer by name', async () => {
     const camera = orthographic({ eye: [5, 7, 4], target: [0, 0, 0], span: 5 });
     await expect(draw((t) => view(box(1), { camera }, (lines) =>
-      strokes((t.within as (x: unknown, area: unknown, opts: unknown) => ProjectedCurves)(lines.visible, circle(50, 50, 25), { keep: 'touching' }))))).rejects.toThrow(/'keep' is for a selection — projected lines are cut/);
+      strokes((t.within as (x: unknown, area: unknown, opts: unknown) => Selection<ProjectedCurve>)(lines.visible, circle(50, 50, 25), { keep: 'touching' }))))).rejects.toThrow(/'keep' is for points, edges and faces, each kept whole or not at all — projected lines are cut/);
   });
 });
 
