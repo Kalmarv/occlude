@@ -46,8 +46,9 @@ import { refuseShape } from './boundary.js';
  */
 export function sameLineage(a: Material, b: Material): boolean {
   if (a === b) return true;
-  // Two runs count their ids from the same place: a value one run made is
-  // no row of another, whatever its numbers (material.ts `mintIds`).
+  // A run alone counts from the same number as the run before it: a value
+  // one run made is no row of another, whatever its numbers (material.ts
+  // `mintIds`).
   if (a.epoch !== b.epoch && a.epoch !== 0 && b.epoch !== 0) return false;
   const mine = pointDomain(a);
   let got = mine.lineage?.get(b);

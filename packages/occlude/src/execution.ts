@@ -1,5 +1,5 @@
 import type { ModelingStats3 } from './three/modeling.js';
-import { beginIds, endIds } from './material.js';
+import { beginIds, endIds, type RunIds } from './material.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 import type { RetainedDrawing3 } from './three/drawing.js';
@@ -356,14 +356,15 @@ export class Execution {
 
   private compiled: boolean;
 
-  /** The run number `begin` took for the values made in it (material.ts
-   * `beginIds`): 0 until it begins. */
-  private run = 0;
+  /** The run's identities (material.ts `beginIds`): its number, its range
+   * of ids and its counter. Undefined until it begins. */
+  private ids: RunIds | undefined;
 
-  /** The sketch has been recorded: what is made from now on is made
-   * outside any run (a value at module scope, the next import). */
+  /** The sketch has been recorded: the run's range of ids is free for the
+   * next run, and what is made from now on is made by the run still open,
+   * or outside any run (a value at module scope, the next import). */
   end(): void {
-    endIds(this.run);
+    if (this.ids !== undefined) endIds(this.ids);
   }
 
   /**
@@ -374,11 +375,21 @@ export class Execution {
   begin(cfg: CompileConfig): void {
     if (this.compiled) throw new Error('Execution: already compiled — one execution runs one sketch once');
     this.compiled = true;
-    // Identities start over with the run. A counter that survived between
-    // runs would show different ids in a warm studio worker than in a cold
-    // render for the same sketch and seed — no ink difference, but a broken
-    // promise. What is made from now on belongs to this run (`end`).
-    this.run = beginIds();
+    // The run counts its own ids, from the start of a range no other open
+    // run holds: the same numbers in a warm studio worker as in a cold
+    // render, and none that an interleaved async compile also mints. What
+    // is made from now on belongs to this run (`end`). A configuration
+    // that is refused ends the run it began.
+    this.ids = beginIds();
+    try {
+      this.configure(cfg);
+    } catch (e) {
+      this.end();
+      throw e;
+    }
+  }
+
+  private configure(cfg: CompileConfig): void {
     this.cameras3 = Object.freeze(Object.fromEntries(Object.entries(cfg.cameras3 ?? {}).map(([key, camera]) => [key,
       cameraFrame3(camera, { x: 0, y: 0, width: 1, height: 1 }).camera,
     ])));

@@ -262,51 +262,101 @@ export interface FaceColumn {
  *   `has` answers after a growth step, so it is written here rather than
  *   discovered later.
  *
- * Two counters, which never meet. A run mints from `RUN_BASE` up, and
- * starts there again every run, so the same sketch shows the same ids in a
- * warm studio worker as in a cold render. What is minted outside any run —
- * a value at module scope, made before the run or between two — counts up
- * from 1 and never starts over, so a module-scope value and a value the
- * run built never share an id by chance: the one is the other's lineage
- * only when one was made from the other. Each value is stamped with the
- * run whose ids it holds (`Material.epoch`; 0: none), and a value of one
- * run is no row of another (relation.ts `sameLineage`).
+ * Where the numbers come from. Every run owns its counter (`Execution`
+ * holds it; `beginIds` makes it), and each value is stamped with the run
+ * whose ids it holds (`Material.epoch`; 0: none) — a value made from
+ * another keeps its source's stamp. A value of one run is no row of
+ * another, whatever its numbers (relation.ts `sameLineage`).
+ *
+ * The numbers are cut into ranges of 2^40. The first is what is minted
+ * outside any run — a value at module scope, made before the run or
+ * between two: it counts up from 1 and never starts over, so a
+ * module-scope value and a value a run built never share an id by chance;
+ * the one is the other's lineage only when one was made from the other. A
+ * run takes the lowest range no open run holds and counts from its start.
+ * So a run alone always starts at the same number, and the same sketch
+ * shows the same ids in a warm studio worker as in a cold render; and two
+ * runs open at once — two async compiles, interleaved at their awaits —
+ * count in different ranges and never mint one number twice. (A run a host
+ * begins and never ends keeps its range.)
+ *
+ * A new id comes from the run minting now: a run mints from when it begins,
+ * and when it ends the latest run still open mints again, or none. A pure
+ * word (`curve(…)`, `material(…)`, `point(…)`) has no handle on its run,
+ * and JavaScript cannot tell whose code resumes after an `await` (the
+ * studio compiles in a browser worker: no async context there). So while
+ * two async compiles are open, a value one of them makes from nothing
+ * after an await counts in the range of the run that began last, and is
+ * stamped with it. Its numbers are still its own — nothing collides — but
+ * it is no row of its own run's earlier values, and the numbers of both
+ * runs depend on how they interleaved. A run alone is exact.
  */
 export type PointId = number & { readonly __pointId: unique symbol };
 export type EdgeId = number & { readonly __edgeId: unique symbol };
 
-/** Where a run's ids start: far above anything minted outside a run, and
- * far below where a float stops counting whole numbers. */
-const RUN_BASE = 2 ** 40;
-/** The counter outside any run. Never reset. */
-let outsideNext = 1;
-/** The run's counter. Reset at the start of every run. */
-let runNext = RUN_BASE + 1;
-/** The run minting now (1, 2, …), or 0 outside any run. */
-let epoch = 0;
-/** How many runs have begun: the next run's number. */
-let runs = 0;
+/** The size of one range of ids: far above anything one run mints. */
+const RANGE = 2 ** 40;
+/** How many ranges there are before a float stops counting whole numbers:
+ * 2^53 / 2^40. Range 0 is outside any run. */
+const RANGES = 2 ** 13;
 
-/** @internal A run begins: its identities start over, and values made from
- * now on belong to it. Returns the run's number. Called once per execution. */
-export function beginIds(): number {
-  runs++;
-  epoch = runs;
-  runNext = RUN_BASE + 1;
-  return epoch;
+/** @internal One run's identities: its number (0: outside any run), its
+ * range, and the next id it mints. */
+export interface RunIds {
+  readonly epoch: number;
+  readonly range: number;
+  next: number;
 }
 
-/** @internal A run ends: what is made after it is made outside any run. A
- * run that ended after another began changes nothing. */
-export function endIds(run: number): void {
-  if (epoch === run) epoch = 0;
+/** What is minted outside any run: range 0, never reset. */
+const outside: RunIds = { epoch: 0, range: 0, next: 1 };
+/** The runs begun and not yet ended, in the order they began. */
+const open: RunIds[] = [];
+/** The run a new id comes from now. */
+let minting: RunIds = outside;
+/** How many runs have begun: the last one's number. */
+let runs = 0;
+
+/** @internal A run begins: it takes the lowest free range, its ids start
+ * at the range's start, and values made from now on belong to it. Called
+ * once per execution. */
+export function beginIds(): RunIds {
+  let range = 1;
+  while (open.some((r) => r.range === range)) range++;
+  if (range >= RANGES) {
+    throw new Error(`Execution.begin: ${open.length} runs are open at once and every range of ids is taken — a host ends each run it begins (Execution.end)`);
+  }
+  const run: RunIds = { epoch: ++runs, range, next: range * RANGE + 1 };
+  open.push(run);
+  minting = run;
+  return run;
+}
+
+/** @internal A run ends: its range is free for the next run, and the
+ * latest run still open mints again (or none). Ending twice changes
+ * nothing. */
+export function endIds(run: RunIds): void {
+  const at = open.indexOf(run);
+  if (at >= 0) open.splice(at, 1);
+  if (minting === run) minting = open.at(-1) ?? outside;
+}
+
+/** @internal The run minting now (0: none): the stamp of a value made from
+ * nothing, or from a value of no run. */
+export function mintingEpoch(): number {
+  return minting.epoch;
 }
 
 /** @internal A fresh block of `count` ids, contiguous and never reused. */
 export function mintIds(count: number): Float64Array {
+  const run = minting;
+  const first = run.next;
+  // Past its range a run would mint the next range's numbers: refused,
+  // never wrapped. 2^40 ids is far more than any run makes.
+  if (first + count > (run.range + 1) * RANGE) throw new Error(`material: ${run.epoch === 0 ? 'outside any run' : 'this run'}, every id of the range is minted (2^40)`);
+  run.next = first + count;
   const out = new Float64Array(count);
-  if (epoch === 0) for (let i = 0; i < count; i++) out[i] = outsideNext++;
-  else for (let i = 0; i < count; i++) out[i] = runNext++;
+  for (let i = 0; i < count; i++) out[i] = first + i;
   return out;
 }
 
@@ -728,7 +778,8 @@ export class Material {
    * the one mutable part of a frozen material. */
   readonly cache: StateCache;
   /** @internal The run whose ids this value holds (0: none; see `mintIds`):
-   * a value made from another carries that one's. Non-enumerable. */
+   * a value made from another carries that one's, and a value made from a
+   * value of no run is the run's that minted its new ids. Non-enumerable. */
   declare readonly epoch: number;
   /** @internal The faces the word that made this material stated (a tiling,
    * a grid, Voronoi cells, a quadtree), kept while the edges are the ones
@@ -903,7 +954,9 @@ export class Material {
       }
     }
     this.cache = carry.area === undefined ? {} : { areaMake: carry.area };
-    Object.defineProperty(this, 'epoch', { value: carry.from?.epoch ?? epoch, enumerable: false });
+    // A value made in a run from a value of no run holds the run's new ids:
+    // it is the run's.
+    Object.defineProperty(this, 'epoch', { value: carry.from?.epoch || mintingEpoch(), enumerable: false });
     const givenPoints = ids?.points === undefined ? undefined : columnOf(ids.points);
     const givenEdges = ids?.edges === undefined ? undefined : columnOf(ids.edges);
     const givenRoots = ids?.edgeRoots === undefined ? undefined : columnOf(ids.edgeRoots);
