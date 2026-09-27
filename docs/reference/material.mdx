@@ -166,7 +166,7 @@ A curve row has these words:
 | `c.edges` | its edges in walk order. Each edge joins a point to the next point of the walk. The closing edge of a ring is last. |
 | `c.closed` | `true` for a ring |
 | `c.length` | its arc length, in the space of the material |
-| `c.contours()` | its area: one contour for a ring, and none for an open chain |
+| `c.contours()` | its area: one contour for a ring of a value in the plane, and none for an open chain |
 | `c.level`, `c.cut`, … | an edge column that all its edges agree on. A column that they do not agree on is absent. |
 
 A point of a curve has five more columns. The curve gives them, and you read them as columns. A point can hold its own column `s`, `u` or `heading`. Then it reads that column on the curve too, so a point has one answer. `s` is the arc length from the start of the curve. `u` is `s` as a fraction of `c.length`. `heading` is the direction of the curve at the point, in radians. `tangent` is the unit vector of the heading. `normal` is the tangent turned a quarter turn toward `+y`, as `perp` turns it. On a ring that goes counter-clockwise on the sheet, the normal points out. `t.sample(circle(…))` goes clockwise on the sheet, so its normal points in. A point of `m.along()` has the same five columns. A point where three or more edges meet is the end of one curve and the start of another. Each curve answers its own view of that point, with its own `s`, `u` and `heading`. `has` and `rows` still recognise it.
@@ -222,7 +222,7 @@ export default sketch({ aspect: [3, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## What a point or an edge is, across states
 
-A point or an edge that you hold is its own name. A row view, a point value, an edge value and a selection name their rows in each later state of the material. A write that moves or sets keeps each row. A split removes the edge that it cuts and adds two new edges. So a view of the old edge names nothing after the split.
+A point or an edge that you hold is its own name. A row view, a point value, an edge value and a selection name their rows in each later state of the material. A write that moves or sets keeps each row. A split removes the edge that it cuts and adds two new edges. So a view of the old edge names nothing after the split. The first new edge takes the row of the old edge, but not its name.
 
 A selection can then outlive the state that made it. `state.points.intersect(sel)` reads a selection against a later state and drops the members that are gone. `state.points.rows(p)` is the selection that holds the row of the view `p` in that state. `sel.has(p)` asks the same question of one member. A write takes a selection or a view from an earlier state and finds the rows itself.
 

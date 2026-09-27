@@ -805,10 +805,13 @@ and `test/transfer.test.ts`.
   edge row that names a point that is gone, a pair that is already an
   edge, one point twice, a value that is not finite.
 - **Identity.** A new row gets a minted id and goes at the end of its
-  table — split points too. `point(xy, cols)` and `edge(a, b, cols)` mint
-  the id when they are made, so the value names its row in every later
-  state. A view, value or selection from an earlier state of the same
-  lineage is resolved by id, never by row.
+  table — split points too. A split or a replace retires the edge it
+  swaps and puts its first piece in that edge's row (the rest go at the
+  end), so every other edge keeps its row and a state shares every edge
+  leaf the write does not reach. `point(xy, cols)` and `edge(a, b, cols)`
+  mint the id when they are made, so the value names its row in every
+  later state. A view, value or selection from an earlier state of the
+  same lineage is resolved by id, never by row.
 - **Recipes.** `extrude(from, offset, cols?)` is `points.add` then
   `edges.add`. `split(edges, at?)` adds the point (its columns by their
   transfer policy), removes the edge and adds the two children, which

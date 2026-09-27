@@ -223,9 +223,14 @@ describe('a z column: the one geometry in space', () => {
     const lifted = flat.move([0, 0, 1]);
     const open = curve([[10, 10, 1], [20, 10, 1], [20, 20, 1]]);
     expect(flat.contours()).toHaveLength(1);
+    expect(flat.curves.at(0).contours()).toHaveLength(1);
+    expect(flat.curves.contours()).toHaveLength(1);
     for (const v of [lifted, open]) {
       expect(v.faces.length).toBe(0);
       expect(v.contours()).toEqual([]);
+      // Nor has a curve of it, or its curves.
+      expect(v.curves.at(0).contours()).toEqual([]);
+      expect(v.curves.contours()).toEqual([]);
       // Nothing to fill, nothing inside, nothing to measure to.
       for (const area of [v, v.edges, v.curves.at(0)]) expect(polygon(area).geom).toMatchObject({ kind: 'path', cmds: [] });
       expect(t.within(t.scatter({ spacing: 5 }), v).n).toBe(0);

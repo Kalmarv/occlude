@@ -328,7 +328,7 @@ describe('recipes equal their table lines', () => {
     expect(() => m.edges.set('w', 1).extrude(from, [1, 1], { age: 0 })).toThrow(/edge column 'w'/);
   });
 
-  it('split is add the point, remove the edge, add two', () => {
+  it('split is add the point, remove the edge, add two — the first child in the parent row', () => {
     const m = chain().points.set('h', (p) => p.index).edges.set('w', 4);
     const recipe = m.split(m.edges.filter((e) => e.index !== 1), 0.25);
     let lines = m;
@@ -337,10 +337,16 @@ describe('recipes equal their table lines', () => {
     for (const e of cuts) lines = lines.points.add([e.a.x + (e.b.x - e.a.x) * 0.25, e.a.y + (e.b.y - e.a.y) * 0.25], { h: e.a.h + (e.b.h - e.a.h) * 0.25 });
     lines = lines.edges.remove(lines.edges.filter((e) => e.index !== 1));
     lines = lines.edges.add([[lines.points.at(0), lines.points.at(4)], [lines.points.at(4), lines.points.at(1)], [lines.points.at(2), lines.points.at(5)], [lines.points.at(5), lines.points.at(3)]], { w: 4 });
-    expect(rows(recipe)).toEqual(rows(lines));
+    // The same rows as the lines, in another order: the first child takes
+    // the parent's row and the second goes after the last row, so every
+    // other edge keeps its row.
+    const byEdge = (g: Material) => ({ ...rows(g), edges: [], edgeAttrs: {}, edgeRows: [...g.edges].map((e) => [e.a.index, e.b.index, e.w]).sort() });
+    expect(byEdge(recipe)).toEqual(byEdge(lines));
+    expect([...recipe.edges].map((e) => [e.a.index, e.b.index])).toEqual([[0, 4], [1, 2], [2, 5], [4, 1], [5, 3]]);
+    expect(recipe.edgeIds[1]).toBe(m.edgeIds[1]);
     // The children keep the parent's lineage root.
-    expect(recipe.edgeRoots[1]).toBe(m.edgeRoots[0]);
-    expect(recipe.edgeRoots[2]).toBe(m.edgeRoots[0]);
+    expect(recipe.edgeRoots[0]).toBe(m.edgeRoots[0]);
+    expect(recipe.edgeRoots[3]).toBe(m.edgeRoots[0]);
     // at as a function; NaN skips that edge.
     expect(m.split(m.edges, (e) => (e.index === 0 ? NaN : 0.5)).n).toBe(6);
   });

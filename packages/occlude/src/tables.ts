@@ -39,7 +39,7 @@ import type { Space } from './space.js';
 import { ownerOf, pairKey, viewKind, valueKind, valueProto, describe } from './views.js';
 import { Column, at64, atU32, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type AnyWriter, type ColumnWriter, type StringColumn } from './column.js';
 import { isPlacement, type Placement } from './placement.js';
-import { carryLinks, derivation, linkRows, record } from './derivation.js';
+import { carryLinks, derivation, linkRows, record, type Made } from './derivation.js';
 
 /** A point you hold: a position and its columns — the value is the name
  * of the row it becomes. */
@@ -1495,24 +1495,28 @@ function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
   return out;
 }
 
-/** Which of `pairs` is an edge of `m` already, either way round: one pass
- * over the edge list, leaf by leaf. A few pairs — a split's children, an
- * extrude — are compared directly; many go through a set of the asked
+/** Which of `pairs` is an edge of `m` already, either way round — an
+ * edge other than the rows a write takes the place of (`replaced`): one
+ * pass over the edge list, leaf by leaf. A few pairs — a split's children,
+ * an extrude — are compared directly; many go through a set of the asked
  * pairs, so the list is never keyed whole. */
-function existingPairs(m: Material, pairs: readonly (readonly [number, number])[]): Uint8Array {
+function existingPairs(m: Material, pairs: readonly (readonly [number, number])[], replaced: Uint8Array | null): Uint8Array {
   const out = new Uint8Array(pairs.length);
   if (pairs.length === 0 || m.edgeCount === 0) return out;
   const leaves = m.store.edgeList.leaves();
+  const held = (at: number): boolean => replaced === null || replaced[at >>> 1] === 0;
   if (pairs.length <= 8) {
+    let base = 0;
     for (const leaf of leaves) {
       for (let j = 0; j < leaf.length; j += 2) {
         const u = leaf[j];
         const v = leaf[j + 1];
         for (let k = 0; k < pairs.length; k++) {
           const [a, b] = pairs[k];
-          if ((a === u && b === v) || (a === v && b === u)) out[k] = 1;
+          if (((a === u && b === v) || (a === v && b === u)) && held(base + j)) out[k] = 1;
         }
       }
+      base += leaf.length;
     }
     return out;
   }
@@ -1524,29 +1528,43 @@ function existingPairs(m: Material, pairs: readonly (readonly [number, number])[
     if (list) list.push(k);
     else asked.set(key, [k]);
   });
+  let base = 0;
   for (const leaf of leaves) {
     for (let j = 0; j < leaf.length; j += 2) {
       const hit = asked.get(pairKey(leaf[j], leaf[j + 1]));
-      if (hit) for (const k of hit) out[k] = 1;
+      if (hit && held(base + j)) for (const k of hit) out[k] = 1;
     }
+    base += leaf.length;
   }
   return out;
 }
 
-/** @internal Add edge rows between point rows (-1: gone), one column record,
- * one id (NaN: mint one) and one lineage root (-1: its own) per row. Gone,
- * self and already — a pair that is an edge, or an id the geometry holds —
- * are skipped, as is a row with a value that is not finite. */
-export function addEdgeRows(
+/** The asked edge rows that land (`keep`, indices into the ask), with
+ * their column records, ids and lineage roots, in the order asked. */
+interface LandedEdges {
+  keep: number[];
+  records: Record<string, unknown>[];
+  /** Columns a row names that the geometry does not hold yet. */
+  extra: Set<string>;
+  reader: RowCells;
+  ids: number[];
+  roots: number[];
+}
+
+/** Which new edge rows land on `m` (see `addEdgeRows`), read against its
+ * columns; a pair that is only an edge of a `replaced` row is not there
+ * already. Null when none lands. Ids are minted in the order asked. */
+function landEdgeRows(
   m: Material,
   pairs: readonly (readonly [number, number])[],
   cols: readonly Readonly<Record<string, unknown>>[],
   roots: readonly number[] | null,
   who: string,
-  ids: readonly number[] | null = null,
-): Material {
+  ids: readonly number[] | null,
+  replaced: Uint8Array | null,
+): LandedEdges | null {
   const declared = m.store.edgeAttrNames;
-  const already = existingPairs(m, pairs);
+  const already = existingPairs(m, pairs, replaced);
   const seen = new Set<number>();
   const held = new Set<number>();
   const keep: number[] = [];
@@ -1570,21 +1588,128 @@ export function addEdgeRows(
     keep.push(k);
     records.push(cells);
   }
-  if (keep.length === 0) return m;
-  const p = partsOf(m);
-  const ends: number[] = [];
-  for (const k of keep) ends.push(pairs[k][0], pairs[k][1]);
-  p.edgeList = p.edgeList.append(ends);
-  for (const name of extra) p.edgeAttrs[name] = reader.kindOf(name).filled(m.edgeCount);
-  for (const name in p.edgeAttrs) p.edgeAttrs[name] = joinColumns(p.edgeAttrs[name], kindOf(p.edgeAttrs[name]).from(records.map((r) => r[name] ?? reader.fallback(name))));
+  if (keep.length === 0) return null;
   const given = keep.map((k) => (ids === null ? NaN : ids[k]));
   const minted = mintIds(given.filter((id) => Number.isNaN(id)).length);
   let next = 0;
   const rowIds = given.map((id) => (Number.isNaN(id) ? minted[next++] : id));
-  p.edgeIds = p.edgeIds.append(rowIds);
-  p.edgeRoots = p.edgeRoots.append(keep.map((k, j) => (roots !== null && roots[k] >= 0 ? roots[k] : rowIds[j])));
-  if (p.edgeKeys !== null) p.edgeKeys = p.edgeKeys.append(keep.map(() => ''));
-  return make(m, p);
+  const rowRoots = keep.map((k, j) => (roots !== null && roots[k] >= 0 ? roots[k] : rowIds[j]));
+  return { keep, records, extra, reader, ids: rowIds, roots: rowRoots };
+}
+
+/** `col` with `values[k]` at row `rows[k]` and `more` after its last row:
+ * every leaf neither reaches is shared. */
+function placed(col: AnyColumn, rows: readonly number[], values: readonly unknown[], more: readonly unknown[]): AnyColumn {
+  const w: AnyWriter = col.writer(rows);
+  for (let k = 0; k < rows.length; k++) w.set(rows[k], values[k]);
+  const out = w.done();
+  return more.length === 0 ? out : joinColumns(out, kindOf(out).from(more));
+}
+
+/** The parts of `m` with the landed rows in: landed row `j` in place of
+ * edge row `into[j]` of `m`, or after the last row where that is -1, in
+ * order. Every leaf of every edge column that no row reaches is shared. */
+function placeEdgeRows(m: Material, pairs: readonly (readonly [number, number])[], got: LandedEdges, into: readonly number[]): Parts {
+  const { keep, records, extra, reader, ids, roots } = got;
+  const inPlace: number[] = [];
+  const after: number[] = [];
+  for (let j = 0; j < keep.length; j++) (into[j] >= 0 ? inPlace : after).push(j);
+  const rows = inPlace.map((j) => into[j]);
+  const p = partsOf(m);
+  const ends = (js: readonly number[]): number[] => js.flatMap((j) => pairs[keep[j]]);
+  const list = p.edgeList.writer(rows.flatMap((r) => [2 * r, 2 * r + 1]));
+  const at = ends(inPlace);
+  rows.forEach((r, k) => {
+    list.set(2 * r, at[2 * k]);
+    list.set(2 * r + 1, at[2 * k + 1]);
+  });
+  p.edgeList = list.done().append(ends(after));
+  // A column a new row declares is its kind's default — 0 for numbers — on
+  // every row that was already there.
+  for (const name of extra) p.edgeAttrs[name] = reader.kindOf(name).filled(m.edgeCount);
+  for (const name in p.edgeAttrs) {
+    const value = (j: number): unknown => records[j][name] ?? reader.fallback(name);
+    p.edgeAttrs[name] = placed(p.edgeAttrs[name], rows, inPlace.map(value), after.map(value));
+  }
+  p.edgeIds = placed(p.edgeIds, rows, inPlace.map((j) => ids[j]), after.map((j) => ids[j])) as Column;
+  p.edgeRoots = placed(p.edgeRoots, rows, inPlace.map((j) => roots[j]), after.map((j) => roots[j])) as Column;
+  // A row a write makes has no kernel name: the 3D layer names it.
+  if (p.edgeKeys !== null) p.edgeKeys = placed(p.edgeKeys, rows, rows.map(() => ''), after.map(() => '')) as StringColumn;
+  return p;
+}
+
+/** @internal Add edge rows between point rows (-1: gone), one column record,
+ * one id (NaN: mint one) and one lineage root (-1: its own) per row, after
+ * the last row. Gone, self and already — a pair that is an edge, or an id
+ * the geometry holds — are skipped, as is a row with a value that is not
+ * finite. */
+export function addEdgeRows(
+  m: Material,
+  pairs: readonly (readonly [number, number])[],
+  cols: readonly Readonly<Record<string, unknown>>[],
+  roots: readonly number[] | null,
+  who: string,
+  ids: readonly number[] | null = null,
+): Material {
+  const got = landEdgeRows(m, pairs, cols, roots, who, ids, null);
+  if (got === null) return m;
+  return make(m, placeEdgeRows(m, pairs, got, got.keep.map(() => -1)));
+}
+
+/**
+ * @internal Edge rows of `m` swapped for their pieces: pair `k` (with its
+ * column record and lineage root, -1: its own) is a piece of edge row
+ * `of[k]`, and its id is minted. Each swapped row is retired. Its first
+ * piece that lands takes its row; every other piece goes after the last
+ * row, in the order asked. So the new state shares every leaf of every
+ * edge column that no piece reaches — a split of one edge rewrites one
+ * leaf and the last — and every other edge keeps its row. A row none of
+ * whose pieces lands is removed, and the rows after it move up. A piece is
+ * skipped as `addEdgeRows` skips a row; a pair that is only the edge of a
+ * swapped row is not an edge already.
+ *
+ * Answers the new state and, for each of its edge rows that is a piece,
+ * the row of `m` it is a piece of (a sparse list).
+ */
+function swapEdgeRows(
+  m: Material,
+  pairs: readonly (readonly [number, number])[],
+  cols: readonly Readonly<Record<string, unknown>>[],
+  roots: readonly number[] | null,
+  of: readonly number[],
+  who: string,
+): { out: Material; from: number[] } {
+  const swapped = new Uint8Array(m.edgeCount);
+  for (const r of of) swapped[r] = 1;
+  const got = landEdgeRows(m, pairs, cols, roots, who, null, swapped);
+  const taken = new Uint8Array(m.edgeCount);
+  const into: number[] = [];
+  for (const k of got?.keep ?? []) {
+    const r = of[k];
+    into.push(taken[r] === 0 ? r : -1);
+    taken[r] = 1;
+  }
+  let out = got === null ? m : make(m, placeEdgeRows(m, pairs, got, into));
+  // Sparse, as `linkMade` keeps it.
+  let from: number[] = [];
+  let tail = m.edgeCount;
+  got?.keep.forEach((k, j) => {
+    from[into[j] >= 0 ? into[j] : tail++] = of[k];
+  });
+  const gone: number[] = [];
+  for (let r = 0; r < m.edgeCount; r++) if (swapped[r] === 1 && taken[r] === 0) gone.push(r);
+  if (gone.length > 0) {
+    out = removeEdgeRows(out, gone);
+    const moved: number[] = [];
+    let at = 0;
+    for (let r = 0, g = 0; r < from.length; r++) {
+      if (g < gone.length && gone[g] === r) { g++; continue; }
+      if (from[r] !== undefined) moved[at] = from[r];
+      at++;
+    }
+    from = moved;
+  }
+  return { out, from };
 }
 
 /**
@@ -1772,12 +1897,13 @@ export function extrude(m: Material, from: PointEnd | undefined, offset: XY | re
 
 /**
  * `g.split(edges, at?)`: for each edge, add the point `at` of the way along
- * it (its columns by the transfer rules), remove the edge, and add the two
+ * it (its columns by the transfer rules) and swap the edge for the two
  * edges through the new point, which keep the parent's lineage root and
- * share its columns (`'copy'` or `'distribute'`). `at` is a number or a
- * function of the edge, default 0.5; one that is not finite skips that
- * edge, and one outside 0…1 is read as the nearer end, where a cut makes
- * nothing.
+ * share its columns (`'copy'` or `'distribute'`). The parent is retired:
+ * the child from its first end takes its row, and the other child goes
+ * after the last row. `at` is a number or a function of the edge, default
+ * 0.5; one that is not finite skips that edge, and one outside 0…1 is read
+ * as the nearer end, where a cut makes nothing.
  */
 export function split(m: Material, edges: unknown, at: number | ((e: Edge) => number) = 0.5): Material {
   const who = 'split';
@@ -1810,10 +1936,10 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
   }
   if (cut.length === 0) return m;
   const withPoints = addPointRows(m, cut.map((c) => c.x), cut.map((c) => c.y), cut.map((c) => c.point), null, who);
-  const without = removeEdgeRows(withPoints, cut.map((c) => c.e));
   const pairs: [number, number][] = [];
   const childCols: Record<string, unknown>[] = [];
   const roots: number[] = [];
+  const of: number[] = [];
   cut.forEach(({ e, children }, k) => {
     const a = atU32(list, 2 * e);
     const b = atU32(list, 2 * e + 1);
@@ -1821,41 +1947,34 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     pairs.push([a, mid], [mid, b]);
     childCols.push(...children);
     roots.push(at64(edgeRoots, e), at64(edgeRoots, e));
+    of.push(e, e);
   });
-  const out = addEdgeRows(without, pairs, childCols, roots, who);
+  const { out, from } = swapEdgeRows(withPoints, pairs, childCols, roots, of, who);
   // A new point and the two edges through it came from the edge it cut:
   // that edge's row of the value split was given.
-  const from = new Map<number, number>();
-  pairs.forEach((pair, k) => from.set(pairKey(pair[0], pair[1]), cut[k >> 1].e));
-  return linkMade(m, out, cut.map((c) => c.e), without.edgeCount, from, derivation('split', [m], { at }));
+  return linkMade(m, out, cut.map((c) => c.e), from, derivation('split', [m], { at }));
 }
 
 /**
  * A recipe's result, linked to the value it was given: point row `m.n + k`
- * of `out` came from input edge `pointFrom[k]`, and every edge row from
- * `edgeBase` on from the input edge its two ends name in `edgeFrom` (-1 or
- * absent: from none). A row the recipe did not make keeps what it answered
- * before (derivation.ts): its layer here says nothing about it.
+ * of `out` came from input edge `pointFrom[k]`, and edge row `e` from input
+ * edge `edgeFrom[e]` (a sparse list: a hole is a row the recipe did not
+ * make). A row the recipe did not make keeps what it answered before
+ * (derivation.ts): its layer here says nothing about it.
  */
-function linkMade(m: Material, out: Material, pointFrom: readonly number[], edgeBase: number, edgeFrom: ReadonlyMap<number, number>, node: ReturnType<typeof derivation>): Material {
+function linkMade(m: Material, out: Material, pointFrom: readonly number[], edgeFrom: number[], made: Made): Material {
   if (out === m) return m;
   // Sparse: only the rows the recipe made hold a number, so a long run of
-  // recipes keeps one entry a made row, not one a row of the state.
+  // recipes keeps one entry a made row, not one a row of the state. The
+  // lists never have their length set: a set length makes V8 hold a slot
+  // for every row (a 64k ring split 200 times kept 105 MB of them).
   const points: number[] = [];
-  points.length = out.n;
   for (let k = 0; k < pointFrom.length && m.n + k < out.n; k++) points[m.n + k] = pointFrom[k];
-  const edges: number[] = [];
-  edges.length = out.edgeCount;
-  const list = out.store.edgeList;
-  for (let e = edgeBase; e < out.edgeCount; e++) {
-    const src = edgeFrom.get(pairKey(atU32(list, 2 * e), atU32(list, 2 * e + 1)));
-    if (src !== undefined && src >= 0) edges[e] = src;
-  }
   linkRows(out, {
     points: { source: { of: m, domain: 'edges', rows: points } },
-    edges: { source: { of: m, domain: 'edges', rows: edges } },
+    edges: { source: { of: m, domain: 'edges', rows: edgeFrom } },
   });
-  return record(out, node);
+  return record(out, made);
 }
 
 /** How a motif lands on an edge in `replace`. */
@@ -1962,10 +2081,9 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
   const cols: Record<string, unknown>[] = [];
   // The replaced edge each new point and each new edge came from.
   const pointFrom: number[] = [];
-  const edgeFrom = new Map<number, number>();
   const pairs: [number, number][] = [];
   const pairCols: Record<string, unknown>[] = [];
-  const gone: number[] = [];
+  const of: number[] = [];
   const view = edgeReader(m, rows.length);
   for (const row of rows) {
     const e = view(row);
@@ -1983,7 +2101,6 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
     const child = edgeCells(m, row, 1 / (local.length + 1));
     const cells = local.map(([along]) => cellsBetween(m, e.a.index, e.b.index, along));
     if (!landsRecord(child) || !cells.every(landsRecord)) continue;
-    gone.push(row);
     // Two positions this close are one place worked out twice: the motifs
     // of two walls that meet at a tip, or a tip on a corner.
     const tol = WELD * Math.hypot(ex, ey);
@@ -2001,20 +2118,20 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
       if (at !== from) {
         pairs.push([from, at]);
         pairCols.push(child);
-        if (!edgeFrom.has(pairKey(from, at))) edgeFrom.set(pairKey(from, at), row);
+        of.push(row);
       }
       from = at;
     });
     if (from !== e.b.index) {
       pairs.push([from, e.b.index]);
       pairCols.push(child);
-      if (!edgeFrom.has(pairKey(from, e.b.index))) edgeFrom.set(pairKey(from, e.b.index), row);
+      of.push(row);
     }
   }
-  if (gone.length === 0) return m;
-  const withPoints = addPointRows(removeEdgeRows(m, gone), xs, ys, cols, null, who);
-  const out = addEdgeRows(withPoints, pairs, pairCols, null, who);
-  return linkMade(m, out, pointFrom, withPoints.edgeCount, edgeFrom, derivation('replace', [m, motif], { flip }));
+  if (of.length === 0) return m;
+  const withPoints = addPointRows(m, xs, ys, cols, null, who);
+  const { out, from } = swapEdgeRows(withPoints, pairs, pairCols, null, of, who);
+  return linkMade(m, out, pointFrom, from, derivation('replace', [m, motif], { flip }));
 }
 
 /**

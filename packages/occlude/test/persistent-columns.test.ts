@@ -13,17 +13,20 @@ import { toolkit } from './helpers/run.js';
 
 const ring = (n: number) => curve(Array.from({ length: n }, (_, i) => [Math.cos((i / n) * 2 * Math.PI) * 40 + 50, Math.sin((i / n) * 2 * Math.PI) * 40 + 50] as [number, number]), { closed: true });
 
-/** The heap a value keeps alive, in MB: collected before it is made and
- * again after, with the value still held. */
+/** The memory a value keeps alive, in MB: the JS heap plus the array
+ * buffers (column leaves are typed arrays, which `heapUsed` does not
+ * count), collected twice before it is made and twice after, with the value
+ * still held. */
 const kept: unknown[] = [];
 setFlagsFromString('--expose-gc');
 const gc = runInNewContext('gc') as () => void;
+const used = (): number => { const m = process.memoryUsage(); return m.heapUsed + m.arrayBuffers; };
 const retainedMB = (make: () => unknown): number => {
-  gc();
-  const before = process.memoryUsage().heapUsed;
+  gc(); gc();
+  const before = used();
   kept.push(make());
-  gc();
-  const mb = (process.memoryUsage().heapUsed - before) / 1e6;
+  gc(); gc();
+  const mb = (used() - before) / 1e6;
   kept.length = 0;
   return mb;
 };

@@ -33,7 +33,7 @@
  */
 
 import { Column, at64 } from './column.js';
-import { Material, cached, geodesicEdges, vertexView, typedCell, type Edge, type Vertex } from './material.js';
+import { Material, arealess, cached, geodesicEdges, vertexView, typedCell, type Edge, type Vertex } from './material.js';
 import { walkChains, type Chain } from './chains.js';
 import { Selection, select, domainKind, rowRange, isSelectionOf, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
 import { pointDomain, edgesOf, pointsOf, extractRows, endpointRows, sameLineage } from './relation.js';
@@ -346,8 +346,10 @@ const CURVE_PROTO = Object.freeze(Object.create(Object.prototype, {
     get(this: Curve) { const h = home.get(this)!; return edgesOf(h.table.owner, Array.from(h.table.chains[h.r].edges), undefined, true); },
     enumerable: false,
   },
+  // A value in space with no stated faces has no area (`arealess`), and
+  // nor has a curve of it.
   contours: {
-    value(this: Curve): IsoContour[] { const h = home.get(this)!; return contourOf(h.table.chains[h.r]); },
+    value(this: Curve): IsoContour[] { const h = home.get(this)!; return arealess(h.table.owner) ? [] : contourOf(h.table.chains[h.r]); },
     enumerable: false,
   },
 }) as object);
@@ -420,8 +422,9 @@ const CURVES: DomainKind = domainKind('curve', 'curves', {
   edges: { get(this: CurveSel) { return edgesOf(this.domain.owner, memberEdges(this), undefined, true); } },
   /** Itself: a curve selection is already curves. */
   curves: { get(this: CurveSel) { return this; } },
-  /** The rings among the members, as areas. */
-  contours: { value(this: CurveSel): IsoContour[] { return this.indices.flatMap((r) => contourOf(this.domain.chains[r])); } },
+  /** The rings among the members, as areas: none for a value in space
+   * with no stated faces (`arealess`). */
+  contours: { value(this: CurveSel): IsoContour[] { return arealess(this.domain.owner) ? [] : this.indices.flatMap((r) => contourOf(this.domain.chains[r])); } },
   /** Independent material of the members' edges and their ends, every
    * column and id kept, the edges in walk order. */
   extract: { value(this: CurveSel): Material {

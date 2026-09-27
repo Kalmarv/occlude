@@ -169,7 +169,7 @@ A recipe is a few writes with one name. You can write the recipe, or you can wri
 | `g.replace(edges, motif, opts?)` | for each edge: remove the edge, add the inner points of the motif, add the edges of the motif |
 | `g.move(...by, where?)` | set `x` and `y` in one instant |
 
-New rows go at the end of their table.
+New rows go at the end of their table. A split and a replace are different. The first new edge takes the row of the edge that it replaces, and the other new edges go at the end. So each other edge keeps its row. The order of `g.edges` is then not the order that the writes give.
 
 ## extrude()
 
@@ -194,7 +194,7 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
 
 <include>/_sig/Material.split.mdx</include>
 
-`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. An `at` outside 0 to 1 cuts nothing. A point column goes to the new point by its transfer policy. The new point and the two new edges answer the old edge as their `source`. In `t.steps`, a row that a step makes answers `source` for one step. The next pass can read it, and the state after that forgets it. The value that `t.steps` returns answers for its last step. The two edges share its columns by the edge policy. Below, each step splits the edges that are longer than 12.
+`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. An `at` outside 0 to 1 cuts nothing. A point column goes to the new point by its transfer policy. The new point and the two new edges answer the old edge as their `source`. In `t.steps`, a row that a step makes answers `source` for one step. The next pass can read it, and the state after that forgets it. The value that `t.steps` returns answers for its last step. The two edges share its columns by the edge policy. The edge from `a` takes the row of the old edge, and the edge to `b` goes at the end. Below, each step splits the edges that are longer than 12.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';

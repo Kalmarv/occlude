@@ -33,10 +33,11 @@ describe('transfer contracts (con2 stage B)', () => {
       .edges.set('rest', (e) => (e.index === 0 ? 10 : 30), { transfer: 'distribute' });
     expect(base.edgeTransfers).toEqual({ rest: 'distribute' });
     // split at 0.25: the copy column repeats, the distributed one shares 10
-    // into 2.5 + 7.5; the children are new rows, at the end
+    // into 2.5 + 7.5; the first child takes the parent's row, the second
+    // goes last
     const split = base.split(base.edge(0), 0.25);
-    expect(Array.from(split.edgeAttrs.pen)).toEqual([2, 1, 1]);
-    expect(Array.from(split.edgeAttrs.rest)).toEqual([30, 2.5, 7.5]);
+    expect(Array.from(split.edgeAttrs.pen)).toEqual([1, 2, 1]);
+    expect(Array.from(split.edgeAttrs.rest)).toEqual([2.5, 30, 7.5]);
     expect(split.edgeTransfers.rest).toBe('distribute');
     // resample into 4 edges of 5 mm each: each covers half a source edge → 5, 5, 15, 15; pen by midpoint
     const rs = base.resample({ count: 5 });

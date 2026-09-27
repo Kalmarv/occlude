@@ -1885,7 +1885,8 @@ export class Material {
   /**
    * Each edge cut at `at` of the way along it (a → b as stored), default
    * the middle: add the point, remove the edge, add the two edges through
-   * the point. Point columns cross by their transfer policy; the two new
+   * the point. The piece from `a` takes the parent's row; the other goes
+   * after the last row. Point columns cross by their transfer policy; the two new
    * edges keep the parent's lineage root and take its columns, a
    * `'distribute'` one by each part's share. `at` may be a function of the
    * edge; one that is not finite skips that edge, and one outside 0…1 is

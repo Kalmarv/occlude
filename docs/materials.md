@@ -1123,7 +1123,7 @@ const grown = t.steps(40, ring, (g) => {
 
 `moved.edges` are the moved lengths; `g.edges` would be the lengths before the move.
 
-A reference is a view or a value from `point(…)` or `edge(…)`. A selection or a view of an earlier state names its rows by identity, so it still reaches them in a later state, and a row that is gone is skipped. New rows go at the end of their table. A split point takes its columns by each column's transfer policy, and the two new edges share the parent's edge columns.
+A reference is a view or a value from `point(…)` or `edge(…)`. A selection or a view of an earlier state names its rows by identity, so it still reaches them in a later state, and a row that is gone is skipped. New rows go at the end of their table, except that the first new edge of a split takes the row of the edge it cuts. A split point takes its columns by each column's transfer policy, and the two new edges share the parent's edge columns.
 
 A pass takes one argument. A pass that needs the step count keeps a count of its own: a column (`g.points.set('age', (p) => p.age + 1)`), or a generation that each new point takes from its parent. `force.drift` knows the step, so it turns without one.
 
@@ -1831,7 +1831,7 @@ Attributes carry across operations by a policy declared once on the column and h
 | `points.set(col, v, where?, { transfer })`, `edges.set(col, v, where?, { transfer })` | `'interpolate'` (default) or `'nearest'` for categorical values | `'copy'` (default) or `'distribute'` for a quantity shared by length | rows kept, history dropped |
 | `connect.*`, `edges.add` | | every declared column must be given for a new edge | kept; new edges at the end |
 | `append(a, b, { fill, edgeFill })` | columns must match or be filled | same | b's rows after a's |
-| `split`, `extrude`, `points.add` | a split vertex inherits by the policy; a new point must give every column | children copy or share the parent | new rows at the end |
+| `split`, `extrude`, `points.add` | a split vertex inherits by the policy; a new point must give every column | children copy or share the parent | new rows at the end; a split's first child takes the parent's row |
 | `resample` | by the policy, or a per-call `transfer: { col: 'nearest' \| constant \| fn }` | `'copy'` takes the source edge under the new edge's midpoint; `'distribute'` sums each covered source edge's share | rows renumbered |
 | `along` | onto each point by the policy, or a per-call `transfer` | onto each point: `'copy'` takes the edge under the point; `'distribute'` sums the share of the curve nearer this point than its neighbours | a new material of points, no edges; the source is untouched |
 | `planarize` | candidates from every edge through the event; disagreeing ones need `point(event)` | children copy or share, then `edges(parent, child)` | rows renumbered |
