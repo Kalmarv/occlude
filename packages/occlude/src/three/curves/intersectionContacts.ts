@@ -26,8 +26,8 @@ export interface IntersectionContacts3 {
 const cache=new WeakMap<SurfaceBinding3,PreparedIntersectionSource3>();
 function* prepare(binding:SurfaceBinding3):Generator<void,PreparedIntersectionSource3>{
  const previous=cache.get(binding);if(previous)return previous;
- const topology=yield*triangulationJob3(binding.source),bounds:WorldBounds3[]=[],planes:H[]=[],corners=new Float64Array(9*binding.source.triangles.length);
- for(let i=0;i<binding.source.triangles.length;i++){
+ const topology=yield*triangulationJob3(binding.source),bounds:WorldBounds3[]=[],planes:H[]=[],corners=new Float64Array(9*binding.source.triangleCount);
+ for(let i=0;i<binding.source.triangleCount;i++){
   const triangle=bindingTriangle3(binding,i);planes.push(canonicalPlane3(plane(...triangle)));
   // `pointNumber` of a vertex is the binary64 coordinate it was built from,
   // so these are the stored doubles the bounds already read.
@@ -44,9 +44,9 @@ export function* intersectionContactsJob3(a:SurfaceBinding3,b:SurfaceBinding3,op
  validateSurfaceBinding3(a);validateSurfaceBinding3(b);
  const maxInputTriangles=options.maxInputTriangles??Infinity,maxInputPoints=options.maxInputPoints??Infinity,maxCandidates=options.maxCandidates??Infinity,maxContacts=options.maxContacts??Infinity,maxContactPoints=options.maxContactPoints??Infinity,maxExactBytes=options.maxExactBytes??Infinity,maxCoordinateBits=options.maxCoordinateBits??32768;
  if([maxInputTriangles,maxInputPoints,maxCandidates,maxContacts,maxContactPoints,maxExactBytes,maxCoordinateBits].some(v=>!(v===Infinity||Number.isSafeInteger(v))||v<0))throw new Error('intersection budgets must be nonnegative integers');
- const inputTriangles=a.source.triangles.length+b.source.triangles.length;
- if(inputTriangles>maxInputTriangles||a.source.points.length+b.source.points.length>maxInputPoints)throw new Error('intersection input exceeds triangle/point budget');
- for(const binding of [a,b])if(binding.source.faces.length>binding.source.triangles.length)throw new Error('surface faces require fixed triangulation');
+ const inputTriangles=a.source.triangleCount+b.source.triangleCount;
+ if(inputTriangles>maxInputTriangles||a.source.n+b.source.n>maxInputPoints)throw new Error('intersection input exceeds triangle/point budget');
+ for(const binding of [a,b])if(binding.source.faceCount>binding.source.triangleCount)throw new Error('surface faces require fixed triangulation');
  const sourceCacheHits=Number(cache.has(a))+Number(cache.has(b)),left=yield*prepare(a),right=yield*prepare(b),contacts:IntersectionContactRecord3[]=[];
  let candidates=0,rejected=0,points=0,exactBytes=0,pointContacts=0,segmentContacts=0,areaContacts=0;
  for(let i=0;i<left.bounds.length;i++){

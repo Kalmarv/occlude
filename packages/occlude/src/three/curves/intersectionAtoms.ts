@@ -65,8 +65,8 @@ export function* intersectionAtomsJob3(input:IntersectionContacts3,options:Inter
   // A binding meets every other object in a list intersection; its edge set is built once.
   let edges=authorEdgeSets.get(source.binding);
   if(!edges){
-   edges=new Set<string>();for(let i=0;i<source.binding.source.edges.length;i++){
-    const edge=source.binding.source.edges[i];edges.add(edgeKey(...edge.vertices));if((i&1023)===1023)yield;
+   const list=source.binding.source.edges;edges=new Set<string>();for(let i=0;i<source.binding.source.edgeCount;i++){
+    edges.add(edgeKey(list[2*i],list[2*i+1]));if((i&1023)===1023)yield;
    }authorEdgeSets.set(source.binding,edges);
   }authorEdges.push(edges);
  }
@@ -89,7 +89,7 @@ export function* intersectionAtomsJob3(input:IntersectionContacts3,options:Inter
      const wa=triangleWeights(triangle,atom.a),wb=wa&&triangleWeights(triangle,atom.b);
      if(wa&&wb){
       chargeSupports(1);supports.push(Object.freeze({source:s,triangle:triangleIndex}));
-      const vertices=source.binding.source.triangles[triangleIndex].vertices;
+      const vertices=source.binding.source.triangle(triangleIndex);
       for(let k=0;k<3;k++)if(wa[k]===0n&&wb[k]===0n&&authorEdges[s].has(edgeKey(vertices[(k+1)%3],vertices[(k+2)%3])))onAuthorEdge[s]=true;
      }
     }

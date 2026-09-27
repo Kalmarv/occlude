@@ -28,8 +28,8 @@ describe('owned polygon corner storage',()=>{
  it('keeps corner-to-vertex correspondence under mirrors and fixed nonplanar triangles',()=>{
   const s=pair(),mirrored=transformSurface3(s,{scale:[-2,3,1]});
   expect(mirrored.faces[0].corners!.map(c=>c.id)).toEqual([...s.faces[0].corners!].reverse().map(c=>c.id));
-  const bent=assembleSurface3(s.points.map((p,i)=>({...p,position:[p.position[0],p.position[1],i===2?.5:0] as const})),s.faces,s.triangles,s);
-  bent.triangles.forEach((t,i)=>expect(triangleCorners3(bent,i).map(c=>bent.faces[t.face].vertices[c])).toEqual(t.vertices));
+  const bent=mesh3(pairValue().displace(p=>[0,0,p.index===2?.5:0]));
+  for(let i=0;i<bent.triangleCount;i++)expect(triangleCorners3(bent,i).map(c=>bent.loops[bent.triangleFace[i]][c])).toEqual([...bent.triangle(i)]);
  });
  it('interpolates each seam side independently during subdivision',()=>{
   const s=pairValue().subdivide(1);expect(s.faces.length).toBe(8);

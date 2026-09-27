@@ -1,4 +1,5 @@
 import {afterEach,it,expect,vi} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {GpuSceneCompute3} from '../src/compute/webgpu/scene.js';
 import {GpuIntervals3} from '../src/compute/webgpu/interval.js';
 import {GpuSurfaceQueries3} from '../src/compute/webgpu/queries.js';
@@ -17,7 +18,7 @@ function host(memoryBudgetBytes=4096){
 }
 it('reuses owned targets, evicts least-recently-used targets and disposes every allocation once',async()=>{
  const {compute,create,disposed}=host(),targets=Array.from({length:5},(_,i)=>plane(2).translate([0,0,i]));
- const run=(i:number)=>compute.query(surfaceOf(targets[i]),{nearest:[{point:[0,0,8]}]});
+ const run=(i:number)=>compute.query(mesh3(targets[i]),{nearest:[{point:[0,0,8]}]});
  const first=await run(0),again=await run(0);expect(first.stats.targetCacheHit).toBe(false);expect(first.stats.targetUploadBytes).toBe(96);expect(again.stats.targetCacheHit).toBe(true);expect(again.stats.targetUploadBytes).toBe(0);expect(create).toHaveBeenCalledTimes(1);
  for(let i=1;i<5;i++)await run(i);expect(disposed[0]).toHaveBeenCalledTimes(1);
  expect((await run(1)).stats.targetCacheHit).toBe(true);expect((await run(0)).stats.targetCacheHit).toBe(false);expect(disposed[2]).toHaveBeenCalledTimes(1);
@@ -25,8 +26,8 @@ it('reuses owned targets, evicts least-recently-used targets and disposes every 
 });
 it('reserves scratch capacity while bounding retained targets, and leaves cache intact on pre-cancellation',async()=>{
  const {compute,create,disposed,budgets}=host(400),targets=[plane(),plane(),plane()];
- for(const target of targets)await compute.query(surfaceOf(target),{nearest:[]});
+ for(const target of targets)await compute.query(mesh3(target),{nearest:[]});
  expect(budgets).toEqual([296,296,296]);expect(disposed[0]).toHaveBeenCalledTimes(1); // Only two 96-byte targets fit beside 200 bytes of scratch.
- const controller=new AbortController();controller.abort();await expect(compute.query(surfaceOf(targets[2]),{}, {signal:controller.signal})).rejects.toThrow();expect(create).toHaveBeenCalledTimes(3);
- expect((await compute.query(surfaceOf(targets[2]),{})).stats.targetCacheHit).toBe(true);await compute.dispose();expect(disposed.every(d=>d.mock.calls.length===1)).toBe(true);
+ const controller=new AbortController();controller.abort();await expect(compute.query(mesh3(targets[2]),{}, {signal:controller.signal})).rejects.toThrow();expect(create).toHaveBeenCalledTimes(3);
+ expect((await compute.query(mesh3(targets[2]),{})).stats.targetCacheHit).toBe(true);await compute.dispose();expect(disposed.every(d=>d.mock.calls.length===1)).toBe(true);
 });

@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {describe,it,expect} from 'vitest';
 import {mesh} from 'occlude/3d';
 import {surfaceBinding3} from '../src/three/curves/network.js';
@@ -10,7 +11,7 @@ const fixtures=JSON.parse(readFileSync(new URL('./fixtures/intersection-boxes.js
 const faces=[[3,2,1,0],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]] as const;
 const make=(rows:number[][])=>{
  const p=[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
- return surfaceBinding3(surfaceOf(mesh(p.map(sign=>sign.map((s,i)=>rows[i][s>0?1:0]) as [number,number,number]),faces)));
+ return surfaceBinding3(mesh3(mesh(p.map(sign=>sign.map((s,i)=>rows[i][s>0?1:0]) as [number,number,number]),faces)));
 };
 const rat=(value:string):[bigint,bigint]=>{const [n,d]=value.split('/');return [BigInt(n),BigInt(d??1)]};
 const cmp=(a:string,b:string)=>{const [an,ad]=rat(a),[bn,bd]=rat(b),v=an*bd-bn*ad;return v<0n?-1:v>0n?1:0;};

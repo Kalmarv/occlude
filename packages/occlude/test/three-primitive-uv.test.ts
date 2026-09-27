@@ -1,4 +1,5 @@
 import {describe,expect,it,expectTypeOf} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {box,cone,cylinder,plane,curve,revolve,sphere,sweep,torus,instanceOnPoints,parametricCurve} from '../src/three/api/index.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 import {surfaceOf} from '../src/three/geometry/value.js';
@@ -23,7 +24,7 @@ function checkLocations<C extends {readonly uv:UV;readonly chart:string}>(mesh:M
   const typedChart:string=mesh.corners.at(0)!.chart;
   void typedUV; void typedChart;
   for(let i=0;i<surfaceOf(mesh).triangles.length;i++){
-    const location=surfaceLocation3(surfaceOf(mesh),i,[.2,.3,.5]);
+    const location=surfaceLocation3(mesh3(mesh),i,[.2,.3,.5]);
     expect(location.chartStatus).toBe('regular');
     expect(location.uv).toBeDefined();
     expect(location.chart).toEqual(expect.any(String));

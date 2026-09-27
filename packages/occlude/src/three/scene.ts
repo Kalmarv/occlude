@@ -7,6 +7,7 @@ import type { ToneRecipe3 } from './surface/tone.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
 import { snapshotSurface3 } from './geometry/model.js';
 import { stageSurface3, type StageSurface3 } from './geometry/value.js';
+import { meshOfSurface3 } from './geometry/parts.js';
 import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
 import type { ClassifiedScene3 } from './visibility/scene.js';
 import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
@@ -57,9 +58,9 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
   // A geometry is read through its working view.
   const objects: readonly SurfaceObject3[] = (options.objects ?? []).map(object => ({ ...object, surface: stageSurface3(object.surface) }));
   for(const object of objects) {
-    if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
+    if(object.curves)validateSurfaceCurves3(object.curves,meshOfSurface3(object.surface));
     if(object.hatch)validateHatch3(object.hatch,object.surface);
-    if(object.binding)objectSurfaceBinding3(object);
+    if(object.binding)objectSurfaceBinding3({...object,mesh:meshOfSurface3(object.surface)});
   }
   for(const entry of options.curves??[])if(entry.network)validateSurfaceCurveNetwork3(entry.network);
   return Object.freeze({
@@ -67,7 +68,7 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     id: options.id,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze(objects.map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,surface:captureSurface(object.surface)}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)), ...(object.radialCentre?{ radialCentre: freeze([...object.radialCentre]) as typeof object.radialCentre }:{}) }))),
+    objects: Object.freeze(objects.map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,mesh:meshOfSurface3(captureSurface(object.surface))}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)), ...(object.radialCentre?{ radialCentre: freeze([...object.radialCentre]) as typeof object.radialCentre }:{}) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
     curves:Object.freeze((options.curves??[]).map(entry=>Object.freeze({...entry,attributes:freeze(structuredClone(entry.attributes))}))),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),

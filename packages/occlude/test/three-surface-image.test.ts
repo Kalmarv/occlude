@@ -1,4 +1,5 @@
 import {describe,expect,it} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import { sketch } from '../src/index.js';
 import { assetTable, compileSketch } from '../src/host.js';
 import {image} from '../src/imageAsset.js';
@@ -44,7 +45,7 @@ describe('image chart bridge',()=>{
   });
   it('reads the location context produced by ordinary surface sampling',()=>{
     const img=image(assets,'tone.png'),lum=img.surface();
-    const sheet=plane(2),location=surfaceLocation3(surfaceOf(sheet),0,[1/3,1/3,1/3]);
+    const sheet=plane(2),location=surfaceLocation3(mesh3(sheet),0,[1/3,1/3,1/3]);
     expect(location.uv).toBeDefined();
     expect(Number.isFinite(lum(location))).toBe(true);
     // A toolkit image carries the same bridge inside a sketch.

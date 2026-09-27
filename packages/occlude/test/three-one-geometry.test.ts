@@ -7,6 +7,7 @@
  * triangles.
  */
 import {readFileSync} from 'node:fs';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {beforeAll,describe,expect,it} from 'vitest';
 import {sketch,pen,mm,space,circle,curve as chain,type Placement} from '../src/index.js';
 import {compileSketchAsync,initOcclude} from '../src/host.js';
@@ -101,7 +102,7 @@ describe('the 3D words',()=>{
     expect(()=>box(1).union({} as never)).toThrow('union: the second value is not a mesh');
   });
   it('measures a face in space on its fixed triangles',()=>{
-    const s=sphere(1,{segments:8,rings:4}),g=faceGeometry3(surfaceOf(s));
+    const s=sphere(1,{segments:8,rings:4}),g=faceGeometry3(mesh3(s));
     s.faces.forEach((f,i)=>{expect(f.normal).toEqual(g.normals[i]);expect(f.area).toBe(g.areas[i]);expect(f.centroid).toEqual(g.centers[i]);});
     // An edge's middle is in space too.
     const e=box(2).edges.at(0)!;expect(e.center).toEqual([(e.a.x+e.b.x)/2,(e.a.y+e.b.y)/2,(e.a.z+e.b.z)/2]);

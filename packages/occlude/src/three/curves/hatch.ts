@@ -3,6 +3,7 @@ const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 import { resolveLen, type L, type UnitCtx } from '../../units.js';
 import { measureFaces3, snapshotSurface3, type FaceMeasure3 } from '../geometry/model.js';
 import { stageSurface3, type StageSurface3 } from '../geometry/value.js';
+import { meshOfSurface3 } from '../geometry/parts.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import { cameraShift3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
 import { add3, mul3, type Triangle3, type Vec3 } from '../math.js';
@@ -38,7 +39,7 @@ function drawableFamilies3(values:readonly HatchFamily3[]):readonly HatchFamily3
 export function hatch3(input:StageSurface3,families:readonly HatchFamily3[]|((face:FaceMeasure3)=>readonly HatchFamily3[]),options:{maxSegments?:number}={}):HatchSource3 {
   const surface=snapshotSurface3(stageSurface3(input)),maxSegments=options.maxSegments??Infinity;
   if(!(maxSegments===Infinity||Number.isSafeInteger(maxSegments))||maxSegments<1)throw new Error('hatch maxSegments must be a positive integer or Infinity');
-  const rows=measureFaces3(surface).map(face=>{
+  const rows=measureFaces3(meshOfSurface3(surface)).map(face=>{
     const values=drawableFamilies3(typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(face.attributes)})):families);
     return values.map(value=>freezeCurves3(structuredClone(value)));
   });

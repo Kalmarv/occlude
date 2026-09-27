@@ -7,6 +7,7 @@ import {bindingTriangle3,surfaceBinding3,type SurfaceBinding3} from '../curves/n
 import {intersectionContactsJob3,type PreparedIntersectionSource3} from '../curves/intersectionContacts.js';
 import {runGeometryJob3} from './job.js';
 import {worldBounds3,type WorldBounds3} from './bounds.js';
+import {meshOfSurface3} from './parts.js';
 
 /** The three solid operations, named by what they answer, not by a branded
  * algorithm: what is in either solid, what is in the first and not the second,
@@ -91,7 +92,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
     const drawn=new Set(value.triangles.map(t=>t.face));
     if(value.faces.some((_,i)=>!drawn.has(i)))throw new Error(`${operation}: the ${which} mesh has a face with no triangles`);
   }
-  const bindings=[surfaceBinding3(first),surfaceBinding3(second)] as const;
+  const bindings=[surfaceBinding3(meshOfSurface3(first)),surfaceBinding3(meshOfSurface3(second))] as const;
   const contacts=runGeometryJob3(intersectionContactsJob3(bindings[0],bindings[1])).value;
 
   // One pool of welded vertices for both solids. A vertex the two solids share
@@ -118,7 +119,7 @@ export function booleanSurface3(operation:BooleanOperation3,first:Surface3,secon
     return index;
   };
   const sides:Side[]=bindings.map((binding,s)=>{
-    const surface=binding.source;
+    const surface=s===0?first:second;
     const vertices=surface.points.map(p=>vertex(p.position,()=>s===0?p.id:mint('b',p.id),()=>({...p.attributes})));
     const corners=surface.triangles.map(t=>t.vertices.map(v=>vertices[v]));
     const normals=surface.triangles.map(t=>{

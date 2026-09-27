@@ -4,6 +4,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import { inflateSync } from 'node:zlib';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
@@ -277,7 +278,7 @@ const stream = (seed = 1) => { let v = seed >>> 0 || 1; return () => { v ^= v <<
 
 describe('G3-40 a location has uv where its face has a chart, as the fields page says', () => {
   it('reads uv and tangentU on a primitive, and neither on a boolean\'s result', () => {
-    const at = (m: Parameters<typeof surfaceOf>[0]) => surfaceLocation3(surfaceOf(m), 0, [1 / 3, 1 / 3, 1 / 3]);
+    const at = (m: Parameters<typeof surfaceOf>[0]) => surfaceLocation3(mesh3(m), 0, [1 / 3, 1 / 3, 1 / 3]);
     for (const primitive of [box(2), plane(2), sphere(1)]) {
       const s = at(primitive);
       expect(s.chartStatus).toBe('regular');
@@ -305,7 +306,7 @@ describe('G3-41 a lane that turns back on itself is a lane, not an assert', () =
   });
   it('returns a loop found walking backward as one closed lane, its distances running forward', () => {
     const sheet = plane(4, 4).subdivide(4);
-    const env = traceEnvironment3(surfaceOf(sheet), surfaceBinding3(surfaceOf(sheet)));
+    const env = traceEnvironment3(surfaceBinding3(mesh3(sheet)));
     // A seed about one unit from the middle, on a field that turns round it.
     const centre = (t: number) => { const [a, b, c] = surfaceOf(sheet).triangles[t].vertices.map((v) => surfaceOf(sheet).points[v].position); return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]; };
     const triangle = surfaceOf(sheet).triangles.map((_, i) => i).find((i) => Math.abs(Math.hypot(...centre(i)) - 1) < 0.15)!;

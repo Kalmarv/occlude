@@ -62,7 +62,7 @@ import {kindOfValue} from '../../tables.js';
 import {captureSurface3, ownSurface3} from './model.js';
 import {triangulate, type Attribute3, type Attributes3, type Provenance3, type Surface3, type SurfaceCorner3, type SurfaceEdge3, type SurfaceFace3, type SurfacePoint3, type SurfaceTriangle3} from './surface.js';
 import type {Vec3} from '../math.js';
-import {Mesh3} from './mesh3.js';
+import {Mesh3, mesh3} from './mesh3.js';
 import {viewOwner} from './value.js';
 
 /** The domains of the one geometry a 3D value fills. */
@@ -406,6 +406,16 @@ export function surfaceOfParts(parts: ViewParts, lineage: Lineage3 = {}): Surfac
  * surface that is a value's working view is that value's statement for
  * attachment. */
 export function meshOfSurface3(surface: Surface3): Mesh3 {
+  // A view IS its value, row for row and name for name: it reads as the
+  // value's own reader, so bindings and caches kept per reader meet.
+  const owner = viewOwner(surface);
+  if (owner !== undefined && owner.cache.surface === surface) return mesh3(owner);
+  let got = BRIDGED.get(surface);
+  if (got === undefined) BRIDGED.set(surface, (got = bridge(surface)));
+  return got;
+}
+const BRIDGED = new WeakMap<Surface3, Mesh3>();
+function bridge(surface: Surface3): Mesh3 {
   const holes = {sparse: false};
   const corners = surface.faces.flatMap((f) => cornersOf(surface, f));
   const local = surface.faces.map((): number[] => []);
@@ -426,7 +436,7 @@ export function meshOfSurface3(surface: Surface3): Mesh3 {
     loops: surface.faces.map((f) => f.vertices),
     local,
     edges,
-    topology: owner?.stated ?? surface,
+    topology: owner?.stated?.cycles ?? surface,
     ...(owner !== undefined ? {value: owner} : {}),
     names: () => Object.freeze({points: surface.points.map((p) => p.id), edges: surface.edges.map((e) => e.id), faces: surface.faces.map((f) => f.id), corners: corners.map((c) => c.id)}),
     cols: () => Object.freeze({

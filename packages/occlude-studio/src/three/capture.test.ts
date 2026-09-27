@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {surfaceOf} from 'occlude/3d/advanced';
+import {mesh3} from 'occlude/src/three/geometry/mesh3.js';
 import { sketch, pen, mm } from 'occlude';
 import { compileSketchAsync } from 'occlude/host';
 import { lineArt3, box3, section3, hatch3 } from 'occlude/3d/advanced';
@@ -40,7 +40,7 @@ describe('saved 3D input capture',()=>{
   });
   it('persists rational multi-source support in ordinary views without BigInt JSON loss',async()=>{
     const a=mesh([[1,0,0],[0,1,0],[0,0,1]],[[0,1,2]]),b=mesh([[0,0,0],[1,1,0],[0,0,1]],[[0,1,2]]);
-    const curves=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'a',binding:surfaceBinding3(surfaceOf(a))},{id:'b',binding:surfaceBinding3(surfaceOf(b))}],nodes:[{id:'p',point:[1n,1n,1n,3n]},{id:'q',point:[2n,2n,1n,5n]}],segments:[{id:'seam',kind:'intersection',a:'p',b:'q',supports:[{source:0,triangle:0},{source:1,triangle:0}]}]}));
+    const curves=new SurfaceCurves(surfaceCurveNetwork3({sources:[{id:'a',binding:surfaceBinding3(mesh3(a))},{id:'b',binding:surfaceBinding3(mesh3(b))}],nodes:[{id:'p',point:[1n,1n,1n,3n]},{id:'q',point:[2n,2n,1n,5n]}],segments:[{id:'seam',kind:'intersection',a:'p',b:'q',supports:[{source:0,triangle:0},{source:1,triangle:0}]}]}));
     const drawing=view([a,b,curves],{camera:orthographic({eye:[3,4,5],span:2}),pen:'ink'});
     const run=await compileSketchAsync(sketch({pens:{ink:pen({width:mm(.3),color:'#111'})}},()=>drawing));
     const captured=captureThree3(run,context)!,restored=JSON.parse(JSON.stringify(captured)) as typeof captured;

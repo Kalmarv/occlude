@@ -10,8 +10,8 @@
  * of an edited revision of the surface that kept its topology.
  */
 
-import {surfaceLocation3,rebindSurfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
-import {sameAttachmentTopology3} from '../geometry/topology.js';
+import {surfaceLocation3,rebindSurfaceLocation3,locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
+import {mesh3,sameAttachment3,type Mesh3} from '../geometry/mesh3.js';
 import {kinds} from '../../column.js';
 import {Material} from '../../material.js';
 import type {Face} from '../../faces.js';
@@ -25,7 +25,7 @@ import {emptySize,sampleValue} from '../degenerate.js';
 /** A place on a surface, as a sampled point answers it (`p.sample`): the
  * place's position, normals, weights and chart coordinates, and the face
  * row under it. */
-export interface SurfaceSample extends Omit<SurfaceLocation3,'face'|'source'|'faceId'|'vertexIds'|'exact'> {
+export interface SurfaceSample extends Omit<SurfaceLocation3,'face'|'faceId'|'vertexIds'|'exact'> {
   readonly face:Face;
 }
 /** @internal What a scatter tried and what it kept, and why it stopped. */
@@ -41,7 +41,7 @@ export function generationOf(m:Material):SamplingGeneration|undefined {
  * answers: a rebind reads it. */
 const sampleLocations=new WeakMap<SurfaceSample,SurfaceLocation3>();
 function captureSample(location:SurfaceLocation3,face:Face):SurfaceSample {
-  const {source:_source,faceId:_faceId,vertexIds:_vertexIds,exact:_exact,face:_face,...place}=location;
+  const {faceId:_faceId,vertexIds:_vertexIds,exact:_exact,face:_face,...place}=location;
   const sample=Object.freeze({...place,face}) as unknown as SurfaceSample;
   sampleLocations.set(sample,location);return sample;
 }
@@ -68,7 +68,7 @@ export type SurfaceScatterOptions<F=any>=SurfaceScatterBase&(
   });
 type CountOptions=Extract<SurfaceScatterOptions,{readonly count:number}>;
 export interface SurfaceSamplingEnv {readonly rnd:()=>number;readonly signal?:AbortSignal}
-interface Prepared{readonly source:Surface3;readonly faces:readonly Face[];readonly triangles:readonly number[];readonly cumulative:readonly number[];readonly total:number;readonly extent:number;readonly origin:Vec3}
+interface Prepared{readonly source:Surface3;readonly mesh:Mesh3;readonly faces:readonly Face[];readonly triangles:readonly number[];readonly cumulative:readonly number[];readonly total:number;readonly extent:number;readonly origin:Vec3}
 function nonnegativeInteger(value:number,name:string):void{if(!(value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error(`${name} must be a nonnegative integer or Infinity`);}
 function optionsObject(value:unknown):void{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('surface sampling options must be an object');}
 function requireGeometry(target:unknown,who:string):asserts target is Material{if(!(target instanceof Material))throw new Error(`${who} requires a geometry with faces`);}
@@ -87,7 +87,7 @@ function prepare(target:Material,weight:Field<Face,number>|undefined):Prepared{
     const mass=area*(weights[t.face]/maxWeight);if(!(mass>0))return;
     total+=mass;triangles.push(i);cumulative.push(total);
   });
-  return {source,faces,triangles,cumulative,total,extent,origin};
+  return {source,mesh:mesh3(target),faces,triangles,cumulative,total,extent,origin};
 }
 function random(env:SurfaceSamplingEnv):number{const r=env.rnd();if(!Number.isFinite(r)||r<0||r>=1)throw new Error('surface sampling random source must return values in [0,1)');return r;}
 function draw(target:Material,prepared:Prepared,env:SurfaceSamplingEnv,index:number,coordinates:SurfaceCoordinateOptions){
@@ -95,7 +95,7 @@ function draw(target:Material,prepared:Prepared,env:SurfaceSamplingEnv,index:num
   while(lo<hi){const mid=(lo+hi)>>>1;if(q<prepared.cumulative[mid])hi=mid;else lo=mid+1;}
   const source=prepared.source,triangle=prepared.triangles[lo],t=source.triangles[triangle];
   const root=Math.sqrt(random(env)),v=random(env),barycentric=Object.freeze([1-root,root*(1-v),root*v]) as Vec3;
-  const face=prepared.faces[t.face],location=surfaceLocation3(source,triangle,barycentric,{pointTransfers:target.transfers,uvAttribute:coordinates.uvAttribute,chartAttribute:coordinates.chartAttribute});
+  const face=prepared.faces[t.face],location=surfaceLocation3(prepared.mesh,triangle,barycentric,{pointTransfers:target.transfers,uvAttribute:coordinates.uvAttribute,chartAttribute:coordinates.chartAttribute});
   const sample=captureSample(location,face);
   const point:SurfacePoint3={id:JSON.stringify(['sample',index]),position:location.position,attributes:{...source.faces[t.face].attributes,...location.pointColumns},provenance:{operation:'sample',parents:[source.faces[t.face].id]}};
   return {point,sample};
@@ -172,11 +172,11 @@ export function rebindSamples(m:Material,target:Material,options:SurfaceCoordina
   requireGeometry(target,'surface rebind');
   const samples=samplesOf(m);
   if(samples===undefined)throw new Error('rebind: these points carry no surface samples — t.scatter on a geometry with faces makes them');
-  const surface=surfaceOf(target),faces=surface.faces.length?[...target.faces]:[],own=surfaceOf(m);
+  const surface=mesh3(target),faces=surface.faceCount?[...target.faces]:[],own=surfaceOf(m);
   const next:SurfaceSample[]=[];
   const points=own.points.map((point,i)=>{
     const location=sampleLocations.get(samples[i])!;
-    if(!sameAttachmentTopology3(location.source,surface))throw new Error('surface topology or authoring lineage changed; regenerate samples');
+    if(!sameAttachment3(locationMesh3(location)!,surface))throw new Error('surface topology or authoring lineage changed; regenerate samples');
     const rebound=rebindSurfaceLocation3(location,surface,{pointTransfers:target.transfers,...options});
     const fresh=captureSample(rebound,faces[rebound.face]),stats=generations.get(samples[i]);if(stats)generations.set(fresh,stats);next.push(fresh);
     return {...point,position:rebound.position,provenance:{operation:'rebind',parents:[rebound.faceId]}};

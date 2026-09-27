@@ -2,7 +2,7 @@ import {ROW_TYPES,Selection,select,domainKind,rowRange,type Domain,type DomainKi
 import {describe} from '../../views.js';
 import type {Attributes3} from '../geometry/surface.js';
 import {type GeometryOptions} from './mesh.js';
-import {surfaceOf} from '../geometry/value.js';
+import {mesh3} from '../geometry/mesh3.js';
 import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,surfaceCurveNetwork3,bindingTriangle3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3,type SurfaceCurveRecipe3} from '../curves/network.js';
 import {prototypeOf,placedOf} from './instances.js';
 import {identity} from './identity.js';
@@ -177,7 +177,7 @@ export class SurfaceCurves<A extends Attributes3={}> {
  rebind(target:Material|readonly Material[]):SurfaceCurves<A> {
   const targets=(target instanceof Material)?[target]:target;
   if(!Array.isArray(targets)||targets.length!==this.sources.length||targets.some(t=>!(t instanceof Material)))throw new Error('curve rebind requires one mesh per source');
-  const bindings=(targets as readonly Material[]).map((t,i)=>surfaceBinding3(surfaceOf(t),this.sources[i].binding.placement));
+  const bindings=(targets as readonly Material[]).map((t,i)=>surfaceBinding3(mesh3(t),this.sources[i].binding.placement));
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
  /** Repeat prototype-attached marks at every copy of instances.
@@ -190,7 +190,7 @@ export class SurfaceCurves<A extends Attributes3={}> {
   if(prototype===undefined)throw new Error('place: expected instances — instanceOnPoints or instanceOnFaces places the prototype these curves are attached to');
   const network=this.network.reference??this.network;
   if(network.sources.length!==1||network.sources[0].binding.placement)throw new Error('place: these curves are attached to more than one surface, or placed already — place marks attached to one unplaced prototype');
-  if(network.sources[0].binding.source!==surfaceOf(prototype))throw new Error('place: these curves are attached to another prototype than these instances place');
+  if(network.sources[0].binding.source!==mesh3(prototype))throw new Error('place: these curves are attached to another prototype than these instances place');
   const selected=new Set(this.network.segments.map(s=>s.id));
   const sources=placedOf(instances).map(copy=>({id:copy.id,binding:copy.binding}));
   const nodes=sources.flatMap((source,si)=>network.nodes.map(node=>{

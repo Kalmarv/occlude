@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
 import { sketch, dash, mm, pen, wobble } from '../src/index.js';
@@ -18,8 +19,9 @@ beforeAll(async () => {
 });
 
 const frame = cameraFrame3({ kind: 'orthographic', span: 12, eye: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0], near: .1, far: 10 }, { x: 0, y: 0, width: 120, height: 120 });
-const binding = surfaceBinding3(surfaceOf(mesh([[0, 0, 0], [10, 0, 0], [0, 10, 0]], [[0, 1, 2]])));
-const objects = [{ id: 'sheet', surface: binding.source, lineSource: false }];
+const sheet = mesh([[0, 0, 0], [10, 0, 0], [0, 10, 0]], [[0, 1, 2]]);
+const binding = surfaceBinding3(mesh3(sheet));
+const objects = [{ id: 'sheet', surface: sheet, lineSource: false }];
 const p = (id: string, x: number, y: number) => ({ id, point: point([x, y, 0]), supports: [{ source: 0, triangle: 0 }] });
 
 function graph(subdivided = false, order: number[] = []): SurfaceCurveNetwork3 {

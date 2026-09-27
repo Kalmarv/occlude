@@ -1,6 +1,7 @@
 import {chainsOf} from '../../curves.js';
 import {Material} from '../../material.js';
 import {surfaceOf} from '../geometry/value.js';
+import {mesh3} from '../geometry/mesh3.js';
 import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {chartIndexJob3} from '../curves/chartIndex.js';
@@ -78,7 +79,7 @@ function parameter(edge:number,count:number,t:Ratio):Ratio {
 const sameRatio=(a:Ratio,b:Ratio)=>a[0]*b[1]===b[0]*a[1];
 /** Generator orchestration keeps exact construction and graph adoption atomic. */
 export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapping>,onProgress?:(event:{operation:'mapSurface';done:number;total?:number})=>void) {
-  const {mesh,patterns,settings}=captured,surface=surfaceOf(mesh),binding=surfaceBinding3(surface);
+  const {mesh,patterns,settings}=captured,surface=surfaceOf(mesh),binding=surfaceBinding3(mesh3(mesh));
   const charts=yield*chartIndexJob3(surface,settings.uv,settings.chartAttribute,settings.chart);
   // A surface whose corners hold no chart place at all has nowhere to map
   // to; a chart the surface does not carry is a mistake, named with the

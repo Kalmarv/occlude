@@ -1,11 +1,13 @@
 import {describe,it,expect} from 'vitest';
 import {box3} from '../src/three/geometry/surface.js';
+import {mesh} from '../src/three/api/mesh.js';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {measureFaces3,transformSurface3,cloneSurface3,snapshotSurface3} from '../src/three/geometry/model.js';
 import {gridSurface,volume} from './helpers/surfaces.js';
 describe('procedural surface construction',()=>{
   it('measures faces with their areas, normals and adjacency',()=>{
     const s=gridSurface(3,2,[6,4]);expect(s.points).toHaveLength(12);expect(s.faces).toHaveLength(6);expect(s.triangles).toHaveLength(12);
-    const faces=measureFaces3(s);expect(faces.filter(f=>Math.abs(f.area-4)<1e-12).length).toBe(6);expect(faces.filter(f=>f.normal[2]===1).length).toBe(6);
+    const faces=measureFaces3(mesh3(mesh(s)));expect(faces.filter(f=>Math.abs(f.area-4)<1e-12).length).toBe(6);expect(faces.filter(f=>f.normal[2]===1).length).toBe(6);
     expect(faces[0].adjacent).toEqual([1,3]);
   });
   it('applies explicit pivots and keeps mirrored winding outward',()=>{

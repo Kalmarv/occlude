@@ -1,4 +1,4 @@
-import type {Surface3} from '../geometry/surface.js';
+import type {Mesh3} from '../geometry/mesh3.js';
 import {surfaceLocation3,type SurfaceLocation3,type SurfacePlacement3} from '../geometry/location.js';
 import {triangulation3,type SurfaceTriangulation3} from '../geometry/triangulation.js';
 import {bindingPosition3,type SurfaceBinding3} from '../curves/network.js';
@@ -48,7 +48,7 @@ export interface Trace3 {
   readonly length:number;readonly steps:number;
 }
 export interface TraceEnvironment3 {
-  readonly surface:Surface3;readonly binding:SurfaceBinding3;readonly placement?:SurfacePlacement3;
+  readonly mesh:Mesh3;readonly binding:SurfaceBinding3;readonly placement?:SurfacePlacement3;
   readonly topology:SurfaceTriangulation3;
   readonly world:readonly Vec3[];readonly normals:readonly Vec3[];
 }
@@ -61,10 +61,12 @@ export interface TraceHooks3 {
    * skip building surface locations, which dominate a walk's cost. */
   readonly blind?:boolean;
 }
-export function traceEnvironment3(surface:Surface3,binding:SurfaceBinding3):TraceEnvironment3 {
-  const topology=triangulation3(surface),world=surface.points.map((_,i)=>bindingPosition3(binding,i));
-  const normals=surface.triangles.map(t=>{const [a,b,c]=t.vertices.map(v=>world[v]);const n=cross3(sub3(b,a),sub3(c,a)),l=Math.hypot(...n);return l>0?mul3(n,1/l):[0,0,0] as Vec3;});
-  return {surface,binding,placement:binding.placement,topology,world,normals};
+/** Walk the surface `binding` holds, placed as it places it. */
+export function traceEnvironment3(binding:SurfaceBinding3):TraceEnvironment3 {
+  const mesh=binding.source,topology=triangulation3(mesh),world:Vec3[]=[],normals:Vec3[]=[],slot=mesh.triangles;
+  for(let i=0;i<mesh.n;i++)world.push(bindingPosition3(binding,i));
+  for(let t=0;t<mesh.triangleCount;t++){const a=world[slot[3*t]],b=world[slot[3*t+1]],c=world[slot[3*t+2]];const n=cross3(sub3(b,a),sub3(c,a)),l=Math.hypot(...n);normals.push(l>0?mul3(n,1/l):[0,0,0] as Vec3);}
+  return {mesh,binding,placement:binding.placement,topology,world,normals};
 }
 const unit=(v:Vec3):Vec3|null=>{const l=Math.hypot(...v);return l>0&&Number.isFinite(l)?mul3(v,1/l):null;};
 /** The smallest in-surface part of a direction, as a fraction of the
@@ -72,7 +74,7 @@ const unit=(v:Vec3):Vec3|null=>{const l=Math.hypot(...v);return l>0&&Number.isFi
  * and a field meaning to cross a face at a billionth of a radian is not. */
 const IN_PLANE=1e-9;
 function position(env:TraceEnvironment3,triangle:number,w:Vec3):Vec3 {
-  const [a,b,c]=env.surface.triangles[triangle].vertices.map(v=>env.world[v]);
+  const [a,b,c]=env.mesh.triangle(triangle).map(v=>env.world[v]);
   return [0,1,2].map(k=>a[k]*w[0]+b[k]*w[1]+c[k]*w[2]) as unknown as Vec3;
 }
 function normalize(w:Vec3):Vec3 {
@@ -90,7 +92,7 @@ function locationOptionsFor(env:TraceEnvironment3,options:Pick<TraceOptions3,'uv
   return value;
 }
 export function traceLocation3(env:TraceEnvironment3,triangle:number,weights:Vec3,options:Pick<TraceOptions3,'uvAttribute'|'chartAttribute'>):SurfaceLocation3 {
-  return surfaceLocation3(env.surface,triangle,weights,locationOptionsFor(env,options));
+  return surfaceLocation3(env.mesh,triangle,weights,locationOptionsFor(env,options));
 }
 const noLocation=Object.freeze({}) as unknown as SurfaceLocation3;
 /** One directional walk. The first node is the start; `direction` is read at
@@ -125,7 +127,7 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
     const inPlane=unit(projected);
     if(!inPlane){stop='degenerate';break;}
     const u=inPlane;
-    const [a,b,c]=env.surface.triangles[triangle].vertices.map(v=>env.world[v]),e1=sub3(b,a),e2=sub3(c,a);
+    const [a,b,c]=env.mesh.triangle(triangle).map(v=>env.world[v]),e1=sub3(b,a),e2=sub3(c,a);
     const g11=dot3(e1,e1),g12=dot3(e1,e2),g22=dot3(e2,e2),det=g11*g22-g12*g12;
     if(!(det>0)){stop='degenerate';break;}
     const r1=dot3(u,e1),r2=dot3(u,e2),alpha=(r1*g22-r2*g12)/det,beta=(r2*g11-r1*g12)/det;
@@ -173,10 +175,10 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
       if(neighbor<0){stop='boundary';break;}
       const nn=env.normals[neighbor];
       if(dot3(n,nn)<cosCrease){stop='crease';break;}
-      const vertices=env.surface.triangles[triangle].vertices,va=vertices[(exit+1)%3],vb=vertices[(exit+2)%3];
+      const vertices=env.mesh.triangle(triangle),va=vertices[(exit+1)%3],vb=vertices[(exit+2)%3];
       const along=unit(sub3(env.world[vb],env.world[va]));if(!along){stop='degenerate';break;}
       const tangential=dot3(u,along),perpendicular=sub3(u,mul3(along,tangential)),magnitude=Math.hypot(...perpendicular);
-      const neighborVertices=env.surface.triangles[neighbor].vertices,ia=neighborVertices.indexOf(va),ib=neighborVertices.indexOf(vb);
+      const neighborVertices=env.mesh.triangle(neighbor),ia=neighborVertices.indexOf(va),ib=neighborVertices.indexOf(vb);
       if(ia<0||ib<0){stop='degenerate';break;}
       const opposite=env.world[neighborVertices[3-ia-ib]],mid=mul3(add3(env.world[va],env.world[vb]),.5);
       let inward=cross3(nn,along);if(dot3(inward,sub3(opposite,mid))<0)inward=mul3(inward,-1);

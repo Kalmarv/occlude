@@ -8,7 +8,8 @@ export type {Attributes3};
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
 import {assembleSurface3,type Attributes3,type SurfacePoint3} from '../geometry/surface.js';
-import {surfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
+import {surfaceLocation3,locationMesh3,type SurfaceLocation3} from '../geometry/location.js';
+import {mesh3} from '../geometry/mesh3.js';
 import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeights,ratioNumber,difference,abs,type Ratio,type EncodedPoint3} from '../geometry/exact.js';
 import {bindingTriangle3,sameSurfaceCurveLineage3,type SurfaceCurveNetwork3,type SupportedCurveSegment3} from '../curves/network.js';
 import type {Vec3} from '../math.js';
@@ -48,10 +49,10 @@ function context(network:SurfaceCurveNetwork3,segment:SupportedCurveSegment3,fra
   on(target:Material){
    if(isInstances(target)){
     const bindings=placedOf(target).map(copy=>copy.binding);
-    return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===row.source&&b.placement===row.placement)));
+    return Object.freeze(rows().filter(row=>bindings.some(b=>b.source===locationMesh3(row)&&b.placement===row.placement)));
    }
    if(!(target instanceof Material))throw new Error('sample.on: expected a mesh or instances');
-   return Object.freeze(rows().filter(row=>row.source===surfaceOf(target)&&!row.placement));
+   return Object.freeze(rows().filter(row=>locationMesh3(row)===mesh3(target)&&!row.placement));
   },
 
  });

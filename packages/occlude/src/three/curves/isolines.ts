@@ -1,6 +1,7 @@
 import type {Surface3} from '../geometry/surface.js';
 import {snapshotSurface3} from '../geometry/model.js';
 import {triangleCorners3} from '../geometry/corners.js';
+import {meshOfSurface3} from '../geometry/parts.js';
 import {integerWeights,weightedPoint,encodePoint,pointNumber,type H} from '../geometry/exact.js';
 import {surfaceBinding3,bindingTriangle3,surfaceCurveNetwork3,type SurfaceCurveNetworkInput3,type SurfaceCurveBudget3,type SurfaceCurveNetwork3} from './network.js';
 import {identity} from '../api/identity.js';
@@ -63,7 +64,7 @@ interface DeferredEnd3 {readonly triangle:number;readonly lo:number;readonly hi:
  *
  * `values` holds one number per corner in face order, then polygon order. */
 export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonly number[],options:IsolineOptions3={}):IsolineResult3 {
-  const surface=snapshotSurface3(input),binding=surfaceBinding3(surface),key=options.key??'isolines';
+  const surface=snapshotSurface3(input),mesh=meshOfSurface3(surface),binding=surfaceBinding3(mesh),key=options.key??'isolines';
   const maxSegments=positiveBudget(options.maxSegments,250000,'segment'),maxNodes=positiveBudget(options.maxNodes,250000,'node');
   const certified=options.hidden;
   if(certified!==undefined&&typeof certified!=='function')throw new Error('isolines hidden certificate must be a predicate');
@@ -107,7 +108,7 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
   levels.forEach((level,li)=>{
     if(!Number.isFinite(level))return;
     for(let ti=0;ti<surface.triangles.length;ti++){
-      const t=surface.triangles[ti],corners=triangleCorners3(surface,ti),f=corners.map(c=>values[offsets[t.face]+c]);
+      const t=surface.triangles[ti],corners=triangleCorners3(mesh,ti),f=corners.map(c=>values[offsets[t.face]+c]);
       if(!f.every(Number.isFinite))continue;
       const above=f.map(v=>v>=level);
       if(above.every(Boolean)||!above.some(Boolean))continue;

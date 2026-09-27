@@ -1,4 +1,5 @@
 import {estimateCurvature3,type CurvatureOptions3} from '../geometry/curvature.js';
+import {meshOfSurface3} from '../geometry/parts.js';
 import type {Surface3} from '../geometry/surface.js';
 import type {CameraFrame3} from '../camera.js';
 import {clampSetting} from '../degenerate.js';
@@ -65,7 +66,7 @@ export function suggestiveSegments3(surface:Surface3,frame:CameraFrame3,options:
   for(const p of points)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
   const diagonal=Math.hypot(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]);
   if(!(diagonal>0)||!Number.isFinite(diagonal))return [];
-  const estimate=estimateCurvature3(surface,CURVATURE3);
+  const estimate=estimateCurvature3(meshOfSurface3(surface),CURVATURE3);
   // Every camera but the parallel one carries real view rays from its eye.
   const fromEye=frame.camera.kind!=='orthographic',eye=frame.camera.eye,back=frame.back;
   const scale=diagonal*diagonal;

@@ -1,4 +1,5 @@
 import {describe,it,expect,beforeAll} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {readFileSync} from 'node:fs';
 import {plane,box,sphere,pointCloud,query,force,view,orthographic} from 'occlude/3d';
 import type {QueryHost} from '../src/three/api/query.js';
@@ -32,9 +33,8 @@ describe('prepared surface query facade',()=>{
   expect(hits.map(r=>r.hit?.t??null)).toEqual([0,null,.5]);expect(hits[1].source).toBe(points.points.at(1));
  });
  it('reuses only owned target revisions and does not follow later geometry edits',()=>{
-  const target=box(),a=prepareSurfaceQueries3(surfaceOf(target)),b=prepareSurfaceQueries3(surfaceOf(target));expect(a).toBe(b);
-  const moved=target.translate([0,0,3]);expect(prepareSurfaceQueries3(surfaceOf(moved))).not.toBe(a);expect(query(target).nearest([0,0,2])!.distance).toBe(1.5);expect(query(moved).nearest([0,0,2])!.distance).toBe(.5);
-  const raw=structuredClone(surfaceOf(target)),first=prepareSurfaceQueries3(raw);raw.points.forEach(p=>p.position=[p.position[0],p.position[1],p.position[2]+4]);expect(prepareSurfaceQueries3(raw)).not.toBe(first);expect(first.nearest([{point:[0,0,2]}])[0]!.distance).toBe(1.5);
+  const target=box(),a=prepareSurfaceQueries3(mesh3(target)),b=prepareSurfaceQueries3(mesh3(target));expect(a).toBe(b);
+  const moved=target.translate([0,0,3]);expect(prepareSurfaceQueries3(mesh3(moved))).not.toBe(a);expect(query(target).nearest([0,0,2])!.distance).toBe(1.5);expect(query(moved).nearest([0,0,2])!.distance).toBe(.5);
  });
  it('captures batch fields before awaiting and rejects result-count mismatches',async()=>{
   const q=query(plane(2)),points=pointCloud([[0,0,1],[3,0,1]]);let release!:()=>void,calls=0;const direction:[number,number,number]=[0,0,-2];

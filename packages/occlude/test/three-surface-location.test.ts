@@ -1,13 +1,12 @@
 import {beforeAll,describe,it,expect} from 'vitest';
+import {mesh3,sameAttachment3} from '../src/three/geometry/mesh3.js';
 import {readFileSync} from 'node:fs';
 import { sketch } from 'occlude';
 import { compileSketch, initOcclude } from 'occlude/host';
 import {scatterSurface,generationOf} from '../src/three/api/sampling.js';
 import {mesh,box,plane} from 'occlude/3d';
 import {surfaceLocation3,rebindSurfaceLocation3} from '../src/three/geometry/location.js';
-import {sameAttachmentTopology3} from '../src/three/geometry/topology.js';
 import {dot3,cross3,sub3,unit3,type Vec3} from '../src/three/math.js';
-import {surfaceOf} from '../src/three/geometry/value.js';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const triangle=()=>mesh([[0,0,0],[2,0,0],[0,3,0]],[[0,1,2]])
   .points.set({heat:p=>p.x+2*p.y,label:p=>p.index},{transfer:{label:'nearest'}})
@@ -16,10 +15,10 @@ const triangle=()=>mesh([[0,0,0],[2,0,0],[0,3,0]],[[0,1,2]])
 const close=(a:Vec3,b:Vec3)=>a.forEach((v,i)=>expect(v).toBeCloseTo(b[i],12));
 describe('owned surface locations',()=>{
  it('captures affine source data, distinct domains and chart derivatives',()=>{
-  const model=triangle(),p=surfaceLocation3(surfaceOf(model),0,[.25,.25,.5],{pointTransfers:model.transfers});
-  expect(p.source).toBe(surfaceOf(model));expect(p.space).toBe('model');
+  const model=triangle(),p=surfaceLocation3(mesh3(model),0,[.25,.25,.5],{pointTransfers:model.transfers});
+  expect(p.space).toBe('model');
   expect(p.position).toEqual([.5,1.5,0]);expect(p.modelPosition).toBe(p.position);
-  expect(p.barycentric).toEqual([.25,.25,.5]);expect(p.vertexIds).toEqual(surfaceOf(model).points.map(p=>p.id));
+  expect(p.barycentric).toEqual([.25,.25,.5]);expect(p.vertexIds).toEqual(mesh3(model).names.points);
   expect(p.pointColumns).toEqual({heat:3.5,label:2});expect(p.faceColumns.group).toBe('sheet');
   expect(p.uv).toEqual([.25,.5]);expect(p.cornerColumns.uv).toEqual(p.uv);expect(p.chart).toBe('island');
   expect(p.chartStatus).toBe('regular');expect(p.frame!.du).toEqual([2,0,0]);expect(p.frame!.dv).toEqual([0,3,0]);expect(p.frame!.orientation).toBe(1);
@@ -28,8 +27,8 @@ describe('owned surface locations',()=>{
  });
  it('keeps different chart values at the same geometric vertex',()=>{
   const model=box().corners.set({uv:c=>[c.face.index,c.face.corners.indices.indexOf(c.index)] as const,chart:c=>`face-${c.face.index}`});
-  const vertex=0,locations=surfaceOf(model).triangles.flatMap((t,i)=>{
-    const corner=t.vertices.indexOf(vertex);return corner<0?[]:[surfaceLocation3(surfaceOf(model),i,[0,1,2].map(k=>k===corner?1:0) as unknown as Vec3)];
+  const surface=mesh3(model),vertex=0,locations=Array.from({length:surface.triangleCount},(_,i)=>i).flatMap(i=>{
+    const corner=surface.triangle(i).indexOf(vertex);return corner<0?[]:[surfaceLocation3(mesh3(model),i,[0,1,2].map(k=>k===corner?1:0) as unknown as Vec3)];
   });
   expect(new Set(locations.map(p=>JSON.stringify(p.position))).size).toBe(1);
   expect(new Set(locations.map(p=>p.chart)).size).toBe(3);
@@ -37,57 +36,57 @@ describe('owned surface locations',()=>{
  });
  it('separates model/world positions, tangent directions and inverse-transpose normals',()=>{
   const model=triangle(),transform={scale:[-2,3,.5] as Vec3,rotate:[90,0,0] as Vec3,translate:[3,4,5] as Vec3};
-  const p=surfaceLocation3(surfaceOf(model),0,[.25,.25,.5],{placement:{id:'placed',transform},shadingNormal:[1,0,1]});
+  const p=surfaceLocation3(mesh3(model),0,[.25,.25,.5],{placement:{id:'placed',transform},shadingNormal:[1,0,1]});
   expect(p.space).toBe('world');expect(p.placement!.id).toBe('placed');expect(p.modelPosition).toEqual([.5,1.5,0]);close(p.position,[2,4,9.5]);
   close(p.normal,[0,-1,0]);close(p.shadingNormal!,unit3([-.5,-2,0]));
   close(p.frame!.du,[-4,0,0]);close(p.frame!.dv,[0,0,9]);expect(p.frame!.orientation).toBe(-1);
   expect(dot3(p.frame!.du,p.normal)).toBeCloseTo(0,14);expect(dot3(p.frame!.dv,p.normal)).toBeCloseTo(0,14);
-  const placed=surfaceOf(model.scale(transform.scale).rotate(transform.rotate).translate(transform.translate));
-  const t=placed.triangles[0],v=t.vertices.map(i=>placed.points[i].position);
+  const placed=mesh3(model.scale(transform.scale).rotate(transform.rotate).translate(transform.translate));
+  const v=placed.triangle(0).map(i=>placed.positions[i]);
   close(p.normal,unit3(cross3(sub3(v[1],v[0]),sub3(v[2],v[0]))));
  });
  it('captures placement revisions by owned input identity, never just a shared label',()=>{
   const model=triangle(),place={id:'same-label',transform:{translate:[1,0,0] as Vec3}};
-  const a=surfaceLocation3(surfaceOf(model),0,[1,0,0],{placement:place});
-  const b=surfaceLocation3(surfaceOf(model),0,[0,1,0],{placement:place});
+  const a=surfaceLocation3(mesh3(model),0,[1,0,0],{placement:place});
+  const b=surfaceLocation3(mesh3(model),0,[0,1,0],{placement:place});
   expect(a.placement).toBe(b.placement);
-  expect(surfaceLocation3(surfaceOf(model),0,[1,0,0],{placement:structuredClone(place)}).placement).not.toBe(a.placement);
-  const rebound=rebindSurfaceLocation3(a,surfaceOf(model.translate([0,0,1])));
+  expect(surfaceLocation3(mesh3(model),0,[1,0,0],{placement:structuredClone(place)}).placement).not.toBe(a.placement);
+  const rebound=rebindSurfaceLocation3(a,mesh3(model.translate([0,0,1])));
   expect(rebound.placement).toBe(a.placement);expect(rebound.position).toEqual([1,0,1]);
   place.transform.translate=[4,0,0];
-  const changed=surfaceLocation3(surfaceOf(model),0,[1,0,0],{placement:place});
+  const changed=surfaceLocation3(mesh3(model),0,[1,0,0],{placement:place});
   expect(changed.placement).not.toBe(a.placement);expect(changed.position).toEqual([4,0,0]);expect(a.position).toEqual([1,0,0]);
  });
  it('preserves mirror winding when the scale determinant would underflow',()=>{
   const model=triangle(),scale:Vec3=[-1e-120,1e-120,1e-120];
-  const p=surfaceLocation3(surfaceOf(model),0,[.25,.25,.5],{placement:{id:'tiny mirror',transform:{scale}}});
-  const placed=surfaceOf(model.scale(scale)),t=placed.triangles[0],v=t.vertices.map(i=>placed.points[i].position);
-  expect(t.vertices).toEqual([0,2,1]);expect(p.frame!.orientation).toBe(-1);
+  const p=surfaceLocation3(mesh3(model),0,[.25,.25,.5],{placement:{id:'tiny mirror',transform:{scale}}});
+  const placed=mesh3(model.scale(scale)),t=placed.triangle(0),v=t.map(i=>placed.positions[i]);
+  expect(t).toEqual([0,2,1]);expect(p.frame!.orientation).toBe(-1);
   expect(p.normal).toEqual([0,0,1]);close(p.normal,unit3(cross3(sub3(v[1],v[0]),sub3(v[2],v[0]))));
  });
  it('rebinds only through retained authoring topology, including mirrored winding',()=>{
-  const model=triangle(),p=surfaceLocation3(surfaceOf(model),0,[.25,.25,.5],{shadingNormal:[0,0,1]});
+  const model=triangle(),p=surfaceLocation3(mesh3(model),0,[.25,.25,.5],{shadingNormal:[0,0,1]});
   const changed=model.displace(p=>[0,0,p.x]).scale([-2,3,1]);
-  expect(sameAttachmentTopology3(surfaceOf(model),surfaceOf(changed))).toBe(true);
-  const next=rebindSurfaceLocation3(p,surfaceOf(changed));
+  expect(sameAttachment3(mesh3(model),mesh3(changed))).toBe(true);
+  const next=rebindSurfaceLocation3(p,mesh3(changed));
   expect(next.position).toEqual([-1,4.5,.5]);expect(p.position).toEqual([.5,1.5,0]);
   expect(next.uv).toEqual(p.uv);expect(next.vertexIds).toEqual([...p.vertexIds].map((_,i)=>p.vertexIds[[0,2,1][i]]));
   expect(next.shadingNormal).toBeUndefined();
-  expect(()=>rebindSurfaceLocation3(p,surfaceOf(triangle()))).toThrow('authoring lineage');
-  expect(()=>rebindSurfaceLocation3(p,surfaceOf(model.subdivide()))).toThrow('regenerate');
-  expect(()=>rebindSurfaceLocation3({...p},surfaceOf(changed))).toThrow('owned surface location');
+  expect(()=>rebindSurfaceLocation3(p,mesh3(triangle()))).toThrow('authoring lineage');
+  expect(()=>rebindSurfaceLocation3(p,mesh3(model.subdivide()))).toThrow('regenerate');
+  expect(()=>rebindSurfaceLocation3({...p},mesh3(changed))).toThrow('owned surface location');
  });
  it('reports missing and degenerate charts and rejects incomplete or mixed chart data',()=>{
-  const plain=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0]],[[0,1,2,3]]);expect(surfaceLocation3(surfaceOf(plain),0,[1,0,0]).chartStatus).toBe('missing');
+  const plain=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0]],[[0,1,2,3]]);expect(surfaceLocation3(mesh3(plain),0,[1,0,0]).chartStatus).toBe('missing');
   const flat=plain.corners.set({uv:[0,0] as const});
-  const p=surfaceLocation3(surfaceOf(flat),0,[.2,.3,.5]);expect(p.chartStatus).toBe('degenerate');expect(p.frame).toBeUndefined();expect(p.uv).toEqual([0,0]);
-  expect(()=>surfaceLocation3(surfaceOf(plain.corners.set({uv:[0,0,0]})),0,[1,0,0])).toThrow('finite pair');
-  expect(()=>surfaceLocation3(surfaceOf(plain.corners.set({chart:c=>c.face.corners.indices.indexOf(c.index)})),0,[1,0,0])).toThrow('chart identities');
-  expect(()=>surfaceLocation3(surfaceOf(plain),0,[-.1,.5,.6])).toThrow('barycentric');
-  expect(()=>surfaceLocation3(surfaceOf(plain),99,[1,0,0])).toThrow('valid source triangle');
+  const p=surfaceLocation3(mesh3(flat),0,[.2,.3,.5]);expect(p.chartStatus).toBe('degenerate');expect(p.frame).toBeUndefined();expect(p.uv).toEqual([0,0]);
+  expect(()=>surfaceLocation3(mesh3(plain.corners.set({uv:[0,0,0]})),0,[1,0,0])).toThrow('finite pair');
+  expect(()=>surfaceLocation3(mesh3(plain.corners.set({chart:c=>c.face.corners.indices.indexOf(c.index)})),0,[1,0,0])).toThrow('chart identities');
+  expect(()=>surfaceLocation3(mesh3(plain),0,[-.1,.5,.6])).toThrow('barycentric');
+  expect(()=>surfaceLocation3(mesh3(plain),99,[1,0,0])).toThrow('valid source triangle');
  });
  it('retains small chart/world data without scene-relative snapping',()=>{
-  const source=triangle().scale(1e-100),p=surfaceLocation3(surfaceOf(source),0,[.25,.25,.5]);
+  const source=triangle().scale(1e-100),p=surfaceLocation3(mesh3(source),0,[.25,.25,.5]);
   expect(p.position).toEqual([.5e-100,1.5e-100,0]);expect(p.modelNormal).toEqual([0,0,1]);
   expect(p.uv).toEqual([.25,.5]);expect(p.frame!.du).toEqual([2e-100,0,0]);
  });
@@ -113,7 +112,7 @@ describe('surface sample rebinding',()=>{
   expect(row.note).toBe('captured');expect(row.sample.pointColumns.note).toBe('new source');
   expect(row.z).toBeCloseTo(row.x+2*row.y,14);expect(row.sample.position).toEqual([row.x,row.y,row.z]);
   expect(row.sample.face).toBe(bent.faces.at(row.sample.face.index));expect(row.sample.cornerColumns.uv).toEqual(before.sample.cornerColumns.uv);
-  expect(surfaceOf(rebound).points.map(p=>p.id)).toEqual(surfaceOf(samples).points.map(p=>p.id));
+  expect(mesh3(rebound).names.points).toEqual(mesh3(samples).names.points);
   expect(generationOf(rebound)).toEqual(generationOf(samples));expect(rebound.history).toEqual([]);
   const selected=edited.points.filter(p=>p.index<2).extract().rebind(bent);expect(selected.points.length).toBe(2);
   expect(()=>samples.rebind(rest.subdivide())).toThrow('regenerate');

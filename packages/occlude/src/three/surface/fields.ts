@@ -1,6 +1,6 @@
 import type {SurfaceLocation3} from '../geometry/location.js';
-import type {Surface3} from '../geometry/surface.js';
-import {surfaceLocation3,captureSurfacePlacement3} from '../geometry/location.js';
+import type {Mesh3} from '../geometry/mesh3.js';
+import {surfaceLocation3,captureSurfacePlacement3,locationMesh3} from '../geometry/location.js';
 import {estimateCurvature3,curvatureAt3,type CurvatureOptions3} from '../geometry/curvature.js';
 import {rotateVector3,rotation3,vector3,type RotationInput,type Vector3} from '../rotation.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
@@ -117,7 +117,12 @@ export function environment(sampler:EnvironmentSampler,options:EnvironmentOption
 // Keyed by the captured placement object, whose identity changes with its
 // transform revision (captureSurfacePlacement3), never by its string id: an
 // instance that turns keeps its id but not its gradients.
-const gradients=new WeakMap<(s:SurfaceLocation3)=>number,WeakMap<Surface3,WeakMap<object,Map<number,Vec3|null>>>>();
+const gradients=new WeakMap<(s:SurfaceLocation3)=>number,WeakMap<Mesh3,WeakMap<object,Map<number,Vec3|null>>>>();
+/** The surface a field is read on: a location's own. */
+function meshOf(s:SurfaceLocation3):Mesh3 {
+  const mesh=locationMesh3(s);if(mesh===undefined)throw new Error('a surface field reads a surface location');
+  return mesh;
+}
 /** Gradient of a scalar surface field, taken from its values at the three
  * vertices of the current triangle: exact for the linear interpolant, a
  * per-triangle estimate for anything else. Zero where the field is constant.
@@ -126,10 +131,11 @@ export function surfaceGradient(scalar:(s:SurfaceLocation3)=>number):DirectionFi
   if(typeof scalar!=='function')throw new Error('grad requires a scalar surface field');
   let bySurface=gradients.get(scalar);if(!bySurface){bySurface=new WeakMap();gradients.set(scalar,bySurface);}
   return s=>{
-    let byPlacement=bySurface!.get(s.source);if(!byPlacement){byPlacement=new WeakMap();bySurface!.set(s.source,byPlacement);}
-    const key:object=captureSurfacePlacement3(s.placement)??s.source;let cache=byPlacement.get(key);if(!cache){cache=new Map();byPlacement.set(key,cache);}
+    const mesh=meshOf(s);
+    let byPlacement=bySurface!.get(mesh);if(!byPlacement){byPlacement=new WeakMap();bySurface!.set(mesh,byPlacement);}
+    const key:object=captureSurfacePlacement3(s.placement)??mesh;let cache=byPlacement.get(key);if(!cache){cache=new Map();byPlacement.set(key,cache);}
     const found=cache.get(s.triangle);if(found!==undefined)return found;
-    const corners=[[1,0,0],[0,1,0],[0,0,1]].map(w=>surfaceLocation3(s.source,s.triangle,w as unknown as Vec3,{placement:s.placement}));
+    const corners=[[1,0,0],[0,1,0],[0,0,1]].map(w=>surfaceLocation3(mesh,s.triangle,w as unknown as Vec3,{placement:s.placement}));
     // A triangle the field could not answer has no gradient there, the same
     // "no direction" a constant field gives.
     const values=corners.map(c=>sampleValue(scalar(c),NaN));
@@ -154,7 +160,7 @@ export function curvature(which:'min'|'max',options:CurvatureOptions3&{minConfid
   const minConfidence=clampSetting(options.minConfidence,0,1,0.15,'curvature minConfidence');
   const settings={smoothing:options.smoothing,creaseDegrees:options.creaseDegrees};
   return (s,previous)=>{
-    const sample=curvatureAt3(estimateCurvature3(s.source,settings),s.triangle,s.barycentric);
+    const sample=curvatureAt3(estimateCurvature3(meshOf(s),settings),s.triangle,s.barycentric);
     if(sample.confidence<minConfidence)return null;
     let d:Vec3=sample[which];
     if(s.placement){

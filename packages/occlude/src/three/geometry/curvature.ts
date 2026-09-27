@@ -1,6 +1,5 @@
 import {clampSetting} from '../degenerate.js';
-import {snapshotSurface3} from './model.js';
-import type {Surface3} from './surface.js';
+import type {Mesh3} from './mesh3.js';
 import {triangulation3} from './triangulation.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
 
@@ -40,13 +39,13 @@ export interface CornerCurvature3 {
   readonly kMin:number;readonly kMax:number;readonly confidence:number;
 }
 export interface CurvatureEstimate3 {
-  readonly source:Surface3;readonly options:Readonly<Required<CurvatureOptions3>>;
+  readonly source:Mesh3;readonly options:Readonly<Required<CurvatureOptions3>>;
   /** Per triangle, per corner (triangle vertex order). */
   readonly corners:readonly (readonly [CornerCurvature3,CornerCurvature3,CornerCurvature3])[];
 }
 export interface CurvatureSample3 {readonly min:Vec3;readonly max:Vec3;readonly kMin:number;readonly kMax:number;readonly confidence:number}
 
-const cache=new WeakMap<Surface3,Map<string,CurvatureEstimate3>>();
+const cache=new WeakMap<Mesh3,Map<string,CurvatureEstimate3>>();
 const norm=(v:Vec3)=>Math.hypot(v[0],v[1],v[2]);
 const safeUnit=(v:Vec3):Vec3|null=>{const n=norm(v);return n>0&&Number.isFinite(n)?mul3(v,1/n):null;};
 const freeze=<T>(v:T):T=>Object.freeze(v);
@@ -94,19 +93,20 @@ function eigen(a:number,b:number,d:number):{k1:number;k2:number;e1:[number,numbe
   return {k1,k2,e1,e2:[-e1[1],e1[0]]};
 }
 
-export function estimateCurvature3(input:Surface3,options:CurvatureOptions3={}):CurvatureEstimate3 {
-  const source=snapshotSurface3(input),smoothing=options.smoothing??1,creaseDegrees=clampSetting(options.creaseDegrees,0,180,60,'curvature creaseDegrees');
+export function estimateCurvature3(source:Mesh3,options:CurvatureOptions3={}):CurvatureEstimate3 {
+  const smoothing=options.smoothing??1,creaseDegrees=clampSetting(options.creaseDegrees,0,180,60,'curvature creaseDegrees');
   if(!Number.isSafeInteger(smoothing)||smoothing<0||smoothing>64)throw new Error('curvature smoothing must be an integer between 0 and 64');
   const key=JSON.stringify([smoothing,creaseDegrees]);
   let entries=cache.get(source);const previous=entries?.get(key);if(previous)return previous;
-  const topology=triangulation3(source),triangles=source.triangles,points=source.points;
+  const topology=triangulation3(source),points=source.positions,slot=source.triangles,count=source.triangleCount;
+  const vertexOf=(t:number,c:number)=>slot[3*t+c];
   const tn:( Vec3|null)[]=[],area:number[]=[],angles:number[][]=[];
   let extent=0;const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
-  for(const p of points)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p.position[k]);hi[k]=Math.max(hi[k],p.position[k]);}
+  for(const p of points)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],p[k]);hi[k]=Math.max(hi[k],p[k]);}
   if(points.length)extent=Math.hypot(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]);
   const eps=1e-9/(extent||1);
-  for(const t of triangles){
-    const [a,b,c]=t.vertices.map(v=>points[v].position),n=cross3(sub3(b,a),sub3(c,a));
+  for(let t=0;t<count;t++){
+    const a=points[vertexOf(t,0)],b=points[vertexOf(t,1)],c=points[vertexOf(t,2)],n=cross3(sub3(b,a),sub3(c,a));
     tn.push(safeUnit(n));area.push(norm(n)/2);
     const ang=(p:Vec3,q:Vec3,r:Vec3)=>{const x=safeUnit(sub3(q,p)),y=safeUnit(sub3(r,p));return x&&y?Math.acos(Math.max(-1,Math.min(1,dot3(x,y)))):0;};
     angles.push([ang(a,b,c),ang(b,c,a),ang(c,a,b)]);
@@ -114,15 +114,15 @@ export function estimateCurvature3(input:Surface3,options:CurvatureOptions3={}):
   const cosCrease=Math.cos(creaseDegrees*Math.PI/180);
   const creased=(i:number,edge:number):boolean=>{const j=topology.neighbors[i][edge];if(j<0)return true;const x=tn[i],y=tn[j];return !x||!y||dot3(x,y)<cosCrease-1e-12;};
   // Sector id per triangle corner: connected across non-crease edges at that vertex.
-  const sector=triangles.map(()=>[-1,-1,-1] as [number,number,number]);let sectors=0;
+  const sector:[number,number,number][]=[];for(let t=0;t<count;t++)sector.push([-1,-1,-1]);let sectors=0;
   const members:number[][]=[];// sector -> list of corner keys (triangle*3+corner)
-  for(let i=0;i<triangles.length;i++)for(let c=0;c<3;c++){
+  for(let i=0;i<count;i++)for(let c=0;c<3;c++){
     if(sector[i][c]>=0)continue;const id=sectors++,list:number[]=[];members.push(list);
     const stack=[[i,c] as [number,number]];sector[i][c]=id;
     while(stack.length){
-      const [ti,tc]=stack.pop()!;list.push(ti*3+tc);const vertex=triangles[ti].vertices[tc];
+      const [ti,tc]=stack.pop()!;list.push(ti*3+tc);const vertex=vertexOf(ti,tc);
       for(const edge of [tc,(tc+2)%3]){// edges incident to this corner: (tc,tc+1) and (tc+2,tc)
-        if(creased(ti,edge))continue;const tj=topology.neighbors[ti][edge],cj=triangles[tj].vertices.indexOf(vertex);
+        if(creased(ti,edge))continue;const tj=topology.neighbors[ti][edge],cj:number=vertexOf(tj,0)===vertex?0:vertexOf(tj,1)===vertex?1:vertexOf(tj,2)===vertex?2:-1;
         if(cj>=0&&sector[tj][cj]<0){sector[tj][cj]=id;stack.push([tj,cj]);}
       }
     }
@@ -134,9 +134,9 @@ export function estimateCurvature3(input:Surface3,options:CurvatureOptions3={}):
   const frames=sectorNormal.map(tangentFrame);
   // Per-corner tensor accumulation in each sector's frame.
   const tensor:[number,number,number][]=members.map(()=>[0,0,0]),weight=members.map(()=>0);
-  for(let i=0;i<triangles.length;i++){
+  for(let i=0;i<count;i++){
     const n=tn[i];if(!n||!(area[i]>0))continue;
-    const p=triangles[i].vertices.map(v=>points[v].position),nv=[0,1,2].map(c=>sectorNormal[sector[i][c]]);
+    const p=[points[vertexOf(i,0)],points[vertexOf(i,1)],points[vertexOf(i,2)]],nv=[0,1,2].map(c=>sectorNormal[sector[i][c]]);
     const e=[sub3(p[2],p[1]),sub3(p[0],p[2]),sub3(p[1],p[0])],dn=[sub3(nv[2],nv[1]),sub3(nv[0],nv[2]),sub3(nv[1],nv[0])];
     const u=safeUnit(e[0]);if(!u)continue;const frame:Frame={n,u,v:cross3(n,u)};
     const m=[[0,0,0],[0,0,0],[0,0,0]],r=[0,0,0];
@@ -187,7 +187,7 @@ export function estimateCurvature3(input:Surface3,options:CurvatureOptions3={}):
 export function curvatureAt3(estimate:CurvatureEstimate3,triangle:number,barycentric:Vec3):CurvatureSample3 {
   const rows=estimate.corners[triangle];if(!rows)throw new Error('curvature sample requires a valid source triangle');
   if(barycentric.length!==3||barycentric.some(w=>!Number.isFinite(w)||w<0))throw new Error('curvature sample requires nonnegative barycentric weights');
-  const t=estimate.source.triangles[triangle],[a,b,c]=t.vertices.map(v=>estimate.source.points[v].position);
+  const mesh=estimate.source,[a,b,c]=mesh.triangle(triangle).map(v=>mesh.positions[v]);
   const n=safeUnit(cross3(sub3(b,a),sub3(c,a)));
   const total=barycentric[0]+barycentric[1]+barycentric[2]||1,w=barycentric.map(x=>x/total);
   let max:Vec3=[0,0,0],min:Vec3=[0,0,0],kMax=0,kMin=0,confidence=0;

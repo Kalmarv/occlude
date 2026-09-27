@@ -1,7 +1,6 @@
 import {orient2d} from 'robust-predicates';
 import {add3,cross3,dot3,finite3,mul3,sub3,unit3,type Vec3,type Triangle3} from '../math.js';
-import {snapshotSurface3} from '../geometry/model.js';
-import type {Surface3} from '../geometry/surface.js';
+import type {Mesh3} from '../geometry/mesh3.js';
 /** The key of the execution's surface-query host on the toolkit, which
  * `query(mesh).batch(t)` reads. A symbol, so no sketch calls it by name. */
 export const QUERY_HOST3:unique symbol=Symbol('occlude.queryHost3');
@@ -43,28 +42,31 @@ const boxDistance=(b:Bounds,p:Vec3)=>Math.hypot(...p.map((v,k)=>Math.max(b[k]-v,
 function rayBox(b:Bounds,q:RayQuery3,limit:number):boolean {let lo=q.near??0,hi=Math.min(q.far??Infinity,limit);for(let k=0;k<3;k++){if(q.direction[k]===0){if(q.origin[k]<b[k]||q.origin[k]>b[k+3])return false;continue;}const a=(b[k]-q.origin[k])/q.direction[k],c=(b[k+3]-q.origin[k])/q.direction[k];lo=Math.max(lo,Math.min(a,c));hi=Math.min(hi,Math.max(a,c));if(lo>hi)return false;}return true;}
 export function validateRay3(q:RayQuery3):void {finite3(q.origin,'query ray');finite3(q.direction,'query ray');if((Math.hypot(...q.direction)===0||!Number.isFinite(Math.hypot(...q.direction)))||!Number.isFinite(q.near??0)||(q.near??0)<0||Number.isNaN(q.far??Infinity)||(q.far??Infinity)<(q.near??0))throw new Error('ray requires a nonzero direction and 0 <= near <= far');}
 export function validateNearest3(q:NearestQuery3):void {finite3(q.point,'query nearest');if(Number.isNaN(q.maxDistance??Infinity)||(q.maxDistance??Infinity)<0)throw new Error('nearest maximum distance must be nonnegative');}
-/** Prepared owned world-space geometry and deterministic median BVH. Batches
- * reuse one snapshot; ties choose the lowest triangle row in that snapshot. */
+/** Prepared world-space geometry and deterministic median BVH over one
+ * value's triangles; ties choose the lowest triangle row. */
 export class SurfaceQueries3 {
-  readonly surface:Surface3;
+  readonly mesh:Mesh3;
   readonly triangles:readonly Triangle3[];
   private readonly root:Node|null;
-  constructor(surface:Surface3){
-    this.surface=snapshotSurface3(surface);this.triangles=Object.freeze(this.surface.triangles.map(t=>Object.freeze(t.vertices.map(v=>this.surface.points[v].position)) as unknown as Triangle3));
+  constructor(mesh:Mesh3){
+    this.mesh=mesh;
+    const positions=mesh.positions,slot=mesh.triangles,triangles:Triangle3[]=[];
+    for(let t=0;t<mesh.triangleCount;t++)triangles.push(Object.freeze([positions[slot[3*t]],positions[slot[3*t+1]],positions[slot[3*t+2]]]) as unknown as Triangle3);
+    this.triangles=Object.freeze(triangles);
     const bounds=this.triangles.map(tri=>{const b=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];for(const p of tri)for(let k=0;k<3;k++){b[k]=Math.min(b[k],p[k]);b[k+3]=Math.max(b[k+3],p[k]);}const e=Math.max(1,...b.map(Math.abs))*Number.EPSILON*64;for(let k=0;k<3;k++){b[k]-=e;b[k+3]+=e;}unit3(cross3(sub3(tri[1],tri[0]),sub3(tri[2],tri[0])));return b as unknown as Bounds;});
     const build=(indices:number[]):Node=>{const b=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];for(const i of indices)for(let k=0;k<3;k++){b[k]=Math.min(b[k],bounds[i][k]);b[k+3]=Math.max(b[k+3],bounds[i][k+3]);}if(indices.length<=8)return {bounds:b as unknown as Bounds,indices};let axis=0;for(let k=1;k<3;k++)if(b[k+3]-b[k]>b[axis+3]-b[axis])axis=k;indices.sort((a,c)=>(bounds[a][axis]/2+bounds[a][axis+3]/2)-(bounds[c][axis]/2+bounds[c][axis+3]/2)||a-c);const half=Math.floor(indices.length/2);return {bounds:b as unknown as Bounds,left:build(indices.slice(0,half)),right:build(indices.slice(half))};};
     this.root=bounds.length?build(bounds.map((_,i)=>i)):null;
   }
-  hit(triangle:number,data:{point:Vec3;barycentric:Vec3;distance:number}):SurfaceHit3 {finite3(data.point,'query');finite3(data.barycentric,'query');if(!Number.isFinite(data.distance))throw new Error('surface query result exceeds finite coordinate range');const t=this.triangles[triangle];return Object.freeze({...data,point:Object.freeze([...data.point]) as Vec3,barycentric:Object.freeze([...data.barycentric]) as Vec3,triangle,faceId:this.surface.faces[this.surface.triangles[triangle].face].id,normal:Object.freeze(unit3(cross3(sub3(t[1],t[0]),sub3(t[2],t[0]))))});}
+  hit(triangle:number,data:{point:Vec3;barycentric:Vec3;distance:number}):SurfaceHit3 {finite3(data.point,'query');finite3(data.barycentric,'query');if(!Number.isFinite(data.distance))throw new Error('surface query result exceeds finite coordinate range');const t=this.triangles[triangle];return Object.freeze({...data,point:Object.freeze([...data.point]) as Vec3,barycentric:Object.freeze([...data.barycentric]) as Vec3,triangle,faceId:this.mesh.names.faces[this.mesh.triangleFace[triangle]],normal:Object.freeze(unit3(cross3(sub3(t[1],t[0]),sub3(t[2],t[0]))))});}
   rays(queries:readonly RayQuery3[],signal?:AbortSignal):readonly(SurfaceHit3|null)[]{return queries.map(q=>{signal?.throwIfAborted();validateRay3(q);let best:SurfaceHit3|null=null;const stack=this.root?[this.root]:[];while(stack.length){const node=stack.pop()!;if(!rayBox(node.bounds,q,best?.distance??Infinity))continue;if(node.indices){for(const i of node.indices){const hit=rayTriangle3(this.triangles[i],q);if(hit&&(!best||hit.distance<best.distance||hit.distance===best.distance&&i<best.triangle))best=this.hit(i,hit);}}else stack.push(node.right!,node.left!);}return best;});}
   segments(segments:readonly(readonly[Vec3,Vec3])[],signal?:AbortSignal):readonly(SurfaceHit3|null)[]{return this.rays(segments.map(([a,b])=>({origin:a,direction:sub3(b,a),near:0,far:1})),signal);}
   nearest(queries:readonly NearestQuery3[],signal?:AbortSignal):readonly(SurfaceHit3|null)[]{return queries.map(q=>{signal?.throwIfAborted();validateNearest3(q);let best:SurfaceHit3|null=null;const stack=this.root?[this.root]:[];while(stack.length){const node=stack.pop()!;if(boxDistance(node.bounds,q.point)>(best?.distance??q.maxDistance??Infinity))continue;if(node.indices){for(const i of node.indices){const hit=nearestTriangle3(this.triangles[i],q.point);if(hit.distance<=(q.maxDistance??Infinity)&&(!best||hit.distance<best.distance||hit.distance===best.distance&&i<best.triangle))best=this.hit(i,hit);}}else {const a=node.left!,b=node.right!;if(boxDistance(a.bounds,q.point)<=boxDistance(b.bounds,q.point))stack.push(b,a);else stack.push(a,b);}}return best;});}
 }
 
-const preparedSurfaces=new WeakMap<Surface3,SurfaceQueries3>();
-/** Reuse the index only for the same owned revision. Mutable inputs are
- * snapshotted before lookup, so a later edit never reuses a stale index. */
-export function prepareSurfaceQueries3(surface:Surface3):SurfaceQueries3 {
-  const owned=snapshotSurface3(surface);let prepared=preparedSurfaces.get(owned);
-  if(!prepared){prepared=new SurfaceQueries3(owned);preparedSurfaces.set(owned,prepared);}return prepared;
+const preparedSurfaces=new WeakMap<Mesh3,SurfaceQueries3>();
+/** One index per value: a value never changes, so an edit is a new value
+ * and a new index. */
+export function prepareSurfaceQueries3(mesh:Mesh3):SurfaceQueries3 {
+  let prepared=preparedSurfaces.get(mesh);
+  if(!prepared){prepared=new SurfaceQueries3(mesh);preparedSurfaces.set(mesh,prepared);}return prepared;
 }

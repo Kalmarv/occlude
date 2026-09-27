@@ -1,54 +1,59 @@
-import {snapshotSurface3,transformSurface3,transformPosition3} from '../geometry/model.js';
+import {transformPosition3} from '../geometry/model.js';
 import {rebindTriangle3,captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
 import type {SurfaceCurvePoint3} from './surface.js';
-import type {Surface3,Attributes3,Attribute3} from '../geometry/surface.js';
+import type {Attributes3,Attribute3} from '../geometry/surface.js';
 import {point,encodePoint,decodePoint,pointNumber,canonicalPoint,triangleWeights,verifiedTriangleWeights,ratioNumber,integerWeights,weightedPoint,type H,type EncodedPoint3,type V} from '../geometry/exact.js';
-import {sameAttachmentTopology3} from '../geometry/topology.js';
+import {sameAttachment3,type Mesh3} from '../geometry/mesh3.js';
 import {finite3,type Vec3} from '../math.js';
 import {validateSurfaceCurves3,type SurfaceCurves3} from './surface.js';
 
-/** Captured prototype plus optional placement. Labels never grant incidence. */
-export interface SurfaceBinding3 {readonly source:Surface3;readonly placement?:SurfacePlacement3}
+/** A value's surface (its reader) plus optional placement. Labels never grant incidence. */
+export interface SurfaceBinding3 {readonly source:Mesh3;readonly placement?:SurfacePlacement3}
 const bindings=new WeakSet<SurfaceBinding3>();
-const bindingCache=new WeakMap<Surface3,{plain?:SurfaceBinding3;placed:WeakMap<SurfacePlacement3,SurfaceBinding3>}>();
-const worlds=new WeakMap<SurfaceBinding3,Surface3>();
+const bindingCache=new WeakMap<Mesh3,{plain?:SurfaceBinding3;placed:WeakMap<SurfacePlacement3,SurfaceBinding3>}>();
+const worlds=new WeakMap<SurfaceBinding3,readonly Vec3[]>();
 const triangles=new WeakMap<SurfaceBinding3,Map<number,readonly [H,H,H]>>();
 const bindingVertices=new WeakMap<SurfaceBinding3,Map<number,H>>();
-export function surfaceBinding3(source:Surface3,placement?:SurfacePlacement3):SurfaceBinding3 {
-  source=snapshotSurface3(source);placement=captureSurfacePlacement3(placement);
+/** One binding per surface and placement. */
+export function surfaceBinding3(source:Mesh3,placement?:SurfacePlacement3):SurfaceBinding3 {
+  placement=captureSurfacePlacement3(placement);
   let cache=bindingCache.get(source);if(!cache){cache={placed:new WeakMap()};bindingCache.set(source,cache);}
   const previous=placement?cache.placed.get(placement):cache.plain;if(previous)return previous;
-  const value=Object.freeze({source,placement});bindings.add(value);
+  // The surface is a link, not data: a scene, a classified result or a
+  // capture that is cloned or written out carries the placement, and the
+  // surface stays with the value it names.
+  const value=Object.freeze(Object.defineProperty({placement},'source',{value:source,enumerable:false})) as SurfaceBinding3;bindings.add(value);
   if(placement)cache.placed.set(placement,value);else cache.plain=value;return value;
 }
 export function validateSurfaceBinding3(binding:SurfaceBinding3):void {
   if(!bindings.has(binding))throw new Error('surface curves require an owned surface binding');
 }
-/** Construction queries can request a world mesh explicitly; ordinary attached
- * marks need only individual transformed support triangles. */
-export function bindingWorld3(binding:SurfaceBinding3):Surface3 {
+/** Every point of the bound surface where the placement puts it, for a
+ * construction that reads the whole placed surface; ordinary attached marks
+ * need only individual transformed support triangles. */
+export function bindingWorld3(binding:SurfaceBinding3):readonly Vec3[] {
   validateSurfaceBinding3(binding);const found=worlds.get(binding);if(found)return found;
-  const world=binding.placement?snapshotSurface3(transformSurface3(binding.source,binding.placement.transform)):binding.source;
-  worlds.set(binding,world);return world;
+  const world:Vec3[]=[];for(let i=0;i<binding.source.n;i++)world.push(bindingPosition3(binding,i));
+  const frozen=Object.freeze(world);worlds.set(binding,frozen);return frozen;
 }
 const positions=new WeakMap<SurfaceBinding3,Map<number,Vec3>>();
 export function bindingPosition3(binding:SurfaceBinding3,index:number):Vec3 {
   validateSurfaceBinding3(binding);
-  if(!Number.isSafeInteger(index)||!binding.source.points[index])throw new Error('invalid surface binding point');
-  const position=binding.source.points[index].position,t=binding.placement?.transform;if(!t)return position;
+  if(!Number.isSafeInteger(index)||index<0||index>=binding.source.n)throw new Error('invalid surface binding point');
+  const position=binding.source.positions[index],t=binding.placement?.transform;if(!t)return position;
   let cache=positions.get(binding);if(!cache){cache=new Map();positions.set(binding,cache);}
   const previous=cache.get(index);if(previous)return previous;
   const value=transformPosition3(position,t);finite3(value,'surface curve');const result=Object.freeze(value);cache.set(index,result);return result;
 }
 export function bindingTriangle3(binding:SurfaceBinding3,index:number):readonly [H,H,H] {
   validateSurfaceBinding3(binding);
-  if(!Number.isSafeInteger(index)||!binding.source.triangles[index])throw new Error('curve support requires a valid source triangle');
+  if(!Number.isSafeInteger(index)||index<0||index>=binding.source.triangleCount)throw new Error('curve support requires a valid source triangle');
   let cache=triangles.get(binding);if(!cache){cache=new Map();triangles.set(binding,cache);}
   const previous=cache.get(index);if(previous)return previous;
   // A vertex belongs to about six triangles; its exact point is built once.
   let vertices=bindingVertices.get(binding);if(!vertices){vertices=new Map();bindingVertices.set(binding,vertices);}
   const vertex=(v:number):H=>{let q=vertices!.get(v);if(!q){q=canonicalPoint(point(bindingPosition3(binding,v)));vertices!.set(v,q);}return q;};
-  const value=Object.freeze(binding.source.triangles[index].vertices.map(vertex)) as unknown as readonly [H,H,H];
+  const value=Object.freeze(binding.source.triangle(index).map(vertex)) as unknown as readonly [H,H,H];
   cache.set(index,value);return value;
 }
 export function bindingPoint3(binding:SurfaceBinding3,triangle:number,weights:Vec3):H {
@@ -245,17 +250,18 @@ export function selectSurfaceCurveNetwork3(network:SurfaceCurveNetwork3,indices:
   const result=Object.freeze({...network,segments,reference:network.reference??network});networks.add(result);curveLineages.set(result,curveLineages.get(network)!);return result;
 }
 
-/** An explicit binding must describe the same captured source and transform as
- * the rendered object. A label or a matching prototype is not enough. */
-export function objectSurfaceBinding3(object:{readonly id:string;readonly surface:Surface3;readonly transform?:SurfacePlacement3['transform'];readonly binding?:SurfaceBinding3}):SurfaceBinding3 {
+/** An explicit binding must describe the same surface and transform as the
+ * rendered object (`mesh`, the reader of its surface). A label or a matching
+ * prototype is not enough. */
+export function objectSurfaceBinding3(object:{readonly id:string;readonly mesh:Mesh3;readonly transform?:SurfacePlacement3['transform'];readonly binding?:SurfaceBinding3}):SurfaceBinding3 {
   if(object.binding){
     validateSurfaceBinding3(object.binding);
-    if(object.binding.source!==object.surface)throw new Error('scene binding belongs to a different captured surface');
+    if(object.binding.source!==object.mesh)throw new Error('scene binding belongs to a different captured surface');
     const expected=object.binding.placement?.transform;
     if(JSON.stringify(expected)!==JSON.stringify(object.transform))throw new Error('scene transform disagrees with its surface binding');
     return object.binding;
   }
-  return surfaceBinding3(object.surface,object.transform?{id:object.id,transform:object.transform}:undefined);
+  return surfaceBinding3(object.mesh,object.transform?{id:object.id,transform:object.transform}:undefined);
 }
 /** Compatibility boundary only: all generated marks enter the same graph.
  * Source vertices/weights remain the authority, not evaluated positions. */
@@ -273,7 +279,7 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
   // A piece's own weights re-expressed in its triangle's vertex order, so the
   // intake verifies them instead of recomputing them exactly.
   const weightsOn=(p:SurfaceCurvePoint3,triangle:number):readonly bigint[]|undefined=>{
-    const tri=binding.source.triangles[triangle]?.vertices;if(!tri)return undefined;
+    if(!(triangle>=0&&triangle<binding.source.triangleCount))return undefined;const tri=binding.source.triangle(triangle);
     const w=integerOf(p),out=[0n,0n,0n];
     for(let m=0;m<3;m++){if(w[m]===0n)continue;const k=tri.indexOf(p.vertices[m]);if(k<0)return undefined;out[k]+=w[m];}
     return out;
@@ -306,7 +312,7 @@ export function rebindSurfaceCurveNetwork3(network:SurfaceCurveNetwork3,targets:
   validateSurfaceCurveNetwork3(network);
   const reference=network.reference??network;
   if(targets.length!==reference.sources.length)throw new Error('curve rebind requires one target per source');
-  targets.forEach((target,i)=>{validateSurfaceBinding3(target);if(!sameAttachmentTopology3(reference.sources[i].binding.source,target.source))throw new Error('surface topology or authoring lineage changed; regenerate curves or use an explicit topology transfer');});
+  targets.forEach((target,i)=>{validateSurfaceBinding3(target);if(!sameAttachment3(reference.sources[i].binding.source,target.source))throw new Error('surface topology or authoring lineage changed; regenerate curves or use an explicit topology transfer');});
   const correspondence=reference.sources.map((source,i)=>{
     const triangles=new Map<number,ReturnType<typeof rebindTriangle3>>();
     return (triangle:number)=>{let value=triangles.get(triangle);if(!value){value=rebindTriangle3(source.binding.source,triangle,targets[i].source);triangles.set(triangle,value);}return value;};

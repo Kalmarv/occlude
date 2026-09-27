@@ -1,4 +1,5 @@
 import {describe,it,expect} from 'vitest';
+import {mesh3} from '../src/three/geometry/mesh3.js';
 import {plane,lamp,environment,axisAngle,type Vec3} from '../src/three/api/index.js';
 const plus=(a:Vec3,b:Vec3):Vec3=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
 import {surfaceLocation3} from '../src/three/geometry/location.js';
@@ -8,7 +9,7 @@ import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
 
 /** The middle of a mesh's first triangle, as a surface location. */
-const at=(mesh:Material)=>surfaceLocation3(surfaceOf(mesh),0,[1/3,1/3,1/3] as unknown as Vec3);
+const at=(mesh:Material)=>surfaceLocation3(mesh3(mesh),0,[1/3,1/3,1/3] as unknown as Vec3);
 /** A flat sheet facing +Z. */
 const sheet=()=>at(plane(2,2));
 /** The point a sheet is read at, so a lamp can be put a known way from it. */

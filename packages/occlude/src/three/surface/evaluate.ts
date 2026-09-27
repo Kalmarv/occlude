@@ -1,7 +1,8 @@
-import type {Surface3} from '../geometry/surface.js';
-import {snapshotSurface3,transformPosition3} from '../geometry/model.js';
+import type {Mesh3} from '../geometry/mesh3.js';
+import {transformPosition3} from '../geometry/model.js';
 import {captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
 import {triangleCorners3} from '../geometry/corners.js';
+import {kernelColumn} from '../geometry/mesh3.js';
 import {PhaseClock3,type PhaseTimings3} from '../timing.js';
 import {cross3,mul3,sub3,unit3,type Vec3} from '../math.js';
 import {lightTone3,imageValue3,decideTone3,type ToneRecipe3} from './tone.js';
@@ -9,7 +10,7 @@ import {lightTone3,imageValue3,decideTone3,type ToneRecipe3} from './tone.js';
 /** Batched evaluation of many surface locations at once. The CPU path below is
  * the reference for the GPU kernel; both read the same packed target data. */
 export interface SurfaceEvaluationTarget3 {
-  readonly surface:Surface3;
+  readonly mesh:Mesh3;
   readonly placement?:SurfacePlacement3;
   readonly uvAttribute?:string;
   readonly chartAttribute?:string;
@@ -34,7 +35,7 @@ export interface SurfaceEvaluationResult3 {
  * placed vertices, the same geometric normal rule as surface locations, and
  * per-corner chart coordinates when every corner carries a finite pair. */
 export interface PackedSurfaceTarget3 {
-  readonly source:Surface3;readonly placement?:SurfacePlacement3;
+  readonly source:Mesh3;readonly placement?:SurfacePlacement3;
   readonly triangles:number;
   /** 9 floats per triangle: placed a, b, c. */
   readonly vertices:Float64Array;
@@ -44,7 +45,7 @@ export interface PackedSurfaceTarget3 {
   readonly uv?:Float64Array;
   readonly uvAttribute:string;
 }
-const packedTargets=new WeakMap<Surface3,Map<string,PackedSurfaceTarget3>>();
+const packedTargets=new WeakMap<Mesh3,Map<string,PackedSurfaceTarget3>>();
 function geometricNormal(ab:Vec3,ac:Vec3):Vec3 {
   const edgeScale=Math.max(Math.hypot(...ab),Math.hypot(...ac));
   const scaledCross=cross3(mul3(ab,1/edgeScale),mul3(ac,1/edgeScale)),normalLength=Math.hypot(...scaledCross);
@@ -55,25 +56,26 @@ function geometricNormal(ab:Vec3,ac:Vec3):Vec3 {
   const u=scaled(ab),w=scaled(ac);if(!u||!w)return [0,0,0];
   return scaled(cross3(u,w))??[0,0,0];
 }
-/** Pack once per surface, placement and coordinate column; results are weakly
- * held by the source snapshot, so retaining geometry retains its packing. */
+/** Pack once per value, placement and coordinate column; results are weakly
+ * held by the value's reader, so retaining geometry retains its packing. */
 export function packSurfaceTarget3(target:SurfaceEvaluationTarget3):PackedSurfaceTarget3 {
-  const source=snapshotSurface3(target.surface),placement=captureSurfacePlacement3(target.placement),uvAttribute=target.uvAttribute??'uv';
+  const source=target.mesh,placement=captureSurfacePlacement3(target.placement),uvAttribute=target.uvAttribute??'uv';
   if(typeof uvAttribute!=='string'||!uvAttribute)throw new Error('surface evaluation uvAttribute must be a nonempty string');
   const key=JSON.stringify([placement?JSON.stringify(placement):null,uvAttribute]);
   let byKey=packedTargets.get(source);if(!byKey){byKey=new Map();packedTargets.set(source,byKey);}
   const cached=byKey.get(key);if(cached)return cached;
-  const n=source.triangles.length,vertices=new Float64Array(n*9),normals=new Float64Array(n*3),uv=new Float64Array(n*6);
+  const n=source.triangleCount,slot=source.triangles,cornerStart=source.cornerStart,faceOf=source.triangleFace,vertices=new Float64Array(n*9),normals=new Float64Array(n*3),uv=new Float64Array(n*6);
   const transform=placement?.transform,mirrored=(transform?.scale??[1,1,1]).filter(s=>s<0).length%2===1;
-  const placed=source.points.map(p=>transform?transformPosition3(p.position,transform):p.position);
+  const placed=transform?source.positions.map(p=>transformPosition3(p,transform)):source.positions;
+  const uvColumn=source.cols.corners[uvAttribute],uvs=uvColumn!==undefined&&kernelColumn(uvColumn)?uvColumn as {get(i:number):unknown}:undefined;
   let chart=true;
   for(let i=0;i<n;i++){
-    const t=source.triangles[i],[a,b,c]=t.vertices.map(v=>placed[v]);
+    const a=placed[slot[3*i]],b=placed[slot[3*i+1]],c=placed[slot[3*i+2]];
     for(let k=0;k<3;k++){vertices[i*9+k]=a[k];vertices[i*9+3+k]=b[k];vertices[i*9+6+k]=c[k];}
     const normal=geometricNormal(sub3(b,a),sub3(c,a));
     for(let k=0;k<3;k++)normals[i*3+k]=normal[k]===0?0:mirrored?-normal[k]:normal[k];
     if(chart){
-      const face=source.faces[t.face],corners=triangleCorners3(source,i).map(ci=>face.corners?.[ci]?.attributes[uvAttribute]);
+      const first=cornerStart[faceOf[i]],corners=triangleCorners3(source,i).map(ci=>uvs?.get(first+ci));
       if(corners.every(v=>Array.isArray(v)&&v.length===2&&v.every(Number.isFinite)))corners.forEach((v,j)=>{uv[i*6+j*2]=(v as number[])[0];uv[i*6+j*2+1]=(v as number[])[1];});
       else chart=false;
     }
@@ -122,8 +124,8 @@ function modelNormal(packed:PackedSurfaceTarget3,t:number):Vec3 {
   if(!cache){
     if(!packed.placement)cache=packed.normals;
     else{
-      const s=packed.source;cache=new Float64Array(packed.triangles*3);
-      s.triangles.forEach((tri,i)=>{const [a,b,c]=tri.vertices.map(v=>s.points[v].position),n=geometricNormal(sub3(b,a),sub3(c,a));for(let k=0;k<3;k++)cache![i*3+k]=n[k];});
+      const s=packed.source,positions=s.positions,slot=s.triangles;cache=new Float64Array(packed.triangles*3);
+      for(let i=0;i<packed.triangles;i++){const a=positions[slot[3*i]],b=positions[slot[3*i+1]],c=positions[slot[3*i+2]],n=geometricNormal(sub3(b,a),sub3(c,a));for(let k=0;k<3;k++)cache[i*3+k]=n[k];}
     }
     modelNormals.set(packed,cache);
   }

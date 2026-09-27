@@ -1,5 +1,6 @@
 import { cameraFrame3, cameraShift3, toCamera3, type Camera3, type CameraFrame3 } from 'occlude/src/three/camera.js';
-import { transformSurface3 } from 'occlude/src/three/geometry/model.js';
+import { transformSurface3, rowColumns3 } from 'occlude/src/three/geometry/model.js';
+import { meshOfSurface3 } from 'occlude/src/three/geometry/parts.js';
 import { SurfaceQueries3 } from 'occlude/src/three/queries/surface.js';
 import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { add3, mul3, type Triangle3, type Vec3 } from 'occlude/src/three/math.js';
@@ -30,7 +31,7 @@ export class ConstructionScene3 {
   constructor(scene: LineArtScene3) {
     for (const object of scene.objects) {
       const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface;
-      const query = new SurfaceQueries3(surface);
+      const query = new SurfaceQueries3(meshOfSurface3(surface));
       this.objects.push({ id: object.id, query });
       for (const tri of query.triangles) this.triangles.push(tri);
       for (const edge of surface.edges) this.wires.push(edge.vertices.map(i => surface.points[i].position) as unknown as readonly [Vec3, Vec3]);
@@ -53,8 +54,8 @@ export class ConstructionScene3 {
     for (const object of this.objects) {
       const hit = object.query.rays([ray])[0];
       if (hit && (!best || hit.distance < best.distance)) {
-        const face = object.query.surface.faces[object.query.surface.triangles[hit.triangle].face];
-        best = { objectId: object.id, faceId: hit.faceId, triangle: hit.triangle, point: hit.point, barycentric: hit.barycentric, attributes: structuredClone(face.attributes), distance: hit.distance };
+        const mesh = object.query.mesh;
+        best = { objectId: object.id, faceId: hit.faceId, triangle: hit.triangle, point: hit.point, barycentric: hit.barycentric, attributes: rowColumns3(mesh, 'faces', mesh.triangleFace[hit.triangle]), distance: hit.distance };
       }
     }
     if (!best) return null;

@@ -1,3 +1,4 @@
+import {mesh3} from '../geometry/mesh3.js';
 import {surfaceOf} from '../geometry/value.js';
 import type {IsoLevels} from '../../isolines.js';
 import {refuseStroke,refuseDisplay} from './recipes.js';
@@ -84,7 +85,7 @@ export function captureIsolines(mesh:Material,field:IsolineField,at:IsoLevels,op
   });
   const levels=resolveLevels(spec,values);
   const surface=snapshotSurface3(surfaceOf(mesh));
-  return {surface,binding:surfaceBinding3(surface),values,levels:Object.freeze([...levels]),key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
+  return {surface,binding:surfaceBinding3(mesh3(mesh)),values,levels:Object.freeze([...levels]),key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget};
 }
 /** The contours as a description a view resolves once it knows its camera.
  *

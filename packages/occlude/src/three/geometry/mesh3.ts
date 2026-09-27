@@ -82,8 +82,8 @@ export interface MeshParts3 {
   readonly edges: Uint32Array;
   readonly names: () => Readonly<Record<Domain3, readonly string[]>>;
   readonly cols: () => Readonly<Record<Domain3, Columns3>>;
-  /** What the incidence and the attachment are kept by: the statement of
-   * faces (or anything else that fixes the loops and the edges). */
+  /** What the incidence and the attachment are kept by: the loops of the
+   * statement of faces (or anything else that fixes them). */
   readonly topology: object;
   /** The value read, when it is one. */
   readonly value?: Material;
@@ -93,7 +93,7 @@ export interface MeshParts3 {
 interface Incidence3 {
   pointFaces?: readonly (readonly number[])[];
   faceNeighbors?: readonly (readonly number[])[];
-  edgeFaces?: readonly (readonly number[])[];
+  edgeFaces?: {readonly edges: Uint32Array; readonly faces: readonly (readonly number[])[]};
   cornerStart?: Uint32Array;
 }
 const INCIDENCE = new WeakMap<object, Incidence3>();
@@ -251,8 +251,10 @@ export class Mesh3 {
   }
   /** The faces on each edge, in face order: one on a rim, two inside. */
   get edgeFaces(): readonly (readonly number[])[] {
+    // The same loops over another edge list (loose edges added) are other
+    // edges: the faces on each are kept per edge list.
     const kept = incidenceOf(this.topology);
-    if (kept.edgeFaces === undefined) {
+    if (kept.edgeFaces === undefined || kept.edgeFaces.edges !== this.edges) {
       const at = new Map<number, number>();
       for (let e = 0; e < this.edgeCount; e++) at.set(pairKey(this.edges[2 * e], this.edges[2 * e + 1]), e);
       const rows: number[][] = [];
@@ -263,9 +265,9 @@ export class Mesh3 {
           if (e !== undefined) rows[e].push(f);
         }
       });
-      kept.edgeFaces = Object.freeze(rows.map((row) => Object.freeze(row)));
+      kept.edgeFaces = {edges: this.edges, faces: Object.freeze(rows.map((row) => Object.freeze(row)))};
     }
-    return kept.edgeFaces;
+    return kept.edgeFaces.faces;
   }
   /** The faces beside each face through a shared edge, in face order. */
   get faceNeighbors(): readonly (readonly number[])[] {
@@ -312,7 +314,9 @@ function readMaterial(m: Material): Mesh3 {
     loops,
     ...(stated?.triangles !== undefined ? {local: stated.triangles} : {}),
     edges: s.edgeList.flat(),
-    topology: stated ?? s.edgeList,
+    // What the faces ARE: a column write (a corner column too) keeps the
+    // loops, and with them the incidence and the attachment.
+    topology: stated?.cycles ?? s.edgeList,
     value: m,
     names: () => {
       const faceCount = loops.length;
@@ -366,8 +370,8 @@ const tokenOf = (topology: object): object => {
 };
 /** @internal `turned` is `stated` turned over (a mirror): the same faces,
  * corners and triangles by lineage, wound the other way. */
-export function turnedOver3(stated: object, turned: object): void {
-  TOKENS.set(turned, tokenOf(stated));
+export function turnedOver3(stated: StatedFaces, turned: StatedFaces): void {
+  TOKENS.set(turned.cycles, tokenOf(stated.cycles));
 }
 /** @internal Are `a` and `b` the same surface by lineage (see the module
  * note)? A winding may be reversed. */

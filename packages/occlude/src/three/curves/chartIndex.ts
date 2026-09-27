@@ -1,5 +1,6 @@
 import type {Surface3} from '../geometry/surface.js';
 import {triangleCorners3} from '../geometry/corners.js';
+import {meshOfSurface3} from '../geometry/parts.js';
 import {WorldIndex3,worldBounds3} from '../geometry/bounds.js';
 import {triangulationJob3} from '../geometry/triangulation.js';
 import {point,orientPoint,type H} from '../geometry/exact.js';
@@ -14,10 +15,10 @@ const cache=new WeakMap<Surface3,Map<string,ChartIndex3>>();
 export function* chartIndexJob3(surface:Surface3,uvName='uv',chartName='chart',selected?:string|number):Generator<void,ChartIndex3> {
   const key=JSON.stringify([uvName,chartName,selected??null]),entries=cache.get(surface),previous=entries?.get(key);
   if(previous)return previous;
-  const topology=yield*triangulationJob3(surface);
+  const mesh=meshOfSurface3(surface),topology=yield*triangulationJob3(mesh);
   const rows:ChartTriangle3[]=[],byTriangle=new Map<number,number>(),seen=new Set<string|number>();
   for(let i=0;i<surface.triangles.length;i++){
-    const face=surface.faces[surface.triangles[i].face],corners=triangleCorners3(surface,i).map(c=>face.corners![c]);
+    const face=surface.faces[surface.triangles[i].face],corners=triangleCorners3(mesh,i).map(c=>face.corners![c]);
     const names=corners.map(c=>c.attributes[chartName]??'default');
     if(names.some(n=>n!==names[0])||!['string','number'].includes(typeof names[0]))throw new Error(`mapSurface: a triangle crosses two charts in the corner column '${chartName}' — every corner of a face names one chart`);
     seen.add(names[0] as string|number);

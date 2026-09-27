@@ -27,6 +27,7 @@ import {ownSurface3,transformSurface3} from '../geometry/model.js';
 import {add3,mul3,type Vec3} from '../math.js';
 import {captureSurfacePlacement3} from '../geometry/location.js';
 import {surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
+import {mesh3} from '../geometry/mesh3.js';
 import type {Face} from '../../faces.js';
 
 /** How one copy is placed: scale, then rotation, then translation, applied
@@ -91,7 +92,7 @@ export function placedOf(m:Material):readonly Placed3[] {
   if(out!==undefined)return out;
   const prototype=prototypeOf(m);
   if(prototype===undefined)throw new Error('expected instances — a value that places a prototype: instanceOnPoints or instanceOnFaces');
-  const surface=surfaceOf(prototype),rows=[...m.points] as unknown as readonly (Vertex&{readonly z:number;readonly rotate:readonly number[];readonly scale:readonly number[];readonly source:unknown})[];
+  const surface=mesh3(prototype),rows=[...m.points] as unknown as readonly (Vertex&{readonly z:number;readonly rotate:readonly number[];readonly scale:readonly number[];readonly source:unknown})[];
   out=Object.freeze(rows.map((row,index)=>{
     const id=rowName(row,'points');
     const turn=row.rotate.length===3?Object.freeze([row.rotate[0],row.rotate[1],row.rotate[2]]) as Vec3:storedRotation(row.rotate);

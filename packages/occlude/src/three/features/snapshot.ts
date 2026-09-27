@@ -7,6 +7,7 @@ import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, outsideView3, toCamera3, toPaper3, type CameraFrame3, type PaperFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
 import { transformSurface3, transformPosition3 } from '../geometry/model.js';
+import { meshOfSurface3 } from '../geometry/parts.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
@@ -164,7 +165,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         Object.freeze([a,b].map(p=>Object.freeze([Object.freeze({point:Object.freeze(toCamera3(frame,p.position)),world:p.position,exactWorld:p.exact,weight:1})]))) as SegmentBasis3;
       const support=[...new Set(segment.supports.map(s=>bindings[s.source].triangleIds[s.triangle]))];
       const faces=new Map<string,Readonly<Attributes3>>();
-      for(const s of segment.supports){const face=network.sources[s.source].binding.source.triangles[s.triangle].face;faces.set(key(s.source,face),bindings[s.source].faceAttrs[face]);}
+      for(const s of segment.supports){const face=network.sources[s.source].binding.source.triangleFace[s.triangle];faces.set(key(s.source,face),bindings[s.source].faceAttrs[face]);}
       add({...(legacy?.object.instance?{instance:Object.freeze({...legacy.object.instance})}:{}),...(legacy?.object.stroke!==undefined?{stroke:legacy.object.stroke}:{}),...(legacy?.object.fillPen!==undefined?{fillPen:legacy.object.fillPen}:{}),id:key(entry.id,segment.id),objectId:entry.id,sourceId:segment.id,flags:FeatureKind3[segment.kind],curve,supportedCurve:Object.freeze({graph,segment:index}),basis,creaseAngle:0,a:position('a'),b:position('b'),endpoints:[key(entry.id,'curve',a.id),key(entry.id,'curve',b.id)],support,attributes:attributes({...entry.attributes,...segment.attributes}),faceAttributes:[...faces.values()]},!selected.has(segment.id));
     });
   };
@@ -173,14 +174,15 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   const needed=new Set<SurfaceBinding3>();
   for(const entry of curves)if(entry.network)for(const source of entry.network.sources)needed.add(source.binding);
   for (const object of objects) {
-    if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
+    const mesh=meshOfSurface3(object.surface);
+    if(object.curves)validateSurfaceCurves3(object.curves,mesh);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
     const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface;
     const worldPositions=surface.points.map(p=>Object.freeze([...p.position]) as Vec3);
     const positions=worldPositions.map(p=>Object.freeze(toCamera3(frame,p)));
     // An object wholly outside the view draws nothing and hides nothing: it
     // is skipped before it costs a feature, an occluder or a seam.
-    if(outsideView3(frame,positions,sheet)&&!needed.has(objectSurfaceBinding3(object)))continue;
+    if(outsideView3(frame,positions,sheet)&&!needed.has(objectSurfaceBinding3({...object,mesh})))continue;
     const edgeBasis=(vertices:readonly [number,number]):SegmentBasis3=>Object.freeze(vertices.map(v=>Object.freeze([Object.freeze({point:positions[v],world:worldPositions[v],weight:1})]))) as SegmentBasis3;
     const faceAttrs = surface.faces.map(f => attributes(f.attributes));
     const faceTriangles: number[][] = surface.faces.map(() => []);
@@ -232,7 +234,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       occluderMesh = Object.freeze({ objectId: object.id, positions: worldPositions, pointIds: surface.points.map(p => p.id), triangles: surface.triangles.map(t => t.vertices), triangleIds, complete, ...(centre ? { radialCentre: Object.freeze([...centre]) as Vec3 } : {}) });
       occluderMeshes.push(occluderMesh);
     }
-    const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs,mesh:occluderMesh};
+    const binding=objectSurfaceBinding3({...object,mesh}),capture={object,triangleIds,faceAttrs,mesh:occluderMesh};
     const matching=captures.get(binding)??[];matching.push(capture);captures.set(binding,matching);
     if (object.lineSource === false) continue;
     for (const [k, edge] of triangleEdges) {
@@ -279,7 +281,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       }
     }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
-    if(hatch)validateSurfaceCurves3(hatch,object.surface);
+    if(hatch)validateSurfaceCurves3(hatch,mesh);
     for(const source of [object.curves,hatch])if(source){
       const network=legacySurfaceCurveNetwork3(source,binding);
       emitNetwork({id:object.id,network,attributes:object.attributes},[capture],{object,segments:source.segments,positions,worldPositions});
