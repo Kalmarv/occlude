@@ -41,7 +41,7 @@ class ThreeWorkerHost {
     }
     if ('deformation' in input) {
       this.deformation ??= await GpuDeform3.create(session.device);
-      const deformation=await this.deformation.deform(input.surface,{...input.deformation,signal});
+      const deformation=await this.deformation.deform(input.mesh,{...input.deformation,signal});
       signal.throwIfAborted();return {...metadata,deformation};
     }
     if ('objects' in input) {

@@ -398,6 +398,13 @@ export interface Made3 {
   readonly lineage?: Lineage3;
 }
 
+/** @internal An answer with no rows: nothing to draw. */
+export const NO_ROWS3: Made3 = Object.freeze({
+  x: new Float64Array(0), y: new Float64Array(0), z: new Float64Array(0),
+  names: Object.freeze({points: [], edges: [], faces: [], corners: []}),
+  loops: [], triangles: [], edges: new Uint32Array(0),
+});
+
 /** @internal The edges of a set of loops, as a surface always derived them:
  * first seen, face by face and side by side, each with its lower point row
  * first, named for its two points' names — or, where `previous` has an
@@ -522,6 +529,9 @@ export interface MadeCarry3 {
   readonly prototype?: Material;
   /** Where the rows came from (the core's `source` spec). */
   readonly source?: MaterialParts['source'];
+  /** Point columns a kernel never sees (a sample's placement), one a
+   * point: set over every other point column, the carried ones too. */
+  readonly pointCols?: Columns3;
 }
 
 /** The ids of a domain's rows: a name `from` holds is that row's id (an
@@ -606,6 +616,7 @@ export function made3(made: Made3, carry: MadeCarry3 = {}): Material {
     ids[d] = domainIds(names, known, from === undefined ? undefined : idsOf(from, d), byEnds);
     withCarried[d] = from === undefined || known === undefined ? (cols[d] ?? EMPTY_COLS) : Object.freeze({...(cols[d] ?? {}), ...carried(from.cols[d], known, names, made.lineage?.[d])});
   }
+  if (carry.pointCols !== undefined) withCarried.points = Object.freeze({...withCarried.points, ...carry.pointCols});
   const faceNames = Object.keys(withCarried.faces);
   const faces: FacePart[] = made.loops.map((loop, f) => {
     let own: Record<string, CellValue> | undefined;

@@ -48,7 +48,8 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(surface3([[0,0,0],[1,0,0],[1,1,.4],[0,1,0]],[[0,1,2,3]]).triangles.length).toBe(2);
   const sheet=plane(4).subdivide(2),left=sheet.faces.filter(f=>f.centroid[0]<-1),right=sheet.faces.filter(f=>f.centroid[0]>1);
   const one=sheet.extrude(left.union(right),r=>[0,0,r.index]);
-  expect(surfaceOf(one).faces.filter(f=>f.provenance?.operation==='extrude').length).toBe(right.boundaryEdges().length);
+  // The walls of the one component that moved: faces the input did not name.
+  expect(one.faces.length-sheet.faces.length).toBe(right.boundaryEdges().length);
  });
 
  it('answers one sample with a fallback rather than failing the whole field',()=>{
@@ -56,7 +57,7 @@ describe('a degenerate input draws nothing, and the sketch keeps rendering',()=>
   expect(sampleValue('two' as unknown,null)).toBeNull();expect(sampleValue(3,0)).toBe(3);
   // One point the displacement field cannot answer stays put; the rest move.
   const moved=plane(2).subdivide(1).displace(p=>p.x>0?Number.NaN:[0,0,1]);
-  const heights=new Set(surfaceOf(moved).points.map(p=>p.position[2]));
+  const heights=new Set(moved.points.map(p=>p.z));
   expect(heights).toEqual(new Set([0,1]));
   // One unusable level leaves the others drawing.
   const field=plane(2).subdivide(2).points.set({h:p=>p.x});

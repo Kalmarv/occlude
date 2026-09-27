@@ -1,5 +1,5 @@
-import {geometry3,type GeometryOptions} from './mesh.js';
-import {assembleSurface3,type SurfacePoint3} from '../geometry/surface.js';
+import {madeGeometry3,pointsMade3,type GeometryOptions} from './mesh.js';
+import {Column,type AnyColumn} from '../../column.js';
 import {finite3,type Vec3} from '../math.js';
 import {emptySize} from '../degenerate.js';
 import type {Material} from '../../material.js';
@@ -19,12 +19,14 @@ export function grid(options:GridOptions):Material {
   const count=cols*rows*layers;if(!Number.isSafeInteger(count)||count>maxPoints)throw new Error(`grid exceeds point budget (${maxPoints})`);
   const input=options.spacing??1,spacing:Vec3=typeof input==='number'?[input,input,input]:input;
   finite3(spacing,'grid spacing');
-  const points:SurfacePoint3[]=[];
+  const points:Vec3[]=[],is:number[]=[],js:number[]=[],ks:number[]=[];
   // A grid with no separation has no extent to lay points out in: empty, the
   // same nothing-to-draw a zero size gives every other primitive.
   if(count&&!emptySize(...spacing))for(let k=0;k<layers;k++)for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
     const position:Vec3=[(i-(cols-1)/2)*spacing[0],(j-(rows-1)/2)*spacing[1],(k-(layers-1)/2)*spacing[2]];
-    finite3(position,'grid');points.push({id:`p${points.length}`,position,attributes:{i,j,k}});
+    finite3(position,'grid');points.push(position);is.push(i);js.push(j);ks.push(k);
   }
-  return geometry3(assembleSurface3(points,[],[]),options);
+  // Each point's place in the lattice; a grid of no points has no columns.
+  const lattice:Record<string,AnyColumn>=points.length?{i:Column.of(Float64Array.from(is)),j:Column.of(Float64Array.from(js)),k:Column.of(Float64Array.from(ks))}:{};
+  return madeGeometry3(pointsMade3(points,points.map((_,n)=>`p${n}`),lattice),options);
 }

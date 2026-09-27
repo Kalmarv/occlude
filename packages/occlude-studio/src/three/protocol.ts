@@ -1,7 +1,7 @@
 import type {RayQuery3,NearestQuery3} from 'occlude/src/three/queries/surface.js';
 import type {QueryBatch3} from 'occlude/src/compute/webgpu/queries.js';
 import type {Surface3} from 'occlude/src/three/geometry/surface.js';
-import type {DeformOptions3} from 'occlude/src/three/geometry/deform.js';
+import type {DeformInput3,DeformOptions3} from 'occlude/src/three/geometry/deform.js';
 import type {GpuDeform3} from 'occlude/src/compute/webgpu/deform.js';
 import type { SurfaceObject3, WireObject3 } from 'occlude/src/three/features/snapshot.js';
 import type { ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
@@ -37,7 +37,7 @@ export interface ThreeSceneInput {
   readonly cameraRevision: number;
 }
 export type ThreeSceneResult = Omit<ThreeRenderResult, 'gpu'> & { readonly drawing: ClassifiedScene3 };
-export interface ThreeDeformInput { readonly surface:Surface3; readonly deformation:Omit<DeformOptions3,'signal'>;readonly geometryRevision:number;readonly cameraRevision:number }
+export interface ThreeDeformInput { readonly mesh:DeformInput3; readonly deformation:Omit<DeformOptions3,'signal'>;readonly geometryRevision:number;readonly cameraRevision:number }
 export type ThreeDeformResult = Omit<ThreeRenderResult,'gpu'> & {readonly deformation:Awaited<ReturnType<GpuDeform3['deform']>>};
 export interface ThreeQueryInput {readonly querySurface:Surface3;readonly rayQueries:readonly RayQuery3[];readonly nearestQueries:readonly NearestQuery3[];readonly geometryRevision:number;readonly cameraRevision:number}
 export type ThreeQueryResult=Omit<ThreeRenderResult,'gpu'> & {readonly queries:{rays:QueryBatch3;nearest:QueryBatch3}};

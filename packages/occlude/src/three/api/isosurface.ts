@@ -18,9 +18,7 @@
  * test. A field is POSITIVE INSIDE (see `sdf3`), so the walk is what fixes
  * the sign, not the gradient.
  */
-import {surface3} from '../geometry/surface.js';
-import {ownSurface3} from '../geometry/model.js';
-import {geometry3,emptyMesh,type GeometryOptions} from './mesh.js';
+import {madeGeometry3,polygons3,emptyMesh,type GeometryOptions} from './mesh.js';
 import {clampSetting,emptyCount,emptySize} from '../degenerate.js';
 import {finite3,type Vec3} from '../math.js';
 import type {DistanceField3} from './sdf3.js';
@@ -169,7 +167,7 @@ export function isosurface(field:DistanceField3,options:IsosurfaceOptions):Mater
   }
   budget(points.length,triangles.length);
   if(triangles.length===0)return emptyMesh(options);
-  return geometry3(ownSurface3(surface3(relax(points,triangles,passes),triangles)),options);
+  return madeGeometry3(polygons3(relax(points,triangles,passes),triangles),options);
 }
 
 /** Laplacian passes: every point moves halfway to the mean of the points it
