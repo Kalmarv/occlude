@@ -56,7 +56,7 @@ import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, type Corner } fro
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
 // is safe, as it is for the kernels above.
-import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, addEdgeRows, storedValueOf, checkColumnName, checkNewColumnName, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, addEdgeRows, storedValueOf, checkColumnName, checkNewColumnName, checkWrittenName, DERIVED_POINT_WORDS, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
 
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
@@ -3097,7 +3097,9 @@ export function material(
     if (shared !== null && shared.length === 0) continue;
     const own = new Set<string>();
     if (!isArr(p)) {
-      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && typeof v === 'number') own.add(k);
+      // A view's words are not columns: its row, and the words its row
+      // derives (a curve's view of a point holds its `s`).
+      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && !DERIVED_POINT_WORDS.has(k) && typeof v === 'number') own.add(k);
     } else if ((p as readonly number[]).length > 2 && typeof (p as readonly number[])[2] === 'number') {
       // A place with a third number, [x, y, z], is a point in space.
       own.add('z');
@@ -3120,6 +3122,9 @@ export function material(
       edges = Uint32Array.from(flat);
       continue;
     }
+    // A column given here is a sketch's write: no word a point owns or
+    // derives (`s`, `tangent`, `normal`).
+    checkWrittenName('point', name, 'material');
     if (value === undefined) continue;
     if (typeof value === 'number') attrs[name] = new Float64Array(n).fill(value);
     else attrs[name] = Float64Array.from(value as ArrayLike<number>);
