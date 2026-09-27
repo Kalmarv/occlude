@@ -170,6 +170,11 @@ export type Edge = {
    * none for an edge no face touches. Where faces nest, the leaves. Reading
    * it on a material that is not planar throws the same error as `faces`. */
   readonly faces: Selection<Face>;
+  /** Where this row of a derived value came from: the input edge it is a
+   * piece of (a split, a replace, a resample or a spline piece), or a
+   * selection when it came from many. Undefined for a row no derivation
+   * made. */
+  readonly source: RowSource;
   readonly [ROW_TYPES]?: EdgeTypes;
   /** The edge columns, read flat, as a vertex's are. */
 } & { readonly [column: string]: any };

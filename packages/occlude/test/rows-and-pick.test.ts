@@ -39,12 +39,14 @@ describe('t.pick', () => {
   it('takes anything with length and at: an array, a selection, a list of pairs', () => {
     render(sketch({}, (t) => {
       const m = wheel();
+      // A member, or undefined when there is none: the answer says which.
       const one = t.pick(m.points);
-      expect(typeof one.x).toBe('number');
-      expect(one.index).toBeGreaterThanOrEqual(0);
+      if (one === undefined) throw new Error('a wheel has points to pick');
+      expect(m.points.has(one)).toBe(true);
       const some = [...m.points].flatMap((a) => [...m.points.near(a, { radius: 10.5 })].filter((b) => b.index > a.index).map((b) => [a, b] as const));
-      const [a, b] = t.pick(some);
-      expect(distance(a, b)).toBeLessThan(10.5);
+      const pair = t.pick(some);
+      if (pair === undefined) throw new Error('a wheel has near pairs to pick');
+      expect(distance(pair[0], pair[1])).toBeLessThan(10.5);
       expect(t.pick([7, 7, 7])).toBe(7);
       // Nothing to pick from gives no member, whichever spelling (spec 71:
       // a write given `undefined` writes nothing, so an empty pick is data,

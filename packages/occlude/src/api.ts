@@ -2010,7 +2010,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * way the answer is a selection of a selection, a list of a list, in the
    * collection's own order.
    */
-  function pick<T>(items: Pickable<T>): T;
+  function pick<T>(items: Pickable<T>): T | undefined;
   function pick<S extends Selection<any>>(items: S, count: number): S;
   function pick<T>(items: readonly T[], count: number): T[];
   function pick<T>(items: Pickable<T>, count?: number): unknown {

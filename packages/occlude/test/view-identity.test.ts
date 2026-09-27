@@ -2,9 +2,9 @@
  * One view per row of a state, wherever the sketch meets it: a callback's
  * argument (`set`, `move`, a `where`, split's `at`, replace's `flip`), an
  * iteration, a relation and `source` all hand back the same object, in
- * whatever order the rows are first read. The row views are one class for
- * every state (views.ts), so they carry their brand without a prototype
- * per state, and a copy of one is still a plain, unowned record.
+ * whatever order the rows are first read. Every state's views answer the
+ * same words, each with its own state's values, and a copy of one is
+ * still a plain, unowned record.
  */
 
 import { readFileSync } from 'node:fs';
@@ -127,12 +127,21 @@ describe('a row view is a plain record to everything but the library', () => {
     expect(Object.isFrozen(e)).toBe(true);
   });
 
-  it('two states with the same columns share nothing but the class: each view names its own state', () => {
+  it('two states with the same columns: each view names its own state, and both answer the same words', () => {
     const a = cloud(4);
     const b = a.move([1, 0]);
-    expect(ownedBy(a.points.at(0), a)).toBe(true);
-    expect(ownedBy(b.points.at(0), a)).toBe(false);
-    expect(a.points.at(0)).not.toBe(b.points.at(0));
-    expect(Object.getPrototypeOf(a.points.at(0))).toBe(Object.getPrototypeOf(b.points.at(0)));
+    const pa = a.points.at(0);
+    const pb = b.points.at(0);
+    expect(ownedBy(pa, a)).toBe(true);
+    expect(ownedBy(pb, a)).toBe(false);
+    expect(pa).not.toBe(pb);
+    // The same row read from each state: the same columns, each state's
+    // values, the same relations, and either state names the other's view.
+    expect(Object.keys(pb)).toEqual(Object.keys(pa));
+    expect([pb.x, pb.y, pb.w]).toEqual([pa.x + 1, pa.y, pa.w]);
+    expect(pb.edges.length).toBe(pa.edges.length);
+    expect(a.points.has(pb)).toBe(true);
+    expect(b.points.has(pa)).toBe(true);
+    expect(b.points.rows(pa).at(0)).toBe(pb);
   });
 });

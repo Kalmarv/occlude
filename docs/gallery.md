@@ -192,7 +192,7 @@ export default sketch({ aspect: [1, 1], seed: 13 }, (t) => {
   const out = [];
   for (let i = 0; i < tiles; i++) {
     for (let j = 0; j < tiles; j++) {
-      const mx = t.pick([-1, 0, 1]), my = t.pick([-1, 0, 1]);
+      const mx = t.rndInt(-1, 1), my = t.rndInt(-1, 1);
       let x = i * tile, y = j * tile, w = tile;
       for (let s = steps; s >= 0; s--) {
         out.push(rect(x, y, w, w));
@@ -228,7 +228,10 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     });
   };
   for (let i = step; i < size; i += step) { split('y', i); split('x', i); }
-  for (const pen of pens) t.pick(pieces).pen = pen;
+  for (const pen of pens) {
+    const piece = t.pick(pieces);
+    if (piece) piece.pen = pen;
+  }
   return pieces.map((s) =>
     rect(s.x, s.y, s.w, s.h, s.pen ? { fill: fill('solid'), fillPen: s.pen } : {}));
 });
