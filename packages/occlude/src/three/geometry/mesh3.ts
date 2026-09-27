@@ -588,15 +588,23 @@ export interface MadeCarry3 {
   /** Point columns a kernel never sees (a sample's placement), one a
    * point: set over every other point column, the carried ones too. */
   readonly pointCols?: Columns3;
+  /** How the edge columns cross a later edit (see `Material.edgeTransfers`). */
+  readonly edgeTransfers?: MaterialParts['edgeTransfers'];
+  /** Every value the kernel read, in the order its lineage's `inputs` count
+   * them (absent: `from` alone): a made edge descends from the edge its
+   * lineage names. */
+  readonly inputs?: readonly Material[];
 }
 
 /** The ids of a domain's rows: a name `from` holds is that row's id (an
- * edge also by its two points), any other a fresh one, minted in row order. */
-function domainIds(names: readonly string[], known: Map<string, number> | undefined, fromIds: ArrayLike<number> | undefined, byEnds?: {readonly map: Map<string, number>; readonly key: (i: number) => string}): Float64Array {
+ * edge also by its two points), any other a fresh one, minted in row order.
+ * `rows` answers each kept row's row in `from` (-1: a fresh one). */
+function domainIds(names: readonly string[], known: Map<string, number> | undefined, fromIds: ArrayLike<number> | undefined, byEnds?: {readonly map: Map<string, number>; readonly key: (i: number) => string}, rows?: Int32Array): Float64Array {
   const out = new Float64Array(names.length);
   let fresh = 0;
   for (let i = 0; i < names.length; i++) {
     const row = known?.get(names[i]) ?? byEnds?.map.get(byEnds.key(i));
+    if (rows !== undefined) rows[i] = row ?? -1;
     if (row === undefined) {
       out[i] = NaN;
       fresh++;
@@ -606,6 +614,31 @@ function domainIds(names: readonly string[], known: Map<string, number> | undefi
     const minted = mintIds(fresh);
     let k = 0;
     for (let i = 0; i < out.length; i++) if (Number.isNaN(out[i])) out[i] = minted[k++];
+  }
+  return out;
+}
+
+/** Each edge's lineage root: a kept edge keeps its row's in `from`; a made
+ * edge whose lineage names one parent, an edge of the input it names,
+ * descends from it and takes its root, as a split's piece does; any other
+ * edge is its own root. */
+function edgeRoots(ids: Float64Array, kept: Int32Array, from: Material | undefined, inputs: readonly Material[], lineage: Lineage3['edges']): Float64Array {
+  const out = Float64Array.from(ids);
+  const fromRoots = from?.store.edgeRoots.flat();
+  const byName = new Map<Material, Map<string, number>>();
+  for (let e = 0; e < out.length; e++) {
+    if (kept[e] >= 0) {
+      out[e] = fromRoots![kept[e]];
+      continue;
+    }
+    const l = lineage?.[e];
+    if (l === undefined || l.parents.length !== 1) continue;
+    const input = inputs[l.inputs?.[0] ?? 0];
+    if (input === undefined) continue;
+    let rows = byName.get(input);
+    if (rows === undefined) byName.set(input, (rows = rowOfName(mesh3(input).names.edges)));
+    const row = rows.get(l.parents[0]);
+    if (row !== undefined) out[e] = input.store.edgeRoots.flat()[row];
   }
   return out;
 }
@@ -659,6 +692,7 @@ export function made3(made: Made3, carry: MadeCarry3 = {}): Material {
   const ids = {} as Record<Domain3, Float64Array>;
   const withCarried = {} as Record<Domain3, Columns3>;
   const edges = made.edges;
+  const keptEdges = new Int32Array(made.names.edges.length);
   for (const d of DOMAINS3) {
     const names = made.names[d];
     const known = from === undefined ? undefined : rowOfName(from.names[d]);
@@ -669,7 +703,7 @@ export function made3(made: Made3, carry: MadeCarry3 = {}): Material {
       for (let e = 0; e < from.edgeCount; e++) map.set(endsKey(p[from.edges[2 * e]], p[from.edges[2 * e + 1]]), e);
       byEnds = {map, key: (e) => endsKey(made.names.points[edges[2 * e]], made.names.points[edges[2 * e + 1]])};
     }
-    ids[d] = domainIds(names, known, from === undefined ? undefined : idsOf(from, d), byEnds);
+    ids[d] = domainIds(names, known, from === undefined ? undefined : idsOf(from, d), byEnds, d === 'edges' ? keptEdges : undefined);
     withCarried[d] = from === undefined || known === undefined ? (cols[d] ?? EMPTY_COLS) : Object.freeze({...(cols[d] ?? {}), ...carried(from.cols[d], known, names, made.lineage?.[d])});
   }
   if (carry.pointCols !== undefined) withCarried.points = Object.freeze({...withCarried.points, ...carry.pointCols});
@@ -691,10 +725,11 @@ export function made3(made: Made3, carry: MadeCarry3 = {}): Material {
     edgeCols: withCarried.edges,
     faces,
     ...(made.loops.length > 0 ? {cornerColumns: withCarried.corners} : {}),
-    ids: {points: ids.points, edges: ids.edges, faces: ids.faces, corners: ids.corners},
+    ids: {points: ids.points, edges: ids.edges, edgeRoots: edgeRoots(ids.edges, keptEdges, carry.from, carry.inputs ?? (carry.from === undefined ? [] : [carry.from]), made.lineage?.edges), faces: ids.faces, corners: ids.corners},
     keys: made.names,
     ...(carry.source !== undefined ? {source: carry.source} : {}),
     ...(carry.transfers !== undefined ? {transfers: {...carry.transfers}} : {}),
+    ...(carry.edgeTransfers !== undefined ? {edgeTransfers: {...carry.edgeTransfers}} : {}),
     ...(carry.key !== undefined ? {key: carry.key} : {}),
     ...(carry.prototype !== undefined ? {prototype: carry.prototype} : {}),
     ...(carry.origin !== undefined ? {origin: carry.origin} : {}),

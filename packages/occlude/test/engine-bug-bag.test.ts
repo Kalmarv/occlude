@@ -276,7 +276,7 @@ describe('G2-6 area is a measured size; a share is a fraction', () => {
 const stream = (seed = 1) => { let v = seed >>> 0 || 1; return () => { v ^= v << 13; v >>>= 0; v ^= v >>> 17; v ^= v << 5; v >>>= 0; return v / 4294967296; }; };
 
 describe('G3-40 a location has uv where its face has a chart, as the fields page says', () => {
-  it('reads uv and tangentU on a primitive, and neither on a boolean\'s result', () => {
+  it('reads uv and tangentU on a primitive, and on a boolean\'s result, whose faces keep their corners', () => {
     const at = (m: Material) => surfaceLocation3(mesh3(m), 0, [1 / 3, 1 / 3, 1 / 3]);
     for (const primitive of [box(2), plane(2), sphere(1)]) {
       const s = at(primitive);
@@ -285,9 +285,9 @@ describe('G3-40 a location has uv where its face has a chart, as the fields page
       expect(s.tangentU).toHaveLength(3);
     }
     const cut = at(box(2).subtract(sphere(1.1, { segments: 24, rings: 12 }).translate([1, 1, 1])));
-    expect(cut.chartStatus).toBe('missing');
-    expect(cut.uv).toBeUndefined();
-    expect(cut.tangentU).toBeUndefined();
+    expect(cut.chartStatus).toBe('regular');
+    expect(cut.uv).toHaveLength(2);
+    expect(cut.tangentU).toHaveLength(3);
   });
 });
 

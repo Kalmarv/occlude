@@ -73,7 +73,7 @@ function refuseNoFaces(m:Material,who:string):void {
 /** A derivation's answer as the one geometry, its rows linked to its inputs. */
 function derivedValue(operation:string,m:Material,made:Made3,inputs:readonly Material[],more:Partial<MadeCarry3>={}):Material {
   // A derivation drops a recorded radial centre unless it says it keeps one.
-  return made3(made,{...kept(m,{radialCentre:undefined,...more}),source:sourceOfMade3(operation,made,inputs)});
+  return made3(made,{...kept(m,{radialCentre:undefined,...more}),inputs,source:sourceOfMade3(operation,made,inputs)});
 }
 /** The columns a kernel reads (no references or placements, which `made3`
  * carries). */
@@ -314,7 +314,11 @@ export function boolean3(operation:BooleanOperation3):(m:Material,other:Material
   return (m,other)=>{
     if(typeof other!=='object'||other===null||!('cache' in other))throw new Error(`${operation}: the second value is not a mesh — a geometry with faces`);
     refuseNoFaces(m,operation);refuseNoFaces(other,operation);
-    return derivedValue(operation,m,booleanMesh3(operation,mesh3(m),mesh3(other)),[m,other],{transfers:{}});
+    const made=booleanMesh3(operation,mesh3(m),mesh3(other));
+    // An edge column keeps the policy of the solid whose edges it came
+    // from: the first's, where both hold it.
+    const edgeTransfers=Object.fromEntries(Object.keys(made.cols?.edges??{}).flatMap(name=>{const t=(name in m.store.edgeAttrs?m:other).edgeTransfers[name];return t===undefined?[]:[[name,t]];}));
+    return derivedValue(operation,m,made,[m,other],{transfers:{},edgeTransfers});
   };
 }
 /** `dual(options?)`: one point per face at its middle, one face per vertex
