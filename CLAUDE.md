@@ -143,12 +143,11 @@ rasters are implementation numbers. They are not tenants.
   once per issue.
 - **When patches stack, stop and rearchitect.**
 - **Definition of done:** `pnpm check` — one line per gate: Rust tests, TS
-  tests, the library typecheck (`src` and `tools`), every docs example
-  rendering, the docs ink oracle against
+  tests, the library typecheck (`src`, `tools`, `test` and `bench`), the
+  studio typecheck, every docs example rendering, the docs ink oracle against
   `packages/occlude/test/fixtures/docs-ink.json`, the root build, and the
   wasm md5 match. Then commit/push. A DELIBERATE ink change re-saves that
-  baseline in the same commit, with the reason in the message; the test
-  suite and the studio are not typechecked yet (`check.mjs` says so). The
+  baseline in the same commit, with the reason in the message. The
   server serves dist per request, and reports its build id per request, so
   a REBUILD needs no restart; restart only for server.mjs / *-store.mjs
   changes (kill by PID — pkill aborts the shell). Ship with `pnpm ship --push` (`ship.mjs`):
