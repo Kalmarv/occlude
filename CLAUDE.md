@@ -63,9 +63,10 @@ rasters are implementation numbers. They are not tenants.
   filtered. A shape area is lowered by the toolkit, never by a pure
   kernel.
 - **One accessor protocol.** A geometry value says what it is by what it
-  answers: `contours()` for areas, `curves()` for chains, `points` for
-  positions. Every area consumer reads `contours()`, every chain consumer
-  `curves()`, every point consumer `points`; a consumer refuses a value
+  answers: `contours()` for areas, `curves` for chains (a property, rows
+  in walk order), `points` for positions. Every area consumer reads
+  `contours()`, every chain consumer `curves`, every point consumer
+  `points`; a consumer refuses a value
   that cannot answer, by name. The protocol is structural — no base class,
   no marker, nothing a value cannot already say honestly.
 - **A thing you can read is a property, computed on first read.** What a

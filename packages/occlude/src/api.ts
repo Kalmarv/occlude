@@ -86,6 +86,8 @@ import { chainLengths, chainRecordOf, chainRecordsOf, isCurveRow, type Curve } f
 import { isPointSelection, isEdgeSelection } from './relation.js';
 import { Selection } from './selection.js';
 import { memoised } from './memo.js';
+// Named here so the toolkit's declaration can say its query-host key.
+import type { QUERY_HOST3 } from './three/queries/surface.js';
 import { ownerOf, viewKind } from './views.js';
 import { carryLinks, derivation, linkRows, nodeOf, record } from './derivation.js';
 

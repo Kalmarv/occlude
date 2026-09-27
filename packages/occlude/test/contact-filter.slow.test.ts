@@ -5,6 +5,8 @@
  * must be the same coastline, coordinate for coordinate.
  */
 import { describe, expect, it } from 'vitest';
+import { surfaceOf } from '../src/three/geometry/value.js';
+import type { Material } from '../src/material.js';
 import { orient3d } from 'robust-predicates';
 import { separatedTriangles3 } from '../src/three/curves/contactFilter.js';
 import { triangleContact3 } from '../src/three/curves/contact.js';
@@ -44,19 +46,19 @@ const contactOf = (a: Tri, b: Tri) => triangleContact3(exact(a), exact(b));
  * library are not bindings this one accepts. */
 async function globeShells(options: { frequency: number; seed?: number }): Promise<{ water: SurfaceBinding3; terrain: SurfaceBinding3 }> {
   const size = paperSize({ paper: 'Square20' });
-  let captured: { water: { surface: never }; terrain: { surface: never } } | undefined;
+  let captured: { water: Material; terrain: Material } | undefined;
   const def = sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, async (t) => {
     const base = geodesic(1, { frequency: [options.frequency, options.frequency] }).dual();
     const water = base.scale(0.99);
     const height = (p: { x: number; y: number; z: number }) =>
       (t.noise(p.x * 2, p.y * 2, p.z * 2) * 0.6 + t.noise(p.x * 4, p.y * 4, p.z * 4) * 0.3 + t.noise(p.x * 10, p.y * 10, p.z * 10) * 0.1) * 0.12;
     const terrain = base.displace(height);
-    captured = { water, terrain } as never;
+    captured = { water, terrain };
     return [];
   });
   await compileSketchAsync(def, { paper: { w: size.w, h: size.h }, library: DEFAULT_PENS, seed: options.seed ?? 42, marginPct: 5 });
   if (!captured) throw new Error('the globe sketch did not run');
-  return { water: surfaceBinding3(captured.water.surface), terrain: surfaceBinding3(captured.terrain.surface) };
+  return { water: surfaceBinding3(surfaceOf(captured.water)), terrain: surfaceBinding3(surfaceOf(captured.terrain)) };
 }
 
 describe('the coastline contact filter', () => {

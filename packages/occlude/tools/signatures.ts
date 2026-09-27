@@ -137,6 +137,9 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
   void ownerType;
 }
 
+/** An owner whose exported name is a type over kinds: the interface of the
+ * kind its page documents. */
+const OWNER_KINDS: Record<string, string> = { Placement: 'PlanePlacement' };
 const OWNERS = ['ImageSampler', 'Material', 'Tiling', 'Face', 'Edge', 'Vertex', 'Curve', 'Placement', 'Lattice', 'Toolkit'];
 
 /**
@@ -269,7 +272,16 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
     continue;
   }
   if (OWNERS.includes(name)) {
-    const t = sym.flags & ts.SymbolFlags.Class ? checker.getDeclaredTypeOfSymbol(sym) : checker.getDeclaredTypeOfSymbol(sym);
+    let t = checker.getDeclaredTypeOfSymbol(sym);
+    // `Placement` is one name over two kinds (`Placement<XY | Vec3>`); the
+    // page documents its default, the plane kind, whose interface holds the
+    // frame and walk words.
+    const kinds = OWNER_KINDS[name];
+    if (kinds) {
+      const file = (sym.declarations?.[0] as ts.Node | undefined)?.getSourceFile();
+      const kind = file && checker.getSymbolAtLocation(file)?.exports?.get(kinds as ts.__String);
+      if (kind) t = checker.getDeclaredTypeOfSymbol(kind);
+    }
     for (const m of checker.getPropertiesOfType(t)) if (declaredHere(name, m)) member(name, m, t);
     continue;
   }
