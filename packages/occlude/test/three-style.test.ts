@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { sketch, pen, mm, wobble, dash, type Toolkit, type ClipValue, type ShapeValue } from '../src/index.js';
 import { compileSketchAsync, initOcclude, render } from '../src/host.js';
-import { constructStrokes3, FeatureSelection3, lineArt3 } from '../src/three/api/advanced.js';
+import { constructStrokes3, classifiedFeatures3, lineArt3 } from '../src/three/api/advanced.js';
 const scene = () => lineArt3({ camera: { kind:'orthographic', span:4, eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10 }, wires:[{id:'wire',points:[[-1,0,0],[0,0,0],[1,0,0]]}],lineSets:[] });
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 
@@ -14,7 +14,7 @@ describe('reusable classified line styles', () => {
       toolkit = t;
       const [a,b] = await Promise.all([t.classify3(value),t.classify3(value)]);
       expect(a).toBe(b); expect(await t.classify3(value)).toBe(a);
-      const selected = new FeatureSelection3(a).filter(row => row.visible.length > 0);
+      const selected = classifiedFeatures3(a).filter(row => row.visible.length > 0);
       const chained = constructStrokes3(a,[{id:'all',stroke:'ink',select:selected}]);
       const separate = constructStrokes3(a,[{id:'all',stroke:'ink',select:selected}],{chain:false});
       expect(chained).toHaveLength(1); expect(separate).toHaveLength(2);
@@ -27,11 +27,11 @@ describe('reusable classified line styles', () => {
     expect(render(run).stats.fragments).toBeGreaterThan(2);
     expect(()=>toolkit.classify3(value)).toThrow('active async compilation');
   });
-  it('rejects a selection from another classified snapshot and validates row indices', async () => {
+  it('rejects a selection from another classified snapshot', async () => {
     await compileSketchAsync(sketch({},async t=>{
       const a=await t.classify3(scene()),b=await t.classify3(scene());
-      expect(()=>constructStrokes3(a,[{id:'wrong',stroke:'ink',select:new FeatureSelection3(b)}])).toThrow('another classified snapshot');
-      expect(()=>new FeatureSelection3(a,[99])).toThrow('invalid');
+      expect(()=>constructStrokes3(a,[{id:'wrong',stroke:'ink',select:classifiedFeatures3(b)}])).toThrow('another classified snapshot');
+      expect(()=>classifiedFeatures3(a).union(classifiedFeatures3(b))).toThrow('another classified scene');
       return null;
     }));
   });

@@ -4,7 +4,7 @@
 export {lineArt3} from '../scene.js';
 export {featureSnapshot3,FeatureKind3} from '../features/snapshot.js';
 export {classifySceneCpu3,classifySceneGpu3,candidatePairs3} from '../visibility/scene.js';
-export {constructStrokes3,FeatureSelection3} from '../strokes/construct.js';
+export {constructStrokes3,classifiedFeatures3,type ClassifiedFeatureRow3} from '../strokes/construct.js';
 export {surface3,box3} from '../geometry/surface.js';
 export type {FaceMeasure3} from '../geometry/model.js';
 export {section3} from '../curves/section.js';

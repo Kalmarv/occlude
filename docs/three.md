@@ -1623,7 +1623,7 @@ export default sketch({ pens: {
 
 ### Reusing visibility and styling strokes
 
-In an async sketch, `await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `FeatureSelection3(classified).filter(...)` selects those records; a line set can use that selection directly. Selections from another classified snapshot are rejected.
+In an async sketch, `await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `classifiedFeatures3(classified)` gives those records as a selection. Use `filter`, `kind`, `groupBy` and the other selection words on it, then give the result to a line set as `select`. A selection of another classified snapshot is refused.
 
 `constructStrokes3(classified, lineSets, options)` returns inspectable projected stroke data: source parts/parameters, points, cumulative paper arclength, length, closure and break reasons. Use `{ chain: false }` to retain separate segments, or the default source-based chaining. Building another style from the same classified data does not dispatch visibility again. `classified.stats` reports candidates, dispatches, refinements, transferred bytes and wall time. On a GPU with timestamp-query support, optional `gpuMs` records the summed visibility compute-pass time; it excludes upload, readback, CPU refinement and finishing. An absent value means timing is unavailable, while zero can reflect a very short or empty workload. Use total wall time to judge interaction performance.
 
@@ -1631,7 +1631,7 @@ In an async sketch, `await t.classify3(scene)` resolves a captured scene to immu
 
 ```ts live
 import { sketch, paper, pen, mm, group, label, dash, wobble } from 'occlude';
-import { box3, lineArt3, FeatureSelection3, FeatureKind3, constructStrokes3 } from 'occlude/3d/advanced';
+import { box3, lineArt3, classifiedFeatures3, constructStrokes3 } from 'occlude/3d/advanced';
 
 export default sketch({
   paper: paper({ width: mm(200), height: mm(200) }), seed: 42,
@@ -1642,10 +1642,10 @@ export default sketch({
     camera: { kind: 'orthographic', span: 3.8, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
     viewport: { x: 10, y: 25, width: 80, height: 140 }, lineSets: [],
   }));
-  const features = new FeatureSelection3(classified);
+  const features = classifiedFeatures3(classified);
   const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
   const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
-  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
+  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.kind('silhouette') }]);
   return [
     t.strokes3(visible, { pass: 'expressive', modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
     t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
