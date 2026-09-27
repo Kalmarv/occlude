@@ -24,7 +24,7 @@ interface Loose {
 function leavesOf(loose: Loose): readonly unknown[] {
   const c = loose as unknown as AnyColumn;
   if (c instanceof Column) return c.leaves();
-  return 'store' in c ? c.store.leaves() : c.leaves();
+  return c.leaves();
 }
 
 /** One sample value a row, per kind, and a value no row has. */

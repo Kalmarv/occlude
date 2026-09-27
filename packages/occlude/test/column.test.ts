@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { Column, LEAF } from '../src/column.js';
+import { Column, LEAF, kinds } from '../src/column.js';
 
 const range = (n: number, at = 0) => Float64Array.from({ length: n }, (_, i) => i + at);
 
@@ -77,5 +77,29 @@ describe('a persistent column', () => {
     expect(e.flat()[0]).toBe(9);
     expect(c.get(0)).toBe(0);
     expect(Column.of(range(LEAF)).sameValues(Column.of(range(LEAF)))).toBe(true);
+  });
+
+  it('a column of plain values keeps the same leaves, cut as copies', () => {
+    const flat = Array.from({ length: 2 * LEAF + 3 }, (_, i) => `v${i}`);
+    const c = Column.of(flat);
+    expect(Column.of(flat)).toBe(c);
+    const d = c.append(['x']);
+    expect(d.leaves()[0]).toBe(c.leaves()[0]);
+    expect(d.get(2 * LEAF + 3)).toBe('x');
+    const w = d.writer([1]);
+    w.set(1, 'y');
+    const e = w.done();
+    expect(e.leaves()[1]).toBe(d.leaves()[1]);
+    expect(e.get(1)).toBe('y');
+    expect(d.get(1)).toBe('v1');
+    expect(e.keep([2, 0]).flat()).toEqual(['v2', 'v0']);
+  });
+
+  it('a kind fills rows with its default, or with a value it is given', () => {
+    expect(Array.from(kinds.number.filled(3, 2).flat())).toEqual([2, 2, 2]);
+    expect(kinds.string.filled(2).get(1)).toBe('');
+    expect(kinds.string.filled(2, 'a').get(1)).toBe('a');
+    expect(kinds.vector(2).filled(2, [1, 2]).get(1)).toEqual([1, 2]);
+    expect(kinds.reference.filled(2).get(0)).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * A persistent column: the storage under every row a geometry holds.
  *
- * A column is a run of numbers kept as fixed-size LEAVES — `LEAF` values
+ * A column is a run of values kept as fixed-size LEAVES — `LEAF` values
  * each, the last one shorter — and a leaf is never written once a column
  * holds it. So two columns may share leaves, and a write makes a new column
  * that shares every leaf it does not touch: a write of `k` rows copies the
@@ -10,14 +10,18 @@
  * front of the first row it moves. A state kept in a run's history then
  * costs the leaves that changed, not a copy of every column.
  *
- * A kernel reads a column as ONE typed array: `flat()` joins the leaves the
- * first time it is asked for and keeps the result, which is never written
- * either. A column made from a typed array (`Column.of`) adopts it as its
- * flat and cuts its leaves out of it as views, so building a value from
- * arrays copies nothing, and asking a column that has a flat for its
- * leaves copies nothing. `Column.of` of a flat a column already answers is
- * that column: a value rebuilt from another value's arrays shares its
- * storage.
+ * A kernel reads a column as ONE array: `flat()` joins the leaves the first
+ * time it is asked for and keeps the result, which is never written either.
+ * A column made from an array (`Column.of`) adopts it as its flat and cuts
+ * its leaves out of it, so building a value from arrays copies nothing.
+ * `Column.of` of a flat a column already answers is that column: a value
+ * rebuilt from another value's arrays shares its storage.
+ *
+ * The values are typed arrays of one kind (numbers) or plain arrays (any
+ * value); a small storage adapter is all that differs between them. A typed
+ * array cuts its leaves as views of the flat, so asking a column that has a
+ * flat for its leaves copies nothing; a plain array has no views, so its
+ * leaves are cut as copies the first time a write or an append needs them.
  *
  * A per-row path reads `get(i)` and writes through a `writer`, and never
  * needs the flat. Nothing here knows what a row means: a material holds its
@@ -29,7 +33,16 @@
  * under a boolean column (see `kinds.boolean`). */
 export type Numeric = Float64Array | Float32Array | Uint32Array | Uint8Array;
 
+/** What a column keeps its values in: a typed array, or a plain array. */
+export type Flat = Numeric | readonly unknown[];
+
+/** The value one place of a flat holds: a number, or a plain array's item. */
+export type Item<S extends Flat> = S extends Numeric ? number : S extends readonly (infer V)[] ? V : never;
+
 type Maker<T extends Numeric> = new (length: number) => T;
+
+/** An array of either family, as a codec writes it. */
+type Out = { [i: number]: unknown; readonly length: number };
 
 /**
  * Values per leaf, as a power of two so a row finds its leaf with a shift.
@@ -40,45 +53,183 @@ type Maker<T extends Numeric> = new (length: number) => T;
  * residual portrait and a 2000-step split-and-move run with history: 1024
  * was within noise of the best on every one.
  */
-export const LEAF_BITS = 10;
+const LEAF_BITS = 10;
 /** Values per leaf. */
 export const LEAF = 1 << LEAF_BITS;
 const MASK = LEAF - 1;
 
-/** The column each flat array belongs to: a flat a column has materialised
- * or adopted. `Column.of` looks here first, so the same numbers are the same
+// ─── storage ───────────────────────────────────────────────────────────
+//
+// What differs between a column of typed arrays and one of plain arrays:
+// how an array is made, cut and joined, and the loops that read and write
+// its values. The loops are written twice, the same words for each family,
+// on purpose: a read or a write in a loop stays fast while it sees few kinds
+// of array, and one loop shared by both families saw too many — `keep` and
+// `get` ran 5 to 12 times slower once a run had held a string column. The
+// typed family serves all four typed arrays, as one loop did before.
+
+/** How a column makes, cuts and joins its arrays, and its element loops. */
+interface Storage<S extends Flat> {
+  /** A new array of `length` values, the caller's to fill. */
+  make(length: number): S;
+  /** Values `from` to `to` of `flat`: a view where the array has views,
+   * else a copy. */
+  cut(flat: S, from: number, to: number): S;
+  /** A new array `length` long that starts with the leaves, in order. */
+  join(leaves: readonly S[], length: number): S;
+  /** Value `i` of the flat, or of the leaves when there is no flat. */
+  at(flat: S | null, leaves: readonly S[] | null, i: number): Item<S>;
+  /** Write value `i` of `out`. */
+  set(out: S, i: number, v: Item<S>): void;
+  /** Fill `out` with `count` values of a walk of `rows`, `stride` values a
+   * row, from value `from` of the walk (which may be inside a row), read
+   * from the flat, or from the leaves when there is no flat. */
+  pick(out: S, count: number, flat: S | null, leaves: readonly S[] | null, rows: ArrayLike<number>, stride: number, from: number): void;
+  /** Write `count` of `values` from `from` into `out` from `at`. */
+  put(out: S, at: number, values: ArrayLike<Item<S>>, from: number, count: number): void;
+  /** Do two leaves hold the same values? */
+  same(a: S, b: S): boolean;
+}
+
+function typedStorage<T extends Numeric>(make: Maker<T>): Storage<T> {
+  return {
+    make: (length) => new make(length),
+    cut: (flat, from, to) => flat.subarray(from, to) as T,
+    join(leaves, length) {
+      const out = new make(length);
+      let at = 0;
+      for (const leaf of leaves) {
+        out.set(leaf, at);
+        at += leaf.length;
+      }
+      return out;
+    },
+    at: (f, leaves, i) => (f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK]) as Item<T>,
+    set(out, i, v) {
+      out[i] = v as number;
+    },
+    pick(out, count, f, leaves, rows, stride, from) {
+      if (stride === 1) {
+        for (let p = 0; p < count; p++) {
+          const i = rows[from + p];
+          out[p] = f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK];
+        }
+        return;
+      }
+      let k = Math.floor(from / stride);
+      let s = from - k * stride;
+      for (let p = 0; p < count; s = 0) {
+        const base = rows[k++] * stride;
+        for (; s < stride && p < count; s++, p++) {
+          const i = base + s;
+          out[p] = f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK];
+        }
+      }
+    },
+    put(out, at, values, from, count) {
+      for (let p = 0; p < count; p++) out[at + p] = values[from + p] as number;
+    },
+    same(a, b) {
+      for (let j = 0; j < a.length; j++) if (a[j] !== b[j]) return false;
+      return true;
+    },
+  };
+}
+
+const plainStorage: Storage<unknown[]> = {
+  make: (length) => new Array<unknown>(length),
+  cut: (flat, from, to) => flat.slice(from, to),
+  join(leaves, length) {
+    // One concat is some five times faster than a push a value.
+    const out = ([] as unknown[]).concat(...leaves);
+    out.length = length;
+    return out;
+  },
+  at: (f, leaves, i) => (f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK]),
+  set(out, i, v) {
+    out[i] = v;
+  },
+  pick(out, count, f, leaves, rows, stride, from) {
+    if (stride === 1) {
+      for (let p = 0; p < count; p++) {
+        const i = rows[from + p];
+        out[p] = f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK];
+      }
+      return;
+    }
+    let k = Math.floor(from / stride);
+    let s = from - k * stride;
+    for (let p = 0; p < count; s = 0) {
+      const base = rows[k++] * stride;
+      for (; s < stride && p < count; s++, p++) {
+        const i = base + s;
+        out[p] = f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK];
+      }
+    }
+  },
+  put(out, at, values, from, count) {
+    for (let p = 0; p < count; p++) out[at + p] = values[from + p];
+  },
+  same(a, b) {
+    for (let j = 0; j < a.length; j++) if (a[j] !== b[j]) return false;
+    return true;
+  },
+};
+
+/** The storage of each kind of typed array, made on first use. */
+const typedStorages = new Map<Maker<Numeric>, Storage<Numeric>>();
+
+function storageFor<T extends Numeric>(make: Maker<T>): Storage<T> {
+  let s = typedStorages.get(make);
+  if (s === undefined) {
+    s = typedStorage(make as Maker<Numeric>);
+    typedStorages.set(make, s);
+  }
+  return s as Storage<T>;
+}
+
+function storageOf<S extends Flat>(flat: S): Storage<S> {
+  if (Array.isArray(flat)) return plainStorage as unknown as Storage<S>;
+  return storageFor((flat as Numeric).constructor as Maker<Numeric>) as unknown as Storage<S>;
+}
+
+/** The column each flat belongs to: a flat a column has materialised or
+ * adopted. `Column.of` looks here first, so the same values are the same
  * column. */
-const OWNER = new WeakMap<Numeric, Column<Numeric>>();
+const OWNER = new WeakMap<Flat, Column<Flat>>();
+
+// ─── the column ────────────────────────────────────────────────────────
 
 /** What a write reaches: every row (`'all'`), rows not known in advance
  * (`'some'`), or these rows. */
 export type Reach = 'all' | 'some' | ArrayLike<number>;
 
-export class Column<T extends Numeric = Float64Array> {
+export class Column<S extends Flat = Float64Array> {
   /** How many values. */
   readonly length: number;
-  private readonly make: Maker<T>;
+  /** @internal How its arrays are made, and its element loops. */
+  readonly storage: Storage<S>;
   /** The leaves: all `LEAF` long but the last. Built on first ask from the
    * flat when the column was made from one. */
-  private leafBox: readonly T[] | null;
+  private leafBox: readonly S[] | null;
   /** The whole column as one array: adopted, or joined on first ask. */
-  private flatBox: T | null;
+  private flatBox: S | null;
 
-  private constructor(make: Maker<T>, length: number, leaves: readonly T[] | null, flat: T | null) {
-    this.make = make;
+  private constructor(storage: Storage<S>, length: number, leaves: readonly S[] | null, flat: S | null) {
+    this.storage = storage;
     this.length = length;
     this.leafBox = leaves;
     this.flatBox = flat;
   }
 
-  /** The column of these numbers. The array is adopted, not copied: it
+  /** The column of these values. The array is adopted, not copied: it
    * must not be written after this. An array a column already answers as
    * its flat gives that column back. */
-  static of<T extends Numeric>(flat: T): Column<T> {
+  static of<S extends Flat>(flat: S): Column<S> {
     const known = OWNER.get(flat);
-    if (known !== undefined) return known as unknown as Column<T>;
-    const c = new Column<T>(flat.constructor as Maker<T>, flat.length, null, flat);
-    OWNER.set(flat, c as unknown as Column<Numeric>);
+    if (known !== undefined) return known as unknown as Column<S>;
+    const c = new Column<S>(storageOf(flat), flat.length, null, flat);
+    OWNER.set(flat, c as unknown as Column<Flat>);
     return c;
   }
 
@@ -87,90 +238,78 @@ export class Column<T extends Numeric = Float64Array> {
     return Column.of(new make(length));
   }
 
-  /** The value at row `i`, which must be a row of the column. One code
-   * path for every kind of array: a per-row reader of one kind in a hot
-   * loop takes `at64`, `at32` or `atU32`, whose reads see one kind. */
-  get(i: number): number {
-    const f = this.flatBox;
-    if (f !== null) return f[i];
-    return this.leafBox![i >>> LEAF_BITS][i & MASK];
+  /** The value at row `i`, which must be a row of the column. A per-row
+   * reader in a hot loop takes `at64`, `at32` or `atU32`, whose reads see
+   * one kind of array. */
+  get(i: number): Item<S> {
+    return this.storage.at(this.flatBox, this.leafBox, i);
   }
 
   /** @internal The flat when it is there, else null: joins nothing. */
-  peekFlat(): T | null {
+  peekFlat(): S | null {
     return this.flatBox;
   }
 
   /** @internal The leaf that holds row `i`. */
-  leafOf(i: number): T {
+  leafOf(i: number): S {
     return this.leaves()[i >>> LEAF_BITS];
   }
 
-  /** The whole column as one typed array: joined once and kept. Read it;
-   * never write it — other columns may share it. */
-  flat(): T {
+  /** The whole column as one array: joined once and kept. Read it; never
+   * write it — other columns may share it. */
+  flat(): S {
     const f = this.flatBox;
     if (f !== null) return f;
-    const out = this.joined();
+    const out = this.storage.join(this.leafBox!, this.length);
     this.flatBox = out;
-    OWNER.set(out, this as unknown as Column<Numeric>);
+    OWNER.set(out, this as unknown as Column<Flat>);
     return out;
   }
 
   /** The leaves, in order: every one `LEAF` long but the last. Read them;
    * never write them. */
-  leaves(): readonly T[] {
+  leaves(): readonly S[] {
     const got = this.leafBox;
     if (got !== null) return got;
     const f = this.flatBox!;
-    const out: T[] = [];
-    for (let at = 0; at < this.length; at += LEAF) out.push(f.subarray(at, Math.min(this.length, at + LEAF)) as T);
+    const out: S[] = [];
+    for (let at = 0; at < this.length; at += LEAF) out.push(this.storage.cut(f, at, Math.min(this.length, at + LEAF)));
     this.leafBox = out;
     return out;
   }
 
   /** A new array holding the values, the caller's to write. */
-  copy(): T {
+  copy(): S {
     const f = this.flatBox;
-    return f !== null ? (f.slice() as T) : this.joined();
+    return f !== null ? (f.slice() as S) : this.storage.join(this.leafBox!, this.length);
   }
 
-  /** The values of `rows`, in that order, as a new array. */
-  gather(rows: ArrayLike<number>): T {
-    const out = new this.make(rows.length);
-    const f = this.flatBox;
-    if (f !== null) for (let k = 0; k < rows.length; k++) out[k] = f[rows[k]];
-    else {
-      const leaves = this.leafBox!;
-      for (let k = 0; k < rows.length; k++) {
-        const r = rows[k];
-        out[k] = leaves[r >>> LEAF_BITS][r & MASK];
-      }
-    }
+  /** The values of `rows`, in that order, each `stride` values wide, as a
+   * new array. */
+  gather(rows: ArrayLike<number>, stride = 1): S {
+    const count = rows.length * stride;
+    const out = this.storage.make(count);
+    this.storage.pick(out, count, this.flatBox, this.leafBox, rows, stride, 0);
     return out;
   }
 
   /** This column with `values` after its last row. Every whole leaf is
    * shared; the last, partial one is copied and filled. */
-  append(values: ArrayLike<number>): Column<T> {
+  append(values: ArrayLike<Item<S>>): Column<S> {
     const add = values.length;
     if (add === 0) return this;
     const n = this.length;
     const total = n + add;
     const old = this.leaves();
-    const out = old.slice(0, n >>> LEAF_BITS) as T[];
+    const out = old.slice(0, n >>> LEAF_BITS) as S[];
     for (let start = out.length * LEAF; start < total; start += LEAF) {
       const size = Math.min(LEAF, total - start);
-      const leaf = new this.make(size);
-      let p = start;
-      if (start < n) {
-        leaf.set(old[start >>> LEAF_BITS]);
-        p = n;
-      }
-      for (; p < start + size; p++) leaf[p - start] = values[p - n];
+      const leaf = start < n ? this.storage.join([old[start >>> LEAF_BITS]], size) : this.storage.make(size);
+      const from = Math.max(start, n);
+      this.storage.put(leaf, from - start, values, from - n, start + size - from);
       out.push(leaf);
     }
-    return new Column<T>(this.make, total, out, null);
+    return new Column<S>(this.storage, total, out, null);
   }
 
   /**
@@ -185,7 +324,7 @@ export class Column<T extends Numeric = Float64Array> {
    * (11.0 MB of columns against 10.4 MB copied whole, on a 2000-step
    * split-and-move run with `every: 10`).
    */
-  keep(rows: ArrayLike<number>, stride = 1): Column<T> {
+  keep(rows: ArrayLike<number>, stride = 1): Column<S> {
     const count = rows.length;
     let same = 0;
     while (same < count && rows[same] === same) same++;
@@ -193,27 +332,20 @@ export class Column<T extends Numeric = Float64Array> {
     if (same === count && total === this.length) return this;
     const shared = Math.min((same * stride) >>> LEAF_BITS, total >>> LEAF_BITS);
     const f = this.flatBox;
-    const leaves = f === null ? this.leafBox! : null;
-    const out = shared === 0 ? [] : (this.leaves().slice(0, shared) as T[]);
-    if (LEAF % stride !== 0) keepAcross(out, this.make, rows, stride, shared * LEAF, total, f, leaves);
-    else {
-      let k = (shared * LEAF) / stride;
-      for (let start = shared * LEAF; start < total; start += LEAF) {
-        const leaf = new this.make(Math.min(LEAF, total - start));
-        // A leaf holds whole rows: LEAF is a multiple of the stride.
-        for (let p = 0; p < leaf.length; k++) {
-          const base = rows[k] * stride;
-          for (let s = 0; s < stride; s++, p++) {
-            const i = base + s;
-            leaf[p] = f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK];
-          }
-        }
-        out.push(leaf);
-      }
+    const leaves = f === null ? this.leafBox : null;
+    const out = shared === 0 ? [] : (this.leaves().slice(0, shared) as S[]);
+    // A leaf starts at a value, which may be inside a row when LEAF is not
+    // a multiple of the stride (a vector of three): a row may then cross
+    // from one leaf into the next.
+    for (let start = shared * LEAF; start < total; start += LEAF) {
+      const size = Math.min(LEAF, total - start);
+      const leaf = this.storage.make(size);
+      this.storage.pick(leaf, size, f, leaves, rows, stride, start);
+      out.push(leaf);
     }
     // One leaf is its own flat.
     if (out.length === 1 && shared === 0) return Column.of(out[0]);
-    return new Column<T>(this.make, total, out, null);
+    return new Column<S>(this.storage, total, out, null);
   }
 
   /**
@@ -222,39 +354,24 @@ export class Column<T extends Numeric = Float64Array> {
    * column whole — the cheaper way to write it, and the result is a flat —
    * and one that reaches few copies the leaves it touches.
    */
-  writer(reach: Reach): ColumnWriter<T> {
+  writer(reach: Reach): ColumnWriter<S> {
     return new ColumnWriter(this, reach === 'all' || (reach !== 'some' && touchesMost(this.length, reach)));
   }
 
-  /** @internal This column's kind with these leaves in place of its own. */
-  withLeaves(leaves: readonly T[]): Column<T> {
-    return new Column<T>(this.make, this.length, leaves, null);
+  /** @internal This column's storage with these leaves in place of its own. */
+  withLeaves(leaves: readonly S[]): Column<S> {
+    return new Column<S>(this.storage, this.length, leaves, null);
   }
 
   /** Do the two columns hold the same values? A leaf they share is not
    * read. */
-  sameValues(other: Column<T>): boolean {
+  sameValues(other: Column<S>): boolean {
     if (other === this) return true;
     if (other.length !== this.length) return false;
     const a = this.leaves();
     const b = other.leaves();
-    for (let k = 0; k < a.length; k++) {
-      const x = a[k];
-      const y = b[k];
-      if (x === y) continue;
-      for (let j = 0; j < x.length; j++) if (x[j] !== y[j]) return false;
-    }
+    for (let k = 0; k < a.length; k++) if (a[k] !== b[k] && !this.storage.same(a[k], b[k])) return false;
     return true;
-  }
-
-  private joined(): T {
-    const out = new this.make(this.length);
-    let at = 0;
-    for (const leaf of this.leafBox!) {
-      out.set(leaf, at);
-      at += leaf.length;
-    }
-    return out;
   }
 }
 
@@ -265,53 +382,55 @@ export class Column<T extends Numeric = Float64Array> {
  * the new column shares every leaf the write did not reach. A write that
  * sets nothing is the column it started from.
  */
-export class ColumnWriter<T extends Numeric> {
-  private readonly base: Column<T>;
-  private readonly whole: T | null;
-  private own: (T | undefined)[] | null = null;
+export class ColumnWriter<S extends Flat = Float64Array> {
+  private readonly base: Column<S>;
+  private readonly whole: S | null;
+  private own: (S | undefined)[] | null = null;
   private wrote = false;
 
-  constructor(base: Column<T>, dense: boolean) {
+  constructor(base: Column<S>, dense: boolean) {
     this.base = base;
     this.whole = dense ? base.copy() : null;
   }
 
   /** The value at row `i` as the write stands. */
-  get(i: number): number {
-    if (this.whole !== null) return this.whole[i];
+  get(i: number): Item<S> {
+    const at = this.base.storage.at;
+    if (this.whole !== null) return at(this.whole, null, i);
     const leaf = this.own?.[i >>> LEAF_BITS];
-    return leaf !== undefined ? leaf[i & MASK] : this.base.get(i);
+    return leaf !== undefined ? at(leaf, null, i & MASK) : this.base.get(i);
   }
 
   /** A dense write's whole array, to write rows into directly — the
    * write then counts as made — or null for a sparse write, whose rows go
    * through `set`. */
-  array(): T | null {
+  array(): S | null {
     if (this.whole === null) return null;
     this.wrote = true;
     return this.whole;
   }
 
-  set(i: number, v: number): void {
+  set(i: number, v: Item<S>): void {
     this.wrote = true;
+    const storage = this.base.storage;
     if (this.whole !== null) {
-      this.whole[i] = v;
+      storage.set(this.whole, i, v);
       return;
     }
     const own = (this.own ??= []);
     const k = i >>> LEAF_BITS;
     let leaf = own[k];
     if (leaf === undefined) {
-      leaf = this.base.leaves()[k].slice() as T;
+      leaf = this.base.leaves()[k].slice() as S;
       own[k] = leaf;
     }
-    leaf[i & MASK] = v;
+    storage.set(leaf, i & MASK, v);
   }
 
-  done(): Column<T> {
+  done(): Column<S> {
     if (!this.wrote) return this.base;
     if (this.whole !== null) return Column.of(this.whole);
-    const leaves = this.base.leaves().slice() as T[];
+    const leaves = this.base.leaves().slice();
     const own = this.own!;
     for (let k = 0; k < own.length; k++) {
       const leaf = own[k];
@@ -342,33 +461,6 @@ export function atU32(c: Column<Uint32Array>, i: number): number {
   return f !== null ? f[i] : c.leafOf(i)[i & MASK];
 }
 
-/** The value at row `i` of a Uint8 column. */
-export function atU8(c: Column<Uint8Array>, i: number): number {
-  const f = c.peekFlat();
-  return f !== null ? f[i] : c.leafOf(i)[i & MASK];
-}
-
-/** `Column.keep` for a stride LEAF is not a multiple of (a vector of
- * three): a row may cross from one leaf into the next, so walk the values
- * from `from`, the first value of the first new leaf, which may be inside
- * a row. */
-function keepAcross<T extends Numeric>(out: T[], make: Maker<T>, rows: ArrayLike<number>, stride: number, from: number, total: number, f: T | null, leaves: readonly T[] | null): void {
-  let k = Math.floor(from / stride);
-  let s = from - k * stride;
-  for (let start = from; start < total; start += LEAF) {
-    const leaf = new make(Math.min(LEAF, total - start));
-    for (let p = 0; p < leaf.length; p++) {
-      const i = rows[k] * stride + s;
-      leaf[p] = f !== null ? f[i] : leaves![i >>> LEAF_BITS][i & MASK];
-      if (++s === stride) {
-        s = 0;
-        k++;
-      }
-    }
-    out.push(leaf);
-  }
-}
-
 /** Would a write of `rows` of a column `length` values long reach more
  * than half its leaves? Then the write copies the column whole. */
 function touchesMost(length: number, rows: ArrayLike<number>): boolean {
@@ -395,16 +487,18 @@ export function columnOf<T extends Numeric>(v: ColumnLike<T>): Column<T> {
   return v instanceof Column ? v : Column.of(v);
 }
 
-// ─── Typed columns ──────────────────────────────────────────────────────
+// ─── kinds ─────────────────────────────────────────────────────────────
 //
 // A geometry's column holds one KIND of value: numbers, booleans, strings,
-// fixed-width numeric vectors, references to rows, or placements. Every
-// kind is a persistent column with the leaf scheme above and the numeric
+// fixed-width numeric vectors, references to rows, or placements. A number
+// column is the Float64 column itself; every other kind is a STORED column,
+// a view over one column (its store) with a codec — `width` stored values a
+// row, and how a value is written as them and read back. Every kind has the
 // column's words — `length`, `get`, `append`, `keep`, `gather`, a `writer`
 // that copies the leaves it touches, `flat()` joined once and kept,
 // `sameValues` — and its kind (`kinds.*`) is the door that makes one:
-// `of(flat)` adopts a flat, `from(values)` copies values, `filled(n)` is
-// `n` rows of the kind's default.
+// `of(flat)` adopts a flat, `from(values)` copies values, `filled(n, v?)`
+// is `n` rows of `v` or of the kind's default.
 //
 // Storage per kind, never named outside this file:
 //
@@ -412,48 +506,17 @@ export function columnOf<T extends Numeric>(v: ColumnLike<T>): Column<T> {
 // |-----------|----------------|-----------------------------------------|
 // | number    | a number       | the Float64 column itself               |
 // | boolean   | true / false   | a Uint8 column, 1 or 0                  |
-// | string    | a string       | leaves of strings (plain arrays)        |
+// | string    | a string       | a column of plain arrays                |
 // | vector(k) | k numbers      | a Float64 column, k values a row        |
 // | reference | a row id, null | a Float64 column, -1 for null           |
-// | placement | any value      | leaves of values (plain arrays)         |
+// | placement | any value      | a column of plain arrays                |
 
 /** The kinds of value a column holds. */
 export type KindName = 'number' | 'boolean' | 'string' | 'vector' | 'reference' | 'placement';
 
-/** A persistent column of values `V`, read whole as the flat `F`. The
- * numeric `Column<Float64Array>` is one. */
-export interface TypedColumn<V, F> {
-  /** How many rows. */
-  readonly length: number;
-  /** The value at row `i`, which must be a row of the column. */
-  get(i: number): V;
-  /** Every row as one flat: joined once and kept. Read it; never write it. */
-  flat(): F;
-  /** The rows `rows`, in that order, as a new flat of this kind. */
-  gather(rows: ArrayLike<number>): F;
-  /** This column with `values` after its last row. */
-  append(values: ArrayLike<V>): TypedColumn<V, F>;
-  /** The rows `rows` of this column, in that order. */
-  keep(rows: ArrayLike<number>): TypedColumn<V, F>;
-  /** One write: `set` any rows, then `done()` for the new column. */
-  writer(reach: Reach): TypedWriter<V, F>;
-  /** Do the two columns hold the same values (by the kind's equality)? A
-   * leaf they share is not read. */
-  sameValues(other: TypedColumn<V, F>): boolean;
-}
-
-/** One write of a typed column (see `ColumnWriter`). */
-export interface TypedWriter<V, F> {
-  /** The value at row `i` as the write stands. */
-  get(i: number): V;
-  set(i: number, v: V): void;
-  /** The new column; the column written if nothing was set. */
-  done(): TypedColumn<V, F>;
-}
-
 /**
  * What a kind of column is: its name, the default a new row takes, whether
- * it interpolates, the equality that compares two columns, and the doors
+ * it interpolates, the equality that compares two values, and the doors
  * that make a column of it.
  *
  * Only `number` and `vector` interpolate. A boolean, a string, a reference
@@ -461,28 +524,47 @@ export interface TypedWriter<V, F> {
  * resampled point) takes a value one of them has — the parent's — and
  * never a blend. Which of the two is the geometry's transfer rule.
  */
-export interface ColumnKind<V, F, C extends TypedColumn<V, F> = TypedColumn<V, F>> {
+export interface ColumnKind<V = unknown, F = unknown, C extends AnyColumn = AnyColumn> {
   readonly name: KindName;
-  /** Numbers a row takes in the flat: `k` for a vector, else 1. */
+  /** Values a row takes in the flat: `k` for a vector, else 1. */
   readonly width: number;
   /** The value of a row nothing has set. */
   readonly default: V;
   /** Does a row made between two rows blend their values? */
   readonly interpolates: boolean;
-  /** Are two values the same? `sameValues` compares by it. */
+  /** Are two values the same? */
   equal(a: V, b: V): boolean;
   /** The column of this flat, adopted, not copied: it must not be written
    * after this. The same flat is the same column. */
   of(flat: F): C;
   /** The column of these values, copied. */
   from(values: ArrayLike<V>): C;
-  /** `length` rows of the default. */
-  filled(length: number): C;
+  /** `length` rows of `value`, the kind's default when it is not given. */
+  filled(length: number, value?: V): C;
+}
+
+/** Any kind a geometry column is: the doors every kind answers, values
+ * untyped. A column of any kind is made through them. */
+export type AnyKind = ColumnKind;
+
+/** Any column a geometry holds: a number column — the Float64 column
+ * itself, so a kernel that reads numbers narrows to it with `instanceof
+ * Column` — or a stored column. Every one answers `length`, `get`, `flat`,
+ * `gather`, `keep`, `writer` and `sameValues`; `kindOf` is its kind. */
+export type AnyColumn = Column<Float64Array> | StoredColumn<unknown, Flat>;
+
+/** One write of any column: `set` takes a value of the column's kind. */
+export interface AnyWriter {
+  get(i: number): unknown;
+  set(i: number, v: unknown): void;
+  done(): AnyColumn;
 }
 
 // ─── number ────────────────────────────────────────────────────────────
 
-const numberKind: ColumnKind<number, Float64Array, Column<Float64Array>> = Object.freeze({
+type NumberKind = ColumnKind<number, Float64Array, Column<Float64Array>>;
+
+const numberKind: NumberKind = Object.freeze({
   name: 'number' as const,
   width: 1,
   default: 0,
@@ -490,143 +572,219 @@ const numberKind: ColumnKind<number, Float64Array, Column<Float64Array>> = Objec
   equal: (a: number, b: number) => a === b,
   of: (flat: Float64Array) => Column.of(flat),
   from: (values: ArrayLike<number>) => Column.of(Float64Array.from(values)),
-  filled: (length: number) => Column.zeros(Float64Array, length),
+  filled: (length: number, value = 0) => Column.of(Object.is(value, 0) ? new Float64Array(length) : new Float64Array(length).fill(value)),
 });
 
-// ─── boolean and reference: a value coded as one number ────────────────
+// ─── stored kinds: a value written as `width` stored values ────────────
 
-/** A kind stored as one number a row: a boolean as 1 or 0, a reference as
- * the row's id or -1. */
-export class CodedKind<V, T extends Numeric> implements ColumnKind<V, T, CodedColumn<V, T>> {
+/** What reads a store: a column, or a write as it stands. */
+interface Reader {
+  get(i: number): unknown;
+}
+
+/** What a stored kind is: its name, storage, width and default, and how
+ * it writes a value as stored values and reads it back. */
+interface Codec<V, S extends Flat> {
   readonly name: KindName;
-  readonly width = 1;
+  readonly storage: Storage<S>;
+  /** Stored values a row; 1 when not given. */
+  readonly width?: number;
   readonly default: V;
-  readonly interpolates = false;
-  /** @internal The number a value is stored as. */
-  readonly encode: (v: V) => number;
-  /** @internal The value a stored number is. */
-  readonly decode: (x: number) => V;
-  private readonly make: Maker<T>;
-  /** The typed column over each store, so the same store is the same
-   * column. */
-  private readonly over = new WeakMap<Column<T>, CodedColumn<V, T>>();
+  /** Does a row made between two rows blend their values? No when not
+   * given. */
+  readonly interpolates?: boolean;
+  /** Write the `width` stored values of `v` into `out` from `at`. */
+  encode(v: V, out: Out, at: number): void;
+  /** The value whose stored values start at `at` of `read`. */
+  decode(read: Reader, at: number): V;
+  /** Are two values the same? `===` when not given. */
+  equal?(a: V, b: V): boolean;
+}
 
-  /** @internal Use `kinds.boolean` or `kinds.reference`. */
-  constructor(name: KindName, make: Maker<T>, fallback: V, encode: (v: V) => number, decode: (x: number) => V) {
-    this.name = name;
-    this.make = make;
-    this.default = fallback;
-    this.encode = encode;
-    this.decode = decode;
+/** A kind of value written as `width` stored values a row: a boolean as 1
+ * or 0, a reference as the row's id or -1, a vector as its numbers, a
+ * string or a placement as itself. */
+export class StoredKind<V, S extends Flat> implements ColumnKind<V, S, StoredColumn<V, S>> {
+  readonly name: KindName;
+  readonly width: number;
+  readonly default: V;
+  readonly interpolates: boolean;
+  /** @internal How a value is stored and read back. */
+  readonly codec: Codec<V, S>;
+  /** One row's stored values, for a write or a fill. */
+  private readonly row: Out;
+  /** The stored column over each store, so the same store is the same
+   * column. */
+  private readonly over = new WeakMap<Column<S>, StoredColumn<V, S>>();
+
+  /** @internal Use `kinds.*`. */
+  constructor(codec: Codec<V, S>) {
+    this.codec = codec;
+    this.name = codec.name;
+    this.width = codec.width ?? 1;
+    this.default = codec.default;
+    this.interpolates = codec.interpolates ?? false;
+    this.row = codec.storage.make(this.width) as unknown as Out;
   }
 
   equal(a: V, b: V): boolean {
-    return a === b;
+    return this.codec.equal !== undefined ? this.codec.equal(a, b) : a === b;
   }
 
-  of(flat: T): CodedColumn<V, T> {
+  of(flat: S): StoredColumn<V, S> {
+    const w = this.width;
+    if (flat.length % w !== 0) throw new RangeError(`a ${this.name} column of width ${w} takes a flat whose length is a multiple of ${w}; got ${flat.length}`);
     return this.wrap(Column.of(flat));
   }
 
-  from(values: ArrayLike<V>): CodedColumn<V, T> {
+  from(values: ArrayLike<V>): StoredColumn<V, S> {
     return this.of(this.encoded(values));
   }
 
-  filled(length: number): CodedColumn<V, T> {
-    const flat = new this.make(length);
-    const d = this.encode(this.default);
-    if (d !== 0) flat.fill(d);
-    return this.of(flat);
+  filled(length: number, value: V = this.default): StoredColumn<V, S> {
+    const w = this.width;
+    const out = this.codec.storage.make(length * w) as unknown as Out;
+    const row = this.encodedRow(value);
+    for (let at = 0; at < out.length; at += w) for (let s = 0; s < w; s++) out[at + s] = row[s];
+    return this.of(out as unknown as S);
   }
 
-  /** @internal The values as stored numbers, in a new array. */
-  encoded(values: ArrayLike<V>): T {
-    const out = new this.make(values.length);
-    for (let k = 0; k < values.length; k++) out[k] = this.encode(values[k]);
-    return out;
+  /** @internal The values as stored values, in a new flat. */
+  encoded(values: ArrayLike<V>): S {
+    const w = this.width;
+    const out = this.codec.storage.make(values.length * w) as unknown as Out;
+    const codec = this.codec;
+    for (let r = 0; r < values.length; r++) codec.encode(values[r], out, r * w);
+    return out as unknown as S;
   }
 
-  /** @internal The typed column over `store`. */
-  wrap(store: Column<T>): CodedColumn<V, T> {
+  /** @internal `v`'s stored values, in a scratch row the next call reuses. */
+  encodedRow(v: V): Out {
+    this.codec.encode(v, this.row, 0);
+    return this.row;
+  }
+
+  /** @internal The stored column over `store`. */
+  wrap(store: Column<S>): StoredColumn<V, S> {
     let c = this.over.get(store);
     if (c === undefined) {
-      c = new CodedColumn(this, store);
+      c = new StoredColumn(this, store);
       this.over.set(store, c);
     }
     return c;
   }
 }
 
-/** A column of values each stored as one number (a boolean or a
- * reference). Its flat is the stored numbers. */
-export class CodedColumn<V, T extends Numeric> implements TypedColumn<V, T> {
-  readonly kind: CodedKind<V, T>;
-  /** @internal The numbers underneath. */
-  readonly store: Column<T>;
+/** A column of a stored kind: a view over its store, `width` stored values
+ * a row. Its flat and its leaves are the stored values. */
+export class StoredColumn<V, S extends Flat> {
+  readonly kind: StoredKind<V, S>;
+  /** @internal The stored values underneath. */
+  readonly store: Column<S>;
+  /** How many rows. */
   readonly length: number;
 
   /** @internal Use the kind: `kinds.boolean.of(flat)`. */
-  constructor(kind: CodedKind<V, T>, store: Column<T>) {
+  constructor(kind: StoredKind<V, S>, store: Column<S>) {
     this.kind = kind;
     this.store = store;
-    this.length = store.length;
+    this.length = store.length / kind.width;
   }
 
+  /** The value at row `i` (a vector as a new array). */
   get(i: number): V {
-    return this.kind.decode(this.store.get(i));
+    return this.kind.codec.decode(this.store, i * this.kind.width);
   }
 
-  flat(): T {
+  /** Stored value `s` of row `i`: one number of a vector, and nothing made. */
+  component(i: number, s: number): Item<S> {
+    return this.store.get(i * this.kind.width + s);
+  }
+
+  flat(): S {
     return this.store.flat();
   }
 
-  gather(rows: ArrayLike<number>): T {
-    return this.store.gather(rows);
+  /** The leaves of stored values, in order. Read them; never write them. */
+  leaves(): readonly S[] {
+    return this.store.leaves();
   }
 
-  append(values: ArrayLike<V>): CodedColumn<V, T> {
+  gather(rows: ArrayLike<number>): S {
+    return this.store.gather(rows, this.kind.width);
+  }
+
+  append(values: ArrayLike<V>): StoredColumn<V, S> {
     if (values.length === 0) return this;
-    return this.kind.wrap(this.store.append(this.kind.encoded(values)));
+    return this.kind.wrap(this.store.append(this.kind.encoded(values) as unknown as ArrayLike<Item<S>>));
   }
 
-  keep(rows: ArrayLike<number>): CodedColumn<V, T> {
-    return this.kind.wrap(this.store.keep(rows));
+  keep(rows: ArrayLike<number>): StoredColumn<V, S> {
+    return this.kind.wrap(this.store.keep(rows, this.kind.width));
   }
 
-  writer(reach: Reach): CodedWriter<V, T> {
-    return new CodedWriter(this.kind, this.store.writer(reach));
+  writer(reach: Reach): StoredWriter<V, S> {
+    const k = this.kind.width;
+    let at: Reach = reach;
+    if (reach !== 'all' && reach !== 'some' && k > 1) {
+      const values = new Float64Array(reach.length * k);
+      for (let r = 0; r < reach.length; r++) for (let s = 0; s < k; s++) values[r * k + s] = reach[r] * k + s;
+      at = values;
+    }
+    return new StoredWriter(this.kind, this.store.writer(at));
   }
 
-  sameValues(other: CodedColumn<V, T>): boolean {
-    return this.store.sameValues(other.store);
+  sameValues(other: StoredColumn<V, S>): boolean {
+    return other.kind === this.kind && this.store.sameValues(other.store);
   }
 }
 
-/** One write of a coded column. */
-export class CodedWriter<V, T extends Numeric> implements TypedWriter<V, T> {
-  private readonly kind: CodedKind<V, T>;
-  private readonly w: ColumnWriter<T>;
+/** One write of a stored column (see `ColumnWriter`). */
+export class StoredWriter<V, S extends Flat> implements AnyWriter {
+  private readonly kind: StoredKind<V, S>;
+  private readonly w: ColumnWriter<S>;
 
-  constructor(kind: CodedKind<V, T>, w: ColumnWriter<T>) {
+  constructor(kind: StoredKind<V, S>, w: ColumnWriter<S>) {
     this.kind = kind;
     this.w = w;
   }
 
+  /** The value at row `i` as the write stands. */
   get(i: number): V {
-    return this.kind.decode(this.w.get(i));
+    return this.kind.codec.decode(this.w, i * this.kind.width);
   }
 
   set(i: number, v: V): void {
-    this.w.set(i, this.kind.encode(v));
+    const k = this.kind.width;
+    const row = this.kind.encodedRow(v);
+    for (let s = 0; s < k; s++) this.w.set(i * k + s, row[s] as Item<S>);
   }
 
-  done(): CodedColumn<V, T> {
+  done(): StoredColumn<V, S> {
     return this.kind.wrap(this.w.done());
   }
 }
 
+const F64 = storageFor(Float64Array);
+
+/** A plain value stored as itself. */
+const itself = <V>(v: V, out: Out, at: number): void => {
+  out[at] = v;
+};
+const readItself = <V>(read: Reader, at: number): V => read.get(at) as V;
+
 /** A column of booleans: a Uint8 column of 1 and 0. */
-export type BooleanColumn = CodedColumn<boolean, Uint8Array>;
+export type BooleanColumn = StoredColumn<boolean, Uint8Array>;
+
+const booleanKind = new StoredKind<boolean, Uint8Array>({
+  name: 'boolean',
+  storage: storageFor(Uint8Array),
+  default: false,
+  encode: (v, out, at) => {
+    out[at] = v ? 1 : 0;
+  },
+  decode: (read, at) => read.get(at) !== 0,
+});
 
 /**
  * A column of references to rows of the same value: a row's `id` (the
@@ -637,444 +795,80 @@ export type BooleanColumn = CodedColumn<boolean, Uint8Array>;
  * never by row index, so a reference survives any write that keeps the row
  * it names; an id whose row is gone resolves to nothing.
  */
-export type ReferenceColumn = CodedColumn<number | null, Float64Array>;
+export type ReferenceColumn = StoredColumn<number | null, Float64Array>;
 
-const booleanKind = new CodedKind<boolean, Uint8Array>(
-  'boolean',
-  Uint8Array,
-  false,
-  (v) => (v ? 1 : 0),
-  (x) => x !== 0,
-);
+const referenceKind = new StoredKind<number | null, Float64Array>({
+  name: 'reference',
+  storage: F64,
+  default: null,
+  encode: (v, out, at) => {
+    out[at] = v === null ? -1 : v;
+  },
+  decode: (read, at) => {
+    const x = read.get(at) as number;
+    return x < 0 ? null : x;
+  },
+});
 
-const referenceKind = new CodedKind<number | null, Float64Array>(
-  'reference',
-  Float64Array,
-  null,
-  (v) => (v === null ? -1 : v),
-  (x) => (x < 0 ? null : x),
-);
+/** A column of strings. */
+export type StringColumn = StoredColumn<string, readonly string[]>;
 
-// ─── vector: k numbers a row ───────────────────────────────────────────
+const stringKind = new StoredKind<string, readonly string[]>({
+  name: 'string',
+  storage: plainStorage as Storage<readonly string[]>,
+  default: '',
+  encode: itself,
+  decode: readItself,
+});
 
-/** A kind of `width` numbers a row, stored as one Float64 column `width`
- * values a row (as an edge list is two). */
-export class VectorKind implements ColumnKind<readonly number[], Float64Array, VectorColumn> {
-  readonly name = 'vector' as const;
-  readonly width: number;
-  /** The zero vector. */
-  readonly default: readonly number[];
-  readonly interpolates = true;
-  private readonly over = new WeakMap<Column<Float64Array>, VectorColumn>();
+/** A column of placements: an opaque value a row, null for none. The
+ * column never reads the value; it only keeps it. A placement is equal to
+ * itself only. */
+export type PlacementColumn = StoredColumn<unknown, readonly unknown[]>;
 
-  /** @internal Use `kinds.vector(k)`. */
-  constructor(width: number) {
-    this.width = width;
-    this.default = Object.freeze(new Array<number>(width).fill(0));
-  }
+const placementKind = new StoredKind<unknown, readonly unknown[]>({
+  name: 'placement',
+  storage: plainStorage,
+  default: null,
+  encode: itself,
+  decode: readItself,
+});
 
-  equal(a: readonly number[], b: readonly number[]): boolean {
-    for (let s = 0; s < this.width; s++) if (a[s] !== b[s]) return false;
-    return true;
-  }
+/** A column of fixed-width numeric vectors: `width` numbers a row, stored
+ * as one Float64 column `width` values a row (as an edge list is two).
+ * `get` makes a fresh array; `component` reads one number. */
+export type VectorColumn = StoredColumn<readonly number[], Float64Array>;
 
-  /** The column of this flat, `width` values a row. */
-  of(flat: Float64Array): VectorColumn {
-    if (flat.length % this.width !== 0) throw new RangeError(`a vector column of width ${this.width} takes a flat whose length is a multiple of ${this.width}; got ${flat.length}`);
-    return this.wrap(Column.of(flat));
-  }
+const vectorKinds = new Map<number, StoredKind<readonly number[], Float64Array>>();
 
-  from(values: ArrayLike<readonly number[]>): VectorColumn {
-    return this.of(this.flatten(values));
-  }
-
-  filled(length: number): VectorColumn {
-    return this.of(new Float64Array(length * this.width));
-  }
-
-  /** @internal The rows as one flat, `width` values a row. */
-  flatten(values: ArrayLike<readonly number[]>): Float64Array {
-    const k = this.width;
-    const out = new Float64Array(values.length * k);
-    for (let r = 0; r < values.length; r++) {
-      const v = this.checked(values[r]);
-      for (let s = 0; s < k; s++) out[r * k + s] = v[s];
-    }
-    return out;
-  }
-
-  /** @internal `v`, which must have `width` numbers. */
-  checked(v: readonly number[]): readonly number[] {
-    if (v.length !== this.width) throw new RangeError(`a vector column of width ${this.width} takes vectors of ${this.width} numbers; got ${v.length}`);
-    return v;
-  }
-
-  /** @internal The vector column over `store`. */
-  wrap(store: Column<Float64Array>): VectorColumn {
-    let c = this.over.get(store);
-    if (c === undefined) {
-      c = new VectorColumn(this, store);
-      this.over.set(store, c);
-    }
-    return c;
-  }
-}
-
-/** A column of fixed-width numeric vectors. `get` makes a fresh array;
- * `component` reads one number and makes nothing. Its flat is the numbers,
- * `width` a row. */
-export class VectorColumn implements TypedColumn<readonly number[], Float64Array> {
-  readonly kind: VectorKind;
-  /** @internal The numbers underneath, `width` a row. */
-  readonly store: Column<Float64Array>;
-  /** How many rows (vectors). */
-  readonly length: number;
-
-  /** @internal Use the kind: `kinds.vector(3).of(flat)`. */
-  constructor(kind: VectorKind, store: Column<Float64Array>) {
-    this.kind = kind;
-    this.store = store;
-    this.length = store.length / kind.width;
-  }
-
-  /** The vector at row `i`, as a new array. */
-  get(i: number): number[] {
-    const k = this.kind.width;
-    const out: number[] = [];
-    for (let s = 0; s < k; s++) out.push(at64(this.store, i * k + s));
-    return out;
-  }
-
-  /** Number `s` of the vector at row `i`. */
-  component(i: number, s: number): number {
-    return at64(this.store, i * this.kind.width + s);
-  }
-
-  flat(): Float64Array {
-    return this.store.flat();
-  }
-
-  gather(rows: ArrayLike<number>): Float64Array {
-    const k = this.kind.width;
-    const out = new Float64Array(rows.length * k);
-    for (let r = 0; r < rows.length; r++) {
-      const base = rows[r] * k;
-      for (let s = 0; s < k; s++) out[r * k + s] = at64(this.store, base + s);
-    }
-    return out;
-  }
-
-  append(values: ArrayLike<readonly number[]>): VectorColumn {
-    if (values.length === 0) return this;
-    return this.kind.wrap(this.store.append(this.kind.flatten(values)));
-  }
-
-  keep(rows: ArrayLike<number>): VectorColumn {
-    return this.kind.wrap(this.store.keep(rows, this.kind.width));
-  }
-
-  writer(reach: Reach): VectorWriter {
-    const k = this.kind.width;
-    let at: Reach = reach;
-    if (reach !== 'all' && reach !== 'some' && k > 1) {
-      const values = new Float64Array(reach.length * k);
-      for (let r = 0; r < reach.length; r++) for (let s = 0; s < k; s++) values[r * k + s] = reach[r] * k + s;
-      at = values;
-    }
-    return new VectorWriter(this.kind, this.store.writer(at));
-  }
-
-  sameValues(other: VectorColumn): boolean {
-    return other.kind.width === this.kind.width && this.store.sameValues(other.store);
-  }
-}
-
-/** One write of a vector column. */
-export class VectorWriter implements TypedWriter<readonly number[], Float64Array> {
-  private readonly kind: VectorKind;
-  private readonly w: ColumnWriter<Float64Array>;
-
-  constructor(kind: VectorKind, w: ColumnWriter<Float64Array>) {
-    this.kind = kind;
-    this.w = w;
-  }
-
-  get(i: number): number[] {
-    const k = this.kind.width;
-    const out: number[] = [];
-    for (let s = 0; s < k; s++) out.push(this.w.get(i * k + s));
-    return out;
-  }
-
-  set(i: number, v: readonly number[]): void {
-    const k = this.kind.width;
-    this.kind.checked(v);
-    for (let s = 0; s < k; s++) this.w.set(i * k + s, v[s]);
-  }
-
-  /** Set number `s` of the vector at row `i`. */
-  setComponent(i: number, s: number, v: number): void {
-    this.w.set(i * this.kind.width + s, v);
-  }
-
-  done(): VectorColumn {
-    return this.kind.wrap(this.w.done());
-  }
-}
-
-const vectorKinds = new Map<number, VectorKind>();
-
-function vectorKind(width: number): VectorKind {
+function vectorKind(width: number): StoredKind<readonly number[], Float64Array> {
   if (!Number.isInteger(width) || width < 1) throw new RangeError(`a vector column is a whole number of values wide, 1 or more; got ${width}`);
   let kind = vectorKinds.get(width);
   if (kind === undefined) {
-    kind = new VectorKind(width);
+    kind = new StoredKind<readonly number[], Float64Array>({
+      name: 'vector',
+      storage: F64,
+      width,
+      default: Object.freeze(new Array<number>(width).fill(0)),
+      interpolates: true,
+      equal: (a, b) => {
+        for (let s = 0; s < width; s++) if (a[s] !== b[s]) return false;
+        return true;
+      },
+      encode: (v, out, at) => {
+        if (v.length !== width) throw new RangeError(`a vector column of width ${width} takes vectors of ${width} numbers; got ${v.length}`);
+        for (let s = 0; s < width; s++) out[at + s] = v[s];
+      },
+      decode: (read, at) => {
+        const out: number[] = [];
+        for (let s = 0; s < width; s++) out.push(read.get(at + s) as number);
+        return out;
+      },
+    });
     vectorKinds.set(width, kind);
   }
   return kind;
 }
-
-// ─── string and placement: leaves of values ────────────────────────────
-
-/** The array column each flat belongs to (see `OWNER`). */
-const ARRAY_OWNER = new WeakMap<readonly unknown[], ArrayColumn<unknown>>();
-
-/** A plain, packed array of `length` copies of `v`. */
-function packedFill<V>(length: number, v: V): V[] {
-  const out: V[] = [];
-  for (let i = 0; i < length; i++) out.push(v);
-  return out;
-}
-
-/** A plain copy of `values`. */
-function packedFrom<V>(values: ArrayLike<V>): V[] {
-  return Array.isArray(values) ? values.slice() : Array.from(values);
-}
-
-/** A kind stored as leaves of plain arrays: strings, or an opaque value a
- * row (a placement). */
-export class ArrayKind<V> implements ColumnKind<V, readonly V[], ArrayColumn<V>> {
-  readonly name: KindName;
-  readonly width = 1;
-  readonly default: V;
-  readonly interpolates = false;
-
-  /** @internal Use `kinds.string` or `kinds.placement`. */
-  constructor(name: KindName, fallback: V) {
-    this.name = name;
-    this.default = fallback;
-  }
-
-  /** The same value: `===`. A placement is equal to itself only. */
-  equal(a: V, b: V): boolean {
-    return a === b;
-  }
-
-  of(flat: readonly V[]): ArrayColumn<V> {
-    const known = ARRAY_OWNER.get(flat);
-    if (known !== undefined && known.kind === (this as ArrayKind<unknown>)) return known as ArrayColumn<V>;
-    const c = new ArrayColumn<V>(this, flat.length, null, flat);
-    if (known === undefined) ARRAY_OWNER.set(flat, c as ArrayColumn<unknown>);
-    return c;
-  }
-
-  from(values: ArrayLike<V>): ArrayColumn<V> {
-    return this.of(packedFrom(values));
-  }
-
-  filled(length: number): ArrayColumn<V> {
-    return this.of(packedFill(length, this.default));
-  }
-}
-
-/**
- * A column of any value a row, kept as leaves of plain arrays, `LEAF` a
- * leaf, with the numeric column's sharing: a write copies the leaves it
- * touches, an append the last leaf, a row selection the leaves from the
- * first row that moves.
- *
- * One difference: a plain array has no views, so a column made from a
- * flat (`of`) cuts its leaves as copies the first time a write or an
- * append needs them, and then holds both.
- */
-export class ArrayColumn<V> implements TypedColumn<V, readonly V[]> {
-  readonly kind: ArrayKind<V>;
-  readonly length: number;
-  private leafBox: readonly (readonly V[])[] | null;
-  private flatBox: readonly V[] | null;
-
-  /** @internal Use the kind: `kinds.string.of(flat)`. */
-  constructor(kind: ArrayKind<V>, length: number, leaves: readonly (readonly V[])[] | null, flat: readonly V[] | null) {
-    this.kind = kind;
-    this.length = length;
-    this.leafBox = leaves;
-    this.flatBox = flat;
-  }
-
-  get(i: number): V {
-    const f = this.flatBox;
-    if (f !== null) return f[i];
-    return this.leafBox![i >>> LEAF_BITS][i & MASK];
-  }
-
-  flat(): readonly V[] {
-    const f = this.flatBox;
-    if (f !== null) return f;
-    const out = this.copy();
-    this.flatBox = out;
-    ARRAY_OWNER.set(out, this as ArrayColumn<unknown>);
-    return out;
-  }
-
-  /** The leaves, in order: every one `LEAF` long but the last. Read them;
-   * never write them. */
-  leaves(): readonly (readonly V[])[] {
-    const got = this.leafBox;
-    if (got !== null) return got;
-    const f = this.flatBox!;
-    const out: V[][] = [];
-    for (let at = 0; at < this.length; at += LEAF) out.push(f.slice(at, Math.min(this.length, at + LEAF)));
-    this.leafBox = out;
-    return out;
-  }
-
-  /** A new array holding the values, the caller's to write. */
-  copy(): V[] {
-    const f = this.flatBox;
-    if (f !== null) return f.slice();
-    // One concat is some five times faster than a push a value.
-    return ([] as V[]).concat(...this.leafBox!);
-  }
-
-  gather(rows: ArrayLike<number>): V[] {
-    const out = new Array<V>(rows.length);
-    for (let k = 0; k < rows.length; k++) out[k] = this.get(rows[k]);
-    return out;
-  }
-
-  append(values: ArrayLike<V>): ArrayColumn<V> {
-    const add = values.length;
-    if (add === 0) return this;
-    const n = this.length;
-    const total = n + add;
-    const old = this.leaves();
-    const out = old.slice(0, n >>> LEAF_BITS);
-    let p = 0;
-    for (let start = out.length * LEAF; start < total; start += LEAF) {
-      const leaf: V[] = start < n ? old[start >>> LEAF_BITS].slice() : [];
-      const size = Math.min(LEAF, total - start);
-      while (leaf.length < size) leaf.push(values[p++]);
-      out.push(leaf);
-    }
-    return new ArrayColumn<V>(this.kind, total, out, null);
-  }
-
-  keep(rows: ArrayLike<number>): ArrayColumn<V> {
-    const count = rows.length;
-    let same = 0;
-    while (same < count && rows[same] === same) same++;
-    if (same === count && count === this.length) return this;
-    const shared = Math.min(same >>> LEAF_BITS, count >>> LEAF_BITS);
-    const out = shared === 0 ? [] : this.leaves().slice(0, shared);
-    let k = shared * LEAF;
-    for (let start = shared * LEAF; start < count; start += LEAF) {
-      const size = Math.min(LEAF, count - start);
-      const leaf = new Array<V>(size);
-      for (let p = 0; p < size; p++) leaf[p] = this.get(rows[k++]);
-      out.push(leaf);
-    }
-    if (out.length === 1 && shared === 0) return this.kind.of(out[0]);
-    return new ArrayColumn<V>(this.kind, count, out, null);
-  }
-
-  writer(reach: Reach): ArrayWriter<V> {
-    return new ArrayWriter(this, reach === 'all' || (reach !== 'some' && touchesMost(this.length, reach)));
-  }
-
-  sameValues(other: ArrayColumn<V>): boolean {
-    if (other === this) return true;
-    if (other.length !== this.length) return false;
-    const a = this.leaves();
-    const b = other.leaves();
-    for (let k = 0; k < a.length; k++) {
-      const x = a[k];
-      const y = b[k];
-      if (x === y) continue;
-      for (let j = 0; j < x.length; j++) if (!this.kind.equal(x[j], y[j])) return false;
-    }
-    return true;
-  }
-
-  /** @internal This column's kind with these leaves in place of its own. */
-  withLeaves(leaves: readonly (readonly V[])[]): ArrayColumn<V> {
-    return new ArrayColumn<V>(this.kind, this.length, leaves, null);
-  }
-}
-
-/** One write of an array column: as `ColumnWriter`. */
-export class ArrayWriter<V> implements TypedWriter<V, readonly V[]> {
-  private readonly base: ArrayColumn<V>;
-  private readonly whole: V[] | null;
-  private own: (V[] | undefined)[] | null = null;
-  private wrote = false;
-
-  constructor(base: ArrayColumn<V>, dense: boolean) {
-    this.base = base;
-    this.whole = dense ? base.copy() : null;
-  }
-
-  get(i: number): V {
-    if (this.whole !== null) return this.whole[i];
-    const leaf = this.own?.[i >>> LEAF_BITS];
-    return leaf !== undefined ? leaf[i & MASK] : this.base.get(i);
-  }
-
-  /** A dense write's whole array, to write rows into directly, or null
-   * for a sparse write (see `ColumnWriter.array`). */
-  array(): V[] | null {
-    if (this.whole === null) return null;
-    this.wrote = true;
-    return this.whole;
-  }
-
-  set(i: number, v: V): void {
-    this.wrote = true;
-    if (this.whole !== null) {
-      this.whole[i] = v;
-      return;
-    }
-    const own = (this.own ??= []);
-    const k = i >>> LEAF_BITS;
-    let leaf = own[k];
-    if (leaf === undefined) {
-      leaf = this.base.leaves()[k].slice();
-      own[k] = leaf;
-    }
-    leaf[i & MASK] = v;
-  }
-
-  done(): ArrayColumn<V> {
-    if (!this.wrote) return this.base;
-    if (this.whole !== null) return this.base.kind.of(this.whole);
-    const leaves = this.base.leaves().slice();
-    const own = this.own!;
-    for (let k = 0; k < own.length; k++) {
-      const leaf = own[k];
-      if (leaf !== undefined) leaves[k] = leaf;
-    }
-    return this.base.withLeaves(leaves);
-  }
-}
-
-/** A column of strings. */
-export type StringColumn = ArrayColumn<string>;
-
-/** A column of placements: an opaque value a row, null for none. The
- * column never reads the value; it only keeps it. */
-export type PlacementColumn = ArrayColumn<unknown>;
-
-const stringKind = new ArrayKind<string>('string', '');
-const placementKind = new ArrayKind<unknown>('placement', null);
 
 // ─── the kinds ─────────────────────────────────────────────────────────
 
@@ -1090,104 +884,23 @@ export const kinds = Object.freeze({
   placement: placementKind,
 });
 
-/** Any kind a geometry column is. */
-export type AnyKind =
-  | typeof numberKind
-  | typeof booleanKind
-  | typeof stringKind
-  | VectorKind
-  | typeof referenceKind
-  | typeof placementKind;
-
-/** Any column a geometry holds. */
-export type AnyColumn = Column<Float64Array> | BooleanColumn | StringColumn | VectorColumn | ReferenceColumn | PlacementColumn;
-
-/** The kind of a column: a numeric column is `kinds.number`; every other
- * says its own. */
+/** The kind of any column: a number column is `kinds.number`; a stored
+ * column says its own. */
 export function kindOf(c: AnyColumn): AnyKind {
   return c instanceof Column ? numberKind : c.kind;
 }
 
-// ─── any column, read and written by kind ─────────────────────────────
-//
-// A geometry holds its columns as one record of any kind (`AnyColumn`):
-// the numeric ones are plain `Column<Float64Array>`s, so a kernel that
-// reads numbers reads them as it always did, and the table writes reach
-// every kind through these few doors.
-
-/** A column any kind: the words every kind shares, values untyped. */
-type Untyped = TypedColumn<unknown, unknown>;
-
 /** Is `v` a column of a kind other than numbers (a boolean, string,
  * vector, reference or placement column)? */
-export function isTypedColumn(v: unknown): v is Exclude<AnyColumn, Column<Float64Array>> {
-  return v instanceof CodedColumn || v instanceof VectorColumn || v instanceof ArrayColumn;
+export function isTypedColumn(v: unknown): v is StoredColumn<unknown, Flat> {
+  return v instanceof StoredColumn;
 }
 
-/** Is `v` a column of any kind a geometry holds? */
-export function isAnyColumn(v: unknown): v is AnyColumn {
-  return v instanceof Column || isTypedColumn(v);
-}
-
-/** The value at row `i` of any column, as its kind reads it: a number, a
- * boolean, a string, a new array of `k` numbers, a row id or null, a
- * placement. */
-export function valueAt(c: AnyColumn, i: number): unknown {
-  return c instanceof Column ? at64(c, i) : (c as Untyped).get(i);
-}
-
-/** `length` rows of `v`, a value of `kind` (checked by the caller). */
-export function constantColumn(kind: AnyKind, length: number, v: unknown): AnyColumn {
-  if (kind === kinds.number) return Column.of(new Float64Array(length).fill(v as number));
-  const values = new Array<unknown>(length);
-  for (let i = 0; i < length; i++) values[i] = v;
-  return (kind as ColumnKind<unknown, unknown, Untyped>).from(values) as unknown as AnyColumn;
-}
-
-/** `c` with `values` (of its kind) after its last row. */
-export function appendValues(c: AnyColumn, values: ArrayLike<unknown>): AnyColumn {
-  return (c as Untyped).append(values) as unknown as AnyColumn;
-}
-
-/** The rows `rows` of `c`, in that order. */
-export function keepRows(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
-  return (c as Untyped).keep(rows) as unknown as AnyColumn;
-}
-
-/** A new column of `c`'s kind holding rows `rows` of `c`, in that order:
- * what an extraction takes, its own storage. */
-export function gatherColumn(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
-  if (c instanceof Column) return Column.of(c.gather(rows));
-  if (c instanceof VectorColumn) return c.kind.of(c.gather(rows));
-  if (c instanceof CodedColumn) return (c.kind as CodedKind<unknown, Numeric>).of(c.gather(rows)) as unknown as AnyColumn;
-  return (c.kind as ArrayKind<unknown>).of(c.gather(rows)) as unknown as AnyColumn;
-}
-
-/** `a`, then every row of `b`: two columns of one kind joined. */
+/** `a`, then every row of `b`: two columns of one kind joined. Every whole
+ * leaf of `a` is shared. */
 export function joinColumns(a: AnyColumn, b: AnyColumn): AnyColumn {
-  if (a instanceof Column) return Column.of(concat64(a.flat(), (b as Column).flat()));
-  const values = new Array<unknown>(b.length);
-  for (let i = 0; i < b.length; i++) values[i] = (b as Untyped).get(i);
-  return appendValues(a, values);
-}
-
-function concat64(a: Float64Array, b: Float64Array): Float64Array {
-  const out = new Float64Array(a.length + b.length);
-  out.set(a);
-  out.set(b, a.length);
-  return out;
-}
-
-/** One write of any column: `set` takes a value of the column's kind. */
-export interface AnyWriter {
-  get(i: number): unknown;
-  set(i: number, v: unknown): void;
-  done(): AnyColumn;
-}
-
-/** A writer of any column (see `Column.writer`). */
-export function writerOf(c: AnyColumn, reach: Reach): AnyWriter {
-  return (c as Untyped).writer(reach) as unknown as AnyWriter;
+  if (a instanceof Column) return a.append((b as Column).flat());
+  return a.kind.wrap(a.store.append((b as StoredColumn<unknown, Flat>).store.flat()));
 }
 
 /** The kind's name as a message says it: `a number`, `a vector of 3`. */
@@ -1201,3 +914,38 @@ export function kindWords(kind: AnyKind): string {
     case 'placement': return 'a placement';
   }
 }
+
+// ─── spec-74 handoff: kept until their callers take the words above ───
+
+/** @deprecated spec-74 handoff: `c.get(i)`. */
+export function valueAt(c: AnyColumn, i: number): unknown {
+  return c.get(i);
+}
+
+/** @deprecated spec-74 handoff: `kind.filled(length, v)`. */
+export function constantColumn(kind: AnyKind, length: number, v: unknown): AnyColumn {
+  return kind.filled(length, v);
+}
+
+/** @deprecated spec-74 handoff: `joinColumns(c, kindOf(c).from(values))`. */
+export function appendValues(c: AnyColumn, values: ArrayLike<unknown>): AnyColumn {
+  return joinColumns(c, kindOf(c).from(values));
+}
+
+/** @deprecated spec-74 handoff: `c.keep(rows)`. */
+export function keepRows(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
+  return c.keep(rows);
+}
+
+/** @deprecated spec-74 handoff: `kindOf(c).of(c.gather(rows))`. */
+export function gatherColumn(c: AnyColumn, rows: ArrayLike<number>): AnyColumn {
+  return kindOf(c).of(c.gather(rows));
+}
+
+/** @deprecated spec-74 handoff: `c.writer(reach)`. */
+export function writerOf(c: AnyColumn, reach: Reach): AnyWriter {
+  return c.writer(reach);
+}
+
+/** @deprecated spec-74 handoff: `StringColumn`. */
+export type ArrayColumn<V> = StoredColumn<V, readonly V[]>;
