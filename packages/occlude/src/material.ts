@@ -24,12 +24,12 @@
  */
 
 import { pointsOf, edgesOf, edgeDomain, isPointSelection, isEdgeSelection, eligibleRows, type Where, type PointTypes, type EdgeTypes } from './relation.js';
-import { ROW_TYPES, selectionIn, type Selection } from './selection.js';
+import { ROW_TYPES, Selection, selectionIn } from './selection.js';
 import { euclideanSpace, type Space } from './space.js';
 import { framePlacement, isPlacement, isSpacePlacement, spaceOfDoor, type Placement } from './placement.js';
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
-import { chainsOf, curvesOf, chainTangents, chainLengths, type Curve } from './curves.js';
+import { chainsOf, curvesOf, chainTangents, chainLengths, isCurveRow, type Curve } from './curves.js';
 import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
@@ -1157,11 +1157,13 @@ export class Material {
    * open has no area, and the consumer says so rather than drawing nothing.
    * For every chain, open or closed, see `curves`. A level set's area is
    * its regions, closed along the drawable, a bound and every hole: worked
-   * out on this first ask, not by `t.isolines`.
+   * out on this first ask, not by `t.isolines`. A value in space that
+   * states no faces answers none, as its `faces` do (`arealess`).
    */
   contours(): IsoContour[] {
     const area = areaMaterial(this);
     if (area !== this) return area.contours();
+    if (arealess(this)) return [];
     const out: IsoContour[] = [];
     for (const c of chainsOf(this)) {
       if (!c.closed) continue;
@@ -4228,10 +4230,18 @@ export function areaMaterial(m: Material): Material {
  * edges, found there by id, and every closing run whose two ends are ends
  * of those edges — so `polygon(m.edges.filter((e) => e.level === 3))`
  * fills the regions of level 3. A selection of every edge is the whole
- * area, rings with no level line in them included. Anything else is read
+ * area, rings with no level line in them included. A value in space that
+ * states no faces, and any row or selection of it, is an empty area
+ * (`arealess`): every consumer draws nothing for it. Anything else is read
  * as it is.
  */
-export function areaView<T>(input: T): T | Material | Selection<Edge> {
+export function areaView<T>(input: T): T | Material | Selection<Edge> | readonly never[] {
+  // The value a row or a selection is of: a curve row's is its edges'.
+  const of = input instanceof Material ? input
+    : input instanceof Selection ? input.owner
+    : isCurveRow(input) ? input.edges.owner
+    : typeof input === 'object' && input !== null ? ownerOf(input) : undefined;
+  if (of instanceof Material && arealess(of)) return [];
   if (input instanceof Material) return areaMaterial(input);
   if (!isEdgeSelection(input)) return input;
   const source = input.owner;
@@ -4288,6 +4298,16 @@ export function inSpace3(m: Material): boolean {
   return m.store.attrs.z instanceof Column;
 }
 
+/** @internal Has this value no area at all: is it a value in space that
+ * states no faces? The planar walk and a closed chain read x and y, and in
+ * space those are a shadow of the value, not an area of it. So such a value
+ * has no `faces` (faces.ts) and no `contours()`, and an area consumer reads
+ * it as an empty area (`areaView`). A value in space with stated faces keeps
+ * its contours. */
+export function arealess(m: Material): boolean {
+  return inSpace3(m) && m.stated === undefined;
+}
+
 /** A 3-vector: three numbers, as an array or `{ x, y, z }`. */
 function isVec3(v: unknown): boolean {
   if (Array.isArray(v)) return v.length === 3;
@@ -4339,13 +4359,11 @@ export interface FacePart {
 }
 
 /** @internal Where the rows of a `materialFromParts` value came from
- * (derivation.ts): the node the derivation records on it, and what each
- * row's `source` answers — row links (an input's points, edges or stated
- * faces, one input or a list of them, and parameter columns such as `u`),
- * or a function of the row read the first time the row asks. Every write
- * that keeps a row keeps its answer. */
+ * (derivation.ts): what each row's `source` answers — row links (an
+ * input's points, edges or stated faces, one input or a list of them, and
+ * parameter columns such as `u`), or a function of the row read the first
+ * time the row asks. Every write that keeps a row keeps its answer. */
 export interface PartsSource {
-  readonly node?: Derivation;
   readonly points?: DomainSpec | ((row: number) => unknown);
   readonly edges?: DomainSpec | ((row: number) => unknown);
   readonly faces?: (f: number) => unknown;
@@ -4587,7 +4605,7 @@ export function materialFromParts(parts: MaterialParts): Material {
   const spec = (d: DomainSpec | ((row: number) => unknown) | undefined): DomainSpec | undefined =>
     typeof d === 'function' ? { source: { read: d } } : d;
   if (src?.points !== undefined || src?.edges !== undefined) linkRows(m, { points: spec(src.points), edges: spec(src.edges) });
-  return src?.node !== undefined ? record(m, src.node) : m;
+  return m;
 }
 
 /** The corner columns of a list of face parts: one row per loop point, in

@@ -1,9 +1,14 @@
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { circle, curve, line, material, type Edge, type Material, type Vertex } from '../src/index.js';
-import { nodeOf } from '../src/derivation.js';
 import { ownedBy } from '../src/views.js';
 import { toolkit } from './helpers/run.js';
 import { onEdge } from './helpers/shapes.js';
+
+// The collector, for the retention contract.
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc') as () => void;
 
 // `source` is typed by the view; a test reads it as the row it is.
 const edgeUnder = (p: Vertex): Edge | undefined => p.source as unknown as Edge | undefined;
@@ -147,6 +152,24 @@ describe('the point words keep their rule', () => {
     expect(reach(t.relax(relaxed))).toBeLessThan(20);
     // A write makes a value of its own: its relax spreads over the drawable.
     expect(reach(t.relax(cloud.points.set('k', 1)))).toBeGreaterThan(20);
+    // So does a cloud made by hand: it was bounded by nothing.
+    expect(reach(t.relax(material(cloud.points.map((p) => [p.x, p.y] as [number, number]))))).toBeGreaterThan(20);
+  });
+
+  it('a relax loop written by hand holds the state it ends with, not every state it passed through', async () => {
+    const t = toolkit({ aspect: [1, 1], seed: 5 });
+    let m = t.scatter(circle(50, 50, 20), { spacing: 4 });
+    const states: WeakRef<Material>[] = [];
+    for (let i = 0; i < 30; i++) {
+      m = t.relax(m, { iterations: 1 });
+      states.push(new WeakRef(m));
+    }
+    // A weak reference holds its value to the end of the task that made it.
+    await new Promise((r) => setTimeout(r, 0));
+    gc();
+    expect(states.filter((s) => s.deref() !== undefined).length).toBe(1);
+    // The one it holds still keeps the area its cloud was bounded by.
+    expect(Math.max(...t.relax(m).points.map((p) => Math.hypot(p.x - 50, p.y - 50)))).toBeLessThan(20);
   });
 
   it('a relaxed sample keeps its u: relax moves rows, it makes none', () => {
@@ -184,23 +207,5 @@ describe('the field and area words', () => {
     const cells = t.voronoi(sites);
     expect(cells.faces.map((f) => f.source)).toEqual([sites.vertex(0), sites.vertex(1), sites.vertex(2)]);
     expect(t.material(sites)).toBe(sites);
-  });
-
-  it('every maker records how it was made; a write, and a value made by hand, record nothing', () => {
-    // The smoke test of the derivation record.
-    const t = toolkit({ aspect: [1, 1], seed: 6 });
-    const sites = material([[20, 20], [70, 30], [40, 80]]);
-    const ring = t.sample(circle(50, 50, 20), { count: 30 });
-    const cloud = t.scatter({ spacing: 8 });
-    const made = {
-      sample: ring, resample: t.sample(ring, { count: 10 }), scatter: cloud, throw: t.throw({ count: 10 }),
-      relax: t.relax(cloud), settle: t.settle(cloud, { density: () => 1, spacing: 8, iterations: 2 }),
-      streamlines: t.streamlines(() => [1, 0.3], { spacing: 10 }), isolines: t.isolines((x: number) => x / 100, { count: 2 }),
-      voronoi: t.voronoi(sites), quadtree: t.quadtree(sites, { capacity: 1 }), tiling: t.tiling(4, 4, { side: 25 }),
-      material: t.material(circle(50, 50, 10)),
-    };
-    for (const [word, value] of Object.entries(made)) expect(nodeOf(value), word).toBeDefined();
-    expect(nodeOf(ring.move([1, 0]))).toBeUndefined();
-    expect(nodeOf(sites)).toBeUndefined();
   });
 });

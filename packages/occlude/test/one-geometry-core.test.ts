@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { append, curve, material, point, type Material } from '../src/index.js';
+import { append, curve, distanceTo, force, material, point, polygon, strokes, type Material } from '../src/index.js';
 import { materialFromParts, partsOfMaterial, type Vertex } from '../src/material.js';
 import { Column, kinds } from '../src/column.js';
 import { identity } from '../src/placement.js';
@@ -16,6 +16,7 @@ import { spaceOf } from '../src/space.js';
 import { grid } from '../src/layout.js';
 import { plane } from '../src/three/api/index.js';
 import { square } from './helpers/shapes.js';
+import { toolkit } from './helpers/run.js';
 
 /** A ring of four points and four edges. */
 
@@ -214,6 +215,32 @@ describe('a z column: the one geometry in space', () => {
     // Extrude grows level with its point, or by the offset's third number.
     expect(e.extrude(e.points.at(1), [1, 0]).points.at(2).z).toBe(4);
     expect(e.extrude(e.points.at(1), [1, 0, -4]).points.at(2).z).toBe(0);
+  });
+
+  it('a value in space that states no faces has no area: every area consumer reads it as empty, and none throws', () => {
+    const t = toolkit({ aspect: [1, 1] });
+    const flat = curve([[10, 10], [20, 10], [20, 20], [10, 20]], { closed: true });
+    const lifted = flat.move([0, 0, 1]);
+    const open = curve([[10, 10, 1], [20, 10, 1], [20, 20, 1]]);
+    expect(flat.contours()).toHaveLength(1);
+    for (const v of [lifted, open]) {
+      expect(v.faces.length).toBe(0);
+      expect(v.contours()).toEqual([]);
+      // Nothing to fill, nothing inside, nothing to measure to.
+      for (const area of [v, v.edges, v.curves.at(0)]) expect(polygon(area).geom).toMatchObject({ kind: 'path', cmds: [] });
+      expect(t.within(t.scatter({ spacing: 5 }), v).n).toBe(0);
+      expect(t.within(() => 1, v)(15, 15)).toBeNaN();
+      expect(t.distanceTo(v)(15, 15)).toBe(-Infinity);
+      expect(distanceTo(v)(15, 15)).toBe(-Infinity);
+      expect(force.boundary(v, { radius: 5 })([15, 15])).toEqual([0, 0]);
+      // Its chains are still ink.
+      expect(strokes(v).length).toBeGreaterThan(0);
+    }
+    // A value in space with stated faces keeps its contours.
+    const quad = plane(20);
+    expect(quad.faces.length).toBe(1);
+    expect(quad.contours()).toHaveLength(1);
+    expect(polygon(quad).geom).not.toMatchObject({ cmds: [] });
   });
 });
 

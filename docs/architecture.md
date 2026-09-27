@@ -92,9 +92,9 @@ packages/occlude/src/
                         material or a lattice holds — leaves of 1024 values,
                         a write copies the leaves it touches and shares the
                         rest, a kernel reads one joined flat array
-  derivation            what a derived value keeps (the node: operation,
-                        inputs, parameters) and the row links `source` and
-                        `u` answer
+  derivation            what a derived value keeps (the node: operation
+                        and parameters, not the inputs) and the row links
+                        `source` and `u` answer
   warp, thicken,        the material-to-material methods (`m.warp`,
   envelope, interlace,    `m.thicken`, …): each reads the material in its
   oscillate, merge,       own coordinates, or its own space where the
@@ -826,11 +826,14 @@ and `test/transfer.test.ts`.
 *Where:* `derivation.ts` (the node and the links), the words in `api.ts`
 and `points.ts` that record them, pinned by `test/derivation.test.ts`.
 
-- **A derived value keeps its inputs and its rule.** A word such as
+- **A derived value keeps its rule, not its inputs.** A word such as
   `t.sample`, `t.settle`, `t.streamlines` or `t.voronoi` puts an internal
-  node on the value it returns: the operation, its input values by
-  reference, and its parameters as plain data. The node is never a
-  public word, and a write makes a new value with no node of its own.
+  node on the value it returns: the operation and its parameters as plain
+  data. Its one reader is `cloudArea`, which reads the `within` a cloud
+  was bounded by. The node does not hold the input values: that would
+  keep every state of a loop written by hand (`m = t.relax(m)`) alive.
+  The node is never a public word, and a write makes a new value with no
+  node of its own.
   The methods that make rows from rows link them the same way: `split`
   and `replace` (the edge they cut), `planarize` (a piece's input edge, a
   crossing's input edges), `resample` and `along` (the edge under the

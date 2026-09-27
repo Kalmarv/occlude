@@ -1,3 +1,5 @@
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { circle, curve, material, rect, type Edge, type Vertex } from '../src/index.js';
 import { inSpace, mapPositions, withFaces } from '../src/material.js';
@@ -7,6 +9,10 @@ import { spaceOf } from '../src/space.js';
 import type { Selection } from '../src/selection.js';
 import { toolkit } from './helpers/run.js';
 import { onEdge, square } from './helpers/shapes.js';
+
+// The collector, for the retention contract.
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc') as () => void;
 
 // `source` is typed by the view; a test reads it as what it is.
 const edgeOf = (v: object): Edge | undefined => (v as { source?: unknown }).source as Edge | undefined;
@@ -169,8 +175,6 @@ describe('a run keeps what its start answered and one step of what it made', () 
   });
 
   it('a long run of splits does not hold the states it passed through', async () => {
-    const gc = (globalThis as { gc?: () => void }).gc;
-    if (gc === undefined) return;
     const t = toolkit({ aspect: [1, 1] });
     let early: WeakRef<object> | undefined;
     t.steps(40, square(0, 0, 40), (g) => {
@@ -181,6 +185,7 @@ describe('a run keeps what its start answered and one step of what it made', () 
     gc();
     await new Promise((r) => setTimeout(r, 10));
     gc();
-    expect(early?.deref()).toBeUndefined();
+    expect(early).toBeDefined();
+    expect(early!.deref()).toBeUndefined();
   });
 });

@@ -1,38 +1,33 @@
 /**
  * @internal Derivations: what a derived value keeps of how it was made.
  *
- * A derivation is a word whose result keeps its inputs and its rule, and
- * answers the correspondence from its rows back to the input's rows as
- * ordinary row words (`p.source`, `p.u`). Nothing here is a public word:
- * a sketch reads `source` and `u` on a row and never sees a record, an id
- * or a link (ruling 2: ids are internal; a value you hold is the name).
+ * A derivation is a word whose result keeps its rule, and answers the
+ * correspondence from its rows back to the input's rows as ordinary row
+ * words (`p.source`, `p.u`). Nothing here is a public word: a sketch reads
+ * `source` and `u` on a row and never sees a record, an id or a link
+ * (ruling 2: ids are internal; a value you hold is the name).
  *
  * Two records, kept apart because they live on different things.
  *
  * 1. The NODE — on the value a derivation returned, and only on it:
  *
- *      { op, inputs, params, seeded, kept }
+ *      { op, params }
  *
- *    - `op`      the word as the toolkit spells it: 't.sample', 't.isolines'.
- *    - `inputs`  the input values in call order, by reference: a shape, a
- *                geometry, a selection, a field (a closure), bare points.
+ *    - `op`      the word as the toolkit spells it: 't.sample', 't.relax'.
  *    - `params`  the call's own parameters, as plain data: numbers, strings,
  *                booleans, lengths, and lists and records of them (an area
- *                option is recorded as the loops it was lowered to). With
- *                the inputs and the frame they fix the result.
- *    - `seeded`  the call drew from the run's stream.
- *    - `kept`    what the rule worked out and the result holds on to (the
- *                levels `t.isolines` traced for `{ count }`); it is an
- *                answer, never part of a key.
+ *                option is recorded as the loops it was lowered to).
  *
- *    The one reader of a node in the library is `cloudArea` (api.ts), which
- *    reads `op` and `params.within` so the next point word defaults to the
- *    area a cloud was bounded by. `inputs`, `seeded` and `kept` are read
- *    by tests only; `inputs` holds every input by reference, so a loop of
- *    derivations written by hand (`m = t.relax(m)` again and again) keeps
- *    every state it passed through (kept by the owner's ruling, not by a
- *    reader). A value that is one of its own inputs (a word that handed
- *    its input back) gets no node.
+ *    The one reader of a node is `cloudArea` (api.ts): it reads `op` and
+ *    `params.within`, so the next point word defaults to the area a cloud
+ *    was bounded by. That is all a node keeps. It does not keep the call's
+ *    inputs: a node that held its inputs would hold the value it was made
+ *    from, and that value its own, so a loop written by hand (`m =
+ *    t.relax(m)` again and again) would keep every state it passed through
+ *    alive for a record nothing reads. What a row came from is the links'
+ *    job (2.), row by row. A value that is one of the call's inputs (a word
+ *    that handed its input back) gets no node: `record` reads the inputs
+ *    once, for that, and lets them go.
  *
  *    A write (`set`, `move`, `add`, …) is a derivation of its own and does
  *    not inherit the node: the node says how THIS value was made.
@@ -96,10 +91,14 @@ import { at64 } from './column.js';
 /** @internal How a derived value was made: see the file header. */
 export interface Derivation {
   readonly op: string;
-  readonly inputs: readonly unknown[];
   readonly params: Readonly<Record<string, unknown>>;
-  readonly seeded: boolean;
-  readonly kept: Readonly<Record<string, unknown>>;
+}
+
+/** @internal A derivation on its way to the value it made: the node, and
+ * the call's inputs, which `record` reads once and does not keep. */
+export interface Made {
+  readonly node: Derivation;
+  readonly inputs: readonly unknown[];
 }
 
 /**
@@ -117,34 +116,25 @@ const boxOf = (v: object): LinkBox | undefined => (v as { readonly cache?: LinkB
 
 const NODES = new WeakMap<object, Derivation>();
 
-/** @internal A node record. `params` drops the keys whose value is
- * undefined, so an option left out and one given as undefined are one key. */
-export function derivation(
-  op: string,
-  inputs: readonly unknown[],
-  params: Readonly<Record<string, unknown>> = {},
-  more: { seeded?: boolean; kept?: Readonly<Record<string, unknown>> } = {},
-): Derivation {
+/** @internal A derivation of `op` from `inputs` with `params`. `params`
+ * drops the keys whose value is undefined, so an option left out and one
+ * given as undefined are one record. */
+export function derivation(op: string, inputs: readonly unknown[], params: Readonly<Record<string, unknown>> = {}): Made {
   const own: Record<string, unknown> = {};
   for (const k of Object.keys(params)) if (params[k] !== undefined) own[k] = params[k];
-  return Object.freeze({
-    op,
-    inputs: Object.freeze([...inputs]),
-    params: Object.freeze(own),
-    seeded: more.seeded ?? false,
-    kept: Object.freeze({ ...(more.kept ?? {}) }),
-  });
+  return { node: Object.freeze({ op, params: Object.freeze(own) }), inputs };
 }
 
-/** @internal Put `node` on the value a derivation returned, and hand the
- * value back. A value that is one of the node's own inputs — a word that
- * returned what it was given — keeps what it had: it was not made here. */
-export function record<T>(value: T, node: Derivation): T {
+/** @internal Put the node of `made` on the value the derivation returned,
+ * and hand the value back. A value that is one of the call's own inputs —
+ * a word that returned what it was given — keeps what it had: it was not
+ * made here. */
+export function record<T>(value: T, made: Made): T {
   if (typeof value !== 'object' || value === null) return value;
-  if (node.inputs.includes(value)) return value;
+  if (made.inputs.includes(value)) return value;
   const box = boxOf(value);
-  if (box !== undefined) box.node = node;
-  else NODES.set(value, node);
+  if (box !== undefined) box.node = made.node;
+  else NODES.set(value, made.node);
   return value;
 }
 

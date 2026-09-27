@@ -1734,7 +1734,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const within = withinLoops(area ?? raw.within, 'scatter');
     const opts: ScatterOpts = within === undefined ? raw : { ...raw, within };
     return record(spaced(scatterPoints(pointsEnv(), field, opts)),
-      derivation('t.scatter', [field ?? area], { spacing: raw.spacing, within }, { seeded: true }));
+      derivation('t.scatter', [field ?? area], { spacing: raw.spacing, within }));
   }
 
   /** Independent uniform random points, `count` of them: `t.throw({ count })`
@@ -1752,7 +1752,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const within = withinLoops(area ?? raw.within, 'throw');
     const opts: ThrowOpts = within === undefined ? raw : { ...raw, within };
     return record(spaced(throwPoints(pointsEnv('__throw'), field, opts)),
-      derivation('t.throw', [field ?? area], { count: raw.count, attempts: raw.attempts, within }, { seeded: true }));
+      derivation('t.throw', [field ?? area], { count: raw.count, attempts: raw.attempts, within }));
   }
 
   /** Lloyd relaxation: each point to the density-weighted centroid of its
@@ -1776,7 +1776,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const within = withinLoops(opts?.within, 'settle') ?? area;
     const o: SettleOpts = within === undefined ? opts : { ...opts, within };
     return record(spaced(settleMaterial(pointsEnv(), m, o, origin)),
-      derivation('t.settle', [points, opts?.density, opts?.point], { spacing: opts?.spacing, iterations: opts?.iterations, step: opts?.step, within }, { seeded: true }));
+      derivation('t.settle', [points, opts?.density, opts?.point], { spacing: opts?.spacing, iterations: opts?.iterations, step: opts?.step, within }));
   }
 
   /** The subdivision of the drawable that puts detail where the points are:
@@ -2163,11 +2163,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const b = exec.bounds();
     const env = { bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
     const set = levelLines(env, field, at, opts, boundDomain(field, env.bounds));
-    // The value keeps its field and the levels it traced: a `{ count }` or
-    // a `{ spacing }` is resolved against the field's own range, so the
-    // levels are an answer of the rule, kept beside what was asked.
-    return record(spaced(levelSetMaterial(set)),
-      derivation('t.isolines', [field], { at, step: opts.step }, { kept: { levels: Object.freeze(set.groups.map((g) => g.level)) } }));
+    // A `{ count }` or a `{ spacing }` is resolved against the field's own
+    // range: the levels it traced are each edge's `level`.
+    return record(spaced(levelSetMaterial(set)), derivation('t.isolines', [field], { at, step: opts.step }));
   }
 
   /** Where a bound field can exist: the box its `within` bounds share with
@@ -2452,13 +2450,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       return record(spaced(out),derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing }));
     }
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
-    const node = derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing, tolerance: opts.tolerance });
+    const made = derivation('t.sample', [shape], { count: opts.count, spacing: opts.spacing, tolerance: opts.tolerance });
     const frame = exec.frame;
     const unit = unitMm(frame);
     const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
     // A spacing that resolves to nothing, or a count with fewer than two
     // samples in it, samples nothing: an empty material, not a failed sketch.
-    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return record(spaced(materialOf([])), node);
+    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return record(spaced(materialOf([])), made);
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
     // Per sample, the rule's parameter and, for geometry, the edge under it.
@@ -2502,7 +2500,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       params: { u: Float64Array.from(u) },
       source: under ? { of: under.of, domain: 'edges', rows: Int32Array.from(source) } : undefined,
     } });
-    return record(out, node);
+    return record(out, made);
   }
 
   /**
