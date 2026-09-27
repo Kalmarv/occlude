@@ -26,7 +26,7 @@
 import type {Material,Vertex} from '../../material.js';
 import {selectionIn,select,type Selection} from '../../selection.js';
 import {inSpace3} from '../../material.js';
-import type {Face} from '../../faces.js';
+import type {Face,FaceSource} from '../../faces.js';
 import {carryLinks,type DomainSpec,type SourceSpec} from '../../derivation.js';
 import {isSpacePlacement,type Placement as Isometry} from '../../placement.js';
 import {Column} from '../../column.js';
@@ -93,9 +93,9 @@ function rowsByName(input:Input3):Map<string,{domain:Domain;row:number}> {
 }
 /** Rows of one domain of an input, as a sketch reads them: one row, or a
  * selection of several. */
-function rowsOf(input:Input3,domain:Domain,rows:readonly number[]):unknown {
-  const all=(input as unknown as Record<Domain,Selection<unknown>>)[domain];
-  return rows.length===1?all.at(rows[0]):select(all.domain,rows);
+function rowsOf(input:Input3,domain:Domain,rows:readonly number[]) {
+  const one=<R>(all:Selection<R>):R|Selection<R>=>rows.length===1?all.at(rows[0]):select(all.domain,rows);
+  return domain==='points'?one(input.points):domain==='edges'?one(input.edges):domain==='faces'?one(input.faces):one(input.corners);
 }
 /** Where one row came from: per input it read, the rows of one domain. */
 interface Found {readonly input:number;readonly domain:Domain;readonly rows:number[]}
@@ -123,7 +123,7 @@ function foundOf(operation:string,inputs:readonly Input3[],id:string,provenance:
 }
 /** One answer: a row, a selection of one domain of one input, or a list
  * with one of those per input. */
-function answerOf(inputs:readonly Input3[],groups:readonly Found[]):unknown {
+function answerOf(inputs:readonly Input3[],groups:readonly Found[]) {
   if(groups.length===0)return undefined;
   const one=(g:Found)=>rowsOf(inputs[g.input],g.domain,g.rows);
   return groups.length===1?one(groups[0]):Object.freeze(groups.map(one));
@@ -161,8 +161,8 @@ export function sourceOf3(operation:string,surface:Surface3,inputs:readonly Inpu
   const spec=(rows:readonly (readonly Found[])[]):DomainSpec|undefined=>specOf(inputs,rows)??(rows.some(g=>g.length>0)?{source:{read:(i:number)=>answerOf(inputs,rows[i])}}:undefined);
   const points=spec(found(surface.points)),edges=spec(found(surface.edges));
   // A face answers what its record says, read the first time it is asked.
-  const faceMemo=new Map<number,unknown>();
-  const faces=(f:number):unknown=>{
+  const faceMemo=new Map<number,FaceSource>();
+  const faces=(f:number):FaceSource=>{
     if(!faceMemo.has(f)){const row=surface.faces[f];faceMemo.set(f,answerOf(inputs,foundOf(operation,inputs,row.id,row.provenance)));}
     return faceMemo.get(f);
   };

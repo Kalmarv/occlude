@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { append, connect, curve, material, polygon, type Material } from '../src/index.js';
+import { append, connect, curve, material, polygon, type EventCandidate, type Material } from '../src/index.js';
 import { planarize } from '../src/faces.js';
 import { seg, square } from './helpers/shapes.js';
 
@@ -83,12 +83,18 @@ describe('planarize', () => {
     const b = seg([0, 10], [10, 0]).points.set('age', 8);
     const cross = append(a, b).edges.set('rest', 3);
     expect(cross.planarize().attrs.age[4]).toBe(0); // edge 0 is first: its value at the crossing
-    const seen: number[][] = [];
+    const seen: EventCandidate[][] = [];
     const p = cross.planarize({
-      point: (ev) => { seen.push(ev.candidates.map((c) => c.edge!)); return { age: 1 }; },
+      point: (ev) => { seen.push(ev.candidates); return { age: 1 }; },
       edges: (parent, child) => ({ rest: parent.rest * child.fraction }),
     });
-    expect(seen).toEqual([[0, 1]]);
+    // One crossing, read along both edges in row order: each candidate
+    // names its edge and reads its columns flat.
+    expect(seen).toHaveLength(1);
+    expect(seen[0].map((c) => c.edge)).toEqual([cross.edges.at(0), cross.edges.at(1)]);
+    expect(seen[0][0].edge).toBe(cross.edges.at(0));
+    expect(seen[0].map((c) => [c.t, c.age])).toEqual([[0.5, 0], [0.5, 8]]);
+    expect(seen[0].every((c) => c.vertex === undefined && !('attrs' in c))).toBe(true);
     expect(p.attrs.age[4]).toBe(1);
     expect(Array.from(p.edgeAttrs.rest)).toEqual([1.5, 1.5, 1.5, 1.5]);
     expect(() => cross.planarize({ point: () => ({ nope: 1 }) })).toThrow(/no attribute 'nope'/);
@@ -99,6 +105,17 @@ describe('planarize', () => {
     expect(pc.attrs.kind[4]).toBe(1);
     expect(Array.from(pc.edgeAttrs.w)).toEqual([5, 5, 5, 5, 10]);
     expect(pc.transfers.kind).toBe('nearest');
+  });
+
+  it('a candidate\'s own words are reserved where a resolver reads candidates, and nowhere else', () => {
+    const cross = (name: string) => append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0])).points.set(name, 1);
+    for (const word of ['vertex', 'edge', 't']) {
+      expect(() => cross(word).planarize({ point: () => ({}) })).toThrow(new RegExp(`planarize: the point column '${word}' has the name of a word of an event candidate`));
+      // No resolver, no candidate: the column is only a column.
+      expect(cross(word).planarize().points.at(4)[word]).toBe(1);
+    }
+    // Refused whatever the geometry: a network with no event refuses too.
+    expect(() => seg([0, 0], [1, 0]).points.set('t', 0).planarize({ point: () => ({}) })).toThrow(/the point column 't'/);
   });
 
   it('is idempotent on its output and deterministic', () => {
@@ -290,10 +307,14 @@ describe('review of 3df7b04', () => {
     const stem = seg([5, 0], [5, 5]).points.set('age', 9);
     const t = append(bar, stem);
     expect(t.planarize().attrs.age[2]).toBe(9); // the stem's end is a vertex that survives: it keeps its own value
-    const seen: unknown[] = [];
+    const seen: EventCandidate[][] = [];
     const p = t.planarize({ point: (ev) => { seen.push(ev.candidates); return { age: 4 }; } });
     expect(seen).toHaveLength(1);
-    expect((seen[0] as { vertex?: number }[])[0].vertex).toBe(2);
+    // The stem's end first, as the vertex it is, then the bar read at it.
+    expect(seen[0][0].vertex).toBe(t.points.at(2));
+    expect(seen[0][0].age).toBe(9);
+    expect(seen[0][1].edge).toBe(t.edges.at(0));
+    expect(seen[0][1].age).toBe(0);
     expect(p.attrs.age[2]).toBe(4);
     // agreeing candidates need no resolver
     const agree = append(seg([0, 0], [10, 0]).points.set('age', 0), seg([5, 0], [5, 5]).points.set('age', 0));

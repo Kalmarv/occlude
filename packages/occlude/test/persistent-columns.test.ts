@@ -137,7 +137,7 @@ describe('a row view is one object per row of a state', () => {
     for (const site of sites.points) {
       const f = cells.faces.find((g) => g.source === site);
       expect(f, `site ${site.index}`).toBeDefined();
-      expect(f!.source.index).toBe(site.index);
+      expect(f!.source).toBe(site);
     }
   });
 

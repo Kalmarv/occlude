@@ -40,9 +40,9 @@ const RECEIVER: Record<string, string> = {
 };
 /** Reference page per type name; a link is emitted only when the page exists. */
 const PAGE: Record<string, string> = {
-  Material: 'material', Curve: 'material',
+  Material: 'material', Curve: 'material', RowSource: 'material',
   Vertex: 'selections', Edge: 'selections', Selection: 'selections', NearestHit: 'selections', FirstHit: 'selections',
-  Face: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
+  Face: 'faces', FaceSource: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
   PointValue: 'steps', EdgeValue: 'steps', GraphForce: 'steps', ReplaceOpts: 'steps',
   Lattice: 'steps', LatticeFace: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',

@@ -147,7 +147,9 @@ import { sketch, circle, strokes, add, polar, point } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const start = t.sample(circle([50, 50], 10), { count: 12 });
   const web = (g) => {
-    const fresh = point(add(t.pick(g.points), polar(5, t.rnd(2 * Math.PI))));
+    const from = t.pick(g.points);
+    if (!from) return g;
+    const fresh = point(add(from, polar(5, t.rnd(2 * Math.PI))));
     return g.points.add(fresh).edges.add([fresh, g.points.near(fresh, { radius: 10 }).at(0)]);
   };
   return strokes(t.steps(500, start, web));
@@ -566,7 +568,9 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const start = t.sample(circle([50, 50], 10), { count: 12 });
 
   const web = (g) => {
-    const q = point(add(pick(g.points), polar(5, rnd(2 * Math.PI))));
+    const from = pick(g.points);
+    if (!from) return g;
+    const q = point(add(from, polar(5, rnd(2 * Math.PI))));
     return g.points.add(q).edges.add(g.points.near(q, { radius: 10 }).slice(0, 2).map((p) => [q, p]));
   };
 

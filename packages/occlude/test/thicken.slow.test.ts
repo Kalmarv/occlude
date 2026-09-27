@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  distanceTo, material, curve, polygon, rect, strokes, sketch, append, type Material, type Vertex,
+  distanceTo, material, curve, polygon, rect, strokes, sketch, append, type EventCandidate, type Material, type Vertex,
 } from '../src/index.js';
 import { compileSketch } from '../src/host.js';
 import { numericLoops } from '../src/boundary.js';
@@ -382,7 +382,7 @@ describe('thicken: material and callback contract', () => {
     const body = tree.thicken({
       radius: (p) => p.radius,
       point: ({ candidates }) => ({
-        age: Math.max(...candidates.map((c) => c.attrs.age)),
+        age: Math.max(...candidates.map((c) => c.age)),
         support: candidates.length,
       }),
     });
@@ -398,17 +398,27 @@ describe('thicken: material and callback contract', () => {
 
   it('candidate order is deterministic: vertices by row, then edges by row and t', () => {
     const taper = edgeMaterial([0, 0], [10, 0], 3, 0);
-    const seen: { vertex?: number; edge?: number; t?: number }[] = [];
+    const seen: EventCandidate[] = [];
     taper.thicken({
       radius: radiusOf,
       point: (ev) => {
-        for (const c of ev.candidates) seen.push({ vertex: c.vertex, edge: c.edge, t: c.t });
+        seen.push(...ev.candidates);
         return {};
       },
     });
-    for (const ev of seen) {
-      if (ev.vertex === undefined) { expect(ev.edge).toBe(0); expect(ev.t).toBeGreaterThan(0); expect(ev.t!).toBeLessThan(1); }
-      else expect(ev.edge).toBeUndefined();
+    for (const c of seen) {
+      if (c.vertex === undefined) { expect(c.edge).toBe(taper.edges.at(0)); expect(c.t).toBeGreaterThan(0); expect(c.t!).toBeLessThan(1); }
+      else { expect(taper.points.has(c.vertex)).toBe(true); expect(c.edge).toBeUndefined(); expect(c.t).toBeUndefined(); }
+      expect(Number.isFinite(c.radius)).toBe(true);
+    }
+  });
+
+  it('a candidate\'s own words are reserved where a point resolver reads candidates', () => {
+    for (const word of ['vertex', 'edge', 't']) {
+      const named = tree.points.set(word, 1);
+      expect(() => named.thicken({ radius: 1, point: () => ({}) })).toThrow(new RegExp(`thicken: the point column '${word}' has the name of a word of an event candidate`));
+      // No resolver reads a candidate: the column is only a column.
+      expect(named.thicken({ radius: 1 }).n).toBeGreaterThan(0);
     }
   });
 
@@ -510,8 +520,8 @@ describe('thicken: regressions', () => {
         events.push({
           x: ev.position[0],
           y: ev.position[1],
-          cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex}` : `e${c.edge}@${c.t}`)),
-          xrefs: ev.candidates.map((c) => c.attrs.xref),
+          cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex.index}` : `e${c.edge!.index}@${c.t}`)),
+          xrefs: ev.candidates.map((c) => c.xref),
         });
         return {};
       },
@@ -531,7 +541,7 @@ describe('thicken: regressions', () => {
     material([[0, 0], [1, 0]], { radius: [2, 1] }).thicken({
       radius: radiusOf,
       point: (ev) => {
-        events.push({ x: ev.position[0], y: ev.position[1], cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex}` : `e${c.edge}`)) });
+        events.push({ x: ev.position[0], y: ev.position[1], cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex.index}` : `e${c.edge!.index}`)) });
         return {};
       },
     });

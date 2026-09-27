@@ -1,6 +1,6 @@
 /**
- * One Selection over every domain (selection.ts): one class, one
- * implementation of the shared words, the words a domain lacks refused by
+ * One Selection over every domain (selection.ts): the shared words
+ * answered the same way everywhere, the words a domain lacks refused by
  * name, rows held in an order, `near` nearest first, `union` n-ary, the
  * reductions, and `edges.nearest` / `edges.firstHit` answering what
  * `query.edges` answered.
@@ -37,12 +37,31 @@ describe('one class over every domain', () => {
     instances: instanceOnPoints(plane(), pointCloud([[0, 0, 0]]).points).points,
   };
 
-  it('is one runtime class, with one implementation of the shared words', () => {
-    for (const [name, sel] of Object.entries(all)) {
-      expect(sel instanceof Selection, name).toBe(true);
-      for (const word of ['filter', 'map', 'union', 'without', 'groupBy', 'adjacent', 'near', 'sum', 'mean'] as const) {
-        expect((sel as unknown as Record<string, unknown>)[word], `${name}.${word}`).toBe((Selection.prototype as unknown as Record<string, unknown>)[word]);
-      }
+  it('answers the shared words the same way on every domain', () => {
+    // A place of each domain's own world; faces and corners have no near
+    // (refused by name below).
+    const places: Record<string, [number, number] | [number, number, number] | undefined> = {
+      points: [0, 0], edges: [0, 0], faces: undefined, 'lattice faces': [0, 0],
+      'mesh points': [0, 0, 0], 'mesh edges': [0, 0, 0], 'mesh faces': undefined, 'mesh corners': undefined,
+      'cloud points': [0, 0, 0], 'curve edges': [0, 0, 0], instances: [0, 0, 0],
+    };
+    for (const [name, rows] of Object.entries(all)) {
+      // Every domain's selection is a selection of rows: one set of words.
+      const sel: Selection<object> = rows;
+      const n = sel.length;
+      expect(n, name).toBeGreaterThan(0);
+      expect(sel.filter(() => true).length, `${name}.filter`).toBe(n);
+      expect(sel.filter(() => false).length, `${name}.filter`).toBe(0);
+      expect(sel.map((_, i) => i), `${name}.map`).toEqual([...Array(n).keys()]);
+      expect(sel.union(sel).length, `${name}.union`).toBe(n);
+      expect(sel.without(sel).length, `${name}.without`).toBe(0);
+      expect(sel.groupBy(() => 'all').map((g) => g.length), `${name}.groupBy`).toEqual([n]);
+      expect(sel.sum(() => 1), `${name}.sum`).toBe(n);
+      expect(sel.mean(() => 2), `${name}.mean`).toBe(2);
+      // The whole collection has nothing beside it: members are excluded.
+      if (name !== 'mesh corners') expect(sel.adjacent().length, `${name}.adjacent`).toBe(0);
+      const place = places[name];
+      if (place) expect(sel.near(place, { radius: Infinity }).length, `${name}.near`).toBe(n);
     }
   });
 

@@ -5,6 +5,7 @@ import { material, type Face } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
 import { quadtree } from '../src/quadtree.js';
 import { toolkit } from './helpers/run.js';
+import { sourceSelection } from './helpers/source.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -68,7 +69,7 @@ describe('quadtree', () => {
     const leaves = faces.filter((f) => f.leaf);
     expect(leaves.sum('area')).toBeCloseTo(64 * 64, 6);
     for (const p of pts.points) {
-      const holding = leaves.filter((f) => inside(f, p.x, p.y) && f.source.has(p));
+      const holding = leaves.filter((f) => inside(f, p.x, p.y) && sourceSelection(pts.points, f).has(p));
       expect(holding.length).toBe(1);
     }
   });
@@ -77,20 +78,22 @@ describe('quadtree', () => {
     const pts = cloud(80, 5).points.set('tag', (p) => p.index);
     const tree = quadtree(pts, B, { capacity: 6 });
     const root = tree.faces.at(0);
-    expect(root.source.length).toBe(80);
-    expect(root.source.owner).toBe(pts);
+    const held = (f: Face) => sourceSelection(pts.points, f);
+    expect(held(root).length).toBe(80);
+    expect(held(root).owner).toBe(pts);
     for (const f of tree.faces) {
       // No more than the allowance in a leaf; the parent holds the union of its children.
-      if (f.leaf) expect(f.source.length).toBeLessThanOrEqual(6);
-      else expect(f.children.sum((c) => c.source.length)).toBe(f.source.length);
-      for (const p of f.source) expect(inside(f, p.x, p.y)).toBe(true);
+      if (f.leaf) expect(held(f).length).toBeLessThanOrEqual(6);
+      else expect(f.children.sum((c) => held(c).length)).toBe(held(f).length);
+      for (const p of held(f)) expect(inside(f, p.x, p.y)).toBe(true);
     }
     // A point selection is the input: its own material's rows, only its members.
     const some = pts.points.filter((p) => p.x < 32);
     const half = quadtree(some, B, { capacity: 6 });
-    expect(half.faces.at(0).source.length).toBe(some.length);
-    expect(half.faces.at(0).source.every((p: { x: number }) => p.x < 32)).toBe(true);
-    expect(half.faces.at(0).source.at(0).tag).toBe(some.at(0).tag);
+    const halfRoot = sourceSelection(some, half.faces.at(0));
+    expect(halfRoot.length).toBe(some.length);
+    expect(halfRoot.every((p) => p.x < 32)).toBe(true);
+    expect(halfRoot.at(0).tag).toBe(some.at(0).tag);
   });
 
   it('a move keeps the cells and their nesting; an edge write reads the leaves off the picture', () => {
@@ -155,7 +158,7 @@ describe('quadtree', () => {
     // Points outside the rectangle take no part in its subdivision.
     const outside = material([[-40, -40], [200, 200], [-5, 32]]);
     expect(quadtree(outside, B, { capacity: 1 }).edgeCount).toBe(4);
-    expect(quadtree(outside, B, { capacity: 1 }).faces.at(0).source.length).toBe(0);
+    expect(sourceSelection(outside.points, quadtree(outside, B, { capacity: 1 }).faces.at(0)).length).toBe(0);
     expect(quadtree(material([]), B, {}).edgeCount).toBe(4);
     expect(() => quadtree(pts, B, { capacity: 0 })).toThrow(/at least 1/);
     expect(() => quadtree(pts, B, { capacity: 1.5 })).toThrow(/whole number/);
@@ -174,7 +177,7 @@ describe('quadtree', () => {
     for (let k = 0; k < 64; k++) discArea += disc[k][0] * disc[(k + 1) % 64][1] - disc[(k + 1) % 64][0] * disc[k][1];
     expect(leaves.sum('area')).toBeCloseTo(Math.abs(discArea) / 2, 6);
     expect(tree.faces.at(0).area).toBeCloseTo(Math.abs(discArea) / 2, 6);
-    for (const p of tree.faces.at(0).source) expect(Math.hypot(p.x - 50, p.y - 50)).toBeLessThan(30.01);
-    for (const f of leaves) expect(f.source.length).toBeLessThanOrEqual(5);
+    for (const p of sourceSelection(pts.points, tree.faces.at(0))) expect(Math.hypot(p.x - 50, p.y - 50)).toBeLessThan(30.01);
+    for (const f of leaves) expect(sourceSelection(pts.points, f).length).toBeLessThanOrEqual(5);
   });
 });

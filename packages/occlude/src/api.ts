@@ -28,11 +28,10 @@ import {streamlinesInSpace,seedsInSpace,type Streamlines3Options} from './three/
 import type {VectorField3} from './three/api/vec.js';
 import {SurfaceCurves} from './three/api/supported.js';
 import {sampleSurfaceCurves,type CurveSamplingOptions} from './three/api/curveSampling.js';
-import {ProjectedCurves,type ProjectedCurve,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
+import {isProjectedCurves,withinLines,type ProjectedCurve,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
-import { toPaper3, type Camera3 } from './three/camera.js';
-import { lerp3 } from './three/math.js';
+import type { Camera3 } from './three/camera.js';
 import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3, inFrame3 } from './three/resolve.js';
 import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
@@ -389,13 +388,13 @@ type ShapeIsNotChains = typeof STROKES_OF_A_SHAPE;
  * A decision per curve (a pen by key, a width by chain) stays a `.map`:
  * nothing here assigns pens from keys.
  */
-export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
+export function strokes(source:Selection<ProjectedCurve>,opts?:ProjectedStrokeOptions):ProjectedStrokes;
 export function strokes<S extends Geometry | Curve | readonly (IsoContour | Curve)[] | ShapeValue>(source: S extends ShapeValue ? ShapeIsNotChains : S, opts?: ShapeOpts): ShapeValue[];
 export function strokes(
-  source: Geometry | Curve | readonly (IsoContour | Curve)[] | ProjectedCurves | ShapeValue,
+  source: Geometry | Curve | readonly (IsoContour | Curve)[] | Selection<ProjectedCurve> | ShapeValue,
   opts?: ShapeOpts | ProjectedStrokeOptions,
 ): ShapeValue[] | ProjectedStrokes {
-  if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
+  if(isProjectedCurves(source))return projectedStrokes(source,opts);
   if (Array.isArray(source)) return (source as readonly (IsoContour | Curve)[]).map((c) => stroke(c, opts));
   // A shape is not geometry until the toolkit lowers it, so it has no
   // chains yet; it is refused by name before any other reading.
@@ -868,21 +867,21 @@ export interface WithinKeep {
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: Area): Prepared<F>;
   (material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
+  (lines: Selection<ProjectedCurve>, area: Area): Selection<ProjectedCurve>;
   <R extends Vertex | Edge | Face>(selection: Selection<R>, area: Area, opts?: WithinKeep): Selection<R>;
-  (lines: ProjectedCurves, area: Area): ProjectedCurves;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: Area): Prepared<F>;
 export function withinAny(run: Execution, material: Material, area: Area, opts?: { transfer?: Record<string, Transfer> }): Material;
+export function withinAny(run: Execution, lines: Selection<ProjectedCurve>, area: Area): Selection<ProjectedCurve>;
 export function withinAny<R extends Vertex | Edge | Face>(run: Execution, selection: Selection<R>, area: Area, opts?: WithinKeep): Selection<R>;
-export function withinAny(run: Execution, lines: ProjectedCurves, area: Area): ProjectedCurves;
 
 export function withinAny(
   run: Execution,
-  x: FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | ProjectedCurves,
+  x: FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | Selection<ProjectedCurve>,
   area: Area,
   opts: { transfer?: Record<string, Transfer> } & WithinKeep = {},
-): FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | ProjectedCurves {
+): FieldFn | VectorFieldFn | LengthFn | Material | Selection<Vertex> | Selection<Edge> | Selection<Face> | Selection<ProjectedCurve> {
   // The one area door: a field is bounded by the area as one shape, which
   // the engine receives as exact geometry.
   if (typeof x === 'function') return withinField(x, areaAsShape(run, area, 'within'), boundEnv(run));
@@ -909,10 +908,10 @@ export function withinAny(
     if (opts.keep !== undefined) throw new Error("within: 'keep' is for a selection — a material is cut at the boundary");
     return withinMaterial(x, loops, { ...opts, inside, crossings: fill.crossings });
   }
-  if (x instanceof ProjectedCurves) {
-    if (opts.keep !== undefined) throw new Error("within: 'keep' is for a selection — projected lines are cut at the boundary");
+  if (isProjectedCurves(x)) {
+    if (opts.keep !== undefined) throw new Error("within: 'keep' is for points, edges and faces, each kept whole or not at all — projected lines are cut at the boundary");
     if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material's columns — a projected line keeps its source's");
-    return withinProjected(x, inside, fill.crossings, paperToUser(run.frame));
+    return withinLines(x, loops, { inside, crossings: fill.crossings }, paperToUser(run.frame));
   }
   if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — a selection's member is kept whole or not at all");
   const side = boundarySide(fill, INK_TOL / unitMm(run.frame));
@@ -1001,64 +1000,6 @@ export function withinAny(
     return true;
   };
   return faces.filter(keepFace);
-}
-
-/**
- * Projected lines cut by an area, as a material is: a line whose chord lies
- * inside is kept as it is, and a line that crosses the boundary is cut into
- * the pieces inside, each a line of the same source feature over part of
- * the old line's range. The source scene is kept, as `filter` keeps it, so
- * the ink of a kept piece is the ink of the same stretch uncut. Inside is
- * the material rule: the middle of a piece strictly inside the fill.
- *
- * A piece is found on the paper chord, and its range is read back through
- * the camera: under perspective a line's paper parameter is a projective
- * function of its source parameter, fixed by the ends and the middle.
- */
-function withinProjected(
-  lines: ProjectedCurves,
-  inside: (x: number, y: number) => number,
-  crossings: (ax: number, ay: number, bx: number, by: number) => { t: number }[],
-  toUser: (x: number, y: number) => [number, number],
-): ProjectedCurves {
-  const rows: ProjectedCurve[] = [];
-  for (const row of lines) {
-    const [ax, ay] = toUser(row.a[0], row.a[1]);
-    const [bx, by] = toUser(row.b[0], row.b[1]);
-    const marks = [0, ...crossings(ax, ay, bx, by).map((h) => h.t), 1];
-    const pieces: [number, number][] = [];
-    for (let k = 0; k + 1 < marks.length; k++) {
-      const mid = (marks[k] + marks[k + 1]) / 2;
-      if (inside(ax + (bx - ax) * mid, ay + (by - ay) * mid) > 0) pieces.push([marks[k], marks[k + 1]]);
-    }
-    if (pieces.length === 1 && pieces[0][0] === 0 && pieces[0][1] === 1) {
-      rows.push(row);
-      continue;
-    }
-    if (pieces.length === 0) continue;
-    // The chord parameter u of the source parameter's fraction s is
-    // u = k·s / (1 + (k − 1)·s), with k fixed by where the source middle lands.
-    const [r0, r1] = row.range;
-    const f = row.feature;
-    const m = toPaper3(lines.source.frame, lerp3(f.a, f.b, (r0 + r1) / 2));
-    const dx = row.b[0] - row.a[0];
-    const dy = row.b[1] - row.a[1];
-    const um = ((m[0] - row.a[0]) * dx + (m[1] - row.a[1]) * dy) / (dx * dx + dy * dy);
-    const k = um / (1 - um);
-    const source = (u: number): number => r0 + (r1 - r0) * (u === 0 || u === 1 || k === 1 ? u : u / (k - (k - 1) * u));
-    const paper = (u: number): readonly [number, number] => Object.freeze([row.a[0] + dx * u, row.a[1] + dy * u] as const);
-    const parent = JSON.parse(row.id) as unknown[];
-    pieces.forEach(([u0, u1], i) => {
-      rows.push(Object.freeze({
-        ...row,
-        id: JSON.stringify([...parent, i]),
-        range: Object.freeze([source(u0), source(u1)] as const),
-        a: u0 === 0 ? row.a : paper(u0),
-        b: u1 === 1 ? row.b : paper(u1),
-      }) as ProjectedCurve);
-    });
-  }
-  return new ProjectedCurves(lines.source, lines.visibility, rows, lines.key, toUser);
 }
 
 /**
@@ -2010,7 +1951,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * way the answer is a selection of a selection, a list of a list, in the
    * collection's own order.
    */
-  function pick<T>(items: Pickable<T>): T;
+  function pick<T>(items: Pickable<T>): T | undefined;
   function pick<S extends Selection<any>>(items: S, count: number): S;
   function pick<T>(items: readonly T[], count: number): T[];
   function pick<T>(items: Pickable<T>, count?: number): unknown {

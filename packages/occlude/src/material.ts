@@ -30,7 +30,7 @@ import { framePlacement, isPlacement, isSpacePlacement, spaceOfDoor, type Placem
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
 import { chainsOf, curvesOf, chainTangents, chainLengths, isCurveRow, type Curve } from './curves.js';
-import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
+import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type FaceSource, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -56,7 +56,7 @@ import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, type Corner } fro
 // The table writes and the recipes over them live in tables.ts; the
 // methods here are their doors. Every use is at call time, so the cycle
 // is safe, as it is for the kernels above.
-import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, addEdgeRows, storedValueOf, checkColumnName, checkNewColumnName, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
+import { extrude as extrudeRecipe, split as splitRecipe, move as moveRecipe, replace as replaceRecipe, restamp, rebuild, PointRows, EdgeRows, EdgeCells, addEdgeRows, storedValueOf, checkColumnName, checkNewColumnName, checkWrittenName, DERIVED_POINT_WORDS, type CellValue, type Displacement, type EdgeEnd, type PointEnd, type ReplaceOpts } from './tables.js';
 
 import { IDENTITY, apply as applyMat, mul as mulMat, rotate as rotateMat, scale as scaleMat, translate as translateMat } from './matrix.js';
 import type { TransformOp } from './execution.js';
@@ -170,6 +170,11 @@ export type Edge = {
    * none for an edge no face touches. Where faces nest, the leaves. Reading
    * it on a material that is not planar throws the same error as `faces`. */
   readonly faces: Selection<Face>;
+  /** Where this row of a derived value came from: the input edge it is a
+   * piece of (a split, a replace, a resample or a spline piece), or a
+   * selection when it came from many. Undefined for a row no derivation
+   * made. */
+  readonly source: RowSource;
   readonly [ROW_TYPES]?: EdgeTypes;
   /** The edge columns, read flat, as a vertex's are. */
 } & { readonly [column: string]: any };
@@ -257,51 +262,101 @@ export interface FaceColumn {
  *   `has` answers after a growth step, so it is written here rather than
  *   discovered later.
  *
- * Two counters, which never meet. A run mints from `RUN_BASE` up, and
- * starts there again every run, so the same sketch shows the same ids in a
- * warm studio worker as in a cold render. What is minted outside any run —
- * a value at module scope, made before the run or between two — counts up
- * from 1 and never starts over, so a module-scope value and a value the
- * run built never share an id by chance: the one is the other's lineage
- * only when one was made from the other. Each value is stamped with the
- * run whose ids it holds (`Material.epoch`; 0: none), and a value of one
- * run is no row of another (relation.ts `sameLineage`).
+ * Where the numbers come from. Every run owns its counter (`Execution`
+ * holds it; `beginIds` makes it), and each value is stamped with the run
+ * whose ids it holds (`Material.epoch`; 0: none) — a value made from
+ * another keeps its source's stamp. A value of one run is no row of
+ * another, whatever its numbers (relation.ts `sameLineage`).
+ *
+ * The numbers are cut into ranges of 2^40. The first is what is minted
+ * outside any run — a value at module scope, made before the run or
+ * between two: it counts up from 1 and never starts over, so a
+ * module-scope value and a value a run built never share an id by chance;
+ * the one is the other's lineage only when one was made from the other. A
+ * run takes the lowest range no open run holds and counts from its start.
+ * So a run alone always starts at the same number, and the same sketch
+ * shows the same ids in a warm studio worker as in a cold render; and two
+ * runs open at once — two async compiles, interleaved at their awaits —
+ * count in different ranges and never mint one number twice. (A run a host
+ * begins and never ends keeps its range.)
+ *
+ * A new id comes from the run minting now: a run mints from when it begins,
+ * and when it ends the latest run still open mints again, or none. A pure
+ * word (`curve(…)`, `material(…)`, `point(…)`) has no handle on its run,
+ * and JavaScript cannot tell whose code resumes after an `await` (the
+ * studio compiles in a browser worker: no async context there). So while
+ * two async compiles are open, a value one of them makes from nothing
+ * after an await counts in the range of the run that began last, and is
+ * stamped with it. Its numbers are still its own — nothing collides — but
+ * it is no row of its own run's earlier values, and the numbers of both
+ * runs depend on how they interleaved. A run alone is exact.
  */
 export type PointId = number & { readonly __pointId: unique symbol };
 export type EdgeId = number & { readonly __edgeId: unique symbol };
 
-/** Where a run's ids start: far above anything minted outside a run, and
- * far below where a float stops counting whole numbers. */
-const RUN_BASE = 2 ** 40;
-/** The counter outside any run. Never reset. */
-let outsideNext = 1;
-/** The run's counter. Reset at the start of every run. */
-let runNext = RUN_BASE + 1;
-/** The run minting now (1, 2, …), or 0 outside any run. */
-let epoch = 0;
-/** How many runs have begun: the next run's number. */
-let runs = 0;
+/** The size of one range of ids: far above anything one run mints. */
+const RANGE = 2 ** 40;
+/** How many ranges there are before a float stops counting whole numbers:
+ * 2^53 / 2^40. Range 0 is outside any run. */
+const RANGES = 2 ** 13;
 
-/** @internal A run begins: its identities start over, and values made from
- * now on belong to it. Returns the run's number. Called once per execution. */
-export function beginIds(): number {
-  runs++;
-  epoch = runs;
-  runNext = RUN_BASE + 1;
-  return epoch;
+/** @internal One run's identities: its number (0: outside any run), its
+ * range, and the next id it mints. */
+export interface RunIds {
+  readonly epoch: number;
+  readonly range: number;
+  next: number;
 }
 
-/** @internal A run ends: what is made after it is made outside any run. A
- * run that ended after another began changes nothing. */
-export function endIds(run: number): void {
-  if (epoch === run) epoch = 0;
+/** What is minted outside any run: range 0, never reset. */
+const outside: RunIds = { epoch: 0, range: 0, next: 1 };
+/** The runs begun and not yet ended, in the order they began. */
+const open: RunIds[] = [];
+/** The run a new id comes from now. */
+let minting: RunIds = outside;
+/** How many runs have begun: the last one's number. */
+let runs = 0;
+
+/** @internal A run begins: it takes the lowest free range, its ids start
+ * at the range's start, and values made from now on belong to it. Called
+ * once per execution. */
+export function beginIds(): RunIds {
+  let range = 1;
+  while (open.some((r) => r.range === range)) range++;
+  if (range >= RANGES) {
+    throw new Error(`Execution.begin: ${open.length} runs are open at once and every range of ids is taken — a host ends each run it begins (Execution.end)`);
+  }
+  const run: RunIds = { epoch: ++runs, range, next: range * RANGE + 1 };
+  open.push(run);
+  minting = run;
+  return run;
+}
+
+/** @internal A run ends: its range is free for the next run, and the
+ * latest run still open mints again (or none). Ending twice changes
+ * nothing. */
+export function endIds(run: RunIds): void {
+  const at = open.indexOf(run);
+  if (at >= 0) open.splice(at, 1);
+  if (minting === run) minting = open.at(-1) ?? outside;
+}
+
+/** @internal The run minting now (0: none): the stamp of a value made from
+ * nothing, or from a value of no run. */
+export function mintingEpoch(): number {
+  return minting.epoch;
 }
 
 /** @internal A fresh block of `count` ids, contiguous and never reused. */
 export function mintIds(count: number): Float64Array {
+  const run = minting;
+  const first = run.next;
+  // Past its range a run would mint the next range's numbers: refused,
+  // never wrapped. 2^40 ids is far more than any run makes.
+  if (first + count > (run.range + 1) * RANGE) throw new Error(`material: ${run.epoch === 0 ? 'outside any run' : 'this run'}, every id of the range is minted (2^40)`);
+  run.next = first + count;
   const out = new Float64Array(count);
-  if (epoch === 0) for (let i = 0; i < count; i++) out[i] = outsideNext++;
-  else for (let i = 0; i < count; i++) out[i] = runNext++;
+  for (let i = 0; i < count; i++) out[i] = first + i;
   return out;
 }
 
@@ -723,7 +778,8 @@ export class Material {
    * the one mutable part of a frozen material. */
   readonly cache: StateCache;
   /** @internal The run whose ids this value holds (0: none; see `mintIds`):
-   * a value made from another carries that one's. Non-enumerable. */
+   * a value made from another carries that one's, and a value made from a
+   * value of no run is the run's that minted its new ids. Non-enumerable. */
   declare readonly epoch: number;
   /** @internal The faces the word that made this material stated (a tiling,
    * a grid, Voronoi cells, a quadtree), kept while the edges are the ones
@@ -898,7 +954,9 @@ export class Material {
       }
     }
     this.cache = carry.area === undefined ? {} : { areaMake: carry.area };
-    Object.defineProperty(this, 'epoch', { value: carry.from?.epoch ?? epoch, enumerable: false });
+    // A value made in a run from a value of no run holds the run's new ids:
+    // it is the run's.
+    Object.defineProperty(this, 'epoch', { value: carry.from?.epoch || mintingEpoch(), enumerable: false });
     const givenPoints = ids?.points === undefined ? undefined : columnOf(ids.points);
     const givenEdges = ids?.edges === undefined ? undefined : columnOf(ids.edges);
     const givenRoots = ids?.edgeRoots === undefined ? undefined : columnOf(ids.edgeRoots);
@@ -1310,96 +1368,7 @@ export class Material {
    * shared out over the children by their share of the new arc length.
    */
   spline(opts: { tension?: number; steps?: number } = {}): Material {
-    const tension = opts.tension ?? 0.5;
-    if (!Number.isFinite(tension) || tension < 0 || tension > 1) {
-      throw new Error(`spline: { tension } must be a number from 0 to 1 (got ${String(opts.tension)})`);
-    }
-    const steps = opts.steps ?? 8;
-    if (!Number.isInteger(steps) || steps < 1) {
-      throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
-    }
-    const X = this.x;
-    const Y = this.y;
-    const L = this.edgeList;
-    const points = new PointRows(this, 'spline');
-    const edges = new EdgeRows(this);
-    const storedRow = new Map<number, number>();
-    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
-    const rowOf = new Map<number, number>();
-    // A source vertex, verbatim — not through the transfer policy, which
-    // says what a value does at a NEW vertex. A vertex two segments share is
-    // one row.
-    const rowFor = (v: number): number => {
-      const had = rowOf.get(v);
-      if (had !== undefined) return had;
-      const row = points.keep(v);
-      rowOf.set(v, row);
-      return row;
-    };
-    /** One source edge through as it is: same row, same lineage. */
-    const keep = (a: number, b: number, row: number) => edges.keep(row, rowFor(a), rowFor(b));
-    // Isolated vertices are not chains: they come through unchanged.
-    for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) rowFor(i);
-    for (const c of chainsOf(this)) {
-      // A loop that leaves a junction and comes back to it ends there twice,
-      // like any chain that ends at a junction: it is walked open.
-      const pinned = c.closed && this.adj[c.indices[0]].length > 2;
-      const idx = pinned ? [...c.indices, c.indices[0]] : c.indices;
-      const closed = c.closed && !pinned;
-      const k = idx.length;
-      const segs = closed ? k : k - 1;
-      const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s % k], idx[(s + 1) % k]))!;
-      // Two vertices describe a straight line and nothing else: no curve to
-      // draw, so the chain is the chain it was.
-      if (k < 3) {
-        for (let s = 0; s < segs; s++) keep(idx[s % k], idx[(s + 1) % k], rowOfSeg(s));
-        continue;
-      }
-      // The vertex before the segment and the one after it set the tangents.
-      // An open chain has none at its ends, so the end segment is its own
-      // neighbour and the curve leaves along it.
-      const at = (j: number): number => (closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
-      for (let s = 0; s < segs; s++) {
-        const row = rowOfSeg(s);
-        const p0 = at(s - 1);
-        const p1 = at(s);
-        const p2 = at(s + 1);
-        const p3 = at(s + 2);
-        const m0x = tension * (X[p2] - X[p0]);
-        const m0y = tension * (Y[p2] - Y[p0]);
-        const m1x = tension * (X[p3] - X[p1]);
-        const m1y = tension * (Y[p3] - Y[p1]);
-        const rows: number[] = [rowFor(p1)];
-        for (let i = 1; i < steps; i++) {
-          const u = i / steps;
-          const u2 = u * u;
-          const u3 = u2 * u;
-          const h00 = 2 * u3 - 3 * u2 + 1;
-          const h10 = u3 - 2 * u2 + u;
-          const h01 = -2 * u3 + 3 * u2;
-          const h11 = u3 - u2;
-          // A new vertex, its columns read between p1 and p2 at u.
-          rows.push(points.between(
-            p1, p2, u,
-            h00 * X[p1] + h10 * m0x + h01 * X[p2] + h11 * m1x,
-            h00 * Y[p1] + h10 * m0y + h01 * Y[p2] + h11 * m1y,
-          ));
-        }
-        rows.push(rowFor(p2));
-        // A 'distribute' column is shared over the children by their share
-        // of the arc the segment now takes, so the quantity the source edge
-        // carried is still what its children carry between them.
-        const spans: number[] = [];
-        let total = 0;
-        for (let i = 1; i < rows.length; i++) {
-          const d = Math.hypot(points.x[rows[i]] - points.x[rows[i - 1]], points.y[rows[i]] - points.y[rows[i - 1]]);
-          spans.push(d);
-          total += d;
-        }
-        for (let i = 1; i < rows.length; i++) edges.from(row, rows[i - 1], rows[i], total > 0 ? spans[i - 1] / total : 1 / spans.length);
-      }
-    }
-    return rebuild(this, { ...points.done(), ...edges.done() });
+    return splineMaterial(this, opts, null);
   }
 
   /**
@@ -2267,6 +2236,122 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
 /** The share list of an edge when no column distributes. */
 const NO_PARTS: number[] = [];
 
+/** @internal `m.spline(opts)`; see the method. Every source vertex is kept,
+ * row and all; a vertex it places between two of them answers `source`, the
+ * input edge it bends over, and so does every new edge. `origin` names the
+ * value the sketch passed, as for `resampleMaterial`. */
+export function splineMaterial(self: Material, opts: { tension?: number; steps?: number }, origin: InputRows | null): Material {
+  const tension = opts.tension ?? 0.5;
+  if (!Number.isFinite(tension) || tension < 0 || tension > 1) {
+    throw new Error(`spline: { tension } must be a number from 0 to 1 (got ${String(opts.tension)})`);
+  }
+  const steps = opts.steps ?? 8;
+  if (!Number.isInteger(steps) || steps < 1) {
+    throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
+  }
+  const X = self.x;
+  const Y = self.y;
+  const L = self.edgeList;
+  const points = new PointRows(self, 'spline');
+  const edges = new EdgeRows(self);
+  const storedRow = new Map<number, number>();
+  for (let e = 0; e < self.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
+  // The input edge under each placed row (derivation.ts); a kept row has
+  // none and answers what it answered before.
+  const under: number[] = [];
+  const rowOf = new Map<number, number>();
+  // A source vertex, verbatim — not through the transfer policy, which
+  // says what a value does at a NEW vertex. A vertex two segments share is
+  // one row.
+  const rowFor = (v: number): number => {
+    const had = rowOf.get(v);
+    if (had !== undefined) return had;
+    const row = points.keep(v);
+    rowOf.set(v, row);
+    return row;
+  };
+  /** One source edge through as it is: same row, same lineage. */
+  const keep = (a: number, b: number, row: number) => edges.keep(row, rowFor(a), rowFor(b));
+  // Isolated vertices are not chains: they come through unchanged.
+  for (let i = 0; i < self.n; i++) if (self.adjacentRows(i).length === 0) rowFor(i);
+  for (const c of chainsOf(self)) {
+    // A loop that leaves a junction and comes back to it ends there twice,
+    // like any chain that ends at a junction: it is walked open.
+    const pinned = c.closed && self.adjacentRows(c.indices[0]).length > 2;
+    const idx = pinned ? [...c.indices, c.indices[0]] : c.indices;
+    const closed = c.closed && !pinned;
+    const k = idx.length;
+    const segs = closed ? k : k - 1;
+    const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s % k], idx[(s + 1) % k]))!;
+    // Two vertices describe a straight line and nothing else: no curve to
+    // draw, so the chain is the chain it was.
+    if (k < 3) {
+      for (let s = 0; s < segs; s++) keep(idx[s % k], idx[(s + 1) % k], rowOfSeg(s));
+      continue;
+    }
+    // The vertex before the segment and the one after it set the tangents.
+    // An open chain has none at its ends, so the end segment is its own
+    // neighbour and the curve leaves along it.
+    const at = (j: number): number => (closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
+    for (let s = 0; s < segs; s++) {
+      const row = rowOfSeg(s);
+      const p0 = at(s - 1);
+      const p1 = at(s);
+      const p2 = at(s + 1);
+      const p3 = at(s + 2);
+      const m0x = tension * (X[p2] - X[p0]);
+      const m0y = tension * (Y[p2] - Y[p0]);
+      const m1x = tension * (X[p3] - X[p1]);
+      const m1y = tension * (Y[p3] - Y[p1]);
+      const rows: number[] = [rowFor(p1)];
+      for (let i = 1; i < steps; i++) {
+        const u = i / steps;
+        const u2 = u * u;
+        const u3 = u2 * u;
+        const h00 = 2 * u3 - 3 * u2 + 1;
+        const h10 = u3 - 2 * u2 + u;
+        const h01 = -2 * u3 + 3 * u2;
+        const h11 = u3 - u2;
+        // A new vertex, its columns read between p1 and p2 at u.
+        const placed = points.between(
+          p1, p2, u,
+          h00 * X[p1] + h10 * m0x + h01 * X[p2] + h11 * m1x,
+          h00 * Y[p1] + h10 * m0y + h01 * Y[p2] + h11 * m1y,
+        );
+        under[placed] = row;
+        rows.push(placed);
+      }
+      rows.push(rowFor(p2));
+      // A 'distribute' column is shared over the children by their share
+      // of the arc the segment now takes, so the quantity the source edge
+      // carried is still what its children carry between them.
+      const spans: number[] = [];
+      let total = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const d = Math.hypot(points.x[rows[i]] - points.x[rows[i - 1]], points.y[rows[i]] - points.y[rows[i - 1]]);
+        spans.push(d);
+        total += d;
+      }
+      for (let i = 1; i < rows.length; i++) edges.from(row, rows[i - 1], rows[i], total > 0 ? spans[i - 1] / total : 1 / spans.length);
+    }
+  }
+  // The links, in the rows of the value the sketch passed: a placed point
+  // and a new edge to the source edge they bend over. A kept row is the row
+  // it was, and says nothing new.
+  const of = origin?.of ?? self;
+  const map = origin?.edges ?? null;
+  const input = (e: number | undefined) => (e === undefined || e < 0 ? -1 : map === null ? e : map[e]);
+  const pointRows = new Int32Array(points.length);
+  for (let r = 0; r < pointRows.length; r++) pointRows[r] = input(under[r]);
+  const edgeRows = new Int32Array(edges.length);
+  for (let k = 0; k < edgeRows.length; k++) edgeRows[k] = input(edges.madeFrom(k));
+  const out = rebuild(self, { ...points.done(), ...edges.done() });
+  return record(linkRows(out, {
+    points: { source: { of, domain: 'edges', rows: pointRows } },
+    edges: { source: { of, domain: 'edges', rows: edgeRows } },
+  }), derivation('spline', [of], { ...opts }));
+}
+
 /** Sampling options shared by `t.sample`, `resample` and `along`: exactly
  * one of `count` or `spacing`, and a count in whole samples — a missing,
  * doubled or fractional option is a mistake and says so. A size with nothing
@@ -3012,7 +3097,9 @@ export function material(
     if (shared !== null && shared.length === 0) continue;
     const own = new Set<string>();
     if (!isArr(p)) {
-      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && typeof v === 'number') own.add(k);
+      // A view's words are not columns: its row, and the words its row
+      // derives (a curve's view of a point holds its `s`).
+      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && !DERIVED_POINT_WORDS.has(k) && typeof v === 'number') own.add(k);
     } else if ((p as readonly number[]).length > 2 && typeof (p as readonly number[])[2] === 'number') {
       // A place with a third number, [x, y, z], is a point in space.
       own.add('z');
@@ -3035,6 +3122,9 @@ export function material(
       edges = Uint32Array.from(flat);
       continue;
     }
+    // A column given here is a sketch's write: no word a point owns or
+    // derives (`s`, `tangent`, `normal`).
+    checkWrittenName('point', name, 'material');
     if (value === undefined) continue;
     if (typeof value === 'number') attrs[name] = new Float64Array(n).fill(value);
     else attrs[name] = Float64Array.from(value as ArrayLike<number>);
@@ -4365,7 +4455,7 @@ export interface FacePart {
 export interface PartsSource {
   readonly points?: DomainSpec | ((row: number) => unknown);
   readonly edges?: DomainSpec | ((row: number) => unknown);
-  readonly faces?: (f: number) => unknown;
+  readonly faces?: (f: number) => FaceSource;
 }
 
 /** @internal The parts `materialFromParts` takes. */

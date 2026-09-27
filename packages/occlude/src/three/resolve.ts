@@ -56,7 +56,7 @@ function maskForRun3(exec: Execution, view: ClassifiedScene3): Tree {
 export async function resolveTree3(exec: Execution, tree: Tree, options: { signal?: AbortSignal; compute3?: SceneCompute3; retainedSource?:ClassifiedScene3; onStage?: StageListener3 }): Promise<Tree> {
   options.signal?.throwIfAborted();
   if (!tree) return tree;
-  if(isProjectedStrokes(tree)){if(tree.curves.source!==options.retainedSource)exec.fixedStrokes3.add(tree.curves.source);return inFrame3(exec,tree.curves.source.frame,tree);}
+  if(isProjectedStrokes(tree)){if(tree.scene!==options.retainedSource)exec.fixedStrokes3.add(tree.scene);return inFrame3(exec,tree.scene.frame,tree);}
   if (isDrawing3(tree)) {
     const view = await classifyForRun3(exec, tree.scene, options);
     return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => inFrame3(exec, view.frame, strokesForRun3(exec, runs, settings)), mask3: (scene) => maskForRun3(exec, scene), toUser: paperToUser(exec.frame) }), {...options,retainedSource:view});

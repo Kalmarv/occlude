@@ -7,6 +7,7 @@ import {circle3,manifold,volume} from './helpers/surfaces.js';
 import type {} from 'occlude/3d';
 import {surfaceOf} from '../src/three/geometry/value.js';
 import type {Material} from '../src/material.js';
+import {sourceRow} from './helpers/source.js';
 
 /** The 3D profile circle, as the parametric curve it always was. */
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
@@ -17,7 +18,7 @@ describe('curve-profile revolution',()=>{
   expect(solid.points.length).toBe(n+2);expect(solid.faces.length).toBe(2*n);expect(volume(solid)).toBeCloseTo(n*r*r*Math.sin(2*Math.PI/n)*h/6,12);
   expect(solid.points.filter(p=>p.x===0&&p.y===0).length).toBe(2);
   expect(solid.points.filter(p=>p.weight===2).length).toBe(n);
-  for(const face of solid.faces){expect(profile.edges.has(face.source)).toBe(true);if(face.part==='base')expect(face.normal[2]).toBe(-1);else expect(face.normal[2]).toBeGreaterThan(0);}
+  for(const face of solid.faces){expect(sourceRow(profile.edges,face)).toBeDefined();if(face.part==='base')expect(face.normal[2]).toBe(-1);else expect(face.normal[2]).toBeGreaterThan(0);}
   expect(surfaceOf(solid)).toEqual(surfaceOf(revolve(profile,{segments:n})));
   const negative=revolve(profile,{segments:n,angle:-360});manifold(negative);expect(volume(negative)).toBeCloseTo(volume(solid),12);
  });

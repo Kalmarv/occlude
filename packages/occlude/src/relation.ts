@@ -17,7 +17,7 @@
  */
 
 import { at64, atU32, kinds, kindOf, type AnyColumn } from './column.js';
-import { Material, alongMaterial, cached, inSpace3, resampleMaterial, vertexReader, edgeReader, type Edge, type Vertex, type PointId, type EdgeId } from './material.js';
+import { Material, alongMaterial, cached, inSpace3, resampleMaterial, splineMaterial, vertexReader, edgeReader, type Edge, type Vertex, type PointId, type EdgeId } from './material.js';
 import { ownerOf, viewKind, valueKind, describe } from './views.js';
 import { carryLinks } from './derivation.js';
 import { degreesWithin } from './chains.js';
@@ -46,8 +46,9 @@ import { refuseShape } from './boundary.js';
  */
 export function sameLineage(a: Material, b: Material): boolean {
   if (a === b) return true;
-  // Two runs count their ids from the same place: a value one run made is
-  // no row of another, whatever its numbers (material.ts `mintIds`).
+  // A run alone counts from the same number as the run before it: a value
+  // one run made is no row of another, whatever its numbers (material.ts
+  // `mintIds`).
   if (a.epoch !== b.epoch && a.epoch !== 0 && b.epoch !== 0) return false;
   const mine = pointDomain(a);
   let got = mine.lineage?.get(b);
@@ -490,10 +491,10 @@ const EDGES: DomainKind = domainKind('edge', 'edges', {
   add: { value(this: Sel, rows: unknown, cols?: Record<string, CellValue>): Material { return addEdges(this.owner, rows, cols); } },
   remove: { value(this: Sel, what: unknown): Material { return removeEdges(this.owner, what); } },
   thicken: { value(this: Sel, opts: ThickenOpts): Material { return thickenKernel(this, opts); } },
-  // A resample or an along of the members answers rows of their material.
+  // A resample, a spline or an along of the members answers rows of their material.
   resample: { value(this: Sel, opts: Parameters<Material['resample']>[0]): Material { return resampleMaterial(extractRows(this.owner, endpointRows(this), this.indices), opts, { of: this.owner, edges: this.indices }); } },
   trim: { value(this: Sel, opts: Parameters<Material['trim']>[0]): Material { return extractRows(this.owner, endpointRows(this), this.indices).trim(opts); } },
-  spline: { value(this: Sel, opts?: Parameters<Material['spline']>[0]): Material { return extractRows(this.owner, endpointRows(this), this.indices).spline(opts); } },
+  spline: { value(this: Sel, opts?: Parameters<Material['spline']>[0]): Material { return splineMaterial(extractRows(this.owner, endpointRows(this), this.indices), opts ?? {}, { of: this.owner, edges: this.indices }); } },
   oscillate: { value(this: Sel, opts: Parameters<Material['oscillate']>[0]): Material { return extractRows(this.owner, endpointRows(this), this.indices).oscillate(opts); } },
   along: { value(this: Sel, opts?: Parameters<Material['along']>[0]) { return alongMaterial(extractRows(this.owner, endpointRows(this), this.indices), opts ?? {}, { of: this.owner, edges: this.indices }); } },
   /** @internal Highest vertex degree within the members. The area

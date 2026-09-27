@@ -19,6 +19,7 @@ import {surfaceOf} from '../src/three/geometry/value.js';
 import {faceGeometry3} from '../src/three/geometry/model.js';
 import {grad} from '../src/three/api/vec.js';
 import {toolkit} from './helpers/run.js';
+import {sourceRow,sourceRows} from './helpers/source.js';
 
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 const rnd=(seed:number)=>()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646;};
@@ -28,9 +29,9 @@ describe('source',()=>{
     const flat=plane(2,2),fine=flat.subdivide(1);
     for(const f of fine.faces)expect(f.source).toBe(flat.faces.at(0));
     const kept=fine.points.filter(p=>flat.points.some(q=>q.x===p.x&&q.y===p.y));
-    for(const p of kept)expect(flat.points.has(p.source as never)).toBe(true);
+    for(const p of kept)expect(sourceRow(flat.points,p)).toBeDefined();
     const middle=fine.points.find(p=>p.x===0&&p.y===0)!;
-    expect([...middle.source as Iterable<unknown>].sort((a:any,b:any)=>a.index-b.index)).toEqual([...flat.points]);
+    expect(sourceRows(flat.points,middle).sort((a,b)=>a.index-b.index)).toEqual([...flat.points]);
     // A write or a move of the result keeps it.
     const moved=fine.points.set('h',1).displace([0,0,1]);
     expect(moved.faces.at(0)!.source).toBe(flat.faces.at(0));
@@ -39,20 +40,20 @@ describe('source',()=>{
   });
   it('extrude: a wall the edge under it, a cap its own face; dual: a point its face',()=>{
     const sheet=plane(2,2).subdivide(1),raised=sheet.extrude(sheet.faces.rowsAt([0]),{distance:1});
-    const edges=[...sheet.edges],walls=raised.faces.filter(f=>edges.includes(f.source));
+    const edges=[...sheet.edges],walls=raised.faces.filter(f=>edges.some(e=>e===f.source));
     expect(walls.length).toBe(4);
     expect(raised.faces.filter(f=>f.source===sheet.faces.at(0)).length).toBe(1);
     const cube=box(1),d=cube.dual();
-    for(const p of d.points)expect(cube.faces.has(p.source as never)).toBe(true);
-    for(const f of d.faces)expect(cube.points.has(f.source)).toBe(true);
+    for(const p of d.points)expect(sourceRow(cube.faces,p)).toBeDefined();
+    for(const f of d.faces)expect(sourceRow(cube.points,f)).toBeDefined();
   });
   it('booleans: a face its face in either input',()=>{
     const a=box(2),b=box(2).translate([1,0,0]),u=a.union(b);
-    const faces=[...a.faces,...b.faces];for(const f of u.faces)expect(faces.includes(f.source)).toBe(true);
+    const faces=[...a.faces,...b.faces];for(const f of u.faces)expect(faces.some(g=>g===f.source)).toBe(true);
   });
   it('a scatter on a surface: each point the face under it',()=>{
     const ball=sphere(1,{segments:8,rings:4}),dots=scatterSurface(ball,{count:12},{rnd:rnd(3)});
-    for(const p of dots.points){expect(ball.faces.has(p.source as never)).toBe(true);expect(p.source).toBe(ball.faces.at(p.sample.face.index));}
+    for(const p of dots.points){expect(sourceRow(ball.faces,p)).toBeDefined();expect(p.source).toBe(ball.faces.at(p.sample.face.index));}
   });
   it('a lifted 2D chain: each point the 2D point it came from',()=>{
     // `curve` of a chain is the chain through those same points.

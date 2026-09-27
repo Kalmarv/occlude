@@ -20,9 +20,11 @@
  * `cut`, `key`), read on the row. On each of its points the domain DERIVES
  * `s` (the arc length from the start), `u` (its fraction of the whole),
  * `heading` (radians), `tangent` and `normal` — read like columns. A
- * point that holds a column `s`, `u` or `heading` of its own reads that on
- * every view of it, the curve's included, so one row never has two
- * answers. `normal` is `perp(tangent)`, the
+ * sketch may write `u` and `heading` (tables.ts), never `s`, `tangent` or
+ * `normal`; a point that holds a column `s`, `u` or `heading` of its own —
+ * a sketch's, or the one `along` keeps — reads that on every view of it,
+ * the curve's included, so one row never has two answers. `normal` is
+ * `perp(tangent)`, the
  * tangent turned a quarter turn toward +y: on a ring drawn
  * counter-clockwise ON THE SHEET (y down) it points out.
  *

@@ -4,7 +4,7 @@ export type {GeometryOptions} from './mesh.js';
 export type {Field} from './columns.js';
 export {view,orthographic,perspective} from './view.js';
 export type {ViewOptions,ViewObjectOptions,ViewInput,SuggestiveInput,ViewHatch,ViewSection,CameraOptions} from './view.js';
-export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
+export type {ProjectedCurve,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
 export type {Selection} from '../../selection.js';
 export type {SubdivisionOptions} from './subdivide.js';
 export type {Vec3} from '../math.js';

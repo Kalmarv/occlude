@@ -15,7 +15,7 @@
 import { Material, type Vertex, type Edge } from './material.js';
 import { isPointSelection, isEdgeSelection, endpointRows } from './relation.js';
 import type { Selection } from './selection.js';
-import type { EventCandidate, PlanarEvent } from './faces.js';
+import { checkCandidateColumns, eventCandidate, type PlanarEvent } from './faces.js';
 import {
   polygonUnion,
   type Envelope as Shape,
@@ -37,7 +37,9 @@ export interface ThickenOpts {
 
   /** Optional creation of output point columns: called once per final
    * output vertex with the boundary position and the source generators that
-   * meet there. The returned record is the complete output row. */
+   * meet there, each a candidate with its columns read flat (`c.age`). The
+   * returned record is the complete output row. With `point`, a source
+   * point column named `vertex`, `edge` or `t` is an error. */
   point?: (event: PlanarEvent) => Record<string, number>;
 }
 
@@ -109,9 +111,11 @@ function canonicalize(loop: OutVert[]): OutVert[] {
 
 // ---- public entry -----------------------------------------------------------------
 
-function candidateAttrs(c: Cand, source: Material): Record<string, number> {
+/** A candidate's columns: the numeric point columns of `source`, a
+ * vertex's own or an edge's read `t` of the way along by each column's
+ * transfer. */
+function candidateColumns(c: Cand, source: Material): Record<string, number> {
   const out: Record<string, number> = {};
-  // A candidate carries the numeric columns (`EventCandidate.attrs`).
   const cols = source.attrs;
   if (c.vertex !== undefined) {
     for (const name in cols) out[name] = cols[name][c.vertex];
@@ -219,6 +223,7 @@ export function thicken(
     );
   }
 
+  if (opts.point !== undefined) checkCandidateColumns(Object.keys(src.attrs), 'thicken');
   if (vRows.length === 0) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { from: src });
   const X = src.x;
   const Y = src.y;
@@ -340,15 +345,10 @@ export function thicken(
       for (const v of loop) {
         const event: PlanarEvent = {
           position: [v.x, v.y],
-          candidates: v.cands.map((c): EventCandidate => {
-            const base: EventCandidate = { attrs: candidateAttrs(c, src) };
-            if (c.vertex !== undefined) base.vertex = c.vertex;
-            else {
-              base.edge = c.edge;
-              base.t = c.t;
-            }
-            return base;
-          }),
+          candidates: v.cands.map((c) => eventCandidate(
+            c.vertex !== undefined ? { vertex: src.vertex(c.vertex) } : { edge: src.edge(c.edge!), t: c.t! },
+            candidateColumns(c, src),
+          )),
         };
         let record: Record<string, number>;
         try {

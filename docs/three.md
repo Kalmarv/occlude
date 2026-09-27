@@ -42,7 +42,7 @@ Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupB
 
 ## Interpreting projected intervals
 
-An optional `view` callback replaces default ink emission. `lines.visible` and `lines.hidden` contain classified intervals, with readable `.kinds` sets, original features, support, and their columns read as properties. `strokes` accepts these collections directly and retains the full source reference through filtering, physical-paper conversion, clipping and supported post modifiers. It does not flatten them into anonymous contours. `stroke:`, group pen defaults and ordinary clips/masks keep their usual meanings.
+An optional `view` callback replaces default ink emission. `lines.visible` and `lines.hidden` are selections of classified intervals, with readable `.kinds` sets, original features, support, and their columns read as properties. `strokes` accepts these collections directly and retains the full source reference through filtering, grouping, cutting with `t.within`, physical-paper conversion, clipping and supported post modifiers. It does not flatten them into anonymous contours. `stroke:`, group pen defaults and ordinary clips/masks keep their usual meanings.
 
 The `suggestive` kind is the one kind a view must be asked for. Suggestive contours are the lines where the surface almost turns away from the eye. The reading is from DeCarlo, Finkelstein, Rusinkiewicz and Santella (2003). They state a fold that a silhouette alone cannot. `suggestive: {}` on the view, or `[mesh, { suggestive: { threshold: 30 } }]` for one object, turns them on; the default, `false`, draws none, and an object's own value wins over the view's. A larger `threshold` keeps fewer lines. The lines belong to one view, so they move with the camera, and they are classified with the silhouettes: `lines.visible.kind('suggestive')` and `lines.hidden.kind('suggestive')` select them. See [suggestive](/docs/reference/3d/view#suggestive) for the picture.
 
@@ -595,7 +595,7 @@ export default sketch({ seed: 42,
 }, () => view(box([2, 1.5, 2.5]), {
   camera: orthographic({ eye: [5, 7, 6], span: 5 }),
 }, lines => {
-  const stats = lines.visible.source.stats;
+  const stats = lines.stats;
   console.info('3D phases', stats.timings, 'shader ms', stats.gpuMs);
   return strokes(lines.visible, { stroke: 'ink' });
 }));

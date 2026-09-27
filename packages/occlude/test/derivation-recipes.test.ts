@@ -1,7 +1,7 @@
 import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { circle, curve, material, rect, type Edge, type Vertex } from '../src/index.js';
+import { circle, curve, material, rect, type Vertex } from '../src/index.js';
 import { inSpace, mapPositions, withFaces } from '../src/material.js';
 import { extractRows } from '../src/relation.js';
 import { restamp } from '../src/tables.js';
@@ -9,14 +9,11 @@ import { spaceOf } from '../src/space.js';
 import type { Selection } from '../src/selection.js';
 import { toolkit } from './helpers/run.js';
 import { onEdge, square } from './helpers/shapes.js';
+import { sourceRow, sourceRows } from './helpers/source.js';
 
 // The collector, for the retention contract.
 setFlagsFromString('--expose-gc');
 const gc = runInNewContext('gc') as () => void;
-
-// `source` is typed by the view; a test reads it as what it is.
-const edgeOf = (v: object): Edge | undefined => (v as { source?: unknown }).source as Edge | undefined;
-const edgesOf = (v: object): Selection<Edge> | undefined => (v as { source?: unknown }).source as Selection<Edge> | undefined;
 
 
 describe('split and replace: a made row names the edge it came from', () => {
@@ -24,16 +21,16 @@ describe('split and replace: a made row names the edge it came from', () => {
     const g = square(0, 0, 40);
     const cut = g.split(g.edges.at(1)!);
     const made = cut.points.at(-1)!;
-    expect(edgeOf(made)).toBe(g.edges.at(1));
+    expect(made.source).toBe(g.edges.at(1));
     const children = cut.edges.filter((e) => e.a === made || e.b === made);
     expect(children.length).toBe(2);
-    children.forEach((e) => expect(edgeOf(e)).toBe(g.edges.at(1)));
+    children.forEach((e) => expect(e.source).toBe(g.edges.at(1)));
     // A row split did not make says nothing new.
-    expect(edgeOf(cut.points.at(0)!)).toBeUndefined();
-    expect(edgeOf(cut.edges.at(0)!)).toBeUndefined();
+    expect(cut.points.at(0)!.source).toBeUndefined();
+    expect(cut.edges.at(0)!.source).toBeUndefined();
     // A set and a move of the result keep it.
     const moved = cut.move([1, 1]).points.set('w', 3);
-    expect(edgeOf(moved.points.at(-1)!)).toBe(g.edges.at(1));
+    expect(moved.points.at(-1)!.source).toBe(g.edges.at(1));
   });
 
   it('a row keeps what it answered before: a sample split still answers u and its source', () => {
@@ -44,7 +41,7 @@ describe('split and replace: a made row names the edge it came from', () => {
     expect(cut.points.at(3)!.u).toBe(ring.points.at(3)!.u);
     expect(cut.points.at(3)!.source).toBe(ring.points.at(3)!.source);
     // The new point: the split's.
-    expect(edgeOf(cut.points.at(-1)!)).toBe(ring.edges.at(0));
+    expect(cut.points.at(-1)!.source).toBe(ring.edges.at(0));
     expect(cut.points.at(-1)!.u).toBeUndefined();
   });
 
@@ -54,10 +51,10 @@ describe('split and replace: a made row names the edge it came from', () => {
     const koch = g.replace(g.edges.at(0)!, motif);
     const made = koch.points.filter((p) => p.index >= g.points.length);
     expect(made.length).toBe(3);
-    made.forEach((p) => expect(edgeOf(p)).toBe(g.edges.at(0)));
-    const pieces = koch.edges.filter((e) => edgeOf(e) !== undefined);
+    made.forEach((p) => expect(p.source).toBe(g.edges.at(0)));
+    const pieces = koch.edges.filter((e) => e.source !== undefined);
     expect(pieces.length).toBe(4);
-    expect(edgeOf(koch.points.at(0)!)).toBeUndefined();
+    expect(koch.points.at(0)!.source).toBeUndefined();
   });
 });
 
@@ -67,16 +64,17 @@ describe('planarize: a piece names its edge, a crossing the edges that meet ther
     const p = g.planarize();
     expect(p.points.length).toBe(5);
     const crossing = p.points.at(4)!;
-    const meet = edgesOf(crossing)!;
+    const meet = sourceRows(g.edges, crossing);
     expect(meet.length).toBe(2);
     expect([...meet]).toEqual([g.edges.at(0), g.edges.at(1)]);
     // A vertex that survives is the vertex it was, and says nothing new.
     expect(p.points.at(0)!.source).toBeUndefined();
     p.edges.forEach((e) => {
-      expect(onEdge(e.a, edgeOf(e)!) && onEdge(e.b, edgeOf(e)!)).toBe(true);
+      const under = sourceRow(g.edges, e);
+      expect(onEdge(e.a, under) && onEdge(e.b, under)).toBe(true);
     });
-    expect(p.edges.filter((e) => edgeOf(e) === g.edges.at(0)).length).toBe(2);
-    expect(p.edges.filter((e) => edgeOf(e) === g.edges.at(1)).length).toBe(2);
+    expect(p.edges.filter((e) => e.source === g.edges.at(0)).length).toBe(2);
+    expect(p.edges.filter((e) => e.source === g.edges.at(1)).length).toBe(2);
   });
 });
 
@@ -86,11 +84,10 @@ describe('resample and along: the edge under each point, and u', () => {
     const r = g.resample({ count: 8 });
     expect(r.points.map((p) => p.u)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((k) => k / 8));
     r.points.forEach((p) => {
-      expect(g.edges.has(edgeOf(p)!)).toBe(true);
-      expect(onEdge(p, edgeOf(p)!)).toBe(true);
+      expect(onEdge(p, sourceRow(g.edges, p))).toBe(true);
     });
     // A new edge names the edge under its middle.
-    r.edges.forEach((e) => expect(g.edges.has(edgeOf(e)!)).toBe(true));
+    r.edges.forEach((e) => expect(e.source !== undefined && g.edges.has(e.source)).toBe(true));
   });
 
   it('a resample of part of a chain: the run names its edges, a kept vertex keeps what it had', () => {
@@ -99,7 +96,7 @@ describe('resample and along: the edge under each point, and u', () => {
     // The run starts at x = 20: its first sample is the kept vertex there.
     const start = r.points.find((p) => p.x === 20)!;
     expect(start.u).toBeCloseTo(0.5, 12);
-    expect(edgeOf(start)).toBe(g.edges.at(2));
+    expect(start.source).toBe(g.edges.at(2));
     expect(r.points.find((p) => p.x === 40)!.u).toBeCloseTo(1, 12);
     expect(r.points.at(0)!.u).toBeUndefined();
   });
@@ -108,13 +105,13 @@ describe('resample and along: the edge under each point, and u', () => {
     const g = square(0, 0, 40);
     const a = g.along({ count: 8 });
     // Samples at the middles lie on one edge each; every one on its own.
-    expect(a.points.filter((p) => p.index % 2 === 1).map((p) => edgeOf(p))).toEqual([g.edges.at(0), g.edges.at(1), g.edges.at(2), g.edges.at(3)]);
-    a.points.forEach((p) => expect(onEdge(p, edgeOf(p)!)).toBe(true));
+    expect(a.points.filter((p) => p.index % 2 === 1).map((p) => p.source)).toEqual([g.edges.at(0), g.edges.at(1), g.edges.at(2), g.edges.at(3)]);
+    a.points.forEach((p) => expect(onEdge(p, sourceRow(g.edges, p))).toBe(true));
     const two = g.edges.filter((e) => e.index >= 2);
     const b = two.along({ count: 3 });
-    b.points.forEach((p) => expect(two.has(edgeOf(p)!)).toBe(true));
+    b.points.forEach((p) => expect(p.source !== undefined && two.has(p.source)).toBe(true));
     const c = two.resample({ count: 3 });
-    c.points.forEach((p) => expect(two.has(edgeOf(p)!)).toBe(true));
+    c.points.forEach((p) => expect(p.source !== undefined && two.has(p.source)).toBe(true));
   });
 
   it('t.sample of a material is its resample in the run\'s space: source and u', () => {
@@ -122,7 +119,7 @@ describe('resample and along: the edge under each point, and u', () => {
     const box = t.material(rect(10, 10, 40, 40));
     const s = t.sample(box, { count: 8 });
     expect(s.points.map((p) => p.u)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((k) => k / 8));
-    s.points.forEach((p) => expect(box.edges.has(edgeOf(p)!)).toBe(true));
+    s.points.forEach((p) => expect(p.source !== undefined && box.edges.has(p.source)).toBe(true));
   });
 });
 
@@ -130,7 +127,7 @@ describe('identity-keeping rebuilds carry what the rows answer', () => {
   it('inSpace, withFaces, mapPositions, transform and extractRows', () => {
     const g = square(0, 0, 40);
     const cut = g.split(g.edges.at(1)!);
-    const made = (m: { points: Selection<Vertex> }) => edgeOf(m.points.at(-1)!);
+    const made = (m: { points: Selection<Vertex> }) => m.points.at(-1)!.source;
     const disk = spaceOf({ curvature: -1e-4, center: [20, 20] });
     expect(made(inSpace(cut, disk))).toBe(g.edges.at(1));
     expect(made(withFaces(cut, { cycles: [] }))).toBe(g.edges.at(1));
@@ -150,7 +147,7 @@ describe('a run keeps what its start answered and one step of what it made', () 
     const grown = beads.split(beads.edges.at(0)!);
     const next = restamp(grown, 1);
     expect(next.points.at(2)!.u).toBe(beads.points.at(2)!.u);
-    expect(edgeOf(next.points.at(-1)!)).toBe(beads.edges.at(0));
+    expect(next.points.at(-1)!.source).toBe(beads.edges.at(0));
   });
 
   it('t.steps of splits: a row made in a step answers its source for one step', () => {
@@ -160,16 +157,16 @@ describe('a run keeps what its start answered and one step of what it made', () 
     const previous: boolean[] = [];
     const run = t.steps(4, beads, (g) => {
       // The point the step before made still says where it came from.
-      if (g !== beads) previous.push(edgeOf(g.points.at(-1)!) !== undefined);
+      if (g !== beads) previous.push(g.points.at(-1)!.source !== undefined);
       const cut = g.split(g.edges.at(0)!);
-      seen.push(edgeOf(cut.points.at(-1)!) === g.edges.at(0));
+      seen.push(cut.points.at(-1)!.source === g.edges.at(0));
       return cut;
     });
     expect(seen).toEqual([true, true, true, true]);
     expect(previous).toEqual([true, true, true]);
     // The result answers what the start answered, and what its last step made.
     expect(run.points.at(5)!.u).toBe(beads.points.at(5)!.u);
-    expect(edgeOf(run.points.at(-1)!)).toBeDefined();
+    expect(run.points.at(-1)!.source).toBeDefined();
     // A row made two steps back does not.
     expect(run.points.at(-2)!.source).toBeUndefined();
   });

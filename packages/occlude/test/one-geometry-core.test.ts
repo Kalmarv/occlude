@@ -494,10 +494,13 @@ describe('the 3D words: called where the core declares them', () => {
 });
 
 describe('a column of the row’s own wins over a row word', () => {
-  it('tangent, normal and placement columns read as the columns', () => {
-    const m = material([[0, 0], [1, 0]]).points.set({ tangent: [1, 0, 0], normal: [0, 0, 1] });
+  it('a tangent the library keeps reads as the column; a sketch writes none', () => {
+    // 3D `along` keeps each point's tangent as a column: there is no
+    // heading in space.
+    const m = materialFromParts({ x: [0, 1], y: [0, 0], z: [0, 0], pointCols: { tangent: kinds.vector(3).from([[1, 0, 0], [0, 0, 1]]) } });
     expect(m.points.at(0).tangent).toEqual([1, 0, 0]);
-    expect(m.points.at(1).normal).toEqual([0, 0, 1]);
+    expect(m.points.at(1).tangent).toEqual([0, 0, 1]);
+    expect(() => m.points.set('tangent', [0, 1, 0])).toThrow(/'tangent' is a reserved field of a point/);
     // Without one, the words read the heading, as before.
     const along = square().along({ count: 4 }).points.at(1);
     expect(along.tangent.length).toBe(2);

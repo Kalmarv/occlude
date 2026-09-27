@@ -84,6 +84,7 @@ import type { Edge, Material, StateCache, Vertex } from './material.js';
 import { pointsOf, edgesOf } from './relation.js';
 import { select, type Selection } from './selection.js';
 import type { Face } from './faces.js';
+import type { Corner } from './corners.js';
 import { at64 } from './column.js';
 
 // ---- the node ----------------------------------------------------------------
@@ -365,9 +366,12 @@ export function rowSource(m: Material, domain: 'points' | 'edges', index: number
   return undefined;
 }
 
-/** @internal What `source` answers: a row, a selection of rows, a list of
- * those (one per input), or nothing. */
-export type RowSource = Vertex | Edge | Face | Selection<Vertex> | Selection<Edge> | Selection<Face> | readonly unknown[] | undefined;
+/** One row of an input, or a selection of rows of one kind. */
+export type SourceRows = Vertex | Edge | Face | Corner | Selection<Vertex> | Selection<Edge> | Selection<Face> | Selection<Corner>;
+/** What a derived row's `source` answers: the input row it came from, a
+ * selection when it came from several rows of one input, a list of those
+ * (one per input), or nothing for a row no derivation made. */
+export type RowSource = SourceRows | readonly SourceRows[] | undefined;
 
 /** @internal A parameter column (`u`) for row `index` of `m`, from the
  * newest link that has a value there; undefined where none has. */

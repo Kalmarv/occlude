@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   append, circle, connect, curve, material, polygon, sketch, strokes, Material,
-  type PointsLike, type Toolkit,
+  type Face, type PointsLike, type Toolkit,
 } from '../src/index.js';
 import { voronoiOf } from '../src/voronoi.js';
 import { isPointSelection } from '../src/relation.js';
@@ -18,6 +18,7 @@ const voronoi = (sites: PointsLike, b: Bounds): Material =>
 import { compileSketch, initOcclude, Execution } from '../src/host.js';
 import { densityRaster, accumulateCells } from '../src/points.js';
 import { xy } from './helpers/xy.js';
+import { sourceRow } from './helpers/source.js';
 import { square } from './helpers/shapes.js';
 
 beforeAll(async () => {
@@ -160,7 +161,7 @@ describe('relax and settle as explicit operations', () => {
       const cells = t.voronoi(sites);
       const m = cells.faces.measure(field, { bounds, step: 100 / 128 });
       measured = sites.points.map((p) => {
-        const f = m.faces.find((g) => g.source.index === p.index);
+        const f = m.faces.find((g) => g.source === p);
         return f ? f.integral / (raster.cw * raster.cw) : NaN;
       });
     }, 3);
@@ -185,12 +186,12 @@ describe('voronoi as material', () => {
     expect(faces.boundaryEdges().length).toBeGreaterThanOrEqual(4);
     for (const p of cells.points) expect(p.edges.length).toBeLessThanOrEqual(4);
     // One cell per site, in the sites' order, each face's source its site.
-    expect(faces.map((f) => f.source.index)).toEqual([0, 1, 2, 3, 4]);
+    expect(faces.map((f) => sourceRow(sites.points, f))).toEqual([...sites.points]);
     for (const s of sites.points) {
-      const f = faces.find((g) => g.source.index === s.index)!;
+      const f = faces.find((g) => g.source === s)!;
       expect(f).toBeDefined();
       expect(polygon(f.contours()).geom).toBeDefined();
-      expect(f.source.x).toBe(s.x);
+      expect(sourceRow(sites.points, f).x).toBe(s.x);
       // The site is inside its cell (the centroid distance is enough here):
       const c = f.centroid;
       expect(Math.hypot(c[0] - s.x, c[1] - s.y)).toBeLessThan(60);
@@ -223,13 +224,13 @@ describe('voronoi as material', () => {
     const dupSites = material([[20, 25], [20, 25], [80, 25]]);
     const dup = voronoi(dupSites, b);
     expect(dup.faces.length).toBe(2);
-    expect(dup.faces.map((f) => f.source.index)).toEqual([0, 2]); // the lowest row owns the cell
+    expect(dup.faces.map((f) => sourceRow(dupSites.points, f))).toEqual([dupSites.points.at(0), dupSites.points.at(2)]); // the first of two at one place owns the cell
     const near = voronoi(material([[20, 25], [20.000001, 25], [80, 25], [50, 10], [50, 40]]), b);
     expect(near.faces.map((f) => f.area).reduce((a, v) => a + v, 0)).toBeCloseTo(5000, 3);
     const outSites = material([[20, 25], [200, 25], [50, 10]]);
     const out = voronoi(outSites, b);
     expect(out.faces.map((f) => f.area).reduce((a, v) => a + v, 0)).toBeCloseTo(5000, 6);
-    const owned = outSites.points.filter((p) => out.faces.some((f) => f.source.index === p.index)).length;
+    const owned = outSites.points.filter((p) => out.faces.some((f) => f.source === p)).length;
     expect(owned).toBeGreaterThanOrEqual(2);
     // An area with no extent holds no cell: it draws nothing.
     expect(voronoi(material([[1, 1]]), { x: 0, y: 0, w: 0, h: 5 }).n).toBe(0);
@@ -249,10 +250,11 @@ describe('voronoi as material', () => {
     const cells = voronoi(sites, { x: 0, y: 0, w: 100, h: 100 });
     // A site is a row of the sites: `has` asks the site selection by identity.
     const chosen = sites.points.filter((p) => p.x > 30);
-    expect(cells.faces.filter((f) => chosen.has(f.source)).map((f) => f.source.index)).toEqual([1, 2]);
+    const siteOf = (f: Face) => sourceRow(sites.points, f);
+    expect(cells.faces.filter((f) => chosen.has(siteOf(f))).map(siteOf)).toEqual([...chosen]);
     // A move leaves the walls: the cells, their order and their sites stay.
     const moved = cells.move([1, 0]);
-    expect(moved.faces.map((f) => f.source.index)).toEqual([0, 1, 2]);
+    expect(moved.faces.map(siteOf)).toEqual([...sites.points]);
     expect(moved.faces.at(0).area).toBeCloseTo(cells.faces.at(0).area, 9);
     // A wall removed: the faces are read off the picture, and have no site.
     const opened = cells.edges.remove(cells.faces.at(0).boundaryEdges.filter((e) => e.faces.length === 2).at(0));
@@ -468,22 +470,23 @@ describe('review of fe26c3f', () => {
     const m = material([[10, 10], [80, 20], [40, 70], [90, 90]]).points.set('tag', (p) => p.index);
     const all = voronoi(m.points, B);
     expect(all.faces.length).toBe(4);
-    expect(all.faces.map((f) => f.source.tag)).toEqual([0, 1, 2, 3]);
-    expect(m.points.has(all.faces.at(2).source)).toBe(true);
+    expect(all.faces.map((f) => sourceRow(m.points, f).tag)).toEqual([0, 1, 2, 3]);
+    expect(all.faces.at(2).source).toBe(m.points.at(2));
     const part = m.points.filter((p) => p.x < 85);
     const some = voronoi(part, B);
     expect(some.faces.length).toBe(3);
-    expect(some.faces.map((f) => f.source.index)).toEqual([0, 1, 2]); // row 3 is not a site of this construction
+    expect(some.faces.map((f) => sourceRow(part, f))).toEqual([...part]); // the fourth point is not a site of this construction
     expect(some.faces.at(1).area).toBeGreaterThan(0);
     // the same through the toolkit
     run((t) => {
       const c = t.voronoi(part, { within: [[[B.x, B.y], [B.x + B.w, B.y], [B.x + B.w, B.y + B.h], [B.x, B.y + B.h]]] });
-      expect(c.faces.at(0).source.index).toBe(0);
+      expect(c.faces.at(0).source).toBe(part.at(0));
       expect(c.faces.length).toBe(3);
     });
     // bare points are a new material: its rows are not the original's
     const bare = voronoi(m.points.map((p) => [p.x, p.y] as [number, number]), B);
-    expect(bare.faces.at(0).source.tag).toBeUndefined();
+    expect(bare.faces.at(0).source).not.toBe(m.points.at(0));
+    expect(Object.keys(bare.faces.at(0).source ?? {})).toEqual(['index', 'x', 'y']);
   });
 
   it('3. settle: a point hook overrides inherited child attributes; a record or a callback of the parent; bounded to declared columns', () => {
@@ -561,7 +564,7 @@ describe('review of fe26c3f', () => {
     expect(Object.isFrozen(r)).toBe(true);
     expect(Object.isFrozen(r.centroid)).toBe(true);
     expect(() => { (r as unknown as { integral: number }).integral = 123; }).toThrow();
-    expect(measured.faces.map((f) => f.source.index)).toEqual([0, 1, 2]);
+    expect(measured.faces.map((f) => f.source)).toEqual(cells.faces.map((f) => f.source));
     expect(measured.faces.at(0).integral).toBe(r.integral);
     const bare = cells.faces.measure().faces.at(1);
     expect(Object.isFrozen(bare)).toBe(true);
@@ -576,7 +579,7 @@ describe('review of fe26c3f', () => {
     expect(Array.from(mixed.dens).filter((v) => v === 0).length).toBe(mixed.dens.length / 2);
     const cells = voronoi([[25, 50], [75, 50]], B);
     const m = cells.faces.measure((x) => (x < 50 ? Infinity : 0.5));
-    const left = m.faces.find((f) => f.source.index === 0);
+    const left = m.faces.find((f) => f.source === cells.faces.at(0).source);
     for (const r of m.faces) if (r.centroid[0] < 50) expect(r.samples).toBe(0); else expect(r.mean).toBeCloseTo(0.5, 6);
     expect(left).toBeDefined();
   });

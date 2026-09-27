@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { sketch, line, polygon, rect, fill, strokes, pen, mm, type Toolkit } from '../src/index.js';
 import { initOcclude, render, renderAsync, evalPrim, type RenderResult } from '../src/host.js';
 import { box, plane, sphere, view, orthographic } from '../src/three/api/index.js';
-import type { ProjectedLines } from '../src/three/api/projected.js';
+import type { ProjectedCurve, ProjectedLines } from '../src/three/api/projected.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -79,9 +79,9 @@ describe('views', () => {
     let seen: ProjectedLines | undefined;
     const ball = sphere(1, { segments: 24, rings: 12 });
     const callback = await renderAsync(sketch({ aspect: [1, 1], pens }, () => view(ball, { camera, pen: 'black' }, (lines) => { seen = lines; return strokes(lines.visible, { stroke: 'black' }); })), { paper: 'Square20' });
-    const fold = (r: ProjectedLines['visible']['rows'][number]) => r.kinds.has('crease') && r.kinds.size === 1;
-    expect(seen!.visible.rows.filter(fold).every((r) => r.feature.creaseAngle >= 30)).toBe(true);
-    expect(seen!.hidden.rows.filter(fold).every((r) => r.feature.creaseAngle >= 30)).toBe(true);
+    const fold = (r: ProjectedCurve) => r.kinds.has('crease') && r.kinds.size === 1;
+    expect(seen!.visible.filter(fold).every((r) => r.feature.creaseAngle >= 30)).toBe(true);
+    expect(seen!.hidden.filter(fold).every((r) => r.feature.creaseAngle >= 30)).toBe(true);
     // The callback's lines are the default ink's lines.
     const plain = await renderAsync(sketch({ aspect: [1, 1], pens }, () => view(ball, { camera, pen: 'black' })), { paper: 'Square20' });
     expect(callback.raw.prims).toEqual(plain.raw.prims);

@@ -50,8 +50,9 @@ describe('tagDraws', () => {
 
 describe('addressed draws at run time', () => {
   let last!: Execution;
-  const run = (seed: string, body: (t: Toolkit, drawAt: DrawHook) => number[]) => {
-    let out: number[] = [];
+  // What the draws answered, in order (`t.pick` answers `T | undefined`).
+  const run = (seed: string, body: (t: Toolkit, drawAt: DrawHook) => (number | undefined)[]) => {
+    let out: (number | undefined)[] = [];
     last = new Execution(A4);
     compileSketch(sketch({ seed }, (t) => { out = body(t, last.drawAt); return circle(50, 50, 10); }), last);
     return out;

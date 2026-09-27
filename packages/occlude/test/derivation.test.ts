@@ -1,18 +1,15 @@
 import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { circle, curve, line, material, type Edge, type Material, type Vertex } from '../src/index.js';
+import { circle, curve, line, material, type Material } from '../src/index.js';
 import { ownedBy } from '../src/views.js';
 import { toolkit } from './helpers/run.js';
 import { onEdge } from './helpers/shapes.js';
+import { sourceRow } from './helpers/source.js';
 
 // The collector, for the retention contract.
 setFlagsFromString('--expose-gc');
 const gc = runInNewContext('gc') as () => void;
-
-// `source` is typed by the view; a test reads it as the row it is.
-const edgeUnder = (p: Vertex): Edge | undefined => p.source as unknown as Edge | undefined;
-const parentOf = (p: Vertex): Vertex | undefined => p.source as unknown as Vertex | undefined;
 
 describe('t.sample keeps its rule: u and source', () => {
   it('a sampled circle: u is the arc-length fraction from the start, a ring stops short of 1', () => {
@@ -37,18 +34,17 @@ describe('t.sample keeps its rule: u and source', () => {
     const beads = t.sample(square.curves.at(0)!, { count: 16 });
     expect(beads.points.map((p) => p.u)).toEqual(Array.from({ length: 16 }, (_, k) => k / 16));
     for (const p of beads.points) {
-      const e = edgeUnder(p)!;
-      expect(e).toBeDefined();
       // A row of the input value, and the one under the sample.
+      const e = sourceRow(square.edges, p);
       expect(ownedBy(e, square)).toBe(true);
       expect(onEdge(p, e)).toBe(true);
     }
     // Four samples a side, in order round the ring: the edges in turn. A
     // sample on a corner ends the edge that leads to it, as the walk
     // places it.
-    expect(beads.points.map((p) => edgeUnder(p)!.index)).toEqual([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3]);
+    expect(beads.points.map((p) => sourceRow(square.edges, p).index)).toEqual([0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3]);
     // One row, one value: the source is the input's own view of the edge.
-    expect(edgeUnder(beads.points.at(1)!)).toBe(square.edges.at(0));
+    expect(beads.points.at(1)!.source).toBe(square.edges.at(0));
   });
 
   it('a face and a selection of curves name edges of the geometry they belong to', () => {
@@ -57,12 +53,13 @@ describe('t.sample keeps its rule: u and source', () => {
     const face = cells.faces.at(1)!;
     const beads = t.sample(face, { count: 24 });
     for (const p of beads.points) {
-      expect(ownedBy(edgeUnder(p)!, cells)).toBe(true);
-      expect(onEdge(p, edgeUnder(p)!)).toBe(true);
+      const e = sourceRow(cells.edges, p);
+      expect(ownedBy(e, cells)).toBe(true);
+      expect(onEdge(p, e)).toBe(true);
     }
     const rings = curve([[10, 10], [60, 10], [60, 60]], { closed: true });
     const along = t.sample(rings.curves, { count: 9 });
-    expect(along.points.map((p) => edgeUnder(p)!.index)).toEqual([0, 0, 0, 1, 1, 1, 2, 2, 2]);
+    expect(along.points.map((p) => sourceRow(rings.edges, p).index)).toEqual([0, 0, 0, 1, 1, 1, 2, 2, 2]);
   });
 
   it('a selection of edges is geometry too; a closing chord no edge makes names none', () => {
@@ -74,7 +71,7 @@ describe('t.sample keeps its rule: u and source', () => {
     const named = beads.points.filter((p) => p.source !== undefined);
     expect(named.length).toBeGreaterThan(0);
     expect(named.length).toBeLessThan(12);
-    for (const p of named) expect(onEdge(p, edgeUnder(p)!)).toBe(true);
+    for (const p of named) expect(onEdge(p, sourceRow(hook.edges, p))).toBe(true);
     for (const p of beads.points.filter((q) => q.source === undefined)) expect(p.x - 10).toBeCloseTo(p.y - 10, 9);
   });
 
@@ -116,12 +113,11 @@ describe('the point words keep their rule', () => {
     const settled = t.settle(cloud, { density: dense, spacing: 4, iterations: 6 });
     expect(settled.n).toBeGreaterThan(cloud.n); // children were born
     for (const p of settled.points) {
-      const from = parentOf(p)!;
-      expect(from).toBeDefined();
+      const from = sourceRow(cloud.points, p);
       expect(ownedBy(from, cloud)).toBe(true);
     }
     // Several children of one parent: many rows share one source row.
-    const parents = new Set(settled.points.map((p) => parentOf(p)!.index));
+    const parents = new Set(settled.points.map((p) => sourceRow(cloud.points, p).index));
     expect(parents.size).toBeLessThan(settled.n);
   });
 
@@ -131,7 +127,7 @@ describe('the point words keep their rule', () => {
     const left = cloud.points.filter((p) => p.x < 50);
     const settled = t.settle(left, { density: () => 1, spacing: 6, iterations: 3 });
     for (const p of settled.points) {
-      const from = parentOf(p)!;
+      const from = sourceRow(cloud.points, p);
       expect(ownedBy(from, cloud)).toBe(true);
       expect(from.x).toBeLessThan(50);
     }

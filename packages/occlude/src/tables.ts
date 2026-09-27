@@ -37,7 +37,7 @@ import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
 import type { Space } from './space.js';
 import { ownerOf, pairKey, viewKind, valueKind, valueProto, describe } from './views.js';
-import { Column, at64, atU32, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type AnyWriter, type ColumnWriter, type StringColumn } from './column.js';
+import { Column, LEAF, at64, atU32, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type AnyWriter, type ColumnWriter, type StringColumn } from './column.js';
 import { isPlacement, type Placement } from './placement.js';
 import { carryLinks, derivation, linkRows, record, type Made } from './derivation.js';
 
@@ -123,26 +123,48 @@ const FACE_WORDS = [
  * no column may take: a column reads flat on the row, beside them. The one
  * list per kind: every write, `point`, `edge`, the lattice and the
  * material's constructor ask `checkColumnName`. A lattice face is a face
- * with its grid place and its stencil. A word the row lets a column stand
- * in for — a point's `u`, `tangent`, `normal`, `placement`, `s`, `heading`
- * — is not here: a column of that name is what the row reads, on every
- * view of it. A point's `x` and `y` are its position: `points.set` writes
- * them, and a new point gives them as its place.
+ * with its grid place and its stencil. A point's `placement` is a call
+ * (`p.placement()`), which a column of that name would hide. A point's `u`
+ * and `heading` are words a column may stand in for: a column of that name
+ * is what the row reads, on every view of it (a curve's included), so one
+ * row has one answer — `t.sample` links its `u`, and a sketch sets a
+ * `heading` to turn what it places at a point. A point's `x` and `y` are
+ * its position: `points.set` writes them, and a new point gives them as
+ * its place.
  */
 const RESERVED: Readonly<Record<RowKind, ReadonlySet<string>>> = {
-  point: new Set(['index', 'id', 'source', 'adjacent', 'edges', 'faces', 'corners']),
+  point: new Set(['index', 'id', 'source', 'adjacent', 'edges', 'faces', 'corners', 'placement']),
   edge: new Set(['index', 'id', 'source', 'a', 'b', 'length', 'root', 'center', 'adjacent', 'faces']),
   face: new Set(FACE_WORDS),
   corner: new Set(['index', 'id', 'source', 'point', 'face']),
   'lattice face': new Set([...FACE_WORDS, 'i', 'j', 'laplacian']),
 };
 
-/** @internal Every name a kind of row owns (a test reads it). */
-export const reservedNames = (kind: RowKind): readonly string[] => [...RESERVED[kind]];
+/**
+ * The words a point DERIVES: `s`, its arc length along a curve, its unit
+ * `tangent` and its `normal`. The library works them out — a curve's view
+ * of its points, and `along`, which keeps the ones it works out as
+ * columns (the constructor, which builds its answer, does not ask) — and a
+ * sketch never writes them: `points.set`, `point`, `points.add` and the
+ * columns `material` is given refuse them by name (`checkWrittenName`),
+ * and a row that a new row is read from leaves them behind.
+ */
+export const DERIVED_POINT_WORDS: ReadonlySet<string> = new Set(['s', 'tangent', 'normal']);
 
 /** Refuse a column name a kind of row owns, by name. */
 export function checkColumnName(kind: RowKind, name: string, who: string): void {
-  if (RESERVED[kind].has(name)) throw new Error(`${who}: '${name}' is a reserved field of ${kind === 'lattice face' || kind === 'face' ? 'a face' : kind === 'edge' ? 'an edge' : `a ${kind}`}, not a column`);
+  if (RESERVED[kind].has(name)) throw reserved(kind, name, who);
+}
+
+/** Refuse a column name a sketch's write may not take: one a kind of row
+ * owns, and for a point one it derives. */
+export function checkWrittenName(kind: RowKind, name: string, who: string): void {
+  if (kind === 'point' && DERIVED_POINT_WORDS.has(name)) throw reserved(kind, name, who);
+  checkColumnName(kind, name, who);
+}
+
+function reserved(kind: RowKind, name: string, who: string): Error {
+  return new Error(`${who}: '${name}' is a reserved field of ${kind === 'lattice face' || kind === 'face' ? 'a face' : kind === 'edge' ? 'an edge' : `a ${kind}`}, not a column`);
 }
 
 /** Refuse a column name a NEW row may not give: a reserved name, and for a
@@ -792,13 +814,14 @@ function columnsOf(v: object, own: readonly string[]): Record<string, unknown> {
   return out;
 }
 
-/** A new row's columns as a record, checked: no name the row owns, and
- * each value one a column holds (see `CellValue`). */
+/** A new row's columns as a sketch gives them, checked: no name the row
+ * owns or derives, and each value one a column holds (see `CellValue`). */
 function checkColumns(cols: unknown, kind: 'point' | 'edge', who: string): Record<string, CellValue> {
   if (cols === undefined) return {};
   if (typeof cols !== 'object' || cols === null || Array.isArray(cols)) throw new Error(`${who}: the columns of a new ${kind} are a record, { name: value } — got ${describe(cols)}`);
   for (const name in cols) {
     checkNewColumnName(kind, name, who);
+    checkWrittenName(kind, name, who);
     const v = (cols as Record<string, unknown>)[name];
     if (v !== undefined && kindOfValue(v) === undefined) throw notACell(who, name, v);
   }
@@ -1380,7 +1403,7 @@ export function readSet<V>(args: readonly unknown[], table: WriteTable, who: str
   }
   const names = Object.keys(values);
   for (const name of names) {
-    checkColumnName(table.kind, name, who);
+    checkWrittenName(table.kind, name, who);
     const v = values[name];
     if (typeof v === 'function') continue;
     if (table.numbers ? typeof v !== 'number' : kindOfValue(v) === undefined) {
@@ -1421,7 +1444,9 @@ export function addPoints(m: Material, at: XY | PointEnd | Iterable<XY | PointEn
       const v = q as PointEnd;
       xs.push(v.x);
       ys.push(v.y);
-      records.push({ ...cols, ...columnsOf(v, ['index', 'x', 'y']) });
+      // A view's own columns, less the words its row derives (a curve's
+      // view of a point holds its `s`): the new row derives its own.
+      records.push({ ...cols, ...columnsOf(v, ['index', 'x', 'y', ...DERIVED_POINT_WORDS]) });
       ids.push(v.id);
     } else if (isPosition(q)) {
       xs.push(vx(q));
@@ -1497,21 +1522,29 @@ function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
 
 /** Which of `pairs` is an edge of `m` already, either way round — an
  * edge other than the rows a write takes the place of (`replaced`): one
- * pass over the edge list, leaf by leaf. A few pairs — a split's children,
+ * pass over the edge list, leaf by leaf. A pair with an end at or past
+ * `bare` — a point the write has just added, which no edge names yet — is
+ * no edge, so a write whose every pair has one (a split, a replace that
+ * welds nothing) reads no edge at all. A few pairs — a split's children,
  * an extrude — are compared directly; many go through a set of the asked
  * pairs, so the list is never keyed whole. */
-function existingPairs(m: Material, pairs: readonly (readonly [number, number])[], replaced: Uint8Array | null): Uint8Array {
+function existingPairs(m: Material, pairs: readonly (readonly [number, number])[], replaced: ReadonlySet<number> | null, bare: number): Uint8Array {
   const out = new Uint8Array(pairs.length);
   if (pairs.length === 0 || m.edgeCount === 0) return out;
+  const asks: number[] = [];
+  pairs.forEach(([a, b], k) => {
+    if (a >= 0 && b >= 0 && a !== b && a < bare && b < bare) asks.push(k);
+  });
+  if (asks.length === 0) return out;
   const leaves = m.store.edgeList.leaves();
-  const held = (at: number): boolean => replaced === null || replaced[at >>> 1] === 0;
-  if (pairs.length <= 8) {
+  const held = (at: number): boolean => replaced === null || !replaced.has(at >>> 1);
+  if (asks.length <= 8) {
     let base = 0;
     for (const leaf of leaves) {
       for (let j = 0; j < leaf.length; j += 2) {
         const u = leaf[j];
         const v = leaf[j + 1];
-        for (let k = 0; k < pairs.length; k++) {
+        for (const k of asks) {
           const [a, b] = pairs[k];
           if (((a === u && b === v) || (a === v && b === u)) && held(base + j)) out[k] = 1;
         }
@@ -1521,13 +1554,12 @@ function existingPairs(m: Material, pairs: readonly (readonly [number, number])[
     return out;
   }
   const asked = new Map<number, number[]>();
-  pairs.forEach(([a, b], k) => {
-    if (a < 0 || b < 0 || a === b) return;
-    const key = pairKey(a, b);
+  for (const k of asks) {
+    const key = pairKey(pairs[k][0], pairs[k][1]);
     const list = asked.get(key);
     if (list) list.push(k);
     else asked.set(key, [k]);
-  });
+  }
   let base = 0;
   for (const leaf of leaves) {
     for (let j = 0; j < leaf.length; j += 2) {
@@ -1553,7 +1585,9 @@ interface LandedEdges {
 
 /** Which new edge rows land on `m` (see `addEdgeRows`), read against its
  * columns; a pair that is only an edge of a `replaced` row is not there
- * already. Null when none lands. Ids are minted in the order asked. */
+ * already, and nor is a pair with an end at or past `bare` (see
+ * `existingPairs`). Null when none lands. Ids are minted in the order
+ * asked. */
 function landEdgeRows(
   m: Material,
   pairs: readonly (readonly [number, number])[],
@@ -1561,10 +1595,11 @@ function landEdgeRows(
   roots: readonly number[] | null,
   who: string,
   ids: readonly number[] | null,
-  replaced: Uint8Array | null,
+  replaced: ReadonlySet<number> | null,
+  bare: number,
 ): LandedEdges | null {
   const declared = m.store.edgeAttrNames;
-  const already = existingPairs(m, pairs, replaced);
+  const already = existingPairs(m, pairs, replaced, bare);
   const seen = new Set<number>();
   const held = new Set<number>();
   const keep: number[] = [];
@@ -1651,7 +1686,7 @@ export function addEdgeRows(
   who: string,
   ids: readonly number[] | null = null,
 ): Material {
-  const got = landEdgeRows(m, pairs, cols, roots, who, ids, null);
+  const got = landEdgeRows(m, pairs, cols, roots, who, ids, null, m.n);
   if (got === null) return m;
   return make(m, placeEdgeRows(m, pairs, got, got.keep.map(() => -1)));
 }
@@ -1666,10 +1701,14 @@ export function addEdgeRows(
  * leaf and the last — and every other edge keeps its row. A row none of
  * whose pieces lands is removed, and the rows after it move up. A piece is
  * skipped as `addEdgeRows` skips a row; a pair that is only the edge of a
- * swapped row is not an edge already.
+ * swapped row is not an edge already, and a pair with an end at or past
+ * `bare` (a point the write has just added) is none.
  *
  * Answers the new state and, for each of its edge rows that is a piece,
- * the row of `m` it is a piece of (a sparse list).
+ * the row of `m` it is a piece of (a sparse list). What it reads and
+ * writes is the swapped rows and their pieces, never a pass over every row
+ * but the one `existingPairs` makes for a piece between two points that
+ * were there.
  */
 function swapEdgeRows(
   m: Material,
@@ -1678,16 +1717,16 @@ function swapEdgeRows(
   roots: readonly number[] | null,
   of: readonly number[],
   who: string,
+  bare: number,
 ): { out: Material; from: number[] } {
-  const swapped = new Uint8Array(m.edgeCount);
-  for (const r of of) swapped[r] = 1;
-  const got = landEdgeRows(m, pairs, cols, roots, who, null, swapped);
-  const taken = new Uint8Array(m.edgeCount);
+  const swapped = new Set(of);
+  const got = landEdgeRows(m, pairs, cols, roots, who, null, swapped, bare);
+  const taken = new Set<number>();
   const into: number[] = [];
   for (const k of got?.keep ?? []) {
     const r = of[k];
-    into.push(taken[r] === 0 ? r : -1);
-    taken[r] = 1;
+    into.push(taken.has(r) ? -1 : r);
+    taken.add(r);
   }
   let out = got === null ? m : make(m, placeEdgeRows(m, pairs, got, into));
   // Sparse, as `linkMade` keeps it.
@@ -1696,8 +1735,7 @@ function swapEdgeRows(
   got?.keep.forEach((k, j) => {
     from[into[j] >= 0 ? into[j] : tail++] = of[k];
   });
-  const gone: number[] = [];
-  for (let r = 0; r < m.edgeCount; r++) if (swapped[r] === 1 && taken[r] === 0) gone.push(r);
+  const gone = [...swapped].filter((r) => !taken.has(r)).sort((a, b) => a - b);
   if (gone.length > 0) {
     out = removeEdgeRows(out, gone);
     const moved: number[] = [];
@@ -1949,7 +1987,7 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     roots.push(at64(edgeRoots, e), at64(edgeRoots, e));
     of.push(e, e);
   });
-  const { out, from } = swapEdgeRows(withPoints, pairs, childCols, roots, of, who);
+  const { out, from } = swapEdgeRows(withPoints, pairs, childCols, roots, of, who, m.n);
   // A new point and the two edges through it came from the edge it cut:
   // that edge's row of the value split was given.
   return linkMade(m, out, cut.map((c) => c.e), from, derivation('split', [m], { at }));
@@ -1991,46 +2029,119 @@ export interface ReplaceOpts {
  * below 1e-9 of it. */
 const WELD = 1e-9;
 
-/** The places `replace` has landed on: the state's own points first, then
- * every motif point it adds, each by its row in the result. Looked up in a
- * grid of cells sized to the state's shortest edge, so a weld is a handful
- * of compares. */
-class Landing {
-  private readonly cells = new Map<string, { x: number; y: number; row: number }[]>();
-  private readonly size: number;
+/**
+ * A full leaf of a position column, its rows in x order — the rows whose x
+ * is finite, as offsets into the leaf (a leaf is `LEAF` ≤ 2^16 rows): what
+ * `rowAt` searches, a few compares a leaf rather than a pass over its rows.
+ * Kept by the leaf, which is never written once a column holds it, so every
+ * state that shares the leaf shares its order: a run of replaces sorts a
+ * leaf once, and only the leaves a write made are sorted again.
+ */
+const BY_X = new WeakMap<Float64Array, Uint16Array>();
 
-  constructor(m: Material) {
-    const { x, y, edgeList } = m.store;
-    let shortest = Infinity;
-    for (let e = 0; e < m.edgeCount; e++) {
-      const a = atU32(edgeList, 2 * e);
-      const b = atU32(edgeList, 2 * e + 1);
-      const d = Math.hypot(at64(x, b) - at64(x, a), at64(y, b) - at64(y, a));
-      if (d > 0 && d < shortest) shortest = d;
+function byX(leaf: Float64Array): Uint16Array {
+  let order = BY_X.get(leaf);
+  if (order === undefined) {
+    const rows: number[] = [];
+    for (let j = 0; j < leaf.length; j++) if (Number.isFinite(leaf[j])) rows.push(j);
+    order = Uint16Array.from(rows).sort((a, b) => leaf[a] - leaf[b]);
+    BY_X.set(leaf, order);
+  }
+  return order;
+}
+
+/** The first row of `m`, oldest first, within `tol` of (x, y), or -1:
+ * each leaf whose x range reaches x, searched in its x order (`byX`); the
+ * last, partial leaf, which every append makes anew, row by row. */
+function rowAt(m: Material, x: number, y: number, tol: number): number {
+  const xs = m.store.x.leaves();
+  const ys = m.store.y.leaves();
+  for (let k = 0; k < xs.length; k++) {
+    const xl = xs[k];
+    const yl = ys[k];
+    let best = -1;
+    if (xl.length < LEAF) {
+      for (let j = 0; j < xl.length; j++) {
+        if (Math.hypot(xl[j] - x, yl[j] - y) <= tol) {
+          best = j;
+          break;
+        }
+      }
+    } else {
+      const order = byX(xl);
+      const n = order.length;
+      if (n === 0 || xl[order[0]] > x + tol || xl[order[n - 1]] < x - tol) continue;
+      let lo = 0;
+      let hi = n;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (xl[order[mid]] < x - tol) lo = mid + 1;
+        else hi = mid;
+      }
+      for (let i = lo; i < n && xl[order[i]] <= x + tol; i++) {
+        const j = order[i];
+        if ((best < 0 || j < best) && Math.hypot(xl[j] - x, yl[j] - y) <= tol) best = j;
+      }
     }
-    this.size = Number.isFinite(shortest) ? shortest : 1;
-    for (let i = 0; i < m.n; i++) this.add(at64(x, i), at64(y, i), i);
+    if (best >= 0) return k * LEAF + best;
+  }
+  return -1;
+}
+
+/**
+ * The places `replace` has landed on, by their rows in the result: the
+ * state's own points, and every motif point it adds. A point it adds goes
+ * in a grid of cells as long as the shortest edge replaced, so a weld reads
+ * the one cell — or the few — within reach of its place. The state's own
+ * points are found through their position leaves (`rowAt`), so a replace
+ * of a few edges reads what it touches, not every row — until it asks for
+ * more places than a leaf holds: then one pass that puts every row in the
+ * grid is the cheaper way.
+ */
+class Landing {
+  private readonly cells = new Map<number, Map<number, { x: number; y: number; row: number }[]>>();
+  private readonly whole: boolean;
+
+  constructor(private readonly m: Material, private readonly size: number, asks: number) {
+    this.whole = asks > LEAF;
+    if (!this.whole) return;
+    const xs = m.store.x.leaves();
+    const ys = m.store.y.leaves();
+    for (let k = 0; k < xs.length; k++) {
+      const xl = xs[k];
+      const yl = ys[k];
+      for (let j = 0; j < xl.length; j++) this.add(xl[j], yl[j], k * LEAF + j);
+    }
   }
 
   add(x: number, y: number, row: number): void {
-    const k = `${Math.floor(x / this.size)},${Math.floor(y / this.size)}`;
-    const cell = this.cells.get(k);
+    const i = Math.floor(x / this.size);
+    const j = Math.floor(y / this.size);
+    let column = this.cells.get(i);
+    if (column === undefined) this.cells.set(i, (column = new Map()));
+    const cell = column.get(j);
     if (cell) cell.push({ x, y, row });
-    else this.cells.set(k, [{ x, y, row }]);
+    else column.set(j, [{ x, y, row }]);
   }
 
   /** The first place within `tol` of (x, y), oldest first; -1 for none. */
   find(x: number, y: number, tol: number): number {
-    const ci = Math.floor(x / this.size);
-    const cj = Math.floor(y / this.size);
-    for (let i = ci - 1; i <= ci + 1; i++) {
-      for (let j = cj - 1; j <= cj + 1; j++) {
-        for (const held of this.cells.get(`${i},${j}`) ?? []) {
-          if (Math.hypot(held.x - x, held.y - y) <= tol) return held.row;
+    if (!this.whole) {
+      const own = rowAt(this.m, x, y, tol);
+      if (own >= 0) return own;
+    }
+    const size = this.size;
+    let best = -1;
+    for (let i = Math.floor((x - tol) / size), i1 = Math.floor((x + tol) / size); i <= i1; i++) {
+      const column = this.cells.get(i);
+      if (column === undefined) continue;
+      for (let j = Math.floor((y - tol) / size), j1 = Math.floor((y + tol) / size); j <= j1; j++) {
+        for (const held of column.get(j) ?? []) {
+          if ((best < 0 || held.row < best) && Math.hypot(held.x - x, held.y - y) <= tol) best = held.row;
         }
       }
     }
-    return -1;
+    return best;
   }
 }
 
@@ -2075,7 +2186,16 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
   });
   const rows = whereRows(edgesOf(m), edges, who);
   if (rows.length === 0) return m;
-  const landed = new Landing(m);
+  // The grid's cell: the shortest edge replaced.
+  const { x: X, y: Y, edgeList: list } = m.store;
+  let shortest = Infinity;
+  for (const row of rows) {
+    const a = atU32(list, 2 * row);
+    const b = atU32(list, 2 * row + 1);
+    const d = Math.hypot(at64(X, b) - at64(X, a), at64(Y, b) - at64(Y, a));
+    if (d > 0 && d < shortest) shortest = d;
+  }
+  const landed = new Landing(m, Number.isFinite(shortest) ? shortest : 1, rows.length * local.length);
   const xs: number[] = [];
   const ys: number[] = [];
   const cols: Record<string, unknown>[] = [];
@@ -2130,7 +2250,7 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
   }
   if (of.length === 0) return m;
   const withPoints = addPointRows(m, xs, ys, cols, null, who);
-  const { out, from } = swapEdgeRows(withPoints, pairs, pairCols, null, of, who);
+  const { out, from } = swapEdgeRows(withPoints, pairs, pairCols, null, of, who, m.n);
   return linkMade(m, out, pointFrom, from, derivation('replace', [m, motif], { flip }));
 }
 
