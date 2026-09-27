@@ -1315,14 +1315,37 @@ export function faceKeyOf(roots: Iterable<number>): string {
 }
 
 /**
- * @internal The key of every face a statement names, worked out from its
- * runs and the edges of `m` — the same keys `FaceTable.keys()` reads off
- * the incidence, without building the table: each face's walls are the
- * edges its runs pass that have another face (or none) on their other
- * side, each wall its lineage root. For faces that do not nest; a face
- * that holds others has none. A run side no edge joins keys nothing.
+ * @internal One id per face of one state, from the faces' keys in row
+ * order: the key, and where two faces have the same walls — a figure eight
+ * drawn as one subdivided edge — the later ones told apart by their place
+ * among them (`key#1`, `key#2`). What a face column is keyed by, and what
+ * `FaceTable.ids` answers.
  */
-export function statedFaceKeys(m: Material, cycles: StatedFaces['cycles']): string[] {
+export function faceIdsOf(keys: readonly string[]): FaceId[] {
+  const seen = new Map<string, number>();
+  return keys.map((key) => {
+    const k = seen.get(key) ?? 0;
+    seen.set(key, k + 1);
+    return (k === 0 ? key : `${key}#${k}`) as FaceId;
+  });
+}
+
+/** The walls of a face id: its key's lineage roots, as strings. */
+const wallsOf = (id: string): string[] => {
+  const hash = id.indexOf('#');
+  const key = hash < 0 ? id : id.slice(0, hash);
+  return key === '' ? [] : key.split(',');
+};
+
+/**
+ * @internal The id of every face a statement names, worked out from its
+ * runs and the edges of `m` — the same ids `FaceTable.ids()` reads off the
+ * incidence, without building the table: each face's walls are the edges
+ * its runs pass that have another face (or none) on their other side, each
+ * wall its lineage root. For faces that do not nest; a face that holds
+ * others has none. A run side no edge joins keys nothing.
+ */
+export function statedFaceIds(m: Material, cycles: StatedFaces['cycles']): FaceId[] {
   const list = m.store.edgeList;
   const roots = m.store.edgeRoots;
   const n = Math.max(1, m.n);
@@ -1350,7 +1373,7 @@ export function statedFaceKeys(m: Material, cycles: StatedFaces['cycles']): stri
     if (l >= 0) walls[l].push(root);
     if (r >= 0) walls[r].push(root);
   }
-  return walls.map(faceKeyOf);
+  return faceIdsOf(walls.map(faceKeyOf));
 }
 
 /**
@@ -1373,8 +1396,8 @@ export function statedColumns(
     edgeAt.set(edgeList[2 * e] * n + edgeList[2 * e + 1], e);
     edgeAt.set(edgeList[2 * e + 1] * n + edgeList[2 * e], e);
   }
-  const keys = cycles.map((runs) => faceKeyOf(runs.flatMap((run) => run.map((v, k) => edgeIds[edgeAt.get(v * n + run[(k + 1) % run.length])!]))));
-  const seen = new Set(keys);
+  const keys = faceIdsOf(cycles.map((runs) => faceKeyOf(runs.flatMap((run) => run.map((v, k) => edgeIds[edgeAt.get(v * n + run[(k + 1) % run.length])!])))));
+  const seen = new Set<string>(keys);
   const out: Record<string, FaceColumn> = {};
   for (const [name, value] of Object.entries(values)) {
     out[name] = { values: new Map(keys.map((key, f) => [key, value(f)])), transfer: 'nearest', seen };
@@ -1392,8 +1415,8 @@ export function statedColumns(
 export type FaceId = string & { readonly __faceId: unique symbol };
 
 /** Which faces a face write names: a face selection (of this state or an
- * earlier one), one face, or a predicate over the faces. */
-export type FaceWhere = Selection<Face> | Face | ((f: Face) => unknown) | undefined;
+ * earlier one), one face, a list of faces, or a predicate over the faces. */
+export type FaceWhere = Selection<Face> | Face | readonly Face[] | ((f: Face) => unknown) | undefined;
 
 /** The face write: a value or a function of the face, on these faces or
  * those `where` names, with the options record `{ transfer, fallback }`
@@ -1867,13 +1890,13 @@ export class FaceTable<F extends Face = Face> {
     for (const [name] of columns) carried.set(name, new Array<unknown>(views.length).fill(undefined));
     this.carried = carried;
     if (columns.length > 0) {
-      const keys = this.keys();
+      // By id: two faces with the same walls are two faces.
+      const keys = this.ids();
       // A face whose walls are unchanged finds its value by key. A face
       // whose boundary moved inherits from the old face it shares the most
       // walls with — that is what `'nearest'` means for a thing that has no
       // position of its own — and `'drop'` lets a column stop at a boundary
       // change rather than follow it.
-      const wallsOf = (key: string): string[] => (key === '' ? [] : key.split(','));
       // An index from WALL to the old keys that hold it, built once per
       // column. The straight reading — re-split every stored key for every
       // new face — is quadratic in the face count and was measured at
@@ -2100,15 +2123,7 @@ export class FaceTable<F extends Face = Face> {
    * walls are.
    */
   ids(): readonly FaceId[] {
-    if (this.keyBox.ids) return this.keyBox.ids;
-    const seen = new Map<string, number>();
-    const ids = this.keys().map((key) => {
-      const k = seen.get(key) ?? 0;
-      seen.set(key, k + 1);
-      return (k === 0 ? key : `${key}#${k}`) as FaceId;
-    });
-    this.keyBox.ids = ids;
-    return ids;
+    return (this.keyBox.ids ??= faceIdsOf(this.keys()));
   }
 
   /** The face row an id is at in this state, or -1 when no face here has

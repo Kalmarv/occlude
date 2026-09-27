@@ -32,7 +32,7 @@ import { chainsOf } from './curves.js';
 import { pointDomain, edgeDomain, isPointSelection, isEdgeSelection } from './relation.js';
 import { faceTableOf, type Face, type FaceTable, type StatedFaces } from './faces.js';
 import { RESERVED_CORNER_FIELDS, type Corner, type CornerDomain } from './corners.js';
-import { Selection, rowsIn } from './selection.js';
+import { Selection, rowsIn, memberRow, type Domain } from './selection.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
 import type { Space } from './space.js';
@@ -68,10 +68,11 @@ export type EdgeRowSpec = readonly [PointEnd | undefined, PointEnd | undefined];
 export type EdgeEnd = EdgeValue | Edge;
 
 /** Which point rows a `where` names: a point selection (of this state or an
- * earlier one), one point value or vertex, or a predicate over the rows. */
-export type PointWhere = Selection<Vertex> | PointEnd | ((p: Vertex) => unknown) | undefined;
-/** Which edge rows a `where` names, the same three ways. */
-export type EdgeWhere = Selection<Edge> | EdgeEnd | ((e: Edge) => unknown) | undefined;
+ * earlier one), one point value or vertex, a list of them, or a predicate
+ * over the rows. */
+export type PointWhere = Selection<Vertex> | PointEnd | readonly PointEnd[] | ((p: Vertex) => unknown) | undefined;
+/** Which edge rows a `where` names, the same four ways. */
+export type EdgeWhere = Selection<Edge> | EdgeEnd | readonly EdgeEnd[] | ((e: Edge) => unknown) | undefined;
 
 /** A column value: one value for every row, or one per row from its
  * view (see `CellValue` for the kinds; a function that answers nothing
@@ -80,8 +81,8 @@ export type ColumnValue<V> = CellValue | ((row: V) => CellValue | undefined);
 
 /** What a displacement in `move` may be: a vector, a function of the point,
  * or a force that the move prepares from the graph. A vector with a third
- * number moves `z` too — `[dx, dy, dz]` or `{ x, y, z }` — and gives a
- * value that had none a `z` column. */
+ * number moves `z` too — `[dx, dy, dz]` or `{ x, y, z }`, a third number
+ * of 0 included — and gives a value that had none a `z` column. */
 export type Displacement = XY | readonly [number, number, number] | ((p: Vertex) => XY | readonly [number, number, number]) | GraphForce;
 
 /** How a point column crosses a split, a resample or a replace: the
@@ -191,6 +192,18 @@ function build(m: Material, p: Parts, carry: Carry): Material {
   });
 }
 
+/** The area of `m` for a new state whose rows are where `m`'s are — a
+ * column write, a face or corner write, a step of `t.steps` — when `m`
+ * has one of its own (a level set: see `areaMaterial`): the one built
+ * already, or the rule that builds it. A write that moves, adds or
+ * removes rows leaves it behind, and the new state's area is its own
+ * closed chains. */
+function keptArea(m: Material): (() => Material) | undefined {
+  const box = m.areaBox;
+  const built = box.material;
+  return built !== null ? () => built : box.make ?? undefined;
+}
+
 /**
  * @internal A new state of `m`: its columns, shared, with `changes` in
  * place of the ones a verb made anew, and what it hands on (`carry`, by
@@ -210,7 +223,7 @@ export function rebuild(m: Material, changes: Partial<Parts> = {}, carry: Carry 
  * links the start carried and drops the ones a pass made
  * (`carryRunLinks`): a run does not hold every state it passed through. */
 export function restamp(m: Material, iteration: number, history: readonly Material[] = [], start?: unknown): Material {
-  const out = build(m, partsOf(m), { iteration, history });
+  const out = build(m, partsOf(m), { iteration, history, area: keptArea(m) });
   return start === undefined ? carryLinks(m, out) : carryRunLinks(m, out, start);
 }
 
@@ -822,8 +835,9 @@ const describe = (v: unknown): string => {
   return typeof v;
 };
 
-/** The point rows a selection or a member names in `m`, ascending. A
- * selection of an earlier state is read by identity; nothing is none. */
+/** The point rows a selection, a member or a list of members names in
+ * `m`. A selection of an earlier state is read by identity; nothing is
+ * none. */
 export function pointRowsOf(m: Material, what: unknown, who: string): number[] {
   if (what === undefined || what === null) return [];
   if (isPointSelection(what)) {
@@ -831,11 +845,13 @@ export function pointRowsOf(m: Material, what: unknown, who: string): number[] {
     return [...rowsIn(pointDomain(m), what, who)];
   }
   if (isEdgeSelection(what)) throw new Error(`${who}: expected points — a point selection or a vertex — got an edge selection; its points are sel.points`);
+  if (Array.isArray(what)) return listRows(pointDomain(m), what, who);
   const row = pointRow(m, what, who);
   return row < 0 ? [] : [row];
 }
 
-/** The edge rows a selection or a member names in `m`, ascending. */
+/** The edge rows a selection, a member or a list of members names in
+ * `m`. */
 export function edgeRowsOf(m: Material, what: unknown, who: string): number[] {
   if (what === undefined || what === null) return [];
   if (isEdgeSelection(what)) {
@@ -843,8 +859,26 @@ export function edgeRowsOf(m: Material, what: unknown, who: string): number[] {
     return [...rowsIn(edgeDomain(m), what, who)];
   }
   if (isPointSelection(what)) throw new Error(`${who}: expected edges — an edge selection or an edge — got a point selection; the edges among its points are sel.edges`);
+  if (Array.isArray(what)) return listRows(edgeDomain(m), what, who);
   const row = edgeRow(m, what, who);
   return row < 0 ? [] : [row];
+}
+
+/** The rows a list of members names, each once, in the order given, each
+ * found as `rows` finds it: what is not a member of the domain refused by
+ * name, a gone one skipped, one of an unrelated geometry refused. */
+function listRows<Row>(d: Domain<Row>, list: readonly unknown[], who: string): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const v of list) {
+    if (v === undefined || v === null) continue;
+    const r = memberRow(d, v, who);
+    if (r >= 0 && !seen.has(r)) {
+      seen.add(r);
+      out.push(r);
+    }
+  }
+  return out;
 }
 
 /** The rows `where` names among `members` (null: every row of `m`). */
@@ -1263,7 +1297,10 @@ function setRows<V>(
     else if (domain === 'points' && name === 'y') p.y = done as Column;
     else cols[name] = done;
   });
-  if (transfer === undefined) return make(m, p);
+  // A write of columns keeps the rows where they are, and so a level set's
+  // area; a write of a position moves them.
+  const area = domain === 'points' && names.some((name) => name === 'x' || name === 'y' || name === 'z') ? undefined : keptArea(m);
+  if (transfer === undefined) return make(m, p, { area });
   for (const sink of sinks) {
     const t = transfer[sink.name];
     if (t !== undefined) checkPolicy(who, sink.name, sink.kind, t);
@@ -1277,8 +1314,8 @@ function setRows<V>(
     else policies[name] = t;
   }
   return domain === 'points'
-    ? make(m, p, { transfers: policies as Record<string, TransferPolicy> })
-    : make(m, p, { edgeTransfers: policies as Record<string, EdgeTransfer> });
+    ? make(m, p, { transfers: policies as Record<string, TransferPolicy>, area })
+    : make(m, p, { edgeTransfers: policies as Record<string, EdgeTransfer>, area });
 }
 
 /** A write over `rows` (null: every row): each column's value worked out
@@ -1292,11 +1329,16 @@ function writeRows<V>(rows: readonly number[] | null, count: number, fns: readon
   // again only when a slow value changed it: the dense array, or the writer.
   const outs: (Float64Array | null)[] = [];
   const nums: (ColumnWriter<Float64Array> | null)[] = [];
+  // A new column's kind is a guess until a value lands: the first number
+  // that lands settles it as numbers, so a later value of another kind is
+  // refused by name whichever comes first.
+  const open: boolean[] = [];
   const refresh = (k: number): void => {
     const sink = sinks[k];
     const numeric = sink.kind === kinds.number;
     outs[k] = numeric ? sink.out : null;
     nums[k] = numeric ? sink.num : null;
+    open[k] = sink.open;
   };
   for (let k = 0; k < width; k++) refresh(k);
   for (let r = 0; r < n; r++) {
@@ -1306,6 +1348,10 @@ function writeRows<V>(rows: readonly number[] | null, count: number, fns: readon
       const f = fns[k];
       const value = typeof f === 'function' ? (f as (row: V) => unknown)(v) : f;
       if (typeof value === 'number' && Number.isFinite(value)) {
+        if (open[k]) {
+          sinks[k].settle();
+          open[k] = false;
+        }
         const out = outs[k];
         if (out !== null) {
           out[i] = value;
@@ -1409,11 +1455,12 @@ export function setPoints(m: Material, members: readonly number[] | null, args: 
 }
 
 /** One edge row a write asks for: its ends, the id it names (NaN: mint
- * one), and its own columns. */
+ * one), its lineage root (-1: its own) and its own columns. */
 interface EdgeAsk {
   readonly a: unknown;
   readonly b: unknown;
   readonly id: number;
+  readonly root: number;
   readonly cols: Readonly<Record<string, unknown>>;
 }
 
@@ -1422,11 +1469,14 @@ interface EdgeAsk {
 function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
   if (rows === undefined || rows === null) return [];
   const asEdge = (r: unknown): EdgeAsk | null => {
-    if (isEdgeValue(r)) return { a: r.a, b: r.b, id: r.id, cols: columnsOf(r, []) };
+    if (isEdgeValue(r)) return { a: r.a, b: r.b, id: r.id, root: -1, cols: columnsOf(r, []) };
     if (viewKind(r) === 'edge') {
+      // A view of an edge is that edge: added back, it is the wall it was,
+      // with the lineage the faces through it are keyed by.
       const e = r as Edge;
       const owner = ownerOfView(e);
-      return { a: e.a, b: e.b, id: e.id, cols: owner instanceof Material ? edgeCells(owner, e.index) : {} };
+      if (!(owner instanceof Material)) return { a: e.a, b: e.b, id: e.id, root: -1, cols: {} };
+      return { a: e.a, b: e.b, id: e.id, root: at64(owner.store.edgeRoots, e.index), cols: edgeCells(owner, e.index) };
     }
     return null;
   };
@@ -1438,14 +1488,14 @@ function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
   // value, a view, nothing, or a wrong end (a number, a { x, y }) that the
   // reference check then refuses by name.
   const endLike = (v: unknown) => v === undefined || v === null || typeof v === 'number' || isPointValue(v) || viewKind(v) === 'vertex' || (isPosition(v) && !Array.isArray(v));
-  if (rows.length === 2 && (endLike(rows[0]) || endLike(rows[1]))) return [{ a: rows[0], b: rows[1], id: NaN, cols: {} }];
+  if (rows.length === 2 && (endLike(rows[0]) || endLike(rows[1]))) return [{ a: rows[0], b: rows[1], id: NaN, root: -1, cols: {} }];
   const out: EdgeAsk[] = [];
   for (const r of rows) {
     if (r === undefined || r === null) continue;
     const e = asEdge(r);
     if (e) out.push(e);
     else if (isPosition(r)) throw referenceError(who, r);
-    else if (Array.isArray(r) && r.length === 2) out.push({ a: r[0], b: r[1], id: NaN, cols: {} });
+    else if (Array.isArray(r) && r.length === 2) out.push({ a: r[0], b: r[1], id: NaN, root: -1, cols: {} });
     else throw new Error(`${who}: an edge row is a pair [a, b] or an edge value — got ${describe(r)}`);
   }
   return out;
@@ -1553,7 +1603,7 @@ export function addEdges(m: Material, rows: unknown, cols: Readonly<Record<strin
   const who = 'edges.add';
   const asks = edgeAsks(rows, who);
   const pairs = asks.map(({ a, b }) => [pointRow(m, a, who), pointRow(m, b, who)] as const);
-  return addEdgeRows(m, pairs, asks.map((e) => ({ ...cols, ...e.cols })), null, who, asks.map((e) => e.id));
+  return addEdgeRows(m, pairs, asks.map((e) => ({ ...cols, ...e.cols })), asks.map((e) => e.root), who, asks.map((e) => e.id));
 }
 
 /** @internal Remove edge rows; their points stay. */
@@ -1593,8 +1643,10 @@ function faceRowsWhere(sel: Selection<Face>, members: readonly number[], where: 
   } else if (viewKind(where) === 'face') {
     const row = sel.domain.rowOf(where, who);
     rows = row < 0 ? [] : [row];
+  } else if (Array.isArray(where)) {
+    rows = listRows(sel.domain, where, who);
   } else {
-    throw new Error(`${who}: a where is a face selection, one face, or a test of the face — got ${describe(where)}`);
+    throw new Error(`${who}: a where is a face selection, one face, a list of faces, or a test of the face — got ${describe(where)}`);
   }
   const named = new Set(rows);
   return members.filter((r) => named.has(r));
@@ -1678,7 +1730,8 @@ export function writeFaceColumns(
 ): Material {
   const who = 'faces.set';
   const m = cells.source;
-  const keys = cells.keys();
+  // By id: two faces with the same walls are two faces.
+  const keys = cells.ids();
   const next: Record<string, FaceColumn> = { ...m.faceAttrs };
   for (const name of Object.keys(columns)) {
     if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a face, not a column`);
@@ -1722,7 +1775,7 @@ export function writeFaceColumns(
       ...(finalKind === kinds.number ? {} : { kind: finalKind }),
     };
   }
-  return make(m, partsOf(m), { faceAttrs: next });
+  return make(m, partsOf(m), { faceAttrs: next, area: keptArea(m) });
 }
 
 // ---- the corner write -----------------------------------------------------------------
@@ -1758,7 +1811,7 @@ export function writeCorners(sel: Selection<Corner>, args: readonly unknown[]): 
     } else if (where === undefined || where === null) {
       rows = [];
     } else {
-      const named = new Set(where instanceof Selection ? sel.operand(where, 'set') : [d.rowOf(where, who)]);
+      const named = new Set(where instanceof Selection ? sel.operand(where, 'set') : Array.isArray(where) ? listRows(d, where, who) : [d.rowOf(where, who)]);
       rows = members.filter((c) => named.has(c));
     }
   }
@@ -1769,7 +1822,7 @@ export function writeCorners(sel: Selection<Corner>, args: readonly unknown[]): 
   const fns = names.map((name) => values[name]);
   writeRows(rows, d.size, fns, (i: number) => d.row(i), sinks);
   names.forEach((name, k) => { cols[name] = sinks[k].done(); });
-  return make(m, partsOf(m), { faces: { ...stated, corners: Object.freeze(cols) } });
+  return make(m, partsOf(m), { faces: { ...stated, corners: Object.freeze(cols) }, area: keptArea(m) });
 }
 
 // ---- recipes -------------------------------------------------------------------------
@@ -1820,7 +1873,9 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
   if (typeof at !== 'number' && typeof at !== 'function') throw new Error(`${who}: at is a number along the edge, or a function of the edge — got ${typeof at}`);
   const rows = edgeRowsOf(m, edges, who);
   const { x: X, y: Y, edgeList: list, edgeRoots } = m.store;
-  const cut: { e: number; t: number }[] = [];
+  // Each cut, decided before any row is numbered: its place, the new
+  // point's columns and the two children's.
+  const cut: { e: number; x: number; y: number; point: Record<string, unknown>; children: [Record<string, unknown>, Record<string, unknown>] }[] = [];
   const view = typeof at === 'function' ? edgeReader(m, rows.length) : null;
   for (const e of rows) {
     const asked = view === null ? (at as number) : (at as (e: Edge) => number)(view(e));
@@ -1833,31 +1888,27 @@ export function split(m: Material, edges: unknown, at: number | ((e: Edge) => nu
     const b = atU32(list, 2 * e + 1);
     const x = at64(X, a) + (at64(X, b) - at64(X, a)) * t;
     const y = at64(Y, a) + (at64(Y, b) - at64(Y, a)) * t;
-    if (Number.isFinite(x) && Number.isFinite(y)) cut.push({ e, t });
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    // A point column crosses by its policy, and the children share the
+    // edge's columns. A cut whose point or child would not land — a column
+    // that is not finite at an end — leaves the edge as it is, as a place
+    // that is not finite does.
+    const point = cellsBetween(m, a, b, t);
+    const children: [Record<string, unknown>, Record<string, unknown>] = [edgeCells(m, e, t), edgeCells(m, e, 1 - t)];
+    if (landsRecord(point) && landsRecord(children[0]) && landsRecord(children[1])) cut.push({ e, x, y, point, children });
   }
   if (cut.length === 0) return m;
-  const xs: number[] = [];
-  const ys: number[] = [];
-  const cols: Record<string, unknown>[] = [];
-  for (const { e, t } of cut) {
-    const a = atU32(list, 2 * e);
-    const b = atU32(list, 2 * e + 1);
-    xs.push(at64(X, a) + (at64(X, b) - at64(X, a)) * t);
-    ys.push(at64(Y, a) + (at64(Y, b) - at64(Y, a)) * t);
-    // A point column crosses by its policy.
-    cols.push(cellsBetween(m, a, b, t));
-  }
-  const withPoints = addPointRows(m, xs, ys, cols, null, who);
+  const withPoints = addPointRows(m, cut.map((c) => c.x), cut.map((c) => c.y), cut.map((c) => c.point), null, who);
   const without = removeEdgeRows(withPoints, cut.map((c) => c.e));
   const pairs: [number, number][] = [];
   const childCols: Record<string, unknown>[] = [];
   const roots: number[] = [];
-  cut.forEach(({ e, t }, k) => {
+  cut.forEach(({ e, children }, k) => {
     const a = atU32(list, 2 * e);
     const b = atU32(list, 2 * e + 1);
     const mid = m.n + k;
     pairs.push([a, mid], [mid, b]);
-    childCols.push(edgeCells(m, e, t), edgeCells(m, e, 1 - t));
+    childCols.push(...children);
     roots.push(at64(edgeRoots, e), at64(edgeRoots, e));
   });
   const out = addEdgeRows(without, pairs, childCols, roots, who);
@@ -2013,10 +2064,15 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
     const places = local.map(([along, off]) => [e.a.x + along * ex - off * across * ey, e.a.y + along * ey + off * across * ex] as const);
     // An edge whose motif does not land on finite places is left as it is.
     if (!places.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))) continue;
-    gone.push(row);
     // A motif point stands between the edge's ends, so it takes their
     // columns the way a split point does, and each piece an equal share.
+    // What lands is decided before any row is numbered: an edge whose
+    // points or pieces would not land — a column that is not finite at an
+    // end — is left as it is too.
     const child = edgeCells(m, row, 1 / (local.length + 1));
+    const cells = local.map(([along]) => cellsBetween(m, e.a.index, e.b.index, along));
+    if (!landsRecord(child) || !cells.every(landsRecord)) continue;
+    gone.push(row);
     // Two positions this close are one place worked out twice: the motifs
     // of two walls that meet at a tip, or a tip on a corner.
     const tol = WELD * Math.hypot(ex, ey);
@@ -2027,7 +2083,7 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
         at = m.n + xs.length;
         xs.push(x);
         ys.push(y);
-        cols.push(cellsBetween(m, e.a.index, e.b.index, local[k][0]));
+        cols.push(cells[k]);
         pointFrom.push(row);
         landed.add(x, y, at);
       }
@@ -2064,7 +2120,10 @@ export function move(m: Material, args: readonly unknown[]): Material {
   let parts = args;
   let rows: number[] | null = null;
   const last = args[args.length - 1];
-  if (args.length > 0 && (last === undefined || last === null || last instanceof Selection || isPointValue(last) || viewKind(last) !== undefined)) {
+  // Which points move: a selection, one point, or a list of them — a list
+  // of points, never a vector, which holds numbers.
+  const listed = Array.isArray(last) && last.every((v) => isPointValue(v) || viewKind(v) !== undefined);
+  if (args.length > 0 && (last === undefined || last === null || last instanceof Selection || isPointValue(last) || viewKind(last) !== undefined || listed)) {
     parts = args.slice(0, -1);
     rows = pointRowsOf(m, last, who);
   }
@@ -2088,8 +2147,10 @@ export function move(m: Material, args: readonly unknown[]): Material {
   const nx = X.writer(reach);
   const ny = Y.writer(reach);
   // Where row `i` lands, into `to` (x, y, and the step in z); false when
-  // its move is not finite.
+  // its move is not finite. `lifts` is whether its step has a third number
+  // at all — a step in space, even one of zero, moves in space.
   const to = new Float64Array(3);
+  let lifts = false;
   const view = vertexReader(m, rows === null ? m.n : rows.length);
   const shift = (i: number): boolean => {
     const v = view(i);
@@ -2097,11 +2158,13 @@ export function move(m: Material, args: readonly unknown[]): Material {
     let dx = vx(first);
     let dy = vy(first);
     let dz = dzOf(first);
+    lifts = hasZ(first);
     for (let j = 1; j < fns.length; j++) {
       const d = fns[j](v);
       dx += vx(d);
       dy += vy(d);
       dz += dzOf(d);
+      if (hasZ(d)) lifts = true;
     }
     if (!Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(dz)) return false;
     to[2] = dz;
@@ -2131,14 +2194,14 @@ export function move(m: Material, args: readonly unknown[]): Material {
       if (!shift(i)) continue;
       ax[i] = to[0];
       ay[i] = to[1];
-      if (to[2] !== 0) lift(i);
+      if (lifts) lift(i);
     }
   } else {
     for (const i of rows) {
       if (!shift(i)) continue;
       nx.set(i, to[0]);
       ny.set(i, to[1]);
-      if (to[2] !== 0) lift(i);
+      if (lifts) lift(i);
     }
   }
   p.x = nx.done();
@@ -2150,7 +2213,11 @@ export function move(m: Material, args: readonly unknown[]): Material {
 /** The step in z of a displacement: its third number, or 0 for a step in
  * the plane. */
 function dzOf(d: XY): number {
-  if (Array.isArray(d)) return d.length > 2 ? (d[2] as number) : 0;
-  const z = (d as { z?: unknown }).z;
-  return typeof z === 'number' ? z : 0;
+  return hasZ(d) ? (Array.isArray(d) ? (d[2] as number) : (d as unknown as { z: number }).z) : 0;
+}
+
+/** Does a displacement have a third number — is it a step in space? */
+function hasZ(d: XY): boolean {
+  if (Array.isArray(d)) return d.length > 2 && typeof d[2] === 'number';
+  return typeof (d as { z?: unknown }).z === 'number';
 }

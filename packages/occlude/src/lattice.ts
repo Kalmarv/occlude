@@ -203,7 +203,9 @@ export class Lattice {
     if (p === undefined || p === null) return undefined;
     const x = vx(p);
     const y = vy(p);
-    if (!(this.spacing > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return offFace(this, 0, 0);
+    // A place that is not finite is on no cell: it reads as a place off the
+    // lattice, at no grid place (-1, -1).
+    if (!(this.spacing > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return offFace(this, -1, -1);
     const i = Math.floor((x - this.bounds.x) / this.spacing);
     const j = Math.floor((y - this.bounds.y) / this.spacing);
     if (i < 0 || j < 0 || i >= this.cols || j >= this.rows || !this.mask[j * this.cols + i]) return offFace(this, i, j);

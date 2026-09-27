@@ -30,7 +30,7 @@ import { framePlacement, isPlacement, isSpacePlacement, spaceOfDoor, type Placem
 import { chordMiddle, chordNamer, metricGap } from './chord.js';
 import { radians } from './units.js';
 import { chainsOf, curvesOf, chainTangents, chainLengths, type Curve } from './curves.js';
-import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceKeys, isFaceSelection, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
+import { planarize, FaceTable, faceTableOf, boxGrid, faceLocator, faceCentroids, statedFor, statedFaceIds, isFaceSelection, type PlanarizeOpts, type Face, type StatedFaces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { contourMoment } from './measure.js';
 import type { Origin } from './shapes.js';
@@ -1852,9 +1852,11 @@ export class Material {
    * `'distribute'` one by each part's share. `at` may be a function of the
    * edge; one that is not finite skips that edge, and one outside 0…1 is
    * read as the nearer end, where a cut makes nothing. `edges` is a
-   * selection, an edge value or an edge view.
+   * selection, an edge value or an edge view, or a list of them. A cut
+   * whose new point or pieces would hold a value that is not finite leaves
+   * that edge as it is.
    */
-  split(edges: Selection<Edge> | EdgeEnd | undefined, at?: number | ((e: Edge) => number)): Material {
+  split(edges: Selection<Edge> | EdgeEnd | readonly EdgeEnd[] | undefined, at?: number | ((e: Edge) => number)): Material {
     return splitRecipe(this, edges, at);
   }
 
@@ -1863,13 +1865,15 @@ export class Material {
    * each is read on this state. A displacement is a vector, a function of
    * the point `(p) => [dx, dy]`, or a force made without its state —
    * `force.tension({ rest })` — which the move prepares from this material
-   * once. A last argument that is a point selection, a point value or a
-   * vertex says which points move. A move that is not finite leaves that
+   * once. A last argument that is a point selection, a point value, a
+   * vertex or a list of them says which points move. A step with a third
+   * number moves in space, and gives a value that had none a `z`. A move
+   * that is not finite leaves that
    * point where it is; in a curved space a point walks the geodesic. To
    * put a point at a position rather than move it by a step, set its `x`
    * and `y`: `g.points.set({ x: …, y: … })`.
    */
-  move(...args: [...Displacement[]] | [...Displacement[], Selection<Vertex> | PointEnd | undefined]): Material {
+  move(...args: [...Displacement[]] | [...Displacement[], Selection<Vertex> | PointEnd | readonly PointEnd[] | undefined]): Material {
     return moveRecipe(this, args);
   }
 
@@ -1884,7 +1888,7 @@ export class Material {
    * every edge or for those a test of the edge picks. A Koch curve is one
    * motif and four steps: `t.steps(4, tri, (g) => g.replace(g.edges, motif))`.
    */
-  replace(edges: Selection<Edge> | EdgeEnd | undefined, motif: Material, opts?: ReplaceOpts): Material {
+  replace(edges: Selection<Edge> | EdgeEnd | readonly EdgeEnd[] | undefined, motif: Material, opts?: ReplaceOpts): Material {
     return replaceRecipe(this, edges, motif, opts);
   }
 
@@ -4580,7 +4584,7 @@ export function materialFromParts(parts: MaterialParts): Material {
   // face column is, so they follow the faces the way `faces.set`'s do.
   const heldFaces = parts.faceColumns !== undefined && Object.keys(parts.faceColumns).length > 0;
   if (heldFaces || faces.some((f) => f.cols !== undefined && Object.keys(f.cols).length > 0)) {
-    m = rebuild(m, {}, { faceAttrs: heldFaces ? { ...parts.faceColumns } : faceColumnsOfParts(faces, statedFaceKeys(m, cycles), who) });
+    m = rebuild(m, {}, { faceAttrs: heldFaces ? { ...parts.faceColumns } : faceColumnsOfParts(faces, statedFaceIds(m, cycles), who) });
   }
   const src = parts.source;
   const spec = (d: DomainSpec | ((row: number) => unknown) | undefined): DomainSpec | undefined =>
@@ -4681,7 +4685,7 @@ export function statedPartsOf(m: Material): StatedParts | undefined {
   const cols: Record<string, readonly unknown[]> = {};
   const names = Object.keys(m.faceAttrs);
   if (names.length > 0) {
-    const keys = statedFaceKeys(m, stated.cycles);
+    const keys = statedFaceIds(m, stated.cycles);
     for (const name of names) {
       const column = m.faceAttrs[name];
       const fallback = column.fallback !== undefined ? column.fallback : (column.kind?.default ?? 0);

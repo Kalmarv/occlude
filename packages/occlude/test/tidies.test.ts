@@ -217,7 +217,7 @@ describe('rows on the 3D collections', () => {
     // Another construction of the same box is another geometry: its rows are
     // not rows of this one.
     const other = box().subdivide(1);
-    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow(/is not in this state — it is gone, or it belongs to another geometry/);
+    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow(/faces\.rows: .*unrelated materials/);
     // @ts-expect-error a point row is not a face row
     expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face view — got a vertex view');
     const n = m.faces.length;

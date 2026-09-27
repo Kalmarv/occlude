@@ -37,6 +37,7 @@
  */
 
 import type { XY } from './vec.js';
+import { ownerOf, viewKind } from './views.js';
 import type { Vertex } from './material.js';
 import type { NearestHit, FirstHit } from './query.js';
 
@@ -366,7 +367,8 @@ export class Selection<Row> implements Iterable<Row> {
    * within this selection: row numbers, or the rows themselves, one or a
    * list, in the order given. The door for a relation a sketch worked out
    * for itself. A row of another state is found by identity; one that is
-   * gone is refused by name. */
+   * gone is skipped, as every set operation skips it, and a row of an
+   * unrelated geometry is refused by name. */
   rows(rows: number | Row | Iterable<number | Row>): Selection<Row> {
     const d = this.domain;
     const who = `${d.kind.plural}.rows`;
@@ -375,16 +377,14 @@ export class Selection<Row> implements Iterable<Row> {
         if (!Number.isInteger(r) || !d.valid(r)) throw new Error(`${who}: no ${d.kind.name} ${r} in this state (${d.size} rows)`);
         return r;
       }
-      const row = d.rowOf(r, who);
-      if (row < 0) throw new Error(`${who}: that ${d.kind.name} is not in this state — it is gone, or it belongs to another geometry`);
-      return row;
+      return memberRow(d, r, who);
     };
     if (typeof rows === 'number') return select(d, [one(rows)], undefined, true);
     if (typeof rows !== 'object' || rows === null) throw new Error(`${who}: expected a ${d.kind.name} row, a row number, or a list of them — got ${describe(rows)}`);
     if (rows instanceof Selection) return select(d, this.operand(rows, 'rows'), undefined, true);
     // A list of rows, or one row (a row is not iterable).
-    if (typeof (rows as Iterable<unknown>)[Symbol.iterator] === 'function') return select(d, Array.from(rows as Iterable<number | Row>, one), undefined, false);
-    return select(d, [one(rows as Row)], undefined, true);
+    const list = typeof (rows as Iterable<unknown>)[Symbol.iterator] === 'function' ? Array.from(rows as Iterable<number | Row>, one) : [one(rows as Row)];
+    return select(d, list.filter((r) => r >= 0), undefined, list.length === 1);
   }
 
   /** @internal The rows another selection names here, in its order. */
@@ -703,6 +703,30 @@ function dedupe(rows: readonly number[]): number[] {
     out.push(r);
   }
   return out;
+}
+
+/**
+ * @internal The row a member — a view, or a value that names a row — is
+ * in `d`: a row of this state, or of another state of the same geometry
+ * found by identity; -1 when it is gone, or names no row here. A view of
+ * an unrelated geometry is refused by name, as a selection of one is. The
+ * one door `rows` and every write's list of members resolve a member
+ * through.
+ */
+export function memberRow<Row>(d: Domain<Row>, r: unknown, who: string): number {
+  const row = d.rowOf(r, who);
+  if (row >= 0 || typeof r !== 'object' || r === null || viewKind(r) === undefined) return row;
+  // Not here: gone, or of an unrelated geometry. It is asked the way a
+  // selection of it is, which tells the two apart: its own domain — a
+  // geometry's, or the collection's that holds it — reads it as its row.
+  const owner = ownerOf(r) as Record<string, unknown> | undefined;
+  if (owner === undefined || owner === d.source) return -1;
+  const sel = owner[d.kind.plural];
+  const theirs = sel instanceof Selection ? sel.domain : (owner.domain as Domain<unknown> | undefined);
+  if (theirs === undefined || theirs.kind?.name !== d.kind.name || theirs === d) return -1;
+  const at = theirs.rowOf(r, who);
+  if (at >= 0) rowsIn(d, select(theirs, [at], undefined, true), who);
+  return -1;
 }
 
 /** @internal The rows of `domain` another selection holds, in its order:

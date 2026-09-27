@@ -75,6 +75,10 @@ export interface GridOptions {
  * once and `f.adjacent` answers; a `gap` parts them.
  */
 export function grid(b: Rect, opts: GridOptions): Material {
+  // The wrong type is a mistake, not a degenerate grid: say the door.
+  if (typeof opts !== 'object' || opts === null || Array.isArray(opts)) {
+    throw new Error(`t.grid: the cells are a record — t.grid({ cols, rows }) — got ${Array.isArray(opts) ? 'a list' : opts === null ? 'null' : typeof opts}`);
+  }
   const { gap = 0 } = opts;
   // No cells to lay out (a zero or non-finite count): an empty grid.
   if (finiteCount('grid', opts.cols * opts.rows) === 0) return material([]);

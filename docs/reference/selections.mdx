@@ -161,7 +161,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Selection.rows.mdx</include>
 
-The selection that holds those rows, in the order you give. Give the views themselves, one or a list: `web.edges.rows(wall)` is the selection that holds the edge `wall`. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A view of an earlier state gives the row it became. A row that is not in the state is an error. Every kind of row has `rows`.
+The selection that holds those rows, in the order you give. Give the views themselves, one or a list: `web.edges.rows(wall)` is the selection that holds the edge `wall`. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A view of an earlier state gives the row it became. A row that is gone drops out, as it does in a set operation. A row of an unrelated geometry is an error. The writes of a material take the same list where they take a `where`: `g.points.remove(list)` and `g.move([1, 0], list)` need no `rows`. Every kind of row has `rows`.
 
 Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
 

@@ -55,8 +55,11 @@ describe('rows takes views', () => {
     const here = curve([[0, 0], [10, 0], [10, 10], [0, 10], [0, 20]]);
     const other = curve([[0, 0], [5, 0], [5, 5]]);
     const [p] = other.points, [e] = other.edges;
-    expect(() => here.points.rows(p)).toThrow(/points\.rows: that point is not in this state/);
-    expect(() => here.edges.rows([0, e])).toThrow(/edges\.rows: that edge is not in this state/);
+    expect(() => here.points.rows(p)).toThrow(/points\.rows: .*unrelated materials/);
+    expect(() => here.edges.rows([0, e])).toThrow(/edges\.rows: .*unrelated materials/);
+    // A row that is gone drops out, as it does in a set operation.
+    const gone = here.points.at(4);
+    expect(here.points.remove(gone).points.rows([gone, here.points.at(0)]).indices).toEqual([0]);
     const later = here.points.set('h', 1);
     expect(later.points.rows(here.points.at(2)).indices).toEqual([2]);
   });

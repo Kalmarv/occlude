@@ -116,7 +116,8 @@ describe('faces.set: dense reads, sparse storage, and a where', () => {
     const moved = m.move([3, 0]);
     const written = moved.faces.set('h', 1, stale.filter((f) => f.index === 0));
     expect([...written.faces].map((f) => f.h)).toEqual([1, 0]);
-    expect(() => m.faces.set('h', 1, [0, 0] as never)).toThrow(/a face selection, one face, or a test of the face/);
+    expect(() => m.faces.set('h', 1, [0, 0] as never)).toThrow(/faces\.set: expected a face view — got number/);
+    expect(() => m.faces.set('h', 1, 3 as never)).toThrow(/a face selection, one face, a list of faces, or a test of the face/);
   });
 
   it('carries a sparse column through a split that leaves the walls alone', () => {
