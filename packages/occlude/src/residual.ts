@@ -30,6 +30,7 @@ import type { AreaInput } from './boundary.js';
 import { latticeOf, type Lattice, type LatticeEnv } from './lattice.js';
 import type { Bounds, FieldFn2 } from './points.js';
 import { mm, type L } from './units.js';
+import { describe } from './views.js';
 // Type-only (erased): a shape is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
@@ -75,12 +76,4 @@ export function residualOf(env: ResidualEnv, field: FieldFn2, opts: ResidualOpts
     return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
   };
   return latticeOf(env, { spacing, area: opts.area, channels: ['owed'] }, owed, 'residual');
-}
-
-/** What a refusal calls the thing it was handed. */
-function describe(v: unknown): string {
-  if (v === null) return 'null';
-  if (Array.isArray(v)) return 'an array';
-  if (typeof v === 'object') return `a ${(v as object).constructor?.name ?? 'object'}`;
-  return `a ${typeof v}`;
 }

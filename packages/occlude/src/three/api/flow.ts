@@ -19,7 +19,7 @@ export type Seeds3=readonly Vec3[]|Material|Selection<{readonly x:number;readonl
  * points, or a count thrown into a mesh. */
 export function seedsInSpace(seeds:unknown):boolean {
   if(seeds instanceof Material)return inSpace3(seeds);
-  if(seeds instanceof Selection)return seeds.source instanceof Material&&inSpace3(seeds.source);
+  if(seeds instanceof Selection)return seeds.owner instanceof Material&&inSpace3(seeds.owner);
   if(Array.isArray(seeds)){
     const first=seeds[0];
     return Array.isArray(first)?first.length===3:typeof first==='object'&&first!==null&&typeof (first as {z?:unknown}).z==='number';

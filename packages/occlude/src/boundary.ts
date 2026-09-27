@@ -24,8 +24,8 @@
 
 import type { IsoContour } from './isolines.js';
 import { areaView } from './material.js';
-import { chainRecordsOf, isCurveSelection } from './curves.js';
-import type { Selection } from './selection.js';
+import { chainRecordsOf } from './curves.js';
+import { Selection } from './selection.js';
 import type { Vertex } from './material.js';
 import { Len, type L } from './units.js';
 
@@ -91,9 +91,40 @@ const isPointObj = (v: unknown): v is { x: Coord; y: Coord } => {
 const isPoint = (v: unknown): v is XYLike => isPointPair(v) || isPointObj(v);
 /** A loop: an array of points, or an empty array. */
 const isLoop = (v: unknown): v is Loop => Array.isArray(v) && (v.length === 0 || isPoint(v[0]));
-const isContour = (v: unknown): v is IsoContour =>
-  typeof v === 'object' && v !== null && !Array.isArray(v) && 'pts' in v && Array.isArray(v.pts);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** @internal A contour record: `{ pts, closed? }` written by hand or
+ * answered by a word, and not a value that answers `contours()` itself. */
+export const isContourRecord = (v: unknown): v is IsoContour =>
+  isObj(v) && Array.isArray(v.pts) && typeof v.contours !== 'function';
+
+/** What a value that is not geometry yet is called in a refusal: a shape,
+ * a group of shapes, or an inverted area. Null for anything else. */
+function unloweredKind(v: unknown): string | null {
+  if (!isObj(v)) return null;
+  if ('__occludeShape' in v) return 'a shape';
+  if (v.__occludeGroup === true) return 'a group';
+  if (v.__occludeInvert === true) return 'an inverted area';
+  return null;
+}
+
+/**
+ * @internal Refuse, by name, a shape (or a group, or an inverted area)
+ * handed to a word that reads geometry. A shape needs the paper, the units
+ * and its own transform before it has points, so it is geometry only after
+ * a toolkit door lowers it: `t.material(shape)` keeps the boundary's own
+ * vertices, `t.sample(shape, { count })` spaces points along it. `twin`
+ * names a toolkit word that takes the shape as it is (`t.distanceTo`).
+ */
+export function refuseShape(v: unknown, who: string, twin?: string): void {
+  const kind = unloweredKind(v);
+  if (kind === null) return;
+  const doors = 't.material(shape) for its own vertices, or t.sample(shape, { count }) for points spaced along it';
+  throw new Error(
+    twin === undefined
+      ? `${who}: ${kind} is not geometry until the toolkit lowers it — give ${doors}`
+      : `${who}: ${kind} is not geometry until the toolkit lowers it — use ${twin}(…), which lowers it, or give ${doors}`,
+  );
+}
 
 /** @internal Whether a value answers any of the three accessors. */
 export function isGeometry(v: unknown): v is Geometry {
@@ -117,10 +148,10 @@ const hasFaces = (v: unknown): v is { readonly faces: { contours(): IsoContour[]
  * A face collection: several areas at once, so it must name which it means.
  * It answers `contours()` — the union outline — but `polygon(cells)` is
  * still refused, because "every face" and "their union" are different
- * pictures and the sketch has to say.
+ * pictures and the sketch has to say. Known by its kind: a selection of
+ * faces, of a material or of a lattice.
  */
-const isFaceCollection = (v: unknown): v is { map(fn: (f: unknown) => unknown): unknown[] } =>
-  isObj(v) && typeof v.contours === 'function' && typeof v.measure === 'function' && typeof v.boundaryEdges === 'function' && typeof v.at === 'function' && !isCurveSelection(v);
+const isFaceCollection = (v: unknown): boolean => v instanceof Selection && v.domain.kind.name === 'face';
 /**
  * The highest vertex degree inside a value's own edges, or null for a
  * value that has none. Not part of the protocol: it is how the area
@@ -162,6 +193,7 @@ const loopOf = (loop: Loop, who: string): LoopPoints =>
 export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
   // A level set's area is worked out when it is first read, here.
   const input = areaView(given) as AreaInput;
+  refuseShape(input, who);
   if (isFaceCollection(input)) {
     throw new Error(
       `${who}: a face collection is several areas — draw each one, \`cells.map((f) => polygon(f, …))\`, ` +
@@ -206,7 +238,7 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
     if (areas.length > 0 || !hasCurves(input)) return areas.map((c) => c.pts as LoopPoints);
   }
   if (hasCurves(input)) return (chainRecordsOf(input) ?? []).map((c) => c.pts as LoopPoints);
-  if (isContour(input)) return [input.pts as LoopPoints];
+  if (isContourRecord(input)) return [input.pts as LoopPoints];
   // A rect record — `{ x, y, w, h }`, as `t.bounds()` and a grid cell
   // spell a rectangle — is the rectangle's one loop.
   if (isRectRecord(input)) {
@@ -214,16 +246,13 @@ export function areaLoops(given: AreaInput, who: string): LoopPoints[] {
     return [[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]];
   }
   if (!Array.isArray(input)) {
-    throw new Error(
-      `${who}: expected geometry — a material, a selection, a face, contour records or loops of points. ` +
-        `A shape is not geometry until the toolkit lowers it: use t.${who}(…).`,
-    );
+    throw new Error(`${who}: expected geometry — a material, a selection, a face, contour records or loops of points`);
   }
   if (input.length === 0) return [];
   // What the first entry is decides the shape of the whole: a point means
   // one loop, a loop (possibly empty) or a contour record means a list.
   const first: unknown = input[0];
-  if (isContour(first)) return (input as readonly IsoContour[]).map((c) => c.pts as LoopPoints);
+  if (isContourRecord(first)) return (input as readonly IsoContour[]).map((c) => c.pts as LoopPoints);
   if (isPoint(first)) return [loopOf(input as Loop, who)];
   if (isLoop(first)) return (input as readonly Loop[]).map((l) => loopOf(l, who));
   throw new Error(`${who}: expected loops of points ([x, y] or { x, y }), contour records or a chain material`);

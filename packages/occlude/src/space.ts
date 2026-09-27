@@ -50,7 +50,7 @@ import { halfplane as hHalfplane } from './hyperbolic.js';
 import { bindSpace, type Model, type ModelDoor } from './placement.js';
 import { mm, type L } from './units.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
-import { ownerOfView } from './views.js';
+import { ownerOf } from './views.js';
 
 export type SpaceKind = 'euclidean' | 'hyperbolic' | 'spherical';
 
@@ -208,15 +208,16 @@ const PLANE_DOOR: ModelDoor = {
 };
 
 /** The flat plane: the formulas every spacing word already uses, and the
- * identity for every map. */
-export function euclideanSpace(): Space {
+ * identity for every map. `center` is the middle of the drawable when the
+ * sketch's frame is known (`resolveSpace`), as it is in a curved space. */
+export function euclideanSpace(center: XY = [0, 0]): Space {
   return {
     kind: 'euclidean',
     projection: 'none',
     curvature: 0,
     radius: Infinity,
     size: Infinity,
-    center: [0, 0],
+    center: [vx(center), vy(center)],
     distance: (a, b) => Math.hypot(vx(b) - vx(a), vy(b) - vy(a)),
     exp: (p, v) => [vx(p) + vx(v), vy(p) + vy(v)],
     log: (p, q) => [vx(q) - vx(p), vy(q) - vy(p)],
@@ -717,10 +718,11 @@ export function carriedSpace(v: unknown): Space | undefined {
       const s = (v as { space?: unknown }).space;
       return isSpaceRecord(s) ? s : undefined;
     }
-    const owner = ownerOfView(v);
+    const owner = ownerOf(v);
     if (owner !== undefined) v = owner;
     else if (Array.isArray(v)) v = v[0];
-    else v = (v as { source?: unknown }).source;
+    // A selection's state is its owner; a face table's, its source.
+    else v = (v as { owner?: unknown }).owner ?? (v as { source?: unknown }).source;
   }
   return undefined;
 }
@@ -848,7 +850,7 @@ export function resolveSpace(
     if (chart.size !== undefined) {
       throw new Error("projection: a size needs a space to draw — set space: 'hyperbolic' or 'spherical' beside it");
     }
-    return euclideanSpace();
+    return euclideanSpace([frame.cx, frame.cy]);
   }
   // The chart fills the page unless the sketch says how big to draw it.
   const size = chart.size === undefined ? Math.min(frame.w, frame.h) / 2 : frame.len(chart.size);
@@ -1120,13 +1122,22 @@ function edgeField(space: Space, a: readonly [number, number], b: readonly [numb
       return ell * Math.asin(Math.max(-1, Math.min(1, n[0] * mx + n[1] * my + n[2] * mz)));
     };
   }
+  if (space.kind === 'euclidean') {
+    // The flat plane: the line through the two points, positive on the
+    // left of a → b as the curved ones are.
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0)) return null;
+    return (x, y) => (dx * (y - a[1]) - dy * (x - a[0])) / len;
+  }
   return null;
 }
 
-/** The signed area of a loop in sketch coordinates: its sign is the loop's
- * winding, and the coordinates keep orientation, so it is the space's
- * winding too. */
-function chartArea(loop: readonly (readonly [number, number])[]): number {
+/** @internal The signed area of a loop in sketch coordinates (the
+ * shoelace sum): its sign is the loop's winding, and the coordinates keep
+ * orientation, so it is the space's winding too. The one shoelace. */
+export function signedArea(loop: readonly (readonly [number, number])[]): number {
   let sum = 0;
   for (let i = 0; i < loop.length; i++) {
     const p = loop[i];
@@ -1272,7 +1283,7 @@ function areaEdges(space: Space, contours: readonly SpaceContour[]): {
   let widest = 0;
   for (const c of contours) {
     if (!c.closed) continue;
-    const a = chartArea(c.pts);
+    const a = signedArea(c.pts);
     if (Math.abs(a) > Math.abs(widest)) widest = a;
   }
   const sign = widest < 0 ? -1 : 1;

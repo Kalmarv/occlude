@@ -183,7 +183,8 @@ function mul9(a: readonly number[], b: readonly number[]): number[] {
   return out;
 }
 
-function act(m: readonly number[], v: Model): Model {
+/** @internal The 3×3 on a model vector, row-major. */
+export function act(m: readonly number[], v: Model): Model {
   return [
     m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
     m[3] * v[0] + m[4] * v[1] + m[5] * v[2],

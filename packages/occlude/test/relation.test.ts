@@ -13,7 +13,7 @@ describe('selections', () => {
     let calls = 0;
     const old = m.points.filter((p) => (calls++, p.age >= 2));
     expect(calls).toBe(6);
-    expect(old.source).toBe(m);
+    expect(old.owner).toBe(m);
     expect(old.length).toBe(4);
     expect(old.indices).toEqual([2, 3, 4, 5]);
     expect(Object.isFrozen(old.indices)).toBe(true);
@@ -29,7 +29,7 @@ describe('selections', () => {
     expect(old.has(Y().vertex(3))).toBe(false);
     // wrong domain
     expect(() => old.has(m.edge(0) as unknown as Vertex)).toThrow(/edge view/);
-    expect(() => old.has(3 as unknown as Vertex)).toThrow(/a reference must be a point value or a view/);
+    expect(() => old.has(3 as unknown as Vertex)).toThrow(/expected a point — a vertex view or a point value/);
     calls = 0;
     [...old];
     expect(calls).toBe(0); // no re-evaluation
@@ -43,7 +43,7 @@ describe('selections', () => {
     expect(() => es.has(m.vertex(0) as never)).toThrow(/vertex view/);
     expect(() => pts.has(m.edge(0) as never)).toThrow(/edge view/);
     // the writes are just as strict: a vertex named a/b is not an edge
-    expect(() => m.split(m.vertex(0) as never)).toThrow(/an edge reference must be an edge value or an edge view/);
+    expect(() => m.split(m.vertex(0) as never)).toThrow(/expected an edge — an edge view or an edge value/);
     expect(m.move([1, 0], m.vertex(1)).x[1]).toBe(2);
   });
 
@@ -199,7 +199,7 @@ describe('relational attributes', () => {
     // `p.adjacent` closes over the material that made the view, so a
     // vertex of another state answers about ITS state instead of throwing.
     // The cross-state guard now lives where it matters: the step verbs.
-    expect(Y().vertex(2).adjacent.source).not.toBe(m);
+    expect(Y().vertex(2).adjacent.owner).not.toBe(m);
     expect(() => m.points.at(9).adjacent).toThrow(/no member/);
     // The mean of nothing is NaN, and a value that is not finite leaves the
     // row as it was: the isolated point keeps the column's 0.

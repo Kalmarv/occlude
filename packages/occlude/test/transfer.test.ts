@@ -22,8 +22,9 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(ex.transfers.kind).toBe('nearest');
     expect(ex.iteration).toBe(0);
     // an explicit per-operation rule wins over the policy for that call only
+    // It says what a NEW vertex gets: the two ends are kept, as they were.
     const forced = split.resample({ count: 5, transfer: { kind: 7 } });
-    expect(Array.from(forced.attrs.kind)).toEqual([7, 7, 7, 7, 7]);
+    expect(Array.from(forced.attrs.kind)).toEqual([1, 7, 7, 7, 2]);
     expect(forced.transfers.kind).toBe('nearest');
   });
 
@@ -93,7 +94,7 @@ describe('transfer contracts (con2 stage B)', () => {
     // verb takes it and moves them.
     const rebound = out.move([1, 0], stale);
     for (const i of stale.indices) expect(rebound.x[i]).toBe(out.x[i] + 1);
-    expect(() => m.points.remove(m.edges.filter(() => true) as never)).toThrow(/expected points/);
+    expect(() => m.points.remove(m.edges.filter(() => true) as never)).toThrow(/points\.remove: a point selection combines only with a point selection — got an edge selection; its points are sel\.points/);
   });
 
   it('edges by view or value; vertex accessors take rows or views of this state', () => {
@@ -102,8 +103,8 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(out.edgeCount).toBe(3);
     expect(out.edgeAttrs.w[0]).toBe(5);
     // A number is no reference: ids are the engine's, and a sketch holds values.
-    expect(() => m.edges.set('w', 1, 9 as never)).toThrow(/an edge reference must be an edge value or an edge view/);
-    expect(() => m.edges.set('w', 1, m.points.at(0) as never)).toThrow(/an edge reference must be/);
+    expect(() => m.edges.set('w', 1, 9 as never)).toThrow(/expected an edge — an edge view or an edge value/);
+    expect(() => m.edges.set('w', 1, m.points.at(0) as never)).toThrow(/expected an edge — an edge view or an edge value/);
     expect(m.points.at(1).adjacent.length).toBe(2);
     expect(m.points.at(0).adjacent.indices).toEqual([1]);
     expect(m.points.at(0).adjacent.has(m.points.at(1))).toBe(true);

@@ -234,7 +234,7 @@ describe('faces', () => {
     const grid = connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]]));
     const cells = grid.faces;
     expect(cells.length).toBe(4);
-    expect(cells.source.iteration).toBe(0);
+    expect(cells.owner.iteration).toBe(0);
     const big = cells.filter((f) => f.area >= 25);
     expect(big.length).toBe(4);
     expect(big.has(cells.at(0))).toBe(true);
@@ -458,5 +458,20 @@ describe('faces: centroid, adjacency and an edge\'s faces', () => {
     expect(outer.faces.length).toBe(1);
     const crossed = join(sq(0, 0, 10), [0, 2], [1, 3]);
     expect(() => crossed.edges.at(0).faces).toThrow(/planar/);
+  });
+});
+
+describe('an extracted face is the face it was', () => {
+  it('a face with a hole extracts as ONE face, the hole no face of its own', () => {
+    const sq = (x: number, y: number, s: number) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]], { closed: true });
+    const m = append(sq(0, 0, 30), sq(10, 10, 10));
+    const outer = m.faces.filter((f) => f.area > 500);
+    const ex = outer.extract();
+    expect(ex.faces.length).toBe(1);
+    expect(ex.faces.at(0).area).toBeCloseTo(800, 9);
+    expect(ex.faces.at(0).contours().length).toBe(2);
+    // One face of the collection, the same.
+    const one = m.faces.at(outer.at(0).index).extract();
+    expect(one.faces.map((f) => f.area)).toEqual([800]);
   });
 });

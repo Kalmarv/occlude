@@ -5,7 +5,9 @@
  * and its kind — spread, `Object.keys`, JSON and `structuredClone` never
  * see, so a copy is unowned. Nothing here depends on the material class:
  * `ownerOf`/`viewKind` are the whole contract, and every consumer of a
- * view reads the brand through these functions.
+ * view reads the brand through these functions. A point or edge value
+ * (`point(…)`, `edge(…)`) carries a brand of its own (`valueKind`), and
+ * `describe` is what every refusal calls a thing it was handed.
  *
  * Two carriers of the brand, one contract:
  *
@@ -22,6 +24,8 @@
  * - Any other view (a face) has a prototype of its own owner, made by
  *   `viewProto`: few are made, and each is a row of a value that lives.
  */
+
+import { Selection } from './selection.js';
 
 const OWNER = Symbol('material');
 const KIND = Symbol('view');
@@ -78,16 +82,67 @@ export function viewProto(owner: object, kind: 'vertex' | 'edge' | 'face' | 'cor
 export const pairKey = (a: number, b: number) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
 
 /** @internal The owner of any view: a row view's state, or the owner a
- * face's prototype records. */
-export function ownerOfView(view: object): object | undefined {
+ * face's or a corner's prototype records. */
+export function ownerOf(view: object): object | undefined {
   return RowView.ownerOf(view) ?? (view as Record<symbol, object> | null | undefined)?.[OWNER];
 }
 
-/** @internal The owner of a vertex or edge view (its material), for identity checks. */
-export const ownerOf = ownerOfView;
-
-/** @internal True when `view` (a vertex or edge view) came from `m` — this state,
- * not merely a material with the same shape. */
+/** @internal True when `view` came from `m` — this state, not merely a
+ * material with the same shape. */
 export function ownedBy(view: object, m: object): boolean {
-  return ownerOfView(view) === m;
+  return ownerOf(view) === m;
+}
+
+// ---- values you hold, and what a refusal calls a thing -----------------------------
+
+const VALUE = Symbol('value');
+
+/** @internal The prototype every point value (`'point'`) or edge value
+ * (`'edge'`) shares: the brand lives on it, so a spread copy is a plain
+ * record, as a spread view is. */
+export function valueProto(kind: 'point' | 'edge'): object {
+  return Object.freeze(Object.create(Object.prototype, { [VALUE]: { value: kind } }));
+}
+
+/** Which kind of value `point(…)` or `edge(…)` made this is; `undefined`
+ * for anything else. */
+export function valueKind(v: unknown): 'point' | 'edge' | undefined {
+  return typeof v === 'object' && v !== null ? (v as Record<symbol, 'point' | 'edge' | undefined>)[VALUE] : undefined;
+}
+
+const article = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`);
+
+/**
+ * What a refusal calls the thing it was handed — the one wording every
+ * refusal uses: a view by its kind, a point or edge value, a selection by
+ * its kind, a position, a list, an instance by its class, a record, and a
+ * primitive with its value.
+ */
+export function describe(v: unknown): string {
+  if (v === null) return 'null';
+  if (v === undefined) return 'nothing (undefined)';
+  const view = viewKind(v);
+  if (view !== undefined) return `${article(view)} view`;
+  const value = valueKind(v);
+  if (value !== undefined) return `${article(value)} value`;
+  if (v instanceof Selection) return `${article(v.domain.kind.name)} selection`;
+  if (Array.isArray(v)) {
+    const numbers = v.every((c) => typeof c === 'number');
+    if (numbers && v.length === 2) return 'a position [x, y]';
+    if (numbers && v.length === 3) return 'a place [x, y, z]';
+    return `a list of ${v.length}`;
+  }
+  switch (typeof v) {
+    case 'string': return `the string '${v}'`;
+    case 'number': return `the number ${v}`;
+    case 'boolean': return `the boolean ${v}`;
+    case 'function': return 'a function';
+    case 'object': {
+      const o = v as { x?: unknown; y?: unknown; constructor?: { name?: string } };
+      if (typeof o.x === 'number' && typeof o.y === 'number') return 'a position { x, y }';
+      const name = Object.getPrototypeOf(v) === Object.prototype ? undefined : o.constructor?.name;
+      return name !== undefined && name !== '' && name !== 'Object' ? article(name) : 'a record';
+    }
+    default: return typeof v;
+  }
 }

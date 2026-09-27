@@ -17,8 +17,9 @@
  * field over a fine isolines grid stays fast for contour-heavy loops.
  */
 
-import { numericLoops, type AreaInput } from './boundary.js';
-import { vx as pointX, vy as pointY, type XY } from './vec.js';
+import { numericLoops, refuseShape, type AreaInput } from './boundary.js';
+import { vx, vy, type XY } from './vec.js';
+import { isPointArg } from './guard.js';
 import { Material } from './material.js';
 import { isPointSelection } from './relation.js';
 import type { Selection } from './selection.js';
@@ -83,6 +84,7 @@ export function isPointSites(v: unknown): v is PointSites {
  * the sketch's space, and takes a shape.
  */
 export function distanceTo(boundary: AreaInput | PointSites): DistanceField {
+  refuseShape(boundary, 'distanceTo', 't.distanceTo');
   const space = carriedSpace(boundary);
   if (space === undefined || space.kind === 'euclidean') return distanceField(boundary);
   return curvedDistanceField(space, boundary);
@@ -275,8 +277,8 @@ function sitePositions(sites: PointSites, who: string): { sx: Float64Array; sy: 
     }
   } else if (v !== null && v !== undefined && typeof (v as Iterable<XY>)[Symbol.iterator] === 'function') {
     for (const p of sites as Iterable<XY>) {
-      xs.push(pointX(p));
-      ys.push(pointY(p));
+      xs.push(vx(p));
+      ys.push(vy(p));
     }
   } else {
     throw new Error(`${who}: expected points — a point selection, a material of points, or a face collection`);
@@ -821,23 +823,19 @@ const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number)
   return tagged(f, { x0: bx0, y0: by0, x1: bx1, y1: by1, peak: r, hi: boxBound(bx0, by0, bx1, by1, r), tight: false });
 };
 
-/** A point argument — a pair or an `{ x, y }` record — as the shape
- * factories take one; a bare number or a length is not. */
-const isPointArg = (v: unknown): v is XY => typeof v === 'object' && v !== null && !(v instanceof Len);
-
 /** `sdf.circle(c, r)` beside `sdf.circle(cx, cy, r)`: the first argument
  * decides, as in `circle`. */
 function circleWord(c: XY, r: number): DistanceField;
 function circleWord(cx: number, cy: number, r: number): DistanceField;
 function circleWord(a: XY | number, b: number, c?: number): DistanceField {
-  return isPointArg(a) ? circleField(pointX(a), pointY(a), b) : circleField(a, b, c as number);
+  return isPointArg(a, 'sdf.circle') ? circleField(vx(a), vy(a), b) : circleField(a, b, c as number);
 }
 
 /** `sdf.box(c, w, h)` beside `sdf.box(cx, cy, w, h)`. */
 function boxWord(c: XY, w: number, h: number): DistanceField;
 function boxWord(cx: number, cy: number, w: number, h: number): DistanceField;
 function boxWord(a: XY | number, b: number, c: number, d?: number): DistanceField {
-  return isPointArg(a) ? boxField(pointX(a), pointY(a), b, c) : boxField(a, b, c, d as number);
+  return isPointArg(a, 'sdf.box') ? boxField(vx(a), vy(a), b, c) : boxField(a, b, c, d as number);
 }
 
 /** `sdf.segment(a, b, r)` beside `sdf.segment(x0, y0, x1, y1, r)`, as
@@ -845,8 +843,8 @@ function boxWord(a: XY | number, b: number, c: number, d?: number): DistanceFiel
 function segmentWord(a: XY, b: XY, r: number): DistanceField;
 function segmentWord(x0: number, y0: number, x1: number, y1: number, r: number): DistanceField;
 function segmentWord(a: XY | number, b: XY | number, c: number, d?: number, e?: number): DistanceField {
-  if (isPointArg(a) && isPointArg(b)) return segmentField(pointX(a), pointY(a), pointX(b), pointY(b), c);
-  if (isPointArg(a) || isPointArg(b)) throw new Error('sdf.segment: give two points and a radius, or four numbers and a radius');
+  if (isPointArg(a, 'sdf.segment') && isPointArg(b, 'sdf.segment')) return segmentField(vx(a), vy(a), vx(b), vy(b), c);
+  if (isPointArg(a, 'sdf.segment') || isPointArg(b, 'sdf.segment')) throw new Error('sdf.segment: give two points and a radius, or four numbers and a radius');
   return segmentField(a, b, c, d as number, e as number);
 }
 

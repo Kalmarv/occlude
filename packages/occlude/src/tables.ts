@@ -27,19 +27,19 @@
  * value the geometry does not hold, used as a reference.
  */
 
-import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, RESERVED_EDGE_FIELDS, RESERVED_FACE_FIELDS, type Vertex, type Edge, type PointId, type EdgeId, type Transfer, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
+import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, type Vertex, type Edge, type PointId, type EdgeId, type Transfer, type TransferPolicy, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
 import { chainsOf } from './curves.js';
-import { pointDomain, edgeDomain, isPointSelection, isEdgeSelection } from './relation.js';
+import { pointDomain, edgeDomain, pointsOf, edgesOf, notAPoint } from './relation.js';
 import { faceTableOf, type Face, type FaceTable, type StatedFaces } from './faces.js';
-import { RESERVED_CORNER_FIELDS, type Corner, type CornerDomain } from './corners.js';
-import { Selection, rowsIn, memberRow, type Domain } from './selection.js';
+import type { Corner, CornerDomain } from './corners.js';
+import { Selection, rowOf, whereRows } from './selection.js';
 import { isGraphForce, type GraphForce } from './forces.js';
 import { vx, vy, type XY, type Vec } from './vec.js';
 import type { Space } from './space.js';
-import { ownedBy, ownerOfView, pairKey, viewKind } from './views.js';
+import { ownerOf, pairKey, viewKind, valueKind, valueProto, describe } from './views.js';
 import { Column, at64, atU32, kinds, kindOf, kindWords, valueAt, appendValues, keepRows as keepColumn, writerOf, type AnyColumn, type AnyKind, type AnyWriter, type ArrayColumn, type ColumnWriter } from './column.js';
 import { isPlacement, type Placement } from './placement.js';
-import { carryLinks, carryRunLinks, derivation, linkRows, record } from './derivation.js';
+import { carryLinks, derivation, linkRows, record } from './derivation.js';
 
 /** A point you hold: a position and its columns — the value is the name
  * of the row it becomes. */
@@ -106,8 +106,51 @@ export interface EdgeRecordSetOpts { readonly transfer?: EdgeTransfer | Readonly
  * or a policy by column, and the fallback. */
 export interface FaceRecordSetOpts { readonly transfer?: FaceTransfer | Readonly<Record<string, FaceTransfer>>; readonly fallback?: CellValue }
 
-/** The names a point view owns; `x` and `y` are columns a write may set. */
-const RESERVED_POINT_FIELDS: readonly string[] = ['index', 'adjacent', 'edges', 'id', 'source', 'faces', 'corners'];
+// ---- the names a row owns ---------------------------------------------------------
+
+/** The kinds of row a column lives on. */
+export type RowKind = 'point' | 'edge' | 'face' | 'corner' | 'lattice face';
+
+/** What a face row answers of its own, on every kind of face. */
+const FACE_WORDS = [
+  'index', 'id', 'area', 'perimeter', 'bounds', 'centroid', 'center', 'normal', 'corners',
+  'edges', 'points', 'boundaryEdges', 'adjacent', 'contours', 'extract',
+  'parent', 'children', 'depth', 'leaf', 'source',
+];
+
+/**
+ * The names each kind of row answers of its own — its view's words — which
+ * no column may take: a column reads flat on the row, beside them. The one
+ * list per kind: every write, `point`, `edge`, the lattice and the
+ * material's constructor ask `checkColumnName`. A lattice face is a face
+ * with its grid place and its stencil. A word the row lets a column stand
+ * in for — a point's `u`, `tangent`, `normal`, `placement`, `s`, `heading`
+ * — is not here: a column of that name is what the row reads, on every
+ * view of it. A point's `x` and `y` are its position: `points.set` writes
+ * them, and a new point gives them as its place.
+ */
+const RESERVED: Readonly<Record<RowKind, ReadonlySet<string>>> = {
+  point: new Set(['index', 'id', 'source', 'adjacent', 'edges', 'faces', 'corners']),
+  edge: new Set(['index', 'id', 'source', 'a', 'b', 'length', 'root', 'center', 'adjacent', 'faces']),
+  face: new Set(FACE_WORDS),
+  corner: new Set(['index', 'id', 'source', 'point', 'face']),
+  'lattice face': new Set([...FACE_WORDS, 'i', 'j', 'laplacian']),
+};
+
+/** @internal Every name a kind of row owns (a test reads it). */
+export const reservedNames = (kind: RowKind): readonly string[] => [...RESERVED[kind]];
+
+/** Refuse a column name a kind of row owns, by name. */
+export function checkColumnName(kind: RowKind, name: string, who: string): void {
+  if (RESERVED[kind].has(name)) throw new Error(`${who}: '${name}' is a reserved field of ${kind === 'lattice face' || kind === 'face' ? 'a face' : kind === 'edge' ? 'an edge' : `a ${kind}`}, not a column`);
+}
+
+/** Refuse a column name a NEW row may not give: a reserved name, and for a
+ * point its position, which a new point gives as its place. */
+export function checkNewColumnName(kind: RowKind, name: string, who: string): void {
+  if (kind === 'point' && (name === 'x' || name === 'y')) throw new Error(`${who}: '${name}' is a reserved field of a new point, not a column — a new point gives its position as its place`);
+  checkColumnName(kind, name, who);
+}
 
 // ---- building a new state --------------------------------------------------------
 
@@ -199,9 +242,8 @@ function build(m: Material, p: Parts, carry: Carry): Material {
  * removes rows leaves it behind, and the new state's area is its own
  * closed chains. */
 function keptArea(m: Material): (() => Material) | undefined {
-  const box = m.areaBox;
-  const built = box.material;
-  return built !== null ? () => built : box.make ?? undefined;
+  const built = m.cache.area;
+  return built !== undefined ? () => built : m.cache.areaMake;
 }
 
 /**
@@ -218,13 +260,10 @@ export function rebuild(m: Material, changes: Partial<Parts> = {}, carry: Carry 
 }
 
 /** @internal `m` at another iteration and with a history: what `t.steps`
- * hands on between steps and returns at the end. Every row carries, and
- * every column is shared. Given the run's `start`, the state keeps the
- * links the start carried and drops the ones a pass made
- * (`carryRunLinks`): a run does not hold every state it passed through. */
-export function restamp(m: Material, iteration: number, history: readonly Material[] = [], start?: unknown): Material {
-  const out = build(m, partsOf(m), { iteration, history, area: keptArea(m) });
-  return start === undefined ? carryLinks(m, out) : carryRunLinks(m, out, start);
+ * hands on between steps and returns at the end. Every row carries its
+ * links, and every column is shared. */
+export function restamp(m: Material, iteration: number, history: readonly Material[] = []): Material {
+  return carryLinks(m, build(m, partsOf(m), { iteration, history, area: keptArea(m) }));
 }
 
 // ---- rows a kernel builds ----------------------------------------------------------
@@ -615,9 +654,11 @@ export function cellOf(v: unknown, who: string, name: string): { kind: AnyKind; 
   return { kind, value };
 }
 
-/** A value the geometry refuses: not one of the kinds a column holds. */
-function notACell(who: string, name: string, v: unknown): Error {
-  return new Error(`${who}: the value of '${name}' is a number, a boolean, a string, a list of numbers, a row or a placement — or a function of the row that answers one — got ${describe(v)}`);
+/** A value the geometry refuses: not one of the kinds a column holds.
+ * `row` names the row a function of it may answer one for, where the
+ * write takes a function. */
+function notACell(who: string, name: string, v: unknown, row?: string): Error {
+  return new Error(`${who}: the value of '${name}' is a number, a boolean, a string, a list of numbers, a row or a placement${row === undefined ? '' : ` — or a function of the ${row} that answers one`} — got ${describe(v)}`);
 }
 
 /** A value of one kind into a column of another, refused by name. */
@@ -634,29 +675,60 @@ function checkKind(who: string, name: string, held: AnyKind | undefined, got: An
   return got;
 }
 
-/** The kind of a column a record's value gives, for a column the geometry
- * does not have yet (a Stored value never names a new column). */
-function kindForNew(who: string, name: string, v: unknown): AnyKind | null {
-  if (v instanceof Stored) throw new Error(`${who}: '${name}' is not a column of this geometry`);
-  const k = kindOfValue(v);
-  if (k === undefined) throw notACell(who, name, v);
-  return k;
+/** A column's kind as a write finds it: undefined for a new column that
+ * has no kind yet, and `open` while a new column's kind is a guess that a
+ * later value may still change (a new column written by a function starts
+ * as numbers). */
+interface CellKind {
+  kind: AnyKind | undefined;
+  open: boolean;
+}
+
+/**
+ * The ladder every write lands a value by — a new row's, a column write's,
+ * a face column's — as what the column stores, or SKIP when nothing
+ * lands: `undefined` (the row keeps what it had), a value that is not
+ * finite, `null` on a column that holds neither rows nor placements. The
+ * first value that lands names a new column's kind; a value of another
+ * kind than the column's is refused by name, and so is a value no column
+ * holds. `position`: the column is a place (`z`), numbers only. A number
+ * on a numeric column is each caller's fast path, before the ladder.
+ */
+function landCell(col: CellKind, v: unknown, who: string, name: string, position: boolean): unknown {
+  if (v instanceof Stored) return v.value;
+  if (v === undefined) return SKIP;
+  const got = kindOfValue(v);
+  if (got === undefined) throw notACell(who, name, v);
+  if (got === null) {
+    // No row, or no placement: a column that holds either takes it; a new
+    // column that has no kind yet is a column of rows; a column whose kind
+    // is still a guess stays one.
+    if (col.open) return SKIP;
+    col.kind ??= kinds.reference;
+    return col.kind.name === 'reference' || col.kind.name === 'placement' ? null : SKIP;
+  }
+  const stored = storedCell(got, v);
+  if (col.open) {
+    // A value that does not land leaves a guess a guess.
+    if (stored === SKIP) return SKIP;
+    col.kind = got;
+    col.open = false;
+  }
+  col.kind = checkKind(who, name, col.kind, got, position);
+  return stored;
 }
 
 // ---- values you hold ----------------------------------------------------------------
 
-/** The brand of a point or edge value: on the prototype, so a spread copy
- * is a plain record, as a spread view is. */
-const VALUE = Symbol('value');
-const POINT_PROTO: object = Object.freeze(Object.create(Object.prototype, { [VALUE]: { value: 'point' } }));
-const EDGE_PROTO: object = Object.freeze(Object.create(Object.prototype, { [VALUE]: { value: 'edge' } }));
+/** The brand of a point or edge value (views.ts): on the prototype, so a
+ * spread copy is a plain record, as a spread view is. */
+const POINT_PROTO: object = valueProto('point');
+const EDGE_PROTO: object = valueProto('edge');
 
-/** @internal Is `v` a point value that `point(…)` made? */
-export const isPointValue = (v: unknown): v is PointValue =>
-  typeof v === 'object' && v !== null && (v as Record<symbol, unknown>)[VALUE] === 'point';
-/** @internal Is `v` an edge value that `edge(…)` made? */
-export const isEdgeValue = (v: unknown): v is EdgeValue =>
-  typeof v === 'object' && v !== null && (v as Record<symbol, unknown>)[VALUE] === 'edge';
+/** Is `v` a point value that `point(…)` made? */
+const isPointValue = (v: unknown): v is PointValue => valueKind(v) === 'point';
+/** Is `v` an edge value that `edge(…)` made? */
+const isEdgeValue = (v: unknown): v is EdgeValue => valueKind(v) === 'edge';
 
 /** The stored value of a column that is not numbers, at a row made `t` of
  * the way from row `i` to row `j`: a vector blended when it interpolates,
@@ -724,15 +796,15 @@ function columnsOf(v: object, own: readonly string[]): Record<string, unknown> {
   return out;
 }
 
-/** A value's columns as a record, checked: each value is one a column
- * holds (see `CellValue`). */
-function checkColumns(cols: unknown, reserved: readonly string[], what: string, who: string): Record<string, CellValue> {
+/** A new row's columns as a record, checked: no name the row owns, and
+ * each value one a column holds (see `CellValue`). */
+function checkColumns(cols: unknown, kind: 'point' | 'edge', who: string): Record<string, CellValue> {
   if (cols === undefined) return {};
-  if (typeof cols !== 'object' || cols === null || Array.isArray(cols)) throw new Error(`${who}: the columns of ${what} are a record, { name: value }`);
+  if (typeof cols !== 'object' || cols === null || Array.isArray(cols)) throw new Error(`${who}: the columns of a new ${kind} are a record, { name: value } — got ${describe(cols)}`);
   for (const name in cols) {
-    if (reserved.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of ${what}, not a column`);
+    checkNewColumnName(kind, name, who);
     const v = (cols as Record<string, unknown>)[name];
-    if (v !== undefined && kindOfValue(v) === undefined) throw new Error(`${who}: the column '${name}' of ${what} is a number, a boolean, a string, a list of numbers, a row or a placement — got ${describe(v)}`);
+    if (v !== undefined && kindOfValue(v) === undefined) throw notACell(who, name, v);
   }
   return cols as Record<string, CellValue>;
 }
@@ -748,7 +820,7 @@ function checkColumns(cols: unknown, reserved: readonly string[], what: string, 
 export function point(xy: XY | readonly [number, number, number], cols?: Record<string, CellValue>): PointValue {
   const who = 'point';
   if (!isPosition(xy) && !isPointValue(xy) && viewKind(xy) !== 'vertex') throw new Error(`${who}: expected a position [x, y] or { x, y } — got ${describe(xy)}`);
-  const own = checkColumns(cols, ['x', 'y', ...RESERVED_POINT_FIELDS], 'a point', who);
+  const own = checkColumns(cols, 'point', who);
   const p = Object.create(POINT_PROTO) as Record<string, unknown>;
   p.x = vx(xy);
   p.y = vy(xy);
@@ -769,9 +841,9 @@ export function point(xy: XY | readonly [number, number, number], cols?: Record<
 export function edge(a: PointEnd, b: PointEnd, cols?: Record<string, CellValue>): EdgeValue {
   const who = 'edge';
   for (const end of [a, b]) {
-    if (!isPointValue(end) && viewKind(end) !== 'vertex') throw referenceError(who, end);
+    if (!isPointValue(end) && viewKind(end) !== 'vertex') throw notAPoint(who, end);
   }
-  const own = checkColumns(cols, RESERVED_EDGE_FIELDS, 'an edge', who);
+  const own = checkColumns(cols, 'edge', who);
   const e = Object.create(EDGE_PROTO) as Record<string, unknown>;
   Object.defineProperty(e, 'a', { value: a, enumerable: false });
   Object.defineProperty(e, 'b', { value: b, enumerable: false });
@@ -797,130 +869,26 @@ function zOf(v: unknown): number | undefined {
   return typeof z === 'number' ? z : undefined;
 }
 
-/** A reference that is not a value: a wrong program, refused by name. */
-const referenceError = (who: string, got: unknown): Error =>
-  new Error(`${who}: a reference must be a point value or a view; make one with point(…) — got ${describe(got)}`);
-
-/** The row a point reference names in `m`, or -1 when it names nothing here. */
+/** The row a point reference names in `m` — a point value, or a vertex
+ * view of this state or of another — or -1 when it names nothing here. */
 export function pointRow(m: Material, end: unknown, who: string): number {
-  if (end === undefined || end === null) return -1;
-  if (isPointValue(end)) return m.rowOfPoint(end.id);
-  const kind = viewKind(end);
-  if (kind === 'vertex') {
-    const v = end as Vertex;
-    return ownedBy(v, m) ? v.index : m.rowOfPoint(v.id);
-  }
-  throw referenceError(who, end);
+  return rowOf(pointDomain(m), end, who);
 }
 
 /** The row an edge reference names in `m`, or -1 when it is gone. */
 export function edgeRow(m: Material, e: unknown, who: string): number {
-  if (e === undefined || e === null) return -1;
-  if (isEdgeValue(e)) return m.rowOfEdge(e.id);
-  if (viewKind(e) === 'edge') {
-    const v = e as Edge;
-    return ownedBy(v, m) ? v.index : m.rowOfEdge(v.id);
-  }
-  throw new Error(`${who}: an edge reference must be an edge value or an edge view; make one with edge(…) — got ${describe(e)}`);
-}
-
-const describe = (v: unknown): string => {
-  const kind = viewKind(v);
-  if (kind) return `a ${kind} view`;
-  if (isPointValue(v)) return 'a point value';
-  if (isEdgeValue(v)) return 'an edge value';
-  if (v instanceof Selection) return `a${v.domain.kind.name === 'edge' ? 'n' : ''} ${v.domain.kind.name} selection`;
-  if (isPosition(v)) return Array.isArray(v) ? 'a position [x, y]' : 'a position { x, y }';
-  if (Array.isArray(v)) return 'a list';
-  return typeof v;
-};
-
-/** The point rows a selection, a member or a list of members names in
- * `m`. A selection of an earlier state is read by identity; nothing is
- * none. */
-export function pointRowsOf(m: Material, what: unknown, who: string): number[] {
-  if (what === undefined || what === null) return [];
-  if (isPointSelection(what)) {
-    if (what.length === 0) return [];
-    return [...rowsIn(pointDomain(m), what, who)];
-  }
-  if (isEdgeSelection(what)) throw new Error(`${who}: expected points — a point selection or a vertex — got an edge selection; its points are sel.points`);
-  if (Array.isArray(what)) return listRows(pointDomain(m), what, who);
-  const row = pointRow(m, what, who);
-  return row < 0 ? [] : [row];
-}
-
-/** The edge rows a selection, a member or a list of members names in
- * `m`. */
-export function edgeRowsOf(m: Material, what: unknown, who: string): number[] {
-  if (what === undefined || what === null) return [];
-  if (isEdgeSelection(what)) {
-    if (what.length === 0) return [];
-    return [...rowsIn(edgeDomain(m), what, who)];
-  }
-  if (isPointSelection(what)) throw new Error(`${who}: expected edges — an edge selection or an edge — got a point selection; the edges among its points are sel.edges`);
-  if (Array.isArray(what)) return listRows(edgeDomain(m), what, who);
-  const row = edgeRow(m, what, who);
-  return row < 0 ? [] : [row];
-}
-
-/** The rows a list of members names, each once, in the order given, each
- * found as `rows` finds it: what is not a member of the domain refused by
- * name, a gone one skipped, one of an unrelated geometry refused. */
-function listRows<Row>(d: Domain<Row>, list: readonly unknown[], who: string): number[] {
-  const out: number[] = [];
-  const seen = new Set<number>();
-  for (const v of list) {
-    if (v === undefined || v === null) continue;
-    const r = memberRow(d, v, who);
-    if (r >= 0 && !seen.has(r)) {
-      seen.add(r);
-      out.push(r);
-    }
-  }
-  return out;
-}
-
-/** The rows `where` names among `members` (null: every row of `m`). */
-function whereOf<V>(
-  m: Material,
-  members: readonly number[] | null,
-  count: number,
-  reader: (m: Material, count: number) => (i: number) => V,
-  given: boolean,
-  where: unknown,
-  rowsOf: (m: Material, what: unknown, who: string) => number[],
-  who: string,
-): number[] | null {
-  if (!given) return members === null ? null : [...members];
-  if (typeof where === 'function') {
-    const out: number[] = [];
-    const view = reader(m, members === null ? count : members.length);
-    const pick = where as (v: V) => unknown;
-    if (members === null) {
-      for (let i = 0; i < count; i++) if (pick(view(i))) out.push(i);
-    } else {
-      for (const i of members) if (pick(view(i))) out.push(i);
-    }
-    return out;
-  }
-  const rows = rowsOf(m, where, who);
-  if (members === null) return rows;
-  const inside = new Set(members);
-  return rows.filter((r) => inside.has(r));
+  return rowOf(edgeDomain(m), e, who);
 }
 
 // ---- the three writes on points -----------------------------------------------------
 
-/** Columns a new row gives, checked: reserved names refused, and every
- * declared column named when a row is being added. */
-function checkNewRowColumns(given: Readonly<Record<string, unknown>>, declared: readonly string[], reserved: readonly string[], what: string, who: string): void {
-  if (typeof given !== 'object' || given === null || Array.isArray(given)) throw new Error(`${who}: the columns of ${what} are a record, { name: value }`);
-  for (const name in given) {
-    if (reserved.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of ${what}, not a column`);
-  }
+/** Columns a new row gives, checked: a name the row owns refused, and
+ * every declared column named. */
+function checkNewRowColumns(given: Readonly<Record<string, unknown>>, declared: readonly string[], kind: 'point' | 'edge', who: string): void {
+  if (typeof given !== 'object' || given === null || Array.isArray(given)) throw new Error(`${who}: the columns of a new ${kind} are a record, { name: value } — got ${describe(given)}`);
+  for (const name in given) checkNewColumnName(kind, name, who);
   for (const name of declared) {
-    if (!(name in given)) throw new Error(`${who}: must give '${name}' for ${what} — every declared column is a choice`);
+    if (!(name in given)) throw new Error(`${who}: must give '${name}' for a new ${kind} — every declared column is a choice`);
   }
 }
 
@@ -934,55 +902,40 @@ function checkNewRowColumns(given: Readonly<Record<string, unknown>>, declared: 
  * values it was given.
  */
 class RowCells {
-  readonly kinds = new Map<string, AnyKind>();
+  private readonly cols = new Map<string, CellKind>();
 
   constructor(held: Readonly<Record<string, AnyColumn>>, private readonly who: string, private readonly positions: readonly string[] = []) {
-    for (const name in held) this.kinds.set(name, kindOf(held[name]));
+    for (const name in held) this.cols.set(name, { kind: kindOf(held[name]), open: false });
   }
 
   read(c: Readonly<Record<string, unknown>>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const name in c) {
       const v = c[name];
-      let kind = this.kinds.get(name);
-      if (typeof v === 'number' && (kind === undefined || kind === kinds.number)) {
-        if (kind === undefined) this.kinds.set(name, kinds.number);
+      let col = this.cols.get(name);
+      if (col === undefined) this.cols.set(name, (col = { kind: undefined, open: false }));
+      // A number stays as it is, so a numeric column appends the very
+      // values it was given; `landsRecord` skips one that is not finite.
+      if (typeof v === 'number' && (col.kind === undefined || col.kind === kinds.number)) {
+        col.kind = kinds.number;
         out[name] = v;
-        continue;
+      } else {
+        out[name] = landCell(col, v, this.who, name, this.positions.includes(name));
       }
-      if (v instanceof Stored) {
-        out[name] = v.value;
-        continue;
-      }
-      if (v === undefined) {
-        out[name] = SKIP;
-        continue;
-      }
-      const got = kindOfValue(v);
-      if (got === undefined) throw notACell(this.who, name, v);
-      if (got === null) {
-        // No row, or no placement: a column that holds either takes it.
-        if (kind === undefined) {
-          kind = kinds.reference;
-          this.kinds.set(name, kind);
-        }
-        out[name] = kind.name === 'reference' || kind.name === 'placement' ? null : SKIP;
-        continue;
-      }
-      if (kind !== got) {
-        kind = checkKind(this.who, name, kind, got, this.positions.includes(name));
-        this.kinds.set(name, kind);
-      }
-      out[name] = storedCell(kind, v);
     }
     return out;
+  }
+
+  /** The kind of a column the rows name: the one it holds, or its first
+   * value's. */
+  kindOf(name: string): AnyKind {
+    return this.cols.get(name)?.kind ?? kinds.number;
   }
 
   /** What a row that gives no value for a column appends there: the
    * kind's default, 0 for numbers. */
   fallback(name: string): unknown {
-    const kind = this.kinds.get(name) ?? kinds.number;
-    return kind.default;
+    return this.kindOf(name).default;
   }
 }
 
@@ -1006,7 +959,7 @@ export function addPointRows(m: Material, xs: readonly number[], ys: readonly nu
   const declared = m.store.attrNames;
   const extra = new Set<string>();
   for (const c of cols) {
-    checkNewRowColumns(c, declared, ['x', 'y', ...RESERVED_POINT_FIELDS], 'a new point', who);
+    checkNewRowColumns(c, declared, 'point', who);
     for (const name in c) if (!declared.includes(name)) extra.add(name);
   }
   const reader = new RowCells(m.store.attrs, who, ['z']);
@@ -1027,7 +980,7 @@ export function addPointRows(m: Material, xs: readonly number[], ys: readonly nu
   p.y = p.y.append(keep.map((k) => ys[k]));
   // A column a new row declares is its kind's default — 0 for numbers — on
   // every row that was already there.
-  for (const name of extra) p.attrs[name] = newColumn(reader.kinds.get(name) ?? kinds.number, m.n);
+  for (const name of extra) p.attrs[name] = newColumn(reader.kindOf(name), m.n);
   for (const name in p.attrs) p.attrs[name] = appendValues(p.attrs[name], keep.map((k) => cells[k][name]));
   const given = keep.map((k) => (ids === null ? NaN : ids[k]));
   const minted = mintIds(given.filter((id) => Number.isNaN(id)).length);
@@ -1089,22 +1042,72 @@ function keepRows(m: Material, points: readonly number[] | null, edges: readonly
   return p;
 }
 
-/** The transfer policy each written column is declared with, checked
- * against the domain: one word for every column the write names, or — in
- * the record form — a record by column. `undefined` when the write
- * declares none. */
-function declaredTransfer(opts: Readonly<Record<string, unknown>> | undefined, domain: 'points' | 'edges', names: readonly string[], single: boolean, who: string): Record<string, string> | undefined {
-  if (opts === undefined) return undefined;
+// ---- one write, over any table ----------------------------------------------------
+
+/**
+ * What a write needs to know of the table it lands on, beyond its rows:
+ * the kind of row (the names it owns, how a refusal names it), the
+ * policies a column may declare — the default first; none: the table takes
+ * no options, and `why` says why — whether a face column's `fallback` is
+ * an option, the columns that are places (`x`, `y` and `z` hold numbers,
+ * and `x`, `y` live beside the columns and have no policy), and whether
+ * the table holds numbers only (a lattice's rasters).
+ */
+interface WriteTable {
+  readonly kind: RowKind;
+  readonly transfers?: readonly string[];
+  readonly why?: string;
+  readonly fallback?: boolean;
+  readonly places?: readonly string[];
+  readonly numbers?: boolean;
+}
+
+const POINT_TABLE: WriteTable = { kind: 'point', transfers: ['interpolate', 'nearest'], places: ['x', 'y', 'z'] };
+const EDGE_TABLE: WriteTable = { kind: 'edge', transfers: ['copy', 'distribute'] };
+const FACE_TABLE: WriteTable = { kind: 'face', transfers: ['nearest', 'drop'], fallback: true };
+const CORNER_TABLE: WriteTable = { kind: 'corner', why: 'a corner has no transfer; it lives and dies with its face' };
+/** @internal A lattice's faces: numbers only, fixed rows, no policy. */
+export const LATTICE_TABLE: WriteTable = { kind: 'lattice face', numbers: true, why: "a lattice's faces never change, so a column has no transfer" };
+
+/** How a refusal names a row of a table. */
+const rowWord = (table: WriteTable): string => (table.kind === 'lattice face' ? 'face' : table.kind);
+
+/** A write's options, read: the policy each written column is declared
+ * with (undefined: none declared), and a face column's fallback. */
+interface WriteOptions {
+  readonly transfer?: Readonly<Record<string, string>>;
+  readonly fallback?: unknown;
+  /** `{ fallback: undefined }`: the column's fallback is dropped. */
+  readonly clearsFallback: boolean;
+}
+
+/**
+ * The options record of a write, checked against its table: `transfer` —
+ * one policy for every column the write names, or after the record form a
+ * record by column (`transferRecord`) — and a face column's `fallback`. A
+ * place has no policy; a table with no policies takes no options, and
+ * says why.
+ */
+export function writeOptions(opts: Readonly<Record<string, unknown>> | undefined, table: WriteTable, names: readonly string[], single: boolean, who: string): WriteOptions {
+  if (opts === undefined) return { clearsFallback: false };
+  const row = rowWord(table);
+  const a = row === 'edge' ? 'an' : 'a';
+  if (table.transfers === undefined) throw new Error(`${who}: ${a} ${row} write takes no options — ${table.why}`);
   for (const key of Object.keys(opts)) {
-    if (key === 'transfer') continue;
-    if (key === 'fallback') throw new Error(`${who}: 'fallback' is an option of a face column — a ${domain === 'points' ? 'point' : 'n edge'} row always has a value`);
-    throw new Error(`${who}: unknown option '${key}' — the options record of a write is { transfer }`);
+    if (key === 'transfer' || (key === 'fallback' && table.fallback)) continue;
+    if (key === 'fallback') throw new Error(`${who}: 'fallback' is an option of a face column — ${a} ${row} row always has a value`);
+    throw new Error(`${who}: unknown option '${key}' — the options record of ${table.fallback ? 'a face write is { transfer, fallback }' : 'a write is { transfer }'}`);
   }
-  const allowed = domain === 'points' ? ['interpolate', 'nearest'] : ['copy', 'distribute'];
-  const declared = transferRecord(opts.transfer, names, allowed, single, who);
-  if (declared === undefined) return undefined;
-  if (domain === 'points') for (const name of Object.keys(declared)) if (name === 'x' || name === 'y') throw new Error(`${who}: '${name}' is a position, and a position has no transfer policy`);
-  return declared;
+  const transfer = transferRecord(opts.transfer, names, table.transfers, single, who);
+  if (transfer !== undefined) for (const name of Object.keys(transfer)) if (name === 'x' || name === 'y') throw new Error(`${who}: '${name}' is a position, and a position has no transfer policy`);
+  const f = opts.fallback;
+  if (f !== undefined) {
+    const kind = kindOfValue(f);
+    if (kind === undefined || kind === null || kind.name === 'reference' || (typeof f === 'number' && !Number.isFinite(f))) {
+      throw new Error(`${who}: fallback is a value of the column's kind — a finite number, a boolean, a string, a list of numbers or a placement — got ${describe(f)}`);
+    }
+  }
+  return { ...(transfer !== undefined ? { transfer } : {}), fallback: f, clearsFallback: 'fallback' in opts && f === undefined };
 }
 
 /**
@@ -1117,20 +1120,19 @@ function declaredTransfer(opts: Readonly<Record<string, unknown>> | undefined, d
 function transferRecord(t: unknown, names: readonly string[], allowed: readonly string[], single: boolean, who: string): Record<string, string> | undefined {
   if (t === undefined) return undefined;
   const words = allowed.map((a) => `'${a}'`).join(' or ');
-  const got = (v: unknown) => (typeof v === 'string' ? `'${v}'` : typeof v);
   if (typeof t === 'string') {
-    if (!allowed.includes(t)) throw new Error(`${who}: transfer is ${words} — got ${got(t)}`);
+    if (!allowed.includes(t)) throw new Error(`${who}: transfer is ${words} — got ${describe(t)}`);
     const out: Record<string, string> = {};
     for (const name of names) out[name] = t;
     return out;
   }
-  if (!isOptionsRecord(t)) throw new Error(`${who}: transfer is ${words}${single ? '' : ', or a record of them by column'} — got ${got(t)}`);
+  if (!isOptionsRecord(t)) throw new Error(`${who}: transfer is ${words}${single ? '' : ', or a record of them by column'} — got ${describe(t)}`);
   if (single) throw new Error(`${who}: one column's transfer is a word — { transfer: ${allowed.map((a) => `'${a}'`).join(' | ')} }; a record of transfers by column goes with the record form, set({ a, b }, { transfer: { b: … } })`);
   const out: Record<string, string> = {};
   for (const [name, v] of Object.entries(t)) {
     if (!names.includes(name)) throw new Error(`${who}: transfer names '${name}', and this write does not write it — a column's transfer is declared by the write that names it`);
     if (v === undefined) continue;
-    if (typeof v !== 'string' || !allowed.includes(v)) throw new Error(`${who}: the transfer of '${name}' is ${words} — got ${got(v)}`);
+    if (typeof v !== 'string' || !allowed.includes(v)) throw new Error(`${who}: the transfer of '${name}' is ${words} — got ${describe(v)}`);
     out[name] = v;
   }
   return out;
@@ -1211,28 +1213,12 @@ class ColumnSink {
   private anyDone: () => AnyColumn = () => { throw new Error('unreachable'); };
 
   /** Row `i` takes `value`, which is not a number landing on a numeric
-   * column (that is the caller's fast path). */
+   * column (that is the caller's fast path), by the ladder every write
+   * lands by. A guess that becomes another kind starts the column again. */
   slow(i: number, value: unknown): void {
-    if (value === undefined) return;
-    const got = kindOfValue(value);
-    if (got === undefined) throw notACell(this.who, this.name, value);
-    if (got === null) {
-      if (this.kind.name === 'reference' || this.kind.name === 'placement') this.any!.set(i, null);
-      return;
-    }
-    if (typeof value === 'number') {
-      // A number into a numeric column that has not landed (not finite).
-      if (this.kind === kinds.number) return;
-    }
-    if (this.open) {
-      this.open = false;
-      if (got !== this.kind) {
-        this.kind = got;
-        this.start(newColumn(got, this.count));
-      }
-    }
-    if (got !== this.kind) throw wrongKind(this.who, this.name, this.kind, got);
-    const cell = storedCell(got, value);
+    const was = this.kind;
+    const cell = landCell(this, value, this.who, this.name, this.position);
+    if (this.kind !== was) this.start(newColumn(this.kind, this.count));
     if (cell === SKIP) return;
     if (this.out !== null) this.out[i] = cell as number;
     else if (this.num !== null) this.num.set(i, cell as number);
@@ -1249,57 +1235,62 @@ class ColumnSink {
   }
 }
 
-/** @internal Set columns over `rows` (null: every row), one instant: every
- * callback reads `m` as it was. `transfer`, when given, is the policy every
- * named column is declared with; the default policy is stored as none. */
-function setRows<V>(
-  m: Material,
-  domain: 'points' | 'edges',
+/**
+ * The columns a write lands on `held` (by name; a new one is declared),
+ * over `rows` (null: every one of `count`), ONE instant: every function
+ * reads the rows as they were, row by row, each row's columns in the
+ * record's order — the order every write reads a record in, so draws
+ * happen in the same order anywhere. `places` hold numbers; `read` is the
+ * view a function of the row is handed. Each column is written through a
+ * writer that copies only the leaves the rows fall in.
+ */
+function landColumns<V>(
+  held: Readonly<Record<string, AnyColumn>>,
+  count: number,
+  places: readonly string[],
   values: Readonly<Record<string, ColumnValue<V>>>,
+  names: readonly string[],
   rows: readonly number[] | null,
-  opts: Readonly<Record<string, unknown>> | undefined,
-  single: boolean,
+  read: (count: number) => (i: number) => V,
   who: string,
-): Material {
-  if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
-  const names = Object.keys(values);
-  const reserved = domain === 'points' ? RESERVED_POINT_FIELDS : RESERVED_EDGE_FIELDS;
-  for (const name of names) {
-    if (reserved.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of ${domain === 'points' ? 'a point' : 'an edge'}, not a column`);
-    const v = values[name];
-    if (typeof v !== 'function' && kindOfValue(v) === undefined) throw notACell(who, name, v);
-  }
-  const transfer = declaredTransfer(opts, domain, names, single, who);
+): ColumnSink[] {
+  const reach = rows === null ? 'all' : rows;
+  const sinks = names.map((name) => new ColumnSink(name, held[name], values[name], count, reach, who, places.includes(name)));
+  const fns = names.map((name) => values[name]);
+  const view = fns.some((f) => typeof f === 'function') ? read(rows === null ? count : rows.length) : null;
+  writeRows(rows, count, fns, view, sinks);
+  return sinks;
+}
+
+/**
+ * @internal `points.set` or `edges.set` on the rows `sel` holds, or on
+ * those `where` names among them: the columns landed (`landColumns`), and
+ * the policy each named column is declared with, when the write declares
+ * one — the default is stored as none.
+ */
+function setMaterial<V>(sel: Selection<V>, table: WriteTable, args: readonly unknown[]): Material {
+  const who = `${sel.domain.kind.plural}.set`;
+  const m = sel.owner as Material;
+  const points = table === POINT_TABLE;
+  const { values, names, single, given, where, opts } = readSet<V>(args, table, who);
+  const { transfer } = writeOptions(opts, table, names, single, who);
+  const rows = given ? whereRows(sel, where, who) : sel.members;
   // A write that reaches no row still declares its policy: the declaration
   // is about the column, not about the rows it writes.
   if (rows !== null && rows.length === 0 && transfer === undefined) return m;
   const p = partsOf(m);
-  const count = domain === 'points' ? m.n : m.edgeCount;
-  const cols = domain === 'points' ? p.attrs : p.edgeAttrs;
-  // A column the write names for the first time is declared, its kind's
-  // default elsewhere; `x` and `y` are the position columns, and `z` holds
-  // numbers as they do. Each is written through a writer that copies only
-  // the leaves the rows fall in.
-  const reach = rows === null ? 'all' : rows;
-  const sinks = names.map((name) => {
-    const position = domain === 'points' && (name === 'x' || name === 'y' || name === 'z');
-    const base = domain === 'points' && name === 'x' ? p.x : domain === 'points' && name === 'y' ? p.y : cols[name];
-    return new ColumnSink(name, base, values[name], count, reach, who, position);
-  });
-  const fns = names.map((name) => values[name]);
-  const anyFn = fns.some((f) => typeof f === 'function');
-  const passed = rows === null ? count : rows.length;
-  const view = (anyFn ? (domain === 'points' ? vertexReader(m, passed) : edgeReader(m, passed)) : null) as ((i: number) => V) | null;
-  writeRows(rows, count, fns, view, sinks);
-  names.forEach((name, k) => {
-    const done = sinks[k].done();
-    if (domain === 'points' && name === 'x') p.x = done as Column;
-    else if (domain === 'points' && name === 'y') p.y = done as Column;
-    else cols[name] = done;
-  });
+  const cols = points ? p.attrs : p.edgeAttrs;
+  const d = sel.domain;
+  const sinks = landColumns(points ? { ...cols, x: p.x, y: p.y } : cols, d.size, table.places ?? [], values, names, rows, (n) => d.reader?.(n) ?? ((i) => d.row(i)), who);
+  for (const sink of sinks) {
+    const col = sink.done();
+    if (points && sink.name === 'x') p.x = col as Column;
+    else if (points && sink.name === 'y') p.y = col as Column;
+    else cols[sink.name] = col;
+  }
   // A write of columns keeps the rows where they are, and so a level set's
-  // area; a write of a position moves them.
-  const area = domain === 'points' && names.some((name) => name === 'x' || name === 'y' || name === 'z') ? undefined : keptArea(m);
+  // area; a write of a place moves them.
+  const area = names.some((name) => table.places?.includes(name)) ? undefined : keptArea(m);
   if (transfer === undefined) return make(m, p, { area });
   for (const sink of sinks) {
     const t = transfer[sink.name];
@@ -1307,15 +1298,12 @@ function setRows<V>(
   }
   // Setting a value keeps a column's declared policy; declaring the default
   // restores it, which is stored as no entry at all.
-  const policies: Record<string, string> = domain === 'points' ? { ...m.transfers } : { ...m.edgeTransfers };
-  const fallback = domain === 'points' ? 'interpolate' : 'copy';
+  const policies: Record<string, string> = { ...(points ? m.transfers : m.edgeTransfers) };
   for (const [name, t] of Object.entries(transfer)) {
-    if (t === fallback) delete policies[name];
+    if (t === table.transfers![0]) delete policies[name];
     else policies[name] = t;
   }
-  return domain === 'points'
-    ? make(m, p, { transfers: policies as Record<string, TransferPolicy>, area })
-    : make(m, p, { edgeTransfers: policies as Record<string, EdgeTransfer>, area });
+  return make(m, p, points ? { transfers: policies as Record<string, TransferPolicy>, area } : { edgeTransfers: policies as Record<string, EdgeTransfer>, area });
 }
 
 /** A write over `rows` (null: every row): each column's value worked out
@@ -1371,33 +1359,50 @@ function writeRows<V>(rows: readonly number[] | null, count: number, fns: readon
 }
 
 /** A plain record — never a `where`: a `where` is a selection, a value, a
- * view or a function, and none of those is a plain object. */
+ * view, a function, or — for a lattice — a place, and none of those is a
+ * plain object other than a place `{ x, y }`. */
 const isOptionsRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype &&
+  !(typeof (v as { x?: unknown }).x === 'number' && typeof (v as { y?: unknown }).y === 'number');
 
-/** @internal `set` arguments, read: the values, whether a `where` was given
- * at all (an `undefined` one is nothing), and the options record. A plain
- * record in the `where` place is the options, so `set(col, v, opts)` needs
- * no `undefined` between them. */
-function readSet<V>(args: readonly unknown[], who: string): { values: Record<string, ColumnValue<V>>; single: boolean; given: boolean; where: unknown; opts: Readonly<Record<string, unknown>> | undefined } {
+/**
+ * @internal `set` arguments, read against the table: the values, checked —
+ * a record, no name the row owns, each value one the table holds or a
+ * function of the row — whether a `where` was given at all (an `undefined`
+ * one is nothing), and the options record. A plain record in the `where`
+ * place is the options, so `set(col, v, opts)` needs no `undefined`
+ * between them. The one parser every write reads its arguments with.
+ */
+export function readSet<V>(args: readonly unknown[], table: WriteTable, who: string): { values: Record<string, ColumnValue<V>>; names: string[]; single: boolean; given: boolean; where: unknown; opts: Readonly<Record<string, unknown>> | undefined } {
+  const row = rowWord(table);
   let values: Record<string, ColumnValue<V>>;
   let rest: readonly unknown[];
   const single = typeof args[0] === 'string';
   if (single) {
-    if (args.length < 2) throw new Error(`${who}: '${args[0]}' needs a value — a number, or a function of the row`);
+    if (args.length < 2) throw new Error(`${who}: '${args[0]}' needs a value — a number, or a function of the ${row}`);
     values = { [args[0] as string]: args[1] as ColumnValue<V> };
     rest = args.slice(2);
   } else {
+    if (typeof args[0] !== 'object' || args[0] === null || Array.isArray(args[0])) throw new Error(`${who}: give a column and a value, or a record { column: value } — got ${describe(args[0])}`);
     values = args[0] as Record<string, ColumnValue<V>>;
     rest = args.slice(1);
   }
-  if (rest.length > 0 && isOptionsRecord(rest[0])) {
-    if (rest.length > 1) throw new Error(`${who}: the options record { transfer } comes last, after the where`);
-    return { values, single, given: false, where: undefined, opts: rest[0] };
+  const names = Object.keys(values);
+  for (const name of names) {
+    checkColumnName(table.kind, name, who);
+    const v = values[name];
+    if (typeof v === 'function') continue;
+    if (table.numbers ? typeof v !== 'number' : kindOfValue(v) === undefined) {
+      throw table.numbers ? new Error(`${who}: the value of '${name}' is a number or a function of the ${row} — a lattice holds numbers — got ${describe(v)}`) : notACell(who, name, v, row);
+    }
   }
-  if (rest.length > 1 && rest[1] !== undefined && !isOptionsRecord(rest[1])) throw new Error(`${who}: the last argument is the options record { transfer } — got ${describe(rest[1])}`);
+  if (rest.length > 0 && isOptionsRecord(rest[0])) {
+    if (rest.length > 1) throw new Error(`${who}: the options record comes last, after the where`);
+    return { values, names, single, given: false, where: undefined, opts: rest[0] };
+  }
+  if (rest.length > 1 && rest[1] !== undefined && !isOptionsRecord(rest[1])) throw new Error(`${who}: the last argument is the options record — got ${describe(rest[1])}`);
   if (rest.length > 2) throw new Error(`${who}: a write takes a value, a where and an options record — got ${rest.length + 1} arguments after the column`);
-  return { values, single, given: rest.length > 0, where: rest[0], opts: rest[1] as Readonly<Record<string, unknown>> | undefined };
+  return { values, names, single, given: rest.length > 0, where: rest[0], opts: rest[1] as Readonly<Record<string, unknown>> | undefined };
 }
 
 // ---- the writes, as the selections answer them --------------------------------------
@@ -1418,7 +1423,7 @@ export function addPoints(m: Material, at: XY | PointEnd | Iterable<XY | PointEn
   const ys: number[] = [];
   const records: Record<string, unknown>[] = [];
   const ids: number[] = [];
-  checkColumns(cols, ['x', 'y', ...RESERVED_POINT_FIELDS], 'a new point', who);
+  checkColumns(cols, 'point', who);
   for (const q of list) {
     if (q === undefined || q === null) continue;
     if (isPointValue(q) || viewKind(q) === 'vertex') {
@@ -1441,17 +1446,15 @@ export function addPoints(m: Material, at: XY | PointEnd | Iterable<XY | PointEn
   return addPointRows(m, xs, ys, records, ids, who);
 }
 
-/** `points.remove`: the rows, and every edge row that names one of them. */
+/** `points.remove`: the rows `what` names — a where, as a write reads one
+ * — and every edge row that names one of them. */
 export function removePoints(m: Material, what: unknown): Material {
-  return removePointRows(m, pointRowsOf(m, what, 'points.remove'));
+  return removePointRows(m, whereRows(pointsOf(m), what, 'points.remove'));
 }
 
-/** `points.set`, over `members` (null: the whole table). */
-export function setPoints(m: Material, members: readonly number[] | null, args: readonly unknown[]): Material {
-  const who = 'points.set';
-  const { values, single, given, where, opts } = readSet<Vertex>(args, who);
-  const rows = whereOf(m, members, m.n, vertexReader, given, where, pointRowsOf, who);
-  return setRows(m, 'points', values, rows, opts, single, who);
+/** `points.set`, on the points `sel` holds. */
+export function setPoints(sel: Selection<Vertex>, args: readonly unknown[]): Material {
+  return setMaterial(sel, POINT_TABLE, args);
 }
 
 /** One edge row a write asks for: its ends, the id it names (NaN: mint
@@ -1474,7 +1477,7 @@ function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
       // A view of an edge is that edge: added back, it is the wall it was,
       // with the lineage the faces through it are keyed by.
       const e = r as Edge;
-      const owner = ownerOfView(e);
+      const owner = ownerOf(e);
       if (!(owner instanceof Material)) return { a: e.a, b: e.b, id: e.id, root: -1, cols: {} };
       return { a: e.a, b: e.b, id: e.id, root: at64(owner.store.edgeRoots, e.index), cols: edgeCells(owner, e.index) };
     }
@@ -1494,7 +1497,7 @@ function edgeAsks(rows: unknown, who: string): EdgeAsk[] {
     if (r === undefined || r === null) continue;
     const e = asEdge(r);
     if (e) out.push(e);
-    else if (isPosition(r)) throw referenceError(who, r);
+    else if (isPosition(r)) throw notAPoint(who, r);
     else if (Array.isArray(r) && r.length === 2) out.push({ a: r[0], b: r[1], id: NaN, root: -1, cols: {} });
     else throw new Error(`${who}: an edge row is a pair [a, b] or an edge value — got ${describe(r)}`);
   }
@@ -1567,7 +1570,7 @@ export function addEdgeRows(
     const id = ids === null ? NaN : ids[k];
     if (!Number.isNaN(id) && (held.has(id) || m.rowOfEdge(id as EdgeId) >= 0)) continue;
     const given = withAbsentEdge({ ...cols[k] } as Record<string, number>, declared);
-    checkNewRowColumns(given, declared, RESERVED_EDGE_FIELDS, 'a new edge', who);
+    checkNewRowColumns(given, declared, 'edge', who);
     const cells = reader.read(given);
     if (!landsRecord(cells)) continue;
     for (const name in given) if (!declared.includes(name)) extra.add(name);
@@ -1581,7 +1584,7 @@ export function addEdgeRows(
   const ends: number[] = [];
   for (const k of keep) ends.push(pairs[k][0], pairs[k][1]);
   p.edgeList = p.edgeList.append(ends);
-  for (const name of extra) p.edgeAttrs[name] = newColumn(reader.kinds.get(name) ?? kinds.number, m.edgeCount);
+  for (const name of extra) p.edgeAttrs[name] = newColumn(reader.kindOf(name), m.edgeCount);
   for (const name in p.edgeAttrs) p.edgeAttrs[name] = appendValues(p.edgeAttrs[name], records.map((r) => r[name] ?? reader.fallback(name)));
   const given = keep.map((k) => (ids === null ? NaN : ids[k]));
   const minted = mintIds(given.filter((id) => Number.isNaN(id)).length);
@@ -1615,68 +1618,22 @@ export function removeEdgeRows(m: Material, rows: readonly number[]): Material {
   return make(m, keepRows(m, null, edges, null));
 }
 
-/** `edges.remove`: the rows; their points stay. */
+/** `edges.remove`: the rows `what` names — a where, as a write reads one;
+ * their points stay. */
 export function removeEdges(m: Material, what: unknown): Material {
-  return removeEdgeRows(m, edgeRowsOf(m, what, 'edges.remove'));
+  return removeEdgeRows(m, whereRows(edgesOf(m), what, 'edges.remove'));
 }
 
-/** `edges.set`, over `members` (null: the whole table). */
-export function setEdges(m: Material, members: readonly number[] | null, args: readonly unknown[]): Material {
-  const who = 'edges.set';
-  const { values, single, given, where, opts } = readSet<Edge>(args, who);
-  const rows = whereOf(m, members, m.edgeCount, edgeReader, given, where, edgeRowsOf, who);
-  return setRows(m, 'edges', values, rows, opts, single, who);
+/** `edges.set`, on the edges `sel` holds. */
+export function setEdges(sel: Selection<Edge>, args: readonly unknown[]): Material {
+  return setMaterial(sel, EDGE_TABLE, args);
 }
 
 // ---- the face write ------------------------------------------------------------------
 
-/** The face rows `where` names among `members`, in the members' order. */
-function faceRowsWhere(sel: Selection<Face>, members: readonly number[], where: unknown, who: string): number[] {
-  if (where === undefined || where === null) return [];
-  let rows: readonly number[];
-  if (typeof where === 'function') {
-    const pick = where as (f: Face) => unknown;
-    return members.filter((f) => pick(sel.domain.row(f)));
-  }
-  if (where instanceof Selection) {
-    rows = sel.operand(where, 'set');
-  } else if (viewKind(where) === 'face') {
-    const row = sel.domain.rowOf(where, who);
-    rows = row < 0 ? [] : [row];
-  } else if (Array.isArray(where)) {
-    rows = listRows(sel.domain, where, who);
-  } else {
-    throw new Error(`${who}: a where is a face selection, one face, a list of faces, or a test of the face — got ${describe(where)}`);
-  }
-  const named = new Set(rows);
-  return members.filter((r) => named.has(r));
-}
-
-/** A face column's options, checked: the transfer by column name (see
- * `transferRecord`) and the fallback. */
-function faceOptions(opts: Readonly<Record<string, unknown>> | undefined, names: readonly string[], single: boolean, who: string): FaceOptions {
-  if (opts === undefined) return { clearsFallback: false };
-  for (const key of Object.keys(opts)) {
-    if (key !== 'transfer' && key !== 'fallback') throw new Error(`${who}: unknown option '${key}' — the options record of a face write is { transfer, fallback }`);
-  }
-  const transfer = transferRecord(opts.transfer, names, ['nearest', 'drop'], single, who) as Record<string, FaceTransfer> | undefined;
-  const f = opts.fallback;
-  if (f !== undefined) {
-    const kind = kindOfValue(f);
-    if (kind === undefined || kind === null || kind.name === 'reference' || (typeof f === 'number' && !Number.isFinite(f))) {
-      throw new Error(`${who}: fallback is a value of the column's kind — a finite number, a boolean, a string, a list of numbers or a placement — got ${String(f)}`);
-    }
-  }
-  return { ...(transfer !== undefined ? { transfer } : {}), fallback: f, clearsFallback: 'fallback' in opts && f === undefined };
-}
-
-/** A face write's options, read: the transfer each column is declared
- * with, and the fallback. */
-interface FaceOptions { transfer?: Readonly<Record<string, FaceTransfer>>; fallback?: unknown; clearsFallback: boolean }
-
 /**
  * @internal `faces.set`, over the faces `sel` holds: the columns keyed by
- * wall lineage. Every face of the state keeps what it carries of a column
+ * face identity. Every face of the state keeps what it carries of a column
  * (its own value, or the one it inherited) and the faces written take
  * their new values, all read from the faces as they were; the column is
  * then written against THIS state's faces, so only a face that appears
@@ -1685,18 +1642,11 @@ interface FaceOptions { transfer?: Readonly<Record<string, FaceTransfer>>; fallb
  */
 export function writeFaces(sel: Selection<Face>, args: readonly unknown[]): Material {
   const who = 'faces.set';
-  const { values, single, given, where, opts } = readSet<Face>(args, who);
-  if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
-  const names = Object.keys(values);
-  for (const name of names) {
-    if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a face, not a column`);
-    const v = values[name];
-    if (typeof v !== 'function' && kindOfValue(v) === undefined) throw new Error(`${who}: the value of '${name}' is a number, a boolean, a string, a list of numbers, a row or a placement — or a function of the face that answers one — got ${describe(v)}`);
-  }
-  const face = faceOptions(opts, names, single, who);
+  const { values, names, single, given, where, opts } = readSet<Face>(args, FACE_TABLE, who);
+  const face = writeOptions(opts, FACE_TABLE, names, single, who);
   const cells = faceTableOf(sel);
-  const rows = given ? faceRowsWhere(sel, sel.indices, where, who) : sel.indices;
-  if (rows.length === 0 && opts === undefined) return sel.source as Material;
+  const rows = given ? whereRows(sel, where, who) : sel.indices;
+  if (rows.length === 0 && opts === undefined) return sel.owner as Material;
   const views = cells.faces;
   // Every value is worked out before any lands: one instant. Row by row,
   // each row's columns in the record's order — the order every domain's
@@ -1726,7 +1676,7 @@ export function writeFaceColumns(
   rows: readonly number[],
   columns: Readonly<Record<string, ArrayLike<unknown>>>,
   keepNaN: boolean,
-  face: FaceOptions = { clearsFallback: false },
+  face: WriteOptions = { clearsFallback: false },
 ): Material {
   const who = 'faces.set';
   const m = cells.source;
@@ -1734,32 +1684,25 @@ export function writeFaceColumns(
   const keys = cells.ids();
   const next: Record<string, FaceColumn> = { ...m.faceAttrs };
   for (const name of Object.keys(columns)) {
-    if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a face, not a column`);
+    checkColumnName('face', name, who);
     const values = columns[name];
     const was = m.faceAttrs[name];
-    let kind: AnyKind | undefined = was === undefined ? undefined : (was.kind ?? kinds.number);
+    const col: CellKind = { kind: was === undefined ? undefined : (was.kind ?? kinds.number), open: false };
     const map = new Map<string, unknown>();
     const held = cells.carried.get(name);
     if (held) held.forEach((v, f) => { if (v !== undefined) map.set(keys[f], v); });
     rows.forEach((f, i) => {
       const v = values[i];
-      if (typeof v === 'number' && (kind === undefined || kind === kinds.number)) {
-        kind = kinds.number;
+      if (typeof v === 'number' && (col.kind === undefined || col.kind === kinds.number)) {
+        col.kind = kinds.number;
         if (keepNaN || Number.isFinite(v)) map.set(keys[f], v);
         return;
       }
-      if (v === undefined) return;
-      const got = kindOfValue(v);
-      if (got === undefined) throw new Error(`${who}: the value of '${name}' is a number, a boolean, a string, a list of numbers, a row or a placement — got ${describe(v)}`);
-      if (got === null) {
-        if (kind !== undefined && (kind.name === 'reference' || kind.name === 'placement')) map.set(keys[f], null);
-        return;
-      }
-      if (got !== kind) kind = checkKind(who, name, kind, got, false);
-      const cell = storedCell(got, v);
+      const cell = landCell(col, v, who, name, false);
       if (cell === SKIP) return;
       map.set(keys[f], Array.isArray(cell) ? Object.freeze(cell) : cell);
     });
+    const kind = col.kind;
     const fallback = face.fallback !== undefined ? face.fallback : face.clearsFallback ? undefined : was?.fallback;
     const finalKind = kind ?? kinds.number;
     if (fallback !== undefined) {
@@ -1768,7 +1711,7 @@ export function writeFaceColumns(
     }
     next[name] = {
       values: map,
-      transfer: face.transfer?.[name] ?? was?.transfer ?? 'nearest',
+      transfer: (face.transfer?.[name] as FaceTransfer | undefined) ?? was?.transfer ?? 'nearest',
       fallback: fallback === undefined ? undefined : Array.isArray(fallback) ? Object.freeze([...fallback]) : fallback,
       seen: new Set(keys),
       // A numeric column says nothing of its kind, as it always has.
@@ -1785,43 +1728,20 @@ export function writeFaceColumns(
  * columns of the stated faces, one instant, each value of any kind. The
  * corners are the faces' own, so the write answers the geometry with a new
  * statement of the same faces — the same loops, the same edges — whose
- * corner columns are these.
+ * corner columns are these. A corner takes no options: it has no transfer.
  */
 export function writeCorners(sel: Selection<Corner>, args: readonly unknown[]): Material {
   const who = 'corners.set';
-  const { values, given, where, opts } = readSet<Corner>(args, who);
-  if (opts !== undefined) throw new Error(`${who}: a corner write takes no options — a corner has no transfer; it lives and dies with its face`);
-  if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
-  const names = Object.keys(values);
-  for (const name of names) {
-    if (RESERVED_CORNER_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a corner, not a column`);
-    const v = values[name];
-    if (typeof v !== 'function' && kindOfValue(v) === undefined) throw notACell(who, name, v);
-  }
+  const { values, names, single, given, where, opts } = readSet<Corner>(args, CORNER_TABLE, who);
+  writeOptions(opts, CORNER_TABLE, names, single, who);
   const d = sel.domain as CornerDomain;
-  const m = d.source;
+  const m = d.owner;
   const stated = d.stated;
   if (stated === undefined) return m;
-  let rows: readonly number[] | null = sel.members;
-  if (given) {
-    const members = sel.indices;
-    if (typeof where === 'function') {
-      const pick = where as (c: Corner) => unknown;
-      rows = members.filter((c) => pick(d.row(c)));
-    } else if (where === undefined || where === null) {
-      rows = [];
-    } else {
-      const named = new Set(where instanceof Selection ? sel.operand(where, 'set') : Array.isArray(where) ? listRows(d, where, who) : [d.rowOf(where, who)]);
-      rows = members.filter((c) => named.has(c));
-    }
-  }
+  const rows = given ? whereRows(sel, where, who) : sel.members;
   if (rows !== null && rows.length === 0) return m;
   const cols: Record<string, AnyColumn> = { ...(stated.corners ?? {}) };
-  const reach = rows === null ? 'all' : rows;
-  const sinks = names.map((name) => new ColumnSink(name, cols[name], values[name], d.size, reach, who, false));
-  const fns = names.map((name) => values[name]);
-  writeRows(rows, d.size, fns, (i: number) => d.row(i), sinks);
-  names.forEach((name, k) => { cols[name] = sinks[k].done(); });
+  for (const sink of landColumns(cols, d.size, [], values, names, rows, () => (i: number) => d.row(i), who)) cols[sink.name] = sink.done();
   return make(m, partsOf(m), { faces: { ...stated, corners: Object.freeze(cols) }, area: keptArea(m) });
 }
 
@@ -1871,7 +1791,7 @@ export function extrude(m: Material, from: PointEnd | undefined, offset: XY | re
 export function split(m: Material, edges: unknown, at: number | ((e: Edge) => number) = 0.5): Material {
   const who = 'split';
   if (typeof at !== 'number' && typeof at !== 'function') throw new Error(`${who}: at is a number along the edge, or a function of the edge — got ${typeof at}`);
-  const rows = edgeRowsOf(m, edges, who);
+  const rows = whereRows(edgesOf(m), edges, who);
   const { x: X, y: Y, edgeList: list, edgeRoots } = m.store;
   // Each cut, decided before any row is numbered: its place, the new
   // point's columns and the two children's.
@@ -2043,7 +1963,7 @@ export function replace(m: Material, edges: unknown, motif: Material, opts: Repl
     const uy = py - my0;
     return [(ux * mdx + uy * mdy) / span, (ux * -mdy + uy * mdx) / span] as const;
   });
-  const rows = edgeRowsOf(m, edges, who);
+  const rows = whereRows(edgesOf(m), edges, who);
   if (rows.length === 0) return m;
   const landed = new Landing(m);
   const xs: number[] = [];
@@ -2125,7 +2045,7 @@ export function move(m: Material, args: readonly unknown[]): Material {
   const listed = Array.isArray(last) && last.every((v) => isPointValue(v) || viewKind(v) !== undefined);
   if (args.length > 0 && (last === undefined || last === null || last instanceof Selection || isPointValue(last) || viewKind(last) !== undefined || listed)) {
     parts = args.slice(0, -1);
-    rows = pointRowsOf(m, last, who);
+    rows = [...whereRows(pointsOf(m), last, who)];
   }
   if (parts.length === 0 || (rows !== null && rows.length === 0)) return m;
   const fns = parts.map((d, i): ((p: Vertex) => XY) => {

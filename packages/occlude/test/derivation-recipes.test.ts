@@ -148,32 +148,35 @@ describe('identity-keeping rebuilds carry what the rows answer', () => {
   });
 });
 
-describe('a run keeps what its start answered, and drops what a pass derived', () => {
-  it('restamp with the start keeps the start\'s links only', () => {
+describe('a run keeps what its start answered and one step of what it made', () => {
+  it('restamp is a write: every link carries', () => {
     const t = toolkit({ aspect: [1, 1] });
     const beads = t.sample(t.material(circle([50, 50], 20)).curves.at(0)!, { count: 12 });
     const grown = beads.split(beads.edges.at(0)!);
-    const next = restamp(grown, 1, [], beads);
-    // The start's answers are kept for the rows the start had.
+    const next = restamp(grown, 1);
     expect(next.points.at(2)!.u).toBe(beads.points.at(2)!.u);
-    // The split's are gone: they named a state the run held for one pass.
-    expect(next.points.at(-1)!.source).toBeUndefined();
-    // Without a start, a restamp is a write: everything carries.
-    expect(edgeOf(restamp(grown, 1).points.at(-1)!)).toBe(beads.edges.at(0));
+    expect(edgeOf(next.points.at(-1)!)).toBe(beads.edges.at(0));
   });
 
-  it('t.steps of splits: a pass reads its splits\' sources, and the result the start\'s', () => {
+  it('t.steps of splits: a row made in a step answers its source for one step', () => {
     const t = toolkit({ aspect: [1, 1] });
     const beads = t.sample(t.material(circle([50, 50], 20)).curves.at(0)!, { count: 12 });
     const seen: boolean[] = [];
+    const previous: boolean[] = [];
     const run = t.steps(4, beads, (g) => {
+      // The point the step before made still says where it came from.
+      if (g !== beads) previous.push(edgeOf(g.points.at(-1)!) !== undefined);
       const cut = g.split(g.edges.at(0)!);
       seen.push(edgeOf(cut.points.at(-1)!) === g.edges.at(0));
       return cut;
     });
     expect(seen).toEqual([true, true, true, true]);
+    expect(previous).toEqual([true, true, true]);
+    // The result answers what the start answered, and what its last step made.
     expect(run.points.at(5)!.u).toBe(beads.points.at(5)!.u);
-    expect(run.points.at(-1)!.source).toBeUndefined();
+    expect(edgeOf(run.points.at(-1)!)).toBeDefined();
+    // A row made two steps back does not.
+    expect(run.points.at(-2)!.source).toBeUndefined();
   });
 
   it('a long run of splits does not hold the states it passed through', async () => {

@@ -1,4 +1,5 @@
 import {ROW_TYPES,Selection,select,domainKind,rowRange,type Domain,type DomainKind,type Types} from '../../selection.js';
+import {describe} from '../../views.js';
 import type {Attributes3} from '../geometry/surface.js';
 import {type GeometryOptions} from './mesh.js';
 import {surfaceOf} from '../geometry/value.js';
@@ -57,32 +58,25 @@ class CurveRows<Row extends Row3> implements Domain<Row> {
  readonly dense=true;
  #all:readonly number[]|null=null;
  #names:ReadonlyMap<string,number>|null=null;
- constructor(readonly kind:DomainKind,readonly source:SurfaceCurveNetwork3,readonly table:readonly Row[],readonly extract:(rows:readonly number[])=>unknown){
-  table.forEach((row,index)=>{if(!owners.has(row))owners.set(row,{network:source,kind,index});});
+ constructor(readonly kind:DomainKind,readonly owner:SurfaceCurveNetwork3,readonly table:readonly Row[],readonly extract:(rows:readonly number[])=>unknown){
+  table.forEach((row,index)=>{if(!owners.has(row))owners.set(row,{network:owner,kind,index});});
  }
  get size():number{return this.table.length;}
  all():readonly number[]{return (this.#all??=rowRange(this.table.length));}
  valid(r:number):boolean{return Number.isInteger(r)&&r>=0&&r<this.table.length;}
  row(r:number):Row{return this.table[r];}
  #rowOfName(name:string):number{return (this.#names??=new Map(this.table.map((row,i)=>[row.id,i]))).get(name)??-1;}
- rowOf(v:unknown,who:string):number{
-  const owner=typeof v==='object'&&v!==null?owners.get(v):undefined;
-  if(owner===undefined||owner.kind!==this.kind)throw new Error(`${who}: expected a ${this.kind.name} of supported curves, got ${owner?`a ${owner.kind.name}`:typeof v}`);
-  return owner.network===this.source&&this.table[owner.index]===v?owner.index:this.#rowOfName((v as Row).id);
+ /** A row is who its construction named it: a row of another revision of
+  * the same curves (an extraction, a rebind) is found here by that name. */
+ keyOf(r:number):unknown{return this.table[r].id;}
+ rowOfKey(key:unknown):number{return this.#rowOfName(key as string);}
+ locate(v:unknown,who:string):{domain:Domain<Row>;row:number}|{key:unknown}|null{
+  if(v===undefined||v===null)return null;
+  const owner=typeof v==='object'?owners.get(v):undefined;
+  if(owner===undefined||owner.kind!==this.kind)throw new Error(`${who}: expected a ${this.kind.name} of supported curves, got ${owner?`a ${owner.kind.name}`:describe(v)}`);
+  return owner.network===this.owner&&this.table[owner.index]===v?{domain:this,row:owner.index}:{key:(v as Row).id};
  }
- resolve(other:Selection<any>,who:string):number[]{
-  const d=other.domain;
-  if(!(d instanceof CurveRows)||d.kind!==this.kind)throw new Error(`${who}: selection set operations require the same domain (${this.kind.plural}, got ${d.kind.plural})`);
-  if(d===this)return [...other.indices];
-  const out:number[]=[];
-  for(const row of other as Selection<Row>){const i=this.#rowOfName(row.id);if(i>=0)out.push(i);}
-  return out;
- }
- on(state:unknown,who:string):Domain<Row>{
-  const target=state instanceof SurfaceCurves?(state as unknown as Record<string,unknown>)[this.kind.plural]:undefined;
-  if(!(target instanceof Selection)||!(target.domain instanceof CurveRows)||target.domain.kind!==this.kind)throw new Error(`${who}: expected supported curves to read the ${this.kind.plural} on`);
-  return target.domain as Domain<Row>;
- }
+ shares():boolean{return true;}
 }
 /** A kind of supported-curve rows: its own words, `extract`, and a refused
  * write. */

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, append, connect, curve, distance, extent, length, material, mul, perp, sub, sum, sumBy, unit,
+  append, connect, curve, extent, material,
   type Material, type Vertex, type PointId,
 } from '../src/material.js';
+import { add, distance, length, mul, perp, sub, sum, sumBy, unit } from '../src/vec.js';
 import { point } from '../src/tables.js';
 import { toolkit } from './helpers/run.js';
 import { force } from '../src/forces.js';
@@ -222,6 +223,22 @@ describe('forces', () => {
     expect(sub(later.move(force.sum(wander)).points.map(xy)[0], [3, 4])).toEqual(third);
   });
 
+  it('drift with the toolkit noise turns with the run\'s step, whatever holds the values', () => {
+    const t = toolkit({ seed: 1 });
+    const wander = drift(t.noise, { amount: 0.5 });
+    const seen: number[][] = [];
+    // A plain object holding a material: nothing restamps the material,
+    // and the drift still reads the step the run is making.
+    t.steps(3, { a: material([[3, 4]]) }, (s) => {
+      seen.push(wander(s.a.points.at(0)!));
+      return s;
+    });
+    expect(seen[1]).not.toEqual(seen[0]);
+    expect(seen[2]).not.toEqual(seen[1]);
+    // Outside a run it is the step the material reached, as before.
+    expect(wander([3, 4])).toEqual(seen[0]);
+  });
+
   it('vocabulary: either spelling in, fresh tuples out, nothing mutated, unit(0) = 0', () => {
     const a: [number, number] = [1, 2];
     const b = { x: 3, y: 5 };
@@ -384,7 +401,7 @@ describe('edges.groupBy, then curves (what segmentRuns was)', () => {
     expect(groups[0].curves.at(0).points).toHaveLength(4);
   });
 
-  it('a group across the seam of a ring is one curve, walked from its first row', () => {
+  it('a group across the seam of a ring is one curve, walked the way its edges run', () => {
     // ages 0 0 1 1 0 0, keyed by the start of each edge: the 0-edges 4→5,
     // 5→0, 0→1, 1→2 meet across the seam and are ONE curve.
     const c = curve([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]], { closed: true, age: [0, 0, 1, 1, 0, 0] });
@@ -393,7 +410,7 @@ describe('edges.groupBy, then curves (what segmentRuns was)', () => {
     const zero = groups[0].curves;
     expect(zero).toHaveLength(1);
     expect(zero.at(0).closed).toBe(false);
-    expect(zero.at(0).points.map((p) => p.index)).toEqual([2, 1, 0, 5, 4]);
+    expect(zero.at(0).points.map((p) => p.index)).toEqual([4, 5, 0, 1, 2]);
     expect(groups[1].curves.at(0).points.map((p) => p.index)).toEqual([2, 3, 4]);
     // Every edge drawn exactly once.
     expect(groups.reduce((s, g) => s + g.curves.sum((k) => k.edges.length), 0)).toBe(c.n);
@@ -508,7 +525,7 @@ describe('material: material beyond one chain', () => {
     expect(start.rowOfPoint(7 as PointId)).toBe(-1); // 7 is no id of this state, whatever row 7 would be
     expect(() => start.points.add([0, 0], { active: 0 })).toThrow(/must give 'generation'/);
     // something that is no point at all is a wrong program
-    expect(() => start.edges.add([start.points.at(0), { __handle: 3 } as never])).toThrow(/a reference must be a point value or a view/);
+    expect(() => start.edges.add([start.points.at(0), { __handle: 3 } as never])).toThrow(/expected a point — a vertex view or a point value/);
   });
 
   it('neighbourhood identity: membership in the source state, not coordinates or indices', () => {
@@ -538,8 +555,9 @@ describe('material: material beyond one chain', () => {
     expect(oneRing(r)).toBe(true);
     expect(r.points.map(xy)[0]).toEqual([0, 0]); // seam kept
     expect(Array.from(r.attrs.age).every((v) => v === 7)).toBe(true);
+    // A rule says what a NEW vertex gets: the seam is kept, as it was.
     const zeroed = ring.resample({ count: 6, transfer: { age: 0 } });
-    expect(Array.from(zeroed.attrs.age).every((v) => v === 0)).toBe(true);
+    expect(Array.from(zeroed.attrs.age)).toEqual([7, 0, 0, 0, 0, 0]);
     const fn = ring.resample({ count: 4, transfer: { age: (a, b, t) => a.age * 100 + t } });
     expect(fn.attrs.age[1]).toBeCloseTo(701, 6); // lands exactly on vertex 1: a = vertex 0, t = 1
     // A junction is kept: one vertex, three chains still meeting there.
@@ -781,10 +799,11 @@ describe('structural editing (edges brief)', () => {
     const out = cut.points.add(leaf).edges.add([mid, leaf], { rest: 8, strength: 1 });
     expect(out.n).toBe(7);
     expect(out.points.at(5).adjacent.length).toBe(3);
-    // A view of a material that shares no identity names nothing here.
+    // A view of a material that shares no identity is the wrong program: a
+    // write refuses it by name, as `rows` does.
     const other = Y();
-    expect(y.split(other.edge(0)).n).toBe(y.n);
-    expect(y.points.remove(other.vertex(0)).n).toBe(y.n);
+    expect(() => y.split(other.edge(0))).toThrow(/split: that edge is a row of an unrelated material/);
+    expect(() => y.points.remove(other.vertex(0))).toThrow(/points\.remove: that point is a row of an unrelated material/);
   });
 
   it('a split shares a distributed column by length and interpolates the points; an end cuts nothing', () => {
@@ -868,13 +887,14 @@ describe('edges.nearest and edges.firstHit (what query.edges was)', () => {
     expect(q.firstHit([5, 5], [5, -5])!.edge.index).toBe(0);
   });
 
-  it('firstHit respects excludeIncident and refuses foreign vertices', async () => {
+  it('firstHit respects excludeIncident, found by identity; a row number is not a vertex', async () => {
     const m = sq();
     const q = m.edges;
     // moving from vertex 0 outward must not hit its own edges
     expect(q.firstHit([0, 0], [5, 0], { excludeIncident: m.vertex(0) })).toBeNull();
-    expect(q.firstHit([0, 0], [5, 0], { excludeIncident: 0 })).toBeNull();
-    expect(() => q.firstHit([0, 0], [5, 0], { excludeIncident: sq().vertex(0) })).toThrow(/vertex of the material these edges belong to/);
+    // A vertex of an unrelated material names no row here: it skips nothing.
+    expect(q.firstHit([0, 0], [5, 0], { excludeIncident: sq().vertex(0) })).not.toBeNull();
+    expect(() => q.firstHit([0, 0], [5, 0], { excludeIncident: 0 as never })).toThrow(/edges\.firstHit: excludeIncident: expected a point/);
     const point = q.firstHit([10, 5], [10, 5])!;
     expect(point.kind).toBe('touch');
     expect(point.along).toBe(0);
@@ -1039,8 +1059,8 @@ describe('correctness pass (review of 22c9887)', () => {
 
 describe('view identity: the brand lives off the view, not on it', () => {
   it('a view enumerates, spreads and serialises as a plain object; copies are not owned', async () => {
-    const { ownedBy } = await import('../src/material.js');
-    const { viewKind } = await import('../src/material.js');
+    const { ownedBy } = await import('../src/views.js');
+    const { viewKind } = await import('../src/views.js');
     const c = curve([[0, 0], [10, 0], [10, 10]], { closed: true, age: [1, 2, 3] });
     const v = c.points.at(1);
     expect(Object.keys(v)).toEqual(['index', 'x', 'y', 'age']);

@@ -168,7 +168,7 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 Applies a transform, a default pen, a default `z` and a stack of modifiers to its children. `rotate` and `scale` pivot on `origin`, an `Origin`. This is a point, `'center'` or `'centroid'`. A point is a pair or an `{ x, y }` object, so a point of a material goes in as it is. `'center'` is the middle of the bounds of the children. `'centroid'` is the area centroid of their union. Without `origin` they pivot on the user origin, the corner of the drawable. The call refuses a word that is not one of these, and names it.
 
-A group is also an area. `t.material`, `t.within`, `clip` and every other word that takes an area read a group as the union of its shapes. The transform of the group applies to them.
+A group is also an area. `t.material`, `t.within`, `clip`, `polygon` and every other word that takes an area read a group as the union of its shapes. The transform of the group applies to them.
 
 :::warning
 `origin: 'center'` is the middle of the group, not the middle of the drawable. To pivot on the middle of the drawable, give that point: `origin: [t.bounds().cx, t.bounds().cy]`.

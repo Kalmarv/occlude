@@ -163,7 +163,7 @@ describe('the consumers say what they read', () => {
     // one face is an area, with no chains of its own.
     const cells = cellsOf();
     expect(strokes(cells).length).toBe(cells.edges.curves.map(rec).length);
-    expect(() => strokes(cells.at(0) as never)).toThrow(/no chains to draw/);
+    expect(() => strokes(cells.at(0) as never)).toThrow(/one face is an area, not chains/);
   });
 
   it('a branching point selection is refused as an area, like a branching material', () => {
@@ -201,7 +201,7 @@ describe('a shape is not geometry until the toolkit lowers it', () => {
       expect(typeof t.force.boundary(area, { radius: 3 })).toBe('function');
       // A point consumer refuses a shape instead: how many points a shape
       // has would be a flattening tolerance's decision, not the sketch's.
-      expect(() => t.force.separation(area, { radius: 3 })).toThrow(/not a set of points/);
+      expect(() => t.force.separation(area as never, { radius: 3 })).toThrow(/force\.separation: a shape is not geometry until the toolkit lowers it — give t\.material\(shape\)/);
       // Given points, they work: the door is explicit.
       const points = t.material(area);
       expect(typeof t.force.separation(points, { radius: 3 })).toBe('function');
@@ -222,6 +222,6 @@ describe('a shape is not geometry until the toolkit lowers it', () => {
   });
 
   it('the pure import still refuses a shape, by name', () => {
-    expect(() => distanceTo(circle(50, 50, 20) as never)).toThrow(/not geometry until the toolkit lowers it: use t\.distanceTo/);
+    expect(() => distanceTo(circle(50, 50, 20) as never)).toThrow(/distanceTo: a shape is not geometry until the toolkit lowers it — use t\.distanceTo/);
   });
 });

@@ -16,6 +16,7 @@
 import { orient2d } from 'robust-predicates';
 import { distanceTo } from './distance.js';
 import { loopCrossings } from './material.js';
+import { signedArea } from './space.js';
 
 type Pt = readonly [number, number];
 
@@ -275,17 +276,6 @@ function segmentsOf(loops: readonly (readonly Pt[])[]): Seg[] {
   return out;
 }
 
-/** Signed area (shoelace); positive for the outer orientation. */
-function areaOf(loop: readonly Pt[]): number {
-  let a = 0;
-  for (let k = 0; k < loop.length; k++) {
-    const p = loop[k];
-    const q = loop[(k + 1) % loop.length];
-    a += p[0] * q[1] - q[0] * p[1];
-  }
-  return a / 2;
-}
-
 /**
  * A point strictly inside the region `contours` bounds (its outer contour taken
  * as the one with the largest absolute signed area), or null when no probe
@@ -301,7 +291,7 @@ export function interiorPoint(contours: readonly (readonly Pt[])[]): Pt | null {
   if (loops.length === 0) return null;
   const insideRegion = distanceTo(loops);
   const segs = segmentsOf(loops);
-  const outer = loops.reduce((a, b) => (Math.abs(areaOf(b)) > Math.abs(areaOf(a)) ? b : a));
+  const outer = loops.reduce((a, b) => (Math.abs(signedArea(b)) > Math.abs(signedArea(a)) ? b : a));
   for (let k = 0; k < outer.length; k++) {
     const p = outer[k];
     const q = outer[(k + 1) % outer.length];

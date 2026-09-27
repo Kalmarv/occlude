@@ -20,7 +20,7 @@
 import { material as materialOf, Material } from './material.js';
 import type { IsoContour } from './isolines.js';
 import type { Selection } from './selection.js';
-import { chainRecordOf, chainRecordsOf, curvesOfChains, isCurveRow, type ChainRecord, type Curve } from './curves.js';
+import { chainLengths, chainRecordOf, chainRecordsOf, curvesOfChains, isCurveRow, type ChainRecord, type Curve } from './curves.js';
 import { flattenPrim, type Prim } from './prims.js';
 import { parsePathData, type Chain, type Seg } from './svgin.js';
 import { mm, type L } from './units.js';
@@ -413,20 +413,6 @@ function chainsOf(source: ChainSource): readonly ChainRecord[] {
   throw new Error("text: 'along' wants a chain — a material, or one curve of one (m.curves.at(0)); this value answers no curves");
 }
 
-/** Cumulative arc length of a chain, the seam segment included when it is
- * a ring: the same walk `along()` makes, read at the distances a line of
- * type asks for rather than at even spacing. */
-function arcLengths(pts: readonly (readonly [number, number])[], closed: boolean): number[] {
-  const segs = closed ? pts.length : pts.length - 1;
-  const cum = [0];
-  for (let s = 0; s < segs; s++) {
-    const a = pts[s];
-    const b = pts[(s + 1) % pts.length];
-    cum.push(cum[s] + Math.hypot(b[0] - a[0], b[1] - a[1]));
-  }
-  return cum;
-}
-
 interface Frame { x: number; y: number; tx: number; ty: number }
 
 /** Position and unit tangent at arc length `s`: wrapped on a ring, and on
@@ -499,7 +485,9 @@ export function textOf(env: TextEnv, str: string, opts: TextOpts): Material {
     const chains = chainsOf(opts.along!).filter((c) => c.pts.length > 1);
     if (chains.length === 0) return undefined;
     const c = chains[0];
-    const cum = arcLengths(c.pts, c.closed);
+    // The same walk `along()` makes, read at the distances a line of type
+    // asks for rather than at even spacing.
+    const cum = chainLengths(c.pts, c.closed);
     return { pts: c.pts, closed: c.closed, cum, total: cum[cum.length - 1] };
   })();
   if (opts.along !== undefined && path === undefined) return materialOf([]);

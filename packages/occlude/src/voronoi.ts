@@ -47,7 +47,7 @@ export type Sites = Material | Selection<Vertex>;
 function sitesOf(sites: Sites): { source: Material; rows: readonly number[] } {
   // A selection keeps an order; the construction reads its sites in row
   // order, so the lowest row of coincident sites owns the cell.
-  if (isPointSelection(sites)) return { source: sites.source, rows: [...sites.indices].sort((a, b) => a - b) };
+  if (isPointSelection(sites)) return { source: sites.owner, rows: [...sites.indices].sort((a, b) => a - b) };
   return { source: sites, rows: Array.from({ length: sites.n }, (_, i) => i) };
 }
 
@@ -240,7 +240,8 @@ function pointInside(contours: IsoContour[], cx: number, cy: number, b: { x: num
 
 /** @internal */
 export function voronoiWalls(sitesIn: Sites, bounds: Bounds): VoronoiWalls {
-  if (!(bounds.w > 0) || !(bounds.h > 0)) throw new Error('voronoi: bounds must have positive width and height');
+  // An area with no extent holds no cell: degenerate input draws nothing.
+  if (!(bounds.w > 0) || !(bounds.h > 0)) return { vx: [], vy: [], edges: [], kinds: [], del: null };
   const rect: RectClip = { x0: bounds.x, y0: bounds.y, x1: bounds.x + bounds.w, y1: bounds.y + bounds.h };
   const { source, rows } = sitesOf(sitesIn);
   const n = rows.length;

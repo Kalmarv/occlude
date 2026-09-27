@@ -29,7 +29,7 @@ const isRecord2=(v:unknown):v is {x:number;y:number;z?:undefined}=>!!v&&typeof v
  * are not lengths there, so lifting it would build a solid from a picture
  * of the chain, not from the chain: refused by name. */
 function refuseCurved(value:object,who:string):void {
-  const owner=isCurveRow(value)?(value as {points:{source?:unknown}}).points.source:value;
+  const owner=isCurveRow(value)?(value as {points:{owner?:unknown}}).points.owner:value;
   const space=owner&&typeof owner==='object'?(owner as {space?:{kind?:string}}).space:undefined;
   if(space&&space.kind!=='euclidean')throw new Error(`${who}: this chain lives in the sketch's ${space.kind} space, and 3D space is flat — a 3D profile needs flat coordinates: build it with curve(points), from pairs or from [x, y, z] positions`);
 }
@@ -48,7 +48,7 @@ export function chain2(value:unknown,who:string):{readonly points:readonly Lifte
   let chain:ChainRecord,rows:{at?(i:number):unknown}|undefined;
   if(isCurveRow(value)){
     chain=chainRecordOf(value);
-    rows=(value.points.source as {points?:{at?(i:number):unknown}}).points;
+    rows=(value.points.owner as {points?:{at?(i:number):unknown}}).points;
   }else{
     const chains=chainRecordsOf(value)??[];
     // A value with nothing in it is nothing to build from: an empty profile.

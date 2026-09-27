@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { circle, rect, material, mm, w } from '../src/index.js';
 import { Execution, bindToolkit, compileSketch, initOcclude, render } from '../src/host.js';
 import { sketch, type SketchDef, type Toolkit } from '../src/api.js';
-import { resetIds, type Material } from '../src/material.js';
+import { beginIds, type Material } from '../src/material.js';
 import { MEMO_OPS, MemoStore, contentHash, keyHash, memoMethod, memoised } from '../src/memo.js';
 
 beforeAll(async () => {
@@ -58,9 +58,9 @@ describe('keyHash', () => {
   });
 
   it('keys geometry by identity and hashes its content by its columns', () => {
-    resetIds();
+    beginIds();
     const a = material([[0, 0], [1, 1]], { edges: [[0, 1]] });
-    resetIds();
+    beginIds();
     const b = material([[0, 0], [1, 1]], { edges: [[0, 1]] });
     expect(keyHash(a)).toBe(keyHash(a));
     expect(keyHash(a)).not.toBe(keyHash(b));

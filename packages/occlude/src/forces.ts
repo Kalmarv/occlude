@@ -7,13 +7,14 @@
  * time, where a force said without its state is prepared.
  */
 
-import { material, Material, readVertex, readEdge, type PointsLike, type Vertex, type Edge } from './material.js';
+import { material, Material, type PointsLike, type Vertex, type Edge } from './material.js';
 import { faceCentroids } from './faces.js';
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
-import { ownerOf, ownerOfView } from './views.js';
+import { ownerOf } from './views.js';
 import { distanceField } from './distance.js';
-import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
+import { numericLoops, refuseShape, type AreaInput, type Geometry } from './boundary.js';
 import { grad } from './field.js';
+import { runOf } from './execution.js';
 import { valueAt } from './guard.js';
 import type { VectorFieldFn } from './shapes.js';
 import type { Model } from './placement.js';
@@ -308,8 +309,9 @@ export type Sources = Geometry | PointsLike;
  * an edge selection — is read through the protocol, and a face collection
  * reads as its centroids.
  */
-export function sourcePoints(sources: Sources): PointsLike {
+export function sourcePoints(sources: Sources, who: string): PointsLike {
   if (sources instanceof Material) return sources;
+  refuseShape(sources, who);
   // A face collection is points at its faces' centroids, for every point
   // consumer; `faces.points` stays the word for the corners.
   const centres = faceCentroids(sources);
@@ -328,10 +330,10 @@ export function sourcePoints(sources: Sources): PointsLike {
 export function spaceOfSources(sources: unknown): Space | undefined {
   if (sources instanceof Material) return sources.space;
   if (typeof sources !== 'object' || sources === null) return undefined;
-  const source = (sources as { source?: unknown }).source;
+  const source = (sources as { owner?: unknown }).owner;
   if (source instanceof Material) return source.space;
   const first = Array.isArray(sources) ? sources[0] : undefined;
-  const owner = typeof first === 'object' && first !== null ? ownerOfView(first) : undefined;
+  const owner = typeof first === 'object' && first !== null ? ownerOf(first) : undefined;
   return owner instanceof Material ? owner.space : undefined;
 }
 
@@ -379,7 +381,7 @@ function tensionOf(m: Material, rest: number | ((e: Edge) => number), stepped: b
   if (space) {
     // In a space the pull is along the geodesic to each neighbour, by the
     // part of the space's distance beyond the rest length.
-    const restOf = typeof rest === 'number' ? () => rest : typeof rest === 'function' ? (e: number) => valueAt(rest(readEdge(m, e)), 0) : null;
+    const restOf = typeof rest === 'number' ? () => rest : typeof rest === 'function' ? (e: number) => valueAt(rest(m.edge(e)), 0) : null;
     if (!restOf) throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
     const lifted = liftRows(m, space);
     return (p) => {
@@ -416,7 +418,7 @@ function tensionOf(m: Material, rest: number | ((e: Edge) => number), stepped: b
     c = 0;
     return done(sumBy(m.adjacentRows(p.index), (j, k) => {
       const delta = sub([X[j], Y[j]], p);
-      const r = valueAt(rest(readEdge(m, edgeRows[k])), 0);
+      const r = valueAt(rest(m.edge(edgeRows[k])), 0);
       const gap = Math.max(0, length(delta) - r);
       return counted(mul(unit(delta), gap), gap);
     }));
@@ -484,7 +486,7 @@ export function separationFrom(sources: Sources, said: SeparationOpts, space: Sp
  * of their own: the toolkit's `t.force.separation` hands the sketch's. */
 export function separationIn(sources: Sources, opts: { radius: number | ((p: Vertex) => number); excludeConnected?: boolean }, space0: Space | undefined, stepped = false): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
-  const m = material(sourcePoints(sources));
+  const m = material(sourcePoints(sources, 'force.separation'));
   const space = curved(spaceOfSources(sources) ?? space0);
   if (typeof radius === 'number') return radial(m, radius, excludeConnected, space, stepped);
   if (typeof radius !== 'function') throw new Error(`force.separation: { radius } must be a distance, or a function of the vertex — got ${String(radius)}`);
@@ -494,7 +496,7 @@ export function separationIn(sources: Sources, opts: { radius: number | ((p: Ver
   const own = new Float64Array(m.n);
   let widest = 0;
   for (let i = 0; i < m.n; i++) {
-    own[i] = Math.max(0, valueAt(radius(readVertex(m, i)), 0));
+    own[i] = Math.max(0, valueAt(radius(m.vertex(i)), 0));
     if (own[i] > widest) widest = own[i];
   }
   const cell = widest > 0 ? widest : 1;
@@ -657,23 +659,25 @@ function radialIn(m: Material, radius: number, excludeConnected: boolean, space:
  * seeded `t.noise` in: `g.move(force.drift(t.noise, { amount }))`.
  * `frequency` scales position into the noise (default 0.08), `rate` the
  * step into its third axis (default 0.0004): angle = noise(x·f, y·f,
- * step·rate) · 2π. The step is the one the point's own material has
- * reached in `t.steps` — a vertex knows its material, and the material
- * counts its steps — so a drift read at a vertex turns from step to step
- * however it is wrapped (`mul(push(p), 0.2)`), and one read at a plain
- * position is the drift of step 0. The default rate is small because the
- * toolkit's noise folds z onto shifted 2D slices about thirty times
- * steeper than x and y: at 0.01 per step the direction re-rolls every step
- * and a trail is a random walk; at 0.0004 it turns.
+ * step·rate) · 2π. The step is the one `t.steps` is making: the toolkit's
+ * noise knows its run, so a drift turns from step to step whatever the
+ * pass keeps its values in (a material, a plain object holding several)
+ * and however the force is wrapped (`mul(push(p), 0.2)`). Outside a run
+ * of steps it is the step the point's own material reached, and at a
+ * plain position step 0. The default rate is small because the toolkit's
+ * noise folds z onto shifted 2D slices about thirty times steeper than x
+ * and y: at 0.01 per step the direction re-rolls every step and a trail
+ * is a random walk; at 0.0004 it turns.
  */
 export function drift(
   noise: (x: number, y: number, z: number) => number,
   opts: { amount: number; frequency?: number; rate?: number },
 ): (p: XY) => Vec {
   const { amount, frequency = 0.08, rate = 0.0004 } = opts;
+  const run = runOf(noise);
   return (p) => {
     const owner = typeof p === 'object' && p !== null && !Array.isArray(p) ? ownerOf(p) : undefined;
-    const k = owner instanceof Material ? owner.iteration : 0;
+    const k = run?.step ?? (owner instanceof Material ? owner.iteration : 0);
     const a = noise(vx(p) * frequency, vy(p) * frequency, k * rate) * Math.PI * 2;
     return [Math.cos(a) * amount, Math.sin(a) * amount];
   };
@@ -689,6 +693,7 @@ export function drift(
  * continuous boundary.
  */
 export function boundary(loops: AreaInput, opts: { radius: number; strength?: number }): (p: XY) => Vec {
+  refuseShape(loops, 'force.boundary', 't.force.boundary');
   return boundaryIn(loops, opts, undefined);
 }
 

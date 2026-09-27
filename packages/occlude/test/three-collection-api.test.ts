@@ -44,7 +44,7 @@ describe('source-bound collection selection algebra',()=>{
     expect(a.points.intersect(b.points).length).toBe(a.points.length);
     expect(a.points.without(b.points).length).toBe(0);
     for(const op of ['union','intersect','without'] as const){
-      expect(()=>a.points[op](a.faces as any)).toThrow('same domain');
+      expect(()=>a.points[op](a.faces as any)).toThrow('selection combines only with');
       expect(a.points.filter(()=>false)[op](b.points.filter(()=>false)).length).toBe(0);
     }
   });

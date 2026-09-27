@@ -23,12 +23,12 @@
  * its face and its point, never by its row.
  */
 
-import { Material, referenced, type Vertex } from './material.js';
-import { Column, at64, valueAt, type AnyColumn } from './column.js';
-import { Selection, select, domainKind, isSelectionOf, rowRange, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
-import { pointsOf, sameLineage, unrelated } from './relation.js';
+import { Material, cached, typedCell, type Vertex } from './material.js';
+import { Column, at64, type AnyColumn } from './column.js';
+import { Selection, select, domainKind, rowRange, rowOrder, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
+import { pointsOf, sameLineage } from './relation.js';
 import { faceTableOf, type Face, type StatedFaces } from './faces.js';
-import { viewProto, viewKind, ownedBy, ownerOfView } from './views.js';
+import { viewProto, viewKind, ownerOf, describe } from './views.js';
 import { writeCorners, type CellValue } from './tables.js';
 
 /** A corner: one place a stated face's loop passes one of its points. */
@@ -52,15 +52,12 @@ export interface CornerSet {
 
 /** @internal What a selection of corners answers (see `ROW_TYPES`). */
 export type CornerTypes = Types<{
-  source: Material;
+  owner: Material;
   points: Selection<Vertex>;
   faces: Selection<Face>;
   corners: Selection<Corner>;
   set: CornerSet;
 }>;
-
-/** The names a corner view owns: a column may not take one. */
-export const RESERVED_CORNER_FIELDS: readonly string[] = ['index', 'id', 'point', 'face', 'source'];
 
 // ---- the corner index of a statement --------------------------------------------
 
@@ -113,8 +110,8 @@ export class CornerDomain implements Domain<Corner> {
   private allRows: readonly number[] | null = null;
   private byKey: Map<string, number> | null = null;
 
-  constructor(readonly source: Material) {
-    this.stated = source.stated;
+  constructor(readonly owner: Material) {
+    this.stated = owner.stated;
     this.index = this.stated === undefined ? EMPTY_INDEX : cornerIndex(this.stated.cycles);
   }
 
@@ -130,7 +127,7 @@ export class CornerDomain implements Domain<Corner> {
   row(r: number): Corner {
     const kept = this.views[r];
     if (kept !== undefined) return kept;
-    const m = this.source;
+    const m = this.owner;
     const index = this.index;
     const proto = (this.proto ??= Object.create(viewProto(this, 'corner'), {
       point: { get(this: Corner) { return m.vertex(index.point[this.index]); }, enumerable: false },
@@ -142,11 +139,7 @@ export class CornerDomain implements Domain<Corner> {
     for (const name in cols) {
       const col = cols[name];
       if (col instanceof Column) v[name] = at64(col, r);
-      else if (col.kind.name === 'reference') {
-        const id = valueAt(col, r) as number | null;
-        Object.defineProperty(v, name, { get: () => referenced(m, id), enumerable: true });
-      } else if (col.kind.name === 'vector') v[name] = Object.freeze(valueAt(col, r) as number[]);
-      else v[name] = valueAt(col, r);
+      else typedCell(m, v, name, col, r);
     }
     const out = Object.freeze(v) as unknown as Corner;
     this.views[r] = out;
@@ -172,55 +165,39 @@ export class CornerDomain implements Domain<Corner> {
   keyOf(r: number): string {
     const ids = this.stated?.cornerIds;
     if (ids !== undefined) return `#${ids[r]}`;
-    const m = this.source;
+    const m = this.owner;
     const faceId = faceTableOf(m.faces).ids()[this.index.face[r]];
     return `${faceId}@${at64(m.store.pointIds, this.index.point[r])}`;
   }
 
   /** The row a corner key names here, or -1. */
-  rowOfKey(key: string): number {
+  rowOfKey(key: unknown): number {
     if (this.byKey === null) {
       const map = new Map<string, number>();
       for (let r = 0; r < this.index.count; r++) if (!map.has(this.keyOf(r))) map.set(this.keyOf(r), r);
       this.byKey = map;
     }
-    return this.byKey.get(key) ?? -1;
+    return this.byKey.get(key as string) ?? -1;
   }
 
-  rowOf(v: unknown, who: string): number {
-    if (viewKind(v) !== 'corner') {
-      const kind = viewKind(v);
-      throw new Error(`${who}: expected a corner — got ${kind !== undefined ? `a ${kind} view` : v instanceof Selection ? `a ${v.domain.kind.name} selection` : v === null ? 'null' : typeof v}`);
-    }
-    if (ownedBy(v as object, this)) return (v as Corner).index;
-    const theirs = ownerOfView(v as object) as CornerDomain;
-    if (theirs.source === this.source) return (v as Corner).index;
-    if (!sameLineage(this.source, theirs.source)) return -1;
-    return this.rowOfKey(theirs.keyOf((v as Corner).index));
+  locate(v: unknown, who: string): { domain: Domain<Corner>; row: number } | null {
+    if (v === undefined || v === null) return null;
+    if (viewKind(v) !== 'corner') throw new Error(`${who}: expected a corner — got ${describe(v)}`);
+    return { domain: ownerOf(v as object) as CornerDomain, row: (v as Corner).index };
   }
 
-  resolve(other: Selection<any>, who: string): number[] {
-    if (other.domain.kind !== CORNERS) throw new Error(`${who}: expected corners — a corner selection — got ${other.domain.kind.plural}`);
-    const theirs = other.domain as CornerDomain;
-    if (theirs.source === this.source) return [...other.indices];
-    if (!sameLineage(this.source, theirs.source)) throw unrelated(who);
-    const out: number[] = [];
-    for (const r of other.indices) {
-      const here = this.rowOfKey(theirs.keyOf(r));
-      if (here >= 0) out.push(here);
-    }
-    return out;
+  shares(other: Domain<Corner>): boolean {
+    return sameLineage(this.owner, other.owner as Material);
   }
+}
 
-  on(state: unknown, who: string): Domain<Corner> {
-    if (!(state instanceof Material)) throw new Error(`${who}: expected the geometry to read the corners on`);
-    return cornerDomain(state);
-  }
+declare module './material.js' {
+  interface StateCache { cornerDomain?: CornerDomain }
 }
 
 /** @internal The corner domain of a geometry, made once per state. */
 export function cornerDomain(m: Material): CornerDomain {
-  return ((m.domainBox.corners as CornerDomain | null) ??= new CornerDomain(m)) as CornerDomain;
+  return cached(m, 'cornerDomain', () => new CornerDomain(m));
 }
 
 /** @internal The corners of `m`, `rows` of them (null: every one). */
@@ -252,7 +229,7 @@ export function facesAtPoint(m: Material, p: number): Selection<Face> {
   const faces = m.faces;
   if (m.stated !== undefined) {
     const d = cornerDomain(m);
-    return select(faces.domain, once(d.atPoint(p).map((c) => d.index.face[c])), undefined, true);
+    return select(faces.domain, rowOrder(d.atPoint(p).map((c) => d.index.face[c])), undefined, true);
   }
   const table = faceTableOf(faces);
   const rows: number[] = [];
@@ -266,19 +243,16 @@ export function facesAtPoint(m: Material, p: number): Selection<Face> {
     if (l >= 0) rows.push(l);
     if (r >= 0) rows.push(r);
   }
-  return select(faces.domain, once(rows), undefined, true);
+  return select(faces.domain, rowOrder(rows), undefined, true);
 }
 
-type CornerSel = Selection<Corner> & { readonly source: Material; readonly domain: CornerDomain };
-
-/** Rows once each, ascending. */
-const once = (rows: Iterable<number>): number[] => [...new Set(rows)].sort((a, b) => a - b);
+type CornerSel = Selection<Corner> & { readonly owner: Material; readonly domain: CornerDomain };
 
 const CORNERS: DomainKind = domainKind('corner', 'corners', {
   /** The points the corners are at, each once, in row order. */
-  points: { get(this: CornerSel) { const d = this.domain; return pointsOf(this.source, once(this.indices.map((c) => d.index.point[c])), undefined, true); } },
+  points: { get(this: CornerSel) { const d = this.domain; return pointsOf(this.owner, rowOrder(this.indices.map((c) => d.index.point[c])), undefined, true); } },
   /** The faces the corners belong to, each once, in row order. */
-  faces: { get(this: CornerSel) { const d = this.domain; return select(this.source.faces.domain, once(this.indices.map((c) => d.index.face[c])), undefined, true); } },
+  faces: { get(this: CornerSel) { const d = this.domain; return select(this.owner.faces.domain, rowOrder(this.indices.map((c) => d.index.face[c])), undefined, true); } },
   /** Itself. */
   corners: { get(this: CornerSel) { return this; } },
   /** The geometry with corner columns set on these corners, or on those
@@ -294,5 +268,3 @@ const CORNERS: DomainKind = domainKind('corner', 'corners', {
   extract: 'corners belong to their faces — extract the faces: sel.faces.extract()',
 });
 
-/** Is `v` a selection of a geometry's corners? */
-export const isCornerSelection = (v: unknown): v is Selection<Corner> => isSelectionOf(v, CORNERS);

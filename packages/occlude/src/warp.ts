@@ -31,7 +31,7 @@
 import { Material, material as makeMaterial } from './material.js';
 import { rebuild } from './tables.js';
 import { Column } from './column.js';
-import { whereRows, type Where } from './relation.js';
+import { eligibleRows, type Where } from './relation.js';
 
 export type Corner = readonly [number, number];
 
@@ -70,7 +70,7 @@ export function warp(m: Material, opts: WarpOpts): Material {
   if (a.length < 3) return src;
   const n = a.length;
 
-  const bends = whereRows(src, opts.where, 'points', 'warp');
+  const bends = eligibleRows(src, opts.where, 'points', 'warp');
   const x = new Float64Array(src.n);
   const y = new Float64Array(src.n);
   const w = new Float64Array(n);

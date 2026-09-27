@@ -130,9 +130,9 @@ describe('a channel as a field', () => {
 
 describe('the bulk passes every run wants, written with set', () => {
   /** One explicit diffusion pass: `v += rate · laplacian(v)`, zero-flux. */
-  const diffuse = (rate: number) => (l: Lattice) => l.set('a', (c) => c.a + rate * c.laplacian('a'));
+  const diffuse = (rate: number) => (l: Lattice) => l.faces.set('a', (c) => c.a + rate * c.laplacian('a'));
   /** The channel scaled by `1 − rate`. */
-  const decay = (rate: number) => (l: Lattice) => l.set('a', (c) => c.a * (1 - rate));
+  const decay = (rate: number) => (l: Lattice) => l.faces.set('a', (c) => c.a * (1 - rate));
 
   it('diffusion conserves the channel total, with zero flux at the area edge', () => {
     const t = toolkit();
@@ -158,7 +158,7 @@ describe('the bulk passes every run wants, written with set', () => {
     const lat = t.lattice({ spacing: 10 }, (x, y) => (x < 50 && y < 50 ? 1 : 0));
     // Every cell becomes the mean of its four neighbours — the five-tap
     // blur this whole value exists to replace.
-    const blur = (l: Lattice) => l.set('a', (c: LatticeFace) => {
+    const blur = (l: Lattice) => l.faces.set('a', (c: LatticeFace) => {
       const nb = c.adjacent;
       if (nb.length === 0) return c.a;
       let s = 0;
@@ -172,7 +172,7 @@ describe('the bulk passes every run wants, written with set', () => {
     expect(out.sample('a', 5, 0)).toBeGreaterThan(0);
     expect(out.sample('a', 5, 0)).toBeLessThan(1);
     // A write off the lattice reaches nothing, and is not an error.
-    const guarded = lat.set('a', 9, lat.face([-5, 0])).set('a', 9, lat.face([999, 0]));
+    const guarded = lat.faces.set('a', 9, lat.face([-5, 0])).faces.set('a', 9, lat.face([999, 0]));
     expect(guarded.values.a).toEqual(lat.values.a);
   });
 
@@ -191,13 +191,13 @@ describe('the bulk passes every run wants, written with set', () => {
     }
     // A wave: both columns in one instant, `h` taking the new speed.
     const speed = (c: LatticeFace) => c.v * 0.995 + 0.2 * c.laplacian('h');
-    const waved = t.steps(30, lat, (l) => l.set({ v: speed, h: (c) => c.h + speed(c) }));
+    const waved = t.steps(30, lat, (l) => l.faces.set({ v: speed, h: (c) => c.h + speed(c) }));
     expect(Math.min(...live(waved, 'h'))).toBeLessThan(0); // a wave, not a diffusion: it swings below zero
   });
 });
 
 describe('a Gray-Scott recipe, written in the sketch', () => {
-  const grayScott = (feed: number, kill: number) => (l: Lattice) => l.set({
+  const grayScott = (feed: number, kill: number) => (l: Lattice) => l.faces.set({
     a: (c) => c.a + 0.2 * c.laplacian('a') - c.a * c.b * c.b + feed * (1 - c.a),
     b: (c) => c.b + 0.1 * c.laplacian('b') + c.a * c.b * c.b - (feed + kill) * c.b,
   });
@@ -266,7 +266,7 @@ describe('the coral fence, value for value', () => {
     const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
     const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
       Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
-    const grown = t.steps(300, seeded, (l) => l.set({
+    const grown = t.steps(300, seeded, (l) => l.faces.set({
       a: (c) => c.a + Du * c.laplacian('a') - c.a * c.b * c.b + feed * (1 - c.a),
       b: (c) => c.b + Dv * c.laplacian('b') + c.a * c.b * c.b - (feed + kill) * c.b,
     }));
@@ -328,7 +328,7 @@ describe('degenerate input draws nothing and never throws', () => {
       expect(lat.cols).toBe(0);
       expect(lat.field()(50, 50)).toBe(0);
       expect(lat.sample('a', 0, 0)).toBe(0);
-      expect(t.steps(10, lat, (l) => l.set('a', (c) => c.a * 0.5)).n).toBe(0);
+      expect(t.steps(10, lat, (l) => l.faces.set('a', (c) => c.a * 0.5)).n).toBe(0);
       expect(lat.add([50, 50], 1).n).toBe(0);
     }
   });
@@ -348,7 +348,7 @@ describe('the value never mutates', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 5 }, () => 1);
     const before = Array.from(lat.values.a);
-    const pass = (l: Lattice) => l.set('a', (c) => c.a * 0.5).set('a', (c) => c.a + 0.2 * c.laplacian('a'));
+    const pass = (l: Lattice) => l.faces.set('a', (c) => c.a * 0.5).faces.set('a', (c) => c.a + 0.2 * c.laplacian('a'));
     const stepped = t.steps(5, lat, pass);
     const deposited = lat.add([50, 50], 7);
     expect(Array.from(lat.values.a)).toEqual(before);
@@ -396,8 +396,14 @@ describe('a lattice face is a face', () => {
     expect(f.depth).toBe(0);
     expect(f.leaf).toBe(true);
     expect(f.source).toBeUndefined();
-    // A lattice has no edge or point table.
-    expect((f as Record<string, unknown>).edges).toBeUndefined();
+    // A lattice has no edge or point table: the words a face of a material
+    // answers from them refuse by name.
+    expect(() => f.edges).toThrow(/face\.edges: a lattice face has no walls — a lattice has no edge table; its outline is f\.contours\(\)/);
+    expect(() => f.points).toThrow(/face\.points: a lattice face has no corners/);
+    expect(() => f.boundaryEdges).toThrow(/face\.boundaryEdges: a lattice face has no walls/);
+    expect(() => f.corners).toThrow(/face\.corners: a lattice face has no corners/);
+    expect(() => f.normal).toThrow(/face\.normal: a lattice face lies in the plane/);
+    expect(() => f.extract()).toThrow(/face\.extract: a lattice face is a square/);
     expect((lat.faces as unknown as Record<string, unknown>).edges).toBeUndefined();
     expect((lat.faces as unknown as Record<string, unknown>).points).toBeUndefined();
     expect(() => (lat.faces as unknown as { boundaryEdges(): unknown }).boundaryEdges()).toThrow(/faces\.boundaryEdges: a lattice has no edge table/);
@@ -409,22 +415,22 @@ describe('a lattice face is a face', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 10 });
     for (const name of ['i', 'area', 'centroid', 'leaf', 'laplacian']) {
-      expect(() => lat.set(name, 1)).toThrow(new RegExp(`'${name}' is a reserved field of a face`));
+      expect(() => lat.faces.set(name, 1)).toThrow(new RegExp(`'${name}' is a reserved field of a face`));
     }
     expect(() => t.lattice({ spacing: 10, channels: ['depth'] })).toThrow(/'depth' is a reserved field of a face/);
   });
 
   it('l.set is l.faces.set, and a where names faces, one face, a test or points', () => {
     const t = toolkit();
-    const l = t.lattice({ spacing: 10 }).set('ink', 0);
-    const one = l.set('ink', 3, l.faces.at(5));
+    const l = t.lattice({ spacing: 10 }).faces.set('ink', 0);
+    const one = l.faces.set('ink', 3, l.faces.at(5));
     expect(l.faces.set('ink', 3, l.faces.at(5)).values.ink).toEqual(one.values.ink);
     expect(l.faces.filter((f) => f.j === 0).set('ink', 1).faces.sum('ink')).toBe(l.cols);
-    expect(l.set('ink', 1, (f) => f.i === 0).faces.sum('ink')).toBe(l.rows);
-    expect(l.set('ink', 1, [[5, 5], [6, 6], [15, 5]]).faces.sum('ink')).toBe(2);
+    expect(l.faces.set('ink', 1, (f) => f.i === 0).faces.sum('ink')).toBe(l.rows);
+    expect(l.faces.set('ink', 1, [[5, 5], [6, 6], [15, 5]]).faces.sum('ink')).toBe(2);
     // A face of an earlier state is the same face here.
-    const later = one.set('ink', (f) => f.ink + 1);
-    expect(later.set('ink', 0, l.faces.at(5)).faces.at(5).ink).toBe(0);
+    const later = one.faces.set('ink', (f) => f.ink + 1);
+    expect(later.faces.set('ink', 0, l.faces.at(5)).faces.at(5).ink).toBe(0);
   });
 });
 
@@ -443,7 +449,7 @@ describe('the face under a point', () => {
     expect(off.a).toBe(0);
     expect(off.index).toBe(-1);
     expect(off.adjacent.length).toBe(0);
-    expect(lat.set('a', 99, off).values.a).toEqual(lat.values.a);
+    expect(lat.faces.set('a', 99, off).values.a).toEqual(lat.values.a);
     const outside = t.lattice({ spacing: 2, area: disc(50, 50, 20) }).face([31, 31])!;
     expect(outside.index).toBe(-1);
     // An empty pick answers nothing.
@@ -531,19 +537,19 @@ describe('one write is one instant', () => {
     const t = toolkit();
     const lat = t.lattice({ spacing: 10, channels: ['a', 'b'] }, (x) => ({ a: x, b: -x }));
     // A record swaps: `b` reads the old `a`, not the one just written.
-    const swapped = lat.set({ a: (f) => f.b, b: (f) => f.a });
+    const swapped = lat.faces.set({ a: (f) => f.b, b: (f) => f.a });
     expect(Array.from(swapped.values.a)).toEqual(Array.from(lat.values.b));
     expect(Array.from(swapped.values.b)).toEqual(Array.from(lat.values.a));
     // A diffusion reads its neighbours before the write: a single spike
     // spreads the same amount to all four sides, whichever is visited first.
-    const spike = t.lattice({ spacing: 10 }).set('a', 1, [[55, 55]]);
+    const spike = t.lattice({ spacing: 10 }).faces.set('a', 1, [[55, 55]]);
     const idx = spike.face([55, 55])!;
-    const spread = spike.set('a', (f) => f.a + 0.2 * f.laplacian('a'));
+    const spread = spike.faces.set('a', (f) => f.a + 0.2 * f.laplacian('a'));
     const around = idx.adjacent.map((q) => spread.faces.at(spread.faces.indices.indexOf(q.index)).a);
     expect(around).toHaveLength(4);
     for (const v of around) expect(v).toBeCloseTo(0.2, 6);
     expect(spread.face([55, 55])!.a).toBeCloseTo(0.2, 6);
     // Chained writes are a sequence: the second reads what the first wrote.
-    expect(lat.set('a', 1).set('b', (f) => f.a).faces.sum('b')).toBe(lat.faces.length);
+    expect(lat.faces.set('a', 1).faces.set('b', (f) => f.a).faces.sum('b')).toBe(lat.faces.length);
   });
 });

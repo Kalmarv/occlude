@@ -140,7 +140,7 @@ export function instanceOnPoints<R extends Vertex>(prototype:Material,input:Sele
   const isPoints=(v:unknown):v is Selection<R>=>v instanceof Selection&&v.domain.kind.name==='point';
   const held=input instanceof Selection?input:input&&typeof input==='object'&&'points' in input?(input as {points:unknown}).points:undefined;
   // 2D points stand on the ground plane: z = 0, ids and columns kept.
-  const points=isPoints(held)&&inSpace3(held.source as Material)?held:points2(input,who)?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Selection<R>:undefined;
+  const points=isPoints(held)&&inSpace3(held.owner as Material)?held:points2(input,who)?pointCloud(input as Iterable<{x:number;y:number}>).points as unknown as Selection<R>:undefined;
   if(!isPoints(points))throw new Error(`${who}: expected points — a point selection, a value of points, or 2D points`);
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error(`${who}: options are a record { scale, rotate, offset, key }`);
   if(points.length>100000)throw new Error('instance count exceeds budget (100000)');
@@ -152,7 +152,7 @@ export function instanceOnPoints<R extends Vertex>(prototype:Material,input:Sele
     const r=row as unknown as Vertex&{z:number};
     return {name:identity('instance',owner,rowName(row,'points')),translate:add3([r.x,r.y,r.z],offset),...turn,attributes:rowAttributes(row,'points') as Attributes3};
   });
-  return instances(prototype,copies,{of:points.source as Material,domain:'points',rows:Int32Array.from(points.indices)},options,who);
+  return instances(prototype,copies,{of:points.owner as Material,domain:'points',rows:Int32Array.from(points.indices)},options,who);
 }
 
 /** One prototype at every selected face: at the face's centroid, its +Z
@@ -172,7 +172,7 @@ export function instanceOnFaces<R extends Face>(prototype:Material,faces:Selecti
     const turn=placement(who,extra?aligned.then(extra):aligned,evaluate(options.scale??1,face));
     return {name:identity('instance',owner,rowName(face,'faces')),translate:add3(face.centroid as Vec3,offset),...turn,attributes:rowAttributes(face,'faces') as Attributes3};
   });
-  return instances(prototype,copies,{of:faces.source as Material,domain:'faces',rows:Int32Array.from(faces.indices)},options,who);
+  return instances(prototype,copies,{of:faces.owner as Material,domain:'faces',rows:Int32Array.from(faces.indices)},options,who);
 }
 
 /** One ordinary value from every copy: the prototype's topology repeated,

@@ -88,7 +88,7 @@ describe('P5 · a face collection is a selection', () => {
     expect(kept.n).toBe(near.edges.extract().n);
     const moved = hex.rotate(10, { origin: [50, 50] });
     const again = selectionIn(near, moved);
-    expect(again.source).toBe(moved);
+    expect(again.owner).toBe(moved);
     expect(again.length).toBe(near.length);
     expect(again.map((f) => f.id)).toEqual(near.map((f) => f.id));
   });
@@ -151,7 +151,7 @@ describe('P5 · a face collection is a selection', () => {
     const runs = range.points.components().filter((g) => g.length >= 8);
     expect(runs.length).toBeGreaterThan(1);
     const kept = runs.reduce((a, b) => a.union(b));
-    expect(kept.indices).toEqual(range.points.rows(runs.flatMap((g) => g.indices)).indices);
+    expect(kept.indices).toEqual(range.points.rowsAt(runs.flatMap((g) => g.indices)).indices);
     expect(strokes(runs[0]).length).toBeGreaterThan(0);
     expect(strokes(kept).length).toBeGreaterThan(0);
   });
@@ -454,10 +454,11 @@ describe('faces as selections: the rest of the words', () => {
   it('rows, in and has by id; Faces is the selection of every face', () => {
     const { cells, faces } = web();
     expect(faces.indices.length).toBe(faces.length);
-    expect(faces.source).toBe(cells);
-    const picked = faces.rows([3, 1, faces.at(5)]);
+    expect(faces.owner).toBe(cells);
+    expect(() => faces.source).toThrow(/faces\.source: a selection has no source/);
+    const picked = faces.rows([faces.at(3), faces.at(1), faces.at(5)]);
     expect(picked.indices).toEqual([3, 1, 5]);
-    expect(() => faces.rows(faces.length)).toThrow(/no face/);
+    expect(() => faces.rows(faces.length as never)).toThrow(/expected a face row/);
     const f: Face = faces.at(2);
     expect(faces.has(f)).toBe(true);
     expect(picked.has(f)).toBe(false);

@@ -37,7 +37,7 @@
  */
 
 import { areaFill } from './area.js';
-import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
+import { isContourRecord, numericLoops, type AreaInput, type Geometry } from './boundary.js';
 import { chainRecordsOf } from './curves.js';
 import { usableLength } from './guard.js';
 import type { IsoContour } from './isolines.js';
@@ -47,7 +47,9 @@ import { Column, at32, at64, columnOf, type ColumnLike, type ColumnWriter } from
 import type { Bounds, FieldFn2 } from './points.js';
 import { Len, type L } from './units.js';
 import { vx, vy, type XY } from './vec.js';
-import { Selection, select, domainKind, isSelectionOf, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
+import { Selection, select, domainKind, whereRows, checkRadius, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
+import { readSet, writeOptions, checkColumnName, LATTICE_TABLE } from './tables.js';
+import { describe } from './views.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
@@ -217,14 +219,6 @@ export class Lattice {
     return (this.faceBox ??= new LatticeFaceDomain(this));
   }
 
-  /** `l.faces.set(...)`: a lattice is one table, so it answers the table's
-   * write itself. */
-  set(column: string, value: number | ((f: LatticeFace) => number), where?: LatticeWhere): Lattice;
-  set(values: Record<string, number | ((f: LatticeFace) => number)>, where?: LatticeWhere): Lattice;
-  set(...args: unknown[]): Lattice {
-    return this.writeFaces(null, args);
-  }
-
   /** @internal This lattice with a history (what `t.steps` returns). */
   withHistory(history: readonly Lattice[]): Lattice {
     return new Lattice(this.cols, this.rows, this.spacing, this.bounds, this.channels, this.columns, this.mask, history);
@@ -305,36 +299,17 @@ export class Lattice {
     return out;
   }
 
-  /** @internal The face rows a `where` names among `members` (null: all). */
-  faceRowsOf(members: readonly number[] | null, given: boolean, where: unknown, who: string): readonly number[] | null {
-    if (!given) return members;
-    const all = members ?? this.allFaces();
-    if (where === undefined || where === null) return [];
-    if (typeof where === 'function') {
-      const test = where as (f: LatticeFace) => unknown;
-      const fw = this.flyweight();
-      const out: number[] = [];
-      for (const idx of all) if (test(this.fill(fw, idx))) out.push(idx);
-      return out;
-    }
-    let rows: readonly number[];
-    if (isSelectionOf(where, LATTICE_FACES)) rows = this.ownRows(where.source as Lattice, who) ? where.indices : [];
-    else if (isLatticeFace(where)) rows = this.ownRows(where[OWNER], who) && where.index >= 0 ? [where.index] : [];
-    else rows = this.facesUnder(where, who);
-    if (members === null) return rows;
-    const inside = new Set(members);
-    return rows.filter((r) => inside.has(r));
-  }
-
   /** @internal The faces under points — one position, a material, a point
    * selection or a list of positions — each once, row-major, as `add`
-   * finds the face a point falls in. A point off the lattice names none. */
-  private facesUnder(points: unknown, who: string): number[] {
+   * finds the face a point falls in; undefined for anything else. A point
+   * off the lattice names none. What a `where` of points names. */
+  facesUnder(points: unknown): number[] | undefined {
+    if (isLatticeFace(points)) return undefined;
     let m: Material;
     if (isOnePoint(points)) m = makeMaterial([points as XY]);
     else if (points instanceof Material) m = points;
-    else if (typeof points === 'object' && points !== null && (Array.isArray(points) || 'points' in points)) m = makeMaterial(points as PointsLike);
-    else throw new Error(`${who}: { where } is a face selection, one face, a test of the face, or points — got ${typeof points}`);
+    else if (Array.isArray(points) ? points.length > 0 && isOnePoint(points[0]) : typeof points === 'object' && points !== null && 'points' in points && !(points instanceof Selection && points.domain.kind === LATTICE_FACES)) m = makeMaterial(points as PointsLike);
+    else return undefined;
     const out = new Set<number>();
     const { cols, rows, spacing, mask } = this;
     for (let p = 0; p < m.n; p++) {
@@ -347,17 +322,10 @@ export class Lattice {
     return [...out].sort((a, b) => a - b);
   }
 
-  /** @internal Is `other` a state of this lattice's table — the same faces
-   * of the same grid? Then its face rows are rows here. */
-  ownRows(other: Lattice, who: string): boolean {
-    if (other === this || other.mask === this.mask) return true;
-    throw new Error(`${who}: those faces belong to another lattice — a lattice's faces are rows of its own grid`);
-  }
-
   /** @internal The face a callback of `set` reads: one view, re-pointed at
    * each face in turn, so a write over every face makes no view per face.
    * It holds the face only for the call. */
-  private flyweight(extra: readonly string[] = []): Record<string, number> {
+  flyweight(extra: readonly string[] = []): Record<string, number> {
     const f = Object.create(FACE_PROTO) as Record<string | symbol, unknown>;
     Object.defineProperty(f, OWNER, { value: this, enumerable: false });
     f.index = -1;
@@ -369,7 +337,7 @@ export class Lattice {
     return f as Record<string, number>;
   }
 
-  private fill(f: Record<string, number>, idx: number): LatticeFace {
+  fill(f: Record<string, number>, idx: number): LatticeFace {
     const i = idx % this.cols;
     f.index = idx;
     f.i = i;
@@ -392,38 +360,21 @@ export class Lattice {
   }
 
   /**
-   * @internal The write `set`: columns over the faces `where` names among
-   * `members` (null: every face), ONE instant — every callback reads this
-   * lattice as it is, and the new values land together. A column not
+   * @internal The write `set` on the faces `sel` holds: columns over them,
+   * or over those `where` names among them, ONE instant — every callback
+   * reads this lattice as it is, and the new values land together. The
+   * arguments are read as every write reads them (`readSet`). A column not
    * declared yet is declared, 0 elsewhere. A value that is not finite
    * leaves that face as it was.
    */
-  writeFaces(members: readonly number[] | null, args: readonly unknown[]): Lattice {
+  writeFaces(sel: Selection<LatticeFace>, args: readonly unknown[]): Lattice {
     const who = 'faces.set';
-    let values: Record<string, number | ((f: LatticeFace) => number)>;
-    let given: boolean;
-    let where: unknown;
-    if (typeof args[0] === 'string') {
-      if (args.length < 2) throw new Error(`${who}: '${args[0]}' needs a value — a number, or a function of the face`);
-      values = { [args[0]]: args[1] as number | ((f: LatticeFace) => number) };
-      given = args.length > 2;
-      where = args[2];
-    } else {
-      if (typeof args[0] !== 'object' || args[0] === null || Array.isArray(args[0])) throw new Error(`${who}: give a column and a value, or a record { column: value }`);
-      values = args[0] as Record<string, number | ((f: LatticeFace) => number)>;
-      given = args.length > 1;
-      where = args[1];
-    }
-    const names = Object.keys(values);
-    for (const name of names) {
-      checkColumnName(name, who);
-      const v = values[name];
-      if (typeof v !== 'number' && typeof v !== 'function') throw new Error(`${who}: the value of '${name}' is a number or a function of the face — got ${typeof v}`);
-    }
+    const { values, names, single, given, where, opts } = readSet<LatticeFace>(args, LATTICE_TABLE, who);
+    writeOptions(opts, LATTICE_TABLE, names, single, who);
     const fresh = names.filter((name) => !this.channels.includes(name));
     const channels = fresh.length === 0 ? this.channels : [...this.channels, ...fresh];
     // null: every face of the lattice.
-    const rows = this.faceRowsOf(members, given, where, who);
+    const rows = given ? whereRows(sel, where, who) : sel.members;
     const cells = this.n;
     // A column this write does not name is the same numbers: its column is
     // shared, as the mask is — no lattice writes a column it holds — and a
@@ -434,7 +385,7 @@ export class Lattice {
       return (k < this.columns.length ? this.columns[k] : Column.zeros(Float32Array, cells)).writer(reach);
     });
     if (rows === null || rows.length > 0) {
-      const fns = names.map((name) => values[name]);
+      const fns = names.map((name) => values[name] as number | ((f: LatticeFace) => number));
       const fw = fns.some((f) => typeof f === 'function') ? this.flyweight(fresh) : null;
       if (rows === null) this.writeEvery(fns, fw, writers.map((w) => w.array()!));
       else this.writeSome(rows, fns, fw, writers);
@@ -517,15 +468,10 @@ export class Lattice {
       const j0 = Math.floor(v);
       const fx = u - i0;
       const fy = v - j0;
-      const at = (i: number, j: number): number => {
-        if (i < 0 || j < 0 || i >= cols || j >= rows) return at32(a, home);
-        const idx = j * cols + i;
-        return at32(a, mask[idx] ? idx : home);
-      };
-      const v00 = at(i0, j0);
-      const v10 = at(i0 + 1, j0);
-      const v01 = at(i0, j0 + 1);
-      const v11 = at(i0 + 1, j0 + 1);
+      const v00 = stencilAt(a, mask, cols, rows, home, i0, j0);
+      const v10 = stencilAt(a, mask, cols, rows, home, i0 + 1, j0);
+      const v01 = stencilAt(a, mask, cols, rows, home, i0, j0 + 1);
+      const v11 = stencilAt(a, mask, cols, rows, home, i0 + 1, j0 + 1);
       return (v00 * (1 - fx) + v10 * fx) * (1 - fy) + (v01 * (1 - fx) + v11 * fx) * fy;
     };
   }
@@ -595,16 +541,12 @@ export class Lattice {
     if (COVER.length < cells) COVER = new Float32Array(cells);
     const cover = COVER;
     const touched: number[] = [];
-    const stamp = (idx: number, c: number): void => {
-      if (cover[idx] === 0) touched.push(idx);
-      cover[idx] += c;
-    };
     for (const line of lines) {
       if (line.length === 1) {
-        capsule(line[0], line[0], r, cols, rows, spacing, bounds, stamp);
+        capsule(line[0], line[0], r, cols, rows, spacing, bounds, cover, touched);
         continue;
       }
-      for (let s = 1; s < line.length; s++) capsule(line[s - 1], line[s], r, cols, rows, spacing, bounds, stamp);
+      for (let s = 1; s < line.length; s++) capsule(line[s - 1], line[s], r, cols, rows, spacing, bounds, cover, touched);
     }
 
     // Only the leaves the marks touched are copied: a spend of a short
@@ -622,6 +564,15 @@ export class Lattice {
     }
     return this.withColumn(k, out.done());
   }
+}
+
+/** The value a field's stencil reads at grid place (i, j): the face's
+ * own, or — off the grid or off the area — the containing face's, `home`.
+ * A function of its own, so a sample makes no closure. */
+function stencilAt(a: Column<Float32Array>, mask: Uint8Array, cols: number, rows: number, home: number, i: number, j: number): number {
+  if (i < 0 || j < 0 || i >= cols || j >= rows) return at32(a, home);
+  const idx = j * cols + i;
+  return at32(a, mask[idx] ? idx : home);
 }
 
 /** A channel this lattice does not have, refused by name. It is its own
@@ -659,7 +610,7 @@ export function latticeOf(env: LatticeEnv, opts: LatticeOpts, init?: LatticeInit
   if (channels.length === 0) throw new Error(`${who}: { channels } must name at least one channel`);
   for (const c of channels) {
     if (typeof c !== 'string' || c.length === 0) throw new Error(`${who}: a channel name must be a non-empty string, got ${JSON.stringify(c)}`);
-    checkColumnName(c, who);
+    checkColumnName('lattice face', c, who);
   }
   if (new Set(channels).size !== channels.length) throw new Error(`${who}: repeated channel name in [${channels.map((c) => `'${c}'`).join(', ')}]`);
 
@@ -762,16 +713,6 @@ const FACE_ROWS = new WeakMap<Uint8Array, readonly number[]>();
  * and serialises as its columns and its grid place. */
 const OWNER = Symbol('lattice');
 
-/** The names a face row owns; a column may not be called one of these. */
-const RESERVED_FACE_FIELDS: readonly string[] = [
-  'index', 'i', 'j', 'area', 'perimeter', 'centroid', 'bounds', 'contours', 'adjacent',
-  'source', 'parent', 'children', 'depth', 'leaf', 'laplacian', 'center',
-];
-
-function checkColumnName(name: string, who: string): void {
-  if (RESERVED_FACE_FIELDS.includes(name)) throw new Error(`${who}: '${name}' is a reserved field of a face, not a column`);
-}
-
 /**
  * One face of a lattice: a square of the grid. It answers what every face
  * answers — its columns by name (every face has a number in every column),
@@ -780,8 +721,10 @@ function checkColumnName(name: string, who: string): void {
  * is flat: `parent` undefined, `children` empty, `depth` 0, `leaf` true —
  * and the lattice's own words: its grid place `i`, `j` and
  * `laplacian(column)`, the five-point stencil, zero-flux at the area's
- * edge. A lattice has no edge or point table, so a face has no `edges`,
- * `boundaryEdges` or `points`; its walls are `contours()`.
+ * edge. A lattice has no edge or point table, so `edges`, `boundaryEdges`,
+ * `points`, `corners`, `normal` and `extract()` refuse by name; its
+ * outline is `contours()`. `adjacent` holds up to four faces: fewer at the
+ * grid's edge and at the edge of its area.
  */
 export type LatticeFace = {
   /** Row in the lattice's grid, row-major — not an identity. */
@@ -802,7 +745,8 @@ export type LatticeFace = {
    * reading — so `polygon(f)` and `t.within(x, f)` read a face as they
    * read any area. */
   contours(): IsoContour[];
-  /** The faces across this face's four sides, in the lattice. */
+  /** The faces across this face's sides that are in the lattice: up to
+   * four. */
   readonly adjacent: Selection<LatticeFace>;
   /** A lattice face comes from no row of another table. */
   readonly source: undefined;
@@ -814,6 +758,18 @@ export type LatticeFace = {
   readonly depth: 0;
   /** true: every face of a lattice is a leaf. */
   readonly leaf: true;
+  /** Refused: a lattice has no edge table — its outline is `contours()`. */
+  readonly edges: never;
+  /** Refused, as `edges`. */
+  readonly boundaryEdges: never;
+  /** Refused: a lattice has no point table. */
+  readonly points: never;
+  /** Refused: a lattice has no point table. */
+  readonly corners: never;
+  /** Refused: a lattice face lies in the plane. */
+  readonly normal: never;
+  /** Refused: a lattice face is a square of its lattice's grid. */
+  extract(): never;
   /** `Σ(neighbour − this)` over the four faces beside this one that are in
    * the lattice: what diffuses. Counted in faces, not drawing units. */
   laplacian(column: string): number;
@@ -825,6 +781,16 @@ export type LatticeFace = {
 export type LatticeWhere = Selection<LatticeFace> | LatticeFace | ((f: LatticeFace) => unknown) | PointsLike | XY | undefined;
 
 type Owned = Record<string, number> & { [OWNER]: Lattice };
+
+/** The words of every face a lattice face does not have, and why. */
+const NO_WORDS: Readonly<Record<string, string>> = {
+  edges: 'a lattice face has no walls — a lattice has no edge table; its outline is f.contours()',
+  boundaryEdges: 'a lattice face has no walls — a lattice has no edge table; its outline is f.contours()',
+  points: 'a lattice face has no corners — a lattice has no point table; its centre is f.centroid and its outline f.contours()',
+  corners: 'a lattice face has no corners — a lattice has no point table; its outline is f.contours()',
+  normal: 'a lattice face lies in the plane — it has no normal',
+  extract: "a lattice face is a square of its lattice's grid — read what you need off it, or its outline with f.contours()",
+};
 
 const FACE_PROTO = Object.freeze(Object.create(Object.prototype, {
   laplacian: {
@@ -864,6 +830,11 @@ const FACE_PROTO = Object.freeze(Object.create(Object.prototype, {
   children: { get(this: Owned): Selection<LatticeFace> { return select(this[OWNER].faceDomain(), [], undefined, true); } },
   depth: { get(): 0 { return 0; } },
   leaf: { get(): true { return true; } },
+  // The face words a lattice has no table for, refused by name: a lattice
+  // has no edge or point table, and its faces are squares of its grid.
+  ...Object.fromEntries(Object.entries(NO_WORDS).map(([word, why]) => [word, word === 'extract'
+    ? { value(): never { throw new Error(`face.${word}: ${why}`); } }
+    : { get(): never { throw new Error(`face.${word}: ${why}`); } }])),
 }) as object);
 
 const isLatticeFace = (v: unknown): v is LatticeFace & { [OWNER]: Lattice } =>
@@ -891,7 +862,7 @@ export interface LatticeSet {
 
 /** @internal What a selection of lattice faces answers (see `ROW_TYPES`). */
 export type LatticeFaceTypes = Types<{
-  source: Lattice;
+  owner: Lattice;
   faces: Selection<LatticeFace>;
   contours: () => IsoContour[];
   set: LatticeSet;
@@ -905,33 +876,39 @@ export type LatticeFaceTypes = Types<{
 class LatticeFaceDomain implements Domain<LatticeFace> {
   readonly kind: DomainKind = LATTICE_FACES;
   readonly dense = false;
-  constructor(readonly source: Lattice) {}
-  get size(): number { return this.source.allFaces().length; }
-  all(): readonly number[] { return this.source.allFaces(); }
-  valid(r: number): boolean { return Number.isInteger(r) && r >= 0 && r < this.source.n && this.source.mask[r] !== 0; }
-  row(r: number): LatticeFace { return this.source.faceView(r); }
-  rowOf(v: unknown, who: string): number {
-    if (!isLatticeFace(v)) throw new Error(`${who}: expected a face of a lattice — got ${v instanceof Selection ? `a ${v.domain.kind.name} selection` : v === null ? 'null' : typeof v}`);
-    return this.source.ownRows(v[OWNER], who) && v.index >= 0 ? v.index : -1;
+  constructor(readonly owner: Lattice) {}
+  get size(): number { return this.owner.allFaces().length; }
+  all(): readonly number[] { return this.owner.allFaces(); }
+  valid(r: number): boolean { return Number.isInteger(r) && r >= 0 && r < this.owner.n && this.owner.mask[r] !== 0; }
+  row(r: number): LatticeFace { return this.owner.faceView(r); }
+  /** A face callback reads one flyweight face, re-pointed row by row. */
+  reader(): (r: number) => LatticeFace {
+    const l = this.owner;
+    const fw = l.flyweight();
+    return (r) => l.fill(fw, r);
   }
-  resolve(other: Selection<any>, who: string): number[] {
-    if (other.domain.kind !== LATTICE_FACES) throw new Error(`${who}: expected the faces of this lattice — got ${other.domain.kind.plural} of another geometry`);
-    this.source.ownRows(other.source as Lattice, who);
-    return [...other.indices];
+  /** Every state of one lattice shares its grid and its mask: a face's
+   * row is who it is. */
+  keyOf(r: number): number { return r; }
+  rowOfKey(key: unknown): number { return this.valid(key as number) ? (key as number) : -1; }
+  locate(v: unknown, who: string): { domain: Domain<LatticeFace>; row: number } | null {
+    if (v === undefined || v === null) return null;
+    if (!isLatticeFace(v)) throw new Error(`${who}: expected a face of a lattice — got ${describe(v)}`);
+    return v.index < 0 ? null : { domain: v[OWNER].faceDomain(), row: v.index };
   }
-  on(state: unknown, who: string): Domain<LatticeFace> {
-    if (!(state instanceof Lattice)) throw new Error(`${who}: expected the lattice to read the faces on`);
-    return state.faceDomain();
-  }
-  neighbours(r: number): number[] { return this.source.adjacentRows(r); }
+  shares(other: Domain<LatticeFace>): boolean { return (other.owner as Lattice).mask === this.owner.mask; }
+  /** Points name the faces they fall in. */
+  named(where: unknown): readonly number[] | undefined { return this.owner.facesUnder(where); }
+  neighbours(r: number): number[] { return this.owner.adjacentRows(r); }
   /** A reduction straight off a column's buffer (see `columnReduce`). */
   reduce(name: string, members: readonly number[] | null, op: 'sum' | 'mean' | 'min' | 'max'): number | undefined {
-    return columnReduce(this.source, name, members, op);
+    return columnReduce(this.owner, name, members, op);
   }
   /** The faces whose centre is CLOSER THAN `radius` to `p`. */
-  near(p: unknown, radius: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
-    if (!(typeof radius === 'number' && radius > 0)) throw new Error(`${who}: radius must be a positive distance`);
-    const l = this.source;
+  near(p: unknown, r: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
+    const radius = checkRadius(r, who);
+    if (radius === 0) return { rows: [], distances: [] };
+    const l = this.owner;
     const px = vx(p as XY);
     const py = vy(p as XY);
     const { cols, rows, spacing, bounds } = l;
@@ -1112,7 +1089,7 @@ const LATTICE_FACES: DomainKind = domainKind('face', 'faces', {
   contours: {
     value(this: Selection<LatticeFace>): IsoContour[] {
       if (this.length === 0) return [];
-      const l = this.source as Lattice;
+      const l = this.owner as Lattice;
       const rows = [...this.indices].sort((a, b) => a - b);
       return gridOutline(l, rows, (r) => this.holds(r));
     },
@@ -1127,8 +1104,9 @@ const LATTICE_FACES: DomainKind = domainKind('face', 'faces', {
    * leaves that face as it was, and a `where` that names nothing writes
    * nothing.
    */
-  set: { value(this: Selection<LatticeFace>, ...args: unknown[]): Lattice { return (this.source as Lattice).writeFaces(this.members, args); } },
+  set: { value(this: Selection<LatticeFace>, ...args: unknown[]): Lattice { return (this.owner as Lattice).writeFaces(this, args); } },
 }, {
+  unrelated: "those faces belong to another lattice — a lattice's faces are rows of its own grid",
   add: "a lattice's faces are fixed — set a column instead",
   remove: "a lattice's faces are fixed — set a column instead",
   extract: "a lattice's faces are squares of its own grid — read what you need with faces.map, or the arrays with l.values",
@@ -1157,7 +1135,8 @@ type Pt = [number, number];
  * interval. Each face row is measured on `SCANLINES` lines; across a line
  * the overlap with each face is exact, so what a face is handed is its
  * covered fraction and the sum over faces is the footprint's area in face
- * areas. A zero-length segment is a dot.
+ * areas. A zero-length segment is a dot. What a face is handed adds to
+ * its `cover`; a face handed something for the first time joins `touched`.
  */
 function capsule(
   a: Pt,
@@ -1167,7 +1146,8 @@ function capsule(
   rows: number,
   spacing: number,
   bounds: Bounds,
-  stamp: (idx: number, c: number) => void,
+  cover: Float32Array,
+  touched: number[],
 ): void {
   const [ax, ay] = a;
   const [bx, by] = b;
@@ -1233,7 +1213,11 @@ function capsule(
       for (let i = i0; i <= i1; i++) {
         const x0 = ox + i * spacing;
         const overlap = Math.min(hi, x0 + spacing) - Math.max(lo, x0);
-        if (overlap > 0) stamp(row + i, (overlap / spacing) * share);
+        if (overlap > 0) {
+          const idx = row + i;
+          if (cover[idx] === 0) touched.push(idx);
+          cover[idx] += (overlap / spacing) * share;
+        }
       }
     }
   }
@@ -1302,13 +1286,3 @@ function contourLine(c: { pts: readonly (readonly [number, number] | XY)[]; clos
   return pts;
 }
 
-const isContourRecord = (v: unknown): v is IsoContour =>
-  typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as IsoContour).pts);
-
-/** What a refusal calls the thing it was handed. */
-function describe(v: unknown): string {
-  if (v === null) return 'null';
-  if (Array.isArray(v)) return 'an array';
-  if (typeof v === 'object') return `a ${(v as object).constructor?.name ?? 'object'}`;
-  return `a ${typeof v}`;
-}

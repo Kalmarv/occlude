@@ -17,16 +17,16 @@
  */
 
 import { at64, atU32, gatherColumn, type AnyColumn } from './column.js';
-import { Material, alongMaterial, inSpace3, ownedBy, resampleMaterial, viewKind, type Edge, type Vertex } from './material.js';
-import { ownerOf } from './views.js';
+import { Material, alongMaterial, cached, inSpace3, resampleMaterial, vertexReader, edgeReader, type Edge, type Vertex, type PointId, type EdgeId } from './material.js';
+import { ownerOf, viewKind, valueKind, describe } from './views.js';
 import { carryLinks } from './derivation.js';
 import { degreesWithin } from './chains.js';
 import { curvesOfRows, type Curve } from './curves.js';
 import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
-import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, type DomainKind, type Types } from './selection.js';
+import { Selection, select, domainKind, isSelectionOf, rowRange, rowOf, memberRows, checkRadius, type Domain, type DomainKind, type Types } from './selection.js';
 import { neighbours } from './forces.js';
 import {
-  addPoints, removePoints, setPoints, addEdges, removeEdges, setEdges, pointRow, edgeRow,
+  addPoints, removePoints, setPoints, addEdges, removeEdges, setEdges,
   type CellValue, type ColumnValue, type EdgeEnd, type EdgeRowSpec, type PointEnd, type PointWhere, type EdgeWhere, type PointSetOpts, type EdgeSetOpts, type PointRecordSetOpts, type EdgeRecordSetOpts,
 } from './tables.js';
 import { vx, vy, type XY } from './vec.js';
@@ -34,6 +34,7 @@ import { edges as buildEdgeQuery, type EdgeQuery, type NearestHit, type FirstHit
 import { orient2d } from 'robust-predicates';
 import { bucketStretch, type Space } from './space.js';
 import type { Face } from './faces.js';
+import { refuseShape } from './boundary.js';
 
 /**
  * Do two states belong to one evolution? They do when they share any
@@ -41,9 +42,26 @@ import type { Face } from './faces.js';
  * `steps` makes from another keeps the ids of what it did not retire, an
  * extracted material keeps the ids of its rows, and a material that was
  * built on its own shares none — ids are minted once and never reused.
+ * Asked once per pair: the answer is kept on both states.
  */
 export function sameLineage(a: Material, b: Material): boolean {
   if (a === b) return true;
+  // Two runs count their ids from the same place: a value one run made is
+  // no row of another, whatever its numbers (material.ts `mintIds`).
+  if (a.epoch !== b.epoch && a.epoch !== 0 && b.epoch !== 0) return false;
+  const mine = pointDomain(a);
+  let got = mine.lineage?.get(b);
+  if (got === undefined) {
+    got = shareIdentity(a, b);
+    (mine.lineage ??= new WeakMap()).set(b, got);
+    const theirs = pointDomain(b);
+    (theirs.lineage ??= new WeakMap()).set(a, got);
+  }
+  return got;
+}
+
+/** `sameLineage`, worked out: an id of one in the other, or a root. */
+function shareIdentity(a: Material, b: Material): boolean {
   // States of one run share their id columns, or leaves of them: the same
   // leaf is the same ids.
   const theirs = b.store.pointIds;
@@ -55,14 +73,6 @@ export function sameLineage(a: Material, b: Material): boolean {
   for (const leaf of b.store.edgeRoots.leaves()) for (let k = 0; k < leaf.length; k++) if (roots.has(leaf[k])) return true;
   return false;
 }
-
-/** The refusal a selection of an unrelated material gets. */
-export function unrelated(who: string): Error {
-  return new Error(`${who}: the two selections come from unrelated materials — nothing in one is anything in the other. Selections of one evolution resolve by identity; to combine two materials, append() them first`);
-}
-
-const viewName = (kind: string | undefined, v: unknown): string =>
-  kind === 'edge' ? 'an edge view' : kind !== undefined ? `a ${kind} view` : v instanceof Selection ? `a ${v.domain.kind.name} selection` : v === null ? 'null' : typeof v;
 
 // ---- what a point or an edge selection answers, by type ----------------------------
 
@@ -84,27 +94,27 @@ export interface EdgeSet {
 
 /** @internal What a selection of vertices answers (see `ROW_TYPES`). */
 export type PointTypes = Types<{
-  source: Material;
+  owner: Material;
   points: Selection<Vertex>;
   edges: Selection<Edge>;
   curves: Selection<Curve>;
   extract: () => Material;
   set: PointSet;
   add: (at: XY | readonly [number, number, number] | PointEnd | Iterable<XY | readonly [number, number, number] | PointEnd> | undefined, cols?: Record<string, CellValue>) => Material;
-  remove: (what: Selection<Vertex> | PointEnd | undefined) => Material;
+  remove: (what: PointWhere) => Material;
   thicken: (opts: ThickenOpts) => Material;
 }>;
 
 /** @internal What a selection of edges answers (see `ROW_TYPES`). */
 export type EdgeTypes = Types<{
-  source: Material;
+  owner: Material;
   points: Selection<Vertex>;
   edges: Selection<Edge>;
   curves: Selection<Curve>;
   extract: () => Material;
   set: EdgeSet;
   add: (rows: EdgeRowSpec | EdgeEnd | readonly (EdgeRowSpec | EdgeEnd)[] | undefined, cols?: Record<string, CellValue>) => Material;
-  remove: (what: Selection<Edge> | EdgeEnd | undefined) => Material;
+  remove: (what: EdgeWhere) => Material;
   thicken: (opts: ThickenOpts) => Material;
   resample: (opts: Parameters<Material['resample']>[0]) => Material;
   trim: (opts: Parameters<Material['trim']>[0]) => Material;
@@ -115,93 +125,156 @@ export type EdgeTypes = Types<{
 
 // ---- the point domain ----------------------------------------------------------------
 
+declare module './material.js' {
+  interface StateCache {
+    pointDomain?: PointDomain;
+    edgeDomain?: EdgeDomain;
+    edgeQuery?: EdgeQuery;
+    /** How far any edge's geodesic strays from its chord (`geodesicBow`). */
+    bow?: number;
+  }
+}
+
+/** The refusal of anything that is not a point where one is named. */
+export function notAPoint(who: string, v: unknown): Error {
+  return new Error(`${who}: expected a point — a vertex view or a point value; make one with point(…) — got ${describe(v)}${viewKind(v) === 'edge' ? '; its ends are e.a and e.b' : ''}`);
+}
+
+/** The refusal of anything that is not an edge where one is named. */
+export function notAnEdge(who: string, v: unknown): Error {
+  return new Error(`${who}: expected an edge — an edge view or an edge value; make one with edge(…) — got ${describe(v)}${viewKind(v) === 'vertex' ? '; its edges are p.edges' : ''}`);
+}
+
 class PointDomain implements Domain<Vertex> {
   readonly kind: DomainKind = POINTS;
   readonly dense = true;
   private allRows: readonly number[] | null = null;
-  constructor(readonly source: Material) {}
-  get size(): number { return this.source.n; }
-  all(): readonly number[] { return (this.allRows ??= rowRange(this.source.n)); }
-  valid(r: number): boolean { return r >= 0 && r < this.source.n && Number.isInteger(r); }
-  row(r: number): Vertex { return this.source.vertex(r); }
-  rowOf(v: unknown, who: string): number {
-    const kind = viewKind(v);
-    if (kind === 'edge' || kind === 'face' || v instanceof Selection) {
-      throw new Error(`${who}: expected a vertex view or a point value — got ${viewName(kind, v)}${kind === 'edge' ? '; its ends are e.a and e.b' : ''}`);
-    }
-    // A view of a material that shares no identity with this one names
-    // nothing here, whatever its id: ids are minted per run.
-    if (kind === 'vertex' && !ownedBy(v as object, this.source) && !sameLineage(this.source, ownerOf(v as object) as Material)) return -1;
-    return pointRow(this.source, v, who);
+  /** The grid `near` reads, built on the first ask and kept: one for the
+   * state, whatever radius each question asks with. */
+  private index: ((p: XY, reach?: number) => number[]) | null = null;
+  /** @internal Which states this one shares identity with (`sameLineage`),
+   * asked once per pair. */
+  lineage: WeakMap<Material, boolean> | undefined;
+  constructor(readonly owner: Material) {}
+  get size(): number { return this.owner.n; }
+  all(): readonly number[] { return (this.allRows ??= rowRange(this.owner.n)); }
+  valid(r: number): boolean { return r >= 0 && r < this.owner.n && Number.isInteger(r); }
+  row(r: number): Vertex { return this.owner.vertex(r); }
+  reader(count: number): (r: number) => Vertex { return vertexReader(this.owner, count); }
+  keyOf(r: number): number { return at64(this.owner.store.pointIds, r); }
+  rowOfKey(key: unknown): number { return this.owner.rowOfPoint(key as PointId); }
+  locate(v: unknown, who: string): { domain: Domain<Vertex>; row: number } | { key: unknown } | null {
+    if (v === undefined || v === null) return null;
+    if (valueKind(v) === 'point') return { key: (v as { id: number }).id };
+    if (viewKind(v) === 'vertex') return { domain: pointDomain(ownerOf(v as object) as Material), row: (v as Vertex).index };
+    throw notAPoint(who, v);
   }
-  resolve(other: Selection<any>, who: string): number[] {
-    if (other.domain.kind !== POINTS) throw new Error(`${who}: expected points — a point selection — got ${other.domain.kind.plural}`);
-    const theirs = other.source as Material;
-    // The same state: the same rows (a curve's points are this domain read
-    // along the curve).
-    if (theirs === this.source) return [...other.indices];
-    if (!sameLineage(this.source, theirs)) throw unrelated(who);
-    const out: number[] = [];
-    const ids = theirs.store.pointIds;
-    for (const i of other.indices) {
-      const r = this.source.rowOfPoint(at64(ids, i) as never);
-      if (r >= 0) out.push(r);
-    }
-    return out;
-  }
-  on(state: unknown, who: string): Domain<Vertex> {
-    if (!(state instanceof Material)) throw new Error(`${who}: expected the material to read the points on`);
-    return pointDomain(state);
-  }
-  neighbours(r: number): readonly number[] { return this.source.adjacentRows(r); }
-  near(p: unknown, radius: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
-    if (!(typeof radius === 'number' && radius > 0)) throw new Error(`${who}: radius must be a positive distance`);
-    const m = this.source;
+  shares(other: Domain<Vertex>): boolean { return sameLineage(this.owner, other.owner as Material); }
+  neighbours(r: number): readonly number[] { return this.owner.adjacentRows(r); }
+  near(p: unknown, r: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
+    refuseShape(p, who);
+    const radius = checkRadius(r, who);
+    if (radius === 0) return { rows: [], distances: [] };
+    const m = this.owner;
     const z = zColumn(m);
-    if (z !== null && m.space !== undefined && m.space.kind !== 'euclidean') throw inCurvedSpace(who);
-    const box = m.nearBox;
-    let index = box.byRadius.get(radius);
-    if (index === undefined) {
-      // The radius is a length of the material's space: `neighbours` tests
-      // by the space's distance there, and by the old coordinate arithmetic
-      // in the flat plane. One grid per radius, kept on the state, and
-      // bounded: a per-point radius would otherwise build one grid per
-      // distinct float and hold every one of them for the state's life.
-      index = neighbours(m, { radius });
-      if (box.byRadius.size >= 8) box.byRadius.delete(box.byRadius.keys().next().value as number);
-      box.byRadius.set(radius, index);
-    }
+    const space = m.space;
+    const flat = space === undefined || space.kind === 'euclidean';
+    if (z !== null && !flat) throw inCurvedSpace(who);
     const px = vx(p as XY);
     const py = vy(p as XY);
-    const space = m.space;
+    const pz = z !== null ? placeZ(p, who) : 0;
+    if (z === null) placeFlat(p, who);
+    const x = m.x;
+    const y = m.y;
+    // The candidates: the state's grid, asked with this radius as its
+    // reach — or every row, for a radius that reaches every point, where
+    // the grid has nothing to narrow. The radius is a length of the
+    // material's space: the grid tests by the space's distance there, and
+    // by the old coordinate arithmetic in the flat plane.
+    const self = typeof p === 'object' && p !== null && ownerOf(p) === m ? (p as Vertex).index : -1;
+    const every = this.covers(px, py, radius);
+    const found = every ? this.everyRow(self) : (this.index ??= this.grid(radius))(p as XY, radius);
+    const rows: number[] = [];
+    const distances: number[] = [];
     if (z !== null) {
       // In space the distance is the straight one, z counted. The plane's
       // grid finds every candidate — a point nearer than the radius in
       // space is nearer than it in x and y — and each is judged in space.
-      const pz = placeZ(p, who);
-      const x = m.x;
-      const y = m.y;
-      const rows: number[] = [];
-      const distances: number[] = [];
-      for (const r of index(p as XY)) {
-        const d = Math.hypot(px - x[r], py - y[r], pz - z[r]);
+      for (const j of found) {
+        const d = Math.hypot(px - x[j], py - y[j], pz - z[j]);
         if (d < radius) {
-          rows.push(r);
+          rows.push(j);
           distances.push(d);
         }
       }
       return { rows, distances };
     }
-    placeFlat(p, who);
-    const rows = index(p as XY);
-    const distances = new Float64Array(rows.length);
-    // The index is built over every position, so the flats are joined
-    // already: the distances read them.
-    const x = m.x;
-    const y = m.y;
-    if (space === undefined || space.kind === 'euclidean') for (let k = 0; k < rows.length; k++) distances[k] = Math.hypot(px - x[rows[k]], py - y[rows[k]]);
-    else for (let k = 0; k < rows.length; k++) distances[k] = space.distance([px, py], [x[rows[k]], y[rows[k]]]);
+    const r2 = radius * radius;
+    for (const j of found) {
+      if (flat) {
+        const dx = px - x[j];
+        const dy = py - y[j];
+        // The grid judged its rows already, by this same test.
+        if (every && !(dx * dx + dy * dy < r2)) continue;
+        rows.push(j);
+        distances.push(Math.hypot(dx, dy));
+      } else {
+        rows.push(j);
+        distances.push(space.distance([px, py], [x[j], y[j]]));
+      }
+    }
     return { rows, distances };
+  }
+
+  /** The grid over this state's points, made on the first `near` and kept:
+   * in the flat plane, cells from the points' own extent — about one point
+   * to a cell — which a radius of any size walks as many rings of as it
+   * needs; in a curved space, cells of the first radius asked, a length of
+   * the space, which a later radius widens or narrows. */
+  private grid(radius: number): (p: XY, reach?: number) => number[] {
+    const m = this.owner;
+    if (m.space !== undefined && m.space.kind !== 'euclidean') return neighbours(m, { radius });
+    const { w, h } = this.extent();
+    const cell = Math.max(w, h) / Math.ceil(Math.sqrt(Math.max(1, m.n)));
+    return neighbours(m, { radius: cell > 0 && Number.isFinite(cell) ? cell : radius });
+  }
+
+  /** Does a radius around (px, py) reach every point? A radius of
+   * `Infinity` does, in any space. */
+  private covers(px: number, py: number, radius: number): boolean {
+    if (radius === Infinity) return true;
+    const m = this.owner;
+    if (m.space !== undefined && m.space.kind !== 'euclidean') return false;
+    const b = this.extent();
+    const dx = Math.max(Math.abs(px - b.x), Math.abs(px - (b.x + b.w)));
+    const dy = Math.max(Math.abs(py - b.y), Math.abs(py - (b.y + b.h)));
+    return Math.hypot(dx, dy) < radius;
+  }
+
+  /** Every row but `self`, in row order. */
+  private everyRow(self: number): number[] {
+    const out: number[] = [];
+    for (let j = 0; j < this.owner.n; j++) if (j !== self) out.push(j);
+    return out;
+  }
+
+  /** The box of the points (all zero for none, or for a place that is not
+   * finite), worked out once. */
+  private box: { x: number; y: number; w: number; h: number } | null = null;
+  private extent(): { x: number; y: number; w: number; h: number } {
+    if (this.box !== null) return this.box;
+    const m = this.owner;
+    const X = m.x;
+    const Y = m.y;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < m.n; i++) {
+      if (X[i] < x0) x0 = X[i];
+      if (X[i] > x1) x1 = X[i];
+      if (Y[i] < y0) y0 = Y[i];
+      if (Y[i] > y1) y1 = Y[i];
+    }
+    const finite = Number.isFinite(x0) && Number.isFinite(x1) && Number.isFinite(y0) && Number.isFinite(y1);
+    return (this.box = finite ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : { x: 0, y: 0, w: 0, h: 0 });
   }
 }
 
@@ -211,48 +284,40 @@ class EdgeDomain implements Domain<Edge> {
   readonly kind: DomainKind = EDGES;
   readonly dense = true;
   private allRows: readonly number[] | null = null;
-  constructor(readonly source: Material) {}
-  get size(): number { return this.source.edgeCount; }
-  all(): readonly number[] { return (this.allRows ??= rowRange(this.source.edgeCount)); }
-  valid(r: number): boolean { return r >= 0 && r < this.source.edgeCount && Number.isInteger(r); }
-  row(r: number): Edge { return this.source.edge(r); }
-  rowOf(v: unknown, who: string): number {
-    const kind = viewKind(v);
-    if (kind === 'vertex' || kind === 'face' || v instanceof Selection) {
-      throw new Error(`${who}: expected an edge view or an edge value — got ${viewName(kind, v)}${kind === 'vertex' ? '; its edges are p.edges' : ''}`);
-    }
-    if (kind === 'edge' && !ownedBy(v as object, this.source) && !sameLineage(this.source, ownerOf(v as object) as Material)) return -1;
-    return edgeRow(this.source, v, who);
+  constructor(readonly owner: Material) {}
+  get size(): number { return this.owner.edgeCount; }
+  all(): readonly number[] { return (this.allRows ??= rowRange(this.owner.edgeCount)); }
+  valid(r: number): boolean { return r >= 0 && r < this.owner.edgeCount && Number.isInteger(r); }
+  row(r: number): Edge { return this.owner.edge(r); }
+  reader(count: number): (r: number) => Edge { return edgeReader(this.owner, count); }
+  keyOf(r: number): number { return at64(this.owner.store.edgeIds, r); }
+  rowOfKey(key: unknown): number { return this.owner.rowOfEdge(key as EdgeId); }
+  locate(v: unknown, who: string): { domain: Domain<Edge>; row: number } | { key: unknown } | null {
+    if (v === undefined || v === null) return null;
+    if (valueKind(v) === 'edge') return { key: (v as { id: number }).id };
+    if (viewKind(v) === 'edge') return { domain: edgeDomain(ownerOf(v as object) as Material), row: (v as Edge).index };
+    throw notAnEdge(who, v);
   }
-  resolve(other: Selection<any>, who: string): number[] {
-    if (other.domain.kind !== EDGES) throw new Error(`${who}: expected edges — an edge selection — got ${other.domain.kind.plural}`);
-    const theirs = other.source as Material;
-    if (theirs === this.source) return [...other.indices];
-    if (!sameLineage(this.source, theirs)) throw unrelated(who);
-    const out: number[] = [];
-    const ids = theirs.store.edgeIds;
-    for (const e of other.indices) {
-      const r = this.source.rowOfEdge(at64(ids, e) as never);
-      if (r >= 0) out.push(r);
-    }
-    return out;
-  }
-  on(state: unknown, who: string): Domain<Edge> {
-    if (!(state instanceof Material)) throw new Error(`${who}: expected the material to read the edges on`);
-    return edgeDomain(state);
-  }
-  /** Every edge that meets this one at a vertex, this one excluded. */
+  shares(other: Domain<Edge>): boolean { return sameLineage(this.owner, other.owner as Material); }
+  /** Every edge that meets this one at a vertex, this one excluded, each
+   * once: the edges at its `a` end, then the new ones at its `b` end. */
   neighbours(e: number): number[] {
-    const m = this.source;
+    const m = this.owner;
     const list = m.store.edgeList;
     const out: number[] = [];
     for (const f of m.incidentEdgeRows(atU32(list, 2 * e))) if (f !== e) out.push(f);
-    for (const f of m.incidentEdgeRows(atU32(list, 2 * e + 1))) if (f !== e) out.push(f);
+    const atA = out.length;
+    for (const f of m.incidentEdgeRows(atU32(list, 2 * e + 1))) {
+      // A ring of two meets its partner at both ends: once is enough.
+      if (f !== e && out.lastIndexOf(f, atA - 1) < 0) out.push(f);
+    }
     return out;
   }
-  near(p: unknown, radius: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
-    if (!(typeof radius === 'number' && radius > 0 && Number.isFinite(radius))) throw new Error(`${who}: radius must be a positive distance`);
-    const m = this.source;
+  near(p: unknown, r: number, who: string): { rows: readonly number[]; distances: ArrayLike<number> } {
+    refuseShape(p, who);
+    const radius = checkRadius(r, who);
+    if (radius === 0) return { rows: [], distances: [] };
+    const m = this.owner;
     const space = m.space;
     const px = vx(p as XY);
     const py = vy(p as XY);
@@ -326,11 +391,11 @@ function segmentDistance3(px: number, py: number, pz: number, ax: number, ay: nu
 
 /** @internal The point domain of a material, made once per state. */
 export function pointDomain(m: Material): PointDomain {
-  return ((m.domainBox.points as PointDomain | null) ??= new PointDomain(m)) as PointDomain;
+  return cached(m, 'pointDomain', () => new PointDomain(m));
 }
 /** @internal The edge domain of a material, made once per state. */
 export function edgeDomain(m: Material): EdgeDomain {
-  return ((m.domainBox.edges as EdgeDomain | null) ??= new EdgeDomain(m)) as EdgeDomain;
+  return cached(m, 'edgeDomain', () => new EdgeDomain(m));
 }
 
 /** The points of `m`, `rows` of them (null: every one, in row order). */
@@ -349,11 +414,11 @@ export const isEdgeSelection = (v: unknown): v is Selection<Edge> => isSelection
 
 // ---- the words only points or only edges have ----------------------------------------
 
-type Sel = Selection<any> & { readonly source: Material };
+type Sel = Selection<any> & { readonly owner: Material };
 
 /** The edges whose BOTH ends a point selection holds, row order. */
 function edgeRowsAmong(sel: Sel): readonly number[] {
-  const m = sel.source;
+  const m = sel.owner;
   return sel.members === null ? edgeDomain(m).all() : edgesAmong(m, (r) => sel.holds(r));
 }
 
@@ -361,7 +426,7 @@ function edgeRowsAmong(sel: Sel): readonly number[] {
  * mark per row for the whole collection; a set for a few edges, so a face's
  * corners never cost a pass over every point. */
 export function endpointRows(sel: Selection<Edge>): number[] {
-  const m = sel.source as Material;
+  const m = sel.owner as Material;
   const list = m.store.edgeList;
   const rows = sel.indices;
   if (rows.length * 8 < m.n) {
@@ -395,58 +460,58 @@ const POINTS: DomainKind = domainKind('point', 'points', {
   points: { get(this: Sel) { return this; } },
   /** The edges whose BOTH ends are members — connections that already
    * exist, never new ones — in row order. */
-  edges: { get(this: Sel) { return edgesOf(this.source, this.members === null ? null : edgeRowsAmong(this), undefined, true); } },
+  edges: { get(this: Sel) { return edgesOf(this.owner, this.members === null ? null : edgeRowsAmong(this), undefined, true); } },
   /** The chains through these points: the curves of the edges among them,
    * read on first ask and kept. `strokes(sel)` draws what the members are
    * connected by. */
-  curves: { get(this: Sel): Selection<Curve> { return curvesOfRows(this, this.source, this.members === null ? null : edgeRowsAmong(this)); } },
+  curves: { get(this: Sel): Selection<Curve> { return curvesOfRows(this, this.owner, this.members === null ? null : edgeRowsAmong(this)); } },
   /** Independent material of the members in this order and every point
    * column, with NO edges (`sel.edges.extract()` keeps them). */
-  extract: { value(this: Sel): Material { return extractRows(this.source, this.indices, []); } },
-  set: { value(this: Sel, ...args: unknown[]): Material { return setPoints(this.source, this.members, args); } },
-  add: { value(this: Sel, at: unknown, cols?: Record<string, CellValue>): Material { return addPoints(this.source, at as never, cols); } },
-  remove: { value(this: Sel, what: unknown): Material { return removePoints(this.source, what); } },
+  extract: { value(this: Sel): Material { return extractRows(this.owner, this.indices, []); } },
+  set: { value(this: Sel, ...args: unknown[]): Material { return setPoints(this, args); } },
+  add: { value(this: Sel, at: unknown, cols?: Record<string, CellValue>): Material { return addPoints(this.owner, at as never, cols); } },
+  remove: { value(this: Sel, what: unknown): Material { return removePoints(this.owner, what); } },
   thicken: { value(this: Sel, opts: ThickenOpts): Material { return thickenKernel(this, opts); } },
 });
 
 const EDGES: DomainKind = domainKind('edge', 'edges', {
   /** The ends of the members, each once, in row order. */
-  points: { get(this: Sel) { return pointsOf(this.source, endpointRows(this), undefined, true); } },
+  points: { get(this: Sel) { return pointsOf(this.owner, endpointRows(this), undefined, true); } },
   /** Itself. */
   edges: { get(this: Sel) { return this; } },
   /** The curves the members walk — junctions and open ends those of the
    * selected edges alone — read on first ask and kept. */
-  curves: { get(this: Sel): Selection<Curve> { return curvesOfRows(this, this.source, this.members === null ? null : this.indices); } },
+  curves: { get(this: Sel): Selection<Curve> { return curvesOfRows(this, this.owner, this.members === null ? null : this.indices); } },
   /** Independent material of the members, their ends and both column
    * domains: the ends compacted in row order, the edges in this order
    * with their stored direction. */
-  extract: { value(this: Sel): Material { return extractRows(this.source, endpointRows(this), this.indices); } },
-  set: { value(this: Sel, ...args: unknown[]): Material { return setEdges(this.source, this.members, args); } },
-  add: { value(this: Sel, rows: unknown, cols?: Record<string, CellValue>): Material { return addEdges(this.source, rows, cols); } },
-  remove: { value(this: Sel, what: unknown): Material { return removeEdges(this.source, what); } },
+  extract: { value(this: Sel): Material { return extractRows(this.owner, endpointRows(this), this.indices); } },
+  set: { value(this: Sel, ...args: unknown[]): Material { return setEdges(this, args); } },
+  add: { value(this: Sel, rows: unknown, cols?: Record<string, CellValue>): Material { return addEdges(this.owner, rows, cols); } },
+  remove: { value(this: Sel, what: unknown): Material { return removeEdges(this.owner, what); } },
   thicken: { value(this: Sel, opts: ThickenOpts): Material { return thickenKernel(this, opts); } },
   // A resample or an along of the members answers rows of their material.
-  resample: { value(this: Sel, opts: Parameters<Material['resample']>[0]): Material { return resampleMaterial(extractRows(this.source, endpointRows(this), this.indices), opts, { of: this.source, edges: this.indices }); } },
-  trim: { value(this: Sel, opts: Parameters<Material['trim']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).trim(opts); } },
-  spline: { value(this: Sel, opts?: Parameters<Material['spline']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).spline(opts); } },
-  oscillate: { value(this: Sel, opts: Parameters<Material['oscillate']>[0]): Material { return extractRows(this.source, endpointRows(this), this.indices).oscillate(opts); } },
-  along: { value(this: Sel, opts?: Parameters<Material['along']>[0]) { return alongMaterial(extractRows(this.source, endpointRows(this), this.indices), opts ?? {}, { of: this.source, edges: this.indices }); } },
+  resample: { value(this: Sel, opts: Parameters<Material['resample']>[0]): Material { return resampleMaterial(extractRows(this.owner, endpointRows(this), this.indices), opts, { of: this.owner, edges: this.indices }); } },
+  trim: { value(this: Sel, opts: Parameters<Material['trim']>[0]): Material { return extractRows(this.owner, endpointRows(this), this.indices).trim(opts); } },
+  spline: { value(this: Sel, opts?: Parameters<Material['spline']>[0]): Material { return extractRows(this.owner, endpointRows(this), this.indices).spline(opts); } },
+  oscillate: { value(this: Sel, opts: Parameters<Material['oscillate']>[0]): Material { return extractRows(this.owner, endpointRows(this), this.indices).oscillate(opts); } },
+  along: { value(this: Sel, opts?: Parameters<Material['along']>[0]) { return alongMaterial(extractRows(this.owner, endpointRows(this), this.indices), opts ?? {}, { of: this.owner, edges: this.indices }); } },
   /** @internal Highest vertex degree within the members. The area
    * consumers refuse a branching value by it. */
   maxDegree: { value(this: Sel): number {
-    const m = this.source;
+    const m = this.owner;
     const degree = degreesWithin(m.n, this.indices, (e) => [m.edgeList[2 * e], m.edgeList[2 * e + 1]]);
     let best = 0;
     for (let i = 0; i < degree.length; i++) if (degree[i] > best) best = degree[i];
     return best;
   } },
   /** The closest member within `within` of `position`, or null. */
-  nearest: { value(this: Sel, position: XY, opts: { within: number; excludeIncident?: Vertex | number }): NearestHit | null {
-    return edgeQuery(this.source).nearest(position, this.members === null ? opts : { ...opts, accept: (e: number) => this.holds(e) });
+  nearest: { value(this: Sel, position: XY, opts: { within: number; excludeIncident?: PointEnd }): NearestHit | null {
+    return edgeQuery(this.owner).nearest(position, queryOpts(this, opts, 'edges.nearest') as { within: number });
   } },
   /** The first member a straight move would meet. */
-  firstHit: { value(this: Sel, from: XY, to: XY, opts: { excludeIncident?: Vertex | number } = {}): FirstHit | null {
-    return edgeQuery(this.source).firstHit(from, to, this.members === null ? opts : { ...opts, accept: (e: number) => this.holds(e) });
+  firstHit: { value(this: Sel, from: XY, to: XY, opts: { excludeIncident?: PointEnd } = {}): FirstHit | null {
+    return edgeQuery(this.owner).firstHit(from, to, queryOpts(this, opts, 'edges.firstHit'));
   } },
   /**
    * The members the straight segment `a` → `b` CROSSES: the segment passes
@@ -456,7 +521,7 @@ const EDGES: DomainKind = domainKind('edge', 'edges', {
    * segment lying along one are not crossings. Row order.
    */
   crossing: { value(this: Sel, a: XY, b: XY): Selection<Edge> {
-    const m = this.source;
+    const m = this.owner;
     const ax = vx(a);
     const ay = vy(a);
     const bx = vx(b);
@@ -485,6 +550,21 @@ const EDGES: DomainKind = domainKind('edge', 'edges', {
   } },
 });
 
+/** The options an edge query reads: the vertex whose edges it skips, found
+ * by identity as `has` finds it — a vertex of this state or of another of
+ * the same evolution, or a point value; one that is gone skips nothing —
+ * and the members a selection holds. */
+function queryOpts<O extends { excludeIncident?: PointEnd }>(sel: Sel, opts: O, who: string): Omit<O, 'excludeIncident'> & { excludeIncident?: number; accept?: (e: number) => boolean } {
+  const { excludeIncident, ...rest } = opts ?? ({} as O);
+  const out: Omit<O, 'excludeIncident'> & { excludeIncident?: number; accept?: (e: number) => boolean } = rest;
+  if (excludeIncident !== undefined) {
+    const v = rowOf(pointDomain(sel.owner), excludeIncident, `${who}: excludeIncident`);
+    if (v >= 0) out.excludeIncident = v;
+  }
+  if (sel.members !== null) out.accept = (e: number) => sel.holds(e);
+  return out;
+}
+
 /** @internal Copy the given point rows and edge rows of `m` into a fresh
  * material: every column of both domains, transfer policies, no history. */
 export function extractRows(m: Material, pointRows: readonly number[], edgeRows: readonly number[]): Material {
@@ -512,9 +592,10 @@ export function extractRows(m: Material, pointRows: readonly number[], edgeRows:
 }
 
 /**
- * What a `where` may be: a selection in any domain, or one face.
+ * What a `where` may be: a selection in any domain, one face, or a list of
+ * rows — views or values of points, edges or faces.
  */
-export type Where = Selection<Vertex> | Selection<Edge> | Selection<Face> | Face;
+export type Where = Selection<Vertex> | Selection<Edge> | Selection<Face> | Face | readonly (PointEnd | EdgeEnd | Face)[];
 
 /**
  * The rows a `where` names, in the domain the verb consumes.
@@ -531,26 +612,38 @@ export type Where = Selection<Vertex> | Selection<Edge> | Selection<Face> | Face
  * (`sel.extract()` itself keeps no edges: it is the points alone), and the
  * reason `sel.edges.adjacent()` exists for when the wider span is what is
  * wanted. An edge selection asked for points gives its endpoints. A face
- * selection, or one face, gives its corners and its edges.
+ * selection, or one face, gives its corners and its edges. A list of rows
+ * is the selection `rows` makes of it in this material: its members found
+ * by identity, a gone one skipped.
  *
  * `undefined` is the whole material, which is what every verb did before
  * there was a way to say otherwise.
  */
-export function whereRows(
+export function eligibleRows(
   m: Material,
   where: Where | undefined,
   domain: 'points' | 'edges',
   who: string,
 ): ReadonlySet<number> | null {
   if (where === undefined) return null;
-  const read = typeof where === 'object' && where !== null ? (where as { points?: unknown; edges?: unknown })[domain] : undefined;
+  const given = Array.isArray(where) ? listed(m, where, who) : where;
+  const read = typeof given === 'object' && given !== null ? (given as { points?: unknown; edges?: unknown })[domain] : undefined;
   if (!isPointSelection(read) && !isEdgeSelection(read)) {
-    throw new Error(`${who}: { where } must be a selection — of points, edges or faces — or one face`);
+    throw new Error(`${who}: { where } must be a selection — of points, edges or faces — one face, or a list of rows`);
   }
-  if (read.source !== m) {
+  if (read.owner !== m) {
     throw new Error(`${who}: { where } is a selection of another material — it names rows of a state this is not; name them in this one with m.points.intersect(sel) or m.edges.intersect(sel)`);
   }
   return new Set(read.indices);
+}
+
+/** A list of rows as the selection of `m` that `rows` makes of it: points,
+ * edges or faces by what its first member is. */
+function listed(m: Material, list: readonly unknown[], who: string): Selection<unknown> {
+  const first = list.find((v) => v !== undefined && v !== null);
+  const kind = viewKind(first) ?? valueKind(first);
+  const d: Domain<unknown> = (kind === 'edge' ? m.edges : kind === 'face' ? m.faces : m.points).domain;
+  return select(d, memberRows(d, list, who));
 }
 
 /**
@@ -584,11 +677,9 @@ function geodesicSegmentDistance(space: Space, p: XY, a: XY, b: XY): number {
 /** How far any edge's geodesic strays from its straight chord, in
  * coordinates, bounded by half again the stray at its middle (the stray of
  * a short arc is a parabola, widest there). Once per state. */
-const bows = new WeakMap<Material, number>();
 function geodesicBow(m: Material, space: Space): number {
-  let bow = bows.get(m);
-  if (bow !== undefined) return bow;
-  bow = 0;
+  if (m.cache.bow !== undefined) return m.cache.bow;
+  let bow = 0;
   for (let e = 0; e < m.edgeCount; e++) {
     const a: [number, number] = [m.x[m.edgeList[2 * e]], m.y[m.edgeList[2 * e]]];
     const b: [number, number] = [m.x[m.edgeList[2 * e + 1]], m.y[m.edgeList[2 * e + 1]]];
@@ -596,9 +687,7 @@ function geodesicBow(m: Material, space: Space): number {
     const off = Math.hypot(mid[0] - (a[0] + b[0]) / 2, mid[1] - (a[1] + b[1]) / 2);
     if (Number.isFinite(off) && off > bow) bow = off;
   }
-  bow = 1.5 * bow;
-  bows.set(m, bow);
-  return bow;
+  return (m.cache.bow = 1.5 * bow);
 }
 
 /**
@@ -639,5 +728,5 @@ function edgesNearInSpace(m: Material, space: Space, p: XY, radius: number): num
 
 /** The edge grid for one state, built the first time it is asked for. */
 function edgeQuery(m: Material): EdgeQuery {
-  return (m.edgeQueryBox.query ??= buildEdgeQuery(m));
+  return cached(m, 'edgeQuery', () => buildEdgeQuery(m));
 }

@@ -116,7 +116,7 @@ describe('O3 · G7-12 · an edge column reads as a property of the row', () => {
 
   it('refuses a column named for a field the edge already has', () => {
     const m = material([[0, 0], [10, 0]], { edges: [[0, 1]] });
-    for (const name of ['center', 'root', 'id', 'attrs', 'faces', 'adjacent']) {
+    for (const name of ['center', 'root', 'id', 'faces', 'adjacent', 'a', 'length', 'source']) {
       expect(() => m.edges.set(name, 1)).toThrow(`'${name}' is a reserved field of an edge`);
     }
   });

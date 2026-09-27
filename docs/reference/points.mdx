@@ -52,7 +52,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/points.ts" name="RelaxOpts" />
 
-Lloyd relaxation: each point moves to the centroid of its Voronoi cell, weighted by `density` if you give one. The count, the edges and every column stay. It writes no column. `within` keeps the points inside an area. A cloud from `t.scatter` or `t.throw` with an area keeps that area. `t.relax` and `t.settle` use it when you give no `within`. A point selection relaxes its members, as a material of their own. `step` is the cell of the density grid, and the default is the long side of the bounds divided by 256.
+Lloyd relaxation: each point moves to the centroid of its Voronoi cell, weighted by `density` if you give one. The count, the edges and every column stay. It writes no column. `within` is the area that the points relax in. Outside the area the density is zero, so each cell uses only its part in the area. `t.relax` keeps every point. A cloud from `t.scatter` or `t.throw` with an area keeps that area. `t.relax` and `t.settle` use it when you give no `within`. A point selection relaxes its members, as a material of their own. `step` is the cell of the density grid, and the default is the long side of the bounds divided by 256.
 
 ```ts live
 import { sketch, circle } from 'occlude';

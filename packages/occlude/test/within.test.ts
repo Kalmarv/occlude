@@ -196,21 +196,26 @@ describe('within: the point operations', () => {
     let byBounds: Material | null = null;
     let byWithin: Material | null = null;
     let byCircle: Material | null = null;
+    let dots: Material | null = null;
     run((t) => {
-      const dots = t.scatter(() => 1, { spacing: 6 });
+      dots = t.scatter(() => 1, { spacing: 6 });
       byBounds = t.relax(dots, { iterations: 3, within: box });
       byWithin = t.relax(dots, { iterations: 3, within: rect(20, 20, 60, 60) });
       byCircle = t.relax(dots, { iterations: 3, within: circle(50, 50, 30) });
     });
     // A rectangle IS its own box, so the two spellings are the same run.
     expect(coords(byWithin!)).toBe(coords(byBounds!));
-    // A circle is not: the box drives the relaxation, then the outside goes.
-    expect(byCircle!.n).toBeLessThan(byBounds!.n);
-    expect(byCircle!.n).toBeGreaterThan(0);
+    // A circle is not: the density outside it is zero. Every point is kept;
+    // one whose cell reaches the disc moves to the centroid of the part
+    // inside it, and one whose cell does not stays where it was.
+    expect(byCircle!.n).toBe(dots!.n);
+    let inside = 0;
     for (let i = 0; i < byCircle!.n; i++) {
       const [x, y] = byCircle!.points.map(xy)[i];
-      expect(Math.hypot(x - 50, y - 50)).toBeLessThan(30.000001);
+      if (Math.hypot(x - 50, y - 50) < 30) inside++;
+      else expect([x, y]).toEqual(dots!.points.map(xy)[i]);
     }
+    expect(inside).toBeGreaterThan(0);
   });
 
   it('settles inside a rectangle the same in either spelling', () => {
@@ -268,7 +273,7 @@ describe('within: the point operations', () => {
     // A shape never reaches the pure kernel: the toolkit lowers it first.
     const env = { rnd: () => 0.5, bounds: { x: 0, y: 0, w: 100, h: 100 }, len: () => 5 };
     expect(() => scatterPoints(env, undefined, { spacing: 5, within: circle(50, 50, 20) }))
-      .toThrow(/lowered by the toolkit/);
+      .toThrow(/scatter: a shape is not geometry until the toolkit lowers it — use t\.scatter/);
   });
 });
 

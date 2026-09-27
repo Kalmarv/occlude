@@ -136,9 +136,15 @@ describe('closeout (review of 793e35f)', () => {
     const other = q.nearest([10, 9], { within: 10, excludeIncident: m.vertex(1) });
     expect(other!.edge.index).toBe(1);
     expect(other!.distance).toBe(3);
-    expect(q.nearest([10, 9], { within: 10, excludeIncident: 1 })!.edge.index).toBe(1);
-    expect(q.nearest([10, 9], { within: 2, excludeIncident: 1 })).toBeNull();
-    expect(() => q.nearest([10, 9], { within: 10, excludeIncident: material([[0, 0]]).vertex(0) })).toThrow(/vertex of the material these edges belong to/);
+    expect(q.nearest([10, 9], { within: 2, excludeIncident: m.vertex(1) })).toBeNull();
+    // The vertex is found by identity, as `has` finds it: a vertex of an
+    // earlier state of the same geometry names its row here; one of an
+    // unrelated geometry names none, and skips nothing; a row number is
+    // not a vertex.
+    const later = m.points.set('w', 1);
+    expect(later.edges.nearest([10, 9], { within: 10, excludeIncident: m.vertex(1) })!.edge.index).toBe(1);
+    expect(q.nearest([10, 9], { within: 10, excludeIncident: material([[0, 0]]).vertex(0) })!.edge.index).toBe(0);
+    expect(() => q.nearest([10, 9], { within: 10, excludeIncident: 1 as never })).toThrow(/edges\.nearest: excludeIncident: expected a point — a vertex view or a point value/);
   });
 
   it('distributed resampling stays linear and exact; nearest with count 0 adds nothing and rejects bad counts', () => {

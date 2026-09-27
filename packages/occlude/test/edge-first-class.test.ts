@@ -127,6 +127,6 @@ describe('edges.near', () => {
 
   it('refuses a radius that is not a distance', () => {
     const m = curve([[0, 0], [10, 0]], { closed: false });
-    expect(() => m.edges.near([0, 0], { radius: 0 })).toThrow(/positive distance/);
+    expect(() => m.edges.near([0, 0], { radius: 0 })).toThrow(/edges\.near: radius is a positive length — got the number 0/);
   });
 });

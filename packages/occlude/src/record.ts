@@ -459,6 +459,10 @@ function lowerGeom(geom: ShapeGeom, rz: Resolver): Prim[][] {
         })
         .filter((c) => c.length > 0);
     }
+    case 'region':
+      // The toolkit makes a group's or an invert's area a path before the
+      // shape reaches the lowerer (api.ts `pinShape`).
+      throw new Error('polygon: a group or an inverted area is read by the toolkit — draw it in a sketch, or give it to a t. word');
   }
 }
 
@@ -1439,6 +1443,7 @@ function isConvexGeom(geom: ShapeGeom): boolean {
     case 'path':
     case 'line':
     case 'area':
+    case 'region':
       return false; // the core detects convex all-line contours itself
   }
 }

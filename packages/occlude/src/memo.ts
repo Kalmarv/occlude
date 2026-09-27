@@ -227,7 +227,7 @@ function walk(h: Hasher, v: unknown, mode: Mode, open: Set<object>): void {
       // number.
       const sel = o as Selection<unknown>;
       h.word(Tag.Selection);
-      h.num(tokenOf(sel.source as object));
+      h.num(tokenOf(sel.owner as object));
       h.str(sel.domain.kind.name);
       const rows = sel.indices;
       h.word(rows.length);

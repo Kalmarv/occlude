@@ -13,7 +13,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { toolkit } from './helpers/run.js';
 import { material, curve, type Material, type Vertex, type Edge } from '../src/index.js';
 import { initOcclude } from '../src/host.js';
-import { ownedBy, ownerOfView, viewKind } from '../src/views.js';
+import { ownedBy, ownerOf, viewKind } from '../src/views.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -119,8 +119,8 @@ describe('a row view is a plain record to everything but the library', () => {
     expect(viewKind(p)).toBe('vertex');
     expect(ownedBy(p, m)).toBe(true);
     expect(viewKind(copy)).toBeUndefined();
-    expect(ownerOfView(copy)).toBeUndefined();
-    expect(ownerOfView(structuredClone(p))).toBeUndefined();
+    expect(ownerOf(copy)).toBeUndefined();
+    expect(ownerOf(structuredClone(p))).toBeUndefined();
     expect(Object.isFrozen(p)).toBe(true);
     const e = curve([[0, 0], [1, 0]], { closed: false }).edges.at(0);
     expect(viewKind(e)).toBe('edge');

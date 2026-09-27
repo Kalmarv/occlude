@@ -1759,7 +1759,7 @@ export default sketch({ aspect: [2, 1], seed: 33 }, (t) => {
   return [
     cells.filter((f) => f.area >= minimum).groupBy((f) => band(f.area)).map((group) =>
       group.map((f) => polygon(f, { fill: fill('hatch', { angle: 30, spacing: spacing[group.key] }), stroke: false }))),
-    strokes(cells.source, { pen: 'pigma-005-black' }),
+    strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -2393,7 +2393,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 });
 ```
 
-`event.position` is the generated boundary vertex; `event.candidates` names what produced it in the **original** source (or the selection's `.source`): endpoint-cap samples give a vertex row; side samples give the edge row with its recovered `a → b` envelope parameter, normalized to a vertex at `t = 0` or `1`. Attribution uses the boundary approximation budget. Candidate attributes interpolate by each source column's declared policy, independently of the linear computed radius.
+`event.position` is the generated boundary vertex; `event.candidates` names what produced it in the **original** source (or the material the selection was read from): endpoint-cap samples give a vertex row; side samples give the edge row with its recovered `a → b` envelope parameter, normalized to a vertex at `t = 0` or `1`. Attribution uses the boundary approximation budget. Candidate attributes interpolate by each source column's declared policy, independently of the linear computed radius.
 
 One distinction worth keeping straight: thickening an already thickened **boundary** is a new band around those boundary edges, not a dilation of the previously filled interior — the boundary has no memory of the fill. Radii are the source's own units; `tolerance` (default `0.05`) is a total approximation budget in material units. It includes polygonal curve approximation and integer-grid rounding. The grid becomes finer for small radii, so an isolated disc is retained even when the requested tolerance exceeds its radius. Invalid sources, options, radii and callback records name the offending row or key with a `thicken:` error, and same values give the same arrays and callback order on a given build.
 

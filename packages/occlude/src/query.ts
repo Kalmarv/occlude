@@ -27,12 +27,11 @@
  * judging the rest as they come is the same answer.
  */
 
-import { Material, ownedBy, type Edge, type Vertex, type XY } from './material.js';
+import type { Material, Edge } from './material.js';
+import { vx, vy, type XY } from './vec.js';
+import { checkRadius } from './selection.js';
 
 const EPS = 1e-9;
-
-const vx = (p: XY): number => (Array.isArray(p) ? (p as readonly number[])[0] : (p as { x: number }).x);
-const vy = (p: XY): number => (Array.isArray(p) ? (p as readonly number[])[1] : (p as { y: number }).y);
 
 export interface NearestHit {
   edge: Edge;
@@ -62,10 +61,11 @@ export interface FirstHit {
 export interface EdgeQuery {
   /** The closest edge within `within` of `position` (inclusive), or null.
    * Ties go to the earlier source edge. `excludeIncident` skips every edge
-   * incident to that vertex of the source state, so a tip can sense the
-   * nearest line that is not its own stem. `accept`, when given, is the
-   * edges a selection holds: the rest are not there. */
-  nearest(position: XY, opts: { within: number; excludeIncident?: Vertex | number; accept?: (edge: number) => boolean }): NearestHit | null;
+   * incident to that vertex row of the source state (the selection finds
+   * the row by identity), so a tip can sense the nearest line that is not
+   * its own stem. `accept`, when given, is the edges a selection holds:
+   * the rest are not there. */
+  nearest(position: XY, opts: { within: number; excludeIncident?: number; accept?: (edge: number) => boolean }): NearestHit | null;
   /** Every edge CLOSER THAN `radius` to `position`, by true distance to the
    * segment, as source edge rows ascending. The bound is strict, as it is
    * for `points.near`. This is what `edges.near` reads; `nearest` answers
@@ -75,11 +75,11 @@ export interface EdgeQuery {
   within(position: XY, radius: number, distances?: number[]): number[];
   /** The first edge a straight move from `from` to `to` would meet, by
    * smallest `along` then source edge order; endpoint contact counts.
-   * `excludeIncident` skips every edge incident to that vertex of the
+   * `excludeIncident` skips every edge incident to that vertex row of the
    * source state. A zero-length move is a contact query at `from`.
    * `accept`, when given, is the edges a selection holds: the rest are not
    * there. */
-  firstHit(from: XY, to: XY, opts?: { excludeIncident?: Vertex | number; accept?: (edge: number) => boolean }): FirstHit | null;
+  firstHit(from: XY, to: XY, opts?: { excludeIncident?: number; accept?: (edge: number) => boolean }): FirstHit | null;
 }
 
 /** @internal Prepare edge queries for a frozen material. */
@@ -237,15 +237,6 @@ export function edges(m: Material): EdgeQuery {
     vertexStart = start;
     vertexEdges = list;
   };
-  const incidentRow = (v: Vertex | number): number => {
-    if (typeof v === 'number') {
-      if (!Number.isInteger(v) || v < 0 || v >= m.n) throw new Error(`edges: no vertex ${v} in the material these edges belong to`);
-      return v;
-    }
-    if (!ownedBy(v, m)) throw new Error('edges: excludeIncident must be a vertex of the material these edges belong to');
-    return v.index;
-  };
-
   return {
     nearest(position, opts) {
       const within = opts.within;
@@ -256,7 +247,7 @@ export function edges(m: Material): EdgeQuery {
       let skipStart = -1;
       let skipEnd = -1;
       if (opts.excludeIncident !== undefined) {
-        const v = incidentRow(opts.excludeIncident);
+        const v = opts.excludeIncident;
         if (vertexStart === null) buildAdjacency();
         skipStart = vertexStart![v];
         skipEnd = vertexStart![v + 1];
@@ -315,7 +306,7 @@ export function edges(m: Material): EdgeQuery {
       return bestE < 0 ? null : { edge: m.edge(bestE), position: [bestX, bestY], t: bestT, distance: bestD };
     },
     within(position, radius, distances) {
-      if (!(radius > 0) || !Number.isFinite(radius)) throw new Error('edges.near: radius must be a positive distance');
+      checkRadius(radius, 'edges.near');
       const px = vx(position);
       const py = vy(position);
       queryId++;
@@ -370,7 +361,7 @@ export function edges(m: Material): EdgeQuery {
       let skipStart = -1;
       let skipEnd = -1;
       if (opts.excludeIncident !== undefined) {
-        const v = incidentRow(opts.excludeIncident);
+        const v = opts.excludeIncident;
         if (vertexStart === null) buildAdjacency();
         skipStart = vertexStart![v];
         skipEnd = vertexStart![v + 1];

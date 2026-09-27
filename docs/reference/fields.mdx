@@ -77,7 +77,7 @@ export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
 
 <include>/_sig/Toolkit.distanceTo.mdx</include>
 
-A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` object. This is true for `t.distanceTo`, `t.travelTime`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is a shape, loops, a list of contours, a face, or a chain material. `t.distanceTo` reads the boundary's `contours()`.
+A signed distance field from a boundary: positive inside, zero on it, negative outside. A field from the library also takes one point: `d(p)` is `d(p[0], p[1])`, for a pair or an `{ x, y }` object. This is true for `t.distanceTo`, `t.travelTime`, `t.within` and the field transforms. The `sdf` words and the pure `distanceTo` take `(x, y)` only. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is a shape, loops, a list of contours, a face, or a chain material. `t.distanceTo` reads the boundary's `contours()`. An open shape has no inside. So `t.distanceTo(line(a, b))` is the signed distance to the line through `a` and `b`, positive on its left. This is true in a flat sketch and in a curved one.
 
 `t.distanceTo` measures in the space of the geometry. When the geometry has no space, as loops, points and a shape have not, it measures in the space of the sketch. The pure import `distanceTo` measures in the space its argument carries: a material or a selection made in a curved sketch. Plain loops, points and a list of contours carry none, so it measures those flat.
 
@@ -400,7 +400,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
 A grid of square faces over an area, with named channels. `spacing` sets the face size. `area` defaults to the drawable, and `channels` defaults to `['a']`. `init` fills each face from its centre.
 
-A lattice is one table of faces, and `lat.set(channel, value, where?)` writes a channel. `lat.faces` holds the faces. A face answers the words of every face, such as `centroid`, `bounds` and `adjacent`. It also answers its grid place `i` and `j`, every channel by name, and `c.laplacian(channel)` (the five-point stencil). `t.steps(n, lat, pass)` runs a pass over it. Every function of one `set` reads the faces as they were before the write. So one write over the whole grid is one instant. A diffusion is one write: `lat.set('a', (c) => c.a + rate * c.laplacian('a'))`. A rate above 0.25 runs away. A decay is `lat.set('a', (c) => c.a * (1 - rate))`. The [steps](/docs/reference/steps) page tells more about the lattice as one table.
+A lattice is one table of faces, and `lat.faces.set(channel, value, where?)` writes a channel. `lat.faces` holds the faces. A face answers the words of every face, such as `centroid`, `bounds` and `adjacent`. It also answers its grid place `i` and `j`, every channel by name, and `c.laplacian(channel)` (the five-point stencil). `t.steps(n, lat, pass)` runs a pass over it. Every function of one `set` reads the faces as they were before the write. So one write over the whole grid is one instant. A diffusion is one write: `lat.faces.set('a', (c) => c.a + rate * c.laplacian('a'))`. A rate above 0.25 runs away. A decay is `lat.faces.set('a', (c) => c.a * (1 - rate))`. The [steps](/docs/reference/steps) page tells more about the lattice as one table.
 
 `lat.add(points, amount, channel?)` puts an amount into the face under each point. `lat.field(channel)` reads a channel back as a field. `lat.face([x, y])` is the face under a position. `lat.values`, `lat.cols` and `lat.rows` give the raw numbers. Every operation returns a new value.
 
@@ -411,7 +411,7 @@ import { sketch, strokes, dots, mm, pen } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5, pens: { ink: pen({ width: mm(0.25), color: '#23252B' }), drop: pen({ width: mm(1.2), color: '#2457D6' }) } }, (t) => {
   const drops = t.throw({ count: 12 });
-  const spread = (l) => l.set('a', (c) => c.a + 0.22 * c.laplacian('a')).set('a', (c) => c.a * 0.99);
+  const spread = (l) => l.faces.set('a', (c) => c.a + 0.22 * c.laplacian('a')).faces.set('a', (c) => c.a * 0.99);
   const ink = t.steps(90, t.lattice({ spacing: 1 }).add(drops, 60), spread);
   return [strokes(t.isolines(ink.field(), [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64])), dots(drops, { pen: 'drop' })];
 });

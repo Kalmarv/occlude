@@ -37,9 +37,9 @@ import type { Origin } from './shapes.js';
 import { statedColumns, type StatedFaces } from './faces.js';
 import { Material, mintIds, type FaceColumn } from './material.js';
 import type { Rect } from './layout.js';
-import { identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
+import { act, identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
 import { chordMiddle, metricGap, modelGap } from './chord.js';
-import type { Space, SpaceKind } from './space.js';
+import { signedArea, type Space, type SpaceKind } from './space.js';
 import { tileGroup, type TileOps } from './tilegroup.js';
 import type { L } from './units.js';
 import type { Vec, XY } from './vec.js';
@@ -205,18 +205,6 @@ const SAMPLE_CAP = 128;
  * chart can put a corner infinitely far out, and the model never does. */
 const BUCKET = 1e-6;
 const MERGE_TOL = 1e-9;
-
-/** The 3×3 on a model vector, row-major — `Placement.point` without the
- * round trip back through the chart. A corner is keyed on the model it
- * lands at, and going up from a charted point loses the digits that the
- * farthest copies need. */
-function act(m: readonly number[], v: Model): Model {
-  return [
-    m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
-    m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
-    m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
-  ];
-}
 
 /** Where corners are looked up by the model point they land at. */
 class Corners {
@@ -672,15 +660,7 @@ function latticeOf(p: number, z: Vec): { i: number; j: number } {
 }
 
 /** Twice the signed area of a loop. */
-function area2(pts: readonly (readonly [number, number])[]): number {
-  let s = 0;
-  for (let k = 0; k < pts.length; k++) {
-    const [ax, ay] = pts[k];
-    const [bx, by] = pts[(k + 1) % pts.length];
-    s += ax * by - bx * ay;
-  }
-  return s;
-}
+const area2 = (pts: readonly (readonly [number, number])[]): number => 2 * signedArea(pts);
 
 /** Sutherland–Hodgman against one half-plane. */
 function clipHalf(pts: readonly (readonly [number, number])[], inside: (p: readonly [number, number]) => boolean, cut: (a: readonly [number, number], b: readonly [number, number]) => [number, number]): (readonly [number, number])[] {

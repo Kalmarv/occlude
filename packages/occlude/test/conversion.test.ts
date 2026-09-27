@@ -109,7 +109,7 @@ describe('t.material: a shape boundary with its own vertices', () => {
     let loop: Material | null = null;
     run((t) => { loop = t.material([[0, 0], [10, 0], [10, 10]]); });
     expect(loop!.edgeCount).toBe(3);
-    expect(() => run((t) => t.material(42 as never))).toThrow(/t\.material: a number is not an area/);
+    expect(() => run((t) => t.material(42 as never))).toThrow(/t\.material: the number 42 is not an area/);
   });
 
   it('sample: outputs unchanged in count, spacing and closure', () => {

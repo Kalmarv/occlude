@@ -101,13 +101,13 @@ describe('a selection keeps an order', () => {
 
   it('is in row order as a whole collection; filter, without, intersect and slice keep the receiver order', () => {
     expect(m.points.indices).toEqual([...Array(25).keys()]);
-    const mixed = m.points.rows([7, 3, 12, 1, 20]);
+    const mixed = m.points.rowsAt([7, 3, 12, 1, 20]);
     expect(mixed.indices).toEqual([7, 3, 12, 1, 20]);
     expect(mixed.filter((p) => p.index !== 12).indices).toEqual([7, 3, 1, 20]);
     expect(mixed.without(m.points.at(3)).indices).toEqual([7, 12, 1, 20]);
-    expect(mixed.without(m.points.rows([1, 7])).indices).toEqual([3, 12, 20]);
-    expect(mixed.intersect(m.points.rows([20, 7, 1])).indices).toEqual([7, 1, 20]);
-    expect(mixed.without(m.points.rows([3])).indices).toEqual([7, 12, 1, 20]);
+    expect(mixed.without(m.points.rowsAt([1, 7])).indices).toEqual([3, 12, 20]);
+    expect(mixed.intersect(m.points.rowsAt([20, 7, 1])).indices).toEqual([7, 1, 20]);
+    expect(mixed.without(m.points.rowsAt([3])).indices).toEqual([7, 12, 1, 20]);
     expect(mixed.slice(1, 3).indices).toEqual([3, 12]);
     expect(mixed.map((p) => p.index)).toEqual([7, 3, 12, 1, 20]);
     expect([...mixed].map((p) => p.index)).toEqual([7, 3, 12, 1, 20]);
@@ -115,30 +115,30 @@ describe('a selection keeps an order', () => {
   });
 
   it('union takes any number of selections: its own members, then each other’s new members in their order', () => {
-    const a = m.points.rows([5, 2]);
-    const b = m.points.rows([9, 2, 4]);
-    const c = m.points.rows([4, 0, 5, 11]);
+    const a = m.points.rowsAt([5, 2]);
+    const b = m.points.rowsAt([9, 2, 4]);
+    const c = m.points.rowsAt([4, 0, 5, 11]);
     expect(a.union(b, c).indices).toEqual([5, 2, 9, 4, 0, 11]);
     expect(a.union().indices).toEqual([5, 2]);
     expect(c.union(a).indices).toEqual([4, 0, 5, 11, 2]);
     // An operand of an earlier state is read by id.
     const later = m.points.set('h', 1);
-    expect(later.points.rows([1]).union(a).indices).toEqual([1, 5, 2]);
+    expect(later.points.rowsAt([1]).union(a).indices).toEqual([1, 5, 2]);
   });
 
   it('keeps the order in each group and each component; the relations answer in row order', () => {
-    const mixed = m.points.rows([24, 3, 13, 1, 20, 0]);
+    const mixed = m.points.rowsAt([24, 3, 13, 1, 20, 0]);
     expect(mixed.groupBy((p) => p.index % 2).map((g) => [g.key, g.indices])).toEqual([[0, [24, 20, 0]], [1, [3, 13, 1]]]);
     // Components meet in the receiver's order; each piece is in row order.
-    expect(m.points.rows([24, 0, 1]).components().map((c) => c.indices)).toEqual([[24], [0, 1]]);
-    expect(m.points.rows([12]).adjacent().indices).toEqual([7, 11, 13, 17]);
+    expect(m.points.rowsAt([24, 0, 1]).components().map((c) => c.indices)).toEqual([[24], [0, 1]]);
+    expect(m.points.rowsAt([12]).adjacent().indices).toEqual([7, 11, 13, 17]);
   });
 
   it('extracts the points in the selection’s order, and an edge selection’s edges in its order', () => {
-    const picked = m.points.rows([4, 0]);
+    const picked = m.points.rowsAt([4, 0]);
     const out = picked.extract();
     expect([out.x[0], out.x[1]]).toEqual([40, 0]);
-    const ends = m.edges.rows([m.edges.length - 1, 0]).extract();
+    const ends = m.edges.rowsAt([m.edges.length - 1, 0]).extract();
     expect(ends.edgeCount).toBe(2);
     expect(ends.edge(0).a.x).toBeGreaterThan(ends.edge(1).a.x);
   });
@@ -156,7 +156,7 @@ describe('near answers nearest first, ties by row', () => {
     expect(m.points.near([15, 15], { radius: 8 }).indices).toEqual([6, 7, 11, 12]);
     // A member is never its own neighbour; a selection answers with its own members.
     expect(m.points.near(m.points.at(12), { radius: 10.5 }).indices).toEqual([7, 11, 13, 17]);
-    expect(m.points.rows([17, 13]).near(m.points.at(12), { radius: 10.5 }).indices).toEqual([13, 17]);
+    expect(m.points.rowsAt([17, 13]).near(m.points.at(12), { radius: 10.5 }).indices).toEqual([13, 17]);
   });
 
   it('edges, by the distance to the whole edge', () => {
@@ -242,7 +242,7 @@ describe('edges.nearest and edges.firstHit answer what query.edges answered', ()
       }
     }
     const v = web.points.at(20);
-    expect(web.edges.nearest(v, { within: 30, excludeIncident: v })?.edge.index).toBe(old.nearest(v, { within: 30, excludeIncident: v })?.edge.index);
+    expect(web.edges.nearest(v, { within: 30, excludeIncident: v })?.edge.index).toBe(old.nearest(v, { within: 30, excludeIncident: v.index })?.edge.index);
   });
 
   it('firstHit: the same hit on a fixed case', () => {
@@ -306,7 +306,7 @@ describe('relations answer selections', () => {
     const [first] = m.points.groupBy((p) => (p.x < 20 ? 'left' : 'right'));
     expectTypeOf(first.filter(() => true).key).toEqualTypeOf<'left' | 'right'>();
     expect(first.filter((p) => p.y > 0).key).toBe('left');
-    expect(first.union(m.points.rows([24])).key).toBe('left');
+    expect(first.union(m.points.rowsAt([24])).key).toBe('left');
     expect(first.slice(0, 1).key).toBe('left');
   });
 });

@@ -12,7 +12,7 @@
  * The operation remains synchronous and independent of the renderer.
  */
 
-import { Material, readVertex, type Vertex, type Edge } from './material.js';
+import { Material, type Vertex, type Edge } from './material.js';
 import { isPointSelection, isEdgeSelection, endpointRows } from './relation.js';
 import type { Selection } from './selection.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
@@ -206,11 +206,11 @@ export function thicken(
     eRows = e;
   } else if (isPointSelection(source)) {
     // A selection keeps an order; the kernel reads rows in row order.
-    src = source.source;
+    src = source.owner;
     vRows = [...source.indices].sort((a, b) => a - b);
     eRows = source.edges.indices;
   } else if (isEdgeSelection(source)) {
-    src = source.source;
+    src = source.owner;
     vRows = endpointRows(source);
     eRows = [...source.indices].sort((a, b) => a - b);
   } else {
@@ -235,7 +235,7 @@ export function thicken(
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     let r: number;
     if (typeof opts.radius === 'number') r = opts.radius;
-    else r = opts.radius(readVertex(src, row));
+    else r = opts.radius(src.vertex(row));
     if (typeof r !== 'number') {
       throw new Error(
         `thicken: radius for vertex ${row} must be finite, got ${String(r)}`,

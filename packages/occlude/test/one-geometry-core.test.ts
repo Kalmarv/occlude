@@ -284,7 +284,7 @@ describe('the internal constructor doors', () => {
       source: { points: { source: { of: input, domain: 'faces', rows: [0, 1, 2] } } },
     });
     expect(m.points.at(1).source).toBe(input.faces.at(1));
-    expect(m.linkBox.links).toBeDefined();
+    expect(m.cache.links).toBeDefined();
   });
 });
 
@@ -292,7 +292,7 @@ describe('links live on the value', () => {
   it('a split keeps its links and node in the value, and a write carries them', () => {
     const m = square();
     const cut = m.split(m.edges.at(0));
-    expect(cut.linkBox.node?.op).toBe('split');
+    expect(cut.cache.node?.op).toBe('split');
     expect(cut.points.at(4).source).toBe(m.edges.at(0));
     const moved = cut.move([1, 0]);
     expect(moved.points.at(4).source).toBe(m.edges.at(0));

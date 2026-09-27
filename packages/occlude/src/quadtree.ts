@@ -68,7 +68,7 @@ export function quadtree(points: Material | Selection<Vertex> | Parameters<typeo
   if (!(bounds.w > 0) || !(bounds.h > 0)) return makeMaterial([]);
   // The points a cell holds are rows of the INPUT: a point selection's own
   // material, in the selection's order, or the material itself.
-  const base: Material = isPointSelection(points) ? points.source : makeMaterial(points as Parameters<typeof makeMaterial>[0]);
+  const base: Material = isPointSelection(points) ? points.owner : makeMaterial(points as Parameters<typeof makeMaterial>[0]);
   const candidates: readonly number[] = isPointSelection(points) ? points.indices : Array.from({ length: base.n }, (_, i) => i);
   const loops = region?.loops ?? null;
   const x1 = bounds.x + bounds.w;

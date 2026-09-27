@@ -37,13 +37,14 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, materialFromParts, readEdge, ownedBy, ownerOfView, referenced, viewKind, viewProto, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
+import { mintIds, Material, materialFromParts, referenced, withFaces, type Edge, type Vertex, type FaceColumn, type PointsLike } from './material.js';
 import { faceWords3 } from './three/api/words.js';
 import { curvesOfRows, type Curve } from './curves.js';
 import { writeFaces, writeFaceColumns, rebuild, PointRows, EdgeRows, type CellValue, type FaceSetOpts, type FaceRecordSetOpts } from './tables.js';
 import { box, type Box } from './layout.js';
 import type { XY } from './vec.js';
-import { edgesOf, pointsOf, endpointRows, sameLineage, unrelated } from './relation.js';
+import { edgesOf, pointsOf, endpointRows, sameLineage } from './relation.js';
+import { ownedBy, ownerOf, viewKind, viewProto, describe } from './views.js';
 import { Selection, select, domainKind, isSelectionOf, rowRange, type Domain, type DomainKind, type Types, ROW_TYPES } from './selection.js';
 import { contourMoment, curvedSpaceOf, measureFaces, spaceArea, spacePerimeter, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
@@ -598,7 +599,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
         throw new Error(`planarize: two distinct events on edge ${e} (parameters ${stops[k - 1].t} and ${stops[k].t}) land on the same coordinates but are not provably one point — numerically ambiguous input; move the lines apart or make them meet exactly`);
       }
     }
-    const parentView = opts.edges !== undefined ? readEdge(m, e) : undefined!;
+    const parentView = opts.edges !== undefined ? m.edge(e) : undefined!;
     for (let k = 0; k + 1 < stops.length; k++) {
       edgeSource.push(e);
       // A piece of a wall is a new edge, and still that wall: a fresh id,
@@ -740,6 +741,34 @@ function extractStated(table: FaceTable, rows: readonly number[], edgeRows: read
     cornerColumns,
   });
   return carryLinks(m, out);
+}
+
+/**
+ * The faces `rows` of `table` stated on `out`, a value extracted from the
+ * table's state that keeps its point ids, when one of them has a hole:
+ * each face's runs — the outer, then its holes — renamed to the rows of
+ * `out`, in the order given. Read off the picture again, a hole's ring
+ * would be a face of its own; stated, an extracted face is the face it
+ * was. Faces of one run each read back as they were, and stay read off the
+ * picture; a face that holds others is left to the picture too.
+ */
+function stateExtracted(table: FaceTable, rows: readonly number[], out: Material): Material {
+  const ids = table.source.store.pointIds;
+  const cycles: number[][][] = [];
+  let holed = false;
+  for (const f of rows) {
+    const runs = table.runsOf(f);
+    if (runs.length === 0) return out;
+    if (runs.length > 1) holed = true;
+    const face: number[][] = [];
+    for (const run of runs) {
+      const renamed = run.map((p) => out.rowOfPoint(at64(ids, p) as Vertex['id']));
+      if (renamed.some((r) => r < 0)) return out;
+      face.push(renamed);
+    }
+    cycles.push(face);
+  }
+  return holed ? withFaces(out, { cycles }) : out;
 }
 
 /**
@@ -1431,7 +1460,7 @@ export interface FaceSet {
 
 /** @internal What a selection of faces answers (see `ROW_TYPES`). */
 export type FaceTypes = Types<{
-  source: Material;
+  owner: Material;
   points: Selection<Vertex>;
   edges: Selection<Edge>;
   faces: Selection<Face>;
@@ -1453,41 +1482,24 @@ class FaceDomain implements Domain<Face> {
   readonly kind: DomainKind = FACES;
   readonly dense = true;
   constructor(readonly table: FaceTable) {}
-  get source(): Material { return this.table.source; }
+  get owner(): Material { return this.table.source; }
   get size(): number { return this.table.faces.length; }
   all(): readonly number[] { return this.table.allRows(); }
   valid(r: number): boolean { return r >= 0 && r < this.table.faces.length && Number.isInteger(r); }
   row(r: number): Face { return this.table.faces[r]; }
-  rowOf(v: unknown, who: string): number {
-    const kind = viewKind(v);
-    if (kind === 'face') {
-      if (ownedBy(v as object, this.table)) return (v as Face).index;
-      const theirs = ownerOfView(v as object) as FaceTable | undefined;
-      if (theirs === undefined || !sameLineage(this.table.source, theirs.source)) return -1;
-      return this.table.rowOfFace((v as Face).id);
-    }
-    throw new Error(`${who}: expected a face view — got ${kind === 'vertex' ? 'a vertex view' : kind === 'edge' ? 'an edge view' : v instanceof Selection ? `a ${v.domain.kind.name} selection` : v === null ? 'null' : typeof v}`);
+  /** A face is who its walls are (`face.id`). */
+  keyOf(r: number): unknown { return this.table.ids()[r]; }
+  rowOfKey(key: unknown): number { return this.table.rowOfFace(key as FaceId); }
+  locate(v: unknown, who: string): { domain: Domain<Face>; row: number } | null {
+    if (v === undefined || v === null) return null;
+    if (viewKind(v) !== 'face') throw new Error(`${who}: expected a face view — got ${describe(v)}`);
+    return { domain: (ownerOf(v as object) as FaceTable).domain, row: (v as Face).index };
   }
-  resolve(other: Selection<any>, who: string): number[] {
-    if (other.domain.kind !== FACES) throw new Error(`${who}: expected faces — a face selection — got ${other.domain.kind.plural}`);
-    const theirs = (other.domain as FaceDomain).table;
-    if (!sameLineage(this.table.source, theirs.source)) throw unrelated(who);
-    const ids = theirs.ids();
-    const out: number[] = [];
-    for (const i of other.indices) {
-      const r = this.table.rowOfFace(ids[i]);
-      if (r >= 0) out.push(r);
-    }
-    return out;
-  }
-  on(state: unknown, who: string): Domain<Face> {
-    if (!(state instanceof Material)) throw new Error(`${who}: expected the material to read the faces on`);
-    return state.faces.domain;
-  }
+  shares(other: Domain<Face>): boolean { return sameLineage(this.table.source, other.owner as Material); }
   neighbours(r: number): readonly number[] { return this.table.neighbours()[r]; }
 }
 
-type FaceSel = Selection<any> & { readonly source: Material; readonly domain: FaceDomain };
+type FaceSel = Selection<any> & { readonly owner: Material; readonly domain: FaceDomain };
 
 /** The edges of the selected faces, row order: an edge with a selected
  * face (or a face a selected face holds) on either side. */
@@ -1501,26 +1513,26 @@ const FACES: DomainKind = domainKind('face', 'faces', {
   /** The corners: the ends of `edges`, once, in row order. A point
    * consumer handed the selection itself reads each face as its centroid
    * instead; this is the word for the corners. */
-  points: { get(this: FaceSel) { return pointsOf(this.source, endpointRows(edgesOf(this.source, faceEdgeRows(this), undefined, true)), undefined, true); } },
+  points: { get(this: FaceSel) { return pointsOf(this.owner, endpointRows(edgesOf(this.owner, faceEdgeRows(this), undefined, true)), undefined, true); } },
   /** Every edge of a selected face, once, in row order: the walls, the
    * walls between two selected faces, and a spur inside a face. */
-  edges: { get(this: FaceSel) { return edgesOf(this.source, faceEdgeRows(this), undefined, true); } },
+  edges: { get(this: FaceSel) { return edgesOf(this.owner, faceEdgeRows(this), undefined, true); } },
   /** Itself. */
   faces: { get(this: FaceSel) { return this; } },
   /** The corners of the selected faces, face by face and round each face:
    * the stated faces' corners (corners.ts); none where the faces are read
    * off the picture. */
-  corners: { get(this: FaceSel): Selection<Corner> { return cornersOfFaces(this.source, this.indices); } },
+  corners: { get(this: FaceSel): Selection<Corner> { return cornersOfFaces(this.owner, this.indices); } },
   /** The walls of the faces as curves: each wall once, so `strokes(cells)`
    * draws a wall two faces share one time, not twice. */
-  curves: { get(this: FaceSel): Selection<Curve> { return curvesOfRows(this, this.source, faceEdgeRows(this)); } },
+  curves: { get(this: FaceSel): Selection<Curve> { return curvesOfRows(this, this.owner, faceEdgeRows(this)); } },
   /** The edges between the selected union and the rest: a wall with a
    * selected face on exactly one side. Walls between two selected faces
    * and edges inside a face are left out; a hole's boundary stays. */
   boundaryEdges: { value(this: FaceSel): Selection<Edge> {
     const table = this.domain.table;
     const inside = table.leafTest((f) => this.holds(f));
-    return edgesOf(this.source, table.edgeRowsWhere((l, r) => inside(l) !== inside(r)), undefined, true);
+    return edgesOf(this.owner, table.edgeRowsWhere((l, r) => inside(l) !== inside(r)), undefined, true);
   } },
   /**
    * Measure the selected faces, and answer the geometry with the
@@ -1547,7 +1559,8 @@ const FACES: DomainKind = domainKind('face', 'faces', {
    * extracted face is the face it was, so its columns and its id carry. */
   extract: { value(this: FaceSel): Material {
     const edgeRows = faceEdgeRows(this);
-    return extractStated(this.domain.table, this.indices, edgeRows, null) ?? edgesOf(this.source, edgeRows, undefined, true).extract();
+    const table = this.domain.table;
+    return extractStated(table, this.indices, edgeRows, null) ?? stateExtracted(table, this.indices, edgesOf(this.owner, edgeRows, undefined, true).extract());
   } },
   /**
    * The material with face columns set on these faces — every one, or those
@@ -1572,7 +1585,7 @@ export const isFaceSelection = (v: unknown): v is Selection<Face> => isSelection
 
 /** @internal The face table behind a face selection. */
 export function faceTableOf(sel: Selection<Face>): FaceTable {
-  return (sel.domain as FaceDomain).table;
+  return (sel.domain as unknown as FaceDomain).table;
 }
 
 /**
@@ -1724,6 +1737,15 @@ export class FaceTable<F extends Face = Face> {
   /** The half-edge runs of each leaf (null for a face that holds others). */
   private readonly regions: readonly (Region | null)[];
 
+  /** @internal Face `f`'s runs of vertex rows, the face on their left:
+   * the outer run first, then its holes; none for a face that holds others. */
+  runsOf(f: number): number[][] {
+    const region = this.regions[f];
+    if (region === null) return [];
+    const L = this.source.edgeList;
+    return region.cycles.map((cycle) => cycle.map((h) => (h & 1 ? L[2 * (h >> 1) + 1] : L[2 * (h >> 1)])));
+  }
+
   /** @internal Use `material.faces`. `stated` is the material's own
    * statement of its faces, when a word made it with one. */
   constructor(m: Material, stated?: StatedFaces) {
@@ -1810,7 +1832,7 @@ export class FaceTable<F extends Face = Face> {
       extract: { value(this: Face) {
         const edges = this.edges;
         const inside = oneFace(this.index);
-        return extractStated(collection, [this.index], edges.indices, inside) ?? faceWise(edges.extract(), edges.indices, inside, collection.faceOf);
+        return extractStated(collection, [this.index], edges.indices, inside) ?? stateExtracted(collection, [this.index], faceWise(edges.extract(), edges.indices, inside, collection.faceOf));
       } },
       // One word for a face's middle: an edge answers `center`, a face
       // `centroid` — the area's, not the box's — and says so by name.
@@ -2135,11 +2157,6 @@ export class FaceTable<F extends Face = Face> {
       this.keyBox.rowOf = map;
     }
     return map.get(id) ?? -1;
-  }
-
-  /** This face's key: the walls it is made of. */
-  keyOf(face: Face): string {
-    return this.keys()[face.index];
   }
 
   /** @internal Every face row, ascending, built once. */

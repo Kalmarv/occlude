@@ -11,7 +11,7 @@ describe('captured source-bound query fields',()=>{
     const distance=hits.field((point,hit)=>hit?hit.distance:point.x+10);
     expect(source.points.map(distance)).toEqual([1,14,2]);
     const near=hits.sources((point,hit)=>!!hit&&hit.distance<2&&point.name==='point-0');
-    expect(near.source).toBe(source);expect(near.map(p=>p.index)).toEqual([0]);
+    expect(near.owner).toBe(source);expect(near.map(p=>p.index)).toEqual([0]);
     expect(near.extract().points.at(0)!.name).toBe('point-0');
     
     

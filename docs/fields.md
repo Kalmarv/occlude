@@ -413,7 +413,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const peak = (crest) => crest.map((p) => p.strength).reduce((a, b) => Math.max(a, b), 0);
     const top = crests.map(peak).reduce((a, b) => Math.max(a, b), 0);
     const kept = crests.filter((crest) => peak(crest) > top * minStrength && crest.length >= minRun);
-    return m.points.rows(kept.flatMap((crest) => crest.indices)).edges;
+    return m.points.rows(kept.flatMap((crest) => [...crest])).edges;
   };
 
   // Two passes at two steps. The step is the scale the derivatives are taken
@@ -474,7 +474,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   // two-vertex ridges, all of them real — does not reach the paper, while the
   // spine does.
   const longRuns = (m, least) =>
-    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices));
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => [...run]));
   const longChannels = longRuns(channels, 40);
   const longSpines = longRuns(spines, 6);
 
@@ -519,7 +519,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 
   const crests = t.ridges(blur, { step: 1 });
   const long = crests.points.rows(
-    crests.points.components().filter((run) => run.length > 10).flatMap((run) => run.indices),
+    crests.points.components().filter((run) => run.length > 10).flatMap((run) => [...run]),
   );
 
   return [
@@ -555,7 +555,7 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
     t.noise(x / 48, y / 48) + 0.45 * t.noise(x / 19, y / 19) + 0.14 * t.noise(x / 8, y / 8);
 
   const longest = (m, least) =>
-    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices)).edges.extract();
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => [...run])).edges.extract();
   // the drawable rectangle onto the chart's unit square: an affine cage
   const sheet = [[0, 0], [b.w, 0], [b.w, b.h], [0, b.h]];
   const chart = [[0, 0], [1, 0], [1, 1], [0, 1]];
@@ -583,7 +583,7 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
 
 A field answers from a formula. A lattice remembers.
 
-`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of square faces over an area and fills each one from its centre. `lat.faces` holds them, and a face answers what the faces of any material answer: `centroid`, `bounds`, `area`, `adjacent`, its place `i` and `j`, and its channels as columns. `lat.face(p)` is the face under a point. `lat.set(channel, value)` writes a channel and returns a new lattice. The value is a number or a function of the face: a face reads its channels by name, and `f.laplacian(channel)` sums the differences to its four neighbours. One `set` with a record `{ a: …, b: … }` is one instant, and every function reads the faces as they were before the write. `t.steps(n, lat, pass)` runs a pass `n` times. A diffusion is `l.set('a', (f) => f.a + rate * f.laplacian('a'))`, and a decay is `l.set('a', (f) => f.a * (1 - r))`, each over the lattice as it was. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
+`t.lattice({ spacing, area?, channels? }, init?)` lays a grid of square faces over an area and fills each one from its centre. `lat.faces` holds them, and a face answers what the faces of any material answer: `centroid`, `bounds`, `area`, `adjacent`, its place `i` and `j`, and its channels as columns. `lat.face(p)` is the face under a point. `lat.faces.set(channel, value)` writes a channel and returns a new lattice. The value is a number or a function of the face: a face reads its channels by name, and `f.laplacian(channel)` sums the differences to its four neighbours. One `set` with a record `{ a: …, b: … }` is one instant, and every function reads the faces as they were before the write. `t.steps(n, lat, pass)` runs a pass `n` times. A diffusion is `l.faces.set('a', (f) => f.a + rate * f.laplacian('a'))`, and a decay is `l.faces.set('a', (f) => f.a * (1 - r))`, each over the lattice as it was. `lat.field(channel)` hands the result back as an ordinary field, so `t.isolines`, `t.scatter` and the fills read it like any other. Outside the area the field is absent, and contours stop at the edge.
 
 Two numbers to keep in mind. `f.laplacian` counts in faces, not in drawing units. A diffusion rate above 0.25 is unstable, and the values run away.
 
@@ -599,7 +599,7 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
   const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
   const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
     Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
-  const react = (l) => l.set({
+  const react = (l) => l.faces.set({
     a: (f) => f.a + Du * f.laplacian('a') - f.a * f.b * f.b + feed * (1 - f.a),
     b: (f) => f.b + Dv * f.laplacian('b') + f.a * f.b * f.b - (feed + kill) * f.b,
   });

@@ -1,5 +1,5 @@
 import type { ModelingStats3 } from './three/modeling.js';
-import { resetIds } from './material.js';
+import { beginIds, endIds } from './material.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 import type { RetainedDrawing3 } from './three/drawing.js';
@@ -345,6 +345,12 @@ export class Execution {
    */
   effects = 0;
 
+  /** The step `t.steps` is making — the start's step count plus the passes
+   * already made — while a run of steps is in progress; undefined outside
+   * one. What `force.drift` turns with, wherever the pass keeps its
+   * values (a material, a plain object holding several, a lattice). */
+  step: number | undefined = undefined;
+
   /** The sketch's `space` and `projection` as it wrote them: what the
    * memo keys a frame by (the resolved `space` is a record of closures). */
   spaceConfig: { readonly space?: SpaceOption; readonly projection?: ProjectionOption } = {};
@@ -371,6 +377,16 @@ export class Execution {
 
   private compiled: boolean;
 
+  /** The run number `begin` took for the values made in it (material.ts
+   * `beginIds`): 0 until it begins. */
+  private run = 0;
+
+  /** The sketch has been recorded: what is made from now on is made
+   * outside any run (a value at module scope, the next import). */
+  end(): void {
+    endIds(this.run);
+  }
+
   /**
    * Fix the run's configuration from the sketch's: aspect and frame
    * conventions, the paper (the sketch's own wins), the margin, the pen
@@ -382,8 +398,8 @@ export class Execution {
     // Identities start over with the run. A counter that survived between
     // runs would show different ids in a warm studio worker than in a cold
     // render for the same sketch and seed — no ink difference, but a broken
-    // promise.
-    resetIds();
+    // promise. What is made from now on belongs to this run (`end`).
+    this.run = beginIds();
     this.cameras3 = Object.freeze(Object.fromEntries(Object.entries(cfg.cameras3 ?? {}).map(([key, camera]) => [key,
       cameraFrame3(camera, { x: 0, y: 0, width: 1, height: 1 }).camera,
     ])));
@@ -926,4 +942,20 @@ function uniqueExport(module: string, library: readonly { name: string }[], name
     throw new Error(`${module}: '${name}' and '${clash.join("', '")}' would both export as ${moduleName(name)} — rename one in the library`);
   }
   return moduleName(name);
+}
+
+/** The run a toolkit function belongs to: `t.noise` knows its run, so a
+ * pure word handed it (`force.drift(t.noise, …)`) reads the run's step. */
+const runs = new WeakMap<object, Execution>();
+
+/** @internal Bind a toolkit function to its run (`bindToolkit`). */
+export function bindRun<F extends object>(fn: F, exec: Execution): F {
+  runs.set(fn, exec);
+  return fn;
+}
+
+/** @internal The run a toolkit function belongs to, or undefined for a
+ * function the sketch wrote. */
+export function runOf(fn: object): Execution | undefined {
+  return runs.get(fn);
 }

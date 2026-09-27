@@ -11,7 +11,7 @@
  *                           made from is kept as its working view;
  *   surfaceOf(m)            the working view of any geometry, built from its
  *                           parts on first need and kept on the value
- *                           (`m.surfaceBox`);
+ *                           (`m.cache.surface`);
  *   mapPositions3(m, move)  every point moved, as a map over the x, y and z
  *                           columns: no view, no kernel.
  *
@@ -39,7 +39,7 @@ import type {Surface3} from './surface.js';
 import {partsOfSurface, surfaceOfParts, type Columns3, type Lineage3} from './parts.js';
 import {captureSurface3} from './model.js';
 import {inheritTopology3, shareTopology3} from './topology.js';
-import {ownerOfView} from '../../views.js';
+import {ownerOf} from '../../views.js';
 
 /** How a point column refines, as `set(…, { transfer })` declares it. */
 export type Transfers3 = Readonly<Record<string, 'interpolate' | 'nearest'>>;
@@ -119,18 +119,18 @@ export function value3(surface: Surface3, carry: Carry3 = {}): Material {
 /** @internal The working view of any geometry (see the module note), kept on
  * the value. A value with no `z` is at z = 0. */
 export function surfaceOf(m: Material): Surface3 {
-  const known = m.surfaceBox.surface as Surface3 | null;
-  if (known !== null) return known;
+  const known = m.cache.surface;
+  if (known !== undefined) return known;
   const view = surfaceOfParts(partsOfMaterial(m));
   // A write that kept the topology — the same edge list, loops and names —
   // keeps the adjacency built for the state it was made from; a mirror
   // keeps the attachment lineage of the view it turned over.
   const donor = DONORS.get(m.store.edgeList);
-  const from = TURNED.get(m);
-  if (from !== undefined) TURNED.delete(m);
+  const from = m.cache.turnedFrom;
+  if (from !== undefined) m.cache.turnedFrom = undefined;
   if (from === undefined && donor !== undefined && donor.cycles === m.stated?.cycles && donor.pointKeys === m.store.pointKeys && donor.n === m.n) {
     shareTopology3(view, donor.view);
-    m.surfaceBox.surface = view;
+    m.cache.surface = view;
   } else {
     if (from !== undefined) inheritTopology3(view, surfaceOf(from));
     keepView(m, view);
@@ -142,7 +142,7 @@ export function surfaceOf(m: Material): Surface3 {
 /** Keep `view` as the working view of `m`, and as the last view read for
  * its edge list. */
 function keepView(m: Material, view: Surface3): void {
-  m.surfaceBox.surface = view;
+  m.cache.surface = view;
   DONORS.set(m.store.edgeList, {view, cycles: m.stated?.cycles, pointKeys: m.store.pointKeys, n: m.n});
 }
 
@@ -150,10 +150,16 @@ function keepView(m: Material, view: Surface3): void {
  * view of the same edge list, loops, point names and point count shares
  * its adjacency. */
 const DONORS = new WeakMap<object, {readonly view: Surface3; readonly cycles: unknown; readonly pointKeys: unknown; readonly n: number}>();
-/** A value turned over by a mirror, and the value it was turned from: its
- * faces run the other way, and its attachment lineage is that value's
- * view's, read when its own view is first built. */
-const TURNED = new WeakMap<Material, Material>();
+declare module '../../material.js' {
+  interface StateCache {
+    /** The working view (`surfaceOf`). */
+    surface?: Surface3;
+    /** A value turned over by a mirror: the value it was turned from. Its
+     * faces run the other way, and its attachment lineage is that value's
+     * view's, read when its own view is first built. */
+    turnedFrom?: Material;
+  }
+}
 
 // ─── positions as a column map ──────────────────────────────────────────
 
@@ -207,7 +213,7 @@ export function mapPositions3(m: Material, move: (p: Vec3, i: number) => Vec3, w
     faces,
   }));
   if (how.kernel !== undefined) KERNELS.set(out.store.pointIds, how.kernel);
-  if (faces !== m.stated) TURNED.set(out, m);
+  if (faces !== m.stated) out.cache.turnedFrom = m;
   return out;
 }
 
@@ -258,9 +264,9 @@ export const hasFaces = (m: Material): boolean => (m.stated?.cycles.length ?? 0)
 
 /** @internal The value a row view belongs to. */
 function ownerOfRow(row: object): Material {
-  const owner = ownerOfView(row);
+  const owner = ownerOf(row);
   // A face or a corner belongs to its table, which belongs to the geometry.
-  const m = owner instanceof Material ? owner : (owner as {source?: unknown} | undefined)?.source;
+  const m = owner instanceof Material ? owner : (owner as {owner?: unknown} | undefined)?.owner ?? (owner as {source?: unknown} | undefined)?.source;
   if (!(m instanceof Material)) throw new Error('expected a row of a geometry (a point, an edge, a face or a corner)');
   return m;
 }

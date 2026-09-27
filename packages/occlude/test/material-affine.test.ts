@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { append, curve, distance, material, type Material } from '../src/material.js';
+import { append, curve, material, type Material } from '../src/material.js';
+import { distance } from '../src/vec.js';
 import { xy, oneRing } from './helpers/xy.js';
 import { selectionIn } from '../src/selection.js';
 
@@ -176,7 +177,7 @@ describe('the four verbs are map underneath', () => {
       const some = m.points.filter((p) => p.age > 2);
       const again = selectionIn(some, moved);
       expect(again.length).toBe(2);
-      expect(again.source).toBe(moved);
+      expect(again.owner).toBe(moved);
       expect([...again].map((p) => p.id)).toEqual([...some].map((p) => p.id));
     });
   }

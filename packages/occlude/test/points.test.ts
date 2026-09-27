@@ -106,6 +106,20 @@ describe('relax and settle as explicit operations', () => {
     expect(() => run((t) => t.relax(material([]), { iterations: -1 }))).toThrow(/iterations/);
   });
 
+  it('relax within a disc keeps every point: the density outside the area is zero', () => {
+    run((t) => {
+      const dish = circle(50, 50, 30);
+      const cloud = t.scatter(dish, { spacing: 7 });
+      const even = t.relax(cloud, { iterations: 4 });
+      expect(even.n).toBe(cloud.n);
+      const explicit = t.relax(cloud, { iterations: 4, within: dish });
+      expect(explicit.n).toBe(cloud.n);
+      // Each cell's centroid is taken over its part in the disc, so the
+      // points stay in it (to the raster's cell).
+      for (const p of explicit.points) expect(Math.hypot(p.x - 50, p.y - 50)).toBeLessThan(30.5);
+    });
+  });
+
   it('settle refuses connected input, keeps declared columns, inherits to children, drops the starved, writes demand', () => {
     let out: Material | null = null;
     let src: Material | null = null;
@@ -217,7 +231,8 @@ describe('voronoi as material', () => {
     expect(out.faces.map((f) => f.area).reduce((a, v) => a + v, 0)).toBeCloseTo(5000, 6);
     const owned = outSites.points.filter((p) => out.faces.some((f) => f.source.index === p.index)).length;
     expect(owned).toBeGreaterThanOrEqual(2);
-    expect(() => voronoi(material([[1, 1]]), { x: 0, y: 0, w: 0, h: 5 })).toThrow(/bounds/);
+    // An area with no extent holds no cell: it draws nothing.
+    expect(voronoi(material([[1, 1]]), { x: 0, y: 0, w: 0, h: 5 }).n).toBe(0);
   });
 
   it('cocircular sites collapse coincident circumcentres into one shared corner', () => {
@@ -263,8 +278,8 @@ describe('face navigation', () => {
     const all = cells.edges;
     // The spur is part of the right face's walk (both its sides are that face);
     // the detached segment is its own zero-area walk and belongs to no face.
-    expect(all.length).toBe(cells.source.edgeCount - 1);
-    expect(cells.points.length).toBe(cells.source.n - 2);
+    expect(all.length).toBe(cells.owner.edgeCount - 1);
+    expect(cells.points.length).toBe(cells.owner.n - 2);
     const outer = cells.boundaryEdges();
     // The outside boundary of the union: the two squares' outer walls minus the shared wall.
     expect(outer.length).toBeGreaterThanOrEqual(6);

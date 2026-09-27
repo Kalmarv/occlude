@@ -21,7 +21,7 @@ describe('geometry collections: points and edges', () => {
     const old = m.points.filter((p) => p.age >= 2);
     expect(old.indices).toEqual([2, 3, 4, 5]);
     expect(old.length).toBe(4);
-    expect(old.source).toBe(m);
+    expect(old.owner).toBe(m);
     const older = old.filter((p) => p.age >= 4);
     expect(older.indices).toEqual([4, 5]);
     expect(older.map((p) => p.age)).toEqual([4, 5]);
@@ -125,7 +125,7 @@ describe('groupBy', () => {
     expect(groups[0].filter((p) => p.x > 0).key).toBe(2);
     expect(groups[0].filter((p) => p.x > 0).indices).toEqual([2]);
     expect(groups[0].has(m.vertex(2))).toBe(true);
-    expect(groups[0].source).toBe(m);
+    expect(groups[0].owner).toBe(m);
     // Strings and objects group by identity, not by stringification.
     const a = { name: 'a' };
     const byObject = m.points.groupBy((p) => (p.kind === 3 ? a : { name: 'a' }));
@@ -179,7 +179,7 @@ describe('groupBy', () => {
     expect(() => { (group as { key: unknown }).key = 'x'; }).toThrow();
     expect(() => { (sel as { source: unknown }).source = Y(); }).toThrow();
     expect(group.key).toBe(0);
-    expect(sel.source).toBe(m);
+    expect(sel.owner).toBe(m);
     expect(all.indices).toEqual([0, 1, 2, 3, 4, 5]);
     expect(all.indices).toBe(all.indices); // cached once
     expect(m.edges.indices).toEqual([0, 1, 2, 3]);

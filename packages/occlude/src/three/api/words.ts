@@ -394,7 +394,7 @@ export function subdivide3(m:Material,levels=1,options:SubdivisionOptions={}):Ma
  * identity and columns; a face of the other keeps its columns. */
 export function boolean3(operation:BooleanOperation3):(m:Material,other:Material)=>Material {
   return (m,other)=>{
-    if(typeof other!=='object'||other===null||!('surfaceBox' in other))throw new Error(`${operation}: the second value is not a mesh — a geometry with faces`);
+    if(typeof other!=='object'||other===null||!('cache' in other))throw new Error(`${operation}: the second value is not a mesh — a geometry with faces`);
     refuseNoFaces(m,operation);refuseNoFaces(other,operation);
     return derivedValue(operation,m,ownSurface3(booleanSurface3(operation,surfaceOf(m),surfaceOf(other))),[m,other],{transfers:{},radialCentre:undefined});
   };

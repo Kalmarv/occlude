@@ -30,7 +30,7 @@ describe('source',()=>{
     expect(flat.faces.at(0)!.source).toBeUndefined();
   });
   it('extrude: a wall the edge under it, a cap its own face; dual: a point its face',()=>{
-    const sheet=plane(2,2).subdivide(1),raised=sheet.extrude(sheet.faces.rows([0]),{distance:1});
+    const sheet=plane(2,2).subdivide(1),raised=sheet.extrude(sheet.faces.rowsAt([0]),{distance:1});
     const edges=[...sheet.edges],walls=raised.faces.filter(f=>edges.includes(f.source));
     expect(walls.length).toBe(4);
     expect(raised.faces.filter(f=>f.source===sheet.faces.at(0)).length).toBe(1);

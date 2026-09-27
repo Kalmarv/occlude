@@ -66,8 +66,8 @@ describe('every kind of column survives every rebuild', () => {
     // A straight edge, so `v`'s first number, which is x at the source rows,
     // is x at every new row.
     for (const p of out.points) expect(p.v[0]).toBeCloseTo(p.x, 9);
-    // The whole value is new rows: a reference to a source row names nothing.
-    expect(out.points.at(0).ref).toBe(null);
+    // The seam is kept, the same row, so a reference to it still names it.
+    expect(out.points.at(0).ref).toBe(out.points.at(0));
     const r = ring();
     const partial = r.resample({ count: 6, where: r.edges.filter((e) => e.index === 0) });
     expectTyped(partial);

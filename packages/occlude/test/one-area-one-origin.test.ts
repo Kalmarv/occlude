@@ -178,10 +178,10 @@ describe('P1 · one area door', () => {
 
   it('refuses a value that is no area by name, and still refuses a face collection', () => {
     const t = tk();
-    expect(() => t.within(ground, 42 as never)).toThrow(/t\.within: a number is not an area — give a face, contours, a closed material, a shape or a rect/);
+    expect(() => t.within(ground, 42 as never)).toThrow(/t\.within: the number 42 is not an area — give a face, contours, a closed material, a shape or a rect/);
     const cells = t.tiling(6, 3, { side: 30 / Math.sqrt(3), rotate: 30, origin: [0, 0] }).faces;
     expect(() => t.within(ground, cells as never)).toThrow(/face collection is several areas/);
-    expect(() => clip(7 as never)).toThrow(/^clip: a number is not an area/);
+    expect(() => clip(7 as never)).toThrow(/^clip: the number 7 is not an area/);
   });
 });
 
@@ -283,7 +283,7 @@ describe('P4 · one pivot type', () => {
   });
 
   it('an unknown word refuses by name before the engine sees it', () => {
-    expect(() => rect(0, 0, 10, 10, { rotate: 5, origin: 'middle' as never })).toThrow(/shape: origin is a point \(\[x, y\] or \{ x, y \}\), 'center' or 'centroid' — got 'middle'/);
+    expect(() => rect(0, 0, 10, 10, { rotate: 5, origin: 'middle' as never })).toThrow(/shape: origin is a point \(\[x, y\] or \{ x, y \}\), 'center' or 'centroid' — got the string 'middle'/);
     expect(() => group({ rotate: 5, origin: 'page' as never })).toThrow(/group: origin is a point/);
     const t = tk();
     expect(() => t.material(rect(0, 0, 10, 10)).scale(2, { origin: 'middle' as never })).toThrow(/m\.scale: origin is a point/);

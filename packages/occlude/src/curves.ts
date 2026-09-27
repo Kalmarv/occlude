@@ -5,23 +5,26 @@
  * direction of each edge row (`a` to `b`) and the order of the rows — and
  * it is a domain like `points` and `edges`: a `Selection` of rows, read on
  * first ask and kept on the value. The walk is chains.ts: a chain starts
- * at an endpoint or a junction — the first by row — and runs through the
- * points two edges meet; a ring starts at the start of its first edge row
- * and runs that edge's way. Every write keeps both facts — an add puts rows
- * at the end, a remove keeps the order of the rest, a split puts its two
- * children in the parent's direction — so a curve keeps its direction under
- * every write. (A split or a remove of a ring's FIRST edge row moves its
- * start on to the next row's start: the direction stays.)
+ * at an endpoint or a junction and runs the way its edges run — from the
+ * end its edges leave (a chain whose edges disagree starts at its
+ * lower-row end) — through the points two edges meet; a ring starts where
+ * its oldest edge lineage starts and runs that lineage's way. Every write
+ * keeps both facts — an add puts rows at the end, a remove keeps the order
+ * of the rest, a split puts its two children in the parent's direction and
+ * keeps the parent's lineage — so a curve keeps its direction, and a ring
+ * its seam, under every write.
  *
  * A curve row answers `points` (its point rows in walk order), `edges` (in
  * walk order), `closed`, `length` (in the geometry's space), `contours()`
  * (a ring is an area), and every edge column its edges agree on (`level`,
  * `cut`, `key`), read on the row. On each of its points the domain DERIVES
  * `s` (the arc length from the start), `u` (its fraction of the whole),
- * `heading` (radians), `tangent` and `normal` — read like columns, never
- * written. `normal` is `perp(tangent)`, the tangent turned a quarter turn
- * toward +y: on a ring drawn counter-clockwise ON THE SHEET (y down) it
- * points out.
+ * `heading` (radians), `tangent` and `normal` — read like columns. A
+ * point that holds a column `s`, `u` or `heading` of its own reads that on
+ * every view of it, the curve's included, so one row never has two
+ * answers. `normal` is `perp(tangent)`, the
+ * tangent turned a quarter turn toward +y: on a ring drawn
+ * counter-clockwise ON THE SHEET (y down) it points out.
  *
  * The chain consumers — `strokes`, `stroke`, the area readers, the chain
  * verbs — read the rows' kernel records here (`chainsOf`, `chainRecordsOf`)
@@ -30,10 +33,11 @@
  */
 
 import { Column, at64, valueAt } from './column.js';
-import { Material, geodesicEdges, vertexView, typedCell, type Edge, type Vertex } from './material.js';
+import { Material, cached, geodesicEdges, vertexView, typedCell, type Edge, type Vertex } from './material.js';
 import { walkChains, type Chain } from './chains.js';
 import { Selection, select, domainKind, rowRange, isSelectionOf, ROW_TYPES, type Domain, type DomainKind, type Types } from './selection.js';
-import { pointDomain, edgesOf, pointsOf, extractRows, endpointRows, sameLineage, unrelated } from './relation.js';
+import { pointDomain, edgesOf, pointsOf, extractRows, endpointRows, sameLineage } from './relation.js';
+import { describe } from './views.js';
 import type { IsoContour } from './isolines.js';
 import type { Space } from './space.js';
 
@@ -41,7 +45,7 @@ export type { Chain } from './chains.js';
 
 /** @internal What a selection of curves answers (see `ROW_TYPES`). */
 export type CurveTypes = Types<{
-  source: Material;
+  owner: Material;
   points: Selection<Vertex>;
   edges: Selection<Edge>;
   curves: Selection<Curve>;
@@ -178,7 +182,7 @@ export class CurveTable implements Domain<Curve> {
   private allRows: readonly number[] | null = null;
   private keys: Map<string, number> | null = null;
   private ends: Map<number, number[]> | null = null;
-  constructor(readonly source: Material, readonly chains: readonly Chain[]) {
+  constructor(readonly owner: Material, readonly chains: readonly Chain[]) {
     this.rows = new Array(chains.length);
     this.pointSels = new Array(chains.length);
   }
@@ -190,42 +194,26 @@ export class CurveTable implements Domain<Curve> {
   /** A curve is the set of edges it walks: the same edges, by id, name the
    * same curve in another state; a curve whose edges were split or cut
    * away names nothing there. */
-  private keyOf(r: number): string {
-    const ids = this.source.store.edgeIds;
+  keyOf(r: number): string {
+    const ids = this.owner.store.edgeIds;
     const keys = Array.from(this.chains[r].edges, (e) => at64(ids, e));
     return keys.sort((a, b) => a - b).join(',');
   }
-  private byKey(other: CurveTable, r: number): number {
-    if (other === this) return r;
+  rowOfKey(key: unknown): number {
     if (this.keys === null) {
       this.keys = new Map();
       for (let k = 0; k < this.chains.length; k++) this.keys.set(this.keyOf(k), k);
     }
-    return this.keys.get(other.keyOf(r)) ?? -1;
+    return this.keys.get(key as string) ?? -1;
   }
-  rowOf(v: unknown, who: string): number {
-    const own = typeof v === 'object' && v !== null ? home.get(v) : undefined;
+  locate(v: unknown, who: string): { domain: Domain<Curve>; row: number } | null {
+    if (v === undefined || v === null) return null;
+    const own = typeof v === 'object' ? home.get(v) : undefined;
     if (!own) throw new Error(`${who}: expected a curve — a row of g.curves — got ${describe(v)}`);
-    if (own.table === this) return own.r;
-    if (!sameLineage(this.source, own.table.source)) return -1;
-    return this.byKey(own.table, own.r);
+    return { domain: own.table, row: own.r };
   }
-  resolve(other: Selection<any>, who: string): number[] {
-    const d = other.domain;
-    if (!(d instanceof CurveTable)) throw new Error(`${who}: expected curves — a curve selection — got ${d.kind.plural}`);
-    if (d === this) return [...other.indices];
-    if (!sameLineage(this.source, d.source)) throw unrelated(who);
-    const out: number[] = [];
-    for (const r of other.indices) {
-      const k = this.byKey(d, r);
-      if (k >= 0) out.push(k);
-    }
-    return out;
-  }
-  on(state: unknown, who: string): Domain<Curve> {
-    if (state instanceof Material) return curveTable(state);
-    if (isSelectionOf(state, CURVES)) return state.domain;
-    throw new Error(`${who}: expected the geometry to read the curves on`);
+  shares(other: Domain<Curve>): boolean {
+    return sameLineage(this.owner, other.owner as Material);
   }
   /** The curves that share an end with this one: a junction, or the
    * point where a ring leaves its junction. */
@@ -254,7 +242,7 @@ export class CurveTable implements Domain<Curve> {
     const got = this.pointSels[r];
     if (got) return got;
     const c = this.chains[r];
-    const m = this.source;
+    const m = this.owner;
     const space = m.space;
     const cum = chainLengths(c.pts, c.closed, space);
     const total = cum[cum.length - 1];
@@ -270,18 +258,23 @@ export class CurveTable implements Domain<Curve> {
     // point selection has, and the rows carry the curve's own columns.
     // One view per row here too, kept: `===` names a point of the curve.
     const base = pointDomain(m);
+    const cols = m.store.attrs;
     const along = Object.create(base) as typeof base;
     const views = new Map<number, Vertex>();
     Object.defineProperty(along, 'row', {
       value(v: number): Vertex {
         let view = views.get(v);
         if (view !== undefined) return view;
-        const p = vertexView(m, v) as Record<string, number>;
+        const p = vertexView(m, v) as Record<string, number | undefined>;
         const k = at.get(v);
         if (k !== undefined) {
-          p.s = cum[k];
-          p.u = total > 0 ? cum[k] / total : 0;
-          p.heading = heading[k];
+          // A column the point holds of one of these names — a sketch's,
+          // or the one `along` stores — is what it reads on every view of
+          // it, so one row has one answer; the curve gives the ones it
+          // does not hold.
+          if (!('s' in cols)) p.s = cum[k];
+          if (!('u' in cols)) p.u = total > 0 ? cum[k] / total : 0;
+          if (!('heading' in cols)) p.heading = heading[k];
         }
         view = Object.freeze(p) as Vertex;
         views.set(v, view);
@@ -292,13 +285,6 @@ export class CurveTable implements Domain<Curve> {
   }
 }
 
-const describe = (v: unknown): string => {
-  if (v === null) return 'null';
-  if (v instanceof Selection) return `a ${v.domain.kind.name} selection`;
-  if (Array.isArray(v)) return `an array of ${v.length}`;
-  return typeof v === 'object' ? 'an object' : typeof v;
-};
-
 /** @internal The walk over some edge rows of `m` (all of them: null). */
 export function walkOf(m: Material, edgeRows: ArrayLike<number> | null): Chain[] {
   let rows = edgeRows;
@@ -308,21 +294,26 @@ export function walkOf(m: Material, edgeRows: ArrayLike<number> | null): Chain[]
     rows = all;
   }
   const list = m.edgeList;
+  const roots = m.store.edgeRoots;
   return walkChains({
     vertexCount: m.n,
     edgeRows: rows,
     endpoints: (e) => [list[2 * e], list[2 * e + 1]],
+    root: (e) => at64(roots, e),
     x: m.x,
     y: m.y,
     geodesic: geodesicEdges(m),
   });
 }
 
+declare module './material.js' {
+  interface StateCache { curveTable?: CurveTable; curves?: Selection<Curve> }
+}
+
 /** @internal The curve table of every edge of `m`, made on the first read
  * and kept on the state. */
 export function curveTable(m: Material): CurveTable {
-  const box = m.curvesBox;
-  return (box.table ??= new CurveTable(m, walkOf(m, null))) as CurveTable;
+  return cached(m, 'curveTable', () => new CurveTable(m, walkOf(m, null)));
 }
 
 /** @internal The chains of every edge of `m`, in curve order: the kernel
@@ -333,20 +324,15 @@ export function chainsOf(m: Material): readonly Chain[] {
 
 /** @internal `m.curves`: every curve of the state, in row order. */
 export function curvesOf(m: Material): Selection<Curve> {
-  const box = m.curvesBox;
-  return (box.all ??= select(curveTable(m), null)) as Selection<Curve>;
+  return cached(m, 'curves', () => select(curveTable(m), null));
 }
 
 /** The curves some edge rows of `m` walk, as a selection of their own
- * table: what an edge, point or face selection answers for `curves`. */
-const selCurves = new WeakMap<object, Selection<Curve>>();
-export function curvesOfRows(owner: object, m: Material, edgeRows: readonly number[] | null): Selection<Curve> {
-  let got = selCurves.get(owner);
-  if (!got) {
-    got = edgeRows === null ? curvesOf(m) : select(new CurveTable(m, walkOf(m, edgeRows)), null);
-    selCurves.set(owner, got);
-  }
-  return got;
+ * table: what an edge, point or face selection `sel` answers for `curves`,
+ * made on the first read and kept on the selection. */
+export function curvesOfRows(sel: Selection<unknown>, m: Material, edgeRows: readonly number[] | null): Selection<Curve> {
+  const box = sel.box;
+  return (box.curves ??= edgeRows === null ? curvesOf(m) : select(new CurveTable(m, walkOf(m, edgeRows)), null)) as Selection<Curve>;
 }
 
 // ---- the row ---------------------------------------------------------------------------
@@ -357,7 +343,7 @@ const CURVE_PROTO = Object.freeze(Object.create(Object.prototype, {
     enumerable: false,
   },
   edges: {
-    get(this: Curve) { const h = home.get(this)!; return edgesOf(h.table.source, Array.from(h.table.chains[h.r].edges), undefined, true); },
+    get(this: Curve) { const h = home.get(this)!; return edgesOf(h.table.owner, Array.from(h.table.chains[h.r].edges), undefined, true); },
     enumerable: false,
   },
   contours: {
@@ -368,7 +354,7 @@ const CURVE_PROTO = Object.freeze(Object.create(Object.prototype, {
 
 function curveRow(table: CurveTable, r: number): Curve {
   const c = table.chains[r];
-  const m = table.source;
+  const m = table.owner;
   const row = Object.create(CURVE_PROTO) as Record<string, unknown>;
   // The edge columns every edge of the curve agrees on, first, so the
   // row's own words win over a column of the same name.
@@ -428,10 +414,10 @@ const CURVES: DomainKind = domainKind('curve', 'curves', {
         rows.push(v);
       }
     }
-    return pointsOf(this.domain.source, rows, undefined, true);
+    return pointsOf(this.domain.owner, rows, undefined, true);
   } },
   /** The edges of the members, curve by curve in walk order. */
-  edges: { get(this: CurveSel) { return edgesOf(this.domain.source, memberEdges(this), undefined, true); } },
+  edges: { get(this: CurveSel) { return edgesOf(this.domain.owner, memberEdges(this), undefined, true); } },
   /** Itself: a curve selection is already curves. */
   curves: { get(this: CurveSel) { return this; } },
   /** The rings among the members, as areas. */
@@ -439,8 +425,8 @@ const CURVES: DomainKind = domainKind('curve', 'curves', {
   /** Independent material of the members' edges and their ends, every
    * column and id kept, the edges in walk order. */
   extract: { value(this: CurveSel): Material {
-    const edges = edgesOf(this.domain.source, memberEdges(this), undefined, true);
-    return extractRows(this.domain.source, endpointRows(edges), edges.indices);
+    const edges = edgesOf(this.domain.owner, memberEdges(this), undefined, true);
+    return extractRows(this.domain.owner, endpointRows(edges), edges.indices);
   } },
 }, {
   near: 'a curve is not a place — ask g.edges.near(p, { radius }) or g.points.near(p, { radius })',

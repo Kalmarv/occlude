@@ -33,21 +33,21 @@ describe('t.seed', () => {
 describe('rows takes views', () => {
   const m = curve([[0, 0], [10, 0], [10, 10], [0, 10], [0, 20]]);
 
-  it('takes one vertex view, a list of views, and views mixed with indices', () => {
-    const [a, b, c] = m.points;
+  it('takes one vertex view and a list of views, never a row number', () => {
+    const [a, b, c, d] = m.points;
     expect(m.points.rows(b).indices).toEqual([1]);
     expect(m.points.rows([c, a]).indices).toEqual([2, 0]);
-    expect(m.points.rows([3, b]).indices).toEqual([3, 1]);
-    expect(m.points.rows(2).indices).toEqual([2]);
-    expect(m.points.rows([0, 1]).indices).toEqual([0, 1]);
+    expect(m.points.rows([d, b]).indices).toEqual([3, 1]);
+    expect(() => m.points.rows(2 as never)).toThrow(/points\.rows: expected a point row, or a list of them — got the number 2/);
+    expect(() => m.points.rows([0, 1] as never)).toThrow(/points\.rows: expected a point — a vertex view or a point value; make one with point\(…\) — got the number 0/);
   });
 
-  it('takes one edge view, a list of views, and views mixed with indices', () => {
-    const [e0, e1, e2] = m.edges;
+  it('takes one edge view and a list of views', () => {
+    const [e0, e1, e2, e3] = m.edges;
     expect(m.edges.rows(e1).indices).toEqual([1]);
     expect(m.edges.rows([e2, e0]).indices).toEqual([2, 0]);
-    expect(m.edges.rows([3, e1]).indices).toEqual([3, 1]);
-    expect(m.edges.rows(0).indices).toEqual([0]);
+    expect(m.edges.rows([e3, e1]).indices).toEqual([3, 1]);
+    expect(() => m.edges.rows(0 as never)).toThrow(/edges\.rows: expected an edge row/);
   });
 
   it('reads a view of an earlier state by identity, and refuses one of another material by name', () => {
@@ -55,8 +55,8 @@ describe('rows takes views', () => {
     const here = curve([[0, 0], [10, 0], [10, 10], [0, 10], [0, 20]]);
     const other = curve([[0, 0], [5, 0], [5, 5]]);
     const [p] = other.points, [e] = other.edges;
-    expect(() => here.points.rows(p)).toThrow(/points\.rows: .*unrelated materials/);
-    expect(() => here.edges.rows([0, e])).toThrow(/edges\.rows: .*unrelated materials/);
+    expect(() => here.points.rows(p)).toThrow(/points\.rows: that point is a row of an unrelated material/);
+    expect(() => here.edges.rows([here.edges.at(0), e])).toThrow(/edges\.rows: that edge is a row of an unrelated material/);
     // A row that is gone drops out, as it does in a set operation.
     const gone = here.points.at(4);
     expect(here.points.remove(gone).points.rows([gone, here.points.at(0)]).indices).toEqual([0]);
@@ -66,9 +66,9 @@ describe('rows takes views', () => {
 
   it('refuses a view of the other kind by name', () => {
     const [p] = m.points, [e] = m.edges;
-    expect(() => m.points.rows(e as never)).toThrow(/points\.rows: expected a vertex view or a point value — got an edge view/);
-    expect(() => m.edges.rows(p as never)).toThrow(/edges\.rows: expected an edge view or an edge value — got a vertex view/);
-    expect(() => m.points.rows(undefined as never)).toThrow(/points\.rows: expected a point row, a row number, or a list of them/);
+    expect(() => m.points.rows(e as never)).toThrow(/points\.rows: expected a point — a vertex view or a point value; make one with point\(…\) — got an edge view; its ends are e\.a and e\.b/);
+    expect(() => m.edges.rows(p as never)).toThrow(/edges\.rows: expected an edge — an edge view or an edge value; make one with edge\(…\) — got a vertex view; its edges are p\.edges/);
+    expect(() => m.points.rows(undefined as never)).toThrow(/points\.rows: expected a point row, or a list of them — got nothing \(undefined\)/);
   });
 });
 

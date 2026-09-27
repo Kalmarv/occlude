@@ -71,7 +71,7 @@ describe('surface parts',()=>{
     ['a box with face and corner columns',()=>surfaceOf(box(1).faces.set({shade:f=>f.normal[2],ground:f=>f.normal[2]>0.5,tag:f=>f.normal[0]>0?'east':'west'}))],
     ['a sphere',()=>surfaceOf(sphere(1,{segments:8,rings:5}))],
     ['a torus with a vector point column',()=>surfaceOf(torus(1,0.3,{segments:10,tubeSegments:6}).points.set('dir',p=>[p.x,p.y,p.z]))],
-    ['an extrusion (lineage)',()=>{const s=plane(2).subdivide(1);return surfaceOf(s.extrude(s.faces.rows([0,3]),{distance:0.5}));}],
+    ['an extrusion (lineage)',()=>{const s=plane(2).subdivide(1);return surfaceOf(s.extrude(s.faces.rowsAt([0,3]),{distance:0.5}));}],
     ['a union (a column on some faces only)',()=>surfaceOf(box(1).faces.set('mark',1).union(box(1).translate([0.5,0.2,0.1])))],
     ['a curve: loose edges, no faces',()=>surfaceOf(curve([[0,0,0],[1,0,0],[1,1,1]]))],
     ['a point cloud',()=>surfaceOf(pointCloud([[0,0,0],[1,2,3]]))],

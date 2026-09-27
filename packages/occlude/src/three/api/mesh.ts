@@ -63,7 +63,7 @@ function validateAttributes(surface:Surface3):void {
 }
 /** The value a derivation read, as a geometry: a selection is read on the
  * geometry it selects from. */
-const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.source as Material):v instanceof Material?v:undefined;
+const inputOf=(v:object):Input3|undefined=>v instanceof Selection?(v.owner as Material):v instanceof Material?v:undefined;
 
 /** @internal A kernel's surface as a value in space. */
 export function geometry3(surface:Surface3,options:Geometry3Options={}):Material {

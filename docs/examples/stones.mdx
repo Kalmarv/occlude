@@ -25,7 +25,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   const spines = t.ridges(d, { step: 2.4 });
   const channels = t.ridges((x, y) => -d(x, y), { step: 1.1 });
   const longRuns = (m, least) =>
-    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices));
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => [...run]));
   const longChannels = longRuns(channels, 40);
   const longSpines = longRuns(spines, 6);
   return [

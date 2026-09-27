@@ -65,7 +65,7 @@ describe('column writes read the incoming revision',()=>{
     expect(one.points.map(p=>p.age)).toEqual([2,0,0,0]);
     expect(one.edges.map(e=>e.age)).toEqual([3,0,0,0]);
     expect(one.faces.at(0)!.age).toBe(4);
-    expect(()=>source.points.set('age',5,{...source.points.at(0)!} as never)).toThrow("points.set: unknown option");
+    expect(()=>source.points.set('age',5,{...source.points.at(0)!} as never)).toThrow("points.set: expected a point — a vertex view or a point value");
   });
   it('keeps curve domains honest: points and edges write, the curve keeps its edges',()=>{
     const t=toolkit();

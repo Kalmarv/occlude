@@ -21,7 +21,7 @@ import { Material, material as makeMaterial, withinMaterial } from './material.j
 import { carryLinks, linkRows } from './derivation.js';
 import { PointRows, rebuild } from './tables.js';
 import { Column, type AnyColumn } from './column.js';
-import { numericLoops, type AreaInput } from './boundary.js';
+import { numericLoops, refuseShape, type AreaInput } from './boundary.js';
 import { distanceField } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
@@ -65,11 +65,9 @@ export interface RelaxOpts {
   iterations?: number;
   /** Weighting density (0…1; default uniform). */
   density?: FieldFn2;
-  /** Keep only what lies inside this area (default: the drawable, or the
-   * area a toolkit cloud was bounded by): the refinement runs over the
-   * area's box and the result is trimmed to the area afterwards, so a
-   * non-rectangular boundary thins the population near itself. A rectangle
-   * — `rect(…)`, `t.bounds()`, a grid cell — needs no trimming. */
+  /** The area the points relax in (default: the drawable, or the area a
+   * toolkit cloud was bounded by): the density is zero outside it, so each
+   * cell is read by its part inside the area. Every point is kept. */
   within?: AreaInput | ShapeValue;
   /** The density raster's cell, a length (default: the bounds' long side
    * / 256). */
@@ -209,10 +207,8 @@ export function withinRegion(
   area: AreaInput | ShapeValue,
   who: string,
 ): { bounds: Bounds; loops: [number, number][][] | null } {
-  if (typeof area === 'object' && area !== null && '__occludeShape' in area) {
-    throw new Error(`${who}: a shape area is lowered by the toolkit (t.${who}), where the sketch frame is known — pass loops, a face or a material here`);
-  }
-  const loops = numericLoops(area, who);
+  refuseShape(area, who, `t.${who}`);
+  const loops = numericLoops(area as AreaInput, who);
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
@@ -242,7 +238,9 @@ function rasterStep(env: PointsEnv, opts: { step?: L }, word: string): number | 
 
 /**
  * Lloyd relaxation: each point moves to the density-weighted centroid of
- * its nearest-site cell within the bounds, `iterations` times. Count,
+ * its nearest-site cell within the area, `iterations` times. The density
+ * is zero outside the `within` area, so a cell's centroid is the centroid
+ * of the part of it that lies inside, and a point is never dropped. Count,
  * rows, edges and every declared column are kept; a point whose cell holds
  * no density stays where it is. Writes no computed column.
  */
@@ -252,7 +250,10 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
   const step = rasterStep(env, opts, 'relax');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax');
   const bounds = region?.bounds ?? env.bounds;
-  const raster = densityRaster(opts.density ?? (() => 1), bounds, step, env.space, 'relax');
+  const density = opts.density ?? (() => 1);
+  // A box area is its own raster; any other area masks it.
+  const inside = region?.loops ? distanceField(region.loops) : null;
+  const raster = densityRaster(inside ? (x, y) => (inside(x, y) > 0 ? density(x, y) : 0) : density, bounds, step, env.space, 'relax');
   const coords = coordsOf(m);
   for (let it = 0; it < n && m.n > 0; it++) {
     const { w, cx, cy } = accumulateCells(coords, raster);
@@ -270,8 +271,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
   }
   // Relaxing moves points; it makes and unmakes nothing, so every row
   // keeps what it answers as `source` and `u`.
-  const out = rebuild(m, { x: Column.of(x), y: Column.of(y) });
-  return region?.loops ? carryLinks(out, withinMaterial(out, region.loops)) : out;
+  return rebuild(m, { x: Column.of(x), y: Column.of(y) });
 }
 
 /**

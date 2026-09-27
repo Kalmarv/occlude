@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { curve, distance, material } from '../src/material.js';
+import { curve, material } from '../src/material.js';
+import { distance } from '../src/vec.js';
 import { sketch } from '../src/index.js';
 import { initOcclude, render } from '../src/host.js';
 
@@ -21,16 +22,16 @@ describe('rows', () => {
   it('holds the SOURCE rows it is given, never positions within a selection', () => {
     const m = wheel();
     const outer = m.points.filter((p) => p.index > 0);
-    expect(outer.rows([0, 3]).indices).toEqual([0, 3]); // row 0 is the centre, which `outer` does not hold
+    expect(outer.rowsAt([0, 3]).indices).toEqual([0, 3]); // row 0 is the centre, which `outer` does not hold
     expect(m.points.rows([]).length).toBe(0);
-    expect(() => m.points.rows([7])).toThrow(/no point 7/);
-    expect(() => m.points.rows([1.5])).toThrow(/no point 1.5/);
+    expect(() => m.points.rowsAt([7])).toThrow(/no point 7/);
+    expect(() => m.points.rowsAt([1.5])).toThrow(/no point 1.5/);
   });
 
   it('edges.rows says the same thing about edge rows', () => {
     const c = curve([[0, 0], [10, 0], [20, 0]], { closed: false });
-    expect(c.edges.rows([1]).indices).toEqual([1]);
-    expect(() => c.edges.rows([2])).toThrow(/no edge 2/);
+    expect(c.edges.rowsAt([1]).indices).toEqual([1]);
+    expect(() => c.edges.rowsAt([2])).toThrow(/no edge 2/);
   });
 });
 

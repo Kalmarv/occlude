@@ -265,7 +265,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 ```
 
 :::note
-`near` builds one index for each radius and keeps it on the state. A whole pass of queries at one radius pays for one grid. A selection of part of a state answers with its own members only.
+`near` builds one index for the state and keeps it there. Each question reads as far into it as its radius reaches. So a whole pass of queries pays for one grid, with one radius or with a radius for each point. A selection of part of a state answers with its own members only.
 :::
 
 ## edges.crossing()

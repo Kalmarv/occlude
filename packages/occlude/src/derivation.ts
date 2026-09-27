@@ -66,15 +66,17 @@
  *    layer on a point the split did not touch: -1, NaN or a hole), and that
  *    row, being the same row, answers what it answered before.
  *
- *    Node and links live on the value (`Material.linkBox`), never in a
+ *    Node and links live on the value (`Material.cache`), never in a
  *    global weak map, so they die with it at the first collection that
  *    finds it unreachable.
  *
  *    A link holds its input value, and that value its own links: a value
  *    derived from a derived value keeps the whole line of them alive. A
- *    run (`t.steps`) cuts the line at every step (`carryRunLinks`): what
- *    a pass derived answers within the pass, and only what the start
- *    answered goes on. A loop of splits written by hand keeps every state.
+ *    run (`t.steps`) keeps one step of it (`beginStep`, `endStep`): the state a step
+ *    ends with answers what the start answered and what that step made,
+ *    and the states the step read forget what they made, so a row made in
+ *    a run answers `source` for one step. A loop of splits written by hand
+ *    keeps every state.
  *
  * Split, replace, planarize, resample and along (material.ts, tables.ts,
  * faces.ts) link their rows the same way: `linkRows(result, { edges: { source: { of:
@@ -83,7 +85,7 @@
  * derivation('split', [input], { at }))`.
  */
 
-import type { Edge, Material, Vertex } from './material.js';
+import type { Edge, Material, StateCache, Vertex } from './material.js';
 import { pointsOf, edgesOf } from './relation.js';
 import { select, type Selection } from './selection.js';
 import type { Face } from './faces.js';
@@ -102,16 +104,16 @@ export interface Derivation {
 
 /**
  * Where a value keeps its derivation: a geometry holds its node and its
- * links in a box of its own (`Material.linkBox`), so what a derivation
- * keeps lives exactly as long as the value that keeps it. A global weak
- * map would do the same for the program, but not for the collector: an
- * entry of a weak map is only let go by a full collection, so a run of
- * splits kept every short-lived state alive through the minor ones. A
- * value that has no box (anything but a geometry) keeps its node in the
- * weak map.
+ * links in its own cache record (`Material.cache`, `links` and `node`), so
+ * what a derivation keeps lives exactly as long as the value that keeps
+ * it. A global weak map would do the same for the program, but not for
+ * the collector: an entry of a weak map is only let go by a full
+ * collection, so a run of splits kept every short-lived state alive
+ * through the minor ones. A value that has no cache (anything but a
+ * geometry) keeps its node in the weak map.
  */
-interface LinkBox { links: Links | undefined; node: Derivation | undefined }
-const boxOf = (v: object): LinkBox | undefined => (v as { readonly linkBox?: LinkBox }).linkBox;
+type LinkBox = Pick<StateCache, 'links' | 'node'>;
+const boxOf = (v: object): LinkBox | undefined => (v as { readonly cache?: LinkBox }).cache;
 
 const NODES = new WeakMap<object, Derivation>();
 
@@ -199,7 +201,7 @@ export interface DomainSpec {
 }
 
 /** The links a geometry carries: in its own box (see `LinkBox`). */
-const linksOf = (m: Material): Links | undefined => m.linkBox.links;
+const linksOf = (m: Material): Links | undefined => m.cache.links;
 
 /**
  * @internal Link the rows of `value` (a derivation's result) to where they
@@ -216,7 +218,7 @@ export function linkRows(value: Material, spec: { points?: DomainSpec; edges?: D
   const edges = domain(spec.edges);
   if (points === undefined && edges === undefined) return value;
   const under = linksOf(value);
-  value.linkBox.links = { points, edges, next: under };
+  value.cache.links = { points, edges, next: under };
   return value;
 }
 
@@ -227,30 +229,84 @@ export function linkRows(value: Material, spec: { points?: DomainSpec; edges?: D
 export function carryLinks<T extends Material>(from: Material, to: T): T {
   if (to === (from as unknown)) return to;
   const links = linksOf(from);
-  if (links !== undefined && linksOf(to) === undefined) to.linkBox.links = links;
+  if (links !== undefined && linksOf(to) === undefined) to.cache.links = links;
   return to;
 }
 
+/** @internal A step of a run in progress (`t.steps`): the state it began
+ * with, marked so that what the step derives from it can be told apart
+ * from anything else; the links it carried before; and the links the
+ * run's start carries, which every state of the run keeps. */
+export interface Step {
+  readonly state: Material;
+  readonly mark: Links;
+  readonly was: Links | undefined;
+  readonly keep: Links | undefined;
+}
+
+/** @internal Begin a step of the run that began at `start` on `state`:
+ * put an empty layer on it, which every value the step derives from it
+ * carries. The layer answers nothing (it links no domain). */
+export function beginStep(state: Material, start: unknown): Step {
+  const keep = typeof start === 'object' && start !== null ? boxOf(start)?.links : undefined;
+  const was = linksOf(state);
+  const mark: Links = { next: was };
+  state.cache.links = mark;
+  return { state, mark, was, keep };
+}
+
 /**
- * @internal `to` is the next state of a run that began at `start`, rebuilt
- * from `from` keeping row identity: it carries the links `start` carried,
- * and none a pass made on the way. A split's layer names rows of the state
- * the split was given, which is the run's own and which nothing outside
- * the pass holds; kept from step to step, each layer would hold the state
- * before it, and a run of a thousand steps every state it passed through.
- * What the start answered — a sample's `u` and `source` — is kept, since
- * the sketch holds the start.
+ * @internal End a step of a run: `to` is the state it ended with, rebuilt
+ * keeping row identity. `to` keeps the layers this step made, over what
+ * the start carries, and nothing between: the layers an earlier step made
+ * are dropped. The values the kept layers read that the step derived —
+ * the state it began with, and the states between its passes — then carry
+ * what the start carries alone, so each holds nothing further back
+ * and a run of a thousand steps holds one step, not every state it passed
+ * through: a row made in a run answers `source` for one step. The state
+ * the step began with gets its own links back when nothing reads it. A
+ * value the step did not derive from its state (a pass that makes a new
+ * value from something else) keeps its links as they are.
  */
-export function carryRunLinks<T extends Material>(from: Material, to: T, start: unknown): T {
-  if (to === (from as unknown) || typeof start !== 'object' || start === null) return to;
-  const keep = boxOf(start)?.links;
-  if (keep === undefined || linksOf(to) !== undefined) return to;
-  for (let links = linksOf(from); links !== undefined; links = links.next) {
-    if (links === keep) {
-      to.linkBox.links = keep;
-      break;
+export function endStep<T extends Material>(to: T, step: Step): T {
+  const { mark, keep } = step;
+  const made: Links[] = [];
+  let links = linksOf(to);
+  for (; links !== undefined && links !== mark && links !== keep; links = links.next) made.push(links);
+  if (links !== undefined) {
+    let chain = keep;
+    for (let i = made.length - 1; i >= 0; i--) chain = { points: made[i].points, edges: made[i].edges, next: chain };
+    to.cache.links = chain;
+    const forget = (v: unknown): void => {
+      if (v === to || typeof v !== 'object' || v === null) return;
+      const box = boxOf(v);
+      if (box === undefined) return;
+      for (let l = box.links; l !== undefined; l = l.next) {
+        if (l === mark) {
+          box.links = keep;
+          return;
+        }
+      }
+    };
+    for (const layer of made) {
+      for (const d of [layer.points, layer.edges]) {
+        if (d === undefined) continue;
+        forget(d.at);
+        const src = d.source;
+        if (src === undefined) continue;
+        for (const one of isList(src) ? src : [src]) if ('of' in one) forget(one.of);
+      }
     }
   }
+  if (step.state.cache.links === mark) step.state.cache.links = step.was;
+  return to;
+}
+
+/** @internal A state of a run the run keeps on its history: it answers
+ * what the run's start answered, and not what its step made, so a long
+ * history holds its states and nothing between them. */
+export function startLinks<T extends Material>(to: T, step: Step): T {
+  to.cache.links = step.keep;
   return to;
 }
 

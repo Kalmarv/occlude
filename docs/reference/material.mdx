@@ -168,7 +168,7 @@ A curve row has these words:
 | `c.contours()` | its area: one contour for a ring, and none for an open chain |
 | `c.level`, `c.cut`, … | an edge column that all its edges agree on. A column that they do not agree on is absent. |
 
-A point of a curve has five more columns. The curve gives them, so you read them as columns and you cannot write them. `s` is the arc length from the start of the curve. `u` is `s` as a fraction of `c.length`. `heading` is the direction of the curve at the point, in radians. `tangent` is the unit vector of the heading. `normal` is the tangent turned a quarter turn toward `+y`, as `perp` turns it. On a ring that goes counter-clockwise on the sheet, the normal points out. `t.sample(circle(…))` goes clockwise on the sheet, so its normal points in. A point of `m.along()` has the same five columns.
+A point of a curve has five more columns. The curve gives them, and you read them as columns. A point can hold its own column `s`, `u` or `heading`. Then it reads that column on the curve too, so a point has one answer. `s` is the arc length from the start of the curve. `u` is `s` as a fraction of `c.length`. `heading` is the direction of the curve at the point, in radians. `tangent` is the unit vector of the heading. `normal` is the tangent turned a quarter turn toward `+y`, as `perp` turns it. On a ring that goes counter-clockwise on the sheet, the normal points out. `t.sample(circle(…))` goes clockwise on the sheet, so its normal points in. A point of `m.along()` has the same five columns.
 
 Below, each point of a curve gets a tick along its `normal`, and the tick grows with `u`. The ring comes from `t.sample`, so its ticks point in.
 
@@ -424,7 +424,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Material.resample.mdx</include>
 
-Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. A corner between two new vertices does not survive. On a network, such as a tiling, a grid or a voronoi, a chain runs from one junction to the next. Each junction stays where it is and stays the same point, and every chain still meets there. `trim`, `oscillate`, `spline` and `along` walk a network in the same way.
+Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends, and a closed chain keeps its seam. They stay the same points, so a value that you hold still names them. Only the vertices between them are new rows. A corner between two new vertices does not survive. On a network, such as a tiling, a grid or a voronoi, a chain runs from one junction to the next. Each junction stays where it is and stays the same point, and every chain still meets there. `trim`, `oscillate`, `spline` and `along` walk a network in the same way.
 
 `where` redistributes part of the material and leaves the rest alone. The eligible region is a set of edges, so a point selection means the edges with both ends in it. Consecutive eligible edges make a **run**, and a run is what gets redistributed. A run keeps the two vertices at its ends, so the result is still one chain. `count` then applies to each run, not to the chain.
 

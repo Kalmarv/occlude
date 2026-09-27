@@ -49,13 +49,16 @@ describe('curves is a property of the value', () => {
 describe('order: edge direction plus row order, kept by every write', () => {
   const ring = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { closed: true });
 
-  it('a ring starts at the start of its first edge row and runs that edge\'s way', () => {
+  it('a ring starts where its oldest edge starts and runs that edge\'s way', () => {
     expect(walk(ring())).toEqual([0, 1, 2, 3]);
     // The same four edges stored the other way round walk the other way.
     const back = material([[0, 0], [10, 0], [10, 10], [0, 10]], { edges: [[0, 3], [3, 2], [2, 1], [1, 0]] });
     expect(walk(back)).toEqual([0, 3, 2, 1]);
-    // An open chain starts at its first end by row.
+    // An open chain runs the way its edges run.
     expect(walk(curve([[0, 0], [5, 0], [9, 0]]))).toEqual([0, 1, 2]);
+    expect(walk(material([[0, 0], [5, 0], [9, 0]], { edges: [[2, 1], [1, 0]] }))).toEqual([2, 1, 0]);
+    // Edges that disagree: the chain starts at its lower-row end.
+    expect(walk(material([[0, 0], [5, 0], [9, 0]], { edges: [[1, 0], [1, 2]] }))).toEqual([0, 1, 2]);
   });
 
   it('adds go at the end: a new edge row and point keep the old curves in order', () => {
@@ -74,7 +77,7 @@ describe('order: edge direction plus row order, kept by every write', () => {
     expect(cut.curves.map((c) => c.points.map((p) => p.x))).toEqual([[0, 1], [2, 3, 4]]);
   });
 
-  it('a split keeps the ring\'s direction and, for any edge but the first row, its start', () => {
+  it('a split keeps the ring\'s direction and its start', () => {
     const m = ring();
     const s = m.split(m.edges.at(2));
     expect(s.n).toBe(5);
@@ -84,10 +87,30 @@ describe('order: edge direction plus row order, kept by every write', () => {
     // Splitting every edge: the parent's direction, each child in turn.
     const all = m.split(m.edges);
     expect(cyclic(walk(all), 0)).toEqual([0, 4, 1, 5, 2, 6, 3, 7]);
-    // Splitting the ring's FIRST edge row: the direction stays, and the
-    // start moves on to the start of the next row.
+    // Splitting the ring's FIRST edge row: its children keep its lineage,
+    // so the seam and the direction stay.
     const first = m.split(m.edges.at(0));
-    expect(walk(first)).toEqual([1, 2, 3, 0, 4]);
+    expect(walk(first)).toEqual([0, 4, 1, 2, 3]);
+    expect(first.curves.at(0).points.at(0).u).toBe(0);
+    expect(first.curves.at(0).points.at(0).x).toBe(0);
+  });
+
+  it('growing an open chain at its start keeps its direction and its side', () => {
+    const m = curve([[0, 0], [10, 0], [20, 0]]);
+    const head = point([-10, 0]);
+    const g = m.points.add(head).edges.add([head, m.points.at(0)]);
+    expect(g.curves.at(0).points.map((p) => p.x)).toEqual([-10, 0, 10, 20]);
+    expect(g.curves.at(0).points.at(0).heading).toBe(0);
+    near(g.curves.at(0).points.at(0).normal, m.curves.at(0).points.at(0).normal);
+  });
+
+  it('removing a ring\'s edge leaves an open chain that runs the way its edges run', () => {
+    const r = ring();
+    const c = r.edges.remove(r.edges.at(0)).curves.at(0);
+    expect(c.closed).toBe(false);
+    expect(c.points.map((p) => [p.x, p.y])).toEqual([[10, 0], [10, 10], [0, 10], [0, 0]]);
+    const order = c.points.map((p) => p.index);
+    for (const e of c.edges) expect(order.indexOf(e.a.index)).toBeLessThan(order.indexOf(e.b.index));
   });
 
   it('a replace keeps the parent\'s direction', () => {

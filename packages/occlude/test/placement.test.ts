@@ -264,7 +264,7 @@ describe.each(WORLDS)('a placement in a drawing chain, in $name', ({ make }) => 
 
   it('keeps every id, so a selection taken before the move rebinds', () => {
     const m = t.material(circle(50, 50, 20));
-    const sel = m.points.rows([0, 1, 2, 3]);
+    const sel = m.points.rowsAt([0, 1, 2, 3]);
     const moved = m.transform(P);
     const back = selectionIn(sel, moved);
     expect([...back.indices]).toEqual([...sel.indices]);
@@ -345,7 +345,7 @@ describe('m.transform samples the moved curve, and keeps what it can', () => {
         expect(w[i]).toBeLessThanOrEqual(Math.max(...m.attrs.w) + 1e-9);
       }
       // A selection of vertices rebinds by id.
-      const sel = m.points.rows([0, 1, 2, 3]);
+      const sel = m.points.rowsAt([0, 1, 2, 3]);
       expect([...selectionIn(sel, moved).indices]).toEqual([0, 1, 2, 3]);
     });
   }

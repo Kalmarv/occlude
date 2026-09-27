@@ -35,7 +35,7 @@ describe('owned 3D curve geometry',()=>{
   expect(surfaceOf(changed).edges.map(e=>e.id)).toEqual(surfaceOf(path).edges.map(e=>e.id));
   expect(changed.points.map(p=>p.z)).toEqual([3.5,3.5,3.5,3.5]);
   expect(changed.edges.map(e=>e.lengthCopy).sort()).toEqual([2,2,3,3]);
-  expect(changed.points.source).not.toBe(path.points.source);
+  expect(changed.points.owner).not.toBe(path.points.owner);
   expect(path.points.map(p=>p.z)).toEqual([.5,.5,.5,.5]);
   const selected=changed.edges.filter(e=>e.lengthCopy>2).extract();expect(selected.edges.length).toBe(2);expect(selected.points.length).toBe(4);
   expect(transformSurface3(surfaceOf(path),{translate:[0,0,1]}).edges.length).toBe(4);

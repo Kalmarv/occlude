@@ -78,7 +78,7 @@ describe('quadtree', () => {
     const tree = quadtree(pts, B, { capacity: 6 });
     const root = tree.faces.at(0);
     expect(root.source.length).toBe(80);
-    expect(root.source.source).toBe(pts);
+    expect(root.source.owner).toBe(pts);
     for (const f of tree.faces) {
       // No more than the allowance in a leaf; the parent holds the union of its children.
       if (f.leaf) expect(f.source.length).toBeLessThanOrEqual(6);

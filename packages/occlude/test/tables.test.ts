@@ -121,10 +121,10 @@ describe('edges: add, remove, set', () => {
     const h = later.edges.add([p0, q]);
     expect([...h.edgeList.slice(6)]).toEqual([0, 4]);
     // A position names nothing: the write refuses it by name.
-    expect(() => m.edges.add([[0, 0], [10, 10]] as never)).toThrow(/a reference must be a point value or a view; make one with point/);
-    expect(() => m.edges.add([p0, [10, 10]] as never)).toThrow(/a reference must be a point value or a view/);
-    expect(() => m.edges.add([p0, { x: 10, y: 10 }] as never)).toThrow(/a reference must be a point value or a view/);
-    expect(() => m.edges.add([m.pointIds[0], m.pointIds[3]] as never)).toThrow(/a reference must be a point value or a view/);
+    expect(() => m.edges.add([[0, 0], [10, 10]] as never)).toThrow(/expected a point — a vertex view or a point value; make one with point/);
+    expect(() => m.edges.add([p0, [10, 10]] as never)).toThrow(/expected a point — a vertex view or a point value/);
+    expect(() => m.edges.add([p0, { x: 10, y: 10 }] as never)).toThrow(/expected a point — a vertex view or a point value/);
+    expect(() => m.edges.add([m.pointIds[0], m.pointIds[3]] as never)).toThrow(/expected a point — a vertex view or a point value/);
   });
 
   it('skips gone, self and already, and a row with an undefined end', () => {
@@ -207,7 +207,7 @@ describe('the value you hold is the name', () => {
     expect(cut.rowOfEdge(e.id)).toBe(-1);
     expect(cut.n).toBe(6);
     // Its ends must be values or views.
-    expect(() => edge([0, 0] as never, q)).toThrow(/a reference must be a point value or a view/);
+    expect(() => edge([0, 0] as never, q)).toThrow(/expected a point — a vertex view or a point value/);
   });
 
   it('a value added twice is already; a value the geometry does not hold is gone', () => {
@@ -235,12 +235,12 @@ describe('the value you hold is the name', () => {
 
   it('a bare position in a reference slot throws by name', () => {
     const m = chain();
-    const msg = /a reference must be a point value or a view; make one with point\(…\)/;
+    const msg = /expected a point — a vertex view or a point value; make one with point\(…\)/;
     expect(() => m.extrude([0, 0] as never, [1, 1])).toThrow(msg);
     expect(() => m.points.remove([0, 0] as never)).toThrow(msg);
     expect(() => m.points.set('h', 1, [0, 0] as never)).toThrow(msg);
     expect(() => m.points.without([0, 0] as never)).toThrow(msg);
-    expect(() => m.split([0, 0] as never)).toThrow(/an edge reference must be an edge value or an edge view/);
+    expect(() => m.split([0, 0] as never)).toThrow(/expected an edge — an edge view or an edge value/);
   });
 
   it('a point value gives every declared column; its own columns ride in', () => {
@@ -296,21 +296,21 @@ describe('snapshot writes: a set reads the table as it was', () => {
 
   it('on a lattice: set(col, fn) and set({…}) read the pre-write faces; a chain is a sequence', () => {
     // A face takes the value of the face to its west, read from the old grid.
-    const l = lattice().set('v', (c) => (c.i === 0 ? 1 : 0));
+    const l = lattice().faces.set('v', (c) => (c.i === 0 ? 1 : 0));
     const west = (c: LatticeFace) => {
       const w = c.adjacent.filter((d) => d.i === c.i - 1 && d.j === c.j);
       return w.length === 0 ? 0 : w.at(0).v;
     };
-    const one = l.set('v', west);
+    const one = l.faces.set('v', west);
     expect([...one.values.v.slice(0, 10)]).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
-    const both = l.set({ v: west, u: (c) => c.v * 10 });
+    const both = l.faces.set({ v: west, u: (c) => c.v * 10 });
     expect([...both.values.v.slice(0, 3)]).toEqual([0, 1, 0]);
     expect([...both.values.u.slice(0, 3)]).toEqual([10, 0, 0]);
-    const chained = l.set('v', west).set('v', west);
+    const chained = l.faces.set('v', west).faces.set('v', west);
     expect([...chained.values.v.slice(0, 4)]).toEqual([0, 0, 1, 0]);
     // The laplacian reads the old grid too: one face of 4 spreads 1 to each side.
-    const spot = lattice().set('h', 0).set('h', 4, [5.5, 5.5]);
-    const spread = spot.set('h', (c) => c.h + 0.25 * c.laplacian('h'));
+    const spot = lattice().faces.set('h', 0).faces.set('h', 4, [5.5, 5.5]);
+    const spread = spot.faces.set('h', (c) => c.h + 0.25 * c.laplacian('h'));
     expect([spread.values.h[55], spread.values.h[54], spread.values.h[56], spread.values.h[45], spread.values.h[65], spread.values.h[53]]).toEqual([0, 1, 1, 1, 1, 0]);
   });
 });
@@ -397,41 +397,41 @@ describe('recipes equal their table lines', () => {
 
 describe('the lattice as one table', () => {
   it('set on faces: number, function, where; l.set is l.faces.set; add and remove refuse', () => {
-    const l = lattice().set('ink', 0);
+    const l = lattice().faces.set('ink', 0);
     expect(l.channels).toEqual(['a', 'ink']);
-    const one = l.set('ink', 3, l.faces.at(5));
+    const one = l.faces.set('ink', 3, l.faces.at(5));
     expect(one.values.ink[5]).toBe(3);
     expect(one.values.ink.reduce((s, v) => s + v, 0)).toBe(3);
     expect(l.faces.set('ink', 3, l.faces.at(5)).values.ink).toEqual(one.values.ink);
-    const byTest = l.set('ink', (c) => c.centroid[0], (c) => c.j === 0);
+    const byTest = l.faces.set('ink', (c) => c.centroid[0], (c) => c.j === 0);
     expect(byTest.values.ink[3]).toBe(3.5);
     expect(byTest.values.ink[13]).toBe(0);
-    expect(l.set('ink', 3, undefined).values.ink.every((v) => v === 0)).toBe(true);
+    expect(l.faces.set('ink', 3, undefined).values.ink.every((v) => v === 0)).toBe(true);
     // @ts-expect-error a lattice's faces have no add
     expect(() => l.faces.add()).toThrow(/faces are fixed/);
     // @ts-expect-error a lattice's faces have no remove
     expect(() => l.faces.remove()).toThrow(/faces are fixed/);
-    expect(() => l.set('i', 1)).toThrow(/reserved/);
+    expect(() => l.faces.set('i', 1)).toThrow(/reserved/);
     // A value that is not finite leaves the face as it was.
-    expect(l.set('ink', (c) => (c.index === 0 ? NaN : 1)).values.ink[0]).toBe(0);
+    expect(l.faces.set('ink', (c) => (c.index === 0 ? NaN : 1)).values.ink[0]).toBe(0);
   });
 
   it('points name the faces they fall in', () => {
-    const l = lattice().set('h', 5, material([[0.5, 0.5], [0.7, 0.2], [3.5, 4.5], [50, 50]]));
+    const l = lattice().faces.set('h', 5, material([[0.5, 0.5], [0.7, 0.2], [3.5, 4.5], [50, 50]]));
     expect([...l.values.h.keys()].filter((i) => l.values.h[i] === 5)).toEqual([0, 43]);
-    expect(l.set('h', 1, [2.5, 2.5]).values.h[22]).toBe(1);
+    expect(l.faces.set('h', 1, [2.5, 2.5]).values.h[22]).toBe(1);
   });
 
   it('a record set is one instant; a chain is a sequence', () => {
-    const l = lattice().set({ a: 1, b: 0 });
-    const once = l.set({ a: (c) => c.a + 1, b: (c) => c.a * 10 });
+    const l = lattice().faces.set({ a: 1, b: 0 });
+    const once = l.faces.set({ a: (c) => c.a + 1, b: (c) => c.a * 10 });
     expect(once.values.b[0]).toBe(10);
-    const seq = l.set('a', (c) => c.a + 1).set('b', (c) => c.a * 10);
+    const seq = l.faces.set('a', (c) => c.a + 1).faces.set('b', (c) => c.a * 10);
     expect(seq.values.b[0]).toBe(20);
   });
 
   it('a face answers its centroid, columns, laplacian and adjacent; face(p) names the face under a point', () => {
-    const l = lattice().set('v', (c) => c.i * c.i + c.j);
+    const l = lattice().faces.set('v', (c) => c.i * c.i + c.j);
     const c = l.face([3.5, 2.2])!;
     expect([c.i, c.j, ...c.centroid, c.index]).toEqual([3, 2, 3.5, 2.5, 23]);
     expect(c.v).toBe(11);
@@ -443,7 +443,7 @@ describe('the lattice as one table', () => {
     // Off the lattice: a face that reads 0 and that no write reaches.
     const off = l.face([-5, 2])!;
     expect(off.v).toBe(0);
-    expect(l.set('v', 99, off).values.v).toEqual(l.values.v);
+    expect(l.faces.set('v', 99, off).values.v).toEqual(l.values.v);
     expect(l.face(undefined)).toBeUndefined();
     expect(l.faces.near([0.5, 0.5], { radius: 1.1 }).indices).toEqual([0, 1, 10]);
     expect(l.faces.at(-1).index).toBe(99);
@@ -466,7 +466,7 @@ describe('t.steps', () => {
 
   it('over a lattice and over a plain object', () => {
     const t = toolkit({ seed: 1 });
-    const l = t.steps(5, lattice(), (x) => x.set('a', (c) => c.a + 1), { every: 5 });
+    const l = t.steps(5, lattice(), (x) => x.faces.set('a', (c) => c.a + 1), { every: 5 });
     expect(l.values.a[0]).toBe(5);
     expect(l.history.map((h) => h.values.a[0])).toEqual([0, 5]);
     const both = t.steps(2, { g: chain(), n: 0 }, ({ g, n }) => ({ g: g.move([1, 0]), n: n + 1 }), { every: 1 });
@@ -491,8 +491,8 @@ describe('t.steps', () => {
     expect(second.history.map((h) => h.x[0])).toEqual([2, 3]);
     expect(second.history.every((h) => h.history.length === 0)).toBe(true);
     // A lattice likewise.
-    const l1 = t.steps(2, lattice(), (x) => x.set('a', (c) => c.a + 1), { every: 1 });
-    const l2 = t.steps(1, l1, (x) => x.set('a', (c) => c.a + 1), { every: 1 });
+    const l1 = t.steps(2, lattice(), (x) => x.faces.set('a', (c) => c.a + 1), { every: 1 });
+    const l2 = t.steps(1, l1, (x) => x.faces.set('a', (c) => c.a + 1), { every: 1 });
     expect(l2.history.map((h) => h.values.a[0])).toEqual([2, 3]);
     expect(l2.history.every((h) => h.history.length === 0)).toBe(true);
     // Without { every }, nothing is kept.

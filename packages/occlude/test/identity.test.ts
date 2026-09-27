@@ -118,7 +118,7 @@ describe('a selection outlives the state it was made in', () => {
     const again = selectionIn(left, after);
     expect(again.length).toBe(1);
     expect(again.at(0).id).toBe(left.at(1).id);
-    expect(again.source).toBe(after);
+    expect(again.owner).toBe(after);
   });
 
   it('is asked about by identity, not by row', () => {

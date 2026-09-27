@@ -194,7 +194,7 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
 
 <include>/_sig/Material.split.mdx</include>
 
-`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. An `at` outside 0 to 1 cuts nothing. A point column goes to the new point by its transfer policy. The new point and the two new edges answer the old edge as their `source`. The two edges share its columns by the edge policy. Below, each step splits the edges that are longer than 12.
+`split` puts the new point at `at` of the way from `a` to `b`, 0.5 when you give no `at`. `at` can be a function of the edge. An `at` outside 0 to 1 cuts nothing. A point column goes to the new point by its transfer policy. The new point and the two new edges answer the old edge as their `source`. In `t.steps`, a row that a step makes answers `source` for one step. The next pass can read it, and the state after that forgets it. The value that `t.steps` returns answers for its last step. The two edges share its columns by the edge policy. Below, each step splits the edges that are longer than 12.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -257,7 +257,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.field.mdx</include>
 <include>/_sig/force.relax.mdx</include>
 
-A force gives a vector at a point. Nothing moves until a pass gives the force to `move`. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`, and a negative `amount` turns it round, so it pulls toward the sources. `drift` reads a direction from a noise function. It turns slowly from one step of the run to the next. A vertex knows its material, and the material counts its steps. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` reads the sources' `points`.
+A force gives a vector at a point. Nothing moves until a pass gives the force to `move`. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`, and a negative `amount` turns it round, so it pulls toward the sources. `drift` reads a direction from a noise function. It turns slowly from one step of the run to the next. The noise of the toolkit knows its run, so `drift` reads the step that `t.steps` makes. This is true whatever holds the values of the run. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` reads the sources' `points`.
 
 ## Forces as values
 
@@ -351,7 +351,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 
 ## t.force
 
-The toolkit carries the same forces as `t.force`. `t.force.boundary` and `t.force.separation` also take a shape, because the toolkit can change a shape into geometry. The pure `force.boundary(rect(…))` refuses a shape, and its message names `t.force`. In a sketch with a `space`, the `t.force` words measure in that space. Below, dots start over all of the page, and `t.force.boundary` pushes them into a square frame.
+The toolkit carries the same forces as `t.force`. `t.force.boundary` also takes a shape, because the toolkit can change a shape into an area. The pure `force.boundary(rect(…))` refuses a shape, and its message names `t.force.boundary`. `t.force.separation` takes points, so it refuses a shape: make the points with `t.material(shape)` or `t.sample(shape, { count })`. In a sketch with a `space`, the `t.force` words measure in that space. Below, dots start over all of the page, and `t.force.boundary` pushes them into a square frame.
 
 ```ts live
 import { sketch, circle, rect, mul } from 'occlude';
@@ -411,11 +411,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## The lattice as one table
 
-<include>/_sig/Lattice.set.mdx</include>
+<include>/_sig/l.faces.set.mdx</include>
 
-`l.faces` is a selection of the faces, in row-major order. `l.set(...)` is `l.faces.set(...)`, because a lattice has one table. A face of a lattice answers the words of every face: `index`, `centroid` (its centre), `bounds`, `area`, `contours()` and `adjacent`. Its `adjacent` holds the four faces beside it. A lattice does not nest, so each face is a root and a leaf. A face also answers `i`, `j`, every column by name and `c.laplacian(column)`. `l.face(p)` is the face under a position or a point. The `where` of a lattice write can also be points, and then it names the faces under them. A face off the lattice reads 0, and no write gets to it. A lattice cannot add or remove a face, so `l.faces.add` and `l.faces.remove` refuse by name. `l.field(column)` gives a column back as a field.
+`l.faces` is a selection of the faces, in row-major order, and `l.faces.set(...)` is the write of the lattice. A face of a lattice answers these words of every face: `index`, `area`, `perimeter`, `centroid` (its centre), `bounds`, `contours()` and `adjacent`. Its `adjacent` holds up to four faces: the faces beside it that are in the lattice. A lattice does not nest, so each face is a root and a leaf. Its `parent` and `source` are `undefined` and its `children` is empty. Its `depth` is 0 and its `leaf` is `true`. A lattice has no edge table and no point table, so `edges`, `boundaryEdges`, `points`, `corners`, `normal` and `extract()` refuse by name. A face also answers `i`, `j`, every column by name and `c.laplacian(column)`. `l.face(p)` is the face under a position or a point. The `where` of a lattice write can also be points, and then it names the faces under them. A face off the lattice reads 0, and no write gets to it. A lattice cannot add or remove a face, so `l.faces.add` and `l.faces.remove` refuse by name. `l.field(column)` gives a column back as a field.
 
-Every function of one `set` reads the faces as they were before the write. So a pass over the whole grid is one instant. A diffusion is one `set`: `l.set('a', (c) => c.a + rate * c.laplacian('a'))`. A decay is one more: `l.set('a', (c) => c.a * (1 - rate))`. A rate above 0.25 runs away.
+Every function of one `set` reads the faces as they were before the write. So a pass over the whole grid is one instant. A diffusion is one `set`: `l.faces.set('a', (c) => c.a + rate * c.laplacian('a'))`. A decay is one more: `l.faces.set('a', (c) => c.a * (1 - rate))`. A rate above 0.25 runs away.
 
 ## 1. Ring growth, and the slipped copy
 
@@ -501,12 +501,12 @@ import { sketch, strokes, rect } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const { pick } = t;
   const b = t.bounds();
-  const sky = t.lattice({ spacing: 1, area: rect(b.x, b.y, b.w / 2, b.h) }).set('ink', 0);
+  const sky = t.lattice({ spacing: 1, area: rect(b.x, b.y, b.w / 2, b.h) }).faces.set('ink', 0);
 
   const rain = (rate) => (l) => l
-    .set('ink', (c) => c.ink + 40, pick(l.faces))
-    .set('ink', (c) => c.ink + rate * c.laplacian('ink'))
-    .set('ink', (c) => c.ink * 0.99);
+    .faces.set('ink', (c) => c.ink + 40, pick(l.faces))
+    .faces.set('ink', (c) => c.ink + rate * c.laplacian('ink'))
+    .faces.set('ink', (c) => c.ink * 0.99);
 
   const slow = t.steps(90, sky, rain(0.1));
   const fast = t.steps(90, sky, rain(0.22));
@@ -526,10 +526,10 @@ Three stones fall into a pond. Each step pushes the speed by the Laplacian of th
 import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const pond = t.lattice({ spacing: 1 }).set({ h: 0, v: 0 }).set('h', 5, t.throw({ count: 3 }));
+  const pond = t.lattice({ spacing: 1 }).faces.set({ h: 0, v: 0 }).faces.set('h', 5, t.throw({ count: 3 }));
 
-  const push = (l) => l.set('v', (c) => c.v + 0.2 * c.laplacian('h'));
-  const flow = (l) => l.set('h', (c) => c.h + c.v);
+  const push = (l) => l.faces.set('v', (c) => c.v + 0.2 * c.laplacian('h'));
+  const flow = (l) => l.faces.set('h', (c) => c.h + c.v);
 
   return strokes(t.isolines(t.steps(120, pond, push, flow).field('h'), { count: 8 }));
 });
@@ -647,10 +647,10 @@ import { sketch, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
   const dish = t.lattice({ spacing: 0.5 })
-    .set({ a: 1, b: 0 })
-    .set('b', 1, (c) => Math.abs(c.centroid[0] - 50) < 4 && Math.abs(c.centroid[1] - 50) < 4);
+    .faces.set({ a: 1, b: 0 })
+    .faces.set('b', 1, (c) => Math.abs(c.centroid[0] - 50) < 4 && Math.abs(c.centroid[1] - 50) < 4);
 
-  const react = (l) => l.set({
+  const react = (l) => l.faces.set({
     a: (c) => c.a + 0.2 * c.laplacian('a') - c.a * c.b * c.b + 0.055 * (1 - c.a),
     b: (c) => c.b + 0.1 * c.laplacian('b') + c.a * c.b * c.b - 0.117 * c.b,
   });
@@ -668,14 +668,14 @@ import { sketch, strokes, circle, add, polar, point } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const { pick, rnd } = t;
-  const start = { web: t.sample(circle([50, 50], 5), { count: 12 }), ink: t.lattice({ spacing: 1 }).set('v', 0) };
+  const start = { web: t.sample(circle([50, 50], 5), { count: 12 }), ink: t.lattice({ spacing: 1 }).faces.set('v', 0) };
 
   const grow = ({ web, ink }) => {
     const from = pick(web.points.filter((p) => ink.face(p).v < 0.3));
     const fresh = point(add(from, polar(2, rnd(2 * Math.PI))));
     return {
       web: web.points.add(fresh).edges.add([from, fresh]),
-      ink: ink.set('v', (c) => c.v + 1, ink.face(fresh)).set('v', (c) => c.v + 0.1 * c.laplacian('v')),
+      ink: ink.faces.set('v', (c) => c.v + 1, ink.face(fresh)).faces.set('v', (c) => c.v + 0.1 * c.laplacian('v')),
     };
   };
 

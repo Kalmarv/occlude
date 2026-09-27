@@ -188,41 +188,43 @@ describe('a tiling\'s bow in sketch units keeps its rows', () => {
 describe('rows on the 3D collections', () => {
   const m = box().subdivide(1);
 
-  it('takes an index, a row, a list, or a mix, as source rows', () => {
+  it('takes a row or a list of rows, as rows of the state — never a row number', () => {
     for (const all of [m.points, m.edges, m.faces] as Selection<{ readonly id: string; readonly index: number }>[]) {
       const some = all.filter((r) => r.index % 3 === 1);
       const pick = some.at(2)!;
-      expect(all.rows(pick.index).map((r) => r.index)).toEqual([pick.index]);
       expect(all.rows(pick).map((r) => r.index)).toEqual([pick.index]);
-      // Source rows, not positions within the selection; a repeat keeps its
-      // first place, and the order given is the selection's order.
-      expect(some.rows([5, 0, 5]).map((r) => r.index)).toEqual([5, 0]);
-      expect(some.rows([pick, 0, some.at(0)!]).map((r) => r.index)).toEqual([pick.index, 0, some.at(0)!.index]);
-      expect(all.rows(new Set([3, 2])).map((r) => r.index)).toEqual([3, 2]);
+      // Rows of the state, not members of the selection; a repeat keeps
+      // its first place, and the order given is the selection's order.
+      const [a, b] = [all.at(5)!, all.at(0)!];
+      expect(some.rows([a, b, a]).map((r) => r.index)).toEqual([5, 0]);
+      expect(some.rows([pick, b, some.at(0)!]).map((r) => r.index)).toEqual([pick.index, 0, some.at(0)!.index]);
+      expect(all.rows(new Set([all.at(3)!, all.at(2)!])).map((r) => r.index)).toEqual([3, 2]);
       expect(all.rows([]).length).toBe(0);
+      expect(() => all.rows(pick.index as never)).toThrow(/rows: expected an? \w+ row, or a list of them — got the number/);
     }
   });
 
   it('is the rows of the state, not a part of the group: no key', () => {
     const [group] = m.faces.groupBy((f) => f.chart);
-    expect(group.rows(0).key).toBeUndefined();
+    expect(group.rows(m.faces.at(0)!).key).toBeUndefined();
   });
 
   it('reads a row of another revision by id, and refuses another domain and an index out of range', () => {
     // A row of another state of the same rows resolves to its row here.
     const later = m.translate([0, 0, 1]);
     expect(m.faces.rows(later.faces.at(0)!).at(0)!.index).toBe(0);
-    expect(m.points.rows([0, later.points.at(0)!]).length).toBe(1);
+    expect(m.points.rows([m.points.at(0)!, later.points.at(0)!]).length).toBe(1);
     expect(m.edges.rows(later.edges.at(1)!).at(0)!.index).toBe(1);
     // Another construction of the same box is another geometry: its rows are
     // not rows of this one.
     const other = box().subdivide(1);
-    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow(/faces\.rows: .*unrelated materials/);
+    expect(() => m.faces.rows(other.faces.at(0)!)).toThrow(/faces\.rows: that face is a row of an unrelated material/);
     // @ts-expect-error a point row is not a face row
     expect(() => m.faces.rows(m.points.at(0)!)).toThrow('faces.rows: expected a face view — got a vertex view');
+    // The engine's door by number refuses a number that is not a row.
     const n = m.faces.length;
-    expect(() => m.faces.rows(n)).toThrow(`faces.rows: no face ${n} in this state (${n} rows)`);
-    expect(() => m.points.rows(-1)).toThrow('points.rows: no point -1');
-    expect(() => m.edges.rows(1.5)).toThrow('edges.rows: no edge 1.5');
+    expect(() => m.faces.rowsAt([n])).toThrow(`faces.rowsAt: no face ${n} in this state (${n} rows)`);
+    expect(() => m.points.rowsAt([-1])).toThrow('points.rowsAt: no point -1');
+    expect(() => m.edges.rowsAt([1.5])).toThrow('edges.rowsAt: no edge 1.5');
   });
 });

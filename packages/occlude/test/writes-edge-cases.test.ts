@@ -110,22 +110,19 @@ describe('rows and lists of views (promises#13, promises#34)', () => {
     expect(later.points.rows(p).length).toBe(0);
     expect(later.points.rows([p, m.points.at(0)]).length).toBe(1);
     const other = curve([[0, 0], [5, 5]]);
-    expect(() => later.points.rows(other.points.at(0))).toThrow(/points\.rows: .*unrelated materials/);
+    expect(() => later.points.rows(other.points.at(0))).toThrow(/points\.rows: that point is a row of an unrelated material/);
   });
 
   it('a plain list of views is a where and a reference', () => {
     const g = curve([[0, 0], [10, 0], [10, 10]]);
     const [a, b] = [g.points.at(0), g.points.at(1)];
-    // `remove` is typed in relation.ts; a plain list reaches it as a sketch
-    // writes it.
-    const list = (...v: unknown[]): never => v as never;
-    expect(g.points.remove(list(a, b)).points.length).toBe(1);
-    expect(g.edges.remove(list(g.edges.at(0), g.edges.at(1))).edges.length).toBe(0);
+    expect(g.points.remove([a, b]).points.length).toBe(1);
+    expect(g.edges.remove([g.edges.at(0), g.edges.at(1)]).edges.length).toBe(0);
     expect(g.move([1, 0], [a]).points.map((q) => q.x)).toEqual([1, 10, 10]);
     expect(g.points.set('w', 1, [b]).points.map((q) => q.w)).toEqual([0, 1, 0]);
     expect(g.split([g.edges.at(0)]).points.length).toBe(4);
     // A list that names a gone point skips it.
-    expect(g.points.remove(list(a)).points.remove(list(a, b)).points.length).toBe(1);
+    expect(g.points.remove([a]).points.remove([a, b]).points.length).toBe(1);
   });
 });
 

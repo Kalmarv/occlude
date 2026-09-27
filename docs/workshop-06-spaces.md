@@ -78,7 +78,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const short = build(chord(50, 16, 50, 84)).planarize().faces;
   const show = (cells) => [
     cells.map((f, k) => polygon(f, { fill: fill('hatch', { angle: (k * 50) % 180, spacing: mm(1.2) }), stroke: false })),
-    strokes(cells.source),
+    strokes(cells.edges),
     label(`${cells.length} faces`, 12, 6, 3.4),
   ];
   return [show(reaching), group({ translate: [100, 0] }, show(short))];

@@ -33,11 +33,15 @@
  * A selection belongs to one state. Handed a selection or a row of another
  * state of the same evolution — a write's `where`, a set operation's
  * operand, `has` — it finds the same rows by identity, and a row that is
- * gone is left out. It does not apply the rule that made it again.
+ * gone is left out. It does not apply the rule that made it again. Who a
+ * row is, is the domain's to say (`keyOf`, `rowOfKey`); finding it, and
+ * refusing a selection or a view of an unrelated geometry, is written once
+ * here (`rowOf`, `memberRow`, `resolve`).
  */
 
 import type { XY } from './vec.js';
-import { ownerOf, viewKind } from './views.js';
+import { describe } from './views.js';
+import { groupRows } from './groupRows.js';
 import type { Vertex } from './material.js';
 import type { NearestHit, FirstHit } from './query.js';
 
@@ -53,13 +57,14 @@ export const ROW_TYPES: unique symbol = Symbol('rowTypes');
 /**
  * What a selection of some rows answers, by name: the protocol words
  * (`points`, `edges`, `faces`, `corners`, `contours`, `curves`), the state
- * (`source`), and the words a kind brings. A row type declares its own with
+ * it belongs to (`owner`, internal), and the words a kind brings. A row
+ * type declares its own with
  * `Types<{ … }>` under `ROW_TYPES`; a word it leaves out is absent —
  * `undefined` for a protocol word, `never` for a kind word, so a call a
  * domain cannot answer does not compile, and refuses by name at run time.
  */
 export interface DomainTypes {
-  source: unknown;
+  owner: unknown;
   points: unknown;
   edges: unknown;
   faces: unknown;
@@ -81,7 +86,7 @@ export interface DomainTypes {
 }
 /** Every word absent. */
 interface Absent extends DomainTypes {
-  source: object;
+  owner: object;
   points: undefined;
   edges: undefined;
   faces: undefined;
@@ -126,7 +131,9 @@ export interface DomainKind {
   readonly plural: string;
   /** @internal The prototype of this kind's selections. */
   readonly proto: object;
-  /** A refusal's own words, by the word refused: why this kind has none. */
+  /** A refusal's own words, by the word refused: why this kind has none.
+   * `unrelated` is what this kind says of a row or a selection of a state
+   * that shares no identity with this one. */
   readonly refusals: Readonly<Record<string, string>>;
 }
 
@@ -137,8 +144,8 @@ export interface DomainKind {
  */
 export interface Domain<Row = unknown> {
   readonly kind: DomainKind;
-  /** The state the rows belong to: a material, a lattice, a surface, … */
-  readonly source: object;
+  /** The state the rows belong to: a material, a lattice, … */
+  readonly owner: object;
   /** How many rows the domain holds. */
   readonly size: number;
   /** True when the rows are exactly `0 … size − 1`; a lattice's masked
@@ -150,22 +157,27 @@ export interface Domain<Row = unknown> {
   valid(row: number): boolean;
   /** The view of one row. */
   row(row: number): Row;
+  /** Who row `r` is: a key the same row answers in every state of one
+   * evolution, and no other row ever does (an id, a set of wall ids). */
+  keyOf(r: number): unknown;
+  /** The row whose key is `key` in this state, or -1 when it is gone. */
+  rowOfKey(key: unknown): number;
   /**
-   * The row a single member names here — a row view of this state, one of
-   * another state of the same evolution (found by identity), or a value the
-   * domain takes as a name — or -1 when it is gone. Anything else is the
-   * wrong program, refused by name.
+   * Where a single member lives: a view's own domain and row, or — for a
+   * value the domain takes as a name (`point(…)`, `edge(…)`) — its key;
+   * null for nothing. Anything else is the wrong program, refused by name.
    */
-  rowOf(value: unknown, who: string): number;
-  /**
-   * The rows here that another selection of this kind holds, in its order,
-   * found by identity; the ones that are gone are left out. A selection of
-   * another kind, or of a state that shares nothing with this one, is
-   * refused by name.
-   */
-  resolve(other: Selection<any>, who: string): number[];
-  /** The same kind of rows in another state value (`selectionIn`). */
-  on(state: unknown, who: string): Domain<Row>;
+  locate(value: unknown, who: string): { readonly domain: Domain<Row>; readonly row: number } | { readonly key: unknown } | null;
+  /** Do this state and the other state of this kind share any identity —
+   * are they states of one evolution? */
+  shares(other: Domain<Row>): boolean;
+  /** The row a pass over `count` rows hands to a function (default `row`):
+   * a kind may read many rows faster than one at a time. */
+  reader?(count: number): (row: number) => Row;
+  /** The rows a `where` that is not a member names, for a kind that takes
+   * one (a lattice: the faces points fall in); undefined for a value the
+   * kind does not take. */
+  named?(where: unknown, who: string): readonly number[] | undefined;
   /** The rows beside one row: what `adjacent`, `connected` and
    * `components` walk. A kind with no neighbours has none. */
   neighbours?(row: number): Iterable<number>;
@@ -184,14 +196,6 @@ export interface Domain<Row = unknown> {
 /** A key a `groupBy` or `components` gave its group. */
 export type Keyed<S, K> = S & { readonly key: K };
 
-const describe = (v: unknown): string => {
-  if (v === null) return 'null';
-  if (v instanceof Selection) return `a ${v.domain.kind.name} selection`;
-  if (Array.isArray(v)) return `an array of ${v.length}`;
-  if (typeof v === 'object') return (v as object).constructor?.name ? `a ${(v as object).constructor.name}` : 'an object';
-  return typeof v;
-};
-
 /**
  * A selection of rows of one domain in one state. See the module comment:
  * one class, every domain, the words a domain lacks refused by name.
@@ -207,8 +211,10 @@ export class Selection<Row> implements Iterable<Row> {
   /** The classification that made this group (`groupBy`, `components`);
    * undefined otherwise. */
   declare readonly key: unknown;
-  /** @internal Lazy membership set, kept in a box so the selection is frozen. */
-  declare readonly box: { held: Set<number> | null };
+  /** @internal What a selection works out about itself, once: its
+   * membership set, the curves its members walk — kept in a box so the
+   * selection is frozen. */
+  declare readonly box: { held: Set<number> | null; curves?: unknown };
 
   // ---- the geometry protocol: present only on the kinds that answer it ----
 
@@ -245,9 +251,18 @@ export class Selection<Row> implements Iterable<Row> {
     throw new Error('a selection is read from a geometry: m.points, m.edges, m.faces, l.faces, mesh.faces');
   }
 
-  /** The state the rows belong to. */
-  get source(): RowTypes<Row>['source'] {
-    return (isInstance(this) ? this.domain.source : undefined) as RowTypes<Row>['source'];
+  /** @internal The state the rows belong to. A sketch holds it already:
+   * it read the selection from it. */
+  get owner(): RowTypes<Row>['owner'] {
+    return (isInstance(this) ? this.domain.owner : undefined) as RowTypes<Row>['owner'];
+  }
+
+  /** A selection has no `source`: each ROW says where it came from
+   * (`p.source`), and the value a selection is of is the one it was read
+   * from. Refused by name. */
+  get source(): never {
+    if (!isInstance(this)) return undefined as never;
+    throw new Error(`${this.domain.kind.plural}.source: a selection has no source — each row says where it came from (${this.domain.kind.name === 'point' ? 'p' : this.domain.kind.name === 'edge' ? 'e' : 'row'}.source), and the value it is a selection of is the one you read it from`);
   }
 
   /** The members' rows, in the selection's order. A row is a state's own
@@ -343,57 +358,57 @@ export class Selection<Row> implements Iterable<Row> {
    * this selection's order and carries its `key`. Keys compare as a Map
    * compares them. The key is not a column: no later state knows it. */
   groupBy<K>(classify: (row: Row, index: number) => K): Keyed<Selection<Row>, K>[] {
-    const groups = new Map<K, number[]>();
-    const n = this.length;
-    for (let k = 0; k < n; k++) {
-      const r = this.rowAt(k);
-      const key = classify(this.domain.row(r), k);
-      const list = groups.get(key);
-      if (list) list.push(r);
-      else groups.set(key, [r]);
-    }
-    return Array.from(groups, ([key, rows]) => select(this.domain, rows, key, true) as Keyed<Selection<Row>, K>);
+    const d = this.domain;
+    return groupRows(this.indices, (r) => r, (r, k) => classify(d.row(r), k)).map(({ key, rows }) => select(d, rows, key, true) as Keyed<Selection<Row>, K>);
   }
 
   /** True when `row` is a member. A row of another state of the same
    * evolution is asked about by identity; one that is gone is not a
    * member. A row of another kind is refused by name. */
   has(row: Row | object): boolean {
-    const r = this.domain.rowOf(row, `${this.domain.kind.plural}.has`);
+    const r = rowOf(this.domain, row, `${this.domain.kind.plural}.has`);
     return r >= 0 && this.holds(r);
   }
 
-  /** The selection holding those rows of the state — never positions
-   * within this selection: row numbers, or the rows themselves, one or a
-   * list, in the order given. The door for a relation a sketch worked out
-   * for itself. A row of another state is found by identity; one that is
-   * gone is skipped, as every set operation skips it, and a row of an
-   * unrelated geometry is refused by name. */
-  rows(rows: number | Row | Iterable<number | Row>): Selection<Row> {
+  /** The selection holding those rows of the state: the rows themselves —
+   * views, or values that name rows — one, a list or a selection, in the
+   * order given. The door for a relation a sketch worked out for itself. A
+   * row of another state is found by identity; one that is gone is
+   * skipped, as every set operation skips it, and a row of an unrelated
+   * geometry is refused by name. A row is never named by its number. */
+  rows(rows: Row | Iterable<Row> | Selection<any>): Selection<Row> {
     const d = this.domain;
     const who = `${d.kind.plural}.rows`;
-    const one = (r: number | Row): number => {
-      if (typeof r === 'number') {
-        if (!Number.isInteger(r) || !d.valid(r)) throw new Error(`${who}: no ${d.kind.name} ${r} in this state (${d.size} rows)`);
-        return r;
-      }
-      return memberRow(d, r, who);
-    };
-    if (typeof rows === 'number') return select(d, [one(rows)], undefined, true);
-    if (typeof rows !== 'object' || rows === null) throw new Error(`${who}: expected a ${d.kind.name} row, a row number, or a list of them — got ${describe(rows)}`);
-    if (rows instanceof Selection) return select(d, this.operand(rows, 'rows'), undefined, true);
+    if (rows instanceof Selection) return select(d, this.operand(rows, who), undefined, true);
+    if (typeof rows !== 'object' || rows === null) throw new Error(`${who}: expected ${article(d.kind.name)} row, or a list of them — got ${describe(rows)}`);
     // A list of rows, or one row (a row is not iterable).
-    const list = typeof (rows as Iterable<unknown>)[Symbol.iterator] === 'function' ? Array.from(rows as Iterable<number | Row>, one) : [one(rows as Row)];
-    return select(d, list.filter((r) => r >= 0), undefined, list.length === 1);
+    if (typeof (rows as Iterable<unknown>)[Symbol.iterator] === 'function') return select(d, memberRows(d, Array.from(rows as Iterable<unknown>), who));
+    const r = memberRow(d, rows, who);
+    return select(d, r < 0 ? [] : [r], undefined, true);
   }
 
-  /** @internal The rows another selection names here, in its order. */
-  operand(other: unknown, op: string): readonly number[] {
+  /** @internal The selection of rows `rows` of this state, by number, in
+   * the order given, a repeat kept once: the engine's door, for a kernel
+   * that worked out rows. A sketch names rows by the rows (`rows`). */
+  rowsAt(rows: Iterable<number>): Selection<Row> {
     const d = this.domain;
-    const who = `${d.kind.plural}.${op}`;
-    if (!(other instanceof Selection)) throw new Error(`${who}: a ${d.kind.name} selection combines only with a ${d.kind.name} selection — got ${describe(other)}`);
+    const list = Array.from(rows);
+    for (const r of list) if (!d.valid(r)) throw new Error(`${d.kind.plural}.rowsAt: no ${d.kind.name} ${r} in this state (${d.size} rows)`);
+    return select(d, list);
+  }
+
+  /** @internal The rows another selection names here, in its order; `who`
+   * names the word asking in a refusal. A selection of another kind is
+   * refused by name, with the word that reads this kind off it when it
+   * has one. */
+  operand(other: unknown, who: string): readonly number[] {
+    const d = this.domain;
+    const one = article(d.kind.name);
+    if (!(other instanceof Selection)) throw new Error(`${who}: ${one} selection combines only with ${one} selection — got ${describe(other)}`);
     if (other.domain !== d && other.domain.kind.name !== d.kind.name) {
-      throw new Error(`${who}: a ${d.kind.name} selection combines only with a ${d.kind.name} selection — selection set operations require the same domain (${d.kind.plural}, got ${other.domain.kind.plural})`);
+      const word = d.kind.plural;
+      const hint = (other as unknown as Record<string, unknown>)[word] instanceof Selection ? `; its ${word} are sel.${word}` : '';
+      throw new Error(`${who}: ${one} selection combines only with ${one} selection — got ${describe(other)}${hint}`);
     }
     return rowsIn(d, other, who);
   }
@@ -406,7 +421,7 @@ export class Selection<Row> implements Iterable<Row> {
     const out = [...this.indices];
     const seen = new Set(out);
     for (const other of others) {
-      for (const r of this.operand(other, 'union')) {
+      for (const r of this.operand(other, `${this.domain.kind.plural}.union`)) {
         if (seen.has(r)) continue;
         seen.add(r);
         out.push(r);
@@ -417,7 +432,7 @@ export class Selection<Row> implements Iterable<Row> {
 
   /** The members the other selection also holds, in this order. */
   intersect<S extends Selection<Row>>(this: S, other: Selection<any>): S {
-    const theirs = new Set(this.operand(other, 'intersect'));
+    const theirs = new Set(this.operand(other, `${this.domain.kind.plural}.intersect`));
     return select(this.domain, this.indices.filter((r) => theirs.has(r)), this.key, true) as S;
   }
 
@@ -427,9 +442,9 @@ export class Selection<Row> implements Iterable<Row> {
   without<S extends Selection<Row>>(this: S, other: Selection<any> | Row | object | undefined): S {
     if (other === undefined || other === null) return this;
     let gone: Set<number>;
-    if (other instanceof Selection) gone = new Set(this.operand(other, 'without'));
+    if (other instanceof Selection) gone = new Set(this.operand(other, `${this.domain.kind.plural}.without`));
     else {
-      const r = this.domain.rowOf(other, `${this.domain.kind.plural}.without`);
+      const r = rowOf(this.domain, other, `${this.domain.kind.plural}.without`);
       if (r < 0) return this;
       gone = new Set([r]);
     }
@@ -684,7 +699,7 @@ export function domainKind(
  * keeps its first place. `null` is every row, in row order.
  */
 export function select<Row>(domain: Domain<Row>, rows: readonly number[] | null, key?: unknown, unique = false): Selection<Row> {
-  const s = Object.create(domain.kind.proto) as { domain: Domain<Row>; members: readonly number[] | null; key: unknown; box: { held: Set<number> | null } };
+  const s = Object.create(domain.kind.proto) as { domain: Domain<Row>; members: readonly number[] | null; key: unknown; box: { held: Set<number> | null; curves?: unknown } };
   s.domain = domain;
   s.members = rows === null ? null : Object.freeze(unique ? (Object.isFrozen(rows) ? rows : [...rows]) : dedupe(rows));
   s.key = key;
@@ -705,60 +720,165 @@ function dedupe(rows: readonly number[]): number[] {
   return out;
 }
 
+// ---- finding rows by identity: written once, for every domain ----------------------
+
 /**
- * @internal The row a member — a view, or a value that names a row — is
- * in `d`: a row of this state, or of another state of the same geometry
- * found by identity; -1 when it is gone, or names no row here. A view of
- * an unrelated geometry is refused by name, as a selection of one is. The
- * one door `rows` and every write's list of members resolve a member
- * through.
+ * @internal The row a single member names in `d` — a view of this state,
+ * a view of another state of the same evolution found by who it is, or a
+ * value the domain takes as a name — or -1 when it names none here: it is
+ * gone, or a row of an unrelated geometry, which names nothing here. A
+ * member of another kind is refused by name. What `has` and `without` ask.
+ * A view's own identity answers first, so asking about a row of another
+ * state costs one lookup.
  */
-export function memberRow<Row>(d: Domain<Row>, r: unknown, who: string): number {
-  const row = d.rowOf(r, who);
-  if (row >= 0 || typeof r !== 'object' || r === null || viewKind(r) === undefined) return row;
-  // Not here: gone, or of an unrelated geometry. It is asked the way a
-  // selection of it is, which tells the two apart: its own domain — a
-  // geometry's, or the collection's that holds it — reads it as its row.
-  const owner = ownerOf(r) as Record<string, unknown> | undefined;
-  if (owner === undefined || owner === d.source) return -1;
-  const sel = owner[d.kind.plural];
-  const theirs = sel instanceof Selection ? sel.domain : (owner.domain as Domain<unknown> | undefined);
-  if (theirs === undefined || theirs.kind?.name !== d.kind.name || theirs === d) return -1;
-  const at = theirs.rowOf(r, who);
-  if (at >= 0) rowsIn(d, select(theirs, [at], undefined, true), who);
-  return -1;
+export function rowOf<Row>(d: Domain<Row>, v: unknown, who: string): number {
+  const at = d.locate(v, who);
+  if (at === null) return -1;
+  if (!('domain' in at)) return d.rowOfKey(at.key);
+  if (at.domain === d) return at.row;
+  if (otherRun(d.owner, at.domain.owner)) return -1;
+  return d.rowOfKey(at.domain.keyOf(at.row));
+}
+
+/** Two states of different runs: both count their ids from the same
+ * place, so no key of one names a row of the other (material.ts
+ * `mintIds`). A state with no run — a lattice, a value made outside any
+ * run — is of none. */
+function otherRun(a: unknown, b: unknown): boolean {
+  const x = (a as { epoch?: number }).epoch ?? 0;
+  const y = (b as { epoch?: number }).epoch ?? 0;
+  return x !== y && x !== 0 && y !== 0;
+}
+
+/**
+ * @internal `rowOf` for a member a sketch names a row with — a `where`, a
+ * list, `rows` — where a view of an unrelated geometry is the wrong
+ * program: refused by name, as a selection of one is. A gone row is -1.
+ */
+export function memberRow<Row>(d: Domain<Row>, v: unknown, who: string): number {
+  const at = d.locate(v, who);
+  if (at === null) return -1;
+  if (!('domain' in at)) return d.rowOfKey(at.key);
+  if (at.domain === d) return at.row;
+  if (otherRun(d.owner, at.domain.owner)) throw unrelated(d.kind, who, 'row');
+  const r = d.rowOfKey(at.domain.keyOf(at.row));
+  if (r < 0 && !d.shares(at.domain)) throw unrelated(d.kind, who, 'row');
+  return r;
+}
+
+/** @internal The rows a list of members names (`memberRow`, each), each
+ * once, in the order given; nothing and a gone row are skipped. */
+export function memberRows<Row>(d: Domain<Row>, list: readonly unknown[], who: string): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const v of list) {
+    const r = memberRow(d, v, who);
+    if (r >= 0 && !seen.has(r)) {
+      seen.add(r);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/**
+ * @internal The rows of `d` another selection of its kind holds, in its
+ * order, found by who each is; the ones that are gone are left out. A
+ * selection of another kind, or of a state that shares nothing with this
+ * one, is refused by name.
+ */
+export function resolve<Row>(d: Domain<Row>, other: Selection<any>, who: string): number[] {
+  const theirs = other.domain;
+  if (theirs.kind !== d.kind) throw new Error(`${who}: expected ${d.kind.plural} — ${article(d.kind.name)} selection — got ${theirs.kind.plural}`);
+  if (theirs !== d && (otherRun(d.owner, theirs.owner) || !d.shares(theirs))) throw unrelated(d.kind, who, 'selection');
+  const out: number[] = [];
+  for (const r of other.indices) {
+    const k = theirs === d ? r : d.rowOfKey(theirs.keyOf(r));
+    if (k >= 0) out.push(k);
+  }
+  return out;
 }
 
 /** @internal The rows of `domain` another selection holds, in its order:
- * by position in the same state, by identity in another. */
+ * by position in the same domain, by identity in another. */
 export function rowsIn<Row>(domain: Domain<Row>, other: Selection<any>, who: string): readonly number[] {
-  return other.domain === domain ? other.indices : domain.resolve(other, who);
+  return other.domain === domain ? other.indices : resolve(domain, other, who);
+}
+
+/** @internal The refusal a row (`'row'`) or a selection of a state that
+ * shares no identity with this one gets: the kind's own words, or the
+ * material's. */
+export function unrelated(kind: DomainKind, who: string, what: 'row' | 'selection'): Error {
+  const own = kind.refusals.unrelated;
+  if (own !== undefined) return new Error(`${who}: ${own}`);
+  const which = what === 'row' ? `that ${kind.name} is a row of an unrelated material` : 'the two selections come from unrelated materials';
+  return new Error(`${who}: ${which} — nothing in one is anything in the other. Rows of one evolution resolve by identity; to combine two materials, append() them first`);
+}
+
+/**
+ * @internal The rows a write's `where` names among the members of `sel`,
+ * in the members' order — the order `intersect` keeps. A function picks
+ * members by their rows, in that order; a selection names its rows by
+ * identity; a row, a value that names one, or a list of them, name theirs,
+ * a view of an unrelated geometry refused; a kind may take something else
+ * as a name (`Domain.named`: the points a lattice face lies under).
+ * Nothing names nothing.
+ */
+export function whereRows<Row>(sel: Selection<Row>, where: unknown, who: string): readonly number[] {
+  const d = sel.domain;
+  if (where === undefined || where === null) return [];
+  const n = sel.length;
+  if (typeof where === 'function') {
+    const pick = where as (row: Row) => unknown;
+    const read = d.reader?.(n) ?? ((r: number) => d.row(r));
+    const out: number[] = [];
+    for (let k = 0; k < n; k++) {
+      const r = sel.rowAt(k);
+      if (pick(read(r))) out.push(r);
+    }
+    return out;
+  }
+  let named: readonly number[] | undefined;
+  if (where instanceof Selection && where.domain.kind === d.kind) named = rowsIn(d, where, who);
+  else named = d.named?.(where, who);
+  if (named === undefined) {
+    if (where instanceof Selection) named = sel.operand(where, who);
+    else if (Array.isArray(where)) named = memberRows(d, where, who);
+    else {
+      const r = memberRow(d, where, who);
+      named = r < 0 ? [] : [r];
+    }
+  }
+  if (sel.members === null) return [...named].sort((a, b) => a - b);
+  const held = new Set(named);
+  const out: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const r = sel.rowAt(k);
+    if (held.has(r)) out.push(r);
+  }
+  return out;
 }
 
 /**
  * @internal A selection read on another state by identity: the rows that
  * are gone are dropped, the order and the key are kept. `state` is the
- * geometry that holds the rows, or a selection of it. What a write does
- * with a selection of an earlier state. Not a word of the selection: a
- * sketch says the same with a set operation on the later state
- * (`later.points.intersect(sel)`).
+ * geometry that holds the rows — its rows of this kind are what it answers
+ * for the kind's word (`points`, `edges`, `faces`, …) — or a selection of
+ * it. What a write does with a selection of an earlier state. Not a word
+ * of the selection: a sketch says the same with a set operation on the
+ * later state (`later.points.intersect(sel)`).
  */
 export function selectionIn<S extends Selection<any>>(sel: S, state: unknown): S {
   const d = sel.domain;
   const who = `${d.kind.plural}: read on another state`;
   // A selection of the target state: the rows found there, among its members.
-  let among: Selection<any> | null = null;
-  let target: Domain<any>;
-  if (state instanceof Selection) {
-    if (state.domain.kind.name !== d.kind.name) throw new Error(`${who}: expected ${d.kind.plural}, got ${state.domain.kind.plural}`);
-    among = state;
-    target = state.domain;
-  } else {
-    target = d.on(state, who);
-  }
-  if (target === d && among === null) return sel;
-  let rows = target === d ? [...sel.indices] : target.resolve(sel, who);
-  if (among !== null) rows = rows.filter((r) => among!.holds(r));
+  const among = state instanceof Selection ? state : (typeof state === 'object' && state !== null ? (state as Record<string, unknown>)[d.kind.plural] : undefined);
+  if (!(among instanceof Selection)) throw new Error(`${who}: expected a geometry with ${d.kind.plural}, or a selection of them — got ${describe(state)}`);
+  if (among.domain.kind.name !== d.kind.name) throw new Error(`${who}: expected ${d.kind.plural}, got ${among.domain.kind.plural}`);
+  const target = among.domain;
+  if (target === d && (among.members === null || among === sel)) return sel;
+  let rows: readonly number[] = target === d ? sel.indices : resolve(target, sel, who);
+  if (among.members !== null) rows = rows.filter((r) => among.holds(r));
   return select(target, rows, sel.key, true) as S;
 }
 
@@ -766,6 +886,26 @@ export function selectionIn<S extends Selection<any>>(sel: S, state: unknown): S
 export function isSelectionOf<Row = any>(v: unknown, kind: DomainKind): v is Selection<Row> {
   return v instanceof Selection && v.domain.kind === kind;
 }
+
+/** "a point", "an edge": a kind's name with its article. */
+const article = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`);
+
+/**
+ * @internal A `near` radius, checked once for every domain: a positive
+ * length. `Infinity` is a radius — every row is nearer than it — and so is
+ * any finite length above 0. NaN is degenerate input, a transient of a
+ * sketch being edited: it answers 0, and a radius of 0 holds no row. A
+ * negative number, 0 given as such, and anything that is not a number are
+ * refused by name.
+ */
+export function checkRadius(radius: unknown, who: string): number {
+  if (typeof radius === 'number' && Number.isNaN(radius)) return 0;
+  if (typeof radius !== 'number' || !(radius > 0)) throw new Error(`${who}: radius is a positive length — got ${describe(radius)}`);
+  return radius;
+}
+
+/** @internal Rows once each, ascending. */
+export const rowOrder = (rows: Iterable<number>): number[] => [...new Set(rows)].sort((a, b) => a - b);
 
 /** @internal The rows `0 … n − 1`, frozen: a dense domain's `all()`. */
 export function rowRange(n: number): readonly number[] {
