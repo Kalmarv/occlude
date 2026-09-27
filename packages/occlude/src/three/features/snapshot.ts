@@ -7,7 +7,8 @@ import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, outsideView3, toCamera3, toPaper3, type CameraFrame3, type PaperFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
 import {rowColumns3,transformPosition3,validateTransform3,type SurfaceTransform3,type Attributes3} from '../geometry/model.js';
-import { Mesh3, mesh3, type Columns3 } from '../geometry/mesh3.js';
+import { Mesh3, mesh3, kernelColumn, type Columns3 } from '../geometry/mesh3.js';
+import { kindOf } from '../../column.js';
 import type { Material } from '../../material.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
@@ -62,6 +63,10 @@ export interface Feature3 {
   readonly endpoints: readonly [string, string];
   readonly support: readonly string[];
   readonly attributes: Readonly<Attributes3>;
+  /** The attributes that are an edge column its edge distributes (a
+   * number or a vector): a line over part of the feature holds that part's
+   * share of each. Absent: none. */
+  readonly distribute?: readonly string[];
   readonly faceAttributes: readonly Readonly<Attributes3>[];
 }
 /** `neighbors` are the ids of edge-adjacent triangles of the same object: two
@@ -234,6 +239,9 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       return loop.every(v=>orient3d(...a,...b,...c,...worldPositions[v])===0);
     });
     const edgeFaces = mesh.edgeFaces, edgeCols = mesh.cols.edges;
+    // The edge columns a line along an edge holds its share of.
+    const shared = Object.keys(edgeCols).filter(name => mesh.policies.edges[name] === 'distribute' && kernelColumn(edgeCols[name]) && ['number', 'vector'].includes(kindOf(edgeCols[name]).name));
+    const distribute = shared.length ? { distribute: Object.freeze(shared) } : {};
     const originals = new Map<string, number>();
     for (let e = 0; e < mesh.edgeCount; e++) originals.set(edgeKey(mesh.edges[2 * e], mesh.edges[2 * e + 1]), e);
     const triangleEdges = new Map<string, { vertices: readonly [number, number]; triangles: number[] }>();
@@ -300,12 +308,12 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const own = original === undefined ? undefined : rowColumns3(mesh, 'edges', original);
       const flags = (original !== undefined && edgeFaces[original].length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original !== undefined && angle > 0 ? FeatureKind3.crease : 0) | (original !== undefined && edgeCols.marked !== undefined && mesh.cell('edges', 'marked', original) === true ? FeatureKind3.marked : 0);
       const support = [...new Set(incident.flatMap(i => { const f=faceOf[i]; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
-      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), ...(object.fillPen!==undefined?{fillPen:object.fillPen}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, names.points[v])) as [string, string], support, attributes: attributes({ ...object.attributes, ...own }), faceAttributes: [...new Set(incident.map(i => faceOf[i]))].map(i => faceAttrs[i]) });
+      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), ...(object.fillPen!==undefined?{fillPen:object.fillPen}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, names.points[v])) as [string, string], support, attributes: attributes({ ...object.attributes, ...own }), ...(own !== undefined ? distribute : {}), faceAttributes: [...new Set(incident.map(i => faceOf[i]))].map(i => faceAttrs[i]) });
     }
     for(let e=0;e<mesh.edgeCount;e++){
       if(edgeFaces[e].length)continue;
       const ends=[mesh.edges[2*e],mesh.edges[2*e+1]] as const;
-      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,names.edges[e]),objectId:object.id,sourceId:names.edges[e],flags:FeatureKind3.wire,creaseAngle:0,a:positions[ends[0]],b:positions[ends[1]],basis:edgeBasis(ends),endpoints:ends.map(v=>key(object.id,names.points[v])) as [string,string],support:[],attributes:attributes({...object.attributes,...rowColumns3(mesh,'edges',e)}),faceAttributes:[]});
+      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,names.edges[e]),objectId:object.id,sourceId:names.edges[e],flags:FeatureKind3.wire,creaseAngle:0,a:positions[ends[0]],b:positions[ends[1]],basis:edgeBasis(ends),endpoints:ends.map(v=>key(object.id,names.points[v])) as [string,string],support:[],attributes:attributes({...object.attributes,...rowColumns3(mesh,'edges',e)}),...distribute,faceAttributes:[]});
     }
     // Suggestive contours are a reading of this view, not of the model: they
     // are traced here beside the silhouettes and classified with them, on

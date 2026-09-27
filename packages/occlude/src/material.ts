@@ -4520,6 +4520,13 @@ export interface MaterialParts {
    * face's key: its declared transfer and fallback go with it. Not with a
    * face part's `cols`. */
   readonly faceColumns?: Readonly<Record<string, FaceColumn>>;
+  /** Face columns as a kernel answers them: one row per face part, in face
+   * order, of any kind (a reference stays a reference). Not with
+   * `faceColumns` or a face part's `cols`. */
+  readonly faceRows?: Readonly<Record<string, AnyColumn>>;
+  /** The policies of face columns made from `faceRows` or the parts'
+   * `cols` (absent: `'nearest'`). */
+  readonly faceTransfers?: Readonly<Record<string, FaceTransfer>>;
   /** Corner columns as a value holds them: one row per loop point, in face
    * and loop order, of any kind. Not with a face part's `corners`. */
   readonly cornerColumns?: Readonly<Record<string, AnyColumn>>;
@@ -4640,7 +4647,11 @@ export function materialFromParts(parts: MaterialParts): Material {
   const cycles = Object.freeze(loops.map((l) => Object.freeze([Object.freeze(l)])));
   const cornerCount = loops.reduce((sum, l) => sum + l.length, 0);
   if (parts.cornerColumns !== undefined && faces.some((f) => f.corners !== undefined)) throw new Error(`${who}: corner columns are given as held and as face parts' corners — give one`);
-  if (parts.faceColumns !== undefined && faces.some((f) => f.cols !== undefined)) throw new Error(`${who}: face columns are given as held and as face parts' cols — give one`);
+  if ([parts.faceColumns !== undefined, parts.faceRows !== undefined, faces.some((f) => f.cols !== undefined)].filter(Boolean).length > 1) throw new Error(`${who}: face columns are given as held, as rows and as face parts' cols — give one`);
+  for (const [name, col] of Object.entries(parts.faceRows ?? {})) {
+    checkColumnName('face', name, who);
+    if (col.length !== faces.length) throw new Error(`${who}: face column '${name}' has ${col.length} values for ${faces.length} faces`);
+  }
   for (const [name, col] of Object.entries(parts.cornerColumns ?? {})) {
     checkColumnName('corner', name, who);
     if (col.length !== cornerCount) throw new Error(`${who}: corner column '${name}' has ${col.length} values for ${cornerCount} corners`);
@@ -4694,8 +4705,12 @@ export function materialFromParts(parts: MaterialParts): Material {
   // Face columns are keyed by the walls each face is made of, as every
   // face column is, so they follow the faces the way `faces.set`'s do.
   const heldFaces = parts.faceColumns !== undefined && Object.keys(parts.faceColumns).length > 0;
-  if (heldFaces || faces.some((f) => f.cols !== undefined && Object.keys(f.cols).length > 0)) {
-    m = rebuild(m, {}, { faceAttrs: heldFaces ? { ...parts.faceColumns } : faceColumnsOfParts(faces, statedFaceIds(m, cycles), who) });
+  const faceRows = parts.faceRows !== undefined && Object.keys(parts.faceRows).length > 0;
+  if (heldFaces || faceRows || faces.some((f) => f.cols !== undefined && Object.keys(f.cols).length > 0)) {
+    const keys = heldFaces ? [] : statedFaceIds(m, cycles);
+    const made = heldFaces ? { ...parts.faceColumns } : faceRows ? faceColumnsOfRows(parts.faceRows!, keys) : faceColumnsOfParts(faces, keys, who);
+    if (!heldFaces) for (const name in parts.faceTransfers ?? {}) if (made[name] !== undefined) made[name] = { ...made[name], transfer: parts.faceTransfers![name] };
+    m = rebuild(m, {}, { faceAttrs: made });
   }
   const src = parts.source;
   const spec = (d: DomainSpec | ((row: number) => unknown) | undefined): DomainSpec | undefined =>
@@ -4764,6 +4779,23 @@ function faceColumnsOfParts(faces: readonly FacePart[], keys: readonly string[],
   for (const [name, map] of values) {
     const kind = kindOfName.get(name)!;
     out[name] = { values: map, transfer: 'nearest', seen, ...(kind === kinds.number ? {} : { kind }) };
+  }
+  return out;
+}
+
+/** The face columns of typed rows, one row per face (keyed by `keys`):
+ * each of its column's kind, every face given its row's value. */
+function faceColumnsOfRows(rows: Readonly<Record<string, AnyColumn>>, keys: readonly string[]): Record<string, FaceColumn> {
+  const out: Record<string, FaceColumn> = {};
+  const seen = new Set(keys);
+  for (const [name, col] of Object.entries(rows)) {
+    const kind = kindOf(col);
+    const values = new Map<string, unknown>();
+    for (let i = 0; i < keys.length; i++) {
+      const v = (col as { get(i: number): unknown }).get(i);
+      values.set(keys[i], Array.isArray(v) ? Object.freeze(v) : v);
+    }
+    out[name] = { values, transfer: 'nearest', seen, ...(kind === kinds.number ? {} : { kind }) };
   }
   return out;
 }

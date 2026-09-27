@@ -102,7 +102,8 @@ function toSegment(p:Vec3,a:Vec3,b:Vec3):number {
  * against the other solid, and the kept patches are welded by position.
  *
  * The answer: a point either solid holds keeps its name (the second solid's
- * under this operation's generation) and its columns; a seam point is new,
+ * under this operation's generation, and `held` says which of the second's
+ * each is) and its columns; a seam point is new,
  * its columns blended from the first solid's triangle it was cut on. An uncut
  * face of the first solid keeps its name; every other face names the face it
  * came from (its lineage). Every face answers `cut`.
@@ -298,6 +299,10 @@ export function booleanMesh3(operation:BooleanOperation3,first:Mesh3,second:Mesh
     }
   });
   const corner=(s:0|1,row:number)=>meshes[s].names.corners[row];
+  // The second solid's points the answer holds, by its names: its own, and
+  // one welded onto a point of the first (that point is both).
+  const held=new Map<string,string>();
+  sides[1].vertices.forEach((v,i)=>{const at=used.get(v);if(at!==undefined)held.set(second.names.points[i],pointNames[at]);});
   const made:Made3={
     x:Float64Array.from(order,v=>positions[v][0]),y:Float64Array.from(order,v=>positions[v][1]),z:Float64Array.from(order,v=>positions[v][2]),
     names:{points:pointNames,edges:edgeNames,faces:faceNames,corners:cornerNames3(outLoops,faceNames,pointNames)},
@@ -317,6 +322,7 @@ export function booleanMesh3(operation:BooleanOperation3,first:Mesh3,second:Mesh
         return {operation,parents:rows.map(r=>corner(s,r)),inputs:rows.map(()=>s)};
       }),
     },
+    held:[undefined,held],
   };
   try{checkMade3(made);}
   catch(error){throw new Error(`${operation}: the result is not a manifold surface (${(error as Error).message})`);}
@@ -391,7 +397,7 @@ function edgeColumns(meshes:readonly [Mesh3,Mesh3],from:readonly (EdgeFrom|undef
       const column=e===undefined?undefined:cols[e.side];
       if(e===undefined||column===undefined)return kind.default;
       const v=cellOf(column,e.edge);
-      if(meshes[e.side].value?.edgeTransfers[name]!=='distribute')return v;
+      if(meshes[e.side].policies.edges[name]!=='distribute')return v;
       return kind===kinds.number?(v as number)*e.share:(v as readonly number[]).map(x=>x*e.share);
     });
   });

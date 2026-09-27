@@ -49,14 +49,14 @@ import {curveSamplesOf,rebindCurveSamples} from './curveSampling.js';
 const ORIGIN:Vec3=Object.freeze([0,0,0]) as unknown as Vec3;
 const IDENTITY=rotation3([0,0,0]);
 /** The state a value carries into a result that keeps its rows: its
- * origin, orientation, radial centre, transfer policies and key. */
+ * origin, orientation, radial centre and key (its columns' policies ride
+ * with the columns, `made3`). */
 function kept(m:Material,more:Partial<MadeCarry3>={}):MadeCarry3 {
   return {
     from:m,
     ...(m.origin!==undefined?{origin:m.origin}:{}),
     ...(m.orientation!==undefined?{orientation:m.orientation}:{}),
     ...(m.radialCentre!==undefined?{radialCentre:m.radialCentre}:{}),
-    transfers:m.transfers,
     ...(m.key!==undefined?{key:m.key}:{}),
     // The same faces answer the same source (points and edges carry theirs
     // through the links).
@@ -305,20 +305,17 @@ export function smooth3(m:Material,domain:'faces'|'corners',name:string,options:
 export function subdivide3(m:Material,levels=1,options:SubdivisionOptions={}):Material {
   refuseNoFaces(m,'subdivide');
   const mesh=mesh3(m);
-  return derivedValue('subdivide',m,subdivideMesh3(mesh,levels,options,m.transfers,{})??unchanged(mesh),[m]);
+  return derivedValue('subdivide',m,subdivideMesh3(mesh,levels,options)??unchanged(mesh),[m]);
 }
 /** The booleans: both values closed solids; the seam is exact, and the
  * faces along it answer `cut`. An uncut face of the first keeps its row
- * identity and columns; a face of the other keeps its columns. */
+ * identity and columns; a face of the other keeps its columns. A column
+ * keeps the policy of the first solid that holds it. */
 export function boolean3(operation:BooleanOperation3):(m:Material,other:Material)=>Material {
   return (m,other)=>{
     if(typeof other!=='object'||other===null||!('cache' in other))throw new Error(`${operation}: the second value is not a mesh — a geometry with faces`);
     refuseNoFaces(m,operation);refuseNoFaces(other,operation);
-    const made=booleanMesh3(operation,mesh3(m),mesh3(other));
-    // An edge column keeps the policy of the solid whose edges it came
-    // from: the first's, where both hold it.
-    const edgeTransfers=Object.fromEntries(Object.keys(made.cols?.edges??{}).flatMap(name=>{const t=(name in m.store.edgeAttrs?m:other).edgeTransfers[name];return t===undefined?[]:[[name,t]];}));
-    return derivedValue(operation,m,made,[m,other],{transfers:{},edgeTransfers});
+    return derivedValue(operation,m,booleanMesh3(operation,mesh3(m),mesh3(other)),[m,other]);
   };
 }
 /** `dual(options?)`: one point per face at its middle, one face per vertex
@@ -328,7 +325,9 @@ export function dual3(m:Material,options:DualOptions={}):Material {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('dual options must be an object');
   refuseNoFaces(m,'dual');
   // The dual of a shell star-shaped about a point is star-shaped about it.
-  return derivedValue('dual',m,dualMesh3(mesh3(m),options),[m],{transfers:{},radialCentre:m.radialCentre});
+  // Its points are the faces and its faces the points: no policy of either
+  // is theirs. An edge crosses its edge and keeps its column's policy.
+  return derivedValue('dual',m,dualMesh3(mesh3(m),options),[m],{policies:{points:{},faces:{}},radialCentre:m.radialCentre});
 }
 
 export interface DisplaceOptions {

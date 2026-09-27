@@ -1,4 +1,4 @@
-import {checkMade3,faceEdges3,kernelColumn,pairKey,type Columns3,type Made3,type Mesh3,type Provenance3} from './mesh3.js';
+import {checkMade3,edgeColumns3,faceEdges3,kernelColumn,pairKey,type Columns3,type Made3,type Mesh3,type Provenance3} from './mesh3.js';
 import {kindOf,kinds,kindWords,type AnyColumn,type AnyKind} from '../../column.js';
 import {add3,cross3,finite3,mul3,sub3,unit3,type Vec3} from '../math.js';
 
@@ -174,19 +174,26 @@ export function extrudeRegion3(mesh:Mesh3,components:readonly ExtrudeComponent3[
         faceNames.push(mint('face',component.index,'side',edgeName));
         faceLineage.push({operation:'extrude',parents:[edgeName]});
         faceLoops.push([a,b,bTop,aTop]);triangles.push([0,1,2,0,2,3]);
-        parentEdge.set(pairKey(aTop,bTop),e.edge);parentEdge.set(pairKey(a,aTop),e.edge);
+        parentEdge.set(pairKey(a,aTop),e.edge);
       });
     }
   }
   // The edges as assembly derives them from the input's: a kept edge keeps
-  // its name and columns. A generated edge inherits its boundary edge's
-  // columns: the cap copy and the vertical rising from that edge's start.
+  // its name and columns. A made edge between (copies of) two points the
+  // input joins is that edge moved with the cap: its columns, a distributed
+  // one whole. A vertical rising from a boundary edge's start copies that
+  // edge's columns and holds none of a distributed one: it covers none of
+  // its length.
   const derived=faceEdges3(faceLoops,pointNames,mesh),edgeCount=derived.edges.length/2;
-  const edgeRows:number[]=[],edgeLineage:(Provenance3|undefined)[]=[];
+  const joined=new Map<number,number>();
+  for(let e=0;e<mesh.edgeCount;e++)joined.set(pairKey(mesh.edges[2*e],mesh.edges[2*e+1]),e);
+  const edgeRows:number[]=[],edgeShares:number[]=[],edgeLineage:(Provenance3|undefined)[]=[];
   for(let e=0;e<edgeCount;e++){
-    const kept=derived.kept[e];
-    const parent=kept>=0?undefined:parentEdge.get(pairKey(derived.edges[2*e],derived.edges[2*e+1]));
-    edgeRows.push(kept>=0?kept:parent??-1);
+    const kept=derived.kept[e],a=derived.edges[2*e],b=derived.edges[2*e+1];
+    if(kept>=0){edgeRows.push(kept);edgeShares.push(1);edgeLineage.push(undefined);continue;}
+    const moved=pointRows[a]===pointRows[b]?undefined:joined.get(pairKey(pointRows[a],pointRows[b]));
+    const parent=moved??parentEdge.get(pairKey(a,b));
+    edgeRows.push(parent??-1);edgeShares.push(moved!==undefined?1:0);
     edgeLineage.push(parent===undefined?undefined:{operation:'extrude',parents:[names.edges[parent]]});
   }
   const cols=mesh.cols;
@@ -194,7 +201,7 @@ export function extrudeRegion3(mesh:Mesh3,components:readonly ExtrudeComponent3[
     x,y,z,
     names:{points:pointNames,edges:derived.names,faces:faceNames,corners:cornerNames},
     loops:faceLoops,triangles,edges:derived.edges,
-    cols:{points:columnsOf(cols.points,{rows:pointRows,over:new Map()}),edges:columnsOf(cols.edges,{rows:edgeRows,over:new Map()}),faces:columnsOf(cols.faces,faceCols),corners:columnsOf(cols.corners,cornerCols)},
+    cols:{points:columnsOf(cols.points,{rows:pointRows,over:new Map()}),edges:edgeColumns3(mesh,edgeRows,edgeShares),faces:columnsOf(cols.faces,faceCols),corners:columnsOf(cols.corners,cornerCols)},
     lineage:{points:pointLineage,edges:edgeLineage,faces:faceLineage,corners:cornerLineage},
   };
   checkMade3(made);
