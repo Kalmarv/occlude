@@ -1310,96 +1310,7 @@ export class Material {
    * shared out over the children by their share of the new arc length.
    */
   spline(opts: { tension?: number; steps?: number } = {}): Material {
-    const tension = opts.tension ?? 0.5;
-    if (!Number.isFinite(tension) || tension < 0 || tension > 1) {
-      throw new Error(`spline: { tension } must be a number from 0 to 1 (got ${String(opts.tension)})`);
-    }
-    const steps = opts.steps ?? 8;
-    if (!Number.isInteger(steps) || steps < 1) {
-      throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
-    }
-    const X = this.x;
-    const Y = this.y;
-    const L = this.edgeList;
-    const points = new PointRows(this, 'spline');
-    const edges = new EdgeRows(this);
-    const storedRow = new Map<number, number>();
-    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
-    const rowOf = new Map<number, number>();
-    // A source vertex, verbatim — not through the transfer policy, which
-    // says what a value does at a NEW vertex. A vertex two segments share is
-    // one row.
-    const rowFor = (v: number): number => {
-      const had = rowOf.get(v);
-      if (had !== undefined) return had;
-      const row = points.keep(v);
-      rowOf.set(v, row);
-      return row;
-    };
-    /** One source edge through as it is: same row, same lineage. */
-    const keep = (a: number, b: number, row: number) => edges.keep(row, rowFor(a), rowFor(b));
-    // Isolated vertices are not chains: they come through unchanged.
-    for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) rowFor(i);
-    for (const c of chainsOf(this)) {
-      // A loop that leaves a junction and comes back to it ends there twice,
-      // like any chain that ends at a junction: it is walked open.
-      const pinned = c.closed && this.adj[c.indices[0]].length > 2;
-      const idx = pinned ? [...c.indices, c.indices[0]] : c.indices;
-      const closed = c.closed && !pinned;
-      const k = idx.length;
-      const segs = closed ? k : k - 1;
-      const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s % k], idx[(s + 1) % k]))!;
-      // Two vertices describe a straight line and nothing else: no curve to
-      // draw, so the chain is the chain it was.
-      if (k < 3) {
-        for (let s = 0; s < segs; s++) keep(idx[s % k], idx[(s + 1) % k], rowOfSeg(s));
-        continue;
-      }
-      // The vertex before the segment and the one after it set the tangents.
-      // An open chain has none at its ends, so the end segment is its own
-      // neighbour and the curve leaves along it.
-      const at = (j: number): number => (closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
-      for (let s = 0; s < segs; s++) {
-        const row = rowOfSeg(s);
-        const p0 = at(s - 1);
-        const p1 = at(s);
-        const p2 = at(s + 1);
-        const p3 = at(s + 2);
-        const m0x = tension * (X[p2] - X[p0]);
-        const m0y = tension * (Y[p2] - Y[p0]);
-        const m1x = tension * (X[p3] - X[p1]);
-        const m1y = tension * (Y[p3] - Y[p1]);
-        const rows: number[] = [rowFor(p1)];
-        for (let i = 1; i < steps; i++) {
-          const u = i / steps;
-          const u2 = u * u;
-          const u3 = u2 * u;
-          const h00 = 2 * u3 - 3 * u2 + 1;
-          const h10 = u3 - 2 * u2 + u;
-          const h01 = -2 * u3 + 3 * u2;
-          const h11 = u3 - u2;
-          // A new vertex, its columns read between p1 and p2 at u.
-          rows.push(points.between(
-            p1, p2, u,
-            h00 * X[p1] + h10 * m0x + h01 * X[p2] + h11 * m1x,
-            h00 * Y[p1] + h10 * m0y + h01 * Y[p2] + h11 * m1y,
-          ));
-        }
-        rows.push(rowFor(p2));
-        // A 'distribute' column is shared over the children by their share
-        // of the arc the segment now takes, so the quantity the source edge
-        // carried is still what its children carry between them.
-        const spans: number[] = [];
-        let total = 0;
-        for (let i = 1; i < rows.length; i++) {
-          const d = Math.hypot(points.x[rows[i]] - points.x[rows[i - 1]], points.y[rows[i]] - points.y[rows[i - 1]]);
-          spans.push(d);
-          total += d;
-        }
-        for (let i = 1; i < rows.length; i++) edges.from(row, rows[i - 1], rows[i], total > 0 ? spans[i - 1] / total : 1 / spans.length);
-      }
-    }
-    return rebuild(this, { ...points.done(), ...edges.done() });
+    return splineMaterial(this, opts, null);
   }
 
   /**
@@ -2266,6 +2177,122 @@ export function resampleMaterial(self: Material, opts: { spacing?: number; count
 
 /** The share list of an edge when no column distributes. */
 const NO_PARTS: number[] = [];
+
+/** @internal `m.spline(opts)`; see the method. Every source vertex is kept,
+ * row and all; a vertex it places between two of them answers `source`, the
+ * input edge it bends over, and so does every new edge. `origin` names the
+ * value the sketch passed, as for `resampleMaterial`. */
+export function splineMaterial(self: Material, opts: { tension?: number; steps?: number }, origin: InputRows | null): Material {
+  const tension = opts.tension ?? 0.5;
+  if (!Number.isFinite(tension) || tension < 0 || tension > 1) {
+    throw new Error(`spline: { tension } must be a number from 0 to 1 (got ${String(opts.tension)})`);
+  }
+  const steps = opts.steps ?? 8;
+  if (!Number.isInteger(steps) || steps < 1) {
+    throw new Error(`spline: { steps } must be a whole number of samples per segment, at least 1 (got ${String(opts.steps)})`);
+  }
+  const X = self.x;
+  const Y = self.y;
+  const L = self.edgeList;
+  const points = new PointRows(self, 'spline');
+  const edges = new EdgeRows(self);
+  const storedRow = new Map<number, number>();
+  for (let e = 0; e < self.edgeCount; e++) storedRow.set(pairKey(L[2 * e], L[2 * e + 1]), e);
+  // The input edge under each placed row (derivation.ts); a kept row has
+  // none and answers what it answered before.
+  const under: number[] = [];
+  const rowOf = new Map<number, number>();
+  // A source vertex, verbatim — not through the transfer policy, which
+  // says what a value does at a NEW vertex. A vertex two segments share is
+  // one row.
+  const rowFor = (v: number): number => {
+    const had = rowOf.get(v);
+    if (had !== undefined) return had;
+    const row = points.keep(v);
+    rowOf.set(v, row);
+    return row;
+  };
+  /** One source edge through as it is: same row, same lineage. */
+  const keep = (a: number, b: number, row: number) => edges.keep(row, rowFor(a), rowFor(b));
+  // Isolated vertices are not chains: they come through unchanged.
+  for (let i = 0; i < self.n; i++) if (self.adjacentRows(i).length === 0) rowFor(i);
+  for (const c of chainsOf(self)) {
+    // A loop that leaves a junction and comes back to it ends there twice,
+    // like any chain that ends at a junction: it is walked open.
+    const pinned = c.closed && self.adjacentRows(c.indices[0]).length > 2;
+    const idx = pinned ? [...c.indices, c.indices[0]] : c.indices;
+    const closed = c.closed && !pinned;
+    const k = idx.length;
+    const segs = closed ? k : k - 1;
+    const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s % k], idx[(s + 1) % k]))!;
+    // Two vertices describe a straight line and nothing else: no curve to
+    // draw, so the chain is the chain it was.
+    if (k < 3) {
+      for (let s = 0; s < segs; s++) keep(idx[s % k], idx[(s + 1) % k], rowOfSeg(s));
+      continue;
+    }
+    // The vertex before the segment and the one after it set the tangents.
+    // An open chain has none at its ends, so the end segment is its own
+    // neighbour and the curve leaves along it.
+    const at = (j: number): number => (closed ? idx[((j % k) + k) % k] : idx[Math.max(0, Math.min(k - 1, j))]);
+    for (let s = 0; s < segs; s++) {
+      const row = rowOfSeg(s);
+      const p0 = at(s - 1);
+      const p1 = at(s);
+      const p2 = at(s + 1);
+      const p3 = at(s + 2);
+      const m0x = tension * (X[p2] - X[p0]);
+      const m0y = tension * (Y[p2] - Y[p0]);
+      const m1x = tension * (X[p3] - X[p1]);
+      const m1y = tension * (Y[p3] - Y[p1]);
+      const rows: number[] = [rowFor(p1)];
+      for (let i = 1; i < steps; i++) {
+        const u = i / steps;
+        const u2 = u * u;
+        const u3 = u2 * u;
+        const h00 = 2 * u3 - 3 * u2 + 1;
+        const h10 = u3 - 2 * u2 + u;
+        const h01 = -2 * u3 + 3 * u2;
+        const h11 = u3 - u2;
+        // A new vertex, its columns read between p1 and p2 at u.
+        const placed = points.between(
+          p1, p2, u,
+          h00 * X[p1] + h10 * m0x + h01 * X[p2] + h11 * m1x,
+          h00 * Y[p1] + h10 * m0y + h01 * Y[p2] + h11 * m1y,
+        );
+        under[placed] = row;
+        rows.push(placed);
+      }
+      rows.push(rowFor(p2));
+      // A 'distribute' column is shared over the children by their share
+      // of the arc the segment now takes, so the quantity the source edge
+      // carried is still what its children carry between them.
+      const spans: number[] = [];
+      let total = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const d = Math.hypot(points.x[rows[i]] - points.x[rows[i - 1]], points.y[rows[i]] - points.y[rows[i - 1]]);
+        spans.push(d);
+        total += d;
+      }
+      for (let i = 1; i < rows.length; i++) edges.from(row, rows[i - 1], rows[i], total > 0 ? spans[i - 1] / total : 1 / spans.length);
+    }
+  }
+  // The links, in the rows of the value the sketch passed: a placed point
+  // and a new edge to the source edge they bend over. A kept row is the row
+  // it was, and says nothing new.
+  const of = origin?.of ?? self;
+  const map = origin?.edges ?? null;
+  const input = (e: number | undefined) => (e === undefined || e < 0 ? -1 : map === null ? e : map[e]);
+  const pointRows = new Int32Array(points.length);
+  for (let r = 0; r < pointRows.length; r++) pointRows[r] = input(under[r]);
+  const edgeRows = new Int32Array(edges.length);
+  for (let k = 0; k < edgeRows.length; k++) edgeRows[k] = input(edges.madeFrom(k));
+  const out = rebuild(self, { ...points.done(), ...edges.done() });
+  return record(linkRows(out, {
+    points: { source: { of, domain: 'edges', rows: pointRows } },
+    edges: { source: { of, domain: 'edges', rows: edgeRows } },
+  }), derivation('spline', [of], { ...opts }));
+}
 
 /** Sampling options shared by `t.sample`, `resample` and `along`: exactly
  * one of `count` or `spacing`, and a count in whole samples — a missing,
