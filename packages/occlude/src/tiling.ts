@@ -11,11 +11,15 @@
  * The answer is GEOMETRY: a plain `Material` whose vertices and walls are
  * SHARED, so a wall between two cells is one edge and a plotter draws it
  * once, and whose faces are the cells, STATED in the order the flood
- * reached them. A face knows its `generation` and its hand (`mirrored`),
- * and its `source` is the `Placement` that carried the fundamental polygon
- * there, the identity first, so a sketch maps a motif through the
- * isometries with `tiles.faces.map((f) => group(f.source, motif))`. The
- * fundamental polygon is face 0. A curved wall is carried as samples, and
+ * reached them. A face knows its `generation`, its hand (`mirrored`) and
+ * its `sides`, and its `source` is the `Placement` that carries the MODEL
+ * face onto it — the regular polygon of its kind, centred on the model's
+ * origin with a corner toward `+x`, at the tiling's scale — so a sketch
+ * draws a motif once about the origin and maps it onto every face with
+ * `tiles.faces.map((f) => group(f.source, motif))`. The model's origin is
+ * the sheet's `[0, 0]` on the flat plane and the centre of the space in a
+ * curved one: the point `door.down([0, 0, 1])` in both. The fundamental
+ * polygon is face 0. A curved wall is carried as samples, and
  * the point column `corner` is 1 at a cell's corners — the first cell's
  * come first, in order round it — and 0 at the samples. The geometry is
  * the material's own `space.kind`.
@@ -26,6 +30,12 @@
  * coordinates `i` and `j` beside the rest; `gap` parts the cells. A curved
  * symbol has no drawable to cover — the disk is unbounded in its own
  * metric, the sphere is finite — so it floods `depth` generations.
+ *
+ * A tiling is described to the kernels here as a `TilingModel`: the cell
+ * the flood reflects, and the KINDS of face each copy of that cell
+ * carries. The regular `{p, q}` is one kind, the cell itself;
+ * `uniformTiling.ts` builds the models of the uniform tilings by vertex
+ * configuration on the same flood.
  *
  * This module is pure and knows nothing of the sheet: `t.tiling` is the
  * door a sketch uses, and it hands in the model door and the map that
@@ -41,7 +51,7 @@ import type { Origin } from './shapes.js';
 import { statedColumns } from './faces.js';
 import { Material, mintIds } from './material.js';
 import type { Rect } from './layout.js';
-import { act, identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
+import { act, between, identity, reflection, type Model, type ModelDoor, type Placement } from './placement.js';
 import { chordMiddle, metricGap, modelGap } from './chord.js';
 import { signedArea, type Space, type SpaceKind } from './space.js';
 import { tileGroup, type TileOps } from './tilegroup.js';
@@ -49,8 +59,10 @@ import type { L } from './units.js';
 import type { Vec, XY } from './vec.js';
 
 export interface TilingOpts {
-  /** Generations of neighbours to reflect out to. Depth 0 is the
-   * fundamental polygon alone; depth 1 adds its `p` edge neighbours. */
+  /** Generations of neighbours to reflect out to, for a curved tiling.
+   * Depth 0 is the fundamental cell alone; depth 1 adds its `p` edge
+   * neighbours. A vertex configuration counts the generations of the
+   * `{p, q}` cell its faces are built on. */
   depth?: number;
   /**
    * The length of a wall, for a EUCLIDEAN symbol only. Left out, a plane
@@ -64,10 +76,11 @@ export interface TilingOpts {
    */
   side?: L;
   /**
-   * Where the cell's centre stands (see `Origin`), for a EUCLIDEAN symbol:
-   * a point, or `'center'`/`'centroid'` for the middle of the drawable,
-   * which is also the default. A curved tiling stands on its chart's
-   * centre, and moving it is a placement: `origin` refuses by name there.
+   * Where the centre of the first face stands (see `Origin`), for a
+   * EUCLIDEAN tiling: a point, or `'center'`/`'centroid'` for the middle of
+   * the drawable, which is also the default. A curved tiling stands on its
+   * chart's centre, and moving it is a placement: `origin` refuses by name
+   * there.
    */
   origin?: Origin;
   /** Turn the whole tiling about its centre, in degrees counter-clockwise.
@@ -145,6 +158,112 @@ export function modelCell(geometry: SpaceKind, p: number, q: number): Vec[] {
     const th = (2 * Math.PI * k) / p;
     return [r * Math.cos(th), r * Math.sin(th)] as Vec;
   });
+}
+
+// ---- the model ------------------------------------------------------------
+
+/**
+ * One kind of face a copy of the flood cell carries, in the model chart:
+ * the regular polygon's corners counter-clockwise, and its centre. The
+ * first corner is the one the face's frame faces: `source` carries the
+ * model origin frame, facing `+x`, onto the centre facing that corner.
+ */
+export interface FaceKind {
+  readonly loop: readonly Vec[];
+  readonly centre: Vec;
+  /** One face per copy of the cell, never shared with another copy: the
+   * cell's own face, or a face inside it. A face that stands on a corner
+   * or a wall of the cell is shared, and the first copy to reach it keeps
+   * it. */
+  readonly own: boolean;
+}
+
+/**
+ * A tiling as the flood builds it: the cell the reflections are taken in,
+ * its centre (where a copy is named), and the kinds of face every copy
+ * carries.
+ */
+export interface TilingModel {
+  readonly geometry: SpaceKind;
+  /** The cell the flood reflects in its own walls, counter-clockwise. */
+  readonly cell: readonly Vec[];
+  readonly centre: Vec;
+  readonly kinds: readonly FaceKind[];
+  /**
+   * The length of a wall in the model chart, for a flat tiling: `side`
+   * is this many chart units. 1 for the regular cell.
+   */
+  readonly wall: number;
+  /**
+   * For a CHIRAL tiling (a snub), two chart points on a mirror of the cell
+   * through its centre: a copy that turns the plane over carries the
+   * faces only after this mirror has turned it back, so every copy keeps
+   * the one hand the faces were built in.
+   */
+  readonly chiral?: readonly [Vec, Vec];
+  /** The regular flat tilings' `p`: their faces carry lattice `i`, `j`. */
+  readonly lattice?: number;
+}
+
+/** The regular `{p, q}` as a model: the cell is the one face. */
+export function regularModel(p: number, q: number): TilingModel {
+  const geometry = tilingGeometry(p, q);
+  const cell = modelCell(geometry, p, q);
+  return {
+    geometry,
+    cell,
+    centre: [0, 0],
+    kinds: [{ loop: cell, centre: [0, 0], own: true }],
+    wall: 1,
+    lattice: geometry === 'euclidean' ? p : undefined,
+  };
+}
+
+/**
+ * What the kernels are handed: the model door of the sketch's space and
+ * the fit of the model chart onto the sheet.
+ *
+ * `up` carries a chart point to sketch coordinates. `motif` carries it to
+ * the MOTIF frame: the same scale, but about the model's own origin and
+ * unturned. `fit` is the placement between the two, so `up` is
+ * `fit ∘ motif`, and undefined when it is the identity (a curved tiling
+ * not turned). A face's `source` is its frame in the motif frame, then
+ * `fit`, then the copy's placement.
+ */
+export interface TilingPlace {
+  door: ModelDoor;
+  up: (z: XY) => Vec;
+  motif: (z: XY) => Vec;
+  fit?: Placement;
+  space: Space;
+}
+
+/**
+ * The frame of each face kind, as a placement from the motif origin frame:
+ * centre and the heading toward its first corner, then the fit. Undefined
+ * when the whole thing is the identity, so an unturned curved `{p, q}`
+ * keeps the flood's own placements exactly.
+ */
+function kindFrames(model: TilingModel, place: TilingPlace): (Placement | undefined)[] {
+  const origin = place.motif([0, 0]);
+  return model.kinds.map((kind) => {
+    const c = place.motif(kind.centre);
+    const v = place.space.log(c, place.motif(kind.loop[0]));
+    const heading = Math.atan2(v[1], v[0]);
+    const home = c[0] === origin[0] && c[1] === origin[1] && Math.abs(heading) < 1e-12;
+    const own = home ? undefined : between(place.door, { x: origin[0], y: origin[1], heading: 0 }, { x: c[0], y: c[1], heading });
+    if (!own) return place.fit;
+    return place.fit ? own.then(place.fit) : own;
+  });
+}
+
+/** Every copy of the cell with the placement that carries its faces: the
+ * copy itself, or, for a chiral model, a copy that turns the plane over
+ * turned back by the cell's own mirror first. */
+function carriersOf(model: TilingModel, place: TilingPlace, tiles: readonly Placement[]): Placement[] {
+  if (!model.chiral) return tiles as Placement[];
+  const mirror = reflection(place.door, place.up(model.chiral[0]), place.up(model.chiral[1]));
+  return tiles.map((m) => (m.orientation < 0 ? mirror.then(m) : m));
 }
 
 // ---- the mesh -------------------------------------------------------------
@@ -265,37 +384,36 @@ interface Wall {
 
 /**
  * The tiling AS GEOMETRY: shared corners, shared walls, and one closed run
- * of vertex rows per copy.
+ * of vertex rows per face.
  *
- * The vertex order is settled and repeatable: cell corner `j` of copy `i`
- * first come first served in `i` then `j`, then every wall's samples in
- * the order the walls were found. Corners carry `corner = 1` and samples
- * `corner = 0`.
+ * Each face is a model loop — its corners at the fundamental position, as
+ * model vectors — and the placement that carries it. The vertex order is
+ * settled and repeatable: corner `j` of face `i` first come first served
+ * in `i` then `j`, then every wall's samples in the order the walls were
+ * found. Corners carry `corner = 1` and samples `corner = 0`.
  *
- * A face runs the seed's own way round for a copy that keeps its hand, and
- * the other way for a MIRRORED one. It has to: a reflection fixes the wall
- * it is taken in, so both copies would otherwise run that shared wall from
- * the same corner to the same corner, and a wall belongs to one face on
- * each side.
+ * A face runs its loop's own way round for a carrier that keeps its hand,
+ * and the other way for a MIRRORED one. It has to: a reflection fixes the
+ * wall it is taken in, so both copies would otherwise run that shared wall
+ * from the same corner to the same corner, and a wall belongs to one face
+ * on each side.
  */
-function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: readonly Placement[]): {
+function meshOf(door: ModelDoor, bow: number, faces: readonly { loop: readonly Model[]; carrier: Placement }[]): {
   x: Float64Array;
   y: Float64Array;
   corner: Float64Array;
   edgeList: Uint32Array;
   cycles: number[][];
-  /** The placement each cycle belongs to, by the same index. */
+  /** The face each cycle belongs to, by the same index. */
   kept: number[];
 } {
-  const p = cell.length;
   const xs: number[] = [];
   const ys: number[] = [];
   const isCorner: number[] = [];
   const index = new Corners();
-  const chart = cell.map((v) => door.up(v));
   // Pass one: the corners, so their rows come first and stay put.
-  const cornerRow: number[][] = placements.map((place) => chart.map((v) => {
-    const at = act(place.m, v);
+  const cornerRow: number[][] = faces.map(({ loop, carrier }) => loop.map((v) => {
+    const at = act(carrier.m, v);
     const found = index.find(at);
     if (found !== undefined) return found;
     const row = xs.length;
@@ -306,7 +424,7 @@ function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: 
     index.add(at, row);
     return row;
   }));
-  // Pass two: the walls, each one once however many copies share it, with
+  // Pass two: the walls, each one once however many faces share it, with
   // its samples appended after every corner.
   const walls = new Map<string, Wall>();
   const order: Wall[] = [];
@@ -328,12 +446,13 @@ function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: 
   };
   const cycles: number[][] = [];
   const kept: number[] = [];
-  for (let i = 0; i < placements.length; i++) {
+  for (let i = 0; i < faces.length; i++) {
+    const p = cornerRow[i].length;
     const run: number[] = [];
     for (let j = 0; j < p; j++) {
       const a = cornerRow[i][j];
       const b = cornerRow[i][(j + 1) % p];
-      // A cell whose corners collapse onto one another is no cell; the
+      // A face whose corners collapse onto one another is no face; the
       // copy is dropped rather than drawn as a crease.
       if (a === b) {
         run.length = 0;
@@ -343,7 +462,7 @@ function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: 
       run.push(a, ...(wall.a === a ? wall.samples : [...wall.samples].reverse()));
     }
     if (run.length < 3) continue;
-    cycles.push(placements[i].orientation < 0 ? [run[0], ...run.slice(1).reverse()] : run);
+    cycles.push(faces[i].carrier.orientation < 0 ? [run[0], ...run.slice(1).reverse()] : run);
     kept.push(i);
   }
   const edges: number[] = [];
@@ -368,50 +487,67 @@ function meshOf(door: ModelDoor, bow: number, cell: readonly Vec[], placements: 
 const CLOSURE = 16;
 
 /**
- * The `{p, q}` tiling, placed through one model door.
+ * A tiling, placed through one model door.
  *
- * The symbol picks the geometry and builds the fundamental polygon in that
- * geometry's MODEL CHART; `place.up` carries a chart point into the
- * sketch's own coordinates, and `place.door` is the model door of the
- * sketch's space, which is this very geometry. The flood then runs in
- * those coordinates, so every placement that comes back is an isometry a
- * sketch can hand straight to `group`, `m.transform` or a walk.
- * `place.bow` is the bow a wall's stored chords may keep, in the space's
- * metric and in sketch units: the toolkit reads it off the frame, where
- * the chart is widest.
+ * The model picks the geometry and builds the cell in that geometry's
+ * MODEL CHART; `place.up` carries a chart point into the sketch's own
+ * coordinates, and `place.door` is the model door of the sketch's space,
+ * which is this very geometry. The flood then runs in those coordinates,
+ * so every placement that comes back is an isometry a sketch can hand
+ * straight to `group`, `m.transform` or a walk. `place.bow` is the bow a
+ * wall's stored chords may keep, in the space's metric and in sketch
+ * units: the toolkit reads it off the frame, where the chart is widest.
  *
  * `depth` is generations of reflection across the cell's edges, 3 by
- * default: depth 1 is the cell and its `p` edge neighbours. A spherical
- * tiling is FINITE — there are only ever 4, 6, 8, 12 or 20 cells — so it
- * is returned whole and `depth` is ignored rather than refused.
+ * default: depth 1 is the cell and its edge neighbours. A spherical
+ * tiling is FINITE, so it is returned whole and `depth` is ignored rather
+ * than refused.
+ *
+ * Every copy of the cell carries every kind of face the model names. A
+ * face that stands on a corner or a wall of the cell is reached by each
+ * copy round it and kept once, by the first, and it takes that copy's
+ * generation.
  *
  * The material is built HERE and not in the toolkit: once it has the door
  * it needs no frame, and a material is the answer rather than a step on
  * the way to one. `side` is resolved before this — it is a length, and a
  * length is the frame's business.
  */
-export function tiling(
-  p: number,
-  q: number,
-  opts: TilingOpts,
-  place: { door: ModelDoor; up: (z: XY) => Vec; bow: number; space?: Space },
-): Material {
-  const geometry = tilingGeometry(p, q);
-  const cell = modelCell(geometry, p, q).map(place.up);
-  const depth = geometry === 'spherical'
+export function tiling(model: TilingModel, opts: TilingOpts, place: TilingPlace & { bow: number }): Material {
+  const lift = (z: XY): Model => place.door.up(place.up(z));
+  const cell = model.cell.map(place.up);
+  const depth = model.geometry === 'spherical'
     ? CLOSURE
     : opts.depth === undefined ? 3 : Math.floor(opts.depth);
   const flood = !Number.isFinite(depth) || depth < 0
     ? { tiles: [], generation: [] }
-    : tileGroup('tiling', tileOps(place.door, place.door.up(place.up([0, 0]))), cell, depth);
-  const mesh = meshOf(place.door, place.bow, cell, flood.tiles);
+    : tileGroup('tiling', tileOps(place.door, lift(model.centre)), cell, depth);
+  const carriers = carriersOf(model, place, flood.tiles);
+  const frames = kindFrames(model, place);
+  const loops = model.kinds.map((kind) => kind.loop.map(lift));
+  const centres = model.kinds.map((kind) => lift(kind.centre));
+  const seats = new Corners();
+  const faces: { loop: readonly Model[]; carrier: Placement; source: Placement; generation: number; sides: number }[] = [];
+  for (let t = 0; t < carriers.length; t++) {
+    const carrier = carriers[t];
+    model.kinds.forEach((kind, k) => {
+      if (!kind.own) {
+        const at = act(carrier.m, centres[k]);
+        if (seats.find(at) !== undefined) return;
+        seats.add(at, faces.length);
+      }
+      const frame = frames[k];
+      faces.push({ loop: loops[k], carrier, source: frame ? frame.then(carrier) : carrier, generation: flood.generation[t], sides: kind.loop.length });
+    });
+  }
+  const mesh = meshOf(place.door, place.bow, faces);
   // The ids are minted here, in the order the constructor would mint them,
   // because the face columns are keyed by the walls of each face and a
   // wall is named by its edge's id.
   const points = mintIds(mesh.x.length);
   const edges = mintIds(mesh.edgeList.length / 2);
   const cycles = mesh.cycles.map((run) => [run]);
-  const placed = mesh.kept.map((k) => flood.tiles[k]);
+  const kept = mesh.kept.map((f) => faces[f]);
   return new Material(
     mesh.x,
     mesh.y,
@@ -420,61 +556,72 @@ export function tiling(
     {
       ids: { points, edges },
       faceAttrs: statedColumns(cycles, mesh.x.length, mesh.edgeList, edges, {
-        generation: (f) => flood.generation[mesh.kept[f]],
-        mirrored: (f) => (placed[f].orientation < 0 ? 1 : 0),
+        generation: (f) => kept[f].generation,
+        mirrored: (f) => (kept[f].source.orientation < 0 ? 1 : 0),
+        sides: (f) => kept[f].sides,
       }),
       space: place.space,
-      faces: { cycles, source: (f) => placed[f], edgeList: mesh.edgeList, edgeIds: edges },
+      faces: { cycles, source: (f) => kept[f].source, edgeList: mesh.edgeList, edgeIds: edges },
     },
   );
 }
 
 /**
- * The flat `{p, q}` tiling COVERING a drawable, through one model door.
+ * A flat tiling COVERING a drawable, through one model door.
  *
  * The flood is the curved one's, with no depth: it goes on while a copy
  * reaches the box that holds the drawable and the fundamental cell, which
  * is every cell between them, so the cover is whole whatever the origin.
- * Each copy is then shrunk by `gap` (a length in the sketch's units), cut
- * to the drawable and welded to its neighbours, so a wall two cells share
- * is one edge. A flat wall is straight, so there are no samples, and no
- * `corner` column: every point is a corner or where the drawable cuts.
- * The faces come in flood order and carry `generation`, `mirrored`,
- * and the lattice coordinates `i` and `j`: for `{6, 3}` the axial pair,
- * for `{4, 4}` the two edge directions, and for `{3, 6}` the row `j` and
- * the place `i` along it, an even `i` the fundamental cell's way round
- * and an odd one turned. `down` carries a sketch point back to
- * the model chart, where the lattice is read.
+ * A model whose faces reach past its cell grows that box by how far they
+ * reach, so a face that touches the drawable is never lost with the copy
+ * that carries it. Each face is then shrunk by `gap` (a length in the
+ * sketch's units), cut to the drawable and welded to its neighbours, so a
+ * wall two faces share is one edge. A flat wall is straight, so there are
+ * no samples, and no `corner` column: every point is a corner or where the
+ * drawable cuts. The faces come in flood order and carry `generation`,
+ * `mirrored`, `sides`, and for a regular model the lattice coordinates `i`
+ * and `j`: for `{6, 3}` the axial pair, for `{4, 4}` the two edge
+ * directions, and for `{3, 6}` the row `j` and the place `i` along it, an
+ * even `i` the fundamental cell's way round and an odd one turned. `down`
+ * carries a sketch point back to the model chart, where the lattice is
+ * read. `side` is the wall in sketch units.
  */
 export function coverTiling(
-  p: number,
-  q: number,
+  model: TilingModel,
   gap: number,
-  place: { door: ModelDoor; up: (z: XY) => Vec; down: (v: Vec) => Vec; side: number; space?: Space; bounds: Rect },
+  place: TilingPlace & { down: (v: Vec) => Vec; side: number; bounds: Rect },
 ): Material {
-  const geometry = tilingGeometry(p, q);
-  if (geometry !== 'euclidean') throw new Error(`tiling: {${p}, ${q}} is not a flat tiling`);
-  const model = modelCell(geometry, p, q);
-  const cell = model.map(place.up);
+  if (model.geometry !== 'euclidean') throw new Error(`tiling: a ${model.geometry} tiling does not cover a flat drawable`);
+  const cell = model.cell.map(place.up);
   const r = place.bounds;
   const bx0 = r.x ?? 0;
   const by0 = r.y ?? 0;
   const bx1 = bx0 + r.w;
   const by1 = by0 + r.h;
-  // The cells shrink about their centres until neighbouring walls stand
+  // The faces shrink about their centres until neighbouring walls stand
   // `gap` apart: each gives up half of it from its inradius.
-  const inradius = place.side / (2 * Math.tan(Math.PI / p));
-  const k = 1 - gap / 2 / inradius;
-  // A mid-edit zero, a non-finite place, or a gap that eats the cell:
+  const shrink = model.kinds.map((kind) => {
+    const inradius = place.side / (2 * Math.tan(Math.PI / kind.loop.length));
+    return 1 - gap / 2 / inradius;
+  });
+  // A mid-edit zero, a non-finite place, or a gap that eats every face:
   // nothing to lay out.
   const finite = Number.isFinite(place.side) && cell.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-  if (!finite || !(k > 0) || !(r.w > 0) || !(r.h > 0)) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: place.space });
+  if (!finite || !shrink.some((k) => k > 0) || !(r.w > 0) || !(r.h > 0)) return new Material(new Float64Array(0), new Float64Array(0), {}, new Uint32Array(0), { space: place.space });
+  const centre = place.up(model.centre);
+  const loops = model.kinds.map((kind) => kind.loop.map(place.up));
+  const centres = model.kinds.map((kind) => place.up(kind.centre));
+  // How far past the cell a face reaches: nothing when the one face is the
+  // cell itself.
+  const plain = model.kinds.length === 1 && model.kinds[0].loop === model.cell;
+  let grow = 0;
+  if (!plain) for (const loop of loops) for (const [x, y] of loop) grow = Math.max(grow, Math.hypot(x - centre[0], y - centre[1]));
   // The box a copy must reach to be kept: the drawable's, grown to take in
   // the fundamental cell wherever the origin put it.
-  let hx0 = bx0;
-  let hy0 = by0;
-  let hx1 = bx1;
-  let hy1 = by1;
+  let hx0 = bx0 - grow;
+  let hy0 = by0 - grow;
+  let hx1 = bx1 + grow;
+  let hy1 = by1 + grow;
   for (const [x, y] of cell) {
     hx0 = Math.min(hx0, x);
     hy0 = Math.min(hy0, y);
@@ -495,9 +642,10 @@ export function coverTiling(
     }
     return x1 > hx0 && x0 < hx1 && y1 > hy0 && y0 < hy1;
   };
-  const centre = place.up([0, 0]);
   const flood = tileGroup('tiling', tileOps(place.door, place.door.up(centre)), cell, Infinity, reaches);
-  // Each copy as a loop of sketch points, shrunk, cut and turned to run
+  const carriers = carriersOf(model, place, flood.tiles);
+  const frames = kindFrames(model, place);
+  // Each face as a loop of sketch points, shrunk, cut and turned to run
   // counter-clockwise in a y-up reading, as every stated face does.
   const xs: number[] = [];
   const ys: number[] = [];
@@ -526,42 +674,68 @@ export function coverTiling(
   const edges: number[] = [];
   const edgeSeen = new Set<string>();
   const cycles: number[][][] = [];
-  const faces: { m: Placement; generation: number; i: number; j: number }[] = [];
-  for (let t = 0; t < flood.tiles.length; t++) {
-    const m = flood.tiles[t];
-    const c = m.point(centre);
-    const own = cell.map((v) => {
-      const [x, y] = m.point(v);
-      return [c[0] + (x - c[0]) * k, c[1] + (y - c[1]) * k] as [number, number];
-    });
-    const cut = clipToRect(own, bx0, by0, bx1, by1);
-    // Nothing of the cell reached the drawable, or the cut left a sliver
-    // with no area: judged BEFORE any vertex is minted, so a discarded cell
-    // leaves no loose vertex behind.
-    if (!cut || Math.abs(area2(cut)) < WELD) continue;
-    const loop = area2(cut) < 0 ? cut.reverse() : cut;
-    const rows: number[] = [];
-    for (const v of loop) {
-      const row = vertexAt(v[0], v[1]);
-      if (rows.length === 0 || rows[rows.length - 1] !== row) rows.push(row);
+  const faces: { source: Placement; generation: number; sides: number; i?: number; j?: number }[] = [];
+  const seats = new Corners();
+  for (let t = 0; t < carriers.length; t++) {
+    const m = carriers[t];
+    for (let kk = 0; kk < model.kinds.length; kk++) {
+      const k = shrink[kk];
+      if (!(k > 0)) continue;
+      const c = m.point(centres[kk]);
+      // A face on a corner or a wall of the cell: the first copy keeps it.
+      if (!model.kinds[kk].own) {
+        const at = place.door.up(c);
+        if (seats.find(at) !== undefined) continue;
+        seats.add(at, t);
+      }
+      const own = loops[kk].map((v) => {
+        const [x, y] = m.point(v);
+        return [c[0] + (x - c[0]) * k, c[1] + (y - c[1]) * k] as [number, number];
+      });
+      const cut = clipToRect(own, bx0, by0, bx1, by1);
+      // Nothing of the face reached the drawable, or the cut left a sliver
+      // with no area: judged BEFORE any vertex is minted, so a discarded
+      // face leaves no loose vertex behind.
+      if (!cut || Math.abs(area2(cut)) < WELD) continue;
+      const loop = area2(cut) < 0 ? cut.reverse() : cut;
+      const rows: number[] = [];
+      for (const v of loop) {
+        const row = vertexAt(v[0], v[1]);
+        if (rows.length === 0 || rows[rows.length - 1] !== row) rows.push(row);
+      }
+      while (rows.length > 1 && rows[0] === rows[rows.length - 1]) rows.pop();
+      if (rows.length < 3) continue;
+      if (Math.abs(area2(rows.map((row) => [xs[row], ys[row]] as [number, number]))) < WELD) continue;
+      for (let e = 0; e < rows.length; e++) {
+        const a = rows[e];
+        const b = rows[(e + 1) % rows.length];
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        if (edgeSeen.has(key)) continue;
+        edgeSeen.add(key);
+        edges.push(a, b);
+      }
+      cycles.push([rows]);
+      const frame = frames[kk];
+      faces.push({
+        source: frame ? frame.then(m) : m,
+        generation: flood.generation[t],
+        sides: model.kinds[kk].loop.length,
+        ...(model.lattice === undefined ? {} : latticeCoords(model.lattice, place.down(c))),
+      });
     }
-    while (rows.length > 1 && rows[0] === rows[rows.length - 1]) rows.pop();
-    if (rows.length < 3) continue;
-    if (Math.abs(area2(rows.map((row) => [xs[row], ys[row]] as [number, number]))) < WELD) continue;
-    for (let e = 0; e < rows.length; e++) {
-      const a = rows[e];
-      const b = rows[(e + 1) % rows.length];
-      const key = a < b ? `${a},${b}` : `${b},${a}`;
-      if (edgeSeen.has(key)) continue;
-      edgeSeen.add(key);
-      edges.push(a, b);
-    }
-    cycles.push([rows]);
-    faces.push({ m, generation: flood.generation[t], ...latticeCoords(p, place.down(c)) });
   }
   const edgeList = Uint32Array.from(edges);
   const points = mintIds(xs.length);
   const edgeIds = mintIds(edgeList.length / 2);
+  const columns: Record<string, (f: number) => number> = {
+    generation: (f) => faces[f].generation,
+    mirrored: (f) => (faces[f].source.orientation < 0 ? 1 : 0),
+    sides: (f) => faces[f].sides,
+  };
+  if (model.lattice !== undefined) {
+    columns.i = (f) => faces[f].i!;
+    columns.j = (f) => faces[f].j!;
+  }
   return new Material(
     Float64Array.from(xs),
     Float64Array.from(ys),
@@ -569,14 +743,9 @@ export function coverTiling(
     edgeList,
     {
       ids: { points, edges: edgeIds },
-      faceAttrs: statedColumns(cycles, xs.length, edgeList, edgeIds, {
-        generation: (f) => faces[f].generation,
-        mirrored: (f) => (faces[f].m.orientation < 0 ? 1 : 0),
-        i: (f) => faces[f].i,
-        j: (f) => faces[f].j,
-      }),
+      faceAttrs: statedColumns(cycles, xs.length, edgeList, edgeIds, columns),
       space: place.space,
-      faces: { cycles, source: (f) => faces[f].m, edgeList, edgeIds },
+      faces: { cycles, source: (f) => faces[f].source, edgeList, edgeIds },
     },
   );
 }

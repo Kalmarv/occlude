@@ -33,6 +33,24 @@ const square = (): Material => flat().tiling(4, 4, { side: 20, rotate: 45 });
 const heptagons = (): Material => disk().tiling(7, 3, { depth: 3 });
 const icosahedron = (): Material => ball().tiling(3, 5);
 
+/**
+ * The model face a face's `source` carries: the regular cell about the
+ * model's origin with a corner toward `+x`. In a curved sketch that is the
+ * first cell itself, so its placement is the identity; on the flat sheet
+ * the origin is the sheet's `[0, 0]`, so the squares of 20 are the diamond
+ * of circumradius `10·√2` there, and the fit turns it and stands it on the
+ * middle of the drawable.
+ */
+const modelFace = (tiles: Material): [number, number][] => {
+  if (tiles.space?.kind !== 'euclidean') return firstCell(tiles);
+  const r = 10 * Math.SQRT2;
+  return [[r, 0], [0, r], [-r, 0], [0, -r]];
+};
+
+/** The farthest a point of `want` stands from the nearest point of `got`. */
+const offBy = (want: readonly (readonly number[])[], got: readonly (readonly number[])[]): number =>
+  Math.max(...want.map((w) => Math.min(...got.map((g) => Math.hypot(g[0] - w[0], g[1] - w[1])))));
+
 /** Rows of the corners (the vertices a cell has an angle at) and of the
  * samples (the interior points of a wall). */
 const cornerRows = (m: Material): number[] => (m.attrs.corner ? [...m.attrs.corner].flatMap((v, i) => (v === 1 ? [i] : [])) : Array.from({ length: m.n }, (_, i) => i));
@@ -92,9 +110,11 @@ describe('a tiling is a material of shared corners and shared walls', () => {
       expect(Object.getPrototypeOf(tiles)).toBe(Material.prototype);
       expect(Object.isFrozen(tiles)).toBe(true);
       expect(tiles.space?.kind).toBe(kind);
-      // Face 0 is the fundamental cell: the identity carries it.
+      // Face 0 is the fundamental cell, and its source carries the model
+      // face onto it: the identity in a curved sketch.
       const first = tiles.faces.at(0).source as Placement;
-      for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBe(0);
+      if (kind !== 'euclidean') for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBe(0);
+      expect(offBy(modelFace(tiles).map((v) => first.point(v)), firstCell(tiles))).toBeLessThan(1e-9);
     }
   });
 
@@ -103,7 +123,7 @@ describe('a tiling is a material of shared corners and shared walls', () => {
       // Every corner row is the image of some cell corner, and every image
       // of a cell corner is a corner row.
       const rows = new Set(cornerRows(tiles));
-      const cell = firstCell(tiles);
+      const cell = modelFace(tiles);
       let hits = 0;
       for (const place of tiles.faces.map((f) => f.source as Placement)) {
         for (const v of cell) {
@@ -195,9 +215,9 @@ describe('the faces are the cells', () => {
   it('carries the generation, the hand and the placement of every copy', () => {
     for (const tiles of [square(), heptagons(), icosahedron()]) {
       const cells = tiles.faces;
-      // The first face is the cell itself, the identity placement's copy.
+      // The first face is the cell itself, the model face carried there.
       const first = cells.at(0).source as Placement;
-      for (const v of firstCell(tiles)) expect(Math.hypot(first.point(v)[0] - v[0], first.point(v)[1] - v[1])).toBeLessThan(1e-9);
+      expect(offBy(modelFace(tiles).map((v) => first.point(v)), firstCell(tiles))).toBeLessThan(1e-9);
       expect(cells.at(0).generation).toBe(0);
       const seen = new Set<Placement>();
       for (const f of cells) {

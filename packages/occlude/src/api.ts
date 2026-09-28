@@ -38,8 +38,9 @@ import { checkDrawRequest, checkPlanOptions, clonePlanOptions, type DrawRequest,
 import { lowerToUserContours, paperToUser } from './record.js';
 import ClipperLib from 'clipper-lib';
 import { INK_TOL, carriedSpace, modelChart, spaceAreaField, type Space, type SpaceContour } from './space.js';
-import { modelCell, coverTiling, tiling as tilingKernel, tilingGeometry, type TilingOpts } from './tiling.js';
-import { framePlacement, isPlacement, reflection as reflectionIn, type Placement } from './placement.js';
+import { coverTiling, regularModel, tiling as tilingKernel, type TilingModel, type TilingOpts } from './tiling.js';
+import { cornerModel } from './uniformTiling.js';
+import { between, framePlacement, isPlacement, reflection as reflectionIn, type Placement } from './placement.js';
 import { vx, vy, type Vec, type XY } from './vec.js';
 import { checkFillOpaque, customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
@@ -1750,37 +1751,61 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
 
   /**
-   * The regular `{p, q}` tiling, as geometry whose faces are the cells:
-   * each face's `source` is the `Placement` that carried the fundamental
-   * cell there, the identity first. The fundamental cell is face 0. A
-   * curved tiling's point column `corner` is 1 at a cell's corners and 0 at
-   * the samples of its walls.
+   * A tiling, as geometry whose faces are its polygons.
    *
-   * The symbol picks the geometry — `(p − 2)(q − 2)` below 4 is the
-   * sphere, exactly 4 the plane, above 4 the hyperbolic disk — and the
-   * sketch has to draw in it. This is why the word is on the toolkit: a
-   * tiling is written in its geometry's own model chart, and that chart
-   * is the sketch's own — the disk of the space's radius, or the sphere it
-   * pictures — so every placement is an isometry of the space the sketch
-   * draws in, and the cell is one cell of it. A symbol of another geometry
-   * is refused by name, with the `space` that draws it.
+   * `t.tiling(p, q)` is the regular `{p, q}`: `p`-gons, `q` at every
+   * corner. `t.tiling([a, b, c, …])` is the UNIFORM tiling whose every
+   * corner meets those polygons in that order round it — the vertex
+   * configuration, read in either direction from any polygon: `[3, 6, 3,
+   * 6]`, `[4, 8, 8]`, `[3, 3, 4, 3, 4]`, the Archimedean solids on the
+   * sphere, `[7, 6, 6]` in the disk. `[p, p, …]` `q` times is `{p, q}`.
    *
-   * A flat symbol COVERS THE DRAWABLE, every cell cut to it, and each face
-   * carries its lattice `i` and `j`; `gap` parts the cells. The flat plane
-   * fixes no unit of length, so it takes one: `side`, or by default half
-   * the short side of the drawable, about `origin` (the drawable's middle
-   * by default). A curved symbol floods `depth` generations from the cell
-   * at the chart's centre, its side fixed by the curvature.
+   * The corner picks the geometry — its angles summing to less than a
+   * full turn is the sphere, exactly one the plane, more the hyperbolic
+   * disk — and the sketch has to draw in it. This is why the word is on
+   * the toolkit: a tiling is written in its geometry's own model chart,
+   * and that chart is the sketch's own — the disk of the space's radius,
+   * or the sphere it pictures — so every placement is an isometry of the
+   * space the sketch draws in. A tiling of another geometry is refused by
+   * name, with the `space` that draws it, and a corner no uniform tiling
+   * has is refused with its angles.
+   *
+   * Each face carries `sides`, `generation`, `mirrored`, and a `source`:
+   * the `Placement` that carries the model face — the regular polygon of
+   * its kind, centred on the model's origin with a corner toward `+x` —
+   * onto it. The model's origin is `[0, 0]` on a flat sheet and the
+   * centre of the space in a curved one, so a motif drawn once about it
+   * lands on every face of its kind. A curved tiling's point column
+   * `corner` is 1 at a corner and 0 at the samples of its walls.
+   *
+   * A flat tiling COVERS THE DRAWABLE, every face cut to it; `gap` parts
+   * the faces, and a regular one's faces carry their lattice `i` and `j`.
+   * The flat plane fixes no unit of length, so it takes one: `side`, the
+   * length of a wall, or by default half the short side of the drawable,
+   * about `origin` (the drawable's middle by default). A curved tiling
+   * floods `depth` generations from the cell at the chart's centre, its
+   * side fixed by the curvature.
    */
-  function tilingTk(p: number, q: number, opts: TilingOpts = {}): Material {
-    return record(tilingOf(p, q, opts), derivation('t.tiling', [], { p, q, ...opts }));
+  function tilingTk(p: number, q: number, opts?: TilingOpts): Material;
+  function tilingTk(corner: readonly number[], opts?: TilingOpts): Material;
+  function tilingTk(a: number | readonly number[], b?: number | TilingOpts, c?: TilingOpts): Material {
+    if (typeof a !== 'number') {
+      if (typeof b === 'number') throw new Error(`tiling: a vertex configuration is one list, and the options come second — t.tiling([${[...a].join(', ')}], { side })`);
+      const corner = [...a];
+      const opts: TilingOpts = b ?? {};
+      return record(tilingOf(cornerModel(corner), `[${corner.join(', ')}]`, opts), derivation('t.tiling', [], { corner, ...opts }));
+    }
+    const p = a;
+    const q = b as number;
+    const opts: TilingOpts = c ?? {};
+    return record(tilingOf(regularModel(p, q), `{${p}, ${q}}`, opts), derivation('t.tiling', [], { p, q, ...opts }));
   }
 
-  function tilingOf(p: number, q: number, opts: TilingOpts): Material {
-    const geometry = tilingGeometry(p, q);
+  function tilingOf(model: TilingModel, name: string, opts: TilingOpts): Material {
+    const geometry = model.geometry;
     const sp = exec.space;
     if (sp.kind !== geometry) {
-      throw new Error(`tiling: {${p}, ${q}} is a tiling of ${GEOMETRY_NAME[geometry]} and this sketch draws in ${GEOMETRY_NAME[sp.kind]} — set space: ${GEOMETRY_SPACE[geometry]} on the sketch`);
+      throw new Error(`tiling: ${name} is a tiling of ${GEOMETRY_NAME[geometry]} and this sketch draws in ${GEOMETRY_NAME[sp.kind]} — set space: ${GEOMETRY_SPACE[geometry]} on the sketch`);
     }
     const side = opts.side === undefined ? undefined : exec.len(opts.side);
     if (opts.rotate !== undefined && !Number.isFinite(opts.rotate)) throw new Error(`tiling: rotate is an angle in degrees, got ${describe(opts.rotate)}`);
@@ -1798,7 +1823,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (!chart) {
       if (opts.depth !== undefined) throw new Error('tiling: a flat tiling covers the drawable — depth counts the generations of a curved one; leave it out');
       const b = exec.bounds();
-      const k = side ?? Math.min(b.w, b.h) / 2;
+      const wall = side ?? Math.min(b.w, b.h) / 2;
+      // The chart's unit is the model's wall, so a wall comes out `wall`.
+      const k = wall / model.wall;
       const gap = opts.gap === undefined ? 0 : exec.len(opts.gap);
       checkOrigin('tiling', opts.origin);
       const [ox, oy] = opts.origin === undefined || opts.origin === 'center' || opts.origin === 'centroid'
@@ -1810,26 +1837,36 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         const dy = (v[1] - oy) / k;
         return deg === 0 ? [dx, dy] : [cos * dx + sin * dy, -sin * dx + cos * dy];
       };
-      return coverTiling(p, q, gap, { door: sp.model, up, down, side: k, space: sp, bounds: b });
+      // A motif is drawn at the tiling's scale about the sheet's origin,
+      // and the fit stands it on the first face: shifted to `origin` and
+      // turned by `rotate`.
+      const motif = (z: XY): Vec => [k * vx(z), k * vy(z)];
+      const fit = framePlacement(sp.model, { x: ox, y: oy, heading: radians(deg) });
+      return coverTiling(model, gap, { door: sp.model, up, motif, fit, down, side: wall, space: sp, bounds: b });
     }
     if (opts.origin !== undefined) {
       throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling stands on its chart's centre — move it with a placement, group(placement, …), not origin`);
     }
     if (opts.gap !== undefined) throw new Error(`tiling: a ${GEOMETRY_NAME[geometry]} tiling's cells share their walls — gap parts the cells of a flat one; leave it out`);
-    // A curved symbol takes its unit from its curvature: the model chart
+    // A curved model takes its unit from its curvature: the model chart
     // is the sketch's own chart, so the model point goes through it and
     // out the other side, into the coordinates everything else speaks.
     const [cx, cy] = chart.center;
     const k = chart.scale;
     const up = (z: XY): Vec => { const t = turn(z); return sp.fromChart([cx + k * t[0], cy + k * t[1]]); };
     if (side !== undefined) {
-      const model = modelCell(geometry, p, q);
-      const fixed = sp.distance(up(model[0]), up(model[1]));
-      throw new Error(`tiling: {${p}, ${q}} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
+      const [a, b] = model.kinds[0].loop;
+      const fixed = sp.distance(up(a), up(b));
+      throw new Error(`tiling: ${name} has the side its curvature fixes, ${fixed.toFixed(2)} here — leave side out`);
     }
+    // A motif is drawn about the centre of the space, unturned; the fit is
+    // the turn about that centre, and nothing when there is none.
+    const motif = (z: XY): Vec => sp.fromChart([cx + k * vx(z), cy + k * vy(z)]);
+    const centre = up([0, 0]);
+    const fit = deg === 0 ? undefined : between(sp.model, { x: centre[0], y: centre[1], heading: 0 }, { x: centre[0], y: centre[1], heading: radians(deg) });
     // A wall's stored chords are judged in the metric, where no placement
     // can change them, to the bow the widest part of the chart allows.
-    return tilingKernel(p, q, opts, { door: sp.model, up, bow: geodesicBow(sp, exec.frame), space: sp });
+    return tilingKernel(model, opts, { door: sp.model, up, motif, fit, bow: geodesicBow(sp, exec.frame), space: sp });
   }
 
   /**

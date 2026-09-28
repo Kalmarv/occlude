@@ -24,6 +24,21 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+`faces` states the faces of the material, in the order that you give them. A face is a list of places in the list of points, in order round the face. Its first place is its first corner. The list can go clockwise or counter-clockwise. Each side of a face becomes an edge, one time. The pairs of `edges` come first, and then each side that is not one of them. A material with stated faces keeps the first corner of each face. `replace` on faces reads the frame of a face from it (see [Replace a face](/docs/reference/steps#replace-a-face)). A material without `faces` reads its faces from its drawing. Below, a square and a triangle share one wall, and that wall is one edge. A hatch fills the triangle, and a dot marks the first corner of each face.
+
+```ts live
+import { sketch, circle, strokes, polygon, fill, material, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const m = material([[20, 90], [80, 90], [80, 45], [20, 45], [50, 10]], { faces: [[0, 1, 2, 3], [3, 2, 4]] });
+  return [
+    polygon(m.faces.at(1), { fill: fill('hatch', { angle: 45, spacing: mm(0.8) }), stroke: false }),
+    strokes(m),
+    m.faces.map((f) => circle(f.corners.at(0).point, 2.5, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
 ## curve()
 
 <include>/_sig/curve.mdx</include>

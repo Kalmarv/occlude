@@ -60,7 +60,11 @@ const chartTiling = (p: number, q: number, opts: TilingOpts = {}): ChartTiling =
     const z = t.space.toChart(v);
     return [(vx(z) - c[0]) / k, (vy(z) - c[1]) / k];
   };
-  const fromModel = (z: XY): Vec => t.space.fromChart([c[0] + k * vx(z), c[1] + k * vy(z)]);
+  // A face's `source` carries the model face from the model's own origin:
+  // the centre of the space in a curved sketch, and the sheet's `[0, 0]` on
+  // the flat one, not the middle of the drawable where the first cell
+  // stands.
+  const fromModel = (z: XY): Vec => (flat ? [k * vx(z), k * vy(z)] : t.space.fromChart([c[0] + k * vx(z), c[1] + k * vy(z)]));
   return {
     geometry: tl.space?.kind,
     cell: firstCell(tl).map(toModel),

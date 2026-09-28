@@ -768,7 +768,7 @@ function extractStated(table: FaceTable, rows: readonly number[], edgeRows: read
       faces: pick(stated.faceKeys, rows),
       corners: pick(stated.cornerKeys, cornerRows),
     },
-    ...(stated.source !== undefined ? { source: { faces: (k: number) => table.sourceAt(rows[k]) } } : {}),
+    ...(stated.source !== undefined || stated.fromParent !== undefined ? { source: { faces: (k: number) => table.sourceAt(rows[k]) } } : {}),
     space: m.space,
     key: m.key,
     origin: m.origin,
@@ -871,8 +871,8 @@ export interface Face {
    * What this face came from, in the shape the word that made it says: a
    * Voronoi cell's site (a point of the sites), a quadtree cell's points (a
    * selection of the input), a tile's placement, a 3D face the face, edge
-   * or point it was made from. Undefined for a face read off the drawn
-   * picture.
+   * or point it was made from, a face `replace` made the face it replaced
+   * (its `parent`). Undefined for a face read off the drawn picture.
    */
   readonly source: FaceSource;
   /** Closed contours: the outer boundary with positive signed area
@@ -918,6 +918,12 @@ export interface StatedFaces {
   /** What face `f` came from, in the word's own shape; read the first time
    * it is asked for. Absent: nothing. */
   readonly source?: (f: number) => FaceSource;
+  /** Per face row, 1 where the face came from the face that holds it — a
+   * face the face form of `replace` made (replaceFaces.ts) — so its
+   * `source` is its `parent`, read in the state that reads it: a move keeps
+   * the statement, and the parent it answers is the moved one. Absent:
+   * none. */
+  readonly fromParent?: Uint8Array;
   /** The edge list the faces were stated over. */
   readonly edgeList: ColumnLike<Uint32Array>;
   /** The edge ids the faces were stated over. */
@@ -968,10 +974,11 @@ export interface Restatement {
   readonly pointIds: Column;
   readonly edgeList: Column<Uint32Array>;
   readonly edgeIds: Column;
-  /** The new state's positions, for the corners a side threads through. */
+  /** The new state's positions, for the corners a side threads through;
+   * no `z` in the plane. */
   readonly x: Column;
   readonly y: Column;
-  readonly z: Column;
+  readonly z?: Column;
 }
 
 /**
@@ -985,8 +992,15 @@ export interface Restatement {
  * its fixed triangle fanned across the chain; a face that lost a point or
  * a side is gone, as a removed row is. The rows it keeps keep their ids,
  * names, columns and `source`.
+ *
+ * A write that knows which new points it put on a side says so (`through`:
+ * the rows between two rows of the new state that were a side, in order
+ * from the first, or undefined), and the side runs through those whatever
+ * else meets them: the face form of `replace`, whose new points on a wall
+ * also start the edges inside the face it replaced, states the faces it
+ * keeps this way, in the plane too.
  */
-export function restated(stated: StatedFaces, next: Restatement): StatedFaces | undefined {
+export function restated(stated: StatedFaces, next: Restatement, through?: (a: number, b: number) => readonly number[] | undefined): StatedFaces | undefined {
   const from = next.from;
   const newRow = new Map<number, number>();
   const ids = next.pointIds.flat();
@@ -1032,7 +1046,7 @@ export function restated(stated: StatedFaces, next: Restatement): StatedFaces | 
   };
   const x = next.x.flat();
   const y = next.y.flat();
-  const z = next.z.flat();
+  const z = next.z?.flat() ?? new Float64Array(x.length);
   const length = (a: number, b: number): number => Math.hypot(x[b] - x[a], y[b] - y[a], z[b] - z[a]);
   // Per kept face: its new runs, and for each of its corners the old corner
   // it is (t = 0), or the two old corners of the side it sits on and how far
@@ -1058,9 +1072,9 @@ export function restated(stated: StatedFaces, next: Restatement): StatedFaces | 
         out.push(a);
         corners.push([first + k, first + k, 0]);
         if (edgeAt.has(pair(a, b))) continue;
-        const through = chain(a, b);
-        if (through === undefined) return;
-        const all = [a, ...through, b];
+        const between = through?.(a, b) ?? chain(a, b);
+        if (between === undefined) return;
+        const all = [a, ...between, b];
         let total = 0;
         for (let q = 1; q < all.length; q++) total += length(all[q - 1], all[q]);
         let walked = 0;
@@ -1102,6 +1116,7 @@ export function restated(stated: StatedFaces, next: Restatement): StatedFaces | 
     cycles: Object.freeze(cycles.map((runs) => Object.freeze(runs))),
     ...(stated.parent !== undefined ? { parent: Int32Array.from(keptFaces, (f) => (stated.parent![f] < 0 ? -1 : faceOf[stated.parent![f]])) } : {}),
     ...(source !== undefined ? { source: (f: number) => source(keptFaces[f]) } : {}),
+    ...(stated.fromParent !== undefined ? { fromParent: Uint8Array.from(keptFaces, (f) => stated.fromParent![f]) } : {}),
     edgeList: next.edgeList,
     edgeIds: next.edgeIds,
     ...(corners !== undefined ? { corners: Object.freeze(corners) } : {}),
@@ -1972,6 +1987,8 @@ export class FaceTable<F extends Face = Face> {
    * column never reached has none. What a face write keeps of a column. */
   readonly carried: ReadonlyMap<string, readonly unknown[]>;
   private readonly sourceOf: ((f: number) => FaceSource) | undefined;
+  /** Per face row, 1 where its source is its parent (`StatedFaces.fromParent`). */
+  private readonly fromParent: Uint8Array | undefined;
   /** The half-edge runs of each leaf (null for a face that holds others). */
   private readonly regions: readonly (Region | null)[];
 
@@ -1997,6 +2014,7 @@ export class FaceTable<F extends Face = Face> {
     const parentOf = stated?.parent !== undefined && stated.parent.some((p) => p >= 0) ? stated.parent : null;
     this.parentOf = parentOf;
     this.sourceOf = stated?.source;
+    this.fromParent = stated?.fromParent;
     this.regions = regions;
     // views
     // A value in space measures its walls in space, and each face's normal,
@@ -2405,6 +2423,8 @@ export class FaceTable<F extends Face = Face> {
   /** @internal What face `f` came from, read once and kept, so two reads
    * of one face's source are the same value. */
   sourceAt(f: number): FaceSource {
+    // A face a replace made came from the face that holds it, here.
+    if (this.fromParent?.[f] === 1 && this.parentOf !== null && this.parentOf[f] >= 0) return this.faces[this.parentOf[f]];
     if (this.sourceOf === undefined) return undefined;
     const box = (this.keyBox.sources ??= new Array<FaceSource | typeof NO_SOURCE>(this.faces.length).fill(NO_SOURCE));
     const kept = box[f];
