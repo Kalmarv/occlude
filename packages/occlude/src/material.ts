@@ -49,7 +49,7 @@ import { envelope as envelopeKernel } from './envelope.js';
 import { interlace as interlaceKernel, type InterlaceOpts } from './interlace.js';
 import { merge as mergeKernel, type MergeOpts } from './merge.js';
 import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
-import { ownerOf, ownedBy, pairKey, viewKind, RowView, rowViewKind } from './views.js';
+import { ownerOf, ownedBy, pairKey, viewKind, describe, RowView, rowViewKind } from './views.js';
 import { Column, at64, atU32, columnOf, isTypedColumn, kinds, kindOf, kindWords, joinColumns, type AnyColumn, type AnyKind, type ColumnLike, type StringColumn } from './column.js';
 import { carryLinks, derivation, linkRows, record, rowParam, rowSource, type Derivation, type DomainSpec, type Links, type RowSource } from './derivation.js';
 import { cornersOf, cornerIndex, cornersAtPoint, facesAtPoint, type Corner } from './corners.js';
@@ -1907,8 +1907,19 @@ export class Material {
    * every edge or for those a test of the edge picks. A Koch curve is one
    * motif and four steps: `t.steps(4, tri, (g) => g.replace(g.edges, motif))`.
    */
-  replace(edges: Selection<Edge> | EdgeEnd | readonly EdgeEnd[] | undefined, motif: Material, opts?: ReplaceOpts): Material {
-    return replaceRecipe(this, edges, motif, opts);
+  replace(edges: Selection<Edge> | EdgeEnd | readonly EdgeEnd[] | undefined, motif: Material, opts?: ReplaceOpts): Material;
+  /**
+   * Every face of `faces` swapped for a motif's faces, read in the face's
+   * own frame: the face stays as the `parent` of the new faces, and a wall
+   * it shares with a face that stays is split where the motif puts points
+   * on it. The frame is the face's `source` when that is a placement (a
+   * tiling's cell), and otherwise the similarity that puts [0, 0] on its
+   * first corner and [1, 0] on its second. The motif's outline has as many
+   * corners as the face. Only a leaf is replaced.
+   */
+  replace(faces: Selection<Face> | Face | readonly Face[], motif: Material): Material;
+  replace(what: Selection<Edge> | EdgeEnd | readonly EdgeEnd[] | Selection<Face> | Face | readonly Face[] | undefined, motif: Material, opts?: ReplaceOpts): Material {
+    return replaceRecipe(this, what, motif, opts);
   }
 
   /** @internal This material with the states a `t.steps` run kept: what
@@ -3068,10 +3079,18 @@ export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointReco
  * named options become constant columns. An existing Material is returned
  * unchanged only without options; use its edit methods to change it.
  * Use `connect.*` for topology.
+ *
+ * `faces` states the faces outright, in the order given: each is a loop of
+ * point indices round the face, its first corner first, either way round
+ * (a clockwise loop is read backward from the same first point, so the
+ * face is on its left). Each side of a loop is an edge, once, after the
+ * `edges` given. A face the material states keeps the corner it starts at,
+ * which is what the face form of `replace` reads a face's frame from; a
+ * face read off the drawing starts where the walk does.
  */
 export function material(
   points: PointsLike,
-  opts: { edges?: readonly (readonly [number, number])[] } & Record<string, number | ArrayLike<number> | readonly (readonly [number, number])[] | undefined> = {},
+  opts: { edges?: readonly (readonly [number, number])[]; faces?: readonly (readonly number[])[] } & Record<string, number | ArrayLike<number> | readonly (readonly number[])[] | undefined> = {},
 ): Material {
   // A shape is not points until the toolkit lowers it (t.material, t.sample).
   refuseShape(points, 'material');
@@ -3122,11 +3141,16 @@ export function material(
     attrs[k] = col;
   }
   let edges: Uint32Array = new Uint32Array(0);
+  let loops: number[][] | undefined;
   for (const [name, value] of Object.entries(opts)) {
     if (name === 'edges') {
       const flat: number[] = [];
       for (const [a, b] of value as readonly (readonly [number, number])[]) flat.push(a, b);
       edges = Uint32Array.from(flat);
+      continue;
+    }
+    if (name === 'faces') {
+      if (value !== undefined) loops = faceLoops(value, x, y);
       continue;
     }
     // A column given here is a sketch's write: no word a point owns or
@@ -3136,7 +3160,53 @@ export function material(
     if (typeof value === 'number') attrs[name] = new Float64Array(n).fill(value);
     else attrs[name] = Float64Array.from(value as ArrayLike<number>);
   }
-  return new Material(x, y, attrs, edges);
+  if (loops === undefined) return new Material(x, y, attrs, edges);
+  // Each side of a loop is an edge, once: the edges given, then each side
+  // none of them is, in loop order.
+  const flat = Array.from(edges);
+  const have = new Set<number>();
+  for (let k = 0; k < flat.length; k += 2) have.add(pairKey(flat[k], flat[k + 1]));
+  for (const loop of loops) {
+    for (let k = 0; k < loop.length; k++) {
+      const a = loop[k];
+      const b = loop[(k + 1) % loop.length];
+      if (have.has(pairKey(a, b))) continue;
+      have.add(pairKey(a, b));
+      flat.push(a, b);
+    }
+  }
+  return withFaces(new Material(x, y, attrs, Uint32Array.from(flat)), { cycles: loops.map((loop) => [loop]) });
+}
+
+/** The loops `material(points, { faces })` states, checked, each turned to
+ * run counter-clockwise from its own first point. Two faces that run one
+ * side the same way overlap, and are refused by name. */
+function faceLoops(given: unknown, x: Float64Array, y: Float64Array): number[][] {
+  const n = x.length;
+  if (!Array.isArray(given)) throw new Error(`material: faces is a list of loops of point indices — got ${describe(given)}`);
+  const sides = new Map<number, number>();
+  return given.map((loop: unknown, f: number) => {
+    if (!Array.isArray(loop) || loop.length < 3) throw new Error(`material: a face is a loop of three or more point indices — face ${f} is ${describe(loop)}`);
+    for (const v of loop) {
+      if (!Number.isInteger(v) || v < 0 || v >= n) throw new Error(`material: face ${f} names point ${String(v)}, and there are ${n} points`);
+    }
+    if (new Set(loop).size !== loop.length) throw new Error(`material: face ${f} passes one point twice — a face is one loop`);
+    let area = 0;
+    for (let k = 0; k < loop.length; k++) {
+      const a = loop[k] as number;
+      const b = loop[(k + 1) % loop.length] as number;
+      area += x[a] * y[b] - x[b] * y[a];
+    }
+    const out = area < 0 ? [loop[0] as number, ...(loop.slice(1).reverse() as number[])] : [...(loop as number[])];
+    for (let k = 0; k < out.length; k++) {
+      const a = out[k];
+      const b = out[(k + 1) % out.length];
+      const other = sides.get(a * n + b);
+      if (other !== undefined) throw new Error(`material: faces ${other} and ${f} both run from point ${a} to point ${b} — two faces overlap there`);
+      sides.set(a * n + b, f);
+    }
+    return out;
+  });
 }
 
 /**

@@ -30,7 +30,8 @@
 import { Material, mintIds, vertexReader, edgeReader, withAbsentEdge, EDGE_ABSENT, type Vertex, type Edge, type PointId, type EdgeId, type Transfer, type PointTransfer, type EdgeTransfer, type FaceTransfer, type FaceColumn } from './material.js';
 import { chainsOf } from './curves.js';
 import { pointDomain, edgeDomain, pointsOf, edgesOf, notAPoint } from './relation.js';
-import { faceTableOf, type Face, type FaceTable, type StatedFaces } from './faces.js';
+import { faceTableOf, isFaceSelection, type Face, type FaceTable, type StatedFaces } from './faces.js';
+import { replaceFaces } from './replaceFaces.js';
 import type { Corner, CornerDomain } from './corners.js';
 import { Selection, rowOf, whereRows } from './selection.js';
 import { isGraphForce, type GraphForce } from './forces.js';
@@ -768,10 +769,11 @@ function typedShare(col: Exclude<AnyColumn, Column>, e: number, share: number, d
   return distribute && col.kind.name === 'vector' ? (v as number[]).map((x) => x * share) : v;
 }
 
-/** Every column of a point made between point rows `a` and `b` of `m`, `t`
- * of the way along, by the rule `PointRows` builds by, as a record a write
- * lands: a number as it is, any other kind its stored value. */
-function cellsBetween(m: Material, a: number, b: number, t: number): Record<string, unknown> {
+/** @internal Every column of a point made between point rows `a` and `b`
+ * of `m`, `t` of the way along, by the rule `PointRows` builds by, as a
+ * record a write lands: a number as it is, any other kind its stored
+ * value. */
+export function cellsBetween(m: Material, a: number, b: number, t: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const cols = m.store.attrs;
   for (const name in cols) {
@@ -788,10 +790,10 @@ function cellsBetween(m: Material, a: number, b: number, t: number): Record<stri
   return out;
 }
 
-/** Every column of an edge that holds `share` of edge row `e` of `m` — a
- * split's child, a piece of a replaced edge, the edge itself at 1 — by
- * the rule `EdgeCells` builds by, as a record a write lands. */
-function edgeCells(m: Material, e: number, share = 1): Record<string, unknown> {
+/** @internal Every column of an edge that holds `share` of edge row `e`
+ * of `m` — a split's child, a piece of a replaced edge, the edge itself at
+ * 1 — by the rule `EdgeCells` builds by, as a record a write lands. */
+export function edgeCells(m: Material, e: number, share = 1): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const cols = m.store.edgeAttrs;
   for (const name in cols) {
@@ -802,6 +804,41 @@ function edgeCells(m: Material, e: number, share = 1): Record<string, unknown> {
       out[name] = distribute ? v * share : v;
     } else {
       out[name] = new Stored(typedShare(col, e, share, distribute));
+    }
+  }
+  return out;
+}
+
+/** @internal Every column of a point made among point rows `rows` of `m`,
+ * with these `weights` (they sum to 1): a number blends, and so does a
+ * vector that interpolates; a `'nearest'` column, and any other kind, takes
+ * the value of the row with the most weight, the first on a tie. What a
+ * point the face form of `replace` puts inside a face takes from its
+ * corners, as a split's point takes from the ends of its edge. */
+export function cellsAmong(m: Material, rows: readonly number[], weights: readonly number[]): Record<string, unknown> {
+  let best = 0;
+  for (let k = 1; k < rows.length; k++) if (weights[k] > weights[best]) best = k;
+  const out: Record<string, unknown> = {};
+  const cols = m.store.attrs;
+  for (const name in cols) {
+    const col = cols[name];
+    const nearest = m.transfers[name] === 'nearest';
+    if (col instanceof Column) {
+      if (nearest) out[name] = at64(col, rows[best]);
+      else {
+        let sum = 0;
+        for (let k = 0; k < rows.length; k++) sum += at64(col, rows[k]) * weights[k];
+        out[name] = sum;
+      }
+    } else if (!nearest && col.kind.interpolates) {
+      const sum = new Array<number>((col.get(rows[0]) as number[]).length).fill(0);
+      for (let k = 0; k < rows.length; k++) {
+        const v = col.get(rows[k]) as number[];
+        for (let c = 0; c < sum.length; c++) sum[c] += v[c] * weights[k];
+      }
+      out[name] = new Stored(sum);
+    } else {
+      out[name] = new Stored(col.get(rows[best]));
     }
   }
   return out;
@@ -959,8 +996,8 @@ class RowCells {
   }
 }
 
-/** Can every value of a row land (see `RowCells`)? */
-const landsRecord = (r: Readonly<Record<string, unknown>>): boolean => {
+/** @internal Can every value of a row land (see `RowCells`)? */
+export const landsRecord = (r: Readonly<Record<string, unknown>>): boolean => {
   for (const k in r) {
     const v = r[k];
     if (v === SKIP || (typeof v === 'number' && !Number.isFinite(v))) return false;
@@ -1711,7 +1748,7 @@ export function addEdgeRows(
  * but the one `existingPairs` makes for a piece between two points that
  * were there.
  */
-function swapEdgeRows(
+export function swapEdgeRows(
   m: Material,
   pairs: readonly (readonly [number, number])[],
   cols: readonly Readonly<Record<string, unknown>>[],
@@ -1782,6 +1819,39 @@ export function removeEdges(m: Material, what: unknown): Material {
 /** `edges.set`, on the edges `sel` holds. */
 export function setEdges(sel: Selection<Edge>, args: readonly unknown[]): Material {
   return setMaterial(sel, EDGE_TABLE, args);
+}
+
+/**
+ * @internal Edge columns written on edge rows `rows` of `m`, one record a
+ * row: a value lands as a new row's does, one that cannot land leaves that
+ * row as it was, and a column a record names that `m` does not hold is
+ * declared, its kind's default on every other row. How the face form of
+ * `replace` gives the walls of a replaced face its motif's outline
+ * columns. Every leaf no row reaches is shared.
+ */
+export function writeEdgeCells(m: Material, rows: readonly number[], records: readonly Readonly<Record<string, unknown>>[], who: string): Material {
+  if (rows.length === 0) return m;
+  const reader = new RowCells(m.store.edgeAttrs, who);
+  const cells = records.map((r) => {
+    for (const name in r) checkWrittenName('edge', name, who);
+    return reader.read(r);
+  });
+  const names = new Set<string>();
+  for (const c of cells) for (const name in c) names.add(name);
+  const p = partsOf(m);
+  for (const name of names) {
+    const at: number[] = [];
+    const values: unknown[] = [];
+    cells.forEach((c, k) => {
+      const v = c[name];
+      if (v === undefined || v === SKIP || (typeof v === 'number' && !Number.isFinite(v))) return;
+      at.push(rows[k]);
+      values.push(v);
+    });
+    const col = p.edgeAttrs[name] ?? reader.kindOf(name).filled(m.edgeCount);
+    p.edgeAttrs[name] = at.length === 0 ? col : placed(col, at, values, []);
+  }
+  return make(m, p);
 }
 
 // ---- the face write ------------------------------------------------------------------
@@ -2024,6 +2094,10 @@ export interface ReplaceOpts {
   flip?: boolean | ((e: Edge) => boolean);
 }
 
+/** Does a replace name faces: a face selection, a face, or a list of
+ * faces? */
+const isFaces = (v: unknown): boolean => isFaceSelection(v) || viewKind(v) === 'face' || (Array.isArray(v) && v.length > 0 && viewKind(v[0]) === 'face');
+
 /** How close, as a fraction of the replaced edge's length, a motif point
  * must land on a point already there to be that point. Rounding in the
  * motif's frame is some 1e-14 of it; a distance a sketch means is not
@@ -2156,10 +2230,18 @@ class Landing {
  * point that lands on a point already there — a corner, or the tip another
  * edge's motif put in the same place — IS that point, so motifs that meet
  * share a vertex. This is the substitution an L-system is made of: a Koch
- * curve is one motif and four steps.
+ * curve is one motif and four steps. Given faces, the same word swaps each
+ * for a motif's faces (replaceFaces.ts): the substitution tiling.
  */
-export function replace(m: Material, edges: unknown, motif: Material, opts: ReplaceOpts = {}): Material {
+export function replace(m: Material, edges: unknown, motif: Material, opts?: ReplaceOpts): Material {
   const who = 'replace';
+  // One word, two forms, told apart by what they take: faces are swapped
+  // for a motif's faces (replaceFaces.ts), edges for its chain.
+  if (isFaces(edges)) {
+    if (opts !== undefined && Object.keys(opts).length > 0) throw new Error(`${who}: a face takes no options — the options of replace are for edges (flip)`);
+    return replaceFaces(m, edges, motif);
+  }
+  opts ??= {};
   if (!(motif instanceof Material)) throw new Error(`${who}: a motif is a material — one open chain — got ${describe(motif)}`);
   const flip = opts.flip;
   if (flip !== undefined && typeof flip !== 'boolean' && typeof flip !== 'function') throw new Error(`${who}: flip is true, false, or a test of the edge — got ${typeof flip}`);

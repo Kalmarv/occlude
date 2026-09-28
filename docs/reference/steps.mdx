@@ -169,6 +169,7 @@ A recipe is a few writes with one name. You can write the recipe, or you can wri
 | `g.extrude(p, offset, cols?)` | add a point at `p` plus `offset`, then add the edge from `p` to it |
 | `g.split(edges, at?)` | for each edge: add a point along it, remove the edge, add two edges |
 | `g.replace(edges, motif, opts?)` | for each edge: remove the edge, add the inner points of the motif, add the edges of the motif |
+| `g.replace(faces, motif)` | for each face: add the points of the motif, split the walls where its outline lands, add the edges inside the motif |
 | `g.move(...by, where?)` | set `x` and `y` in one instant |
 
 New rows go at the end of their table. A split and a replace are different. The first new edge takes the row of the edge that it replaces, and the other new edges go at the end. So each other edge keeps its row. The order of `g.edges` is then not the order that the writes give.
@@ -232,6 +233,123 @@ export default sketch({ aspect: [1, 1], margin: 6 }, (t) => {
 :::note
 A motif is ONE open chain, read from its edges and not from its row order. Nothing but the build order decides a material's rows. A motif with the right points in the wrong order would draw something else. `flip` mirrors it across the edge. `flip` is `true`, `false` or a test of the edge. The seed's winding decides the outward side.
 :::
+
+## Replace a face
+
+`g.replace(faces, motif)` swaps each selected face for the faces of a motif. It is the same word as the edge form. It reads faces when you give it a face selection, one face or a list of faces. The face form has no options. There is no `kind` option: `g.faces.filter((f) => f.kind === 'thin')` selects the faces.
+
+A motif is a material with faces. Its outline is the edge of all its faces together, and it must be one loop with no hole. To make a motif, give `material` its faces: `material(points, { faces: [[0, 1, 2], …] })`. Each face is a loop of point indices, and its first index is its first corner. The loop can go in either direction. Each side of a loop becomes an edge.
+
+`replace` reads the motif in the frame of each face.
+
+- A face whose `source` is a placement, such as a cell of [`t.tiling`](/docs/reference/geometry), takes the motif through that placement. So draw the motif as the model face. On the flat sheet, the model face has its centre at `[0, 0]`, one corner on `+x` and walls of the tiling's `side`. In a curved sketch, it is about the centre of the space.
+- Every other face takes the motif through a similarity. The similarity puts `[0, 0]` on the first corner of the face and `[1, 0]` on its second corner. So the unit face starts at `[0, 0]`, its first wall goes along `+x` with a length of 1, and it goes counter-clockwise. A curved space has no unit length. There, a face without a placement stops the call with an error.
+
+A corner is a point where the boundary of a face turns. In a curved sketch, `replace` reads the turn in the space. At a sample of a curved wall, the wall goes straight on. At a point that an earlier replace put on a wall, it also goes straight on. These points are not corners. The outline of the motif must have the same number of corners as the face. If not, the call stops with an error, for example "the motif's outline has 4 corners and this face has 3". The corners of the outline go on the corners of the face, the first on the first. A point on a side of the outline goes on the matching wall. Each other point of the motif goes where the frame puts it.
+
+A wall stays the wall of the faces on its two sides. The points of the motif split it. A point that lands on a point that is there already is that point. So two neighbours that one call replaces share the new points on their wall. A neighbour that you keep keeps its face and its columns, and its loop goes through the new points. A piece of a wall keeps the columns of the wall. An edge column of an outline edge of the motif goes on each piece under that edge. An edge inside the motif is a new edge with the columns of the motif edge. In a curved sketch, that edge is a geodesic with samples.
+
+The replaced face stays in `g.faces` as the `parent` of its new faces. It has no loop of its own, and its area is the area of its children. The new faces come after all the other faces. They are the faces of the motif in their order, for each replaced face in turn. The `source` of a new face is its parent, and `depth` counts the replaces. A face column goes from the parent to the children by its transfer policy. A face column of the motif, such as `kind`, goes to the new faces, and it replaces the value of the parent. `replace` changes only a leaf, so it skips a face that holds other faces. It also skips a face with a hole. It skips a tiling cell that the drawable edge cuts or that a `gap` makes smaller.
+
+A rhomb of a Penrose tiling does not divide into rhombs, but each half of a rhomb divides into halves. These are Robinson's triangles. A thin half and a thick half each have a left hand and a right hand, so there are four motifs. The loop of each half starts at its apex, so the next pass reads the apex as the first corner. A pass replaces the leaves of each kind and hand with its motif. The pass takes its selection of leaves at the start, so the new faces wait for the next pass. The edge column `base` marks the side between the two halves of a rhomb. The drawing hatches the thin halves and draws each edge that is not a base one time.
+
+```ts live
+import { sketch, strokes, polygon, fill, material, clip, rect, pen, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], pens: {
+  wall: pen({ width: mm(0.25), color: '#23252B' }),
+  thin: pen({ width: mm(0.2), color: '#2457D6' }),
+} }, (t) => {
+  const b = t.bounds();
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const mix = (p, q, s) => [p[0] + (q[0] - p[0]) * s, p[1] + (q[1] - p[1]) * s];
+  const turns = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  // A half-rhomb: the apex a, the legs to b and c, the base from b to c.
+  // Its loop starts at the apex, so the next pass reads the apex first.
+  const half = (kind, a, b, c) => (turns(a, b, c) > 0 ? { kind, hand: 'left', loop: [a, b, c] } : { kind, hand: 'right', loop: [a, c, b] });
+  // Halves as a material: shared points, a face each, `base` on each base.
+  const build = (halves) => {
+    const pts = [];
+    const index = (p) => {
+      const at = pts.findIndex((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-9);
+      return at >= 0 ? at : pts.push(p) - 1;
+    };
+    const loops = halves.map((h) => h.loop.map(index));
+    const bases = new Set(loops.map((l) => [l[1], l[2]].sort().join()));
+    return material(pts, { faces: loops })
+      .faces.set({ kind: (f) => halves[f.index].kind, hand: (f) => halves[f.index].hand })
+      .edges.set('base', (e) => (bases.has([e.a.index, e.b.index].sort().join()) ? 1 : 0));
+  };
+  // Robinson's cut of each half, in the unit frame: apex at [0, 0], the
+  // next corner on the left at [1, 0].
+  const cut = (kind, hand) => {
+    const turn = kind === 'thin' ? Math.PI / 5 : (3 * Math.PI) / 5;
+    const far = [Math.cos(turn), Math.sin(turn)];
+    const [A, B, C] = hand === 'left' ? [[0, 0], [1, 0], far] : [[0, 0], far, [1, 0]];
+    if (kind === 'thin') {
+      const P = mix(A, B, 1 / phi);
+      return build([half('thin', C, P, B), half('thick', P, C, A)]);
+    }
+    const Q = mix(B, A, 1 / phi);
+    const R = mix(B, C, 1 / phi);
+    return build([half('thick', R, C, A), half('thick', Q, R, B), half('thin', R, Q, A)]);
+  };
+  const motifs = ['thin', 'thick'].flatMap((kind) => ['left', 'right'].map((hand) => ({ kind, hand, motif: cut(kind, hand) })));
+  // The start: a sun of ten thin halves, every second one turned over.
+  const c = [b.w / 2, b.h / 2];
+  const at = (k) => mix(c, [c[0] + Math.cos((k * Math.PI) / 10), c[1] + Math.sin((k * Math.PI) / 10)], b.w * 0.76);
+  const sun = build(Array.from({ length: 10 }, (_, i) => (i % 2 ? half('thin', c, at(2 * i - 1), at(2 * i + 1)) : half('thin', c, at(2 * i + 1), at(2 * i - 1)))));
+  // One pass: each kind and hand of the leaves it starts with, for its cut.
+  const inflate = (g) => {
+    const leaves = g.faces.filter((f) => f.leaf);
+    return motifs.reduce((h, { kind, hand, motif }) => h.replace(leaves.filter((f) => f.kind === kind && f.hand === hand), motif), g);
+  };
+  const tiles = t.steps(5, sun, inflate);
+  return clip(rect(0, 0, b.w, b.h), [
+    // The thin rhombs hatched: the fills go down first.
+    tiles.faces.filter((f) => f.leaf && f.kind === 'thin').map((f) => polygon(f, { fill: fill('hatch', { angle: 60, spacing: mm(0.7) }), fillPen: 'thin', stroke: false })),
+    // Every rhomb wall once: the edges that are not a base.
+    strokes(tiles.edges.filter((e) => !e.base), { pen: 'wall' }),
+  ]);
+});
+```
+
+Below, the first step cuts one triangle in four. The next two steps cut each corner triangle again, and a middle triangle stays a leaf at its depth. The middle triangles of each depth have their own pen, so you can see how the faces hold each other.
+
+```ts live
+import { sketch, strokes, polygon, fill, material, pen, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], pens: {
+  wall: pen({ width: mm(0.25), color: '#23252B' }),
+  one: pen({ width: mm(0.2), color: '#2457D6' }),
+  two: pen({ width: mm(0.2), color: '#B4552B' }),
+  three: pen({ width: mm(0.2), color: '#2E8B57' }),
+} }, (t) => {
+  const b = t.bounds();
+  const h = Math.sqrt(3) / 2;
+  // The unit triangle cut in four: three corners and the middle.
+  const motif = material([[0, 0], [1, 0], [0.5, h], [0.5, 0], [0.75, h / 2], [0.25, h / 2]], {
+    faces: [[0, 3, 5], [3, 1, 4], [5, 4, 2], [3, 4, 5]],
+  }).faces.set('kind', (f) => (f.index === 3 ? 'middle' : 'corner'));
+  const w = b.w * 0.94;
+  const x = (b.w - w) / 2;
+  const y = (b.h + w * h) / 2;
+  const start = material([[x, y], [x + w, y], [x + w / 2, y - w * h]], { faces: [[0, 1, 2]] });
+  // Each step cuts every corner triangle again. A middle stays as it is.
+  const deep = t.steps(3, start, (g) => g.replace(g.faces.filter((f) => f.leaf && f.kind !== 'middle'), motif));
+  const pens = ['one', 'two', 'three'];
+  return [
+    // The middle of each depth in its own pen. The fills go down first.
+    deep.faces.filter((f) => f.kind === 'middle').map((f) => polygon(f, {
+      fill: fill('hatch', { angle: 20 + 50 * f.depth, spacing: mm(1.5 - 0.35 * f.depth) }),
+      fillPen: pens[f.depth - 1],
+      stroke: false,
+    })),
+    // Every wall once.
+    strokes(deep, { pen: 'wall' }),
+  ];
+});
+```
 
 ## move()
 
