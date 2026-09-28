@@ -266,7 +266,7 @@ export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 50 }) 
 
 The regular tiling of `p`-gons, `q` at every corner. The symbol picks the geometry: `(p − 2)(q − 2)` below 4 is the sphere, 4 the plane, and above 4 the hyperbolic disk. `{3, 5}` is the icosahedron, `{4, 4}` the square grid, and `{7, 3}` the heptagonal tiling of the disk. The sketch's `space` must be the geometry of the symbol, and the error names the `space` a symbol needs.
 
-The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces` gives the cells. The tiling states its faces in the order that it reached them, and `tiles.faces.at(0)` is the first cell. A curved wall is a geodesic, so a curved tiling holds each wall as samples between its two corners. Its point column `corner` is 1 at a corner and 0 at a sample. `tiles.faces.at(0).points.filter((p) => p.corner)` gives the corners of the first cell, in order. The `source` of each face is the [placement](#placement) that carried the first cell there. So a motif in the cell goes to every copy: `tiles.faces.map((f) => group(f.source, motif))`. Every face carries `generation` (reflections from the first cell) and `mirrored` (1 for a copy that turns the plane over).
+The answer is a [material](/docs/reference/material). Two cells that meet share their wall, so `strokes(tiles)` draws it once, and `tiles.faces` gives the cells. The tiling states its faces in the order that it reached them, and `tiles.faces.at(0)` is the first cell. A curved wall is a geodesic, so a curved tiling holds each wall as samples between its two corners. Its point column `corner` is 1 at a corner and 0 at a sample. `tiles.faces.at(0).points.filter((p) => p.corner)` gives the corners of the first cell, in order. The `source` of each face is the [placement](#placement) that puts the model face on that face. The model face is the regular polygon with the same sides, with its centre at the origin and one corner on `+x`. The origin is `[0, 0]` on the flat sheet and the centre of the space in a curved sketch. So draw a motif one time about the origin, and `tiles.faces.map((f) => group(f.source, motif))` puts it on every face. `f.source.point([0, 0])` is the centre of the face. On the sheet, it is the centre of the whole cell, also when the drawable edge cuts the cell. Every face carries `sides`, the number of its corners. It also carries `generation` (reflections from the first cell) and `mirrored` (1 for a copy that turns the plane over).
 
 A curved tiling floods `depth` generations of reflection across the cell's edges. A spherical tiling is finite and comes back whole. Its curvature fixes the side, so it refuses `side`, and it stands on the centre of its chart, so it refuses `origin`. Below, a `{7, 3}`, with the mirrored cells hatched blue.
 
@@ -307,6 +307,79 @@ export default sketch({ aspect: [1, 1] }, (t) => {
       ? strokes(f.boundaryEdges.extract())
       : polygon(f, { fill: fill('hatch', { angle: k === 0 ? 90 : 30, spacing: mm(0.8) }) });
   });
+});
+```
+
+### Uniform tilings
+
+`t.tiling([a, b, c, …], opts)` gives the uniform tiling with that vertex configuration. The list gives the polygons around one corner, in order, and every corner of the tiling is the same. `[3, 6, 3, 6]` is a triangle, a hexagon, a triangle and a hexagon around each corner. You can start the list at any polygon and read it in either direction. The angles at a corner select the geometry. When they fill a full turn, the tiling is flat. When they are less than a full turn, it is a solid on the sphere. When they are more than a full turn, it is in the hyperbolic disk. The sketch's `space` must agree, and the error is the same as for `{p, q}`. `[p, p, …]`, `q` times, is `{p, q}`, with the same rows.
+
+The plane has 11 uniform tilings: the three regular ones, `[3, 6, 3, 6]`, `[3, 12, 12]`, `[4, 8, 8]`, `[3, 4, 6, 4]`, `[4, 6, 12]`, `[3, 3, 3, 3, 6]`, `[3, 3, 4, 3, 4]` and `[3, 3, 3, 4, 4]`. The sphere has the 5 Platonic and the 13 Archimedean solids, for example `[3, 4, 3, 4]` and `[5, 6, 6]`. Prisms and antiprisms are not available. In the disk, the tiling comes from Wythoff's construction on `{p, q}`: `[p, q, p, q]`, `[q, 2p, 2p]`, `[p, 4, q, 4]`, `[4, 2p, 2q]` and `[3, 3, p, 3, q]`, for example `[7, 6, 6]` and `[4, 5, 4, 5]`. A list that is not the corner of a uniform tiling gives an error. The error shows the sum of the angles.
+
+A uniform tiling has the same options and columns as `{p, q}`. A flat one covers the drawable. `side` is the length of each wall, and `origin` is the centre of the first face. `rotate` and `gap` operate as they do for `{p, q}`. A curved one floods `depth` generations of the `{p, q}` cell that its faces come from. Each face has `sides`, so you can select the faces by their polygon. The lattice numbers `i` and `j` are only on `{4, 4}`, `{3, 6}` and `{6, 3}`, and on their lists `[4, 4, 4, 4]`, `[3, 3, 3, 3, 3, 3]` and `[6, 6, 6]`. The other uniform tilings have no `i` and `j`. Below, `[3, 6, 3, 6]` with the hexagons hatched and the triangles open. `strokes` draws each wall one time.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  // Two triangles and two hexagons at every corner, in turn.
+  const tiles = t.tiling([3, 6, 3, 6], { side: 7, rotate: 15 });
+  const hexagons = tiles.faces.filter((f) => f.sides === 6);
+  return [
+    // The fills go down first. A fill is opaque, and it would hide a wall
+    // drawn under it.
+    hexagons.map((f) => polygon(f, { fill: fill('hatch', { angle: 75, spacing: mm(0.7) }), stroke: false })),
+    // Every wall once, whichever two faces share it.
+    strokes(tiles),
+  ];
+});
+```
+
+The same word in the hyperbolic disk. At each corner of `[7, 6, 6]`, a heptagon meets two hexagons. The heptagons have a tight blue hatch, and the hexagons have an open hatch in another pen.
+
+```ts live
+import { sketch, strokes, polygon, fill, circle, pen, mm, space } from 'occlude';
+
+export default sketch({ aspect: [1, 1], space: space.hyperbolic({ radius: 47 }), pens: {
+  wall: pen({ width: mm(0.25), color: '#23252B' }),
+  seven: pen({ width: mm(0.2), color: '#2457D6' }),
+  six: pen({ width: mm(0.2), color: '#B4552B' }),
+} }, (t) => {
+  const tiles = t.tiling([7, 6, 6], { depth: 3 });
+  const hatch = (sides) => sides === 7
+    ? { fill: fill('hatch', { angle: 30, spacing: mm(0.9) }), fillPen: 'seven' }
+    : { fill: fill('hatch', { angle: -30, spacing: mm(1.8) }), fillPen: 'six' };
+  return [
+    tiles.faces.map((f) => polygon(f, { ...hatch(f.sides), stroke: false })),
+    circle(t.space.center, 300, { pen: 'wall' }),
+    strokes(tiles, { pen: 'wall' }),
+  ];
+});
+```
+
+A motif for each kind of face, through `source`. Below, `[4, 6, 12]` on the sheet. The points of the star are the corners of the model hexagon. So the star touches the corners of each hexagon. Two rings go in each 12-gon. `clip` keeps the part of a motif that is in its face. Where the drawable edge cuts a face, the clip keeps the part on the drawable.
+
+```ts live
+import { sketch, strokes, group, clip, circle, line, pen, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], pens: {
+  wall: pen({ width: mm(0.25), color: '#23252B' }),
+  motif: pen({ width: mm(0.2), color: '#2457D6' }),
+} }, (t) => {
+  const side = 9;
+  const tiles = t.tiling([4, 6, 12], { side, rotate: 10 });
+  // Each motif is drawn one time, about the origin. The model hexagon has
+  // walls of `side` and a corner on +x, so the star meets its corners.
+  const at = (k) => [side * Math.cos((k * Math.PI) / 3), side * Math.sin((k * Math.PI) / 3)];
+  const motif = {
+    6: [0, 1, 2, 3, 4, 5].map((k) => line(at(k), at(k + 2), { pen: 'motif' })),
+    12: [circle(0, 0, 13, { pen: 'motif' }), circle(0, 0, 9, { pen: 'motif' })],
+  };
+  return [
+    // The source of a face carries the motif onto that face.
+    tiles.faces.filter((f) => f.sides !== 4).map((f) => clip(f, group(f.source, motif[f.sides]))),
+    strokes(tiles, { pen: 'wall' }),
+  ];
 });
 ```
 
