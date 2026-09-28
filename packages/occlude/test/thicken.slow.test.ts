@@ -917,8 +917,8 @@ describe('thicken: overlapping recursive rectangles', () => {
 
 
 it('bounds polygon construction and coordinate range instead of returning partial geometry', () => {
-  expect(() => material([[0, 0]]).thicken({ radius: 1, tolerance: 1e-20 })).toThrow(/budget/);
-  expect(() => material([[0, 0], [1e20, 0]]).thicken({ radius: 1 })).toThrow(/range|precision/);
+  expect(() => material([[0, 0]]).thicken({ radius: 1, tolerance: 1e-20 })).toThrow(/finer than/);
+  expect(() => material([[0, 0], [1e20, 0]]).thicken({ radius: 1 })).toThrow(/finer than/);
   // A mark too far out for the polygon grid to hold has no boundary to
   // union in: it is left out, and a material of nothing else is empty.
   expect(material([[1e20, 1e20]]).thicken({ radius: 1 }).n).toBe(0);

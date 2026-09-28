@@ -50,43 +50,47 @@ export function polygonUnion(
   tolerance: number,
   provenance: boolean,
 ): BoundaryVertex[][] {
+  if (!(tolerance > 0) || !Number.isFinite(tolerance))
+    throw new Error(
+      `thicken: tolerance is a positive length — got ${String(tolerance)}`,
+    );
   let minRadius = Infinity,
     ox = Infinity,
-    oy = Infinity;
+    oy = Infinity,
+    mx = -Infinity,
+    my = -Infinity;
   for (const h of inputs) {
     if (h.ra > 0) minRadius = Math.min(minRadius, h.ra);
     if (h.rb > 0) minRadius = Math.min(minRadius, h.rb);
     ox = Math.min(ox, h.ax, h.bx);
     oy = Math.min(oy, h.ay, h.by);
+    mx = Math.max(mx, h.ax + h.ra, h.bx + h.rb);
+    my = Math.max(my, h.ay + h.ra, h.by + h.rb);
   }
-  // Keep isolated small marks representable even with a coarse user tolerance.
-  // Powers of two make scaling exact; two grid units fit comfortably inside
-  // the reserved quantization budget. Features below the grid can disappear.
-  const grid =
-    2 ** Math.floor(Math.log2(Math.min(tolerance / 64, minRadius / 1024)));
-  if (!Number.isFinite(grid) || grid <= 0)
-    throw new Error('thicken: tolerance exceeds coordinate precision');
+  // Keep isolated small marks representable even with a coarse user
+  // tolerance, but never finer than the coordinate range can carry: the
+  // integer arrangement holds 2^50 grid units, so the grid is bounded below
+  // by the range over that. A mark smaller than the grid — a radius of 1e-15
+  // from a centroid that sits on the centre — then has no boundary to union
+  // and is left out (best effort), instead of driving the grid to nothing
+  // and failing the whole thicken. Powers of two make scaling exact.
+  const range = Math.max(mx - ox, my - oy, tolerance);
+  const wanted = 2 ** Math.floor(Math.log2(Math.min(tolerance / 64, minRadius / 1024)));
+  const floor = 2 ** Math.ceil(Math.log2(range / 2 ** 50));
+  const grid = Math.max(wanted, floor);
+  // A tolerance the grid cannot quantize to is not a degenerate input but a
+  // wrong one: no polygon over these coordinates can meet it. Refuse by name
+  // and say the finest tolerance the coordinates carry.
+  if (grid > tolerance / 8)
+    throw new Error(
+      `thicken: a tolerance of ${String(tolerance)} is finer than coordinates spanning ${String(range)} can carry — the finest is about ${String(floor * 8)}`,
+    );
   const paths: P[][] = [],
     seen = new Set<string>();
-  let work = 0;
-  const point = (x: number, y: number): P => {
-    const X = Math.round((x - ox) / grid),
-      Y = Math.round((y - oy) / grid);
-    if (
-      !Number.isSafeInteger(X) ||
-      !Number.isSafeInteger(Y) ||
-      Math.max(Math.abs(X), Math.abs(Y)) > 2 ** 50
-    )
-      throw new Error('thicken: coordinate range exceeds polygon grid budget');
-    if (
-      Math.abs(ox + X * grid - x) > tolerance / 8 ||
-      Math.abs(oy + Y * grid - y) > tolerance / 8
-    )
-      throw new Error(
-        'thicken: coordinates cannot represent the requested tolerance',
-      );
-    return { X, Y };
-  };
+  const point = (x: number, y: number): P => ({
+    X: Math.round((x - ox) / grid),
+    Y: Math.round((y - oy) / grid),
+  });
   for (const h of inputs) {
     const a = `${h.ax},${h.ay},${h.ra}`,
       b = `${h.bx},${h.by},${h.rb}`,
@@ -105,9 +109,6 @@ export function polygonUnion(
       const error = Math.min(tolerance / 4, r / 64);
       const n =
         4 * Math.ceil(Math.max(16, Math.PI / Math.acos(1 - error / r)) / 4);
-      work += n;
-      if (!Number.isFinite(n) || work > 1_000_000)
-        throw new Error('thicken: polygon construction budget exceeded');
       for (let j = 0; j < n; j++) {
         const angle = (2 * Math.PI * j) / n;
         pts.push(point(x + r * Math.cos(angle), y + r * Math.sin(angle)));
