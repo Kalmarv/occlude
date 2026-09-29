@@ -6,6 +6,7 @@
  * calibrating is a separate sitting from drawing.
  */
 
+import { showMachineError, type DebugInputs } from './debugInfo.js';
 import './style.css';
 
 import type { PenDef } from 'occlude';
@@ -21,6 +22,8 @@ import { el, hint, segmented } from './widgets.js';
 import { mountShell } from './shell.js';
 mountShell('machine');
 
+declare const __BUILD_STAMP__: string;
+
 const main = document.getElementById('machine-main')!;
 
 async function boot(): Promise<void> {
@@ -35,9 +38,14 @@ async function boot(): Promise<void> {
   const settings = loadSettings();
 
   const status = el('div', 'panel-hint status-line');
-  const showErr = (e: unknown): void => {
-    status.textContent = e instanceof Error ? e.message : String(e);
-  };
+  const debugInputs = (error: string): DebugInputs => ({
+    error,
+    build: typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev',
+    driver: m.driver(),
+    profile: m.prof(),
+    progress: progress.textContent ?? '',
+  });
+  const showErr = (e: unknown): void => showMachineError(status, e, debugInputs);
   const m = createSession(profiles, settings, () => pens, showErr);
 
   // Header strip: which machine, connected or not, what it is doing.

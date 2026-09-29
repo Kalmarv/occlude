@@ -17,6 +17,12 @@ class FakeGrblPort {
   wco = [0, 0, 0];
   /** DrawCore Z quirk: G10 L20 ignores Z and G92 Z stores the value as the offset itself. */
   quirkyZ = false;
+  /** The same quirk in X and Y: G10 L20 ignored, G92 stores its numbers as the offset. */
+  quirkyXY = false;
+  /** A board that ignores every offset word in X and Y. */
+  deafXY = false;
+  /** Status reports that never carry WCO (GRBL sends it only now and then). */
+  sparseWco = false;
   /** Reply latency per line, so a plot takes real time and can be paused. */
   delayMs = 0;
   /** A flaky link: one command whose ok never comes (the move ran), one
@@ -29,12 +35,21 @@ class FakeGrblPort {
   mute = false;
   settingsReply = '$1=254\r\n$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
   private timers: ReturnType<typeof setTimeout>[] = [];
-  readonly readable = new ReadableStream<Uint8Array>({ start: (controller) => { this.input = controller; } });
+  private stream = this.newStream();
+  get readable(): ReadableStream<Uint8Array> { return this.stream; }
+  private newStream(): ReadableStream<Uint8Array> { return new ReadableStream<Uint8Array>({ start: (controller) => { this.input = controller; } }); }
+  /** A recoverable read error, as Web Serial raises one: the stream errors
+   * and the port hands out a fresh one; the board is unaffected. */
+  glitch(): void {
+    const old = this.input;
+    this.stream = this.newStream();
+    old.error(Object.assign(new Error('the receive buffer overflowed'), { name: 'BufferOverrunError' }));
+  }
   readonly writable = new WritableStream<Uint8Array>({
     write: (chunk) => {
       const text = new TextDecoder().decode(chunk);
       for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
-      if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
+      if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0${this.sparseWco ? '' : `|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}`}>\r\n`, true); return; }
       if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
       if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
       if (text === '\x18') {
@@ -55,6 +70,7 @@ class FakeGrblPort {
         if (cmd === this.errorOnce) { this.errorOnce = null; reply = 'error:9\r\n'; }
         if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
         if (cmd === '$$') reply = this.settingsReply;
+        if (cmd === '$#') reply = `[G54:${this.wco.map((v) => v.toFixed(3)).join(',')}]\r\n[G92:0.000,0.000,0.000]\r\nok\r\n`;
         this.reply(reply, false);
       }
     },
@@ -72,9 +88,17 @@ class FakeGrblPort {
     const rel = cmd.startsWith('$J=') || cmd.includes('G91');
     const axis = (name: string): number | undefined => { const m = cmd.match(new RegExp(`${name}(-?[\\d.]+)`)); return m ? Number(m[1]) : undefined; };
     const g10 = cmd.match(/^G10 L20 P1(.*)$/);
-    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined && !(this.quirkyZ && i === 2)) this.wco[i] = this.pos[i] - v; } return; }
+    const xy = (i: number): boolean => i < 2;
+    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined && !(this.quirkyZ && i === 2) && !((this.quirkyXY || this.deafXY) && xy(i))) this.wco[i] = this.pos[i] - v; } return; }
     const g92 = cmd.match(/^G92 (.*)$/);
-    if (g92) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined) this.wco[i] = this.quirkyZ && i === 2 ? v : this.pos[i] - v; } return; }
+    if (g92) {
+      for (const [i, name] of ['X', 'Y', 'Z'].entries()) {
+        const v = axis(name);
+        if (v === undefined || (this.deafXY && xy(i))) continue;
+        this.wco[i] = (this.quirkyZ && i === 2) || (this.quirkyXY && xy(i)) ? v : this.pos[i] - v;
+      }
+      return;
+    }
     if (!/^(\$J=|G0|G1)/.test(cmd)) return;
     if (cmd === '$J=' || !/[XYZ]-?[\d.]/.test(cmd)) return;
     const x = axis('X'), y = axis('Y'), z = axis('Z');
@@ -388,6 +412,17 @@ describe('the watchdog asks the controller before it gives up', () => {
     expect(port.pos.slice(0, 2)).toEqual([10, 20]);
   });
 
+  it('a read error does not deafen the driver: it is logged and reading goes on', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    await g.connect(undefined, port as never);
+    port.glitch();
+    await tick(30);
+    await expect(g.cmd('G1 X10 Y20 F1000', true, 500)).resolves.toEqual([]);
+    expect((await g.status()).state).toBe('Idle');
+    expect(g.transcript()).toContain('(serial read error, reading on: BufferOverrunError: the receive buffer overflowed)');
+  });
+
   it('a dead link: no status report either, so the line fails by name', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
@@ -525,6 +560,45 @@ describe('registration at a mark', () => {
       expect(g.bedPosition()).toEqual([50, 40]);
       expect(g.registeredAt).toEqual([50, 40]);
     }
+  });
+
+  it('reads the offset back from $# when the status reports carry no WCO', async () => {
+    const port = new FakeGrblPort();
+    port.pos = [123, -456, 0];
+    port.sparseWco = true; // the report after G10 has no WCO: the old offset would refuse a registration that took
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    await g.registerAt([50, 40]);
+    expect(port.commands).toContain('G10 L20 P1 X50.000 Y-40.000');
+    expect(port.commands.some((c) => c.startsWith('G92'))).toBe(false); // honoured the first time
+    expect(g.registeredAt).toEqual([50, 40]);
+  });
+
+  it('hands a board with the DrawCore G92 quirk its offset in X and Y', async () => {
+    const port = new FakeGrblPort();
+    port.pos = [123, -456, 0];
+    port.quirkyXY = true;
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    await g.registerAt([50, 40]);
+    expect(port.commands).toContain('G92 X73.000 Y-416.000'); // machine less the point
+    expect(g.registeredAt).toEqual([50, 40]);
+    expect(port.pos[0] - port.wco[0]).toBe(50);
+    expect(port.pos[1] - port.wco[1]).toBe(-40);
+  });
+
+  it('a board that takes no offset is refused with what it reported, and no G92 is left behind', async () => {
+    const port = new FakeGrblPort();
+    port.pos = [123, -456, 0];
+    port.deafXY = true;
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    await expect(g.registerAt([50, 40])).rejects.toThrow(/wanted work X50\.000 Y-40\.000; the controller reported G10 L20 P1 X50\.000 Y-40\.000 → work X123\.000 Y-456\.000/);
+    expect(port.commands.at(-1)).toBe('G92.1');
+    expect(g.registeredAt).toBeNull();
   });
 
   it('a plot after registerAt is the plot after setOrigin, translated by the mark', async () => {

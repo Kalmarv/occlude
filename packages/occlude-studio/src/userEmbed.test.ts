@@ -44,7 +44,7 @@ const expectBundledDefinitions = (source: string): void => {
   const run = execute(source);
   expect(run.pens.get('blue')!.width).toBe(0.3); // the bundled fineliner, not the recipient's width-9 one
   expect(run.pens.get('thin')!.width).toBe(0.35);
-  expect(run.paper).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
+  expect(run.paper).toEqual({ w: 215.9, h: 279.4, color: '#f5f0e6' });
 };
 
 describe('bundling pens and papers into a download', () => {

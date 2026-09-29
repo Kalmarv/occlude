@@ -47,11 +47,13 @@ import { type PenDef } from 'occlude';
 import { schedulePlan, type PlanEstimate, type PlanSchedule } from 'occlude/host';
 
 import { registrationMark } from './diagnostics.js';
+import { describeReadError, readLines } from './serialLines.js';
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';
 import type { MachineSettings } from './store.js';
 
 interface SerialPortLike {
-  open(opts: { baudRate: number }): Promise<void>;
+  open(opts: { baudRate: number; bufferSize?: number }): Promise<void>;
+  getInfo?(): { usbVendorId?: number; usbProductId?: number };
   close(): Promise<void>;
   readable: ReadableStream<Uint8Array> | null;
   writable: WritableStream<Uint8Array> | null;
@@ -116,7 +118,6 @@ function targetOf(line: string): [number, number] | null {
 export class Grbl {
   private port: SerialPortLike | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
-  private rxBuf = '';
   private pending: Pending[] = [];
   private inFlightBytes = 0;
   /** Lines waiting for buffer room: retried on every ok, rejected by a flush. */
@@ -164,6 +165,11 @@ export class Grbl {
     this.log.push(`${((Date.now() - this.t0) / 1000).toFixed(3)} ${dir} ${text}`);
     if (this.log.length > 20000) this.log.splice(0, 5000);
   }
+  /** The USB vendor and product id of the open port, as the browser reports them. */
+  usbInfo(): { usbVendorId?: number; usbProductId?: number } | null {
+    return this.port?.getInfo?.() ?? null;
+  }
+
   transcript(): string { return this.log.join('\n'); }
 
   get connected(): boolean { return this.port !== null; }
@@ -176,12 +182,14 @@ export class Grbl {
       const serial = (navigator as unknown as { serial: SerialLike }).serial;
       port = await serial.requestPort();
     }
-    await port.open({ baudRate: 115200 });
+    // A 64 KiB receive buffer: the default 255 bytes overrun whenever the page
+    // is busy for a moment (a render, a preview) while the board replies.
+    await port.open({ baudRate: 115200, bufferSize: 1 << 16 });
     this.port = port;
     this.writer = port.writable!.getWriter();
     this.t0 = Date.now();
     this.penIsUp = false; // unknown until a pen-up is sent
-    void this.readLoop();
+    void readLines(port, (line) => this.onLine(line), (e) => this.logLine('<', `(serial read error, reading on: ${describeReadError(e)})`), () => this.port === port);
     // A board that resets on open prints its banner now (the DrawCore does
     // not reset and prints nothing); then close any stale partial line.
     await sleep(300);
@@ -214,24 +222,7 @@ export class Grbl {
   private banner = '';
   private statusWaiters: ((line: string) => void)[] = [];
 
-  private async readLoop(): Promise<void> {
-    const decoder = new TextDecoder();
-    const reader = this.port!.readable!.getReader();
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        this.rxBuf += decoder.decode(value, { stream: true });
-        const parts = this.rxBuf.split(/[\r\n]+/);
-        this.rxBuf = parts.pop() ?? '';
-        for (const line of parts) if (line.length > 0) this.onLine(line);
-      }
-    } catch {
-      // aborted or unplugged
-    } finally {
-      reader.releaseLock();
-    }
-  }
+
 
   private onLine(line: string): void {
     this.logLine('<', line);
@@ -625,6 +616,34 @@ export class Grbl {
     await this.status().catch(() => null); // picks up the new offset
   }
 
+  /** The work position as the controller holds it, read from its own
+   * offsets: `$#` (G54 plus G92) against the machine position. A status
+   * report alone can carry an old offset — GRBL sends `WCO` only in some
+   * reports — so without `$#` the reports are read until one carries
+   * `WCO`. The offset read is kept for every later status. */
+  private async workNow(): Promise<{ work: [number, number]; how: string } | null> {
+    const st = await this.status().catch(() => null);
+    if (!st) return null;
+    if (/WPos:/.test(st.raw)) return { work: [st.work[0], st.work[1]], how: 'WPos' };
+    const lines = await this.send('$#').catch(() => [] as string[]);
+    const offset = (name: string): number[] | null => {
+      const m = lines.map((l) => new RegExp(`^\\[${name}:(-?[\\d.]+),(-?[\\d.]+),(-?[\\d.]+)`).exec(l)).find(Boolean);
+      return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+    };
+    const g54 = offset('G54'), g92 = offset('G92');
+    if (g54) {
+      const wco = [0, 1, 2].map((i) => g54[i] + (g92?.[i] ?? 0)) as [number, number, number];
+      this.wco = wco;
+      return { work: [st.machine[0] - wco[0], st.machine[1] - wco[1]], how: `MPos ${this.fmt(st.machine[0])},${this.fmt(st.machine[1])} − G54 ${this.fmt(g54[0])},${this.fmt(g54[1])} − G92 ${this.fmt(g92?.[0] ?? 0)},${this.fmt(g92?.[1] ?? 0)}` };
+    }
+    for (let k = 0; k < 20; k++) {
+      const r = await this.status().catch(() => null);
+      if (r && /WCO:/.test(r.raw)) return { work: [r.work[0], r.work[1]], how: 'status with WCO' };
+      await sleep(100);
+    }
+    return { work: [st.work[0], st.work[1]], how: 'status, no fresh WCO' };
+  }
+
   /** "The tip stands on the registration mark": the head is declared to be
    * at the paper point `point`, whatever the controller believed. The work
    * offset is set so that the point's coordinates in the controller's own
@@ -637,14 +656,27 @@ export class Grbl {
     if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the machine; pause first'));
     return this.manual(async () => {
       const [x, y] = this.toMachine(point);
+      const coords = `X${this.fmt(x)} Y${this.fmt(y)}`;
+      const seen: string[] = [];
       const declared = async (line: string): Promise<boolean> => {
         await this.send(line);
-        const s = await this.status().catch(() => null);
-        return !!s && Math.abs(s.work[0] - x) <= 0.01 && Math.abs(s.work[1] - y) <= 0.01;
+        const w = await this.workNow();
+        seen.push(`${line} → ${w ? `work X${this.fmt(w.work[0])} Y${this.fmt(w.work[1])} (${w.how})` : 'no report'}`);
+        return !!w && Math.abs(w.work[0] - x) <= 0.01 && Math.abs(w.work[1] - y) <= 0.01;
       };
-      const coords = `X${this.fmt(x)} Y${this.fmt(y)}`;
-      if (!(await declared(`G10 L20 P1 ${coords}`)) && !(await declared(`G92 ${coords}`))) {
-        throw new GrblError(`registration not honoured: the controller does not report work ${coords} after G10 L20 or G92`);
+      // Standard GRBL first: the persistent work offset, then G92 ("the
+      // head is here"). The DrawCore stores the number given to G92 Z as
+      // the offset itself (serial log 2026-09-16); the last form hands it
+      // the offset in X and Y the same way, from the machine position.
+      const machine = (await this.status().catch(() => null))?.machine;
+      const forms = [`G10 L20 P1 ${coords}`, `G92 ${coords}`];
+      if (machine) forms.push(`G92 X${this.fmt(machine[0] - x)} Y${this.fmt(machine[1] - y)}`);
+      let ok = false;
+      for (const line of forms) if (!ok) ok = await declared(line);
+      if (!ok) {
+        // Leave no stray G92 offset behind a refusal.
+        await this.send('G92.1').catch(() => undefined);
+        throw new GrblError(`registration not honoured: wanted work ${coords}; the controller reported ${seen.join('; ')}`);
       }
       this.paperOffset = [0, 0];
       this.wpos = [point[0], point[1]];

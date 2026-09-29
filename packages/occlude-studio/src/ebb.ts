@@ -19,6 +19,7 @@
 
 import type { PenDef } from 'occlude';
 import { registrationMark } from './diagnostics.js';
+import { describeReadError, readLines } from './serialLines.js';
 
 import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude/host';
 import {
@@ -28,7 +29,8 @@ import {
 
 // Minimal Web Serial typings (lib.dom doesn't ship them everywhere).
 interface SerialPortLike {
-  open(opts: { baudRate: number }): Promise<void>;
+  open(opts: { baudRate: number; bufferSize?: number }): Promise<void>;
+  getInfo?(): { usbVendorId?: number; usbProductId?: number };
   close(): Promise<void>;
   readable: ReadableStream<Uint8Array> | null;
   writable: WritableStream<Uint8Array> | null;
@@ -198,7 +200,6 @@ export class Ebb {
   private port: SerialPortLike | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private readAbort: AbortController | null = null;
-  private rxBuf = '';
   private rxLines: string[] = [];
   private inFlight: QueuedCmd | null = null;
   private queue: QueuedCmd[] = [];
@@ -230,6 +231,11 @@ export class Ebb {
   }
 
   /** The session's serial transcript as text. */
+  /** The USB vendor and product id of the open port, as the browser reports them. */
+  usbInfo(): { usbVendorId?: number; usbProductId?: number } | null {
+    return this.port?.getInfo?.() ?? null;
+  }
+
   transcript(): string {
     return this.log.join('\n');
   }
@@ -258,11 +264,13 @@ export class Ebb {
     const port = await serial.requestPort({
       filters: [{ usbVendorId: 0x04d8, usbProductId: 0xfd92 }],
     });
-    await port.open({ baudRate: 115200 });
+    // A 64 KiB receive buffer: the default 255 bytes overrun whenever the page
+    // is busy for a moment (a render, a preview) while the board replies.
+    await port.open({ baudRate: 115200, bufferSize: 1 << 16 });
     this.port = port;
     this.writer = port.writable!.getWriter();
     this.readAbort = new AbortController();
-    void this.readLoop();
+    void readLines(port, (line) => this.onLine(line), (e) => this.logLine('<', `(serial read error, reading on: ${describeReadError(e)})`), () => this.port === port);
     // No reset on open, no warmup (verified). Configure the servo, but leave
     // the steppers released so the carriage can be positioned by hand. Jog,
     // Home, and Plot enable them immediately before their first motion.
@@ -354,26 +362,7 @@ export class Ebb {
     return this.port !== null;
   }
 
-  private async readLoop(): Promise<void> {
-    const decoder = new TextDecoder();
-    const reader = this.port!.readable!.getReader();
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        this.rxBuf += decoder.decode(value, { stream: true });
-        const parts = this.rxBuf.split(/[\r\n]+/);
-        this.rxBuf = parts.pop() ?? '';
-        for (const line of parts) {
-          if (line.length > 0) this.onLine(line);
-        }
-      }
-    } catch {
-      // aborted or unplugged
-    } finally {
-      reader.releaseLock();
-    }
-  }
+
 
   private onLine(line: string): void {
     this.logLine('<', line);

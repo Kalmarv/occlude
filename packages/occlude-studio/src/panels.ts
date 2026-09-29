@@ -32,6 +32,7 @@ import { iconButton, relabel, setIcon, withIcon } from './icons.js';
 import { confirmDialog, notify } from './wa.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented, panel, subpanel as sub, yAxisSelect } from './widgets.js';
 import { buildOptimizationPanel } from './optimizationPanel.js';
+import { copyDebugButton, showMachineError, type DebugInputs } from './debugInfo.js';
 
 export interface PanelHooks {
   optimizationView(view: { chains: import('occlude/host').PlanChain[]; before?: import('occlude/host').PlanChain[]; after?: import('occlude/host').PlanChain[] } | null): void;
@@ -749,8 +750,25 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   }
   const status = document.createElement('div');
   status.className = 'panel-hint status-line';
+  // Every machine error comes here, and carries its debug info one click away.
+  let lastError = '';
+  const debugInputs = (error: string): DebugInputs => ({
+    error,
+    build: hooks.build,
+    driver: dr(),
+    profile: prof(),
+    progress: progressText.textContent ?? '',
+    sketch: {
+      name: hooks.currentName(),
+      seed: hooks.currentSeed(),
+      pen: penSelect.selectedOptions[0]?.textContent ?? '',
+      source: hooks.getSource(),
+      execution: hooks.execution(),
+    },
+  });
   const showErr = (e: unknown): void => {
-    status.textContent = e instanceof Error ? e.message : String(e);
+    lastError = e instanceof Error ? e.message : String(e);
+    showMachineError(status, e, debugInputs);
   };
   const m = createSession(hooks.profiles, hooks.settings, () => hooks.pens, showErr);
   m.onChanged = () => {
@@ -1256,7 +1274,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     savedBox,
     el('h4', 'band-title', 'Manual control'),
     manual,
-    hint('Profile, calibration and the serial log live on the Machine page.'),
+    el('div', 'debug-row', copyDebugButton(() => debugInputs(lastError))),
+    hint('Copy debug info takes this page’s serial log, the machine, the board and the sketch — paste it into the chat. Profile and calibration live on the Machine page.'),
   );
   refreshPenSelect();
   followSketch();

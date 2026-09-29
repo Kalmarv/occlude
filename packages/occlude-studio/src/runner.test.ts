@@ -38,11 +38,11 @@ exports.default = (0, occlude_1.sketch)({
 ]);`);
     const out = runSketch(js, cfg, 7, assetTable(), fillTable([]));
     expect(out.error).toBeNull();
-    expect(out.run!.paper).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
-    expect(out.run!.pens.get('blue')).toMatchObject({ color: '#2457D6', width: DEFAULT_PENS[0].width });
+    expect(out.run!.paper).toEqual({ w: 215.9, h: 279.4, color: '#f5f0e6' });
+    expect(out.run!.pens.get('blue')).toMatchObject({ color: '#2457d6', width: DEFAULT_PENS[0].width });
     expect(out.run!.pens.get('plain')).toMatchObject({ width: DEFAULT_PENS[1].width });
     expect(out.scene!.pens.map((p) => p.name)).toEqual(['blue', 'plain']);
-    expect(out.scene!.paper).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
+    expect(out.scene!.paper).toEqual({ w: 215.9, h: 279.4, color: '#f5f0e6' });
     expect(moduleName('micron-03')).toBe('micron_03');
     expect(moduleName('3b')).toBe('_3b');
   });
