@@ -154,6 +154,9 @@ rasters are implementation numbers. They are not tenants.
   the Docker build runs those gates, restarts the studio, verifies the
   served build stamp, then pushes master and dev; `pnpm ship dev` from the
   isolated dev checkout does the same for the 5273 service.
+  `pnpm ship dev --quick` skips the gates and the image (host build, copy
+  dist into the dev container, verify the stamp; ~45 s) — for carrying on
+  with a sketch, never for landing work.
 - **Docs are topic pages with live examples.** Every feature gets a
   `ts live` entry on its topic page under docs/ (getting-started, shapes,
   fills, fields, materials, images, plotting; the list is `DOC_PAGES` in
