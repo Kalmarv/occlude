@@ -45,6 +45,7 @@ export function debugInfo(i: DebugInputs): string {
     `driver: ${i.profile.driver ?? 'ebb'} · firmware ${d.version || '(unknown)'} · ${d.connected ? 'connected' : 'not connected'} · ${d.plotting ? 'plotting' : 'idle'}`,
     `board settings: ${board}`,
     `plot: ${i.progress || '(no plot this session)'}`,
+    `link: ${'linkState' in d ? d.linkState() : '(not recorded by this driver)'}`,
     '',
     `## machine profile`,
     JSON.stringify(i.profile, null, 2),

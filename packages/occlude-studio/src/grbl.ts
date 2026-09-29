@@ -189,6 +189,7 @@ export class Grbl {
     this.writer = port.writable!.getWriter();
     this.t0 = Date.now();
     this.penIsUp = false; // unknown until a pen-up is sent
+    this.watchLifecycle();
     void readLines(port, (line) => this.onLine(line), (e) => this.logLine('<', `(serial read error, reading on: ${describeReadError(e)})`), () => this.port === port);
     // A board that resets on open prints its banner now (the DrawCore does
     // not reset and prints nothing); then close any stale partial line.
@@ -225,8 +226,10 @@ export class Grbl {
 
 
   private onLine(line: string): void {
+    this.lastRxAt = Date.now();
     this.logLine('<', line);
     if (line.startsWith('<')) {
+      this.replies++;
       const w = this.statusWaiters.shift();
       if (w) w(line);
       return;
@@ -268,7 +271,48 @@ export class Grbl {
 
   private async raw(text: string): Promise<void> {
     if (!this.writer) throw new GrblError('not connected');
-    await this.writer.write(new TextEncoder().encode(text));
+    const started = Date.now();
+    this.writesWaiting.add(started);
+    if (text === '?') this.polls++;
+    try {
+      await this.writer.write(new TextEncoder().encode(text));
+    } finally {
+      this.writesWaiting.delete(started);
+      this.lastWriteDoneAt = Date.now();
+    }
+  }
+
+  // ---- link facts, for the watchdog and the debug info --------------------
+  // Which side of a silent link stopped: writes that never finish (nothing
+  // reaches the board), bytes that stop arriving (nothing reaches the page),
+  // or a page the browser hid, froze or throttled.
+  private writesWaiting = new Set<number>();
+  private lastWriteDoneAt = 0;
+  private lastRxAt = 0;
+  private polls = 0;
+  private replies = 0;
+  private lifecycleWatched = false;
+
+  /** One line on the state of the link, as of now. */
+  linkState(): string {
+    const now = Date.now();
+    const ago = (t: number): string => (t ? `${((now - t) / 1000).toFixed(1)} s ago` : 'never');
+    const oldest = this.writesWaiting.size ? Math.min(...this.writesWaiting) : 0;
+    const page = typeof document === 'undefined' ? 'no page' : `page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`;
+    return `${this.writesWaiting.size} writes waiting${oldest ? ` (oldest since ${ago(oldest)})` : ''} · last write finished ${ago(this.lastWriteDoneAt)} · last byte received ${ago(this.lastRxAt)} · ${this.polls} status polls, ${this.replies} reports · ${this.pending.length} lines unacknowledged · ${page}`;
+  }
+
+  /** Page visibility and lifecycle into the serial log: a hidden tab's
+   * timers are throttled, and a frozen one runs nothing at all. */
+  private watchLifecycle(): void {
+    if (this.lifecycleWatched || typeof document === 'undefined') return;
+    this.lifecycleWatched = true;
+    const note = (what: string) => () => this.logLine('<', `(page ${what} · ${this.linkState()})`);
+    document.addEventListener('visibilitychange', () => note(document.visibilityState)());
+    document.addEventListener('freeze', note('frozen'));
+    document.addEventListener('resume', note('resumed'));
+    window.addEventListener('blur', note('lost focus'));
+    window.addEventListener('focus', note('focused'));
   }
 
   /** Real-time byte: bypasses the buffer and the counter. */
@@ -321,7 +365,7 @@ export class Grbl {
   private async stalled(p: Pending, timeoutMs: number): Promise<void> {
     if (!this.pending.includes(p)) return;
     if (this.pending[0] !== p) { p.timer = setTimeout(() => { void this.stalled(p, timeoutMs); }, timeoutMs); return; }
-    this.logLine('<', `(watchdog: no reply to ${p.line} after ${timeoutMs} ms — asking the controller)`);
+    this.logLine('<', `(watchdog: no reply to ${p.line} after ${timeoutMs} ms — asking the controller · ${this.linkState()})`);
     let st: GrblStatus | null = null;
     try { st = await this.status(); } catch { st = null; }
     if (!this.pending.includes(p)) return; // the ok arrived while we asked
@@ -331,7 +375,7 @@ export class Grbl {
       p.reject(new GrblError(why));
       this.wake();
     };
-    if (!st) { fail(`no reply to ${p.line} after ${timeoutMs / 1000} s, and no status report — the link is down`); return; }
+    if (!st) { fail(`no reply to ${p.line} after ${timeoutMs / 1000} s, and no status report — the link is down (${this.linkState()})`); return; }
     const state = st.state.split(':')[0];
     if (state === 'Alarm' || state === 'Hold' || state === 'Door' || state === 'Sleep') {
       fail(`no reply to ${p.line}: the controller is in ${st.state}`);
