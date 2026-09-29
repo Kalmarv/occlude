@@ -41,6 +41,20 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) =>
 );
 ```
 
+A color is a hex string or a color value. `color('#1b2a4a')`, `rgb(r, g, b)` (0–255), `hsl(h, s, l)`, `hsv(h, s, v)`, `cmyk(c, m, y, k)`, `oklab(l, a, b)` and `oklch(l, c, h)` make one value; hue is in degrees and the other channels are 0–1. Read the value in any space: `c.hex`, `c.rgb`, `c.hsl`, `c.hsv`, `c.cmyk`, `c.oklab`, `c.oklch`. `mix(a, b, t)` blends in OKLab. An OKLab or OKLCH color that sRGB cannot show keeps its lightness and hue and loses chroma. CMYK uses the simple formula, with no ink profile. A pen, the paper and `img.palette` take a color value or a hex string, and keep lower-case `#rrggbb`. Thus two spellings of one color are one pen.
+
+```ts live
+import { sketch, circle, pen, mm, oklch, mix } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) =>
+  t.times(80, () => {
+    const r = t.rnd(2, 10);
+    const ink = mix(oklch(0.35, 0.1, 260), oklch(0.8, 0.12, 80), Math.round((r - 2) / 2) / 4);
+    return circle(t.rnd(10, 90), t.rnd(10, 90), r, { pen: pen({ width: mm(0.5), color: ink }), opaque: true });
+  }),
+);
+```
+
 The studio keeps a pen library on the server, and every entry is a **model** a sketch imports and instantiates. An instance inherits the model's width, feed, lifts and delays; the overrides — a colour, most often — are its own, and no instance touches the library:
 
 ```ts

@@ -24,6 +24,7 @@ import { cameraFrame3, type Camera3 } from './three/camera.js';
  */
 
 import { DEFAULT_PENS, type PenDef } from './pens.js';
+import { hexOf, type ColorLike } from './colorSpaces.js';
 import type { PaperDef } from './paper.js';
 import { Rng } from './random.js';
 import { parseSeed } from './draws.js';
@@ -420,7 +421,7 @@ export class Execution {
         continue;
       }
       checkPen(name, def);
-      this.pens.set(name, { ...def, name });
+      this.pens.set(name, { ...def, color: hexOf(def.color, `pens.${name}`), name });
     }
     this.currentPen = Object.keys(declared)[0] ?? this.inputs.library[0]?.name ?? 'default';
     if (!this.pens.has(this.currentPen)) throw new Error(`unknown pen '${this.currentPen}' — available: ${[...this.pens.keys()].join(', ')}`);
@@ -873,17 +874,17 @@ export type PenRef = string | PenValue;
  * settings defaulted like the package's own pens. Pure — a value a sketch
  * declares under a name in `pens`, or passes as a shape's `pen`, `stroke`
  * or `fillPen` directly. */
-export function pen(spec: Omit<Partial<PenDef>, 'width'> & { width: L }): PenValue {
+export function pen(spec: Omit<Partial<PenDef>, 'width' | 'color'> & { width: L; color?: ColorLike }): PenValue {
   const width = typeof spec.width === 'number' ? spec.width : spec.width instanceof Len && spec.width.kind === 'mm' ? spec.width.value : NaN;
   if (!(width > 0)) throw new Error('pen: width must be a positive length in mm (a number, or mm(…)/inch(…))');
   const { name, ...rest } = spec;
   const out: PenValue = {
-    color: '#111111',
     feed: 3000,
     penDown: 0,
     penUp: 5,
     penDelay: 100,
     ...rest,
+    color: rest.color === undefined ? '#111111' : hexOf(rest.color, 'pen'),
     width,
   };
   if (name !== undefined) out.name = name;
@@ -895,32 +896,36 @@ export function pen(spec: Omit<Partial<PenDef>, 'width'> & { width: L }): PenVal
  * under the caller's overrides (a colour, most often), never the model
  * mutated. Instances are distinct values: twenty colours of one pen are
  * twenty pens for grouping, changes and export. */
-export function penModel(def: PenDef): (overrides?: Partial<Omit<PenDef, 'name'>>) => Omit<PenDef, 'name'> {
+export function penModel(def: PenDef): (overrides?: Partial<Omit<PenDef, 'name' | 'color'>> & { color?: ColorLike }) => Omit<PenDef, 'name'> {
   const base = Object.freeze({ ...def });
   return (overrides = {}) => {
     const { name: _dropped, ...model } = base;
     void _dropped;
-    return { ...model, ...overrides };
+    const { color: c, ...rest } = overrides;
+    return { ...model, ...rest, ...(c !== undefined ? { color: hexOf(c, 'pen') } : {}) };
   };
 }
 
 /** A sheet from its dimensions (any length unit — `inch(8.5)`, `mm(210)`,
  * or a number of mm) and an optional colour. Pure. */
-export function paper(spec: { width: L; height: L; color?: string }): PaperSpec {
+export function paper(spec: { width: L; height: L; color?: ColorLike }): PaperSpec {
   const toMm = (v: L, what: string): number => {
     const n = typeof v === 'number' ? v : v instanceof Len && v.kind === 'mm' ? v.value : NaN;
     if (!(n > 0)) throw new Error(`paper: ${what} must be a positive physical length (mm or inch)`);
     return n;
   };
   const out: PaperSpec = { w: toMm(spec.width, 'width'), h: toMm(spec.height, 'height') };
-  if (spec.color !== undefined) out.color = spec.color;
+  if (spec.color !== undefined) out.color = hexOf(spec.color, 'paper');
   return out;
 }
 
 /** A library paper as a model: a factory of fresh sheets with overrides. */
-export function paperModel(def: PaperSpec): (overrides?: Partial<PaperSpec>) => PaperSpec {
+export function paperModel(def: PaperSpec): (overrides?: Partial<Omit<PaperSpec, 'color'>> & { color?: ColorLike }) => PaperSpec {
   const base = Object.freeze({ ...def });
-  return (overrides = {}) => ({ ...base, ...overrides });
+  return (overrides = {}) => {
+    const { color: c, ...rest } = overrides;
+    return { ...base, ...rest, ...(c !== undefined ? { color: hexOf(c, 'paper') } : {}) };
+  };
 }
 
 /** A library entry's export name in `@user/pens` / `@user/papers`:

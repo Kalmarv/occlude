@@ -16,6 +16,7 @@
  * `img.lum(cx, cy, 2.5)` and costs four lookups.
  */
 
+import { Color, type ColorLike } from './colorSpaces.js';
 import {
   colourBins, colourPoint, fitPalette, hexOfRgb, nearest, rgbOfHex, tally,
   type ColourBins, type ColourPoint, type ColourSpace,
@@ -236,7 +237,7 @@ export type ImageChannel = 'lum' | 'dark' | 'a' | 'edge' | 'r' | 'g' | 'b' | 'c'
 
 /** What `img.palette` takes: how many colours to fit, or which colours to
  * use — hex strings, or anything with a `color`, such as a pen. */
-export type PaletteSource = number | readonly string[] | readonly { color: string }[];
+export type PaletteSource = number | readonly ColorLike[] | readonly { color: string }[];
 
 /** One colour of a picture's palette. */
 export interface PaletteEntry {
@@ -701,8 +702,8 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
         // A colour the artist named stays in the palette even when nothing
         // in the picture is near it: it is a pen they mean to use, and a
         // share of zero says so more usefully than a missing entry.
-        colours = (colors as readonly (string | { color: string })[]).map((c, i) => {
-          const hex = typeof c === 'string' ? c : c && typeof c === 'object' && typeof c.color === 'string' ? c.color : undefined;
+        colours = (colors as readonly (ColorLike | { color: string })[]).map((c, i) => {
+          const hex = typeof c === 'string' ? c : c instanceof Color ? c.hex : c && typeof c === 'object' && typeof c.color === 'string' ? c.color : undefined;
           if (hex === undefined) throw new Error(`image.palette: entry ${i} is neither a colour nor a pen (nothing with a 'color')`);
           return hexOfRgb(...rgbOfHex(hex, 'image.palette'));
         });

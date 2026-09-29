@@ -45,6 +45,7 @@ export {
   type PaletteEntry, type PaletteSource, type ImageRegion, type RegionOpts,
 } from './imageAsset.js';
 export type { ColourSpace } from './colour.js';
+export { color, rgb, hsl, hsv, cmyk, oklab, oklch, mix, type Color, type ColorLike } from './colorSpaces.js';
 export { label, labelWidth } from './font.js';
 export { strokeFont } from './strokeFont.js';
 export type { Font, Glyph, TextOpts } from './strokeFont.js';

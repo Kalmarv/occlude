@@ -20,7 +20,7 @@ beforeAll(async () => {
 describe('paper and pens declared by the sketch', () => {
   it('paper() takes inches or millimetres and resolves to mm once; the sketch\'s paper wins over the host\'s', () => {
     const letter = paper({ width: inch(8.5), height: inch(11), color: '#F5F0E6' });
-    expect(letter).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
+    expect(letter).toEqual({ w: 215.9, h: 279.4, color: '#f5f0e6' });
     expect(paper({ width: mm(180), height: 240 })).toEqual({ w: 180, h: 240 });
     expect(() => paper({ width: 0, height: 10 })).toThrow(/positive/);
     const def = sketch({ paper: letter, margin: inch(0.5) }, (t) => circle(t.bounds().cx, t.bounds().cy, 10));
@@ -29,12 +29,12 @@ describe('paper and pens declared by the sketch', () => {
     expect(exec.marginPct).toBeCloseTo((12.7 / 215.9) * 100, 9);
     expect(exec.frame.paperW).toBe(215.9);
     const out = render(exec);
-    expect(out.paper).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
+    expect(out.paper).toEqual({ w: 215.9, h: 279.4, color: '#f5f0e6' });
   });
 
   it('pen() defaults the machine settings; instances of a model are distinct and never mutate it', () => {
     const p = pen({ width: mm(0.8), color: '#D64045', feed: 1800 });
-    expect(p).toEqual({ width: 0.8, color: '#D64045', feed: 1800, penDown: 0, penUp: 5, penDelay: 100 });
+    expect(p).toEqual({ width: 0.8, color: '#d64045', feed: 1800, penDown: 0, penUp: 5, penDelay: 100 });
     expect(() => pen({ width: -1 })).toThrow(/width/);
     const fineliner = penModel({ name: 'fineliner', width: 0.3, color: '#111111', feed: 2500, penDown: 0, penUp: 5, penDelay: 120 });
     const blue = fineliner({ color: '#2457D6' });
@@ -56,14 +56,14 @@ describe('paper and pens declared by the sketch', () => {
     ]);
     const exec = compileSketch(def, { paper: { w: 200, h: 200 } });
     expect(exec.currentPen).toBe('blue'); // the first declared pen is the default
-    expect(exec.pens.get('blue')).toMatchObject({ name: 'blue', color: '#2457D6', width: DEFAULT_PENS[0].width });
+    expect(exec.pens.get('blue')).toMatchObject({ name: 'blue', color: '#2457d6', width: DEFAULT_PENS[0].width });
     expect(exec.pens.get('custom')).toMatchObject({ name: 'custom', width: 0.8 });
     expect(exec.pens.has(DEFAULT_PENS[2].name)).toBe(true);
     const scene = encodeScene(exec);
     expect(scene.pens.map((p) => p.name)).toEqual(['blue', 'custom', DEFAULT_PENS[2].name]);
     const svg = exportSvg(exec);
-    expect(svg).toContain('#2457D6');
-    expect(svg).toContain('#D64045');
+    expect(svg).toContain('#2457d6');
+    expect(svg).toContain('#d64045');
   });
 
   it('a pen value passed inline joins the run: equal settings are one pen, a declared twin keeps its name', () => {
@@ -76,7 +76,7 @@ describe('paper and pens declared by the sketch', () => {
     const exec = compileSketch(def, { paper: { w: 200, h: 200 } });
     const names = encodeScene(exec).pens.map((p) => p.name);
     expect(names).toEqual(['main', '#4f6fa8 0.7mm', '#c9d4e8 0.7mm', '#c9d4e8 0.3mm', 'red']);
-    expect(exportSvg(exec)).toContain('#D64045');
+    expect(exportSvg(exec)).toContain('#d64045');
     const clash = sketch({ pens: { red: pen({ width: 1, color: '#f00' }) } }, () => circle(50, 50, 10, { pen: pen({ name: 'red', width: 1, color: '#00f' }) }));
     expect(() => compileSketch(clash, { paper: { w: 200, h: 200 } })).toThrow(/'red' is already a different pen/);
   });
@@ -93,7 +93,7 @@ describe('paper and pens declared by the sketch', () => {
   it('a paper model gives fresh sheets with overrides', () => {
     const a4 = paperModel({ w: 210, h: 297, color: '#ffffff' });
     const cream = a4({ color: '#F5F0E6' });
-    expect(cream).toEqual({ w: 210, h: 297, color: '#F5F0E6' });
+    expect(cream).toEqual({ w: 210, h: 297, color: '#f5f0e6' });
     expect(a4()).toEqual({ w: 210, h: 297, color: '#ffffff' });
     expect(a4()).not.toBe(a4());
   });
@@ -120,7 +120,7 @@ describe('the user modules a host serves from its libraries', () => {
     expect(blue).toMatchObject({ width: DEFAULT_PENS[0].width, color: '#0000ff' });
     expect(pens.pigma_005_black().color).toBe(DEFAULT_PENS[0].color);
     expect(papers.A4()).toEqual({ w: 210, h: 297, color: '#f6f2ea' });
-    expect(papers.Letter({ color: '#000' })).toEqual({ w: 215.9, h: 279.4, color: '#000' });
+    expect(papers.Letter({ color: '#000' })).toEqual({ w: 215.9, h: 279.4, color: '#000000' });
     expect(papers.A4()).not.toBe(papers.A4());
     expect(Object.keys(papers).sort()).toEqual(DEFAULT_PAPERS.map((p) => moduleName(p.name)).sort());
   });
