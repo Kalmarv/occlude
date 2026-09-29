@@ -6,6 +6,10 @@
  *   pnpm ship dev        the isolated dev studio (docker-compose.yml + compose.3d.yml, service `dev`, port 5273);
  *                        run it from the checkout that owns that compose project
  *   pnpm ship --push     also push HEAD to origin (and to `dev` when on master) once the served stamp is verified
+ *   pnpm ship dev --quick
+ *                        no gates, no image: build the studio on the host, copy dist into the running dev
+ *                        container, verify the stamp (~1 min). The docs are the last docs build; --docs
+ *                        rebuilds them too. For carrying on with a sketch, not for landing work.
  *
  * The Docker build IS the verification: the image only exists once the nine
  * gates in check.mjs pass inside it. This script adds what was done by hand
@@ -14,12 +18,16 @@
  * so a fix can be tried before it is committed; --push refuses a dirty tree.
  */
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const args = process.argv.slice(2);
 const target = args.find((a) => !a.startsWith('--')) ?? 'prod';
 const push = args.includes('--push');
-if (!['prod', 'dev'].includes(target)) { console.error(`usage: ship [prod|dev] [--push]`); process.exit(2); }
+const quick = args.includes('--quick');
+const docs = args.includes('--docs');
+if (!['prod', 'dev'].includes(target)) { console.error(`usage: ship [prod|dev] [--push] | ship dev --quick [--docs]`); process.exit(2); }
+if (quick && target !== 'dev') { console.error('ship: --quick is for dev only — prod ships through the gates'); process.exit(2); }
 
 const sh = (cmd, argv, opts = {}) => {
   const r = spawnSync(cmd, argv, { stdio: 'inherit', ...opts });
@@ -42,8 +50,21 @@ const env = { ...process.env, OCCLUDE_BUILD_STAMP: stamp };
 
 console.log(`ship: ${target} ${stamp} (${branch}${dirty ? ', dirty' : ''})`);
 const t0 = Date.now();
-sh('docker', [...compose, 'build', service], { env });
-sh('docker', [...compose, 'up', '-d', service], { env });
+if (quick) {
+  // The server reads dist per request, so a copy needs no restart. A vite
+  // build empties dist, docs included; the docs come back from their own
+  // last build unless --docs (or no build yet) asks for a fresh one.
+  const studio = 'packages/occlude-studio';
+  const docsDist = 'packages/occlude-docs/dist';
+  sh('pnpm', ['--filter', 'occlude-studio', 'build'], { env });
+  if (docs || !existsSync(docsDist)) sh('pnpm', ['--filter', 'occlude-docs', 'build'], { env });
+  else sh('cp', ['-r', docsDist, `${studio}/dist/docs`]);
+  sh('docker', [...compose, 'exec', service, 'rm', '-rf', `/src/${studio}/dist`]);
+  sh('docker', [...compose, 'cp', `${studio}/dist`, `${service}:/src/${studio}/dist`]);
+} else {
+  sh('docker', [...compose, 'build', service], { env });
+  sh('docker', [...compose, 'up', '-d', service], { env });
+}
 
 // The bundle names the stamp; the page names the bundle. Wait for both.
 const base = `http://127.0.0.1:${port}`;
