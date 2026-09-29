@@ -142,7 +142,8 @@ export class Color {
 }
 
 /** `#rgb`, `#rrggbb` or `#rrggbbaa` (alpha ignored) as a color; a color
- * value as itself. */
+ * value as itself.
+ * @param value a hex string such as `'#1b2a4a'`, or a color value */
 export function color(value: ColorLike): Color {
   if (value instanceof Color) return value;
   const rgb = parseHex(value);
@@ -159,19 +160,28 @@ function parseHex(value: unknown): [number, number, number] | undefined {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-/** sRGB, 0–255 per channel. */
+/** sRGB, 0–255 per channel.
+ * @param r red, 0–255
+ * @param g green, 0–255
+ * @param b blue, 0–255 */
 export function rgb(r: number, g: number, b: number): Color {
   return new Color(unit(r / 255), unit(g / 255), unit(b / 255));
 }
 
-/** Hue in degrees, saturation and lightness 0–1. */
+/** Hue in degrees, saturation and lightness 0–1.
+ * @param h hue in degrees: 0 red, 120 green, 240 blue
+ * @param s saturation, 0 (gray) – 1 (full)
+ * @param l lightness, 0 (black) – 0.5 (full color) – 1 (white) */
 export function hsl(h: number, s: number, l: number): Color {
   const S = unit(s), L = unit(l);
   const c = (1 - Math.abs(2 * L - 1)) * S;
   return fromChroma(wrap(h), c, L - c / 2);
 }
 
-/** Hue in degrees, saturation and value 0–1 (p5's HSB). */
+/** Hue in degrees, saturation and value 0–1 (p5's HSB).
+ * @param h hue in degrees: 0 red, 120 green, 240 blue
+ * @param s saturation, 0 (gray) – 1 (full)
+ * @param v value, 0 (black) – 1 (brightest) */
 export function hsv(h: number, s: number, v: number): Color {
   const S = unit(s), V = unit(v);
   const c = V * S;
@@ -186,27 +196,40 @@ function fromChroma(h: number, c: number, m: number): Color {
 }
 
 /** Cyan, magenta, yellow and black 0–1, by the naive formula (no ink
- * profile). */
+ * profile).
+ * @param c cyan, 0–1
+ * @param m magenta, 0–1
+ * @param y yellow, 0–1
+ * @param k black, 0–1 */
 export function cmyk(c: number, m: number, y: number, k: number): Color {
   const K = unit(k);
   return new Color((1 - unit(c)) * (1 - K), (1 - unit(m)) * (1 - K), (1 - unit(y)) * (1 - K));
 }
 
 /** OKLab: lightness 0–1 and the two opponent axes (about ±0.4). Outside
- * the sRGB gamut, the chroma is lowered until it fits. */
+ * the sRGB gamut, the chroma is lowered until it fits.
+ * @param l lightness, 0 (black) – 1 (white)
+ * @param a green (−) to red (+), about ±0.4
+ * @param b blue (−) to yellow (+), about ±0.4 */
 export function oklab(l: number, a: number, b: number): Color {
   const A = fin(a), B = fin(b);
   return fromOklch(l, Math.hypot(A, B), (Math.atan2(B, A) * 180) / Math.PI);
 }
 
 /** OKLCH: lightness 0–1, chroma (about 0–0.4), hue in degrees. Outside the
- * sRGB gamut, the chroma is lowered until it fits. */
+ * sRGB gamut, the chroma is lowered until it fits.
+ * @param l lightness, 0 (black) – 1 (white); equal steps look equal
+ * @param c chroma, 0 (gray) – about 0.4 (vivid)
+ * @param h hue in degrees */
 export function oklch(l: number, c: number, h: number): Color {
   return fromOklch(l, c, h);
 }
 
 /** The color `t` of the way from `a` to `b`, blended in OKLab, where equal
- * steps look equal. `t` outside 0…1 goes past the ends. */
+ * steps look equal. `t` outside 0…1 goes past the ends.
+ * @param a the color at 0: a hex string or a color value
+ * @param b the color at 1: a hex string or a color value
+ * @param t how far from `a` to `b`, 0–1 */
 export function mix(a: ColorLike, b: ColorLike, t: number): Color {
   const p = color(a).oklab, q = color(b).oklab, u = fin(t);
   return oklab(p.l + (q.l - p.l) * u, p.a + (q.a - p.a) * u, p.b + (q.b - p.b) * u);

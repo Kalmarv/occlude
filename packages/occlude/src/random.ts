@@ -226,6 +226,13 @@ function makeSimplex3(perm: Uint8Array): (x: number, y: number, z: number) => nu
   };
 }
 
+/** `v` moved from the range `a`…`b` to the range `c`…`d`, in proportion.
+ * Not clamped: a value outside `a`…`b` lands outside `c`…`d`.
+ * @param v the value to move
+ * @param a the start of the range `v` is in
+ * @param b the end of the range `v` is in
+ * @param c where `a` goes
+ * @param d where `b` goes */
 export function mapRange(v: number, a: number, b: number, c: number, d: number): number {
   return c + ((v - a) / (b - a)) * (d - c);
 }
@@ -233,7 +240,11 @@ export function mapRange(v: number, a: number, b: number, c: number, d: number):
 /** Which of `n` equal slices of `lo`…`hi` holds `v`: 0 … n-1, in the
  * argument order of `map`. A value outside the range goes to the end
  * slice; NaN, or a range with `hi === lo`, gives 0. A reversed range
- * counts from `lo`. */
+ * counts from `lo`.
+ * @param v the value to place
+ * @param lo the start of the range (for a collection, `faces.min('area')`)
+ * @param hi the end of the range (for a collection, `faces.max('area')`)
+ * @param n how many slices: the result is 0 … n-1 */
 export function bin(v: number, lo: number, hi: number, n: number): number {
   if (!Number.isInteger(n) || n < 1) throw new Error(`bin: n must be a whole number of 1 or more, got ${String(n)}`);
   const u = (v - lo) / (hi - lo);
