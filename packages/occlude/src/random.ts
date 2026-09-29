@@ -230,3 +230,14 @@ export function mapRange(v: number, a: number, b: number, c: number, d: number):
   return c + ((v - a) / (b - a)) * (d - c);
 }
 
+/** Which of `n` equal slices of `lo`…`hi` holds `v`: 0 … n-1, in the
+ * argument order of `map`. A value outside the range goes to the end
+ * slice; NaN, or a range with `hi === lo`, gives 0. A reversed range
+ * counts from `lo`. */
+export function bin(v: number, lo: number, hi: number, n: number): number {
+  if (!Number.isInteger(n) || n < 1) throw new Error(`bin: n must be a whole number of 1 or more, got ${String(n)}`);
+  const u = (v - lo) / (hi - lo);
+  if (!Number.isFinite(u)) return 0;
+  return Math.min(n - 1, Math.max(0, Math.floor(u * n)));
+}
+

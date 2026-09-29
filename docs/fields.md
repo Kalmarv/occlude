@@ -63,6 +63,20 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
 
 `map(v, a, b, c, d)` remaps a value from one range to another: `map(v, a, b, 0, 1)` is to 0 to 1, and `max + min - v` mirrors a value within a range. The `ease` object holds the standard easing curves (`ease.cubicIn`, `ease.bounceOut`, `ease.backInOut` and the rest). When an eased value drives spacing, the local density is the curve's slope.
 
+`bin(v, lo, hi, n)` tells which of `n` equal slices of `lo` to `hi` holds a value: 0 to `n - 1`, in the same argument order as `map`. A value outside the range goes to the end slice. NaN, or a range with `hi` equal to `lo`, gives 0. A collection gives its own range: `faces.min('area')` and `faces.max('area')`.
+
+```ts live
+import { sketch, circle, pen, mm, hsl, map, bin } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) =>
+  t.times(70, () => {
+    const r = t.rnd(2, 11);
+    const light = map(bin(r, 2, 11, 4), 0, 3, 0.25, 0.7);
+    return circle(t.rnd(10, 90), t.rnd(10, 90), r, { pen: pen({ width: mm(0.5), color: hsl(210, 0.6, light) }), opaque: true });
+  }),
+);
+```
+
 ```ts live
 import { sketch, line, ease } from 'occlude';
 

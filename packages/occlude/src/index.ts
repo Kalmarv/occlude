@@ -107,7 +107,7 @@ export type { PlaneGroup } from './symmetry.js';
 // Pure helpers. Randomness (rnd/noise/stream/…) and layout (bounds/grid)
 // come through the toolkit — they belong to a sketch run, not the module.
 export type { RandomStream } from './execution.js';
-export { mapRange as map } from './random.js';
+export { mapRange as map, bin } from './random.js';
 export { ease } from './ease.js';
 
 // The plan a sketch asks for: `t.plan` and `t.draw` take these options, and
