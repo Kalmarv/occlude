@@ -185,6 +185,7 @@ export type { Shaper, ShaperOpts, ShaperPoint } from './shaper.js';
 // The paper and the pens a sketch declares. `penModel` and `paperModel` are
 // what a downloaded sketch calls for the library entries it bundles inline.
 export { pen, penModel, paper, paperModel } from './execution.js';
+export type { PenRef, PenValue } from './execution.js';
 export type { PaperSpec, SketchOptions, TransformOp, Winding } from './execution.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the

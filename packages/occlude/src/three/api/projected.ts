@@ -271,7 +271,7 @@ export function projectedStrokes(curves:Selection<ProjectedCurve>,opts:Projected
 export function isProjectedStrokes(value:unknown):value is ProjectedStrokes{return !!value&&typeof value==='object'&&(value as ProjectedStrokes).__occludeProjectedStrokes===true;}
 export function emitProjectedStrokes(exec:Execution,intent:ProjectedStrokes,currentPen:string):ShapeValue[]{
   const {curves,scene,opts}=intent;if(opts.stroke===false)return [];
-  const pen=typeof opts.stroke==='string'?opts.stroke:opts.pen??currentPen;
+  const pen=opts.stroke!==undefined?exec.penName(opts.stroke):opts.pen!==undefined?exec.penName(opts.pen):currentPen;
   const selected=new Map<Feature3,Interval3[]>();
   for(const row of curves){const ranges=selected.get(row.feature)??[];ranges.push(row.range);selected.set(row.feature,ranges);}
   // Keep ALL source features in the reference graph; filtering only restricts

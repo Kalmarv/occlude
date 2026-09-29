@@ -541,11 +541,32 @@ export class Execution {
     }
   }
 
-  /** A pen name of this run, or a loud error naming what is available. */
-  penOrThrow(name: string): string {
-    if (!this.pens.has(name)) {
-      throw new Error(`unknown pen '${name}' — available: ${[...this.pens.keys()].join(', ')}`);
+  /** The name a shape's pen goes by in this run. A name must already be in
+   * the table, or a loud error names what is available. A pen value joins
+   * the table on first use: pens with the same settings are one pen, under
+   * the value's own `name` or, without one, a name from its colour and
+   * width. A name already held by a different pen is an error. */
+  penName(ref: PenRef): string {
+    if (typeof ref === 'string') {
+      if (!this.pens.has(ref)) {
+        throw new Error(`unknown pen '${ref}' — available: ${[...this.pens.keys()].join(', ')}`);
+      }
+      return ref;
     }
+    if (!ref || typeof ref !== 'object') throw new Error(`a pen is a name or a pen({ width, color }) value, got ${String(ref)}`);
+    const { name: own, ...def } = pen(ref);
+    checkPen(own ?? 'pen', def);
+    if (own !== undefined) {
+      const held = this.pens.get(own);
+      if (held && !samePen(held, def)) throw new Error(`pen '${own}' is already a different pen in this sketch — give this one another name`);
+      if (!held) this.pens.set(own, { ...def, name: own });
+      return own;
+    }
+    for (const [name, held] of this.pens) if (samePen(held, def)) return name;
+    const base = `${def.color} ${def.width}mm`;
+    let name = base;
+    for (let k = 2; this.pens.has(name); k++) name = `${base} ${k}`;
+    this.pens.set(name, { ...def, name });
     return name;
   }
 
@@ -827,6 +848,12 @@ function marginPercent(m: L, paper: PaperSpec): number {
   return (mmValue / short) * 100;
 }
 
+/** Two pens with the same settings, their names aside. */
+function samePen(a: Omit<PenDef, 'name'>, b: Omit<PenDef, 'name'>): boolean {
+  return a.width === b.width && a.color === b.color && a.feed === b.feed && a.penDown === b.penDown &&
+    a.penUp === b.penUp && a.penDelay === b.penDelay && (a.reinkMm ?? 0) === (b.reinkMm ?? 0);
+}
+
 function checkPen(name: string, def: Omit<PenDef, 'name'>): void {
   if (typeof name !== 'string' || name.length === 0) throw new Error('pens: a pen needs a name');
   if (!def || typeof def !== 'object') throw new Error(`pens: '${name}' is not a pen — use pen({ width, … }) or a library model`);
@@ -836,14 +863,21 @@ function checkPen(name: string, def: Omit<PenDef, 'name'>): void {
 
 // ---- the explicit pen and paper vocabulary ----
 
+/** A pen value, as `pen()` makes it. */
+export type PenValue = Omit<PenDef, 'name'> & { name?: string };
+/** What a shape's pen option takes: a name from `pens` or the library, or a
+ * pen value. */
+export type PenRef = string | PenValue;
+
 /** A pen from its physical facts: width and colour, with the machine
  * settings defaulted like the package's own pens. Pure — a value a sketch
- * declares under a name in `pens`, or a fill or stroke names. */
-export function pen(spec: Omit<Partial<PenDef>, 'width'> & { width: L }): Omit<PenDef, 'name'> & { name?: string } {
+ * declares under a name in `pens`, or passes as a shape's `pen`, `stroke`
+ * or `fillPen` directly. */
+export function pen(spec: Omit<Partial<PenDef>, 'width'> & { width: L }): PenValue {
   const width = typeof spec.width === 'number' ? spec.width : spec.width instanceof Len && spec.width.kind === 'mm' ? spec.width.value : NaN;
   if (!(width > 0)) throw new Error('pen: width must be a positive length in mm (a number, or mm(…)/inch(…))');
   const { name, ...rest } = spec;
-  const out: Omit<PenDef, 'name'> & { name?: string } = {
+  const out: PenValue = {
     color: '#111111',
     feed: 3000,
     penDown: 0,

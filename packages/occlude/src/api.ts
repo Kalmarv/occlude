@@ -50,7 +50,7 @@ import { label } from './font.js';
 import { grid as gridCells, type Box, type GridOptions } from './layout.js';
 import { placements as symmetryPlacements, cellStep as symmetryCellStep, type PlaneGroup } from './symmetry.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type Origin, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
-import { Execution, bindRun, type ExecutionInputs, type PaperSpec, type Pickable, type RandomStream, type SketchOptions, type TransformOp, type Winding } from './execution.js';
+import { Execution, bindRun, type ExecutionInputs, type PaperSpec, type PenRef, type Pickable, type RandomStream, type SketchOptions, type TransformOp, type Winding } from './execution.js';
 import type { PenDef } from './pens.js';
 import {
   scatterPoints, throwPoints, relaxMaterial, settleMaterial, withinRegion,
@@ -120,16 +120,17 @@ import { isShader } from './shader.js';
 // ---- values ----
 
 export interface ShapeOpts {
-  /** Pen for stroke and (by default) fill. */
-  pen?: string;
+  /** Pen for stroke and (by default) fill: a name from `pens`, or a
+   * `pen({ … })` value. */
+  pen?: PenRef;
   /** Fill texture — implies opaque. */
   fill?: FillSpec | CustomFillFn;
   /** Pen for the fill texture, when different from `pen`. */
-  fillPen?: string;
+  fillPen?: PenRef;
   /** Opaque with no texture: hides what's beneath, only the stroke draws. */
   opaque?: boolean;
-  /** `false` = no outline; a pen name overrides the stroke pen. */
-  stroke?: string | false;
+  /** `false` = no outline; a pen (name or value) overrides the stroke pen. */
+  stroke?: PenRef | false;
   /** Stacking override; default is tree order. */
   z?: number;
   /** rect only: anchor (x, y) at the 'corner' (default) or the 'center'
@@ -197,8 +198,8 @@ export interface GroupOpts {
    * outer one placing.
    */
   placement?: Placement;
-  /** Default pen for children that don't set one. */
-  pen?: string;
+  /** Default pen for children that don't set one: a name or a pen value. */
+  pen?: PenRef;
   /** Default z for children that don't set one. */
   z?: number;
 }
@@ -1110,7 +1111,7 @@ export function stroke(
  *
  * No points, no ink.
  */
-export function dots(points: Sources, opts: { pen?: string } = {}): ShapeValue[] {
+export function dots(points: Sources, opts: { pen?: PenRef } = {}): ShapeValue[] {
   const list = materialOf(sourcePoints(points, 'dots'));
   const out: ShapeValue[] = [];
   // A dot is an engine stipple mark, and a stipple mark belongs to a
@@ -2845,7 +2846,7 @@ function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   if ((tree as GroupValue).__occludeGroup) {
     const g = pinGroup(exec, tree as GroupValue);
     const inner: EmitCtx = {
-      pen: g.opts.pen ?? ctx.pen,
+      pen: g.opts.pen !== undefined ? exec.penName(g.opts.pen) : ctx.pen,
       z: g.opts.z ?? ctx.z,
       bridge: g.opts.bridge ?? ctx.bridge,
       // Function-application order: deeper stacks run before shallower.
@@ -2901,14 +2902,15 @@ function emitShape(exec: Execution, given: ShapeValue, ctx: EmitCtx): void {
     return;
   }
   const sh = new Shape(sv.geom, exec);
-  const basePen = o.pen ?? ctx.pen ?? exec.currentPen;
-  const strokePen = o.stroke === false ? null : typeof o.stroke === 'string' ? o.stroke : basePen;
+  const basePen = o.pen !== undefined ? exec.penName(o.pen) : ctx.pen ?? exec.currentPen;
+  const strokePen = o.stroke === false ? null : o.stroke !== undefined ? exec.penName(o.stroke) : basePen;
   if (strokePen === null) sh.noStroke();
   else sh.stroke(strokePen);
+  const fillPen = o.fillPen !== undefined ? exec.penName(o.fillPen) : basePen;
   if (o.fill) {
-    sh.fill(o.fill, o.fillPen ?? basePen);
+    sh.fill(o.fill, fillPen);
   } else if (o.opaque) {
-    sh.fill(undefined, o.fillPen ?? basePen);
+    sh.fill(undefined, fillPen);
   }
   const z = o.z ?? ctx.z;
   if (z !== undefined) sh.z(z);

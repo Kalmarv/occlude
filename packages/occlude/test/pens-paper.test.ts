@@ -66,6 +66,21 @@ describe('paper and pens declared by the sketch', () => {
     expect(svg).toContain('#D64045');
   });
 
+  it('a pen value passed inline joins the run: equal settings are one pen, a declared twin keeps its name', () => {
+    const ramp = ['#1b2a4a', '#4f6fa8', '#c9d4e8'];
+    const def = sketch({ pens: { main: pen({ width: mm(0.7), color: '#1b2a4a' }) } }, () => [
+      ...[0, 1, 2, 3, 4, 5].map((i) => circle(10 + i * 15, 30, 6, { pen: pen({ width: mm(0.7), color: ramp[i % 3] }) })),
+      circle(30, 70, 10, { stroke: pen({ width: 0.3, color: '#c9d4e8' }) }),
+      circle(70, 70, 10, { pen: 'main', fill: fill('hatch'), fillPen: pen({ name: 'red', width: 0.5, color: '#D64045' }) }),
+    ]);
+    const exec = compileSketch(def, { paper: { w: 200, h: 200 } });
+    const names = encodeScene(exec).pens.map((p) => p.name);
+    expect(names).toEqual(['main', '#4f6fa8 0.7mm', '#c9d4e8 0.7mm', '#c9d4e8 0.3mm', 'red']);
+    expect(exportSvg(exec)).toContain('#D64045');
+    const clash = sketch({ pens: { red: pen({ width: 1, color: '#f00' }) } }, () => circle(50, 50, 10, { pen: pen({ name: 'red', width: 1, color: '#00f' }) }));
+    expect(() => compileSketch(clash, { paper: { w: 200, h: 200 } })).toThrow(/'red' is already a different pen/);
+  });
+
   it('a declared name shadows a library pen of the same name; unknown names fail loudly', () => {
     const lib = DEFAULT_PENS[0].name;
     const shadow = sketch({ pens: { [lib]: pen({ width: mm(2), color: '#ff0000' }) } }, () => circle(50, 50, 10, { stroke: lib }));

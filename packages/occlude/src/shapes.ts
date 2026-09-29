@@ -213,7 +213,7 @@ export class Shape {
     }
     if (typeof spec === 'function') spec = customFill(spec);
     this.fillSpec = spec ?? { type: 'mask' };
-    this.fillPen = this.run.penOrThrow(penName ?? this.run.currentPen);
+    this.fillPen = this.run.penName(penName ?? this.run.currentPen);
     return this;
   }
 
@@ -231,7 +231,7 @@ export class Shape {
       this.strokePen = null;
       return this;
     }
-    this.strokePen = this.run.penOrThrow(p);
+    this.strokePen = this.run.penName(p);
     return this;
   }
 
@@ -241,9 +241,8 @@ export class Shape {
 
   /** Set stroke and fill pen together. */
   pen(p: string): this {
-    this.run.penOrThrow(p);
-    this.strokePen = p;
-    if (this.fillSpec) this.fillPen = p;
+    this.strokePen = this.run.penName(p);
+    if (this.fillSpec) this.fillPen = this.strokePen;
     return this;
   }
 

@@ -25,7 +25,21 @@ export default sketch({
 
 `paper({ width, height, color? })` takes any physical length — `inch(8.5)`, `mm(210)`, or a number of millimetres — and resolves to millimetres once. `PAPERS` still holds the named sizes (A3 to A6, Letter, Square20) for hosts and tools. Colour paints under the ink in the preview and in both exports so that, say, a white gel pen on black stock reads on screen as it will on paper; it changes nothing about the ink or the plot. `margin` is a composition setting of the sketch: a percent of the short side, or a physical length. A sketch that declares no `paper` is drawn on whatever sheet the host chooses (the studio's Paper panel, a tool's `--paper`).
 
-`pen({ width, color?, feed?, penDown?, penUp?, penDelay?, reinkMm? })` is a complete pen: `width` in millimetres is what the nib rule reads; the machine settings default like the package's own pens when left out. `pens` names them for this sketch — `stroke: 'blue'`, `fillPen: 'heavy'` look the names up here first — and the **first entry is the default pen** for shapes that name none. A string value names a library pen under a name of your own: `pens: { ink: 'stabilo-88-blue' }` makes that library pen the default without importing anything. A stroke or fill pen is always a NAME from `pens` (or the library); a `@user/pens` model is instantiated in `pens`, never passed to `stroke:` directly.
+`pen({ width, color?, feed?, penDown?, penUp?, penDelay?, reinkMm? })` is a complete pen: `width` in millimetres is what the nib rule reads; the machine settings default like the package's own pens when left out. `pens` names them for this sketch — `stroke: 'blue'`, `fillPen: 'heavy'` look the names up here first — and the **first entry is the default pen** for shapes that name none. A string value names a library pen under a name of your own: `pens: { ink: 'stabilo-88-blue' }` makes that library pen the default without importing anything. A shape's `pen`, `stroke` and `fillPen` take a name or a pen value. A pen value joins the run when a shape first uses it. Pens with the same settings are one pen, so a loop that makes a pen for each shape gives one pen for each different colour. A pen value without a `name` gets a name from its colour and width. A name that a different pen already has is an error. Each different pen is one pen change on the machine.
+
+```ts live
+import { sketch, circle, pen, mm } from 'occlude';
+
+const ramp = ['#1b2a4a', '#2e4a7a', '#4f6fa8', '#8aa3cc'];
+
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) =>
+  t.times(60, () => {
+    const r = t.rnd(2, 12);
+    const k = Math.min(ramp.length - 1, Math.floor((r - 2) / 2.5));
+    return circle(t.rnd(10, 90), t.rnd(10, 90), r, { pen: pen({ width: mm(0.5), color: ramp[k] }), opaque: true });
+  }),
+);
+```
 
 The studio keeps a pen library on the server, and every entry is a **model** a sketch imports and instantiates. An instance inherits the model's width, feed, lifts and delays; the overrides — a colour, most often — are its own, and no instance touches the library:
 
