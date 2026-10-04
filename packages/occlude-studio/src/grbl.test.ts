@@ -33,6 +33,13 @@ class FakeGrblPort {
   /** The reader stops for good while the port stays open (readable → null). */
   readerDies = false;
   mute = false;
+  /** The page's receive path stops: the board runs and answers, but no byte
+   * reaches the page until the port is closed and opened again. */
+  rxDead = false;
+  /** The receive path stops right after this command (its ok is lost too). */
+  rxDeadAfter: string | null = null;
+  opens = 0;
+  closes = 0;
   /** Stop the reader for good while the port stays open — a fatal device
    * error: the stream errors and the port hands out none. */
   killReader(): void { this.readerDies = true; this.input.error(Object.assign(new Error('the device was lost'), { name: 'NetworkError' })); }
@@ -48,41 +55,45 @@ class FakeGrblPort {
     this.stream = this.newStream();
     old.error(Object.assign(new Error('the receive buffer overflowed'), { name: 'BufferOverrunError' }));
   }
-  readonly writable = new WritableStream<Uint8Array>({
-    write: (chunk) => {
-      // A wedged port: the write promise never settles.
-      if (this.swallowWrites) return new Promise<void>(() => {});
-      const text = new TextDecoder().decode(chunk);
-      for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
-      if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
-      if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
-      if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
-      if (text === '\x18') {
-        for (const t of this.timers) clearTimeout(t);
-        this.timers = [];
-        this.state = 'Idle';
-        this.reply("\r\nGrbl 1.1h DrawCore V2.23 ['$' for help]\r\n", true);
-        return;
-      }
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        const cmd = line.replace(/\r$/, '');
-        if (cmd === this.dropLineOnce) { if (--this.dropLineTimes <= 0) this.dropLineOnce = null; continue; }
-        this.commands.push(cmd);
-        this.move(cmd);
-        if (cmd === this.dropOkOnce) { this.dropOkOnce = null; continue; }
-        let reply = 'ok\r\n';
-        if (cmd === this.errorOnce) { this.errorOnce = null; reply = 'error:9\r\n'; }
-        if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
-        if (cmd === '$$') reply = this.settingsReply;
-        this.reply(reply, false);
-      }
-    },
-  });
+  writable = this.newWritable();
+  private newWritable(): WritableStream<Uint8Array> {
+    return new WritableStream<Uint8Array>({
+      write: (chunk) => {
+        // A wedged port: the write promise never settles.
+        if (this.swallowWrites) return new Promise<void>(() => {});
+        const text = new TextDecoder().decode(chunk);
+        for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
+        if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
+        if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
+        if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
+        if (text === '\x18') {
+          for (const t of this.timers) clearTimeout(t);
+          this.timers = [];
+          this.state = 'Idle';
+          this.reply("\r\nGrbl 1.1h DrawCore V2.23 ['$' for help]\r\n", true);
+          return;
+        }
+        for (const line of text.split('\n')) {
+          if (!line.trim()) continue;
+          const cmd = line.replace(/\r$/, '');
+          if (cmd === this.dropLineOnce) { if (--this.dropLineTimes <= 0) this.dropLineOnce = null; continue; }
+          this.commands.push(cmd);
+          this.move(cmd);
+          if (cmd === this.dropOkOnce) { this.dropOkOnce = null; continue; }
+          if (cmd === this.rxDeadAfter) { this.rxDeadAfter = null; this.rxDead = true; continue; }
+          let reply = 'ok\r\n';
+          if (cmd === this.errorOnce) { this.errorOnce = null; reply = 'error:9\r\n'; }
+          if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
+          if (cmd === '$$') reply = this.settingsReply;
+          this.reply(reply, false);
+        }
+      },
+    });
+  }
   private reply(text: string, now: boolean): void {
     // After a fatal read the device is gone and answers nothing, the way one
     // that has dropped off the bus does.
-    if (this.readerDies) return;
+    if (this.readerDies || this.rxDead) return;
     if (now || !this.delayMs) { this.input.enqueue(new TextEncoder().encode(text)); return; }
     const t = setTimeout(() => {
       if (this.readerDies) return; // the device went while this reply was on its way
@@ -114,8 +125,17 @@ class FakeGrblPort {
     if (z !== undefined) this.pos[2] = rel ? this.pos[2] + z : z;
     if (this.delayMs && !cmd.startsWith('$J=')) this.state = 'Run';
   }
-  async open(): Promise<void> { /* opened */ }
-  async close(): Promise<void> { /* closed */ }
+  /** Web Serial's contract: a fresh pair of streams on every open, and a
+   * close that refuses while either stream is locked. */
+  async open(): Promise<void> {
+    this.opens += 1;
+    if (this.opens > 1) { this.stream = this.newStream(); this.writable = this.newWritable(); }
+    this.rxDead = false;
+  }
+  async close(): Promise<void> {
+    if (this.stream?.locked || this.writable.locked) throw Object.assign(new Error('Cannot close a port with a locked stream'), { name: 'InvalidStateError' });
+    this.closes += 1;
+  }
 }
 
 // The pen's own Z is the library default and must not matter: the machine's heights win.
@@ -265,6 +285,15 @@ describe('GRBL driver', () => {
     expect(port.commands.slice(-4)).toEqual(['$1=254', 'G91 G0 Z0.050', 'G91 G0 Z-0.050', 'G90']); // released after the stop, with a move for the timer
     expect(states.at(-1)).toBe('stopped');
     expect(g.plotting).toBe(false);
+  });
+
+  it('disconnect closes the port: the reader and the writer let go first', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    await g.connect(undefined, port as never);
+    await g.disconnect();
+    expect(port.closes).toBe(1);
+    expect(g.connected).toBe(false);
   });
 
   it('clears any G92 offset an earlier session left, before the pen height is declared', async () => {
@@ -446,8 +475,8 @@ describe('the watchdog asks the controller before it gives up', () => {
     await g.connect(undefined, port as never);
     port.dropLineOnce = 'G1 X10 Y20 F1000';
     port.mute = true;
-    await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).rejects.toThrow(/no reply to G1 X10 Y20 F1000 after 0.06 s, and no status report — the link is down/);
-  });
+    await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).rejects.toThrow(/no reply to G1 X10 Y20 F1000 after 0.06 s, and no status report .*still silent after reopening the port — the link is down/);
+  }, 20_000);
 
   it('a write the port never finishes fails by name instead of hanging the driver', async () => {
     const port = new FakeGrblPort();
@@ -513,6 +542,18 @@ describe('a plot that stalls', () => {
     expect(port.pos.slice(0, 2)).toEqual([0, 0]);
   });
 
+  it('a receive path that stops is reopened, and the plot redraws the chain and finishes', async () => {
+    const { port, g } = await setup();
+    port.rxDeadAfter = 'G1 X80.000 Y-10.000 F3000'; // the board runs it; nothing reaches the page after
+    const warnings: string[] = [];
+    await g.plot(stroke, [pen], opts, (p) => { if (p.warning) warnings.push(p.warning); });
+    expect(port.opens).toBe(2);
+    expect(port.closes).toBe(1);
+    expect(g.transcript()).toContain('(link reopened: the board answers');
+    expect(warnings).toContain('stall at chain 1 — recovered, redoing it');
+    expect(after(port, 'G21 G90 G17 G54')).toContain('G1 X80.000 Y-60.000 F3000');
+  });
+
   it('a controller that says it stopped is not reset past: the plot ends by name', async () => {
     const { port, g } = await setup();
     port.dropLineOnce = 'G1 X80.000 Y-10.000 F3000';
@@ -527,7 +568,9 @@ describe('a plot that stalls', () => {
     port.dropLineOnce = 'G1 X80.000 Y-10.000 F3000';
     port.mute = true;
     port.realtime.length = 0;
-    await expect(g.plot(stroke, [pen], opts, () => undefined)).rejects.toThrow(/the link is down/);
+    await expect(g.plot(stroke, [pen], opts, () => undefined)).rejects.toThrow(/still silent after reopening the port — the link is down/);
+    expect(port.opens).toBe(2); // the watchdog reopened the port once before giving up
+    expect(g.transcript()).toContain('(link reopened: the board is still silent');
     expect(port.realtime).not.toContain('\x18');
     expect(port.commands.filter((c) => c === 'G0 X10.000 Y-10.000' || c.startsWith('G1 X10.000 Y-10.000'))).toHaveLength(1);
   }, 20_000);

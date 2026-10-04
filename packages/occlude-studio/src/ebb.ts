@@ -18,7 +18,7 @@
  */
 
 import type { PenDef } from 'occlude';
-import { describeReadError, readLines } from './serialLines.js';
+import { describeReadError, readLines, type Reading } from './serialLines.js';
 
 import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude/host';
 import {
@@ -198,7 +198,7 @@ export const PLOT_WATCHDOG_MS = 8000;
 export class Ebb {
   private port: SerialPortLike | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
-  private readAbort: AbortController | null = null;
+  private reading: Reading | null = null;
   private rxLines: string[] = [];
   private inFlight: QueuedCmd | null = null;
   private queue: QueuedCmd[] = [];
@@ -268,8 +268,7 @@ export class Ebb {
     await port.open({ baudRate: 115200, bufferSize: 1 << 16 });
     this.port = port;
     this.writer = port.writable!.getWriter();
-    this.readAbort = new AbortController();
-    void readLines(port, (line) => this.onLine(line), (e) => this.logLine('<', `(serial read error, reading on: ${describeReadError(e)})`), () => this.port === port);
+    this.reading = readLines(port, (line) => this.onLine(line), (e) => this.logLine('<', `(serial read error, reading on: ${describeReadError(e)})`));
     // No reset on open, no warmup (verified). Configure the servo, but leave
     // the steppers released so the carriage can be positioned by hand. Jog,
     // Home, and Plot enable them immediately before their first motion.
@@ -340,8 +339,10 @@ export class Ebb {
 
   async disconnect(): Promise<void> {
     this.plotAbort = true;
+    // The reader first: a port whose readable is still locked refuses to close.
+    await this.reading?.stop();
+    this.reading = null;
     try {
-      this.readAbort?.abort();
       await this.writer?.close();
     } catch {
       // port already gone

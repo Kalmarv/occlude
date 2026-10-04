@@ -46,7 +46,7 @@
 import { type PenDef } from 'occlude';
 import { schedulePlan, type PlanEstimate, type PlanSchedule } from 'occlude/host';
 
-import { describeReadError, readLines } from './serialLines.js';
+import { describeReadError, readLines, type Reading } from './serialLines.js';
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';
 import type { MachineSettings } from './store.js';
 
@@ -142,6 +142,7 @@ const atTarget = (st: GrblStatus, target: { x?: number; y?: number; z?: number }
 export class Grbl {
   private port: SerialPortLike | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  private reading: Reading | null = null;
   private pending: Pending[] = [];
   private inFlightBytes = 0;
   /** Lines waiting for buffer room: retried on every ok, rejected by a flush. */
@@ -203,15 +204,10 @@ export class Grbl {
       const serial = (navigator as unknown as { serial: SerialLike }).serial;
       port = await serial.requestPort();
     }
-    // A 64 KiB receive buffer: the default 255 bytes overrun whenever the page
-    // is busy for a moment (a render, a preview) while the board replies.
-    await port.open({ baudRate: 115200, bufferSize: 1 << 16 });
-    this.port = port;
-    this.writer = port.writable!.getWriter();
+    await this.openLink(port);
     this.t0 = Date.now();
     this.penIsUp = false; // unknown until a pen-up is sent
     this.watchLifecycle();
-    void readLines(port, (line) => this.onLine(line), (e) => this.onReadError(e), () => this.port === port);
     // A board that resets on open prints its banner now (the DrawCore does
     // not reset and prints nothing); then close any stale partial line.
     await sleep(300);
@@ -238,11 +234,61 @@ export class Grbl {
     if (!this.port) return;
     // Closing the port does not stop the machine: stop it first.
     if (this.plotting) await this.stop().catch(() => undefined);
-    try { await this.writer?.close(); } catch { /* port gone */ }
-    try { await this.port.close(); } catch { /* port gone */ }
-    this.writer = null;
+    await this.closeLink(false);
     this.port = null;
     this.abortPending('disconnected');
+  }
+
+  /** Open the port and start its reader and writer. */
+  private async openLink(port: SerialPortLike): Promise<void> {
+    // A 64 KiB receive buffer: the default 255 bytes overrun whenever the page
+    // is busy for a moment (a render, a preview) while the board replies.
+    await port.open({ baudRate: 115200, bufferSize: 1 << 16 });
+    this.port = port;
+    this.writer = port.writable!.getWriter();
+    this.reading = readLines(port, (line) => this.onLine(line), (e) => this.onReadError(e));
+  }
+
+  /** Close the port. Web Serial refuses to close a port whose streams are
+   * locked, so the reader stops and the writer lets go first; without that
+   * a disconnect left the port open underneath the page. A reopen discards
+   * whatever write is stuck (`abort`) rather than waiting on it. */
+  private async closeLink(discard: boolean): Promise<void> {
+    await this.reading?.stop();
+    this.reading = null;
+    const writer = this.writer;
+    this.writer = null;
+    if (writer) {
+      try { await (discard ? writer.abort() : writer.close()); } catch { /* port gone */ }
+      writer.releaseLock();
+    }
+    try { await this.port?.close(); } catch (e) {
+      this.logLine('<', `(the port did not close: ${describeReadError(e)})`);
+    }
+  }
+
+  /** The board stopped answering, status included: close the port and open
+   * it again, then ask once more. Opening the port does not reset the board
+   * or stop its motion, so this is safe mid-plot. The answer says which side
+   * went silent — a board that answers after a reopen was alive, and only the
+   * page's receive path had stopped — and the serial log keeps it either way. */
+  private async reopenLink(): Promise<GrblStatus | null> {
+    const port = this.port;
+    if (!port) return null;
+    this.logLine('<', `(link silent: closing and reopening the port · ${this.linkState()})`);
+    try {
+      await Promise.race([this.closeLink(true), sleep(5000).then(() => { throw new Error('the port did not close in 5 s'); })]);
+      await this.openLink(port);
+    } catch (e) {
+      this.logLine('<', `(link not reopened: ${describeReadError(e)})`);
+      return null;
+    }
+    await sleep(300);
+    const st = await this.status().catch(() => null);
+    this.logLine('<', st
+      ? `(link reopened: the board answers — ${st.raw}; it was the page's receive path that stopped)`
+      : '(link reopened: the board is still silent — it stopped answering, not just the page)');
+    return st;
   }
 
   private banner = '';
@@ -437,7 +483,16 @@ export class Grbl {
       p.reject(silent ? new StallError(why) : new GrblError(why));
       this.wake();
     };
-    if (!st) { fail(`no reply to ${p.line} after ${timeoutMs / 1000} s, and no status report — the link is down (${this.linkState()})`); return; }
+    if (!st) {
+      // Silent, status included. Reopen the port and ask again: the answer
+      // says whether the board or the page's receive path stopped, and a
+      // board that answers lets the plot recover the chain.
+      const why = `no reply to ${p.line} after ${timeoutMs / 1000} s, and no status report (${this.linkState()})`;
+      const back = await this.reopenLink();
+      if (!this.pending.includes(p)) return;
+      fail(back ? `${why}; the board answered once the port was reopened` : `${why}; still silent after reopening the port — the link is down`);
+      return;
+    }
     const state = st.state.split(':')[0];
     if (state === 'Alarm' || state === 'Hold' || state === 'Door' || state === 'Sleep') {
       fail(`no reply to ${p.line}: the controller is in ${st.state}`, false);
