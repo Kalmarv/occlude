@@ -10,9 +10,10 @@
  * So the error is written to the serial log by name and reading goes on
  * from the next stream; a partial line is dropped with it, since its bytes
  * are the ones that went missing. The loop ends when the stream closes
- * (the driver disconnected), when the port has no readable left (a fatal
- * error, such as the device unplugged), or when the driver has let go of
- * this port.
+ * (the driver disconnected), when the driver has let go of this port, or —
+ * announced by name, never quietly — when the reader stops with the port
+ * still open: `port.readable` went null or the stream ended, and a driver
+ * that keeps believing it is connected is worse than one that knows.
  */
 
 export interface ReadablePort {
@@ -25,6 +26,7 @@ export async function readLines(
   onError: (error: unknown) => void,
   isOpen: () => boolean,
 ): Promise<void> {
+  const gone = new Error('the serial reader stopped while the port was still open — the link is down');
   while (isOpen() && port.readable) {
     const decoder = new TextDecoder();
     let buf = '';
@@ -32,7 +34,7 @@ export async function readLines(
     try {
       for (;;) {
         const { value, done } = await reader.read();
-        if (done) return;
+        if (done) { if (isOpen()) onError(gone); return; }
         buf += decoder.decode(value, { stream: true });
         const parts = buf.split(/[\r\n]+/);
         buf = parts.pop() ?? '';
@@ -46,6 +48,11 @@ export async function readLines(
     // Never a hot loop, whatever a port does after an error.
     await new Promise((r) => setTimeout(r, 10));
   }
+  // The loop fell out with the port still ours: `port.readable` went null
+  // (a fatal device error). Returning quietly left the driver deaf and still
+  // reporting itself connected, so the stall watchdog called the link down
+  // twenty seconds later with nothing in the log to say why.
+  if (isOpen()) onError(gone);
 }
 
 /** A read error as the serial log writes it: its name and message. */

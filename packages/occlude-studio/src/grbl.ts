@@ -68,6 +68,12 @@ const RX_BUDGET = 120;
 const MAX_LINE = 79;
 /** A line the controller has not acknowledged for this long is a stall. */
 const REPLY_TIMEOUT_MS = 20_000;
+/** A write the port never finishes. A stalled write used to hang the driver
+ * outright: every later write, the watchdog's own `?` included, queued behind
+ * it in the one `WritableStreamDefaultWriter`, so `status()` always timed out
+ * and the verdict was always "the link is down" at ~22 s. A write that has not
+ * landed by then has wedged whatever carries the port. */
+const WRITE_TIMEOUT_MS = 10_000;
 
 interface Pending {
   line: string;
@@ -81,6 +87,12 @@ interface Pending {
 }
 
 export class GrblError extends Error {}
+
+/** The link or the controller went silent on a line, rather than refusing
+ * it. A refusal (`error:N`) is the board's verdict and the plot must end;
+ * a silence may be one lost byte, so the plot loop retries the chain it was
+ * drawing — the EBB driver's `StallError` recovery, same idea. */
+export class StallError extends GrblError {}
 
 /** GRBL 1.1 error codes the studio is likely to meet, in words. */
 const ERROR_TEXT: Record<number, string> = {
@@ -105,15 +117,28 @@ export interface GrblStatus {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** The X and Y a `G0`/`G1` line moves to, or null when it names neither. */
-function targetOf(line: string): [number, number] | null {
+/**
+ * The axes a motion line names and the numbers it moves them to, or null when
+ * the line names no axis at all (`$1=255`, `G4 P0.1`). Z-only lines belong
+ * here: every pen lift and drop is one, and they are a quarter of a plot's
+ * traffic, so without them the watchdog can only ever re-send them.
+ */
+function targetOf(line: string): { x?: number; y?: number; z?: number } | null {
   if (!/^G0?[01]\b/.test(line)) return null;
-  const x = /\bX(-?\d+(?:\.\d+)?)/.exec(line);
-  const y = /\bY(-?\d+(?:\.\d+)?)/.exec(line);
-  if (!x || !y) return null;
-  return [Number(x[1]), Number(y[1])];
+  const axis = (name: string): number | undefined => {
+    const m = new RegExp(`\\b${name}(-?\\d+(?:\\.\\d+)?)`).exec(line);
+    return m ? Number(m[1]) : undefined;
+  };
+  const target = { x: axis('X'), y: axis('Y'), z: axis('Z') };
+  return target.x === undefined && target.y === undefined && target.z === undefined ? null : target;
 }
 
+/** How close the controller must stand to a line's target to call its lost
+ * `ok` accounted for. The board reports to $11 (0.010 mm on this one). */
+const atTarget = (st: GrblStatus, target: { x?: number; y?: number; z?: number }): boolean => {
+  const near = (want: number | undefined, got: number): boolean => want === undefined || Math.abs(want - got) < 0.02;
+  return near(target.x, st.work[0]) && near(target.y, st.work[1]) && near(target.z, st.work[2]);
+};
 
 export class Grbl {
   private port: SerialPortLike | null = null;
@@ -190,7 +215,7 @@ export class Grbl {
     this.t0 = Date.now();
     this.penIsUp = false; // unknown until a pen-up is sent
     this.watchLifecycle();
-    void readLines(port, (line) => this.onLine(line), (e) => this.logLine('<', `(serial read error, reading on: ${describeReadError(e)})`), () => this.port === port);
+    void readLines(port, (line) => this.onLine(line), (e) => this.onReadError(e), () => this.port === port);
     // A board that resets on open prints its banner now (the DrawCore does
     // not reset and prints nothing); then close any stale partial line.
     await sleep(300);
@@ -269,14 +294,40 @@ export class Grbl {
     for (const w of ws) w.attempt();
   }
 
+  /** A read error is recoverable — the port hands out a fresh stream and
+   * reading goes on. A reader that stops for good is not, and it must not be
+   * left for the watchdog to discover twenty seconds later: fail everything
+   * in flight now, by name, so the plot ends where the link actually broke
+   * and the serial log says which side went. */
+  private onReadError(error: unknown): void {
+    const why = describeReadError(error);
+    this.logLine('<', `(serial read error, reading on: ${why})`);
+    if (/the serial reader stopped/.test(why)) this.abortPending(`the serial reader stopped: ${why}`);
+  }
+
   private async raw(text: string): Promise<void> {
     if (!this.writer) throw new GrblError('not connected');
     const started = Date.now();
     this.writesWaiting.add(started);
     if (text === '?') this.polls++;
+    const write = this.writer.write(new TextEncoder().encode(text));
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.writer.write(new TextEncoder().encode(text));
+      // The port's write is the one call here with no bound of its own, and a
+      // wedged port never settles it. Without this the driver waits on a
+      // promise that cannot resolve, and every later write — including the
+      // watchdog's `?` — stacks up behind it in the same writer.
+      await Promise.race([
+        write,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new GrblError(`the write "${text.slice(0, 40)}" did not finish in ${WRITE_TIMEOUT_MS / 1000} s — the link is down`)),
+            WRITE_TIMEOUT_MS,
+          );
+        }),
+      ]);
     } finally {
+      clearTimeout(timer);
       this.writesWaiting.delete(started);
       this.lastWriteDoneAt = Date.now();
     }
@@ -290,6 +341,8 @@ export class Grbl {
   private lastWriteDoneAt = 0;
   private lastRxAt = 0;
   private polls = 0;
+  /** The watchdog's patience for a line; tests shorten it. */
+  replyTimeoutMs = REPLY_TIMEOUT_MS;
   private replies = 0;
   private lifecycleWatched = false;
 
@@ -324,7 +377,7 @@ export class Grbl {
   /** Send one line once the controller has room for it; resolves on its ok
    * with the feedback lines that preceded it. This is the streamer: with
    * several lines in flight the planner never starves. */
-  send(line: string, timeoutMs = REPLY_TIMEOUT_MS): Promise<string[]> {
+  send(line: string, timeoutMs = this.replyTimeoutMs): Promise<string[]> {
     return new Promise<string[]>((resolve, reject) => {
       if (line.length > MAX_LINE) { reject(new GrblError(`line longer than ${MAX_LINE} characters: ${line}`)); return; }
       const bytes = line.length + 1;
@@ -340,6 +393,11 @@ export class Grbl {
           clearTimeout(p.timer);
           this.pending = this.pending.filter((q) => q !== p);
           this.inFlightBytes -= bytes;
+          // Every other path that gives a byte of the budget back wakes the
+          // lines queued behind it; this one did not, and a line parked in
+          // `waiters` carries no timer of its own — so one failed write could
+          // strand the rest of the plot until something else woke it.
+          this.wake();
           reject(e instanceof Error ? e : new Error(String(e)));
         });
       };
@@ -369,20 +427,24 @@ export class Grbl {
     let st: GrblStatus | null = null;
     try { st = await this.status(); } catch { st = null; }
     if (!this.pending.includes(p)) return; // the ok arrived while we asked
-    const fail = (why: string): void => {
+    // A silence is a stall the plot may recover from; a controller that
+    // says it stopped (Alarm, Hold, Door, Sleep) has given its verdict, and
+    // resetting past it would override a limit switch or the machine's own
+    // hold button.
+    const fail = (why: string, silent = true): void => {
       this.pending = this.pending.filter((q) => q !== p);
       this.inFlightBytes -= p.bytes;
-      p.reject(new GrblError(why));
+      p.reject(silent ? new StallError(why) : new GrblError(why));
       this.wake();
     };
     if (!st) { fail(`no reply to ${p.line} after ${timeoutMs / 1000} s, and no status report — the link is down (${this.linkState()})`); return; }
     const state = st.state.split(':')[0];
     if (state === 'Alarm' || state === 'Hold' || state === 'Door' || state === 'Sleep') {
-      fail(`no reply to ${p.line}: the controller is in ${st.state}`);
+      fail(`no reply to ${p.line}: the controller is in ${st.state}`, false);
       return;
     }
     const target = targetOf(p.line);
-    if (target && Math.abs(st.work[0] - target[0]) < 0.02 && Math.abs(st.work[1] - target[1]) < 0.02) {
+    if (target && atTarget(st, target)) {
       this.logLine('<', `(watchdog: the controller stands at the target of ${p.line} — its ok was lost; carrying on)`);
       this.pending.shift();
       this.inFlightBytes -= p.bytes;
@@ -443,10 +505,15 @@ export class Grbl {
   /** Real-time status report, parsed. */
   status(timeoutMs = 2000): Promise<GrblStatus> {
     return new Promise<GrblStatus>((resolve, reject) => {
-      const timer = setTimeout(() => { this.statusWaiters = this.statusWaiters.filter((w) => w !== on); reject(new GrblError('no status report')); }, timeoutMs);
+      const drop = (): void => { clearTimeout(timer); this.statusWaiters = this.statusWaiters.filter((w) => w !== on); };
+      const timer = setTimeout(() => { drop(); reject(new GrblError('no status report')); }, timeoutMs);
       const on = (line: string): void => { clearTimeout(timer); resolve(this.parseStatus(line)); };
       this.statusWaiters.push(on);
-      this.raw('?').catch(reject);
+      // A `?` that never lands leaves the waiter behind, and the queue it
+      // shifts is FIFO against live reports: from then on every report is
+      // handed to a settled promise and every real status() misses its own
+      // and times out, for the rest of the session.
+      this.raw('?').catch((e: unknown) => { drop(); reject(e instanceof Error ? e : new Error(String(e))); });
     });
   }
 
@@ -933,7 +1000,8 @@ export class Grbl {
     const idleDelay = this.settings.idleDelay ?? this.grblSettings.get(1);
     const lockMotors = idleDelay !== undefined && idleDelay !== 255;
     let locked = false;
-
+    // Stalls recovered this run, bounded by the catch below.
+    let stalls = 0;
     try {
       await this.send('G21 G90 G54');
       if (lockMotors) { await this.send('$1=255'); locked = true; }
@@ -971,7 +1039,20 @@ export class Grbl {
           this.penIsUp = true;
         } catch (e) {
           if (this.plotAbort) break;
-          throw e;
+          // Stall recovery, the EBB driver's shape: a silence may be one lost
+          // byte, so bring the controller back to a known state and redo this
+          // chain from its start. A refusal (error:N) is not a silence and
+          // still ends the plot. Bounded — a board that keeps stalling is a
+          // board to look at, not to loop on.
+          if (!(e instanceof StallError) || stalls >= 4) throw e;
+          // Recover only a board that answers: against a dead link the reset
+          // cannot land and every redo would cost another watchdog spell.
+          if (!(await this.status().catch(() => null))) throw e;
+          stalls += 1;
+          warning = `stall at chain ${ci + 1} — recovered, redoing it`;
+          report('plotting');
+          await this.flushMotion(`stall: ${e.message}`);
+          continue chainLoop;
         }
         // Ink accounting for progress and the re-ink budget (a dot lays a nib width).
         let ink = c.dot ? (pen?.width ?? 0) : 0;

@@ -30,13 +30,22 @@ class FakeGrblPort {
    * status either). */
   dropOkOnce: string | null = null;
   dropLineOnce: string | null = null;
+  /** How many times `dropLineOnce` is lost before it gets through. */
+  dropLineTimes = 1;
   /** One command the controller refuses (error:9, locked out). */
   errorOnce: string | null = null;
+  /** A write that never settles: the port accepted the port and stopped. */
+  swallowWrites = false;
+  /** The reader stops for good while the port stays open (readable → null). */
+  readerDies = false;
   mute = false;
+  /** Stop the reader for good while the port stays open — a fatal device
+   * error: the stream errors and the port hands out none. */
+  killReader(): void { this.readerDies = true; this.input.error(Object.assign(new Error('the device was lost'), { name: 'NetworkError' })); }
   settingsReply = '$1=254\r\n$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
   private timers: ReturnType<typeof setTimeout>[] = [];
-  private stream = this.newStream();
-  get readable(): ReadableStream<Uint8Array> { return this.stream; }
+  private stream: ReadableStream<Uint8Array> | null = this.newStream();
+  get readable(): ReadableStream<Uint8Array> | null { return this.readerDies ? null : this.stream; }
   private newStream(): ReadableStream<Uint8Array> { return new ReadableStream<Uint8Array>({ start: (controller) => { this.input = controller; } }); }
   /** A recoverable read error, as Web Serial raises one: the stream errors
    * and the port hands out a fresh one; the board is unaffected. */
@@ -47,6 +56,8 @@ class FakeGrblPort {
   }
   readonly writable = new WritableStream<Uint8Array>({
     write: (chunk) => {
+      // A wedged port: the write promise never settles.
+      if (this.swallowWrites) return new Promise<void>(() => {});
       const text = new TextDecoder().decode(chunk);
       for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
       if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0${this.sparseWco ? '' : `|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}`}>\r\n`, true); return; }
@@ -62,7 +73,7 @@ class FakeGrblPort {
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
         const cmd = line.replace(/\r$/, '');
-        if (cmd === this.dropLineOnce) { this.dropLineOnce = null; continue; }
+        if (cmd === this.dropLineOnce) { if (--this.dropLineTimes <= 0) this.dropLineOnce = null; continue; }
         this.commands.push(cmd);
         this.move(cmd);
         if (cmd === this.dropOkOnce) { this.dropOkOnce = null; continue; }
@@ -76,8 +87,12 @@ class FakeGrblPort {
     },
   });
   private reply(text: string, now: boolean): void {
+    // After a fatal read the device is gone and answers nothing, the way one
+    // that has dropped off the bus does.
+    if (this.readerDies) return;
     if (now || !this.delayMs) { this.input.enqueue(new TextEncoder().encode(text)); return; }
     const t = setTimeout(() => {
+      if (this.readerDies) return; // the device went while this reply was on its way
       this.input.enqueue(new TextEncoder().encode(text));
       this.timers = this.timers.filter((x) => x !== t);
       if (!this.timers.length && this.state === 'Run') this.state = 'Idle'; // the last queued move finished
@@ -432,6 +447,88 @@ describe('the watchdog asks the controller before it gives up', () => {
     await expect(g.cmd('G1 X10 Y20 F1000', true, 60)).rejects.toThrow(/no reply to G1 X10 Y20 F1000 after 0.06 s, and no status report — the link is down/);
   });
 
+  it('a write the port never finishes fails by name instead of hanging the driver', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    await g.connect(undefined, port as never);
+    port.swallowWrites = true; // the write promise never settles: a wedged port
+    // Before this the send waited on a promise nothing would ever settle.
+    await expect(g.send('G1 X10 Y20 F1000', 60_000)).rejects.toThrow(/did not finish/);
+  }, 20_000);
+
+  it('a lost ok on a Z move is settled at the pen height, not re-sent', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    // A pen drop is a quarter of a plot's traffic, and targetOf() could not
+    // name a Z target, so every one of these cost two full watchdog spells.
+    port.dropOkOnce = 'G1 Z10.000 F3000';
+    await expect(g.cmd('G1 Z10.000 F3000', true, 60)).resolves.toEqual([]);
+    expect(g.transcript()).toContain('its ok was lost; carrying on');
+  });
+
+  it('a reader that stops for good fails the plot at once, by name', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    port.delayMs = 40; // the board is slow; the line is in flight
+    const inFlight = g.cmd('G1 X10 Y20 F1000', true, 60_000);
+    await tick(10);
+    port.killReader();
+    // Not twenty seconds later on the watchdog: the reader says so, and the
+    // line that was waiting is failed where the link actually broke.
+    await expect(inFlight).rejects.toThrow(/serial reader stopped/);
+    expect(g.transcript()).toContain('serial reader stopped');
+  });
+
+});
+
+describe('a plot that stalls', () => {
+  const stroke = plan([[0, false, [10, 10, 80, 10, 80, 60]]]);
+  const setup = async (): Promise<{ port: FakeGrblPort; g: Grbl }> => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.replyTimeoutMs = 60;
+    await g.connect(undefined, port as never);
+    return { port, g };
+  };
+
+  it('a line lost on both tries: the controller is reset and the chain is drawn again from its start', async () => {
+    const { port, g } = await setup();
+    port.dropLineOnce = 'G1 X80.000 Y-10.000 F3000';
+    port.dropLineTimes = 2; // the watchdog's resend is lost too
+    const warnings: string[] = [];
+    await g.plot(stroke, [pen], opts, (p) => { if (p.warning) warnings.push(p.warning); });
+    expect(warnings).toContain('stall at chain 1 — recovered, redoing it');
+    expect(port.realtime).toContain('\x18');
+    // The redo starts at the chain's first point and reaches its last.
+    const redo = after(port, 'G21 G90 G17 G54');
+    expect(redo).toContain('G1 X80.000 Y-10.000 F3000');
+    expect(redo).toContain('G1 X80.000 Y-60.000 F3000');
+    expect(port.pos.slice(0, 2)).toEqual([0, 0]);
+  });
+
+  it('a controller that says it stopped is not reset past: the plot ends by name', async () => {
+    const { port, g } = await setup();
+    port.dropLineOnce = 'G1 X80.000 Y-10.000 F3000';
+    port.state = 'Door:0';
+    port.realtime.length = 0; // the connect's own reset is not the plot's
+    await expect(g.plot(stroke, [pen], opts, () => undefined)).rejects.toThrow(/the controller is in Door:0/);
+    expect(port.realtime).not.toContain('\x18');
+  });
+
+  it('a dead link is not retried: the plot ends on the first stall', async () => {
+    const { port, g } = await setup();
+    port.dropLineOnce = 'G1 X80.000 Y-10.000 F3000';
+    port.mute = true;
+    port.realtime.length = 0;
+    await expect(g.plot(stroke, [pen], opts, () => undefined)).rejects.toThrow(/the link is down/);
+    expect(port.realtime).not.toContain('\x18');
+    expect(port.commands.filter((c) => c === 'G0 X10.000 Y-10.000' || c.startsWith('G1 X10.000 Y-10.000'))).toHaveLength(1);
+  }, 20_000);
 });
 
 describe('the board\'s own idle delay', () => {
