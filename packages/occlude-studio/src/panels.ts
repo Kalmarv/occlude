@@ -32,6 +32,8 @@ import { confirmDialog, notify } from './wa.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented, panel, subpanel as sub, yAxisSelect } from './widgets.js';
 import { buildOptimizationPanel } from './optimizationPanel.js';
 import { copyDebugButton, showMachineError, type DebugInputs } from './debugInfo.js';
+import { Grbl } from './grbl.js';
+import { recordPlot } from './grblRecord.js';
 
 export interface PanelHooks {
   optimizationView(view: { chains: import('occlude/host').PlanChain[]; before?: import('occlude/host').PlanChain[]; after?: import('occlude/host').PlanChain[] } | null): void;
@@ -1084,6 +1086,36 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const clearSavedBtn = button('Forget', clearProgress);
   savedBox.append(savedText, el('div', 'row', resumeBtn, clearSavedBtn));
 
+  // The plot as the board would receive it, line for line, for streaming
+  // from another sender: the driver's own plot loop run against a simulated
+  // controller (grblRecord.ts), with this profile, origin, hop and pen.
+  const saveGcodeBtn = button('Save G-code as sent', async () => {
+    const r = hooks.lastResult();
+    const driver = dr();
+    if (!r || !(driver instanceof Grbl)) return;
+    try {
+      refreshPenSelect();
+      const raw = parseInt(penSelect.value, 10);
+      const penIndex = raw === -1 ? undefined : Math.min(raw || 0, r.pens.length - 1);
+      const plan = await buildPlan(r, penIndex);
+      if (!plan) return;
+      const lines = await recordPlot(driver, plan, r.pens, m.opts(), penIndex);
+      const name = hooks.currentName() ?? 'sketch';
+      const seed = hooks.currentSeed() ?? '';
+      const pen = penIndex === undefined ? 'all' : r.pens[penIndex]?.name ?? String(penIndex);
+      const header = [
+        `; occlude: ${name} · seed ${seed} · pen ${pen} · profile ${prof().name}`,
+        `; paper offset ${driver.paperOffset.join(', ')} mm · ${lines.length} lines · recorded ${new Date().toISOString()}`,
+        '; exactly the lines Plot sends, in order; stream one line per ok to a board the studio has connected and set up',
+      ];
+      download(`${name}-${seed}-${pen}.gcode`.replace(/[^\w.-]+/g, '_'), [...header, ...lines].join('\n') + '\n');
+      notify(`Saved ${lines.length} lines of G-code`);
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  saveGcodeBtn.title = 'Download this plot as the exact G-code lines Plot would send to the board now (same plan, pen, origin, hop and motor lock) — to stream it with another sender';
+
   const connect = buildConnect(m);
   const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn);
   const manual = buildManualControls(m);
@@ -1186,7 +1218,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     savedBox,
     el('h4', 'band-title', 'Manual control'),
     manual,
-    el('div', 'debug-row', copyDebugButton(() => debugInputs(lastError))),
+    el('div', 'debug-row', copyDebugButton(() => debugInputs(lastError)), saveGcodeBtn),
     hint('Copy debug info takes this page’s serial log, the machine, the board and the sketch — paste it into the chat. Profile and calibration live on the Machine page.'),
   );
   refreshPenSelect();

@@ -50,7 +50,7 @@ import { describeReadError, readLines, type Reading } from './serialLines.js';
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';
 import type { MachineSettings } from './store.js';
 
-interface SerialPortLike {
+export interface SerialPortLike {
   open(opts: { baudRate: number; bufferSize?: number }): Promise<void>;
   getInfo?(): { usbVendorId?: number; usbProductId?: number };
   close(): Promise<void>;
