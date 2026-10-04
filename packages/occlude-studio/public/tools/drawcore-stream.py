@@ -30,6 +30,11 @@ sent" on the Plot panel, then Disconnect (do NOT power-cycle: the pen height
 the studio declared lives in the board until then), and run:
   python3 drawcore-stream.py /dev/cu.usbmodem201912341 --file sketch.gcode
 
+Add --check to stream the same file with NO motion: GRBL's check mode ($C)
+parses and acknowledges every line exactly as usual but moves no motor ($ lines
+are skipped, since GRBL refuses settings in check mode). Same USB traffic,
+no motors switching: it separates a link problem from one motion causes.
+
 Every line sent and received is written to a log file next to the script.
 If the board stops answering, the script says so, stops, and tells you what
 to check. Ctrl-C stops cleanly (feed hold, reset, motors released, pen up).
@@ -63,6 +68,8 @@ def main() -> int:
     ap.add_argument('--idle-delay', type=int, default=25, help="the board's own $1, restored at the end (default 25)")
     ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--file', help="stream this .gcode file (from the studio's Save G-code as sent) instead of the generated pattern")
+    ap.add_argument('--check', action='store_true', help="with --file: GRBL check mode ($C), every line parsed and acknowledged, no motor moves")
+    ap.add_argument('--repeat', type=int, default=1, help="with --file: stream the file this many times (check mode runs fast)")
     args = ap.parse_args()
 
     stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -155,6 +162,9 @@ def main() -> int:
 
     if args.file:
         lines = [l.strip() for l in open(args.file) if l.strip() and not l.lstrip().startswith((';', '('))]
+        if args.check:
+            lines = [l for l in lines if not l.startswith('$')]
+        lines = lines * max(1, args.repeat)
         offsets = send('$#')
         g92 = next((o for o in offsets if o.startswith('[G92:')), '[G92:?]')
         print(f'file: {args.file} · {len(lines)} lines · log: {log_path}')
@@ -164,12 +174,17 @@ def main() -> int:
             print('then Disconnect without power-cycling, so the pen heights match a studio plot.')
         print('starting in 5 s (Ctrl-C to abort)…')
         time.sleep(5)
+        if args.check:
+            reply = send('$C')
+            print('check mode:', ' '.join(reply) or 'on', '— no motor will move')
         try:
             for i, line in enumerate(lines, 1):
                 send(line)
                 if i % 500 == 0:
                     print(f'{(time.monotonic() - t0) / 60:6.1f} min · {i}/{len(lines)} lines · all acknowledged')
-            print(f'DONE: {len(lines)} lines, no stall. Log: {log_path}')
+            if args.check:
+                send('$C')  # leaves check mode (GRBL resets itself)
+            print(f'DONE: {len(lines)} lines{" in check mode" if args.check else ""}, no stall. Log: {log_path}')
             return 0
         except TimeoutError as e:
             silent = time.monotonic() - last_rx
