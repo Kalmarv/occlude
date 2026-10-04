@@ -81,9 +81,6 @@ export class Preview {
   brush: ((x: number, y: number, phase: 'down' | 'move' | 'up') => void) | null = null;
   /** The region repair's blobs, drawn over the ink in paper mm. */
   regionBlobs: { x: number; y: number; r: number }[] | null = null;
-  /** The sketch's registration point and the pen that would draw it: a
-   * crosshair over the ink, not part of the plan. */
-  registration: { x: number; y: number; color: string } | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -614,26 +611,6 @@ export class Preview {
     );
   }
 
-  /** The registration crosshair in its pen's colour; it keeps a screen
-   * size at any zoom. */
-  private drawRegistration(ctx: CanvasRenderingContext2D): void {
-    const px = 1 / this.scale;
-    const reg = this.registration;
-    ctx.save();
-    ctx.lineCap = 'round';
-    if (reg) {
-      const arm = 12 * px;
-      ctx.strokeStyle = reg.color;
-      ctx.lineWidth = 1.5 * px;
-      ctx.beginPath();
-      ctx.arc(reg.x, reg.y, 7 * px, 0, Math.PI * 2);
-      ctx.moveTo(reg.x - arm, reg.y); ctx.lineTo(reg.x + arm, reg.y);
-      ctx.moveTo(reg.x, reg.y - arm); ctx.lineTo(reg.x, reg.y + arm);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
   /** The in-flight render over whatever is retained: scene lines in draft
    * blue, or the finished paper drawing in its pens before the plan exists. */
   private drawDraft(ctx: CanvasRenderingContext2D): void {
@@ -875,7 +852,6 @@ export class Preview {
       ctx.restore();
     }
 
-    this.drawRegistration(ctx);
 
     if (this.overlay) {
       ctx.save();

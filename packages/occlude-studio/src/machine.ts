@@ -49,8 +49,7 @@ export interface MachineSession {
   /** Subscribe to profile switches (forms re-render). */
   onProfileSwitch(fn: () => void): void;
   switchProfile(name: string): void;
-  /** The work frame moved (an origin, a registration, a resume's paper
-   * offset): status lines re-read it. */
+  /** The work frame moved (an origin, a resume's paper offset): status lines re-read it. */
   frameChanged(): void;
   onFrameChange(fn: () => void): void;
   /** Set by the host so a switch can refresh estimates etc. */
@@ -318,10 +317,7 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   const paperStatus = el('span', 'origin-status');
   const showPaper = (): void => {
     const [x, y] = dr().paperOffset;
-    const reg = dr().registeredAt;
-    paperStatus.textContent = reg
-      ? `registered at ${reg[0]}, ${reg[1]} mm on the paper`
-      : x === 0 && y === 0 ? 'paper at bed origin' : `paper at ${x}, ${y} mm`;
+    paperStatus.textContent = x === 0 && y === 0 ? 'paper at bed origin' : `paper at ${x}, ${y} mm`;
   };
   showPaper();
   m.onFrameChange(showPaper);

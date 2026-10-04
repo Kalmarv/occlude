@@ -18,7 +18,6 @@
  */
 
 import type { PenDef } from 'occlude';
-import { registrationMark } from './diagnostics.js';
 import { describeReadError, readLines } from './serialLines.js';
 
 import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude/host';
@@ -684,13 +683,8 @@ export class Ebb {
    */
   paperOffset: [number, number] = [0, 0];
 
-  /** The paper point the head was last registered at (`registerAt`), until
-   * an origin replaces the frame. */
-  registeredAt: [number, number] | null = null;
-
   setPaperOrigin(o: EbbOptions): [number, number] {
     this.paperOffset = this.bedPosition(o).map((v) => Math.round(v * 100) / 100) as [number, number];
-    this.registeredAt = null;
     return this.paperOffset;
   }
 
@@ -709,51 +703,6 @@ export class Ebb {
     this.stepX = 0;
     this.stepY = 0;
     this.paperOffset = [0, 0];
-    this.registeredAt = null;
-  }
-
-  /** "The tip stands on the registration mark": the head is declared to be
-   * at the paper point `point`, wherever the step counters thought it was
-   * (the motors were free; a hand moved it). The EBB cannot set its
-   * counters, only clear them, so the counters are zeroed here (Set
-   * origin's CS) and the paper offset becomes minus the point: the paper
-   * point lands on the head, every other point relative to it. */
-  async registerAt(point: readonly [number, number]): Promise<void> {
-    if (this.plotting && !this.plotPause) throw new Error('the plot owns the machine; pause first');
-    if (this.plotting) this.pauseAdjusted = true;
-    await this.cmd('CS');
-    this.stepX = 0;
-    this.stepY = 0;
-    this.paperOffset = [-point[0], -point[1]];
-    this.registeredAt = [point[0], point[1]];
-  }
-
-  /** "The tip stands at the registration point": declare the head there
-   * (`registerAt`), then draw the mark around it with this pen at its own
-   * feed and settle — pen down only on the mark's strokes — lift, come
-   * back over the point and free the motors, so the mark can be judged
-   * against the sheet and the head nudged by hand and the mark drawn
-   * again. Not a plot: no record, no home, no verify. */
-  async drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions): Promise<void> {
-    await this.registerAt(point);
-    const { plan } = registrationMark(point, pen);
-    const [offX, offY] = this.paperOffset;
-    const settle = pen.penDelay ?? 300;
-    await this.penUp(settle);
-    await this.cmd('EM,1,1');
-    for (let i = 0; i < plan.length;) {
-      i += 2; // the pen index and the dot flag: one pen, no dots
-      const n = plan[i++];
-      const pts: [number, number][] = [];
-      for (let k = 0; k < n; k++) pts.push([plan[i + k * 2] + offX, plan[i + k * 2 + 1] + offY]);
-      i += n * 2;
-      await this.moveRun([pts[0]], o.travelFeed, o);
-      await this.penDown(settle);
-      await this.moveRun(pts.slice(1), pen.feed, o);
-      await this.penUp(settle);
-    }
-    await this.moveRun([[point[0] + offX, point[1] + offY]], o.travelFeed, o);
-    await this.cmd('EM,0,0'); // free for the hand: nudge, press again
   }
 
   async home(): Promise<void> {

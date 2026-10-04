@@ -11,7 +11,7 @@ import {
   encodeToolpath, chainsBounds, type FlatChain, estimatePlanMs, profileToJson, type GcodeJob,
   type RenderResult, type PaperDef, exportCollisions, moduleName,
 } from 'occlude/host';
-import { listSketches, loadSketchByName, loadStudioState, saveSketchByName, saveStudioState } from './sketchApi.js';
+import { listSketches, loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
   download, loadUi, savePens, saveProfiles, saveSettings, saveUi,
@@ -20,7 +20,6 @@ import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import {
   executionKey, machineTiming, machineTolerance, penTimingOf,
-  type Corner, CORNERS, DEFAULT_CORNER, isCorner,
   type Drawing, type ExecutionSettings, type PlotRecord, type RegionBlob,
 } from './drawing.js';
 import { freeze } from './freeze.js';
@@ -87,10 +86,6 @@ export interface PanelHooks {
     start(plan: Float64Array, pens: PenDef[]): void;
     progress(chain: number): void;
     end(): void;
-  };
-  /** The registration crosshair on the preview, at the corner in the pen's colour. */
-  registration: {
-    show(mark: { x: number; y: number; color: string } | null): void;
   };
   /** The region brush over the preview and its blob overlay. */
   brush: {
@@ -915,9 +910,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     savedText.textContent =
       `Unfinished: ${saved.sketch}${from}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
       (saved.sourceChain !== null ? ` (plan row ${saved.sourceChain})` : '') +
-      (saved.registration
-        ? `, registered at (${saved.registration[0]}, ${saved.registration[1]}). After a power loss, stand the tip on the drawn mark and press Draw registration first.`
-        : `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. After a power loss, re-park at the bed corner and Set bed origin first.`);
+      `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. After a power loss, re-park at the bed corner and Set bed origin first.`;
   };
   const putProgress = (p: SavedPlot): void => {
     saved = p;
@@ -1019,8 +1012,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const bb = chainsBounds(flat);
       // Pen-up perimeter of the selection's bounding box, at the paper
       // offset: the placement check no model can do. Bed positions, walked
-      // from wherever the head stands (the bed origin, or a registration
-      // mark) and back there.
+      // from wherever the head stands and back there.
       const [ox, oy] = dr().paperOffset;
       const start = dr().bedPosition(m.opts());
       const x0 = ox + bb.x, y0 = oy + bb.y;
@@ -1031,11 +1023,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  frameBtn.title = 'Frame — trace the plan’s bounding box pen-up in the current frame (paper origin or registration) — see where the piece lands before committing ink';
-  // Registration corners: a right angle at the sheet's top-left and another
-  // at its bottom-right, drawn with the selected pen. Between pens: marks,
-  // tape, swap, marks again — the brackets coincide iff the new pen sits
-  // where the old one did, and the pair traces the sheet's bounds.
+  frameBtn.title = 'Frame — trace the plan’s bounding box pen-up at the paper origin — see where the piece lands before committing ink';
   const resumeBtn = button('Resume', async () => {
     if (!dr().connected || dr().plotting || !saved) return;
     const r = hooks.lastResult();
@@ -1084,8 +1072,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       } else if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash || (hooks.currentSeed() ?? null) !== sv.seed) {
         throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged (seed ${sv.seed}) first — this record predates plan identities`);
       }
-      // The frame too: a plot registered at a mark resumes only from that mark.
-      hooks.drawing.checkRegistration(sv);
       dr().paperOffset = [...sv.paperOffset] as [number, number];
       m.frameChanged();
       const penIndex = sv.penIndex === null ? undefined : sv.penIndex;
@@ -1094,91 +1080,18 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  resumeBtn.title = 'Carry on from the saved chain at the saved paper offset — only when the current render IS the saved plan (same hash), the same range is selected, and the sketch is registered where the plot was.';
+  resumeBtn.title = 'Carry on from the saved chain at the saved paper offset — only when the current render IS the saved plan (same hash), and the same range is selected.';
   const clearSavedBtn = button('Forget', clearProgress);
   savedBox.append(savedText, el('div', 'row', resumeBtn, clearSavedBtn));
-
-  // Registration: a point on the sheet a pen tip can be put on by hand.
-  // Mark it on the preview, draw it on scrap with the current pen, and later
-  // (a pen change, a resume, the next day) stand the tip on the drawn mark
-  // and declare it: every pass lines up on it. The point is studio state on
-  // the sketch, saved with its name, never source.
-  const d = hooks.drawing;
-  const regText = hint('');
-  const selectedPen = (): PenDef | undefined => {
-    const pens = hooks.lastResult()?.pens ?? [];
-    const raw = parseInt(penSelect.value, 10);
-    return (raw >= 0 ? pens[raw] : undefined) ?? pens[0];
-  };
-  const cornerName = (c: Corner): string => c.replace('-', ' ');
-  const showRegistration = (): void => {
-    const p = d.registration;
-    hooks.registration.show(p ? { x: p[0], y: p[1], color: selectedPen()?.color ?? '#000' } : null);
-    cornerSel.value = d.registrationCorner;
-    const here = dr().registeredAt;
-    regText.textContent = !p
-      ? 'Registration: render the sketch first — the mark goes at a corner of its sheet.'
-      : `Registration at the ${cornerName(d.registrationCorner)} corner, (${p[0]}, ${p[1]}) mm` +
-        (here && here[0] === p[0] && here[1] === p[1] ? ' · the machine stands in this frame' : '');
-  };
-  // One corner per sketch, loaded when a render of another sketch lands.
-  let regFor: string | null = null;
-  const followSketch = (): void => {
-    const name = hooks.currentName();
-    if (name === regFor) return;
-    regFor = name;
-    d.setRegistrationCorner(DEFAULT_CORNER);
-    if (!name) return;
-    void loadStudioState(name)
-      .then((st) => { if (regFor === name) d.setRegistrationCorner(isCorner(st.registration) ? st.registration : DEFAULT_CORNER); })
-      .catch(showErr);
-  };
-  d.onRegistrationChange(showRegistration);
-  d.onChange(() => { followSketch(); showRegistration(); });
-  penSelect.addEventListener('change', showRegistration);
-  const cornerSel = document.createElement('select');
-  for (const c of CORNERS) {
-    const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = cornerName(c);
-    cornerSel.append(opt);
-  }
-  cornerSel.value = DEFAULT_CORNER;
-  cornerSel.title = 'The corner of the sheet the registration mark is drawn at; kept with the sketch.';
-  cornerSel.addEventListener('change', () => {
-    const corner = cornerSel.value;
-    if (!isCorner(corner)) return;
-    d.setRegistrationCorner(corner);
-    const name = hooks.currentName();
-    if (name) void saveStudioState(name, { registration: corner }).catch(showErr);
-  });
-  const drawRegBtn = button('Draw registration', async () => {
-    if (!dr().connected || dr().plotting) return;
-    try {
-      const pen = selectedPen();
-      if (!pen) throw new Error('draw registration: render the sketch first');
-      const p = d.registration;
-      if (!p) throw new Error('draw registration: render the sketch first — the mark goes at a corner of its sheet');
-      await dr().drawRegistration(p, pen, m.opts());
-      m.frameChanged();
-      showRegistration();
-    } catch (e) {
-      showErr(e);
-    }
-  });
-  drawRegBtn.title = 'Stand the tip where the sheet’s corner goes (or on a drawn mark), then press: the machine is here, at the corner. It draws the mark around the tip with the selected pen (a 25 mm circle, a cross, a tick toward +x), lifts, and returns over the point. Plot, Frame, Marks and Resume then run from it.';
-  const registrationBox = el('div', 'registration',
-    el('div', 'row', cornerSel, drawRegBtn),
-    regText,
-  );
 
   const connect = buildConnect(m);
   const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn);
   const manual = buildManualControls(m);
 
   // Plot only: a repair interval on the plan's timeline. Studio state, not
-  // the sketch's: it narrows what Plot, Frame and Marks run and what the
+  // the sketch's: it narrows what Plot and Frame run and what the
   // preview keeps in ink, and is recorded with the plot's progress.
+  const d = hooks.drawing;
   const repairText = hint('');
   const fmtMinutes = (min: number): string => (min >= 10 ? min.toFixed(1) : min.toFixed(2));
   const slider = dualRange({
@@ -1225,7 +1138,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (blobs.length) d.setRegion(blobs);
   };
   const repairLabel = el('label', undefined, 'Plot only');
-  repairLabel.title = 'Narrows what Plot, Frame and Marks run and what the preview keeps in ink. Studio state, not the sketch: exports still draw the whole selection.';
+  repairLabel.title = 'Narrows what Plot and Frame run and what the preview keeps in ink. Studio state, not the sketch: exports still draw the whole selection.';
   const repairBox = el('div', 'repair',
     el('div', 'row', repairLabel, slider.root),
     el('div', 'row', fromIn, el('span', 'repair-dash', 'to'), toIn, el('span', 'repair-dash', 'min')),
@@ -1269,7 +1182,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     transport,
     bar,
     progressText,
-    registrationBox,
     repairBox,
     savedBox,
     el('h4', 'band-title', 'Manual control'),
@@ -1278,8 +1190,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     hint('Copy debug info takes this page’s serial log, the machine, the board and the sketch — paste it into the chat. Profile and calibration live on the Machine page.'),
   );
   refreshPenSelect();
-  followSketch();
-  showRegistration();
 }
 
 // ---- export (runs in the render worker on the last rendered buffers) ----

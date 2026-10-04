@@ -16,27 +16,6 @@ import {
 import type { RenderClient } from './workerClient.js';
 import type { MachineProfile } from './store.js';
 
-/** A point on the sheet, paper mm. */
-export type PaperPoint = [number, number];
-
-/** A corner of the sheet: where the registration mark goes. The corner is
- * a place a hand can find with nothing on the paper yet, and the drawn
- * cross is then where the sheet's corner is put. */
-export type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-export const CORNERS: readonly Corner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-/** Top-right by default: the sheet's top-left is the paper origin, and a
- * mark there would need the head off the bed to draw its outer half. */
-export const DEFAULT_CORNER: Corner = 'top-right';
-export function isCorner(v: unknown): v is Corner { return typeof v === 'string' && (CORNERS as readonly string[]).includes(v); }
-/** The corner's point on a sheet, paper mm, rounded to 0.1 mm so a record
- * and the sketch compare exactly. */
-export function cornerPoint(corner: Corner, paper: { w: number; h: number }): PaperPoint {
-  const round = (v: number): number => Math.round(v * 10) / 10;
-  const x = corner.endsWith('right') ? paper.w : 0;
-  const y = corner.startsWith('bottom') ? paper.h : 0;
-  return [round(x), round(y)];
-}
-
 /** The execution settings a plot ran under — the part of "the same plot"
  * that geometry identity does not cover: profile timing, flattening
  * tolerance, and each pen's feed and settle. Compared as one string. */
@@ -69,23 +48,11 @@ export interface PlotRecord {
    * restores exactly the chains this record counts. */
   repair?: { minutes: [number, number] | null; region: RegionBlob[] | null };
   executed?: string | null;
-  /** The sketch's registration point when the plot ran: the frame a resume
-   * must stand in. Absent on records older than registration. */
-  registration?: PaperPoint | null;
   /** When the plot ran from a saved result: its id — resume loads those bytes. */
   resultId: string | null;
   /** Profile timing, tolerance and pen feed/settle the plot ran under. */
   execution: ExecutionSettings | null;
   ts: string;
-}
-
-/** The refusal of a resume whose record was registered at another point
- * than the sketch is now, or null when the frames agree. A record with no
- * registration ran from the paper origin and says nothing here. */
-export function registrationRefusal(recorded: PaperPoint | null | undefined, current: PaperPoint | null): string | null {
-  if (!recorded) return null;
-  if (current && current[0] === recorded[0] && current[1] === recorded[1]) return null;
-  return `resume: this plot was registered at (${recorded[0]}, ${recorded[1]}); choose the corner there, or start a new plot`;
 }
 
 /** One brush dab of a region repair, paper mm. */
@@ -193,20 +160,8 @@ export class Drawing {
    * is in when any of its ink lies under a blob. Combines with the
    * interval: both narrow. */
   region: RegionBlob[] | null = null;
-  /** The registration corner: the corner of the sheet that a pen tip is
-   * put on by hand, which every pass, pen and resume lines up on. Studio
-   * state on the sketch, like the repair — never source. Kept across
-   * re-renders; the host loads and saves it with the sketch's name. */
-  registrationCorner: Corner = DEFAULT_CORNER;
-  /** The registration point: the corner on the current plan's sheet, paper
-   * mm; null before a plan. */
-  get registration(): PaperPoint | null {
-    const paper = this.plan?.settings.paper;
-    return paper ? cornerPoint(this.registrationCorner, paper) : null;
-  }
   private flat = new Map<string, Promise<FlatChain[]>>();
   private listeners: (() => void)[] = [];
-  private registrationListeners: (() => void)[] = [];
   private repairListeners: (() => void)[] = [];
   private resolved: ResolvedDraw | null = null;
   /** The resolution in flight for the current plan, if any. */
@@ -332,35 +287,16 @@ export class Drawing {
     return idx ? chainsFingerprint(idx) : null;
   }
 
-  onRegistrationChange(fn: () => void): void {
-    this.registrationListeners.push(fn);
-  }
-
-  /** Choose the registration corner. One per sketch: a second choice
-   * replaces the first. */
-  setRegistrationCorner(corner: Corner): void {
-    this.registrationCorner = corner;
-    for (const fn of this.registrationListeners) fn();
-  }
-
   /** The parts of a plot record this drawing owns: the plan and range the
-   * plot is of, the repairs, the executed set, and the frame it ran in. */
-  recordFields(): Pick<PlotRecord, 'planHash' | 'selection' | 'repair' | 'executed' | 'registration'> {
+   * plot is of, the repairs and the executed set. */
+  recordFields(): Pick<PlotRecord, 'planHash' | 'selection' | 'repair' | 'executed'> {
     const sel = this.plotSelection;
     return {
       planHash: this.plan?.planHash ?? null,
       selection: sel ? { from: sel.fromChain, to: sel.toChain } : null,
       repair: { minutes: this.repair, region: this.region },
       executed: this.plotFingerprint(),
-      registration: this.registration ? [...this.registration] : null,
     };
-  }
-
-  /** A resume stands in the frame its record ran in: refused by name when
-   * the record was registered elsewhere than the sketch is now. */
-  checkRegistration(record: Pick<PlotRecord, 'registration'>): void {
-    const refusal = registrationRefusal(record.registration, this.registration);
-    if (refusal) throw new Error(refusal);
   }
 
   /** Whether any repair narrows the plot right now. */

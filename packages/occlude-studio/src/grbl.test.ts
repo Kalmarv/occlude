@@ -17,12 +17,6 @@ class FakeGrblPort {
   wco = [0, 0, 0];
   /** DrawCore Z quirk: G10 L20 ignores Z and G92 Z stores the value as the offset itself. */
   quirkyZ = false;
-  /** The same quirk in X and Y: G10 L20 ignored, G92 stores its numbers as the offset. */
-  quirkyXY = false;
-  /** A board that ignores every offset word in X and Y. */
-  deafXY = false;
-  /** Status reports that never carry WCO (GRBL sends it only now and then). */
-  sparseWco = false;
   /** Reply latency per line, so a plot takes real time and can be paused. */
   delayMs = 0;
   /** A flaky link: one command whose ok never comes (the move ran), one
@@ -60,7 +54,7 @@ class FakeGrblPort {
       if (this.swallowWrites) return new Promise<void>(() => {});
       const text = new TextDecoder().decode(chunk);
       for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
-      if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0${this.sparseWco ? '' : `|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}`}>\r\n`, true); return; }
+      if (text === '?') { if (this.mute) return; this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
       if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
       if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
       if (text === '\x18') {
@@ -81,7 +75,6 @@ class FakeGrblPort {
         if (cmd === this.errorOnce) { this.errorOnce = null; reply = 'error:9\r\n'; }
         if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
         if (cmd === '$$') reply = this.settingsReply;
-        if (cmd === '$#') reply = `[G54:${this.wco.map((v) => v.toFixed(3)).join(',')}]\r\n[G92:0.000,0.000,0.000]\r\nok\r\n`;
         this.reply(reply, false);
       }
     },
@@ -103,14 +96,13 @@ class FakeGrblPort {
     const rel = cmd.startsWith('$J=') || cmd.includes('G91');
     const axis = (name: string): number | undefined => { const m = cmd.match(new RegExp(`${name}(-?[\\d.]+)`)); return m ? Number(m[1]) : undefined; };
     const g10 = cmd.match(/^G10 L20 P1(.*)$/);
-    const xy = (i: number): boolean => i < 2;
-    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined && !(this.quirkyZ && i === 2) && !((this.quirkyXY || this.deafXY) && xy(i))) this.wco[i] = this.pos[i] - v; } return; }
+    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined && !(this.quirkyZ && i === 2)) this.wco[i] = this.pos[i] - v; } return; }
     const g92 = cmd.match(/^G92 (.*)$/);
     if (g92) {
       for (const [i, name] of ['X', 'Y', 'Z'].entries()) {
         const v = axis(name);
-        if (v === undefined || (this.deafXY && xy(i))) continue;
-        this.wco[i] = (this.quirkyZ && i === 2) || (this.quirkyXY && xy(i)) ? v : this.pos[i] - v;
+        if (v === undefined) continue;
+        this.wco[i] = this.quirkyZ && i === 2 ? v : this.pos[i] - v;
       }
       return;
     }
@@ -273,6 +265,16 @@ describe('GRBL driver', () => {
     expect(port.commands.slice(-4)).toEqual(['$1=254', 'G91 G0 Z0.050', 'G91 G0 Z-0.050', 'G90']); // released after the stop, with a move for the timer
     expect(states.at(-1)).toBe('stopped');
     expect(g.plotting).toBe(false);
+  });
+
+  it('clears any G92 offset an earlier session left, before the pen height is declared', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    const clear = port.commands.indexOf('G92.1');
+    expect(clear).toBeGreaterThan(-1);
+    expect(clear).toBeLessThan(port.commands.findIndex((c) => /^(G10 L20 P1 Z|G92 Z)/.test(c)));
   });
 
   it('declares the pen height on a board that stores the G92 Z value as the offset', async () => {
@@ -583,154 +585,3 @@ describe('the board\'s own idle delay', () => {
   });
 });
 
-describe('registration at a mark', () => {
-  /** Where each XY move of the last plot put the head, in machine
-   * coordinates: the work position sent plus the work offset in force. */
-  const physical = (port: FakeGrblPort): [number, number][] =>
-    after(port, 'G21 G90 G54').flatMap((c) => {
-      const m = c.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+)/);
-      return m ? [[Number(m[1]) + port.wco[0], Number(m[2]) + port.wco[1]] as [number, number]] : [];
-    });
-
-  it('declares the head at the point, draws the mark around it with the pen at its feed, and comes back over the point', async () => {
-    const port = new FakeGrblPort();
-    port.pos = [123, -456, 0]; // wherever the hand put the tip
-    const g = new Grbl();
-    g.settings = h1;
-    g.travelLiftMm = 0; // full lifts, to read the whole cycle
-    await g.connect(undefined, port as never);
-    await g.drawRegistration([50, 40], pen, opts);
-    // First the declaration: the tip IS paper (50, 40), in the negative-Y frame.
-    const declared = port.commands.indexOf('G10 L20 P1 X50.000 Y-40.000');
-    expect(declared).toBeGreaterThan(-1);
-    expect(g.registeredAt).toEqual([50, 40]);
-    const cmds = port.commands.slice(declared + 1);
-    expect(cmds.indexOf('G21 G90 G54')).toBeGreaterThan(-1);
-    // Four strokes: four landings at the pen's feed, a lift after each.
-    expect(cmds.filter((c) => c === 'G1 Z10.000 F3000')).toHaveLength(4);
-    expect(cmds.filter((c) => c === 'G0 Z0.000')).toHaveLength(5); // the raise before anything moves, then one per stroke
-    const downs = cmds.flatMap((c, i) => (c === 'G1 Z10.000 F3000' ? [i] : []));
-    const stroke = (k: number): string[] => cmds.slice(downs[k] + 2, cmds.indexOf('G0 Z0.000', downs[k])); // after the settle
-    // The circle: 25 mm across, centred on the point, closed, drawn at the pen's feed.
-    const circle = stroke(0);
-    expect(circle).toHaveLength(72);
-    for (const c of circle) {
-      const m = c.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+) F3000$/)!;
-      expect(Math.hypot(Number(m[1]) - 50, Number(m[2]) + 40)).toBeCloseTo(12.5, 2);
-    }
-    expect(circle.at(-1)).toBe('G1 X62.500 Y-40.000 F3000');
-    expect(cmds[downs[0] - 1]).toBe('G1 X62.500 Y-40.000 F12000');
-    // The cross, the same span through the centre; then the tick outward along +x.
-    expect(cmds[downs[1] - 1]).toBe('G1 X37.500 Y-40.000 F12000');
-    expect(stroke(1)).toEqual(['G1 X62.500 Y-40.000 F3000']);
-    expect(cmds[downs[2] - 1]).toBe('G1 X50.000 Y-27.500 F12000');
-    expect(stroke(2)).toEqual(['G1 X50.000 Y-52.500 F3000']);
-    expect(cmds[downs[3] - 1]).toBe('G1 X62.500 Y-40.000 F12000');
-    expect(stroke(3)).toEqual(['G1 X67.500 Y-40.000 F3000']);
-    // Then it lifts and returns over the point — no lock, no park: the
-    // hand can nudge the head and the mark be drawn again.
-    expect(cmds.at(-1)).toBe('G1 X50.000 Y-40.000 F12000');
-    expect(cmds.some((c) => c.startsWith('$1='))).toBe(false);
-    expect(g.bedPosition()).toEqual([50, 40]);
-    // Physically the mark is centred where the tip stood (the fake's pos is
-    // in the work frame; the offset the declaration set puts it in machine).
-    expect([port.pos[0] + port.wco[0], port.pos[1] + port.wco[1]]).toEqual([123, -456]);
-  });
-
-  it('declares the head at the point with G10 L20, in the frame the driver plots in', async () => {
-    for (const [settings, line] of [
-      [h1, 'G10 L20 P1 X50.000 Y-40.000'], // negative Y
-      [{ ...h1, yAxis: 'up' as const, bedH: 100 }, 'G10 L20 P1 X50.000 Y60.000'], // mirrored across the bed
-      [{ ...h1, yAxis: 'down' as const }, 'G10 L20 P1 X50.000 Y40.000'],
-    ] as const) {
-      const port = new FakeGrblPort();
-      port.pos = [123, -456, 0]; // wherever the hand left it: the controller's belief does not matter
-      const g = new Grbl();
-      g.settings = settings;
-      g.manualPen = pen;
-      await g.connect(undefined, port as never);
-      g.paperOffset = [7, 9];
-      await g.registerAt([50, 40]);
-      expect(port.commands).toContain(line);
-      expect(port.commands.some((c) => c.startsWith('G92 X'))).toBe(false); // honoured: no fallback
-      expect(g.paperOffset).toEqual([0, 0]);
-      expect(g.bedPosition()).toEqual([50, 40]);
-      expect(g.registeredAt).toEqual([50, 40]);
-    }
-  });
-
-  it('reads the offset back from $# when the status reports carry no WCO', async () => {
-    const port = new FakeGrblPort();
-    port.pos = [123, -456, 0];
-    port.sparseWco = true; // the report after G10 has no WCO: the old offset would refuse a registration that took
-    const g = new Grbl();
-    g.settings = h1;
-    await g.connect(undefined, port as never);
-    await g.registerAt([50, 40]);
-    expect(port.commands).toContain('G10 L20 P1 X50.000 Y-40.000');
-    expect(port.commands.some((c) => c.startsWith('G92'))).toBe(false); // honoured the first time
-    expect(g.registeredAt).toEqual([50, 40]);
-  });
-
-  it('hands a board with the DrawCore G92 quirk its offset in X and Y', async () => {
-    const port = new FakeGrblPort();
-    port.pos = [123, -456, 0];
-    port.quirkyXY = true;
-    const g = new Grbl();
-    g.settings = h1;
-    await g.connect(undefined, port as never);
-    await g.registerAt([50, 40]);
-    expect(port.commands).toContain('G92 X73.000 Y-416.000'); // machine less the point
-    expect(g.registeredAt).toEqual([50, 40]);
-    expect(port.pos[0] - port.wco[0]).toBe(50);
-    expect(port.pos[1] - port.wco[1]).toBe(-40);
-  });
-
-  it('a board that takes no offset is refused with what it reported, and no G92 is left behind', async () => {
-    const port = new FakeGrblPort();
-    port.pos = [123, -456, 0];
-    port.deafXY = true;
-    const g = new Grbl();
-    g.settings = h1;
-    await g.connect(undefined, port as never);
-    await expect(g.registerAt([50, 40])).rejects.toThrow(/wanted work X50\.000 Y-40\.000; the controller reported G10 L20 P1 X50\.000 Y-40\.000 → work X123\.000 Y-456\.000/);
-    expect(port.commands.at(-1)).toBe('G92.1');
-    expect(g.registeredAt).toBeNull();
-  });
-
-  it('a plot after registerAt is the plot after setOrigin, translated by the mark', async () => {
-    const strokes = plan([[0, false, [10, 10, 80, 10, 80, 60]], [0, true, [30, 45]]]);
-    const run = async (declare: (g: Grbl) => Promise<void>): Promise<[number, number][]> => {
-      const port = new FakeGrblPort();
-      port.pos = [200, -300, 0]; // the same place under the tip both times
-      const g = new Grbl();
-      g.settings = h1;
-      g.manualPen = pen;
-      await g.connect(undefined, port as never);
-      await declare(g);
-      await g.plot(strokes, [pen], opts, () => undefined);
-      return physical(port);
-    };
-    const origin = await run((g) => g.setOrigin());
-    const registered = await run((g) => g.registerAt([50, 40]));
-    expect(registered).toHaveLength(origin.length);
-    // Paper (50, 40) sits under the tip instead of paper (0, 0): every
-    // move lands 50 mm less along x and 40 mm less down the sheet (up, in
-    // the negative-Y frame).
-    registered.forEach(([x, y], i) => {
-      expect(x).toBeCloseTo(origin[i][0] - 50, 6);
-      expect(y).toBeCloseTo(origin[i][1] + 40, 6);
-    });
-  });
-
-  it('an origin replaces the registered frame', async () => {
-    const port = new FakeGrblPort();
-    const g = new Grbl();
-    g.settings = h1;
-    g.manualPen = pen;
-    await g.connect(undefined, port as never);
-    await g.registerAt([50, 40]);
-    await g.setOrigin();
-    expect(g.registeredAt).toBeNull();
-  });
-});

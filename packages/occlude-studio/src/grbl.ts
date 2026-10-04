@@ -21,8 +21,8 @@
  *  - `$J=` jogs (cancellable, no modal side effects) run only from Idle;
  *    `$H` homes (with `$HX`/`$HY` per axis when `[OPT:` lists `H`, which
  *    matters on a board with no Z switch); `G10 L20 P1 X0 Y0` sets the
- *    persistent work origin (and `G10 L20 P1 X<x> Y<y>` declares the head
- *    at a registration mark); `G92 Z` re-declares the pen height.
+ *    persistent work origin; `G92 Z` re-declares the pen height. The
+ *    driver never sets a G92 offset in X or Y, and clears one on connect.
  *  - opening or closing the port does not reset the board and does not
  *    stop motion: a stop is `!` then 0x18, never a disconnect.
  *
@@ -46,7 +46,6 @@
 import { type PenDef } from 'occlude';
 import { schedulePlan, type PlanEstimate, type PlanSchedule } from 'occlude/host';
 
-import { registrationMark } from './diagnostics.js';
 import { describeReadError, readLines } from './serialLines.js';
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';
 import type { MachineSettings } from './store.js';
@@ -182,9 +181,6 @@ export class Grbl {
   /** The hold → reset → resync in progress, so a resume waits for it. */
   private flush: Promise<void> | null = null;
   paperOffset: [number, number] = [0, 0];
-  /** The paper point the head was last registered at (`registerAt`), until
-   * an origin replaces the frame. */
-  registeredAt: [number, number] | null = null;
 
   private logLine(dir: '>' | '<', text: string): void {
     this.log.push(`${((Date.now() - this.t0) / 1000).toFixed(3)} ${dir} ${text}`);
@@ -227,6 +223,10 @@ export class Grbl {
     await this.readSettings().catch(() => undefined);
     await this.restoreIdleDelay();
     await this.status().catch(() => null);
+    // No G92 offset in X or Y survives from an earlier session: plots draw
+    // from the bed origin and the paper offset alone. The pen height is
+    // declared again below.
+    await this.send('G92.1').catch(() => undefined);
     // Start from a known pen: a soft reset drops the motors, the spring
     // lifts the pen to its rest, and the height is declared there. Whatever
     // the board was doing before the port opened, it is Idle now.
@@ -701,7 +701,6 @@ export class Grbl {
 
   setPaperOrigin(_o?: EbbOptions): [number, number] {
     this.paperOffset = this.wpos.map((v) => Math.round(v * 100) / 100) as [number, number];
-    this.registeredAt = null;
     if (this.plotting) this.pauseAdjusted = true;
     return this.paperOffset;
   }
@@ -722,109 +721,8 @@ export class Grbl {
     await this.send('G10 L20 P1 X0 Y0');
     this.wpos = [0, 0];
     this.paperOffset = [0, 0];
-    this.registeredAt = null;
     if (this.plotting) this.pauseAdjusted = true;
     await this.status().catch(() => null); // picks up the new offset
-  }
-
-  /** The work position as the controller holds it, read from its own
-   * offsets: `$#` (G54 plus G92) against the machine position. A status
-   * report alone can carry an old offset — GRBL sends `WCO` only in some
-   * reports — so without `$#` the reports are read until one carries
-   * `WCO`. The offset read is kept for every later status. */
-  private async workNow(): Promise<{ work: [number, number]; how: string } | null> {
-    const st = await this.status().catch(() => null);
-    if (!st) return null;
-    if (/WPos:/.test(st.raw)) return { work: [st.work[0], st.work[1]], how: 'WPos' };
-    const lines = await this.send('$#').catch(() => [] as string[]);
-    const offset = (name: string): number[] | null => {
-      const m = lines.map((l) => new RegExp(`^\\[${name}:(-?[\\d.]+),(-?[\\d.]+),(-?[\\d.]+)`).exec(l)).find(Boolean);
-      return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-    };
-    const g54 = offset('G54'), g92 = offset('G92');
-    if (g54) {
-      const wco = [0, 1, 2].map((i) => g54[i] + (g92?.[i] ?? 0)) as [number, number, number];
-      this.wco = wco;
-      return { work: [st.machine[0] - wco[0], st.machine[1] - wco[1]], how: `MPos ${this.fmt(st.machine[0])},${this.fmt(st.machine[1])} − G54 ${this.fmt(g54[0])},${this.fmt(g54[1])} − G92 ${this.fmt(g92?.[0] ?? 0)},${this.fmt(g92?.[1] ?? 0)}` };
-    }
-    for (let k = 0; k < 20; k++) {
-      const r = await this.status().catch(() => null);
-      if (r && /WCO:/.test(r.raw)) return { work: [r.work[0], r.work[1]], how: 'status with WCO' };
-      await sleep(100);
-    }
-    return { work: [st.work[0], st.work[1]], how: 'status, no fresh WCO' };
-  }
-
-  /** "The tip stands on the registration mark": the head is declared to be
-   * at the paper point `point`, whatever the controller believed. The work
-   * offset is set so that the point's coordinates in the controller's own
-   * frame (the mapping plots use: mirrored, negative Y) are where the head
-   * is, and the paper offset is folded in — from here the work frame IS the
-   * paper frame, persistent in the controller like Set origin. G10 L20
-   * first; G92 where the board ignores it; a board that honours neither is
-   * refused by name, read back from the status report. */
-  registerAt(point: readonly [number, number]): Promise<void> {
-    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the machine; pause first'));
-    return this.manual(async () => {
-      const [x, y] = this.toMachine(point);
-      const coords = `X${this.fmt(x)} Y${this.fmt(y)}`;
-      const seen: string[] = [];
-      const declared = async (line: string): Promise<boolean> => {
-        await this.send(line);
-        const w = await this.workNow();
-        seen.push(`${line} → ${w ? `work X${this.fmt(w.work[0])} Y${this.fmt(w.work[1])} (${w.how})` : 'no report'}`);
-        return !!w && Math.abs(w.work[0] - x) <= 0.01 && Math.abs(w.work[1] - y) <= 0.01;
-      };
-      // Standard GRBL first: the persistent work offset, then G92 ("the
-      // head is here"). The DrawCore stores the number given to G92 Z as
-      // the offset itself (serial log 2026-09-16); the last form hands it
-      // the offset in X and Y the same way, from the machine position.
-      const machine = (await this.status().catch(() => null))?.machine;
-      const forms = [`G10 L20 P1 ${coords}`, `G92 ${coords}`];
-      if (machine) forms.push(`G92 X${this.fmt(machine[0] - x)} Y${this.fmt(machine[1] - y)}`);
-      let ok = false;
-      for (const line of forms) if (!ok) ok = await declared(line);
-      if (!ok) {
-        // Leave no stray G92 offset behind a refusal.
-        await this.send('G92.1').catch(() => undefined);
-        throw new GrblError(`registration not honoured: wanted work ${coords}; the controller reported ${seen.join('; ')}`);
-      }
-      this.paperOffset = [0, 0];
-      this.wpos = [point[0], point[1]];
-      this.registeredAt = [point[0], point[1]];
-      if (this.plotting) this.pauseAdjusted = true;
-    });
-  }
-
-  /** "The tip stands at the registration point": declare the head there
-   * (`registerAt`), then draw the mark around it with this pen at its own
-   * feed — pen down only on the mark's strokes — lift, and come back over
-   * the point, so the mark can be judged against the sheet and the head
-   * nudged by hand and the mark drawn again. Not a plot: no record, no
-   * lock, no park. */
-  async drawRegistration(point: readonly [number, number], pen: PenDef, o: EbbOptions): Promise<void> {
-    await this.registerAt(point);
-    const { plan } = registrationMark(point, pen);
-    await this.manual(async () => {
-      const travelFeed = this.clampFeed(o.travelFeed || this.settings.travelFeed);
-      await this.send('G21 G90 G54');
-      await this.liftNow();
-      for (let i = 0; i < plan.length;) {
-        i += 2; // the pen index and the dot flag: one pen, no dots
-        const n = plan[i++];
-        const pts = plan.subarray(i, i + n * 2);
-        i += n * 2;
-        await this.send(this.travel([pts[0], pts[1]], travelFeed));
-        for (const l of this.penDownLines(pen)) await this.send(l);
-        this.penIsUp = false;
-        for (let k = 2; k < pts.length; k += 2) await this.send(this.g1([pts[k], pts[k + 1]], pen.feed ?? 1000));
-        for (const l of this.penUpLines(pen)) await this.send(l);
-        this.penIsUp = true;
-      }
-      await this.send(this.travel([point[0], point[1]], travelFeed));
-      await this.waitIdle();
-      this.wpos = [point[0], point[1]];
-    });
   }
 
   /** Run the homing cycle and make the switch corner the bed origin. With

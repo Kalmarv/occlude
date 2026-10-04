@@ -168,7 +168,7 @@ Three tools in the Plot panel narrow what the *machine* plots without changing t
 
 The readout while plotting is `<state> · <pen> · <eta> min left · <drawn> / <total> mm · re-ink in <N> mm`. A pen with a re-ink budget parks at the bed origin mid-plan and waits, which is where you pump, refill or reseat it; Device notes has the procedure.
 
-For a pen change, register the pens on one mark. The Registration section of the plotting reference has the flow.
+For a pen change, do not move the origin. Plot with one pen, change the pen, then plot the next pen from the same origin.
 
 ## Calibration
 
