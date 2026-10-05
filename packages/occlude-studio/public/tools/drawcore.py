@@ -10,6 +10,9 @@ with everything logged, to find out why the USB link drops mid-plot.
   uv run drawcore.py plot sketch.gcode            # a real plot (studio: "Save G-code as sent")
   uv run drawcore.py plot sketch.gcode --check    # same lines, GRBL check mode: no motor moves
   uv run drawcore.py plot sketch.gcode --slow-z 3000   # pen lifts as G1 at 3000 mm/min, not G0
+  uv run drawcore.py plot sketch.gcode --max-feed 4000 # every feed capped at 4000 mm/min
+  uv run drawcore.py plot sketch.gcode --accel 500     # board accelerations at 500 mm/s² for this run, then put back
+  uv run drawcore.py plot sketch.gcode --no-lock       # motors on the board's own idle delay (no $1=255)
   uv run drawcore.py soak --pattern z             # pen lifts only, in place
   uv run drawcore.py soak --pattern xy            # small moves only, pen up
   uv run drawcore.py soak --pattern idle          # link traffic only, nothing moves
@@ -289,7 +292,7 @@ def identify(board: Board, log: Log) -> dict:
     st = board.status()
     log.say(f'status:    {st or "NO ANSWER"}')
     idle = next((int(float(s.split('=')[1])) for s in settings if s.startswith('$1=')), 25)
-    return {'idle_delay': idle, 'offsets': off, 'status': st}
+    return {'idle_delay': idle, 'offsets': off, 'status': st, 'settings': settings}
 
 
 # ---- a stall --------------------------------------------------------------------------------------
@@ -430,6 +433,31 @@ def ensure_pen_frame(board: Board, log: Log, up: float) -> None:
     log.say('pen:       WARNING — the board did not take a pen-height declaration; heights may be off')
 
 
+ACCEL_KEYS = ('$120', '$121', '$122')
+
+
+def set_accel(board: Board, log: Log, settings: list[str], accel: float | None) -> dict[str, str]:
+    """Lower the board's accelerations for this run; return the originals to put back."""
+    if not accel:
+        return {}
+    own = {s.split('=')[0]: s.split('=')[1] for s in settings if s.split('=')[0] in ACCEL_KEYS}
+    for key in ACCEL_KEYS:
+        board.send(f'{key}={accel:.3f}')
+    log.say(f'accel:     {", ".join(f"{k} {v}" for k, v in own.items())} → {accel:.0f} for this run')
+    return own
+
+
+def put_accel_back(board: Board, log: Log, own: dict[str, str]) -> None:
+    for key, value in own.items():
+        try:
+            board.send(f'{key}={value}', 3)
+        except Exception as e:
+            log.say(f'WARNING: could not put {key} back to {value} ({e}); send "{key}={value}" yourself')
+            return
+    if own:
+        log.say('accel:     put back')
+
+
 def cmd_info(args, log: Log, kern: KernelUsbLog) -> int:
     board = connect(args, log)
     identify(board, log)
@@ -460,13 +488,21 @@ def cmd_plot(args, log: Log, kern: KernelUsbLog) -> int:
         lines = [l for l in lines if not l.startswith('$')]
     if args.slow_z:
         lines = [re.sub(r'^G0 Z' + NUM + '$', lambda m: f'G1 Z{m.group(1)} F{args.slow_z:.0f}', l) for l in lines]
+    if args.max_feed:
+        cap = args.max_feed
+        lines = [re.sub(r'\bF' + NUM, lambda m: f'F{min(float(m.group(1)), cap):.0f}', l) for l in lines]
+    if not args.lock:
+        lines = [l for l in lines if not l.startswith('$1=')]
     lines = lines * max(1, args.repeat)
     board = connect(args, log)
     ident = identify(board, log)
     log.say(f'file:      {args.file} · {len(lines)} lines'
-            + (' · CHECK MODE (no motion)' if args.check else '') + (f' · pen lifts G1 F{args.slow_z:.0f}' if args.slow_z else ''))
+            + (' · CHECK MODE (no motion)' if args.check else '') + (f' · pen lifts G1 F{args.slow_z:.0f}' if args.slow_z else '')
+            + (f' · feeds capped at {args.max_feed:.0f}' if args.max_feed else '') + (f' · accel {args.accel:.0f}' if args.accel else '')
+            + ('' if args.lock else ' · no motor lock'))
     if not args.check:
         ensure_pen_frame(board, log, args.pen_up)
+    own_accel = set_accel(board, log, ident['settings'], None if args.check else args.accel)
     log.say('starting in 5 s (Ctrl-C to abort)…')
     time.sleep(5)
     run = Run(args, log, kern)
@@ -476,19 +512,27 @@ def cmd_plot(args, log: Log, kern: KernelUsbLog) -> int:
         board = run.stream(board, lines, len(lines))
         if args.check:
             board.send('$C')
+        put_accel_back(board, log, own_accel)
         print(run.summary(board))
         board.close()
         return 0
     except KeyboardInterrupt:
         print('\nstopping…')
+        put_accel_back(board, log, own_accel)
         restore_and_close(board, log, ident['idle_delay'], args.pen_up, '')
         print(run.summary(board, failed=True))
         return 130
     except Refused as e:
         log.say(f'the board refused a line: {e}')
+        put_accel_back(board, log, own_accel)
         restore_and_close(board, log, ident['idle_delay'], args.pen_up, '')
         print(run.summary(board, failed=True))
         return 3
+    except SystemExit:
+        if own_accel:
+            log.say('WARNING: the run ended on a dead link; the accelerations are still lowered. After reconnecting, send: '
+                    + ' '.join(f'{k}={v}' for k, v in own_accel.items()))
+        raise
 
 
 def soak_lines(args, start: tuple[float, float, float], rng: random.Random):
@@ -579,6 +623,9 @@ def main() -> int:
     p.add_argument('--check', action='store_true', help='GRBL check mode: every line parsed and acknowledged, no motion')
     p.add_argument('--slow-z', type=float, help='send pen lifts (G0 Z…) as G1 Z… at this feed, mm/min')
     p.add_argument('--repeat', type=int, default=1)
+    p.add_argument('--max-feed', type=float, help='cap every F word at this feed, mm/min')
+    p.add_argument('--accel', type=float, help='set $120/$121/$122 to this (mm/s²) for the run; the board\'s own values are put back')
+    p.add_argument('--no-lock', dest='lock', action='store_false', help='drop the $1= lines: motors on the board\'s own idle delay')
     p.add_argument('--pen-up', type=float, default=0.5, help='work Z of pen-up, if the script must declare it (default 0.5)')
     s = sub.add_parser('soak', help='a synthetic pattern until a stall or the time is up')
     s.add_argument('--pattern', choices=['loops', 'xy', 'z', 'idle'], default='loops')
@@ -591,6 +638,7 @@ def main() -> int:
     s.add_argument('--travel', type=float, default=8000)
     s.add_argument('--pen-feed', type=float, default=5000)
     s.add_argument('--no-lock', dest='lock', action='store_false', help='leave the motors on the board\'s own idle delay')
+    s.add_argument('--accel', type=float, help='set $120/$121/$122 to this (mm/s²) for the run; the board\'s own values are put back')
     s.add_argument('--seed', type=int, default=1)
     args = ap.parse_args()
 
@@ -601,6 +649,10 @@ def main() -> int:
             + (f' · kernel USB log {kern.path}' if kern.active else ''))
     try:
         return {'info': cmd_info, 'plot': cmd_plot, 'soak': cmd_soak}[args.cmd](args, log, kern)
+    except Stall as e:
+        log.say(f'the board did not answer "{e}" while setting up (nothing was plotted). '
+                'Replug the USB cable or power-cycle the plotter, then run again.')
+        return 1
     finally:
         kern.stop()
 
