@@ -1,8 +1,16 @@
-# occlude
+<p align="center">
+  <img src="packages/occlude-studio/public/favicon.svg" width="72" alt="">
+</p>
 
-A creative coding library and browser studio for pen plotters. Build drawings from shapes, noise fields, images and editable geometry; turn them into ink with textures, contour fills and line modifiers. Preview at pen width, compare plot times, export, or send the same drawing to an EBB/iDraw plotter.
+<h1 align="center">occlude</h1>
 
-TypeScript is the sketchbook. A Rust/WASM engine handles visibility, native contour filling and the shared drawing plan.
+<p align="center">Creative coding for pen plotters, where a shape can hide what is beneath it.</p>
+
+<p align="center">
+  <img src="docs/readme/plot-figure.jpg" width="620" alt="A pen plot of two twisting, ribbed forms in brown ink on white paper">
+</p>
+
+occlude is a TypeScript library and a browser studio for drawing with a pen plotter. You write a sketch; a Rust engine compiled to WebAssembly works out exactly which strokes stay visible where shapes overlap, plans the pen's route, and drives the machine. The preview is drawn at nib width, so what you see is what the plotter draws.
 
 ```ts
 import { sketch, circle, line, fill, mm } from 'occlude';
@@ -15,115 +23,68 @@ export default sketch({ aspect: 'square', margin: 8, seed: 42 }, (t) => [
 ]);
 ```
 
-The discs hide the earlier lines; their contours follow the exposed boundaries. Ordinary coordinates are percentages of the drawable's shorter side. Use `mm()` for physical lengths such as fill spacing.
+The discs hide the lines drawn before them, and each contour fill follows the part of its disc that is still exposed. Coordinates are percentages of the drawable's shorter side; `mm()` is for physical lengths such as fill spacing. The same sketch and seed always give the same ink.
 
-[Start drawing](docs/getting-started.md) · [Creative workshop](docs/workshop-01-marks.md) · [Gallery](docs/gallery.md) · [Studio guide](docs/studio.md)
+## What's in it
 
-## What you can make
+- **Exact occlusion.** A filled shape, or one marked `opaque: true`, hides the ink beneath it; `mask(shape)` hides without drawing. Visibility is solved on lines, arcs and cubics, not on a pixel mask.
+- **Fills.** Hatch, crosshatch, stipple, solid rulings, contour fills built from a Voronoi distance field, and fills you write yourself.
+- **Geometry you can hold.** Points, edges and faces with named columns: scatter and settle points, cut Voronoi cells and tilings, thicken paths, grow structures with rewrite rules and forces, and trace fields with isolines and streamlines.
+- **3D line art.** `occlude/3d` builds meshes from primitives, OBJ files, sweeps and displacement; `view` projects them through a camera with exact hidden-line removal, silhouettes, creases and surface hatching.
+- **Images and type.** Sample a photo's tone, direction or colour to place your own marks, import SVG, and set text in bundled single-line Hershey and Relief fonts.
+- **Line character.** Smooth, roughen and deform geometry before visibility; dash, decimate and wobble the ink after it. A stroke shader runs along every stroke of the plan.
 
-- **Layered line drawings.** Filled shapes and `opaque: true` hide earlier ink. `mask(shape)` hides without drawing; clips constrain groups. Visibility uses line, arc and cubic intersections rather than a pixel mask. Currently, assigning a fill also makes a shape opaque.
-- **Texture and solid ink.** Hatch, crosshatch, stipple, solid rulings, native contour fills and custom JavaScript patterns. Give outlines and fills different pens, or disable the outline with `stroke: false`.
-- **Contour landscapes and grown structures.** Turn noise into isolines, trace fields with streamlines, scatter and settle points, build Voronoi cells, or extract faces from a network. Materials carry editable points, edges and attributes. Combine them with `append`, sample their boundaries, and use `thicken` to give paths width. Draw the result explicitly with `strokes` or `polygon`.
-- **Shapes as distance fields.** A disc, a box and a capsule as functions you can union, intersect, subtract and blend. A fillet where two shapes meet, or a shape halfway between two others, because a field is a number you can average. Contour any of it at zero and it is ordinary geometry again.
-- **Rewrite rules.** A pattern and a replacement, applied to every match at once. Split the edges that have room, extrude from the tips, or swap every edge for a motif. The same rule runs on a flat material and on a mesh.
-- **Line character.** Smooth, roughen and deform geometry before visibility; dash, decimate and wobble the resulting ink afterward. Fields let the effect vary across the page. A stroke shader goes further: one program runs along every stroke in the plan, at arc length, and decides what the pen does there — another pass, a different pen, a dash, or no ink at all.
-- **Image-driven marks.** Sample images for density, direction or colour, and use those values to place your own geometry. Import SVG as geometry for further composition.
-- **A practical plotting workflow.** Live previews, editable pen libraries, per-pen exports, animated simulation, plot ETA and direct Web Serial plotting. Pen width informs tiny-mark cleanup. Routing and optional bridges reduce travel; export, simulation and the driver share one time estimator.
+<p align="center">
+  <img src="docs/readme/plot-nyx.jpg" width="420" alt="A stippled portrait of a black cat, plotted in black ink on a small canvas">
+</p>
 
-With a given build, the same sketch and seed produce the same ink. Physical results also depend on the pen, paper and machine.
+## The studio
 
-## Run the studio
+<p align="center">
+  <img src="docs/readme/studio.png" width="820" alt="The occlude studio: a 3D globe sketch in the editor beside its live preview">
+</p>
 
-Prerequisites: Node.js, pnpm, stable Rust and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
+A code editor beside a live preview. Sketches, pens, papers and machine profiles are kept in a library on the studio server, with forks and seeded snapshots.
+
+<p align="center">
+  <img src="docs/readme/plot.png" width="820" alt="The Plot panel simulating a three-pen plot of a grid of cubes, 2:54 into an 8:25 estimate">
+</p>
+
+The Plot panel simulates the plot against its time estimate, then drives the machine over Web Serial (Chrome or Edge): EBB boards such as the AxiDraw and iDraw, and GRBL controllers such as the iDraw H. The Export panel writes SVG and PNG of the drawing, and G-code per pen.
+
+## Run it
+
+You need Node 24, pnpm 10, Rust through rustup (`rust-toolchain.toml` pins the version) and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
 
 ```sh
 git clone https://github.com/Kalmarv/occlude.git
 cd occlude
-pnpm run build:wasm    # create the local WASM package before installing
+pnpm run build:wasm    # build the engine before installing
 pnpm install
-pnpm --filter occlude-studio dev
+pnpm --filter occlude-studio dev    # http://localhost:5173
 ```
 
-Open **http://localhost:5173**. Write a sketch in the editor; the preview updates as you work. Ctrl+S saves to the server-side sketch library. The Docs tab includes live, editable examples, and the Plot panel connects to an EBB-family machine in a browser supporting Web Serial.
+`pnpm build` then `pnpm --filter occlude-studio serve` runs the production studio on port 4173, with the docs site at `/docs`. `pnpm docker:build && pnpm docker:up` does the same from the pinned toolchain, and fails the build if any check fails.
 
-For a production build:
+Without a browser (sketch paths are relative to `packages/occlude`, or absolute):
 
 ```sh
-pnpm build
-pnpm --filter occlude-studio serve   # http://localhost:4173
+pnpm --filter occlude render sketch.ts --seed 7 --paper A4 --out out.png   # PNG and SVG
+pnpm --filter occlude plotstats sketch.ts --seed 7    # ink length, travel, plot time
+pnpm --filter occlude freeze sketch.ts --seed 7       # render in node, hand the studio a plottable result
 ```
 
-The production server serves the current `dist` files, so rebuilding the frontend does not require a server restart.
+## Docs
 
-### Reference build (Docker)
+- [Reference](docs/reference): one entry for each word, with its signature, a paragraph and a live example.
+- [Examples](docs/examples): one page for each drawing, with the whole sketch.
+- [Architecture](docs/architecture.md), [device notes](docs/device-notes.md) and [working notes](docs/notes.md), for working on occlude itself.
 
-The pinned toolchain lives in `rust-toolchain.toml`, `.node-version` and the root `package.json` (`packageManager`); the Dockerfile builds the wasm from source, installs from the lockfile, runs every gate in `pnpm check` and serves the result. It is the CI.
+`pnpm check` is the full gate: Rust and TypeScript tests, typechecks, every live docs example rendered and compared against its saved ink, the production build, the bundled WebAssembly matching the engine's build byte for byte, and two smoke tests.
 
-```sh
-pnpm docker:build    # docker compose build — fails if any gate or smoke test fails
-pnpm docker:up       # studio on http://localhost:4173, libraries bind-mounted from this checkout
-```
-
-`pnpm check` is the same gate list natively; `pnpm smoke` runs just the two smoke tests. See [architecture](docs/architecture.md#build-and-verification) for the gate map and how to update the pins.
-
-### Learn by making
-
-| Explore | Documentation |
-|---|---|
-| Your first sketch, units and seeded variation | [Getting started](docs/getting-started.md) |
-| Shapes, groups, transforms, masks and clips | [Shapes & layout](docs/shapes.md) |
-| Patterns, contour variations and custom fills | [Fills](docs/fills.md) |
-| Noise, isolines, sampling and flow | [Fields & variation](docs/fields.md) |
-| Geometry, attributes, networks and growth | [Materials](docs/materials.md) |
-| Image sampling and SVG geometry | [Images & imports](docs/images.md) |
-| Pens, exports, simulation and the machine | [Plotting & saving](docs/plotting.md) |
-| A sequence of creative exercises | [Workshop: start with marks](docs/workshop-01-marks.md) |
-
-### Headless rendering and measurements
-
-Run these commands from this checkout; sketch paths are relative to the `packages/occlude` package directory, or can be absolute.
-
-```sh
-pnpm --filter occlude render /path/to/sketch.ts --seed 7 --paper A4 --out out.png
-pnpm --filter occlude plotstats /path/to/sketch.ts --seed 7
-```
-
-`plotstats` reports runs, ink length, pen-up travel and estimated plot time. For a 12 × 12 inch sheet, use `--paper 304.8x304.8`.
-
-## Inside the engine
-
-The sketch records shapes and modifiers. Rendering resolves units into paper space and lowers geometry to lines, arcs and cubics. Input geometry uses a 0.005 mm grid; intersection results are not snapped.
-
-The Rust prepare pass applies pre-stage modifiers and resolves visibility information for surviving fill jobs. JavaScript patterns generate between passes; native contour geometry is generated in Rust from the visible-area Boolean result. The finish pass clips and judges ink, then applies finishing modifiers.
-
-Native contours use a point/segment Voronoi diagram to construct distance levels and vector cleanup marks. Curve conversion has a bounded approximation budget; this is not a claim of exact cubic offsetting. The original visibility kernel remains available for validation. Existing JavaScript fills retain their generation path.
-
-Planning preserves explicit contour runs, merges ordinary fragments, orders chains and applies permitted bridges. Preview, SVG, G-code, simulation and plotting consume the shared plan. SVG retains available curves; machine output approximates them with moves. Native builds can parallelise clipping with Rayon; browser WASM is single-threaded and rendering runs in a worker.
-
-| Location | Responsibility |
-|---|---|
-| `packages/occlude` | TypeScript sketch API, materials, fields, units, imports, fill resolution and WASM bridge |
-| `crates/occlude-core` | Rust/WASM visibility, native fills, modifiers, planning and exports |
-| `packages/occlude-studio` | Editor, render worker, live docs, sketch and pen libraries, simulation and device driver |
-| `docs` | Topic documentation, live examples, workshop and engineering notes |
-
-See [Architecture](docs/architecture.md) and [Device notes](docs/device-notes.md) for more detail.
-
-## Development
-
-```sh
-pnpm check                         # complete repository verification
-pnpm -r test                       # library and Studio tests
-pnpm --filter occlude qa            # property-based and adversarial geometry checks
-pnpm --filter occlude docs:check    # render the live documentation examples
-DOCS_PAGE=fills pnpm --filter occlude docs:check
-pnpm --filter occlude docs:hashes -- --check
-pnpm --filter occlude store-sweep   # compile stored Studio sketches
-cargo bench -p occlude-core --bench geometry
-cargo run --release -p occlude-core --example profile5000
-```
-
-`pnpm check` runs Rust and TypeScript tests, library and Studio typechecks, live docs rendering, the docs ink oracle, production builds and a bundled-WASM hash check. Rebuild WASM after Rust changes with `pnpm run build:wasm`. Golden ink changes should be deliberate and reviewed.
+<p align="center">
+  <img src="docs/readme/plot-black.jpg" width="560" alt="A multi-pen plot in white, pink and blue on black paper: rippling contour bands, a wireframe solid, rings and labelled fill swatches">
+</p>
 
 ## Credits & prior art
 
@@ -136,7 +97,7 @@ facts, and papers — never code**:
 | [saxi](https://github.com/alexrudd2/saxi) | EBB `LM` rate math conventions (steps·2³¹/25kHz, ΔR derivation) verified against its source; formulas are EBB protocol facts. No code. | AGPL-3.0 |
 | [EBB / EggBot](https://github.com/evil-mad/EggBot) (Evil Mad Scientist, Brian Schmalz) | The EBB command set our Web Serial driver speaks, via its protocol documentation. No code. | GPL-3.0 |
 | [Marlin](https://github.com/MarlinFirmware/Marlin) & [Klipper](https://github.com/Klipper3d/klipper) | Motion-planning concepts: junction deviation, minimum cruise ratio, look-ahead structure. Ideas only. | GPL-3.0 |
-| Deussen, Spicker et al., *Weighted Linde-Buzo-Gray Stippling* (SIGGRAPH Asia 2017); [reference impl](https://github.com/MarcSpicker/LindeBuzoGrayStippling) | `scatter(...).settle(n)` implements the paper's algorithm from the paper. No code from the LGPL reference. | paper / LGPL-3.0 |
+| Deussen, Spicker et al., *Weighted Linde-Buzo-Gray Stippling* (SIGGRAPH Asia 2017); [reference impl](https://github.com/MarcSpicker/LindeBuzoGrayStippling) | `t.settle(t.scatter(...))` implements the paper's algorithm from the paper. No code from the LGPL reference. | paper / LGPL-3.0 |
 | [Stanford Bunny](http://graphics.stanford.edu/data/3Dscanrep/) (Turk & Levoy, SIGGRAPH 1994) | The range-scan mesh as a test fixture for the OBJ import (`test/fixtures/stanford-bunny.obj`, the MeshLab OBJ from [common-3d-test-models](https://github.com/alecjacobson/common-3d-test-models)). Data only. | Stanford Computer Graphics Laboratory; free with acknowledgement |
 | Dr. A. V. Hershey (U. S. National Bureau of Standards), packed for Usenet by James Hurt (Cognition, Inc.); [hershey-fonts](https://github.com/kamalmostafa/hershey-fonts) | The five bundled `.jhf` faces in `occlude/fonts` (roman simplex/duplex/triplex, script simplex, gothic english), verbatim data with the distribution notice kept beside them (`src/fonts/HERSHEY-NOTICE.txt`). Data only; no line of the GPL Inkscape Hershey Text extension. | public domain, with the distribution's two acknowledgements |
 | [Relief SingleLine](https://github.com/isdat-type/Relief-SingleLine) (isdaT, François Chastanet and students) | The `relief` face in `occlude/fonts`: `ReliefSingleLineSVG-Regular.svg` verbatim, licence beside it (`src/fonts/RELIEF-LICENSE.txt`). Reserved Font Name "Relief SingleLine". Data only. | OFL-1.1 |
