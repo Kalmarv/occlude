@@ -1,11 +1,11 @@
 # Device notes
 
-What the studio needs from a machine, how the driver moves it, and how the calibration cards produce a profile. Dated observations, probe transcripts and superseded register names stay in the [iDraw log](#/idraw-log); read that when something misbehaves, not while setting up. The practical plotting workflow is on the Plotting & saving page.
+What the studio needs from a machine, how the driver moves it, and how the calibration cards produce a profile. Dated observations, probe transcripts and superseded register names stay in the [iDraw log](idraw-integration.md); read that when something misbehaves, not while setting up. The plotting words a sketch uses are in [Reference: Plotting](reference/plotting.mdx).
 
 ## Machines
 
 - EBB family (AxiDraw, UUNA TEK iDraw and other EiBotBoard clones): the studio's driver. Web Serial (Chrome or Edge, over HTTPS or localhost), 9600 baud, `\r` line ends, the board's own `OK` and `!` replies as pacing, never a fixed delay.
-- G-code machines: export only (`exportGcode`, the Export panel); no live driver.
+- GRBL 1.1 (the iDraw H's DrawCore board and other G-code controllers): the studio's second driver, also over Web Serial, chosen by the profile's `driver: 'gcode'`. It shares the plot and manual-control surface with the EBB driver; the protocol facts it relies on are at the top of `packages/occlude-studio/src/grbl.ts`. Save G-code as sent (Plot panel) writes the exact lines it would stream, for another sender. Any other G-code machine takes the export (`exportGcode`, the Export panel).
 
 ## What a profile holds
 

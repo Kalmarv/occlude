@@ -71,9 +71,6 @@ importers:
       '@awesome.me/webawesome':
         specifier: 3.12.0
         version: 3.12.0(@floating-ui/utils@0.2.12)(@types/react@19.2.18)
-      marked:
-        specifier: ^14.1.0
-        version: 14.1.4
       monaco-editor:
         specifier: ^0.52.0
         version: 0.52.2
@@ -3846,11 +3843,6 @@ packages:
 
   marked@11.2.0:
     resolution: {integrity: sha512-HR0m3bvu0jAPYiIvLUUQtdg1g6D247//lvcekpHO1WMvbwDlwSkZAX9Lw4F4YHE1T0HaaNve0tuAWuV1UJ6vtw==}
-    engines: {node: '>= 18'}
-    hasBin: true
-
-  marked@14.1.4:
-    resolution: {integrity: sha512-vkVZ8ONmUdPnjCKc5uTRvmkRbx4EAi2OkTOXmfTDhZz3OFqMNBM1oTTWwTr4HY4uAEojhzPf+Fy8F1DWa3Sndg==}
     engines: {node: '>= 18'}
     hasBin: true
 
@@ -9172,8 +9164,6 @@ snapshots:
   markdown-table@3.0.4: {}
 
   marked@11.2.0: {}
-
-  marked@14.1.4: {}
 
   marked@16.4.2: {}
 

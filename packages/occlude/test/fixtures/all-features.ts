@@ -18,10 +18,10 @@
  * exercises `t.draw`.
  *
  * Deliberately NOT here, with the reason:
- *   - `svg('church.svg')` — a 2.5 MB import; docs/images.md covers imports
- *     live, and a fixture should not carry that cost.
+ *   - `svg('church.svg')` — a 2.5 MB import; docs/reference/images.mdx covers
+ *     imports live, and a fixture should not carry that cost.
  *   - `synth` / `probeExpression` — an exploration tool that *writes*
- *     sketches; docs/getting-started.md exercises it.
+ *     sketches; docs/reference/synth.mdx exercises it.
  *   - `exportGcode` / `planGcode` / `exportPng` — encoders that need a
  *     machine profile; the test pins the plan bytes and the SVG, which is
  *     what those encoders slice.

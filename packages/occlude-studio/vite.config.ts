@@ -67,7 +67,6 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         three: resolve(__dirname, 'three.html'),
-        docs: resolve(__dirname, 'docs.html'),
         assets: resolve(__dirname, 'assets.html'),
         fills: resolve(__dirname, 'fills.html'),
         sketches: resolve(__dirname, 'sketches.html'),

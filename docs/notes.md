@@ -1,8 +1,8 @@
 # Working notes
 
 What is measured, what is still open, and what was deliberately parked.
-Everything that is *built* is documented on the topic pages and in
-[Architecture](#/architecture); **the code is the truth for anything that
+Everything that is *built* is documented in the reference and in
+[Architecture](architecture.md); **the code is the truth for anything that
 shipped.** This page holds the rest: the direction, the specs that were ruled
 but not built, the refusals worth not re-litigating, and the numbers worth not
 re-measuring.
@@ -113,9 +113,9 @@ the design avoided raw degrees in favour of naming a direction.
 optimization half shipped (see the Auto numbers below); the fillet half did
 not, and there are zero `fillet` hits in the source.
 
-**Gallery batch two.** `docs/gallery.md` exists and carries the first batch of
-credited, licence-checked classics. A second batch was scoped and never
-started. The rails for it stand: no new API in a gallery session, no engine
+**Gallery batch two.** `docs/gallery.md` carried the first batch of credited,
+licence-checked classics until it went with the topic pages (git history
+keeps it). A second batch was scoped and never started. The rails for it stand: no new API in a gallery session, no engine
 changes, no edits to existing entries; anything a piece needs and cannot get
 is *reported* as a candidate, never added on the spot.
 
@@ -264,7 +264,7 @@ candidate set containing every edge that could win yields the identical answer.
 expands rings until the nearest unvisited cell is farther than the best
 distance found. The differential harness against a snapshot of the old
 implementation compared every field of every result over **19 708 comparisons
-with 0 mismatches** — this is the proof [Architecture](#/architecture) cites
+with 0 mismatches** — this is the proof [Architecture](architecture.md) cites
 for order-independence.
 
 | workload (35 k edges) | before | after |
@@ -542,7 +542,7 @@ this box is shared.
 
 ## Progressive rendering: what is left
 
-Stage replacement is built (see [Architecture](#/architecture)). Deliberately
+Stage replacement is built (see [Architecture](architecture.md)). Deliberately
 not implemented, and not prerequisites for anything:
 
 - An **author checkpoint** before the sketch returns a view — the only way to
@@ -573,7 +573,7 @@ from an obsolete request must not repaint the current editor.
 
 A few facts worth not losing now that their source notes are gone. "The nib is
 the only tolerance" and the 0.005 mm snap grid were first written in the
-earliest planning notes and are now in [Architecture](#/architecture). The
+earliest planning notes and are now in [Architecture](architecture.md). The
 sub-step timing bug recorded in the same notes is fixed, in
 `packages/occlude-studio/src/ebb.ts`. The sketch-library restores across three
 history rewrites are `git bundle` files kept outside this repository, with the

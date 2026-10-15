@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@awesome.me/webawesome": "3.12.0",
-    "marked": "^14.1.0",
     "monaco-editor": "^0.52.0",
     "occlude": "workspace:*",
     "occlude-core": "link:../../crates/occlude-core/pkg",

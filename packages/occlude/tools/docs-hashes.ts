@@ -74,10 +74,9 @@ const found = affected && !mapping ? findMap(commit, tree, harnessId) : null;
 // that is running now.
 const working = affected || mapping ? workingChanges() : { changes: [], symlinks: [] };
 const changes = withoutScriptEdits(working.changes).filter((c) => !harness.has(c.path));
-const livePages = DOC_PAGES.filter((p) => p.live);
 // A map describes HEAD, so it is recorded only from a tree that is HEAD
 // wherever ink can come from.
-const dirty = inkDirty(changes, livePages);
+const dirty = inkDirty(changes, DOC_PAGES);
 if (affected && !found) console.log(`no coverage map for ${commit.slice(0, 7)} (ink tree ${tree}, harness ${harnessId}): full check${dirty.length ? '' : ', building the map'}`);
 if ((mapping || (affected && !found)) && dirty.length) console.log(`no map recorded: the tree differs from ${commit.slice(0, 7)} at ${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ', …' : ''}`);
 const recorder = (mapping || (affected && !found)) && !dirty.length ? await CoverageRecorder.start() : null;
@@ -96,7 +95,7 @@ await initOcclude(readFileSync(wasmPath));
 
 const readme = readFileSync(fileURLToPath(new URL('../../../README.md', import.meta.url)), 'utf8');
 const fences: { src: string; paper: ReturnType<typeof parseLiveMeta>; page: string; key: string }[] = [];
-for (const page of DOC_PAGES.filter((p) => p.live && (!only || only.includes(p.slug)))) {
+for (const page of DOC_PAGES.filter((p) => !only || only.includes(p.slug))) {
   const md = readFileSync(fileURLToPath(new URL(`../../../docs/${page.file}`, import.meta.url)), 'utf8');
   let k = 0;
   for (const m of md.matchAll(/```ts live([^\n]*)\n([\s\S]*?)```/g)) {
@@ -118,7 +117,7 @@ if (found) {
     map: found.map,
     changes: withModuleLevel(changes, modules),
     fences,
-    pages: livePages,
+    pages: DOC_PAGES,
     importedBySrc: importedBySrc(),
   });
   if (working.symlinks.length) console.log(`  untracked symlinks are the checkout's environment, not a change: ${working.symlinks.join(', ')}`);

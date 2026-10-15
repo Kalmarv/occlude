@@ -45,7 +45,7 @@ const readme = readFileSync(fileURLToPath(new URL('../../../README.md', import.m
 const fences: { src: string; meta: ReturnType<typeof parseLiveMeta>; page: string }[] = [];
 // `DOCS_PAGE=fills` (comma-separated slugs) checks a subset while editing.
 const only = process.env.DOCS_PAGE?.split(',').filter(Boolean);
-for (const page of DOC_PAGES.filter((p) => p.live && (!only || only.includes(p.slug)))) {
+for (const page of DOC_PAGES.filter((p) => !only || only.includes(p.slug))) {
   const md = readFileSync(fileURLToPath(new URL(`../../../docs/${page.file}`, import.meta.url)), 'utf8');
   for (const m of md.matchAll(/```ts live([^\n]*)\n([\s\S]*?)```/g)) fences.push({ src: m[2], meta: parseLiveMeta(m[1]), page: page.slug });
 }

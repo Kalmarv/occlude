@@ -173,10 +173,109 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
     camera: orthographic({ eye: [4, 7, 5], span: 2.3 }), pen: 'ink', creaseAngle: 0,
   }));`),
   },
-  { name: 'travelTime', size: '100x100 at step 0.5 + isolines', load: fence('fields.md', 't.travelTime({ fromPoints: [[W * 0.78') },
-  { name: 'spacefill ivy', size: 'spacing 0.4 mm', load: fence('images.md', 't.spacefill(circle(50, 50, 44)') },
-  { name: 'residual portrait', size: '12000 candidate steps', load: fence('images.md', 't.residual(tone, { spacing: mm(0.7) })') },
-  { name: 'lattice gray-scott', size: '5000 steps, spacing 1', load: fence('fields.md', 't.steps(5000, seeded') },
+  {
+    name: 'travelTime',
+    size: '100x100 at step 0.5 + isolines',
+    load: inline(`import { sketch, strokes, rect } from 'occlude';
+
+// Arrival times from a lamp in the yard. The walls are a speed of zero, so
+// the front walks around them and bends in through the one open door.
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const box = t.bounds();
+  const W = box.w;
+  const H = box.h;
+  const th = H * 0.04;
+  const x0 = W * 0.12;
+  const x1 = W * 0.52;
+  const y0 = H * 0.14;
+  const y1 = H * 0.86;
+  const bars = [
+    [x0, y0, x1, y0 + th],
+    [x0, y1 - th, x1, y1],
+    [x0, y0 + th, x0 + th, y1 - th],
+    [x1 - th, y0 + th, x1, H * 0.4],
+    [x1 - th, H * 0.6, x1, y1 - th],
+  ];
+  const solid = (x, y) => bars.some((b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
+  const arrival = t.travelTime({ fromPoints: [[W * 0.78, H * 0.5]], speed: (x, y) => (solid(x, y) ? 0 : 1), step: 0.5 });
+  return [
+    strokes(t.isolines(arrival, { spacing: W / 22 }).edges.filter((e) => !e.cut)),
+    bars.map((b) => rect(b[0], b[1], b[2] - b[0], b[3] - b[1], { pen: 'stabilo-88-blue' })),
+  ];
+});`),
+  },
+  {
+    name: 'spacefill ivy',
+    size: 'spacing 0.4 mm',
+    load: inline(`import { sketch, strokes, circle, mm, map } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  const dark = img.field('dark', { area: 0.9 });
+  const tone = (x, y) => (img.a(x, y, 0.3) < 0.5 ? 0 : Math.max(0, map(dark(x, y), 0.15, 0.88, 0, 1)) ** 2.2);
+  const fold = t.spacefill(circle(50, 50, 44), { spacing: mm(0.4), maxSpacing: mm(2.4), field: tone });
+  return strokes(fold, { pen: 'pigma-005-black' });
+});`, studioAssets),
+  },
+  {
+    name: 'residual portrait',
+    size: '12000 candidate steps',
+    load: inline(`import { sketch, strokes, curve, mm, map } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const img = t.image('ivy.png', { x: 12, y: 3, width: 76 });
+  const dark = img.field('dark', { area: 0.2 });
+  const tone = (x, y) => img.a(x, y, 0.3) < 0.5 ? 0
+    : Math.min(1, Math.max(0, map(dark(x, y), 0.08, 0.95, 0, 1)) ** 1.5 + img.edge(x, y, 0.2));
+  let r = t.residual(tone, { spacing: mm(0.7) });
+  const stop = r.faces.sum('owed') * 0.09;
+  const nib = t.len(mm(0.35));
+  // Start where the debt is deepest, looked for on a coarse grid.
+  const looks = t.grid({ cols: 48, rows: 48 }).faces.map((f) => f.bounds);
+  const start = r.field();
+  const first = looks.reduce((a, c) => (start(c.cx, c.cy) > start(a.cx, a.cy) ? c : a));
+  let at = [first.cx, first.cy];
+  const pts = [at];
+  for (let k = 0; k < 12000 && r.faces.sum('owed') > stop; k++) {
+    const owed = r.field();
+    let best = null;
+    let most = 0;
+    for (let c = 0; c < 12; c++) {
+      const a = t.rnd(Math.PI * 2);
+      const len = t.rnd(1.2, 5);
+      const end = [at[0] + Math.cos(a) * len, at[1] + Math.sin(a) * len];
+      let sum = 0;
+      for (let s = 1; s <= 5; s++) sum += owed(at[0] + (end[0] - at[0]) * s / 5, at[1] + (end[1] - at[1]) * s / 5) || 0;
+      if (sum > most) { most = sum; best = end; }
+    }
+    if (!best) break;
+    r = r.spend([at, best], { width: nib });
+    pts.push(best);
+    at = best;
+  }
+  return strokes(curve(pts, { closed: false }), { pen: 'pigma-005-black' });
+});`, studioAssets),
+  },
+  {
+    name: 'lattice gray-scott',
+    size: '5000 steps, spacing 1',
+    load: inline(`import { sketch, strokes, circle } from 'occlude';
+
+// \`a\` is the substrate and \`b\` eats it. Feed replaces \`a\`, kill removes \`b\`,
+// and \`a\` spreads twice as fast as \`b\`. 5000 steps of a rule of two lines.
+export default sketch({ aspect: [1, 1], seed: 12 }, (t) => {
+  const disc = circle(50, 50, 44);
+  const feed = 0.055, kill = 0.062, Du = 0.16, Dv = 0.08;
+  const seeded = t.lattice({ spacing: 1, area: disc, channels: ['a', 'b'] }, (x, y) =>
+    Math.hypot(x - 50, y - 50) < 12 + t.noise(x / 8, y / 8) * 4 ? { a: 0.5, b: 0.25 } : { a: 1, b: 0 });
+  const react = (l) => l.faces.set({
+    a: (f) => f.a + Du * f.laplacian('a') - f.a * f.b * f.b + feed * (1 - f.a),
+    b: (f) => f.b + Dv * f.laplacian('b') + f.a * f.b * f.b - (feed + kill) * f.b,
+  });
+  const grown = t.steps(5000, seeded, react);
+  return [strokes(t.isolines(t.within(grown.field('b'), disc), [0.2, 0.3], { step: 0.4 }).edges.filter((e) => !e.cut)), disc];
+});`),
+  },
   { name: 'lattice physarum', size: '60 ticks', load: fence('reference/fields.mdx', 'SENSE = 5') },
   {
     name: 'palette/regions',

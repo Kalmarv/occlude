@@ -86,8 +86,9 @@ export type { FillTable } from './fills.js';
 export { scanAssetNames, assetTable } from './imageAsset.js';
 export type { AssetTable } from './imageAsset.js';
 
-// The docs pages and their live examples (the site and the checker).
-export { liveExampleToJs, DOC_PAGES, parseLiveMeta, docsPaper } from './docsExamples.js';
+// Live docs examples: the fence transform the docs site's embed and the
+// studio's sketch runs share.
+export { liveExampleToJs, parseLiveMeta, docsPaper } from './docsExamples.js';
 export type { LiveMeta } from './docsExamples.js';
 
 // Seeds, draws and the ui() scan behind the studio's sliders.

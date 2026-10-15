@@ -37,7 +37,7 @@ const VERBS = ['strokes', 'stroke', 'polygon', 'dots'];
 const NOT_LIVE = new Set(['exportSvg', 'exportPng', 'exportGcode', 'estimatePlanMs']);
 
 let bad = 0;
-for (const page of DOC_PAGES.filter((p) => p.live)) {
+for (const page of DOC_PAGES) {
   const text = readFileSync(resolve(root, 'docs', page.file), 'utf8');
   const fences = [...text.matchAll(FENCE)].map((m) => m[1]);
   if (fences.length === 0) continue;

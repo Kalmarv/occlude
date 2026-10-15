@@ -225,7 +225,7 @@ describe('a Gray-Scott recipe, written in the sketch', () => {
 });
 
 describe('the coral fence, value for value', () => {
-  /** The docs' Gray-Scott fence (docs/fields.md, "A lattice you can step")
+  /** The Gray-Scott fence of the retired docs/fields.md ("A lattice you can step")
    * at 300 steps instead of 5000: same seed, same disc, same spacing, same
    * four lines of rule. It is here as a fixture, not as a behaviour — the
    * digests below are the bits the retired `lat.steps` produced on

@@ -77,7 +77,7 @@ try {
     const html = await r.text();
     const refs = [...html.matchAll(/<(?:script|link)\b[^>]*?(?:src|href)="([^"]+)"/g)].map((m) => m[1]).filter((u) => u.startsWith('/'));
     // self-contained pages (public/*.html) reference nothing; the app pages must
-    if (refs.length === 0 && (page === 'index.html' || page === 'docs.html')) failures.push(`${page}: references no assets`);
+    if (refs.length === 0 && page === 'index.html') failures.push(`${page}: references no assets`);
     for (const ref of refs) {
       const type = ref.endsWith('.css') ? 'text/css' : ref.endsWith('.js') ? 'text/javascript' : undefined;
       if (await expect(ref, type)) modules++;

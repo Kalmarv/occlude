@@ -157,15 +157,15 @@ rasters are implementation numbers. They are not tenants.
   `pnpm ship dev --quick` skips the gates and the image (host build, copy
   dist into the dev container, verify the stamp; ~45 s) — for carrying on
   with a sketch, never for landing work.
-- **Docs are topic pages with live examples.** Every feature gets a
-  `ts live` entry on its topic page under docs/ (getting-started, shapes,
-  fills, fields, materials, images, plotting; the list is `DOC_PAGES` in
-  packages/occlude/src/docsExamples.ts, shared by the site and the
-  checker). Explanation, signatures and live sketches stay together on
-  the page; do not split into separate guide/reference/sketch layers or
-  a page per function. docs/gallery.md is the live page of credited,
-  licence-checked classics — never API documentation. Same checker for
-  all of them; the checker also reports ink outside the drawable.
+- **Docs are the reference and the examples, with live sketches.** The
+  docs site (packages/occlude-docs, Blume) is docs/reference — one entry
+  per word: the signature spliced from the types, a paragraph and a
+  `ts live` example — and docs/examples, one page per drawing. Every
+  feature gets its entry; explanation, signature and live sketch stay
+  together, with no separate guide layer. The checker and the ink
+  oracle read `DOC_PAGES` in packages/occlude/src/docsExamples.ts; a
+  page on the site is in that list too. The checker also reports ink
+  outside the drawable.
 - **Copyleft neighbors:** saxi (AGPL), EggBot (GPL), Spicker stippling
   (LGPL), Marlin/Klipper (GPL) — ideas, protocol facts, and papers only,
   NEVER code. Keep the README credits table current.

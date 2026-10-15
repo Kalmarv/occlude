@@ -2,7 +2,7 @@
 
 This documents how the implementation actually fits together and where
 each responsibility lives. What is measured, still open, or deliberately
-parked lives beside it in [Working notes](#/notes); the design laws are in
+parked lives beside it in [Working notes](notes.md); the design laws are in
 `CLAUDE.md` at the repository root.
 
 ## The one-sentence model
@@ -153,8 +153,8 @@ packages/occlude-studio/
                         paper/machine, plot, export
   src/drawing           the Drawing panel: reads the sketch's t.plan/t.draw
                         result; ghosts omitted ink in the preview only
-  src/docs              the docs site: topic pages, inline editors, lazy
-                        whole-drawable previews
+  src/live-embed        the docs site's live examples: a canvas above each
+                        `ts live` fence, rendered by the studio's worker
   src/fillEmbed         export embedding + import reconciliation of fills
   src/store             localStorage persistence
 ```
@@ -191,7 +191,7 @@ from source, so the studio image exists only when every gate passed:
 | ts | `test:all` + studio `test` | the library's fast and slow vitest sets, and the studio suite |
 | types | `pnpm --filter occlude typecheck` | `src`, `tools` and `test` compile |
 | studio | `pnpm --filter occlude-studio typecheck` | the studio compiles (vite only strips types) and `server.mjs` parses |
-| docs | `docs:check` | every `ts live` fence on every topic page renders, with no ink outside the drawable |
+| docs | `docs:check` | every `ts live` fence on every page in `DOC_PAGES` (the reference and the examples) renders, with no ink outside the drawable |
 | ink | `docs:hashes --check` | every fence renders the bytes in `test/fixtures/docs-ink.json` |
 | build | `pnpm build` | the library emits declarations; the studio bundles |
 | wasm | md5 in `check.mjs` | the bundled wasm is the crate's build, byte for byte |
@@ -879,7 +879,7 @@ edges.firstHit` blocks of `test/material.test.ts` and `test/selection.test.ts`.
   index) pair; both are order-independent, so pruning changes nothing —
   a lexicographic minimum does not depend on the order candidates are
   judged in, and the differential harness behind that claim (19 708
-  comparisons, 0 mismatches) is recorded in [Working notes](#/notes).
+  comparisons, 0 mismatches) is recorded in [Working notes](notes.md).
   Endpoint contact counts as a hit of kind `touch`; a collinear overlap
   reports the start of the overlapping interval as `overlap`; anything
   interior is `crossing`. A zero-length move is a contact query at
